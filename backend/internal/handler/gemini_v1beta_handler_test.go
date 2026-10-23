@@ -127,13 +127,45 @@ func TestGeminiV1BetaGroupPlatformAllowed(t *testing.T) {
 			apiKey:   &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}},
 			expected: false,
 		},
+		{
+			// A composite group carries no platform of its own; with no resolved
+			// target the native surface stays closed.
+			name:     "composite group without resolved target",
+			apiKey:   &service.APIKey{Group: &service.Group{Platform: service.PlatformComposite}},
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.expected, geminiV1BetaGroupPlatformAllowed(tt.apiKey))
+			require.Equal(t, tt.expected, geminiV1BetaGroupPlatformAllowedForPlatform(tt.apiKey, ""))
 		})
 	}
+}
+
+// A composite billing group reaches the native Gemini surface only for a
+// Gemini-family resolved target. Gating on Group.Platform alone rejected every
+// composite /v1beta request before the model-scoped check could run.
+func TestGeminiV1BetaGroupPlatformAllowedForPlatform_Composite(t *testing.T) {
+	compositeKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformComposite}}
+	for _, tc := range []struct {
+		platform string
+		expected bool
+	}{
+		{platform: service.PlatformGemini, expected: true},
+		{platform: service.PlatformAntigravity, expected: true},
+		{platform: service.PlatformAnthropic, expected: false},
+		{platform: service.PlatformOpenAI, expected: false},
+		{platform: "", expected: false},
+	} {
+		t.Run(tc.platform, func(t *testing.T) {
+			require.Equal(t, tc.expected, geminiV1BetaGroupPlatformAllowedForPlatform(compositeKey, tc.platform))
+		})
+	}
+
+	// A resolved target never widens a group that is not composite.
+	openAIKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
+	require.False(t, geminiV1BetaGroupPlatformAllowedForPlatform(openAIKey, service.PlatformGemini))
 }
 
 // TestGeminiV1BetaHandler_ListModelsAntigravityFallback 验证 ListModels 的 antigravity 降级逻辑

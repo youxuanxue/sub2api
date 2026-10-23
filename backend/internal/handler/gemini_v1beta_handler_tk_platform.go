@@ -12,13 +12,26 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func geminiV1BetaGroupPlatformAllowed(apiKey *service.APIKey) bool {
+// geminiV1BetaGroupPlatformAllowedForPlatform gates the native Gemini surface by
+// billing group. effectivePlatform is the platform a composite route already
+// resolved for this request ("" when the caller has not resolved one).
+//
+// A composite group has no single platform of its own: compositeGeminiTarget
+// resolves the concrete target per request before the handler runs. Gating it on
+// Group.Platform alone rejects every composite /v1beta request with "API key
+// group cannot serve native Gemini requests", so the model-scoped check below
+// (servesCompositeAntigravityGemini + isAntigravityGeminiModel) never runs.
+func geminiV1BetaGroupPlatformAllowedForPlatform(apiKey *service.APIKey, effectivePlatform string) bool {
 	if apiKey == nil || apiKey.Group == nil {
 		return false
 	}
 	switch apiKey.Group.Platform {
 	case service.PlatformGemini, service.PlatformAntigravity:
 		return true
+	case service.PlatformComposite:
+		// Only a Gemini-family target reaches the native surface; the requested
+		// model is still screened per request by the callers.
+		return effectivePlatform == service.PlatformGemini || effectivePlatform == service.PlatformAntigravity
 	case service.PlatformNewAPI:
 		// Direct newapi keys remain outside the native Gemini surface. Universal
 		// routing has already proved exact Vertex account/model serviceability
@@ -65,9 +78,20 @@ func writeGroupGeminiModels(c *gin.Context, models any) {
 }
 
 // tkGeminiV1BetaTryForceAntigravityGetModel serves Antigravity static model
-// metadata for force-platform Antigravity routes.
-func (h *GatewayHandler) tkGeminiV1BetaTryForceAntigravityGetModel(c *gin.Context, forcePlatform, modelName string) bool {
-	if forcePlatform != service.PlatformAntigravity {
+// metadata for force-platform Antigravity routes, and for a composite group
+// whose route already resolved to Antigravity.
+//
+// Antigravity has no AI Studio models endpoint, so an Antigravity-resolved
+// request must answer from static metadata. Without the composite branch the
+// handler falls through to SelectAccountForModelsEndpoints, which looks for a
+// native Gemini account the composite route never promised.
+func (h *GatewayHandler) tkGeminiV1BetaTryForceAntigravityGetModel(c *gin.Context, apiKey *service.APIKey, forcePlatform, effectivePlatform, modelName string) bool {
+	switch {
+	case forcePlatform == service.PlatformAntigravity:
+	case servesCompositeAntigravityGemini(apiKey, effectivePlatform):
+		// Composite only. A plain Antigravity group keeps falling through to the
+		// account-selection path so its CatalogPolicy fallback still applies.
+	default:
 		return false
 	}
 	c.JSON(http.StatusOK, antigravity.FallbackGeminiModel(modelName))
@@ -83,5 +107,6 @@ func (h *GatewayHandler) tkGeminiV1BetaGetModelAntigravityFallback(c *gin.Contex
 // Candidate ingress already bounds authorization; the actual account and Plan
 // decide protocol compatibility. A backing billing group is not an execution gate.
 func geminiV1BetaRequestPlatformAllowed(c *gin.Context, key *service.APIKey) bool {
-	return key != nil && ((c != nil && c.Request != nil && service.CandidateRequestFromContext(c.Request.Context()) != nil) || geminiV1BetaGroupPlatformAllowed(key))
+	return key != nil && ((c != nil && c.Request != nil && service.CandidateRequestFromContext(c.Request.Context()) != nil) ||
+		geminiV1BetaGroupPlatformAllowedForPlatform(key, effectiveAPIKeyPlatform(c, key)))
 }

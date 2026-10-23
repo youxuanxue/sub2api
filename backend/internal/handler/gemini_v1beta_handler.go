@@ -47,7 +47,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini/antigravity 分组
 	// TK: platform allow — see gemini_v1beta_handler_tk_platform.go
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && !geminiV1BetaGroupPlatformAllowed(apiKey) {
+	if !hasForcePlatform && !geminiV1BetaGroupPlatformAllowedForPlatform(apiKey, effectiveAPIKeyPlatform(c, apiKey)) {
 		googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
 		return
 	}
@@ -276,7 +276,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	}
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
 	effectivePlatform := effectiveAPIKeyPlatform(c, apiKey)
-	if !hasForcePlatform && !geminiV1BetaGroupPlatformAllowed(apiKey) {
+	if !hasForcePlatform && !geminiV1BetaGroupPlatformAllowedForPlatform(apiKey, effectivePlatform) {
 		googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
 		return
 	}
@@ -289,7 +289,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	}
 
 	// TK: CatalogPolicy / force-platform branches — see gemini_v1beta_handler_tk_platform.go
-	if h.tkGeminiV1BetaTryForceAntigravityGetModel(c, forcePlatform, modelName) {
+	if h.tkGeminiV1BetaTryForceAntigravityGetModel(c, apiKey, forcePlatform, effectivePlatform, modelName) {
 		return
 	}
 

@@ -832,7 +832,11 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 	var resp *http.Response
 	signatureRetryStage := 0
+	// checkedPolicy 是重试循环内对当前 resp 的错误策略检查结果，未检查时为 nil。
+	// 循环外必须复用它，避免对同一响应重复触发错误策略的副作用。
+	var checkedPolicy *ErrorPolicyResult
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
+		checkedPolicy = nil
 		doCtx := ctx
 		if req.Stream {
 			doCtx = streamAttemptCtx
@@ -945,11 +949,11 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model); matched {
-			resp = rebuilt
+		matched, rebuilt, checked := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model)
+		resp = rebuilt
+		checkedPolicy = checked
+		if matched {
 			break
-		} else {
-			resp = rebuilt
 		}
 
 		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
@@ -1039,7 +1043,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		if upstreamReqID == "" {
 			upstreamReqID = resp.Header.Get("x-goog-request-id")
 		}
-		if policyErr, handled := s.tkApplyGeminiErrorPolicy(ctx, c, account, resp, respBody, upstreamReqID, false, geminiErrorPolicyClientClaude); handled {
+		if policyErr, handled := s.tkApplyGeminiErrorPolicy(ctx, c, account, resp, respBody, upstreamReqID, false, geminiErrorPolicyClientClaude, checkedPolicy, ""); handled {
 			return nil, policyErr
 		}
 
@@ -1402,7 +1406,10 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 	var resp *http.Response
 	signatureRetried := false
+	// checkedPolicy 是重试循环内对当前 resp 的错误策略检查结果，未检查时为 nil。
+	var checkedPolicy *ErrorPolicyResult
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
+		checkedPolicy = nil
 		doCtx := ctx
 		if stream {
 			doCtx = streamAttemptCtx
@@ -1461,12 +1468,22 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			}
 		}
 
-		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, originalModel); matched {
+		// 缓存不存在 / 绑定缓存的上游网关错误：必须在错误策略之前退出循环，
+		// 否则 temp_unschedulable 规则会先把本账号打成不可调度。
+		// Owner: gemini_cached_content_not_found_tk.go
+		if passthrough, rebuilt := s.geminiCachedContentPassthroughInLoop(ctx, account, resp); passthrough {
 			resp = rebuilt
 			break
 		} else {
 			resp = rebuilt
+		}
+
+		// 错误策略优先：匹配则跳过重试直接处理。
+		matched, rebuilt, checked := s.checkErrorPolicyInLoop(ctx, account, resp, originalModel)
+		resp = rebuilt
+		checkedPolicy = checked
+		if matched {
+			break
 		}
 
 		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
@@ -1589,10 +1606,22 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			}, nil
 		}
 
+		// 引用缓存不存在是请求问题：统一返回 403，不改账号状态、不换号。
+		// 必须早于错误策略与 handleGeminiUpstreamError。
+		// Owner: gemini_cached_content_not_found_tk.go
+		if isGeminiCachedContentNotFound(resp.StatusCode, respBody) {
+			return nil, s.writeGeminiCachedContentNotFound(c, account, resp, respBody, requestID, isOAuth)
+		}
+		// 上游网关的限流 / 不可用只针对其持有缓存的账号：不改本账号状态，
+		// 交由绑定请求的耗尽处理透传给客户端。
+		if isGeminiBoundCacheUpstreamPassthrough(ctx, account, resp.StatusCode) {
+			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody, BoundUpstreamPassthrough: true}
+		}
+
 		// 统一错误策略：自定义错误码 + 临时不可调度。内部 Antigravity
 		// relay 空池已在重试循环内分类并计数，不能再落入 pool_mode skipped。
 		// TK: ErrorPolicy switch — see gemini_messages_compat_service_tk_error_policy.go
-		if policyErr, handled := s.tkApplyGeminiErrorPolicy(ctx, c, account, resp, respBody, requestID, isOAuth, geminiErrorPolicyClientNative); handled {
+		if policyErr, handled := s.tkApplyGeminiErrorPolicy(ctx, c, account, resp, respBody, requestID, isOAuth, geminiErrorPolicyClientNative, checkedPolicy, ""); handled {
 			return nil, policyErr
 		}
 
@@ -2224,6 +2253,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(
 	openBlockIndex := -1
 	openBlockType := ""
 	seenText := ""
+	seenThought := ""
 	imageStream := newGeminiImageStream()
 	openToolIndex := -1
 	openToolID := ""
@@ -2293,6 +2323,55 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(
 
 		parts := imageStream.textParts(extractGeminiParts(geminiResp))
 		for _, part := range parts {
+			// thought=true 的 part 是 Gemini 的思考流，必须作为 Anthropic
+			// thinking 块发出，而不是混进 text。合并丢掉的调用点；没有它
+			// 思考内容会被当正文输出给客户端。
+			// Owner: gemini_compat_thinking.go (isGeminiThoughtPart)
+			if text, ok := part["text"].(string); ok && text != "" && isGeminiThoughtPart(part) {
+				delta, newSeen := computeGeminiTextDelta(seenThought, text)
+				seenThought = newSeen
+				if delta == "" {
+					continue
+				}
+				if firstTokenMs == nil {
+					ms := int(time.Since(startTime).Milliseconds())
+					firstTokenMs = &ms
+					firstOutputGuard.Commit()
+					ensureClientStarted()
+				}
+				if openToolIndex >= 0 {
+					writeSSE(c.Writer, "content_block_stop", map[string]any{
+						"type":  "content_block_stop",
+						"index": openToolIndex,
+					})
+					openToolIndex = -1
+					openToolName = ""
+					seenToolJSON = ""
+				}
+				if openBlockType != "thinking" {
+					if openBlockIndex >= 0 {
+						writeSSE(c.Writer, "content_block_stop", map[string]any{
+							"type":  "content_block_stop",
+							"index": openBlockIndex,
+						})
+					}
+					openBlockType = "thinking"
+					openBlockIndex = nextBlockIndex
+					nextBlockIndex++
+					writeSSE(c.Writer, "content_block_start", map[string]any{
+						"type":          "content_block_start",
+						"index":         openBlockIndex,
+						"content_block": map[string]any{"type": "thinking", "thinking": "", "signature": ""},
+					})
+				}
+				writeSSE(c.Writer, "content_block_delta", map[string]any{
+					"type":  "content_block_delta",
+					"index": openBlockIndex,
+					"delta": map[string]any{"type": "thinking_delta", "thinking": delta},
+				})
+				flusher.Flush()
+				continue
+			}
 			if text, ok := part["text"].(string); ok && text != "" {
 				if shouldDropGeminiInternalText(text) {
 					internalThinkingBlocks = append(internalThinkingBlocks, strings.TrimSpace(text))

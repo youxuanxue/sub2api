@@ -43,6 +43,17 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 	clientStream := ccReq.Stream
 	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
 
+	// 历史推理内容不回传给 Gemini：思考连续性由 thoughtSignature 承载，回传反而会
+	// 被序列化成 <thinking> 正文送上游。合并丢掉的调用点。
+	// Owner: gemini_compat_thinking.go (dropChatReasoningContentParts)
+	for i := range ccReq.Messages {
+		ccReq.Messages[i].ReasoningContent = ""
+		ccReq.Messages[i].Reasoning = ""
+		if ccReq.Messages[i].Role == "assistant" {
+			ccReq.Messages[i].Content = dropChatReasoningContentParts(ccReq.Messages[i].Content)
+		}
+	}
+
 	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -125,6 +136,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	)
 
 	var resp *http.Response
+	// checkedPolicy 是重试循环内对当前 resp 的错误策略检查结果，未检查时为 nil。
+	// 本路径每轮都会走到下面那次无条件赋值（其余分支都直接 return），无需逐轮重置。
+	var checkedPolicy *ErrorPolicyResult
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
@@ -145,11 +159,11 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err)
 		}
 
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model); matched {
-			resp = rebuilt
+		matched, rebuilt, checked := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model)
+		resp = rebuilt
+		checkedPolicy = checked
+		if matched {
 			break
-		} else {
-			resp = rebuilt
 		}
 
 		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
@@ -228,7 +242,8 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		}
 		policy := ErrorPolicyNone
 		if s.rateLimitService != nil {
-			policy = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
+			// 复用循环内结果：重复检查会让一次 401 既临时停调度又升级为 error。
+			policy = s.finalErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel, checkedPolicy)
 		}
 		// 与 messages 兼容层一致：只有 None / Matched 才走账号状态处理。
 		// Skipped（池模式、或自定义错误码未命中）与 TempUnscheduled 已由策略层裁决完毕。
@@ -643,6 +658,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	openBlockIndex := -1
 	openBlockType := ""
 	seenText := ""
+	seenThought := ""
 	imageStream := newGeminiImageStream()
 	openToolIndex := -1
 	openToolName := ""
@@ -712,6 +728,45 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 						}
 
 						for _, part := range imageStream.textParts(extractGeminiParts(geminiResp)) {
+							// thought=true 的 part 走 thinking 块，下游 Chat Completions
+							// 转换器据此产出 reasoning_content；否则思考内容会混进
+							// content 当正文返回。合并丢掉的调用点。
+							// Owner: gemini_compat_thinking.go (isGeminiThoughtPart)
+							if text, ok := part["text"].(string); ok && text != "" && isGeminiThoughtPart(part) {
+								delta, newSeen := computeGeminiTextDelta(seenThought, text)
+								seenThought = newSeen
+								if delta == "" {
+									continue
+								}
+								if openToolIndex >= 0 {
+									if closeOpenTool() {
+										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+									}
+								}
+								if openBlockType != "thinking" {
+									if closeOpenBlock() {
+										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+									}
+									idx := nextBlockIndex
+									nextBlockIndex++
+									openBlockIndex = idx
+									openBlockType = "thinking"
+									if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
+										Type:         "content_block_start",
+										Index:        &idx,
+										ContentBlock: &apicompat.AnthropicContentBlock{Type: "thinking"},
+									}) {
+										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+									}
+								}
+								if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
+									Type:  "content_block_delta",
+									Delta: &apicompat.AnthropicDelta{Type: "thinking_delta", Thinking: delta},
+								}) {
+									return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+								}
+								continue
+							}
 							if text, ok := part["text"].(string); ok && text != "" {
 								if openToolIndex >= 0 {
 									if closeOpenTool() {

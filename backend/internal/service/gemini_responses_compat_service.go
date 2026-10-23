@@ -149,11 +149,11 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 			return nil, candidateTransportFailure(ctx, s.writeResponsesCompatError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr), err)
 		}
 
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model); matched {
-			resp = rebuilt
+		// 该路径循环外不再查错误策略，故无需回传 checked。
+		matched, rebuilt, _ := s.checkErrorPolicyInLoop(ctx, account, resp, "")
+		resp = rebuilt
+		if matched {
 			break
-		} else {
-			resp = rebuilt
 		}
 
 		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {

@@ -234,7 +234,19 @@ func TestHandleGeminiCachedContentFailoverExhausted(t *testing.T) {
 	h.handleGeminiCachedContentFailoverExhausted(c, &service.UpstreamFailoverError{StatusCode: http.StatusTooManyRequests, ResponseBody: []byte(officialQuota)})
 	require.Equal(t, http.StatusTooManyRequests, rec.Code, "官方账号的限流按普通 Gemini 路径映射")
 	require.NotContains(t, rec.Body.String(), "FreeTier", "不向客户端暴露上游账号的配额明细")
-	require.Contains(t, rec.Body.String(), "Upstream rate limit exceeded")
+	require.NotContains(t, rec.Body.String(), "quota", "不向客户端暴露上游配额用词")
+	// TK 的 429 客户端文案只有 Busy429 SSOT 一份（service/client_facing_busy_429_tk.go）：
+	// wire body 不得出现 pool/account/上游限流措辞，详细原因只进 ops 诊断。
+	require.Contains(t, rec.Body.String(), service.TkClientFacingBusy429Message)
+	var busyBody struct {
+		Error struct {
+			Code   int    `json:"code"`
+			Status string `json:"status"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &busyBody))
+	require.Equal(t, http.StatusTooManyRequests, busyBody.Error.Code)
+	require.Equal(t, "RESOURCE_EXHAUSTED", busyBody.Error.Status, "限流语义不得退化成通用错误")
 
 	c, rec = newGeminiCachedContentTestContext(http.MethodPost, "/v1beta/models/gemini-3.8-flash:generateContent", apiKey)
 	h.handleGeminiCachedContentFailoverExhausted(c, &service.UpstreamFailoverError{StatusCode: http.StatusUnauthorized, ResponseBody: []byte(`{"error":{"code":401,"message":"bad key"}}`)})
