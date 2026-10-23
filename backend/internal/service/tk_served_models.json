@@ -83,7 +83,7 @@
       "channel_type": 43
     },
     "kimi-k2.5": {
-      "display": true,
+      "display": false,
       "channel_type": 25
     },
     "kimi-k2.6": {
@@ -111,7 +111,7 @@
       ]
     },
     "kimi-k2.7-code-highspeed": {
-      "display": true,
+      "display": false,
       "channel_type": 25
     },
     "kimi-k2.8-preview": {
@@ -139,31 +139,31 @@
       ]
     },
     "moonshot-v1-8k": {
-      "display": true,
+      "display": false,
       "channel_type": 25
     },
     "moonshot-v1-8k-vision-preview": {
-      "display": true,
+      "display": false,
       "channel_type": 25
     },
     "moonshot-v1-32k": {
-      "display": true,
+      "display": false,
       "channel_type": 25
     },
     "moonshot-v1-32k-vision-preview": {
-      "display": true,
+      "display": false,
       "channel_type": 25
     },
     "moonshot-v1-128k": {
-      "display": true,
+      "display": false,
       "channel_type": 25
     },
     "moonshot-v1-128k-vision-preview": {
-      "display": true,
+      "display": false,
       "channel_type": 25
     },
     "moonshot-v1-auto": {
-      "display": true,
+      "display": false,
       "channel_type": 25
     },
     "qwen3.7-max": {
@@ -271,27 +271,27 @@
       "channel_type": 17
     },
     "doubao-seed-2-0-pro-260215": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-2-0-code-preview-260215": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-2-0-lite-260215": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-2-0-lite-260428": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-2-0-mini-260215": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-2-0-mini-260428": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-1-8-251228": {
@@ -319,7 +319,7 @@
       "channel_type": 45
     },
     "doubao-seed-character-251128": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-code-preview-251028": {
@@ -343,7 +343,7 @@
       "channel_type": 45
     },
     "doubao-seedance-1-0-pro-250528": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seedance-1-5-pro-251215": {
@@ -357,7 +357,7 @@
       ]
     },
     "doubao-seedance-1-0-pro-fast-251015": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seedance-2-0-260128": {
@@ -390,7 +390,7 @@
       ]
     },
     "doubao-seedance-2.0-mini": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 54,
@@ -399,11 +399,11 @@
       ]
     },
     "doubao-seedream-4-0-250828": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seedream-4-5-251128": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-asr-2.0": {
@@ -443,7 +443,7 @@
       ]
     },
     "doubao-seedream-5-0-260128": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "glm-5.2": {
