@@ -11,6 +11,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import data_layout
+
 ROOT = Path('/var/lib/tokenkey/pgdump')
 STATE = Path('/var/lib/tokenkey/cn-pgdump')
 NAME = re.compile(r'tokenkey-\d{8}T\d{6}Z\.sql\.gz')
@@ -53,8 +56,8 @@ def main():
     env = Path('/var/lib/tokenkey/.env')
     if env.exists() and any(line.startswith('TOKENKEY_PGDUMP_S3_URI=') for line in env.read_text().splitlines()):
         raise ValueError('unexpected legacy upload configuration')
-    if run(['findmnt', '-n', '-o', 'TARGET', '--target', str(ROOT.parent)], text=True).strip() != str(ROOT.parent):
-        raise ValueError('data volume is not mounted')
+    mounted = run(['findmnt', '-n', '-o', 'TARGET', '--target', str(ROOT.parent)], text=True)
+    data_layout.layout_from_findmnt(mounted, ROOT.parent)
     ROOT.mkdir(mode=0o700, exist_ok=True)
     STATE.mkdir(mode=0o700, exist_ok=True)
     with (STATE / 'operation.lock').open('a') as lock:

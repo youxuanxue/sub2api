@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -181,6 +182,54 @@ class DomesticBluegreenTest(unittest.TestCase):
         for invalid in (caddy.replace('api-cn.', 'api.'), caddy + caddy):
             with self.assertRaises(ValueError):
                 bg.active_container(invalid)
+
+    def test_route_resolution_accepts_beijing_static_ip_site(self):
+        upstream = ' reverse_proxy tokenkey-blue:8080 {\n }\n}\n'
+        for site in (
+            'https://154.8.214.179 {\n',
+            '154.8.214.179 {\n',
+            'https://154.8.214.179:443 {\n',
+        ):
+            with self.subTest(site=site.strip()):
+                self.assertEqual(bg.active_container(site + upstream), 'tokenkey-blue')
+        foreign_ip = 'https://1.2.3.4 {\n' + upstream
+        with self.assertRaisesRegex(ValueError, 'non-domestic'):
+            bg.active_container(foreign_ip)
+        both = (
+            'api-cn.tokenkey.dev {\n}\n'
+            'https://154.8.214.179 {\n reverse_proxy tokenkey-blue:8080 {\n }\n}\n'
+        )
+        with self.assertRaisesRegex(ValueError, 'non-domestic'):
+            bg.active_container(both)
+
+    def test_env_get_follows_the_live_caddy_site(self):
+        owner = Path(__file__).resolve().parents[2] / 'ops/stage0/deploy_via_ssm_bluegreen.sh'
+        library = bg.shared_library(owner)
+        cases = {
+            'api-cn.tokenkey.dev {\n reverse_proxy tokenkey:8080 {\n }\n}\n': 'api-cn.tokenkey.dev',
+            'https://154.8.214.179 {\n reverse_proxy tokenkey-blue:8080 {\n }\n}\n': '154.8.214.179',
+            'https://154.8.214.179:443 {\n reverse_proxy tokenkey-green:8080 {\n }\n}\n': '154.8.214.179',
+        }
+        for caddy, host in cases.items():
+            with self.subTest(host=host), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / 'Caddyfile'
+                path.write_text(caddy)
+                script = (
+                    'set -euo pipefail\n' + library + '\n'
+                    + f'LIVE_CADDY={shlex.quote(str(path))}\nenv_get API_DOMAIN\n'
+                )
+                result = subprocess.run(['bash', '-c', script], text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), host)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'Caddyfile'
+            path.write_text('https://1.2.3.4 {\n reverse_proxy tokenkey-blue:8080 {\n }\n}\n')
+            script = (
+                'set -euo pipefail\n' + library + '\n'
+                + f'LIVE_CADDY={shlex.quote(str(path))}\nenv_get API_DOMAIN\n'
+            )
+            result = subprocess.run(['bash', '-c', script], text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
 
     def test_shared_library_is_real_shell_and_fails_on_owner_drift(self):
         owner = Path(__file__).resolve().parents[2] / 'ops/stage0/deploy_via_ssm_bluegreen.sh'
