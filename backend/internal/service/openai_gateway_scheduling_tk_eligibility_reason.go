@@ -77,10 +77,27 @@ func openAICompatEligibilityReason(
 // openAIRequestEligibilityReason owns request support for both scheduler modes.
 // Account state and pool admission are evaluated separately from compatibility.
 func openAIRequestEligibilityReason(ctx context.Context, account *Account, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) string {
+	admissionModel := requestedModel
+	if requireCompact && account != nil {
+		if compactModel, matched := account.ResolveCompactMappedModel(strings.TrimSpace(requestedModel)); matched {
+			compactModel = strings.TrimSpace(compactModel)
+			if compactModel != "" {
+				if isRetiredOpenAISubscriptionModel(account, compactModel) {
+					return openAICompatIneligibleModelUnsupported
+				}
+				// Admit the compact target. The public name may be a retired
+				// alias whose administrator replacement is still schedulable.
+				admissionModel = compactModel
+			}
+		}
+	}
+	if admissionModel != "" && isRetiredOpenAISubscriptionModel(account, resolveOpenAIAccountUpstreamModelForRequest(account, admissionModel, false)) {
+		return openAICompatIneligibleModelUnsupported
+	}
 	if !protocolRuntimeAuthorizationReady(ctx, account) {
 		return openAICompatIneligibleAuthorization
 	}
-	if eligible, reason := protocolRequestEligibilityReason(ctx, account, requestedModel); !eligible {
+	if eligible, reason := protocolRequestEligibilityReason(ctx, account, admissionModel); !eligible {
 		if reason == "model_not_supported" {
 			return openAICompatIneligibleModelUnsupported
 		}

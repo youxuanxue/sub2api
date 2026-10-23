@@ -17,9 +17,18 @@ func normalizeOpenAIOAuthWebSearchHistory(body []byte, lite bool) ([]byte, bool,
 	if !bytes.Contains(body, []byte("web_search_call")) {
 		return body, false, nil
 	}
+	changed := false
+	if lite {
+		relocated, relocateChanged, err := relocateLiteHostedWebSearch(body)
+		if err != nil {
+			return body, false, err
+		}
+		body = relocated
+		changed = relocateChanged
+	}
 	plan := planOpenAIOAuthWebSearchHistory(body)
 	if plan.reason != "" {
-		return body, false, nil
+		return body, changed, nil
 	}
 	if plan.textHistory {
 		return textOpenAIOAuthSearchHistory(body, plan.items)
@@ -61,6 +70,77 @@ func normalizeOpenAIOAuthWebSearchHistory(body []byte, lite bool) ([]byte, bool,
 		return body, false, err
 	}
 	return next, true, nil
+}
+
+// relocateLiteHostedWebSearch moves a top-level hosted web_search declaration
+// into input additional_tools. Responses Lite rejects the top-level form, and
+// the Codex OAuth transform may already have injected it before the lite flag
+// is known.
+func relocateLiteHostedWebSearch(body []byte) ([]byte, bool, error) {
+	tools := gjson.GetBytes(body, "tools")
+	if !tools.IsArray() {
+		return body, false, nil
+	}
+	kept := make([]string, 0, len(tools.Array()))
+	moved := false
+	for _, tool := range tools.Array() {
+		switch tool.Get("type").String() {
+		case "web_search", "web_search_preview", "web_search_preview_2025_03_11":
+			moved = true
+		default:
+			kept = append(kept, tool.Raw)
+		}
+	}
+	if !moved {
+		return body, false, nil
+	}
+	var err error
+	if len(kept) == 0 {
+		body, err = sjson.DeleteBytes(body, "tools")
+	} else {
+		body, err = sjson.SetRawBytes(body, "tools", []byte("["+strings.Join(kept, ",")+"]"))
+	}
+	if err != nil {
+		return body, false, err
+	}
+	input := gjson.GetBytes(body, "input")
+	if !input.IsArray() {
+		return body, true, nil
+	}
+	for _, item := range input.Array() {
+		if item.Get("type").String() != "additional_tools" {
+			continue
+		}
+		for _, tool := range item.Get("tools").Array() {
+			switch tool.Get("type").String() {
+			case "web_search", "web_search_preview", "web_search_preview_2025_03_11":
+				return body, true, nil
+			}
+		}
+	}
+	items := input.Array()
+	at := len(items)
+	for i, item := range items {
+		if item.Get("type").String() == "compaction_trigger" {
+			at = i
+			break
+		}
+	}
+	tool := `{"type":"web_search","external_web_access":false}`
+	raw := make([]string, 0, len(items)+1)
+	for i := 0; i <= len(items); i++ {
+		if i == at {
+			raw = append(raw, `{"type":"additional_tools","role":"developer","tools":[`+tool+`]}`)
+		}
+		if i < len(items) {
+			raw = append(raw, items[i].Raw)
+		}
+	}
+	body, err = sjson.SetRawBytes(body, "input", []byte("["+strings.Join(raw, ",")+"]"))
+	if err != nil {
+		return body, false, err
+	}
+	return body, true, nil
 }
 
 type openAIOAuthSearchHistoryPlan struct {

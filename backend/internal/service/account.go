@@ -723,6 +723,9 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		}
 	}
 	if len(result) > 0 {
+		if a.Platform == domain.PlatformAntigravity {
+			result = ensureAntigravityDefaultPassthroughs(result)
+		}
 		return result
 	}
 

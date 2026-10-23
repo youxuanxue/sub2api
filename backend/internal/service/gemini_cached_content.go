@@ -24,6 +24,7 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -1223,6 +1224,19 @@ func (s *GatewayService) GeminiExplicitCacheExclusions(ctx context.Context, grou
 		}
 	}
 	return excluded, nil
+}
+
+// writeGeminiCachedContentNotFound 把「缓存不存在」写成统一 403，并按客户端请求错误记账。
+// 这类 403/400/404 描述的是请求引用的缓存，不换号、不处罚账号。
+func (s *GeminiMessagesCompatService) writeGeminiCachedContentNotFound(c *gin.Context, statusCode int, body []byte) (error, bool) {
+	if !isGeminiCachedContentNotFound(statusCode, body) {
+		return nil, false
+	}
+	MarkOpsRequestScopedError(c, "permission_error")
+	if c != nil {
+		c.Data(http.StatusForbidden, "application/json", []byte(GeminiCachedContentNotFoundResponse))
+	}
+	return fmt.Errorf("gemini cached content not found"), true
 }
 
 func isGeminiCachedContentNotFound(statusCode int, body []byte) bool {
