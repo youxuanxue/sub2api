@@ -101,27 +101,94 @@ func (a *Account) VertexLocation(model string) string {
 			}
 		}
 	}
+	// 可用性是硬约束，账号配置在可用性之内生效。两个方向对称：配了区域但模型
+	// 只在 global（照发必 404）→ 走 global；配了 global 但模型没有 global 列
+	// （照发必 404）→ 拉回区域。两者都不成立时才听账号配置。
+	//
+	// 想精确指定某模型的区域时用 vertex_model_locations（已在上面优先返回），
+	// 那是逐模型的显式覆盖，优先于这里的推断。
 	if vertexModelUsesGlobalLocation(model) {
 		return vertexGlobalLocation
 	}
-	if v := strings.TrimSpace(a.GetCredential("location")); v != "" {
-		return v
+	configured := strings.TrimSpace(a.GetCredential("location"))
+	if configured == "" {
+		configured = strings.TrimSpace(a.GetCredential("vertex_location"))
 	}
-	if v := strings.TrimSpace(a.GetCredential("vertex_location")); v != "" {
-		return v
+	if configured != "" {
+		if configured == vertexGlobalLocation && !vertexModelSupportsGlobal(model) {
+			return vertexModelRegionalFallback(model)
+		}
+		return configured
 	}
-	return vertexDefaultLocation
+	return vertexModelRegionalFallback(model)
 }
 
+// vertexModelLocationSupport 是按模型的 Vertex 可用性表，取代原先那张只能
+// 「把模型推向 global」的单向清单。两处结构缺陷促成这次重做：
+//
+//  1. 单向。表里只能表达「该走 global」，无法表达「不支持 global」。而官方
+//     文档明确 veo-3.1-* 只在 us-central1、gemini-embedding-001 完全没有
+//     Global 列。现网唯一活账号（id=74）账号级就是 location=global，于是这
+//     两类模型会被直发 global，必 404。
+//  2. 旧清单内容本身是错的。官方位置文档（docs.cloud.google.com/vertex-ai/
+//     generative-ai/docs/learn/locations，2026-10-22 核对）显示旧清单那 5 个
+//     模型全都支持 Global + us + eu，没有一个是 global-only；而它的优先级
+//     高于账号 location，等于无条件剥夺了运维选区能力。
+//
+// globalOnly 为 true 表示该模型只在全局端点提供（账号即使配了区域也必须走
+// global）；globalSupported 为 false 表示该模型在全局端点不存在（账号配了
+// global 也必须拉回区域）。两者不能同真。regional 给出该模型的区域兜底。
+type vertexModelLocationSupport struct {
+	globalOnly      bool
+	globalSupported bool
+	regional        string
+}
+
+// 未列出的模型：既支持 global 也支持区域，按账号配置或默认区域走。
+var vertexModelLocations = map[string]vertexModelLocationSupport{
+	// 官方只有 Global 一列 —— 账号配了区域也要走 global，否则 404。
+	// gemini-3-flash-preview 曾被 #2822 从 global 侧删掉以迁合一个上游测试
+	// （那个测试守的是「API Key + project_id 走项目端点」这个认证边界，拿
+	// global-only 模型当夹具本就是夹具选错），这里按官方恢复。
+	"gemini-3-flash-preview": {globalOnly: true, globalSupported: true},
+	"gemini-3.1-pro-preview": {globalOnly: true, globalSupported: true},
+	"gemini-3-pro-image":     {globalOnly: true, globalSupported: true},
+
+	// 官方没有 Global 列 —— 账号配了 global 也要拉回区域。
+	"gemini-embedding-001":      {globalSupported: false, regional: vertexDefaultLocation},
+	"veo-3.1-generate-001":      {globalSupported: false, regional: "us-central1"},
+	"veo-3.1-fast-generate-001": {globalSupported: false, regional: "us-central1"},
+	"veo-3.1-lite-generate-001": {globalSupported: false, regional: "us-central1"},
+}
+
+func vertexNormalizeModelID(model string) string {
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(model), "models/"))
+}
+
+// vertexModelUsesGlobalLocation reports whether the model is only served from
+// the global endpoint, so it must go there even when the account names a region.
 func vertexModelUsesGlobalLocation(model string) bool {
-	model = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(model), "models/"))
-	switch model {
-	case "gemini-3.1-flash-lite",
-		"gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash":
+	return vertexModelLocations[vertexNormalizeModelID(model)].globalOnly
+}
+
+// vertexModelSupportsGlobal reports whether the global endpoint serves the
+// model at all. Unlisted models are assumed to support it (that is the common
+// case); only models the official docs show without a Global column are listed.
+func vertexModelSupportsGlobal(model string) bool {
+	entry, ok := vertexModelLocations[vertexNormalizeModelID(model)]
+	if !ok {
 		return true
-	default:
-		return false
 	}
+	return entry.globalSupported
+}
+
+// vertexModelRegionalFallback gives the region to use when global is not an
+// option for the model.
+func vertexModelRegionalFallback(model string) string {
+	if entry, ok := vertexModelLocations[vertexNormalizeModelID(model)]; ok && entry.regional != "" {
+		return entry.regional
+	}
+	return vertexDefaultLocation
 }
 
 // VertexServiceAccountJSON returns the raw service-account JSON string, whether the

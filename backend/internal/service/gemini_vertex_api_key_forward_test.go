@@ -77,12 +77,17 @@ func TestGeminiMessagesCompatServiceForward_VertexAPIKeyWithProjectUsesProjectEn
 	svc, httpStub := newGeminiVertexAPIKeyTestService()
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	body := []byte(`{"model":"gemini-3-flash-preview","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`)
+	// 夹具用 3.8-flash 而不是 3-flash-preview：本测试守的是认证形态边界
+	// （API Key + project_id 必须走项目级端点，而非 Express 全局端点），与选区
+	// 无关。3-flash-preview 官方只在 global 提供，拿它做夹具会把「认证边界」和
+	// 「global-only 选区」两件事混在一起 —— #2822 当时正是为了让这条断言通过，
+	// 把 3-flash-preview 从 global 清单里删掉了，那是改错了对象。
+	body := []byte(`{"model":"gemini-3.8-flash","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`)
 
 	result, err := svc.Forward(context.Background(), c, geminiVertexAPIKeyTestAccount("my-project"), body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/gemini-3-flash-preview:generateContent", httpStub.lastReq.URL.String())
+	require.Equal(t, "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/gemini-3.8-flash:generateContent", httpStub.lastReq.URL.String())
 	requireVertexAPIKeyAuth(t, httpStub.lastReq)
 }
 

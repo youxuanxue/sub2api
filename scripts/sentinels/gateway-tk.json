@@ -12088,11 +12088,14 @@
       "path": "backend/internal/service/vertex_service_account.go",
       "must_contain": [
         "func vertexModelUsesGlobalLocation(model string) bool",
-        "\"gemini-3.5-flash-lite\", \"gemini-3.6-flash\", \"gemini-3.7-flash\"",
+        "vertexModelSupportsGlobal(model)",
+        "vertexModelRegionalFallback(model)",
+        "globalOnly: true, globalSupported: true",
+        "globalSupported: false",
         "func (a *Account) IsNewAPIVertexServiceAccount() bool",
         "a.ChannelType == newapiconstant.ChannelTypeVertexAi"
       ],
-      "rationale": "Vertex native Gemini ownership has two load-bearing facts: global-only Gemini ids must use the publisher-global endpoint, and only newapi ch41 service-account rows may acquire Vertex tokens or claim native Gemini routing. Dropping either silently turns a valid Vertex route into a 404 or broadens Google credential behavior to unrelated newapi vendors. Model admission and alias boundaries are covered by candidate_gemini_model_admission_test.go."
+      "rationale": "Vertex native Gemini ownership has two load-bearing facts: global-only Gemini ids must use the publisher-global endpoint, and only newapi ch41 service-account rows may acquire Vertex tokens or claim native Gemini routing. Dropping either silently turns a valid Vertex route into a 404 or broadens Google credential behavior to unrelated newapi vendors. Model admission and alias boundaries are covered by candidate_gemini_model_admission_test.go. 2026-10-23: this anchor used to pin the literal model-name list of a one-way push-to-global switch. That list was wrong -- the official locations doc shows all five of its entries served from Global AND us AND eu, so none was global-only -- and the switch outranked the account's own location, so it both stripped operators of region choice and could not express the opposite fact: veo-3.1-* and gemini-embedding-001 have no Global column at all and must be pulled back to a region. Live prod's only active Vertex account runs location=global, so those models were being sent to an endpoint that does not serve them. The anchor now pins the two-way RULE rather than a name list: both availability predicates, the regional fallback, and one entry of each shape. A name list goes stale every time Google ships a model; the rule does not."
     },
     {
       "path": "backend/internal/service/candidate_gemini_model_admission_test.go",
