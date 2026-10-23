@@ -59,7 +59,7 @@ DLM 策略是 Tokyo 栈资源。两种选择 **[审批]**：
 
 Tokyo 删机前合并，保证没有任何代码路径还能把 SSM 发往 `i-045f062ce33e1a5af`：
 
-**第 4 步状态：1–4、7、8 已完成（2026-10-23 仓库清理 PR）**；`aws-fresh` 保留为拒绝分支（不查 AWS）。5（删 workflow）待批。
+**第 4 步状态：全部完成（2026-10-23，#2818 / #2829）**；`aws-fresh` 保留为拒绝分支（不查 AWS）。
 
 1. `ops/stage0/resolve_prod_ssm_target.py`：删 `aws-fresh` 分支（`resolve_fresh_aws`、`FRESH_MATRIX`、`ALLOW_FROZEN_TOKYO_TARGET`），`ALLOWED_ENV_TARGETS` / `--target` choices 去掉 `aws-fresh`，改为与 `aws` / `hetzner` 同样的「retired」拒绝；同步 `ops/stage0/ssm_execution.py`（`aws-fresh` 分支与 `FRESH_MATRIX` 区域回退）。
 2. 测试：`ops/stage0/test_resolve_prod_ssm_target.py`、`test_ssm_execution.py`、`scripts/checks/check-stage0-ssm-host-parse.sh`（`TEST_FRESH_PROD_MATRIX` stub 改为不再需要 Tokyo 行）、`ops/observability/test_host_https_watch.py`（`self.frozen` 断言删除）。
@@ -108,7 +108,7 @@ Tokyo 删机前合并，保证没有任何代码路径还能把 SSM 发往 `i-04
 | `lhins-n1w2c5qr` | usw-eval3 | 锐驰 2C2G | 2026-11-22 02:59:01 | NOTIFY_AND_MANUAL_RENEW | 40 | 480 |
 | `lhins-h12i2d2r` | usw-eval4 | 锐驰 2C2G | 2026-11-22 02:59:15 | NOTIFY_AND_MANUAL_RENEW | 40 | 480 |
 
-金额 CNY；合计 1 月 395，12 月 4317。不续即到期停机（数据保留期内可续回，但 prod 停机即全站不可用）。
+金额 CNY；合计 1 月 395，12 月 4317。上表为 2026-10-22 查询时的标志；当日已按用户决定改为 `NOTIFY_AND_AUTO_RENEW`（见 §9 第 2 项）。不续即到期停机（数据保留期内可续回，但 prod 停机即全站不可用）。
 
 决策选项 **[审批：任一续费都是扣费外部副作用]**：
 
@@ -158,6 +158,6 @@ apply **[可逆·审批]**：同一命令加 `--apply`。效果：新建内容�
 0. ~~安装 `tokenkey-qa-provision` 并重装 prod watcher~~：已执行（provision 13:29 UTC，watcher 15:24 UTC）。
 1. ~~切流前 DLM 快照是否复制保留~~：2026-10-22 用户决定不保留，任其轮换；DB 由 S3 `prod/postgres` timeline 1 覆盖。
 2. ~~腾讯续费方案~~：2026-10-22 用户决定月自动续费，已改 `NOTIFY_AND_AUTO_RENEW`。
-3. Tokyo 退役：2026-10-22 用户批准提前退役，已停机；剩余仓库清理 PR → 删栈 → 数据卷处置 → OIDC retarget。
+3. ~~Tokyo 退役~~：已完成（2026-10-23 仓库清理、删栈、删卷、OIDC retarget）。
 4. ~~`jp-*` 关停~~：已完成（2026-10-23 删机并释放静态 IP，保留最终快照）。
 5. LUKS 演练预算（见 [方案](tencent-luks-autounlock-plan.md)）。

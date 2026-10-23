@@ -502,6 +502,26 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("qa-raw-archive-iam|$TARGET_ID|paused", text)
         self.assertIn("error-clustering|$TARGET_ID|retired", text)
         self.assertNotIn("error_clustering_binary_check", text)
+        self.assertNotIn(".iam_contract.applicable // true", text)
+        line = next(item for item in text.splitlines() if "PHASE2_IAM_APPLICABLE=" in item)
+        start = line.index("jq -r '") + len("jq -r '")
+        expr = line[start:line.index("'", start)]
+        cases = (
+            ('{"iam_contract":{"applicable":false}}', "false"),
+            ('{"iam_contract":{"applicable":true}}', "true"),
+            ('{"iam_contract":{}}', "true"),
+        )
+        for payload, expected in cases:
+            with self.subTest(payload=payload):
+                proc = subprocess.run(
+                    ["jq", "-r", expr],
+                    input=payload,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.stdout.strip(), expected)
 
     def test_aggregate_finds_single_artifact_flat_target_report(self) -> None:
         """download-artifact flattens when artifacts.length===1; rglob must find it.

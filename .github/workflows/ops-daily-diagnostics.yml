@@ -356,7 +356,8 @@ jobs:
             PHASE2_STATUS="$(printf '%s' "$PHASE2_VERDICT" | jq -r '.health.status // "failed"')"
             PHASE2_REASONS="$(printf '%s' "$PHASE2_VERDICT" | jq -r '[.health.reasons[]?] | join("; ")')"
             PHASE2_IAM_OK="$(printf '%s' "$PHASE2_VERDICT" | jq -r '.iam_contract.ok // false')"
-            PHASE2_IAM_APPLICABLE="$(printf '%s' "$PHASE2_VERDICT" | jq -r '.iam_contract.applicable // true')"
+            # jq // treats false as empty, so applicable:false must not use //.
+            PHASE2_IAM_APPLICABLE="$(printf '%s' "$PHASE2_VERDICT" | jq -r 'if (.iam_contract.applicable == false) then "false" else "true" end')"
             case "$PHASE2_STATUS" in
               healthy)
                 add_finding "qa_phase2_live_health" "ok" "info" "QA Phase 2 live maintenance health passed ($TARGET_ID)" "QA pause/running policy and boundary/storage facts are verified." "qa-phase2-live-health|$TARGET_ID"

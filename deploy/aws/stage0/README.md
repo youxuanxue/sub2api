@@ -1,6 +1,6 @@
 # Shared Stage0 runtime (historical path)
 
-本目录是 现网 prod（腾讯美西 Lighthouse，2026-10-22 起；冻结的 AWS Tokyo 仅保留）、历史 Hcloud 模板与本地开发共用的运行文件 owner，不是现网云平台选择器。
+本目录是 现网 prod（腾讯美西 Lighthouse，2026-10-22 起；AWS Tokyo 已于 2026-10-23 退役）、历史 Hcloud 模板与本地开发共用的运行文件 owner，不是现网云平台选择器。
 现网入口和残留依赖说明见 [Hetzner fleet](../../hetzner/README.md)。
 
 - compose / Caddy / `.env.example` / `tokenkey-*.sh`：由现役 prod 发布脚本、本地栈及历史 renderer 消费。

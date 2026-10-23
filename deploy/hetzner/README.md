@@ -28,21 +28,21 @@ prod 直接使用原生账号；旧中继 stub 已软删。
 | 美西出口 `usw-eval3` | na-siliconvalley-2 / `lhins-n1w2c5qr` | `43.162.116.209` | `10.4.0.5` | 2C2G / 40 GB SSD |
 | 美西出口 `usw-eval4` | na-siliconvalley-2 / `lhins-h12i2d2r` | `43.162.103.103` | `10.4.0.4` | 2C2G / 40 GB SSD |
 
-实例到期约 2026-11-21/22 UTC，`NOTIFY_AND_MANUAL_RENEW`。SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
+实例到期约 2026-11-21/22 UTC，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-22 用户决定按月自动续费；账户余额不足仍会停机）。SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
 SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。**2026-10-22 起 `usw-eval1..4` 为原 `jp-*` 账号的生产出口**（私网 SOCKS）。活绑定以 prod / cn-prod `proxies` 为准。
 
 #### 国内出口 `cn-ip1..4`（腾讯北京锐驰，公网 SOCKS）
 
-| 角色 | 公网 IP | 放行来源 |
-|---|---|---|
-| `cn-ip1` | `120.53.25.245` | 美西 prod `43.162.83.233`、UCloud 转发 `106.75.29.139`、cn-prod 公网 `154.8.214.179`、cn-prod 私网 `10.2.4.11` |
-| `cn-ip2` | `140.143.236.199` | 同上 |
-| `cn-ip3` | `49.233.210.77` | 同上 |
-| `cn-ip4` | `140.143.229.164` | 同上 |
+| 角色 | 实例 | 公网 IP | 放行来源 |
+|---|---|---|---|
+| `cn-ip1` | `lhins-a3h0vmh0`（`tokenkey-cn-proxy-canary-20261022`） | `120.53.25.245` | 美西 prod `43.162.83.233`、UCloud 转发 `106.75.29.139`、cn-prod 公网 `154.8.214.179`、cn-prod 私网 `10.2.4.11` |
+| `cn-ip2` | `lhins-lqhqjbke`（`tokenkey-cn-proxy-02-20261022`） | `140.143.236.199` | 同上 |
+| `cn-ip3` | `lhins-bg2vs1uo`（`tokenkey-cn-proxy-03-20261022`） | `49.233.210.77` | 同上 |
+| `cn-ip4` | `lhins-0ds0p3c2`（`tokenkey-cn-proxy-04-20261022`） | `140.143.229.164` | 同上 |
 
 北京应用拨 SOCKS 的源地址是私网 `10.2.4.11`，不是公网 `154.8.214.179`。四台都要同时放行这两个地址。按上表重做防火墙时少了私网地址，国内出口会变成 502。
 
-`cn-ip5`（`192.144.148.117` / `lhins-leojyzyi`）已于 2026-10-22 退还并销毁。账号已迁走。cn-prod 应用在 `154.8.214.179`（`lhins-6qmb3fd6`），与 `cn-ip1..4` 同于 **2026-11-22** 到期，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。`106.75.29.139` 仍由 UCloud 持有，只转发 80/443。`api-cn.tokenkey.dev` 继续指向美西，不改。
+`cn-ip5`（`192.144.148.117` / `lhins-leojyzyi`）已于 2026-10-22 退还并销毁。账号已迁走。cn-prod 应用在 `154.8.214.179`（`lhins-6qmb3fd6`），与 `cn-ip1..4` 同于 **2026-11-22** 到期，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。`106.75.29.139` 仍由 UCloud 持有，只转发 80/443（主机 SSM `mi-0efdf781205cff512`，上面残留的 PG/Redis 无流量；计划 2026-10-24 退役，退役前须先把 `public_origin` 与依赖该 IP 的放行改走腾讯北京）。`api-cn.tokenkey.dev` 继续指向美西，不改。
 
 UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
@@ -90,7 +90,7 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
 | 项 | 值 |
 |----|-----|
-| 活入口 | 腾讯美西 prod `43.162.83.233`；正式域名 A 指向该 IP（Tokyo 已完全退役） |
+| 活入口 | 腾讯美西 prod `43.162.83.233`；正式域名 A 指向该 IP（Tokyo 已退役） |
 | prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
 | 探针 / sync Caddy | prod 解析至腾讯 Hybrid `mi-*`（`resolve_prod_ssm_target.py`）；冻结/退役身份拒绝执行 |
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
@@ -120,11 +120,11 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
    `paused_jobs`：`tokenkey-qa-maintenance`（上传暂停）与 `tokenkey-qa-boundary`
    （历史归档验收问题保持停用，DROP pause 保留）。capture 与备份继续运行。
    暂停期巡检与恢复见 [QA 运维入口](../../ops/qa/README.md)。
-3. **监控**：腾讯机无 EBS/DLM；冻结 Tokyo 的 DLM 快照随 Tokyo 退役另批处理。宿主 HTTPS/job watcher 读取暂停 owner，
+3. **监控**：腾讯机无 EBS/DLM；Tokyo 已退役，仅留两份最终快照（见 [runbook](../../docs/ops/tokyo-retirement-runbook.md)）。宿主 HTTPS/job watcher 读取暂停 owner，
    要求所列 timer 停用且 service 不在运行；意外恢复会告警。daily diagnostics 复用同一暂停清单，
    暂停期不要求归档回执刷新，boundary 与存储检查保留。其他任务仍按成功时效监控。
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
-4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本 Lightsail 代理账号已迁出、机器保留待关停；
+4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本 Lightsail 代理已于 2026-10-23 删除；
    新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 5. **告警**：腾讯机上备份/归档 timer 已装；`tokenkey-https-watch.timer` 已接到飞书（cn-prod `/health` + 备份/archive/qa-cleanup）。Stage0 布局已按例外路径收敛；日常发版走下方 `dispatch-prod-deploy.sh`。
 
@@ -135,7 +135,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 
 | 类别 | 当前用途 / owner | 清理条件 |
 |---|---|---|
-| SSM Hybrid / Parameter Store / STS OIDC | Lightsail / 历史 Hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/resolve_prod_ssm_target.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
+| SSM Hybrid / Parameter Store / STS OIDC | 腾讯美西 prod/出口机与北京 cn-prod 远程执行、参数与 GHCR 身份；`ops/stage0/resolve_prod_ssm_target.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
 | QA raw archive | 存储配置为 AWS S3，当前上传已暂停；历史恢复按小时来源选择 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
 | 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
