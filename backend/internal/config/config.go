@@ -1151,9 +1151,8 @@ type GatewayConfig struct {
 	// OpenAIHighEffortFirstOutputTimeoutSeconds: high/xhigh/max（及 force-high）首个语义输出超时（秒）。
 	// 默认 600；0 表示回退到 StreamFirstOutputHighEffortTimeoutSeconds（stream SSOT 代码默认 600）。
 	OpenAIHighEffortFirstOutputTimeoutSeconds int `mapstructure:"openai_high_effort_first_output_timeout_seconds"`
-	// Kiro fixed request wait: streaming until the first client-visible
-	// thinking, text, or tool block; non-streaming until complete JSON.
-	// Zero inherits Kiro defaults; retries share the budget.
+	// Kiro fixed request wait: streaming until visible text/tool, non-streaming
+	// until complete JSON. Zero inherits Kiro defaults; retries share the budget.
 	KiroFirstOutputTimeoutSeconds           int `mapstructure:"kiro_first_output_timeout_seconds"`
 	KiroHighEffortFirstOutputTimeoutSeconds int `mapstructure:"kiro_high_effort_first_output_timeout_seconds"`
 	// 请求体最大字节数，用于网关请求体大小限制
