@@ -3013,18 +3013,22 @@
       "path": "backend/internal/service/volc_kimi_chat_constraints_tk.go",
       "must_contain": [
         "func normalizeVolcKimiChatRequest(",
-        "normalizeVolcKimiThinking(body)",
+        "normalizeVolcKimiInboundMessages(body)",
+        "normalizeVolcKimiThinking(shaped)",
         "normalizeVolcKimiReasoningEffort(shaped, selected)",
         "normalizeVolcKimiAllowedTools(shaped)",
-        "normalizeChatToolConstraints(shaped)"
+        "normalizeChatToolConstraints(shaped)",
+        "func rejectUnreachableVolcKimiVideoURLs(",
+        "video_url is not reachable; provide a video URL this service can access"
       ],
-      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible."
+      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire."
     },
     {
       "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk.go",
       "must_contain": [
         "isNewAPIVolcEngineAgentPlanAccount(account)",
         "normalizeVolcKimiChatRequest(body)",
+        "rejectUnreachableVolcKimiVideoURLs(ctx, shaped)",
         "NormalizeMoonshotThinking(model, body)"
       ],
       "rationale": "The selected supplier, not the public Kimi model name alone, chooses thinking normalization."
@@ -3036,7 +3040,10 @@
         "func TestVolcKimiReasoningEffortMoonshotCompatible(",
         "func TestVolcKimiToolSelectionPreservesSemantics(",
         "func TestVolcKimiChatAllowedToolsEnvelope(",
-        "func TestVolcKimiForwardKeepsThinkingAndToolConstraints("
+        "func TestVolcKimiForwardKeepsThinkingAndToolConstraints(",
+        "func TestVolcKimiInboundMessageShapes(",
+        "func TestVolcKimiVideoURLPreflight(",
+        "func TestVolcKimiHTTPVideoProbe("
       ],
       "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface."
     },
