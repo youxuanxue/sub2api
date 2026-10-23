@@ -277,6 +277,9 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
 	effectivePlatform := effectiveAPIKeyPlatform(c, apiKey)
 	if !hasForcePlatform && !geminiV1BetaGroupPlatformAllowed(apiKey) {
+		if tkGeminiV1BetaWriteCompositeAntigravityModel(c, apiKey, modelName) {
+			return
+		}
 		googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
 		return
 	}
@@ -973,7 +976,11 @@ func googlePlatformError(c *gin.Context, status int, message string) {
 // googleErrorWithType 以 Google 错误格式回写错误，并向 ops 登记错误类型与错误码（Google 错误体没有 type 字段），
 // 与 Claude / OpenAI 格式错误同口径分类；errType 为空时不登记。
 func googleErrorWithType(c *gin.Context, status int, errType, code, message string) {
-	service.SetOpsLocalErrorType(c, errType, code)
+	// 已记录上游失败时，不要用 Google 4xx 的客户端类型覆盖归因。
+	// 否则任意上游 400 都会被登记成 invalid_request_error，ops 把供应商失败记成客户端请求。
+	if !hasOpsUpstreamErrorContext(c) {
+		service.SetOpsLocalErrorType(c, errType, code)
+	}
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,

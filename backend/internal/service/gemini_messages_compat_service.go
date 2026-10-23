@@ -1039,6 +1039,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		if upstreamReqID == "" {
 			upstreamReqID = resp.Header.Get("x-goog-request-id")
 		}
+		if err, handled := s.writeGeminiCachedContentNotFound(c, resp.StatusCode, respBody); handled {
+			return nil, err
+		}
 		if policyErr, handled := s.tkApplyGeminiErrorPolicy(ctx, c, account, resp, respBody, upstreamReqID, false, geminiErrorPolicyClientClaude); handled {
 			return nil, policyErr
 		}
@@ -1589,6 +1592,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			}, nil
 		}
 
+		if err, handled := s.writeGeminiCachedContentNotFound(c, resp.StatusCode, respBody); handled {
+			return nil, err
+		}
 		// 统一错误策略：自定义错误码 + 临时不可调度。内部 Antigravity
 		// relay 空池已在重试循环内分类并计数，不能再落入 pool_mode skipped。
 		// TK: ErrorPolicy switch — see gemini_messages_compat_service_tk_error_policy.go
@@ -2224,6 +2230,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(
 	openBlockIndex := -1
 	openBlockType := ""
 	seenText := ""
+	seenThought := ""
 	imageStream := newGeminiImageStream()
 	openToolIndex := -1
 	openToolID := ""
@@ -2294,6 +2301,58 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(
 		parts := imageStream.textParts(extractGeminiParts(geminiResp))
 		for _, part := range parts {
 			if text, ok := part["text"].(string); ok && text != "" {
+				if geminiTextPartIsThought(part) {
+					delta, nextSeen := computeGeminiTextDelta(seenThought, text)
+					seenThought = nextSeen
+					if delta == "" {
+						continue
+					}
+					if firstTokenMs == nil {
+						ms := int(time.Since(startTime).Milliseconds())
+						firstTokenMs = &ms
+						firstOutputGuard.Commit()
+						ensureClientStarted()
+					}
+					if openToolIndex >= 0 {
+						writeSSE(c.Writer, "content_block_stop", map[string]any{
+							"type":  "content_block_stop",
+							"index": openToolIndex,
+						})
+						openToolIndex = -1
+						openToolName = ""
+						seenToolJSON = ""
+					}
+					if openBlockType != "thinking" {
+						if openBlockIndex >= 0 {
+							writeSSE(c.Writer, "content_block_stop", map[string]any{
+								"type":  "content_block_stop",
+								"index": openBlockIndex,
+							})
+						}
+						openBlockType = "thinking"
+						openBlockIndex = nextBlockIndex
+						nextBlockIndex++
+						writeSSE(c.Writer, "content_block_start", map[string]any{
+							"type":  "content_block_start",
+							"index": openBlockIndex,
+							"content_block": map[string]any{
+								"type":      "thinking",
+								"thinking":  "",
+								"signature": "",
+							},
+						})
+					}
+					writeSSE(c.Writer, "content_block_delta", map[string]any{
+						"type":  "content_block_delta",
+						"index": openBlockIndex,
+						"delta": map[string]any{
+							"type":     "thinking_delta",
+							"thinking": delta,
+						},
+					})
+					flusher.Flush()
+					continue
+				}
 				if shouldDropGeminiInternalText(text) {
 					internalThinkingBlocks = append(internalThinkingBlocks, strings.TrimSpace(text))
 					continue
@@ -3475,6 +3534,11 @@ func extractGeminiFinishReason(geminiResp map[string]any) string {
 		}
 	}
 	return ""
+}
+
+func geminiTextPartIsThought(part map[string]any) bool {
+	thought, ok := part["thought"].(bool)
+	return ok && thought
 }
 
 func extractGeminiParts(geminiResp map[string]any) []map[string]any {

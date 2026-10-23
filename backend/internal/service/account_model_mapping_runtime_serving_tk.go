@@ -34,6 +34,44 @@ func antigravityEffectiveDefaultModelMapping() map[string]string {
 	return overlayAntigravityDefaultModelMapping(accountModelMappingRuntimeServingPlatform(PlatformAntigravity))
 }
 
+// ensureAntigravityDefaultPassthroughs 给已有自定义映射的 Antigravity 账号补上
+// 思考档位 wire 与裸名自映射。用户亲手写过的 key 保持不变；这些补齐条目不进入
+// capability sync 的显式上游模型清单。
+func ensureAntigravityDefaultPassthroughs(result map[string]string) map[string]string {
+	if len(result) == 0 || !antigravityMappingWantsDefaultPassthroughs(result) {
+		return result
+	}
+	bases := make(map[string]struct{})
+	for wireID, target := range domain.AntigravityThinkingWireFloorEntries() {
+		if _, exists := result[wireID]; !exists {
+			result[wireID] = target
+		}
+		base := wireID
+		for _, suffix := range []string{"-low", "-medium", "-high", "-tiered"} {
+			if strings.HasSuffix(wireID, suffix) {
+				base = strings.TrimSuffix(wireID, suffix)
+				break
+			}
+		}
+		bases[base] = struct{}{}
+	}
+	for base := range bases {
+		if _, exists := result[base]; !exists {
+			result[base] = base
+		}
+	}
+	return result
+}
+
+func antigravityMappingWantsDefaultPassthroughs(result map[string]string) bool {
+	for key := range result {
+		if strings.HasPrefix(key, "gemini-") || strings.HasPrefix(key, "nano-") {
+			return true
+		}
+	}
+	return false
+}
+
 func overlayAntigravityDefaultModelMapping(runtime map[string]string) map[string]string {
 	compiled := domain.DefaultAntigravityModelMapping
 	wires := domain.AntigravityThinkingWireFloorEntries()

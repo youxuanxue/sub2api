@@ -60,7 +60,6 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported for Bedrock")
 		return nil
 	}
-
 	body := parsed.Body.Bytes()
 	replaceBody := func(next []byte) error {
 		if err := parsed.ReplaceBody(next); err != nil {
@@ -141,6 +140,13 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	body, err = s.tkApplyCountTokensPostMapGuards(ctx, c, account, body, reqModel)
 	if err != nil {
 		return err
+	}
+
+	// 本地估算已经返回。剩下的 Messages 转发不能用非 Anthropic OAuth，
+	// 在取 token 之前按平台不支持返回 404。
+	if err := checkAnthropicMessagesCredential(account); err != nil {
+		s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported for this account")
+		return nil
 	}
 
 	// 获取凭证
@@ -435,7 +441,7 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 ) (*http.Request, error) {
 	body = stripDeferredToolCacheControl(body)
 	targetURL := claudeAPICountTokensURL
-	baseURL := account.GetBaseURL()
+	baseURL := anthropicMessagesAPIKeyBaseURL(account)
 	if baseURL != "" {
 		validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 		if err != nil {
@@ -473,7 +479,7 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 	req.Header.Del("cookie")
 	// Ollama Cloud Anthropic 兼容端点按实际 base_url 强制 Bearer（同上方
 	// targetURL 的 base 取值），其余保持 extra/default 行为。
-	setAnthropicAPIKeyAuthHeader(req.Header, account, token, account.GetBaseURL())
+	setAnthropicAPIKeyAuthHeader(req.Header, account, token, baseURL)
 
 	if req.Header.Get("content-type") == "" {
 		req.Header.Set("content-type", "application/json")
@@ -494,8 +500,10 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	body = stripDeferredToolCacheControl(body)
 	// 确定目标 URL
 	targetURL := claudeAPICountTokensURL
+	messagesBaseURL := account.GetBaseURL()
 	if account.Type == AccountTypeAPIKey {
-		baseURL := account.GetBaseURL()
+		messagesBaseURL = anthropicMessagesAPIKeyBaseURL(account)
+		baseURL := messagesBaseURL
 		if baseURL != "" {
 			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 			if err != nil {
@@ -585,7 +593,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	} else {
 		// Ollama Cloud Anthropic 兼容端点按实际 base_url 强制 Bearer（同上方
 		// targetURL 的 base 取值），其余保持 extra/default 行为。
-		setAnthropicAPIKeyAuthHeader(req.Header, account, token, account.GetBaseURL())
+		setAnthropicAPIKeyAuthHeader(req.Header, account, token, messagesBaseURL)
 	}
 
 	// 白名单透传 headers（恢复真实 wire casing）

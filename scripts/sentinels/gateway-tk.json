@@ -17157,6 +17157,14 @@
         "TestOpenAISaturationSurvivesClientCancellation"
       ],
       "rationale": "Retain throttle attribution, absence of duplicate saturation feedback, retry and canceled-request regression coverage."
+    },
+    {
+      "path": "backend/internal/service/openai_compact_fallback.go",
+      "must_contain": [
+        "isRetiredOpenAISubscriptionModel(account, mapped)",
+        "isRetiredOpenAISubscriptionModel(account, resolved)"
+      ],
+      "rationale": "Compact fallback must not revive retired GPT-5.5 for ChatGPT OAuth or shadow accounts. Both the account compact mapping and the process-wide fallback are rejected before the retired target can be scheduled."
     }
   ]
 }

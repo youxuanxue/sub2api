@@ -234,7 +234,7 @@ func TestHandleGeminiCachedContentFailoverExhausted(t *testing.T) {
 	h.handleGeminiCachedContentFailoverExhausted(c, &service.UpstreamFailoverError{StatusCode: http.StatusTooManyRequests, ResponseBody: []byte(officialQuota)})
 	require.Equal(t, http.StatusTooManyRequests, rec.Code, "官方账号的限流按普通 Gemini 路径映射")
 	require.NotContains(t, rec.Body.String(), "FreeTier", "不向客户端暴露上游账号的配额明细")
-	require.Contains(t, rec.Body.String(), "Upstream rate limit exceeded")
+	require.Contains(t, rec.Body.String(), service.TkClientFacingBusy429Message)
 
 	c, rec = newGeminiCachedContentTestContext(http.MethodPost, "/v1beta/models/gemini-3.8-flash:generateContent", apiKey)
 	h.handleGeminiCachedContentFailoverExhausted(c, &service.UpstreamFailoverError{StatusCode: http.StatusUnauthorized, ResponseBody: []byte(`{"error":{"code":401,"message":"bad key"}}`)})

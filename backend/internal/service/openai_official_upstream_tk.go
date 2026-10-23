@@ -52,7 +52,24 @@ func AccountShouldLocalEstimateCountTokens(account *Account) bool {
 	if isNewAPIQianfanTokenPlanAccount(account) {
 		return true
 	}
+	// 多协议供应商未配置 base_url 时，GetOpenAIBaseURL 会填 profile 默认聊天地址
+	// （Cline、Command Code）。那不是 Responses input_tokens，不能据此出站。
+	if strings.TrimSpace(account.GetCredential("base_url")) == "" && !accountHasStoredChatBaseURL(account) {
+		return true
+	}
 	return strings.TrimSpace(nativeOpenAIBaseURLForAccount(account)) == ""
+}
+
+func accountHasStoredChatBaseURL(account *Account) bool {
+	if account == nil || account.Credentials == nil {
+		return false
+	}
+	baseURLs, ok := account.Credentials["api_base_urls"].(map[string]any)
+	if !ok {
+		return false
+	}
+	baseURL, _ := baseURLs[APIProtocolChatCompletions].(string)
+	return strings.TrimSpace(baseURL) != ""
 }
 
 // IsOfficialOpenAIAPIKeyHelpText reports OpenAI's official 401 body that names

@@ -40,6 +40,7 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 	}
 
 	originalModel := ccReq.Model
+	stripGeminiChatHistoryReasoning(&ccReq)
 	clientStream := ccReq.Stream
 	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
 
@@ -65,6 +66,49 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 	}
 
 	return s.forwardClaudeBodyAsChatCompletions(ctx, c, account, claudeBody, originalModel, clientStream, includeUsage, startTime)
+}
+
+// stripGeminiChatHistoryReasoning 丢掉历史 reasoning。Gemini 不消费 OpenAI 的
+// reasoning_content，经 Responses 转换后它们会变成 <thinking> 文本并被回显。
+func stripGeminiChatHistoryReasoning(req *apicompat.ChatCompletionsRequest) {
+	if req == nil {
+		return
+	}
+	for i := range req.Messages {
+		msg := &req.Messages[i]
+		msg.ReasoningContent = ""
+		msg.Reasoning = ""
+		msg.Content = stripGeminiChatReasoningContent(msg.Content)
+	}
+}
+
+func stripGeminiChatReasoningContent(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || raw[0] != '[' {
+		return raw
+	}
+	var parts []map[string]any
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return raw
+	}
+	kept := make([]map[string]any, 0, len(parts))
+	dropped := false
+	for _, part := range parts {
+		switch part["type"] {
+		case "thinking", "reasoning", "redacted_thinking":
+			dropped = true
+			continue
+		default:
+			kept = append(kept, part)
+		}
+	}
+	if !dropped {
+		return raw
+	}
+	encoded, err := json.Marshal(kept)
+	if err != nil {
+		return raw
+	}
+	return encoded
 }
 
 func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
@@ -99,7 +143,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 	geminiReq = ensureGeminiFunctionCallThoughtSignatures(geminiReq)
-	geminiReq = applyGeminiCompatThinkingConfig(geminiReq, claudeBody, mappedModel, clientStream)
+	if geminiChatForwardsReasoningEffort(mappedModel) {
+		geminiReq = applyGeminiCompatThinkingConfig(geminiReq, claudeBody, mappedModel, clientStream)
+	}
 	geminiReq, imageCanvas, err := prepareGeminiWebImageCanvas(account, mappedModel, geminiReq)
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -643,6 +689,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	openBlockIndex := -1
 	openBlockType := ""
 	seenText := ""
+	seenThought := ""
 	imageStream := newGeminiImageStream()
 	openToolIndex := -1
 	openToolName := ""
@@ -713,6 +760,43 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 
 						for _, part := range imageStream.textParts(extractGeminiParts(geminiResp)) {
 							if text, ok := part["text"].(string); ok && text != "" {
+								if geminiTextPartIsThought(part) {
+									delta, nextSeen := computeGeminiTextDelta(seenThought, text)
+									seenThought = nextSeen
+									if delta == "" {
+										continue
+									}
+									if openBlockType != "thinking" {
+										if closeOpenBlock() || closeOpenTool() {
+											return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+										}
+										idx := nextBlockIndex
+										nextBlockIndex++
+										openBlockIndex = idx
+										openBlockType = "thinking"
+										if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
+											Type:  "content_block_start",
+											Index: &idx,
+											ContentBlock: &apicompat.AnthropicContentBlock{
+												Type:     "thinking",
+												Thinking: "",
+											},
+										}) {
+											return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+										}
+									}
+									if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
+										Type:  "content_block_delta",
+										Index: &openBlockIndex,
+										Delta: &apicompat.AnthropicDelta{
+											Type:     "thinking_delta",
+											Thinking: delta,
+										},
+									}) {
+										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+									}
+									continue
+								}
 								if openToolIndex >= 0 {
 									if closeOpenTool() {
 										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil

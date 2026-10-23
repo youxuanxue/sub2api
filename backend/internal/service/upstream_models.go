@@ -341,6 +341,22 @@ func configuredUpstreamModelsForCapabilitySync(account *Account) []string {
 		return nil
 	}
 	models := make([]string, 0)
+	if account.Credentials != nil {
+		if raw, ok := account.Credentials["model_mapping"].(map[string]any); ok && len(raw) > 0 {
+			for _, value := range raw {
+				mappedModel, ok := value.(string)
+				if !ok {
+					continue
+				}
+				mappedModel = strings.TrimSpace(mappedModel)
+				if mappedModel == "" || strings.Contains(mappedModel, "*") {
+					continue
+				}
+				models = append(models, mappedModel)
+			}
+			return dedupeAndSortModelIDs(models)
+		}
+	}
 	for _, mappedModel := range account.GetModelMapping() {
 		mappedModel = strings.TrimSpace(mappedModel)
 		if mappedModel == "" || strings.Contains(mappedModel, "*") {
