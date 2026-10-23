@@ -3090,7 +3090,9 @@
         "openAIFilterOnlyReason",
         "protocolrouter.ContentVideo",
         "isNewAPINVIDIABuildAccount(account)",
-        "case \"kimi-k3\":"
+        "isNewAPIDashScopeAccount(account)",
+        "case \"kimi-k3\":",
+        "case \"deepseek-v4.1-flash\":"
       ],
       "rationale": "Evidence-backed multimodal supply known-negatives and empty-pool modality 400 stay in one owner; candidateSupportsRequest / Direct scheduler must call without inlining the table."
     },
@@ -3098,6 +3100,8 @@
       "path": "backend/internal/service/candidate_multimodal_supply_tk_test.go",
       "must_contain": [
         "func TestSupplyKnownNegativeForInputVideoKimiK3NVIDIA(",
+        "func TestSupplyKnownNegativeDashScopeVideo(",
+        "func TestDashScopeVideoCandidateAdmission(",
         "func TestVolcKimiAudioCandidateAdmission(",
         "func TestVolcKimiAudioDirectEmptyPoolNamesActualRejection(",
         "func TestAccountAdmitsRequestInputModalitiesVideoGate(",

@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 )
 
@@ -131,7 +133,10 @@ func supplyKnownNegativeForInputVideo(account *Account, model string) bool {
 	}
 	switch normalized {
 	case "kimi-k3":
-		return isNewAPINVIDIABuildAccount(account)
+		// NVIDIA Build: "At most 0 video(s)".
+		// DashScope pay-as-you-go, probe 2026-10-23 cn-prod #135:
+		// "Video inputs are not supported by this model". Image stayed servable.
+		return isNewAPINVIDIABuildAccount(account) || isNewAPIDashScopeAccount(account)
 	case "glm-5.3-flash":
 		return isNewAPINVIDIABuildAccount(account)
 	case "glm-4.5-air", "glm-5.2", "glm-5.3":
@@ -144,8 +149,14 @@ func supplyKnownNegativeForInputVideo(account *Account, model string) bool {
 	case "gpt-5", "gpt-5-mini", "gpt-5.1", "gpt-5.2":
 		// Probe 2026-10-08 tokensea: Invalid value 'video_url' (image_url OK).
 		return isNewAPITokenseaRelayAccount(account)
-	case "deepseek-flash", "deepseek-v4.1-flash":
+	case "deepseek-flash":
 		return isNewAPIAliTokenPlanAccount(account)
+	case "deepseek-v4.1-flash":
+		// Ali Token Plan: "does not support video input".
+		// DashScope pay-as-you-go, probe 2026-10-23 cn-prod #135:
+		// "The current model does not support video input". Image stayed servable.
+		// The deepseek-flash alias has no DashScope evidence and stays off this host.
+		return isNewAPIAliTokenPlanAccount(account) || isNewAPIDashScopeAccount(account)
 	case "qwen3.7-max":
 		// Probe 2026-10-08 Ali Token Plan: Unexpected item type in content
 		// for both video_url and image_url.
@@ -192,6 +203,31 @@ func supplyKnownNegativeForInputImage(account *Account, model string) bool {
 	default:
 		return false
 	}
+}
+
+// isNewAPIDashScopeAccount reports Bailian pay-as-you-go
+// (dashscope.aliyuncs.com). Ali MaaS Token Plan shares ChannelTypeAli and is
+// identified separately by isNewAPIAliTokenPlanAccount.
+func isNewAPIDashScopeAccount(account *Account) bool {
+	return account != nil &&
+		account.Platform == PlatformNewAPI &&
+		account.ChannelType == newapiconstant.ChannelTypeAli &&
+		isDashScopePayAsYouGoBaseURL(account.GetBaseURL())
+}
+
+func isDashScopePayAsYouGoBaseURL(base string) bool {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return false
+	}
+	if !strings.Contains(base, "://") {
+		base = "https://" + base
+	}
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(parsed.Hostname(), "dashscope.aliyuncs.com")
 }
 
 func normalizeMultimodalSupplyModelID(model string) string {
