@@ -192,10 +192,21 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	"gemini-3.1-flash-image-preview": {},
 	"gemini-3.7-flash":               {},
 	"gemini-3.8-flash":               {},
-	// gemini-4-argon: off after 2026-10-22 SSOT canary unexpected 404
-	// (hide_or_fix_gateway). Removing from this allowlist hides public
-	// catalog, menu fallback, and account-mapping floor together; domain
-	// wire defaults and pricing overlay rows stay.
+	// gemini-4-argon: still withheld from the public catalog, but NOT because it
+	// 404s. Re-measured on live prod 2026-10-23 and the original note was wrong:
+	//   - model_availability has one row, gemini-4-argon-high, unreachable with
+	//     last_seen_ok_at = 2026-10-21 12:55 and last_failure_kind = rate_limited
+	//     (429) -- not model_not_found;
+	//   - usage_logs has 730 successful billed calls in 14 days, all
+	//     gemini-4-argon -> gemini-4-argon-high, the last on 2026-10-21;
+	//   - the 1419 antigravity failures in that window read "service is
+	//     temporarily busy" / "upstream request could not be completed", i.e.
+	//     capacity, not a missing model.
+	// So the model serves when it is not throttled. Keeping it out of the public
+	// allowlist is a capacity decision (429s dominate), not a retirement.
+	// Removing from this allowlist hides public catalog, menu fallback, and
+	// account-mapping floor together; domain wire defaults and pricing overlay
+	// rows stay, which is what lets existing mappings keep billing correctly.
 	// Nano Banana 2 is Flash; Pro aliases belong to Gemini Web.
 	"nano-2":        {},
 	"nano-banana-2": {},
