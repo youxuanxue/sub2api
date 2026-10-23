@@ -630,6 +630,9 @@ func isClaude55SignedThinkingModel(model string) bool {
 // validateClaude55Request rejects settings that the upstream cannot honor.
 // Call before OAuth mimicry can remove tool_choice or alter thinking defaults.
 func validateClaude55Request(body []byte, model string) error {
+	if claude.IsHaiku55(model) {
+		return validateClaudeHaiku55Request(body)
+	}
 	if !isClaude55SignedThinkingModel(model) {
 		return nil
 	}
@@ -675,6 +678,40 @@ func validateClaude55Request(body []byte, model string) error {
 		if gjson.GetBytes(body, "top_k").Exists() {
 			return fmt.Errorf("claude-sonnet-5-5 does not support top_k")
 		}
+	}
+	return nil
+}
+
+// validateClaudeHaiku55Request 按官方 migration guide 校验 claude-haiku-5-5。
+// Haiku 允许 disabled thinking（effort 仅 low/medium/high）和强制 tool_choice，
+// 但拒绝 enabled / between_tools，且 temperature 与 top_p 不能同时出现。
+func validateClaudeHaiku55Request(body []byte) error {
+	const modelName = "claude-haiku-5-5"
+	switch gjson.GetBytes(body, "thinking.type").String() {
+	case "enabled":
+		return fmt.Errorf("%s requires adaptive thinking; omit thinking or use thinking.type=adaptive and output_config.effort", modelName)
+	case "between_tools":
+		return fmt.Errorf("%s requires adaptive thinking; thinking.type=between_tools is unsupported", modelName)
+	case "disabled":
+		effort := gjson.GetBytes(body, "output_config.effort").String()
+		if effort == "xhigh" || effort == "max" {
+			return fmt.Errorf("%s thinking.type=disabled supports only low, medium or high effort", modelName)
+		}
+	}
+	temperature := gjson.GetBytes(body, "temperature")
+	topP := gjson.GetBytes(body, "top_p")
+	if temperature.Exists() && topP.Exists() {
+		return fmt.Errorf("%s does not allow temperature and top_p together", modelName)
+	}
+	if temperature.Exists() && (temperature.Type != gjson.Number || temperature.Float() != 1) {
+		return fmt.Errorf("%s does not support non-default temperature", modelName)
+	}
+	// 0.99 是 Haiku 的默认 top_p；0.995 与 1 都算非默认。用容差避免 0.99 的二进制误差。
+	if topP.Exists() && (topP.Type != gjson.Number || topP.Float() < 0.989 || topP.Float() > 0.991) {
+		return fmt.Errorf("%s does not support non-default top_p", modelName)
+	}
+	if gjson.GetBytes(body, "top_k").Exists() {
+		return fmt.Errorf("%s does not support top_k", modelName)
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -98,6 +99,37 @@ func tkGrokAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
 	return tkGrokAdminModelsForIDs(ids)
 }
 
+func antigravityMappingIsWildcardOnly(account *service.Account) bool {
+	if account == nil || account.Credentials == nil {
+		return false
+	}
+	sawExact := false
+	sawWildcard := false
+	consider := func(key, value string) {
+		key = strings.TrimSpace(key)
+		if key == "" || strings.TrimSpace(value) == "" {
+			return
+		}
+		if strings.Contains(key, "*") {
+			sawWildcard = true
+			return
+		}
+		sawExact = true
+	}
+	switch rawMapping := account.Credentials["model_mapping"].(type) {
+	case map[string]any:
+		for key, value := range rawMapping {
+			text, _ := value.(string)
+			consider(key, text)
+		}
+	case map[string]string:
+		for key, value := range rawMapping {
+			consider(key, value)
+		}
+	}
+	return sawWildcard && !sawExact
+}
+
 func accountHasExplicitModelMapping(account *service.Account) bool {
 	if account == nil {
 		return false
@@ -186,8 +218,11 @@ func tkAntigravityAdminDefaultModels(ctx context.Context, account *service.Accou
 		return ids[i] < ids[j]
 	})
 	out := make([]dto.AccountModelOption, 0, len(ids))
+	// 只有通配符的映射不能当作白名单：gemini-3* 盖不住 nano-2 这类目录别名，
+	// 管理端应回退到完整可服务目录。
+	wildcardOnly := antigravityMappingIsWildcardOnly(account)
 	for _, id := range ids {
-		if account != nil && service.MapAntigravityModel(account, id) == "" {
+		if account != nil && !wildcardOnly && service.MapAntigravityModel(account, id) == "" {
 			continue
 		}
 		if m, ok := byID[id]; ok {

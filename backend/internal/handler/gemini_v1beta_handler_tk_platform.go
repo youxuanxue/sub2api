@@ -12,6 +12,29 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// tkGeminiV1BetaWriteCompositeAntigravityModel 处理 composite 分组已经解析到
+// Antigravity 的 GET /v1beta/models/{model}。Gemini 上游模型直接回静态目录；
+// Claude 等非 Gemini 模型拒绝。未解析到 Antigravity 时返回 false，由调用方报错。
+func tkGeminiV1BetaWriteCompositeAntigravityModel(c *gin.Context, apiKey *service.APIKey, modelName string) bool {
+	if c == nil || c.Request == nil || apiKey == nil || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformComposite {
+		return false
+	}
+	platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
+	if !ok || platform != service.PlatformAntigravity {
+		return false
+	}
+	upstream := modelName
+	if resolved, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && resolved != "" {
+		upstream = resolved
+	}
+	if !isAntigravityGeminiModel(upstream) {
+		googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
+		return true
+	}
+	c.JSON(http.StatusOK, antigravity.FallbackGeminiModel(upstream))
+	return true
+}
+
 func geminiV1BetaGroupPlatformAllowed(apiKey *service.APIKey) bool {
 	if apiKey == nil || apiKey.Group == nil {
 		return false

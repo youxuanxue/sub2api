@@ -904,6 +904,16 @@ func TestAPIContracts(t *testing.T) {
 								"weekly": null,
 								"monthly": null
 							},
+							"cline": {
+								"daily": null,
+								"weekly": null,
+								"monthly": null
+							},
+							"command_code": {
+								"daily": null,
+								"weekly": null,
+								"monthly": null
+							},
 							"deepseek": {
 								"daily": null,
 								"weekly": null,
@@ -1337,6 +1347,16 @@ func TestAPIContracts(t *testing.T) {
 								"monthly": null
 							},
 							"antigravity": {
+								"daily": null,
+								"weekly": null,
+								"monthly": null
+							},
+							"cline": {
+								"daily": null,
+								"weekly": null,
+								"monthly": null
+							},
+							"command_code": {
 								"daily": null,
 								"weekly": null,
 								"monthly": null

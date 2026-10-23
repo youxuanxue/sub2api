@@ -170,6 +170,7 @@ func TestCursorMixedShape_StripsUnsupportedFields(t *testing.T) {
 		"safety_identifier": "cursor-user-xyz",
 		"metadata": {"trace_id":"abc","caller":"cursor"},
 		"stream_options": {"include_usage": true},
+		"user": "cursor-user-xyz",
 		"input": [{"role":"user","content":"hi"}]
 	}`)
 

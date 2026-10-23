@@ -310,6 +310,56 @@ func matchesKnownZhipuNonAPIKeyDifference(tc routingMatrixCase, want, got routin
 		reflect.DeepEqual(got, routingObservation{Error: "account 801 missing api_key", Status: http.StatusOK})
 }
 
+// matchesKnownOfficialHostFallbackRefusal 记录一个已审查的差异：省略 base_url
+// 的 OpenAI / Grok API Key 以前会把凭据发到 api.openai.com（录制结果是 502）。
+// 现在在出站前拒绝这次回退。只接受「旧观测确有官方主机请求、新观测没有上游请求」
+// 这一种前后对。
+func matchesKnownOfficialHostFallbackRefusal(tc routingMatrixCase, want, got routingObservation) bool {
+	if tc.accountType != AccountTypeAPIKey || (tc.platform != PlatformOpenAI && tc.platform != PlatformGrok) {
+		return false
+	}
+	if len(got.Requests) != 0 || got.Status != http.StatusOK || len(want.Requests) != 1 {
+		return false
+	}
+	if !strings.Contains(want.Requests[0].URL, "://api.openai.com/") || want.Error != "upstream error: 502 (failover)" {
+		return false
+	}
+	switch got.Error {
+	case ErrForeignCredentialOfficialOpenAIFallback.Error(),
+		"build upstream request: " + ErrForeignCredentialOfficialOpenAIFallback.Error():
+		return tc.platform == PlatformOpenAI
+	default:
+		return false
+	}
+}
+
+// matchesKnownGrokMessagesRelayDifference 记录 Grok API Key 的 /v1/messages 差异。
+// 省略 base_url 不再回退 api.x.ai，而是 missing base_url。Responses 探针为否时，
+// 有 base_url 的账号改走 Chat Completions（凭据里的 api_key 可用），不再报
+// missing api_key。
+func matchesKnownGrokMessagesRelayDifference(tc routingMatrixCase, want, got routingObservation) bool {
+	if tc.platform != PlatformGrok || tc.accountType != AccountTypeAPIKey || tc.ingress.name != "messages" || got.Status != http.StatusOK {
+		return false
+	}
+	if want.Error == "upstream error: 502 (failover)" && len(want.Requests) == 1 &&
+		strings.Contains(want.Requests[0].URL, "://api.x.ai/") && len(got.Requests) == 0 &&
+		got.Error == "grok relay account 801 missing base_url" {
+		return true
+	}
+	if tc.probe != "no" || want.Error != "account 801 missing api_key" || len(want.Requests) != 0 {
+		return false
+	}
+	if len(got.Requests) == 0 {
+		return got.Error == ErrForeignCredentialOfficialOpenAIFallback.Error() ||
+			got.Error == "build upstream request: "+ErrForeignCredentialOfficialOpenAIFallback.Error() ||
+			got.Error == "grok relay account 801 missing base_url"
+	}
+	if len(got.Requests) != 1 || got.Error != "upstream error: 502 (failover)" {
+		return false
+	}
+	return strings.Contains(got.Requests[0].URL, "/chat/completions")
+}
+
 func TestUpstreamProtocolRoutingMatrixMatchesMainGolden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	data, err := os.ReadFile(routingMatrixGoldenPath)
@@ -325,6 +375,8 @@ func TestUpstreamProtocolRoutingMatrixMatchesMainGolden(t *testing.T) {
 	var differences []string
 	mismatched := 0
 	knownDifferences := 0
+	knownFallbackRefusals := 0
+	knownGrokMessages := 0
 	for i, tc := range cases {
 		index := golden.Results[i]
 		require.GreaterOrEqual(t, index, 0)
@@ -338,6 +390,14 @@ func TestUpstreamProtocolRoutingMatrixMatchesMainGolden(t *testing.T) {
 			knownDifferences++
 			continue
 		}
+		if matchesKnownOfficialHostFallbackRefusal(tc, want, got) {
+			knownFallbackRefusals++
+			continue
+		}
+		if matchesKnownGrokMessagesRelayDifference(tc, want, got) {
+			knownGrokMessages++
+			continue
+		}
 		mismatched++
 		if len(differences) < 12 {
 			differences = append(differences, fmt.Sprintf("%s\nmain: %s\ncurrent: %s", tc.key(), want, got))
@@ -347,4 +407,9 @@ func TestUpstreamProtocolRoutingMatrixMatchesMainGolden(t *testing.T) {
 	// 2 account types × 4 modes × 3 probe states × 4 address configurations ×
 	// 2 model spellings. A disappeared or expanded exception requires review.
 	require.Equal(t, 192, knownDifferences, "unexpected change to the declared Zhipu non-API-Key difference")
+	// OpenAI API Key 且凭证没有 base_url（addresses=none 与 split）：
+	// 6 协议 × 3 探针 × 2 模型拼写 × 4 个入站入口 × 2 种地址。
+	require.Equal(t, 288, knownFallbackRefusals, "unexpected change to the omitted OpenAI base_url refusal")
+	// Grok /v1/messages：省略 base_url 不再打 api.x.ai，探针为否时改走 Chat Completions。
+	require.Equal(t, 96, knownGrokMessages, "unexpected change to the Grok messages relay difference")
 }

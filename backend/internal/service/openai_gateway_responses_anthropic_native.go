@@ -56,8 +56,8 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return nil, fmt.Errorf("parse responses request: %w", err)
 	}
-	originalModel := responsesReq.Model
-	if strings.TrimSpace(originalModel) == "" {
+	originalModel := strings.TrimSpace(responsesReq.Model)
+	if originalModel == "" {
 		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return nil, fmt.Errorf("missing model in request")
 	}
