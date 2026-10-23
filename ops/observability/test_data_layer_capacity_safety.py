@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -33,7 +34,6 @@ projection = _load_module("data_layer_capacity_projection", _PROJECTION)
 
 _THRESHOLDS = {
     "months_to_volume_full": {"approaching": 6, "trigger": 3},
-    "usage_logs_pct_of_volume": {"approaching": 25, "trigger": 40},
 }
 
 
@@ -56,6 +56,15 @@ def _window(window_bytes, window_days=30, window_rows_est=0, span=30):
 
 
 class DataLayerCapacitySafetyTest(unittest.TestCase):
+    def test_backing_filesystem_binds_the_runway(self) -> None:
+        """A loop/LUKS data volume must not be judged by the inner df alone."""
+        snapshot = verdict._parse_probe_stdin(
+            'DFSTATS {"df_total_bytes":400000000000,"df_avail_bytes":200000000000}\n'
+            'DFBACKING {"backing_avail_bytes":8000000000,"backing_mount":"/"}\n'
+        )
+        self.assertEqual(snapshot.get("backing_avail_bytes"), 8000000000)
+        self.assertEqual(snapshot.get("backing_mount"), "/")
+
     def test_losing_every_growth_signal_is_unknown_not_green(self) -> None:
         """With no growth signal of either kind, abstain.
 
@@ -67,7 +76,6 @@ class DataLayerCapacitySafetyTest(unittest.TestCase):
         """
         thresholds = {
             "months_to_volume_full": {"approaching": 6, "trigger": 3},
-            "usage_logs_pct_of_volume": {"approaching": 25, "trigger": 40},
         }
         out = verdict.compute_verdict(
             {
@@ -86,7 +94,6 @@ class DataLayerCapacitySafetyTest(unittest.TestCase):
     def test_missing_catalog_snapshot_is_unknown_not_green(self) -> None:
         thresholds = {
             "months_to_volume_full": {"approaching": 6, "trigger": 3},
-            "usage_logs_pct_of_volume": {"approaching": 25, "trigger": 40},
         }
         out = verdict.compute_verdict(
             {

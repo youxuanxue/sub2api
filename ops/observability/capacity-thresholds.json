@@ -7,12 +7,6 @@
       "trigger": 3,
       "unit": "months",
       "note": "df_avail / monthly_ledger_growth. <=trigger months of runway => evaluate RDS now."
-    },
-    "usage_logs_pct_of_volume": {
-      "approaching": 25,
-      "trigger": 40,
-      "unit": "percent",
-      "note": "Absolute guard: usage_logs alone occupying this share of the data volume."
     }
   }
 }

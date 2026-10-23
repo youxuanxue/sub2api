@@ -30,6 +30,7 @@
 # falls in it -- a CATALOG read, which travels with the data files and is
 # therefore immune to restores. The two `rows` terms always cancelled.
 #   DFSTATS {"df_total_bytes":..,"df_used_bytes":..,"df_avail_bytes":..,"df_mount":".."}
+#   DFBACKING {"backing_file":..,"backing_total_bytes":..,"backing_avail_bytes":..,"backing_mount":".."}
 #
 # Determinism contract (dev-rules-convention.mdc §"skill / command 确定性基线"):
 #   field names embedded next to values (row_to_json); no positional parsing.
@@ -198,3 +199,45 @@ echo "=== DFSTATS (data volume) ==="
 df -P -B1 "${DATA_DIR}" 2>/dev/null | awk 'NR==2 {
   printf "DFSTATS {\"df_total_bytes\":%s,\"df_used_bytes\":%s,\"df_avail_bytes\":%s,\"df_mount\":\"%s\"}\n", $2, $3, $4, $6
 }'
+
+echo "=== DFBACKING (filesystem holding the data volume's backing file) ==="
+# The data volume can be a FILE on another filesystem, not a raw partition. On
+# live prod it is a LUKS2 container: /var/lib/tokenkey is
+# /dev/mapper/tokenkey_recovery -> loop0 -> a sparse 81GiB file under
+# /var/lib/tokenkey-validation, which sits on the ROOT filesystem.
+#
+# df then lies in two layers at once, and the INNER one is the optimistic liar:
+# measured 2026-10-23, inner reported 79GiB total / 53GiB avail while root had
+# only 28GiB avail. Writing past that 28GiB fails with ENOSPC while the inner df
+# still advertises free space, so a runway computed from the inner number is
+# roughly 2x too long. The verdict takes the MINIMUM of the two layers, so the
+# binding constraint wins wherever it sits.
+#
+# Resolved via the loop backing file, never by parsing paths: a host whose data
+# dir is a raw partition has no loop device and emits nulls, which the verdict
+# reads as "no outer layer" rather than as a probe failure.
+#
+# sudo -n (non-interactive), not bare sudo: this is the first sudo in this probe
+# and cn-prod's SSM host usually has none (see probe-cn-prod-single-account-ladder.sh).
+# Bare sudo would block waiting for a password on a TTY-less SSM/SSH channel;
+# -n fails immediately and we emit nulls.
+_tk_src="$(df -P "${DATA_DIR}" 2>/dev/null | awk 'NR==2 {print $1}')"
+_tk_backing=""
+if [ -n "${_tk_src:-}" ]; then
+  _tk_backing="$(sudo -n losetup -nO BACK-FILE,NAME 2>/dev/null | awk -v s="$_tk_src" '$2 == s {print $1; exit}')"
+  if [ -z "${_tk_backing:-}" ]; then
+    # dm target (LUKS/LVM): resolve its dependency to a loop device, then that
+    # loop device's backing file.
+    for _tk_dep in $(sudo -n dmsetup deps -o devname "$(basename "$_tk_src")" 2>/dev/null | tr ' ()' '\n' | grep -E '^loop[0-9]+$'); do
+      _tk_backing="$(sudo -n losetup -nO BACK-FILE "/dev/$_tk_dep" 2>/dev/null | head -1)"
+      [ -n "${_tk_backing:-}" ] && break
+    done
+  fi
+fi
+if [ -n "${_tk_backing:-}" ] && sudo -n test -e "$_tk_backing"; then
+  df -P -B1 "$(dirname "$_tk_backing")" 2>/dev/null | awk -v bf="$_tk_backing" 'NR==2 {
+    printf "DFBACKING {\"backing_file\":\"%s\",\"backing_total_bytes\":%s,\"backing_avail_bytes\":%s,\"backing_mount\":\"%s\"}\n", bf, $2, $4, $6
+  }'
+else
+  printf '%s\n' 'DFBACKING {"backing_file":null,"backing_total_bytes":null,"backing_avail_bytes":null,"backing_mount":null}'
+fi
