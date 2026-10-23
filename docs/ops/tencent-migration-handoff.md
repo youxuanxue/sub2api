@@ -5,7 +5,7 @@
 ## 1. 接手先读（当前态）
 
 - 现网入口与坐标唯一来源：[舰队入口](../../deploy/hetzner/README.md)。切流回执：[tencent-cutover-20261022.json](reports/tencent-cutover-20261022.json)。清单：[tencent-cutover-checklist.md](tencent-cutover-checklist.md)。
-- **禁止把 Tokyo 最终快照或历史链恢复成写库、禁止双写。** Tokyo 已删除，见 [退役 runbook](tokyo-retirement-runbook.md)。
+- **禁止把 Tokyo 历史链恢复成写库、禁止双写。** Tokyo 已删除，见 [退役 runbook](tokyo-retirement-runbook.md)。
 - **禁止拿现网做整机重启试验。** LUKS 自动解锁未验收；重启须人工交付解锁材料（契约：[tencent-unlock-contract.md](tencent-unlock-contract.md)）。
 - 私有 helper/回执在 `~/.local/state/tokenkey-tencent-usw-validation/`（含密钥/密文，**不进 git**）。
 - `resolve_prod_ssm_target.py --target auto` → 腾讯 Hybrid `mi-080ed76dc6d97d8b5`（矩阵 `deployable=true`）。
