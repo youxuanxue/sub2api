@@ -111,7 +111,7 @@ func TestTkServedModelsManifestProjectionsMatchRawOwner(t *testing.T) {
 }
 
 func TestIsNewAPILongTailCatalogVendor(t *testing.T) {
-	for _, v := range []string{"volcengine", "deepseek", "dashscope", "zhipu", "newapi", "wenxin", "qianfan", "baidu"} {
+	for _, v := range []string{"volcengine", "deepseek", "dashscope", "zhipu", "newapi", "wenxin", "qianfan", "baidu", "minimax"} {
 		if !isNewAPILongTailCatalogVendor(v) {
 			t.Fatalf("vendor %q must be newapi long-tail", v)
 		}

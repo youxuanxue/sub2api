@@ -33,8 +33,11 @@ func TestAccountModelMappingPresetIDs_NewAPIMoonshotUsesManifest(t *testing.T) {
 	t.Parallel()
 	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeMoonshot, nil)
 	require.ElementsMatch(t, tkServedModelsManifestPresetIDsByChannelType(newapiconstant.ChannelTypeMoonshot), ids)
-	require.ElementsMatch(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeMoonshot), recommendedModelIDsForTest(ids),
-		"public recommendations exclude announced withdrawals while provisioning retains identities")
+	display := NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeMoonshot)
+	require.ElementsMatch(t, tkServedModelsManifestDisplayPresetIDsByChannelType(newapiconstant.ChannelTypeMoonshot), display,
+		"public display follows manifest display∧recommendation; provisioning retains display=false identities")
+	require.Subset(t, recommendedModelIDsForTest(ids), display,
+		"display projection is a subset of recommendation-eligible provisioning ids")
 }
 
 func TestAccountModelMappingPresetIDs_NewAPIDeepSeekUsesManifest(t *testing.T) {
