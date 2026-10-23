@@ -249,7 +249,7 @@ jobs:
           INSTANCE_ID=""
           CONTROL_PLANE_TARGET=""
           if [ "$TARGET_KIND" = "prod" ]; then
-            # Cutover-aware control plane (aws i-* or Hybrid mi-*).
+            # Cutover-aware control plane: live prod is Tencent USW Hybrid mi-* (aws/hetzner fail closed).
             if ! RESOLVED_JSON="$(PROD_SSM_TARGET="${PROD_SSM_TARGET:-auto}" python3 ops/stage0/resolve_prod_ssm_target.py \
               --target "${PROD_SSM_TARGET:-auto}" --stack "$STACK_NAME" --format json 2>>"$STDERR")"; then
               add_finding "resolve_prod_ssm_target" "manual_ops" "error" "Could not resolve prod SSM target" "resolve_prod_ssm_target.py failed for stack $STACK_NAME." "resolve-prod|$STACK_NAME"
@@ -321,8 +321,8 @@ jobs:
             esac
 
             SAFETY_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-safety.sh --with ops/observability/data-layer-partition-coverage.sql --with ops/lib/resolve-app-container.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
-            # Resolve EBS from the actual prod instance; the legacy CFN stack
-            # does not own the fresh host. Hybrid prod has no EBS volume.
+            # Live prod is Hybrid mi-* (no EBS); the EC2 snapshot branch only applies
+            # if an EC2 prod is ever rebuilt.
             if [[ "$INSTANCE_ID" == mi-* ]] || [ "$CONTROL_PLANE_TARGET" = "hetzner" ]; then
               SNAPSHOT_SIGNAL="$(DATA_LAYER_SNAPSHOT_APPLICABLE=false bash ops/observability/data_layer_snapshot_signal.sh unused unused 2>>"$STDERR" || echo '{"latest_snapshot_at":null,"probe_ok":true,"probe_error":null,"applicable":false}')" # preflight-allow: swallow — N/A signal must not fail the run
             else
