@@ -24,6 +24,10 @@
 #     already joined to model, serving account, group/key and a root-cause
 #     sample, so the terminal-impact basics never need a second round-trip
 #     or a manual cross-join.
+#   - last-seen over the last 7 days only. Older activity is null, which the
+#     traffic-zero rule already treats as long-idle. An unbounded per-user
+#     max() is planned as a created_at scan plus a user_id filter on some
+#     daily partitions and reads those partitions in full.
 set -u
 
 USER_IDS_OVERRIDE="${USER_IDS:-}"
@@ -305,12 +309,35 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   ORDER BY created_at DESC LIMIT 12) t;" 2>&1
 
 # ---------------------------------------------------------------------------
-# LAST-SEEN — keep empty windows informative
+# LAST-SEEN — recent enough to judge “just went quiet” vs long-idle.
+# One grouped scan per table, pruned to 7 daily partitions. Do not rewrite
+# this as a correlated max() over all history: on prod that plan scans the
+# created_at index of older partitions once per idle user.
 # ---------------------------------------------------------------------------
 echo
-echo "=== last-seen per user (success + error, any time) ==="
-$PSQL -c "SELECT row_to_json(t) FROM (SELECT
+echo "=== last-seen per user (success + error, last 7 days) ==="
+# PGOPTIONS applies only to this exec, so a bad plan cannot outlive the probe.
+if ! docker exec "$POSTGRES_CONTAINER" env PGOPTIONS='-c statement_timeout=15s' \
+  psql -U tokenkey -d tokenkey -X -A -t -c "SELECT row_to_json(t) FROM (SELECT
   u.id AS user_id,
-  (SELECT max(created_at) AT TIME ZONE 'UTC' FROM usage_logs    WHERE user_id=u.id) AS last_success_utc,
-  (SELECT max(created_at) AT TIME ZONE 'UTC' FROM ops_error_logs WHERE user_id=u.id) AS last_error_utc
-  FROM (SELECT unnest(ARRAY[${IDS}]) AS id) u ORDER BY u.id) t;" 2>&1
+  s.last_success_utc,
+  e.last_error_utc
+  FROM (SELECT unnest(ARRAY[${IDS}]) AS id) u
+  LEFT JOIN (
+    SELECT user_id, max(created_at) AT TIME ZONE 'UTC' AS last_success_utc
+    FROM usage_logs
+    WHERE user_id IN (${IDS})
+      AND created_at >= now() - interval '7 days'
+    GROUP BY user_id
+  ) s ON s.user_id = u.id
+  LEFT JOIN (
+    SELECT user_id, max(created_at) AT TIME ZONE 'UTC' AS last_error_utc
+    FROM ops_error_logs
+    WHERE user_id IN (${IDS})
+      AND created_at >= now() - interval '7 days'
+    GROUP BY user_id
+  ) e ON e.user_id = u.id
+  ORDER BY u.id) t;" 2>&1; then
+  echo "last-seen query failed" >&2
+  exit 1
+fi

@@ -336,6 +336,22 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
         # a bare `AS account_status` alias would read as status-at-failure-time
         self.assertNotRegex(q, r"AS account_status\b")
 
+    def test_last_seen_is_one_grouped_scan_over_seven_days(self) -> None:
+        proc, logged, _exec = self.run_probe(USER_IDS="1,16")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertIn("last 7 days", proc.stdout)
+        seen = [q for q in logged.split("\nSELECT row_to_json") if "AS last_success_utc" in q]
+        self.assertEqual(len(seen), 1, logged)
+        q = seen[0]
+        self.assertIn("AS last_error_utc", q)
+        self.assertEqual(q.count("interval '7 days'"), 2, q)
+        self.assertEqual(q.count("GROUP BY user_id"), 2, q)
+        self.assertNotIn("SET statement_timeout", q)
+        self.assertIn("env PGOPTIONS='-c statement_timeout=15s'", SCRIPT.read_text(encoding="utf-8"))
+        self.assertIn("unnest(ARRAY[1,16])", q)
+        self.assertNotIn("WHERE user_id=u.id", q)
+        self.assertNotIn("WHERE user_id = u.id", q)
+
     def test_trailing_24h_baseline_excludes_current_window(self) -> None:
         proc, logged, _exec = self.run_probe(USER_IDS="1,16", WINDOW_MINUTES="15")
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
