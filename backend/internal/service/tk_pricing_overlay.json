@@ -8569,7 +8569,7 @@
     "mode": "chat",
     "input_cost_per_token": 3e-07,
     "output_cost_per_token": 1.2e-06,
-    "cache_read_input_token_cost": 0,
+    "cache_read_input_token_cost": 6e-08,
     "source": "MiniMax official API list price for minimax-m3 ($0.30/$1.20 per M tokens). Routed via VolcEngine Agent Plan account 88; probe 200 on 2026-07-30. Public vendor is OEM (minimax), not the Volc plan supply channel."
   },
   "moonshot-v1-128k": {
