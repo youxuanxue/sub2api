@@ -10,7 +10,7 @@
 - 私有 helper/回执在 `~/.local/state/tokenkey-tencent-usw-validation/`（含密钥/密文，**不进 git**）。
 - `resolve_prod_ssm_target.py --target auto` → 腾讯 Hybrid `mi-080ed76dc6d97d8b5`（矩阵 `deployable=true`）。
 - GitHub Actions 仓库变量 `PROD_SSM_TARGET` 必须为 `auto`（已从 `aws-fresh` 改回）；钉死旧值会让 deploy/诊断失败关闭。`aws-fresh` 已退役拒绝（2026-10-23）。
-- `PROD_SSM_TARGET=hetzner` 与 `deploy-prod-hetzner-stage0` provision 均失败关闭；Hetzner Cloud 已退役。
+- `PROD_SSM_TARGET=hetzner` 失败关闭；Hetzner prod 供给 workflow 已删除；Hetzner Cloud 已退役。
 - 迁机流程 owner：[pgbackrest-host-migration.md](../../ops/stage0/pgbackrest-host-migration.md)。
 
 ## 2. 现网要点

@@ -45,7 +45,7 @@ SELF_CHECK_EXEMPT = {
     "append_only_guard_sql": "requires a real cutover watermark",
     "dedup_delta_sql": "COPY transport fragment; covered by plan tests",
     "dedup_full_reload_sql": "destructive candidate-only reload fragment",
-    "sequence_guard_sql": "held-candidate full restore validation; real partition fixture in test_tokyo_usage_repair",
+    "sequence_guard_sql": "held-candidate full restore validation; real partition fixture in test_standard_freeze_delta_postgres",
 }
 
 

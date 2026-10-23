@@ -72,7 +72,7 @@ def resolve_prod_identity() -> tuple[str, str]:
     elif mode == "aws":
         outputs = mod.resolve_aws(PROD_STACK)
     elif mode == "hetzner":
-        outputs = mod.resolve_hetzner(mod.DEFAULT_MATRIX)
+        outputs = mod.resolve_hetzner()  # fails: retired
     else:
         fail(f"unsupported prod SSM mode {mode!r} (live prod is Tencent USW via auto)")
     instance_id = str(outputs.get("instance_id") or "")

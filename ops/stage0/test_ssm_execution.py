@@ -58,12 +58,11 @@ class SsmExecutionResolveTest(unittest.TestCase):
     def test_resolve_prod_instance_rejects_retired_hetzner(self) -> None:
         fake = mock.Mock()
         fake.resolve_mode.return_value = "hetzner"
-        fake.DEFAULT_MATRIX = pathlib.Path("/tmp/matrix.json")
         fake.resolve_hetzner.side_effect = SystemExit("retired")
         with mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
             with self.assertRaises(SystemExit):
                 self.mod.resolve_prod_instance()
-        fake.resolve_hetzner.assert_called_once_with(fake.DEFAULT_MATRIX)
+        fake.resolve_hetzner.assert_called_once_with()
 
     def test_resolve_prod_instance_follows_tencent_live_prod(self) -> None:
         fake = mock.Mock()
@@ -115,7 +114,6 @@ class SsmExecutionResolveTest(unittest.TestCase):
                 self.mod.region_for_instance_id("mi-080ed76dc6d97d8b5"),
                 "eu-west-2",
             )
-        fake.load_hetzner_matrix.assert_not_called()
 
     def test_region_for_ec2_pin_is_retired(self) -> None:
         fake = mock.Mock(spec=["TENCENT_USW_MATRIX", "load_tencent_usw_matrix"])
