@@ -17252,6 +17252,75 @@
         "isRetiredOpenAISubscriptionModel(account, resolved)"
       ],
       "rationale": "Compact fallback must not revive retired GPT-5.5 for ChatGPT OAuth or shadow accounts. Both the account compact mapping and the process-wide fallback are rejected before the retired target can be scheduled."
+    },
+    {
+      "path": "backend/internal/service/candidate_selection_tk.go",
+      "must_contain": [
+        "r.accountsCached && r.cachedAccountsKey == key",
+        "concurrency map can mark a freed account full and queue behind it."
+      ],
+      "rationale": "Chat admission may reuse the account list, but the acquiring select must read live concurrency. A stale full bit queues behind an account that has already freed a slot."
+    },
+    {
+      "path": "backend/internal/service/candidate_hotpath_reuse_tk_test.go",
+      "must_contain": [
+        "func TestChatAdmissionReusesSnapshotAndSkipsClaudeDocument(t *testing.T)",
+        "func TestChatSchedulerFullSlotStillReturnsWaitPlan(t *testing.T)",
+        "scheduler select must reuse the admission account list",
+        "the acquiring select reads load again after the admission gap"
+      ],
+      "rationale": "Keep the regression that reuses the account list, rereads load before acquire, still returns WaitPlan when the pool is full, and does not unmarshal chat bodies for Claude Code detection."
+    },
+    {
+      "path": "backend/internal/service/candidate_ingress_tk.go",
+      "must_contain": [
+        "claudeCodeValidationNeedsBody(c.Request)"
+      ],
+      "rationale": "OpenAI chat admission must not decode the whole document for Claude Code validation."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "CanonicalRequestBodyValidated(c.Request.Context(), protocolrouter.ProtocolChatCompletions, body)",
+        "service.ReuseParsedCanonicalRequest("
+      ],
+      "rationale": "Chat completions reuse the admission decode and skip a second full-buffer validity walk only for that same body."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk.go",
+      "must_contain": [
+        "return universalJSONModel(peekBytes)"
+      ],
+      "rationale": "Universal routing reads the model with a top-level peek instead of unmarshalling the message array."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_model_peek_tk_test.go",
+      "must_contain": [
+        "func TestUniversalJSONModelReadsLeadingField(t *testing.T)"
+      ],
+      "rationale": "Keep the leading-field, case-fallback and duplicate-key model peek regression."
+    },
+    {
+      "path": "backend/internal/service/content_moderation.go",
+      "must_contain": [
+        "func (s *ContentModerationService) MayInspectBody(ctx context.Context) bool {"
+      ],
+      "rationale": "Disabled content moderation must be able to report that it will not walk the request body."
+    },
+    {
+      "path": "backend/internal/handler/security_audit_helper.go",
+      "must_contain": [
+        "if !coordinator.MayInspectBody(c.Request.Context()) {"
+      ],
+      "rationale": "The gateway audit helper returns before body inspection only when the coordinator says the body will not be read."
+    },
+    {
+      "path": "backend/internal/service/content_moderation_hotpath_tk_test.go",
+      "must_contain": [
+        "func TestContentModerationOffDoesNotWalkBody(t *testing.T)",
+        "func TestContentModerationKeywordStillBlocks(t *testing.T)"
+      ],
+      "rationale": "Keep both sides of the moderation short-circuit: off does not walk the body, and an enabled keyword rule still blocks."
     }
   ]
 }
