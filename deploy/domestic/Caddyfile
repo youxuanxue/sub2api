@@ -1,4 +1,4 @@
-# cn-prod edge Caddyfile for Tencent Beijing 154.8.214.179.
+# cn-prod Caddyfile for the Beijing app host 154.8.214.179.
 # api.galaxywaveai.com is a second site. It imports tk_upstream and must not
 # add another reverse_proxy: blue/green rewrites that single upstream line.
 # The IP certificate uses Let's Encrypt's shortlived profile. The domain site
@@ -10,12 +10,12 @@
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 }
 
-# One upstream for every public site on this edge. Blue/green rewrites this
+# One upstream for every public site on this host. Blue/green rewrites this
 # reverse_proxy line and both sites follow.
 (tk_upstream) {
 	reverse_proxy tokenkey-blue:8080 {
 		flush_interval -1
-		# Shared by edge and fresh prod bootstrap: /health owns drain/readiness.
+		# /health owns drain/readiness.
 		# No passive cooldown for a single backend: a client upload reset or
 		# business 5xx must not delay unrelated requests (see prod Caddyfile).
 		health_uri /health

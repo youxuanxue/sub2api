@@ -202,8 +202,8 @@ class DomesticBluegreenTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'non-domestic'):
             bg.active_container(both)
 
-    def test_edge_caddyfile_keeps_galaxywave_on_the_shared_upstream(self):
-        caddy = (Path(__file__).resolve().parent / 'edge.Caddyfile').read_text()
+    def test_domestic_caddyfile_keeps_galaxywave_on_the_shared_upstream(self):
+        caddy = (Path(__file__).resolve().parent / 'Caddyfile').read_text()
         self.assertEqual(bg.domestic_site_host(caddy), bg.STATIC_SITE_IP)
         self.assertEqual(bg.active_container(caddy), 'tokenkey-blue')
         bg.galaxywave_api_site_shares_upstream(caddy)

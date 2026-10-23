@@ -28,7 +28,7 @@ ROOT = Path('/opt/tokenkey')
 DATA = Path('/var/lib/tokenkey')
 DOMAIN = 'api-cn.tokenkey.dev'
 STATIC_SITE_IP = '154.8.214.179'
-# Second public name on the Beijing edge. It is not a cutover site label:
+# Second public name on the Beijing app host. It is not a cutover site label:
 # domestic_site_host still sees only DOMAIN or STATIC_SITE_IP.
 GALAXYWAVE_API_HOST = 'api.galaxywaveai.com'
 _SITE_HOSTS = (DOMAIN, STATIC_SITE_IP)
