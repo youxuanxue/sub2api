@@ -1647,29 +1647,45 @@ func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 	resp, err := svc.BuildForUser(context.Background(), 16, MePricingCatalogOptions{})
 	require.NoError(t, err)
 
-	want := supportedCatalogModelIDsForPlatform(PlatformGrok)
-	require.NotEmpty(t, want, "grok served set must be non-empty")
+	// Menu follows public catalog: curated served set ∩ recommendation.
+	want := recommendedModelIDsForTest(supportedCatalogModelIDsForPlatform(PlatformGrok))
+	if want == nil {
+		want = []string{}
+	}
 	sort.Strings(want)
 	assert.Equal(t, want, modelIDsOf(resp.Models),
-		"grok menu must equal the curated grok served set (same source as public catalog)")
+		"grok menu must equal the curated grok served set after recommendation hide")
+	if len(want) == 0 {
+		return
+	}
 
 	byID := map[string]MePricingModel{}
 	for _, m := range resp.Models {
 		byID[m.ModelID] = m
 	}
-	// Catalog-priced model gets its price joined.
-	require.Contains(t, byID, chatIDs[0])
-	require.NotNil(t, byID[chatIDs[0]].YourPrice.InputPer1K)
-	assert.InDelta(t, 0.00125, *byID[chatIDs[0]].YourPrice.InputPer1K, 1e-9)
-	require.Contains(t, byID, chatIDs[1])
-	require.NotNil(t, byID[chatIDs[1]].YourPrice.InputPer1K)
-	assert.InDelta(t, 0.001, *byID[chatIDs[1]].YourPrice.InputPer1K, 1e-9)
-	require.Contains(t, byID, imageID)
-	require.NotNil(t, byID[imageID].YourPrice.PerImage)
-	assert.InDelta(t, 0.02, *byID[imageID].YourPrice.PerImage, 1e-9)
-	require.Contains(t, byID, videoID)
-	require.NotNil(t, byID[videoID].YourPrice.PerSecond)
-	assert.InDelta(t, 0.08, *byID[videoID].YourPrice.PerSecond, 1e-9)
+	// Catalog-priced model gets its price joined (only for still-recommended ids).
+	for _, id := range []string{chatIDs[0], chatIDs[1], imageID, videoID} {
+		if !isCatalogModelRecommended(id) {
+			continue
+		}
+		require.Contains(t, byID, id)
+	}
+	if isCatalogModelRecommended(chatIDs[0]) {
+		require.NotNil(t, byID[chatIDs[0]].YourPrice.InputPer1K)
+		assert.InDelta(t, 0.00125, *byID[chatIDs[0]].YourPrice.InputPer1K, 1e-9)
+	}
+	if isCatalogModelRecommended(chatIDs[1]) {
+		require.NotNil(t, byID[chatIDs[1]].YourPrice.InputPer1K)
+		assert.InDelta(t, 0.001, *byID[chatIDs[1]].YourPrice.InputPer1K, 1e-9)
+	}
+	if isCatalogModelRecommended(imageID) {
+		require.NotNil(t, byID[imageID].YourPrice.PerImage)
+		assert.InDelta(t, 0.02, *byID[imageID].YourPrice.PerImage, 1e-9)
+	}
+	if isCatalogModelRecommended(videoID) {
+		require.NotNil(t, byID[videoID].YourPrice.PerSecond)
+		assert.InDelta(t, 0.08, *byID[videoID].YourPrice.PerSecond, 1e-9)
+	}
 }
 
 // TestBuildForUser_ChannelsErrorDoesNotKillFallback documents the

@@ -326,8 +326,18 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 		filteredByID[m.ModelID] = m
 	}
 	require.Contains(t, filteredByID, "veo-3.1-generate-001", "paid-gate-proven Veo must remain in public pricing")
-	require.Contains(t, filteredByID, "grok-imagine-image", "paid-gate-proven Grok image must remain in public pricing")
-	require.Contains(t, filteredByID, "grok-imagine-video", "paid-gate-proven Grok video must remain in public pricing")
+	if isCatalogModelRecommended("grok-imagine-image") {
+		require.Contains(t, filteredByID, "grok-imagine-image", "paid-gate-proven Grok image must remain in public pricing")
+	} else {
+		require.NotContains(t, filteredByID, "grok-imagine-image",
+			"operator recommendation hide removes unschedulable Grok from public pricing")
+	}
+	if isCatalogModelRecommended("grok-imagine-video") {
+		require.Contains(t, filteredByID, "grok-imagine-video", "paid-gate-proven Grok video must remain in public pricing")
+	} else {
+		require.NotContains(t, filteredByID, "grok-imagine-video",
+			"operator recommendation hide removes unschedulable Grok from public pricing")
+	}
 	require.Contains(t, filteredByID, "claude-opus-5", "Kiro-proven Opus 5 must remain in public pricing")
 
 	// Complete registry: a model present in both sources keeps the REGISTRY price.
