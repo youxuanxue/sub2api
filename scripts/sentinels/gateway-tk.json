@@ -12085,6 +12085,17 @@
       "rationale": "Focused regressions prove a higher-priority unrelated newapi account cannot steal a native Gemini Universal request from a lower-priority Vertex ch41 service account, and an all-invalid pool terminates as no available accounts without handler retry loops."
     },
     {
+      "path": "backend/internal/service/gemini_compat_thinking.go",
+      "must_contain": [
+        "var geminiModelThinkingLevels = map[string][]string{",
+        "\"gemini-3.8-flash\":      {\"low\", \"medium\", \"high\"},",
+        "\"gemini-4-argon\":        {\"low\", \"medium\", \"high\"},",
+        "var geminiUnverifiedThinkingLevels = []string{\"low\", \"high\"}",
+        "func geminiModelSupportsThinkingLevel(model, level string) bool"
+      ],
+      "rationale": "Thinking-level support is a per-model FACT from Google's official docs, not something to infer from the model name. Upstream decides it with strings.Contains(name, \"flash\") plus a gemini-3.1-pro prefix allowlist, and both are wrong: gemini-3.8-flash contains \"flash\" but has no minimal tier (only low/medium/high, default medium), and gemini-4-argon matches neither test, so its medium was being promoted to high even though the docs list argon as supporting medium by default -- the caller could not buy the cheaper tier it asked for and burned high-tier compute. An upstream merge that restores the name-based inference reinstates both. The explicit table is also the part that must not silently gain a model: geminiUnverifiedThinkingLevels deliberately omits medium so an unverified model promotes medium->high (sending a tier the model does not support is rejected upstream; promoting one tier just costs more), and moving a model into the table is a claim that its official tier list was checked. Verified 2026-10-23 against ai.google.dev/gemini-api/docs/thinking, which also states Gemini 3+ has no disable-thinking parameter at all -- the lowest supported tier is the floor."
+    },
+    {
       "path": "backend/internal/service/vertex_service_account.go",
       "must_contain": [
         "func vertexModelUsesGlobalLocation(model string) bool",

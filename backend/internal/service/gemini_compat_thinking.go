@@ -117,9 +117,62 @@ func claudeRequestEnablesThinking(claudeBody []byte) bool {
 	}
 }
 
+// geminiModelThinkingLevels 按官方文档记录各模型支持的 thinkingLevel。
+//
+// 原先的判据是 strings.Contains(name, "flash") 放行 minimal、再用一个
+// gemini-3.1-pro 前缀白名单放行 medium，两条都与官方不符：
+//   - gemini-3.8-flash 名字里有 flash，但官方档位表里它没有 minimal（只有
+//     low/medium/high，默认 medium）；
+//   - gemini-4-argon 既不含 flash 也不匹配那个前缀，于是 medium 被升成 high，
+//     而官方说 argon 支持 medium 且默认就是 medium —— 用户要便宜档位买不到，
+//     实际消耗 high 算力。
+//
+// 更要紧的是那种推断每出一个新模型就要手工加一次，漏加就默认升档。这里改成
+// 显式表：未列出的模型按 Gemini 3+ 的通例（low/medium/high，无 minimal）。
+var geminiModelThinkingLevels = map[string][]string{
+	"gemini-3.8-flash":      {"low", "medium", "high"},
+	"gemini-4-argon":        {"low", "medium", "high"},
+	"gemini-3.7-flash":      {"minimal", "low", "medium", "high"},
+	"gemini-3.6-flash":      {"minimal", "low", "medium", "high"},
+	"gemini-3.5-flash-lite": {"minimal", "low", "medium", "high"},
+	"gemini-3.1-flash-lite": {"minimal", "low", "medium", "high"},
+	"gemini-3.1-pro":        {"low", "medium", "high"},
+}
+
+// geminiUnverifiedThinkingLevels 是未列入上表的模型的保守假设：只认 low 和
+// high 两档。
+//
+// 这里刻意不假定 medium 可用。上表的每一条都对着官方档位文档核过，而没核过的
+// 模型只能保守对待 —— 旧实现把未验证模型的 medium 升到 high（测试
+// "medium outside verified models becomes high" 刻意钉住了这个行为），方向是对的：
+// 发一个模型不支持的档位会被上游拒，而升一档只是贵一点。沿用它。
+var geminiUnverifiedThinkingLevels = []string{"low", "high"}
+
+func geminiThinkingLevelsFor(model string) []string {
+	name := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "models/")
+	if levels, ok := geminiModelThinkingLevels[name]; ok {
+		return levels
+	}
+	// 带档位后缀的 wire ID（如 gemini-3.8-flash-high）按其基名判定。
+	for base, levels := range geminiModelThinkingLevels {
+		if strings.HasPrefix(name, base+"-") {
+			return levels
+		}
+	}
+	return geminiUnverifiedThinkingLevels
+}
+
+func geminiModelSupportsThinkingLevel(model, level string) bool {
+	for _, l := range geminiThinkingLevelsFor(model) {
+		if l == level {
+			return true
+		}
+	}
+	return false
+}
+
 // geminiThinkingLevelFor 把思考意图映射为 thinkingLevel；返回空串表示交给模型默认档位。
-// minimal 只发给 flash 系列，其余模型用 low；medium 只发给 flash 系列与 Gemini 3.1 Pro，
-// 其余模型用 high（Gemini 3 及以上未指定档位时的默认档位）。
+// 不支持的档位按「向上取最近的受支持档位」降级，避免把请求发成上游会拒的形态。
 func geminiThinkingLevelFor(model string, intent claudeThinkingIntent) string {
 	tier := intent.tier
 	if tier == "" && intent.budgetTokens > 0 {
@@ -132,13 +185,25 @@ func geminiThinkingLevelFor(model string, intent claudeThinkingIntent) string {
 			tier = "high"
 		}
 	}
-	name := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "models/")
-	isFlash := strings.Contains(name, "flash")
-	if tier == "minimal" && !isFlash {
-		tier = "low"
+	if tier == "" {
+		return ""
 	}
-	if tier == "medium" && !isFlash && !strings.HasPrefix(name, "gemini-3.1-pro") {
-		tier = "high"
+	if geminiModelSupportsThinkingLevel(model, tier) {
+		return tier
+	}
+	// 向上取最近的受支持档位：minimal -> low -> medium -> high。
+	ladder := []string{"minimal", "low", "medium", "high"}
+	start := 0
+	for i, l := range ladder {
+		if l == tier {
+			start = i
+			break
+		}
+	}
+	for _, l := range ladder[start+1:] {
+		if geminiModelSupportsThinkingLevel(model, l) {
+			return l
+		}
 	}
 	return tier
 }
