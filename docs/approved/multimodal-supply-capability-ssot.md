@@ -6,7 +6,7 @@ approved_at: 2026-10-08
 created: 2026-10-08
 authors: [auto]
 risk: high
-revision_note: "v1.5: feng 2026-10-16 会话批准 Volc Agent Plan × kimi-k3 原生音频限制；复用共享能力门。v1.4: feng 2026-10-15 会话批准 Ali Token Plan × glm-5.3 图片限制；双账号双协议实测修正旧图片支持结论，保留文本及视频原策略。"
+revision_note: "v1.6: feng 2026-10-23 会话批准 DashScope 按量 × kimi-k3 / deepseek-v4.1-flash 视频限制；图片与其它模型不上表。v1.5: feng 2026-10-16 会话批准 Volc Agent Plan × kimi-k3 原生音频限制；复用共享能力门。v1.4: feng 2026-10-15 会话批准 Ali Token Plan × glm-5.3 图片限制；双账号双协议实测修正旧图片支持结论，保留文本及视频原策略。"
 ---
 
 # Multimodal supply capability SSOT
@@ -30,6 +30,8 @@ revision_note: "v1.5: feng 2026-10-16 会话批准 Volc Agent Plan × kimi-k3 �
    | 模型 | 模态 | 供应指纹 | 证据摘要 |
    | --- | --- | --- | --- |
    | `kimi-k3` | video | NVIDIA Build | `At most 0 video(s)` |
+   | `kimi-k3` | video | DashScope 按量（`dashscope.aliyuncs.com`） | 2026-10-23 cn-prod #135：`Video inputs are not supported by this model`；image 可 |
+   | `deepseek-v4.1-flash` | video | DashScope 按量（`dashscope.aliyuncs.com`） | 2026-10-23 cn-prod #135：`The current model does not support video input`；image 可；不含 `deepseek-flash` 别名 |
    | `kimi-k3` | audio | Volc Agent Plan | 2026-10-16 cn-prod 两账号返回 `audio input is not supported by this model`，见下方证据 |
    | `glm-5.3-flash` | video | NVIDIA Build | `At most 0 video(s)` |
    | `glm-4.5-air` / `glm-5.2` / `glm-5.3` | video + image | Volc Agent Plan | `Model only support text input` |
@@ -41,7 +43,7 @@ revision_note: "v1.5: feng 2026-10-16 会话批准 Volc Agent Plan × kimi-k3 �
    | *（供应级）* | video | OpenAI OAuth / SetupToken | Responses `Invalid value: 'input_video'`（image 普遍可） |
    | `gpt-5.3-codex-spark` | image | OpenAI OAuth / SetupToken | `does not support image input` |
 
-   对照允许（不上负表）：`kimi-k3` video/image 在 Volc；`glm-5.3-flash` video/image 在 Volc；`glm-5.2` video/image 在 Ali（历史记录）；`glm-5.3` video 在 Ali 未因本次图片证据改变策略，旧 image 支持结论已由下方实测推翻；`gpt-5.5+` video 在 tokensea；kimi-k3 image 在 NVIDIA；**Anthropic/Kiro** image+video 全系 gateway servable（无硬拒）；Ali 多数 `qwen*` video「does not meet the requirements」按素材问题处理。Gemini Web edge 探针组报 Unsupported model、Antigravity 多为 429 capacity——**不上** modality known-negative。
+   对照允许（不上负表）：`kimi-k3` video/image 在 Volc；`kimi-k3` image 与 `deepseek-v4.1-flash` image 在 DashScope 按量；`glm-5.3-flash` video/image 在 Volc；`glm-5.2` video/image 在 Ali（历史记录）；`glm-5.3` video 在 Ali 未因本次图片证据改变策略，旧 image 支持结论已由下方实测推翻；`gpt-5.5+` video 在 tokensea；kimi-k3 image 在 NVIDIA；**Anthropic/Kiro** image+video 全系 gateway servable（无硬拒）；Ali 多数 `qwen*` video「does not meet the requirements」按素材问题处理。2026-10-23 DashScope 按量上 `deepseek-v4-pro` / `glm-5.3` 返回 200 但未看见图片或视频，`glm-5.3-flash` 为 `access_denied`，都不上表。Gemini Web edge 探针组报 Unsupported model、Antigravity 多为 429 capacity——**不上** modality known-negative。
 3. **准入**：`candidateSupportsRequest` 内与其它准入谓词求交（可在 Plan 前短路）；命中 known-negative → 该账号不是候选。
 4. **未知供应**：不在表内 → **仍准入**（LiteLLM 保守策略），待探针升级为已知。不把 v1 做成 known-positive 全表。
 
@@ -114,6 +116,24 @@ cn-prod 两条真实 `POST /v1/chat/completions` 请求均被上游以 HTTP 400 
 验收：`TestVolcKimiAudioCandidateAdmission` 覆盖 Chat/Responses、Direct 谓词、Universal 空池与替代供应、文本/图片/视频回归；`TestVolcKimiAudioDirectEmptyPoolNamesActualRejection` 覆盖真实 Direct scheduler 的纯音频与视频＋音频；handler selection-failure 测试覆盖 audio 400 文案。
 
 Moonshot 文档核对（2026-10-16）：[官方 Chat API](https://platform.kimi.com/docs/api/chat) 的内容类型枚举仅 `text`、`image_url`、`video_url`，未提供 `input_audio`；[K3 指南](https://platform.kimi.com/docs/guide/kimi-k3-quickstart) 声明原生视觉能力。本轮没有 Moonshot 直连实测，不将文档范围外的音频能力视为可用，也不借火山证据扩写 Moonshot 的运行时负表。
+
+## DashScope 按量视频证据更新（2026-10-23）
+
+批准：feng 在查看以下直连实测后回复「请继续」。范围仅百炼按量 host `dashscope.aliyuncs.com` × `kimi-k3`、`deepseek-v4.1-flash` × 输入视频。复用现有能力门，不改 `protocolrouter.Plan`，不把结论扩到阿里 Token Plan、`deepseek-flash` 别名或其它模型。图片继续准入。
+
+2026-10-23 22:46 北京时间，从 cn-prod 运维机直连 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`，绕过网关。账号 #135 只作证据锚点，策略按 host 识别。素材为 64×64 纯红 PNG 与 1 秒纯红 H.264 data URI，提示词不包含颜色词。SSM command `6260717e-0ed5-44be-b8ba-fe6b583d6352`。
+
+| 模型 | 图片 | 视频 |
+| --- | --- | --- |
+| `kimi-k3` | 200，回答 Red | 400，`Video inputs are not supported by this model` |
+| `deepseek-v4.1-flash` | 200，回答 Red | 400，`The current model does not support video input` |
+| `deepseek-v4-pro` | 200，未看到图片 | 200，未看到视频 |
+| `glm-5.3` | 200，未看到图片 | 200，未看到视频 |
+| `glm-5.3-flash` | 400，`access_denied` | 400，`access_denied` |
+
+后三行不写入负表。`access_denied` 与同账号文本请求一致，不是模态限制。HTTP 200 且未识图也不是硬拒绝。
+
+验收：`TestSupplyKnownNegativeDashScopeVideo` 覆盖两条视频负例、图片仍准入、Token Plan / Volc 不继承、host 伪装不命中，以及 `deepseek-flash` 不扩到 DashScope。`TestDashScopeVideoCandidateAdmission` 覆盖仅 DashScope 时视频空池 400、图片仍选中该账号、混有 Volc 时视频落到 Volc。
 
 ## 与 Plan 的分工
 
