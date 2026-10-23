@@ -367,3 +367,33 @@ func TestGeminiMessagesForward_SignatureRetryKeepsClientThinkingParams(t *testin
 	}
 	require.Equal(t, "low", optionalStringValue(result.ReasoningEffort))
 }
+
+// 档位映射按官方文档，不靠模型名推断。两条旧判据与官方相反：
+// Contains("flash") 放行 minimal（3.8-flash 官方没有 minimal）、medium 白名单
+// 只有 gemini-3.1-pro（漏了 4-argon，于是 argon 的 medium 被升成 high）。
+func TestGeminiThinkingLevelFollowsOfficialSupport(t *testing.T) {
+	t.Parallel()
+	intent := func(tier string) claudeThinkingIntent { return claudeThinkingIntent{tier: tier} }
+
+	// 3.8-flash 官方只有 low/medium/high：minimal 要降级到 low，不能照发。
+	require.Equal(t, "low", geminiThinkingLevelFor("gemini-3.8-flash", intent("minimal")))
+	require.Equal(t, "medium", geminiThinkingLevelFor("gemini-3.8-flash", intent("medium")))
+
+	// 4-argon 官方支持 medium 且默认就是 medium —— 不得再升成 high。
+	require.Equal(t, "medium", geminiThinkingLevelFor("gemini-4-argon", intent("medium")))
+	require.Equal(t, "low", geminiThinkingLevelFor("gemini-4-argon", intent("minimal")))
+
+	// 官方支持 minimal 的仍然照发。
+	require.Equal(t, "minimal", geminiThinkingLevelFor("gemini-3.7-flash", intent("minimal")))
+	require.Equal(t, "minimal", geminiThinkingLevelFor("gemini-3.5-flash-lite", intent("minimal")))
+
+	// 带档位后缀的 wire ID 按基名判定。
+	require.Equal(t, "low", geminiThinkingLevelFor("gemini-3.8-flash-high", intent("minimal")))
+
+	// 未列出的模型按 Gemini 3+ 通例（无 minimal）。
+	require.Equal(t, "low", geminiThinkingLevelFor("gemini-9-unknown", intent("minimal")))
+	require.Equal(t, "medium", geminiThinkingLevelFor("gemini-9-unknown", intent("medium")))
+
+	// 空意图仍交给模型默认档位。
+	require.Equal(t, "", geminiThinkingLevelFor("gemini-3.8-flash", claudeThinkingIntent{}))
+}
