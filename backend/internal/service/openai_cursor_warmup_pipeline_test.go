@@ -163,6 +163,11 @@ func TestCursorMixedShape_JSONRoundtrip(t *testing.T) {
 // "Unsupported parameter: ...". The fix must remove them from the raw body
 // before it is forwarded, for BOTH OAuth and API Key account types.
 func TestCursorMixedShape_StripsUnsupportedFields(t *testing.T) {
+	// Top-level `user` is part of TokenKey's stricter strip list (see
+	// responsesShapeUnsupportedFields / upstream Wei-Shaw/sub2api#1264): a
+	// Responses-shape body POSTed to /v1/chat/completions can carry it, and the
+	// Responses upstream rejects it. It must stay in this fixture so the sanity
+	// loop below keeps covering every field the production code strips.
 	cursorBody := []byte(`{
 		"model": "gpt-5.4",
 		"stream": true,
@@ -170,6 +175,7 @@ func TestCursorMixedShape_StripsUnsupportedFields(t *testing.T) {
 		"safety_identifier": "cursor-user-xyz",
 		"metadata": {"trace_id":"abc","caller":"cursor"},
 		"stream_options": {"include_usage": true},
+		"user": "cursor-end-user-1",
 		"input": [{"role":"user","content":"hi"}]
 	}`)
 

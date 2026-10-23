@@ -16,6 +16,14 @@ const openAIWebSearchHistoryCompactionBody = `{"model":"gpt-5.5","instructions":
 
 func TestOAuthWebSearchHistoryToolAcrossPaths(t *testing.T) {
 	oauth := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	// The transform path does not repair search history itself: Forward runs the
+	// TokenKey owner (normalizeOpenAIOAuthWebSearchHistory) on the serialized
+	// body after applyCodexOAuthTransform and every request-map rebuild, so the
+	// repair sees the final replayed history exactly once. Calling the transform
+	// here instead would assert against a helper no production path reaches, and
+	// wiring the repair into the transform as well double-injects the tool (see
+	// TestUS067_ForwardPreservesActiveTools). /responses/compact keeps its own
+	// wire shape and is skipped by that same owner.
 	transform := func(compact bool) func([]byte) ([]byte, bool, error) {
 		return func(b []byte) ([]byte, bool, error) {
 			var req map[string]any
@@ -24,7 +32,11 @@ func TestOAuthWebSearchHistoryToolAcrossPaths(t *testing.T) {
 			}
 			result := applyCodexOAuthTransform(req, true, compact)
 			out, err := json.Marshal(req)
-			return out, result.Modified, err
+			if err != nil || compact {
+				return out, result.Modified, err
+			}
+			repaired, changed, err := normalizeOpenAIOAuthWebSearchHistory(out, false)
+			return repaired, result.Modified || changed, err
 		}
 	}
 	tests := []struct {
