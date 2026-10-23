@@ -10128,12 +10128,12 @@
     {
       "path": "backend/internal/service/account_model_mapping_runtime_serving_tk.go",
       "must_contain": [
-        "func antigravityEffectiveDefaultModelMapping()",
+        "func antigravityEffectiveDefaultModelMapping()", "for wireID, target := range domain.AntigravityThinkingWireFloorEntries()",
         "func overlayAntigravityDefaultModelMapping(",
         "func reloadAccountModelMappingRuntimeServing(",
         "func subscribeAccountModelMappingRuntimeServing("
       ],
-      "rationale": "Empty-mapping Antigravity serving must overlay tk_account_model_mapping_runtime onto compiled DefaultAntigravityModelMapping."
+      "rationale": "2026-10-23: ensureAntigravityDefaultPassthroughs injects ONLY the thinking-tier wires (-low/-medium/-high), never a bare-name self-mapping (result[base] = base). Upstream injects the bare name too, for upgrade compatibility; TK does not, because AG's catalog has no bare names -- only tier variants -- so a bare-name self-mapping points at an id the upstream does not serve and is itself a 404 source. It also contradicts DefaultAntigravityModelMapping, which locks bare names to -high: two conflicting truths. Measured on live prod, its only net effect was resurrecting the retired gemini-3.6-flash into the client-visible list. TK reconciles account mappings to disk instead (all 26 AG accounts already carry the explicit bare -> -high keys), so the upstream problem does not exist here. If an upstream merge reinstates the bare-name loop, the retired-model resurrection comes back with it. Empty-mapping Antigravity serving must overlay tk_account_model_mapping_runtime onto compiled DefaultAntigravityModelMapping."
     },
     {
       "path": "backend/internal/service/wire_tk.go",

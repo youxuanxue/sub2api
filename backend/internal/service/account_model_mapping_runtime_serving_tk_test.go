@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/stretchr/testify/require"
 )
 
 func resetAccountModelMappingRuntimeServingForTest() {
@@ -218,5 +219,38 @@ func TestAntigravityEffectiveDefaultModelMapping_CacheInvalidatesOnRuntimeReload
 	}
 	if !account.IsModelSupported("gemini-9.9-flash") {
 		t.Fatal("same account object must observe the overlay after runtime version bump")
+	}
+}
+
+// 档位 wire 要注入，裸名自映射不要。专家复审指出这项改动原本没有测试保护：
+// 现有两个 Antigravity 测试只断言「不越出 catalog」，删掉裸名注入它们仍然通过。
+func TestAntigravityPassthroughsInjectTierWiresNotBareNames(t *testing.T) {
+	t.Parallel()
+	// 一条显式键即可触发注入（判据是 mapping 里有 gemini-/nano- 前缀键）。
+	got := ensureAntigravityDefaultPassthroughs(map[string]string{
+		"gemini-3.8-flash": "gemini-3.8-flash-high",
+	})
+
+	// 档位 wire 必须在：resolveGeminiThinkingVariantForLevel 要靠它派发档位。
+	for _, wire := range []string{
+		"gemini-3.7-flash-low", "gemini-3.7-flash-medium", "gemini-3.7-flash-high",
+		"gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-high",
+		"gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high",
+	} {
+		require.Equal(t, wire, got[wire], "档位 wire %s 必须被注入", wire)
+	}
+
+	// 裸名自映射不得再被注入。它指向上游目录里不存在的名字（AG 只有档位变体），
+	// 是 404 的来源，且与 DefaultAntigravityModelMapping 的「裸名锁 -high」相反。
+	for _, bare := range []string{"gemini-3.7-flash", "gemini-4-argon"} {
+		require.NotEqual(t, bare, got[bare], "裸名 %s 不得自映射", bare)
+	}
+
+	// 已有的显式键不被覆盖。
+	require.Equal(t, "gemini-3.8-flash-high", got["gemini-3.8-flash"])
+
+	// 已退役的模型不得借注入复活。
+	for _, retired := range []string{"gemini-3.6-flash", "gemini-3.5-flash-lite"} {
+		require.NotContains(t, got, retired, "已退役的 %s 不得出现", retired)
 	}
 }

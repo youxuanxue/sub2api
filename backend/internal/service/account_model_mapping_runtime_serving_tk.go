@@ -41,23 +41,26 @@ func ensureAntigravityDefaultPassthroughs(result map[string]string) map[string]s
 	if len(result) == 0 || !antigravityMappingWantsDefaultPassthroughs(result) {
 		return result
 	}
-	bases := make(map[string]struct{})
+	// 只注入档位 wire（-low/-medium/-high）。这些 ID 上游目录里确实存在，而
+	// resolveGeminiThinkingVariantForLevel 需要在 mapping 里查到 base+"-"+level
+	// 才能按 thinking 档位派发；它们没有定价行，不会上 /v1/models 或定价菜单。
+	//
+	// 2026-10-23 删掉了同时注入的「裸名自映射」（result[base] = base）。上游加
+	// 它是为了升级兼容性：存量 mapping 早于某次模型发布时，裸名不会凭空消失。
+	// 但 TK 走的是对账落盘路线 —— 现网 26 个 Antigravity 账号的 model_mapping
+	// 已经把裸名显式写成 "gemini-3.8-flash": "gemini-3.8-flash-high"，上游要解决
+	// 的「存量账号缺键」在 TK prod 上并不存在。
+	//
+	// 而裸名自映射指向的是上游目录里没有的名字（AG 只有档位变体），本身就是
+	// 404 的来源，并且与 DefaultAntigravityModelMapping 的「裸名锁 -high」约定
+	// 语义相反 —— 两套真相。实测它在现网的净增量只有一条：把已退役的
+	// gemini-3.6-flash 复活回客户可见列表。
+	//
+	// 代价（刻意接受）：以后新模型上线、或从别处导入旧账号时，裸名要靠对账脚本
+	// 或 modelops activation 补齐，不再自动兜住。
 	for wireID, target := range domain.AntigravityThinkingWireFloorEntries() {
 		if _, exists := result[wireID]; !exists {
 			result[wireID] = target
-		}
-		base := wireID
-		for _, suffix := range []string{"-low", "-medium", "-high", "-tiered"} {
-			if strings.HasSuffix(wireID, suffix) {
-				base = strings.TrimSuffix(wireID, suffix)
-				break
-			}
-		}
-		bases[base] = struct{}{}
-	}
-	for base := range bases {
-		if _, exists := result[base]; !exists {
-			result[base] = base
 		}
 	}
 	return result
