@@ -2,6 +2,8 @@ import copy
 import contextlib
 import io
 import json
+import pathlib
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -94,6 +96,33 @@ class MatrixTests(unittest.TestCase):
             self.assertIsNone(case['request'])
             self.assertEqual(matrix.blocked_status(case), 'blocked-by-test-infrastructure')
         self.assertTrue(all(e['capability']['status'] == 'supported' for e in usable))
+
+    def test_plan_is_identical_whether_or_not_the_oversized_fixture_is_delivered(self):
+        """The replay host never receives transcription-audio.json (SSM 97KB cap).
+
+        run() asserts plan == matrix.build(inventory, matrix.load()) on the host, so
+        a plan that differs between the dispatcher and the host aborts every case
+        before the first request. Both sides must agree bit for bit.
+        """
+        local = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load())
+        with tempfile.TemporaryDirectory() as tmp:
+            staged = pathlib.Path(tmp)
+            (staged / 'fixtures/gateway').mkdir(parents=True)
+            for source in matrix.DEFAULT_MANIFEST.parent.glob('fixtures/gateway/*.json'):
+                if source.name in matrix.OVERSIZED_FIXTURES:
+                    continue
+                shutil.copy(source, staged / 'fixtures/gateway' / source.name)
+            manifest = staged / matrix.DEFAULT_MANIFEST.name
+            shutil.copy(matrix.DEFAULT_MANIFEST, manifest)
+            for name in matrix.OVERSIZED_FIXTURES:
+                self.assertFalse((staged / 'fixtures/gateway' / name).exists())
+            host = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load(manifest))
+        self.assertEqual(host['plan_sha256'], local['plan_sha256'])
+        self.assertEqual(host, local)
+        blocked = [c for c in host['entries'] if c['scenario'] == 'transcription']
+        self.assertTrue(blocked)
+        for case in blocked:
+            self.assertEqual(case['blocked_reason'], 'fixture_oversized_for_delivery')
 
     def test_legacy_saved_plan_remains_reportable_and_is_a_full_delta(self):
         current = plan()
