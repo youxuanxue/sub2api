@@ -93,9 +93,7 @@
           "baseline_protocol": "gemini-content",
           "represented_models": [
             "gemini-3-pro-image",
-            "gemini-3-pro-image-preview",
-            "gemini-3.1-flash-image",
-            "gemini-3.1-flash-image-preview"
+            "gemini-3.1-flash-image"
           ]
         }
       ],
@@ -141,20 +139,17 @@
           "baseline_protocol": "openai-chat",
           "represented_models": [
             "gemini-3-flash-preview",
-            "gemini-3.5-flash-lite",
-            "gemini-3.6-flash",
             "gemini-3.7-flash",
             "gemini-3.8-flash"
           ]
         },
         {
           "family": "glm",
-          "model": "glm-5",
+          "model": "glm-5.3",
           "upstream_model": "glm-5.3",
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "glm-5",
             "glm-5.1",
             "glm-5.3"
           ]
@@ -169,10 +164,8 @@
             "gpt-5",
             "gpt-5-mini",
             "gpt-5.1",
-            "gpt-5.2",
             "gpt-5.4",
             "gpt-5.4-mini",
-            "gpt-5.5",
             "gpt-5.6-luna",
             "gpt-5.6-sol",
             "gpt-5.6-terra",
@@ -365,9 +358,6 @@
             "qwen-max",
             "qwen-plus",
             "qwen-turbo",
-            "qwen3-235b-a22b",
-            "qwen3-32b",
-            "qwen3-8b",
             "qwen3.6-27b",
             "qwen3.6-flash",
             "qwen3.7-flash",
@@ -445,7 +435,6 @@
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "deepseek-v4-flash",
             "deepseek-v4-pro"
           ]
         },
@@ -466,16 +455,11 @@
         },
         {
           "family": "glm",
-          "model": "glm-4.5-air",
-          "upstream_model": "glm-4.5-air",
+          "model": "glm-5.2",
+          "upstream_model": "glm-5.2",
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "glm-4.5",
-            "glm-4.5-air",
-            "glm-4.6",
-            "glm-4.7",
-            "glm-5",
             "glm-5.1",
             "glm-5.2",
             "glm-5.2-fast-preview"
@@ -490,7 +474,6 @@
           "represented_models": [
             "kimi-k2-thinking",
             "kimi-k2.5",
-            "kimi-k2.6",
             "kimi-k3"
           ]
         },
@@ -505,10 +488,6 @@
             "qwen-max",
             "qwen-plus",
             "qwen-turbo",
-            "qwen3-14b",
-            "qwen3-235b-a22b",
-            "qwen3-32b",
-            "qwen3-8b",
             "qwen3-coder-plus",
             "qwen3-max",
             "qwen3-max-preview",
@@ -628,7 +607,6 @@
           "baseline_protocol": "openai-chat",
           "represented_models": [
             "deepseek-flash",
-            "deepseek-v4-flash",
             "deepseek-v4-flash-0731",
             "deepseek-v4-pro",
             "deepseek-v4.1-flash"
@@ -665,7 +643,6 @@
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "glm-4.5-air",
             "glm-5.2",
             "glm-5.3",
             "glm-5.3-flash"
@@ -689,19 +666,17 @@
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "kimi-k2.6",
             "kimi-k2.7-code",
             "kimi-k3"
           ]
         },
         {
           "family": "minimax",
-          "model": "minimax-m2.7",
+          "model": "minimax-m3",
           "upstream_model": "minimax-m3",
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "minimax-m2.7",
             "minimax-m3"
           ]
         },
@@ -768,12 +743,11 @@
       "representatives": [
         {
           "family": "deepseek",
-          "model": "deepseek-v4-flash",
-          "upstream_model": "deepseek-v4-flash",
+          "model": "deepseek-v4-pro",
+          "upstream_model": "deepseek-v4-pro",
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "deepseek-v4-flash",
             "deepseek-v4-flash-0731",
             "deepseek-v4-pro",
             "deepseek-v4-pro-0813"
@@ -781,13 +755,11 @@
         },
         {
           "family": "glm",
-          "model": "glm-4.5-air",
+          "model": "glm-5.2",
           "upstream_model": "glm-5.2",
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "glm-4.5-air",
-            "glm-4.7",
             "glm-5.1",
             "glm-5.2",
             "glm-5.3-flash"
@@ -795,12 +767,12 @@
         },
         {
           "family": "kimi",
-          "model": "kimi-k2.6",
-          "upstream_model": "kimi-k2.6",
+          "model": "kimi-k3",
+          "upstream_model": "kimi-k3",
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "kimi-k2.6"
+            "kimi-k3"
           ]
         }
       ],
@@ -959,8 +931,6 @@
           "baseline_protocol": "gemini-content",
           "represented_models": [
             "gemini-3-flash-preview",
-            "gemini-3.5-flash-lite",
-            "gemini-3.6-flash",
             "gemini-3.7-flash",
             "gemini-3.8-flash"
           ]
