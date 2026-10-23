@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -56,6 +57,41 @@ def _window(window_bytes, window_days=30, window_rows_est=0, span=30):
 
 
 class DataLayerCapacitySafetyTest(unittest.TestCase):
+    def test_every_probe_tag_reaches_the_verdict(self) -> None:
+        """Each tagged line the probe emits must be parsed, not silently dropped.
+
+        DFBACKING was added to the probe and to compute_verdict but not to the
+        parser's tag list, so the field arrived as None and the verdict kept using
+        the optimistic inner df -- reporting 11.9 months of runway on live prod
+        where the binding constraint gave 6.2. It failed as a null, not an error.
+        """
+        probe = pathlib.Path(__file__).with_name("probe-data-layer-capacity.sh").read_text(
+            encoding="utf-8"
+        )
+        emitted = set(re.findall(r"^\s*(?:echo|printf)[^\n]*?\b([A-Z]{2,}[A-Z_]*)\s*\{", probe, re.M))
+        emitted |= set(re.findall(r"printf \"([A-Z]{2,}[A-Z_]*) \{", probe))
+        emitted = {tag for tag in emitted if tag not in {"ERROR", "WARN"}}
+        self.assertTrue(emitted, "probe emits no recognizable tagged lines")
+        source = pathlib.Path(__file__).with_name("data_layer_capacity_verdict.py").read_text(
+            encoding="utf-8"
+        )
+        parsed = re.search(r"for tag in \(([^)]*)\)", source)
+        self.assertIsNotNone(parsed, "parser tag list not found")
+        known = set(re.findall(r'"([A-Z_]+)"', parsed.group(1)))
+        missing = sorted(emitted - known)
+        self.assertEqual(
+            missing, [], f"probe emits {missing} but the verdict parser ignores them"
+        )
+
+    def test_backing_filesystem_binds_the_runway(self) -> None:
+        """A loop/LUKS data volume must not be judged by the inner df alone."""
+        snapshot = verdict._parse_probe_stdin(
+            'DFSTATS {"df_total_bytes":400000000000,"df_avail_bytes":200000000000}\n'
+            'DFBACKING {"backing_avail_bytes":8000000000,"backing_mount":"/"}\n'
+        )
+        self.assertEqual(snapshot.get("backing_avail_bytes"), 8000000000)
+        self.assertEqual(snapshot.get("backing_mount"), "/")
+
     def test_losing_every_growth_signal_is_unknown_not_green(self) -> None:
         """With no growth signal of either kind, abstain.
 

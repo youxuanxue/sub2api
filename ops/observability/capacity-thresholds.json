@@ -8,11 +8,9 @@
       "unit": "months",
       "note": "df_avail / monthly_ledger_growth. <=trigger months of runway => evaluate RDS now."
     },
-    "usage_logs_pct_of_volume": {
-      "approaching": 25,
-      "trigger": 40,
-      "unit": "percent",
-      "note": "Absolute guard: usage_logs alone occupying this share of the data volume."
+    "_removed_usage_logs_pct_of_volume": {
+      "removed": "2026-10-23",
+      "why": "Redundant with months_to_volume_full and actively misleading. (1) It answers the same question from the stock side, but runway already covers the case it was meant to catch: a large ledger depresses df_avail, which depresses runway. (2) A high share is not itself a reason to act -- on a 10TiB volume a 40% ledger with 20 months of runway must not trigger an RDS extraction. (3) The denominator is the whole volume, which also carries the rest of PGDATA, docker, the pgBackRest repo and QA artifacts, so the ratio means different things on different hosts: measured on live prod 2026-10-23, the volume held 26GiB used of which 21GiB was the live database itself and only 7.1GiB the ledger, putting the ratio at 9.1% while the real pressure was elsewhere. One decision (extract to RDS) is driven by one signal (runway); a second OR-ed threshold that can fire wrongly only lowers trust in the verdict. usage_logs_gib and usage_logs_pct_of_volume are still REPORTED as evidence, they just no longer decide the verdict."
     }
   }
 }

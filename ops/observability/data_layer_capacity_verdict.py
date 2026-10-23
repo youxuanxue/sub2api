@@ -167,6 +167,12 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
         usage_logs_bytes = float(stats["usage_logs_bytes"])
         df_total = float(stats["df_total_bytes"])
         df_avail = float(stats["df_avail_bytes"])
+        # Optional: present only when the data volume is a file on another
+        # filesystem (loop/LUKS). Absent or null on raw-partition hosts, and on
+        # probe revisions predating DFBACKING -- both read as "no outer layer".
+        _backing_raw = stats.get("backing_avail_bytes")
+        backing_avail = None if _backing_raw is None else float(_backing_raw)
+        backing_mount = stats.get("backing_mount")
     except (TypeError, ValueError):
         return {
             "verdict": "unknown",
@@ -274,15 +280,39 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
             "summary": "no volume (df) data from probe — capacity verdict inconclusive",
         }
 
-    months_to_full = (df_avail / monthly_growth) if monthly_growth > 0 else math.inf
+    # The data volume may be a FILE on another filesystem rather than a raw
+    # partition, and then df is optimistic at the inner layer: on live prod
+    # (2026-10-23) /var/lib/tokenkey is a LUKS2 container backed by a sparse
+    # 81GiB file on the root filesystem, so the inner df reported 53GiB free
+    # while root had 28GiB. Writing past root's 28GiB fails with ENOSPC while the
+    # inner df still shows space, which made the runway roughly 2x too long.
+    #
+    # Take the binding constraint: the smaller free space of the two layers. A
+    # host on a raw partition reports no backing file and is unaffected.
+    effective_avail = df_avail
+    avail_source = "data volume"
+    if isinstance(backing_avail, (int, float)) and backing_avail >= 0 and backing_avail < df_avail:
+        effective_avail = backing_avail
+        avail_source = f"backing fs {backing_mount or '?'}"
+
+    months_to_full = (effective_avail / monthly_growth) if monthly_growth > 0 else math.inf
     pct_of_volume = usage_logs_bytes / df_total * 100.0
 
+    # ONE decision (extract the ledger to RDS) driven by ONE signal (runway).
+    #
+    # usage_logs_pct_of_volume used to be OR-ed in here as an absolute guard and
+    # was removed 2026-10-23 (see capacity-thresholds.json for the full note): it
+    # restated runway from the stock side, could not justify an action on its own
+    # -- a 40% ledger with 20 months of runway must not trigger an extraction --
+    # and its denominator is the whole volume, which also holds the rest of
+    # PGDATA, docker, the pgBackRest repo and QA artifacts. On live prod that made
+    # it read 9.1% while 21 of the volume's 26 used GiB were the database itself.
+    # It is still reported below as evidence; it just no longer decides.
     m = thresholds["months_to_volume_full"]
-    p = thresholds["usage_logs_pct_of_volume"]
 
-    if months_to_full <= m["trigger"] or pct_of_volume >= p["trigger"]:
+    if months_to_full <= m["trigger"]:
         verdict = "trigger"
-    elif months_to_full <= m["approaching"] or pct_of_volume >= p["approaching"]:
+    elif months_to_full <= m["approaching"]:
         verdict = "approaching"
     else:
         verdict = "green"
@@ -294,12 +324,19 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
         "monthly_growth_source": "partition_bytes",
         "months_to_volume_full": (None if months_to_full == math.inf else round(months_to_full, 1)),
         "usage_logs_pct_of_volume": round(pct_of_volume, 1),
-        "df_avail_gib": round(df_avail / 1024**3, 2),
+        "df_avail_gib": round(effective_avail / 1024**3, 2),
+        "df_avail_source": avail_source,
+        "df_avail_data_volume_gib": round(df_avail / 1024**3, 2),
+        "df_avail_backing_gib": (
+            None if backing_avail is None else round(backing_avail / 1024**3, 2)
+        ),
         "summary": (
             f"usage_logs {round(usage_logs_bytes/1024**3,2)}GiB "
-            f"({round(pct_of_volume,1)}% of volume), ledger growth "
+            f"({round(pct_of_volume,1)}% of volume, evidence only), ledger growth "
             f"~{round(monthly_growth/1024**3,2)}GiB/30d from partition bytes{partial}, "
-            f"runway {'∞' if months_to_full==math.inf else str(round(months_to_full,1))+'mo'} -> {verdict}"
+            f"runway {'∞' if months_to_full==math.inf else str(round(months_to_full,1))+'mo'}"
+            + ("" if avail_source == "data volume" else f" (bound by {avail_source})")
+            + f" -> {verdict}"
         ),
     }
     corroboration = _cross_check(stats, window, monthly_growth)
@@ -313,7 +350,7 @@ def _parse_probe_stdin(text: str) -> dict:
     stats: dict = {}
     for line in text.splitlines():
         line = line.strip()
-        for tag in ("PGSTATS", "PGWINDOW", "PGGROWTH", "DFSTATS"):
+        for tag in ("PGSTATS", "PGWINDOW", "PGGROWTH", "DFSTATS", "DFBACKING"):
             if line.startswith(tag):
                 payload = line[len(tag):].strip()
                 try:
@@ -369,11 +406,55 @@ _FIXTURES = [
         "trigger",
     ),
     (
-        "trigger_absolute_pct",
-        # usage_logs alone >= 40% of volume, even with zero growth
+        "trigger_bound_by_backing_filesystem",
+        # Inner df looks comfortable (200GiB free) but the volume is a file on a
+        # filesystem with only 8GiB left. At 4GiB/30d the inner view claims 50
+        # months while the real runway is 2 -- writes fail with ENOSPC long
+        # before the inner df notices. Pins the min-of-two-layers rule.
+        {"usage_logs_bytes": 20 * 1024**3, "catalog_probe_ok": True, "growth_probe_ok": True,
+         "df_total_bytes": 400 * 1024**3, "df_avail_bytes": 200 * 1024**3,
+         "backing_avail_bytes": 8 * 1024**3, "backing_mount": "/",
+         **W(4 * 1024**3)},
+        "trigger",
+    ),
+    (
+        "green_backing_roomier_than_data_volume",
+        # Reverse: the backing filesystem has more room than the volume itself,
+        # so the data volume stays the binding constraint and nothing changes.
+        {"usage_logs_bytes": 20 * 1024**3, "catalog_probe_ok": True, "growth_probe_ok": True,
+         "df_total_bytes": 400 * 1024**3, "df_avail_bytes": 200 * 1024**3,
+         "backing_avail_bytes": 900 * 1024**3, "backing_mount": "/",
+         **W(4 * 1024**3)},
+        "green",
+    ),
+    (
+        "green_raw_partition_has_no_backing_layer",
+        # Raw-partition host (and any pre-DFBACKING probe revision): the field is
+        # absent, which must read as "no outer layer", never as zero free space.
+        {"usage_logs_bytes": 20 * 1024**3, "catalog_probe_ok": True, "growth_probe_ok": True,
+         "df_total_bytes": 400 * 1024**3, "df_avail_bytes": 200 * 1024**3,
+         **W(4 * 1024**3)},
+        "green",
+    ),
+    (
+        "green_large_share_but_ample_runway",
+        # The removed absolute-pct guard would have called this 'trigger' purely
+        # because the ledger is 43% of the volume. With no growth the runway is
+        # infinite, so extracting to RDS would be the wrong action -- share alone
+        # never justifies it. Pins the 2026-10-23 removal.
         {"usage_logs_bytes": 13 * 1024**3, "catalog_probe_ok": True, "growth_probe_ok": True,
          "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 15 * 1024**3,
          **W(0)},
+        "green",
+    ),
+    (
+        "trigger_runway_regardless_of_small_share",
+        # Mirror image: a ledger that is only 4% of a large volume still triggers
+        # when growth eats the free space within the trigger window. Runway is the
+        # signal; share is evidence.
+        {"usage_logs_bytes": 40 * 1024**3, "catalog_probe_ok": True, "growth_probe_ok": True,
+         "df_total_bytes": 1000 * 1024**3, "df_avail_bytes": 20 * 1024**3,
+         **W(10 * 1024**3)},
         "trigger",
     ),
     (
