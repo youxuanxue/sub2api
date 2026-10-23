@@ -710,6 +710,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	defer putSSEScannerBuf64K(scanBuf)
 
 	pendingSSEEventType := ""
+	var responseCreatedAt responsesCreatedAtStamper
 	finalizeBareError := func() error {
 		if !bareErrorPending {
 			return nil
@@ -721,7 +722,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if clientDisconnected {
 			return nil
 		}
-		clientMessage := buildOpenAIWSHTTPBridgeFailedEvent(responseID, originalModel, 0, bareErrorPayload, bareErrorMessage)
+		clientMessage := buildOpenAIWSHTTPBridgeFailedEvent(responseID, originalModel, responseCreatedAt.Value(), bareErrorPayload, bareErrorMessage)
 		if rewritten, changed := sanitizeOpenAICapacityShedErrorCodeForClient(clientMessage); changed {
 			clientMessage = rewritten
 		}
@@ -894,6 +895,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		// 重试。账号状态与终止事件判定（下方 handleOpenAIWSTerminalTransientFailure）
 		// 仍使用未改写的 upstreamMessage。
 		clientMessage := upstreamMessage
+		if stamped, changed := responseCreatedAt.Stamp(clientMessage, eventType); changed {
+			clientMessage = stamped
+		}
 		if eventType == "error" || eventType == "response.failed" {
 			if rewritten, changed := sanitizeOpenAICapacityShedErrorCodeForClient(clientMessage); changed {
 				clientMessage = rewritten

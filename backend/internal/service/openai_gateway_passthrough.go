@@ -1786,6 +1786,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	// flushPending 表示已写入但未到 SSE 空行边界的脏状态；defer 兜底函数退出前的残留，断连后不再 Flush。
 	flushPending := false
 	pendingSSEEventType := ""
+	var responseCreatedAt responsesCreatedAtStamper
 	flushPendingOutput := func() {
 		if clientDisconnected || !flushPending {
 			return
@@ -1806,7 +1807,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			clientDisconnected = true
 			return
 		}
-		if _, err := fmt.Fprint(w, buildOpenAIResponseFailedSSE(responseID, originalModel, 0, codexState.bareErrorPayload, failedMessage)); err != nil {
+		if _, err := fmt.Fprint(w, buildOpenAIResponseFailedSSE(responseID, originalModel, responseCreatedAt.Value(), codexState.bareErrorPayload, failedMessage)); err != nil {
 			clientDisconnected = true
 			return
 		}
@@ -1959,6 +1960,11 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				firstTokenMs = &ms
 			}
 			s.parseSSEUsageBytesWithType(dataBytes, eventType, usage)
+			if trimmedData != "[DONE]" {
+				if stamped, changed := responseCreatedAt.Stamp(dataBytes, eventType); changed {
+					line = "data: " + string(stamped)
+				}
+			}
 		}
 		if line == "" {
 			pendingSSEEventType = ""

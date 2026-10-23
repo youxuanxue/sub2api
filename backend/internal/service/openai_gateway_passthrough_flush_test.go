@@ -117,11 +117,12 @@ func TestOpenAIStreamingPassthroughFlushesAtCompleteEventBoundaries(t *testing.T
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, upstream, recorder.Body.String())
+	got := recorder.Body.String()
+	require.Equal(t, upstream, withoutStampedCreatedAt(got))
 	require.Equal(t, []int{
 		len(firstEvent),
 		len(firstEvent) + len(heartbeat),
-		len(upstream),
+		len(got),
 	}, writer.flushBodyLengths)
 	require.Equal(t, 3, result.usage.InputTokens)
 	require.Equal(t, 2, result.usage.OutputTokens)
@@ -138,10 +139,13 @@ func TestOpenAIStreamingPassthroughKeepsPreamblePendingUntilFirstOutputBoundary(
 	_, recorder, writer, err := runPassthroughFlushTest(t, io.NopCloser(strings.NewReader(upstream)), -1)
 
 	require.NoError(t, err)
-	require.Equal(t, upstream, recorder.Body.String())
+	got := recorder.Body.String()
+	require.Equal(t, upstream, withoutStampedCreatedAt(got))
+	width := stampedCreatedAtWidth(got)
+	require.NotZero(t, width)
 	require.Equal(t, []int{
-		len(preamble) + len(firstOutput),
-		len(upstream),
+		len(preamble) + len(firstOutput) + width,
+		len(got),
 	}, writer.flushBodyLengths)
 }
 
@@ -154,8 +158,9 @@ func TestOpenAIStreamingPassthroughFlushesTerminalEventAtEOFWithoutBlankLine(t *
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, wantBody, recorder.Body.String())
-	require.Equal(t, []int{len(wantBody)}, writer.flushBodyLengths)
+	got := recorder.Body.String()
+	require.Equal(t, wantBody, withoutStampedCreatedAt(got))
+	require.Equal(t, []int{len(got)}, writer.flushBodyLengths)
 	require.Equal(t, 5, result.usage.InputTokens)
 	require.Equal(t, 2, result.usage.OutputTokens)
 }

@@ -82,24 +82,26 @@ func TestAntigravityBlockedModelMappingPredicatesMatchOwners(t *testing.T) {
 }
 
 func TestDefaultAntigravityModelMapping_Gemini4ArgonAndClaude55Models(t *testing.T) {
-	cases := map[string]string{
-		"gemini-4-argon":           "gemini-4-argon-high",
-		"gemini-4-argon-high":      "gemini-4-argon-high",
-		"gemini-4-argon-low":       "gemini-4-argon-low",
-		"gemini-4-argon-medium":    "gemini-4-argon-medium",
-		"claude-opus-5-5":          "claude-opus-5-5-high",
-		"claude-opus-5-5-high":     "claude-opus-5-5-high",
-		"claude-opus-5-5-low":      "claude-opus-5-5-low",
-		"claude-opus-5-5-medium":   "claude-opus-5-5-medium",
-		"claude-sonnet-5-5":        "claude-sonnet-5-5-high",
-		"claude-sonnet-5-5-high":   "claude-sonnet-5-5-high",
-		"claude-sonnet-5-5-low":    "claude-sonnet-5-5-low",
-		"claude-sonnet-5-5-medium": "claude-sonnet-5-5-medium",
+	if got := DefaultAntigravityModelMapping["gemini-4-argon"]; got != "gemini-4-argon-high" {
+		t.Fatalf("public argon alias = %q", got)
 	}
-	for from, want := range cases {
-		if got := DefaultAntigravityModelMapping[from]; got != want {
-			t.Fatalf("expected %s to map to %q, got %q", from, want, got)
+	floors := AntigravityThinkingWireFloorEntries()
+	for _, tier := range []string{"gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high"} {
+		if floors[tier] != tier {
+			t.Fatalf("argon wire floor %s = %q", tier, floors[tier])
 		}
+		if _, ok := DefaultAntigravityModelMapping[tier]; ok {
+			t.Fatalf("argon wire id %s must stay out of the public mapping", tier)
+		}
+	}
+	// Claude 5.5 不进入 Antigravity 公开默认映射；Bedrock 仍保留 Sonnet 5.5。
+	for _, id := range []string{"claude-opus-5-5", "claude-opus-5-5-high", "claude-sonnet-5-5", "claude-sonnet-5-5-high"} {
+		if _, ok := DefaultAntigravityModelMapping[id]; ok {
+			t.Fatalf("claude 5.5 id %s must stay out of the public antigravity mapping", id)
+		}
+	}
+	if got := DefaultBedrockModelMapping["claude-sonnet-5-5"]; got != "global.anthropic.claude-sonnet-5-5" {
+		t.Fatalf("bedrock sonnet 5.5 = %q", got)
 	}
 }
 
