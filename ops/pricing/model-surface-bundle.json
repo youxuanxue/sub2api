@@ -1,12 +1,11 @@
 {
   "schema_version": 4,
-  "floor_sha256": "fe65289d34a69c93100d2223f020274b33e2432c16b15b439ee920db1590ee04",
+  "floor_sha256": "01bacf70e687659f5d3e69696e73c50716e094143beb940d6d474f6f439a7f68",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
         "claude-fable-5": "claude-fable-5",
         "claude-haiku-4-5": "claude-haiku-4-5",
-        "claude-opus-4-1": "claude-opus-4-1",
         "claude-opus-4-5": "claude-opus-4-5",
         "claude-opus-4-6": "claude-opus-4-6",
         "claude-opus-4-7": "claude-opus-4-7",
@@ -212,9 +211,6 @@
         "claude-sonnet-5-5": "claude-sonnet-5-5"
       },
       "openai": {
-        "codex-auto-review": "codex-auto-review",
-        "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
-        "gpt-5.5": "gpt-5.5",
         "gpt-5.6": "gpt-5.6",
         "gpt-5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-sol": "gpt-5.6-sol",
