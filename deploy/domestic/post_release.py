@@ -63,11 +63,18 @@ def configure(args, receipt, inspect):
     url = urlsplit(args.public_url)
     if url.scheme != 'https' or url.username or url.password or url.query or url.fragment or url.path not in ('', '/'):
         raise ValueError('public-url must be an HTTPS origin')
-    # public_origin is the checked entrance. A domain that points at US prod,
-    # or any other global IP, cannot stand in for that check.
-    if not ipaddress.ip_address(url.hostname).is_global or url.port not in (None, 443):
-        raise ValueError('domestic public-url must use its public static IP on 443')
+    # public_origin is the checked entrance. A hostname such as
+    # api.galaxywaveai.com or api-cn.tokenkey.dev, or any other global IP,
+    # cannot stand in for that check.
     domestic = read_json(asset_source('prod-target.json'))
+    try:
+        host_ip = ipaddress.ip_address(url.hostname)
+    except ValueError:
+        raise ValueError(
+            'domestic public-url must use its public static IP on 443; public_origin is '
+            + domestic['public_origin'].rstrip('/')) from None
+    if not host_ip.is_global or url.port not in (None, 443):
+        raise ValueError('domestic public-url must use its public static IP on 443')
     if args.public_url.rstrip('/') != domestic['public_origin'].rstrip('/'):
         raise ValueError(
             'public-url does not match the domestic target manifest public_origin '

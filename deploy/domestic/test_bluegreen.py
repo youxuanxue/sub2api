@@ -215,6 +215,8 @@ class DomesticBluegreenTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, 'own reverse_proxy'):
             bg.galaxywave_api_site_shares_upstream(own_proxy)
+        with self.assertRaisesRegex(ValueError, 'own reverse_proxy'):
+            bg.active_container(own_proxy)
         with self.assertRaisesRegex(ValueError, 'missing galaxywave'):
             bg.galaxywave_api_site_shares_upstream(
                 'https://154.8.214.179 {\n reverse_proxy tokenkey-blue:8080 {\n }\n}\n'

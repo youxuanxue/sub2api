@@ -125,7 +125,12 @@ class PostReleaseTest(unittest.TestCase):
         self.assertEqual(self.events, [])
 
     def test_rejects_aws_domain_http_and_credentials_in_url(self):
-        for url in ['https://api-cn.tokenkey.dev', 'http://106.75.29.139', 'https://user:pass@106.75.29.139', 'https://127.0.0.1']:
+        expected = pr.read_json(pr.asset_source('prod-target.json'))['public_origin']
+        for url in ['https://api-cn.tokenkey.dev', 'https://api.galaxywaveai.com']:
+            with self.subTest(url=url), self.assertRaisesRegex(ValueError, 'public_origin is ' + expected):
+                self.args.public_url = url
+                self.configure()
+        for url in ['http://106.75.29.139', 'https://user:pass@106.75.29.139', 'https://127.0.0.1']:
             with self.subTest(url=url), self.assertRaises(ValueError):
                 self.args.public_url = url
                 self.configure()

@@ -51,8 +51,8 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
   不以 Release 构建绿灯代替分发绿灯。重复 pull 复用已验镜像，初始化权限与保留期见国内 README。
   `--transport ghcr` 为显式备用路径，S3 缺失/失败不自动降级。
   **禁止**默认走运维机 `crane`/`docker save` + 开放 cn-prod SSH 22；运维机搬运离线 tar 仅恢复；CI 校验归档经私有 S3 + SSM 分发是默认路径。
-  `promote --public-url` 必须等于 `deploy/domestic/prod-target.json` 的 `public_origin`。这是当前公网验收入口，不是北京网卡地址，也不是 `api-cn.tokenkey.dev`。`post_release.py` 在切流前拒绝域名和其他公网 IP。
-  切的是北京活动容器。`public_origin` 的 80/443 转到这台机器，所以两个入口一起换版本。发版不改 DNS，也不改 `public_origin`。
+  `promote --public-url` 必须等于 `deploy/domestic/prod-target.json` 的 `public_origin`。这是当前公网验收入口，不是北京网卡地址，也不是 `api.galaxywaveai.com` 或 `api-cn.tokenkey.dev`。`post_release.py` 在切流前拒绝域名和其他公网 IP。
+  `api.galaxywaveai.com` 和 `154.8.214.179` 共用一条 `reverse_proxy`。切流换北京活动容器时，这个域名、静态 IP，以及转到这台机器的 `public_origin` 一起换版本。发版不改 DNS，也不把该域名写成 `public_origin` 或 `SERVER_FRONTEND_URL`。
   `operation=replay` 只准备美西，不能用来切北京。候选打开 telemetry archive 时 `bluegreen.py` 直接拒绝。
 
 ## 故障速查

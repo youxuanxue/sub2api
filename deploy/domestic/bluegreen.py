@@ -100,6 +100,8 @@ def domestic_site_env_get():
 
 
 def active_container(caddy):
+    if GALAXYWAVE_API_HOST in caddy:
+        galaxywave_api_site_shares_upstream(caddy)
     routes = re.findall(r'^\s*reverse_proxy\s+(tokenkey(?:-blue|-green)?):8080\s*\{', caddy, re.M)
     if len(routes) != 1:
         raise ValueError('expected exactly one domestic application upstream')

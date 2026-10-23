@@ -11,7 +11,8 @@
 #        --image tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf
 #
 # Identity: deploy/domestic/prod-target.json (ssm_region + ssm_instance_id).
-# Does not mutate AWS prod, DNS, or public_origin. prepare does not cut traffic; promote --public-url must equal this manifest's public_origin.
+# Does not mutate AWS prod, DNS, or public_origin. prepare does not cut traffic.
+# promote --public-url must equal this manifest's public_origin, not api.galaxywaveai.com.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
