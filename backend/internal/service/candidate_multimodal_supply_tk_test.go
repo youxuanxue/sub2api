@@ -214,6 +214,96 @@ func TestSupplyKnownNegativeAliTokenPlan(t *testing.T) {
 	require.False(t, supplyKnownNegativeForInputImage(&ali, "qwen3.7-plus"))
 }
 
+func multimodalSupplyDashScopeAccount(id int64, groups ...int64) Account {
+	a := Account{
+		ID: id, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, Status: StatusActive,
+		Schedulable: true, Concurrency: 10, Priority: 1, GroupIDs: groups,
+		ChannelType: newapiconstant.ChannelTypeAli,
+		Credentials: map[string]any{
+			"base_url": "https://dashscope.aliyuncs.com",
+			"api_key":  "test-dashscope",
+			"model_mapping": map[string]any{
+				"kimi-k3": "kimi-k3", "deepseek-v4.1-flash": "deepseek-v4.1-flash",
+				"deepseek-flash": "deepseek-flash", "deepseek-v4-pro": "deepseek-v4-pro",
+				"glm-5.3": "glm-5.3", "glm-5.3-flash": "glm-5.3-flash",
+			},
+		},
+	}
+	attachTestProtocolCapability(&a, protocolrouter.ProtocolChatCompletions)
+	return a
+}
+
+func TestSupplyKnownNegativeDashScopeVideo(t *testing.T) {
+	t.Parallel()
+	ds := multimodalSupplyDashScopeAccount(135)
+	ali := multimodalSupplyAliTokenPlanAccount(129)
+	volc := multimodalSupplyVolcAccount(42)
+	for _, model := range []string{"kimi-k3", "kimi-k3[thinking]", "deepseek-v4.1-flash"} {
+		require.True(t, supplyKnownNegativeForInputVideo(&ds, model), model)
+		require.False(t, supplyKnownNegativeForInputImage(&ds, model), model)
+	}
+	require.False(t, supplyKnownNegativeForInputVideo(&ds, "deepseek-flash"),
+		"DashScope evidence covers deepseek-v4.1-flash only")
+	require.True(t, supplyKnownNegativeForInputVideo(&ali, "deepseek-v4.1-flash"))
+	require.False(t, supplyKnownNegativeForInputVideo(&volc, "kimi-k3"))
+	require.False(t, supplyKnownNegativeForInputVideo(&volc, "deepseek-v4.1-flash"))
+	for _, model := range []string{"deepseek-v4-pro", "glm-5.3", "glm-5.3-flash"} {
+		require.False(t, supplyKnownNegativeForInputVideo(&ds, model), model)
+		require.False(t, supplyKnownNegativeForInputImage(&ds, model), model)
+	}
+
+	spoof := ds
+	spoof.Credentials = map[string]any{"base_url": "https://dashscope.aliyuncs.com.evil.test", "api_key": "x"}
+	require.False(t, supplyKnownNegativeForInputVideo(&spoof, "kimi-k3"))
+	withPath := ds
+	withPath.Credentials = map[string]any{"base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "api_key": "x"}
+	require.True(t, supplyKnownNegativeForInputVideo(&withPath, "deepseek-v4.1-flash"))
+	tokenPlan := ds
+	tokenPlan.Credentials = map[string]any{"base_url": newapiintegration.AliTokenPlanBaseURL, "api_key": "x"}
+	require.False(t, supplyKnownNegativeForInputVideo(&tokenPlan, "kimi-k3"),
+		"Token Plan must not inherit the DashScope kimi-k3 video negative")
+}
+
+func TestDashScopeVideoCandidateAdmission(t *testing.T) {
+	ds := multimodalSupplyDashScopeAccount(135, 10)
+	volc := multimodalSupplyVolcAccount(42, 10)
+	volc.Credentials["model_mapping"] = map[string]any{
+		"kimi-k3": "kimi-k3", "deepseek-v4.1-flash": "deepseek-v4.1-flash",
+	}
+	ds.Priority, volc.Priority = 1, 100
+	groups := []Group{grp(10, PlatformNewAPI, 1, false)}
+
+	for _, model := range []string{"kimi-k3", "deepseek-v4.1-flash"} {
+		t.Run(model, func(t *testing.T) {
+			only, _, onlyKey := globalCandidateFixture(groups, []Account{ds})
+			_, state, err := only.PrepareCandidateRequest(
+				context.Background(), onlyKey, ShapeOpenAIChat, "/v1/chat/completions",
+				model, multimodalVideoChatBody(model), "", "",
+			)
+			require.ErrorIs(t, err, ErrUnsupportedInputModality)
+			require.Equal(t, "video", UnsupportedInputModalityFromError(err))
+			require.Nil(t, state)
+			require.Equal(t, "No available endpoints support input video for model: "+model,
+				TkUnsupportedInputModalityMessage(model, UnsupportedInputModalityFromError(err)))
+
+			_, imageState, err := only.PrepareCandidateRequest(
+				context.Background(), onlyKey, ShapeOpenAIChat, "/v1/chat/completions",
+				model, multimodalImageChatBody(model), "", "",
+			)
+			require.NoError(t, err)
+			require.Equal(t, ds.ID, imageState.current.account.ID)
+
+			mixed, _, mixedKey := globalCandidateFixture(groups, []Account{ds, volc})
+			_, mixedState, err := mixed.PrepareCandidateRequest(
+				context.Background(), mixedKey, ShapeOpenAIChat, "/v1/chat/completions",
+				model, multimodalVideoChatBody(model), "", "",
+			)
+			require.NoError(t, err)
+			require.Equal(t, volc.ID, mixedState.current.account.ID)
+		})
+	}
+}
+
 func multimodalSupplyQianfanTokenPlanAccount(id int64, groups ...int64) Account {
 	a := Account{
 		ID: id, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, Status: StatusActive,
