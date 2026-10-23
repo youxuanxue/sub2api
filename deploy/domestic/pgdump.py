@@ -35,6 +35,7 @@ def probe(action, request=None):
         command = ['bash', str(REPO/'ops/observability/run-probe.sh'), '--target', 'cn-prod',
                    '--script', str(script), '--env', 'APPLY=yes-cn-pgdump', '--timeout-seconds', '2100',
                    '--with', str(REPO/'deploy/domestic/pgdump_remote.py'),
+                   '--with', str(REPO/'deploy/domestic/data_layout.py'),
                    '--with', str(REPO/'deploy/aws/stage0/tokenkey-pgdump.sh')]
         if request is not None:
             command += ['--with', str(payload)]

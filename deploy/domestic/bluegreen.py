@@ -18,14 +18,21 @@ import shlex
 import subprocess
 
 try:
-    from . import post_release
+    from . import data_layout, post_release
 except ImportError:  # standalone host bundle
+    import data_layout
     import post_release
 
 
 ROOT = Path('/opt/tokenkey')
 DATA = Path('/var/lib/tokenkey')
 DOMAIN = 'api-cn.tokenkey.dev'
+STATIC_SITE_IP = '154.8.214.179'
+_SITE_HOSTS = (DOMAIN, STATIC_SITE_IP)
+_SITE_RE = re.compile(
+    r'^[ \t]*(?:https://)?(' + '|'.join(re.escape(host) for host in _SITE_HOSTS) + r')(?::443)?[ \t]*\{[ \t]*$',
+    re.M,
+)
 FUNCTIONS = (
     'log', 'die', 'record_cutover', 'color_container', 'container_health',
     'wait_healthy', 'wait_ready', 'drain_container', 'render_caddy_with_upstream',
@@ -58,12 +65,42 @@ def write_private(path, value):
     temporary.replace(path)
 
 
+def domestic_site_host(caddy):
+    """Return the one domestic site: the historical domain or the Beijing static IP."""
+    hosts = _SITE_RE.findall(caddy)
+    if len(hosts) != 1:
+        raise ValueError('refusing a non-domestic Caddy configuration')
+    return hosts[0]
+
+
+def domestic_site_env_get():
+    """Shell helper whose accepted site lines stay aligned with domestic_site_host."""
+    domain = re.escape(DOMAIN)
+    ip = re.escape(STATIC_SITE_IP)
+    return f'''env_get() {{
+  [[ "$1" = API_DOMAIN ]] || return 0
+  [[ -n "${{LIVE_CADDY:-}}" && -f "$LIVE_CADDY" ]] || return 1
+  local host
+  host=$(awk '
+    /^[[:space:]]*#/ {{ next }}
+    /^[[:space:]]*(https:\\/\\/)?({domain}|{ip})(:443)?[[:space:]]*\\{{[[:space:]]*$/ {{
+      line = $0
+      sub(/^[[:space:]]*(https:\\/\\/)?/, "", line)
+      sub(/(:443)?[[:space:]]*\\{{[[:space:]]*$/, "", line)
+      print line
+      n++
+    }}
+    END {{ if (n != 1) exit 1 }}
+  ' "$LIVE_CADDY") || return 1
+  printf '%s\\n' "$host"
+}}'''
+
+
 def active_container(caddy):
     routes = re.findall(r'^\s*reverse_proxy\s+(tokenkey(?:-blue|-green)?):8080\s*\{', caddy, re.M)
     if len(routes) != 1:
         raise ValueError('expected exactly one domestic application upstream')
-    if DOMAIN + ' {' not in caddy:
-        raise ValueError('refusing a non-domestic Caddy configuration')
+    domestic_site_host(caddy)
     return routes[0]
 
 
@@ -170,7 +207,7 @@ def shared_library(source):
     # cn-prod has no Gemini worker or control alias. Refuse one rather than
     # running the overseas worker/network adaptation on this host.
     functions.append('sync_gemini_web_control_alias() { ! docker inspect tokenkey-gemini-web >/dev/null 2>&1; }')
-    functions.append('env_get() { [[ "$1" = API_DOMAIN ]] && echo api-cn.tokenkey.dev; }')
+    functions.append(domestic_site_env_get())
     return '\n'.join(functions)
 
 
@@ -345,7 +382,8 @@ def main():
     if args.action in ('promote', 'rollback', 'notify') and not re.fullmatch(r'[a-f0-9]{64}', args.receipt or ''):
         parser.error('promote/rollback/notify requires exact prepared receipt SHA256')
     os.umask(0o077)
-    run('mountpoint', '-q', str(DATA))
+    # Dedicated volume or the Beijing root disk. A symlink is not a mount.
+    data_layout.require_directory(DATA)
     with (DATA / 'bluegreen-deploy.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         {'prepare': prepare, 'promote': promote, 'rollback': rollback, 'notify': notify}[args.action](args)

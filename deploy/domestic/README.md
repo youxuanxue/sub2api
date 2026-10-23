@@ -1,6 +1,8 @@
 # UCloud domestic prod
 
-当前应用在腾讯北京 `tokenkey-cn-prod`（`lhins-6qmb3fd6`，`154.8.214.179`）。`106.75.29.139` 仍由 UCloud 持有并只转发 80/443。发版和 probe 以 [`prod-target.json`](prod-target.json) 为准。下面的表是 2026-10-14 首次上线记录。
+当前应用在腾讯北京 `tokenkey-cn-prod`（`lhins-6qmb3fd6`，`154.8.214.179`）。该实例到期 **2026-11-22**，续费标志 `NOTIFY_AND_MANUAL_RENEW`，到期前手动续费，不要改成自动续费。`106.75.29.139` 仍由 UCloud 持有并只转发 80/443。发版和 probe 以 [`prod-target.json`](prod-target.json) 为准。下面的表是 2026-10-14 首次上线记录。
+
+逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。北京本机 pgBackRest（stanza `tokenkey`，timer `tokenkey-cn-postgres-backup` / `tokenkey-cn-postgres-archive-check`）的回执不能代替跨机隔离恢复；该恢复仍待审批，未批准前不开恢复机。
 
 审批范围和费用见 [design-domestic-cluster.md](../../docs/approved/design-domestic-cluster.md)。
 这是独立于美西 prod 的国内站点，不使用 Hetzner dispatcher 或美西数据库；只读观测通过独立注册的 AWS SSM Hybrid agent 下发。
@@ -88,8 +90,8 @@ bash deploy/domestic/deploy_via_ssm.sh prepare \
   --image tokenkey-domestic/tokenkey:1.8.306-SHORTSHA
 ```
 
-`bluegreen.py` 仍是国内主机适配入口，只接受 `api-cn.tokenkey.dev` 的现有运行配置；
-从共享 `deploy_via_ssm_bluegreen.sh` 提取健康检查、Caddy 切流、观察与 drain，未复制实现。
+`bluegreen.py` 仍是国内主机适配入口。Caddy 站点可以是 `api-cn.tokenkey.dev`，也可以是北京静态 IP `154.8.214.179`（`https://` 与 `:443` 写法同样接受）。`/var/lib/tokenkey` 可以是独立挂载，也可以直接在根文件系统上；根盘用该目录与 `/` 的设备是否相同来识别，不会把普通目录伪装成 mountpoint。
+从共享 `deploy_via_ssm_bluegreen.sh` 提取健康检查、Caddy 切流、观察与 drain，未复制实现。切流后的本机健康观察使用 Caddy 里的那个站点名，因此静态 IP 站点不会再拿 `api-cn.tokenkey.dev` 去对本地证书。
 候选实测与 `promote` 仍在主机执行（可用 SSM Run Command / Session Manager），需要
 `--public-url` 与 `prod-target.json` 的 `public_origin` 一致（静态 IP，不能用已切往 AWS
 的域名冒充 UCloud 验证）：
@@ -253,9 +255,10 @@ owner 中显式识别为 `cn-prod`，沿用 prod 用户失败告警规则。
 
 `install-host-alerts.sh SHARED_SCRIPT` 安装共享
 `deploy/hetzner/tokenkey-disk-metrics-prod.sh`，每五分钟独立于 Docker/Postgres 检查
-系统盘、数据盘和内存。磁盘达到 85% 告警、低于 80% 恢复；内存 90% 连续两次或 96%
+系统盘和内存；独立数据盘存在时一并检查。磁盘达到 85% 告警、低于 80% 恢复；内存 90% 连续两次或 96%
 单次告警，低于 80% 恢复。凭据放在系统盘 `/opt/tokenkey/host-alerts.env`（0600），
 通过 `TOKENKEY_HOST_ALERT_ENV_FILE` 指定，数据盘失挂时仍能通知；节点标识为 `cn-prod`。
+独立数据盘仍必须是 mountpoint。目录就在根文件系统上时（北京 `/dev/vda2`），安装器接受该布局，单元不设置 `TOKENKEY_DATA_VOLUME_PATH`，只检查根文件系统和内存，避免把根盘误报成数据卷失挂。安装不重启网关、数据库或 Caddy。缺少 0600 的通知配置时拒绝安装。
 
 公网可用性由共享 `ops/observability/host_https_watch.py` 承担：cn-prod 提供境内视角，prod
 提供独立站外视角。两处分别检查 UCloud 静态 IP、当前转到 AWS 的国内域名、AWS prod

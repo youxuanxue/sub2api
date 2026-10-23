@@ -143,10 +143,36 @@ def _persist_warm(saved, receipt, *, image_id, local_tag, cached):
     return result
 
 
+def _require_data_directory(data):
+    """Accept a dedicated mount or a directory on the root filesystem.
+
+    The S3 warm payload execs this file alone, so the rule is inlined. It must
+    stay aligned with deploy/domestic/data_layout.py: exit 0 is a volume, exit
+    32 on the same device as ``/`` is the Beijing root disk, and a symlink is
+    refused instead of being followed into a forged mount.
+    """
+    path = Path(data)
+    if path.is_symlink() or not path.is_dir():
+        raise RuntimeError('domestic data directory is missing')
+    completed = subprocess.run(['mountpoint', '-q', str(path)], capture_output=True, text=True)
+    if completed.returncode == 0:
+        return
+    if completed.returncode == 32 and _same_root_device(path):
+        return
+    raise RuntimeError('domestic data directory is neither a mounted volume nor on the root filesystem')
+
+
+def _same_root_device(path):
+    try:
+        return os.stat(path).st_dev == os.stat('/').st_dev
+    except OSError:
+        return False
+
+
 def warm(receipt, url, *, data=Path('/var/lib/tokenkey')):
     """Host-only entry. Download is bounded; the shared deploy lock excludes cutover."""
     validate_receipt(receipt, receipt['tag'], receipt['revision'])
-    subprocess.run(['mountpoint', '-q', str(data)], check=True)
+    _require_data_directory(data)
     os.umask(0o077)
     with (data / 'bluegreen-deploy.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

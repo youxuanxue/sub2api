@@ -10,6 +10,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -107,7 +108,7 @@ class ArchiveTests(unittest.TestCase):
 
     def host_run(self, *, download_fail=False, bad_download=False, loaded_revision=REV,
                  existing_id=None, existing_revision=None, existing_layers=None,
-                 receipt=None, seed_saved=False):
+                 receipt=None, seed_saved=False, mountpoint_rc=0):
         data = Path(self.temp.name) / 'data'
         data.mkdir(exist_ok=True)
         used = receipt or self.receipt
@@ -127,6 +128,8 @@ class ArchiveTests(unittest.TestCase):
 
         def run(args, **kwargs):
             calls.append(args)
+            if args and args[0] == 'mountpoint':
+                return subprocess.CompletedProcess(args, mountpoint_rc, '', '')
             if 'curl' in args:
                 destination = Path(args[args.index('--output') + 1])
                 destination.write_bytes(b'bad' if bad_download else self.path.read_bytes())
@@ -213,13 +216,39 @@ class ArchiveTests(unittest.TestCase):
                 self.assertIsInstance(result, ValueError)
                 self.assertEqual([cmd for cmd in calls if cmd[:2] == ['docker', 'tag']], [])
 
+    def test_warm_accepts_root_disk_and_rejects_a_different_device(self):
+        with patch.object(archive, '_same_root_device', return_value=True):
+            result, calls = self.host_run(mountpoint_rc=32)
+        self.assertEqual(result['local_tag'], archive.identity(TAG, REV))
+        self.assertEqual(calls[0][0], 'mountpoint')
+        self.assertIn('docker', {cmd[0] for cmd in calls if cmd})
+        with patch.object(archive, '_same_root_device', return_value=False):
+            result, calls = self.host_run(mountpoint_rc=32)
+        self.assertIsInstance(result, RuntimeError)
+        self.assertIn('root filesystem', str(result))
+        self.assertEqual([cmd for cmd in calls if cmd and cmd[0] == 'docker'], [])
+
+    def test_root_device_helper_compares_devices(self):
+        def fake_stat(path, follow_symlinks=True):
+            return SimpleNamespace(st_dev=1 if str(path) == '/' else 1)
+        with patch.object(archive.os, 'stat', side_effect=fake_stat):
+            self.assertTrue(archive._same_root_device(Path('/var/lib/tokenkey')))
+        def split_stat(path, follow_symlinks=True):
+            return SimpleNamespace(st_dev=1 if str(path) == '/' else 2)
+        with patch.object(archive.os, 'stat', side_effect=split_stat):
+            self.assertFalse(archive._same_root_device(Path('/var/lib/tokenkey')))
+
     def test_busy_host_lock_does_not_download(self):
         data = Path(self.temp.name)
-        with patch.object(archive.subprocess, 'run') as run, \
+
+        def run(args, **kwargs):
+            return subprocess.CompletedProcess(args, 0, '', '')
+
+        with patch.object(archive.subprocess, 'run', side_effect=run) as recorded, \
              patch.object(archive.fcntl, 'flock', side_effect=BlockingIOError):
             with self.assertRaises(BlockingIOError):
                 archive.warm(self.receipt, 'https://private.invalid/signed', data=data)
-            self.assertEqual([call.args[0][0] for call in run.call_args_list], ['mountpoint'])
+            self.assertEqual([call.args[0][0] for call in recorded.call_args_list], ['mountpoint'])
 
 
 class ClientError(Exception):
