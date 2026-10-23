@@ -622,5 +622,61 @@ class ReplayDataContainerTest(unittest.TestCase):
         source = (ROOT / 'scripts/stage0/replay-prod-release.py').read_text()
         self.assertIn("files['resolve_app_container.py'] = (ROOT / 'ops/lib/resolve_app_container.py')", source)
 
+    def test_live_caddyfile_follows_the_container_mount_not_the_stage0_copy(self):
+        # Layout-exception hosts (Tencent USW) mount /etc/caddy/Caddyfile from
+        # formal/caddy/*. Reading root/caddy/Caddyfile there made every prepared
+        # receipt look changed one second after prepare wrote it, so replay could
+        # never execute. Resolution must match deploy_via_ssm_bluegreen.sh.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'caddy').mkdir()
+            stale = root / 'caddy/Caddyfile'
+            stale.write_bytes(b'reverse_proxy tokenkey-blue:8080\n')
+            mounted = root / 'formal/caddy'
+            mounted.mkdir(parents=True)
+            live = mounted / 'Caddyfile.cutover'
+            live.write_bytes(b'reverse_proxy tokenkey-green:8080\n')
+
+            mounts = {'Mounts': [{'Destination': '/data', 'Source': str(root / 'formal/caddy-data')},
+                                 {'Destination': '/etc/caddy/Caddyfile', 'Source': str(live)}]}
+            with patch.object(replay, 'inspect', return_value=mounts):
+                self.assertEqual(replay.live_caddyfile(root), live)
+
+            # Missing mount source on disk, or no caddy container at all: fall back.
+            gone = {'Mounts': [{'Destination': '/etc/caddy/Caddyfile', 'Source': str(root / 'absent')}]}
+            with patch.object(replay, 'inspect', return_value=gone):
+                self.assertEqual(replay.live_caddyfile(root), stale)
+            with patch.object(replay, 'inspect', side_effect=replay.ReplayError('host_command_failed')):
+                self.assertEqual(replay.live_caddyfile(root), stale)
+            with patch.object(replay, 'inspect', side_effect=IndexError):
+                self.assertEqual(replay.live_caddyfile(root), stale)
+
+    def test_snapshot_hashes_the_mounted_caddyfile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'caddy').mkdir()
+            (root / 'caddy/Caddyfile').write_bytes(b'reverse_proxy tokenkey-blue:8080\n')
+            (root / 'active-color').write_text('green\n')
+            (root / 'docker-compose.bluegreen.yml').write_bytes(b'services: {}\n')
+            (root / '.env').write_bytes(b'TAG=1\n')
+            mounted = root / 'formal/caddy'
+            mounted.mkdir(parents=True)
+            live = mounted / 'Caddyfile.cutover'
+            live.write_bytes(b'reverse_proxy tokenkey-green:8080\n')
+
+            container = {'Id': 'cid', 'Image': 'sha256:img', 'RestartCount': 0,
+                         'State': {'Running': True, 'StartedAt': 'now'},
+                         'Config': {'Image': 'ghcr.io/x/y:1.0.0'}}
+            caddy = {'Mounts': [{'Destination': '/etc/caddy/Caddyfile', 'Source': str(live)}]}
+
+            def fake_inspect(name):
+                return caddy if name == 'tokenkey-caddy' else container
+
+            with patch.object(replay, 'inspect', side_effect=fake_inspect):
+                value = replay.snapshot(root)
+            # The stale blue copy would have failed caddy_active_mismatch outright.
+            self.assertEqual(value['caddy_sha'], replay.digest(live.read_bytes()))
+            self.assertEqual(value['active'], 'green')
+
 if __name__ == '__main__':
     unittest.main()

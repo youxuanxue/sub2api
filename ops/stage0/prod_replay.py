@@ -76,12 +76,36 @@ def fingerprint(state):
     return f"{state['Id']} {state['Image']} {state['State']['StartedAt']} {state['RestartCount']}"
 
 
+def live_caddyfile(root=ROOT):
+    """The Caddyfile actually serving traffic, as the blue/green owner resolves it.
+
+    Layout-exception hosts (Tencent USW) mount /etc/caddy/Caddyfile from
+    formal/caddy/*, and root/caddy/Caddyfile is then a stale divergent copy.
+    deploy_via_ssm_bluegreen.sh:resolve_live_caddyfile() already resolves the
+    mount source; reading a different path here made every prepared receipt look
+    changed one second after prepare wrote it (prepared_state_changed), so replay
+    could never execute. Same resolution order as that owner: container mount
+    first, Stage0 path as fallback.
+    """
+    try:
+        mounts = inspect('tokenkey-caddy').get('Mounts') or []
+    except (ReplayError, ValueError, IndexError, KeyError, TypeError):
+        # No reachable caddy container: fall back, never crash the snapshot.
+        mounts = []
+    for mount in mounts:
+        if mount.get('Destination') == '/etc/caddy/Caddyfile' and mount.get('Source'):
+            path = Path(mount['Source'])
+            if path.is_file():
+                return path
+    return root / 'caddy/Caddyfile'
+
+
 def snapshot(root=ROOT):
     active = (root / 'active-color').read_text().strip()
     require(active in ('blue', 'green'), 'requires_bluegreen_prod')
     target = 'green' if active == 'blue' else 'blue'
     live, candidate = inspect('tokenkey-' + active), inspect('tokenkey-' + target)
-    route = (root / 'caddy/Caddyfile').read_bytes()
+    route = live_caddyfile(root).read_bytes()
     routes = set(re.findall(rb'tokenkey-(blue|green):8080', route))
     require(routes == {active.encode()}, 'caddy_active_mismatch')
     require(candidate['State']['Running'], 'candidate_not_running')
