@@ -76,6 +76,9 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 		}
 	}
 	if coordinator == nil {
+		if legacy == nil || !legacy.MayInspectBody(c.Request.Context()) {
+			return nil
+		}
 		legacyDecision := runContentModeration(c, reqLog, legacy, apiKey, subject, protocol, model, body)
 		if legacyDecision == nil {
 			return nil
@@ -93,6 +96,9 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 			c.Set(securityAuditCompletedContextKey, true)
 		}
 		return &decision
+	}
+	if !coordinator.MayInspectBody(c.Request.Context()) {
+		return nil
 	}
 
 	request := buildSecurityAuditRequest(c, apiKey, subject, protocol, model, body, stage)

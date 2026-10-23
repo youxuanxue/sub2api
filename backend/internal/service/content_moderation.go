@@ -544,6 +544,7 @@ type ContentModerationService struct {
 	runtimeRefreshRetryAt    atomic.Int64
 	keyHealthMu              sync.Mutex
 	keyHealth                map[string]*contentModerationKeyHealth
+	bodyInspections          atomic.Int64
 }
 
 type contentModerationRuntimeSnapshot struct {
@@ -810,6 +811,21 @@ func (s *ContentModerationService) TestAPIKeys(ctx context.Context, input TestCo
 	return &TestContentModerationAPIKeysResult{Items: items, AuditResult: auditResult, ImageCount: imageCount}, nil
 }
 
+// MayInspectBody reports whether Check will walk the request body. A nil
+// service, a missing repository, or a disabled risk-control/moderation
+// configuration returns before any text extraction.
+func (s *ContentModerationService) MayInspectBody(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil || s.repo == nil {
+		return false
+	}
+	snapshot, err := s.loadRuntimeSnapshot(ctx)
+	if err != nil || snapshot == nil || !snapshot.riskControlEnabled || snapshot.config == nil {
+		return false
+	}
+	cfg := snapshot.config
+	return cfg.Enabled && cfg.Mode != ContentModerationModeOff
+}
+
 func (s *ContentModerationService) Check(ctx context.Context, input ContentModerationCheckInput) (decision *ContentModerationDecision, err error) {
 	allow := &ContentModerationDecision{Allowed: true, Action: ContentModerationActionAllow}
 	if s == nil || s.settingRepo == nil || s.repo == nil {
@@ -919,6 +935,7 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 	}
 	if cfg.Mode == ContentModerationModePreBlock {
 		if cfg.KeywordBlockingMode != ContentModerationKeywordModeAPIOnly && len(cfg.BlockedKeywords) > 0 {
+			s.bodyInspections.Add(1)
 			keywordText := extractContentModerationKeywordText(input.Protocol, input.Body)
 			if keyword, hit := runtimeSnapshot.matchBlockedKeyword(keywordText); hit {
 				metricAction := ContentModerationActionKeywordBlock
@@ -962,6 +979,7 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 			return allow, nil
 		}
 	}
+	s.bodyInspections.Add(1)
 	content := ExtractContentModerationInput(input.Protocol, input.Body)
 	if content.IsEmpty() {
 		slog.Info("content_moderation.skip_empty_input",

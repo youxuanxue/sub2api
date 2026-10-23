@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,11 +16,66 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 )
 
+// candidateLoadSnap is the admission pass's concurrency read. The scheduler
+// select consumes it once when the account set matches, so the same request
+// does not hit Redis again before the first slot attempt. A failed read is
+// not stored: the scheduler retries. Failover (a different account set, or
+// any later acquire) refetches.
+type candidateLoadSnap struct {
+	key   string
+	loads map[int64]*AccountLoadInfo
+}
+
 type candidateAccountLister interface {
 	ListCandidateAccounts(context.Context, []int64) ([]Account, error)
 }
 
+func candidateGroupKey(groups []Group) string {
+	parts := make([]string, len(groups))
+	for i, group := range groups {
+		parts[i] = strconv.FormatInt(group.ID, 10)
+	}
+	return strings.Join(parts, ",")
+}
+
+func candidateLoadSnapCovers(snap *candidateLoadSnap, ids []int64) bool {
+	if snap == nil || snap.loads == nil {
+		return false
+	}
+	for _, id := range ids {
+		if _, ok := snap.loads[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func candidateAccountIDKey(ids []int64) string {
+	sorted := append([]int64(nil), ids...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	parts := make([]string, len(sorted))
+	for i, id := range sorted {
+		parts[i] = strconv.FormatInt(id, 10)
+	}
+	return strings.Join(parts, ",")
+}
+
 func (r *CandidateRequest) accounts(ctx context.Context) ([]Account, error) {
+	key := candidateGroupKey(r.groups)
+	if r.accountsCached && r.cachedAccountsKey == key {
+		return r.cachedAccounts, nil
+	}
+	accounts, err := r.listAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r.accountsCached = true
+	r.cachedAccounts = accounts
+	r.cachedAccountsKey = key
+	return accounts, nil
+}
+
+func (r *CandidateRequest) listAccounts(ctx context.Context) ([]Account, error) {
 	repo := r.resolver.candidateGateway.accountRepo
 	ids := make([]int64, 0, len(r.groups))
 	for _, group := range r.groups {
@@ -50,21 +106,30 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 	defer BeginImageIngressPhase(ctx, ImageIngressCandidates)()
 	r.hasSoftAffinity = false
 	ctx = r.withProfitPricing(ctx)
-	if r.key.IsUniversal() {
-		groups, err := r.resolver.span(ctx, r.key.UserID)
-		if err != nil {
-			return nil, false, err
+	// Admission publishes one group refresh. The scheduler select that follows
+	// on this same request reuses it; the next select (failover) reads again.
+	if r.skipGroupRefresh {
+		r.skipGroupRefresh = false
+	} else {
+		if r.key.IsUniversal() {
+			groups, err := r.resolver.span(ctx, r.key.UserID)
+			if err != nil {
+				return nil, false, err
+			}
+			r.groups = activeCapabilityGroups(groups)
+		} else if r.resolver.candidateGateway.groupRepo != nil && len(r.groups) == 1 {
+			group, err := r.resolver.candidateGateway.groupRepo.GetByID(ctx, r.groups[0].ID)
+			if err != nil {
+				return nil, false, err
+			}
+			if group == nil || !group.IsActive() {
+				return nil, false, ErrUniversalNoEntitledGroup
+			}
+			r.groups = []Group{*group}
 		}
-		r.groups = activeCapabilityGroups(groups)
-	} else if r.resolver.candidateGateway.groupRepo != nil && len(r.groups) == 1 {
-		group, err := r.resolver.candidateGateway.groupRepo.GetByID(ctx, r.groups[0].ID)
-		if err != nil {
-			return nil, false, err
+		if !options.acquire {
+			r.skipGroupRefresh = true
 		}
-		if group == nil || !group.IsActive() {
-			return nil, false, ErrUniversalNoEntitledGroup
-		}
-		r.groups = []Group{*group}
 	}
 	accounts, err := r.accounts(ctx)
 	if err != nil {
@@ -76,11 +141,13 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 	ctx = gw.withRPMPrefetch(ctx, accounts)
 	ctx = gw.withWindowCostPrefetch(ctx, accounts)
 	ctx = openai.withOpenAIQuotaAutoPauseContext(ctx)
+	// Sticky and prompt-cache bindings stay live. Auth can write them after
+	// admission, and a stale snapshot would change which account wins.
 	var stickyID int64
+	var promptCacheStickyID int64
 	if r.session != "" && gw.cache != nil {
 		stickyID, _ = gw.cache.GetSessionAccountID(ctx, 0, r.session)
 	}
-	var promptCacheStickyID int64
 	if r.promptCacheSession != "" && gw.cache != nil {
 		promptCacheStickyID, _ = gw.cache.GetSessionAccountID(ctx, 0, r.promptCacheSession)
 	}
@@ -359,10 +426,28 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 			accounts = append(accounts, path.account)
 		}
 		var loadErr error
-		if gw.concurrencyService != nil {
-			loads, loadErr = gw.concurrencyService.GetAccountsLoadBatchFresh(ctx, loadRequests)
-			if loadErr != nil {
-				slog.WarnContext(ctx, "candidate_load_read_failed", "error", loadErr)
+		loadIDs := make([]int64, len(loadRequests))
+		for i, req := range loadRequests {
+			loadIDs[i] = req.ID
+		}
+		loadKey := candidateAccountIDKey(loadIDs)
+		if snap := r.loadSnap; candidateLoadSnapCovers(snap, loadIDs) {
+			// Capability filtering can shrink the admission pool. Reuse the
+			// loads already read for those accounts instead of calling Redis.
+			r.loadSnap = nil
+			loads = make(map[int64]*AccountLoadInfo, len(loadIDs))
+			for _, id := range loadIDs {
+				loads[id] = snap.loads[id]
+			}
+		} else {
+			r.loadSnap = nil
+			if gw.concurrencyService != nil {
+				loads, loadErr = gw.concurrencyService.GetAccountsLoadBatchFresh(ctx, loadRequests)
+				if loadErr != nil {
+					slog.WarnContext(ctx, "candidate_load_read_failed", "error", loadErr)
+				} else if !options.acquire {
+					r.loadSnap = &candidateLoadSnap{key: loadKey, loads: loads}
+				}
 			}
 		}
 		counts := gw.candidateSaturationState().counts(ctx, accounts, r.model)

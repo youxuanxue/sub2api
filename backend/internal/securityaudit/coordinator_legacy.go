@@ -14,6 +14,13 @@ func NewLegacyModerationAdapter(svc *service.ContentModerationService) LegacyEng
 	return &LegacyModerationAdapter{service: svc}
 }
 
+func (a *LegacyModerationAdapter) MayInspectBody(ctx context.Context) bool {
+	if a == nil || a.service == nil {
+		return false
+	}
+	return a.service.MayInspectBody(ctx)
+}
+
 func (a *LegacyModerationAdapter) Check(ctx context.Context, req Request) (*LegacyDecision, error) {
 	if a == nil || a.service == nil {
 		return nil, nil

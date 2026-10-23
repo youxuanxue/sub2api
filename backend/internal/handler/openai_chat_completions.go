@@ -62,7 +62,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
-	if !gjson.ValidBytes(body) {
+	// Admission already decoded this document. Skip the second full-buffer
+	// validity walk; a rewritten or direct-only body still goes through gjson.
+	if !service.CanonicalRequestBodyValidated(c.Request.Context(), protocolrouter.ProtocolChatCompletions, body) && !gjson.ValidBytes(body) {
 		logRequestBodyParseFailure(reqLog, body, nil)
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
@@ -186,16 +188,27 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	// 分组利润控制：chat completions 文本入口请求级装门并固定 pricingAt。
 	ccPricingCtx, pricingAt := h.tkHTTPRequestPricingContext(c.Request.Context(), apiKey.GroupID)
-	canonicalRequest, err := newCanonicalProtocolRequest(
+	canonicalRequest, reusedCanonical := service.ReuseParsedCanonicalRequest(
+		c.Request.Context(),
 		protocolrouter.ProtocolChatCompletions,
 		protocolrouter.ResponsesPathNone,
 		reqModel,
 		reqStream,
 		body,
 	)
-	if err != nil {
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
-		return
+	if !reusedCanonical {
+		var parseErr error
+		canonicalRequest, parseErr = newCanonicalProtocolRequest(
+			protocolrouter.ProtocolChatCompletions,
+			protocolrouter.ResponsesPathNone,
+			reqModel,
+			reqStream,
+			body,
+		)
+		if parseErr != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+			return
+		}
 	}
 	ccPricingCtx = service.WithProtocolRouting(ccPricingCtx, h.protocolRouter, canonicalRequest)
 	c.Request = c.Request.WithContext(ccPricingCtx)

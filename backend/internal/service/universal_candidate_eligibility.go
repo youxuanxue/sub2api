@@ -129,6 +129,7 @@ func (r *UniversalRoutingResolver) withRequestProfile(ctx context.Context, shape
 		})
 	} else {
 		request, err = protocolrouter.ParseCanonicalRequest(inbound, responsesPath, model, stream, body)
+		noteGatewayCanonicalParse(ctx)
 	}
 	if err != nil {
 		return ctx

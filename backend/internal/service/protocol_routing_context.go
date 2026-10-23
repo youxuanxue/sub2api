@@ -129,6 +129,30 @@ func protocolRequestEligibilityReason(ctx context.Context, account *Account, req
 	return true, ""
 }
 
+// CanonicalRequestBodyValidated reports that admission already decoded this
+// exact body for the inbound protocol. Handlers skip a second validity scan.
+func CanonicalRequestBodyValidated(ctx context.Context, inbound protocolrouter.Protocol, body []byte) bool {
+	existing, ok := ProtocolRoutingRequest(ctx)
+	if !ok || existing.InboundProtocol() != inbound {
+		return false
+	}
+	return existing.BodyEquals(body)
+}
+
+// ReuseParsedCanonicalRequest returns the admission decode when the execution
+// request is the same document. A reasoning-policy rewrite or a different
+// model/stream falls through to a fresh parse.
+func ReuseParsedCanonicalRequest(ctx context.Context, inbound protocolrouter.Protocol, responsesPath protocolrouter.ResponsesPathKind, model string, stream bool, body []byte) (protocolrouter.CanonicalRequest, bool) {
+	existing, ok := ProtocolRoutingRequest(ctx)
+	if !ok || existing.InboundProtocol() != inbound || existing.ResponsesPath() != responsesPath || existing.RequestedModel() != model {
+		return protocolrouter.CanonicalRequest{}, false
+	}
+	if existing.Profile().Stream != stream || !existing.BodyEquals(body) {
+		return protocolrouter.CanonicalRequest{}, false
+	}
+	return existing, true
+}
+
 func ProtocolRoutingRequest(ctx context.Context) (protocolrouter.CanonicalRequest, bool) {
 	if ctx == nil {
 		return protocolrouter.CanonicalRequest{}, false
