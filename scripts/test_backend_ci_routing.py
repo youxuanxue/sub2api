@@ -59,6 +59,9 @@ class BackendCIRoutingTest(unittest.TestCase):
                 self.assertIn(f"needs.changes.outputs.{surface} == 'true'", condition)
                 self.assertIn("needs.changes.outputs.all == 'true'", condition)
 
+    def test_shell_job_runs_on_ubuntu(self) -> None:
+        self.assertEqual(self.jobs["shell"]["runs-on"], "ubuntu-latest")
+
     def test_candidate_browser_runs_real_service_for_backend_or_frontend_changes(self) -> None:
         job = self.jobs["candidate-browser"]
         self.assertEqual(job["needs"], "changes")

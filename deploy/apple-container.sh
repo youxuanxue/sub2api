@@ -402,8 +402,13 @@ validate_env_file_security() {
     local owner mode permissions
 
     [[ -f "${ENV_FILE}" ]] || die "Environment file not found: ${ENV_FILE}. Run '$0 init' first."
-    owner="$(stat -f '%u' "${ENV_FILE}")" || die "Unable to read owner for ${ENV_FILE}."
-    mode="$(stat -f '%Lp' "${ENV_FILE}")" || die "Unable to read permissions for ${ENV_FILE}."
+    # BSD stat (-f) on macOS. GNU stat treats -f as filesystem display, so the
+    # same flags fail and we read uid/mode with -c. Assignments stay in this
+    # function: a callee would write globals and leave these locals empty.
+    if ! owner="$(stat -f '%u' "${ENV_FILE}" 2>/dev/null)" || ! mode="$(stat -f '%Lp' "${ENV_FILE}" 2>/dev/null)"; then
+        owner="$(stat -c '%u' "${ENV_FILE}")" || die "Unable to read owner for ${ENV_FILE}."
+        mode="$(stat -c '%a' "${ENV_FILE}")" || die "Unable to read permissions for ${ENV_FILE}."
+    fi
     [[ "${owner}" == "${EUID}" ]] || die "Environment file must be owned by the current user: ${ENV_FILE}"
     [[ "${mode}" =~ ^[0-7]+$ ]] || die "Unable to parse permissions for ${ENV_FILE}: ${mode}"
     permissions=$((8#${mode}))

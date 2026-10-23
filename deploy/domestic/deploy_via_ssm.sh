@@ -241,6 +241,7 @@ PY
     mkdir -p "${BUNDLE}/controls"
     cp \
       "${REPO_ROOT}/deploy/domestic/bluegreen.py" \
+      "${REPO_ROOT}/deploy/domestic/data_layout.py" \
       "${REPO_ROOT}/deploy/domestic/post_release.py" \
       "${REPO_ROOT}/deploy/domestic/prod-target.json" \
       "${REPO_ROOT}/ops/stage0/deploy_via_ssm_bluegreen.sh" \

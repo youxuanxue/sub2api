@@ -51,6 +51,40 @@ class BackupTests(unittest.TestCase):
         with patch.dict(module.os.environ, {'APPLY':''}), self.assertRaises(ValueError):
             module.main()
 
+    def test_dump_guard_accepts_root_filesystem_and_rejects_other_mounts(self):
+        module = load('pgdump_remote')
+        with tempfile.TemporaryDirectory() as temp:
+            data = Path(temp) / 'data'
+            data.mkdir()
+            cases = (
+                ('/\n', 'stop-after-guard'),
+                (str(data) + '\n', 'stop-after-guard'),
+                ('/mnt/lost\n', 'data volume is not mounted'),
+            )
+            for findmnt_out, expected in cases:
+                seen = []
+
+                def fake_run(args, **kwargs):
+                    seen.append(args[0])
+                    if args[0] == 'findmnt':
+                        return findmnt_out
+                    raise RuntimeError('stop-after-guard')
+
+                with patch.object(module, 'ROOT', data / 'pgdump'), \
+                     patch.object(module, 'STATE', Path(temp) / 'state'), \
+                     patch.object(module, 'run', fake_run), \
+                     patch.object(module.os, 'geteuid', return_value=0), \
+                     patch.dict(module.os.environ, {'APPLY': 'yes-cn-pgdump'}), \
+                     patch.object(module.sys, 'argv', ['pgdump_remote.py', 'dump']), \
+                     patch.object(Path, 'is_file', lambda self: self == Path('/opt/tokenkey/compose.yml')), \
+                     patch.object(Path, 'exists', lambda self: False):
+                    with self.assertRaises((RuntimeError, ValueError)) as raised:
+                        module.main()
+                self.assertIn(expected, str(raised.exception))
+                self.assertEqual(seen[0], 'findmnt')
+                if expected == 'data volume is not mounted':
+                    self.assertNotIn('bash', seen)
+
 
 if __name__ == '__main__':
     unittest.main()

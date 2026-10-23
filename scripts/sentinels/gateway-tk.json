@@ -11665,9 +11665,51 @@
     {
       "path": "scripts/checks/caddyfile-syntax.sh",
       "must_contain": [
-        "python3 -m unittest deploy/domestic/test_runtime.py deploy/domestic/test_bluegreen.py deploy/domestic/test_post_release.py"
+        "python3 -m unittest deploy/domestic/test_runtime.py deploy/domestic/test_bluegreen.py deploy/domestic/test_post_release.py deploy/domestic/test_deploy_via_ssm.py deploy/domestic/test_data_layout.py deploy/domestic/test_pgdump.py deploy/domestic/test_image_distribution.py"
       ],
-      "rationale": "Keep domestic ingress and blue/green runtime regressions in the existing Docker/Caddy preflight and CI gate; syntax-only adaptation misses alias bypasses and interrupted-drain rollback failures."
+      "rationale": "Keep domestic ingress, blue/green, root-disk layout, and image-warm regressions in the existing Docker/Caddy preflight and CI gate; syntax-only adaptation misses alias bypasses and interrupted-drain rollback failures."
+    },
+    {
+      "path": "deploy/domestic/bluegreen.py",
+      "must_contain": [
+        "STATIC_SITE_IP = '154.8.214.179'",
+        "def domestic_site_host(caddy):",
+        "data_layout.require_directory(DATA)"
+      ],
+      "rationale": "Beijing serves the static IP site and keeps /var/lib/tokenkey on the root disk. A later edit must not require a dedicated mountpoint or the api-cn.tokenkey.dev site label."
+    },
+    {
+      "path": "deploy/domestic/test_bluegreen.py",
+      "must_contain": [
+        "def test_route_resolution_accepts_beijing_static_ip_site(",
+        "def test_env_get_follows_the_live_caddy_site("
+      ],
+      "rationale": "Domestic cutover must keep accepting the Beijing static IP site and must read that site name back for the local health check."
+    },
+    {
+      "path": "deploy/domestic/data_layout.py",
+      "must_contain": [
+        "def layout_from_mountpoint(returncode, data_device, root_device):",
+        "return 'root'",
+        "if path.is_symlink() or not path.is_dir():"
+      ],
+      "rationale": "Root-disk acceptance requires mountpoint exit 32 on the same device as /; a symlink is not a mount."
+    },
+    {
+      "path": "deploy/domestic/test_data_layout.py",
+      "must_contain": [
+        "def test_symlink_is_refused_before_mountpoint(",
+        "def test_root_disk_directory_is_accepted_without_a_fake_mount(",
+        "def test_alert_plan_omits_data_volume_on_root_and_keeps_it_for_a_mount("
+      ],
+      "rationale": "Root-disk acceptance, symlink refusal, and the alert unit's omitted data-volume path are the Beijing layout contract."
+    },
+    {
+      "path": "deploy/domestic/image_archive.py",
+      "must_contain": [
+        "if completed.returncode == 32 and _same_root_device(path):"
+      ],
+      "rationale": "The S3 warm payload executes image_archive.py alone, so its root-disk acceptance must stay aligned with data_layout.py."
     },
     {
       "path": "deploy/domestic/bluegreen.py",

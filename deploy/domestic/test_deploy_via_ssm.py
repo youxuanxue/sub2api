@@ -50,6 +50,7 @@ class DeployViaSsmTest(unittest.TestCase):
         # Minimal control files for sync-controls.
         for name, body in (
             ("bluegreen.py", "print('bluegreen')\n"),
+            ("data_layout.py", "print('layout')\n"),
             ("post_release.py", "print('post')\n"),
             ("prod-target.json", json.dumps(manifest) + "\n"),
         ):
