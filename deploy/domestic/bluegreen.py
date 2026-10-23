@@ -350,7 +350,7 @@ def repin_env_image(image_id):
             if tag.rsplit(':', 1)[0] == repo]
     if len(tags) != 1:
         raise ValueError('promoted image must carry exactly one ' + repo + ' tag to pin')
-    backup = ROOT / ('.env.before-promote-repin-' + image_id.removeprefix('sha256:')[:12])
+    backup = ROOT / ('.env.before-repin-' + image_id.removeprefix('sha256:')[:12])
     if not backup.exists():
         shutil.copy2(env, backup)
         backup.chmod(0o600)
@@ -433,6 +433,10 @@ def rollback(args):
         (DATA / 'active-color').unlink(missing_ok=True)
     else:
         (DATA / 'active-color').write_text(old.removeprefix('tokenkey-') + '\n')
+    # promote() repinned .env at the candidate. Roll that back with the route,
+    # or .env keeps naming the image we just rolled away from -- the same stale
+    # pin this adapter now exists to prevent, only inverted.
+    repin_env_image(inspect(old)['Image'])
     shell(state, f'observe_routed_health {shlex.quote(old)}\ndrain_container {target}\ndocker stop -t 180 {target} >/dev/null')
     write_private(state / 'rolled-back.json', {'active': old, 'previous': target})
     print(json.dumps({'stage': 'rolled-back', 'active': old}))

@@ -32,7 +32,7 @@
 | --- | --- | --- |
 | `/opt/tokenkey/compose{,.override,.local}.yml` 三件套全缺 | `bluegreen.py prepare` 读不到服务定义，**阻断发版** | 从仓库铺回（**不要**跑 `prepare-runtime.py`，它是首装脚本、会重新生成数据库密码与 JWT secret） |
 | `prod-target.json` `public_origin` 还是 UCloud `106.75.29.139` | `promote` 切流前校验必然失败 | 改为腾讯北京 `154.8.214.179` |
-| `.env` `TOKENKEY_IMAGE` pin 在临时 `cn-prod-monitor-*`，且该镜像已被 GHCR prune 删除 | 蓝绿容器按 image id 跑，现网无感；但任何从 `.env` 重建（恢复、`compose up`）会因 `pull_policy: never` 直接失败 | 重新 pin 到在服版本；`promote` 现在每次切流自动 repin（`repin_env_image`，对齐美西的 `env_set TOKENKEY_IMAGE`） |
+| `.env` `TOKENKEY_IMAGE` pin 在临时 `cn-prod-monitor-*`，且该镜像已被 GHCR prune 删除 | 蓝绿容器按 image id 跑，现网无感；但任何从 `.env` 重建（恢复、`compose up`）会因 `pull_policy: never` 直接失败 | 重新 pin 到在服版本；`promote` 与 `rollback` 现在都会 repin 到当前路由到的颜色（`repin_env_image`，对齐美西的 `env_set TOKENKEY_IMAGE` / `restore_env_if_safe`） |
 | `SECURITY_PROXY_PROBE_PRESET` 只写进 override，没列入 `*_ENV_KEYS` | 候选 env 继承自现役容器、只覆盖列出的键，所以该键**永远**传不到新颜色，Admin 代理探测一直走境外 `ip-api.com` | 新增 `CONFIG_ENV_KEYS`；`test_pool_env_probe.py` 现在会在 override 声明了未传播的键时失败 |
 
 日志轮转和 compose 项目名随 1.8.318 蓝绿自动归位（override 的 20m×3、`cn-prod-bluegreen`）。

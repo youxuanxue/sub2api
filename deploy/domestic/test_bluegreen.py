@@ -374,7 +374,7 @@ class DomesticEnvRepinTest(unittest.TestCase):
             self.assertIn(line, text)
         self.assertEqual([l.split('=', 1)[0] for l in text.splitlines()],
                          [l.split('=', 1)[0] for l in self.before.splitlines()])
-        backup = self.root / '.env.before-promote-repin-abcdef012345'
+        backup = self.root / '.env.before-repin-abcdef012345'
         self.assertEqual(backup.read_text(), self.before)
 
     def test_refuses_a_tag_outside_the_repository_already_pinned(self):
@@ -436,7 +436,9 @@ class DomesticRollbackRuntimeTest(unittest.TestCase):
         new['State'].update(Running=True, Status='running')
         self.host = {'containers': {'tokenkey': old, 'tokenkey-blue': new},
                      'draining': {'tokenkey': True, 'tokenkey-blue': False},
-                     'route': 'tokenkey-blue', 'events': [], 'fail_reload': False}
+                     'route': 'tokenkey-blue', 'events': [], 'fail_reload': False,
+                     'repo_tags': {'sha256:old': ['tokenkey-domestic/tokenkey:restored'],
+                                   'sha256:candidate-id': ['tokenkey-domestic/tokenkey:candidate']}}
         self.save_host()
         receipt = {'old': 'tokenkey', 'target': 'tokenkey-blue',
                    'old_identity': bg.identity(old), 'target_identity': bg.identity(new),
@@ -458,6 +460,9 @@ if pathlib.Path(sys.argv[0]).name == 'curl':
     name = h['route']
     code = int(not h['containers'][name]['State']['Running'] or h['draining'][name])
     print('{"status":"ok"}')
+elif a[0] == 'image' and a[1] == 'inspect':
+    # RepoTags for the image id being pinned; mirrors `docker image inspect`.
+    print(json.dumps(h.get('repo_tags', {}).get(a[2], [])))
 elif a[0] == 'inspect':
     if a[1] == 'tokenkey-caddy':
         print(json.dumps([{'Image': 'sha256:caddy'}]))
@@ -529,6 +534,20 @@ sys.exit(code)
         self.assertFalse(host['draining']['tokenkey'])
         self.assertFalse(host['containers']['tokenkey-blue']['State']['Running'])
         self.assertEqual(json.loads((self.state / 'rolled-back.json').read_text())['active'], 'tokenkey')
+
+    def test_rollback_repins_env_back_to_the_restored_color(self):
+        # promote() repins .env at the candidate. If rollback does not undo that,
+        # .env keeps naming the image the rollback just rejected -- the same
+        # stale-pin failure this adapter exists to prevent, only inverted.
+        env = self.root / '.env'
+        env.write_text('TOKENKEY_IMAGE=tokenkey-domestic/tokenkey:candidate\n'
+                       'JWT_SECRET=literal${value}\n')
+        with patch.object(bg, 'ROOT', self.root):
+            bg.rollback(self.args)
+        text = env.read_text()
+        # fixture() images are sha256:old for the restored color.
+        self.assertIn('TOKENKEY_IMAGE=tokenkey-domestic/tokenkey:restored\n', text)
+        self.assertIn('JWT_SECRET=literal${value}\n', text)
 
     def test_rollback_recovers_running_old_after_interrupted_drain(self):
         self.host['containers']['tokenkey']['State'].update(Running=True, Status='running')
