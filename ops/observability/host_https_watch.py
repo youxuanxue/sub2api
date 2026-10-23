@@ -39,7 +39,7 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict) ->
             if domain != api_domain:
                 targets["prod:" + domain] = "https://" + domain + "/health"
         # The fallback domain routes to overseas prod; its green result must
-        # never stand in for the independent UCloud static IP endpoint.
+        # never stand in for the independent cn-prod public_origin endpoint.
         targets["prod:cn-domain"] = "https://" + domestic["fallback_domain"] + "/health"
         targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
     jobs = ["tokenkey-disk-metrics"] if role == "cn-prod" else [

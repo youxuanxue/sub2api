@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Dedicated cn-prod logical backups; no permanent cloud keys on UCloud.
+Description: Dedicated cn-prod logical backups (retired; cn-prod uses pgBackRest); no permanent cloud keys on the host.
 Parameters:
   RunnerRoleName:
     Type: String
