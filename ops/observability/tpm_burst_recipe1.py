@@ -68,7 +68,7 @@ def cn_prod_host_header_default() -> str:
 
 
 def cn_prod_public_origin() -> str:
-    """UCloud static-IP origin from deploy/domestic/prod-target.json (not DNS)."""
+    """cn-prod public_origin from deploy/domestic/prod-target.json (not DNS)."""
     raw = os.environ.get("TOKENKEY_BASE_URL", "").strip()
     if raw:
         return raw.rstrip("/")
@@ -114,7 +114,7 @@ def refuse_aws_cutover_domain(base_url: str) -> str | None:
     if host == cutover:
         return (
             f"base_url host {host!r} resolves to overseas prod (Tencent USW), not cn-prod; "
-            f"use UCloud static IP from deploy/domestic/prod-target.json "
+            f"use the cn-prod public_origin from deploy/domestic/prod-target.json "
             f"(public_origin) plus Host: {cutover}"
         )
     return None
@@ -894,7 +894,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument(
         "--base-url",
         default="",
-        help="default: TOKENKEY_BASE_URL or deploy/domestic/prod-target.json public_origin (UCloud IP)",
+        help="default: TOKENKEY_BASE_URL or deploy/domestic/prod-target.json public_origin",
     )
     c.add_argument("--host-header", default="", help="Host header when base-url is an IP")
     c.add_argument("--api-key", default="")
@@ -942,7 +942,7 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument(
         "--base-url",
         default="",
-        help="default: TOKENKEY_BASE_URL or UCloud public_origin; refuses api-cn.tokenkey.dev DNS",
+        help="default: TOKENKEY_BASE_URL or cn-prod public_origin; refuses api-cn.tokenkey.dev DNS",
     )
     f.add_argument("--host-header", default="", help="Host header when base-url is an IP")
     f.add_argument("--api-key", default="")

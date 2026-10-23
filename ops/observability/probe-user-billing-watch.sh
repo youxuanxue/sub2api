@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # probe-user-billing-watch.sh — read-only per-user 盯盘 for active user_ids:
 # requests, errors, metering/billing, plus an image/video breakout — all in one
-# SSM/SSH round-trip. Runs INSIDE the TokenKey host (AWS prod, edge, or UCloud
+# SSM/SSH round-trip. Runs INSIDE the TokenKey host (Tencent USW prod or Tencent Beijing
 # cn-prod) via run-probe.sh.
 # Output is row_to_json so parsing is field-named, not column-index.
 #

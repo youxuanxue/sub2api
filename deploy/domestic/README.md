@@ -26,6 +26,8 @@
 
 ## 首次安装与配置 owner
 
+> 本节记录 UCloud 首发时的安装流程；腾讯北京迁机按 host-replacement 技能执行，不重跑本节。
+
 - UCloud 身份使用官方 CLI 的 `tokenkey-domestic` profile；密钥不进入仓库。
 - `bootstrap-host.sh DEVICE EXPECTED_BYTES` 只接受新空数据盘。它拒绝带分区、已挂载、
   尺寸不符或含签名的磁盘；已有文件系统必须人工核验后挂载，不会重格式化。
@@ -281,7 +283,7 @@ owner 中显式识别为 `cn-prod`，沿用 prod 用户失败告警规则。
 `/opt/tokenkey/host-alerts.env`；美西 prod 沿用 `/var/lib/tokenkey/.env`，不另复制密钥。安装前备份 unit，使用
 内容寻址的代码目录；可恢复备份 unit 后 daemon-reload 回退。不会重启应用、数据库或 Caddy。
 
-节点身份修复以 `1.8.292-cn-prod` 本地 amd64 补丁镜像部署，仅替换 UCloud 应用容器。
+（历史，UCloud 期）节点身份修复以 `1.8.292-cn-prod` 本地 amd64 补丁镜像部署，仅替换当时的应用容器。
 镜像基于原已校验发布镜像，附源码差异 SHA-256 与二进制 SHA-256；构建记录保存在受保护
 初始化状态中。部署前 preflight 和节点身份/通知回归测试通过，使用共享 Stage0
 `drain_container` 确认 `draining=true, in_flight=0` 后替换，健康检查通过；原镜像保留回退。

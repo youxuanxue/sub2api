@@ -19,7 +19,7 @@ shift || true
 CALIBRATE_JSON="${CALIBRATE_JSON:-/tmp/tpm-recipe1/calibrate-repo-explain-n5.json}"
 PROMPT_FILE="${PROMPT_FILE:-/tmp/tpm-recipe1/sub2api-explain-prompt.txt}"
 OUT_DIR="${OUT_DIR:-/tmp/tpm-recipe1/formal-$(date +%Y%m%d-%H%M%S)}"
-# api-cn.tokenkey.dev DNS points at Tencent USW prod — default to UCloud static IP.
+# api-cn.tokenkey.dev DNS points at Tencent USW prod — default to the cn-prod public_origin.
 # shellcheck disable=SC2016
 read -r UCLOUD_ORIGIN HOST_HEADER_DEFAULT < <(
   python3 -c "
@@ -45,12 +45,12 @@ usage() {
 
 Env overrides:
   CALIBRATE_JSON PROMPT_FILE OUT_DIR TOKENKEY_API_KEY TOKENKEY_BASE_URL
-  TOKENKEY_HOST_HEADER (default prod-target fallback_domain when BASE_URL is UCloud IP)
+  TOKENKEY_HOST_HEADER (default prod-target fallback_domain when BASE_URL is the cn-prod public_origin IP)
   MODEL MAX_TOKENS MONITOR_DURATION_S MONITOR_INTERVAL_S EXPECTED_INSTANCE_ID
   TOTAL_REQUESTS MAX_INFLIGHT APPROVE
   TPM_BURST_POOL_SLOTS|POOL_SLOTS  (accounts×concurrency; required for non-legacy pools)
 
-Default BASE_URL=$UCLOUD_ORIGIN (UCloud static IP from prod-target.json).
+Default BASE_URL=$UCLOUD_ORIGIN (cn-prod public_origin from prod-target.json).
 Do NOT use https://api-cn.tokenkey.dev — that DNS points at Tencent USW prod, not cn-prod.
 EOF
 }

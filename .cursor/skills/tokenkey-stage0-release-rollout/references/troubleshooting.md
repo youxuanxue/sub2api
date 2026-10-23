@@ -16,7 +16,7 @@
 | `gh run watch` 被工具超时打断 | 用同一 run id 再执行 `gh run watch <id> --exit-status` 接到终态。 |
 | 发版后 tick 报 `No such container: tokenkey` | 先确认在用新版 `ops/observability/probe-post-release-tick.sh`；它默认 `CONTAINER=auto` 会解析 prod blue/green active container。不要手工猜 `tokenkey-green`；若仍失败，看 tick stdout 的 `container_resolution`。 |
 | `TK_SMOKE_GITHUB_ENV=prod` 报 `unexpected gh variables response` | 旧版 `load_smoke_github_env.py` 对单页 gh api 响应断言成 list 的 bug，已修；若复现先 `gh api repos/{owner}/{repo}/environments/prod/variables` 看原始形状。 |
-| prod `Deploy via SSM Run-Command` 报 `AccessDenied(ssm:SendCommand)` | 先 `python3 ops/stage0/resolve_prod_ssm_target.py --format json`，以返回的 `instance_id`（现网为腾讯 Hybrid `mi-*`）和 `ssm_region` 核对 OIDC/SSM 权限；身份见舰队清单，不能钉死冻结 Tokyo `aws-fresh`。 |
+| prod `Deploy via SSM Run-Command` 报 `AccessDenied(ssm:SendCommand)` | 先 `python3 ops/stage0/resolve_prod_ssm_target.py --format json`，以返回的 `instance_id`（现网为腾讯 Hybrid `mi-*`）和 `ssm_region` 核对 OIDC/SSM 权限；身份见舰队清单；`aws` / `aws-fresh` / `hetzner` 均已退役并失败关闭，不要钉死。 |
 | cn-prod 发版误走运维机 `crane`/scp + 开放 SSH 22 | 改走 `deploy/domestic/deploy_via_ssm.sh`（SSM Hybrid）；CI 私有 S3 归档 + SSM 是默认分发；运维机搬运 tar 仅恢复路径，见 `deploy/domestic/README.md`。 |
 | cn-prod `deploy_via_ssm.sh` 报 SSM identity not ready | 核对 `prod-target.json` 的 `ssm_instance_id` / `ssm_region`，与 `aws ssm describe-instance-information` 的 Name=`tokenkey-cn-prod`（也接受 `cn-prod`）、PingStatus=`Online`。 |
 | cn-prod promote 报 `public-url does not match the domestic target manifest` 或 `public static IP` | `--public-url` 用报错里的 `public_origin`。`api.galaxywaveai.com` 是北京第二站点，不是这个验收地址。不要改清单来迁就域名。 |
