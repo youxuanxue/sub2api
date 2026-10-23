@@ -6281,6 +6281,16 @@
       "rationale": "Owner-derived exact projection and predicate coverage for Antigravity blocked mapping keys. Tests enumerate the package owners rather than repeat their current values, so owner refreshes require one data edit while a broken export or lookup predicate still fails mechanically."
     },
     {
+      "path": "backend/internal/domain/constants_test.go",
+      "must_contain": [
+        "TestDefaultAntigravityModelMapping_Gemini4ArgonTiersAndClaude55Convergence",
+        "IsAntigravityThinkingWireModel(id)",
+        "must stay out of the default mapping",
+        "converged Antigravity surface must not default-map Claude id"
+      ],
+      "rationale": "Anchors the three-way split of the Antigravity request surface that distinguishes TokenKey from upstream: public bare names live in DefaultAntigravityModelMapping (bare name locks the high wire), non-public -low/-medium/-high tiers are owned by AntigravityThinkingWireFloorEntries() and must NOT flow back into the default mapping (that would advertise them on /v1/models and the pricing menu), and the Claude family stays off the default floor per the #2207 Gemini-only convergence (reachable only through custom account model_mapping). Upstream ships all three key classes inside DefaultAntigravityModelMapping, so an upstream merge that re-imports the upstream-shaped test or drops this one silently re-widens the public surface; anchoring the test name plus its wire-tier and Claude assertions makes that regression fail mechanically instead of showing up as menu/pricing drift."
+    },
+    {
       "path": "backend/migrations/tk_043_prune_antigravity_structural_dead_mapping.sql",
       "must_contain": [
         "gemini-3-pro-high",
