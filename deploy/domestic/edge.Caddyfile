@@ -1,0 +1,81 @@
+# cn-prod edge Caddyfile for Tencent Beijing 154.8.214.179.
+# api.galaxywaveai.com is a second site. It imports tk_upstream and must not
+# add another reverse_proxy: blue/green rewrites that single upstream line.
+# The IP certificate uses Let's Encrypt's shortlived profile. The domain site
+# uses a normal ACME issuer. Issuance is TLS-ALPN-01.
+
+{
+	default_sni 154.8.214.179
+	email admin@cn.tokenkey.dev
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+# One upstream for every public site on this edge. Blue/green rewrites this
+# reverse_proxy line and both sites follow.
+(tk_upstream) {
+	reverse_proxy tokenkey-blue:8080 {
+		flush_interval -1
+		# Shared by edge and fresh prod bootstrap: /health owns drain/readiness.
+		# No passive cooldown for a single backend: a client upload reset or
+		# business 5xx must not delay unrelated requests (see prod Caddyfile).
+		health_uri /health
+		health_interval 5s
+		health_timeout 3s
+		lb_try_duration 30s
+		lb_try_interval 1s
+		header_up -CF-Connecting-IP
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+		transport http {
+			dial_timeout 5s
+			keepalive 120s
+			keepalive_idle_conns 64
+			compression off
+		}
+	}
+}
+
+https://154.8.214.179 {
+    tls {
+        protocols tls1.2 tls1.3
+        issuer acme {
+            dir https://acme-v02.api.letsencrypt.org/directory
+            email admin@cn.tokenkey.dev
+            profile shortlived
+            disable_http_challenge
+        }
+    }
+    import tk_upstream
+    request_body {
+        max_size 100MB
+    }
+    log {
+        output stdout
+        format json
+        level INFO
+    }
+}
+
+# BEGIN_GALAXYWAVE_API_VHOST
+api.galaxywaveai.com {
+    tls {
+        protocols tls1.2 tls1.3
+        issuer acme {
+            dir https://acme-v02.api.letsencrypt.org/directory
+            email admin@cn.tokenkey.dev
+            disable_http_challenge
+        }
+    }
+    import tk_upstream
+    request_body {
+        max_size 100MB
+    }
+    log {
+        output stdout
+        format json
+        level INFO
+    }
+}
+# END_GALAXYWAVE_API_VHOST
