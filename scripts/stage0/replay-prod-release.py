@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / 'ops/stage0'))
 import ssm_execution  # noqa: E402
 from ssm_execution import resolve_prod_instance as _resolve_prod_instance  # noqa: E402
 import gateway_capability_matrix as matrix  # noqa: E402
+from gateway_capability_matrix import OVERSIZED_FIXTURES  # noqa: E402
 from ssm_wrap_bash_commands import wrap_commands  # noqa: E402
 
 # Re-export for tests/callers; kept in sync after resolve_prod_instance().
@@ -51,7 +52,17 @@ def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='
               'gateway_capability_host.py', 'gateway_capability_check.py', 'gateway_capability_matrix.py',
               'gateway_capability_scenarios.py', 'gateway-account-supply.json', 'gateway-capability-matrix.json')}
     files['resolve_app_container.py'] = (ROOT / 'ops/lib/resolve_app_container.py').read_text()
+    # SSM SendCommand caps document + parameters at 97KB, and --parameters JSON
+    # escaping inflates the script by ~33%. The transcription fixture is a 28KB
+    # base64 audio blob serving a single case; delivering it pushed the whole
+    # payload to 97.9KB and every replay failed with MaxDocumentSizeExceeded
+    # before prepare even started. Oversized media fixtures stay undelivered and
+    # their cases surface as declared infrastructure gaps (see OVERSIZED_FIXTURES
+    # in gateway_capability_matrix.py). Restoring transcription coverage needs a
+    # second delivery channel, tracked separately.
     for fixture in (ROOT / 'ops/stage0/fixtures/gateway').glob('*.json'):
+        if fixture.name in OVERSIZED_FIXTURES:
+            continue
         files['fixtures/gateway/' + fixture.name] = fixture.read_text()
     payload = base64.b64encode(zlib.compress(json.dumps(files).encode(), level=9)).decode()
     # Private per-command path: concurrent delivery cannot replace another run's

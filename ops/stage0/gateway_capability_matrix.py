@@ -182,6 +182,13 @@ def validate_inventory(inventory):
         for cls in sorted(classes, key=lambda c: c['id'])]}
 
 
+# Fixtures too large to ride the SSM SendCommand payload (97KB cap, inflated ~33%
+# by --parameters JSON escaping). Their profiles load locally for plan identity but
+# are not delivered to the host, so dependent cases stay declared infrastructure
+# gaps instead of silently vanishing from the denominator. Single owner: both the
+# delivery side (scripts/stage0/replay-prod-release.py) and the plan side read this.
+OVERSIZED_FIXTURES = frozenset({'transcription-audio.json'})
+
 CAPABILITY_STATUSES = {'supported', 'unsupported', 'unknown'}
 BRANCH_SCENARIOS = ('plain-stream', 'tool-roundtrip', 'thinking', 'vision', 'count-tokens')
 GENERATION_PROTOCOLS = {'anthropic-messages', 'openai-chat', 'openai-responses', 'gemini-content'}
@@ -213,10 +220,14 @@ def build(inventory, profiles):
         request = render(profile['request'], rep['model']) if profile and profile.get('request') else None
         reason = profile.get('blocked_reason') if profile else 'fixture_required'
         if scenario in ('image', 'content-image', 'speech', 'video', 'transcription'):
-            audio = next((p['request']['body']['audio_base64'] for p in profiles
-                          if p['id'] == 'openai-transcription.plain'), '')
+            audio_profile = next((p for p in profiles if p['id'] == 'openai-transcription.plain'), None)
+            audio = (audio_profile or {}).get('request', {}).get('body', {}).get('audio_base64', '') or ''
             request = media_request(scenario, rep['model'], audio)
             reason = None
+            # The audio blob only exists on the host when its fixture was delivered.
+            if scenario == 'transcription' and audio_undelivered(audio_profile):
+                request = None
+                reason = 'fixture_oversized_for_delivery'
         capability = capability or {'status': 'supported', 'family': rep['family'],
                                     'evidence': 'reviewed account supply baseline declaration'}
         if capability['status'] != 'supported':
@@ -306,6 +317,11 @@ def select(cases, limit=None):
     require(limit is None or type(limit) is int and limit > 0, 'request limit must be positive')
     selected = sorted((c for c in cases if not c.get('blocked_reason')), key=lambda c: c['id'])
     return selected if limit is None else selected[:limit]
+
+
+def audio_undelivered(profile):
+    """True when the transcription fixture is withheld from the SSM payload."""
+    return bool(profile) and Path(profile.get('fixture', '')).name in OVERSIZED_FIXTURES
 
 
 def blocked_status(case):
