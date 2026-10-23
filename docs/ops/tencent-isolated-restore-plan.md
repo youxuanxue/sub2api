@@ -4,6 +4,8 @@
 现网身份：[舰队入口](../../deploy/hetzner/README.md)、[候选矩阵](../../deploy/tencent/candidate-usw-20261022.json)。
 备份操作单：[physical-backup.md](../../ops/stage0/physical-backup.md)；加密盘：[解锁契约](tencent-unlock-contract.md)。
 
+> **后续（2026-10-22/23 已落地）**：`archive_timeout=300`、Redis AOF 持久化（挂 `/srv/tokenkey-rehearsal/redis`）。下表为核查当时的快照，以 [切流清单](tencent-cutover-checklist.md) 为准。
+
 ## 1. 只读核查事实（2026-10-22 ~12:50 UTC）
 
 经 `run-probe.sh --target prod`（mi-080ed76dc6d97d8b5）只读探针与本机只读 AWS 查询：
@@ -27,7 +29,7 @@
 | 本机 tccli | 未安装，腾讯侧能力未用 API 查证 |
 
 以下两项需另行决策，本 PR 未处理：
-1. `archive_timeout=0` 时，WAL 只在 16 MiB 段写满后才归档。低流量时 RPO 没有上界。
+1. ~~已处理（2026-10-22 15:37 UTC 改 300）~~ `archive_timeout=0` 时，WAL 只在 16 MiB 段写满后才归档。低流量时 RPO 没有上界。
    `archive_timeout` 是 sighup 级参数，`ALTER SYSTEM SET archive_timeout=300` 加 `pg_reload_conf()` 不需要重启，但属于生产变更，需审批。
 2. Tencent 备份 owner 不在仓库，也无法导入恢复验收回执。
    即使恢复演练成功，`ops-physical-restore.yml` 的回执导入步骤也会明确失败（本 PR 已改为清晰报错）。应把该 operator 入仓，并补上 `accept`。

@@ -1,7 +1,7 @@
 ---
 name: tokenkey-stage0-release-rollout
 description: >-
-  Drive TokenKey Stage0 release, Tencent USW prod deploy, UCloud cn-prod SSM deploy,
+  Drive TokenKey Stage0 release, Tencent USW prod deploy, Tencent Beijing cn-prod SSM deploy,
   smoke, rollback, and release-risk checks. Use for release tagging,
   deploy-stage0, cn-prod deploy_via_ssm, structured smoke, or post-release
   OAuth checks.
@@ -11,7 +11,7 @@ description: >-
 
 适用于本仓库（TokenKey fork of sub2api）。权威纪律见根目录 `CLAUDE.md`。  
 现网舰队 / prod 发版入口：[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)（**prod-only**）。  
-UCloud cn-prod：[`deploy/domestic/README.md`](../../../deploy/domestic/README.md)（**SSM Hybrid 默认**，禁止常规发版开 SSH/离线 scp）。
+Tencent Beijing cn-prod：[`deploy/domestic/README.md`](../../../deploy/domestic/README.md)（**SSM Hybrid 默认**，禁止常规发版开 SSH/离线 scp）。
 
 ## 确定性基线（机械化 vs 真判断）
 
@@ -50,7 +50,7 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
   Release 成功后，等待对应 release run 触发的 `distribute-cn-image.yml` 成功（私有 S3 + SSM 预下载）；
   不以 Release 构建绿灯代替分发绿灯。重复 pull 复用已验镜像，初始化权限与保留期见国内 README。
   `--transport ghcr` 为显式备用路径，S3 缺失/失败不自动降级。
-  **禁止**默认走运维机 `crane`/`docker save` + 开放 UCloud SSH 22；运维机搬运离线 tar 仅恢复；CI 校验归档经私有 S3 + SSM 分发是默认路径。
+  **禁止**默认走运维机 `crane`/`docker save` + 开放 cn-prod SSH 22；运维机搬运离线 tar 仅恢复；CI 校验归档经私有 S3 + SSM 分发是默认路径。
 
 ## 故障速查
 

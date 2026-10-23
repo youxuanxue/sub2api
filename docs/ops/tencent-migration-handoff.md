@@ -1,15 +1,15 @@
 # 腾讯美西迁机交接
 
-更新：2026-10-22 12:00 UTC。**腾讯美西已在服（timeline 2）；Tokyo 冻结保留；账号出口已迁到美西 `usw-eval*`；日本 Lightsail 代理保留待关停。**
+更新：2026-10-23。**腾讯美西已在服（timeline 2）；Tokyo 与日本 Lightsail 代理已于 2026-10-23 删除；账号出口已迁到美西 `usw-eval*`。**
 
 ## 1. 接手先读（当前态）
 
 - 现网入口与坐标唯一来源：[舰队入口](../../deploy/hetzner/README.md)。切流回执：[tencent-cutover-20261022.json](reports/tencent-cutover-20261022.json)。清单：[tencent-cutover-checklist.md](tencent-cutover-checklist.md)。
-- **禁止解冻 Tokyo、禁止双写。** Tokyo `i-045f062ce33e1a5af` 保留 ≥7 天后再另批退役。
+- **禁止把 Tokyo 最终快照或历史链恢复成写库、禁止双写。** Tokyo 已删除，见 [退役 runbook](tokyo-retirement-runbook.md)。
 - **禁止拿现网做整机重启试验。** LUKS 自动解锁未验收；重启须人工交付解锁材料（契约：[tencent-unlock-contract.md](tencent-unlock-contract.md)）。
 - 私有 helper/回执在 `~/.local/state/tokenkey-tencent-usw-validation/`（含密钥/密文，**不进 git**）。
 - `resolve_prod_ssm_target.py --target auto` → 腾讯 Hybrid `mi-080ed76dc6d97d8b5`（矩阵 `deployable=true`）。
-- GitHub Actions 仓库变量 `PROD_SSM_TARGET` 必须为 `auto`（已从 `aws-fresh` 改回）；钉死 `aws-fresh` 会把 deploy/诊断打到冻结 Tokyo。`aws-fresh` 已退役拒绝（2026-10-23）。
+- GitHub Actions 仓库变量 `PROD_SSM_TARGET` 必须为 `auto`（已从 `aws-fresh` 改回）；钉死旧值会让 deploy/诊断失败关闭。`aws-fresh` 已退役拒绝（2026-10-23）。
 - `PROD_SSM_TARGET=hetzner` 与 `deploy-prod-hetzner-stage0` provision 均失败关闭；Hetzner Cloud 已退役。
 - 迁机流程 owner：[pgbackrest-host-migration.md](../../ops/stage0/pgbackrest-host-migration.md)。
 
@@ -33,7 +33,7 @@
 ## 4. 断线与回滚纪律
 
 1. 操作走本机 CLI + TAT/SSM，不经待切网关。先查原 `InvocationId`，不盲目重发。
-2. Tokyo 已冻结：目标已有业务写入后，**禁止直接解冻旧库回滚**。出口回滚用私有回执 `p1-20261022/jp-to-usw-migration.json` 的 `rollback` 清单按账号恢复 `proxy_id`。
+2. Tokyo 已删除，不存在库级回滚目标。出口回滚清单（`jp-to-usw-migration.json` 的 `rollback`）**已作废**：`jp-*` 代理已删除。
 3. 无法确定阶段时先只读：DNS、`/health`、`default_transaction_read_only`、代理绑定分布、归档 `failed_count`。
 
 ## 5. 接手入口
@@ -41,4 +41,4 @@
 - 切流收尾 PR [#2753](https://github.com/youxuanxue/sub2api/pull/2753) 已合并；PR 不含私有 helper/密钥。
 - 只读观测：`ops/observability/run-probe.sh --target prod`（显式 `--expected-instance-id` 取舰队 SSOT）或腾讯 TAT：`helpers/tokenkey-usw-tool.py`。
 
-**接手第一句话应是「腾讯美西在服、Tokyo 冻结、出口已迁 usw-eval*；开放项见切流清单『后续』节」。**
+**接手第一句话应是「腾讯美西在服、Tokyo 已退役、出口已迁 usw-eval*；开放项见切流清单『后续』节」。**

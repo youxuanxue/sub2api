@@ -8,8 +8,8 @@ Examples:
   python3 ops/observability/tpm_burst_recipe1.py estimate \\
       --tok-per-req 40000 --duration-s 45 --pool-slots 252 --target-tpm 20000000
 
-  # ≤9 live calibrations against UCloud cn-prod (writes JSON report).
-  # Do NOT use https://api-cn.tokenkey.dev — that DNS points at Tencent USW prod, not UCloud cn-prod.
+  # ≤9 live calibrations against cn-prod (Tencent Beijing) (writes JSON report).
+  # Do NOT use https://api-cn.tokenkey.dev — that DNS points at Tencent USW prod, not cn-prod (Tencent Beijing).
   python3 ops/observability/tpm_burst_recipe1.py calibrate \\
       --api-key "$KEY" \\
       --model kimi-k3 --prompt-tokens-target 35000 --max-tokens 5000 --n 5 \\
@@ -108,7 +108,7 @@ def resolve_host_header(base_url: str, explicit: str | None = None) -> str | Non
 
 
 def refuse_aws_cutover_domain(base_url: str) -> str | None:
-    """api-cn.tokenkey.dev resolves to Tencent USW prod — not UCloud cn-prod."""
+    """api-cn.tokenkey.dev resolves to Tencent USW prod — not cn-prod (Tencent Beijing)."""
     host = _hostname(base_url)
     cutover = cn_prod_host_header_default().lower()
     if host == cutover:

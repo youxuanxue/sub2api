@@ -98,7 +98,7 @@ Forward-looking history, merge modes, and mechanical gates:
 ## §9 Release discipline (ARM + tag triggers)
 
 Production (`api.tokenkey.dev`) runs on **Tencent USW Lighthouse (`amd64`)**
-（2026-10-22 起；之前 Tokyo EC2 为 arm64，已冻结）。活舰队 SSOT：
+（2026-10-22 起；之前 Tokyo EC2 为 arm64，已于 2026-10-23 退役）。活舰队 SSOT：
 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)（prod-only）。Release workflow is triggered by `tags: v*`。
 镜像仍须 multi-arch（amd64 + arm64）：shared tags 被不同架构的消费者拉取，单架构覆盖会让另一侧 `exec format error`。
 
