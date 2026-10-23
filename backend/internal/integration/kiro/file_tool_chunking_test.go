@@ -33,7 +33,7 @@ func TestUS070_FileToolGuidanceScope(t *testing.T) {
 						if !wantGuidance {
 							require.Equal(t, baseline, got)
 						} else {
-							wantSystem := buildClaudeSystemPrompt(system, thinking)
+							wantSystem := buildClaudeSystemPrompt(system, thinking, claudeThinkingBudget(req))
 							if wantSystem != "" {
 								wantSystem += "\n\n"
 							}

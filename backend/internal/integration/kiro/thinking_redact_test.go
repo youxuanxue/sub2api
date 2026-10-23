@@ -3,6 +3,7 @@
 package kiro
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -64,13 +65,25 @@ func TestInlineThinkingRedactor_FlushRedactsTrailingTagFragment(t *testing.T) {
 	require.Equal(t, "<thin", thinking)
 }
 
-func TestKiroToClaudeResponse_OmitsUnsignedThinking(t *testing.T) {
+func TestKiroToClaudeResponse_EmitsThinkingWithPlaceholderSignature(t *testing.T) {
 	resp := KiroToClaudeResponse(
 		"answer", "secret reasoning", false, nil, 10, 5, "claude-sonnet-4-6", "end_turn",
 	)
+	require.Len(t, resp.Content, 2)
+	require.Equal(t, "thinking", resp.Content[0].Type)
+	require.Equal(t, "secret reasoning", resp.Content[0].Thinking)
+	require.True(t, strings.HasPrefix(resp.Content[0].Signature, KiroClientThinkingSignaturePrefix))
+	require.NotContains(t, resp.Content[0].Signature, "secret reasoning")
+	require.Equal(t, "text", resp.Content[1].Type)
+	require.Equal(t, "answer", resp.Content[1].Text)
+}
+
+func TestKiroToClaudeResponse_OmitsPlaceholderReasoning(t *testing.T) {
+	resp := KiroToClaudeResponse(
+		"answer", "...", false, nil, 10, 5, "claude-sonnet-4-6", "end_turn",
+	)
 	require.Len(t, resp.Content, 1)
 	require.Equal(t, "text", resp.Content[0].Type)
-	require.Equal(t, "answer", resp.Content[0].Text)
 }
 
 func TestKiroToClaudeResponse_NoThinkingOmitsRedactedBlock(t *testing.T) {

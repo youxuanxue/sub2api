@@ -46,9 +46,38 @@ func stripAnthropicDatedSnapshot(model string) string {
 	return claudeDatedSnapshotSuffix.ReplaceAllString(model, "")
 }
 
-// Thinking 模式提示
-const ThinkingModePrompt = `<thinking_mode>enabled</thinking_mode>
-<max_thinking_length>200000</max_thinking_length>`
+// kiroDefaultMaxThinkingLength is the soft thinking budget used when the
+// client does not send thinking.budget_tokens. A high default makes Kiro
+// spend a long hidden reasoning pass before the first visible token.
+const kiroDefaultMaxThinkingLength = 16000
+
+// KiroClientThinkingSignaturePrefix marks a gateway placeholder. It is not a
+// Kiro upstream signature and is stripped before the next Kiro turn.
+const KiroClientThinkingSignaturePrefix = "sig_"
+
+func thinkingModePrompt(maxLen int) string {
+	if maxLen <= 0 {
+		maxLen = kiroDefaultMaxThinkingLength
+	}
+	return fmt.Sprintf("<thinking_mode>enabled</thinking_mode>\n<max_thinking_length>%d</max_thinking_length>", maxLen)
+}
+
+// ThinkingModePrompt is the default soft-thinking prompt. Client budget_tokens
+// replace the length; Kiro still needs this prompt in addition to AMRF.
+var ThinkingModePrompt = thinkingModePrompt(0)
+
+func claudeThinkingBudget(req *ClaudeRequest) int {
+	if req == nil || req.Thinking == nil || req.Thinking.BudgetTokens <= 0 {
+		return 0
+	}
+	return req.Thinking.BudgetTokens
+}
+
+// NewClientThinkingSignature returns a non-empty placeholder so Claude Code
+// accepts the thinking block. Upstream signatures stay on the QA stash path.
+func NewClientThinkingSignature() string {
+	return KiroClientThinkingSignaturePrefix + strings.ReplaceAll(uuid.New().String(), "-", "")
+}
 
 const minimalFallbackUserContent = "."
 const toolResultsContinuationPrefix = "Tool results:"
@@ -255,7 +284,7 @@ func ClaudeToKiroWithFileToolGuidance(req *ClaudeRequest, thinking, enabled bool
 	origin := "AI_EDITOR"
 
 	// 提取系统提示
-	systemPrompt := buildClaudeSystemPrompt(req.System, thinking)
+	systemPrompt := buildClaudeSystemPrompt(req.System, thinking, claudeThinkingBudget(req))
 	if enabled {
 		for _, tool := range req.Tools {
 			if tool.Name == "Write" || tool.Name == "Edit" || tool.Name == "MultiEdit" {
@@ -449,13 +478,16 @@ func buildAdditionalModelRequestFields(req *ClaudeRequest) *AdditionalModelReque
 	return fields
 }
 
+// resolveKiroOutputEffort follows output_config.effort when the client sets
+// it. The default is medium: a missing effort used to force high and held
+// the first visible token behind a long Kiro reasoning pass.
 func resolveKiroOutputEffort(req *ClaudeRequest) string {
 	if req != nil && req.OutputConfig != nil {
 		if effort := strings.TrimSpace(req.OutputConfig.Effort); effort != "" {
 			return effort
 		}
 	}
-	return "high"
+	return "medium"
 }
 
 func claudeToolChoiceTypeAndName(choice interface{}) (string, string) {
@@ -549,7 +581,7 @@ func appendBackendDirective(content, directive string) string {
 	return content + "\n\n" + directive
 }
 
-func buildClaudeSystemPrompt(system interface{}, thinking bool) string {
+func buildClaudeSystemPrompt(system interface{}, thinking bool, maxThinkingLength int) string {
 	rawSystemPrompt := extractSystemPrompt(system)
 	systemPrompt := applyPromptFilters(rawSystemPrompt)
 	// Identity instructions belong to the caller. A gateway-owned override can
@@ -557,10 +589,11 @@ func buildClaudeSystemPrompt(system interface{}, thinking bool) string {
 	if !thinking {
 		return systemPrompt
 	}
+	prompt := thinkingModePrompt(maxThinkingLength)
 	if systemPrompt == "" {
-		return ThinkingModePrompt
+		return prompt
 	}
-	return ThinkingModePrompt + "\n\n" + systemPrompt
+	return prompt + "\n\n" + systemPrompt
 }
 
 // applyPromptFilters preserves caller rules, including unknown Claude Code templates.
@@ -1050,9 +1083,17 @@ func shortenToolName(name string) string {
 
 // ==================== Kiro -> Claude 转换 ====================
 
-func KiroToClaudeResponse(content, _ string, includeEmptyThinkingBlock bool, toolUses []KiroToolUse, inputTokens, outputTokens int, model, stopReason string) *ClaudeResponse {
+func KiroToClaudeResponse(content, thinking string, includeEmptyThinkingBlock bool, toolUses []KiroToolUse, inputTokens, outputTokens int, model, stopReason string) *ClaudeResponse {
 	blocks := make([]ClaudeContentBlock, 0)
-	if includeEmptyThinkingBlock {
+	// Placeholder signature only. A thinking block does not by itself make an
+	// empty answer a successful turn; callers still require text or tool_use.
+	if visible := nonPlaceholderThinking(thinking); visible != "" {
+		blocks = append(blocks, ClaudeContentBlock{
+			Type:      "thinking",
+			Thinking:  visible,
+			Signature: NewClientThinkingSignature(),
+		})
+	} else if includeEmptyThinkingBlock {
 		blocks = append(blocks, ClaudeContentBlock{Type: "thinking", Thinking: ""})
 	}
 

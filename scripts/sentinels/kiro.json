@@ -111,9 +111,12 @@
         "TestClaudeToKiro_NonHaikuThinkingStillEmitsAdditionalModelRequestFields",
         "TestClaudeToKiro_ToolChoiceNoneOmitsTools",
         "TestClaudeToKiro_ToolChoiceAnyAddsDirective",
-        "TestClaudeToKiro_ToolChoiceNamedResolvesSanitizedName"
+        "TestClaudeToKiro_ToolChoiceNamedResolvesSanitizedName",
+        "TestClaudeToKiro_DefaultThinkingBudgetIsMedium",
+        "TestClaudeToKiro_ClientBudgetAndEffortAreHonored",
+        "TestClaudeToKiro_HistoryThinkingIsNotForwarded"
       ],
-      "rationale": "Client thinking.display=omitted must not propagate to Kiro upstream wire; prod mirror QA depends on summarized upstream reasoning. AMRF max_tokens below 1024 must be omitted while preserving the native inferenceConfig limit and thinking controls. Haiku + thinking must omit additionalModelRequestFields (prod 2026-10-04 us4/5/6 400 AMRF-not-supported → tokensea failover) while non-Haiku thinking still emits AMRF."
+      "rationale": "Client thinking.display=omitted must not propagate to Kiro upstream wire; prod mirror QA depends on summarized upstream reasoning. AMRF max_tokens below 1024 must be omitted while preserving the native inferenceConfig limit and thinking controls. Haiku + thinking must omit additionalModelRequestFields (prod 2026-10-04 us4/5/6 400 AMRF-not-supported → tokensea failover) while non-Haiku thinking still emits AMRF. Missing budget_tokens and effort default to max_thinking_length 16000 and medium; explicit client values win. Thinking and redacted_thinking blocks from history must not be written into the next Kiro turn."
     },
     {
       "path": "backend/internal/integration/kiro/translator.go",
@@ -449,6 +452,7 @@
         "CONTENT_FILTERED",
         "mapKiroStopReason",
         "writeVisibleText",
+        "writeVisibleThinking",
         "stopPreContentStreamKeepalive(c)",
         "gateway.kiro_stop_reason",
         "unsupported_stop_reason",
@@ -547,9 +551,12 @@
         "message_start",
         "content_block_delta",
         "func (e *kiroSSEEncoder) ensureBlock",
+        "func (e *kiroSSEEncoder) writeThinkingDelta",
+        "kiroBlockThinking",
+        "signature_delta",
         "writeMessageDelta(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int, stopReason string)"
       ],
-      "rationale": "Canonical lazy Anthropic SSE framing and estimated terminal usage. Unknown/truncated outcomes cannot be forged into successful message_stop."
+      "rationale": "Canonical lazy Anthropic SSE framing and estimated terminal usage. Kiro reasoningContentEvent is streamed as thinking_delta and closed with a placeholder signature_delta. Unknown/truncated outcomes cannot be forged into successful message_stop."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder_tk_thinking_redact_test.go",
@@ -558,16 +565,18 @@
         "TestKiroGatewayService_Forward_Streaming_StashesReasoningSignature",
         "TestKiroGatewayService_Forward_Streaming_StashesTaglessThinkingWithSignatureLiveOrder",
         "TestKiroGatewayService_Forward_NonStreaming_StashesTaglessThinkingWithSignatureLiveOrder",
-        "TestKiroGatewayService_Forward_Streaming_OmitsSplitInlineThinkingTags"
+        "TestKiroGatewayService_Forward_Streaming_OmitsSplitInlineThinkingTags",
+        "TestKiroGatewayService_Forward_NonStreaming_EmitsThinkingWithPlaceholderSignature"
       ],
-      "rationale": "Client-wire compatibility guard for unsigned Kiro reasoning plus forward-path evidence that upstream reasoningContentEvent signatures reach the internal QA stash. Kiro reasoning is retained through the internal side channel but must not be forged into redacted_thinking blocks: the hash placeholder is not Anthropic-signed or replayable and breaks strict clients. These tests pin explicit reasoning events, signature stash wiring, and split inline thinking on the full streaming forward path so an upstream merge cannot silently restore the incompatible block or drop signatures."
+      "rationale": "Client-wire guard for Kiro reasoning: real reasoningContentEvent text is emitted as thinking_delta or a thinking block with a sig_ placeholder, while the upstream signature stays on the QA stash and must not appear on the client wire. Kiro's ... placeholder and split inline thinking tags stay off the client response and must not be forged into redacted_thinking blocks."
     },
     {
       "path": "backend/internal/integration/kiro/thinking_redact_test.go",
       "must_contain": [
-        "TestKiroToClaudeResponse_OmitsUnsignedThinking"
+        "TestKiroToClaudeResponse_EmitsThinkingWithPlaceholderSignature",
+        "TestKiroToClaudeResponse_OmitsPlaceholderReasoning"
       ],
-      "rationale": "Non-streaming counterpart to the Kiro client-wire compatibility guard. The synthesized JSON response must omit unsigned Kiro reasoning while the service-level internal side channel remains responsible for prod QA raw capture."
+      "rationale": "Non-streaming counterpart: real reasoning becomes a thinking block with a placeholder signature, and Kiro's ... placeholder stays out of the JSON. The service-level internal side channel remains responsible for the upstream signature in prod QA raw capture."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
@@ -597,10 +606,10 @@
       "must_contain": [
         "TestKiroStreaming_HeaderWaitKeepaliveDuringThinkingStall",
         "TestKiroStreaming_FastFailoverPathWritesNoKeepalive",
-        "TestKiroStreaming_FirstTokenIgnoresThinkingOnly",
+        "TestKiroStreaming_FirstTokenIncludesThinking",
         "message_start must precede the first ping"
       ],
-      "rationale": "Regression coverage for Kiro thinking-stall keepalive, failover-safe no-write-before-interval, first_token_ms only arming on client-visible content, and message_start-before-ping so Claude Code keeps late-first-token streams."
+      "rationale": "Regression coverage for Kiro thinking-stall keepalive, failover-safe no-write-before-interval, first_token_ms arming on the first client-visible thinking or text event, and message_start-before-ping so Claude Code keeps late-first-token streams."
     },
     {
       "path": "backend/internal/service/kiro_wait_budget_tk_test.go",
@@ -609,9 +618,10 @@
         "TestKiroWaitBudgetProgressDoesNotExtendDeadline",
         "TestKiroWaitBudgetRetriesShareDeadline",
         "TestKiroNonStreamingCallerCancellation",
-        "TestKiroWaitBudgetClosesStalledErrorBody"
+        "TestKiroWaitBudgetClosesStalledErrorBody",
+        "TestKiroStreamingThinkingCommitsWaitBudget"
       ],
-      "rationale": "Kiro retries share one fixed deadline; reasoning and keepalive do not extend it."
+      "rationale": "Kiro retries share one fixed deadline. Non-streaming partial frames and keepalive do not extend it. Streaming thinking_delta commits the wait so a visible thinking pass is not killed before the answer."
     },
     {
       "path": "backend/internal/service/gateway_usage_billing.go",

@@ -5,10 +5,10 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -91,7 +91,8 @@ func TestKiroStreaming_ReasoningCompletesWithinHighBudget(t *testing.T) {
 	require.NotNil(t, result, "completed stream must return usage so the handler can bill")
 	require.Greater(t, time.Since(start), time.Second, "visible text must arrive after the ordinary budget, within the fixed high budget")
 	require.Contains(t, rec.Body.String(), "review text")
-	require.NotContains(t, rec.Body.String(), "planning the review")
+	require.Contains(t, rec.Body.String(), `"thinking":"planning the review"`)
+	require.Less(t, strings.Index(rec.Body.String(), `"type":"thinking_delta"`), strings.Index(rec.Body.String(), "review text"))
 	var failover *UpstreamFailoverError
 	require.NotErrorAs(t, err, &failover)
 }
@@ -138,48 +139,74 @@ func kiroBudgetContext(t *testing.T, budget time.Duration) (*gin.Context, *httpt
 }
 
 func TestKiroWaitBudgetProgressDoesNotExtendDeadline(t *testing.T) {
-	for _, stream := range []bool{true, false} {
-		for _, content := range []string{"reasoningContentEvent", "assistantResponseEvent"} {
-			if stream && content == "assistantResponseEvent" {
-				continue
-			}
-			t.Run(fmt.Sprintf("stream=%v/%s", stream, content), func(t *testing.T) {
-				c, rec := kiroBudgetContext(t, 200*time.Millisecond)
-				reader, writer := io.Pipe()
-				t.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })
-				done := make(chan struct{})
-				go func() {
-					defer close(done)
-					defer writer.Close()
-					frame := buildKiroEventStreamMessage(content, []byte(`{"text":"thinking","content":"partial answer"}`))
-					for {
-						if _, err := writer.Write(frame); err != nil {
-							return
-						}
-						time.Sleep(10 * time.Millisecond)
+	// Non-streaming holds every frame until the turn completes, so neither
+	// reasoning nor partial text commits the wait or reaches the client.
+	// Streaming reasoning is covered by TestKiroStreamingThinkingCommitsWaitBudget.
+	for _, content := range []string{"reasoningContentEvent", "assistantResponseEvent"} {
+		t.Run(content, func(t *testing.T) {
+			c, rec := kiroBudgetContext(t, 200*time.Millisecond)
+			reader, writer := io.Pipe()
+			t.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				defer writer.Close()
+				frame := buildKiroEventStreamMessage(content, []byte(`{"text":"thinking","content":"partial answer"}`))
+				for {
+					if _, err := writer.Write(frame); err != nil {
+						return
 					}
-				}()
-				upstream := &kiroPacedUpstream{body: reader}
-				svc := NewKiroGatewayService(upstream, nil, nil)
-				body := []byte(fmt.Sprintf(`{"model":"claude-opus-5-5","stream":%v,"max_tokens":256,"messages":[{"role":"user","content":"review"}]}`, stream))
-				start := time.Now()
-				result, err := svc.Forward(c.Request.Context(), c, newKiroAccountForTest(), &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5-5", Stream: stream}, start)
-				require.Nil(t, result)
-				var failover *UpstreamFailoverError
-				require.ErrorAs(t, err, &failover)
-				require.Equal(t, GatewayFailureReason("kiro_wait_budget_exhausted"), failover.Reason)
-				require.False(t, failover.ShouldRetryNextAccount())
-				require.Less(t, time.Since(start), time.Second)
-				require.EqualValues(t, 1, upstream.calls.Load(), "canceled attempt must not open another Kiro endpoint")
-				require.Empty(t, rec.Body.String(), "internal partial output must not escape")
-				select {
-				case <-done:
-				case <-time.After(time.Second):
-					t.Fatal("body reader was not released")
+					time.Sleep(10 * time.Millisecond)
 				}
-			})
-		}
+			}()
+			upstream := &kiroPacedUpstream{body: reader}
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			body := []byte(`{"model":"claude-opus-5-5","stream":false,"max_tokens":256,"messages":[{"role":"user","content":"review"}]}`)
+			start := time.Now()
+			result, err := svc.Forward(c.Request.Context(), c, newKiroAccountForTest(), &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5-5", Stream: false}, start)
+			require.Nil(t, result)
+			var failover *UpstreamFailoverError
+			require.ErrorAs(t, err, &failover)
+			require.Equal(t, GatewayFailureReason("kiro_wait_budget_exhausted"), failover.Reason)
+			require.False(t, failover.ShouldRetryNextAccount())
+			require.Less(t, time.Since(start), time.Second)
+			require.EqualValues(t, 1, upstream.calls.Load(), "canceled attempt must not open another Kiro endpoint")
+			require.Empty(t, rec.Body.String(), "internal partial output must not escape")
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("body reader was not released")
+			}
+		})
 	}
+}
+
+func TestKiroStreamingThinkingCommitsWaitBudget(t *testing.T) {
+	c, rec := kiroBudgetContext(t, 200*time.Millisecond)
+	reader, writer := io.Pipe()
+	t.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })
+	go func() {
+		defer writer.Close()
+		if _, err := writer.Write(buildKiroEventStreamMessage("reasoningContentEvent", []byte(`{"text":"planning"}`))); err != nil {
+			return
+		}
+		time.Sleep(400 * time.Millisecond)
+		_, _ = writer.Write(appendKiroTerminalStop(
+			buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"answer"}`)),
+			"END_TURN",
+		))
+	}()
+	svc := NewKiroGatewayService(&kiroPacedUpstream{body: reader}, nil, nil)
+	body := []byte(`{"model":"claude-opus-5-5","stream":true,"max_tokens":256,"messages":[{"role":"user","content":"review"}]}`)
+	start := time.Now()
+	result, err := svc.Forward(c.Request.Context(), c, newKiroAccountForTest(), &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5-5", Stream: true}, start)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Greater(t, time.Since(start), 200*time.Millisecond, "thinking must commit the wait so the answer can arrive after the original deadline")
+	out := rec.Body.String()
+	require.Contains(t, out, `"thinking":"planning"`)
+	require.Contains(t, out, "answer")
+	require.Less(t, strings.Index(out, `"type":"thinking_delta"`), strings.Index(out, "answer"))
 }
 
 func TestKiroWaitBudgetRetriesShareDeadline(t *testing.T) {
