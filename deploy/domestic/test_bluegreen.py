@@ -202,6 +202,26 @@ class DomesticBluegreenTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'non-domestic'):
             bg.active_container(both)
 
+    def test_domestic_caddyfile_keeps_galaxywave_on_the_shared_upstream(self):
+        caddy = (Path(__file__).resolve().parent / 'Caddyfile').read_text()
+        self.assertEqual(bg.domestic_site_host(caddy), bg.STATIC_SITE_IP)
+        self.assertEqual(bg.active_container(caddy), 'tokenkey-blue')
+        bg.galaxywave_api_site_shares_upstream(caddy)
+        start = caddy.index(bg.GALAXYWAVE_API_HOST + ' {')
+        own_proxy = caddy[:start] + caddy[start:].replace(
+            '    import tk_upstream\n',
+            '    import tk_upstream\n    reverse_proxy tokenkey-green:8080 {\n    }\n',
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, 'own reverse_proxy'):
+            bg.galaxywave_api_site_shares_upstream(own_proxy)
+        with self.assertRaisesRegex(ValueError, 'own reverse_proxy'):
+            bg.active_container(own_proxy)
+        with self.assertRaisesRegex(ValueError, 'missing galaxywave'):
+            bg.galaxywave_api_site_shares_upstream(
+                'https://154.8.214.179 {\n reverse_proxy tokenkey-blue:8080 {\n }\n}\n'
+            )
+
     def test_env_get_follows_the_live_caddy_site(self):
         owner = Path(__file__).resolve().parents[2] / 'ops/stage0/deploy_via_ssm_bluegreen.sh'
         library = bg.shared_library(owner)

@@ -12,7 +12,7 @@
 |------|----------|---------|------------|------|
 | **prod** | `api.tokenkey.dev` | `43.162.83.233` | Lighthouse `lhins-fcwpwymt` · SSM Hybrid `mi-080ed76dc6d97d8b5` · eu-west-2 | 腾讯美西 · timeline 2 · LUKS mapper；Stage0 例外布局（见下） |
 
-五个正式域名 A 记录（TTL 300）均指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `api-cn.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。
+四个长期正式域名 A 记录（TTL 300）指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。`api-cn.tokenkey.dev` 仍暂时指向同一地址，日后退役。国内长期入口 `api.galaxywaveai.com` 指向腾讯北京 `154.8.214.179`，站点见 [`deploy/domestic/README.md`](../domestic/README.md)。
 prod 直接使用原生账号；旧中继 stub 已软删。
 **Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已于 2026-10-23 完全退役**（实例、栈、VPC、卷、EIP 已删；仅保留最终快照与 S3 历史链 `prod/postgres` timeline 1）。不能当作现网入口。
 **布局（2026-10-22 例外路径已收敛）：** LUKS 双挂仍在；Docker Root **例外**保留 `/srv/tokenkey-rehearsal/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`；网关容器 `tokenkey` / `tokenkey-caddy`；PG/Redis 名仍为 cutover 字面量但带 `postgres`/`redis` 网络别名；Redis 自 2026-10-22 起 AOF（everysec）持久化，数据在 `/srv/tokenkey-rehearsal/redis`。默认可 `deploy-stage0`。细则 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)；unlock [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
@@ -35,12 +35,14 @@ SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。**20
 
 | 角色 | 实例 | 公网 IP | 放行来源 |
 |---|---|---|---|
-| `cn-ip1` | `lhins-a3h0vmh0`（`tokenkey-cn-proxy-canary-20261022`） | `120.53.25.245` | 美西 prod `43.162.83.233`、cn-prod 应用 `154.8.214.179`、UCloud 转发 `106.75.29.139` |
+| `cn-ip1` | `lhins-a3h0vmh0`（`tokenkey-cn-proxy-canary-20261022`） | `120.53.25.245` | 美西 prod `43.162.83.233`、UCloud 转发 `106.75.29.139`、cn-prod 公网 `154.8.214.179`、cn-prod 私网 `10.2.4.11` |
 | `cn-ip2` | `lhins-lqhqjbke`（`tokenkey-cn-proxy-02-20261022`） | `140.143.236.199` | 同上 |
 | `cn-ip3` | `lhins-bg2vs1uo`（`tokenkey-cn-proxy-03-20261022`） | `49.233.210.77` | 同上 |
 | `cn-ip4` | `lhins-0ds0p3c2`（`tokenkey-cn-proxy-04-20261022`） | `140.143.229.164` | 同上 |
 
-`cn-ip5`（`192.144.148.117` / `lhins-leojyzyi`）已于 2026-10-22 退还并销毁。账号已迁走。cn-prod 应用在 `154.8.214.179`（`lhins-6qmb3fd6`），与 `cn-ip1..4` 同于 **2026-11-22** 到期，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。`106.75.29.139` 仍由 UCloud 持有，只转发 80/443（主机 SSM `mi-0efdf781205cff512`，上面残留的 PG/Redis 无流量；计划 2026-10-24 退役，退役前须先把 `public_origin` 与依赖该 IP 的放行改走腾讯北京）。`api-cn.tokenkey.dev` 继续指向美西，不改。
+北京应用拨 SOCKS 的源地址是私网 `10.2.4.11`，不是公网 `154.8.214.179`。四台都要同时放行这两个地址。按上表重做防火墙时少了私网地址，国内出口会变成 502。
+
+`cn-ip5`（`192.144.148.117` / `lhins-leojyzyi`）已于 2026-10-22 退还并销毁。账号已迁走。cn-prod 应用在 `154.8.214.179`（`lhins-6qmb3fd6`），与 `cn-ip1..4` 同于 **2026-11-22** 到期，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。`106.75.29.139` 仍由 UCloud 持有，只转发 80/443（主机 SSM `mi-0efdf781205cff512`，上面残留的 PG/Redis 无流量；计划 2026-10-24 退役，退役前须先把 `public_origin` 与依赖该 IP 的放行改走腾讯北京）。`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前不要把这条解析改到北京。
 
 UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 

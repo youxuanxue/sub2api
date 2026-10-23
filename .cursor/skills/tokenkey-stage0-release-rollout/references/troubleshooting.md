@@ -19,6 +19,8 @@
 | prod `Deploy via SSM Run-Command` 报 `AccessDenied(ssm:SendCommand)` | 先 `python3 ops/stage0/resolve_prod_ssm_target.py --format json`，以返回的 `instance_id`（现网为腾讯 Hybrid `mi-*`）和 `ssm_region` 核对 OIDC/SSM 权限；身份见舰队清单，不能钉死冻结 Tokyo `aws-fresh`。 |
 | cn-prod 发版误走运维机 `crane`/scp + 开放 SSH 22 | 改走 `deploy/domestic/deploy_via_ssm.sh`（SSM Hybrid）；CI 私有 S3 归档 + SSM 是默认分发；运维机搬运 tar 仅恢复路径，见 `deploy/domestic/README.md`。 |
 | cn-prod `deploy_via_ssm.sh` 报 SSM identity not ready | 核对 `prod-target.json` 的 `ssm_instance_id` / `ssm_region`，与 `aws ssm describe-instance-information` 的 Name=`tokenkey-cn-prod`（也接受 `cn-prod`）、PingStatus=`Online`。 |
+| cn-prod promote 报 `public-url does not match the domestic target manifest` 或 `public static IP` | `--public-url` 用报错里的 `public_origin`。`api.galaxywaveai.com` 是北京第二站点，不是这个验收地址。不要改清单来迁就域名。 |
+| cn-prod 切流报 `galaxywave api site must not declare its own reverse_proxy` | `api.galaxywaveai.com` 必须 `import tk_upstream`，不能再写一条 `reverse_proxy`。蓝绿只改共享的那一条。 |
 | prod smoke Gemini tools **429** + soft-skip + **`tk_post_deploy_smoke: OK`** | 运行时资源/cooldown，**不是** passthrough 路由回归；verdict green/yellow，不 rollback。若要 200 证据，cooldown 后重跑 deploy-stage0 smoke。 |
 | prod smoke Gemini tools **400** + Codex 账号文案 | 路由回归（#1168 类）；**red**，rollback `previous_tag` 。 |
 | prod smoke 报 configured smoke model not listed in GET /v1/models | 不是代码回归，改 **`prod`** Environment 对应的 **`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS`** 为 `TK_SMOKE_API_KEY` 可见模型后重跑。 |

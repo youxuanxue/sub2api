@@ -326,8 +326,18 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 		filteredByID[m.ModelID] = m
 	}
 	require.Contains(t, filteredByID, "veo-3.1-generate-001", "paid-gate-proven Veo must remain in public pricing")
-	require.Contains(t, filteredByID, "grok-imagine-image", "paid-gate-proven Grok image must remain in public pricing")
-	require.Contains(t, filteredByID, "grok-imagine-video", "paid-gate-proven Grok video must remain in public pricing")
+	if isCatalogModelRecommended("grok-imagine-image") {
+		require.Contains(t, filteredByID, "grok-imagine-image", "paid-gate-proven Grok image must remain in public pricing")
+	} else {
+		require.NotContains(t, filteredByID, "grok-imagine-image",
+			"operator recommendation hide removes unschedulable Grok from public pricing")
+	}
+	if isCatalogModelRecommended("grok-imagine-video") {
+		require.Contains(t, filteredByID, "grok-imagine-video", "paid-gate-proven Grok video must remain in public pricing")
+	} else {
+		require.NotContains(t, filteredByID, "grok-imagine-video",
+			"operator recommendation hide removes unschedulable Grok from public pricing")
+	}
 	require.Contains(t, filteredByID, "claude-opus-5", "Kiro-proven Opus 5 must remain in public pricing")
 
 	// Complete registry: a model present in both sources keeps the REGISTRY price.
@@ -927,8 +937,15 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		assert.False(t, isPublicCatalogModelSupported("wenxin", "ernie-totally-unlisted-zzz"))
 	})
 
+	t.Run("minimax long-tail vendor follows manifest display", func(t *testing.T) {
+		assert.Equal(t, isTkCuratedNewAPIModelDisplayed("minimax-m3") && isCatalogModelRecommended("minimax-m3"),
+			isPublicCatalogModelSupported("minimax", "minimax-m3"))
+		assert.False(t, isPublicCatalogModelSupported("minimax", "minimax-m2.7"),
+			"withdrawn minimax id stays off public catalog")
+	})
+
 	t.Run("unmapped vendor stays hidden until a universal platform mapping exists", func(t *testing.T) {
-		assert.False(t, isPublicCatalogModelSupported("minimax", "minimax-m2.7"))
+		assert.False(t, isPublicCatalogModelSupported("acme-reseller", "anything"))
 		assert.False(t, isPublicCatalogModelSupported("", "anything"))
 	})
 }
