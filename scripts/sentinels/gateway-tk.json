@@ -16458,11 +16458,13 @@
       "must_contain": [
         "prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json",
         "qa-raw-archive-iam|$TARGET_ID|paused",
-        "error-clustering|$TARGET_ID|retired"
+        "error-clustering|$TARGET_ID|retired",
+        "if (.iam_contract.applicable == false) then \"false\" else \"true\" end"
       ],
       "must_not_contain": [
         "bash ops/stage0/deploy-error-clustering-binary.sh",
-        "diagnostics_include_error_clustering"
+        "diagnostics_include_error_clustering",
+        ".iam_contract.applicable // true"
       ],
       "rationale": "Daily diagnostics keeps the historical AWS IAM audit. While QA upload is paused, missing statements on the retired Tokyo role are deferred. The job does not compile error_clustering; the daily error ledger owns classification."
     },
