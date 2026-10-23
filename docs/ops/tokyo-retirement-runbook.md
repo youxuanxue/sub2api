@@ -1,6 +1,6 @@
 # 冻结 Tokyo 退役 · 日本代理关停 · 腾讯续费 Runbook
 
-状态（2026-10-22 执行记录）：用户批准提前退役。**已执行**：第 2 步最终快照（`snap-06612941333b662e8` 数据卷、`snap-0724597870487cf4a` 根卷，completed）、第 5.1 步 Tokyo 停机、第 6.3/6.4 步 jp 代理快照+停机、第 6.5 步删机+释放 IP（2026-10-23）、第 6.6 步 `proxies` 行 2-5 软删（用户经 Admin UI，2026-10-23 01:02 JST）、第 7 节改月自动续费。第 4 步仓库清理（本 PR，§4.5 删 workflow 除外）。**未执行**（不可逆，逐步审批）：第 5.2-5.4 步删栈/卷/OIDC retarget、（第 6.2 步停用已被直接软删取代）。
+状态：**已完成**（2026-10-23）。Tokyo 实例、栈、VPC、卷、EIP 均已删除；OIDC 已 retarget 到美西 `mi-080ed76dc6d97d8b5`；仅保留最终快照 `snap-06612941333b662e8`（数据卷）/ `snap-0724597870487cf4a`（根卷）与 S3 历史链。下文为执行时的步骤记录。
 舰队事实只在 [舰队 SSOT](../../deploy/hetzner/README.md)；现网身份与宿主 watcher owner 为
 [`deploy/tencent/candidate-usw-20261022.json`](../../deploy/tencent/candidate-usw-20261022.json) 的 `target` / `host_watch`。
 LUKS 自动解锁另见 [方案](tencent-luks-autounlock-plan.md)。
@@ -65,7 +65,7 @@ Tokyo 删机前合并，保证没有任何代码路径还能把 SSM 发往 `i-04
 2. 测试：`ops/stage0/test_resolve_prod_ssm_target.py`、`test_ssm_execution.py`、`scripts/checks/check-stage0-ssm-host-parse.sh`（`TEST_FRESH_PROD_MATRIX` stub 改为不再需要 Tokyo 行）、`ops/observability/test_host_https_watch.py`（`self.frozen` 断言删除）。
 3. sentinel `scripts/sentinels/gateway-tk.json` 中 `resolve_prod_ssm_target.py` 条目：`ALLOW_FROZEN_TOKYO_TARGET` 改为退役拒绝文案的锚点（sentinel 先改、代码后删会让 preflight 失败，必须同 PR）。
 4. 删除 `deploy/aws/fresh-migration-20261015.json`（`host_watch` owner 已在 2026-10-22 迁到腾讯矩阵，删文件不影响 watcher）。`git grep fresh-migration-20261015` 只允许出现在 `docs/ops/reports` 与历史回执。
-5. `.github/workflows/ops-stage0-host-mem-guard.yml`：EC2-only，现网 Hybrid 不可用。建议**删除**（payload owner 仍是 `stage0-ec2-bootstrap.sh`，未来 EC2 重建自带）；若保留须改为 `workflow_dispatch` 下显式拒绝。**[审批：删 workflow]**
+5. ~~`.github/workflows/ops-stage0-host-mem-guard.yml`~~：已删除（2026-10-23）；`sync-host-mem-guard-via-ssm.sh` 保留作 EC2 重建 payload 参考。
 6. `deploy/aws/cloudformation/cicd-oidc.yaml` 已支持 `mi-*`（2026-10-22）；OIDC 栈 retarget 见第 5.4 步。
 7. 文档：舰队 SSOT、`aws-retirement-20261017.md`、`.cursor/skills/tokenkey-host-replacement` / `tokenkey-stage0-release-rollout` 中的 `aws-fresh` 指引改为历史说明。
 8. `./scripts/preflight.sh` PASS。

@@ -14,7 +14,7 @@
 
 五个正式域名 A 记录（TTL 300）均指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `api-cn.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。
 prod 直接使用原生账号；旧中继 stub 已软删。
-**Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已于 2026-10-22 停机（退役进行中，最终快照已打）；禁止重启接写。** 不能当作现网入口。
+**Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已于 2026-10-23 完全退役**（实例、栈、VPC、卷、EIP 已删；仅保留最终快照与 S3 历史链 `prod/postgres` timeline 1）。不能当作现网入口。
 **布局（2026-10-22 例外路径已收敛）：** LUKS 双挂仍在；Docker Root **例外**保留 `/srv/tokenkey-rehearsal/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`；网关容器 `tokenkey` / `tokenkey-caddy`；PG/Redis 名仍为 cutover 字面量但带 `postgres`/`redis` 网络别名；Redis 自 2026-10-22 起 AOF（everysec）持久化，数据在 `/srv/tokenkey-rehearsal/redis`。默认可 `deploy-stage0`。细则 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)；unlock [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
 历史数据从 S3 隔离归档读取。退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 
@@ -80,7 +80,7 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
 - 活 prod 身份：`../tencent/candidate-usw-20261022.json`（`deployable=true` 时由 `resolve_prod_ssm_target` 解析）。
 - 宿主 watcher owner：`../tencent/candidate-usw-20261022.json` 的 `host_watch`（`hostname` / `domains` / `paused_jobs` / `local_qa_jobs`）。
-- Tokyo 已于 2026-10-23 停机退役，`aws-fresh` 解析路径与 `fresh-migration-20261015.json` 已删除（[runbook](../../docs/ops/tokyo-retirement-runbook.md)）。
+- Tokyo 已于 2026-10-23 完全退役（实例/栈/VPC/卷已删，仅留最终快照与 S3 历史链），`aws-fresh` 解析路径与 `fresh-migration-20261015.json` 已删除（[runbook](../../docs/ops/tokyo-retirement-runbook.md)）。
 - watcher 不随仓库合并更新：主机按安装时的内容寻址副本运行（`/usr/local/lib/tokenkey/https-watch/<hash>/config.json`）。改 `host_watch` 后须**经审批**重装：把 `install-host-https-watch.sh`、`host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、`deploy/tencent/candidate-usw-20261022.json`、`deploy/domestic/prod-target.json` 按 basename 放进 `WATCH_BUNDLE_DIR`，先不带 `APPLY` 跑一遍（只核身份并打印配置），与现装 config 比对后再以 `APPLY=yes-host-https-watch` 安装；prod 与 cn-prod（`WATCH_ROLE=cn-prod`）都要装。2026-10-22 起 `local_qa_jobs` 新增 `tokenkey-qa-provision`（迁机漏装）；provision 已于 2026-10-22 13:29 UTC 补装（[runbook §8](../../docs/ops/tokyo-retirement-runbook.md#8-迁机漏装tokenkey-qa-provision已补装-2026-10-22)）；prod watcher 已于 2026-10-22 15:24 UTC 重装纳入（bundle `95998671d971c8ce`）。
 - 换机流程：[host replacement](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 
