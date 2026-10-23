@@ -42,6 +42,7 @@ class DomesticBluegreenTest(unittest.TestCase):
         values.update({
             'QA_CAPTURE_ENABLED': 'true',
             'TELEMETRY_ARCHIVE_ENABLED': 'false',
+            'SECURITY_PROXY_PROBE_PRESET': 'domestic',
         })
         values.update(overrides)
         return values
@@ -100,6 +101,21 @@ class DomesticBluegreenTest(unittest.TestCase):
         ):
             with self.subTest(environment=broken), self.assertRaisesRegex(
                     ValueError, 'missing pool env keys'):
+                bg.candidate_compose({'volumes': volumes, 'environment': broken},
+                                     fixture(), 'sha256:new', 'tokenkey-blue')
+
+    def test_candidate_rejects_missing_or_blank_config_env_keys(self):
+        # Fail closed like pool/qa: a candidate must not silently start without
+        # a setting compose.override.yml owns (SECURITY_PROXY_PROBE_PRESET was
+        # served unset for every promote before 2026-10-23).
+        volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
+        for broken in (
+            self._compose_env(SECURITY_PROXY_PROBE_PRESET=''),
+            {k: v for k, v in self._compose_env().items()
+             if k != 'SECURITY_PROXY_PROBE_PRESET'},
+        ):
+            with self.subTest(environment=broken), self.assertRaisesRegex(
+                    ValueError, 'missing config env keys'):
                 bg.candidate_compose({'volumes': volumes, 'environment': broken},
                                      fixture(), 'sha256:new', 'tokenkey-blue')
 
@@ -321,6 +337,82 @@ class DomesticBluegreenTest(unittest.TestCase):
             self.assertLess(body.index('observe_routed_health blue'), body.index('docker stop'))
 
 
+class DomesticEnvRepinTest(unittest.TestCase):
+    """Promote must leave .env able to rebuild the color it just routed to."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.env = self.root / '.env'
+        # Byte-exact secrets and ordering must survive the rewrite.
+        self.before = ('TOKENKEY_IMAGE=tokenkey-domestic/tokenkey:cn-prod-monitor-704fd77abdbd\n'
+                       'CADDY_IMAGE=tokenkey-domestic/caddy:173b26306d71\n'
+                       'JWT_SECRET=literal${value}\n'
+                       'POSTGRES_PASSWORD=secret-value\n')
+        self.env.write_text(self.before)
+        patcher = patch.object(bg, 'ROOT', self.root)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def repin(self, tags, image_id='sha256:abcdef0123456789'):
+        def run(*args):
+            self.assertEqual(args[:3], ('docker', 'image', 'inspect'))
+            return json.dumps(tags)
+        with patch.object(bg, 'run', side_effect=run):
+            bg.repin_env_image(image_id)
+
+    def test_repins_only_the_app_image_and_keeps_every_other_line(self):
+        self.repin(['tokenkey-domestic/archive:deadbeef',
+                    'tokenkey-domestic/tokenkey:1.8.318-63e91c048'])
+        text = self.env.read_text()
+        self.assertIn('TOKENKEY_IMAGE=tokenkey-domestic/tokenkey:1.8.318-63e91c048\n', text)
+        self.assertNotIn('cn-prod-monitor', text)
+        # Secrets and unrelated pins stay byte-exact, in the original order.
+        for line in ('CADDY_IMAGE=tokenkey-domestic/caddy:173b26306d71\n',
+                     'JWT_SECRET=literal${value}\n', 'POSTGRES_PASSWORD=secret-value\n'):
+            self.assertIn(line, text)
+        self.assertEqual([l.split('=', 1)[0] for l in text.splitlines()],
+                         [l.split('=', 1)[0] for l in self.before.splitlines()])
+        backup = self.root / '.env.before-repin-abcdef012345'
+        self.assertEqual(backup.read_text(), self.before)
+
+    def test_refuses_a_tag_outside_the_repository_already_pinned(self):
+        # A registry reference must never replace the host-local repo.
+        for tags in [['ghcr.io/youxuanxue/sub2api:1.8.318'], [], ['tokenkey-domestic/archive:x'],
+                     ['tokenkey-domestic/tokenkey:a', 'tokenkey-domestic/tokenkey:b']]:
+            with self.subTest(tags=tags):
+                self.env.write_text(self.before)
+                with self.assertRaisesRegex(ValueError, 'tag to pin'):
+                    self.repin(tags)
+                self.assertEqual(self.env.read_text(), self.before)
+
+    def test_absent_env_or_missing_key_is_a_no_op(self):
+        self.env.unlink()
+        self.repin(['tokenkey-domestic/tokenkey:1.8.318-63e91c048'])
+        self.assertFalse(self.env.exists())
+        self.env.write_text('CADDY_IMAGE=tokenkey-domestic/caddy:173b26306d71\n')
+        self.repin(['tokenkey-domestic/tokenkey:1.8.318-63e91c048'])
+        self.assertEqual(self.env.read_text(), 'CADDY_IMAGE=tokenkey-domestic/caddy:173b26306d71\n')
+
+    def test_promote_repins_before_cutover(self):
+        state = self.root / 'release'
+        state.mkdir()
+        receipt = {'old': 'tokenkey-blue', 'target': 'tokenkey-green', 'revision': 'reviewed'}
+        order = []
+        with patch.object(bg.post_release, 'configure', return_value={}), \
+                patch.object(bg, 'verify_receipt', return_value=receipt), \
+                patch.object(bg, 'inspect', return_value={'Image': 'sha256:promoted'}), \
+                patch.object(bg, 'repin_env_image', side_effect=lambda i: order.append(('repin', i))), \
+                patch.object(bg, 'run'), \
+                patch.object(bg, 'shell', side_effect=lambda *a: order.append(('cutover',))), \
+                patch.object(bg, 'write_private'), \
+                patch.object(bg.post_release, 'finish'):
+            bg.promote(SimpleNamespace(state=state, receipt='hash'))
+        # A pin written after cutover would be lost if cutover raised.
+        self.assertEqual(order, [('repin', 'sha256:promoted'), ('cutover',)])
+
+
 class DomesticRollbackRuntimeTest(unittest.TestCase):
     """Execute the real shared shell against a deterministic Docker/Caddy host."""
 
@@ -344,7 +436,9 @@ class DomesticRollbackRuntimeTest(unittest.TestCase):
         new['State'].update(Running=True, Status='running')
         self.host = {'containers': {'tokenkey': old, 'tokenkey-blue': new},
                      'draining': {'tokenkey': True, 'tokenkey-blue': False},
-                     'route': 'tokenkey-blue', 'events': [], 'fail_reload': False}
+                     'route': 'tokenkey-blue', 'events': [], 'fail_reload': False,
+                     'repo_tags': {'sha256:old': ['tokenkey-domestic/tokenkey:restored'],
+                                   'sha256:candidate-id': ['tokenkey-domestic/tokenkey:candidate']}}
         self.save_host()
         receipt = {'old': 'tokenkey', 'target': 'tokenkey-blue',
                    'old_identity': bg.identity(old), 'target_identity': bg.identity(new),
@@ -366,6 +460,9 @@ if pathlib.Path(sys.argv[0]).name == 'curl':
     name = h['route']
     code = int(not h['containers'][name]['State']['Running'] or h['draining'][name])
     print('{"status":"ok"}')
+elif a[0] == 'image' and a[1] == 'inspect':
+    # RepoTags for the image id being pinned; mirrors `docker image inspect`.
+    print(json.dumps(h.get('repo_tags', {}).get(a[2], [])))
 elif a[0] == 'inspect':
     if a[1] == 'tokenkey-caddy':
         print(json.dumps([{'Image': 'sha256:caddy'}]))
@@ -437,6 +534,20 @@ sys.exit(code)
         self.assertFalse(host['draining']['tokenkey'])
         self.assertFalse(host['containers']['tokenkey-blue']['State']['Running'])
         self.assertEqual(json.loads((self.state / 'rolled-back.json').read_text())['active'], 'tokenkey')
+
+    def test_rollback_repins_env_back_to_the_restored_color(self):
+        # promote() repins .env at the candidate. If rollback does not undo that,
+        # .env keeps naming the image the rollback just rejected -- the same
+        # stale-pin failure this adapter exists to prevent, only inverted.
+        env = self.root / '.env'
+        env.write_text('TOKENKEY_IMAGE=tokenkey-domestic/tokenkey:candidate\n'
+                       'JWT_SECRET=literal${value}\n')
+        with patch.object(bg, 'ROOT', self.root):
+            bg.rollback(self.args)
+        text = env.read_text()
+        # fixture() images are sha256:old for the restored color.
+        self.assertIn('TOKENKEY_IMAGE=tokenkey-domestic/tokenkey:restored\n', text)
+        self.assertIn('JWT_SECRET=literal${value}\n', text)
 
     def test_rollback_recovers_running_old_after_interrupted_drain(self):
         self.host['containers']['tokenkey']['State'].update(Running=True, Status='running')

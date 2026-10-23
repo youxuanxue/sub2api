@@ -113,6 +113,35 @@ class PostReleaseTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.configure()
 
+    def test_rejects_plan_without_changes_before_cutover(self):
+        # A hand-written plan carrying only 'range' used to pass configure() and
+        # then raise KeyError('changes') in finish(), after the public route had
+        # already moved (cn-prod 1.8.318, 2026-10-23). Reject it up front.
+        incomplete = {'range': {'live': self.old_sha, 'new': self.new_sha}}
+        for plan in [incomplete, incomplete | {'changes': None}, incomplete | {'changes': {}}]:
+            with self.subTest(plan=plan):
+                pr.save(self.args.postcheck_plan, plan)
+                with self.assertRaisesRegex(ValueError, 'changes list'):
+                    self.configure()
+                self.assertFalse((self.state / 'post-release').exists())
+        # A generated plan with an empty changes list stays valid: a release can
+        # legitimately carry no product commits.
+        pr.save(self.args.postcheck_plan, self.plan)
+        self.assertEqual(self.configure()['range'], {'live': self.old_sha, 'new': self.new_sha})
+
+    def test_failed_notification_receipt_keeps_the_cause(self):
+        context = self.configure()
+        (self.state / 'post-release/plan.json').write_text(json.dumps({'range': context['range']}))
+        pr.save(self.state / 'post-release/context.json', context | {
+            'hashes': context['hashes'] | {'plan.json': pr.sha(self.state / 'post-release/plan.json')}})
+        self.finish(pr.read_json(self.state / 'post-release/context.json'))
+        receipt = pr.read_json(self.state / 'post-release/notification.json')
+        self.assertEqual(receipt['status'], 'failed')
+        # Without the cause, an operator chases the webhook instead of the plan.
+        self.assertIn('KeyError', receipt['cause'])
+        self.assertIn('changes', receipt['cause'])
+        self.assertNotIn(('send', self.now), self.events)
+
     def test_rejects_inactive_release_and_pinned_evidence_drift(self):
         context = self.configure()
         self.new['State']['Running'] = False
@@ -130,7 +159,7 @@ class PostReleaseTest(unittest.TestCase):
             with self.subTest(url=url), self.assertRaisesRegex(ValueError, 'public_origin is ' + expected):
                 self.args.public_url = url
                 self.configure()
-        for url in ['http://106.75.29.139', 'https://user:pass@106.75.29.139', 'https://127.0.0.1']:
+        for url in ['http://154.8.214.179', 'https://user:pass@154.8.214.179', 'https://127.0.0.1']:
             with self.subTest(url=url), self.assertRaises(ValueError):
                 self.args.public_url = url
                 self.configure()

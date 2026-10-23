@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 
 try:
@@ -154,6 +155,17 @@ QA_ENV_KEYS = (
     'QA_CAPTURE_ENABLED',
     'TELEMETRY_ARCHIVE_ENABLED',
 )
+# Non-pool, non-QA settings that compose.override.yml owns. The candidate env is
+# inherited from the live container (that is how secrets stay on the host and
+# out of this file), so a key the override adds later reaches a new color ONLY if
+# it is listed here. SECURITY_PROXY_PROBE_PRESET was added to the override but
+# not here, so every blue/green promote kept serving without it and the admin
+# proxy probe went on measuring through overseas ip-api.com (found 2026-10-23 on
+# cn-prod 1.8.318). deploy/domestic/test_pool_env_probe.py fails if the override
+# declares an app env key that none of these three tuples claims.
+CONFIG_ENV_KEYS = (
+    'SECURITY_PROXY_PROBE_PRESET',
+)
 
 
 def _required_env(service_env, keys, label):
@@ -178,11 +190,12 @@ def candidate_compose(service, current, image, target):
     # sizes, or prepare would look successful while capacity bumps never land.
     _required_env(service_env, POOL_ENV_KEYS, 'pool')
     _required_env(service_env, QA_ENV_KEYS, 'qa')
+    _required_env(service_env, CONFIG_ENV_KEYS, 'config')
     if str(service_env['QA_CAPTURE_ENABLED']).strip().lower() != 'true':
         raise ValueError('domestic QA capture must stay enabled')
     if str(service_env['TELEMETRY_ARCHIVE_ENABLED']).strip().lower() != 'false':
         raise ValueError('domestic telemetry archive must stay disabled')
-    for key in POOL_ENV_KEYS:
+    for key in POOL_ENV_KEYS + CONFIG_ENV_KEYS:
         env[key] = str(service_env[key]).strip()
     env['QA_CAPTURE_ENABLED'] = 'true'
     env['TELEMETRY_ARCHIVE_ENABLED'] = 'false'
@@ -306,6 +319,47 @@ def verify_receipt(state, expected):
     return receipt
 
 
+def repin_env_image(image_id):
+    """Point .env TOKENKEY_IMAGE at the image that is becoming active.
+
+    Blue/green containers run by image id, so a stale pin stays invisible until
+    something rebuilds from .env -- recovery, or a plain `compose up`. On
+    2026-10-23 cn-prod was pinned to a temporary cn-prod-monitor tag that GHCR
+    prune had already deleted, so an env-based bring-up would have failed with
+    pull_policy=never while the routed container was perfectly healthy. The west
+    path has always done this (deploy_via_ssm_bluegreen.sh env_set
+    TOKENKEY_IMAGE); the domestic adapter was missing it.
+
+    The replacement tag is read back from the promoted image itself and must sit
+    in the repository the pin already names, so the host keeps its local
+    tokenkey-domestic repo and never gains a registry reference. Only this key
+    is rewritten; secrets and every other line stay byte-exact.
+    """
+    env = ROOT / '.env'
+    if not env.exists():
+        return
+    lines = env.read_text().splitlines(keepends=True)
+    current = next((line for line in lines if line.startswith('TOKENKEY_IMAGE=')), None)
+    if current is None:
+        return
+    repo = current.partition('=')[2].strip().rsplit(':', 1)[0]
+    if not repo:
+        raise ValueError('existing TOKENKEY_IMAGE pin has no repository to keep')
+    tags = [tag for tag in json.loads(run('docker', 'image', 'inspect', image_id,
+                                          '--format', '{{json .RepoTags}}'))
+            if tag.rsplit(':', 1)[0] == repo]
+    if len(tags) != 1:
+        raise ValueError('promoted image must carry exactly one ' + repo + ' tag to pin')
+    backup = ROOT / ('.env.before-repin-' + image_id.removeprefix('sha256:')[:12])
+    if not backup.exists():
+        shutil.copy2(env, backup)
+        backup.chmod(0o600)
+    env.write_text(''.join(
+        'TOKENKEY_IMAGE=' + tags[0] + '\n' if line.startswith('TOKENKEY_IMAGE=') else line
+        for line in lines))
+    env.chmod(0o600)
+
+
 def promote(args):
     state = args.state
     receipt = verify_receipt(state, args.receipt)
@@ -315,6 +369,7 @@ def promote(args):
     # The shared validation primitive uses this local image name. Bind it to
     # the running pinned Caddy image; no registry/network pull is permitted.
     run('docker', 'tag', inspect('tokenkey-caddy')['Image'], 'caddy:2-alpine')
+    repin_env_image(inspect(target)['Image'])
     shell(state, f'wait_healthy {target}\nwait_ready {target}\n'
           f'commit_cutover {color}\nobserve_routed_health {color}\n'
           f'drain_container {old}\ndocker stop -t 180 {old} >/dev/null')
@@ -378,6 +433,10 @@ def rollback(args):
         (DATA / 'active-color').unlink(missing_ok=True)
     else:
         (DATA / 'active-color').write_text(old.removeprefix('tokenkey-') + '\n')
+    # promote() repinned .env at the candidate. Roll that back with the route,
+    # or .env keeps naming the image we just rolled away from -- the same stale
+    # pin this adapter now exists to prevent, only inverted.
+    repin_env_image(inspect(old)['Image'])
     shell(state, f'observe_routed_health {shlex.quote(old)}\ndrain_container {target}\ndocker stop -t 180 {target} >/dev/null')
     write_private(state / 'rolled-back.json', {'active': old, 'previous': target})
     print(json.dumps({'stage': 'rolled-back', 'active': old}))
