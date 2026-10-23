@@ -23,6 +23,7 @@ import (
 
 // RunImageRelay mirrors relay.ImageHelper without New API billing.
 func RunImageRelay(c *gin.Context, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
+	defer filterUpstreamResponseHeaders(c)()
 	info.InitChannelMeta(c)
 
 	imageReq, ok := info.Request.(*dto.ImageRequest)

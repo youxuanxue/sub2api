@@ -1944,6 +1944,52 @@
         "accountWideRateLimitNotBlockingSQL(\"a\")"
       ],
       "rationale": "Group available/temporarily-limited account counts must share the same account-wide rate-limit admission twin as ListSchedulable, including the model-count cascade."
+    },
+    {
+      "path": "backend/internal/relay/bridge/upstream_header_filter_tk.go",
+      "must_contain": [
+        "func filterUpstreamResponseHeaders(",
+        "responseheaders.RetainClientResponseHeaders",
+        "func (w *upstreamHeaderFilter) Flush()"
+      ],
+      "rationale": "New API adaptor responses must drop supplier identity headers before the client commit. Flush is a commit boundary; WriteHeader alone does not cover it."
+    },
+    {
+      "path": "backend/internal/relay/bridge/upstream_header_filter_tk_test.go",
+      "must_contain": [
+        "func TestUpstreamHeaderFilterDropsSupplierHeaders(",
+        "func TestUpstreamHeaderFilterStripsOnFlush(",
+        "X-Dashscope-Providerdeployid"
+      ],
+      "rationale": "Keep the behavioral regression that supplier headers are absent after Write and after Flush, while the gateway request id stays."
+    },
+    {
+      "path": "backend/internal/relay/bridge/text_relay.go",
+      "must_contain": [
+        "defer filterUpstreamResponseHeaders(c)()"
+      ],
+      "rationale": "Chat completions adaptor entry must install the supplier-header filter. Re-mirroring relay.TextHelper can drop this line while the filter unit test still passes."
+    },
+    {
+      "path": "backend/internal/relay/bridge/responses_relay.go",
+      "must_contain": [
+        "defer filterUpstreamResponseHeaders(c)()"
+      ],
+      "rationale": "Responses adaptor entry must install the supplier-header filter. Re-mirroring relay.ResponsesHelper can drop this line while the filter unit test still passes."
+    },
+    {
+      "path": "backend/internal/relay/bridge/embedding_relay.go",
+      "must_contain": [
+        "defer filterUpstreamResponseHeaders(c)()"
+      ],
+      "rationale": "Embeddings adaptor entry must install the supplier-header filter. Re-mirroring relay.EmbeddingHelper can drop this line while the filter unit test still passes."
+    },
+    {
+      "path": "backend/internal/relay/bridge/image_relay.go",
+      "must_contain": [
+        "defer filterUpstreamResponseHeaders(c)()"
+      ],
+      "rationale": "Image adaptor entry must install the supplier-header filter. Re-mirroring relay.ImageHelper can drop this line while the filter unit test still passes."
     }
   ]
 }

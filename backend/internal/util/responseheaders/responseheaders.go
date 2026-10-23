@@ -118,3 +118,62 @@ func WriteFilteredHeaders(dst http.Header, src http.Header, filter *CompiledHead
 		}
 	}
 }
+
+// gatewayRuntimeHeaders are set by the gateway while a response is in flight
+// (SSE buffering and connection hints). They are not upstream identity and
+// must survive allowlist filtering.
+var gatewayRuntimeHeaders = map[string]struct{}{
+	"connection":        {},
+	"x-accel-buffering": {},
+}
+
+// RetainClientResponseHeaders removes supplier response headers from dst.
+// Headers already present in preexisting are restored, so an upstream write
+// cannot replace gateway security headers or the gateway request id.
+// filter nil uses the default client allowlist.
+func RetainClientResponseHeaders(dst http.Header, preexisting http.Header, filter *CompiledHeaderFilter) {
+	if dst == nil {
+		return
+	}
+	if filter == nil {
+		filter = defaultCompiledHeaderFilter
+	}
+	type prior struct {
+		key    string
+		values []string
+	}
+	previous := make(map[string]prior, len(preexisting))
+	for key, values := range preexisting {
+		copied := append([]string(nil), values...)
+		previous[strings.ToLower(key)] = prior{key: key, values: copied}
+	}
+
+	keys := make([]string, 0, len(dst))
+	for key := range dst {
+		keys = append(keys, key)
+	}
+	for _, key := range keys {
+		lower := strings.ToLower(key)
+		if _, blocked := filter.forceRemove[lower]; blocked {
+			dst.Del(key)
+			continue
+		}
+		if snap, ok := previous[lower]; ok {
+			dst.Del(key)
+			for _, value := range snap.values {
+				dst.Add(snap.key, value)
+			}
+			continue
+		}
+		if _, keep := gatewayRuntimeHeaders[lower]; keep {
+			continue
+		}
+		if _, hop := hopByHopHeaders[lower]; hop {
+			dst.Del(key)
+			continue
+		}
+		if _, ok := filter.allowed[lower]; !ok {
+			dst.Del(key)
+		}
+	}
+}
