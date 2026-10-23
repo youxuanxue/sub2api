@@ -1,11 +1,15 @@
 ---
-status: approved
+title: Tokyo cutover review repair
+status: archived
 approved_by: user (conversation)
 approved_at: 2026-10-17
+superseded_by: ../ops/tokyo-retirement-runbook.md
 scope: repair remaining PR 2687 usage ID and Tokyo OIDC SSM gaps without gateway downtime
 ---
 
 # 东京切流复审修复
+
+> **已归档（2026-10-23）**：Tokyo 已删除，本文所修目标均已不存在；退役记录见 [Tokyo 退役 runbook](../ops/tokyo-retirement-runbook.md)。
 
 审批锚点：用户在收到剩余缺口（用量 ID 冲突、东京 SSM 发布权限）后明确要求“修复剩下的缺口”。本次按该范围实施；不切流、不停网关、不变更应用镜像，不合并 PR。
 

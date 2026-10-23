@@ -1,11 +1,14 @@
 ---
 title: TokenKey UCloud 北京二单 prod 生产部署
 status: approved
+revised: 2026-10-23
 approved_by: "feng (2026-10-15 conversation: 可以。继续。; review/merge before cn-prod release)"
 approved_at: 2026-10-15
 risk: high
 provider: ucloud
 ---
+
+> **现状（2026-10-23）**：cn-prod 已迁至**腾讯北京**（身份见 [`deploy/domestic/prod-target.json`](../../deploy/domestic/prod-target.json)）。本文 UCloud 资源、供应与首客章节为首次上线历史；蓝绿发布授权与边界仍有效。UCloud 仅剩 `106.75.29.139` 转发，计划 2026-10-24 退役。
 
 # 已确认的交付范围
 

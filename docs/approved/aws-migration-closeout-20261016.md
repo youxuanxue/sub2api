@@ -1,11 +1,15 @@
 ---
-status: approved
+title: AWS migration closeout
+status: shipped
+related_prs: [2674]
 approved_by: user (conversation)
 approved_at: 2026-10-16
 scope: repair approved post-migration backup, timer and monitoring gaps; retire old Hcloud edges
 ---
 
 # AWS 迁移收尾
+
+> **已完成的执行记录**（2026-10-16）。所述 Tokyo/AWS 主机均已退役；现网见 [fleet README](../../deploy/hetzner/README.md)。
 
 用户已批准修复迁移审计发现的备份、timer、告警遗留，并将四台旧 Hcloud edge 回收列为中低优先级。
 本次修复宿主运维设施并回收旧 edge；回收仅移除新 edge 对对应旧 IP 的过渡信任。
