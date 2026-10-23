@@ -54,7 +54,13 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 							"gemini-3-flash-preview": "gemini-3.8-flash",
 						}[model]
 						require.Equal(t, want, plan.ResolvedModel())
-						require.Contains(t, plan.Endpoint(), "/locations/global/")
+						// 端点按「映射后模型」的 global 可用性走：global-only 的
+						// 必须落 global，多区域可用的听账号配置。
+						if vertexModelUsesGlobalLocation(want) {
+							require.Contains(t, plan.Endpoint(), "/locations/global/")
+						} else {
+							require.NotContains(t, plan.Endpoint(), "/locations/global/")
+						}
 					} else {
 						require.Equal(t, "gemini-3.8-flash-high", plan.ResolvedModel())
 					}
