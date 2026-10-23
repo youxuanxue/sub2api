@@ -100,13 +100,25 @@ func TestGeminiTokenProviderAcceptsNewAPIVertexServiceAccount(t *testing.T) {
 }
 
 func TestVertexLocationUsesGlobalForGlobalOnlyGeminiModels(t *testing.T) {
+	// 2026-10-23 重写。原先这里断言 3.5-flash-lite / 3.6-flash / 3.7-flash /
+	// 3.8-flash 四个都是 global-only，但官方位置文档显示它们全都同时提供
+	// Global + us + eu —— 四条断言与事实相反，还把账号自己配的 us-central1
+	// 无条件盖掉了。其中两个模型此外已经退役。
 	account := &Account{Credentials: map[string]any{"location": "us-central1"}}
 
-	require.Equal(t, vertexGlobalLocation, account.VertexLocation("gemini-3.5-flash-lite"))
-	require.Equal(t, vertexGlobalLocation, account.VertexLocation("models/gemini-3.6-flash"))
-	require.Equal(t, vertexGlobalLocation, account.VertexLocation("gemini-3.7-flash"))
-	require.Equal(t, vertexGlobalLocation, account.VertexLocation("gemini-3.8-flash"))
+	// 真正 global-only 的：账号配了区域也必须走 global。
+	require.Equal(t, vertexGlobalLocation, account.VertexLocation("gemini-3-flash-preview"))
+	require.Equal(t, vertexGlobalLocation, account.VertexLocation("models/gemini-3-flash-preview"))
+	require.Equal(t, vertexGlobalLocation, account.VertexLocation("gemini-3.1-pro-preview"))
+
+	// 多区域可用的：听账号配置，代码不替运维选区。
+	require.Equal(t, "us-central1", account.VertexLocation("gemini-3.8-flash"))
 	require.Equal(t, "us-central1", account.VertexLocation("gemini-2.5-flash"))
+
+	// 没有 global 端点的：账号配 global 也要拉回区域。
+	globalAcct := &Account{Credentials: map[string]any{"location": vertexGlobalLocation}}
+	require.Equal(t, "us-central1", globalAcct.VertexLocation("gemini-embedding-001"))
+	require.Equal(t, "us-central1", globalAcct.VertexLocation("veo-3.1-generate-001"))
 }
 
 func TestVertexLocationExplicitModelOverrideWins(t *testing.T) {

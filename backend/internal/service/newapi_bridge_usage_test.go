@@ -164,7 +164,11 @@ func TestNewAPIBridgeChannelInputForBody_VertexUsesMappedModelLocation(t *testin
 		},
 	}
 
-	in := newAPIBridgeChannelInputForBody(account, 1, "google", []byte(`{"model":"gemini-3.6-flash"}`))
+	// 夹具用 3-flash-preview（官方 global-only）：本测试守的是「bridge 按
+	// 映射后的模型算 location」，需要一个会覆盖账号配置的模型才能看出区别。
+	// 原先用 3.6-flash，但它并非 global-only（官方同时提供 us/eu），旧单向
+	// 清单把它硬推 global 才让这条断言成立。
+	in := newAPIBridgeChannelInputForBody(account, 1, "google", []byte(`{"model":"gemini-3-flash-preview"}`))
 	require.Equal(t, vertexGlobalLocation, in.VertexLocation)
 }
 

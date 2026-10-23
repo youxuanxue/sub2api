@@ -111,7 +111,7 @@ func TestForwardAsChatCompletionsDispatched_VertexLocationUsesMappedModel(t *tes
 	dispatchNewAPIChatCompletions = func(_ context.Context, _ *gin.Context, in bridge.ChannelContextInput, body []byte) (*bridge.DispatchOutcome, *newapitypes.NewAPIError) {
 		capturedInput = in
 		capturedBody = append([]byte(nil), body...)
-		return &bridge.DispatchOutcome{Model: "gemini-3.6-flash"}, nil
+		return &bridge.DispatchOutcome{Model: "gemini-3-flash-preview"}, nil
 	}
 
 	account := &Account{
@@ -123,7 +123,10 @@ func TestForwardAsChatCompletionsDispatched_VertexLocationUsesMappedModel(t *tes
 			"service_account_json": `{"type":"service_account","project_id":"tk-proj","client_email":"x@tk-proj.iam.gserviceaccount.com","private_key":"test"}`,
 			"location":             "us-central1",
 			"model_mapping": map[string]any{
-				"gemini-next": "gemini-3.6-flash",
+				// 目标用 3-flash-preview（官方 global-only）：本测试要看的是
+				// 「location 按映射后的模型算」，需要一个会覆盖账号 us-central1
+				// 配置的模型。3.6-flash 并非 global-only，靠旧单向清单硬推才成立。
+				"gemini-next": "gemini-3-flash-preview",
 			},
 		},
 	}
@@ -135,8 +138,8 @@ func TestForwardAsChatCompletionsDispatched_VertexLocationUsesMappedModel(t *tes
 	if err != nil {
 		t.Fatalf("ForwardAsChatCompletionsDispatched: %v", err)
 	}
-	if model := gjson.GetBytes(capturedBody, "model").String(); model != "gemini-3.6-flash" {
-		t.Fatalf("bridge body model = %q, want gemini-3.6-flash", model)
+	if model := gjson.GetBytes(capturedBody, "model").String(); model != "gemini-3-flash-preview" {
+		t.Fatalf("bridge body model = %q, want gemini-3-flash-preview", model)
 	}
 	if capturedInput.VertexLocation != vertexGlobalLocation {
 		t.Fatalf("bridge VertexLocation = %q, want %q", capturedInput.VertexLocation, vertexGlobalLocation)
