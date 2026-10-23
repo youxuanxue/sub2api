@@ -3,7 +3,7 @@ title: TokenKey Hetzner Cloud prod 迁移基线
 status: approved
 approved_by: "feng (merge #2517, 2026-10-09)"
 created: 2026-10-09
-revised: 2026-10-22
+revised: 2026-10-23
 owners: [tk-platform]
 scope: >-
   deploy/hetzner/* + deploy-*-hetzner*.yml + Stage0 dispatch 路由；
@@ -20,10 +20,12 @@ related_designs:
 
 ## 现网范围
 
-**活拓扑（2026-10-22 起）：** 仅腾讯美西 prod（Tokyo 冻结待退役）；细节与 IP 只在 README。
+**活拓扑（2026-10-22 起）：** 仅腾讯美西 prod（Tokyo 已于 2026-10-23 完全退役）；细节与 IP 只在 README。
 **本文件锁定的历史决策：** 曾将生产控制面收敛到 Hetzner `fsn1` / `cax21` / SSM Hybrid；后续 AWS/Tokyo、腾讯美西切流不改写下列已锁不变量（蓝绿、单正式名、活库禁覆盖等）。
 
 ## 已锁定
+
+> 下表「去哪 / 控面 / Secrets / 旧机」为 Hetzner 期的**历史选址**，不描述现网主机；仍有效的是其中的不变量（蓝绿、单正式名、活库禁覆盖、禁止双写）。
 
 | | |
 |---|---|

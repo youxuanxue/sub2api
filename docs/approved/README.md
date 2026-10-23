@@ -17,9 +17,9 @@ revised_at: 2026-09-03
 
 - [OAuth 集中后的网关安全](oauth-consolidation-gateway-safety.md)：固定代理、请求错误语义、流式巡检和数据处置边界。
 
-- [AWS 迁移收尾](aws-migration-closeout-20261016.md)：备份、QA timer、独立健康监控与旧主机资源收尾边界。
+- 已完成：[AWS 迁移收尾](aws-migration-closeout-20261016.md)：备份、QA timer、独立健康监控与旧主机资源收尾边界（执行记录）。
 
-- [东京切流复审修复](tokyo-cutover-review-repair-20261017.md)：用量 ID 冲突、分区序列门禁与跨区域 OIDC SSM 权限修复。
+- archived：[东京切流复审修复](tokyo-cutover-review-repair-20261017.md)（Tokyo 已删除）。
 
 `docs/approved/` is the approval baseline for high-risk work. These files are
 load-bearing: code comments, sentinels, migrations, and preflight checks refer
@@ -56,7 +56,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 ## TokenKey SSOT 导航
 
-UCloud 国内单 prod 的授权范围、首次初始化和发布边界：[国内部署契约](design-domestic-cluster.md)。
+国内 prod（现腾讯北京；UCloud 段为首发历史）的授权范围、首次初始化和发布边界：[国内部署契约](design-domestic-cluster.md)。
 
 本节只提供契约入口；规则、实现 owner 和验收状态在链接目标维护。
 
@@ -155,10 +155,10 @@ UCloud 国内单 prod 的授权范围、首次初始化和发布边界：[国内
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
 | [`qa-redaction-identified-formats-only.md`](qa-redaction-identified-formats-only.md) | QA 脱敏已识别格式边界与性能优化 |
 | [`design-prod-physical-backup.md`](design-prod-physical-backup.md) | 每周全量、两小时块增量、WAL 连续归档及隔离验收 |
-| [`cn-prod-logical-backup.md`](cn-prod-logical-backup.md) | 国内节点共享 pgdump、临时签名异地备份与恢复验收 |
+| [`cn-prod-logical-backup.md`](cn-prod-logical-backup.md) | 国内节点逻辑 dump（退役中，cn-prod 已改 pgBackRest） |
 | [`design-fleet-pgdump-restore-canary.md`](design-fleet-pgdump-restore-canary.md) | Fleet pgdump restore canary |
-| [`hcloud-pgdump-storage.md`](hcloud-pgdump-storage.md) | Hetzner host-only pgdump identity, encryption and cutover |
-| [`hetzner-cloud-full-migration.md`](hetzner-cloud-full-migration.md) | Hetzner 舰队决策锁（fsn1 / cax21；执行 SSOT：`deploy/hetzner/README.md`） |
+| [`hcloud-pgdump-storage.md`](hcloud-pgdump-storage.md) | archived：Hetzner 期 pgdump 存储（已被物理备份取代） |
+| [`hetzner-cloud-full-migration.md`](hetzner-cloud-full-migration.md) | 舰队不变量锁（Hetzner 期选址为历史；执行 SSOT：`deploy/hetzner/README.md`） |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
 | [`prod-component-release.md`](prod-component-release.md) | Independent prod component releases |
 
@@ -203,7 +203,7 @@ UCloud 国内单 prod 的授权范围、首次初始化和发布边界：[国内
 
 | File | Topic |
 | --- | --- |
-| [qa-raw-only.md](qa-raw-only.md) | 当前 QA raw 归档与 Hetzner 迁移契约 |
+| [qa-raw-only.md](qa-raw-only.md) | QA raw-only 契约（Hetzner 目标已由 AWS S3 取代；上传暂停） |
 | [qa-bundle-session-export.md](qa-bundle-session-export.md) | archived：退役用户会话导出 |
 | [design-split-deploy-qa-bundle.md](design-split-deploy-qa-bundle.md) | archived：退役 Bundle worker 发布 |
 | [prod-component-release.md](prod-component-release.md) | archived：原组件发布设计，由 raw-only 替代 |

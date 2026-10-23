@@ -4,7 +4,8 @@
 - Priority: P1
 - Title: Hetzner 数据库备份安全切换
 - As a / I want / So that: 作为运维人员，我要数据库备份及恢复使用私有 Hetzner 存储，从而减少 AWS 数据平面依赖且不影响用户流量。
-- Trace: `docs/approved/hcloud-pgdump-storage.md`
+- Trace: `docs/approved/hcloud-pgdump-storage.md`（archived）
+- Historical: Hetzner prod 与 edge 已退役（2026-10-23），验收对象已不存在；备份现走 pgBackRest。
 - Risk Focus:
   - 逻辑错误：上传与恢复身份一致、目标前缀严格匹配。
   - 行为回归：AWS standby 恢复保持兼容。
