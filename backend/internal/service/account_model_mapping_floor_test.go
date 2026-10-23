@@ -65,8 +65,9 @@ func TestAccountModelMappingForAccount_GeminiWebRestrictedFloor(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, native, "gemini-embedding-001")
 	require.Contains(t, native, "veo-3.1-generate-001")
-	require.Contains(t, native, "gemini-3.6-flash")
-	require.Equal(t, "gemini-3.6-flash", native["gemini-3.5-flash-lite"])
+	// 2026-10-23 退役：3.6-flash 与别名 3.5-flash-lite 已撤出 floor。
+	require.NotContains(t, native, "gemini-3.6-flash")
+	require.NotContains(t, native, "gemini-3.5-flash-lite")
 
 	webRelay, ok := accountModelMappingForAccount(context.Background(), &Account{
 		Platform: PlatformGemini,

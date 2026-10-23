@@ -154,7 +154,11 @@ var DefaultAntigravityModelMapping = map[string]string{
 // tier IDs are NOT public display names; they exist so explicit model requests
 // and generationConfig.thinkingConfig can select native AG depth.
 var antigravityThinkingWireBases = []string{
-	"gemini-3.6-flash",
+	// 2026-10-23: gemini-3.6-flash retired. Its AG tier wires never served --
+	// model_availability has last_seen_ok_at=NULL for -low/-medium/-high and the
+	// bare name, while -tiered has returned 404 model_not_found since 10-09.
+	// Native newapi serving is retired in the same change (single-account
+	// capacity), so there is nothing left for these wires to select.
 	"gemini-3.7-flash",
 	"gemini-3.8-flash",
 	"gemini-4-argon",

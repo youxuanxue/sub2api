@@ -26,7 +26,7 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 		t.Fatalf("DefaultTestModel %q must be present in DefaultModels", DefaultTestModel)
 	}
 
-	for _, id := range []string{"gemini-3.8-flash", "gemini-3.6-flash", "veo-3.1-generate-001", "gemini-embedding-001"} {
+	for _, id := range []string{"gemini-3.8-flash", "veo-3.1-generate-001", "gemini-embedding-001"} {
 		if _, ok := byID[id]; !ok {
 			t.Fatalf("DefaultModels missing converged id %q", id)
 		}

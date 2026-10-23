@@ -22,7 +22,6 @@ type ModelsListResponse struct {
 func DefaultModels() []Model {
 	methods := []string{"generateContent", "streamGenerateContent"}
 	return []Model{
-		{Name: "models/gemini-3.6-flash", SupportedGenerationMethods: methods},
 		{Name: "models/gemini-3.7-flash", SupportedGenerationMethods: methods},
 		{Name: "models/gemini-3.8-flash", SupportedGenerationMethods: methods},
 		{Name: "models/gemini-3-flash", SupportedGenerationMethods: methods},
