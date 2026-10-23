@@ -69,8 +69,12 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 		// mapping must match.
 		if accounts[i].IsModelSupported(requestedModel) {
 			diag.HasModelSupport = true
-			return diag
 		}
 	}
+	// Scan the whole pool: returning on the first serviceable account loses the
+	// retired-upstream flag whenever a serviceable candidate sorts ahead of a
+	// retired one. The existing test only exercised [retired, serviceable], so
+	// the order dependence stayed green. HasModelSupport is order-independent
+	// either way; HasRetiredSubscriptionModel was not.
 	return diag
 }

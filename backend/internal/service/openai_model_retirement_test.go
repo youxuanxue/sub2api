@@ -219,7 +219,10 @@ func TestGPT55RetirementSchedulerAndDiagnosis(t *testing.T) {
 	oauth.Credentials = map[string]any{"compact_model_mapping": map[string]any{"gpt-5.5": "gpt-6.1-sol"}}
 	ok, _ = scheduler.isAccountRequestCompatibleReason(ctx, &oauth, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.5", RequireCompact: true})
 	require.True(t, ok, "an explicit compact replacement remains usable")
-	for _, accounts := range [][]Account{{oauth}, {oauth, api}} {
+	// Both orders: a serviceable account sorting ahead of the retired one must
+	// not hide the retired upstream (the diagnosis used to return on the first
+	// serviceable candidate, so [api, oauth] reported HasRetired=false).
+	for _, accounts := range [][]Account{{oauth}, {oauth, api}, {api, oauth}} {
 		svc := &OpenAIGatewayService{accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{groupID: accounts}}}
 		diagnosis := svc.DiagnoseModelAvailabilityForPlatform(ctx, &groupID, "gpt-5.5", PlatformOpenAI)
 		require.True(t, diagnosis.HasAccountsInPool)
