@@ -84,7 +84,15 @@ class MatrixTests(unittest.TestCase):
         self.assertIn('IMAGE', image['request']['body']['generationConfig']['responseModalities'])
         self.assertIsNone(image['blocked_reason'])
         self.assertEqual({e['blocked_reason'] for e in value['entries'] if e['blocked_reason']},
-                         {'capability_unknown', 'capability_unsupported'})
+                         {'capability_unknown', 'capability_unsupported', 'fixture_oversized_for_delivery'})
+        # The 28KB audio fixture is withheld from the SSM payload (97KB cap), so its
+        # case must stay a visible infrastructure gap rather than drop out of the plan.
+        transcription = [e for e in value['entries'] if e['scenario'] == 'transcription']
+        self.assertTrue(transcription, 'transcription obligation must remain in the denominator')
+        for case in transcription:
+            self.assertEqual(case['blocked_reason'], 'fixture_oversized_for_delivery')
+            self.assertIsNone(case['request'])
+            self.assertEqual(matrix.blocked_status(case), 'blocked-by-test-infrastructure')
         self.assertTrue(all(e['capability']['status'] == 'supported' for e in usable))
 
     def test_legacy_saved_plan_remains_reportable_and_is_a_full_delta(self):

@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 
 import gateway_capability_host as host
 import gateway_capability_matrix as matrix
+import gateway_capability_scenarios as scenarios
 from gateway_capability_scenarios import tool_continuation
 from gateway_capability_check import validate_response
 from test_gateway_capability_matrix import inventory, plan
@@ -299,6 +300,10 @@ class ScenarioTests(unittest.TestCase):
         value = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load())
         self.assertFalse(any(c['protocol'] == 'openai-chat' and c['scenario'] == 'count-tokens' for c in value['entries']))
         for case in value['entries']:
+            if case['request'] is None:
+                # Undelivered oversized fixture: no wire body to budget-check.
+                self.assertTrue(case['blocked_reason'])
+                continue
             body = case['request']['body']
             if case['scenario'] == 'video':
                 self.assertIn(body['seconds'], ('8', '15'))
@@ -336,15 +341,23 @@ class ScenarioTests(unittest.TestCase):
 
     def test_media_fixtures_and_multipart_are_concrete_and_small(self):
         value = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load())
+        # The transcription fixture is withheld from the SSM payload (97KB cap), so its
+        # case carries no request. The multipart wire contract still has to hold, so
+        # assert it against the locally loaded fixture instead of the plan entry.
         transcription = next(c for c in value['entries'] if c['scenario'] == 'transcription')
-        payload, ctype = host.request_wire(transcription['request'])
+        self.assertIsNone(transcription['request'])
+        self.assertEqual(transcription['blocked_reason'], 'fixture_oversized_for_delivery')
+        audio = next(p['request']['body']['audio_base64'] for p in matrix.load()
+                     if p['id'] == 'openai-transcription.plain')
+        payload, ctype = host.request_wire(
+            scenarios.media_request('transcription', 'doubao-seed-asr-2.0', audio))
         self.assertIn('multipart/form-data; boundary=', ctype)
         self.assertIn(b'filename="hello.wav"', payload)
         self.assertIn(b'RIFF', payload)
         self.assertLess(len(payload), 128 * 1024)
         self.assertNotIn(b'audio_base64', payload)
         for c in value['entries']:
-            if c['scenario'] in ('image', 'speech', 'video', 'content-image', 'transcription'):
+            if c['scenario'] in ('image', 'speech', 'video', 'content-image'):
                 self.assertIsNone(c['blocked_reason'])
                 self.assertIsNotNone(c['request'])
 
