@@ -13,7 +13,6 @@ type Model struct {
 // flow and PlatformGemini listing fallbacks. Keep it aligned with
 // supportedGeminiCatalogModels (public Google text/video surface + traffic aliases).
 var DefaultModels = []Model{
-	{ID: "gemini-3.6-flash", Type: "model", DisplayName: "Gemini 3.6 Flash", CreatedAt: ""},
 	{ID: "gemini-3.7-flash", Type: "model", DisplayName: "Gemini 3.7 Flash", CreatedAt: ""},
 	{ID: "gemini-3.8-flash", Type: "model", DisplayName: "Gemini 3.8 Flash", CreatedAt: ""},
 	{ID: "gemini-3-flash-preview", Type: "model", DisplayName: "Gemini 3 Flash Preview", CreatedAt: ""},

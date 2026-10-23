@@ -16,7 +16,10 @@ import (
 func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
-	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.5-flash-lite"} {
+	// 2026-10-23: 原先还有一个 gemini-3.5-flash-lite 样本，测「别名 → 3.6-flash」。
+	// 两者已整体退役，而 gemini-only 的其余模型都是 embedding/image/video，不走
+	// generateContent，不存在同形替代，故该槽位随退役移除。
+	for _, model := range []string{"gemini-3-flash-preview"} {
 		for _, inbound := range []struct {
 			name, path, body string
 			shape            UniversalShape
@@ -38,26 +41,17 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 					}}
 					ids, _, err := discovery.GetAvailableModelsForDiscovery(context.Background(), groupID, accounts[i].Platform)
 					require.NoError(t, err)
-					if accounts[i].Platform == PlatformAntigravity && model == "gemini-3.5-flash-lite" {
-						require.NotContains(t, ids, model)
-					} else {
-						require.Contains(t, ids, model, "discovery and candidate evaluation must share the admitted model")
-					}
+					require.Contains(t, ids, model, "discovery and candidate evaluation must share the admitted model")
 				}
 				ctx := resolver.WithRequest(context.Background(), inbound.shape, inbound.path, model, []byte(inbound.body))
 				for i := range accounts {
 					plan, governed, err := protocolPlanForAccount(ctx, &accounts[i], model)
 					require.True(t, governed)
-					if accounts[i].Platform == PlatformAntigravity && model == "gemini-3.5-flash-lite" {
-						require.Error(t, err)
-						continue
-					}
 					require.NoError(t, err, "account %d", accounts[i].ID)
 					require.Equal(t, protocolrouter.ProtocolGeminiGenerateContent, plan.TargetProtocol())
 					if i == 0 {
 						want := map[string]string{
 							"gemini-3-flash-preview": "gemini-3.8-flash",
-							"gemini-3.5-flash-lite":  "gemini-3.6-flash",
 						}[model]
 						require.Equal(t, want, plan.ResolvedModel())
 						require.Contains(t, plan.Endpoint(), "/locations/global/")
@@ -89,12 +83,14 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	pricing := &PricingService{useActiveRegistry: true}
-	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.5-flash-lite"} {
+	// 2026-10-23: 样本从 3.5-flash-lite 换成 gemini-3-flash —— 前者与其上游
+	// 3.6-flash 已整体退役。这里验证的是「兼容别名按重映射目标计价」这个机制，
+	// 不是具体模型清单，所以换一个仍在供应的别名即可。
+	for _, model := range []string{"gemini-3-flash-preview", "gemini-3-flash"} {
 		entry := pricing.GetModelPricing(model)
 		require.NotNil(t, entry)
 		require.False(t, tkIsEffectivelyUnpriced(entry))
 		require.True(t, isPublicCatalogModelSupported("gemini", model))
-		require.Equal(t, model != "gemini-3.5-flash-lite", isPublicCatalogModelSupported(PlatformAntigravity, model))
 		require.Equal(t, "gemini", presentationVendorForServable(model, "gemini"))
 		require.Contains(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), model)
 	}
@@ -104,11 +100,16 @@ func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
 	require.Equal(t, wire38.InputCostPerToken, preview.InputCostPerToken)
 	require.Equal(t, wire38.OutputCostPerToken, preview.OutputCostPerToken)
 	require.Equal(t, wire38.CacheReadInputTokenCost, preview.CacheReadInputTokenCost)
-	lite, wire36 := pricing.GetModelPricing("gemini-3.5-flash-lite"), pricing.GetModelPricing("gemini-3.6-flash")
-	require.NotNil(t, wire36)
-	require.Equal(t, wire36.InputCostPerToken, lite.InputCostPerToken)
-	require.Equal(t, wire36.OutputCostPerToken, lite.OutputCostPerToken)
-	require.Equal(t, wire36.CacheReadInputTokenCost, lite.CacheReadInputTokenCost)
+	bare := pricing.GetModelPricing("gemini-3-flash")
+	require.NotNil(t, bare)
+	require.Equal(t, wire38.InputCostPerToken, bare.InputCostPerToken)
+	require.Equal(t, wire38.OutputCostPerToken, bare.OutputCostPerToken)
+	require.Equal(t, wire38.CacheReadInputTokenCost, bare.CacheReadInputTokenCost)
+	// 退役后不得再出现在公开目录或计价面。
+	for _, retired := range []string{"gemini-3.6-flash", "gemini-3.5-flash-lite"} {
+		require.False(t, isPublicCatalogModelSupported("gemini", retired))
+		require.False(t, isPublicCatalogModelSupported(PlatformAntigravity, retired))
+	}
 }
 
 func TestCandidateEligibilityGeminiNativeActivationScope(t *testing.T) {
@@ -116,18 +117,14 @@ func TestCandidateEligibilityGeminiNativeActivationScope(t *testing.T) {
 	require.NoError(t, err)
 	wantVertex := map[string]string{
 		"gemini-3-flash-preview": "gemini-3.8-flash",
-		"gemini-3.5-flash-lite":  "gemini-3.6-flash",
+		"gemini-3-flash":         "gemini-3.8-flash",
 	}
-	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.5-flash-lite"} {
+	for _, model := range []string{"gemini-3-flash-preview", "gemini-3-flash"} {
 		require.Equal(t, wantVertex[model], floor.NewAPIChannelTypes["41"][model])
 		for profile, mapping := range floor.VertexCapabilityProfiles {
 			require.Equal(t, wantVertex[model], mapping[model], "profile %s", profile)
 		}
-		if model == "gemini-3.5-flash-lite" {
-			require.NotContains(t, floor.Platforms[PlatformAntigravity], model)
-		} else {
-			require.Equal(t, "gemini-3.8-flash-high", floor.Platforms[PlatformAntigravity][model])
-		}
+		require.Equal(t, "gemini-3.8-flash-high", floor.Platforms[PlatformAntigravity][model])
 		// Converged Google text aliases are also on the Gemini floor (traffic aliases).
 		require.Equal(t, wantVertex[model], floor.Platforms[PlatformGemini][model])
 		require.Contains(t, AccountModelMappingPresetIDs(context.Background(), PlatformGemini, 0, nil), model)

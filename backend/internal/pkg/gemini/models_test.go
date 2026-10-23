@@ -25,7 +25,6 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 	}
 	for _, id := range []string{
 		"models/gemini-3.8-flash",
-		"models/gemini-3.6-flash",
 		"models/gemini-embedding-001",
 		"models/veo-3.1-generate-001",
 	} {

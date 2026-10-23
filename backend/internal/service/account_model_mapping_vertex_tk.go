@@ -24,8 +24,6 @@ const (
 var vertexSharedModelMappingIDs = []string{
 	"gemini-3-flash",
 	"gemini-3-flash-preview",
-	"gemini-3.5-flash-lite",
-	"gemini-3.6-flash",
 	"gemini-3.7-flash",
 	"gemini-3.8-flash",
 	"gemini-embedding-001",
@@ -33,12 +31,10 @@ var vertexSharedModelMappingIDs = []string{
 }
 
 var vertexSharedModelMapping = map[string]string{
-	"gemini-3.6-flash":       "gemini-3.6-flash",
 	"gemini-3.7-flash":       "gemini-3.7-flash",
 	"gemini-3.8-flash":       "gemini-3.8-flash",
 	"gemini-3-flash":         "gemini-3.8-flash",
 	"gemini-3-flash-preview": "gemini-3.8-flash",
-	"gemini-3.5-flash-lite":  "gemini-3.6-flash",
 	"gemini-embedding-001":   "gemini-embedding-001",
 	"veo-3.1-generate-001":   "veo-3.1-generate-001",
 }

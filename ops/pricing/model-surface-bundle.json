@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "fe65289d34a69c93100d2223f020274b33e2432c16b15b439ee920db1590ee04",
+  "floor_sha256": "577771703283531dfd194285a58090214d2a95e9f51733bde4f895d95960549f",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -88,8 +88,6 @@
         "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
         "gemini-3-pro-image": "gemini-3-pro-image",
-        "gemini-3.5-flash-lite": "gemini-3.6-flash",
-        "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
@@ -325,8 +323,6 @@
       "41": {
         "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
-        "gemini-3.5-flash-lite": "gemini-3.6-flash",
-        "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
@@ -511,8 +507,6 @@
       "core-imagen-ultra": {
         "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
-        "gemini-3.5-flash-lite": "gemini-3.6-flash",
-        "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
@@ -521,8 +515,6 @@
       "core-pro": {
         "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
-        "gemini-3.5-flash-lite": "gemini-3.6-flash",
-        "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
@@ -531,8 +523,6 @@
       "core-pro-imagen-fast-standard": {
         "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
-        "gemini-3.5-flash-lite": "gemini-3.6-flash",
-        "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
@@ -541,8 +531,6 @@
       "core-pro-imagen-standard": {
         "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
-        "gemini-3.5-flash-lite": "gemini-3.6-flash",
-        "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",

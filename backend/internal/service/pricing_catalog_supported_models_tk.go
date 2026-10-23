@@ -170,12 +170,14 @@ var supportedGeminiCatalogModels = map[string]struct{}{
 	"gemini-3-pro-image":     {}, // Verified Gemini Web direct Pro, not Antigravity.
 	"gemini-3-flash":         {},
 	"gemini-3-flash-preview": {},
-	"gemini-3.5-flash-lite":  {},
-	"gemini-3.6-flash":       {},
-	"gemini-3.7-flash":       {},
-	"gemini-3.8-flash":       {},
-	"gemini-embedding-001":   {},
-	"veo-3.1-generate-001":   {},
+	// 2026-10-23 退役：3.6-flash 仅剩账号 74（newapi/ch41）单账号支撑，
+	// 容量不足以保证体验；AG 侧裸名 last_seen_ok_at 恒为 NULL（从未成功）、
+	// -tiered 自 10-09 起 404。3.5-flash-lite 的唯一上游就是 3.6-flash，
+	// 30 天内仅 3 次且全走已死的 -tiered，随之退役。
+	"gemini-3.7-flash":     {},
+	"gemini-3.8-flash":     {},
+	"gemini-embedding-001": {},
+	"veo-3.1-generate-001": {},
 	// servable-allowlist:end gemini
 }
 

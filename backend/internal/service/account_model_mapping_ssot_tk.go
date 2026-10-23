@@ -754,7 +754,6 @@ func supportedCatalogModelIDsFromMap(src map[string]struct{}) []string {
 var geminiTrafficAliases = map[string]string{
 	"gemini-3-flash":         "gemini-3.8-flash",
 	"gemini-3-flash-preview": "gemini-3.8-flash",
-	"gemini-3.5-flash-lite":  "gemini-3.6-flash",
 }
 
 func geminiAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {

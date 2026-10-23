@@ -192,10 +192,15 @@ func TestAntigravityDiscoveryUsesAccountServingEndpoint(t *testing.T) {
 }
 
 func TestAntigravityCatalogWithdrawalPreservesOtherSupplies(t *testing.T) {
+	// 2026-10-23: 3.6-flash 与其唯一别名 3.5-flash-lite 已整体退役（原先此处
+	// 断言「AG 撤下、原生保留」）。原生 newapi 侧仅剩账号 74 单账号支撑，容量
+	// 不足以保证体验，故两个平台都不再供应。这里钉住「两边都撤」，避免下次
+	// 上游合并把它们带回公开目录。
 	for _, model := range []string{"gemini-3.6-flash", "gemini-3.5-flash-lite"} {
 		require.False(t, isPublicCatalogModelSupported(PlatformAntigravity, model))
 		require.NotContains(t, supportedCatalogModelIDsForPlatform(PlatformAntigravity), model)
-		require.True(t, isPublicCatalogModelSupported(PlatformGemini, model))
+		require.False(t, isPublicCatalogModelSupported(PlatformGemini, model))
+		require.NotContains(t, supportedCatalogModelIDsForPlatform(PlatformGemini), model)
 	}
 	require.False(t, isPublicCatalogModelSupported(PlatformAntigravity, "gemini-4-argon"),
 		"public antigravity catalog hides gemini-4-argon after 2026-10-22 canary 404")
