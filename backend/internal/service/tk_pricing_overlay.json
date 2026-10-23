@@ -8570,7 +8570,14 @@
     "input_cost_per_token": 3e-07,
     "output_cost_per_token": 1.2e-06,
     "cache_read_input_token_cost": 6e-08,
-    "source": "MiniMax official API list price for minimax-m3 ($0.30/$1.20 per M tokens). Routed via VolcEngine Agent Plan account 88; probe 200 on 2026-07-30. Public vendor is OEM (minimax), not the Volc plan supply channel."
+    "input_cost_per_token_priority": 4.5e-07,
+    "output_cost_per_token_priority": 1.8e-06,
+    "cache_read_input_token_cost_priority": 9e-08,
+    "supports_service_tier": true,
+    "long_context_input_token_threshold": 512000,
+    "long_context_input_cost_multiplier": 2,
+    "long_context_output_cost_multiplier": 2,
+    "source": "MiniMax official API list price for minimax-m3 ($0.30/$1.20 per M tokens). Routed via VolcEngine Agent Plan account 88; probe 200 on 2026-07-30. Public vendor is OEM (minimax), not the Volc plan supply channel. Priority tier and >512k ladder verified 2026-10-23 against https://platform.minimax.io/docs/guides/pricing (USD) and cross-checked against https://platform.minimax.cn/docs/guides/pricing (RMB): standard <=512k input tokens $0.30/$1.20/cache-read $0.06, priority <=512k $0.45/$1.80/$0.09, standard >512k $0.60/$2.40/$0.12, priority >512k $0.90/$3.60/$0.18 per M tokens. Both tiers double at the >512k band, so the published ladder is expressed as long_context_input/output_cost_multiplier=2 at threshold 512000 (strict >, matching the official <=512k standard band) rather than duplicated above_*_tokens fields; the multiplier composes with the priority prices and reproduces every published cell exactly. cache_read has no separate official multiplier and follows the input side by billing_service contract (#2293)."
   },
   "moonshot-v1-128k": {
     "litellm_provider": "moonshot",
