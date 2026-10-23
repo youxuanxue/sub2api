@@ -22,6 +22,7 @@ import (
 
 // RunOpenAIResponsesRelay mirrors relay.ResponsesHelper without New API billing.
 func RunOpenAIResponsesRelay(c *gin.Context, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
+	defer filterUpstreamResponseHeaders(c)()
 	info.InitChannelMeta(c)
 	if info.RelayMode == relayconstant.RelayModeResponsesCompact {
 		switch info.ApiType {

@@ -24,6 +24,7 @@ import (
 
 // RunOpenAITextRelay executes the New API chat-completions relay without calling New API quota / GORM billing.
 func RunOpenAITextRelay(c *gin.Context, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
+	defer filterUpstreamResponseHeaders(c)()
 	info.InitChannelMeta(c)
 
 	textReq, ok := info.Request.(*dto.GeneralOpenAIRequest)

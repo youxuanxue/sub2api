@@ -20,6 +20,7 @@ import (
 
 // RunEmbeddingRelay mirrors relay.EmbeddingHelper without New API billing.
 func RunEmbeddingRelay(c *gin.Context, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
+	defer filterUpstreamResponseHeaders(c)()
 	info.InitChannelMeta(c)
 
 	embeddingReq, ok := info.Request.(*dto.EmbeddingRequest)
