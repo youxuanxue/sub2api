@@ -20,9 +20,20 @@ risk: high
 > （`deploy/domestic/cn_pgbackrest.py`）。5 分钟不是偏好而是契约：
 > `physical_backup` 门禁要求回执在 900 秒内，而备份每 2 小时才跑一次。
 >
-> **尚未完成**：`CN_PGDUMP_ENABLED` 仍为 `true`，主机上的 pgdump 目录与旧 runner
-> `/opt/tokenkey/cn-backup-run.py` 仍在原处。待新监控稳定若干轮后再撤，撤除前
-> 本文件仍然有效。
+> **已完成（2026-10-23）**：`CN_PGDUMP_ENABLED=false` 已关闭，逻辑 dump 链路停止。
+> cn-prod 主机本就没有 pgdump timer（备份由 Actions 远程触发），所以关开关即完全停链。
+>
+> 刻意**保留**的东西：
+> - `CN_PGDUMP_BUCKET` 与 S3 历史副本——退役不删既有数据；
+> - `/var/lib/tokenkey/pgdump/tokenkey-20261022T115847Z.sql.gz` 及两份 restore 日志——
+>   那是 10-22 迁机时实际用于恢复的源，是这次迁移唯一的逻辑回滚点。磁盘占用 7%
+>   （106G 可用），没有清理压力，删掉的代价远大于收益；
+> - `/opt/tokenkey/cn-backup-run.py`（旧 runner）——已无任何 unit 引用它，无法被 systemd
+>   触发，留作回滚路径。
+>
+> 新监控上线前已验证稳定：archive-check 连续 31 次成功、`NRestarts=0`、回执 137 秒新鲜
+> （门禁要求 ≤900s）、`backup_count` 4→8，且 `backup.json` 已由新 runner 在 02:30 与
+> 08:30 两次真实备份后产出（`status=ok`）。本文件自此仅作历史记录。
 
 Reuse `deploy/aws/stage0/tokenkey-pgdump.sh` for the independent domestic
 PostgreSQL database, including usage details. No database restart, gateway
