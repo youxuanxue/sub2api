@@ -123,6 +123,32 @@ def finding_body(
     return "\n".join(body_lines) + "\n"
 
 
+def diagnosed_target_ids(report: dict[str, object]) -> set[str] | None:
+    """Targets this run actually diagnosed.
+
+    None means the report has no target list (older callers). A listed target
+    is the only one whose open issues may be closed when the signature is gone.
+    """
+    targets = report.get("targets")
+    if not isinstance(targets, list):
+        return None
+    found: set[str] = set()
+    for item in targets:
+        if isinstance(item, dict) and item.get("target_id"):
+            found.add(str(item["target_id"]))
+    return found
+
+
+def issue_belongs_to_run(labels: set[str], diagnosed: set[str] | None) -> bool:
+    if diagnosed is None:
+        return True
+    target_labels = [label for label in labels if label.startswith("target:")]
+    if target_labels:
+        return any(label.removeprefix("target:") in diagnosed for label in target_labels)
+    # Issues opened before target labels still belong to the US West run.
+    return "prod" in diagnosed
+
+
 def sync_issues(
     report: dict[str, object],
     daily_report: dict[str, object],
@@ -190,9 +216,12 @@ def sync_issues(
         run_url=str(report.get("run_url") or ""),
         run_id=str(report.get("run_id") or ""),
     )
+    diagnosed = diagnosed_target_ids(report)
     for row in json.loads(open_raw):
         number = str(row["number"])
         labels = {lbl["name"] for lbl in row.get("labels") or []}
+        if not issue_belongs_to_run(labels, diagnosed):
+            continue
         sig_labels = sorted(lbl for lbl in labels if lbl.startswith("ops-sig:"))
         if not sig_labels:
             continue

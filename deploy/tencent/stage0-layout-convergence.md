@@ -29,6 +29,7 @@ Owner skill：[`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-r
 | Docker Root Dir | **保持** `/srv/tokenkey-rehearsal/docker`；未改 `daemon.json`；未停 Docker 守护进程 |
 | PG 容器名 | **未改** `tk-archive-standby`；网络别名含 `postgres` |
 | Redis 容器名 | **未改** `tk-cutover-prod-redis`；网络别名含 `redis` / `tokenkey-redis`；2026-10-22 起 AOF everysec，`-v /srv/tokenkey-rehearsal/redis:/data`。重建时须保留该挂载与 `--appendonly yes`（直接以 AOF 启动只有 RDB 的目录会丢数据，按复制切换） |
+| Caddy 日志 | 蓝绿编排在布局例外主机上记下 `tokenkey-caddy`：json-file 100m×5，挂载现网 Caddyfile。发版只 `caddy reload`，不在这里重建容器。没有 Stage0 `docker-compose.yml` 时，开机 `docker start tokenkey-caddy` |
 
 ## 窗内已完成
 

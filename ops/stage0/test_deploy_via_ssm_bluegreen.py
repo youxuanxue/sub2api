@@ -335,7 +335,11 @@ printf 'rc=%s committed=%s live=%s active=%s\\n' "$rc" "$CUTOVER_COMMITTED" "$(c
 
 
 def _run_systemd_start(
-    remote: str, *, active: str | None, caddy_upstream: str | None
+    remote: str,
+    *,
+    active: str | None,
+    caddy_upstream: str | None,
+    stage0_compose: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     marker = (
         "sudo tee /usr/local/bin/tokenkey-bluegreen-systemd-start.sh "
@@ -358,6 +362,8 @@ def _run_systemd_start(
             (caddy_dir / "Caddyfile").write_text(
                 f"reverse_proxy {caddy_upstream} {{\n}}\n"
             )
+        if stage0_compose:
+            (root / "docker-compose.yml").write_text("services: {}\n")
         fake_docker = bin_dir / "docker"
         fake_docker.write_text(
             "#!/usr/bin/env bash\n"
@@ -1143,6 +1149,66 @@ printf accepted
         self.assertIn(
             "up -d --no-deps tokenkey-blue tokenkey-green", unknown.stdout
         )
+
+    def test_layout_exception_boot_starts_existing_caddy(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+        started = _run_systemd_start(
+            remote,
+            active="green",
+            caddy_upstream="tokenkey-green:8080",
+            stage0_compose=False,
+        )
+        self.assertEqual(started.returncode, 0, msg=started.stderr)
+        self.assertIn("start tokenkey-caddy", started.stdout)
+        self.assertNotRegex(started.stdout, r"docker-compose\.yml up -d --no-deps caddy")
+        self.assertIn("up -d --no-deps tokenkey-green", started.stdout)
+
+    def test_layout_exception_caddy_service_records_log_cap(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+        begin = remote.index("# layout-exception-caddy:begin\n") + len(
+            "# layout-exception-caddy:begin\n"
+        )
+        end = remote.index("\n# layout-exception-caddy:end", begin)
+        script = remote[begin:end]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            caddy_dir = root / "formal" / "caddy"
+            caddy_dir.mkdir(parents=True)
+            caddyfile = caddy_dir / "Caddyfile.cutover"
+            caddyfile.write_text("reverse_proxy tokenkey:8080\n", encoding="utf-8")
+            data_dir = root / "formal" / "caddy-data"
+            config_dir = root / "formal" / "caddy-config"
+            data_dir.mkdir()
+            config_dir.mkdir()
+            compose = root / "compose.yml"
+            compose.write_text(
+                "services:\n  tokenkey-green:\n    image: app\n"
+                "networks:\n  tokenkey-network:\n    external: true\n"
+                "    name: tokenkey_tokenkey-network\n",
+                encoding="utf-8",
+            )
+            argv = [sys.executable, "-", str(compose), str(caddyfile), str(data_dir), str(config_dir)]
+            first = subprocess.run(argv, input=script, text=True, capture_output=True, check=False)
+            self.assertEqual(first.returncode, 0, msg=first.stderr)
+            text = compose.read_text(encoding="utf-8")
+            second = subprocess.run(argv, input=script, text=True, capture_output=True, check=False)
+            self.assertEqual(second.returncode, 0, msg=second.stderr)
+            again = compose.read_text(encoding="utf-8")
+        self.assertEqual(text, again)
+        self.assertEqual(text.count("container_name: tokenkey-caddy"), 1)
+        self.assertIn('max-size: "100m"', text)
+        self.assertIn('max-file: "5"', text)
+        self.assertIn("profiles: [\"caddy-adopt\"]", text)
+        self.assertIn(f"{caddyfile}:/etc/caddy/Caddyfile:ro", text)
+        self.assertIn(f"{data_dir}:/data", text)
+        self.assertIn(f"{config_dir}:/config", text)
+        self.assertIn("name: tk-cutover-prod", text)
+        self.assertIn("name: tokenkey_tokenkey-network", text)
+        self.assertIn("tk-cutover-prod: {}", text)
 
     def test_unconfirmed_target_reload_clears_active_color_and_blocks_next_deploy(self) -> None:
         proc, _, remote = _render()

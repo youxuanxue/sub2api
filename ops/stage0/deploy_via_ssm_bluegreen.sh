@@ -549,6 +549,69 @@ finish_pending_drain() {
   sudo rm -f "${PENDING_DRAIN}"
 }
 
+# Record the live Caddy on the blue/green compose when the host still mounts
+# formal/caddy. Deploy reloads that container; it does not compose-up caddy.
+# The service uses a profile so a plain `compose up` does not create a second
+# gateway. Hosts without this mount are unchanged.
+append_layout_exception_caddy() {
+  local compose="$1" caddyfile="$2" data_dir config_dir
+  [[ "${caddyfile}" == *"/formal/caddy/"* ]] || return 0
+  data_dir="$(dirname "$(dirname "${caddyfile}")")/caddy-data"
+  config_dir="$(dirname "$(dirname "${caddyfile}")")/caddy-config"
+  if [[ ! -d "${data_dir}" || ! -d "${config_dir}" ]]; then
+    log "skip caddy service: missing ${data_dir} or ${config_dir}"
+    return 0
+  fi
+  sudo python3 - "${compose}" "${caddyfile}" "${data_dir}" "${config_dir}" <<'PY'
+# layout-exception-caddy:begin
+import pathlib
+import sys
+
+compose, caddyfile, data_dir, config_dir = (pathlib.Path(arg) for arg in sys.argv[1:5])
+for path in (caddyfile, data_dir, config_dir):
+    if any(ch in str(path) for ch in "\n\"'#"):
+        raise SystemExit(f"caddy path is not a plain compose bind: {path}")
+text = compose.read_text()
+if "container_name: tokenkey-caddy" not in text:
+    service = f"""  caddy:
+    image: caddy:2-alpine
+    container_name: tokenkey-caddy
+    restart: unless-stopped
+    profiles: ["caddy-adopt"]
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - {caddyfile}:/etc/caddy/Caddyfile:ro
+      - {data_dir}:/data
+      - {config_dir}:/config
+    labels:
+      tokenkey.cutover: prod-stack
+    networks:
+      tk-cutover-prod: {{}}
+      tokenkey-network:
+        aliases:
+          - caddy
+          - tokenkey-caddy
+"""
+    marker = "\nnetworks:\n"
+    idx = text.find(marker)
+    if idx < 0:
+        raise SystemExit("blue/green compose has no networks block")
+    text = text[:idx] + "\n" + service + text[idx:]
+if "name: tk-cutover-prod" not in text:
+    text += "  tk-cutover-prod:\n    external: true\n    name: tk-cutover-prod\n"
+compose.write_text(text)
+# layout-exception-caddy:end
+PY
+}
+
 write_bluegreen_compose() {
   local tmp="${BG_COMPOSE}.new"
   sudo tee "${tmp}" >/dev/null <<'YAML'
@@ -762,7 +825,7 @@ YAML
 
   # Tencent layout exception keeps live data under formal/app; rewrite the
   # Stage0 default bind so blue/green does not boot against an empty app dir.
-  local app_data
+  local app_data live_caddy
   app_data="$(resolve_app_data_dir)"
   if [[ "${app_data}" != "${ROOT}/app" ]]; then
     sudo python3 - "${tmp}" "${ROOT}/app:/app/data" "${app_data}:/app/data" <<'PY'
@@ -774,6 +837,11 @@ if text.count(old) < 1:
 path.write_text(text.replace(old, new))
 PY
     log "app data bind -> ${app_data}:/app/data"
+  fi
+
+  live_caddy="$(resolve_live_caddyfile || true)"
+  if [[ -n "${live_caddy}" ]]; then
+    append_layout_exception_caddy "${tmp}" "${live_caddy}"
   fi
 
   sudo mv "${tmp}" "${BG_COMPOSE}"
@@ -809,17 +877,23 @@ cd "${ROOT}"
 # discovery would invalidate the project and leave the app down after
 # reboot / CFN stop-start (2026-09-17 prod outage).
 # Optional prod-only PG GUC overlay (never on Lightsail).
-if [ -f "${ROOT}/docker-compose.prod-pg.yml" ]; then
-  docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" -f "${ROOT}/docker-compose.prod-pg.yml" up -d --no-deps postgres redis
-else
-  docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" up -d --no-deps postgres redis
+# Layout-exception hosts have no Stage0 compose file. Start the existing
+# caddy instead of creating one from a missing file.
+if [ -f "${ROOT}/docker-compose.yml" ]; then
+  if [ -f "${ROOT}/docker-compose.prod-pg.yml" ]; then
+    docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" -f "${ROOT}/docker-compose.prod-pg.yml" up -d --no-deps postgres redis
+  else
+    docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" up -d --no-deps postgres redis
+  fi
+  docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" up -d --no-deps caddy
+elif docker inspect tokenkey-caddy >/dev/null 2>&1; then
+  docker start tokenkey-caddy
 fi
 if [ -n "${ACTIVE}" ] && [ "${ACTIVE}" = "${ROUTE}" ]; then
   docker compose --project-name tokenkey --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.bluegreen.yml" up -d --no-deps "tokenkey-${ACTIVE}"
 else
   docker compose --project-name tokenkey --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.bluegreen.yml" up -d --no-deps tokenkey-blue tokenkey-green
 fi
-docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" up -d --no-deps caddy
 docker rm -f tokenkey >/dev/null 2>&1 || true
 SH
   sudo tee /usr/local/bin/tokenkey-bluegreen-systemd-stop.sh >/dev/null <<'SH'
@@ -828,11 +902,15 @@ set +e
 ROOT=/var/lib/tokenkey
 cd "${ROOT}" || exit 0
 docker compose --project-name tokenkey --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.bluegreen.yml" stop -t 180 tokenkey-blue tokenkey-green
-docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" stop -t 60 caddy
-if [ -f "${ROOT}/docker-compose.prod-pg.yml" ]; then
-  docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" -f "${ROOT}/docker-compose.prod-pg.yml" stop -t 60 postgres redis
+if [ -f "${ROOT}/docker-compose.yml" ]; then
+  docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" stop -t 60 caddy
+  if [ -f "${ROOT}/docker-compose.prod-pg.yml" ]; then
+    docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" -f "${ROOT}/docker-compose.prod-pg.yml" stop -t 60 postgres redis
+  else
+    docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" stop -t 60 postgres redis
+  fi
 else
-  docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" stop -t 60 postgres redis
+  docker stop -t 60 tokenkey-caddy || true
 fi
 exit 0
 SH

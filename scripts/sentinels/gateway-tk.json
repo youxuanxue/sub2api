@@ -16375,12 +16375,17 @@
         "live QA archive requires EC2 instance-role authentication",
         "DELIVER_QA_ARCHIVE_REGION=\"${QA_ARCHIVE_STORAGE_REGION:-${QA_LIVE_ARCHIVE_STORAGE_REGION}}\"",
         "env_default TELEMETRY_ARCHIVE_BUCKET \"${TELEMETRY_ARCHIVE_BUCKET:-}\"",
-        "DELIVER_TELEMETRY_BUCKET=\"${TELEMETRY_ARCHIVE_BUCKET:-}\""
+        "DELIVER_TELEMETRY_BUCKET=\"${TELEMETRY_ARCHIVE_BUCKET:-}\"",
+        "append_layout_exception_caddy() {",
+        "profiles: [\"caddy-adopt\"]",
+        "container_name: tokenkey-caddy",
+        "name: tk-cutover-prod",
+        "docker start tokenkey-caddy"
       ],
       "must_not_contain": [
         "tokenkey-prod-qa-raw-archive-682751977094"
       ],
-      "rationale": "Prod deploys validate existing raw coordinates and EC2 role authentication before preparing a gateway; missing settings fail instead of changing buckets. Disabled telemetry also has no implicit AWS storage destination."
+      "rationale": "Prod deploys validate existing raw coordinates and EC2 role authentication before preparing a gateway; missing settings fail instead of changing buckets. Disabled telemetry also has no implicit AWS storage destination. Layout-exception caddy is recorded on the blue/green compose with the 100m x 5 log cap and is started by name when the Stage0 compose file is absent."
     },
     {
       "path": "deploy/aws/stage0/qa-runtime-compose.yml",
@@ -16457,6 +16462,10 @@
       "must_contain": [
         "prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json",
         "qa-raw-archive-iam|$TARGET_ID|paused",
+        "qa-raw-archive-iam|$TARGET_ID|not-applicable",
+        "external-health|$TARGET_ID|on-host",
+        "RUNTIME_RESOURCE_LAYOUT=$RUNTIME_LAYOUT",
+        "ops/observability/diagnostics-targets.json",
         "error-clustering|$TARGET_ID|retired",
         "if (.iam_contract.applicable == false) then \"false\" else \"true\" end"
       ],
@@ -16465,7 +16474,22 @@
         "diagnostics_include_error_clustering",
         ".iam_contract.applicable // true"
       ],
-      "rationale": "Daily diagnostics keeps the historical AWS IAM audit. While QA upload is paused, missing statements on the retired Tokyo role are deferred. The job does not compile error_clustering; the daily error ledger owns classification."
+      "rationale": "Daily diagnostics keeps the historical AWS IAM audit for US West. While QA upload is paused, missing statements on the retired Tokyo role are deferred. Beijing is in the same matrix and does not run that audit or the public DNS health check. The job does not compile error_clustering; the daily error ledger owns classification."
+    },
+    {
+      "path": "ops/observability/diagnostics-targets.json",
+      "must_contain": [
+        "\"target_id\": \"prod\"",
+        "\"layout\": \"usw\"",
+        "\"qa_archive\": \"true\"",
+        "\"public_health\": \"true\"",
+        "\"target_id\": \"cn-prod\"",
+        "\"layout\": \"domestic\"",
+        "\"qa_archive\": \"false\"",
+        "\"public_health\": \"false\"",
+        "\"probe_target\": \"cn-prod\""
+      ],
+      "rationale": "Daily diagnostics uses one matrix. US West keeps public health and the paused QA IAM audit. Beijing is diagnosed on its own SSM host; public DNS and the Tokyo archive role do not apply."
     },
     {
       "path": "deploy/aws/stage0/tokenkey-qa-maintenance.sh",

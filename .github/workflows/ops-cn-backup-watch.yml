@@ -5,10 +5,10 @@
 # verified 2026-10-23: WAL archiving healthy, failed_count=0), so logical dumps
 # are no longer the backup path.
 #
-# The SCHEDULE is kept on purpose. This workflow was cn-prod's only operational
-# backup monitoring -- ops-daily-diagnostics.yml covers prod only -- so deleting
-# it outright would have left a healthy backup with nothing watching it. It now
-# classifies the pgBackRest receipt written every 5 minutes by
+# The SCHEDULE is kept on purpose. Daily diagnostics now also reads this host
+# once a day. This workflow still classifies the pgBackRest receipt every two
+# hours, so a stale backup is seen before the next daily run. The receipt is
+# written every 5 minutes by
 # tokenkey-cn-postgres-archive-check.service (deploy/domestic/cn_pgbackrest.py)
 # through the same owner prod uses: ops/observability/postgres_backup_verdict.py.
 name: cn-prod Backup Watch

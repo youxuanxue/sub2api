@@ -1,0 +1,30 @@
+{
+  "include": [
+    {
+      "target_id": "prod",
+      "target_kind": "prod",
+      "platform": "prod",
+      "region": "",
+      "stack": "",
+      "domain": "api.tokenkey.dev",
+      "ssm_prefix": "",
+      "probe_target": "prod",
+      "layout": "usw",
+      "public_health": "true",
+      "qa_archive": "true"
+    },
+    {
+      "target_id": "cn-prod",
+      "target_kind": "cn-prod",
+      "platform": "cn-prod",
+      "region": "eu-west-2",
+      "stack": "",
+      "domain": "",
+      "ssm_prefix": "",
+      "probe_target": "cn-prod",
+      "layout": "domestic",
+      "public_health": "false",
+      "qa_archive": "false"
+    }
+  ]
+}
