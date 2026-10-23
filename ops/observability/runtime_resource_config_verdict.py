@@ -5,25 +5,37 @@ import argparse
 import json
 import sys
 
-CANONICAL_LOG_POLICY = {
-    "driver": "json-file",
-    "max_size": "100m",
-    "max_file": "5",
+# usw matches deploy/aws/stage0/docker-compose.yml. domestic matches
+# deploy/domestic/compose.override.yml (smaller disk). Callers pass layout;
+# an absent layout stays usw so the existing prod probe does not go quiet.
+LOG_POLICIES = {
+    "usw": {"driver": "json-file", "max_size": "100m", "max_file": "5"},
+    "domestic": {"driver": "json-file", "max_size": "20m", "max_file": "3"},
 }
 
 
 def compute(snapshot: dict) -> dict:
     violations: list[dict[str, str]] = []
+    layout = snapshot.get("layout") or "usw"
+    policy = LOG_POLICIES.get(layout)
+    if policy is None:
+        return {
+            "verdict": "unknown",
+            "violations": [{
+                "kind": "unknown_log_layout",
+                "summary": f"runtime resource layout {layout!r} is not usw or domestic",
+            }],
+        }
+    expected = f"json-file max-size={policy['max_size']} max-file={policy['max_file']}"
     logs = snapshot.get("docker_logs") or {}
     for owner in ("caddy", "app"):
         cfg = logs.get(owner) or {}
-        if any(cfg.get(key) != value for key, value in CANONICAL_LOG_POLICY.items()):
+        if any(cfg.get(key) != value for key, value in policy.items()):
             violations.append(
                 {
                     "kind": f"{owner}_log_policy_drift",
                     "summary": (
-                        f"{owner} Docker logging differs from canonical "
-                        "json-file max-size=100m max-file=5"
+                        f"{owner} Docker logging differs from {layout} canonical {expected}"
                     ),
                 }
             )
@@ -59,12 +71,20 @@ def selftest() -> int:
     drifted["redis"]["appendonly"] = "no"
     result = compute(drifted)
     kinds = {item["kind"] for item in result["violations"]}
-    return (
-        0
-        if result["verdict"] == "warning"
-        and kinds == {"caddy_log_policy_drift", "redis_aof_disabled"}
-        else 1
-    )
+    if result["verdict"] != "warning" or kinds != {"caddy_log_policy_drift", "redis_aof_disabled"}:
+        return 1
+    domestic = json.loads(json.dumps(bounded))
+    domestic["layout"] = "domestic"
+    domestic["docker_logs"]["caddy"]["max_size"] = "20m"
+    domestic["docker_logs"]["caddy"]["max_file"] = "3"
+    domestic["docker_logs"]["app"]["max_size"] = "20m"
+    domestic["docker_logs"]["app"]["max_file"] = "3"
+    if compute(domestic)["verdict"] != "green":
+        return 1
+    # A domestic host must not be judged against the usw 100m policy.
+    if compute({**domestic, "layout": "usw"})["verdict"] == "green":
+        return 1
+    return 0 if compute({"layout": "edge"})["verdict"] == "unknown" else 1
 
 
 def main() -> int:

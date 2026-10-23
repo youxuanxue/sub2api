@@ -3013,18 +3013,22 @@
       "path": "backend/internal/service/volc_kimi_chat_constraints_tk.go",
       "must_contain": [
         "func normalizeVolcKimiChatRequest(",
-        "normalizeVolcKimiThinking(body)",
+        "normalizeVolcKimiInboundMessages(body)",
+        "normalizeVolcKimiThinking(shaped)",
         "normalizeVolcKimiReasoningEffort(shaped, selected)",
         "normalizeVolcKimiAllowedTools(shaped)",
-        "normalizeChatToolConstraints(shaped)"
+        "normalizeChatToolConstraints(shaped)",
+        "func rejectUnreachableVolcKimiVideoURLs(",
+        "video_url is not reachable; provide a video URL this service can access"
       ],
-      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible."
+      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire."
     },
     {
       "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk.go",
       "must_contain": [
         "isNewAPIVolcEngineAgentPlanAccount(account)",
         "normalizeVolcKimiChatRequest(body)",
+        "rejectUnreachableVolcKimiVideoURLs(ctx, shaped)",
         "NormalizeMoonshotThinking(model, body)"
       ],
       "rationale": "The selected supplier, not the public Kimi model name alone, chooses thinking normalization."
@@ -3036,7 +3040,10 @@
         "func TestVolcKimiReasoningEffortMoonshotCompatible(",
         "func TestVolcKimiToolSelectionPreservesSemantics(",
         "func TestVolcKimiChatAllowedToolsEnvelope(",
-        "func TestVolcKimiForwardKeepsThinkingAndToolConstraints("
+        "func TestVolcKimiForwardKeepsThinkingAndToolConstraints(",
+        "func TestVolcKimiInboundMessageShapes(",
+        "func TestVolcKimiVideoURLPreflight(",
+        "func TestVolcKimiHTTPVideoProbe("
       ],
       "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface."
     },
@@ -16416,9 +16423,11 @@
         "\"qa_runtime_storage_unavailable\"",
         "skip_iam = not args.legacy_aws",
         "maintenance_paused=bool(maintenance_pause_reason)",
-        "get(\"host_watch\", {}).get(\"paused_jobs\", {}).get(\"tokenkey-qa-maintenance\", \"\")"
+        "get(\"host_watch\", {}).get(\"paused_jobs\", {}).get(\"tokenkey-qa-maintenance\", \"\")",
+        "def _defer_paused_instance_role(",
+        "iam.get(\"applicable\", True)"
       ],
-      "rationale": "Live QA health validates the maintenance pin against the shared AWS contract, fails on missing evidence, and keeps historical AWS IAM explicit."
+      "rationale": "Live QA health validates the maintenance pin against the shared AWS contract and fails on missing evidence. While uploads are paused, missing statements on the retired instance role are deferred; any other IAM failure still exits."
     },
     {
       "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
@@ -16438,16 +16447,24 @@
         "def test_baseline_checks_pin_and_fails_when_storage_is_unknown(",
         "def test_pause_ignores_old_archive_but_preserves_boundary_and_storage(",
         "def test_pause_rejects_resumed_or_unknown_systemd_states(",
-        "def test_paused_uploads_defer_only_the_write_identity_check("
+        "def test_paused_uploads_defer_only_the_write_identity_check(",
+        "def test_paused_upload_defers_only_retired_instance_role_sids(",
+        "def test_paused_upload_still_reports_other_iam_drift("
       ],
       "rationale": "Behavior tests prevent false healthy output when independent pin or instance-role evidence is absent, secrets leaking through probe output, and missing storage coordinates."
     },
     {
       "path": ".github/workflows/ops-daily-diagnostics.yml",
       "must_contain": [
-        "prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json"
+        "prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json",
+        "qa-raw-archive-iam|$TARGET_ID|paused",
+        "error-clustering|$TARGET_ID|retired"
       ],
-      "rationale": "Daily diagnostics explicitly retain the historical AWS IAM audit while old objects retain recovery access; live health uses AWS instance-role evidence."
+      "must_not_contain": [
+        "bash ops/stage0/deploy-error-clustering-binary.sh",
+        "diagnostics_include_error_clustering"
+      ],
+      "rationale": "Daily diagnostics keeps the historical AWS IAM audit. While QA upload is paused, missing statements on the retired Tokyo role are deferred. The job does not compile error_clustering; the daily error ledger owns classification."
     },
     {
       "path": "deploy/aws/stage0/tokenkey-qa-maintenance.sh",

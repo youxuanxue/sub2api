@@ -6,7 +6,7 @@
 #
 # Companion to ops/prod/fetch-error-clusters.sh. Same architecture
 # (gh workflow run → poll → download), different question:
-#   - fetch-prod-error-clusters.sh → "show me aggregate trends"
+#   - fetch-error-clusters.sh → "show me the daily error ledger"
 #   - fetch-prod-logs.sh           → "show me raw log lines for incident X"
 #
 # Both scripts share the same GH_TOKEN secret and the same OIDC role on

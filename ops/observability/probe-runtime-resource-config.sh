@@ -31,7 +31,9 @@ redis_config() {
   docker exec "$redis_container" sh -c "redis-cli --raw CONFIG GET '$1'" 2>/dev/null | tail -1
 }
 
+layout="${RUNTIME_RESOURCE_LAYOUT:-usw}"
 jq -cn \
+  --arg layout "$layout" \
   --arg app_container "$app_container" \
   --arg caddy_driver "$(log_field tokenkey-caddy driver)" \
   --arg caddy_max_size "$(log_field tokenkey-caddy max_size)" \
@@ -43,6 +45,7 @@ jq -cn \
   --arg redis_maxmemory "$(redis_config maxmemory)" \
   --arg redis_maxmemory_policy "$(redis_config maxmemory-policy)" \
   '{
+    layout: $layout,
     docker_logs: {
       caddy: {driver:$caddy_driver,max_size:$caddy_max_size,max_file:$caddy_max_file},
       app: {container:$app_container,driver:$app_driver,max_size:$app_max_size,max_file:$app_max_file}
