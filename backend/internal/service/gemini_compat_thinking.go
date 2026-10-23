@@ -139,8 +139,14 @@ var geminiModelThinkingLevels = map[string][]string{
 	"gemini-3.1-pro":        {"low", "medium", "high"},
 }
 
-// geminiDefaultThinkingLevels 是未列入上表的 Gemini 3+ 模型的通例档位。
-var geminiDefaultThinkingLevels = []string{"low", "medium", "high"}
+// geminiUnverifiedThinkingLevels 是未列入上表的模型的保守假设：只认 low 和
+// high 两档。
+//
+// 这里刻意不假定 medium 可用。上表的每一条都对着官方档位文档核过，而没核过的
+// 模型只能保守对待 —— 旧实现把未验证模型的 medium 升到 high（测试
+// "medium outside verified models becomes high" 刻意钉住了这个行为），方向是对的：
+// 发一个模型不支持的档位会被上游拒，而升一档只是贵一点。沿用它。
+var geminiUnverifiedThinkingLevels = []string{"low", "high"}
 
 func geminiThinkingLevelsFor(model string) []string {
 	name := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "models/")
@@ -153,7 +159,7 @@ func geminiThinkingLevelsFor(model string) []string {
 			return levels
 		}
 	}
-	return geminiDefaultThinkingLevels
+	return geminiUnverifiedThinkingLevels
 }
 
 func geminiModelSupportsThinkingLevel(model, level string) bool {

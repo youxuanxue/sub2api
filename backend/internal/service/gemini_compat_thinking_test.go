@@ -32,13 +32,21 @@ func TestApplyGeminiCompatThinkingConfig(t *testing.T) {
 	}{
 		{name: "effort medium on flash", model: "gemini-3.8-flash", claudeBody: `{"output_config":{"effort":"medium"},"thinking":{"type":"enabled","budget_tokens":4096}}`, wantLevel: "medium"},
 		{name: "effort low", model: "gemini-3.7-flash", claudeBody: `{"output_config":{"effort":"low"}}`, wantLevel: "low"},
-		{name: "effort none on flash", model: "gemini-3.8-flash", claudeBody: `{"output_config":{"effort":"none"},"thinking":{"type":"enabled","budget_tokens":10240}}`, wantLevel: "minimal"},
+		// 2026-10-23: 3.8-flash 官方档位只有 low/medium/high（无 minimal），所以
+		// effort=none 落到它支持的最低档 low，而不是发一个上游会拒的 minimal。
+		{name: "effort none on flash without minimal", model: "gemini-3.8-flash", claudeBody: `{"output_config":{"effort":"none"},"thinking":{"type":"enabled","budget_tokens":10240}}`, wantLevel: "low"},
+		// 官方支持 minimal 的模型仍按 minimal 发。
+		{name: "effort none on flash with minimal", model: "gemini-3.7-flash", claudeBody: `{"output_config":{"effort":"none"},"thinking":{"type":"enabled","budget_tokens":10240}}`, wantLevel: "minimal"},
 		{name: "effort minimal on pro", model: "gemini-3.1-pro-preview", claudeBody: `{"output_config":{"effort":"minimal"}}`, wantLevel: "low"},
 		{name: "effort medium on gemini 3 pro", model: "gemini-3-pro-preview", claudeBody: `{"output_config":{"effort":"medium"}}`, wantLevel: "high"},
 		{name: "effort medium on gemini 3.1 pro", model: "gemini-3.1-pro-preview", claudeBody: `{"output_config":{"effort":"medium"}}`, wantLevel: "medium"},
 		{name: "effort max", model: "gemini-3.7-flash", claudeBody: `{"output_config":{"effort":"max"}}`, wantLevel: "high"},
 		{name: "effort xhigh", model: "gemini-3.7-flash", claudeBody: `{"output_config":{"effort":"xhigh"}}`, wantLevel: "high"},
-		{name: "thinking disabled wins over effort", model: "gemini-3.8-flash", claudeBody: `{"thinking":{"type":"disabled"},"output_config":{"effort":"high"}}`, wantLevel: "minimal"},
+		// thinking.type=disabled 仍然优先于 effort（这是本用例的重点）。但官方
+		// 文档说 Gemini 3+ 没有「关闭思考」这个参数，要降低开销就用最低档位，
+		// 所以在无 minimal 的 3.8-flash 上它表现为 low。
+		{name: "thinking disabled wins over effort", model: "gemini-3.8-flash", claudeBody: `{"thinking":{"type":"disabled"},"output_config":{"effort":"high"}}`, wantLevel: "low"},
+		{name: "thinking disabled wins over effort on minimal-capable", model: "gemini-3.7-flash", claudeBody: `{"thinking":{"type":"disabled"},"output_config":{"effort":"high"}}`, wantLevel: "minimal"},
 		{name: "budget only maps to high", model: "gemini-3.8-flash", claudeBody: `{"thinking":{"type":"enabled","budget_tokens":31999}}`, wantLevel: "high"},
 		{name: "budget only maps to medium", model: "gemini-3.8-flash", claudeBody: `{"thinking":{"type":"enabled","budget_tokens":4096}}`, wantLevel: "medium"},
 		{name: "budget only maps to low", model: "gemini-3.8-flash", claudeBody: `{"thinking":{"type":"enabled","budget_tokens":1024}}`, wantLevel: "low"},
@@ -47,8 +55,17 @@ func TestApplyGeminiCompatThinkingConfig(t *testing.T) {
 		{name: "unknown effort ignored", model: "gemini-3.7-flash", claudeBody: `{"output_config":{"effort":"turbo"}}`, wantNoConfig: true},
 		{name: "level with thoughts", model: "gemini-3.8-flash", claudeBody: `{"output_config":{"effort":"high"}}`, includeThoughts: true, wantLevel: "high", wantThoughts: true},
 		{name: "gemini 4 uses level", model: "gemini-4-argon", claudeBody: `{"output_config":{"effort":"low"}}`, wantLevel: "low"},
-		{name: "medium outside verified models becomes high", model: "gemini-4-argon", claudeBody: `{"output_config":{"effort":"medium"}}`, wantLevel: "high"},
-		{name: "medium budget outside verified models becomes high", model: "gemini-4-argon", claudeBody: `{"thinking":{"type":"enabled","budget_tokens":4096}}`, wantLevel: "high"},
+		// 2026-10-23: 原用例名为 "medium outside verified models becomes high"，
+		// 但它用的 gemini-4-argon 恰恰是官方档位文档明确列出的模型（low/medium/
+		// high，默认 medium）—— 用例名与事实相反，argon 的 medium 不该被升档。
+		{name: "medium on argon stays medium", model: "gemini-4-argon", claudeBody: `{"output_config":{"effort":"medium"}}`, wantLevel: "medium"},
+		// 真正「未查证」的模型才保守升档：没核过官方档位表，发不支持的档位会被
+		// 上游拒，而升一档只是贵一点。
+		{name: "medium outside verified models becomes high", model: "gemini-9-unverified", claudeBody: `{"output_config":{"effort":"medium"}}`, wantLevel: "high"},
+		// argon 是已查证模型（官方 low/medium/high），budget 4096 落 medium 档
+		// 后不该再被升档。原用例同样把 argon 当成「未验证模型」的样本。
+		{name: "medium budget on argon stays medium", model: "gemini-4-argon", claudeBody: `{"thinking":{"type":"enabled","budget_tokens":4096}}`, wantLevel: "medium"},
+		{name: "medium budget outside verified models becomes high", model: "gemini-9-unverified", claudeBody: `{"thinking":{"type":"enabled","budget_tokens":4096}}`, wantLevel: "high"},
 		{name: "medium on unverified pro becomes high", model: "gemini-3.5-pro", claudeBody: `{"output_config":{"effort":"medium"}}`, wantLevel: "high"},
 		{name: "medium on flash lite", model: "gemini-3.1-flash-lite", claudeBody: `{"output_config":{"effort":"medium"}}`, wantLevel: "medium"},
 		{name: "tier suffix model keeps name tier", model: "gemini-4-argon-high", claudeBody: `{"output_config":{"effort":"low"}}`, includeThoughts: true, wantThoughts: true},
@@ -164,9 +181,13 @@ func TestGeminiForwardAsChatCompletions_NonStreamForwardsEffortWithoutThoughts(t
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Len(t, upstream.requestBodies, 1)
 	cfg := gjson.GetBytes(upstream.requestBodies[0], "generationConfig.thinkingConfig")
-	require.Equal(t, "minimal", cfg.Get("thinkingLevel").String())
+	// 2026-10-23: 3.8-flash 官方档位只有 low/medium/high，所以 reasoning_effort=none
+	// 落到它支持的最低档 low，而不是发一个上游会拒的 minimal。
+	// ReasoningEffort 由 extractGeminiReasoningEffortFromBody 从「已改写的上游
+	// 请求体」读出，所以它跟随实际发出的档位，两者一致。
+	require.Equal(t, "low", cfg.Get("thinkingLevel").String())
 	require.False(t, cfg.Get("includeThoughts").Exists(), cfg.Raw)
-	require.Equal(t, "minimal", optionalStringValue(result.ReasoningEffort))
+	require.Equal(t, "low", optionalStringValue(result.ReasoningEffort))
 	require.Equal(t, "ok", gjson.Get(recorder.Body.String(), "choices.0.message.content").String())
 }
 
@@ -390,9 +411,10 @@ func TestGeminiThinkingLevelFollowsOfficialSupport(t *testing.T) {
 	// 带档位后缀的 wire ID 按基名判定。
 	require.Equal(t, "low", geminiThinkingLevelFor("gemini-3.8-flash-high", intent("minimal")))
 
-	// 未列出的模型按 Gemini 3+ 通例（无 minimal）。
+	// 未查证的模型保守对待：只认 low / high，medium 升到 high。发一个模型不
+	// 支持的档位会被上游拒，而升一档只是贵一点。
 	require.Equal(t, "low", geminiThinkingLevelFor("gemini-9-unknown", intent("minimal")))
-	require.Equal(t, "medium", geminiThinkingLevelFor("gemini-9-unknown", intent("medium")))
+	require.Equal(t, "high", geminiThinkingLevelFor("gemini-9-unknown", intent("medium")))
 
 	// 空意图仍交给模型默认档位。
 	require.Equal(t, "", geminiThinkingLevelFor("gemini-3.8-flash", claudeThinkingIntent{}))
