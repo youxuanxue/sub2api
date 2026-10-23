@@ -32,7 +32,7 @@
 ## 镜像发布之外的入口
 
 - `.github/workflows/ops-stage0-pg-dump-refresh.yml` + `ops/stage0/pg_dump_refresh_via_ssm.sh` — in-place 同步共享 `tokenkey-pgdump.sh` 与该脚本的 timer 到 resolver 选择的 prod 主机；下次有类似 user-data 模板改动可参考此形状写一个 one-shot ops workflow。
-- `.github/workflows/ops-stage0-host-mem-guard.yml` / `sync-host-mem-guard-via-ssm.sh` — **遗留 EC2-only**（拒绝 `mi-*`）；切流后现网腾讯 Hybrid 不适用。现网发布走 `deploy-stage0` + 共享 prod resolver（`auto` → 腾讯）。
+- `sync-host-mem-guard-via-ssm.sh` — **遗留 EC2-only**（拒绝 `mi-*`）；其 workflow 已随 Tokyo 退役删除（2026-10-23），脚本仅留作未来 EC2 重建时的 payload 参考。
 
 Gateway verification owners: `gateway_capability_host.py` (prepared candidate requests),
 `gateway_capability_matrix.py` (account-supply plan/report), `gateway_capability_scenarios.py`

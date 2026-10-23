@@ -1,8 +1,8 @@
 # UCloud domestic prod
 
-当前应用在腾讯北京 `tokenkey-cn-prod`（`lhins-6qmb3fd6`，`154.8.214.179`）。该实例到期 **2026-11-22**，续费标志 `NOTIFY_AND_MANUAL_RENEW`，到期前手动续费，不要改成自动续费。`106.75.29.139` 仍由 UCloud 持有并只转发 80/443。发版和 probe 以 [`prod-target.json`](prod-target.json) 为准。下面的表是 2026-10-14 首次上线记录。
+当前应用在腾讯北京 `tokenkey-cn-prod`（`lhins-6qmb3fd6`，`154.8.214.179`）。该实例与 `cn-ip1..4` 到期 **2026-11-22**，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。`106.75.29.139` 仍由 UCloud 持有并只转发 80/443。`api-cn.tokenkey.dev` 继续指向美西，不改。发版和 probe 以 [`prod-target.json`](prod-target.json) 为准。下面的表是 2026-10-14 首次上线记录。
 
-逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。北京本机 pgBackRest（stanza `tokenkey`，timer `tokenkey-cn-postgres-backup` / `tokenkey-cn-postgres-archive-check`）的回执不能代替跨机隔离恢复；该恢复仍待审批，未批准前不开恢复机。
+逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。北京本机 pgBackRest（stanza `tokenkey`，timer `tokenkey-cn-postgres-backup` / `tokenkey-cn-postgres-archive-check`）在跑，并且本机已恢复过自己的全量。备份验收到此为止，不再另开恢复机，也不从东京仓库再导一份库。
 
 审批范围和费用见 [design-domestic-cluster.md](../../docs/approved/design-domestic-cluster.md)。
 这是独立于美西 prod 的国内站点，不使用 Hetzner dispatcher 或美西数据库；只读观测通过独立注册的 AWS SSM Hybrid agent 下发。

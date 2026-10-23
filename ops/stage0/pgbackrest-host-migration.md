@@ -2,7 +2,7 @@
 
 现网身份由 [舰队入口](../../deploy/hetzner/README.md) 和
 `resolve_prod_ssm_target.py` 持有；备份/验收命令由 [physical-backup.md](physical-backup.md) 持有。
-本文替代 prod 的全库 dump + 按表尾差迁机路径。cn-prod 本机 pgBackRest 回执监控已接入；跨机隔离恢复仍待审批，未批准前不开恢复机。
+本文替代 prod 的全库 dump + 按表尾差迁机路径。cn-prod 的备份验收见 [domestic README](../../deploy/domestic/README.md)。
 
 **当前交接：[腾讯迁机交接](../../docs/ops/tencent-migration-handoff.md）。**  
 **状态（2026-10-22）：腾讯美西已在服（timeline 2）；Tokyo 冻结保留；出口已迁 `usw-eval*`。**  
