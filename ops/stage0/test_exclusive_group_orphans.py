@@ -27,5 +27,38 @@ class ExclusiveOrphansTest(unittest.TestCase):
             self.assertEqual([r[0] for r in db.execute(sql)], ['orphans=0', 'dormant_orphans=2'])
 
 
+class ExclusiveOrphanTransportTest(unittest.TestCase):
+    def test_remote_command_uses_sudo_docker_resolver_under_bash(self):
+        import json
+        import os
+        import subprocess
+        import tempfile
+
+        script = pathlib.Path(__file__).with_name("check_exclusive_group_orphans_via_ssm.sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["EXCLUSIVE_GROUP_RENDER_ONLY"] = "1"
+            env["EXCLUSIVE_GROUP_RENDER_DIR"] = tmp
+            proc = subprocess.run(
+                ["bash", str(script), "mi-stub"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+            payload = json.loads((pathlib.Path(tmp) / "ssm-params.json").read_text())
+            wrapped = payload["commands"]
+            self.assertEqual(len(wrapped), 1)
+            self.assertIn("base64 -d | bash -s", wrapped[0])
+            import base64
+            body = base64.b64decode(wrapped[0].split()[1]).decode()
+            self.assertIn("set -euo pipefail", body)
+            self.assertIn("sudo docker inspect", body)
+            self.assertIn("sudo docker exec", body)
+            self.assertIn("tk-archive-standby", body)
+            self.assertNotIn("docker exec -i tokenkey-postgres", body)
+
+
 if __name__ == '__main__':
     unittest.main()

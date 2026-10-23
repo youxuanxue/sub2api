@@ -329,7 +329,58 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
             result = live_health.evaluate_snapshot(snapshot, skip_iam=False, now=now)
         self.assertEqual(verify.call_count, 1)
         self.assertFalse(result["iam_contract"]["ok"])
+        self.assertTrue(result["iam_contract"]["applicable"])
         self.assertEqual(result["health"]["status"], "healthy")
+
+    def test_paused_upload_defers_only_retired_instance_role_sids(self) -> None:
+        snapshot, now = _fresh_snapshot()
+        _pause_maintenance(snapshot)
+        missing = {
+            "ok": False,
+            "status": "drift",
+            "failures": [
+                "missing_app_sid:AllowAppInstanceRoleVerifyRaw",
+                "missing_app_sid:AllowAppInstanceRoleWriteRaw",
+            ],
+        }
+        with (
+            mock.patch.object(iam_contract, "_account_id", return_value="123456789012"),
+            mock.patch.object(iam_contract, "resolve_app_role_arn", return_value="legacy-role"),
+            mock.patch.object(iam_contract, "evaluate", return_value=missing),
+        ):
+            paused = live_health.evaluate_snapshot(
+                snapshot, skip_iam=False, now=now,
+                maintenance_pause_reason="S3 upload paused",
+            )
+            live = live_health.evaluate_snapshot(snapshot, skip_iam=False, now=now)
+        self.assertFalse(paused["iam_contract"]["applicable"])
+        self.assertEqual(paused["iam_contract"]["status"], "deferred")
+        self.assertEqual(paused["health"]["status"], "healthy")
+        self.assertTrue(live["iam_contract"]["applicable"])
+        self.assertFalse(live["iam_contract"]["ok"])
+
+    def test_paused_upload_still_reports_other_iam_drift(self) -> None:
+        snapshot, now = _fresh_snapshot()
+        _pause_maintenance(snapshot)
+        drifted = {
+            "ok": False,
+            "status": "drift",
+            "failures": [
+                "missing_app_sid:AllowAppInstanceRoleWriteRaw",
+                "AllowAppInstanceRoleWriteRaw:forbidden_action:s3:DeleteObject",
+            ],
+        }
+        with (
+            mock.patch.object(iam_contract, "_account_id", return_value="123456789012"),
+            mock.patch.object(iam_contract, "resolve_app_role_arn", return_value="legacy-role"),
+            mock.patch.object(iam_contract, "evaluate", return_value=drifted),
+        ):
+            result = live_health.evaluate_snapshot(
+                snapshot, skip_iam=False, now=now,
+                maintenance_pause_reason="S3 upload paused",
+            )
+        self.assertTrue(result["iam_contract"]["applicable"])
+        self.assertFalse(result["iam_contract"]["ok"])
 
     def test_baseline_checks_pin_and_fails_when_storage_is_unknown(self) -> None:
         import contextlib

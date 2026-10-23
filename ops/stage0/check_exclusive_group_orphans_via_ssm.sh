@@ -79,14 +79,27 @@ B64="$(printf '%s' "${ORPHAN_SQL}" | base64 | tr -d '\n')"
 if [ -n "${PG_CONTAINER}" ]; then
   PG_RESOLVE="TK_PG=${PG_CONTAINER}"
 else
-  PG_RESOLVE="$(python3 "$(dirname "${BASH_SOURCE[0]}")/../lib/resolve_app_container.py" snippet postgres)"
+  # sudo: Hybrid SSM is not always in the docker group. The snippet's inspect
+  # and the psql exec must use the same docker binary.
+  PG_RESOLVE="$(python3 "$(dirname "${BASH_SOURCE[0]}")/../lib/resolve_app_container.py" snippet postgres --docker "sudo docker")"
 fi
-REMOTE_CMD="set -euo pipefail && ${PG_RESOLVE} && printf %s '${B64}' | base64 -d | docker exec -i \"\$TK_PG\" psql -U ${PG_USER} -d ${PG_DB} -At -F '|'"
+REMOTE_CMD="set -euo pipefail && ${PG_RESOLVE} && printf %s '${B64}' | base64 -d | sudo docker exec -i \"\$TK_PG\" psql -U ${PG_USER} -d ${PG_DB} -At -F '|'"
 
 params_file="$(mktemp)"
 stdout_file="$(mktemp)"
-trap 'rm -f "${params_file}" "${stdout_file}"' EXIT
+stderr_file="$(mktemp)"
+trap 'rm -f "${params_file}" "${stdout_file}" "${stderr_file}"' EXIT
 jq -n --arg cmd "${REMOTE_CMD}" '{commands: [$cmd]}' > "${params_file}"
+# Hybrid RunShellScript starts under dash, which rejects pipefail.
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
+
+if [ "${EXCLUSIVE_GROUP_RENDER_ONLY:-0}" = "1" ]; then
+  RENDER_DIR="${EXCLUSIVE_GROUP_RENDER_DIR:-.}"
+  mkdir -p "${RENDER_DIR}"
+  cp "${params_file}" "${RENDER_DIR}/ssm-params.json"
+  echo "exclusive-group orphan check: render-only params=${RENDER_DIR}/ssm-params.json"
+  exit 0
+fi
 
 cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" \
@@ -117,7 +130,11 @@ aws "${ssm_region_args[@]}" ssm get-command-invocation \
   --query 'StandardOutputContent' --output text > "${stdout_file}" 2>/dev/null || true
 
 if [[ "${status}" != "Success" ]]; then
-  echo "::warning::exclusive-group orphan check: SSM status=${status}; skipped — NOT a deploy blocker."
+  aws "${ssm_region_args[@]}" ssm get-command-invocation \
+    --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
+    --query 'StandardErrorContent' --output text > "${stderr_file}" 2>/dev/null || true
+  detail="$(tr '\n' ' ' < "${stderr_file}" | cut -c1-400)"
+  echo "::warning::exclusive-group orphan check: SSM status=${status}; skipped — NOT a deploy blocker. ${detail}"
   exit 0
 fi
 

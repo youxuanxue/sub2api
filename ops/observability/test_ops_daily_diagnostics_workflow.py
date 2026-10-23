@@ -161,7 +161,7 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("postgres_backup_verdict.py", text)
         self.assertIn("physical-backup|$TARGET_ID", text)
         runtime_start = text.index('python3 - <<\'PY\' > "$OUT/runtime-params.json"')
-        runtime_end = text.index("if [ \"$INCLUDE_ERROR_CLUSTERING\"", runtime_start)
+        runtime_end = text.index("Error clustering retired from daily diagnostics", runtime_start)
         runtime_block = text[runtime_start:runtime_end]
         self.assertNotIn("run-probe.sh", runtime_block)
 
@@ -249,7 +249,6 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         text = workflow_text()
         for marker in (
             'python3 - <<\'PY\' > "$OUT/runtime-params.json"',
-            'python3 - <<\'PY\' > "$OUT/error-clustering-params.json"',
             "python3 - <<'PY' > ssm-params.json",
         ):
             start = text.index(marker)
@@ -490,11 +489,8 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             'if [ "$TARGET_KIND" = "prod" ]; then',
             text[diagnose : diagnose + 2500],
         )
-        # Error-clustering installer must reuse resolved INSTANCE_ID (Hybrid mi-*).
-        install = text.index("bash ops/stage0/deploy-error-clustering-binary.sh")
-        window = text[install - 220 : install + 80]
-        self.assertIn("INSTANCE_ID=\"$INSTANCE_ID\"", window)
-        self.assertNotIn("STACK=\"$STACK_NAME\"", window)
+        self.assertNotIn("bash ops/stage0/deploy-error-clustering-binary.sh", text)
+        self.assertIn("error-clustering|$TARGET_ID|retired", text)
 
     def test_missing_target_reports_skipped_when_diagnose_cancelled(self) -> None:
         text = workflow_text()
@@ -503,18 +499,9 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn('diagnose_result not in ("cancelled", "skipped")', text)
 
         text = workflow_text()
-        init = text.index("RUNTIME_SSM_TRANSPORT_OK=false")
-        send_success = text.index("RUNTIME_SSM_TRANSPORT_OK=true", init)
-        suppress = text.index('elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then', send_success)
-        binary_check = text.index("error_clustering_binary_check", suppress)
-
-        self.assertLess(init, send_success)
-        self.assertLess(send_success, suppress)
-        self.assertLess(suppress, binary_check)
-        self.assertIn(
-            "Runtime SSM SendCommand failed; suppressing downstream error_clustering SSM checks",
-            text,
-        )
+        self.assertIn("qa-raw-archive-iam|$TARGET_ID|paused", text)
+        self.assertIn("error-clustering|$TARGET_ID|retired", text)
+        self.assertNotIn("error_clustering_binary_check", text)
 
     def test_aggregate_finds_single_artifact_flat_target_report(self) -> None:
         """download-artifact flattens when artifacts.length===1; rglob must find it.
@@ -603,11 +590,15 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("daily_error_report.py aggregate", text)
         self.assertIn("alert_covered)", text)
         self.assertIn("Daily error anomalies are covered by Feishu", text)
-        self.assertIn(
-            'add_finding "error_cluster" "warning" "warning" "Persistent legacy error cluster',
-            text,
-        )
-        self.assertNotIn('add_finding "error_cluster" "issue_candidate"', text)
+        self.assertIn("error-clustering|$TARGET_ID|retired", text)
+        self.assertNotIn('add_finding "error_cluster"', text)
+        self.assertNotIn("diagnostics_include_error_clustering", text)
+        self.assertNotIn("INCLUDE_ERROR_CLUSTERING", text)
+        self.assertNotIn("\n          - error_clustering\n", text)
+        fetcher = (REPO_ROOT / "ops/prod/fetch-error-clusters.sh").read_text(encoding="utf-8")
+        self.assertIn('operation=daily_error_report', fetcher)
+        self.assertNotIn('operation=error_clustering', fetcher)
+        self.assertIn('.kind == "daily_error_report"', fetcher)
         self.assertIn("top_repair_signature", text)
         self.assertIn("gh workflow run ops-repair-draft.yml", text)
 

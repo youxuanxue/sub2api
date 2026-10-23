@@ -19,6 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/docker-compose.yml"
 [[ -f "$COMPOSE_SRC" ]] || { echo "missing $COMPOSE_SRC" >&2; exit 1; }
 
+# Remote script refuses a compose that still names the Tencent data containers.
+# Replacing that file with the Stage0 compose would drop the layout exception.
 COMPOSE_B64="$(base64 < "$COMPOSE_SRC" | tr -d '\n')"
 mkdir -p "$OUTPUT_DIR"
 params_file="${OUTPUT_DIR}/ssm-params.json"
@@ -30,6 +32,7 @@ jq -n --arg compose "$COMPOSE_B64" '{
     "set -euo pipefail",
     "ROOT=/var/lib/tokenkey",
     "COMPOSE=$ROOT/docker-compose.yml",
+    "if sudo grep -Eq '\''tk-archive-standby|tk-cutover-prod-redis'\'' \"$COMPOSE\"; then echo '\''sync-container-log-policy: refusing to replace a Tencent layout compose with the Stage0 file'\'' >&2; exit 1; fi",
     "CANDIDATE=$ROOT/docker-compose.yml.log-policy-new",
     "BACKUP=$ROOT/docker-compose.yml.before-log-policy-$(date -u +%Y%m%dT%H%M%SZ)",
     "rollback() { rc=$?; trap - ERR; echo rollback: restoring previous compose and Caddy >&2; if [ -f \"$BACKUP\" ]; then sudo cp -a \"$BACKUP\" \"$COMPOSE\"; sudo docker compose --project-name tokenkey --env-file \"$ROOT/.env\" -f \"$COMPOSE\" up -d --no-deps --force-recreate caddy || true; fi; exit $rc; }",
