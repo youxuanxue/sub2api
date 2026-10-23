@@ -3,7 +3,7 @@
   "instance_id": "lhins-6qmb3fd6",
   "instance_name": "tokenkey-cn-prod",
   "region": "ap-beijing",
-  "public_origin": "https://106.75.29.139",
+  "public_origin": "https://154.8.214.179",
   "fallback_domain": "api-cn.tokenkey.dev",
   "ssm_region": "eu-west-2",
   "ssm_instance_id": "mi-06568963b4b3c3239"

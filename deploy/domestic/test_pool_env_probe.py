@@ -55,6 +55,33 @@ class PoolEnvProbeSSOTTest(unittest.TestCase):
         self.assertIn("deploy/domestic/compose.override.yml", text)
         self.assertIn("SSOT", text)
 
+    def test_every_override_app_env_key_propagates_through_bluegreen(self):
+        """An override key that no *_ENV_KEYS tuple claims never reaches a new color.
+
+        candidate_compose() inherits the candidate environment from the live
+        container so secrets stay on the host, then overlays only the keys named
+        in POOL_ENV_KEYS / QA_ENV_KEYS / CONFIG_ENV_KEYS. When
+        SECURITY_PROXY_PROBE_PRESET was added to the override alone, every
+        promote produced a color without it and nothing failed
+        (found 2026-10-23, cn-prod 1.8.318). Keep that silent path closed.
+        """
+        text = OVERRIDE.read_text()
+        service = re.search(r'(?ms)^  tokenkey:\n(.*?)(?=^  \S|\Z)', text)
+        self.assertIsNotNone(service, "compose.override.yml must define the tokenkey service")
+        environment = re.search(r'(?ms)^    environment:\n(.*?)(?=^    \S|\Z)', service.group(1))
+        self.assertIsNotNone(environment, "tokenkey service must declare environment")
+        declared = set(re.findall(r'(?m)^\s*([A-Z][A-Z0-9_]*):\s', environment.group(1)))
+        self.assertIn("SECURITY_PROXY_PROBE_PRESET", declared)
+        propagated = set(bg.POOL_ENV_KEYS) | set(bg.QA_ENV_KEYS) | set(bg.CONFIG_ENV_KEYS)
+        missing = declared - propagated
+        self.assertEqual(
+            missing, set(),
+            "compose.override.yml declares app env not propagated by blue/green: "
+            + ", ".join(sorted(missing))
+            + ". Add each to POOL_ENV_KEYS, QA_ENV_KEYS or CONFIG_ENV_KEYS in "
+              "deploy/domestic/bluegreen.py, or the next promote serves without it.",
+        )
+
     def test_compose_override_sets_domestic_proxy_probe_preset(self):
         text = OVERRIDE.read_text()
         self.assertRegex(

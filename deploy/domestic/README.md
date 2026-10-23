@@ -24,6 +24,20 @@
 此表及初始化回执记录首次上线状态。用户随后已授权 10 Mbps 带宽、更多客户和供应账号；
 部署前须读取现网，不按此历史表重建账号、充值、分组或资源。
 
+## 迁机收尾：2026-10-23 腾讯北京（已修）
+
+2026-10-22 迁机只搬了运行态（容器、数据、Caddyfile），没铺发布布局，发 1.8.318 时暴露并修完：
+
+| 漂移 | 后果 | 处理 |
+| --- | --- | --- |
+| `/opt/tokenkey/compose{,.override,.local}.yml` 三件套全缺 | `bluegreen.py prepare` 读不到服务定义，**阻断发版** | 从仓库铺回（**不要**跑 `prepare-runtime.py`，它是首装脚本、会重新生成数据库密码与 JWT secret） |
+| `prod-target.json` `public_origin` 还是 UCloud `106.75.29.139` | `promote` 切流前校验必然失败 | 改为腾讯北京 `154.8.214.179` |
+| `.env` `TOKENKEY_IMAGE` pin 在临时 `cn-prod-monitor-*`，且该镜像已被 GHCR prune 删除 | 蓝绿容器按 image id 跑，现网无感；但任何从 `.env` 重建（恢复、`compose up`）会因 `pull_policy: never` 直接失败 | 重新 pin 到在服版本；`promote` 现在每次切流自动 repin（`repin_env_image`，对齐美西的 `env_set TOKENKEY_IMAGE`） |
+| `SECURITY_PROXY_PROBE_PRESET` 只写进 override，没列入 `*_ENV_KEYS` | 候选 env 继承自现役容器、只覆盖列出的键，所以该键**永远**传不到新颜色，Admin 代理探测一直走境外 `ip-api.com` | 新增 `CONFIG_ENV_KEYS`；`test_pool_env_probe.py` 现在会在 override 声明了未传播的键时失败 |
+
+日志轮转和 compose 项目名随 1.8.318 蓝绿自动归位（override 的 20m×3、`cn-prod-bluegreen`）。
+蓝绿 loopback 端口 blue=18081 / green=18082 是约定，不是漂移；`compose.local.yml` 的 18080 只用于无蓝绿的单容器。
+
 ## 首次安装与配置 owner
 
 > 本节记录 UCloud 首发时的安装流程；腾讯北京迁机按 host-replacement 技能执行，不重跑本节。
@@ -96,15 +110,30 @@ bash deploy/domestic/deploy_via_ssm.sh prepare \
 从共享 `deploy_via_ssm_bluegreen.sh` 提取健康检查、Caddy 切流、观察与 drain，未复制实现。切流后的本机健康观察使用 Caddy 里的那个站点名，因此静态 IP 站点不会再拿 `api-cn.tokenkey.dev` 去对本地证书。
 候选实测与 `promote` 仍在主机执行（可用 SSM Run Command / Session Manager），需要
 `--public-url` 与 `prod-target.json` 的 `public_origin` 一致（静态 IP，不能用指向美西 prod
-的域名冒充 cn-prod 验证）：
+的域名冒充 cn-prod 验证）。
+
+`--postcheck-plan` 必须由生成器产出，**不要手写**。它同时被两个阶段消费：`configure()`
+校验 `range`，切流后 `finish()` 还要读 `changes` 拼发版说明。手写一份只带 `range` 的
+plan 能通过切流前校验，却会让通知阶段抛 `KeyError`（2026-10-23 cn-prod 1.8.318 踩过）。
+`configure()` 现在会在切流前就拒绝缺 `changes` 的 plan。
 
 ```bash
+# 1) 在仓库侧生成 plan（revision 用完整 SHA，与 prepare 的 --revision 一致）
+python3 scripts/release_post_check.py plan \
+  --live LIVE_FULL_SHA --new NEW_FULL_SHA > /tmp/post-plan.json
+# 2) 连同候选 smoke 证据一起放到主机 /private/（root-only, 0600）
+
+# 候选 smoke 证据由操作者对 prepared 候选的真实请求产出，schema 见 post_release.py：
+#   {"revision": NEW_FULL_SHA, "container_id": 候选容器 Id, "cases": [{"name":…, "passed": true}, …]}
+# 候选直连地址是 compose.local.yml 的 loopback 端口（inactive color 另一个端口）。
+# 上游 429/限流按故障速查定点复测，复测结论与原因都要留在 cases 里，不删分母。
+
 python3 /opt/tokenkey/releases/artifacts-ssm/bluegreen.py promote \
   --state /opt/tokenkey/releases/RELEASE \
   --receipt PREPARED_RECEIPT_SHA256 \
   --postcheck-plan /private/post-plan.json \
   --smoke-report /private/candidate-smoke.json \
-  --public-url https://UCLOUD_STATIC_IP
+  --public-url https://CN_PROD_STATIC_IP
 ```
 
 ### 私有 S3 分发初始化
@@ -184,7 +213,7 @@ python3 bluegreen.py notify --state /opt/tokenkey/releases/RELEASE \
   --receipt PREPARED_RECEIPT_SHA256 \
   --postcheck-plan /private/post-plan.json \
   --smoke-report /private/candidate-smoke.json \
-  --public-url https://UCLOUD_STATIC_IP
+  --public-url https://CN_PROD_STATIC_IP
 ```
 
 `notify` 不切流或重启，拒绝对已非当前健康活动版本发成功通知；已确认成功的同次发布不再

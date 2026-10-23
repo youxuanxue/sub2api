@@ -50,7 +50,7 @@ class NotifyFeishuReleaseTest(unittest.TestCase):
         self.assertIn("timezone worker startup", proc.stdout)
 
     def test_domestic_card_uses_real_environment_and_cutover_time(self):
-        proc = self.run_script('1.8.300', 'https://106.75.29.139', '--previous-tag', '1.8.298',
+        proc = self.run_script('1.8.300', 'https://154.8.214.179', '--previous-tag', '1.8.298',
                                '--environment', 'cn-prod', '--deployed-at', '2026-10-16T12:51:11Z', '--dry-run')
         self.assertEqual(proc.returncode, 0, proc.stderr)
         card = json.loads(proc.stdout[proc.stdout.index('{'):])['card']
@@ -58,7 +58,7 @@ class NotifyFeishuReleaseTest(unittest.TestCase):
         body = card['elements'][0]['text']['content']
         self.assertIn('**环境**  cn-prod', body)
         self.assertIn('2026-10-16 20:51 CST', body)
-        self.assertIn('https://106.75.29.139', body)
+        self.assertIn('https://154.8.214.179', body)
 
     def test_delivery_receipt_requires_explicit_feishu_success(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -73,7 +73,7 @@ class NotifyFeishuReleaseTest(unittest.TestCase):
                                    ('not-json', 'failed'), ('{}', 'failed'), ('{"code":false}', 'failed')]:
                 with self.subTest(body=body), patch.dict(os.environ, env | {'FAKE_BODY': body}):
                     receipt = root / 'receipt.json'
-                    proc = self.run_script('1.8.300', 'https://106.75.29.139', '--previous-tag', '1.8.298',
+                    proc = self.run_script('1.8.300', 'https://154.8.214.179', '--previous-tag', '1.8.298',
                                            '--environment', 'cn-prod', '--result-file', str(receipt))
                     self.assertEqual(proc.returncode, 0, proc.stderr)  # best-effort deployment contract
                     self.assertEqual(json.loads(receipt.read_text())['status'], expected)

@@ -88,6 +88,13 @@ def configure(args, receipt, inspect):
     expected = {'live': labels[0]['org.opencontainers.image.revision'], 'new': receipt['revision']}
     if plan.get('range') != expected or labels[1]['org.opencontainers.image.revision'] != expected['new']:
         raise ValueError('postcheck plan does not match live/candidate revisions')
+    # finish() reads plan['changes'] to build the release notes, long after the
+    # public route has moved. Reject an incomplete plan here, before cutover,
+    # instead of failing the notification on an already-switched deployment.
+    # scripts/release_post_check.py plan emits this key (possibly empty).
+    if not isinstance(plan.get('changes'), list):
+        raise ValueError('postcheck plan must carry a changes list; generate it with '
+                         'scripts/release_post_check.py plan --live LIVE --new NEW')
     smoke = read_json(args.smoke_report)
     if (smoke.get('revision') != expected['new'] or smoke.get('container_id') != target['Id']
             or not smoke.get('cases') or not all(case.get('passed') is True for case in smoke['cases'])):
@@ -193,6 +200,12 @@ def finish(args, receipt, context, *, data, inspect, active_container):
         print(output.strip())
         if not notice.exists():
             save(notice, {'status': 'failed', 'reason': 'sender produced no receipt'})
-    except Exception:
-        save(notice, {'status': 'failed', 'reason': 'notification setup or transport failed'})
-        print('::warning::cn-prod release healthy; Feishu delivery failed (retry with notify)')
+    except Exception as error:
+        # Keep the cause: a bare 'transport failed' sent one operator chasing the
+        # webhook while the real fault was a missing plan key. execute() already
+        # strips child stderr (it can contain the webhook), and the messages we
+        # raise ourselves carry no secret, so the type plus str() is safe to keep.
+        save(notice, {'status': 'failed', 'reason': 'notification setup or transport failed',
+                      'cause': type(error).__name__ + ': ' + str(error)})
+        print('::warning::cn-prod release healthy; Feishu delivery failed '
+              f'({type(error).__name__}: {error}); retry with notify')
