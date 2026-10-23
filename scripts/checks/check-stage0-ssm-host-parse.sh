@@ -44,22 +44,15 @@ case "$*" in
   *send-command*)                    echo "cmd-stub" ;;
   *get-command-invocation*Status*)   echo "Success" ;;
   *list-command-invocations*)        echo '{"CommandInvocations":[{"InstanceId":"mi-stub"}]}' ;;
-  # Resolve the same fresh prod identity as the inventory, without reaching AWS.
+  # Resolve the live Tencent prod identity from its matrix, without reaching AWS.
   *get-parameter*)                   exit 1 ;;
   *describe-stacks*)
     echo '[{"OutputKey":"InstanceId","OutputValue":"i-0123456789abcdef0"},{"OutputKey":"ApiUrl","OutputValue":"https://api.tokenkey.dev"}]'
     ;;
   *describe-instance-information*)
-    python3 - "$TEST_FRESH_PROD_MATRIX" "${TEST_TENCENT_USW_MATRIX:-}" <<'PY_STUB'
+    python3 - "${TEST_TENCENT_USW_MATRIX:-}" <<'PY_STUB'
 import json, sys
-prod = json.load(open(sys.argv[1]))['prod']
 rows = [
-    {
-        'InstanceId': prod['instance_id'],
-        'ComputerName': prod['instance_name'],
-        'Name': prod['instance_name'],
-        'PingStatus': 'Online',
-    },
     {
         'InstanceId': 'mi-0123456789abcdef0',
         'ComputerName': 'tokenkey-prod-hz-cax21',
@@ -68,7 +61,7 @@ rows = [
     },
 ]
 # After Tokyo→Tencent cutover, auto resolve uses the Tencent matrix when deployable.
-tencent_path = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else ''
+tencent_path = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else ''
 if tencent_path:
     target = json.load(open(tencent_path)).get('target') or {}
     if target.get('deployable') is True and target.get('resolvable') is True:
@@ -98,7 +91,6 @@ check_one() {
   mkdir -p "${tmp}/${out}"
   # We only need the params file; the stub run may exit nonzero (no real AWS).
   # The missing-file case is handled explicitly below.
-  TEST_FRESH_PROD_MATRIX="${REPO_ROOT}/deploy/aws/fresh-migration-20261015.json" \
   TEST_TENCENT_USW_MATRIX="${REPO_ROOT}/deploy/tencent/candidate-usw-20261022.json" \
   PATH="${stub}:${PATH}" STAGE0_SSM_OUTPUT_DIR="${tmp}/${out}" AWS_REGION=us-east-1 \
     "$@" >/dev/null 2>"${tmp}/${out}/err" || true  # preflight-allow: swallow

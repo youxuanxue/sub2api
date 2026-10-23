@@ -11,10 +11,10 @@ name: AWS Prod Host Mem-Guard Refresh
 # that bootstrap at run time — single source of truth, no second copy to drift.
 # A future stack rebuild remains the source of truth.
 #
-# Legacy EC2-only payload (sync-host-mem-guard rejects mi-*). After 2026-10-22
-# cutover, live prod is Tencent Hybrid — this workflow must NOT be used against
-# it. Retain-only Tokyo would need PROD_SSM_TARGET=aws-fresh plus
-# ALLOW_FROZEN_TOKYO_TARGET=1; prefer not to run.
+# Legacy EC2-only payload (sync-host-mem-guard rejects mi-*). Live prod is
+# Tencent Hybrid and the last EC2 prod (Tokyo) was retired 2026-10-23, so this
+# workflow has no valid target and fails closed. Deletion is pending approval
+# (docs/ops/tokyo-retirement-runbook.md §4.5).
 
 on:
   workflow_dispatch:

@@ -72,43 +72,16 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.mod.resolve_hetzner(self.mod.DEFAULT_MATRIX)
 
-    def test_explicit_fresh_candidate_never_uses_old_stack(self) -> None:
-        inventory = json.loads(self.mod.FRESH_MATRIX.read_text())
-        row = inventory["prod"]
-        with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "aws-fresh"}, clear=True):
-            self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
-        instance = {"InstanceId": row["instance_id"], "PingStatus": "Online", "ComputerName": row["instance_name"]}
-        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False), \
-             mock.patch.dict("os.environ", {"ALLOW_FROZEN_TOKYO_TARGET": "1"}), \
-             mock.patch.object(self.mod, "aws_json", side_effect=AssertionError("unexpected stack lookup")), \
-             mock.patch.object(self.mod, "list_instance_information", return_value=[instance]):
-            out = self.mod.resolve_fresh_aws()
-            self.assertEqual(out["instance_id"], row["instance_id"])
-            instance["InstanceId"] = "i-0e43099f831b03160"
-            with self.assertRaises(SystemExit):
-                self.mod.resolve_fresh_aws()
-
-    def test_aws_fresh_refused_when_tencent_live_without_override(self) -> None:
-        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=True), \
-             mock.patch.dict("os.environ", {}, clear=True), \
-             mock.patch.object(self.mod, "list_instance_information", side_effect=AssertionError("no AWS")):
-            with self.assertRaises(SystemExit):
-                self.mod.resolve_fresh_aws()
-        inventory = json.loads(self.mod.FRESH_MATRIX.read_text())
-        row = inventory["prod"]
-        instance = {"InstanceId": row["instance_id"], "PingStatus": "Online", "ComputerName": row["instance_name"]}
-        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=True), \
-             mock.patch.dict("os.environ", {"ALLOW_FROZEN_TOKYO_TARGET": "1"}, clear=True), \
-             mock.patch.object(self.mod, "list_instance_information", return_value=[instance]):
-            out = self.mod.resolve_fresh_aws()
-            self.assertEqual(out["instance_id"], row["instance_id"])
-
-    def test_aws_fresh_refused_without_override_when_tencent_not_live(self) -> None:
-        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False), \
-             mock.patch.dict("os.environ", {}, clear=True), \
-             mock.patch.object(self.mod, "list_instance_information", side_effect=AssertionError("no AWS")):
-            with self.assertRaises(SystemExit):
-                self.mod.resolve_fresh_aws()
+    def test_retired_aws_fresh_never_queries_cloud(self) -> None:
+        # Tokyo was retired 2026-10-23: no override, no inventory, no SSM lookup.
+        self.assertFalse(hasattr(self.mod, "FRESH_MATRIX"))
+        for env in ({}, {"ALLOW_FROZEN_TOKYO_TARGET": "1"}):
+            with self.subTest(env=env), \
+                 mock.patch.dict("os.environ", env, clear=True), \
+                 mock.patch.object(self.mod, "aws_json", side_effect=AssertionError("no AWS")), \
+                 mock.patch.object(self.mod, "list_instance_information", side_effect=AssertionError("no AWS")):
+                with self.assertRaises(SystemExit):
+                    self.mod.resolve_fresh_aws()
 
     def test_list_instance_information_paginates(self) -> None:
         pages = [

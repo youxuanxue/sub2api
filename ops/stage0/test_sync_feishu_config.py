@@ -20,8 +20,8 @@ class SyncFeishuConfigTest(unittest.TestCase):
             shutil.copyfile(Path(__file__).resolve().parents[1] / "lib" / "resolve_app_container.py",
                             root / "ops" / "lib" / "resolve_app_container.py")
             (ops / "resolve_prod_ssm_target.py").write_text(
-                'import json\nprint(json.dumps({"instance_id":"i-prod-fixture",'
-                '"ssm_region":"ap-northeast-1","target":"aws-fresh"}))\n'
+                'import json\nprint(json.dumps({"instance_id":"mi-0a1b2c3d4e5f60718",'
+                '"ssm_region":"eu-west-2","target":"tencent-usw-candidate"}))\n'
             )
             aws = root / "aws"
             aws.write_text('''#!/usr/bin/env python3
@@ -62,9 +62,9 @@ elif "--query" in args:
             self.assertNotIn(env["TK_FEISHU_WEBHOOK_URL"], result.stdout + result.stderr)
             self.assertNotIn(env["TK_FEISHU_SIGNING_SECRET"], result.stdout + result.stderr)
             for request in requests:
-                self.assertEqual(request[request.index("--region") + 1], "ap-northeast-1")
+                self.assertEqual(request[request.index("--region") + 1], "eu-west-2")
                 flag = "--instance-ids" if "send-command" in request else "--instance-id"
-                self.assertEqual(request[request.index(flag) + 1], "i-prod-fixture")
+                self.assertEqual(request[request.index(flag) + 1], "mi-0a1b2c3d4e5f60718")
             self.assertTrue(any("wait" in request for request in requests))
             return result
 
@@ -84,8 +84,8 @@ elif "--query" in args:
             shutil.copyfile(Path(__file__).resolve().parents[1] / "lib" / "resolve_app_container.py",
                             root / "ops" / "lib" / "resolve_app_container.py")
             (ops / "resolve_prod_ssm_target.py").write_text(
-                'import json\nprint(json.dumps({"instance_id":"i-prod-fixture",'
-                '"ssm_region":"ap-northeast-1","target":"aws-fresh"}))\n'
+                'import json\nprint(json.dumps({"instance_id":"mi-0a1b2c3d4e5f60718",'
+                '"ssm_region":"eu-west-2","target":"tencent-usw-candidate"}))\n'
             )
             aws = root / "aws"
             aws.write_text(

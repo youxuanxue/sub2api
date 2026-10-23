@@ -15,7 +15,6 @@ class CoveragePlanTest(unittest.TestCase):
         root = pathlib.Path(__file__).resolve().parents[2]
         self.prod_matrix = json.loads((root / 'deploy/tencent/candidate-usw-20261022.json').read_text())
         self.watch = self.prod_matrix['host_watch']
-        self.frozen = json.loads((root / 'deploy/aws/fresh-migration-20261015.json').read_text())
         self.domestic = json.loads((root / 'deploy/domestic/prod-target.json').read_text())
 
     def config(self, role, hostname):
@@ -40,18 +39,15 @@ class CoveragePlanTest(unittest.TestCase):
         # 2026-10-17 prod-only: no live edge peer → watch cn-prod.
         self.assertEqual(prod['targets'], {'cn-prod': self.domestic['public_origin'].rstrip('/') + '/health'})
         self.assertIn('tokenkey-qa-maintenance', prod['jobs'])
-        # Frozen Tokyo identity is no longer an accepted prod watch host.
+        # Retired Tokyo identity is not an accepted prod watch host.
         with self.assertRaisesRegex(ValueError, 'host identity'):
-            self.config('prod', self.frozen['prod']['instance_name'])
+            self.config('prod', 'tokenkey-prod-tokyo-20261017')
 
-    def test_live_matrix_owns_watch_and_frozen_tokyo_is_inventory_only(self):
+    def test_live_matrix_owns_watch(self):
         self.assertEqual(self.watch['hostname'], self.prod_matrix['target']['hostname'])
         self.assertIn(self.prod_matrix['target']['api_domain'], self.watch['domains'])
         cn = self.config('cn-prod', self.domestic['instance_name'])
         self.assertEqual(cn['targets']['prod'], 'https://' + self.prod_matrix['target']['api_domain'] + '/health')
-        for key in ('https_watch_hostname', 'paused_jobs', 'local_qa_jobs', 'live_public_ip'):
-            with self.subTest(key=key):
-                self.assertNotIn(key, self.frozen['prod'])
         # Phase2 live health reads the same pause owner.
         sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
         from ops.qa.prod_phase2_live_health import load_maintenance_pause_reason

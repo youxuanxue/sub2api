@@ -117,18 +117,10 @@ class SsmExecutionResolveTest(unittest.TestCase):
             )
         fake.load_hetzner_matrix.assert_not_called()
 
-    def test_region_for_ec2_pin_reads_fresh_inventory(self) -> None:
-        fake = mock.Mock()
-        fake.FRESH_MATRIX = mock.Mock()
-        fake.FRESH_MATRIX.read_text.return_value = json.dumps(
-            {"prod": {"region": "ap-northeast-1", "instance_id": "i-045f062ce33e1a5af"}}
-        )
+    def test_region_for_ec2_pin_is_retired(self) -> None:
+        fake = mock.Mock(spec=["TENCENT_USW_MATRIX", "load_tencent_usw_matrix"])
         with mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
-            self.assertEqual(
-                self.mod.region_for_instance_id("i-045f062ce33e1a5af"),
-                "ap-northeast-1",
-            )
+            with self.assertRaises(SystemExit):
+                self.mod.region_for_instance_id("i-045f062ce33e1a5af")
+        fake.load_tencent_usw_matrix.assert_not_called()
 
-
-if __name__ == "__main__":
-    unittest.main()

@@ -36,7 +36,7 @@ bash ops/observability/run-probe.sh --target prod \
 1. 切流满 7 天：**不早于 2026-10-29**，且用户确认无回滚需求。 **[审批]**
 2. 腾讯新 timeline 备份健康：`tokenkey-postgres-backup` / `archive-check` 回执 ok，至少一次 restore 验证在期内（第 2 队 owner）。
 3. 历史只读链 `s3://tokenkey-prod-physical-backup-682751977094-us-east-1/prod/postgres`（Tokyo timeline 1）保持可读；该前缀**不随 Tokyo 退役删除**。
-4. 无任何 workflow / 脚本把 `aws-fresh` 作为默认路径（现状：`resolve_prod_ssm_target.py` 已要求 `ALLOW_FROZEN_TOKYO_TARGET=1`）。
+4. ~~无任何 workflow / 脚本把 `aws-fresh` 作为默认路径~~：第 4 步已完成，`aws-fresh` 解析路径已删除。
 5. 腾讯 Lighthouse 续费已决策（第 6 节），避免退役 Tokyo 后腾讯随即到期造成无回退。
 
 ## 2. 最终快照与归档核对
@@ -58,6 +58,8 @@ DLM 策略是 Tokyo 栈资源。两种选择 **[审批]**：
 ## 4. 仓库侧清理（单 PR，删除顺序固定）
 
 Tokyo 删机前合并，保证没有任何代码路径还能把 SSM 发往 `i-045f062ce33e1a5af`：
+
+**第 4 步状态：1–4、7、8 已完成（2026-10-23 仓库清理 PR）**；`aws-fresh` 保留为拒绝分支（不查 AWS）。5（删 workflow）待批。
 
 1. `ops/stage0/resolve_prod_ssm_target.py`：删 `aws-fresh` 分支（`resolve_fresh_aws`、`FRESH_MATRIX`、`ALLOW_FROZEN_TOKYO_TARGET`），`ALLOWED_ENV_TARGETS` / `--target` choices 去掉 `aws-fresh`，改为与 `aws` / `hetzner` 同样的「retired」拒绝；同步 `ops/stage0/ssm_execution.py`（`aws-fresh` 分支与 `FRESH_MATRIX` 区域回退）。
 2. 测试：`ops/stage0/test_resolve_prod_ssm_target.py`、`test_ssm_execution.py`、`scripts/checks/check-stage0-ssm-host-parse.sh`（`TEST_FRESH_PROD_MATRIX` stub 改为不再需要 Tokyo 行）、`ops/observability/test_host_https_watch.py`（`self.frozen` 断言删除）。

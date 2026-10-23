@@ -36,4 +36,4 @@
 - [x] prod watcher 重装：2026-10-22 15:24 UTC 经用户批准，`host_watch.local_qa_jobs` 含 `tokenkey-qa-provision`；bundle `95998671d971c8ce`，dry-run 全部健康，回滚备份 `/var/backups/tokenkey-https-watch/20261022T152459871497Z`。cn-prod watcher 未变更
 - [ ] 备份身份重装注意：`ops/stage0/tencent_backup_identity.py` 已改为读腾讯矩阵（#2804），但宿主安装器不在仓库；下次重装/修复须把 `candidate-usw-20261022.json` 放在脚本旁或设 `TK_TENCENT_PROD_MATRIX`，否则 `tokenkey-backup-identity` timer 失败。现宿主跑旧副本，不受影响
 - [ ] 归档 canary（`data_layer_archive_rehearsal.PROD_CANARY_CONTAINER`）仍绑 EC2 `i-*` 与 CFN stack，需单独迁到腾讯
-- [ ] 冻结 Tokyo 退役时一并：删 `aws-fresh` 模式与 `fresh-migration-20261015.json`、OIDC 栈 retarget 到 `mi-*`（#2802 模板已支持）、遗留空栈 `tokenkey-tokyo-ebs-restore-20261017`
+- [ ] Tokyo 退役收尾：仓库 `aws-fresh` 路径与 `fresh-migration-20261015.json` 已删（本 PR）。剩余（不可逆，逐步审批）：删栈 `tokenkey-prod-tokyo-precutover-20261017` → 数据卷处置 → 删遗留空栈 `tokenkey-tokyo-ebs-restore-20261017` → OIDC 栈 retarget 到 `mi-*` → 删 `ops-stage0-host-mem-guard.yml`

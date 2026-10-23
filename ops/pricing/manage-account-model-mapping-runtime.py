@@ -317,9 +317,8 @@ def _resolve_prod_target(prod_instance_id: str | None = None) -> tuple[str, str,
     """Return ``(label, ssm_region, instance_id)`` for prod.
 
     Auto-resolve follows cutover (``resolve_prod_ssm_target``). An explicit pin
-    keeps that instance id but binds region by id shape (``mi-*`` → Hetzner
-    matrix region, ``i-*`` → us-east-1) so Hybrid pins never ride a stale
-    ``PROD_REGION``.
+    keeps that instance id and binds the Hybrid (``mi-*``) matrix region so pins
+    never ride a stale ``PROD_REGION``; EC2 ``i-*`` prod pins are retired.
     """
     pinned = _normalize_instance_id(prod_instance_id, "--prod-instance-id")
     if pinned is not None:
@@ -2594,7 +2593,7 @@ def cmd_selftest(_args) -> int:
         "base_url": "https://relay.example.com/v1",
     })
     prod_only = _resolve_check_targets(
-                prod_instance_id="i-00000000000000000",
+                prod_instance_id="mi-00000000000000000",
     )
     assert len(prod_only) == 1 and prod_only[0][0] == "prod"
     violation_report = {"violation_count": 1, "error_count": 0, "violations": [{"kind": "account"}]}
@@ -2758,10 +2757,10 @@ def cmd_selftest(_args) -> int:
             assert len(runtime_target_resolutions) == resolutions_before_bad_confirm
             assert cmd_check_accounts(argparse.Namespace(
                 parallel=1,
-                prod_instance_id="i-00000000000000000",
+                prod_instance_id="mi-00000000000000000",
                 json=False, bundle="check-bundle")) == 0
             assert cmd_release_gate(argparse.Namespace(
-                parallel=1, prod_instance_id="i-00000000000000000",
+                parallel=1, prod_instance_id="mi-00000000000000000",
                 json=False, bundle="release-bundle")) == 0
     finally:
         globals().update(original_command_helpers)
