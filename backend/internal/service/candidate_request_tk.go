@@ -48,14 +48,13 @@ type CandidateRequest struct {
 	bodyModelsResolved    bool
 	requestProfile        protocolrouter.RequestProfile
 	requestProfileValid   bool
-	// Request-scoped reads shared by admission (acquire=false) and the
-	// following scheduler select. Failover and a second acquire refetch live
-	// load; sticky bindings are always read again. The account list stays
-	// for the group set.
+	// Request-scoped account list shared by admission and the following
+	// scheduler select. Concurrency load is not cached: the acquiring select
+	// runs after billing and user-slot waits, and a stale "full" bit would
+	// queue on one account while another has already freed a slot.
 	accountsCached    bool
 	cachedAccounts    []Account
 	cachedAccountsKey string
-	loadSnap          *candidateLoadSnap
 	skipGroupRefresh  bool
 }
 
@@ -243,7 +242,6 @@ func (r *CandidateRequest) RevalidateTurn(ctx context.Context, accountID int64, 
 	// after admission. Drop the one-shot scheduler reuse before selecting again.
 	r.skipGroupRefresh = false
 	r.accountsCached = false
-	r.loadSnap = nil
 	r.continuationAccountID = accountID
 	r.model, r.body = model, append([]byte(nil), body...)
 	r.bodyModelsResolved = false

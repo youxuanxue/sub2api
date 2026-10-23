@@ -67,7 +67,7 @@ func TestChatAdmissionReusesSnapshotAndSkipsClaudeDocument(t *testing.T) {
 	require.True(t, selected.Acquired)
 	require.Equal(t, int64(1), selected.Account.ID)
 	require.Equal(t, 1, repo.listCalls, "scheduler select must reuse the admission account list")
-	require.Equal(t, 1, loadReads, "scheduler select must reuse the admission load snapshot")
+	require.Equal(t, 2, loadReads, "the acquiring select reads load again after the admission gap")
 	require.Equal(t, 1, stats.canonical)
 	require.Zero(t, stats.claudeDocument)
 	selected.ReleaseFunc()
@@ -82,7 +82,7 @@ func TestChatAdmissionReusesSnapshotAndSkipsClaudeDocument(t *testing.T) {
 	require.True(t, failover.Acquired)
 	require.Equal(t, int64(2), failover.Account.ID, "failover must leave the failed account and take the next slot")
 	require.Equal(t, 1, repo.listCalls)
-	require.Equal(t, 2, loadReads, "a different account set refetches load")
+	require.Equal(t, 3, loadReads, "failover reads load again for the reduced account set")
 	failover.ReleaseFunc()
 }
 
@@ -123,7 +123,7 @@ func TestChatSchedulerFullSlotStillReturnsWaitPlan(t *testing.T) {
 	require.NotNil(t, selected.WaitPlan)
 	require.Equal(t, account.ID, selected.WaitPlan.AccountID)
 	require.Equal(t, 1, repo.listCalls)
-	require.Equal(t, 1, loadReads)
+	require.Equal(t, 2, loadReads, "a full pool still rechecks live load before returning WaitPlan")
 }
 
 func TestMessagesClaudeValidationStillDecodesDocument(t *testing.T) {
