@@ -97,6 +97,12 @@ def load(path=DEFAULT_MANIFEST):
         if profile.get('fixture'):
             fixture_path = (path.parent / profile['fixture']).resolve()
             require(fixture_path.is_relative_to(path.parent.resolve()), 'fixture escapes matrix directory')
+            # Oversized fixtures are deliberately not delivered to the replay host
+            # (SSM 97KB cap). The profile stays declared so the plan keeps the
+            # obligation in its denominator; the case is blocked by build().
+            if fixture_path.name in OVERSIZED_FIXTURES and not fixture_path.exists():
+                out.append({**profile, 'request': None})
+                continue
             fixture = json.loads(fixture_path.read_text())
             require(fixture.get('method') == 'POST' and valid_path(fixture.get('path', '')), 'invalid fixture endpoint')
             require(isinstance(fixture.get('body'), dict) and fixture['body'], 'fixture body required')
@@ -221,7 +227,7 @@ def build(inventory, profiles):
         reason = profile.get('blocked_reason') if profile else 'fixture_required'
         if scenario in ('image', 'content-image', 'speech', 'video', 'transcription'):
             audio_profile = next((p for p in profiles if p['id'] == 'openai-transcription.plain'), None)
-            audio = (audio_profile or {}).get('request', {}).get('body', {}).get('audio_base64', '') or ''
+            audio = (((audio_profile or {}).get('request') or {}).get('body') or {}).get('audio_base64', '') or ''
             request = media_request(scenario, rep['model'], audio)
             reason = None
             # The audio blob only exists on the host when its fixture was delivered.
