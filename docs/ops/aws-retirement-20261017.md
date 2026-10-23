@@ -42,7 +42,7 @@ EBS 卷或公网静态 IP。旧 Hcloud 主机也已退役。当前服务身份�
 
 `retired=true` 是已删除身份的拒绝标记；`deployable=false` 单独只表示非现役。
 `--allow-planned` 不覆盖退役，新建须使用新身份。旧 prod 的 `aws` 模式直接拒绝，
-现网由 `auto` → 腾讯美西解析（矩阵 `deployable=true`）。`aws-fresh` 仅冻结 Tokyo 保留身份，默认拒绝。
+现网由 `auto` → 腾讯美西解析（矩阵 `deployable=true`）。`aws-fresh`（Tokyo）已于 2026-10-23 退役，解析路径已删除。
 
 QA 上传暂停由现网矩阵 `deploy/tencent/candidate-usw-20261022.json` 的 `host_watch.paused_jobs` 持有（2026-10-22 起；冻结 Tokyo 清单不再承载）。
 宿主监控会检查暂停任务保持停用，意外恢复则报警；capture 与 pgBackRest 物理备份继续运行（旧 pgdump 已退役）。

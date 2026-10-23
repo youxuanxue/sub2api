@@ -10,7 +10,7 @@
 
 | 坑 | 现象 | 固化 |
 |---|---|---|
-| GitHub `PROD_SSM_TARGET` 钉死旧值 | workflow `vars \|\| auto` 被钉成 `aws-fresh`，CI/诊断打到冻结 Tokyo | 切流后立刻改 `auto`；旧身份失败关闭 |
+| GitHub `PROD_SSM_TARGET` 钉死旧值 | workflow `vars \|\| auto` 被钉成 `aws-fresh`，CI/诊断打到旧主机（该旧值现已退役拒绝） | 切流后立刻改 `auto`；旧身份失败关闭 |
 | `ssm_execution` 漏腾讯分支 | `auto→tencent` 后落入 `else→hetzner` | glue 与 CLI resolver 同步；单测覆盖 live 模式 |
 | host-parse stub 无腾讯 Hybrid | 切流后 preflight 挂（feishu sync 解析失败） | stub 随 live 矩阵注入 `mi-*` |
 | `RuntimeDirectoryPreserve` | 身份 oneshot 结束清掉 `/run/...` tmpfs | 身份 timer 必须 Preserve=yes |

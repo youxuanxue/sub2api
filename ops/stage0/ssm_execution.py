@@ -18,8 +18,7 @@ This module importlib-loads from any ops tool.
 
 Prod target resolution delegates to ``resolve_prod_ssm_target.py`` (same owner as
 run-probe / deploy-stage0): auto selects Tencent USW when the candidate matrix is
-``deployable=true``; ``aws-fresh`` is frozen Tokyo (needs ``ALLOW_FROZEN_TOKYO_TARGET=1``);
-retired ``aws`` / ``hetzner`` identities are rejected.
+``deployable=true``; retired ``aws`` / ``aws-fresh`` / ``hetzner`` identities are rejected.
 ``resolve_prod_instance`` updates module ``PROD_REGION`` to the target's ``ssm_region``
 so subsequent ``run_shell_b64`` calls hit the right registration region.
 """
@@ -69,7 +68,7 @@ def resolve_prod_identity() -> tuple[str, str]:
     if mode == "tencent-usw-candidate":
         outputs = mod.resolve_tencent_usw_candidate(mod.TENCENT_USW_MATRIX)
     elif mode == "aws-fresh":
-        outputs = mod.resolve_fresh_aws()
+        outputs = mod.resolve_fresh_aws()  # fails: retired
     elif mode == "aws":
         outputs = mod.resolve_aws(PROD_STACK)
     elif mode == "hetzner":
@@ -96,9 +95,9 @@ def resolve_prod_instance() -> str:
 def region_for_instance_id(instance_id: str) -> str:
     """SSM region for an explicit pin without re-resolving a different instance.
 
-    ``mi-*`` Hybrid nodes use the Tencent USW matrix region (Hetzner Cloud is
-    retired). ``i-*`` uses the Tokyo retain inventory region. Callers that pin
-    an id must not keep a stale module ``PROD_REGION``.
+    Only ``mi-*`` Hybrid nodes (Tencent USW matrix region) are live; every EC2
+    ``i-*`` prod identity is retired. Callers that pin an id must not keep a
+    stale module ``PROD_REGION``.
     """
     instance_id = instance_id.strip()
     if not _INSTANCE_RE.match(instance_id):
@@ -110,11 +109,7 @@ def region_for_instance_id(instance_id: str) -> str:
         if not region:
             fail("tencent usw matrix missing ssm_region")
         return region
-    inventory = json.loads(mod.FRESH_MATRIX.read_text(encoding="utf-8"))
-    region = str((inventory.get("prod") or {}).get("region") or "").strip()
-    if not region:
-        fail("fresh AWS inventory missing prod.region")
-    return region
+    fail(f"EC2 prod identity {instance_id!r} is retired (Tokyo stopped 2026-10-23); pin an mi-* id")
 
 
 def data_container_preamble(*, redis: bool = False, docker: str = "sudo docker") -> str:

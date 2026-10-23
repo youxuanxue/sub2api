@@ -15,7 +15,7 @@ python3 ops/stage0/resolve_prod_ssm_target.py --target auto --format json
 ```
 
 解析器核对腾讯矩阵中的 Hybrid `mi-*`、SSM 区域与在线名称；矩阵不可部署时失败关闭，不回退 Tokyo。
-冻结 Tokyo `aws-fresh` 只读须显式 `ALLOW_FROZEN_TOKYO_TARGET=1`；`aws` / `hetzner` 已退役拒绝。
+`aws` / `aws-fresh`（Tokyo，2026-10-23 退役）/ `hetzner` 均已退役拒绝。
 若 prod 已失联，在线解析失败是预期保护；从舰队清单读取身份后，以腾讯控制台/TAT 只读核对实例与磁盘。
 
 ## 恢复资产

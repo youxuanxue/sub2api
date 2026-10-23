@@ -3,10 +3,8 @@
 
 ``--target auto`` selects the live prod matrix: Tencent USW when
 ``deploy/tencent/candidate-usw-20261022.json`` has ``deployable=true``; otherwise
-it fails closed. Frozen Tokyo ``aws-fresh`` is explicit-only and always needs
-``ALLOW_FROZEN_TOKYO_TARGET=1``.
-``PROD_SSM_TARGET`` may explicitly select modes; retired ``aws`` / ``hetzner``
-are rejected. No silent EC2 fallback when inventory fails.
+it fails closed. ``PROD_SSM_TARGET`` may explicitly select modes; retired
+``aws`` / ``aws-fresh`` (Tokyo, retired 2026-10-23) / ``hetzner`` are rejected. No silent EC2 fallback when inventory fails.
 
 Fleet narrative SSOT still lives at ``deploy/hetzner/README.md`` (historical
 path name); the Hetzner Cloud prod matrix is retired and never resolves live.
@@ -25,7 +23,6 @@ from typing import Any
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "ops/stage0"))
 DEFAULT_MATRIX = REPO_ROOT / "deploy/hetzner/prod-target-hetzner.json"
-FRESH_MATRIX = REPO_ROOT / "deploy/aws/fresh-migration-20261015.json"
 TENCENT_USW_MATRIX = REPO_ROOT / "deploy/tencent/candidate-usw-20261022.json"
 AWS_STACK = "tokenkey-prod-stage0"
 INSTANCE_RE = re.compile(r"^(?:i|mi)-[0-9a-f]{8,}$")
@@ -99,26 +96,10 @@ def resolve_aws(stack: str) -> dict[str, str]:
 
 
 def resolve_fresh_aws() -> dict[str, str]:
-    """Tokyo retain identity only. Live prod is Tencent when matrix.deployable=true."""
-    if os.environ.get("ALLOW_FROZEN_TOKYO_TARGET", "").strip() != "1":
-        fail(
-            "target=aws-fresh is frozen Tokyo after 2026-10-22 cutover; "
-            "use auto/tencent-usw-candidate for live prod. "
-            "Set ALLOW_FROZEN_TOKYO_TARGET=1 only for retain-only SSM against Tokyo."
-        )
-    inventory = json.loads(FRESH_MATRIX.read_text(encoding="utf-8"))
-    target = inventory["prod"]
-    region, iid = target["region"], target["instance_id"]
-    if not iid.startswith("i-") or not INSTANCE_RE.fullmatch(iid):
-        fail("fresh AWS prod inventory has an invalid EC2 identity")
-    online = [r for r in list_instance_information(region)
-              if r.get("InstanceId") == iid and r.get("PingStatus") == "Online"
-              and r.get("ComputerName") == target["instance_name"]]
-    if len(online) != 1:
-        fail("fresh AWS prod identity/hostname is not Online in SSM")
-    return with_browser_origin({"target": "aws-fresh", "instance_id": iid, "ssm_region": region,
-                                "api_url": "https://" + target["domain"], "deploy_profile": "prod",
-                                "platform": "aws", "computer_name": target["instance_name"]})
+    fail(
+        "target=aws-fresh is retired: Tokyo i-045f062ce33e1a5af was stopped and its "
+        "inventory removed on 2026-10-23; use auto (Tencent USW) for live prod"
+    )
 
 
 def load_hetzner_matrix(path: pathlib.Path) -> dict[str, Any]:
@@ -247,7 +228,7 @@ def main() -> int:
         "--target",
         choices=("auto", "aws", "aws-fresh", "hetzner", "tencent-usw-candidate"),
         default="auto",
-        help="auto → tencent when matrix.deployable=true; aws-fresh=frozen Tokyo; hetzner/aws retired",
+        help="auto → tencent when matrix.deployable=true; aws/aws-fresh/hetzner retired",
     )
     parser.add_argument("--stack", default=AWS_STACK)
     parser.add_argument("--matrix", default="")
@@ -261,7 +242,7 @@ def main() -> int:
 
     mode = resolve_mode(args.target)
     if mode == "aws-fresh":
-        outputs = resolve_fresh_aws()
+        resolve_fresh_aws()
     elif mode == "aws":
         outputs = resolve_aws(args.stack)
     elif mode == "tencent-usw-candidate":

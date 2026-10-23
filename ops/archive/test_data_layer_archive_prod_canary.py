@@ -573,8 +573,15 @@ class ProdArchiveCanaryTest(unittest.TestCase):
         with mock.patch.object(ssm_execution, "resolve_prod_instance", return_value="mi-0123456789abcdef0"):
             self.assertEqual(canary._prod_instance(), "mi-0123456789abcdef0")
         self.assertEqual(canary._ssm_region("mi-0123456789abcdef0"), "eu-west-2")
-        # i-* pins use Tokyo retain inventory region (ap-northeast-1), not legacy us-east-1.
-        self.assertEqual(canary._ssm_region(_INSTANCE_ID), "ap-northeast-1")
+        # EC2 i-* prod pins are retired with Tokyo (2026-10-23): the canary's
+        # i-*-only contract has no live target until it is migrated to Hybrid.
+        with self.assertRaises(SystemExit):
+            canary._ssm_region(_INSTANCE_ID)
+        # The SSM send/poll/cancel mechanics below are region-agnostic; pin one
+        # until the canary is migrated to the Hybrid prod identity.
+        region_pin = mock.patch.object(canary, "_ssm_region", return_value="eu-west-2")
+        region_pin.start()
+        self.addCleanup(region_pin.stop)
         with mock.patch.object(ssm_execution, "resolve_prod_instance", side_effect=SystemExit("offline")):
             with self.assertRaises(SystemExit):
                 canary._prod_instance()

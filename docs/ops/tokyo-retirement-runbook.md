@@ -1,6 +1,6 @@
 # 冻结 Tokyo 退役 · 日本代理关停 · 腾讯续费 Runbook
 
-状态（2026-10-22 执行记录）：用户批准提前退役。**已执行**：第 2 步最终快照（`snap-06612941333b662e8` 数据卷、`snap-0724597870487cf4a` 根卷，completed）、第 5.1 步 Tokyo 停机、第 6.3/6.4 步 jp 代理快照+停机、第 6.6 步 `proxies` 行 2-5 软删（用户经 Admin UI，2026-10-23 01:02 JST）、第 7 节改月自动续费。**未执行**（不可逆，逐步审批）：第 4 步仓库清理、第 5.2-5.4 步删栈/卷/OIDC retarget、第 6.5 步删机/释放 IP（第 6.2 步停用已被直接软删取代）。
+状态（2026-10-22 执行记录）：用户批准提前退役。**已执行**：第 2 步最终快照（`snap-06612941333b662e8` 数据卷、`snap-0724597870487cf4a` 根卷，completed）、第 5.1 步 Tokyo 停机、第 6.3/6.4 步 jp 代理快照+停机、第 6.5 步删机+释放 IP（2026-10-23）、第 6.6 步 `proxies` 行 2-5 软删（用户经 Admin UI，2026-10-23 01:02 JST）、第 7 节改月自动续费。第 4 步仓库清理（本 PR，§4.5 删 workflow 除外）。**未执行**（不可逆，逐步审批）：第 5.2-5.4 步删栈/卷/OIDC retarget、（第 6.2 步停用已被直接软删取代）。
 舰队事实只在 [舰队 SSOT](../../deploy/hetzner/README.md)；现网身份与宿主 watcher owner 为
 [`deploy/tencent/candidate-usw-20261022.json`](../../deploy/tencent/candidate-usw-20261022.json) 的 `target` / `host_watch`。
 LUKS 自动解锁另见 [方案](tencent-luks-autounlock-plan.md)。
@@ -36,7 +36,7 @@ bash ops/observability/run-probe.sh --target prod \
 1. 切流满 7 天：**不早于 2026-10-29**，且用户确认无回滚需求。 **[审批]**
 2. 腾讯新 timeline 备份健康：`tokenkey-postgres-backup` / `archive-check` 回执 ok，至少一次 restore 验证在期内（第 2 队 owner）。
 3. 历史只读链 `s3://tokenkey-prod-physical-backup-682751977094-us-east-1/prod/postgres`（Tokyo timeline 1）保持可读；该前缀**不随 Tokyo 退役删除**。
-4. 无任何 workflow / 脚本把 `aws-fresh` 作为默认路径（现状：`resolve_prod_ssm_target.py` 已要求 `ALLOW_FROZEN_TOKYO_TARGET=1`）。
+4. ~~无任何 workflow / 脚本把 `aws-fresh` 作为默认路径~~：第 4 步已完成，`aws-fresh` 解析路径已删除。
 5. 腾讯 Lighthouse 续费已决策（第 6 节），避免退役 Tokyo 后腾讯随即到期造成无回退。
 
 ## 2. 最终快照与归档核对
@@ -58,6 +58,8 @@ DLM 策略是 Tokyo 栈资源。两种选择 **[审批]**：
 ## 4. 仓库侧清理（单 PR，删除顺序固定）
 
 Tokyo 删机前合并，保证没有任何代码路径还能把 SSM 发往 `i-045f062ce33e1a5af`：
+
+**第 4 步状态：1–4、7、8 已完成（2026-10-23 仓库清理 PR）**；`aws-fresh` 保留为拒绝分支（不查 AWS）。5（删 workflow）待批。
 
 1. `ops/stage0/resolve_prod_ssm_target.py`：删 `aws-fresh` 分支（`resolve_fresh_aws`、`FRESH_MATRIX`、`ALLOW_FROZEN_TOKYO_TARGET`），`ALLOWED_ENV_TARGETS` / `--target` choices 去掉 `aws-fresh`，改为与 `aws` / `hetzner` 同样的「retired」拒绝；同步 `ops/stage0/ssm_execution.py`（`aws-fresh` 分支与 `FRESH_MATRIX` 区域回退）。
 2. 测试：`ops/stage0/test_resolve_prod_ssm_target.py`、`test_ssm_execution.py`、`scripts/checks/check-stage0-ssm-host-parse.sh`（`TEST_FRESH_PROD_MATRIX` stub 改为不再需要 Tokyo 行）、`ops/observability/test_host_https_watch.py`（`self.frozen` 断言删除）。
@@ -157,5 +159,5 @@ apply **[可逆·审批]**：同一命令加 `--apply`。效果：新建内容�
 1. ~~切流前 DLM 快照是否复制保留~~：2026-10-22 用户决定不保留，任其轮换；DB 由 S3 `prod/postgres` timeline 1 覆盖。
 2. ~~腾讯续费方案~~：2026-10-22 用户决定月自动续费，已改 `NOTIFY_AND_AUTO_RENEW`。
 3. Tokyo 退役：2026-10-22 用户批准提前退役，已停机；剩余仓库清理 PR → 删栈 → 数据卷处置 → OIDC retarget。
-4. `jp-*` 关停：已快照并停机；`proxies` 已软删；剩余观察 ≥24h 后删机与静态 IP 释放。
+4. ~~`jp-*` 关停~~：已完成（2026-10-23 删机并释放静态 IP，保留最终快照）。
 5. LUKS 演练预算（见 [方案](tencent-luks-autounlock-plan.md)）。

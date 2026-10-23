@@ -43,8 +43,8 @@ class LocalHostTest(unittest.TestCase):
         live = json.loads((root/'deploy/tencent/candidate-usw-20261022.json').read_text())
         self.assertEqual(local.expected_prod_hostname(live), live['host_watch']['hostname'])
         self.assertEqual(local.expected_prod_hostname({'prod': {'instance_name': 'legacy'}}), 'legacy')
-        frozen = json.loads((root/'deploy/aws/fresh-migration-20261015.json').read_text())
-        self.assertNotEqual(local.expected_prod_hostname(frozen), live['host_watch']['hostname'])
+        self.assertNotEqual(local.expected_prod_hostname({'prod': {'instance_name': 'tokenkey-prod-tokyo-20261017'}}),
+                            live['host_watch']['hostname'])
 
     def test_active_legacy_owner_blocks_local_work(self):
         with mock.patch.object(local, 'invoke', side_effect=['ActiveState=active\nUnitFileState=enabled\n', 'inactive']):
