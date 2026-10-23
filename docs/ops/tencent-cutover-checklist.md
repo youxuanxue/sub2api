@@ -1,6 +1,6 @@
 # Tokyo → 腾讯美西：切流清单（正式 · 已切）
 
-状态：**腾讯在服 / Tokyo 已冻结 / 新 timeline 备份已保护 / 账号出口已迁 usw-eval\***  
+状态：**腾讯在服 / Tokyo 已退役（2026-10-23）/ 新 timeline 备份已保护 / 账号出口已迁 usw-eval\***  
 回执：`docs/ops/reports/tencent-cutover-20261022.json`  
 交接：[`tencent-migration-handoff.md`](tencent-migration-handoff.md)
 
@@ -18,7 +18,7 @@
 
 ## 后续（另批，勿擅自执行）
 
-- [ ] Tokyo 退役（2026-10-22 用户批准提前退役）：**已停机**（`i-045f062ce33e1a5af` stopped，停前只读核实只读库/0 会话/无 app 容器；停后三正式域名 `/health` 200）；最终快照 `snap-06612941333b662e8`（数据卷）/ `snap-0724597870487cf4a`（根卷）completed。剩余（不可逆，逐步审批）：仓库清理 PR → 删栈 → 数据卷处置 → OIDC retarget。步骤见 [`tokyo-retirement-runbook.md`](tokyo-retirement-runbook.md)
+- [x] Tokyo 停机与最终快照（2026-10-22）：`i-045f062ce33e1a5af` 停机前只读核实只读库/0 会话/无 app 容器；最终快照 `snap-06612941333b662e8`（数据卷）/ `snap-0724597870487cf4a`（根卷）。后续删除见下方「Tokyo 退役」
 - [x] Tokyo 切流前 DLM 快照：2026-10-22 用户决定**不保留**，任其按 7 日轮换。DB 由 S3 `prod/postgres`（timeline 1）pgBackRest 历史链覆盖；Tokyo 主机上的 Redis/配置/证书原样副本随轮换消失，不再可查
 - [x] 日本 Lightsail 代理关停：2026-10-22 快照+停机；`jp-*` `proxies` 行 2-5 由用户在 Admin UI 软删；2026-10-23 00:55 UTC 经用户批准（删前复核：绑定 0、DNS/prod/cn-prod 配置无引用、快照 available）**删除 5 台实例并释放 5 个静态 IP（不可逆）**。保留最终快照 `<name>-final-20261022`（5 份，计费，清理时机待用户决定）
 - [ ] LUKS 自动解锁验收（**禁止拿现网整机重启试验**；契约见 [`tencent-unlock-contract.md`](tencent-unlock-contract.md)；方案见 [`tencent-luks-autounlock-plan.md`](tencent-luks-autounlock-plan.md)：无 TPM，推荐开机经 SSM Hybrid 身份取 keyfile，演练约 40 CNY + 1–2 USD/月，待批）

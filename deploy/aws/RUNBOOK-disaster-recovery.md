@@ -23,7 +23,7 @@ python3 ops/stage0/resolve_prod_ssm_target.py --target auto --format json
 | 资产 | 来源与边界 |
 |---|---|
 | PostgreSQL、Redis、Caddy 与主机配置 | 腾讯系统盘上的 LUKS mapper（双挂 `/var/lib/tokenkey`、`/srv/tokenkey-rehearsal`）；解锁见 [unlock 契约](../../docs/ops/tencent-unlock-contract.md) |
-| 全盘恢复点 | **当前无**（腾讯机无 EBS/DLM；快照策略为开放项）。东京 DLM 只覆盖冻结 Tokyo |
+| 全盘恢复点 | **当前无**（腾讯机无 EBS/DLM；快照策略为开放项）。Tokyo 已退役，仅留两份最终快照 |
 | 数据库主备份 | pgBackRest 全量/增量/WAL；整 cluster 含账本、usage 和索引；恢复到新盘后校验 |
 | 历史逻辑备份 | 私有 S3 pgdump 已进入退役保留；核对所选文件实际覆盖与时间，旧备份可能不含 usage 明细 |
 | 已退役节点的历史库 | [独立 S3 冻结归档](../../docs/ops/aws-retirement-20261017.md)，用于运营回查，不覆盖在线库 |
