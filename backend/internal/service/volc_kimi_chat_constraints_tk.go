@@ -1,10 +1,17 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -13,7 +20,11 @@ import (
 // thinking/tool contract while presenting a Moonshot-compatible public surface
 // for kimi-k3. See docs/approved/volc-kimi-chat-compatibility.md.
 func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
-	shaped, err := normalizeVolcKimiThinking(body)
+	shaped, err := normalizeVolcKimiInboundMessages(body)
+	if err != nil {
+		return nil, err
+	}
+	shaped, err = normalizeVolcKimiThinking(shaped)
 	if err != nil {
 		return nil, err
 	}
@@ -34,6 +45,296 @@ func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 		return nil, newOpenAIInvalidParameterError("tool_choice", err.Error())
 	}
 	return sjson.SetBytes(shaped, "tool_choice", "required")
+}
+
+// normalizeVolcKimiInboundMessages rewrites only the message and tool shapes
+// that Volc Agent Plan kimi-k3 rejected on cn-prod (2026-10-23) and that a
+// direct replay then accepted:
+//   - a JSON object in messages.content is either one content part (wrap it in
+//     an array) or an ordinary object (send its JSON text as a string);
+//   - a tool message whose tool_call_id is absent from assistant tool_calls
+//     becomes a user message, keeping its content;
+//   - function tools with an empty name are removed. If none remain, tool_choice
+//     is removed with them.
+//
+// Matched tool results, string content, and content-part arrays are unchanged.
+// Video parts are not stripped. Reachability is a separate preflight:
+// rejectUnreachableVolcKimiVideoURLs.
+func normalizeVolcKimiInboundMessages(body []byte) ([]byte, error) {
+	shaped, err := normalizeVolcKimiMessageContents(body)
+	if err != nil {
+		return nil, err
+	}
+	shaped, err = normalizeVolcKimiOrphanToolMessages(shaped)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeVolcKimiEmptyFunctionNames(shaped)
+}
+
+func normalizeVolcKimiMessageContents(body []byte) ([]byte, error) {
+	msgs := gjson.GetBytes(body, "messages")
+	if !msgs.IsArray() {
+		return body, nil
+	}
+	shaped := body
+	var err error
+	for i, msg := range msgs.Array() {
+		content := msg.Get("content")
+		if !content.IsObject() {
+			continue
+		}
+		path := fmt.Sprintf("messages.%d.content", i)
+		if volcKimiContentPartType(content.Get("type").String()) {
+			wrapped, marshalErr := json.Marshal([]json.RawMessage{json.RawMessage(content.Raw)})
+			if marshalErr != nil {
+				return nil, marshalErr
+			}
+			shaped, err = sjson.SetRawBytes(shaped, path, wrapped)
+		} else {
+			encoded, marshalErr := json.Marshal(content.Raw)
+			if marshalErr != nil {
+				return nil, marshalErr
+			}
+			shaped, err = sjson.SetRawBytes(shaped, path, encoded)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return shaped, nil
+}
+
+func volcKimiContentPartType(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "text", "image_url", "video_url", "input_audio", "file":
+		return true
+	default:
+		return false
+	}
+}
+
+const volcKimiVideoUnreachableMessage = "video_url is not reachable; provide a video URL this service can access"
+
+// probeVolcKimiVideoURL reports whether one video_url can be read. Tests replace
+// it; production uses a public-client HEAD so private and link-local targets are
+// refused before dial.
+var probeVolcKimiVideoURL = defaultProbeVolcKimiVideoURL
+
+// rejectUnreachableVolcKimiVideoURLs turns a video_url the service cannot read
+// into a field-level 400. Reachable http(s) URLs and inline data URLs are left
+// for the supplier. This avoids Volc's unnamed InvalidParameter when the URL
+// itself cannot be fetched.
+func rejectUnreachableVolcKimiVideoURLs(ctx context.Context, body []byte) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for _, raw := range volcKimiVideoURLs(body) {
+		if err := probeVolcKimiVideoURL(ctx, raw); err != nil {
+			return newOpenAIInvalidParameterError("messages.content", volcKimiVideoUnreachableMessage)
+		}
+	}
+	return nil
+}
+
+func volcKimiVideoURLs(body []byte) []string {
+	msgs := gjson.GetBytes(body, "messages")
+	if !msgs.IsArray() {
+		return nil
+	}
+	var urls []string
+	for _, msg := range msgs.Array() {
+		content := msg.Get("content")
+		switch {
+		case content.IsArray():
+			for _, part := range content.Array() {
+				if raw, ok := volcKimiVideoURLValue(part); ok {
+					urls = append(urls, raw)
+				}
+			}
+		case content.IsObject():
+			if raw, ok := volcKimiVideoURLValue(content); ok {
+				urls = append(urls, raw)
+			}
+		}
+	}
+	return urls
+}
+
+func volcKimiVideoURLValue(part gjson.Result) (string, bool) {
+	video := part.Get("video_url")
+	isVideo := strings.EqualFold(strings.TrimSpace(part.Get("type").String()), "video_url")
+	if !isVideo && !video.Exists() {
+		return "", false
+	}
+	switch {
+	case video.Type == gjson.String:
+		return strings.TrimSpace(video.String()), true
+	case video.IsObject():
+		return strings.TrimSpace(video.Get("url").String()), true
+	default:
+		return "", true
+	}
+}
+
+func defaultProbeVolcKimiVideoURL(ctx context.Context, raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fmt.Errorf("empty video_url")
+	}
+	if strings.HasPrefix(strings.ToLower(raw), "data:") {
+		_, payload, ok := strings.Cut(raw, ",")
+		if !ok || strings.TrimSpace(payload) == "" {
+			return fmt.Errorf("empty data video_url")
+		}
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" {
+		return fmt.Errorf("invalid video_url")
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "https", "http":
+	default:
+		// Supplier-specific schemes such as ms:// are not fetched here.
+		return nil
+	}
+	if urlvalidator.IsBlockedHost(parsed.Hostname()) {
+		return fmt.Errorf("video_url host is not public")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return probeVolcKimiHTTPVideo(ctx, httpclient.NewPublicClient(5*time.Second), raw)
+}
+
+// probeVolcKimiHTTPVideo checks one already-classified public http(s) URL.
+// HEAD is enough when the server answers; 401/403/405/501 fall back to a
+// one-byte ranged GET because some stores reject HEAD while still serving the file.
+func probeVolcKimiHTTPVideo(ctx context.Context, client *http.Client, raw string) error {
+	status, err := volcKimiVideoStatus(ctx, client, http.MethodHead, raw)
+	if err != nil {
+		return err
+	}
+	reachable, retryGET := interpretVolcKimiVideoStatus(status)
+	if reachable {
+		return nil
+	}
+	if !retryGET {
+		return fmt.Errorf("video_url returned %d", status)
+	}
+	status, err = volcKimiVideoStatus(ctx, client, http.MethodGet, raw)
+	if err != nil {
+		return err
+	}
+	if ok, _ := interpretVolcKimiVideoStatus(status); !ok {
+		return fmt.Errorf("video_url returned %d", status)
+	}
+	return nil
+}
+
+func interpretVolcKimiVideoStatus(status int) (reachable bool, retryGET bool) {
+	if status >= 200 && status < 300 {
+		return true, false
+	}
+	switch status {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusMethodNotAllowed, http.StatusNotImplemented:
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func volcKimiVideoStatus(ctx context.Context, client *http.Client, method, raw string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, method, raw, nil)
+	if err != nil {
+		return 0, err
+	}
+	if method == http.MethodGet {
+		req.Header.Set("Range", "bytes=0-0")
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
+	return resp.StatusCode, nil
+}
+
+func normalizeVolcKimiOrphanToolMessages(body []byte) ([]byte, error) {
+	msgs := gjson.GetBytes(body, "messages")
+	if !msgs.IsArray() {
+		return body, nil
+	}
+	ids := make(map[string]struct{})
+	for _, msg := range msgs.Array() {
+		if !strings.EqualFold(msg.Get("role").String(), "assistant") {
+			continue
+		}
+		for _, call := range msg.Get("tool_calls").Array() {
+			id := strings.TrimSpace(call.Get("id").String())
+			if id != "" {
+				ids[id] = struct{}{}
+			}
+		}
+	}
+	shaped := body
+	var err error
+	for i, msg := range msgs.Array() {
+		if !strings.EqualFold(msg.Get("role").String(), "tool") {
+			continue
+		}
+		if _, ok := ids[strings.TrimSpace(msg.Get("tool_call_id").String())]; ok {
+			continue
+		}
+		shaped, err = sjson.SetBytes(shaped, fmt.Sprintf("messages.%d.role", i), "user")
+		if err != nil {
+			return nil, err
+		}
+		shaped, err = sjson.DeleteBytes(shaped, fmt.Sprintf("messages.%d.tool_call_id", i))
+		if err != nil {
+			return nil, err
+		}
+	}
+	return shaped, nil
+}
+
+func normalizeVolcKimiEmptyFunctionNames(body []byte) ([]byte, error) {
+	tools := gjson.GetBytes(body, "tools")
+	if !tools.IsArray() {
+		return body, nil
+	}
+	kept := make([]json.RawMessage, 0, len(tools.Array()))
+	dropped := false
+	for _, tool := range tools.Array() {
+		name := strings.TrimSpace(tool.Get("function.name").String())
+		if tool.Get("function").Exists() && name == "" {
+			dropped = true
+			continue
+		}
+		kept = append(kept, json.RawMessage(tool.Raw))
+	}
+	if !dropped {
+		return body, nil
+	}
+	if len(kept) == 0 {
+		shaped, err := sjson.DeleteBytes(body, "tools")
+		if err != nil {
+			return nil, err
+		}
+		if gjson.GetBytes(shaped, "tool_choice").Exists() {
+			shaped, err = sjson.DeleteBytes(shaped, "tool_choice")
+			if err != nil {
+				return nil, err
+			}
+		}
+		return shaped, nil
+	}
+	encoded, err := json.Marshal(kept)
+	if err != nil {
+		return nil, err
+	}
+	return sjson.SetRawBytes(body, "tools", encoded)
 }
 
 func normalizeVolcKimiThinking(body []byte) ([]byte, error) {
