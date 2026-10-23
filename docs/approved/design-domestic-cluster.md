@@ -8,7 +8,7 @@ risk: high
 provider: ucloud
 ---
 
-> **现状（2026-10-23）**：cn-prod 已迁至**腾讯北京**（身份见 [`deploy/domestic/prod-target.json`](../../deploy/domestic/prod-target.json)）。本文 UCloud 资源、供应与首客章节为首次上线历史；蓝绿发布授权与边界仍有效。UCloud 仅剩 `106.75.29.139` 转发，计划 2026-10-24 退役。
+> **现状（2026-10-23）**：cn-prod 已迁至**腾讯北京**（身份见 [`deploy/domestic/prod-target.json`](../../deploy/domestic/prod-target.json)）。国内长期 HTTPS 入口是 `https://api.galaxywaveai.com`（`154.8.214.179`）。`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前不改这条解析，也不把它写成 `public_origin` 或 `SERVER_FRONTEND_URL`。本文 UCloud 资源、供应与首客章节为首次上线历史；蓝绿发布授权与边界仍有效。UCloud 仅剩 `106.75.29.139` 转发，计划 2026-10-24 退役。
 
 # 已确认的交付范围
 
@@ -16,7 +16,9 @@ provider: ucloud
 2026-10-15 用户同意先将 #2624 对齐 main、复审并合并，再发布 cn-prod。此授权不是
 部署完成证明；本文件的资源、供应与首客章节记录首次上线范围，不用于覆盖后续运营配置。
 
-公共入口 `https://api-cn.tokenkey.dev`。单节点运行共享 Stage0 Compose 的 Caddy、TokenKey、
+首次上线时的公共入口是 `https://api-cn.tokenkey.dev`。该名字现仍暂时指向美西，日后退役；当前国内长期入口见文首现状。
+
+单节点运行共享 Stage0 Compose 的 Caddy、TokenKey、
 PostgreSQL、Redis；仅接入境内 Agent Plan / Token Plan，提供 API key、基础用量统计和 prod
 运营管理面。前端由现有镜像内嵌，不增加前端服务器。无 edge、跨站 relay 或境外上游。
 
@@ -95,8 +97,7 @@ QA 旧路径由应用、鉴权和退役状态裁决。
 
 # DNS、TLS 与验收
 
-仅创建/更新 `api-cn.tokenkey.dev` 的记录。备案事项按用户要求后续考虑；域名/TLS 实际可达性
-必须实测，未验证或被云平台拦截时不得宣布客户可用。
+当前国内长期名字是 `api.galaxywaveai.com`，A 记录指向腾讯北京 `154.8.214.179`。`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前保持现有记录，不把它改到北京。域名与 TLS 必须实测可达后才能交给调用方。
 
 上线验收：
 
