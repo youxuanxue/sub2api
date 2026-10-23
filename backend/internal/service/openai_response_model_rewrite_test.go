@@ -84,7 +84,10 @@ func TestMappedResponseModelForwarding(t *testing.T) {
 							}
 						}
 						require.NoError(t, err)
-						require.Contains(t, rec.Body.String(), want)
+						require.Contains(t, withoutStampedCreatedAt(rec.Body.String()), want)
+						if kind == "responses" {
+							require.Regexp(t, `"created_at":\d+`, rec.Body.String())
+						}
 						require.Equal(t, returned, observedUpstreamResponseModel(c))
 					})
 				}

@@ -1,17 +1,18 @@
 ---
 title: Upstream Merge 2026-10-22 Migration Approval Anchor
-status: approved
+status: shipped
 approved_by: "用户（本会话：同意合并。）"
+approved_at: 2026-10-22
 authors: [tk-upstream-agent]
 created: 2026-10-22
+related_prs: [2796]
+related_commits: [24d136d9da8533c6c094e31e2d90d09990232022]
 ---
 
 # Upstream Merge 2026-10-22: Migration Approval Anchor
 
-Migrations absorbed from `upstream/main@dba770d56` into
-`merge/upstream-2026-10-22` were approved in this session by「同意合并」.
-Do not treat this document as shipped until `status: shipped` and
-`related_prs` / `related_commits` are filled after the merge commit lands.
+Migrations absorbed from `upstream/main@dba770d56` landed on `main` as
+merge commit `24d136d9d` via PR #2796. This session approved that merge.
 
 ## Migrations
 

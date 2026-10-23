@@ -36,16 +36,27 @@ class DomesticBluegreenTest(unittest.TestCase):
         values.update(overrides)
         return values
 
+    def _compose_env(self, **overrides):
+        values = self._pool_env()
+        values.update({
+            'QA_CAPTURE_ENABLED': 'true',
+            'TELEMETRY_ARCHIVE_ENABLED': 'false',
+        })
+        values.update(overrides)
+        return values
+
     def test_candidate_preserves_runtime_and_reuses_only_private_network(self):
         current = fixture()
         service = {'image': 'old',
-                   'environment': {'JWT_SECRET': 'stale', **self._pool_env()},
+                   'environment': {'JWT_SECRET': 'stale', **self._compose_env()},
                    'depends_on': {'postgres': {}}, 'ports': ['18080:8080'],
                    'networks': {'old': {}}, 'volumes': [{'source': '/var/lib/tokenkey/app',
                                                         'target': '/app/data', 'type': 'bind'}]}
         actual = bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-blue')
         app = actual['services']['tokenkey-blue']
         self.assertEqual(app['environment']['JWT_SECRET'], 'literal$${value}')
+        self.assertEqual(app['environment']['QA_CAPTURE_ENABLED'], 'true')
+        self.assertEqual(app['environment']['TELEMETRY_ARCHIVE_ENABLED'], 'false')
         self.assertEqual(app['environment']['GOMEMLIMIT'], '1GiB')
         self.assertEqual(app['volumes'], service['volumes'])
         self.assertEqual(app['image'], 'sha256:new')
@@ -64,7 +75,7 @@ class DomesticBluegreenTest(unittest.TestCase):
         service = {
             'volumes': volumes,
             'environment': {
-                **self._pool_env(GOMEMLIMIT='2GiB'),
+                **self._compose_env(GOMEMLIMIT='2GiB'),
                 'JWT_SECRET': 'stale-must-not-win',
             },
         }
@@ -105,32 +116,64 @@ class DomesticBluegreenTest(unittest.TestCase):
                        {'read_only': True}, {'type': 'volume'}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 bg.candidate_compose(
-                    {'volumes': [volume | change], 'environment': self._pool_env()},
+                    {'volumes': [volume | change], 'environment': self._compose_env()},
                     fixture(), 'sha256:new', 'tokenkey-blue')
         with self.assertRaises(ValueError):
-            bg.candidate_compose({'environment': self._pool_env()}, fixture(),
+            bg.candidate_compose({'environment': self._compose_env()}, fixture(),
                                  'sha256:new', 'tokenkey-blue')
         current = fixture()
         current['Mounts'][0]['Source'] = '/tmp/empty'
         with self.assertRaises(ValueError):
             bg.candidate_compose(
                 {'volumes': [volume | {'source': '/tmp/empty'}],
-                 'environment': self._pool_env()},
+                 'environment': self._compose_env()},
                 current, 'sha256:new', 'tokenkey-blue')
 
-    def test_candidate_refuses_overseas_or_changed_qa_boundary(self):
+    def test_candidate_refuses_overseas_frontend(self):
         service = {
             'volumes': [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}],
-            'environment': self._pool_env(),
+            'environment': self._compose_env(),
         }
-        for replacement in ('SERVER_FRONTEND_URL=https://api.tokenkey.dev',
-                            'QA_CAPTURE_ENABLED=true'):
+        current = fixture()
+        current['Config']['Env'] = [
+            'SERVER_FRONTEND_URL=https://api.tokenkey.dev' if item.startswith('SERVER_FRONTEND_URL=') else item
+            for item in current['Config']['Env']
+        ]
+        with self.assertRaisesRegex(ValueError, 'refusing non-cn-prod'):
+            bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-blue')
+
+    def test_candidate_enables_capture_without_s3_upload(self):
+        current = fixture()
+        current['Config']['Env'].append('TELEMETRY_ARCHIVE_ENABLED=true')
+        service = {
+            'volumes': [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}],
+            'environment': self._compose_env(),
+        }
+        app = bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-blue')[
+            'services']['tokenkey-blue']
+        self.assertEqual(app['environment']['QA_CAPTURE_ENABLED'], 'true')
+        self.assertEqual(app['environment']['TELEMETRY_ARCHIVE_ENABLED'], 'false')
+
+    def test_candidate_rejects_capture_off_archive_upload_and_s3(self):
+        volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
+        with self.assertRaisesRegex(ValueError, 'QA capture must stay enabled'):
+            bg.candidate_compose(
+                {'volumes': volumes, 'environment': self._compose_env(QA_CAPTURE_ENABLED='false')},
+                fixture(), 'sha256:new', 'tokenkey-blue')
+        with self.assertRaisesRegex(ValueError, 'telemetry archive must stay disabled'):
+            bg.candidate_compose(
+                {'volumes': volumes, 'environment': self._compose_env(TELEMETRY_ARCHIVE_ENABLED='true')},
+                fixture(), 'sha256:new', 'tokenkey-blue')
+        for extra, message in (
+            ('QA_ARCHIVE_ENABLED=true', 'QA archive upload must stay disabled'),
+            ('QA_ARCHIVE_STORAGE_DRIVER=s3', 'must not be s3'),
+        ):
             current = fixture()
-            name = replacement.split('=')[0]
-            current['Config']['Env'] = [replacement if v.startswith(name + '=') else v
-                                         for v in current['Config']['Env']]
-            with self.subTest(value=replacement), self.assertRaises(ValueError):
-                bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-blue')
+            current['Config']['Env'].append(extra)
+            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, message):
+                bg.candidate_compose(
+                    {'volumes': volumes, 'environment': self._compose_env()},
+                    current, 'sha256:new', 'tokenkey-blue')
 
     def test_route_resolution_rejects_foreign_or_ambiguous_routes(self):
         caddy = 'api-cn.tokenkey.dev {\n reverse_proxy tokenkey:8080 {\n }\n}\n'

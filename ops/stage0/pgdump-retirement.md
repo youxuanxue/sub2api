@@ -16,7 +16,7 @@
 | `ops-daily-diagnostics.yml` | 使用物理备份 health，缺失/过期/损坏仍告警；沿用传输完整性校验 |
 | 主机 HTTPS watcher / fleet paused_jobs | pgdump 期望 disabled/inactive；意外恢复会告警；物理备份与 WAL 继续监控 |
 | 旧 S3 生命周期 | 取消数据过期，仅保留未完成 multipart 清理；共享模板中的媒体策略不变 |
-| `ops-cn-pgdump.yml` / cn-prod 脚本 | 继续运行；没有已验收的物理替代路径，不在此次退役范围 |
+| `ops-cn-pgdump.yml` / cn-prod 脚本 | **已退役**（2026-10-23）：cn-prod 迁腾讯北京后由 pgBackRest 接管（stanza `tokenkey`，repo `/cn-prod/postgres`）。workflow 改名 `ops-cn-backup-watch.yml`，**保留**每 2 小时调度但改为核验 pgBackRest 回执——它曾是 cn-prod 唯一的备份监控（daily diagnostics 只覆盖 prod），直接删除会让健康的备份无人看守。`CN_PGDUMP_ENABLED=false` 已关；`CN_PGDUMP_BUCKET` 与 S3 历史副本保留。主机本就无 pgdump timer（原由 Actions 远程触发），故关开关即完全停链 |
 | 旧 SQL 导入、解密、存储恢复工具 | 保留，用于历史副本的隔离读取；不再作为 prod 自动灾备主路径 |
 
 ## 执行入口与失败处理
