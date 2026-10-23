@@ -12,7 +12,7 @@
 | 打 tag（含 skip-ci / VERSION 一致 / HEAD==origin/main 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z`（被上行脚本调用；**git 侧必须带 `v`**） |
 | **prod deploy / replay / smoke-only / warm dispatch** | 机械 | `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy\|replay\|smoke-only\|warm --tag X.Y.Z\|vX.Y.Z`（入口剥 `v`；不要手写 `gh workflow run deploy-stage0.yml` / `warm-image-stage0.yml`） |
 | **cn-prod pull / sync-controls / prepare（SSM Hybrid）** | 机械 | `bash deploy/domestic/deploy_via_ssm.sh pull\|sync-controls\|prepare --tag X.Y.Z\|vX.Y.Z …`（身份读 `deploy/domestic/prod-target.json`；默认 S3 校验归档，pull 必传完整 `--revision`；`--transport ghcr` 显式备用；**不要**开 SSH 或 scp 离线 tar） |
-| **cn-prod promote / 候选实测** | 机械 + 判断 | 主机 `bluegreen.py promote`（SSM Run Command / Session Manager）；烟测与 `--public-url` 必须对静态 IP；细则见 `deploy/domestic/README.md` |
+| **cn-prod promote / 候选实测** | 机械 + 判断 | 主机 `bluegreen.py promote`（SSM Run Command / Session Manager）。`--public-url` 必须等于 `deploy/domestic/prod-target.json` 的 `public_origin`；北京网卡地址和 `api-cn.tokenkey.dev` 会被 `post_release.py` 拒绝。细则见 `deploy/domestic/README.md` |
 | release.yml 恢复 dispatch（skip-ci 误伤等） | 机械 | `gh workflow run release.yml -f tag=vX.Y.Z -f simple_release=false`（**git tag 形态，带 `v`**）+ `gh run watch --exit-status` |
 | watch workflow run | 机械 | `gh run watch --exit-status` |
 | **prod pricing registry runtime audit** | 机械 | `ops-daily-diagnostics.yml` 经 `ops/observability/prod-config-audit.sh` 只读执行 `ops/pricing/manage-overlay-runtime.py check`；价格发布独立由 registry 合并到 protected main 后触发 `pricing-registry-publish.yml` |

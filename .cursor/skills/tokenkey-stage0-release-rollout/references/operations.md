@@ -11,6 +11,7 @@
 | `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
 | `operation=replay` | **仅允许 `target=prod`**：以 `STAGE0_BLUEGREEN_STAGE=prepare` 部署 inactive color，再用测试 universal key 对该候选执行完整用例。请求并发与间隔由 host runner 固定；每条用例均生成结果，停止时保留剩余义务。不得调用 promote、Caddy reload；回执交用户审核，不是切流授权。 |
 | `target=prod` | release（必要时 bump/tag/build）→ `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy --tag …`（绑定 **`prod`** Environment）→ prod smoke → **默认** Account model_mapping check。 |
+| `target=cn-prod` | 不走 `dispatch-prod-deploy.sh`。Release 与 `distribute-cn-image.yml` 都成功后，`deploy_via_ssm.sh pull` → `sync-controls` → `prepare`，再在主机上实测并 `bluegreen.py promote`。`prepare` 不切流。`--public-url` 必须等于 `prod-target.json` 的 `public_origin`。promote 换北京活动容器，转发入口一起变。发版不改 DNS，也不改 `public_origin`。`replay` 不能用来切北京。 |
 | `account_model_mapping_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `manage-account-model-mapping-runtime.py check-accounts --json`（默认 prod only），只读 diff prod 显式 `model_mapping` 与 Go SSOT floor/policy metadata。violation 或 SSM/OIDC 失败记 **yellow**，不 rollback 镜像。`account_model_mapping_check=false` 跳过。|
 
 ### 回放与审核
@@ -37,7 +38,7 @@ workflow 上传 `replay-receipt.json` 与 `replay-results.json`；本地入口�
 `replace_receipt`），走 bluegreen owner 的替换门禁。验证结束向用户交付结果、覆盖限制、
 账号类命中、测试 key usage 与线上指纹对比；禁止自动继续 prod deploy、smoke。
 
-如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=prod`。
+如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`，只发腾讯美西。只有用户点名北京或 cn-prod 时才用 `target=cn-prod`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=prod`。
 
 ### 原生 Anthropic 与探针覆盖边界
 

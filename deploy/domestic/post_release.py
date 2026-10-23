@@ -63,13 +63,15 @@ def configure(args, receipt, inspect):
     url = urlsplit(args.public_url)
     if url.scheme != 'https' or url.username or url.password or url.query or url.fragment or url.path not in ('', '/'):
         raise ValueError('public-url must be an HTTPS origin')
-    # cn domain currently serves AWS. Require the actual UCloud static IP so a
-    # green overseas health response cannot stand in for domestic validation.
+    # public_origin is the checked entrance. A domain that points at US prod,
+    # or any other global IP, cannot stand in for that check.
     if not ipaddress.ip_address(url.hostname).is_global or url.port not in (None, 443):
         raise ValueError('domestic public-url must use its public static IP on 443')
     domestic = read_json(asset_source('prod-target.json'))
     if args.public_url.rstrip('/') != domestic['public_origin'].rstrip('/'):
-        raise ValueError('public-url does not match the domestic target manifest')
+        raise ValueError(
+            'public-url does not match the domestic target manifest public_origin '
+            + domestic['public_origin'].rstrip('/'))
     old, target = inspect(receipt['old']), inspect(receipt['target'])
     labels = [item['Config']['Labels'] for item in (old, target)]
     versions = [item['org.opencontainers.image.version'].removeprefix('v') for item in labels]

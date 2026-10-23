@@ -132,7 +132,8 @@ class PostReleaseTest(unittest.TestCase):
 
     def test_rejects_other_public_ip_before_pinning_release(self):
         self.args.public_url = 'https://8.8.8.8'  # valid global IP, not this deployment
-        with self.assertRaisesRegex(ValueError, 'domestic target'):
+        expected = pr.read_json(pr.asset_source('prod-target.json'))['public_origin']
+        with self.assertRaisesRegex(ValueError, 'domestic target manifest public_origin ' + expected):
             self.configure()
         self.assertFalse((self.state / 'post-release').exists())
 
