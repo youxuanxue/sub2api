@@ -54,6 +54,11 @@ func (w *upstreamHeaderFilter) WriteHeaderNow() {
 	w.ResponseWriter.WriteHeaderNow()
 }
 
+func (w *upstreamHeaderFilter) Flush() {
+	w.strip()
+	w.ResponseWriter.Flush()
+}
+
 func (w *upstreamHeaderFilter) Write(p []byte) (int, error) {
 	w.strip()
 	return w.ResponseWriter.Write(p)

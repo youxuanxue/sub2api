@@ -75,3 +75,27 @@ func TestUpstreamHeaderFilterDropsSupplierHeaders(t *testing.T) {
 		t.Fatal("upstream Content-Length leaked")
 	}
 }
+
+func TestUpstreamHeaderFilterStripsOnFlush(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	c.Header("X-Request-Id", "tk-req")
+
+	restore := filterUpstreamResponseHeaders(c)
+	defer restore()
+
+	c.Writer.Header().Set("X-Request-Id", "upstream-req")
+	c.Writer.Header().Set("X-Dashscope-Providerdeployid", "dash-kimi-k3-v0.4")
+	c.Writer.Header().Set("Server", "istio-envoy")
+	c.Writer.Flush()
+
+	h := recorder.Header()
+	if got := h.Get("X-Request-Id"); got != "tk-req" {
+		t.Fatalf("X-Request-Id = %q, want gateway id", got)
+	}
+	if h.Get("X-Dashscope-Providerdeployid") != "" || h.Get("Server") != "" {
+		t.Fatalf("supplier headers leaked on flush: %v", h)
+	}
+}
