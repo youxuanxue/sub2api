@@ -9549,9 +9549,11 @@
         "func (s *OpsAlertEvaluatorService) computeProxyUnreachableCount(ctx context.Context) (float64, bool) {",
         "func (s *OpsAlertEvaluatorService) probeUnreachableProxies(ctx context.Context) ([]proxyUnreachableInfo, bool) {",
         "CountSchedulableActiveByProxyIDs",
-        "context.WithTimeout(context.Background(), proxyUnreachableDialTimeout)"
+        "context.WithTimeout(context.Background(), proxyUnreachableDialTimeout)",
+        "proxyUnreachableDialAttempts   = 3",
+        "if err := dialProxyWithRetry(dial, addr); err != nil {"
       ],
-      "rationale": "proxy_unreachable_count P0 (prod 2026-10-17 jp-us5 / 52.68.182.0:1080): TCP-probe in-use egress proxies from prod so network/ops learn WHICH exit IP died before failover exhaustion becomes user-facing 502. Anchors: compute/probe entrypoints, schedulable+active binding filter (drained proxies stop paging), and dial timeout independent of evaluateOnce's 45s budget (parent-ctx inheritance would false-P0 every proxy late in a heavy cycle). Pairs with evaluator metric case + prod-only gate + tk_104 seed sentinels."
+      "rationale": "proxy_unreachable_count P0 (prod 2026-10-17 jp-us5 / 52.68.182.0:1080): TCP-probe in-use egress proxies from prod so network/ops learn WHICH exit IP died before failover exhaustion becomes user-facing 502. Anchors: compute/probe entrypoints, schedulable+active binding filter (drained proxies stop paging), and dial timeout independent of evaluateOnce's 45s budget (parent-ctx inheritance would false-P0 every proxy late in a heavy cycle). Pairs with evaluator metric case + prod-only gate + tk_104 seed sentinels. 2026-10-23: one round dials each exit up to 3 times and counts it only if all fail (cross-border USW to Beijing SYN loss false-paged P0); anchors pin the attempt count and the probe going through the retry helper."
     },
     {
       "path": "backend/internal/service/ops_alert_evaluator_service.go",

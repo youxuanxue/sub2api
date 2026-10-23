@@ -5,7 +5,9 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -151,6 +153,64 @@ func TestComputeProxyUnreachableCount_CountsDialFailuresOnlyForBoundProxies(t *t
 	require.NotContains(t, cause, "idle")
 	require.Empty(t, users)
 	require.Empty(t, models)
+}
+
+// 跨境链路偶发丢 SYN：一轮内重试成功即不计入，不触发 P0。
+func TestComputeProxyUnreachableCount_TransientDialFailureRecoversWithinRound(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubProxyRepoForUnreachable{
+		proxies: []ProxyWithAccountCount{
+			{Proxy: Proxy{ID: 16, Name: "cn-ip3", Host: "49.233.210.77", Port: 1080, Status: StatusActive}, AccountCount: 8},
+		},
+	}
+	svc := &OpsAlertEvaluatorService{proxyRepo: repo}
+	var mu sync.Mutex
+	calls := 0
+	svc.SetProxyTCPDialForTest(func(context.Context, string, string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		// Two dropped SYNs, then the link answers: must not count.
+		if calls <= 2 {
+			return errors.New("dial tcp 49.233.210.77:1080: i/o timeout")
+		}
+		return nil
+	})
+
+	n, ok := svc.computeProxyUnreachableCount(context.Background())
+	require.True(t, ok)
+	require.Equal(t, 0.0, n)
+	require.Equal(t, 3, calls)
+	require.Empty(t, formatProxyUnreachableCause(svc.loadProxyUnreachableSnapshot()))
+}
+
+// 真宕机：同一轮内全部尝试失败才计入，主因保留最后一次 dial 错误。
+func TestComputeProxyUnreachableCount_PersistentFailureUsesAllAttempts(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubProxyRepoForUnreachable{
+		proxies: []ProxyWithAccountCount{
+			{Proxy: Proxy{ID: 16, Name: "cn-ip3", Host: "49.233.210.77", Port: 1080, Status: StatusActive}, AccountCount: 8},
+		},
+	}
+	svc := &OpsAlertEvaluatorService{proxyRepo: repo}
+	var mu sync.Mutex
+	calls := 0
+	svc.SetProxyTCPDialForTest(func(context.Context, string, string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		return fmt.Errorf("attempt %d: connection refused", calls)
+	})
+
+	n, ok := svc.computeProxyUnreachableCount(context.Background())
+	require.True(t, ok)
+	require.Equal(t, 1.0, n)
+	require.Equal(t, 3, calls)
+	cause := formatProxyUnreachableCause(svc.loadProxyUnreachableSnapshot())
+	require.Contains(t, cause, "cn-ip3 49.233.210.77:1080")
+	require.Contains(t, cause, "attempt 3")
 }
 
 func TestComputeProxyUnreachableCount_AllReachableIsZero(t *testing.T) {
