@@ -57,6 +57,12 @@ func (s *OpenAIGatewayService) resolveOpenAICompactFallbackModel(account *Accoun
 	if account != nil {
 		if mapped, matched := account.ResolveCompactMappedModel(requestedModel); matched {
 			if mapped = strings.TrimSpace(mapped); mapped != "" {
+				// An explicit compact rule is authoritative, but not when its
+				// target is retired on this upstream: a native compact retry
+				// would then be rewritten straight into an upstream 400.
+				if isRetiredOpenAISubscriptionModel(account, mapped) {
+					return ""
+				}
 				return mapped
 			}
 		}
@@ -68,7 +74,15 @@ func (s *OpenAIGatewayService) resolveOpenAICompactFallbackModel(account *Accoun
 	if fallback == "" {
 		return ""
 	}
-	return strings.TrimSpace(resolveOpenAIAccountUpstreamModelForRequest(account, fallback, false))
+	resolved := strings.TrimSpace(resolveOpenAIAccountUpstreamModelForRequest(account, fallback, false))
+	// The process-wide compact fallback is shared by every account. When it
+	// resolves to a model this upstream cannot serve (retired GPT-5.5 on a
+	// ChatGPT account), do not apply it: the compact request keeps its selected
+	// model instead of being rewritten to an upstream 400.
+	if isRetiredOpenAISubscriptionModel(account, resolved) {
+		return ""
+	}
+	return resolved
 }
 
 func isOpenAICompactModelFailure(statusCode int, upstreamMsg string, upstreamBody []byte) bool {

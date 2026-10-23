@@ -221,8 +221,14 @@ func anthropicStreamEventIsTerminal(eventName, data string) bool {
 	return gjson.Get(trimmed, "type").String() == "message_stop"
 }
 
+// cloneStringSlice preserves the nil-versus-empty distinction that the models
+// listing contract depends on: nil means "no configured list, fall back to the
+// default catalog", while a non-nil empty slice means "configured, and nothing
+// in it can be served" (e.g. every entry retired on this pool). Collapsing an
+// empty slice to nil would send an all-retired group back to the default
+// catalog.
 func cloneStringSlice(src []string) []string {
-	if len(src) == 0 {
+	if src == nil {
 		return nil
 	}
 	dst := make([]string, len(src))
@@ -1545,6 +1551,11 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 	if platform == PlatformOpenAI {
 		models = supplementUnmappedOpenAIModels(accounts, models)
+		// Drop entries whose target is retired on every account in the pool. An
+		// all-retired configured list stays an authoritative empty list rather
+		// than falling back to the default catalog: the group really does
+		// advertise nothing it can serve.
+		models = filterRetiredOpenAIModelIDs(accounts, models)
 	}
 
 	if s.modelsListCache != nil {

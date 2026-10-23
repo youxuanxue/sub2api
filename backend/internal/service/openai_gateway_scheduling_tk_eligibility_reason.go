@@ -80,6 +80,17 @@ func openAIRequestEligibilityReason(ctx context.Context, account *Account, reque
 	if !protocolRuntimeAuthorizationReady(ctx, account) {
 		return openAICompatIneligibleAuthorization
 	}
+	// A compact request resolves a different upstream target than a normal one,
+	// so model support must be judged on the compact-resolved model. Both
+	// directions matter: a compact-only mapping onto retired GPT-5.5 must be
+	// refused, and an explicit compact replacement for retired GPT-5.5 must
+	// stay usable even though the non-compact resolution is retired.
+	if requireCompact && account != nil && account.IsOpenAI() {
+		if !supportsOpenAIRequestModel(account, requestedModel, true) {
+			return openAICompatIneligibleModelUnsupported
+		}
+		return openAIRequestEligibilityReasonAfterModelSupport(ctx, account, requestedModel, requireCompact, requiredCapability)
+	}
 	if eligible, reason := protocolRequestEligibilityReason(ctx, account, requestedModel); !eligible {
 		if reason == "model_not_supported" {
 			return openAICompatIneligibleModelUnsupported
@@ -89,6 +100,13 @@ func openAIRequestEligibilityReason(ctx context.Context, account *Account, reque
 		}
 		return openAICompatIneligibleNoLegalRoute
 	}
+	return openAIRequestEligibilityReasonAfterModelSupport(ctx, account, requestedModel, requireCompact, requiredCapability)
+}
+
+// openAIRequestEligibilityReasonAfterModelSupport carries the checks that follow
+// model support, so the compact-resolved branch above can reuse them instead of
+// duplicating the capability and modality gates.
+func openAIRequestEligibilityReasonAfterModelSupport(ctx context.Context, account *Account, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) string {
 	// Multimodal supply gate (Direct OpenAI/newapi scheduler). Universal path
 	// hits the same owner via candidateSupportsRequest.
 	if modality := accountInputModalityRejection(ctx, account, requestedModel); modality != "" {

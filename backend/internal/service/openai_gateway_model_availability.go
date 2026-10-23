@@ -66,7 +66,17 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 		// mapping must match.
 		if accounts[i].IsModelSupported(requestedModel) {
 			diag.HasModelSupport = true
-			return diag
+			continue
+		}
+		// Retirement is reported even when a sibling API-key account can serve
+		// the model, so the 404 body can still carry migration guidance. Do not
+		// return early on the first supporting account: the retired upstream may
+		// come later in the pool.
+		if isRetiredOpenAISubscriptionModel(
+			&accounts[i],
+			resolveOpenAIAccountUpstreamModelForRequest(&accounts[i], requestedModel, false),
+		) {
+			diag.HasRetiredSubscriptionModel = true
 		}
 	}
 	return diag
