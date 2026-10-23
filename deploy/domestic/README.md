@@ -1,6 +1,6 @@
 # 腾讯北京 cn-prod（domestic）
 
-当前应用在腾讯北京 `tokenkey-cn-prod`（`lhins-6qmb3fd6`，`154.8.214.179`）。该实例与 `cn-ip1..4` 到期 **2026-11-22**，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。`106.75.29.139` 仍由 UCloud 持有并只转发 80/443。`api-cn.tokenkey.dev` 继续指向美西，不改。发版和 probe 以 [`prod-target.json`](prod-target.json) 为准。下面的表是 2026-10-14 首次上线记录。
+当前应用在腾讯北京 `tokenkey-cn-prod`（`lhins-6qmb3fd6`，`154.8.214.179`）。该实例与 `cn-ip1..4` 到期 **2026-11-22**，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。`106.75.29.139` 仍由 UCloud 持有并只转发 80/443。`api-cn.tokenkey.dev` 继续指向美西，不改。公网还可以用 `https://api.galaxywaveai.com`，它和静态 IP 共用 `(tk_upstream)`，站点定义在 [`Caddyfile`](Caddyfile)。发版身份仍以 [`prod-target.json`](prod-target.json) 为准，不把这个域名写成 `public_origin` 或 `SERVER_FRONTEND_URL`。下面的表是 2026-10-14 首次上线记录。
 
 逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。北京本机 pgBackRest（stanza `tokenkey`，timer `tokenkey-cn-postgres-backup` / `tokenkey-cn-postgres-archive-check`）在跑，并且本机已恢复过自己的全量。备份验收到此为止，不再另开恢复机，也不从东京仓库再导一份库。
 
