@@ -41,7 +41,7 @@ class DeployViaSsmTest(unittest.TestCase):
         (self.repo / "ops/stage0/validate-deploy-tag.sh").chmod(0o755)
 
         manifest = json.loads(_MANIFEST.read_text())
-        manifest["ssm_instance_id"] = "mi-0efdf781205cff512"
+        manifest["ssm_instance_id"] = "mi-0a1b2c3d4e5f60718"  # fixture; live id is in prod-target.json
         manifest["ssm_region"] = "eu-west-2"
         (self.repo / "deploy/domestic/prod-target.json").write_text(
             json.dumps(manifest, indent=2) + "\n"
@@ -187,7 +187,7 @@ class DeployViaSsmTest(unittest.TestCase):
         proc = self._run("pull", "--tag", "v1.8.306")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         self.assertIn("send-command", self.aws_log.read_text())
-        self.assertIn("mi-0efdf781205cff512", self.aws_log.read_text())
+        self.assertIn("mi-0a1b2c3d4e5f60718", self.aws_log.read_text())
         self.assertIn('"tag": "1.8.306"', proc.stdout)
         self.assertIn("tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf", proc.stdout)
 
