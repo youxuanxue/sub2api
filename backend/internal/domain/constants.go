@@ -150,9 +150,29 @@ var DefaultAntigravityModelMapping = map[string]string{
 }
 
 // antigravityThinkingWireBases lists public Gemini families whose AG upstream
-// catalog exposes -low/-medium/-high wire IDs. These
-// tier IDs are NOT public display names; they exist so explicit model requests
-// and generationConfig.thinkingConfig can select native AG depth.
+// catalog exposes -low/-medium/-high wire IDs. These tier IDs are NOT public
+// display names; they exist so explicit model requests and
+// generationConfig.thinkingConfig can select native AG depth.
+//
+// 2026-10-24: tier selection goes through a PARAMETER, never through the model
+// name -- thinking.type / output_config.effort / thinking.budget_tokens all map
+// to generationConfig.thinkingConfig.thinkingLevel (gemini_compat_thinking.go),
+// which is also how the official Gemini API does it (thinking_level is a
+// parameter). Two reasons the wire IDs stay off the client-facing surface:
+//
+//   - the suffix does not mean what it says. tk_pricing_overlay.json records
+//     gemini-3.5-flash-low as app 'Gemini 3.5 Flash (Medium)' and
+//     gemini-pro-agent as app 'Gemini 3.1 Pro (High)' -- a caller picking -low
+//     by its name would get Medium and be billed Medium;
+//   - one mechanism, not two. A caller choosing depth should not have to decide
+//     between a parameter and a model name that express the same thing.
+//
+// What used to keep them off the public surface was an accident, not a rule:
+// the public catalog projection requires a pricing row and most tier wires have
+// none -- but gemini-3.1-pro-high/-low DO have overlay rows, so pricing any
+// single tier would have published it with no test going red.
+// TestAntigravityThinkingWireModelsNeverPublic now asserts the rule directly,
+// independent of pricing rows.
 var antigravityThinkingWireBases = []string{
 	// 2026-10-23: gemini-3.6-flash retired. Its AG tier wires never served --
 	// model_availability has last_seen_ok_at=NULL for -low/-medium/-high and the
