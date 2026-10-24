@@ -2125,8 +2125,8 @@ func (s *GatewayService) collectSelectionFailureStats(
 			stats.ChannelRestricted++
 		case "model_rate_limited":
 			stats.ModelRateLimited++
-			remaining := acc.GetRateLimitRemainingTimeWithContext(ctx, requestedModel).Truncate(time.Second)
-			stats.SampleRateLimitIDs = appendSelectionFailureRateSample(stats.SampleRateLimitIDs, acc.ID, remaining)
+			remaining, _, reason := acc.ModelRateLimitDiagnosisForRequest(ctx, requestedModel)
+			stats.SampleRateLimitIDs = appendSelectionFailureRateSample(stats.SampleRateLimitIDs, acc.ID, remaining.Truncate(time.Second), reason)
 		case openAIProfitFilterReasonThreshold:
 			stats.ProfitThreshold++
 		case openAIProfitFilterReasonInvalidAccountRate:
@@ -2173,10 +2173,23 @@ func (s *GatewayService) diagnoseSelectionFailure(
 		return selectionFailureDiagnosis{Category: "channel_restricted", Detail: "channel pricing restriction"}
 	}
 	if !s.isAccountSchedulableForModelSelection(ctx, acc, requestedModel) {
-		remaining := acc.GetRateLimitRemainingTimeWithContext(ctx, requestedModel).Truncate(time.Second)
+		// Carry the cooldown's scope and reason, not just its duration. An
+		// upstream 404 pins a cooldown (reason=antigravity_404_model_unavailable)
+		// which empties the pool, and the client then sees a capacity 429 -- with
+		// only "remaining=29m" here, the 404 is invisible in every log line and
+		// triage has to go read accounts.extra->model_rate_limits by hand. The
+		// reason is already recorded; this just stops dropping it.
+		remaining, scope, reason := acc.ModelRateLimitDiagnosisForRequest(ctx, requestedModel)
+		detail := fmt.Sprintf("remaining=%s", remaining.Truncate(time.Second))
+		if scope != "" && scope != requestedModel {
+			detail += " scope=" + scope
+		}
+		if reason != "" {
+			detail += " reason=" + reason
+		}
 		return selectionFailureDiagnosis{
 			Category: "model_rate_limited",
-			Detail:   fmt.Sprintf("remaining=%s", remaining),
+			Detail:   detail,
 		}
 	}
 	if vetoed, reason := openAIProfitControlVetoReason(ctx, acc); vetoed {
@@ -2211,10 +2224,17 @@ func appendSelectionFailureReasonSample(samples []string, accountID int64, reaso
 	return append(samples, fmt.Sprintf("%d(%s)", accountID, reason))
 }
 
-func appendSelectionFailureRateSample(samples []string, accountID int64, remaining time.Duration) []string {
+// appendSelectionFailureRateSample renders one sampled account as
+// id(remaining) or id(remaining:reason). The reason is what tells triage a
+// capacity 429 is really an upstream 404 pinning a cooldown; without it the
+// sample only says how long the wait is, never why.
+func appendSelectionFailureRateSample(samples []string, accountID int64, remaining time.Duration, reason string) []string {
 	const limit = 5
 	if len(samples) >= limit {
 		return samples
+	}
+	if reason = strings.TrimSpace(reason); reason != "" {
+		return append(samples, fmt.Sprintf("%d(%s:%s)", accountID, remaining, reason))
 	}
 	return append(samples, fmt.Sprintf("%d(%s)", accountID, remaining))
 }

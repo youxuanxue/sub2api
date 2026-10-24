@@ -613,3 +613,56 @@ func TestIsAnthropicFableModel(t *testing.T) {
 	require.False(t, isAnthropicFableModel("claude-sonnet-4-6"))
 	require.False(t, isAnthropicFableModel(""))
 }
+
+// 冷却的 reason 必须能被查出来，而且要按「实际生效的 scope」查 —— scope 不是
+// 客户请求的名字，而是映射后的模型或平台级 key。2026-10-23 排查
+// gemini-3.7-flash 时，上游 404 钉下的 reason 在每条日志里都看不到，只剩
+// remaining=29m，导致把「上游已下架」误判成「容量不足」多次。
+func TestModelRateLimitDiagnosisReportsWinningScopeAndReason(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Now()
+
+	// AG 账号：裸名映射到 -high，冷却钉在映射后的名字上。
+	acc := &Account{
+		ID:       228,
+		Platform: PlatformAntigravity,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"gemini-3.7-flash": "gemini-3.7-flash-high"},
+		},
+	}
+	setAccountModelRateLimitSnapshot(acc, "gemini-3.7-flash-high", now.Add(29*time.Minute), "antigravity_404_model_unavailable", now)
+
+	remaining, scope, reason := acc.ModelRateLimitDiagnosisForRequest(ctx, "gemini-3.7-flash")
+	require.Greater(t, remaining, 20*time.Minute)
+	require.Equal(t, "gemini-3.7-flash-high", scope, "scope 必须是映射后的名字，不是请求名")
+	require.Equal(t, "antigravity_404_model_unavailable", reason)
+
+	// 按请求名直接取 reason 会落空 —— 这正是旧代码看不到它的原因。
+	require.Equal(t, "", acc.modelRateLimitReason("gemini-3.7-flash"))
+
+	// reason 可选：有冷却但没记 reason 时，remaining 仍要报出来。
+	bare := &Account{ID: 229, Platform: PlatformAntigravity}
+	setAccountModelRateLimitSnapshot(bare, "gemini-4-argon-high", now.Add(10*time.Minute), "", now)
+	remaining, scope, reason = bare.ModelRateLimitDiagnosisForRequest(ctx, "gemini-4-argon-high")
+	require.Greater(t, remaining, 5*time.Minute)
+	require.Equal(t, "gemini-4-argon-high", scope)
+	require.Equal(t, "", reason, "没记 reason 时为空，不代表没有冷却")
+
+	// 无冷却：三个返回值都是零值。
+	clean := &Account{ID: 230, Platform: PlatformAntigravity}
+	remaining, scope, reason = clean.ModelRateLimitDiagnosisForRequest(ctx, "gemini-3.8-flash")
+	require.Zero(t, remaining)
+	require.Equal(t, "", scope)
+	require.Equal(t, "", reason)
+}
+
+// 样本渲染带上 reason，不带时退回旧格式。
+func TestAppendSelectionFailureRateSampleCarriesReason(t *testing.T) {
+	t.Parallel()
+	got := appendSelectionFailureRateSample(nil, 228, 29*time.Minute, "antigravity_404_model_unavailable")
+	require.Equal(t, []string{"228(29m0s:antigravity_404_model_unavailable)"}, got)
+
+	got = appendSelectionFailureRateSample(nil, 229, 10*time.Minute, "")
+	require.Equal(t, []string{"229(10m0s)"}, got)
+}

@@ -47,8 +47,8 @@ func (s *OpenAIGatewayService) collectOpenAICompatSelectionFailureStatsForReques
 			stats.SampleMappingIDs = appendSelectionFailureSampleID(stats.SampleMappingIDs, acc.ID)
 		case "model_rate_limited":
 			stats.ModelRateLimited++
-			remaining := acc.GetRateLimitRemainingTimeWithContext(ctx, requestedModel).Truncate(0)
-			stats.SampleRateLimitIDs = appendSelectionFailureRateSample(stats.SampleRateLimitIDs, acc.ID, remaining)
+			remaining, _, reason := acc.ModelRateLimitDiagnosisForRequest(ctx, requestedModel)
+			stats.SampleRateLimitIDs = appendSelectionFailureRateSample(stats.SampleRateLimitIDs, acc.ID, remaining.Truncate(0), reason)
 		case "unschedulable":
 			stats.Unschedulable++
 			// Carry the naming reason, not just the count: this bucket absorbs every
