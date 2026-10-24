@@ -134,7 +134,10 @@ class QueueTest(unittest.TestCase):
         self.assertEqual(api.writes, [])
         self.publish(api, [candidate()])
         self.publish(api, [], resolved={REPO + "#1"})
-        self.assertIn("- [x]", api.comments[0]["body"])
+        # A settled task leaves the queue instead of staying as a struck-through
+        # line; the audit trail lives in the ledger and in git.
+        self.assertNotIn(REPO + "#1", api.comments[0]["body"])
+        self.assertNotIn("- [x]", api.comments[0]["body"])
         self.assertEqual(api.issues[0]["state"], "closed")
         api.calls.clear()
         self.publish(api, [candidate()], resolved={REPO + "#1"})
@@ -160,6 +163,35 @@ class QueueTest(unittest.TestCase):
         self.publish(api, [candidate(state="closed"), candidate(2, kind="pr", state="closed", merged_at="2026-10-21T00:00:00Z")])
         self.assertIn("当前待处理：2", api.issues[0]["body"])
         self.assertEqual(api.issues[0]["state"], "open")
+
+    def test_queue_retires_our_verdicts_only_and_keeps_upstream_fixes_visible(self):
+        """The Issue is a queue of what WE still owe, so it must shrink on our own
+        verdict and never on the upstream's. An upstream fix is precisely the case
+        where TokenKey may still be missing that behavior."""
+        api = FakeGitHub()
+        upstream_done = candidate(2, kind="pr", state="closed", merged_at="2026-10-21T00:00:00Z")
+        self.publish(api, [candidate(), upstream_done, candidate(3)])
+        self.assertIn("当前待处理：3", api.issues[0]["body"])
+
+        # Our own checkbox retires a task and removes it from the queue.
+        api.comments[0]["body"] = api.comments[0]["body"].replace(
+            "- [ ] [example/relay#1]", "- [x] [example/relay#1]")
+        self.publish(api, [])
+        body = api.comments[0]["body"]
+        self.assertNotIn("example/relay#1", body)
+        self.assertNotIn("- [x]", body)
+
+        # The upstream-merged PR stays in the queue: nobody on our side judged it.
+        self.assertIn("example/relay#2", body)
+        self.assertIn("example/relay#3", body)
+        self.assertIn("当前待处理：2", api.issues[0]["body"])
+
+        # A recorded fix judgment also retires one, and replays stay idempotent.
+        self.publish(api, [], resolved={REPO + "#3"})
+        self.assertNotIn("example/relay#3", api.comments[0]["body"])
+        api.calls.clear()
+        self.publish(api, [upstream_done], resolved={REPO + "#3"})
+        self.assertEqual(api.writes, [])
 
     def test_upstream_title_is_data_and_task_remains_a_markdown_checkbox(self):
         api = FakeGitHub()
@@ -284,17 +316,25 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(state["cursor"], NOW.isoformat())
         self.assertIn("--paginate", calls[0])
 
-    def test_bootstrap_includes_old_open_issues_and_recent_merged_prs(self):
+    def test_first_scan_takes_the_lookback_window_not_the_whole_open_backlog(self):
+        """A full-backlog bootstrap mirrored thousands of upstream issues into the
+        tracking Issue. Only the lookback window may admit work."""
+        queried = []
+
         def api(*args):
             endpoint = args[-1]
+            queried.append(endpoint)
             if "/comments?" in endpoint:
                 return [[]]
             if parse_qs(urlparse(endpoint).query).get("state") == ["open"]:
-                return [[upstream_issue(1, updated_at="2020-01-01T00:00:00Z")]]
+                raise AssertionError("first scan must not pull the whole open backlog")
             return [[upstream_issue(2, state="closed", pull_request={"merged_at": "2026-10-20T00:00:00Z"})]]
         _, findings = mod.collect(REPO, None, NOW, api=api)
-        self.assertEqual([row["number"] for row in findings], [1, 2])
-        self.assertEqual(findings[1]["merged_at"], "2026-10-20T00:00:00Z")
+        self.assertEqual([row["number"] for row in findings], [2])
+        # An upstream merge still reaches us: it is the case where TokenKey may be
+        # missing that behavior, so it must stay visible rather than be filtered.
+        self.assertEqual(findings[0]["merged_at"], "2026-10-20T00:00:00Z")
+        self.assertTrue(any("since=" in url for url in queried))
 
     def test_platform_assignment_change_replays_before_acknowledging(self):
         with tempfile.TemporaryDirectory() as tmp:

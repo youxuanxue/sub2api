@@ -126,22 +126,23 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
             latest[ref] = (signature, status, checked, updated)
             if checked.lower() == "x" and status == "pending":
                 manual.add(ref)
-    fixed = resolved | manual
-    # Update task state before appending anything; retries remain idempotent.
+    # The queue holds what WE still have to act on, so a task leaves it only on our
+    # own verdict: a checkbox, or a recorded fix judgment. Upstream closing or
+    # merging never retires one -- an upstream fix is exactly the case where
+    # TokenKey may still be missing that behavior. Git keeps the audit trail; an
+    # Issue that also kept every retired task grows without bound and stops being read.
+    retired = resolved | manual
+    # Retire before appending anything; retries remain idempotent.
     for comment in owned:
-        def finish(match):
-            if match[3] not in fixed:
-                return match[0]
-            status = "fixed" if match[3] in resolved else "pending"
-            return f"- [x] {match[2]} <!-- watchdog-item:{match[3]} {match[4]} {status} {match[6]} -->"
-        body = RECORD.sub(finish, comment.get("body") or "")
+        body = RECORD.sub(lambda m: "" if m[3] in retired else m[0], comment.get("body") or "")
+        body = re.sub(r"\n{3,}", "\n\n", body).rstrip() + "\n"
         if body != comment.get("body"):
             api("api", "--method", "PATCH", f"repos/{target}/issues/comments/{comment['id']}", payload={"body": body})
             comment["body"] = body
     additions = []
     for item in sorted(items, key=lambda item: item["upstream"]):
         ref = item["upstream"]
-        if ref in fixed:
+        if ref in retired:
             continue
         signature = hashlib.sha256(json.dumps({k: item.get(k) for k in
             ("title", "updated_at", "state", "merged_at")}, sort_keys=True).encode()).hexdigest()[:16]
@@ -167,8 +168,9 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
     today = [c for c in owned if f"<!-- watchdog-day:{day}:" in c["body"]]
     commented = 0
     while additions:
-        # New findings are appended as publication records.  This preserves the
-        # human text and gives every daily refresh a durable audit trail.
+        # New findings are appended as a dated batch, preserving human text.
+        # Retired tasks are removed rather than struck through, so the Issue stays
+        # a readable queue of open work instead of an ever-growing mirror.
         body = f"<!-- watchdog-day:{day}:{len(today) + 1} -->\n{day} 新增及更新\n\n"
         chunk = []
         while additions and len((body + "\n" + "\n".join(chunk + [additions[0]])).encode()) < COMMENT_LIMIT:
@@ -180,10 +182,10 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
         today.append(current)
         commented += 1
     pending = len({ref for ref, (_, status, checked, _) in latest.items()
-                   if ref not in fixed and status != "fixed" and checked.lower() != "x"})
+                   if ref not in retired and status != "fixed" and checked.lower() != "x"})
     body = managed_body(issue.get("body") or "", f"每日追加新增及更新评论；{platform} 来源共用此 Issue。\n"
-                        "修复后勾选对应任务或更新修复账本；已完成条目不再进入待处理集合。\n"
-                        "上游关闭或 PR 合并不代表 TokenKey 已解决。\n\n"
+                        "勾选即从队列移除；判断理由与修复证据记在 ledger 与 commit，不留在本单。\n"
+                        "上游关闭或 PR 合并不代表 TokenKey 已解决，条目仍留在队列里。\n\n"
                         f"当前待处理：{pending} 条。完成全部条目后自动关闭；新问题复用同一 Issue。")
     changes = {}
     if body != issue.get("body"):
