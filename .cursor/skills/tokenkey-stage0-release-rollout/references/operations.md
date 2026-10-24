@@ -40,6 +40,23 @@ workflow 上传 `replay-receipt.json` 与 `replay-results.json`；本地入口�
 
 如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`，只发腾讯美西。只有用户点名北京或 cn-prod 时才用 `target=cn-prod`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=prod`。
 
+### 候选实测的模型集合与证据纪律
+
+候选用例的模型**必须先从候选自己的 `/v1/models`（带测试 key）取**，再从中挑。
+两地可见集合不同：cn-prod 的测试 key 只看得到国内模型（qwen / deepseek / glm / kimi 等），
+照抄美西的 `claude-*` / `gemini-*` 会整轮拿 `Unsupported model` 白跑。
+
+没真正执行到的用例不得记 `passed`。被账号供给挡在入口前（如 `no_available_accounts`）
+说明该路径未被验证，要换一个该 key 可用且账号健康的模型重测，拿到真实响应再下结论；
+确实无法执行的，按原因逐条保留在 `cases` 里，不删分母。
+可疑失败先对现役色跑同一用例做 A/B：两色同样失败即供给侧既有问题，不是本次回归。
+
+### cn-prod 切流后的 model_mapping 证据
+
+`check-accounts --target cn-prod` 是 cn-prod 发版的必需证据，身份取自
+`deploy/domestic/prod-target.json`。不要用 `--prod-instance-id` 旁路（回执 label 仍是
+`prod`），也不要用美西结果代替。
+
 ### 原生 Anthropic 与探针覆盖边界
 
 旧 Anthropic snapshot/check CLI 已退役，不再作为发布默认检查。

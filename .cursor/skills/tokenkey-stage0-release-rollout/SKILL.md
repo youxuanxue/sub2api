@@ -33,6 +33,7 @@ release、目标解析、canary 选择、rollout、smoke/post-check verdict 均�
    `Check traffic and 5xx after 5 minutes`、`### Traffic / 5xx (+5 min)`（含
    completed requests / top paths）。
 4. Prod smoke 后 advisory：`check-account-group-bindings.sh` 只读检查每个健康、可调度且有显式 `model_mapping` 的账号；无 active group 时输出 `review`；与同模型 peer 分组不相交及无 peer 的账号模型项只作提示，不能据此补授权或绑组。workflow 必须保持 `continue-on-error`。
+5. **切流后 model_mapping advisory 按目标各跑一次**：`manage-account-model-mapping-runtime.py check-accounts --json --target prod|cn-prod`（`--target all` 一次覆盖两地）。cn-prod 身份取自 `deploy/domestic/prod-target.json`，是一等目标，不要再用 `--prod-instance-id` 旁路钉 cn-prod 实例（那样回执 label 仍是 `prod`，与真 prod 无法区分）。cn-prod 发版同样要有这项证据，不能只拿美西的结果代替。violation 或 SSM 失败记 yellow，不 rollback 镜像。
 
 Tag 域 SSOT：git / `release.yml` 用 `vX.Y.Z`；deploy/warm 镜像 input 用裸 `X.Y.Z`。本地入口经 `normalize-deploy-tag.sh`，可传两种形态。
 

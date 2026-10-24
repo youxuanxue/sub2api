@@ -329,10 +329,55 @@ def _resolve_prod_target(prod_instance_id: str | None = None) -> tuple[str, str,
     return ("prod", _SSM.PROD_REGION, instance_id)
 
 
+CN_PROD_MANIFEST = REPO_ROOT / "deploy" / "domestic" / "prod-target.json"
+
+
+def _resolve_cn_prod_target() -> tuple[str, str, str]:
+    """Return ``(label, ssm_region, instance_id)`` for Tencent Beijing cn-prod.
+
+    Identity comes from the domestic deploy manifest, the same file
+    ``deploy/domestic/deploy_via_ssm.sh`` reads, so this check can never drift
+    onto a different host than the one releases are deployed to.
+    """
+    try:
+        manifest = json.loads(CN_PROD_MANIFEST.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        fail(f"cn-prod manifest not found: {CN_PROD_MANIFEST}")
+    except json.JSONDecodeError as exc:
+        fail(f"cn-prod manifest is not valid JSON: {exc}")
+    instance_id = _normalize_instance_id(
+        manifest.get("ssm_instance_id"), "cn-prod ssm_instance_id"
+    )
+    if instance_id is None:
+        fail("cn-prod manifest has no ssm_instance_id")
+    region = str(manifest.get("ssm_region") or "").strip()
+    if not re.match(r"^[a-z0-9-]+$", region):
+        fail(f"cn-prod manifest has an invalid ssm_region: {region!r}")
+    return ("cn-prod", region, instance_id)
+
+
 def _resolve_check_targets(
     prod_instance_id: str | None = None,
+    target: str = "prod",
 ) -> list[tuple[str, str, str]]:
-    return [_resolve_prod_target(prod_instance_id)]
+    """Resolve read-only check targets.
+
+    cn-prod is a first-class target, not a ``--prod-instance-id`` pin: pinning
+    returned the label ``prod``, so a cn-prod report was indistinguishable from
+    an actual prod one, and nothing required cn-prod to be checked at all.
+    """
+    normalized = target.strip().lower()
+    if normalized == "prod":
+        return [_resolve_prod_target(prod_instance_id)]
+    if normalized == "cn-prod":
+        if prod_instance_id:
+            fail("--prod-instance-id is only valid with --target prod")
+        return [_resolve_cn_prod_target()]
+    if normalized == "all":
+        if prod_instance_id:
+            fail("--prod-instance-id is only valid with --target prod")
+        return [_resolve_prod_target(None), _resolve_cn_prod_target()]
+    fail("--target must be prod, cn-prod or all")
 
 
 def _resolve_apply_targets(
@@ -1458,9 +1503,11 @@ def _account_check_report(
     *,
     parallel: int,
     prod_instance_id: str | None = None,
+    target: str = "prod",
 ) -> dict[str, Any]:
     targets = _resolve_check_targets(
                 prod_instance_id=_normalize_instance_id(prod_instance_id, "--prod-instance-id"),
+                target=target,
     )
     violations: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
@@ -1555,6 +1602,7 @@ def cmd_check_accounts(args) -> int:
     report = _account_check_report(
                 parallel=args.parallel,
         prod_instance_id=getattr(args, "prod_instance_id", None),
+        target=getattr(args, "target", "prod"),
     )
     target_count = report["target_count"]
     errors = report["errors"]
@@ -2596,6 +2644,30 @@ def cmd_selftest(_args) -> int:
                 prod_instance_id="mi-00000000000000000",
     )
     assert len(prod_only) == 1 and prod_only[0][0] == "prod"
+    # cn-prod must be labelled as itself. Checking it through
+    # --prod-instance-id used to report label "prod", so a cn-prod report was
+    # indistinguishable from a real prod one in release evidence.
+    cn_only = _resolve_check_targets(target="cn-prod")
+    assert len(cn_only) == 1 and cn_only[0][0] == "cn-prod", cn_only
+    cn_manifest = json.loads(CN_PROD_MANIFEST.read_text(encoding="utf-8"))
+    assert cn_only[0][2] == cn_manifest["ssm_instance_id"], cn_only
+    assert cn_only[0][1] == cn_manifest["ssm_region"], cn_only
+    both = _resolve_check_targets(target="all")
+    assert [t[0] for t in both] == ["prod", "cn-prod"], both
+    assert len({t[2] for t in both}) == 2, both
+    for bad_target in ("bogus", "", "cn_prod"):
+        try:
+            _resolve_check_targets(target=bad_target)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError(f"target {bad_target!r} should be refused")
+    try:
+        _resolve_check_targets(target="cn-prod", prod_instance_id="mi-00000000000000000")
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("--prod-instance-id must not apply to cn-prod")
     violation_report = {"violation_count": 1, "error_count": 0, "violations": [{"kind": "account"}]}
     runtime_violation_report = {
         "violation_count": 1,
@@ -3231,8 +3303,9 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod")
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
-    sp = sub.add_parser("check-accounts", help="post-release read-only account model_mapping SSOT diff (prod only by default)")
+    sp = sub.add_parser("check-accounts", help="post-release read-only account model_mapping SSOT diff (prod, cn-prod or all)")
     sp.add_argument("--json", action="store_true", help="machine-readable output")
+    sp.add_argument("--target", default="prod", help="prod (default), cn-prod, or all")
     sp.add_argument("--prod-instance-id", help="use this prod EC2 instance id instead of resolving the prod stack")
     sp.add_argument("--bundle", help="generated model-surface bundle to check against")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")

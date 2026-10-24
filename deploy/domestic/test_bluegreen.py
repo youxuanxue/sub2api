@@ -47,6 +47,54 @@ class DomesticBluegreenTest(unittest.TestCase):
         values.update(overrides)
         return values
 
+    def test_exited_candidate_name_is_reclaimed_so_every_release_is_unattended(self):
+        """promote() keeps the outgoing color's name, so the next release always
+        finds a stopped container there. Reclaiming it is what keeps cn-prod
+        releases from needing a manual `docker rm` every single time."""
+        calls = []
+
+        def fake_run(*args):
+            calls.append(args)
+            if args[:3] == ('docker', 'ps', '-a'):
+                return 'deadbeefcafe1234 exited\n'
+            return ''
+
+        with patch.object(bg, 'run', side_effect=fake_run):
+            bg.reclaim_candidate_name('tokenkey-green')
+        self.assertIn(('docker', 'rm', 'deadbeefcafe1234'), calls)
+
+    def test_running_candidate_name_is_never_removed(self):
+        """A live or in-flight container on that name must survive: removing it
+        would cut traffic. Only an exited one is the prior release's leftover."""
+        for state in ('running', 'restarting', 'paused'):
+            with self.subTest(state=state):
+                removals = []
+
+                def fake_run(*args):
+                    if args[:3] == ('docker', 'ps', '-a'):
+                        return f'abc123456789 {state}\n'
+                    if args[:2] == ('docker', 'rm'):
+                        removals.append(args)
+                    return ''
+
+                with patch.object(bg, 'run', side_effect=fake_run):
+                    with self.assertRaises(ValueError) as caught:
+                        bg.reclaim_candidate_name('tokenkey-green')
+                self.assertIn(state, str(caught.exception))
+                self.assertEqual(removals, [])
+
+    def test_absent_candidate_name_removes_nothing(self):
+        removals = []
+
+        def fake_run(*args):
+            if args[:2] == ('docker', 'rm'):
+                removals.append(args)
+            return ''
+
+        with patch.object(bg, 'run', side_effect=fake_run):
+            bg.reclaim_candidate_name('tokenkey-green')
+        self.assertEqual(removals, [])
+
     def test_candidate_preserves_runtime_and_reuses_only_private_network(self):
         current = fixture()
         service = {'image': 'old',
