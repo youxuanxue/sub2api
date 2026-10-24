@@ -153,80 +153,15 @@ class WatchdogFlowTest(unittest.TestCase):
         self.assertIn(item["upstream"], api.comments[0]["body"])
         with patch.object(mod, "resolved_refs", return_value={item["upstream"]}):
             mod.sync_issues(source, report, "example/fork", api, entries=[item])
-        self.assertIn("- [x]", api.comments[0]["body"])
+        # Settled work leaves the queue; it is not kept as a struck-through line.
+        self.assertNotIn(item["upstream"], api.comments[0]["body"])
         self.assertEqual(api.issues[0]["state"], "closed")
-
-    def test_settled_relay_refs_stay_resolved_without_anchors(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            directory = root / "ops/issue-watchdog"
-            directory.mkdir(parents=True)
-            settled = directory / "relay-settled.txt"
-            settled.write_text("# comment\n\nQuorinex/Kiro-Go#114  # covered\n")
-            with patch.object(mod.ledger, "load_ledger", return_value=[]):
-                self.assertEqual(mod.resolved_refs(root), {"Quorinex/Kiro-Go#114"})
-            settled.write_text("not-a-ref\n")
-            with patch.object(mod.ledger, "load_ledger", return_value=[]):
-                with self.assertRaisesRegex(ValueError, "expected owner/repo#n"):
-                    mod.resolved_refs(root)
-
-    def test_not_applicable_scope_is_required_and_confines_multi_platform_repos(self):
-        multi, single = "router-for-me/CLIProxyAPI", "HanaokaYuzu/Gemini-API"
-        manifest = {"version": 1, "sources": [
-            {"repo": multi, "platforms": ["openai", "google"], "focus": ""},
-            {"repo": single, "platforms": ["google"], "focus": ""}]}
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            directory = root / "ops/issue-watchdog"
-            directory.mkdir(parents=True)
-            (directory / "relays.json").write_text(json.dumps(manifest))
-            settled = directory / "relay-settled.txt"
-
-            # A google triage cannot silently settle the openai tracking Issue.
-            settled.write_text(f"{multi}#1  # [google] TK不适用：非 Google 平台\n")
-            self.assertEqual(mod.settled_refs(root, platform="google"), {f"{multi}#1"})
-            self.assertEqual(mod.settled_refs(root, platform="openai"), set())
-
-            # TK已覆盖 is a TokenKey-side fact, so it holds for every platform.
-            settled.write_text(f"{multi}#2  # TK已覆盖：TestSomething\n")
-            for platform in ("google", "openai"):
-                self.assertEqual(mod.settled_refs(root, platform=platform), {f"{multi}#2"})
-
-            # A single-platform repository needs no scope.
-            settled.write_text(f"{single}#3  # TK不适用：对方仓库 CI/依赖升级\n")
-            self.assertEqual(mod.settled_refs(root, platform="google"), {f"{single}#3"})
-
-            # An untagged not-applicable line for a multi-platform repository fails.
-            settled.write_text(f"{multi}#4  # TK不适用：非 Google 平台\n")
-            with self.assertRaisesRegex(ValueError, "needs a .platform. scope"):
-                mod.settled_refs(root, platform="google")
-
-            # A scope the manifest does not track for that repository fails.
-            settled.write_text(f"{single}#5  # [openai] TK不适用：非 Google 平台\n")
-            with self.assertRaisesRegex(ValueError, "not tracked by openai"):
-                mod.settled_refs(root, platform="google")
-
-            # Duplicates stay rejected even when the scopes differ.
-            settled.write_text(f"{multi}#6  # [google] TK不适用：x\n"
-                               f"{multi}#6  # [openai] TK不适用：y\n")
-            with self.assertRaisesRegex(ValueError, "duplicate"):
-                mod.settled_refs(root, platform="google")
-
-    def test_shipped_settled_ledger_scopes_every_tracked_platform(self):
-        for platform in ("kiro", "openai", "google", "upstream"):
-            self.assertIsInstance(mod.settled_refs(platform=platform), set)
-        google = mod.settled_refs(platform="google")
-        openai = mod.settled_refs(platform="openai")
-        self.assertTrue(google - openai)
-        self.assertNotIn("router-for-me/CLIProxyAPI#6622", openai)
-        self.assertIn("router-for-me/CLIProxyAPI#6622", google)
 
     def test_resolutions_use_grouped_refs_and_revoke_missing_anchors(self):
         source = mod.SOURCES["upstream"]
         entry = {"upstream": source["repo"] + "#1, #2", "fixed_if_all_present": ["fixed.py:proof"]}
         with (patch.dict(mod.ledger.SOURCES, {"upstream": source}, clear=True),
               patch.object(mod.ledger, "load_ledger", return_value=[entry]),
-              patch.object(mod, "settled_refs", return_value=set()),
               patch.object(mod.engine, "check_fact", return_value={"ok": True})):
             self.assertEqual(mod.resolved_refs(), {source["repo"] + "#1", source["repo"] + "#2"})
             with patch.object(mod.engine, "check_fact", return_value={"ok": False}):

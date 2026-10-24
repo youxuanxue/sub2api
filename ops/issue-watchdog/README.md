@@ -59,23 +59,21 @@ and lifecycle remain independent in each platform Issue.
 Both workflows use a serialized writer.
 
 A checked task records a local resolution or dismissal (add a reason/fix PR in
-plain text). Both already-covered and not-applicable refs, independent of that
-Issue remaining open, live in `relay-settled.txt`: one `owner/repo#n` per line,
-with an optional `#` note (`TK已覆盖` or `TK不适用`). `settled_refs()` reads it,
-`resolved_refs()` folds it in, and both kinds are dropped before a later tracking
-Issue is written. A `TK不适用` judgment belongs to the triaging platform, so for a
-repository that `relays.json` tracks under several platforms the line must name
-that scope (`# [google] TK不适用：…`); an untagged one is rejected rather than
-silently closing the same ref in a platform whose own triage never reviewed it.
-`TK已覆盖` is a TokenKey-side fact and holds for every platform. Delete a line to
-admit that ref again. Merged ledger
-judgments and valid recorded fix anchors also remove
-entries from the pending set and check their historical tasks. If those anchors
-are revoked, a newly scanned affected entry returns to pending. Upstream closure,
-PR merge, disappearance from an incremental scan, and cache expiry do not prove a
-TokenKey fix. All tasks resolved closes the aggregate; new pending tasks reopen
-that same Issue. Fix PRs must reference it without a GitHub closing keyword.
-The initial existing watchdog scan backfills its relevant open-issue backlog.
+plain text) and then **leaves the queue**: the tracking Issue holds only what
+TokenKey still owes, so a settled task is removed rather than kept as a
+struck-through line. The audit trail lives in git -- the ledger entry and the fix
+commit say who judged what and why, which a crossed-out comment line cannot.
+
+Only our own verdict retires a task: a checkbox, or a recorded fix judgment with
+resolving anchors. Upstream closure and PR merge never do. An upstream merge is a
+parity lead, not a resolution -- it is exactly the case where TokenKey may still
+be missing that behavior -- so it stays in the queue and is also listed under
+`upstream_fixes` in the scan report for a focused parity check.
+
+The first scan of a source takes the lookback window only. There is no
+full-backlog bootstrap: mirroring every open upstream issue once produced a
+thousands-strong tracking Issue that nobody read, which defeats the point of
+having a queue.
 
 The source catalog is `relays.json`: it owns repository identity, platform tags
 and monitoring purpose. `Relay Implementation Watch` scans daily;

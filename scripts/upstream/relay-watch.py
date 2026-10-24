@@ -59,11 +59,9 @@ def collect(repo, previous, started, lookback_days=30, api=watchdog.gh):
     since = (cursor - timedelta(minutes=5)).isoformat()
     params = {"state": "all", "sort": "updated", "direction": "desc", "per_page": 100, "since": since}
     pages = api("api", "--paginate", "--slurp", f"repos/{repo}/issues?{urlencode(params)}")
-    # Bootstrap all unresolved issues/PRs as well as the recent closed/merged
-    # window. A quiet old account bug must not disappear from initial tracking.
-    if previous is None:
-        pages += api("api", "--paginate", "--slurp",
-                     f"repos/{repo}/issues?{urlencode({'state': 'open', 'per_page': 100})}")
+    # No full-backlog bootstrap: mirroring every open upstream issue once turned the
+    # tracking Issue into a thousands-strong mirror nobody reads. The lookback window
+    # is the only entry point, so the queue only ever holds recent, real leads.
     # Issue comments have their own updated cursor: edited comments can contain the
     # first relevant evidence even when the issue title/body has no matching terms.
     comment_pages = api("api", "--paginate", "--slurp",
@@ -112,17 +110,20 @@ def scan_source(repo, work, checkpoint, target="", lookback_days=30, api=watchdo
     state["platforms"] = list(platforms)
     work.mkdir(parents=True, exist_ok=True)
     grouped = platform_findings(findings, platforms)
+    # An upstream merge is a parity lead, not a resolution: it is exactly where
+    # TokenKey may be missing that behavior. It stays in the queue AND is listed
+    # here so a reviewer can check our side without reading the whole report.
+    upstream_fixes = [item for item in findings if item.get("merged_at")]
     report = {"repo": repo, "platforms": list(platforms), "scanned_at": state["cursor"], "findings": findings,
+              "upstream_fixes": upstream_fixes,
               "status": "candidates_unverified", "sync": None}
     (work / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     if target:
         sync = {}
+        resolved = watchdog.resolved_refs()
         for platform, items in grouped.items():
-            # A platform-scoped settlement must not close that ref in a platform
-            # whose own triage never reviewed it.
             sync[platform] = watchdog.queue.sync_queue(
-                repo, items, target, api, resolved=watchdog.resolved_refs(platform=platform),
-                platform=platform)
+                repo, items, target, api, resolved=resolved, platform=platform)
         report["sync"] = sync
         (work / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         checkpoint.parent.mkdir(parents=True, exist_ok=True)
@@ -159,7 +160,8 @@ def main():
         try:
             report = scan_source(repo, args.work / key, args.checkpoint_dir / f"{key}.json",
                                  args.sync_repo, args.lookback_days, platforms=platforms)
-            print(f"{repo}: candidates={len(report['findings'])}; sync={report['sync']}")
+            print(f"{repo}: candidates={len(report['findings'])}; "
+                  f"upstream_fixes={len(report['upstream_fixes'])}; sync={report['sync']}")
         except Exception as error:
             failures.append(repo)
             args.work.mkdir(parents=True, exist_ok=True)
