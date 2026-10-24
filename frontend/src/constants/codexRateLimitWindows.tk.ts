@@ -34,6 +34,25 @@ import type {
 /** Any window whose declared size is ≤ this is treated as the short (5h) bucket. */
 const FIVE_HOUR_MAX_SECONDS = 6 * 60 * 60
 
+/**
+ * Windows longer than this are a monthly (30d) quota, not the weekly bucket.
+ * 7d is 10080 minutes; Team 30d is 43200 minutes (Soju06/codex-lb#1367).
+ */
+const WEEKLY_MAX_SECONDS = 14 * 24 * 60 * 60
+
+const MONTHLY_MIN_MINUTES = (14 * 24 * 60)
+
+/** Label a canonical 5h/7d slot from its declared length. A 30d window must not read as 5h or 7d. */
+export function codexQuotaWindowLabel(
+  windowMinutes: number | null | undefined,
+  slot: '5h' | '7d'
+): string {
+  if (typeof windowMinutes === 'number' && Number.isFinite(windowMinutes) && windowMinutes > MONTHLY_MIN_MINUTES) {
+    return '30d'
+  }
+  return slot
+}
+
 export interface NormalizedCodexLimitWindow {
   /** Consumed percent (0–100+), as returned by upstream `used_percent`. */
   usedPercent: number
@@ -50,6 +69,7 @@ export interface NormalizedCodexAdditionalLimit {
   limitReached: boolean
   fiveHour: NormalizedCodexLimitWindow | null
   weekly: NormalizedCodexLimitWindow | null
+  monthly: NormalizedCodexLimitWindow | null
 }
 
 /**
@@ -81,48 +101,60 @@ function toDisplayWindow(
 function classifyWindows(
   primary: OpenAIRateLimitWindow | null | undefined,
   secondary: OpenAIRateLimitWindow | null | undefined
-): { fiveHour: OpenAIRateLimitWindow | null; weekly: OpenAIRateLimitWindow | null } {
+): {
+  fiveHour: OpenAIRateLimitWindow | null
+  weekly: OpenAIRateLimitWindow | null
+  monthly: OpenAIRateLimitWindow | null
+} {
   const candidates = [primary, secondary].filter(Boolean) as OpenAIRateLimitWindow[]
 
   let fiveHour: OpenAIRateLimitWindow | null = null
   let weekly: OpenAIRateLimitWindow | null = null
+  let monthly: OpenAIRateLimitWindow | null = null
 
   for (const window of candidates) {
     const seconds = window.limit_window_seconds
     if (seconds > 0 && seconds <= FIVE_HOUR_MAX_SECONDS) {
       if (!fiveHour) fiveHour = window
+    } else if (seconds > WEEKLY_MAX_SECONDS) {
+      if (!monthly) monthly = window
     } else if (seconds > FIVE_HOUR_MAX_SECONDS) {
       if (!weekly) weekly = window
     }
   }
 
-  // Fall back to the conventional ordering for windows we could not classify by
-  // duration (missing/zero limit_window_seconds, or both landed in one bucket).
-  if (!fiveHour && !weekly) {
-    return { fiveHour: primary ?? null, weekly: secondary ?? null }
+  // Missing durations keep the historical primary=5h / secondary=7d reading.
+  // A window already classified as monthly must not be copied into 5h or 7d.
+  if (!fiveHour && !weekly && !monthly) {
+    return { fiveHour: primary ?? null, weekly: secondary ?? null, monthly: null }
   }
+  const classified = new Set<OpenAIRateLimitWindow>(
+    [fiveHour, weekly, monthly].filter((window): window is OpenAIRateLimitWindow => window != null)
+  )
+  const unclassified = candidates.filter((window) => !classified.has(window))
   if (!fiveHour) {
-    fiveHour = candidates.find((window) => window !== weekly) ?? null
+    fiveHour = unclassified.find((window) => window !== weekly && window !== monthly) ?? null
   }
   if (!weekly) {
-    weekly = candidates.find((window) => window !== fiveHour) ?? null
+    weekly = unclassified.find((window) => window !== fiveHour && window !== monthly) ?? null
   }
 
-  return { fiveHour, weekly }
+  return { fiveHour, weekly, monthly }
 }
 
 function toNormalizedLimit(
   item: OpenAIAdditionalRateLimit
 ): NormalizedCodexAdditionalLimit | null {
   const rateLimit = item.rate_limit ?? null
-  const { fiveHour, weekly } = classifyWindows(
+  const { fiveHour, weekly, monthly } = classifyWindows(
     rateLimit?.primary_window,
     rateLimit?.secondary_window
   )
 
   const fiveHourWindow = toDisplayWindow(fiveHour)
   const weeklyWindow = toDisplayWindow(weekly)
-  if (!fiveHourWindow && !weeklyWindow) return null
+  const monthlyWindow = toDisplayWindow(monthly)
+  if (!fiveHourWindow && !weeklyWindow && !monthlyWindow) return null
 
   // Raw upstream label only — presentation (incl. any "unnamed limit" fallback
   // and i18n) belongs to the view, not this pure-data helper.
@@ -131,7 +163,8 @@ function toNormalizedLimit(
     meteredFeature: item.metered_feature || '',
     limitReached: rateLimit?.limit_reached ?? false,
     fiveHour: fiveHourWindow,
-    weekly: weeklyWindow
+    weekly: weeklyWindow,
+    monthly: monthlyWindow
   }
 }
 

@@ -1,7 +1,8 @@
-# Kiro relay refs that no longer need attention. One owner/repo#n per line.
+# Relay refs that no longer need attention. One owner/repo#n per line.
 # Both TK已覆盖 and TK不适用 stay out of later tracking issues.
 # resolved_refs() reads this file. Delete a line to admit that ref again.
-# Baseline: origin/main 0995e4bef, GitHub youxuanxue/sub2api#2766 on 2026-10-23.
+# Kiro baseline: origin/main 0995e4bef, GitHub youxuanxue/sub2api#2766 on 2026-10-23.
+# OpenAI baseline: origin/main 0995e4bef, GitHub youxuanxue/sub2api#2767 on 2026-10-23.
 
 Quorinex/Kiro-Go#109  # TK已覆盖：token 估算、cache 记账与 credits 用量
 Quorinex/Kiro-Go#114  # TK已覆盖：tool_choice none/any/具名
@@ -172,3 +173,441 @@ minpeter/kiro-lb#93  # TK已覆盖：图片与历史 thinking 不计入下一轮
 minpeter/kiro-lb#98  # TK不适用：对方发版、CI 或本机工具链
 xiaokui-dev/cliproxyapi-kiro-plugin#1  # TK已覆盖：数据面区域以 profile ARN 为准
 xiaokui-dev/cliproxyapi-kiro-plugin#2  # TK已覆盖：token 估算、cache 记账与 credits 用量
+
+# OpenAI / Codex tracker triage from youxuanxue/sub2api#2767
+Soju06/codex-lb#1130  # TK已覆盖：Codex PAT 与 access-token-only 导入
+Soju06/codex-lb#1413  # TK已覆盖：Codex PAT 与 access-token-only 导入
+Soju06/codex-lb#1467  # TK已覆盖：gpt-5.3-codex-spark 已在 Codex models 清单
+Soju06/codex-lb#2531  # TK已覆盖：Responses-Lite 固定 parallel_tool_calls=false；不重写为 true
+router-for-me/CLIProxyAPI#6814  # TK已覆盖：Responses-Lite 固定 parallel_tool_calls=false；不重写为 true
+router-for-me/CLIProxyAPI#6823  # TK已覆盖：Responses-Lite 固定 parallel_tool_calls=false；不重写为 true
+Soju06/codex-lb#2511  # TK已覆盖：self_serve_business_prolite 为已知计划名
+Soju06/codex-lb#2512  # TK已覆盖：self_serve_business_prolite 为已知计划名
+Soju06/codex-lb#1682  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#1932  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#1949  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#1981  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#2034  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#2292  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#2447  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#2483  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#2484  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#2502  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#2505  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#2600  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#2652  # TK不适用：SQLite/MySQL 业务库；TokenKey 用 PostgreSQL
+Soju06/codex-lb#148  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#1083  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#1471  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#1922  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2310  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2311  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2312  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2314  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2421  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2433  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2438  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2475  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2476  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2477  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2478  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2479  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2480  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2481  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2482  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2498  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2509  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2510  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2516  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2532  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2533  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2543  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2562  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2584  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2585  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2586  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2587  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2588  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2590  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2592  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2595  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2606  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2607  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2608  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2609  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2610  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2611  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2612  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2613  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2619  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2620  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2623  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2641  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2644  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2645  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2646  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2647  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2648  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2649  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2650  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2651  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2656  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#2657  # TK不适用：对方依赖、CI、发版或文档
+icebear0828/codex-proxy#861  # TK不适用：对方依赖、CI、发版或文档
+icebear0828/codex-proxy#872  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#2371  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#3526  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#4625  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#5298  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#5826  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#5997  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6048  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6049  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6062  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6112  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6118  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6355  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6372  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6373  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6404  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6499  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6684  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6695  # TK不适用：对方依赖、CI、发版或文档
+router-for-me/CLIProxyAPI#6881  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#203  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#205  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#206  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#207  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#213  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#220  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#254  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#261  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#314  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#315  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#347  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#348  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#349  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#395  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#399  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#470  # TK不适用：对方依赖、CI、发版或文档
+zyycn/codex-proxy-rs#473  # TK不适用：对方依赖、CI、发版或文档
+Soju06/codex-lb#1595  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#1844  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2118  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2146  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2294  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2302  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2323  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2325  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2377  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2418  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2461  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2464  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2518  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2541  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2553  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2599  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2603  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+Soju06/codex-lb#2604  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+zyycn/codex-proxy-rs#501  # TK不适用：对方仪表盘外壳、遥测同意、Helm 或本地 CLI
+router-for-me/CLIProxyAPI#4962  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#5004  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#5247  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#5381  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#5394  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#5550  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#5855  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6014  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6021  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6032  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6119  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6171  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6274  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6275  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6494  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6518  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6592  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6594  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6727  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6744  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6756  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6782  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6841  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6842  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6859  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6880  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#6899  # TK不适用：CLIProxyAPI plugin host / management password / go-git
+router-for-me/CLIProxyAPI#2109  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#2247  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#2248  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#2502  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#2540  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#2629  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#2740  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#2777  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#2795  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#2839  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#2945  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3148  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3169  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3268  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3304  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3391  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3474  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3495  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3519  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3523  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3528  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3567  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3571  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3662  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3665  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3715  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3791  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3800  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#3802  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4026  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4159  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4214  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4243  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4253  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4264  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4306  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4311  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4394  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4404  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4406  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4597  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4603  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4606  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4617  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4731  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4774  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4796  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4797  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4810  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4830  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4836  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4869  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4930  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4932  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4946  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4980  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#4999  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5000  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5036  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5042  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5071  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5093  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5249  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5267  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5278  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5289  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5383  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5386  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5403  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5411  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5414  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5444  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5446  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5449  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5450  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5478  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5483  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5488  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5491  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5563  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5615  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5666  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5673  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5676  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5717  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5726  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5740  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5770  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5790  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5791  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5832  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5853  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5918  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5944  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#5996  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6009  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6015  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6016  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6020  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6043  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6051  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6052  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6060  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6068  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6069  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6070  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6092  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6120  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6134  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6152  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6157  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6158  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6172  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6174  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6175  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6179  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6181  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6193  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6195  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6198  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6202  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6205  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6208  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6210  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6211  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6243  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6248  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6249  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6252  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6254  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6260  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6262  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6265  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6271  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6278  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6279  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6280  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6283  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6285  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6288  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6289  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6291  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6308  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6315  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6319  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6330  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6332  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6335  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6337  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6339  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6344  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6345  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6346  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6347  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6356  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6357  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6360  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6365  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6366  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6376  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6380  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6387  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6393  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6401  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6402  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6405  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6407  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6409  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6410  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6419  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6421  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6427  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6428  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6429  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6443  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6446  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6447  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6459  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6465  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6478  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6480  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6484  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6491  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6495  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6498  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6505  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6506  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6507  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6508  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6532  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6533  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6539  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6540  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6541  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6543  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6548  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6553  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6560  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6561  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6564  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6570  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6571  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6572  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6577  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6581  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6590  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6598  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6600  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6609  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6610  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6611  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6615  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6617  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6627  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6635  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6645  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6648  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6649  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6657  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6658  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6661  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6663  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6669  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6677  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6679  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6680  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6682  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6683  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6685  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6686  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6687  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6697  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6698  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6706  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6708  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6713  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6719  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6720  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6723  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6724  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6726  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6728  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6732  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6750  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6751  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6752  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6762  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6779  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6785  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6798  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6799  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6801  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6802  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6803  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6807  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6808  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6810  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6812  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6822  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6828  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6837  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6838  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6840  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6846  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6848  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6855  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6857  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6863  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6867  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6883  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6888  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6889  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6890  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面
+router-for-me/CLIProxyAPI#6891  # TK不适用：标题属 Claude/Gemini/Antigravity/xAI 等且无 Codex/OpenAI 面

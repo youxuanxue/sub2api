@@ -797,6 +797,16 @@ func resolveOpenAIWSFallbackErrorResponse(err error) (statusCode int, errType st
 		if statusCode == 0 {
 			statusCode = http.StatusUnauthorized
 		}
+	case "message_too_big":
+		// Upstream WebSocket close 1009 is a terminal size rejection, not a
+		// retryable disconnect. The reconnect classifier already refuses to
+		// retry this reason; the HTTP bridge must say so to the client.
+		// upstreamMessage keeps dial/close detail for ops; client copy is
+		// fixed below after Err is considered.
+		if statusCode == 0 {
+			statusCode = http.StatusBadRequest
+		}
+		errType = "invalid_request_error"
 	case "upstream_rate_limited":
 		if statusCode == 0 {
 			statusCode = http.StatusTooManyRequests
@@ -818,6 +828,8 @@ func resolveOpenAIWSFallbackErrorResponse(err error) (statusCode int, errType st
 			upstreamMessage = "upstream websocket not supported"
 		case "auth_failed":
 			upstreamMessage = "upstream authentication failed"
+		case "message_too_big":
+			upstreamMessage = "payload too large"
 		case "upstream_rate_limited":
 			upstreamMessage = "upstream rate limit exceeded, please retry later"
 		default:
@@ -837,6 +849,9 @@ func resolveOpenAIWSFallbackErrorResponse(err error) (statusCode int, errType st
 	// detailed for ops (returned separately by this helper).
 	if statusCode == http.StatusTooManyRequests || reason == "upstream_rate_limited" {
 		clientMessage = TkClientFacingBusy429Message
+	}
+	if reason == "message_too_big" {
+		clientMessage = "payload too large"
 	}
 	return statusCode, errType, clientMessage, upstreamMessage, true
 }
@@ -870,13 +885,24 @@ func (s *OpenAIGatewayService) writeOpenAIWSFallbackErrorResponse(c *gin.Context
 			Message:            upstreamMessage,
 		})
 	}
-	c.JSON(statusCode, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": clientMessage,
-		},
-	})
+	errorBody := gin.H{
+		"type":    errType,
+		"message": clientMessage,
+	}
+	if wsFallbackReason(wsErr) == "message_too_big" {
+		errorBody["code"] = "payload_too_large"
+		errorBody["param"] = "input"
+	}
+	c.JSON(statusCode, gin.H{"error": errorBody})
 	return true
+}
+
+func wsFallbackReason(err error) string {
+	var fallbackErr *openAIWSFallbackError
+	if !errors.As(err, &fallbackErr) || fallbackErr == nil {
+		return ""
+	}
+	return strings.TrimPrefix(strings.TrimSpace(fallbackErr.Reason), "prewarm_")
 }
 
 func (s *OpenAIGatewayService) openAIWSRetryBackoff(attempt int) time.Duration {

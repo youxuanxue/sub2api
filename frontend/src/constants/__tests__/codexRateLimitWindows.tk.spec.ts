@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeCodexAdditionalLimits } from '../codexRateLimitWindows.tk'
+import { codexQuotaWindowLabel, normalizeCodexAdditionalLimits } from '../codexRateLimitWindows.tk'
 import type { OpenAIQuotaUsage } from '@/api/admin/accounts'
 
 describe('normalizeCodexAdditionalLimits', () => {
@@ -179,5 +179,76 @@ describe('normalizeCodexAdditionalLimits', () => {
     // No hardcoded English label leaks out of the pure helper.
     expect(limit.name).toBe('')
     expect(limit.fiveHour?.usedPercent).toBe(7)
+  })
+
+  it('keeps a 30-day window out of the 5h and 7d buckets', () => {
+    const thirtyDaySeconds = 30 * 24 * 60 * 60
+    const usage: OpenAIQuotaUsage = {
+      fetched_at: 0,
+      additional_rate_limits: [
+        {
+          limit_name: 'Team',
+          metered_feature: 'team-30d',
+          rate_limit: {
+            allowed: true,
+            limit_reached: false,
+            primary_window: {
+              used_percent: 96,
+              limit_window_seconds: thirtyDaySeconds,
+              reset_after_seconds: 0,
+              reset_at: 1_900_000_000
+            },
+            secondary_window: null
+          }
+        }
+      ]
+    }
+
+    const [limit] = normalizeCodexAdditionalLimits(usage)
+    expect(limit.fiveHour).toBeNull()
+    expect(limit.weekly).toBeNull()
+    expect(limit.monthly?.usedPercent).toBe(96)
+    expect(limit.monthly?.resetsAtIso).toBe(new Date(1_900_000_000 * 1000).toISOString())
+  })
+
+  it('does not relabel a 7d companion as 5h when the other window is 30d', () => {
+    const usage: OpenAIQuotaUsage = {
+      fetched_at: 0,
+      additional_rate_limits: [
+        {
+          limit_name: 'Mixed',
+          metered_feature: 'mixed',
+          rate_limit: {
+            allowed: true,
+            limit_reached: false,
+            primary_window: {
+              used_percent: 40,
+              limit_window_seconds: 30 * 24 * 60 * 60,
+              reset_after_seconds: 0,
+              reset_at: 0
+            },
+            secondary_window: {
+              used_percent: 12,
+              limit_window_seconds: 7 * 24 * 60 * 60,
+              reset_after_seconds: 0,
+              reset_at: 0
+            }
+          }
+        }
+      ]
+    }
+
+    const [limit] = normalizeCodexAdditionalLimits(usage)
+    expect(limit.fiveHour).toBeNull()
+    expect(limit.weekly?.usedPercent).toBe(12)
+    expect(limit.monthly?.usedPercent).toBe(40)
+  })
+
+  it('labels a stored 30-day canonical window as 30d and leaves 5h/7d alone', () => {
+    expect(codexQuotaWindowLabel(30 * 24 * 60, '7d')).toBe('30d')
+    expect(codexQuotaWindowLabel(30 * 24 * 60, '5h')).toBe('30d')
+    expect(codexQuotaWindowLabel(10080, '7d')).toBe('7d')
+    expect(codexQuotaWindowLabel(300, '5h')).toBe('5h')
+    expect(codexQuotaWindowLabel(undefined, '7d')).toBe('7d')
   })
 })
