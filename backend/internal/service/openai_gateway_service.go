@@ -801,13 +801,12 @@ func resolveOpenAIWSFallbackErrorResponse(err error) (statusCode int, errType st
 		// Upstream WebSocket close 1009 is a terminal size rejection, not a
 		// retryable disconnect. The reconnect classifier already refuses to
 		// retry this reason; the HTTP bridge must say so to the client.
+		// upstreamMessage keeps dial/close detail for ops; client copy is
+		// fixed below after Err is considered.
 		if statusCode == 0 {
 			statusCode = http.StatusBadRequest
 		}
 		errType = "invalid_request_error"
-		if upstreamMessage == "" {
-			upstreamMessage = "payload too large"
-		}
 	case "upstream_rate_limited":
 		if statusCode == 0 {
 			statusCode = http.StatusTooManyRequests
@@ -845,14 +844,14 @@ func resolveOpenAIWSFallbackErrorResponse(err error) (statusCode int, errType st
 			errType = "upstream_error"
 		}
 	}
-	if reason == "message_too_big" {
-		upstreamMessage = "payload too large"
-	}
 	clientMessage = upstreamMessage
 	// Public wire copy hides upstream/account wording; upstreamMessage stays
 	// detailed for ops (returned separately by this helper).
 	if statusCode == http.StatusTooManyRequests || reason == "upstream_rate_limited" {
 		clientMessage = TkClientFacingBusy429Message
+	}
+	if reason == "message_too_big" {
+		clientMessage = "payload too large"
 	}
 	return statusCode, errType, clientMessage, upstreamMessage, true
 }

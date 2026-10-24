@@ -560,6 +560,7 @@ func redactAssignmentPass(input string, patterns *textRedactPatterns, pass int) 
 		}
 		keyStart := 0
 		keyEnd := delimiter
+		quotedAuthKey := false
 		if pass != queryAssignment {
 			for keyEnd > 0 && isAssignmentSpace(input[keyEnd-1]) {
 				keyEnd--
@@ -590,6 +591,7 @@ func redactAssignmentPass(input string, patterns *textRedactPatterns, pass int) 
 			if keyStart == keyEnd {
 				if quotedStart, quotedEnd, ok := quotedAuthorizationKey(input, keyEnd); ok {
 					keyStart, keyEnd = quotedStart, quotedEnd
+					quotedAuthKey = true
 				}
 			}
 			if keyStart == keyEnd || (keyStart > 0 && isWordByte(input[keyStart-1])) {
@@ -638,6 +640,21 @@ func redactAssignmentPass(input string, patterns *textRedactPatterns, pass int) 
 				valueEnd = authorizationValueEnd(input, valueStart)
 				if valueEnd == valueStart {
 					continue
+				}
+				// Balanced quoted keys with unquoted non-scheme values are
+				// JSON-like shapes the reference pipeline leaves alone
+				// (e.g. "authorization":0). Only Digest/Bearer/Basic/Token
+				// hybrids need the auth-value path beyond the JSON pass.
+				// A stray leading quote before a bare key ("AUTHORIZATION:0)
+				// must still redact like the reference \bkey\b rule.
+				if quotedAuthKey {
+					rest := input[valueStart:valueEnd]
+					if !hasAuthorizationSchemePrefix(rest, "digest") &&
+						!hasAuthorizationSchemePrefix(rest, "bearer") &&
+						!hasAuthorizationSchemePrefix(rest, "basic") &&
+						!hasAuthorizationSchemePrefix(rest, "token") {
+						continue
+					}
 				}
 				delimiter = valueEnd - 1
 			}
@@ -732,7 +749,9 @@ func quotedAuthorizationKey(input string, keyEnd int) (int, int, bool) {
 	if innerStart == innerEnd || !isAuthorizationLogKey(input[innerStart:innerEnd]) {
 		return 0, 0, false
 	}
-	if innerStart > 0 && input[innerStart-1] != quote {
+	// Require a matching opening quote. A trailing quote stuck to a bare key
+	// (AuthoriZAtion":0) must not activate the quoted-key path.
+	if innerStart == 0 || input[innerStart-1] != quote {
 		return 0, 0, false
 	}
 	return innerStart, innerEnd, true

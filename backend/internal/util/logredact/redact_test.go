@@ -36,6 +36,28 @@ func TestRedactText_AuthorizationTails(t *testing.T) {
 	}
 }
 
+func TestRedactText_TrailingQuoteOnBareAuthorizationKeyIsNotQuotedKey(t *testing.T) {
+	// Fuzz seed: a bare key with a stuck trailing quote must not activate the
+	// quoted-authorization path and erase an innocent value.
+	in := `AuthoriZAtion":0`
+	if out := RedactText(in); out != in {
+		t.Fatalf("expected bare key with trailing quote unchanged, got %q", out)
+	}
+}
+
+func TestRedactText_QuotedAuthorizationNumericValueLeftAlone(t *testing.T) {
+	// Fuzz seed: JSON-like numeric values are not auth schemes; keep parity
+	// with the reference pipeline (do not wipe to ***).
+	in := `"AuthoriZAtion":0`
+	if out := RedactText(in); out != in {
+		t.Fatalf("expected quoted key with numeric value unchanged, got %q", out)
+	}
+	// Stray leading quote before a bare key still redacts like the reference.
+	if out := RedactText(`"AUTHORIZATION:0`); out != `"AUTHORIZATION:***` {
+		t.Fatalf("expected bare key after stray quote to redact, got %q", out)
+	}
+}
+
 func TestRedactText_QueryLike(t *testing.T) {
 	in := "access_token=ya29.a0AfH6SMDUMMY refresh_token=1//0gDUMMY"
 	out := RedactText(in)

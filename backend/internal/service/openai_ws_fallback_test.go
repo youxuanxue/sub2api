@@ -173,7 +173,14 @@ func TestResolveOpenAIWSFallbackErrorResponse(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, statusCode)
 		require.Equal(t, "invalid_request_error", errType)
 		require.Equal(t, "payload too large", clientMessage)
-		require.Equal(t, "payload too large", upstreamMessage)
+		require.Equal(t, "close 1009", upstreamMessage)
+
+		_, _, clientOnly, upstreamOnly, ok := resolveOpenAIWSFallbackErrorResponse(
+			wrapOpenAIWSFallback("message_too_big", nil),
+		)
+		require.True(t, ok)
+		require.Equal(t, "payload too large", clientOnly)
+		require.Equal(t, "payload too large", upstreamOnly)
 
 		gin.SetMode(gin.TestMode)
 		rec := httptest.NewRecorder()
