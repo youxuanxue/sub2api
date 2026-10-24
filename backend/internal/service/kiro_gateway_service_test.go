@@ -919,7 +919,11 @@ func TestKiroGatewayService_Forward_Streaming_InvalidModel_NoEmpty200(t *testing
 	require.ErrorAs(t, err, &invalidModelErr)
 	require.Equal(t, 400, invalidModelErr.StatusCode)
 	require.Equal(t, "claude-haiku-4.5", invalidModelErr.Model)
-	require.Contains(t, invalidModelErr.ClientMessage(), "not supported by Kiro")
+	// Public copy names the model, never the fulfilling supplier; the internal
+	// Error() still does, for diagnosis.
+	require.Contains(t, invalidModelErr.ClientMessage(), "claude-haiku-4.5 is not supported")
+	require.NotContains(t, strings.ToLower(invalidModelErr.ClientMessage()), "kiro")
+	require.Contains(t, strings.ToLower(invalidModelErr.Error()), "kiro")
 
 	// No SSE was written: the old bug emitted message_start eagerly and returned
 	// a clean empty 200 stream. The fix must write nothing to the client.

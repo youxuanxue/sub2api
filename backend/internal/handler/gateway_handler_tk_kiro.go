@@ -42,7 +42,13 @@ func (h *GatewayHandler) tkHandleMessagesNonFailoverForwardError(c *gin.Context,
 
 	var kiroInvalidRequestErr *service.KiroInvalidRequestError
 	if errors.As(err, &kiroInvalidRequestErr) {
-		h.errorResponse(c, kiroInvalidRequestErr.ClientStatusCode(), kiroInvalidRequestErr.ClientErrorType(), kiroInvalidRequestErr.ClientMessage())
+		status := kiroInvalidRequestErr.ClientStatusCode()
+		// The public copy drops byte counts, truncation state and the supplier
+		// name; keep the full oversize detail for ops before writing it.
+		if status == http.StatusRequestEntityTooLarge {
+			service.TkAnnotateRequestTooLargeOps(c, status, kiroInvalidRequestErr.Message)
+		}
+		h.errorResponse(c, status, kiroInvalidRequestErr.ClientErrorType(), kiroInvalidRequestErr.ClientMessage())
 		return true
 	}
 
