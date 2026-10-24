@@ -435,6 +435,7 @@
         "type KiroGatewayService",
         "func (s *KiroGatewayService) Forward",
         "ensureKiroStreamingKeepalive",
+        "resumeKiroSilentStretchKeepalive",
         "startAnthropicMessageStartKeepalive",
         "syncKiroMessageStartFromKeepalive",
         "ResetForRetry: func() bool",
@@ -466,9 +467,10 @@
         "if callOutputCommitted",
         "ValidateKiroImages(payload)",
         "convertOutputFormatToInlineSchema(parsed.Body.Bytes())",
-        "s.ensureKiroStreamingKeepalive(c, model, requestID)"
+        "s.ensureKiroStreamingKeepalive(c, model, requestID)",
+        "s.resumeKiroSilentStretchKeepalive(c)"
       ],
-      "rationale": "Preserve authoritative turn outcomes, client tools, estimated usage/cache billing and internal reasoning signatures. Transport retries reset only uncommitted output. A normal END_TURN must never generate a gateway-authored user instruction; focused turn-boundary tests anchor that behavior. forwardStreaming is also the sole owner of Claude-Code-safe pre-content keepalive (message_start before ping) for every Kiro streaming caller. ValidateKiroImages must run before CallKiroAPI so bad image bytes never burn the account pool. Hidden reasoning alone must not complete an empty client turn. Preserve requested output schemas using the shared inline fallback, and pass the normal message ID to the keepalive."
+      "rationale": "Preserve authoritative turn outcomes, client tools, estimated usage/cache billing and internal reasoning signatures. Transport retries reset only uncommitted output. A normal END_TURN must never generate a gateway-authored user instruction; focused turn-boundary tests anchor that behavior. forwardStreaming is also the sole owner of Claude-Code-safe keepalive for every Kiro streaming caller: message_start before the first ping, then resumeKiroSilentStretchKeepalive (ping-only, no second message_start) after the first visible thinking/text/tool block so tool-argument silence cannot drop Claude Code. ValidateKiroImages must run before CallKiroAPI so bad image bytes never burn the account pool. Hidden reasoning alone must not complete an empty client turn. Preserve requested output schemas using the shared inline fallback, and pass the normal message ID to the keepalive."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_cache_billing.go",
