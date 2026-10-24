@@ -266,6 +266,15 @@ func (a *Account) ModelRateLimitDiagnosisForRequest(ctx context.Context, request
 			remaining, scope = keyRemaining, key
 		}
 	}
+	// Include the Anthropic unified-window class cooldown, the same way
+	// GetModelRateLimitRemainingTimeWithContext does (TK G4). Leaving it out
+	// would under-report remaining for an Anthropic account whose class
+	// cooldown outlasts its per-model one.
+	if classKey := tkAnthropicModelClassScopeKeyForModel(requestedModel); classKey != "" && a.Platform == PlatformAnthropic {
+		if classRemaining := a.getRateLimitRemainingForKey(classKey); classRemaining > remaining {
+			remaining, scope = classRemaining, classKey
+		}
+	}
 	if scope == "" {
 		return 0, "", ""
 	}

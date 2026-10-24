@@ -666,3 +666,27 @@ func TestAppendSelectionFailureRateSampleCarriesReason(t *testing.T) {
 	got = appendSelectionFailureRateSample(nil, 229, 10*time.Minute, "")
 	require.Equal(t, []string{"229(10m0s)"}, got)
 }
+
+// 诊断函数报出的 remaining 必须与 GetModelRateLimitRemainingTimeWithContext
+// 一致，否则同一个冷却会在日志里显示两个不同的剩余时间。首版漏了 Anthropic
+// 统一窗口的 class 冷却（TK G4），class 冷却比按模型冷却更长时会少报。
+func TestModelRateLimitDiagnosisMatchesRemainingIncludingAnthropicClass(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Now()
+
+	acc := &Account{ID: 301, Platform: PlatformAnthropic}
+	classKey := tkAnthropicModelClassScopeKeyForModel("claude-sonnet-4-6")
+	require.NotEmpty(t, classKey, "该模型必须有 class scope，否则本测试无意义")
+
+	// 按模型冷却 5 分钟，class 冷却 50 分钟 —— 应报 class 的那个。
+	setAccountModelRateLimitSnapshot(acc, "claude-sonnet-4-6", now.Add(5*time.Minute), "429_anthropic_model", now)
+	setAccountModelRateLimitSnapshot(acc, classKey, now.Add(50*time.Minute), "429_anthropic_class_window:5h", now)
+
+	remaining, scope, reason := acc.ModelRateLimitDiagnosisForRequest(ctx, "claude-sonnet-4-6")
+	want := acc.GetModelRateLimitRemainingTimeWithContext(ctx, "claude-sonnet-4-6")
+	require.Equal(t, want.Truncate(time.Second), remaining.Truncate(time.Second),
+		"两个入口必须报同一个 remaining")
+	require.Equal(t, classKey, scope, "class 冷却更长时 scope 应是 class key")
+	require.Equal(t, "429_anthropic_class_window:5h", reason)
+}
