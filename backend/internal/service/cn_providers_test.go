@@ -154,6 +154,53 @@ func TestParseZhipuTokenTiers_FallbackHeuristic(t *testing.T) {
 	require.InDelta(t, 50.0, tiers[1].UsedPercent, 1e-9)
 }
 
+func TestParseZhipuTokenTiers_CreditLimitUsesUnitNotResetOrder(t *testing.T) {
+	t.Parallel()
+	// GLM Coding Plan 只回 CREDIT_LIMIT。周窗口 reset 更早，unit 仍必须决定槽位。
+	data := gjson.Parse(`{
+		"limits": [
+			{"type":"CREDIT_LIMIT","unit":6,"percentage":70,"nextResetTime":1700000000000},
+			{"type":"CREDIT_LIMIT","unit":3,"percentage":20,"nextResetTime":1700000099999}
+		]
+	}`)
+	tiers := parseZhipuTokenTiers(data)
+	require.Len(t, tiers, 2)
+	require.Equal(t, "5h", tiers[0].Window)
+	require.InDelta(t, 20.0, tiers[0].UsedPercent, 1e-9)
+	require.Equal(t, "weekly", tiers[1].Window)
+	require.InDelta(t, 70.0, tiers[1].UsedPercent, 1e-9)
+}
+
+func TestParseZhipuTokenTiers_CreditLimitWithoutUnitKeepsResetHeuristic(t *testing.T) {
+	t.Parallel()
+	data := gjson.Parse(`{
+		"limits": [
+			{"type":"CREDIT_LIMIT","percentage":50,"nextResetTime":1700000000000},
+			{"type":"CREDIT_LIMIT","percentage":10}
+		]
+	}`)
+	tiers := parseZhipuTokenTiers(data)
+	require.Len(t, tiers, 2)
+	require.Equal(t, "5h", tiers[0].Window)
+	require.InDelta(t, 10.0, tiers[0].UsedPercent, 1e-9)
+	require.Equal(t, "weekly", tiers[1].Window)
+	require.InDelta(t, 50.0, tiers[1].UsedPercent, 1e-9)
+}
+
+func TestParseZhipuTokenTiers_TokensLimitIgnoresCreditSibling(t *testing.T) {
+	t.Parallel()
+	data := gjson.Parse(`{
+		"limits": [
+			{"type":"TOKENS_LIMIT","unit":3,"percentage":15,"nextResetTime":1700000099999},
+			{"type":"CREDIT_LIMIT","unit":6,"percentage":99,"nextResetTime":1700000000000}
+		]
+	}`)
+	tiers := parseZhipuTokenTiers(data)
+	require.Len(t, tiers, 1)
+	require.Equal(t, "5h", tiers[0].Window)
+	require.InDelta(t, 15.0, tiers[0].UsedPercent, 1e-9)
+}
+
 // TestParseZhipuTokenTiers_IgnoresNonTokenEntries 非 TOKENS_LIMIT/CREDIT_LIMIT 条目跳过。
 func TestParseZhipuTokenTiers_IgnoresNonTokenEntries(t *testing.T) {
 	t.Parallel()

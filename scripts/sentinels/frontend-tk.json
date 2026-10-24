@@ -2754,6 +2754,22 @@
         "role=\"alert\""
       ],
       "rationale": "Quota refresh/reset rehydrates the list-owned row and active-query failures are visible."
+    },
+    {
+      "path": "frontend/src/components/account/CreateAccountModal.vue",
+      "must_contain": [
+        "(form.platform === 'anthropic' || form.platform === 'openai') && accountCategory === 'apikey' && webSearchGlobalEnabled",
+        "const buildWebSearchEmulationExtra = ",
+        "buildWebSearchEmulationExtra(buildAnthropicExtra(buildOpenAIExtra()))"
+      ],
+      "rationale": "Web search emulation applies to OpenAI API-key accounts as well as Anthropic: both reach /v1/messages over upstreams with no native web_search tool. The selector's visibility condition, its own link in the extra chain, and the call that wires that link must stay together -- dropping any one silently stops persisting web_search_emulation for OpenAI API-key accounts while the control still renders."
+    },
+    {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": [
+        "(account?.platform === 'anthropic' || account?.platform === 'openai') && account?.type === 'apikey' && webSearchGlobalEnabled"
+      ],
+      "rationale": "Edit must expose the same web search emulation control as create for OpenAI API-key accounts; if this condition narrows back to anthropic, an operator can set the mode at create time but can never see or change it afterwards."
     }
   ]
 }

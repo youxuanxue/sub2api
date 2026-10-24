@@ -536,6 +536,7 @@ func parseZhipuTokenTiers(data gjson.Result) []CNQuotaTier {
 		hasReset   bool
 		percentage float64
 		resetISO   string
+		unit       int64
 	}
 	var (
 		fiveHour     entry
@@ -545,8 +546,8 @@ func parseZhipuTokenTiers(data gjson.Result) []CNQuotaTier {
 		unclassified []entry
 	)
 
-	classify := func(item gjson.Result, e entry) {
-		switch classifyZhipuWindowUnit(item.Get("unit").Int()) {
+	classify := func(unit int64, e entry) {
+		switch classifyZhipuWindowUnit(unit) {
 		case cnZhipuWindow5h:
 			if !fiveHourSet {
 				fiveHour, fiveHourSet = e, true
@@ -591,19 +592,26 @@ func parseZhipuTokenTiers(data gjson.Result) []CNQuotaTier {
 				hasReset = resetISO != ""
 			}
 		}
-		e := entry{resetMs: resetMs, hasReset: hasReset, percentage: percentage, resetISO: resetISO}
+		e := entry{resetMs: resetMs, hasReset: hasReset, percentage: percentage, resetISO: resetISO, unit: item.Get("unit").Int()}
 		if limitType == "TOKENS_LIMIT" {
 			hasTokensLimit = true
-			classify(item, e)
+			classify(e.unit, e)
 		} else {
 			creditFallback = append(creditFallback, e)
 		}
 		return true
 	})
 
-	// 无任何 TOKENS_LIMIT 条目（部分套餐只报信用额度）：降级用 CREDIT_LIMIT 展示。
+	// 无任何 TOKENS_LIMIT 条目（GLM Coding Plan 两条窗口都是 CREDIT_LIMIT）时，
+	// 先按 unit 分类。周期末尾周窗口会比 5h 更早重置，不能靠 reset 时间排序。
 	if !hasTokensLimit {
-		unclassified = append(unclassified, creditFallback...)
+		for _, e := range creditFallback {
+			if classifyZhipuWindowUnit(e.unit) != cnZhipuWindowUnknown {
+				classify(e.unit, e)
+				continue
+			}
+			unclassified = append(unclassified, e)
+		}
 	}
 
 	// 无 reset 的条目排前，再按 reset 升序，依次填入仍空缺的槽位。
