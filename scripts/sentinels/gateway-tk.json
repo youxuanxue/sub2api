@@ -5069,13 +5069,21 @@
         "s.kiroGateway.Forward(",
         "newBridgeCaptureWriter",
         "tkCCPreservesKiroUpstreamStream",
+        "applyKiroChatCompletionsReasoningEffort(ccBody, anthropicBody)",
         "invalidRequestErr.ClientStatusCode()",
         "invalidRequestErr.ClientErrorType()",
         "handleCCBufferedFromAnthropicJSON",
         "handleCCBufferedFromAnthropic(upstreamResp",
         "handleCCStreamingFromAnthropic"
       ],
-      "rationale": "Kiro /v1/chat/completions bridge: capture Anthropic response from kiroGateway.Forward via bridgeCaptureWriter, restore the client writer, then feed handleCCBufferedFromAnthropicJSON (stream=false), handleCCBufferedFromAnthropic (legacy SSE), or handleCCStreamingFromAnthropic so OpenAI-compat clients receive chat.completion shape. Typed caller validation, including local 413 overflow, must be written in Chat Completions format before the shared handler can replace it with generic 502."
+      "rationale": "Kiro /v1/chat/completions bridge: capture Anthropic response from kiroGateway.Forward via bridgeCaptureWriter, restore the client writer, then feed handleCCBufferedFromAnthropicJSON (stream=false), handleCCBufferedFromAnthropic (legacy SSE), or handleCCStreamingFromAnthropic so OpenAI-compat clients receive chat.completion shape. Typed caller validation, including local 413 overflow, must be written in Chat Completions format before the shared handler can replace it with generic 502. Chat Completions reasoning_effort must reach output_config.effort without clamping xhigh/max."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_kiro_test.go",
+      "must_contain": [
+        "TestApplyKiroChatCompletionsReasoningEffort_PassthroughXHighAndMax"
+      ],
+      "rationale": "Regression: Kiro Chat Completions bridge must forward reasoning_effort values xhigh and max onto output_config.effort instead of dropping or remapping them."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions_test.go",
@@ -16716,9 +16724,10 @@
     {
       "path": "backend/internal/service/oauth_refresh_api.go",
       "must_contain": [
-        "validateOAuthProxyBinding(freshAccount)"
+        "validateOAuthProxyBinding(freshAccount)",
+        "!kiroStoredTerminalAuthFailure(freshAccount)"
       ],
-      "rationale": "OAuth consolidation safety: preserve shared route readiness, request error classification and final stream failure observation."
+      "rationale": "OAuth consolidation safety: preserve shared route readiness, request error classification and final stream failure observation. Kiro StatusError force recovery must not re-refresh a stored terminal invalid_grant (or other non-retryable auth failure)."
     },
     {
       "path": "backend/internal/service/openai_model_mapping.go",
