@@ -59,7 +59,12 @@ and lifecycle remain independent in each platform Issue.
 Both workflows use a serialized writer.
 
 A checked task records a local resolution or dismissal (add a reason/fix PR in
-plain text). Merged ledger judgments and valid recorded fix anchors also remove
+plain text). Both already-covered and not-applicable refs, independent of that
+Issue remaining open, live in `relay-settled.txt`: one `owner/repo#n` per line,
+with an optional `#` note (`TK已覆盖` or `TK不适用`). `resolved_refs()` reads it
+and drops both kinds before a later tracking Issue is written. Delete a line to
+admit that ref again. Merged ledger
+judgments and valid recorded fix anchors also remove
 entries from the pending set and check their historical tasks. If those anchors
 are revoked, a newly scanned affected entry returns to pending. Upstream closure,
 PR merge, disappearance from an incremental scan, and cache expiry do not prove a

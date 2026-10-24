@@ -6,6 +6,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -82,6 +83,28 @@ def fetch_snapshot(source, previous, started, api=gh):
             "issues": sorted(rows.values(), key=lambda row: row["number"])}
 
 
+SETTLED_RE = re.compile(r"^(?P<ref>[\w.-]+/[\w.-]+#[1-9][0-9]*)(?:\s+#\s+\S.*)?$")
+
+
+def settled_refs(root=ROOT):
+    """Covered and not-applicable refs. Both stay out of a new tracking Issue."""
+    path = root / "ops/issue-watchdog/relay-settled.txt"
+    if not path.is_file():
+        return set()
+    refs = set()
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = SETTLED_RE.fullmatch(stripped)
+        if not match:
+            raise ValueError(f"{path}:{lineno}: expected owner/repo#n")
+        if match.group("ref") in refs:
+            raise ValueError(f"{path}:{lineno}: duplicate {match.group('ref')}")
+        refs.add(match.group("ref"))
+    return refs
+
+
 def resolved_refs(root=ROOT):
     """Reuse curated fix judgments; missing recorded anchors revoke suppression."""
     resolved = set()
@@ -93,6 +116,7 @@ def resolved_refs(root=ROOT):
                      if specs is not None else judgment.get("tokenkey_status") == engine.FIXED_STATUS)
             if fixed:
                 resolved.update(ledger.issue_refs(entry["upstream"], source["repo"]))
+    resolved.update(settled_refs(root))
     return resolved
 
 
