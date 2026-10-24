@@ -164,3 +164,13 @@ func TestKiroReliabilityRefreshErrorsDoNotLeakCredentials(t *testing.T) {
 	require.ErrorContains(t, err, "invalid_grant")
 	require.NotContains(t, err.Error(), "secret-canary")
 }
+
+func TestKiroRefreshHTTPError_RevokedRefreshIsTerminal(t *testing.T) {
+	err := kiroRefreshHTTPError(400, []byte(`{"error":"access_denied","error_description":"Refresh token has been revoked"}`))
+	require.ErrorContains(t, err, "invalid_grant")
+	require.ErrorContains(t, err, "400")
+
+	transient := kiroRefreshHTTPError(503, []byte(`{"message":"temporarily unavailable"}`))
+	require.ErrorContains(t, transient, "503")
+	require.NotContains(t, transient.Error(), "invalid_grant")
+}

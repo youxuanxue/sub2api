@@ -26,10 +26,19 @@ type kiroUsageRefreshRepo struct {
 	updateCredentialsCalls int
 	updateExtraCalls       int
 	clearErrorCalls        int
+	setErrorCalls          int
 }
 
 func (r *kiroUsageRefreshRepo) GetByID(_ context.Context, _ int64) (*Account, error) {
 	return r.account, nil
+}
+
+func (r *kiroUsageRefreshRepo) SetError(_ context.Context, _ int64, errorMsg string) error {
+	r.setErrorCalls++
+	r.account.Status = StatusError
+	r.account.ErrorMessage = errorMsg
+	r.account.Schedulable = false
+	return nil
 }
 
 func (r *kiroUsageRefreshRepo) UpdateCredentials(_ context.Context, _ int64, credentials map[string]any) error {
@@ -529,6 +538,22 @@ func TestGetKiroUsage_RefreshFailureDoesNotClearRecoverableAccountError(t *testi
 	}
 	if repo.clearErrorCalls != 0 || account.Status != StatusError {
 		t.Fatalf("clear calls/status = %d/%q, degraded usage must not clear error", repo.clearErrorCalls, account.Status)
+	}
+	if repo.setErrorCalls != 1 || !strings.Contains(account.ErrorMessage, "invalid_grant") || account.Schedulable {
+		t.Fatalf("terminal auth mark missing: setError=%d msg=%q schedulable=%v",
+			repo.setErrorCalls, account.ErrorMessage, account.Schedulable)
+	}
+
+	// A stored terminal refresh failure must not hit the auth host again.
+	usage2, err := svc.getUsageForAccount(context.Background(), account, true)
+	if err != nil {
+		t.Fatalf("second getUsageForAccount() error = %v", err)
+	}
+	if executor.refreshCalls != 1 {
+		t.Fatalf("refreshCalls after terminal mark = %d, want still 1", executor.refreshCalls)
+	}
+	if usage2.Source != "passive" || usage2.Error == "" {
+		t.Fatalf("second usage = %+v, want degraded without another refresh", usage2)
 	}
 }
 
