@@ -319,6 +319,20 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 	}
 	require.NotContains(t, codexDefaults, "gpt-5.5")
 	require.NotContains(t, codexDefaults, "gpt-5", "legacy alias resolves to retired Codex supply")
+	// A passthrough OAuth sibling admits defaults under the same retirement
+	// filter; its stale mapping keys must never reach the catalog.
+	passthroughAccount := service.Account{
+		ID: 5, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+		Credentials: map[string]any{"model_mapping": map[string]any{"stale-model": "stale-model"}},
+		Extra:       map[string]any{"openai_passthrough": true},
+	}
+	passthroughDefaults := make([]string, 0)
+	for _, id := range openai.DefaultModelIDs() {
+		if passthroughAccount.IsModelSupported(id) {
+			passthroughDefaults = append(passthroughDefaults, id)
+		}
+	}
+	require.NotContains(t, passthroughDefaults, "stale-model")
 	tests := []struct {
 		name     string
 		accounts []service.Account
@@ -358,15 +372,17 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 			want:     []string{sparkModel, alias},
 		},
 		{
-			// TokenKey keeps the curated sibling mapping set. A stale passthrough
-			// mapping must neither erase aliases nor expand that set to defaults.
-			name: "passthrough account preserves the curated mapped aliases",
+			// Passthrough routing ignores model_mapping, so such an account behaves
+			// like an unmapped one: it contributes the admissible defaults and never
+			// its own stale mapping keys, while the aliases declared on ordinary
+			// mapped siblings survive.
+			name: "passthrough account contributes defaults without hiding mapped aliases",
 			accounts: append([]service.Account{{
 				ID: 5, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
 				Credentials: map[string]any{"model_mapping": map[string]any{"stale-model": "stale-model"}},
 				Extra:       map[string]any{"openai_passthrough": true},
 			}}, accounts[1:]...),
-			want: []string{sparkModel, alias},
+			want: append(append([]string{}, passthroughDefaults...), alias),
 		},
 		{
 			name:     "unmapped accounts from another platform do not add defaults",
