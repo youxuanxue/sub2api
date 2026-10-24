@@ -97,7 +97,7 @@ func (e *KiroInvalidModelError) Error() string {
 // error body. Kept terse and model-scoped so the caller knows exactly which
 // model the Kiro platform refused.
 func (e *KiroInvalidModelError) ClientMessage() string {
-	return fmt.Sprintf("model %s is not supported by Kiro", e.Model)
+	return fmt.Sprintf("model %s is not supported", e.Model)
 }
 
 func (e *KiroInvalidRequestError) Error() string {
@@ -107,11 +107,22 @@ func (e *KiroInvalidRequestError) Error() string {
 	return fmt.Sprintf("kiro rejected request: %s", e.Message)
 }
 
+// ClientMessage returns the public copy. A wire-size rejection collapses to the
+// request-too-large SSOT: byte counts, truncation state and the fulfilling
+// supplier are internal detail the caller cannot act on. Any other message that
+// still names the supplier collapses too, rather than shipping the name.
 func (e *KiroInvalidRequestError) ClientMessage() string {
 	if e == nil || strings.TrimSpace(e.Message) == "" {
-		return "Kiro rejected the request"
+		return "The request was rejected"
 	}
-	return sanitizeUpstreamErrorMessage(e.Message)
+	if e.ClientStatusCode() == http.StatusRequestEntityTooLarge {
+		return TkClientFacingRequestTooLargeMessage
+	}
+	msg := sanitizeUpstreamErrorMessage(e.Message)
+	if TkLooksLikeUpstreamSupplierLeakMessage(msg) {
+		return "The request was rejected"
+	}
+	return msg
 }
 
 // ClientStatusCode returns the public status for a Kiro request-validation
@@ -195,7 +206,7 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 		if statusCode == http.StatusBadRequest && isKiroValidationErrorBody(body) && !isKiroProfileArnError(msg) {
 			message := strings.TrimSpace(extractUpstreamErrorMessage(body))
 			if message == "" {
-				message = "Kiro rejected the request"
+				message = "The request was rejected"
 			}
 			return nil, &KiroInvalidRequestError{StatusCode: statusCode, Message: message, Body: msg}
 		}
@@ -219,7 +230,7 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 		if statusCode == http.StatusBadRequest && !isKiroProfileArnError(msg) {
 			message := strings.TrimSpace(extractUpstreamErrorMessage(body))
 			if message == "" {
-				message = "Kiro rejected the request"
+				message = "The request was rejected"
 			}
 			return nil, &KiroInvalidRequestError{StatusCode: statusCode, Message: message, Body: msg}
 		}

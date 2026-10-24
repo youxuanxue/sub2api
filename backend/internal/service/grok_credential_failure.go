@@ -21,7 +21,9 @@ const (
 	grokCredentialMutationConfirmWait = 250 * time.Millisecond
 	grokCredentialCacheCleanupTimeout = 500 * time.Millisecond
 
-	GrokCredentialUnavailableClientMessage = "No healthy Grok OAuth account is currently available"
+	// Public copy must not name the fulfilling supplier; the ops event beside
+	// each call site keeps the Grok-specific detail.
+	GrokCredentialUnavailableClientMessage = "No healthy upstream account is currently available"
 
 	GrokCredentialReasonRevoked          GatewayFailureReason = "grok_oauth_credential_revoked"
 	GrokCredentialReasonMissing          GatewayFailureReason = "grok_oauth_credentials_missing"

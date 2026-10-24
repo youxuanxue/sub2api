@@ -17031,6 +17031,40 @@
       "rationale": "SSOT for public error copy that would expose upstream plan/product branding (Agent Plan, Token Plan, vendor docs). Wire bodies must never name supply SKUs; ops keeps internal detail."
     },
     {
+      "path": "backend/internal/service/client_facing_request_too_large_tk.go",
+      "must_contain": [
+        "const TkClientFacingRequestTooLargeMessage",
+        "func buildTkSupplierLeakNeedles",
+        "tkPlatformsExemptFromSupplierLeak",
+        "func TkAnnotateRequestTooLargeOps"
+      ],
+      "rationale": "Client-facing 413 + supplier-name SSOT. An oversize rejection tells the caller only that the request is too large: byte counts, the conversation-history truncation attempt and the fulfilling supplier are supply-side detail. The leak needles are DERIVED from the platform registry via buildTkSupplierLeakNeedles — a hand-kept list is how \"No healthy Grok OAuth account\" stayed on the wire after the Kiro fix, so a new platform must not silently escape the gate. Protocol families the caller addresses us with (anthropic/openai/gemini) stay exempt. Ops keeps the original text via TkAnnotateRequestTooLargeOps (first-wins)."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service_tk_errors.go",
+      "must_contain": [
+        "return TkClientFacingRequestTooLargeMessage",
+        "TkLooksLikeUpstreamSupplierLeakMessage(msg)"
+      ],
+      "rationale": "Kiro client-visible copy must route through the request-too-large SSOT and the supplier-leak choke: ClientMessage is the single wire owner for both the Messages ingress and the Chat Completions bridge, so a supplier name reintroduced here ships on both."
+    },
+    {
+      "path": "backend/internal/service/client_facing_request_too_large_tk_test.go",
+      "must_contain": [
+        "TestKiroInvalidRequestError_RequestTooLargeClientCopyIsBare",
+        "TestClientFacingConstants_CarryNoSupplierName",
+        "TestSupplierLeakNeedles_DerivedFromPlatformRegistry"
+      ],
+      "rationale": "Regression: the public 413 body carries neither byte counts, nor truncation wording, nor a supplier name, while the internal message keeps all of it for ops; and every wire-bound client-facing constant is enumerated and audited so new copy cannot reintroduce supplier branding."
+    },
+    {
+      "path": "backend/internal/service/grok_credential_failure.go",
+      "must_contain": [
+        "GrokCredentialUnavailableClientMessage = \"No healthy upstream account is currently available\""
+      ],
+      "rationale": "Grok credential-unavailable public copy must stay supplier-neutral; the ops event at each call site keeps the Grok-specific reason. This constant is the wire body for every Grok credential failover."
+    },
+    {
       "path": "backend/internal/handler/busy_429_wire_sanitize_tk.go",
       "must_contain": [
         "func tkSanitizeBusy429WireMessage(",
