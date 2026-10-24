@@ -36,6 +36,39 @@ func TestRedactText_AuthorizationTails(t *testing.T) {
 	}
 }
 
+// The authorization tail may swallow spaces to kill credential fragments, but
+// it must not eat the ops fields that follow it: a redacted authorization has
+// to leave request_id/account_id/status/model intact in both query-string and
+// logfmt shapes, or one header wipes the whole log line.
+func TestRedactText_AuthorizationTailKeepsNeighbouringFields(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{
+			"authorization=Bearer abc123 request_id=req_77 account_id=283 status=502",
+			"authorization=*** request_id=req_77 account_id=283 status=502",
+		},
+		{
+			"proxy-authorization=Basic dXNlcjpwYXNz account_id=283",
+			"proxy-authorization=*** account_id=283",
+		},
+		{
+			"authorization=Token t1, account_id=283",
+			"authorization=*** account_id=283",
+		},
+		{
+			`msg="upstream 401" authorization=Bearer sk-abc request_id=req_77`,
+			`msg="upstream 401" authorization=*** request_id=req_77`,
+		},
+	}
+	for _, c := range cases {
+		if out := RedactText(c.in); out != c.want {
+			t.Fatalf("RedactText(%q) = %q, want %q", c.in, out, c.want)
+		}
+	}
+}
+
 func TestRedactText_TrailingQuoteOnBareAuthorizationKeyIsNotQuotedKey(t *testing.T) {
 	// Fuzz seed: a bare key with a stuck trailing quote must not activate the
 	// quoted-authorization path and erase an innocent value.

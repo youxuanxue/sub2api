@@ -637,7 +637,11 @@ func redactAssignmentPass(input string, patterns *textRedactPatterns, pass int) 
 					matchEnd = valueEnd + 1
 				}
 			} else {
-				valueEnd = authorizationValueEnd(input, valueStart)
+				authStop := byte(',')
+				if pass == queryAssignment {
+					authStop = '&'
+				}
+				valueEnd = authorizationValueEnd(input, valueStart, authStop)
 				if valueEnd == valueStart {
 					continue
 				}
@@ -693,12 +697,17 @@ func isAuthorizationLogKey(key string) bool {
 }
 
 // authorizationValueEnd keeps ordinary values space-bounded (parity with the
-// reference pipeline) while Digest/Bearer/Basic tails may contain spaces or
-// commas that would otherwise leave credential fragments in operator logs.
-func authorizationValueEnd(input string, valueStart int) int {
+// reference pipeline) while Digest/Bearer/Basic tails may contain spaces that
+// would otherwise leave credential fragments in operator logs. stop is the
+// pass's field separator ('&' in the query pass, ',' otherwise) and always
+// ends the value.
+func authorizationValueEnd(input string, valueStart int, stop byte) int {
 	rest := input[valueStart:]
 	switch {
 	case hasAuthorizationSchemePrefix(rest, "digest"):
+		// Digest parameters are themselves `key="value"` pairs, so there is no
+		// way to tell a credential param from a following log field. Consume
+		// the rest of the line rather than leave a `response="…"` behind.
 		end := valueStart
 		for end < len(input) && input[end] != '\n' && input[end] != '\r' {
 			end++
@@ -707,18 +716,42 @@ func authorizationValueEnd(input string, valueStart int) int {
 	case hasAuthorizationSchemePrefix(rest, "bearer"),
 		hasAuthorizationSchemePrefix(rest, "basic"),
 		hasAuthorizationSchemePrefix(rest, "token"):
+		// These tails are a single opaque token that may be space-separated
+		// from the scheme, so a space alone cannot end the value. Stop at the
+		// pass separator, the line, or the next `key=`/`key:` log field —
+		// otherwise one authorization= wipes every request_id/account_id/
+		// status that follows it on the line.
 		end := valueStart
-		for end < len(input) && input[end] != '\n' && input[end] != '\r' && input[end] != ',' {
+		for end < len(input) && input[end] != '\n' && input[end] != '\r' && input[end] != stop {
+			if isAssignmentSpace(input[end]) && startsLogAssignment(input[end+1:]) {
+				break
+			}
 			end++
 		}
 		return end
 	default:
+		// Bare values stay space/separator-bounded for parity with the
+		// reference pipeline, which collapses a trailing `&...` here.
 		end := valueStart
-		for end < len(input) && input[end] != ',' && !isAssignmentSpace(input[end]) {
+		for end < len(input) && input[end] != stop && !isAssignmentSpace(input[end]) {
 			end++
 		}
 		return end
 	}
+}
+
+// startsLogAssignment reports whether value begins with an identifier-shaped
+// `key=` or `key:` pair, i.e. the next structured log field rather than more
+// credential text.
+func startsLogAssignment(value string) bool {
+	i := 0
+	for i < len(value) && isLinearKeyByte(value[i]) {
+		i++
+	}
+	if i == 0 {
+		return false
+	}
+	return i < len(value) && (value[i] == '=' || value[i] == ':')
 }
 
 func hasAuthorizationSchemePrefix(value, scheme string) bool {
