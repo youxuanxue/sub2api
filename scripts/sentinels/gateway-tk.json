@@ -714,9 +714,11 @@
         "def fetch_snapshot(",
         "def sync_issues(",
         "def resolved_refs(",
+        "def settled_refs(root=ROOT, platform=None)",
+        "needs a [platform] scope",
         "temporary.replace(checkpoint)"
       ],
-      "rationale": "Preserve incremental recovery and idempotent Issue projection as one owner."
+      "rationale": "Preserve incremental recovery, idempotent Issue projection and platform-scoped settlement as one owner; an untagged not-applicable line must not close a ref in a platform that never triaged it."
     },
     {
       "path": "scripts/upstream/watchdog_queue.py",
@@ -770,9 +772,11 @@
         "test_related_candidates_publish_without_high_risk_and_fixed_are_excluded",
         "test_resolutions_use_grouped_refs_and_revoke_missing_anchors",
         "test_failed_sync_does_not_advance_checkpoint_and_retry_converges",
-        "test_missing_and_empty_anchors_revoke_runtime_fixed_classification"
+        "test_missing_and_empty_anchors_revoke_runtime_fixed_classification",
+        "test_not_applicable_scope_is_required_and_confines_multi_platform_repos",
+        "test_shipped_settled_ledger_scopes_every_tracked_platform"
       ],
-      "rationale": "The normal scripts unittest gate exercises no-change, operator decisions, cursor replay and stale evidence."
+      "rationale": "The normal scripts unittest gate exercises no-change, operator decisions, cursor replay, stale evidence and platform-scoped settlement."
     },
     {
       "path": ".github/workflows/deploy-stage0.yml",

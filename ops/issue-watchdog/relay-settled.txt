@@ -1,6 +1,9 @@
 # Relay refs that no longer need attention. One owner/repo#n per line.
 # Both TK已覆盖 and TK不适用 stay out of later tracking issues.
-# resolved_refs() reads this file. Delete a line to admit that ref again.
+# settled_refs() reads this file and resolved_refs() folds it in.
+# A TK不适用 line for a repository that relays.json tracks under several
+# platforms must name the triaging platform as `# [google] …`; TK已覆盖 holds
+# everywhere. Delete a line to admit that ref again.
 # Kiro baseline: origin/main 0995e4bef, GitHub youxuanxue/sub2api#2766 on 2026-10-23 (#2872).
 # Google baseline: origin/main 6faa23897, GitHub youxuanxue/sub2api#2768 on 2026-10-24.
 
@@ -60,13 +63,13 @@ hank9999/kiro.rs#204  # TK已覆盖：粘性会话；不移植对方面板
 hank9999/kiro.rs#35  # TK已覆盖：管理端账号能力已有
 hank9999/kiro.rs#40  # TK已覆盖：Kiro 凭据校验与 api_key 数据面
 hank9999/kiro.rs#94  # TK已覆盖：并发、RPM 与负载调度
-justlovemaki/AIClient2API#719  # TK不适用：对方默认口令，不是 TokenKey 密钥
-justlovemaki/AIClient2API#720  # TK不适用：非 Kiro Claude 目录
-justlovemaki/AIClient2API#721  # TK不适用：非 Kiro Claude 目录
+justlovemaki/AIClient2API#719  # [kiro] TK不适用：对方默认口令，不是 TokenKey 密钥
+justlovemaki/AIClient2API#720  # [kiro] TK不适用：非 Kiro Claude 目录
+justlovemaki/AIClient2API#721  # [kiro] TK不适用：非 Kiro Claude 目录
 justlovemaki/AIClient2API#727  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
 justlovemaki/AIClient2API#728  # TK已覆盖：900KiB 裁剪；RTK 不移植
-justlovemaki/AIClient2API#735  # TK不适用：非 Kiro Claude 目录
-justlovemaki/AIClient2API#755  # TK不适用：非 Kiro Claude 目录
+justlovemaki/AIClient2API#735  # [kiro] TK不适用：非 Kiro Claude 目录
+justlovemaki/AIClient2API#755  # [kiro] TK不适用：非 Kiro Claude 目录
 jwadow/kiro-gateway#143  # TK已覆盖：token 估算、cache 记账与 credits 用量
 jwadow/kiro-gateway#144  # TK已覆盖：管理端账号能力已有
 jwadow/kiro-gateway#149  # TK已覆盖：token 估算、cache 记账与 credits 用量
@@ -197,11 +200,12 @@ badrisnarayanan/antigravity-claude-proxy#382  # TK不适用：对方产品专有
 badrisnarayanan/antigravity-claude-proxy#386  # TK已覆盖：TestTransformClaudeToGemini_AttributionSystemText
 badrisnarayanan/antigravity-claude-proxy#388  # TK不适用：对方仓库 CI/依赖升级
 badrisnarayanan/antigravity-claude-proxy#390  # TK不适用：对方产品专有能力或非 Google 平台
+justlovemaki/AIClient2API#395  # [google] TK不适用：对方产品专有能力或非 Google 平台
 justlovemaki/AIClient2API#725  # TK已覆盖：TestGeminiToolConfig_DropsBuiltinsWhenClientFunctionsPresent
 justlovemaki/AIClient2API#726  # TK已覆盖：TestGeminiToolConfig web_search-only keeps googleSearch
 justlovemaki/AIClient2API#740  # TK已覆盖：ThinkingConfig.IncludeThoughts single camelCase field
 justlovemaki/AIClient2API#741  # TK已覆盖：ThinkingConfig.IncludeThoughts single camelCase field
-justlovemaki/AIClient2API#746  # TK不适用：对方产品专有能力或非 Google 平台
+justlovemaki/AIClient2API#746  # [google] TK不适用：对方产品专有能力或非 Google 平台
 lbjlaq/Antigravity-Manager#1000  # TK不适用：使用咨询、额度感受或无复现的网关缺陷
 lbjlaq/Antigravity-Manager#1003  # TK不适用：对方桌面壳（托盘/窗口/本机登录）
 lbjlaq/Antigravity-Manager#1005  # TK不适用：使用咨询、额度感受或无复现的网关缺陷
@@ -1653,78 +1657,142 @@ lbjlaq/Antigravity-Manager#995  # TK不适用：使用咨询、额度感受或�
 lbjlaq/Antigravity-Manager#997  # TK不适用：使用咨询、额度感受或无复现的网关缺陷
 lbjlaq/Antigravity-Manager#998  # TK不适用：使用咨询、额度感受或无复现的网关缺陷
 nettee/gemini-cli-proxy#5  # TK不适用：使用咨询、额度感受或无复现的网关缺陷
-router-for-me/CLIProxyAPI#1564  # TK不适用：使用咨询、额度感受或无复现的网关缺陷
-router-for-me/CLIProxyAPI#2064  # TK不适用：使用咨询、额度感受或无复现的网关缺陷
-router-for-me/CLIProxyAPI#2605  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#2905  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#2914  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#3240  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#3390  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#3436  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#3526  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#3528  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#3552  # TK不适用：使用咨询、额度感受或无复现的网关缺陷
-router-for-me/CLIProxyAPI#3948  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#4353  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#4509  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#4650  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#4940  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#4962  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5042  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5247  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5264  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5298  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5323  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5351  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5381  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5392  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5394  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5396  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5434  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5447  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5517  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5520  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5526  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5550  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5613  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5618  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5689  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5827  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5855  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#5965  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6014  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6032  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6076  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6079  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6112  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6118  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6119  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6170  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6177  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6260  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6262  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6296  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6297  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6307  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6320  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6322  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6327  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6343  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6362  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6363  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6372  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6373  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6448  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6510  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6518  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6529  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6568  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6569  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6589  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6622  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6653  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6677  # TK不适用：对方产品专有能力或非 Google 平台
-router-for-me/CLIProxyAPI#6842  # TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#1564  # [google] TK不适用：使用咨询、额度感受或无复现的网关缺陷
+router-for-me/CLIProxyAPI#2064  # [google] TK不适用：使用咨询、额度感受或无复现的网关缺陷
+router-for-me/CLIProxyAPI#2605  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#2905  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#2914  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3158  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3213  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3227  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3240  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3390  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3436  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3440  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3519  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3525  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3526  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3528  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3552  # [google] TK不适用：使用咨询、额度感受或无复现的网关缺陷
+router-for-me/CLIProxyAPI#3675  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3734  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3790  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3948  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#3953  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4159  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4253  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4306  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4353  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4404  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4509  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4519  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4587  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4606  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4617  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4650  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4932  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4940  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#4962  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5042  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5246  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5247  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5249  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5264  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5267  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5298  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5323  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5351  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5381  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5392  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5394  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5396  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5434  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5447  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5507  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5517  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5520  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5523  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5526  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5550  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5613  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5618  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5650  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5689  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5720  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5776  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5827  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5852  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5855  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5857  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5898  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5965  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#5996  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6014  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6020  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6032  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6076  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6079  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6080  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6090  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6092  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6108  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6112  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6118  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6119  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6138  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6140  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6142  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6170  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6177  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6223  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6231  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6249  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6254  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6260  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6262  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6270  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6278  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6279  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6296  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6297  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6307  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6320  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6321  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6322  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6324  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6327  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6343  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6356  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6360  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6362  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6363  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6372  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6373  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6399  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6427  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6434  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6446  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6448  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6476  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6497  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6510  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6518  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6529  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6552  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6568  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6569  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6576  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6589  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6622  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6653  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6662  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6674  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6677  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6781  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6814  # [openai,google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6831  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6836  # [google] TK不适用：对方产品专有能力或非 Google 平台
+router-for-me/CLIProxyAPI#6842  # [google] TK不适用：对方产品专有能力或非 Google 平台
 snailyp/gemini-balance#133  # TK不适用：对方产品专有能力或非 Google 平台
 snailyp/gemini-balance#138  # TK不适用：对方产品专有能力或非 Google 平台
 snailyp/gemini-balance#142  # TK不适用：对方产品专有能力或非 Google 平台

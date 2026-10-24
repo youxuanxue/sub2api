@@ -61,8 +61,13 @@ Both workflows use a serialized writer.
 A checked task records a local resolution or dismissal (add a reason/fix PR in
 plain text). Both already-covered and not-applicable refs, independent of that
 Issue remaining open, live in `relay-settled.txt`: one `owner/repo#n` per line,
-with an optional `#` note (`TK已覆盖` or `TK不适用`). `resolved_refs()` reads it
-and drops both kinds before a later tracking Issue is written. Delete a line to
+with an optional `#` note (`TK已覆盖` or `TK不适用`). `settled_refs()` reads it,
+`resolved_refs()` folds it in, and both kinds are dropped before a later tracking
+Issue is written. A `TK不适用` judgment belongs to the triaging platform, so for a
+repository that `relays.json` tracks under several platforms the line must name
+that scope (`# [google] TK不适用：…`); an untagged one is rejected rather than
+silently closing the same ref in a platform whose own triage never reviewed it.
+`TK已覆盖` is a TokenKey-side fact and holds for every platform. Delete a line to
 admit that ref again. Merged ledger
 judgments and valid recorded fix anchors also remove
 entries from the pending set and check their historical tasks. If those anchors
