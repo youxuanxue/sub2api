@@ -243,6 +243,44 @@ func (a *Account) modelRateLimitResetAt(scope string) *time.Time {
 }
 
 // modelRateLimitReason 返回指定 scope 冷却记录中的原因；没有记录时为空。
+// ModelRateLimitDiagnosisForRequest returns the cooldown that actually blocks
+// requestedModel: the key with the longest remaining time, plus that key's
+// reason. Callers use it to say WHY a model-level cooldown emptied the pool,
+// not just how long it lasts.
+//
+// The reason is keyed by scope, and the scope is not the requested name -- it is
+// the mapped/resolved model (gemini-3.7-flash -> gemini-3.7-flash-high) or a
+// platform-wide key (antigravity:gemini). Reading reason with the requested name
+// returns "" on exactly the paths that matter, so this walks the same keys as
+// GetModelRateLimitRemainingTimeWithContext and reports the winning one.
+//
+// reason is optional in the payload (setAccountModelRateLimitSnapshot omits it
+// when empty), so an empty string means "cooldown with no recorded reason", not
+// "no cooldown" -- check remaining > 0 for that.
+func (a *Account) ModelRateLimitDiagnosisForRequest(ctx context.Context, requestedModel string) (remaining time.Duration, scope string, reason string) {
+	if a == nil {
+		return 0, "", ""
+	}
+	for _, key := range a.modelRateLimitKeysForRequest(ctx, requestedModel) {
+		if keyRemaining := a.getRateLimitRemainingForKey(key); keyRemaining > remaining {
+			remaining, scope = keyRemaining, key
+		}
+	}
+	// Include the Anthropic unified-window class cooldown, the same way
+	// GetModelRateLimitRemainingTimeWithContext does (TK G4). Leaving it out
+	// would under-report remaining for an Anthropic account whose class
+	// cooldown outlasts its per-model one.
+	if classKey := tkAnthropicModelClassScopeKeyForModel(requestedModel); classKey != "" && a.Platform == PlatformAnthropic {
+		if classRemaining := a.getRateLimitRemainingForKey(classKey); classRemaining > remaining {
+			remaining, scope = classRemaining, classKey
+		}
+	}
+	if scope == "" {
+		return 0, "", ""
+	}
+	return remaining, scope, a.modelRateLimitReason(scope)
+}
+
 func (a *Account) modelRateLimitReason(scope string) string {
 	if a == nil || a.Extra == nil {
 		return ""

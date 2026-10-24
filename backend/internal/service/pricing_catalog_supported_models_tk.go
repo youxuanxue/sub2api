@@ -214,18 +214,43 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	// Domain wire defaults and pricing overlay rows stay so existing mappings
 	// keep billing correctly.
 	"gemini-3.8-flash": {},
-	// gemini-4-argon: still withheld from the public catalog, but NOT because it
-	// 404s. Re-measured on live prod 2026-10-23 and the original note was wrong:
-	//   - model_availability has one row, gemini-4-argon-high, unreachable with
-	//     last_seen_ok_at = 2026-10-21 12:55 and last_failure_kind = rate_limited
-	//     (429) -- not model_not_found;
-	//   - usage_logs has 730 successful billed calls in 14 days, all
-	//     gemini-4-argon -> gemini-4-argon-high, the last on 2026-10-21;
-	//   - the 1419 antigravity failures in that window read "service is
-	//     temporarily busy" / "upstream request could not be completed", i.e.
-	//     capacity, not a missing model.
-	// So the model serves when it is not throttled. Keeping it out of the public
-	// allowlist is a capacity decision (429s dominate), not a retirement.
+	// gemini-4-argon: still withheld from the public catalog. Re-measured
+	// 2026-10-24 against the upstream bodies rather than model_availability, and
+	// BOTH earlier notes in this spot were partly wrong. Two different upstream
+	// failures run side by side, split by account, not by model:
+	//
+	//   per-day upstream rows (ops_error_logs, 5 days to 10-24)
+	//     10-24  404=2   429/upstream=3   429/pool-empty=21
+	//     10-23  404=6   429/upstream=3   429/pool-empty=5
+	//     10-22  404=8   429/upstream=6   429/pool-empty=4
+	//     10-21  404=21  429/upstream=26  429/pool-empty=27
+	//
+	//   - accounts 229/231/250/293 get Google's 404 "Requested entity was not
+	//     found." on /v1internal:streamGenerateContent -- byte-identical to what
+	//     retired gemini-3.7-flash returns;
+	//   - accounts 233/268/291/292/294 get quota 429s, "Resource has been
+	//     exhausted (e.g. check quota)." and "Individual quota reached. Please
+	//     upgrade your subscription", and carry 75-115h cooldowns with no reason
+	//     recorded (the 404 path writes a 30m one with
+	//     antigravity_404_model_unavailable, so these came from the quota path);
+	//   - usage_logs still shows successful billed calls through 10-21 (113 that
+	//     day), so the model does serve on the accounts that have quota.
+	//
+	// The earlier claim that "the original note was wrong" overstated it: the 404
+	// it described is real, it just happens on a subset of accounts. Equally, the
+	// claim that this is purely capacity was incomplete.
+	//
+	// Why that distinction decides the outcome: a retirement needs every tier
+	// wire failing the same way on every account (that is what gemini-3.7-flash
+	// showed, and why it was withdrawn). Here the split means neither call is
+	// safe -- do not retire it, and do not publish it either. Keep it withheld
+	// until the per-account difference is explained.
+	//
+	// Do not re-derive this from model_availability alone. That row still reads
+	// last_failure_kind=rate_limited / 429 with last_seen_ok_at 2026-10-21 while
+	// four accounts are getting 404s, because classifyFailureKind keeps the last
+	// classified failure and 429s dominate by volume. Reading it as the whole
+	// story is what produced the previous wrong note.
 	// Removing from this allowlist hides public catalog, menu fallback, and
 	// account-mapping floor together; domain wire defaults and pricing overlay
 	// rows stay, which is what lets existing mappings keep billing correctly.
