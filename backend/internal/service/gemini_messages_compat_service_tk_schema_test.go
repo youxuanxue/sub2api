@@ -41,7 +41,8 @@ func TestTKCleanToolSchema_StripsDraft2020Keywords(t *testing.T) {
 	require.True(t, ok)
 
 	name, _ := props["name"].(map[string]any)
-	require.NotContains(t, name, "const", "const must be stripped")
+	require.NotContains(t, name, "const", "const must be rewritten away")
+	require.Equal(t, []any{"auto"}, name["enum"], "string const must become a single-value enum")
 	require.Equal(t, "STRING", name["type"], "upstream cleanToolSchema 的 type 大写化必须仍然生效")
 
 	limit, _ := props["limit"].(map[string]any)
@@ -53,6 +54,51 @@ func TestTKCleanToolSchema_StripsDraft2020Keywords(t *testing.T) {
 	require.NotContains(t, tags, "propertyNames", "propertyNames must be stripped")
 
 	require.Contains(t, out, "required", "required 必须保留")
+}
+
+func TestCleanToolSchema_StringConstBecomesEnumAndAnnotationsStay(t *testing.T) {
+	in := map[string]any{
+		"type":     "object",
+		"examples": []any{"root example"},
+		"properties": map[string]any{
+			"examples": map[string]any{"type": "string"},
+			"mode": map[string]any{
+				"type":  "string",
+				"const": "browser",
+				"enum":  []any{"browser", "shell"},
+			},
+			"count": map[string]any{
+				"const": float64(1),
+				"type":  "integer",
+			},
+			"note": map[string]any{
+				"type": "string",
+				"default": map[string]any{
+					"pattern": "(?=keep)",
+				},
+			},
+		},
+	}
+
+	out, ok := cleanToolSchema(in).(map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, out, "examples")
+
+	props, ok := out["properties"].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, props, "examples")
+	mode, ok := props["mode"].(map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, mode, "const")
+	require.Equal(t, []any{"browser"}, mode["enum"])
+	count, ok := props["count"].(map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, count, "const")
+	require.NotContains(t, count, "enum")
+	require.Equal(t, "INTEGER", count["type"])
+	note, ok := props["note"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, map[string]any{"pattern": "(?=keep)"}, note["default"])
 }
 
 // TestTKStripUnsupportedToolSchemaKeywords_RecursesIntoArrays 验证 TK strip
@@ -80,7 +126,7 @@ func TestTKStripUnsupportedToolSchemaKeywords_RecursesIntoArrays(t *testing.T) {
 	require.Len(t, anyOf, 2)
 
 	first, _ := anyOf[0].(map[string]any)
-	require.NotContains(t, first, "const")
+	require.Equal(t, "x", first["const"], "const 留给 cleanToolSchema 收成 enum，strip 不能先删")
 	require.Equal(t, "string", first["type"], "TK strip 不做大写化（留给 upstream cleanToolSchema）")
 
 	second, _ := anyOf[1].(map[string]any)

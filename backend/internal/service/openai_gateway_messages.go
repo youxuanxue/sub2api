@@ -47,6 +47,16 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	rememberOpenCodeInboundBody(c, body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
+	// Chat Completions conversion drops web_search. A pure web_search request on
+	// /v1/messages is answered by the search API instead of the upstream.
+	if groupID := getOpenAIGroupIDFromContext(c); shouldEmulateWebSearchFor(ctx, s.settingService, s.channelService, account, &groupID, body) {
+		stream := gjson.GetBytes(body, "stream").Bool()
+		res, err := writeEmulatedWebSearch(ctx, c, account, body, gjson.GetBytes(body, "model").String(), stream)
+		if err != nil {
+			return nil, err
+		}
+		return &OpenAIForwardResult{Model: res.Model, Stream: stream, Duration: res.Duration}, nil
+	}
 	setCodexToolNameReverse(c, nil)
 	if target, planned := protocolExecutionTarget(ctx); planned {
 		switch target {

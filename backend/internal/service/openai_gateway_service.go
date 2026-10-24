@@ -507,6 +507,12 @@ func (s *OpenAIGatewayService) ResolveChannelMappingAndRestrict(ctx context.Cont
 }
 
 func (s *OpenAIGatewayService) isCodexImageGenerationBridgeEnabled(ctx context.Context, account *Account, apiKey *APIKey) bool {
+	// Hosted image_generation is an OpenAI Responses tool. Kimi / DeepSeek /
+	// MiniMax native Responses upstreams reject it, so a channel or global
+	// switch scoped to OpenAI must not inject the bridge for other platforms.
+	if account == nil || account.Platform != PlatformOpenAI {
+		return false
+	}
 	if override := account.CodexImageGenerationBridgeOverride(); override != nil {
 		return *override
 	}

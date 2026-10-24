@@ -821,10 +821,9 @@
     {
       "path": "backend/internal/service/account.go",
       "must_contain": [
-        "a.Type != AccountTypeAPIKey && !a.IsNewAPIVertexServiceAccount()",
-        "validateOAuthProxyBinding(a)"
+        "(a.Platform != PlatformAnthropic && a.Platform != PlatformOpenAI)"
       ],
-      "rationale": "Vertex embedding service accounts must survive the same scheduler capability gate as discovery, without admitting other OAuth/service-account shapes."
+      "rationale": "OpenAI API-key accounts reach web_search emulation via /v1/messages, so the three-state switch must admit them alongside Anthropic. Narrowing this back to Anthropic silently disables the feature for OpenAI accounts."
     },
     {
       "path": "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason_test.go",
@@ -3824,9 +3823,9 @@
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
       "must_contain": [
-        "ReplaceModelInBody(body, requestModel)"
+        "func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime("
       ],
-      "rationale": "Protocol ChatIdentity on an Antigravity relay must reuse the public model hop rule while preserving the plan-resolved provider model for billing. Native Gemini converter coverage alone does not exercise this raw chat path."
+      "rationale": "A raw-chat fallback entered after a failed /v1/responses attempt must inherit the original startTime; restarting the clock under-reports Duration and FirstTokenMs for every fallback request."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
@@ -3921,21 +3920,17 @@
     {
       "path": "backend/internal/service/model_rate_limit.go",
       "must_contain": [
-        "resolveFinalGeminiModelKey",
-        "TKResolveGeminiDispatchModel",
-        "IsUniversalKeyRouting(ctx)",
-        "resolveGeminiForwardModels(a, requestedModel)",
-        "PlatformGemini"
+        "func isAntigravityGeminiImageModel(model string) bool",
+        "!isAntigravityGeminiImageModel(modelKey)"
       ],
-      "rationale": "Cooldown reads must match forwarding: Direct retains group dispatch while Universal uses actual account mappings independently of its billing group."
+      "rationale": "Antigravity image models must not contribute to the shared gemini-family rate-limit key: one image 429 would otherwise mark the whole gemini family unavailable and drop text models out of the schedulable pool."
     },
     {
       "path": "backend/internal/service/model_rate_limit_test.go",
       "must_contain": [
-        "TestIsModelRateLimited_GeminiDispatchMappingAffectsModelKey",
-        "TestIsModelRateLimited_UniversalGeminiUsesAccountMapping"
+        "func TestAntigravityImageModelRateLimitStaysOffGeminiFamily(t *testing.T)"
       ],
-      "rationale": "Focused regression proving Gemini dispatch mapping affects model-level rate-limit reads."
+      "rationale": "Pins both directions of the image/text rate-limit split: an image model keeps only its own key, a text model still joins the family key."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service_tk_model_rate_limit_test.go",
@@ -4769,12 +4764,10 @@
     {
       "path": "backend/internal/service/openai_gateway_messages.go",
       "must_contain": [
-        "Wei-Shaw/sub2api#1311",
-        "c.Writer.Header().Set(\"Content-Type\", \"application/json\")",
-        "beginAnthropicClientHeaderWaitKeepalive(c, clientStream)",
-        "openAICompatSSEFrameParser"
+        "shouldEmulateWebSearchFor(ctx, s.settingService, s.channelService, account, &groupID, body)",
+        "writeEmulatedWebSearch(ctx, c, account, body,"
       ],
-      "rationale": "Non-stream /v1/messages must gate downstream keepalive on clientStream, even when the Responses upstream is always streamed, and override Content-Type after WriteFilteredHeaders so buffered JSON is not mixed with SSE. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322)."
+      "rationale": "Chat Completions conversion drops the web_search tool, so a pure web_search request on /v1/messages is answered from the search API before any upstream dispatch. Removing this interception sends an unsupported tool upstream."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_buffered_keepalive_tk_test.go",
@@ -7463,9 +7456,10 @@
     {
       "path": "backend/internal/service/gateway_hotpath_optimization_test.go",
       "must_contain": [
-        "mixed mapped account keeps whitelist when sibling is passthrough"
+        "passthrough contributes defaults alongside ordinary account mapping",
+        "require.NotContains(t, got, \"stale-model\")"
       ],
-      "rationale": "GetAvailableModels mixed-group contract: a leftover openai_passthrough sibling cannot erase the curated mapping whitelist. Upstream #5581 returned nil for the whole group; TokenKey serving SSOT keeps the non-passthrough union."
+      "rationale": "GetAvailableModels mixed-group contract: an openai_passthrough sibling supplements DefaultModelIDs without erasing curated mappings (upstream #7526). Upstream #5581 used to return nil for the whole group; TokenKey still keeps the non-passthrough union and never resurrects stale-model."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_request_normalize_tk.go",
@@ -10674,12 +10668,9 @@
     {
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
-        "if protocolExecutionBound(ctx) {",
-        "strings.TrimSpace(protocolAuthorizationToken(account))",
-        "CacheCreation5mTokens",
-        "CacheCreation1hTokens"
+        "if account == nil || account.Platform != PlatformOpenAI {"
       ],
-      "rationale": "Plan-bound API-key execution must consume the existing protocol authorization owner used during capability evaluation."
+      "rationale": "Hosted image_generation is an OpenAI Responses tool. Kimi / DeepSeek / MiniMax native Responses upstreams hard-reject it, so a channel or global switch must never inject the bridge for a non-OpenAI platform."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
@@ -17431,6 +17422,30 @@
         "func TestContentModerationKeywordStillBlocks(t *testing.T)"
       ],
       "rationale": "Keep both sides of the moderation short-circuit: off does not walk the body, and an enabled keyword rule still blocks."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_responses_input_rejection.go",
+      "must_contain": [
+        "func isConvertedResponsesInputStringRejection(status int, responseBody []byte) bool",
+        "func isResponsesInputStringValidationMessage(message string) bool"
+      ],
+      "rationale": "Upstreams that only accept a string `input` (vLLM-shaped) are detected here so the request falls back to raw chat completions instead of surfacing a 400. The narrow detector also rejects echoed/spoofed validation text; losing it either breaks those accounts or opens a false-retry path."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_responses_input_rejection_test.go",
+      "must_contain": [
+        "func TestConvertedResponsesInputStringRejectionValidationBoundaries(t *testing.T)",
+        "func TestForwardAsChatCompletions_StructuredInputRetrySafetyBoundaries(t *testing.T)",
+        "func TestForwardAsChatCompletions_RawFallbackPreservesResponsesTiming(t *testing.T)"
+      ],
+      "rationale": "Both sides of the structured-input fallback: the detector must not match echoed/spoofed validation text, the retry must not fire after commit/cancel or on a truncated body, and the fallback must keep the original clock."
+    },
+    {
+      "path": "backend/internal/service/cn_provider_quota_service.go",
+      "must_contain": [
+        "if classifyZhipuWindowUnit(e.unit) != cnZhipuWindowUnknown {"
+      ],
+      "rationale": "GLM Coding Plan reports both windows as CREDIT_LIMIT. They must be classified by unit, not by reset-time order: at period end the weekly window resets before the 5h one, so the time heuristic labels the two tiers backwards and drives threshold decisions the wrong way."
     }
   ]
 }

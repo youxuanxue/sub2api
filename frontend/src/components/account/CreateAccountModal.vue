@@ -3288,9 +3288,9 @@
         </div>
       </div>
 
-      <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
+      <!-- Anthropic / OpenAI API Key: Web Search Emulation (hidden when global disabled) -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey' && webSearchGlobalEnabled"
+        v-if="(form.platform === 'anthropic' || form.platform === 'openai') && accountCategory === 'apikey' && webSearchGlobalEnabled"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -5899,6 +5899,22 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
   } else {
     delete extra.anthropic_apikey_auth_scheme
   }
+
+  return Object.keys(extra).length > 0 ? extra : undefined
+}
+
+// Web search emulation applies to anthropic AND openai API-key accounts: both
+// reach /v1/messages over upstreams with no native web_search tool. Kept as its
+// own link in the extra chain so the selector persists for either platform.
+const buildWebSearchEmulationExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
+  if (
+    (form.platform !== PLATFORM_ANTHROPIC && form.platform !== PLATFORM_OPENAI) ||
+    accountCategory.value !== 'apikey'
+  ) {
+    return base
+  }
+
+  const extra: Record<string, unknown> = { ...(base || {}) }
   if (webSearchEmulationMode.value === 'default') {
     delete extra.web_search_emulation
   } else {
@@ -6357,7 +6373,7 @@ const handleSubmit = async () => {
   }
 
   form.credentials = credentials
-  const extra = buildAnthropicExtra(buildOpenAIExtra())
+  const extra = buildWebSearchEmulationExtra(buildAnthropicExtra(buildOpenAIExtra()))
 
   await doCreateAccount({
     ...form,
