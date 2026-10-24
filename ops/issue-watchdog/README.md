@@ -63,8 +63,12 @@ plain text). Both already-covered and not-applicable refs, independent of that
 Issue remaining open, live in `relay-settled.txt`: one `owner/repo#n` per line,
 with an optional `#` note (`TK已覆盖` or `TK不适用`). `resolved_refs()` reads it
 and drops both kinds before a later tracking Issue is written. Delete a line to
-admit that ref again. Merged ledger
-judgments and valid recorded fix anchors also remove
+admit that ref again. The same file may also list
+`TITLE_CLASS repo :: match :: unless :: note` lines: new issues in that
+repository whose title matches `match` and not `unless` are dropped before a
+comment is appended, so closing the aggregate does not let the same non-gateway
+class inflate a successor Issue.
+Merged ledger judgments and valid recorded fix anchors also remove
 entries from the pending set and check their historical tasks. If those anchors
 are revoked, a newly scanned affected entry returns to pending. Upstream closure,
 PR merge, disappearance from an incremental scan, and cache expiry do not prove a

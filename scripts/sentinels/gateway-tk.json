@@ -7441,9 +7441,10 @@
     {
       "path": "backend/internal/service/gateway_hotpath_optimization_test.go",
       "must_contain": [
-        "mixed mapped account keeps whitelist when sibling is passthrough"
+        "passthrough contributes defaults alongside ordinary account mapping",
+        "require.NotContains(t, got, \"stale-model\")"
       ],
-      "rationale": "GetAvailableModels mixed-group contract: a leftover openai_passthrough sibling cannot erase the curated mapping whitelist. Upstream #5581 returned nil for the whole group; TokenKey serving SSOT keeps the non-passthrough union."
+      "rationale": "GetAvailableModels mixed-group contract: an openai_passthrough sibling supplements DefaultModelIDs without erasing curated mappings (upstream #7526). Upstream #5581 used to return nil for the whole group; TokenKey still keeps the non-passthrough union and never resurrects stale-model."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_request_normalize_tk.go",

@@ -118,9 +118,11 @@ def scan_source(repo, work, checkpoint, target="", lookback_days=30, api=watchdo
     if target:
         sync = {}
         resolved = watchdog.resolved_refs()
+        title_classes = watchdog.settled_title_classes()
         for platform, items in grouped.items():
             sync[platform] = watchdog.queue.sync_queue(
-                repo, items, target, api, resolved=resolved, platform=platform)
+                repo, items, target, api, resolved=resolved, title_classes=title_classes,
+                platform=platform)
         report["sync"] = sync
         (work / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         checkpoint.parent.mkdir(parents=True, exist_ok=True)

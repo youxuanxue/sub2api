@@ -3,13 +3,17 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/websearch"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -377,4 +381,61 @@ func TestShouldEmulateWebSearch_DefaultMode_NilChannelService(t *testing.T) {
 	groupID := int64(42)
 	// nil channelService + default mode → returns false
 	require.False(t, svc.shouldEmulateWebSearch(context.Background(), account, &groupID, webSearchToolBody))
+}
+
+func TestShouldEmulateWebSearch_OpenAIAPIKeyEnabled(t *testing.T) {
+	mgr := websearch.NewManager([]websearch.ProviderConfig{{Type: "brave", APIKey: "k"}}, nil)
+	SetWebSearchManager(mgr)
+	defer SetWebSearchManager(nil)
+	setGlobalWebSearchConfig(&WebSearchEmulationConfig{
+		Enabled:   true,
+		Providers: []WebSearchProviderConfig{{Type: "brave", APIKey: "k"}},
+	})
+	defer clearGlobalWebSearchConfig()
+
+	settingSvc := newSettingServiceForWebSearchTest(true)
+	account := &Account{
+		ID:       9,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Extra:    map[string]any{featureKeyWebSearchEmulation: WebSearchModeEnabled},
+	}
+	require.True(t, shouldEmulateWebSearchFor(context.Background(), settingSvc, nil, account, nil, webSearchToolBody))
+
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeDisabled
+	require.False(t, shouldEmulateWebSearchFor(context.Background(), settingSvc, nil, account, nil, webSearchToolBody))
+}
+
+func TestForwardAsAnthropic_OpenAIAPIKeyWebSearchDoesNotCallUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mgr := websearch.NewManager([]websearch.ProviderConfig{{Type: "brave", APIKey: "k"}}, nil)
+	SetWebSearchManager(mgr)
+	defer SetWebSearchManager(nil)
+	setGlobalWebSearchConfig(&WebSearchEmulationConfig{
+		Enabled:   true,
+		Providers: []WebSearchProviderConfig{{Type: "brave", APIKey: "k"}},
+	})
+	defer clearGlobalWebSearchConfig()
+
+	body := []byte(`{"model":"gpt-5.4","tools":[{"type":"web_search"}],"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aa"}}]}]}`)
+	upstream := &httpUpstreamRecorder{}
+	svc := &OpenAIGatewayService{
+		cfg:            &config.Config{},
+		httpUpstream:   upstream,
+		settingService: newSettingServiceForWebSearchTest(true),
+	}
+	account := &Account{
+		ID:          9,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://example.com"},
+		Extra:       map[string]any{featureKeyWebSearchEmulation: WebSearchModeEnabled},
+	}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	_, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "web search emulation")
+	require.Empty(t, upstream.requests)
 }
