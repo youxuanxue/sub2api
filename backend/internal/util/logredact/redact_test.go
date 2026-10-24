@@ -19,6 +19,23 @@ func TestRedactText_JSONLike(t *testing.T) {
 	}
 }
 
+func TestRedactText_AuthorizationTails(t *testing.T) {
+	cases := []string{
+		`authorization=Digest username="a,b", response="QA_SECRET"`,
+		`authorization=Digest username="public",,response="QA_SECRET"`,
+		`headers={'authorization': 'Basic QA_SECRET'}`,
+		`{"authorization": Basic QA_SECRET, retrying upstream request}`,
+		`authorization=Bearer abc QA_SECRET, status=ok`,
+		`authorization=Bearer [REDACTED] QA_SECRET`,
+	}
+	for _, in := range cases {
+		out := RedactText(in)
+		if strings.Contains(out, "QA_SECRET") {
+			t.Fatalf("credential tail leaked from %q: %q", in, out)
+		}
+	}
+}
+
 func TestRedactText_QueryLike(t *testing.T) {
 	in := "access_token=ya29.a0AfH6SMDUMMY refresh_token=1//0gDUMMY"
 	out := RedactText(in)

@@ -379,3 +379,23 @@ func TestBuildCodexUsageExtraUpdates_7dOnlyLayoutOmits5hFields(t *testing.T) {
 func intPtrCodexTest(v int) *int {
 	return &v
 }
+
+// A Team 30-day window (43200 minutes) must not be stored as the 5h bucket.
+// It stays on the long-window fields so exhaustion blocking still sees it;
+// the admin label reads those minutes as 30d rather than 7d.
+func TestNormalize_ThirtyDayWindowIsNotFiveHour(t *testing.T) {
+	win30d := 30 * 24 * 60
+	used := 96.0
+	snapshot := &OpenAICodexUsageSnapshot{
+		PrimaryUsedPercent:   &used,
+		PrimaryWindowMinutes: &win30d,
+	}
+	n := snapshot.Normalize()
+	require.NotNil(t, n)
+	require.Nil(t, n.Used5hPercent)
+	require.Nil(t, n.Window5hMinutes)
+	require.NotNil(t, n.Used7dPercent)
+	require.Equal(t, 96.0, *n.Used7dPercent)
+	require.NotNil(t, n.Window7dMinutes)
+	require.Equal(t, win30d, *n.Window7dMinutes)
+}

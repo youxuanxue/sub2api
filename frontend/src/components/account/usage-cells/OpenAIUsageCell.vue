@@ -4,7 +4,7 @@
       <TodayStatsBadges :stats="todayStats" :loading="todayStatsLoading" />
       <UsageProgressBar
         v-if="hasOpenAIUsageFallback && usageInfo?.five_hour"
-        label="5h"
+        :label="codexQuotaWindowLabel(account.extra?.codex_5h_window_minutes, '5h')"
         :utilization="usageInfo.five_hour.utilization"
         :utilization-unknown="usageInfo.five_hour.utilization_unknown"
         :window-stats-label="usesLocalUsageWindows(account) ? t('admin.accounts.usageWindow.rollingStats', { window: '5h' }) : undefined"
@@ -15,7 +15,7 @@
       />
       <UsageProgressBar
         v-if="hasOpenAIUsageFallback && usageInfo?.seven_day"
-        label="7d"
+        :label="codexQuotaWindowLabel(account.extra?.codex_7d_window_minutes, '7d')"
         :estimated-total-cost="sevenDayEstimatedTotalCost"
         :utilization="usageInfo.seven_day.utilization"
         :utilization-unknown="usageInfo.seven_day.utilization_unknown"
@@ -115,6 +115,7 @@ import {
 } from '../accountUsageCellProps'
 import { useAccountUsageFetch } from './useAccountUsageFetch'
 import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
+import { codexQuotaWindowLabel } from '@/constants/codexRateLimitWindows.tk'
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
 const emit = defineEmits<{ 'account-updated': [account: Account] }>()

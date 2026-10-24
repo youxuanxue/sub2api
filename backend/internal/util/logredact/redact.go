@@ -558,6 +558,7 @@ func redactAssignmentPass(input string, patterns *textRedactPatterns, pass int) 
 		if (pass == jsonAssignment && input[delimiter] != ':') || (pass == queryAssignment && input[delimiter] != '=') {
 			continue
 		}
+		keyStart := 0
 		keyEnd := delimiter
 		if pass != queryAssignment {
 			for keyEnd > 0 && isAssignmentSpace(input[keyEnd-1]) {
@@ -574,7 +575,7 @@ func redactAssignmentPass(input string, patterns *textRedactPatterns, pass int) 
 				continue
 			}
 		} else {
-			keyStart := keyEnd
+			keyStart = keyEnd
 			for keyStart > 0 && isLinearKeyByte(input[keyStart-1]) {
 				keyStart--
 			}
@@ -585,6 +586,11 @@ func redactAssignmentPass(input string, patterns *textRedactPatterns, pass int) 
 					break
 				}
 				keyStart += i + 1
+			}
+			if keyStart == keyEnd {
+				if quotedStart, quotedEnd, ok := quotedAuthorizationKey(input, keyEnd); ok {
+					keyStart, keyEnd = quotedStart, quotedEnd
+				}
 			}
 			if keyStart == keyEnd || (keyStart > 0 && isWordByte(input[keyStart-1])) {
 				continue
@@ -609,6 +615,32 @@ func redactAssignmentPass(input string, patterns *textRedactPatterns, pass int) 
 			valueEnd = valueStart + i
 			delimiter = valueEnd
 			matchEnd = valueEnd + 1
+		} else if isAuthorizationLogKey(input[keyStart:keyEnd]) {
+			// Authorization values run to the end of the line. Stopping at the
+			// first comma or space leaves Digest/Bearer tails in operator logs.
+			// Quoted values keep their quotes so a later pass cannot turn
+			// `"***"` into bare `***` after the JSON assignment pass.
+			if valueStart < len(input) && (input[valueStart] == '"' || input[valueStart] == '\'') {
+				quote := input[valueStart]
+				valueStart++
+				valueEnd = valueStart
+				for valueEnd < len(input) && input[valueEnd] != quote && input[valueEnd] != '\n' && input[valueEnd] != '\r' {
+					valueEnd++
+				}
+				if valueEnd == valueStart {
+					continue
+				}
+				delimiter = valueEnd - 1
+				if valueEnd < len(input) && input[valueEnd] == quote {
+					matchEnd = valueEnd + 1
+				}
+			} else {
+				valueEnd = authorizationValueEnd(input, valueStart)
+				if valueEnd == valueStart {
+					continue
+				}
+				delimiter = valueEnd - 1
+			}
 		} else {
 			stop := byte(',')
 			if pass == queryAssignment {
@@ -639,6 +671,73 @@ func redactAssignmentPass(input string, patterns *textRedactPatterns, pass int) 
 	return b.String()
 }
 
+func isAuthorizationLogKey(key string) bool {
+	return strings.EqualFold(key, "authorization") || strings.EqualFold(key, "proxy-authorization")
+}
+
+// authorizationValueEnd keeps ordinary values space-bounded (parity with the
+// reference pipeline) while Digest/Bearer/Basic tails may contain spaces or
+// commas that would otherwise leave credential fragments in operator logs.
+func authorizationValueEnd(input string, valueStart int) int {
+	rest := input[valueStart:]
+	switch {
+	case hasAuthorizationSchemePrefix(rest, "digest"):
+		end := valueStart
+		for end < len(input) && input[end] != '\n' && input[end] != '\r' {
+			end++
+		}
+		return end
+	case hasAuthorizationSchemePrefix(rest, "bearer"),
+		hasAuthorizationSchemePrefix(rest, "basic"),
+		hasAuthorizationSchemePrefix(rest, "token"):
+		end := valueStart
+		for end < len(input) && input[end] != '\n' && input[end] != '\r' && input[end] != ',' {
+			end++
+		}
+		return end
+	default:
+		end := valueStart
+		for end < len(input) && input[end] != ',' && !isAssignmentSpace(input[end]) {
+			end++
+		}
+		return end
+	}
+}
+
+func hasAuthorizationSchemePrefix(value, scheme string) bool {
+	if len(value) < len(scheme) || !strings.EqualFold(value[:len(scheme)], scheme) {
+		return false
+	}
+	if len(value) == len(scheme) {
+		return true
+	}
+	return isAssignmentSpace(value[len(scheme)]) || value[len(scheme)] == ','
+}
+
+// quotedAuthorizationKey matches 'authorization' or "authorization" immediately
+// before a colon/equals, which the bare key scan skips.
+func quotedAuthorizationKey(input string, keyEnd int) (int, int, bool) {
+	if keyEnd == 0 {
+		return 0, 0, false
+	}
+	quote := input[keyEnd-1]
+	if quote != '\'' && quote != '"' {
+		return 0, 0, false
+	}
+	innerEnd := keyEnd - 1
+	innerStart := innerEnd
+	for innerStart > 0 && isLinearKeyByte(input[innerStart-1]) {
+		innerStart--
+	}
+	if innerStart == innerEnd || !isAuthorizationLogKey(input[innerStart:innerEnd]) {
+		return 0, 0, false
+	}
+	if innerStart > 0 && input[innerStart-1] != quote {
+		return 0, 0, false
+	}
+	return innerStart, innerEnd, true
+}
+
 func isLinearKeyByte(c byte) bool {
 	return isWordByte(c) || c == '-'
 }
@@ -664,7 +763,7 @@ func (p *textRedactPatterns) mayContainAssignment(input string) bool {
 		if p.hasKeySuffix(input[:end]) {
 			return true
 		}
-		if end > 0 && input[end-1] == '"' && p.hasKeySuffix(input[:end-1]) {
+		if end > 0 && (input[end-1] == '"' || input[end-1] == '\'') && p.hasKeySuffix(input[:end-1]) {
 			return true
 		}
 	}
