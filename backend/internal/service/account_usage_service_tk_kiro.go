@@ -161,8 +161,14 @@ func (s *AccountUsageService) refreshKiroUsageAccount(ctx context.Context, accou
 	if !executor.CanRefresh(account) {
 		return account, false, nil
 	}
+	if kiroStoredTerminalAuthFailure(account) {
+		return account, false, nil
+	}
 	result, err := s.oauthRefreshAPI.RefreshNow(ctx, account, executor)
 	if err != nil {
+		if isNonRetryableRefreshError(err) {
+			s.markKiroTerminalAuthFailure(ctx, account)
+		}
 		return account, false, err
 	}
 	if result == nil {
@@ -175,6 +181,29 @@ func (s *AccountUsageService) refreshKiroUsageAccount(ctx context.Context, accou
 		return result.Account, true, nil
 	}
 	return account, true, nil
+}
+
+func kiroStoredTerminalAuthFailure(account *Account) bool {
+	if account == nil || account.Status != StatusError {
+		return false
+	}
+	return isNonRetryableRefreshError(errors.New(account.ErrorMessage))
+}
+
+func (s *AccountUsageService) markKiroTerminalAuthFailure(ctx context.Context, account *Account) {
+	if account == nil {
+		return
+	}
+	const msg = "Token refresh failed (non-retryable): invalid_grant"
+	account.Status = StatusError
+	account.Schedulable = false
+	account.ErrorMessage = msg
+	if s == nil || s.accountRepo == nil {
+		return
+	}
+	if err := s.accountRepo.SetError(ctx, account.ID, msg); err != nil {
+		slog.Warn("kiro terminal auth failure was not persisted", "account_id", account.ID, "error", err)
+	}
 }
 
 func isKiroUsageTokenAuthError(err error) bool {

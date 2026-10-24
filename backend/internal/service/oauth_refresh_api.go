@@ -239,7 +239,10 @@ func (api *OAuthRefreshAPI) refresh(
 	if freshAccount.ID != account.ID {
 		return nil, fmt.Errorf("%w: account identity mismatch", errOAuthRefreshAccountRereadFailed)
 	}
-	allowKiroErrorRecovery := force && freshAccount.Platform == PlatformKiro && freshAccount.Status == StatusError
+	// Quota and other recoverable Kiro errors may still force a refresh. A
+	// rejected or revoked refresh token is terminal: refreshing it again on the
+	// next request only repeats invalid_grant. The lock above still runs.
+	allowKiroErrorRecovery := force && freshAccount.Platform == PlatformKiro && freshAccount.Status == StatusError && !kiroStoredTerminalAuthFailure(freshAccount)
 	if !freshAccount.IsActive() && !allowKiroErrorRecovery {
 		if requestPath {
 			return nil, fmt.Errorf("%w: account is not active", errOAuthRefreshAccountStateChanged)

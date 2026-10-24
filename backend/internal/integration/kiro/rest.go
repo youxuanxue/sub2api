@@ -269,7 +269,8 @@ func isTransientProfileFetchError(err error) bool {
 }
 
 func listAvailableProfilesWithDoer(account *Account, doer HTTPDoer) (string, error) {
-	data, err := kiroRestFetchWithDoer(account, "POST", "/ListAvailableProfiles", `{"maxResults":10}`, false, doer)
+	// ListAvailableProfiles rejects a maxResults field. Send an empty object.
+	data, err := kiroRestFetchWithDoer(account, "POST", "/ListAvailableProfiles", `{}`, false, doer)
 	if err != nil {
 		return "", err
 	}

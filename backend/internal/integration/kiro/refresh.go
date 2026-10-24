@@ -75,14 +75,7 @@ func RefreshTokenContext(ctx context.Context, account *Account) (string, string,
 		return "", "", 0, "", fmt.Errorf("Kiro refresh response too large")
 	}
 	if resp.StatusCode != http.StatusOK {
-		var failure struct {
-			Error string `json:"error"`
-		}
-		_ = json.Unmarshal(raw, &failure)
-		if failure.Error == "invalid_grant" {
-			return "", "", 0, "", fmt.Errorf("Kiro refresh failed: %d invalid_grant", resp.StatusCode)
-		}
-		return "", "", 0, "", fmt.Errorf("Kiro refresh failed: %d", resp.StatusCode)
+		return "", "", 0, "", kiroRefreshHTTPError(resp.StatusCode, raw)
 	}
 	var result struct {
 		AccessToken  string  `json:"accessToken"`
@@ -108,4 +101,28 @@ func RefreshTokenContext(ctx context.Context, account *Account) (string, string,
 		return "", "", 0, "", err
 	}
 	return result.AccessToken, refresh, now + result.ExpiresIn, result.ProfileArn, nil
+}
+
+// kiroRefreshHTTPError classifies a non-200 refresh response without echoing
+// credential fields. invalid_grant, and a refresh token the auth host says is
+// revoked or rejected, are terminal: callers must not send that token again.
+func kiroRefreshHTTPError(status int, raw []byte) error {
+	var failure struct {
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description"`
+		Message          string `json:"message"`
+		Reason           string `json:"reason"`
+	}
+	_ = json.Unmarshal(raw, &failure)
+	blob := strings.ToLower(strings.Join([]string{
+		failure.Error,
+		failure.ErrorDescription,
+		failure.Message,
+		failure.Reason,
+	}, " "))
+	if strings.Contains(blob, "invalid_grant") ||
+		(strings.Contains(blob, "refresh") && (strings.Contains(blob, "revoked") || strings.Contains(blob, "rejected"))) {
+		return fmt.Errorf("Kiro refresh failed: %d invalid_grant", status)
+	}
+	return fmt.Errorf("Kiro refresh failed: %d", status)
 }

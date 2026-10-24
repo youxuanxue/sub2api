@@ -60,6 +60,90 @@ func (u *kiroStallUpstream) DoWithTLS(_ *http.Request, _ string, _ int64, _ int,
 	}, nil
 }
 
+// stagedKiroBodyReader returns complete EventStream frames, then stalls before
+// the next batch. Models a silent stretch while later tool arguments buffer.
+type stagedKiroBodyReader struct {
+	chunks [][]byte
+	delay  time.Duration
+	index  int
+	sent   bool
+}
+
+func (r *stagedKiroBodyReader) Read(p []byte) (int, error) {
+	if r.index >= len(r.chunks) {
+		return 0, io.EOF
+	}
+	if r.index > 0 && !r.sent {
+		time.Sleep(r.delay)
+		r.sent = true
+	}
+	chunk := r.chunks[r.index]
+	if len(chunk) == 0 {
+		r.index++
+		r.sent = false
+		if r.index >= len(r.chunks) {
+			return 0, io.EOF
+		}
+		return 0, nil
+	}
+	n := copy(p, chunk)
+	r.chunks[r.index] = chunk[n:]
+	if len(r.chunks[r.index]) == 0 {
+		r.index++
+		r.sent = false
+	}
+	return n, nil
+}
+
+func (r *stagedKiroBodyReader) Close() error { return nil }
+
+func TestKiroStreaming_SilentStretchKeepaliveDuringToolArgBuffer(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	thinking := buildKiroEventStreamMessage("reasoningContentEvent", []byte(`{"text":"plan"}`))
+	tool := buildKiroEventStreamMessage("toolUseEvent", []byte(
+		`{"toolUseId":"toolu_1","name":"Read","input":{"file_path":"a.txt"},"stop":true}`))
+	tool = appendKiroTerminalStop(tool, "TOOL_USE")
+
+	upstream := &kiroStallUpstream{
+		respBody: &stagedKiroBodyReader{
+			chunks: [][]byte{thinking, tool},
+			delay:  1100 * time.Millisecond,
+		},
+	}
+	svc := NewKiroGatewayService(upstream, nil, nil)
+	svc.SetGatewayConfig(&config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}})
+
+	reqBody, _ := json.Marshal(map[string]any{
+		"model":      "claude-opus-5",
+		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+		"max_tokens": 32,
+		"stream":     true,
+		"thinking":   map[string]any{"type": "enabled", "budget_tokens": 1000},
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(reqBody), Model: "claude-opus-5", Stream: true}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Nil(t, boundPreContentStreamKeepalive(c))
+
+	out := rec.Body.String()
+	require.Contains(t, out, `"thinking":"plan"`)
+	require.Contains(t, out, `"name":"Read"`)
+	require.GreaterOrEqual(t, strings.Count(out, "event: ping"), 1,
+		"expected ping-only keepalive while tool args buffer after first visible block, body=%q", out)
+	require.Equal(t, 1, strings.Count(out, "event: message_start"), "silent-stretch keepalive must not re-send message_start")
+	thinkAt := strings.Index(out, `"type":"thinking_delta"`)
+	pingAt := strings.Index(out, "event: ping")
+	toolAt := strings.Index(out, `"name":"Read"`)
+	require.Greater(t, pingAt, thinkAt, "ping must cover the silent stretch after thinking")
+	require.Greater(t, toolAt, pingAt, "tool block must arrive after the silent-stretch ping")
+}
+
 func TestKiroStreaming_HeaderWaitKeepaliveDuringThinkingStall(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
