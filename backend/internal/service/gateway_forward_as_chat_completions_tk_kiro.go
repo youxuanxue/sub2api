@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -50,6 +52,7 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 	if err != nil {
 		return nil, fmt.Errorf("set anthropic stream for kiro bridge: %w", err)
 	}
+	anthropicBody = applyKiroChatCompletionsReasoningEffort(ccBody, anthropicBody)
 
 	kiroParsed := &ParsedRequest{
 		Body:   NewRequestBodyRef(anthropicBody),
@@ -134,4 +137,44 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 		}
 	}
 	return result, nil
+}
+
+// applyKiroChatCompletionsReasoningEffort copies Chat Completions
+// reasoning_effort onto output_config.effort. The shared converter maps xhigh
+// to max; Kiro must receive the caller's value, including xhigh and max.
+func applyKiroChatCompletionsReasoningEffort(ccBody, anthropicBody []byte) []byte {
+	raw := strings.TrimSpace(gjson.GetBytes(ccBody, "reasoning_effort").String())
+	if raw == "" {
+		raw = strings.TrimSpace(gjson.GetBytes(ccBody, "reasoning.effort").String())
+	}
+	effort := kiroPassthroughReasoningEffort(raw)
+	if effort == "" {
+		return anthropicBody
+	}
+	updated, err := sjson.SetBytes(anthropicBody, "output_config.effort", effort)
+	if err != nil {
+		return anthropicBody
+	}
+	if strings.TrimSpace(gjson.GetBytes(updated, "thinking.type").String()) == "" {
+		withThinking, thinkErr := sjson.SetBytes(updated, "thinking.type", "adaptive")
+		if thinkErr != nil {
+			return updated
+		}
+		updated = withThinking
+	}
+	return updated
+}
+
+func kiroPassthroughReasoningEffort(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return ""
+	}
+	value = strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
+	switch value {
+	case "low", "medium", "high", "xhigh", "max":
+		return value
+	default:
+		return ""
+	}
 }

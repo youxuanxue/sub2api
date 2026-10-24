@@ -154,6 +154,34 @@ func TestGetUsageLimits_RetriesAfterStaleProfileArn(t *testing.T) {
 	}
 }
 
+func TestListAvailableProfiles_OmitsMaxResults(t *testing.T) {
+	var body string
+	doer := restDoerFunc(func(req *http.Request) (*http.Response, error) {
+		if !strings.Contains(req.URL.Path, "ListAvailableProfiles") {
+			t.Fatalf("unexpected path %s", req.URL.Path)
+		}
+		raw, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		body = string(raw)
+		return restTestResponse(http.StatusOK, `{"profiles":[{"arn":"arn:aws:codewhisperer:us-east-1:1:profile/p"}]}`), nil
+	})
+	arn, err := listAvailableProfilesWithDoer(&Account{AccessToken: "tok"}, doer)
+	if err != nil {
+		t.Fatalf("listAvailableProfilesWithDoer() error = %v", err)
+	}
+	if arn != "arn:aws:codewhisperer:us-east-1:1:profile/p" {
+		t.Fatalf("arn = %q", arn)
+	}
+	if body != "{}" {
+		t.Fatalf("ListAvailableProfiles body = %q, want {}", body)
+	}
+	if strings.Contains(body, "maxResults") {
+		t.Fatalf("ListAvailableProfiles must not send maxResults, body=%q", body)
+	}
+}
+
 func TestGetUsageLimits_RebuildsTargetsAfterRegionalProfileDiscovery(t *testing.T) {
 	var seen []string
 	doer := restDoerFunc(func(req *http.Request) (*http.Response, error) {

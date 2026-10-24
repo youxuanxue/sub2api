@@ -83,6 +83,31 @@ func (s *KiroGatewayService) ensureKiroStreamingKeepalive(c *gin.Context, model,
 	bindPreContentStreamKeepalive(c, k)
 }
 
+// resumeKiroSilentStretchKeepalive emits ping-only frames after the first
+// visible block, while tool arguments are still buffered and the client would
+// otherwise see a silent stream. It does not send message_start again, and it
+// does not arm itself on the fast failover path (no visible write, no resume).
+func (s *KiroGatewayService) resumeKiroSilentStretchKeepalive(c *gin.Context) {
+	if c == nil || boundPreContentStreamKeepalive(c) != nil {
+		return
+	}
+	intervalSec := 0
+	if s != nil && s.cfg != nil {
+		intervalSec = s.cfg.Gateway.StreamKeepaliveInterval
+	}
+	if intervalSec <= 0 {
+		return
+	}
+	k := startHeaderWaitKeepaliveWithPrefix(
+		c,
+		time.Duration(intervalSec)*time.Second,
+		"",
+		anthropicSSEPingFrame,
+		nil,
+	)
+	bindPreContentStreamKeepalive(c, k)
+}
+
 // KiroPostOutputStreamDisconnectError marks an incomplete upstream stream after
 // response content has already been sent. The current request cannot be replayed
 // safely; the handler uses this marker to exclude the account once on the
@@ -523,11 +548,12 @@ func (s *KiroGatewayService) forwardStreaming(
 	c.Header("x-request-id", requestID)
 
 	// SSOT: every Kiro streaming caller (messages + CC bridge) arms Claude-Code-
-	// safe keepalive here. message_start precedes the first ping; the first
-	// client-visible thinking, text, or tool block stops it. Callers must not
-	// bind a second emitter. Always stop
-	// on return — early failover paths used to rely on tkTryForwardKiro's
-	// post-Forward stop, which was removed when ownership moved here.
+	// safe keepalive here. message_start precedes the first ping. The first
+	// client-visible thinking, text, or tool block stops that emitter, then a
+	// ping-only emitter covers a later silent tool-argument stretch. Callers
+	// must not bind a second emitter. Always stop on return — early failover
+	// paths used to rely on tkTryForwardKiro's post-Forward stop, which was
+	// removed when ownership moved here.
 	s.ensureKiroStreamingKeepalive(c, model, requestID)
 	defer stopPreContentStreamKeepalive(c)
 
@@ -581,6 +607,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		syncKiroMessageStartFromKeepalive(c, enc)
 		markFirstVisibleToken()
 		enc.writeTextDelta(delta)
+		s.resumeKiroSilentStretchKeepalive(c)
 	}
 	writeVisibleToolUse := func(toolUse kiroproto.KiroToolUse) {
 		if ctx.Err() != nil {
@@ -591,6 +618,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		syncKiroMessageStartFromKeepalive(c, enc)
 		markFirstVisibleToken()
 		enc.writeToolUse(toolUse)
+		s.resumeKiroSilentStretchKeepalive(c)
 	}
 	// Reasoning is client-visible as soon as Kiro emits it. The placeholder
 	// signature is attached when the thinking block closes. Inline <thinking>
@@ -605,6 +633,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		syncKiroMessageStartFromKeepalive(c, enc)
 		markFirstVisibleToken()
 		enc.writeThinkingDelta(delta)
+		s.resumeKiroSilentStretchKeepalive(c)
 		return true
 	}
 
