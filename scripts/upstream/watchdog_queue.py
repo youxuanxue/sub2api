@@ -56,17 +56,27 @@ def safe_title(title):
     return re.sub(r"([\\`*_\[\]])", r"\\\1", value)
 
 
-def class_dismissed(ref, text, classes):
-    """True when this lead matches a settled non-gateway title class."""
-    repo = ref.rsplit("#", 1)[0]
-    for rule_repo, match, unless in classes:
+def class_dismissed(item, classes):
+    """Settled non-gateway class match, or "" when the lead stays.
+
+    The class is recognised by title shape, but the ``unless`` escape hatch and
+    the topic signal are evaluated over *everything* the relevance scan saw —
+    title, body and the topics it derived from title+body+comments. Relevance
+    reads the body; a title-only dismissal would silently drop a lead whose
+    gateway evidence lives in its body, and an incremental scan never offers it
+    again. Returns the recorded note so a drop is auditable, never a bare bool.
+    """
+    repo = (item.get("upstream") or "").rsplit("#", 1)[0]
+    title = item.get("title") or ""
+    evidence = " ".join([title, item.get("body") or "", *(item.get("topics") or [])])
+    for rule_repo, match, unless, note in classes:
         if rule_repo != repo:
             continue
-        if unless and unless.search(text or ""):
+        if unless and unless.search(evidence):
             continue
-        if match.search(text or ""):
-            return True
-    return False
+        if match.search(title):
+            return note
+    return ""
 
 
 def trusted_authors(target, api):
@@ -115,11 +125,21 @@ def sync_queue(repo, items, target, api, resolved=(), title_classes=(), day=None
         raise ValueError("duplicate upstream tracking Issues")
     issue = matches[0] if matches else None
     items = [{**item, "upstream": item.get("upstream") or f"{repo}#{item['number']}"} for item in items]
-    items = [item for item in items
-             if item["upstream"] not in resolved
-             and not class_dismissed(item["upstream"], item.get("title") or "", title_classes)]
+    # A dismissal is a silent decision not to track a real finding. Record each
+    # one so a mis-scoped class shows up in the report instead of as absence.
+    dismissed = []
+    kept = []
+    for item in items:
+        if item["upstream"] in resolved:
+            continue
+        note = class_dismissed(item, title_classes)
+        if note:
+            dismissed.append({"upstream": item["upstream"], "note": note})
+            continue
+        kept.append(item)
+    items = kept
     if not issue and not items:
-        return {"created": 0, "commented": 0, "pending": 0}
+        return {"created": 0, "commented": 0, "pending": 0, "dismissed": dismissed}
     created = 0
     if not issue:
         labels = {row["name"] for page in api("api", "--paginate", "--slurp",
@@ -210,4 +230,4 @@ def sync_queue(repo, items, target, api, resolved=(), title_classes=(), day=None
         changes["state"] = state
     if changes:
         api("api", "--method", "PATCH", endpoint, payload=changes)
-    return {"created": created, "commented": commented, "pending": pending}
+    return {"created": created, "commented": commented, "pending": pending, "dismissed": dismissed}

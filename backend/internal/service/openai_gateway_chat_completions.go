@@ -402,7 +402,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 				zap.Int("upstream_status", resp.StatusCode),
 				zap.String("upstream_message", upstreamMsg),
 			)
-			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+			return s.forwardAsRawChatCompletionsWithStartTime(ctx, c, account, body, defaultMappedModel, startTime)
 		}
 		responsesMode, _ := account.Extra[openai_compat.ExtraKeyResponsesMode].(string)
 		if account.IsOpenAIApiKey() &&
@@ -419,7 +419,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 				zap.Int64("account_id", account.ID),
 				zap.Int("upstream_status", resp.StatusCode),
 			)
-			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+			return s.forwardAsRawChatCompletionsWithStartTime(ctx, c, account, body, defaultMappedModel, startTime)
 		}
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr

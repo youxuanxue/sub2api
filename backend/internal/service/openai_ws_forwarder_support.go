@@ -470,14 +470,6 @@ func populateOpenAIUsageFromResponseJSON(body []byte, usage *OpenAIUsage) {
 	}
 }
 
-func openAIGroupIDPtr(c *gin.Context) *int64 {
-	id := getOpenAIGroupIDFromContext(c)
-	if id <= 0 {
-		return nil
-	}
-	return &id
-}
-
 func getOpenAIGroupIDFromContext(c *gin.Context) int64 {
 	if c == nil {
 		return 0

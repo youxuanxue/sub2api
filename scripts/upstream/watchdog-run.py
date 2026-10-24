@@ -103,7 +103,8 @@ def load_settled(root=ROOT):
             if not match:
                 raise ValueError(f"{path}:{lineno}: expected TITLE_CLASS repo :: match :: unless :: note")
             classes.append((match.group("repo"), re.compile(match.group("match"), re.I),
-                            re.compile(match.group("unless"), re.I) if match.group("unless").strip() else None))
+                            re.compile(match.group("unless"), re.I) if match.group("unless").strip() else None,
+                            match.group("note").strip()))
             continue
         match = SETTLED_RE.fullmatch(stripped)
         if not match:

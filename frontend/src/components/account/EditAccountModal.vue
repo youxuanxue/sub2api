@@ -2263,9 +2263,9 @@
         </div>
       </div>
 
-      <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
+      <!-- Anthropic / OpenAI API Key: Web Search Emulation (hidden when global disabled) -->
       <div
-        v-if="account?.platform === 'anthropic' && account?.type === 'apikey' && webSearchGlobalEnabled"
+        v-if="(account?.platform === 'anthropic' || account?.platform === 'openai') && account?.type === 'apikey' && webSearchGlobalEnabled"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -4593,6 +4593,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     anthropicAPIKeyAuthScheme.value = extra?.anthropic_apikey_auth_scheme === 'authorization_bearer'
       ? 'authorization_bearer'
       : 'x_api_key'
+  }
+
+  // Mirrors the save side: anthropic and openai API-key accounts both carry it.
+  if (
+    (newAccount.platform === PLATFORM_ANTHROPIC || newAccount.platform === PLATFORM_OPENAI) &&
+    newAccount.type === 'apikey'
+  ) {
     // 三态：string "default"/"enabled"/"disabled"，向后兼容旧 bool
     const wsVal = extra?.web_search_emulation
     if (wsVal === 'enabled' || wsVal === 'disabled') {
@@ -6115,6 +6122,19 @@ const handleSubmit = async () => {
       } else {
         delete newExtra.anthropic_apikey_auth_scheme
       }
+      updatePayload.extra = newExtra
+    }
+
+    // Web search emulation applies to anthropic AND openai API-key accounts:
+    // both reach /v1/messages over upstreams with no native web_search tool.
+    // Owned here, outside the anthropic-only block, so the selector the admin
+    // sees for an openai account actually persists.
+    if (
+      (props.account.platform === PLATFORM_ANTHROPIC || props.account.platform === PLATFORM_OPENAI) &&
+      props.account.type === 'apikey'
+    ) {
+      const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
       if (webSearchEmulationMode.value === 'default') {
         delete newExtra.web_search_emulation
       } else {

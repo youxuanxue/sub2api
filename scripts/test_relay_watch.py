@@ -148,7 +148,7 @@ class QueueTest(unittest.TestCase):
         import re
         api = FakeGitHub()
         classes = (("anthropics/claude-code", re.compile(r"desktop|sidebar", re.I),
-                    re.compile(r"gateway|400", re.I)),)
+                    re.compile(r"gateway|400", re.I), "TK不适用：client"),)
         desktop = {"title": "Desktop sidebar font is blurry on iPhone"}
         self.publish(api, [candidate(**desktop)], repo="anthropics/claude-code", title_classes=classes)
         self.assertEqual(api.issues, [])
@@ -164,6 +164,39 @@ class QueueTest(unittest.TestCase):
                      repo="anthropics/claude-code", title_classes=classes)
         self.assertEqual(api.issues[0]["state"], "open")
         self.assertIn("anthropics/claude-code#3", api.comments[-1]["body"])
+
+    def test_title_class_escape_hatch_reads_body_and_topics_not_just_title(self):
+        """A body/topic gateway signal must survive a client-shaped title.
+
+        Relevance is computed over title+body+comments, so a title-only
+        dismissal drops leads whose only gateway evidence is in the body — and
+        an incremental scan never offers them again.
+        """
+        import re
+        api = FakeGitHub()
+        classes = (("anthropics/claude-code", re.compile(r"sidebar|\blogin\b", re.I),
+                    re.compile(r"gateway|invalid_request", re.I), "TK不适用：client"),)
+        # Client-shaped title, gateway evidence only in the body.
+        body_evidence = candidate(1, title="OAuth login fails after update",
+                                  body="through a relay gateway, /v1/messages returns invalid_request 400")
+        result = self.publish(api, [body_evidence], repo="anthropics/claude-code", title_classes=classes)
+        self.assertEqual(result["dismissed"], [])
+        self.assertIn("anthropics/claude-code#1", api.comments[-1]["body"])
+
+        # Same title, evidence carried only as a derived topic.
+        topic_evidence = candidate(2, title="Sidebar login is blurry", topics=["invalid_request"])
+        result = self.publish(api, [topic_evidence], repo="anthropics/claude-code", title_classes=classes)
+        self.assertEqual(result["dismissed"], [])
+        self.assertIn("anthropics/claude-code#2", api.comments[-1]["body"])
+
+        # Genuinely client-only: still dropped, and the drop is reported.
+        comments = len(api.comments)
+        client_only = candidate(3, title="Sidebar font is blurry on iPhone",
+                                body="the sidebar renders at the wrong weight", topics=["conversion"])
+        result = self.publish(api, [client_only], repo="anthropics/claude-code", title_classes=classes)
+        self.assertEqual(result["dismissed"],
+                         [{"upstream": "anthropics/claude-code#3", "note": "TK不适用：client"}])
+        self.assertEqual(len(api.comments), comments)
 
     def test_human_checkbox_resolves_without_new_approval_or_ledger(self):
         api = FakeGitHub()

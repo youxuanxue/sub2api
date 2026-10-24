@@ -170,10 +170,14 @@ class WatchdogFlowTest(unittest.TestCase):
             classes = mod.settled_title_classes(root)
             self.assertEqual(len(classes), 1)
             self.assertEqual(classes[0][0], "anthropics/claude-code")
-            self.assertTrue(mod.queue.class_dismissed(
-                "anthropics/claude-code#9", "Desktop sidebar is blurry", classes))
-            self.assertFalse(mod.queue.class_dismissed(
-                "anthropics/claude-code#9", "gateway returns 400", classes))
+            self.assertEqual("TK不适用：client", mod.queue.class_dismissed(
+                {"upstream": "anthropics/claude-code#9", "title": "Desktop sidebar is blurry"}, classes))
+            self.assertEqual("", mod.queue.class_dismissed(
+                {"upstream": "anthropics/claude-code#9", "title": "gateway returns 400"}, classes))
+            # The escape hatch also reads body/topics, not just the title.
+            self.assertEqual("", mod.queue.class_dismissed(
+                {"upstream": "anthropics/claude-code#9", "title": "Desktop sidebar is blurry",
+                 "body": "only through the gateway"}, classes))
             settled.write_text("not-a-ref\n")
             with patch.object(mod.ledger, "load_ledger", return_value=[]):
                 with self.assertRaisesRegex(ValueError, "expected owner/repo#n"):

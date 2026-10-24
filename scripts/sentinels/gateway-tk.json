@@ -720,7 +720,14 @@
     },
     {
       "path": "scripts/upstream/watchdog_queue.py",
-      "must_contain": ["def managed_body(", "def sync_queue(", "def platform_marker(", "def trusted_authors(", "watchdog-tracking:v1", "watchdog-day:"],
+      "must_contain": [
+        "def managed_body(",
+        "def sync_queue(",
+        "def platform_marker(",
+        "def trusted_authors(",
+        "watchdog-tracking:v1",
+        "watchdog-day:"
+      ],
       "rationale": "One aggregate per platform preserves scoped decisions, bounds daily comments and replays without duplicate writes."
     },
     {
@@ -743,7 +750,13 @@
     },
     {
       "path": "scripts/upstream/relay-watch.py",
-      "must_contain": ["def collect(", "def platform_findings(", "issues/comments?", "merged_at", "temporary.replace(checkpoint)"],
+      "must_contain": [
+        "def collect(",
+        "def platform_findings(",
+        "issues/comments?",
+        "merged_at",
+        "temporary.replace(checkpoint)"
+      ],
       "rationale": "Relay monitoring must retain discussion changes and true merge evidence, committing cursors only after publication."
     },
     {
@@ -10135,7 +10148,8 @@
     {
       "path": "backend/internal/service/account_model_mapping_runtime_serving_tk.go",
       "must_contain": [
-        "func antigravityEffectiveDefaultModelMapping()", "for wireID, target := range domain.AntigravityThinkingWireFloorEntries()",
+        "func antigravityEffectiveDefaultModelMapping()",
+        "for wireID, target := range domain.AntigravityThinkingWireFloorEntries()",
         "func overlayAntigravityDefaultModelMapping(",
         "func reloadAccountModelMappingRuntimeServing(",
         "func subscribeAccountModelMappingRuntimeServing("
@@ -17348,6 +17362,74 @@
         "func TestContentModerationKeywordStillBlocks(t *testing.T)"
       ],
       "rationale": "Keep both sides of the moderation short-circuit: off does not walk the body, and an enabled keyword rule still blocks."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_responses_input_rejection.go",
+      "must_contain": [
+        "func isConvertedResponsesInputStringRejection(status int, responseBody []byte) bool",
+        "func isResponsesInputStringValidationMessage(message string) bool"
+      ],
+      "rationale": "Upstreams that only accept a string `input` (vLLM-shaped) are detected here so the request falls back to raw chat completions instead of surfacing a 400. The narrow detector also rejects echoed/spoofed validation text; losing it either breaks those accounts or opens a false-retry path."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_responses_input_rejection_test.go",
+      "must_contain": [
+        "func TestConvertedResponsesInputStringRejectionValidationBoundaries(t *testing.T)",
+        "func TestForwardAsChatCompletions_StructuredInputRetrySafetyBoundaries(t *testing.T)",
+        "func TestForwardAsChatCompletions_RawFallbackPreservesResponsesTiming(t *testing.T)"
+      ],
+      "rationale": "Both sides of the structured-input fallback: the detector must not match echoed/spoofed validation text, the retry must not fire after commit/cancel or on a truncated body, and the fallback must keep the original clock."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime("
+      ],
+      "rationale": "A raw-chat fallback entered after a failed /v1/responses attempt must inherit the original startTime; restarting the clock under-reports Duration and FirstTokenMs for every fallback request."
+    },
+    {
+      "path": "backend/internal/service/model_rate_limit.go",
+      "must_contain": [
+        "func isAntigravityGeminiImageModel(model string) bool",
+        "!isAntigravityGeminiImageModel(modelKey)"
+      ],
+      "rationale": "Antigravity image models must not contribute to the shared gemini-family rate-limit key: one image 429 would otherwise mark the whole gemini family unavailable and drop text models out of the schedulable pool."
+    },
+    {
+      "path": "backend/internal/service/model_rate_limit_test.go",
+      "must_contain": [
+        "func TestAntigravityImageModelRateLimitStaysOffGeminiFamily(t *testing.T)"
+      ],
+      "rationale": "Pins both directions of the image/text rate-limit split: an image model keeps only its own key, a text model still joins the family key."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages.go",
+      "must_contain": [
+        "shouldEmulateWebSearchFor(ctx, s.settingService, s.channelService, account, &groupID, body)",
+        "writeEmulatedWebSearch(ctx, c, account, body,"
+      ],
+      "rationale": "Chat Completions conversion drops the web_search tool, so a pure web_search request on /v1/messages is answered from the search API before any upstream dispatch. Removing this interception sends an unsupported tool upstream."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "(a.Platform != PlatformAnthropic && a.Platform != PlatformOpenAI)"
+      ],
+      "rationale": "OpenAI API-key accounts reach web_search emulation via /v1/messages, so the three-state switch must admit them alongside Anthropic. Narrowing this back to Anthropic silently disables the feature for OpenAI accounts."
+    },
+    {
+      "path": "backend/internal/service/cn_provider_quota_service.go",
+      "must_contain": [
+        "if classifyZhipuWindowUnit(e.unit) != cnZhipuWindowUnknown {"
+      ],
+      "rationale": "GLM Coding Plan reports both windows as CREDIT_LIMIT. They must be classified by unit, not by reset-time order: at period end the weekly window resets before the 5h one, so the time heuristic labels the two tiers backwards and drives threshold decisions the wrong way."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "if account == nil || account.Platform != PlatformOpenAI {"
+      ],
+      "rationale": "Hosted image_generation is an OpenAI Responses tool. Kimi / DeepSeek / MiniMax native Responses upstreams hard-reject it, so a channel or global switch must never inject the bridge for a non-OpenAI platform."
     }
   ]
 }

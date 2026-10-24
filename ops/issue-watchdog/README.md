@@ -65,9 +65,14 @@ with an optional `#` note (`TK已覆盖` or `TK不适用`). `resolved_refs()` re
 and drops both kinds before a later tracking Issue is written. Delete a line to
 admit that ref again. The same file may also list
 `TITLE_CLASS repo :: match :: unless :: note` lines: new issues in that
-repository whose title matches `match` and not `unless` are dropped before a
-comment is appended, so closing the aggregate does not let the same non-gateway
-class inflate a successor Issue.
+repository whose title matches `match` are dropped before a comment is
+appended, so closing the aggregate does not let the same non-gateway class
+inflate a successor Issue. `unless` is an escape hatch evaluated over the whole
+lead — title, body and derived topics — because relevance itself reads the body:
+a title-only dismissal would drop a lead whose gateway evidence is in its body,
+and an incremental scan never offers it again. Every drop is returned in
+`sync_queue`'s `dismissed` list with its note, so a mis-scoped class shows up in
+the report rather than as silence.
 Merged ledger judgments and valid recorded fix anchors also remove
 entries from the pending set and check their historical tasks. If those anchors
 are revoked, a newly scanned affected entry returns to pending. Upstream closure,
