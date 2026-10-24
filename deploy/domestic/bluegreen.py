@@ -289,6 +289,7 @@ def reclaim_candidate_name(target):
                       'removed': container_id, 'previous_state': state}))
     run('docker', 'rm', container_id)
 
+
 def prepare(args):
     state = args.state
     if state.exists():

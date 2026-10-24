@@ -19,7 +19,7 @@
 | prod `Deploy via SSM Run-Command` 报 `AccessDenied(ssm:SendCommand)` | 先 `python3 ops/stage0/resolve_prod_ssm_target.py --format json`，以返回的 `instance_id`（现网为腾讯 Hybrid `mi-*`）和 `ssm_region` 核对 OIDC/SSM 权限；身份见舰队清单；`aws` / `aws-fresh` / `hetzner` 均已退役并失败关闭，不要钉死。 |
 | cn-prod 发版误走运维机 `crane`/scp + 开放 SSH 22 | 改走 `deploy/domestic/deploy_via_ssm.sh`（SSM Hybrid）；CI 私有 S3 归档 + SSM 是默认分发；运维机搬运 tar 仅恢复路径，见 `deploy/domestic/README.md`。 |
 | cn-prod `prepare` 报 `candidate name ... is held by a running/restarting/paused container` | 该名字上有活动容器，不是上一轮残留。**不要删**，先查清是谁（可能是在途发版或当前活动色）。已停止的残留现在由 `reclaim_candidate_name` 自动回收，不再需要人工 `docker rm`。 |
-| cn-prod `deploy_via_ssm.sh` 报缺 boto3 / 无 AWS 身份 | 入口已前置检查并给出修复提示；按提示换解释器或刷新凭据，不要绕过检查直接调 `bluegreen.py`。 |
+| cn-prod `deploy_via_ssm.sh pull --transport s3` 报 cannot import boto3 | S3 归档渲染器需要 boto3，而本地 PATH 上的 `python3` 常常没有。按提示换一个有 boto3 的解释器；`--transport ghcr` 是显式退路。不要绕过入口直接调 `bluegreen.py`。 |
 | cn-prod promote 报 `No such file or directory: .../prepared.json` | `--state` 给错了。取 `prepare` 回执里的 `state` 字段（形如 `/opt/tokenkey/releases/<version>-<shortsha>`），不要照抄文档示例。 |
 | cn-prod `deploy_via_ssm.sh` 报 SSM identity not ready | 核对 `prod-target.json` 的 `ssm_instance_id` / `ssm_region`，与 `aws ssm describe-instance-information` 的 Name=`tokenkey-cn-prod`（也接受 `cn-prod`）、PingStatus=`Online`。 |
 | cn-prod promote 报 `public-url does not match the domestic target manifest` 或 `public static IP` | `--public-url` 用报错里的 `public_origin`。`api.galaxywaveai.com` 是北京第二站点，不是这个验收地址。不要改清单来迁就域名。 |
