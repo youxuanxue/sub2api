@@ -162,9 +162,18 @@ class WatchdogFlowTest(unittest.TestCase):
             directory = root / "ops/issue-watchdog"
             directory.mkdir(parents=True)
             settled = directory / "relay-settled.txt"
-            settled.write_text("# comment\n\nQuorinex/Kiro-Go#114  # covered\n")
+            settled.write_text(
+                "# comment\n\nQuorinex/Kiro-Go#114  # covered\n"
+                "TITLE_CLASS anthropics/claude-code :: desktop|sidebar :: gateway|400 :: TK不适用：client\n")
             with patch.object(mod.ledger, "load_ledger", return_value=[]):
                 self.assertEqual(mod.resolved_refs(root), {"Quorinex/Kiro-Go#114"})
+            classes = mod.settled_title_classes(root)
+            self.assertEqual(len(classes), 1)
+            self.assertEqual(classes[0][0], "anthropics/claude-code")
+            self.assertTrue(mod.queue.class_dismissed(
+                "anthropics/claude-code#9", "Desktop sidebar is blurry", classes))
+            self.assertFalse(mod.queue.class_dismissed(
+                "anthropics/claude-code#9", "gateway returns 400", classes))
             settled.write_text("not-a-ref\n")
             with patch.object(mod.ledger, "load_ledger", return_value=[]):
                 with self.assertRaisesRegex(ValueError, "expected owner/repo#n"):

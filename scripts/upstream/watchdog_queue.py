@@ -56,6 +56,19 @@ def safe_title(title):
     return re.sub(r"([\\`*_\[\]])", r"\\\1", value)
 
 
+def class_dismissed(ref, text, classes):
+    """True when this lead matches a settled non-gateway title class."""
+    repo = ref.rsplit("#", 1)[0]
+    for rule_repo, match, unless in classes:
+        if rule_repo != repo:
+            continue
+        if unless and unless.search(text or ""):
+            continue
+        if match.search(text or ""):
+            return True
+    return False
+
+
 def trusted_authors(target, api):
     """Markers in public Issues/comments are data until their author is trusted."""
     publisher = api("api", "user")
@@ -76,12 +89,14 @@ def trusted_authors(target, api):
     return trusted
 
 
-def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstream"):
+def sync_queue(repo, items, target, api, resolved=(), title_classes=(), day=None, platform="upstream"):
     """Publish relevant findings immediately, regardless of risk/manual judgment.
 
-    A checked task is an explicit TokenKey resolution. Ledger resolutions also
-    check every historical task for that ref. Absence from an incremental scan
-    or upstream closure is never treated as a TokenKey fix.
+    A checked task is an explicit TokenKey resolution. Ledger resolutions and
+    ``relay-settled.txt`` refs also check every historical task for that ref.
+    Title classes from the same file drop new issues of a recorded non-gateway
+    class before a comment is appended. Absence from an incremental scan or
+    upstream closure is never treated as a TokenKey fix.
     """
     day = day or datetime.now(timezone.utc).date().isoformat()
     marker = platform_marker(platform)
@@ -100,7 +115,9 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
         raise ValueError("duplicate upstream tracking Issues")
     issue = matches[0] if matches else None
     items = [{**item, "upstream": item.get("upstream") or f"{repo}#{item['number']}"} for item in items]
-    items = [item for item in items if item["upstream"] not in resolved]
+    items = [item for item in items
+             if item["upstream"] not in resolved
+             and not class_dismissed(item["upstream"], item.get("title") or "", title_classes)]
     if not issue and not items:
         return {"created": 0, "commented": 0, "pending": 0}
     created = 0

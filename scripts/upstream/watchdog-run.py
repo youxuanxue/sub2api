@@ -84,17 +84,26 @@ def fetch_snapshot(source, previous, started, api=gh):
 
 
 SETTLED_RE = re.compile(r"^(?P<ref>[\w.-]+/[\w.-]+#[1-9][0-9]*)(?:\s+#\s+\S.*)?$")
+TITLE_CLASS_RE = re.compile(
+    r"^TITLE_CLASS\s+(?P<repo>[\w.-]+/[\w.-]+)\s*::\s*(?P<match>.+?)\s*::\s*(?P<unless>.*?)\s*::\s*(?P<note>\S.*)$")
 
 
-def settled_refs(root=ROOT):
-    """Covered and not-applicable refs. Both stay out of a new tracking Issue."""
+def load_settled(root=ROOT):
+    """Exact settled refs plus title classes that must not reopen a tracking Issue."""
     path = root / "ops/issue-watchdog/relay-settled.txt"
     if not path.is_file():
-        return set()
-    refs = set()
+        return set(), ()
+    refs, classes = set(), []
     for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("TITLE_CLASS "):
+            match = TITLE_CLASS_RE.fullmatch(stripped)
+            if not match:
+                raise ValueError(f"{path}:{lineno}: expected TITLE_CLASS repo :: match :: unless :: note")
+            classes.append((match.group("repo"), re.compile(match.group("match"), re.I),
+                            re.compile(match.group("unless"), re.I) if match.group("unless").strip() else None))
             continue
         match = SETTLED_RE.fullmatch(stripped)
         if not match:
@@ -102,7 +111,17 @@ def settled_refs(root=ROOT):
         if match.group("ref") in refs:
             raise ValueError(f"{path}:{lineno}: duplicate {match.group('ref')}")
         refs.add(match.group("ref"))
-    return refs
+    return refs, tuple(classes)
+
+
+def settled_refs(root=ROOT):
+    """Covered and not-applicable refs. Both stay out of a new tracking Issue."""
+    return load_settled(root)[0]
+
+
+def settled_title_classes(root=ROOT):
+    """Title classes recorded next to settled refs; same class must not re-enter."""
+    return load_settled(root)[1]
 
 
 def resolved_refs(root=ROOT):
@@ -123,7 +142,8 @@ def resolved_refs(root=ROOT):
 def sync_issues(source, report, target_repo, api=gh, entries=()):
     items = [{**item, "number": engine.issue_number(item["upstream"])}
              for item in entries if item.get("topics") and item.get("impact") != "not_applicable"]
-    return queue.sync_queue(source["repo"], items, target_repo, api, resolved=resolved_refs(), platform="upstream")
+    return queue.sync_queue(source["repo"], items, target_repo, api, resolved=resolved_refs(),
+                             title_classes=settled_title_classes(), platform="upstream")
 
 
 def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):

@@ -144,6 +144,27 @@ class QueueTest(unittest.TestCase):
         self.assertEqual(api.issues[0]["state"], "open")
         self.assertIn("当前待处理：1", api.issues[0]["body"])
 
+    def test_settled_title_class_does_not_create_or_reopen_the_aggregate(self):
+        import re
+        api = FakeGitHub()
+        classes = (("anthropics/claude-code", re.compile(r"desktop|sidebar", re.I),
+                    re.compile(r"gateway|400", re.I)),)
+        desktop = {"title": "Desktop sidebar font is blurry on iPhone"}
+        self.publish(api, [candidate(**desktop)], repo="anthropics/claude-code", title_classes=classes)
+        self.assertEqual(api.issues, [])
+        self.publish(api, [candidate()])
+        api.comments[0]["body"] = api.comments[0]["body"].replace("- [ ]", "- [x]")
+        self.publish(api, [candidate()])
+        self.assertEqual(api.issues[0]["state"], "closed")
+        comments = len(api.comments)
+        self.publish(api, [candidate(2, **desktop)], repo="anthropics/claude-code", title_classes=classes)
+        self.assertEqual(len(api.comments), comments)
+        self.assertEqual(api.issues[0]["state"], "closed")
+        self.publish(api, [candidate(3, title="gateway returns 400 invalid_request")],
+                     repo="anthropics/claude-code", title_classes=classes)
+        self.assertEqual(api.issues[0]["state"], "open")
+        self.assertIn("anthropics/claude-code#3", api.comments[-1]["body"])
+
     def test_human_checkbox_resolves_without_new_approval_or_ledger(self):
         api = FakeGitHub()
         self.publish(api, [candidate()])
