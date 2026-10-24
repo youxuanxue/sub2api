@@ -117,10 +117,12 @@ def scan_source(repo, work, checkpoint, target="", lookback_days=30, api=watchdo
     (work / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     if target:
         sync = {}
-        resolved = watchdog.resolved_refs()
         for platform, items in grouped.items():
+            # A platform-scoped settlement must not close that ref in a platform
+            # whose own triage never reviewed it.
             sync[platform] = watchdog.queue.sync_queue(
-                repo, items, target, api, resolved=resolved, platform=platform)
+                repo, items, target, api, resolved=watchdog.resolved_refs(platform=platform),
+                platform=platform)
         report["sync"] = sync
         (work / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         checkpoint.parent.mkdir(parents=True, exist_ok=True)

@@ -83,15 +83,32 @@ def fetch_snapshot(source, previous, started, api=gh):
             "issues": sorted(rows.values(), key=lambda row: row["number"])}
 
 
-SETTLED_RE = re.compile(r"^(?P<ref>[\w.-]+/[\w.-]+#[1-9][0-9]*)(?:\s+#\s+\S.*)?$")
+NOT_APPLICABLE = "TK不适用"
+SETTLED_RE = re.compile(r"^(?P<ref>[\w.-]+/[\w.-]+#[1-9][0-9]*)"
+                        r"(?:\s+#\s+(?:\[(?P<scope>[a-z]+(?:,[a-z]+)*)\]\s+)?\S.*)?$")
 
 
-def settled_refs(root=ROOT):
-    """Covered and not-applicable refs. Both stay out of a new tracking Issue."""
+def relay_platforms(root=ROOT):
+    """Platform tags per relay source; relays.json owns repository identity."""
+    path = root / "ops/issue-watchdog/relays.json"
+    if not path.is_file():
+        return {}
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    return {source["repo"]: list(source["platforms"]) for source in manifest["sources"]}
+
+
+def settled_refs(root=ROOT, platform=None):
+    """Covered and not-applicable refs. Both stay out of a new tracking Issue.
+
+    A not-applicable judgment is reached inside one platform's triage, so for a
+    repository tracked by several platforms it must name its scope: an untagged
+    line would also close that ref in the platforms that never reviewed it.
+    """
     path = root / "ops/issue-watchdog/relay-settled.txt"
     if not path.is_file():
         return set()
-    refs = set()
+    platforms = relay_platforms(root)
+    seen, refs = set(), set()
     for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -99,13 +116,24 @@ def settled_refs(root=ROOT):
         match = SETTLED_RE.fullmatch(stripped)
         if not match:
             raise ValueError(f"{path}:{lineno}: expected owner/repo#n")
-        if match.group("ref") in refs:
-            raise ValueError(f"{path}:{lineno}: duplicate {match.group('ref')}")
-        refs.add(match.group("ref"))
+        ref = match.group("ref")
+        if ref in seen:
+            raise ValueError(f"{path}:{lineno}: duplicate {ref}")
+        seen.add(ref)
+        known = platforms.get(ref.rsplit("#", 1)[0], [])
+        scope = match.group("scope").split(",") if match.group("scope") else []
+        unknown = sorted(set(scope) - set(known))
+        if unknown:
+            raise ValueError(f"{path}:{lineno}: {ref} is not tracked by {', '.join(unknown)}")
+        if not scope and len(known) > 1 and NOT_APPLICABLE in stripped:
+            raise ValueError(f"{path}:{lineno}: {ref} needs a [platform] scope; "
+                             f"{ref.rsplit('#', 1)[0]} is tracked by {', '.join(known)}")
+        if not scope or platform in scope:
+            refs.add(ref)
     return refs
 
 
-def resolved_refs(root=ROOT):
+def resolved_refs(root=ROOT, platform=None):
     """Reuse curated fix judgments; missing recorded anchors revoke suppression."""
     resolved = set()
     for source in ledger.SOURCES.values():
@@ -116,14 +144,14 @@ def resolved_refs(root=ROOT):
                      if specs is not None else judgment.get("tokenkey_status") == engine.FIXED_STATUS)
             if fixed:
                 resolved.update(ledger.issue_refs(entry["upstream"], source["repo"]))
-    resolved.update(settled_refs(root))
+    resolved.update(settled_refs(root, platform))
     return resolved
 
 
 def sync_issues(source, report, target_repo, api=gh, entries=()):
     items = [{**item, "number": engine.issue_number(item["upstream"])}
              for item in entries if item.get("topics") and item.get("impact") != "not_applicable"]
-    return queue.sync_queue(source["repo"], items, target_repo, api, resolved=resolved_refs(), platform="upstream")
+    return queue.sync_queue(source["repo"], items, target_repo, api, resolved=resolved_refs(platform="upstream"), platform="upstream")
 
 
 def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
