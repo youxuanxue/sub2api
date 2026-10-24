@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -159,6 +160,46 @@ func TestResolveOpenAIWSFallbackErrorResponse(t *testing.T) {
 	t.Run("non_fallback_error_not_resolved", func(t *testing.T) {
 		_, _, _, _, ok := resolveOpenAIWSFallbackErrorResponse(errors.New("plain error"))
 		require.False(t, ok)
+	})
+
+	t.Run("message_too_big_is_terminal_payload_too_large", func(t *testing.T) {
+		err := wrapOpenAIWSFallback("message_too_big", errors.New("close 1009"))
+		reason, retryable := classifyOpenAIWSReconnectReason(err)
+		require.Equal(t, "message_too_big", reason)
+		require.False(t, retryable)
+
+		statusCode, errType, clientMessage, upstreamMessage, ok := resolveOpenAIWSFallbackErrorResponse(err)
+		require.True(t, ok)
+		require.Equal(t, http.StatusBadRequest, statusCode)
+		require.Equal(t, "invalid_request_error", errType)
+		require.Equal(t, "payload too large", clientMessage)
+		require.Equal(t, "close 1009", upstreamMessage)
+
+		_, _, clientOnly, upstreamOnly, ok := resolveOpenAIWSFallbackErrorResponse(
+			wrapOpenAIWSFallback("message_too_big", nil),
+		)
+		require.True(t, ok)
+		require.Equal(t, "payload too large", clientOnly)
+		require.Equal(t, "payload too large", upstreamOnly)
+
+		gin.SetMode(gin.TestMode)
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		require.True(t, (&OpenAIGatewayService{}).writeOpenAIWSFallbackErrorResponse(c, nil, err))
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		var body struct {
+			Error struct {
+				Type    string `json:"type"`
+				Code    string `json:"code"`
+				Param   string `json:"param"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.Equal(t, "payload_too_large", body.Error.Code)
+		require.Equal(t, "input", body.Error.Param)
+		require.Equal(t, "invalid_request_error", body.Error.Type)
+		require.Equal(t, "payload too large", body.Error.Message)
 	})
 }
 

@@ -207,6 +207,13 @@
           :resets-at="limit.weekly.resetsAtIso"
           color="amber"
         />
+        <UsageProgressBar
+          v-if="limit.monthly"
+          label="30d"
+          :utilization="limit.monthly.usedPercent"
+          :resets-at="limit.monthly.resetsAtIso"
+          color="purple"
+        />
       </div>
     </div>
 

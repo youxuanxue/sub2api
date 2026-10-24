@@ -722,7 +722,14 @@
     },
     {
       "path": "scripts/upstream/watchdog_queue.py",
-      "must_contain": ["def managed_body(", "def sync_queue(", "def platform_marker(", "def trusted_authors(", "watchdog-tracking:v1", "watchdog-day:"],
+      "must_contain": [
+        "def managed_body(",
+        "def sync_queue(",
+        "def platform_marker(",
+        "def trusted_authors(",
+        "watchdog-tracking:v1",
+        "watchdog-day:"
+      ],
       "rationale": "One aggregate per platform preserves scoped decisions, bounds daily comments and replays without duplicate writes."
     },
     {
@@ -745,7 +752,13 @@
     },
     {
       "path": "scripts/upstream/relay-watch.py",
-      "must_contain": ["def collect(", "def platform_findings(", "issues/comments?", "merged_at", "temporary.replace(checkpoint)"],
+      "must_contain": [
+        "def collect(",
+        "def platform_findings(",
+        "issues/comments?",
+        "merged_at",
+        "temporary.replace(checkpoint)"
+      ],
       "rationale": "Relay monitoring must retain discussion changes and true merge evidence, committing cursors only after publication."
     },
     {
@@ -5073,13 +5086,21 @@
         "s.kiroGateway.Forward(",
         "newBridgeCaptureWriter",
         "tkCCPreservesKiroUpstreamStream",
+        "applyKiroChatCompletionsReasoningEffort(ccBody, anthropicBody)",
         "invalidRequestErr.ClientStatusCode()",
         "invalidRequestErr.ClientErrorType()",
         "handleCCBufferedFromAnthropicJSON",
         "handleCCBufferedFromAnthropic(upstreamResp",
         "handleCCStreamingFromAnthropic"
       ],
-      "rationale": "Kiro /v1/chat/completions bridge: capture Anthropic response from kiroGateway.Forward via bridgeCaptureWriter, restore the client writer, then feed handleCCBufferedFromAnthropicJSON (stream=false), handleCCBufferedFromAnthropic (legacy SSE), or handleCCStreamingFromAnthropic so OpenAI-compat clients receive chat.completion shape. Typed caller validation, including local 413 overflow, must be written in Chat Completions format before the shared handler can replace it with generic 502."
+      "rationale": "Kiro /v1/chat/completions bridge: capture Anthropic response from kiroGateway.Forward via bridgeCaptureWriter, restore the client writer, then feed handleCCBufferedFromAnthropicJSON (stream=false), handleCCBufferedFromAnthropic (legacy SSE), or handleCCStreamingFromAnthropic so OpenAI-compat clients receive chat.completion shape. Typed caller validation, including local 413 overflow, must be written in Chat Completions format before the shared handler can replace it with generic 502. Chat Completions reasoning_effort must reach output_config.effort without clamping xhigh/max."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_kiro_test.go",
+      "must_contain": [
+        "TestApplyKiroChatCompletionsReasoningEffort_PassthroughXHighAndMax"
+      ],
+      "rationale": "Regression: Kiro Chat Completions bridge must forward reasoning_effort values xhigh and max onto output_config.effort instead of dropping or remapping them."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions_test.go",
@@ -10138,7 +10159,8 @@
     {
       "path": "backend/internal/service/account_model_mapping_runtime_serving_tk.go",
       "must_contain": [
-        "func antigravityEffectiveDefaultModelMapping()", "for wireID, target := range domain.AntigravityThinkingWireFloorEntries()",
+        "func antigravityEffectiveDefaultModelMapping()",
+        "for wireID, target := range domain.AntigravityThinkingWireFloorEntries()",
         "func overlayAntigravityDefaultModelMapping(",
         "func reloadAccountModelMappingRuntimeServing(",
         "func subscribeAccountModelMappingRuntimeServing("
@@ -16720,9 +16742,27 @@
     {
       "path": "backend/internal/service/oauth_refresh_api.go",
       "must_contain": [
-        "validateOAuthProxyBinding(freshAccount)"
+        "validateOAuthProxyBinding(freshAccount)",
+        "!kiroStoredTerminalAuthFailure(freshAccount)"
       ],
-      "rationale": "OAuth consolidation safety: preserve shared route readiness, request error classification and final stream failure observation."
+      "rationale": "OAuth consolidation safety: preserve shared route readiness, request error classification and final stream failure observation. Kiro StatusError force recovery must not re-refresh a stored terminal invalid_grant (or other non-retryable auth failure). That gate must stay prefix-anchored on the refresh marker (see kiroTerminalAuthFailurePrefix): widening it to scan the whole ErrorMessage makes verbatim upstream 402/403 bodies read as terminal and blocks force-refresh recovery."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_kiro.go",
+      "must_contain": [
+        "const kiroTerminalAuthFailurePrefix",
+        "cutKiroTerminalAuthFailurePrefix(account.ErrorMessage)",
+        "errKiroUsageTerminalAuthFailure"
+      ],
+      "rationale": "Kiro terminal-auth owner: only the 'Token refresh failed (non-retryable): ' marker written by a failed refresh is terminal. Upstream 402/403 bodies land verbatim in ErrorMessage, so a substring scan would quarantine recoverable quota/entitlement errors and defeat the 403 force-refresh recovery path. The terminal short-circuit must stay observable: it returns errKiroUsageTerminalAuthFailure rather than a silent no-op, so a dead account is distinguishable from a healthy one with nothing to refresh."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_kiro_test.go",
+      "must_contain": [
+        "TestKiroStoredTerminalAuthFailure_OnlyRefreshMarkerIsTerminal",
+        "TestRefreshKiroUsageAccount_TerminalSkipIsObservable"
+      ],
+      "rationale": "Regression: terminal-auth classification must fire on the refresh marker and stay silent on verbatim upstream 402/403 bodies that merely contain a non-retryable needle."
     },
     {
       "path": "backend/internal/service/openai_model_mapping.go",

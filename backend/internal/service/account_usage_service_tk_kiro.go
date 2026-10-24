@@ -18,6 +18,13 @@ var kiroBonusKeySanitizer = regexp.MustCompile(`[^a-z0-9]+`)
 
 var errKiroUsageTokenRefreshInProgress = errors.New("kiro OAuth token refresh already in progress")
 
+// errKiroUsageTerminalAuthFailure is returned instead of a silent no-op when a
+// stored terminal refresh failure blocks another refresh attempt. The account
+// genuinely cannot self-heal, so the usage read stays degraded and names the
+// reason; recovery is an operator Clear Error or a re-authorization.
+var errKiroUsageTerminalAuthFailure = errors.New(
+	"kiro OAuth refresh token was rejected as terminal; clear the account error or re-authorize to retry")
+
 var kiroUsageSensitiveErrorKeys = []string{
 	"accessToken",
 	"refreshToken",
@@ -149,7 +156,10 @@ func (s *AccountUsageService) fetchKiroAccountInfo(account *kiroproto.Account) (
 
 // refreshKiroUsageAccount force-refreshes only credentials. It deliberately does not
 // clear account errors or re-enable scheduling: a successful control-plane query
-// is not proof that a prior 402 quota rejection has recovered.
+// is not proof that a prior 402 quota rejection has recovered. A stored terminal
+// refresh failure short-circuits before the auth host is touched and returns
+// errKiroUsageTerminalAuthFailure, so the degraded usage read names the reason
+// instead of looking like a healthy account with nothing to refresh.
 func (s *AccountUsageService) refreshKiroUsageAccount(ctx context.Context, account *Account) (*Account, bool, error) {
 	if s == nil || account == nil || s.oauthRefreshAPI == nil {
 		return account, false, nil
@@ -161,8 +171,16 @@ func (s *AccountUsageService) refreshKiroUsageAccount(ctx context.Context, accou
 	if !executor.CanRefresh(account) {
 		return account, false, nil
 	}
+	if kiroStoredTerminalAuthFailure(account) {
+		// Skipping is deliberate, but it must not look like "nothing to do":
+		// the operator needs to see why this account stopped self-healing.
+		return account, false, errKiroUsageTerminalAuthFailure
+	}
 	result, err := s.oauthRefreshAPI.RefreshNow(ctx, account, executor)
 	if err != nil {
+		if isNonRetryableRefreshError(err) {
+			s.markKiroTerminalAuthFailure(ctx, account, err)
+		}
 		return account, false, err
 	}
 	if result == nil {
@@ -175,6 +193,49 @@ func (s *AccountUsageService) refreshKiroUsageAccount(ctx context.Context, accou
 		return result.Account, true, nil
 	}
 	return account, true, nil
+}
+
+// kiroTerminalAuthFailurePrefix is the stored marker written by this package
+// and by token_refresh_service when a refresh itself returned a non-retryable
+// auth failure. Only that marker is terminal.
+const kiroTerminalAuthFailurePrefix = "Token refresh failed (non-retryable): "
+
+// kiroStoredTerminalAuthFailure reports whether the stored error came from a
+// refresh that the auth host rejected terminally. It matches the refresh marker
+// prefix rather than scanning the whole message: upstream 402/403 bodies are
+// copied verbatim into ErrorMessage, and a quota or entitlement body carrying a
+// word like "subscription required" or "access_denied" is a recoverable
+// scheduling error, not a dead refresh token. Treating those as terminal would
+// block the force-refresh recovery that handleKiroOAuthAuthReject relies on.
+func kiroStoredTerminalAuthFailure(account *Account) bool {
+	if account == nil || account.Status != StatusError {
+		return false
+	}
+	suffix, ok := cutKiroTerminalAuthFailurePrefix(account.ErrorMessage)
+	if !ok {
+		return false
+	}
+	return isNonRetryableRefreshError(errors.New(suffix))
+}
+
+func cutKiroTerminalAuthFailurePrefix(message string) (string, bool) {
+	return strings.CutPrefix(strings.TrimSpace(message), kiroTerminalAuthFailurePrefix)
+}
+
+func (s *AccountUsageService) markKiroTerminalAuthFailure(ctx context.Context, account *Account, cause error) {
+	if account == nil || cause == nil {
+		return
+	}
+	msg := kiroTerminalAuthFailurePrefix + logredact.RedactText(cause.Error())
+	account.Status = StatusError
+	account.Schedulable = false
+	account.ErrorMessage = msg
+	if s == nil || s.accountRepo == nil {
+		return
+	}
+	if err := s.accountRepo.SetError(ctx, account.ID, msg); err != nil {
+		slog.Warn("kiro terminal auth failure was not persisted", "account_id", account.ID, "error", err)
+	}
 }
 
 func isKiroUsageTokenAuthError(err error) bool {

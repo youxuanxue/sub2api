@@ -26,10 +26,19 @@ type kiroUsageRefreshRepo struct {
 	updateCredentialsCalls int
 	updateExtraCalls       int
 	clearErrorCalls        int
+	setErrorCalls          int
 }
 
 func (r *kiroUsageRefreshRepo) GetByID(_ context.Context, _ int64) (*Account, error) {
 	return r.account, nil
+}
+
+func (r *kiroUsageRefreshRepo) SetError(_ context.Context, _ int64, errorMsg string) error {
+	r.setErrorCalls++
+	r.account.Status = StatusError
+	r.account.ErrorMessage = errorMsg
+	r.account.Schedulable = false
+	return nil
 }
 
 func (r *kiroUsageRefreshRepo) UpdateCredentials(_ context.Context, _ int64, credentials map[string]any) error {
@@ -530,6 +539,22 @@ func TestGetKiroUsage_RefreshFailureDoesNotClearRecoverableAccountError(t *testi
 	if repo.clearErrorCalls != 0 || account.Status != StatusError {
 		t.Fatalf("clear calls/status = %d/%q, degraded usage must not clear error", repo.clearErrorCalls, account.Status)
 	}
+	if repo.setErrorCalls != 1 || !strings.Contains(account.ErrorMessage, "invalid_grant") || account.Schedulable {
+		t.Fatalf("terminal auth mark missing: setError=%d msg=%q schedulable=%v",
+			repo.setErrorCalls, account.ErrorMessage, account.Schedulable)
+	}
+
+	// A stored terminal refresh failure must not hit the auth host again.
+	usage2, err := svc.getUsageForAccount(context.Background(), account, true)
+	if err != nil {
+		t.Fatalf("second getUsageForAccount() error = %v", err)
+	}
+	if executor.refreshCalls != 1 {
+		t.Fatalf("refreshCalls after terminal mark = %d, want still 1", executor.refreshCalls)
+	}
+	if usage2.Source != "passive" || usage2.Error == "" {
+		t.Fatalf("second usage = %+v, want degraded without another refresh", usage2)
+	}
 }
 
 func TestGetKiroUsage_RefreshLockHeldDoesNotRetryOldToken(t *testing.T) {
@@ -700,5 +725,110 @@ func TestPersistKiroProfileArnIfChanged_SkipsWhenUnchanged(t *testing.T) {
 
 	if repo.credentials != nil {
 		t.Fatalf("unexpected credential write: %+v", repo.credentials)
+	}
+}
+
+// Only the refresh marker is terminal. Upstream 402/403 bodies are copied
+// verbatim into ErrorMessage; a quota or entitlement body that happens to
+// contain a non-retryable needle must stay recoverable so the live 403
+// force-refresh path can still bring the account back.
+func TestKiroStoredTerminalAuthFailure_OnlyRefreshMarkerIsTerminal(t *testing.T) {
+	terminal := []string{
+		"Token refresh failed (non-retryable): invalid_grant",
+		"Token refresh failed (non-retryable): refresh_token_invalidated",
+		"  Token refresh failed (non-retryable): app_session_terminated",
+	}
+	for _, msg := range terminal {
+		account := &Account{Status: StatusError, ErrorMessage: msg}
+		if !kiroStoredTerminalAuthFailure(account) {
+			t.Fatalf("stored refresh marker must be terminal: %q", msg)
+		}
+	}
+
+	recoverable := []string{
+		"Payment required (402): You have reached the limit.",
+		"Payment required (402): subscription required, please upgrade your plan",
+		`Forbidden (403): {"error":"access_denied","message":"not entitled"}`,
+		"Forbidden (403): bearer token is invalid",
+		"Stream data interval timeout (repeated failures) for model: claude-opus-5",
+		// The marker prefix alone, with a retryable cause, is not terminal.
+		"Token refresh failed (non-retryable): upstream 503",
+	}
+	for _, msg := range recoverable {
+		account := &Account{Status: StatusError, ErrorMessage: msg}
+		if kiroStoredTerminalAuthFailure(account) {
+			t.Fatalf("recoverable upstream error must not be terminal: %q", msg)
+		}
+	}
+
+	// Status gates the check: an active account is never terminal.
+	active := &Account{Status: StatusActive, ErrorMessage: terminal[0]}
+	if kiroStoredTerminalAuthFailure(active) {
+		t.Fatal("active account must not be treated as terminal")
+	}
+	if kiroStoredTerminalAuthFailure(nil) {
+		t.Fatal("nil account must not be treated as terminal")
+	}
+}
+
+// A terminal refresh failure must stop hammering the auth host AND say why.
+// Returning a silent no-op made a dead account look identical to a healthy
+// one with nothing to refresh, so the usage view showed no reason and the
+// operator had no signal that recovery needs Clear Error / re-authorization.
+func TestRefreshKiroUsageAccount_TerminalSkipIsObservable(t *testing.T) {
+	account := &Account{
+		ID:           5501,
+		Platform:     PlatformKiro,
+		Type:         AccountTypeOAuth,
+		Status:       StatusError,
+		ErrorMessage: "Token refresh failed (non-retryable): invalid_grant",
+	}
+	repo := &refreshAPIAccountRepo{account: account}
+	cache := &refreshAPICacheStub{lockResult: true}
+	executor := &refreshAPIExecutorStub{needsRefresh: true}
+	svc := &AccountUsageService{
+		accountRepo:              repo,
+		oauthRefreshAPI:          NewOAuthRefreshAPI(repo, cache),
+		kiroOAuthRefreshExecutor: executor,
+	}
+
+	_, didRefresh, err := svc.refreshKiroUsageAccount(context.Background(), account)
+	if didRefresh {
+		t.Fatal("terminal account must not report a refresh")
+	}
+	if executor.refreshCalls != 0 {
+		t.Fatalf("refreshCalls = %d, terminal account must not reach the auth host", executor.refreshCalls)
+	}
+	if err == nil {
+		t.Fatal("terminal skip must surface a reason, not a silent no-op")
+	}
+	if !errors.Is(err, errKiroUsageTerminalAuthFailure) {
+		t.Fatalf("err = %v, want errKiroUsageTerminalAuthFailure", err)
+	}
+	// The operator needs the recovery action, not just a classification.
+	if !strings.Contains(err.Error(), "re-authorize") {
+		t.Fatalf("err = %q, must name the recovery action", err.Error())
+	}
+
+	// A recoverable stored error keeps the normal refresh path.
+	recoverable := &Account{
+		ID:           5502,
+		Platform:     PlatformKiro,
+		Type:         AccountTypeOAuth,
+		Status:       StatusError,
+		ErrorMessage: "Payment required (402): You have reached the limit.",
+	}
+	repo2 := &refreshAPIAccountRepo{account: recoverable}
+	executor2 := &refreshAPIExecutorStub{
+		needsRefresh: true,
+		credentials:  map[string]any{"access_token": "recovered"},
+	}
+	svc2 := &AccountUsageService{
+		accountRepo:              repo2,
+		oauthRefreshAPI:          NewOAuthRefreshAPI(repo2, &refreshAPICacheStub{lockResult: true}),
+		kiroOAuthRefreshExecutor: executor2,
+	}
+	if _, didRefresh2, err2 := svc2.refreshKiroUsageAccount(context.Background(), recoverable); err2 != nil || !didRefresh2 {
+		t.Fatalf("recoverable error must still refresh: didRefresh=%v err=%v", didRefresh2, err2)
 	}
 }

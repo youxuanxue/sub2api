@@ -19,6 +19,78 @@ func TestRedactText_JSONLike(t *testing.T) {
 	}
 }
 
+func TestRedactText_AuthorizationTails(t *testing.T) {
+	cases := []string{
+		`authorization=Digest username="a,b", response="QA_SECRET"`,
+		`authorization=Digest username="public",,response="QA_SECRET"`,
+		`headers={'authorization': 'Basic QA_SECRET'}`,
+		`{"authorization": Basic QA_SECRET, retrying upstream request}`,
+		`authorization=Bearer abc QA_SECRET, status=ok`,
+		`authorization=Bearer [REDACTED] QA_SECRET`,
+	}
+	for _, in := range cases {
+		out := RedactText(in)
+		if strings.Contains(out, "QA_SECRET") {
+			t.Fatalf("credential tail leaked from %q: %q", in, out)
+		}
+	}
+}
+
+// The authorization tail may swallow spaces to kill credential fragments, but
+// it must not eat the ops fields that follow it: a redacted authorization has
+// to leave request_id/account_id/status/model intact in both query-string and
+// logfmt shapes, or one header wipes the whole log line.
+func TestRedactText_AuthorizationTailKeepsNeighbouringFields(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{
+			"authorization=Bearer abc123 request_id=req_77 account_id=283 status=502",
+			"authorization=*** request_id=req_77 account_id=283 status=502",
+		},
+		{
+			"proxy-authorization=Basic dXNlcjpwYXNz account_id=283",
+			"proxy-authorization=*** account_id=283",
+		},
+		{
+			"authorization=Token t1, account_id=283",
+			"authorization=*** account_id=283",
+		},
+		{
+			`msg="upstream 401" authorization=Bearer sk-abc request_id=req_77`,
+			`msg="upstream 401" authorization=*** request_id=req_77`,
+		},
+	}
+	for _, c := range cases {
+		if out := RedactText(c.in); out != c.want {
+			t.Fatalf("RedactText(%q) = %q, want %q", c.in, out, c.want)
+		}
+	}
+}
+
+func TestRedactText_TrailingQuoteOnBareAuthorizationKeyIsNotQuotedKey(t *testing.T) {
+	// Fuzz seed: a bare key with a stuck trailing quote must not activate the
+	// quoted-authorization path and erase an innocent value.
+	in := `AuthoriZAtion":0`
+	if out := RedactText(in); out != in {
+		t.Fatalf("expected bare key with trailing quote unchanged, got %q", out)
+	}
+}
+
+func TestRedactText_QuotedAuthorizationNumericValueLeftAlone(t *testing.T) {
+	// Fuzz seed: JSON-like numeric values are not auth schemes; keep parity
+	// with the reference pipeline (do not wipe to ***).
+	in := `"AuthoriZAtion":0`
+	if out := RedactText(in); out != in {
+		t.Fatalf("expected quoted key with numeric value unchanged, got %q", out)
+	}
+	// Stray leading quote before a bare key still redacts like the reference.
+	if out := RedactText(`"AUTHORIZATION:0`); out != `"AUTHORIZATION:***` {
+		t.Fatalf("expected bare key after stray quote to redact, got %q", out)
+	}
+}
+
 func TestRedactText_QueryLike(t *testing.T) {
 	in := "access_token=ya29.a0AfH6SMDUMMY refresh_token=1//0gDUMMY"
 	out := RedactText(in)

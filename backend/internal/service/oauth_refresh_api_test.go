@@ -323,6 +323,56 @@ func TestRefreshNow_IgnoresNeedsRefreshAndPersists(t *testing.T) {
 	require.Equal(t, 1, cache.releaseCalls)
 }
 
+func TestRefreshNow_KiroTerminalAuthFailureSkipsForceRecovery(t *testing.T) {
+	account := &Account{
+		ID:           77,
+		Platform:     PlatformKiro,
+		Type:         AccountTypeOAuth,
+		Status:       StatusError,
+		ErrorMessage: "Token refresh failed (non-retryable): invalid_grant",
+	}
+	repo := &refreshAPIAccountRepo{account: account}
+	cache := &refreshAPICacheStub{lockResult: true}
+	executor := &refreshAPIExecutorStub{
+		needsRefresh: false,
+		credentials:  map[string]any{"access_token": "must-not-refresh"},
+	}
+
+	api := NewOAuthRefreshAPI(repo, cache)
+	result, err := api.RefreshNow(context.Background(), account, executor)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, account.ID, result.Account.ID)
+	require.False(t, result.Refreshed)
+	require.Equal(t, 0, executor.refreshCalls, "terminal invalid_grant must not force another refresh")
+	require.Equal(t, 0, repo.updateCredentialsCalls)
+}
+
+func TestRefreshNow_KiroRecoverableErrorStillForceRefreshes(t *testing.T) {
+	account := &Account{
+		ID:           78,
+		Platform:     PlatformKiro,
+		Type:         AccountTypeOAuth,
+		Status:       StatusError,
+		ErrorMessage: "You have reached the limit.",
+	}
+	repo := &refreshAPIAccountRepo{account: account}
+	cache := &refreshAPICacheStub{lockResult: true}
+	executor := &refreshAPIExecutorStub{
+		needsRefresh: false,
+		credentials:  map[string]any{"access_token": "recovered-token"},
+	}
+
+	api := NewOAuthRefreshAPI(repo, cache)
+	result, err := api.RefreshNow(context.Background(), account, executor)
+
+	require.NoError(t, err)
+	require.True(t, result.Refreshed)
+	require.Equal(t, "recovered-token", result.NewCredentials["access_token"])
+	require.Equal(t, 1, executor.refreshCalls)
+}
+
 func TestRefreshIfNeeded_RefreshError(t *testing.T) {
 	account := &Account{ID: 6, Platform: PlatformAnthropic, Status: StatusActive}
 	repo := &refreshAPIAccountRepo{account: account}

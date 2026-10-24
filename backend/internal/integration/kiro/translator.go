@@ -1,9 +1,12 @@
 package kiro
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -424,6 +427,7 @@ func ClaudeToKiroWithFileToolGuidance(req *ClaudeRequest, thinking, enabled bool
 	}
 
 	normalizeKiroToolHistory(payload)
+	applyKiroToolNameRewrites(payload)
 	truncatePayloadToLimit(payload, systemPrompt != "")
 
 	return payload
@@ -785,6 +789,7 @@ func extractClaudeUserContent(content interface{}) (string, []KiroImage, []KiroT
 				}
 			case "tool_result":
 				toolUseID, _ := block["tool_use_id"].(string)
+				toolUseID = canonicalKiroToolUseID(toolUseID)
 				status := "success"
 				if isError, _ := block["is_error"].(bool); isError {
 					status = "error"
@@ -903,12 +908,14 @@ func extractClaudeAssistantContent(content interface{}) (string, []KiroToolUse) 
 			case "tool_use":
 				id, _ := block["id"].(string)
 				name, _ := block["name"].(string)
-				input, _ := block["input"].(map[string]interface{})
-				if input == nil {
-					input = make(map[string]interface{})
+				input, ok := kiroToolInputFromValue(block["input"])
+				if !ok {
+					// Invalid tool JSON must not be forwarded as an empty object.
+					continue
 				}
+				input = withoutKiroReadPages(name, input)
 				toolUses = append(toolUses, KiroToolUse{
-					ToolUseID: id,
+					ToolUseID: canonicalKiroToolUseID(id),
 					Name:      shortenToolName(sanitizeToolName(name)),
 					Input:     input,
 				})
@@ -1062,6 +1069,111 @@ func sanitizeToolName(name string) string {
 		return "tool"
 	}
 	return result
+}
+
+var kiroToolUseIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// canonicalKiroToolUseID keeps a Kiro-legal tool id and rewrites any other id
+// to a stable value. The same input always maps to the same output, so a
+// tool_use and its tool_result stay paired. Empty ids are left empty.
+func canonicalKiroToolUseID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" || kiroToolUseIDPattern.MatchString(id) {
+		return id
+	}
+	sum := sha1.Sum([]byte(id))
+	return "toolu_" + hex.EncodeToString(sum[:12])
+}
+
+// kiroToolInputFromValue accepts a JSON object. A non-empty string must itself
+// be one object; invalid tool JSON is rejected instead of being replaced with {}.
+func kiroToolInputFromValue(raw interface{}) (map[string]interface{}, bool) {
+	switch v := raw.(type) {
+	case nil:
+		return map[string]interface{}{}, true
+	case map[string]interface{}:
+		return v, true
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return map[string]interface{}{}, true
+		}
+		var obj map[string]interface{}
+		if json.Unmarshal([]byte(trimmed), &obj) != nil || obj == nil {
+			return nil, false
+		}
+		return obj, true
+	default:
+		return nil, false
+	}
+}
+
+func isClaudeReadToolName(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), "read")
+}
+
+// withoutKiroReadPages drops Claude Code Read's pages field. Kiro has no
+// equivalent, and replaying it makes the whole session 400. Other tools keep
+// a pages field, and a normal Read keeps its path.
+func withoutKiroReadPages(name string, input map[string]interface{}) map[string]interface{} {
+	if input == nil || !isClaudeReadToolName(name) {
+		return input
+	}
+	if _, ok := input["pages"]; !ok {
+		return input
+	}
+	cloned := make(map[string]interface{}, len(input))
+	for key, value := range input {
+		if key == "pages" {
+			continue
+		}
+		cloned[key] = value
+	}
+	return cloned
+}
+
+// applyKiroToolNameRewrites replaces an over-long original tool name in the
+// prompt text with the 64-character name sent in the tool spec. Tool result
+// bodies are left unchanged. Names that were not length-truncated are not rewritten.
+func applyKiroToolNameRewrites(payload *KiroPayload) {
+	if payload == nil || len(payload.ToolNameMap) == 0 {
+		return
+	}
+	originals := make([]string, 0, len(payload.ToolNameMap))
+	shortByOriginal := make(map[string]string, len(payload.ToolNameMap))
+	for shortened, original := range payload.ToolNameMap {
+		if len(original) <= 64 || shortened == "" || shortened == original {
+			continue
+		}
+		shortByOriginal[original] = shortened
+		originals = append(originals, original)
+	}
+	if len(originals) == 0 {
+		return
+	}
+	sort.Slice(originals, func(i, j int) bool { return len(originals[i]) > len(originals[j]) })
+	rewrite := func(text string) string {
+		for _, original := range originals {
+			text = strings.ReplaceAll(text, original, shortByOriginal[original])
+		}
+		return text
+	}
+	for i := range payload.ConversationState.History {
+		msg := &payload.ConversationState.History[i]
+		if msg.UserInputMessage != nil {
+			msg.UserInputMessage.Content = rewrite(msg.UserInputMessage.Content)
+		}
+		if msg.AssistantResponseMessage != nil {
+			msg.AssistantResponseMessage.Content = rewrite(msg.AssistantResponseMessage.Content)
+		}
+	}
+	current := &payload.ConversationState.CurrentMessage.UserInputMessage
+	current.Content = rewrite(current.Content)
+	if ctx := current.UserInputMessageContext; ctx != nil {
+		for i := range ctx.Tools {
+			ctx.Tools[i].ToolSpecification.Description = rewrite(ctx.Tools[i].ToolSpecification.Description)
+		}
+	}
 }
 
 func shortenToolName(name string) string {
@@ -1270,13 +1382,13 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 
 			var toolUses []KiroToolUse
 			for _, tc := range msg.ToolCalls {
-				var input map[string]interface{}
-				json.Unmarshal([]byte(tc.Function.Arguments), &input)
-				if input == nil {
-					input = make(map[string]interface{})
+				input, ok := kiroToolInputFromValue(tc.Function.Arguments)
+				if !ok {
+					continue
 				}
+				input = withoutKiroReadPages(tc.Function.Name, input)
 				toolUses = append(toolUses, KiroToolUse{
-					ToolUseID: tc.ID,
+					ToolUseID: canonicalKiroToolUseID(tc.ID),
 					Name:      shortenToolName(tc.Function.Name),
 					Input:     input,
 				})
@@ -1302,7 +1414,7 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 				content = extractOpenAIMessageText(msg.Content)
 			}
 			currentToolResults = append(currentToolResults, KiroToolResult{
-				ToolUseID: msg.ToolCallID,
+				ToolUseID: canonicalKiroToolUseID(msg.ToolCallID),
 				Content:   []KiroResultContent{{Text: content}},
 				Status:    "success",
 			})
@@ -1351,10 +1463,11 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 	finalContent := currentContent
 
 	// 转换工具
-	kiroTools := convertOpenAITools(req.Tools)
+	kiroTools, toolNameMap := convertOpenAITools(req.Tools)
 
 	// 构建 payload
 	payload := &KiroPayload{}
+	payload.ToolNameMap = toolNameMap
 	payload.ConversationState.ChatTriggerType = "MANUAL"
 	payload.ConversationState.ConversationID = buildConversationID(modelID, systemPrompt, firstOpenAIConversationAnchor(nonSystemMessages))
 	payload.ConversationState.CurrentMessage.UserInputMessage = KiroUserInputMessage{
@@ -1384,6 +1497,7 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 	}
 
 	normalizeKiroToolHistory(payload)
+	applyKiroToolNameRewrites(payload)
 	truncatePayloadToLimit(payload, systemPrompt != "")
 
 	return payload
@@ -2117,12 +2231,13 @@ func parseBase64Image(data, format string) *KiroImage {
 	}
 }
 
-func convertOpenAITools(tools []OpenAITool) []KiroToolWrapper {
+func convertOpenAITools(tools []OpenAITool) ([]KiroToolWrapper, map[string]string) {
 	if len(tools) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	result := make([]KiroToolWrapper, 0, len(tools))
+	nameMap := make(map[string]string)
 	for _, tool := range tools {
 		if tool.Type != "function" {
 			continue
@@ -2133,13 +2248,16 @@ func convertOpenAITools(tools []OpenAITool) []KiroToolWrapper {
 			// Kiro rejects tools with empty names; skip unusable specs.
 			continue
 		}
+		if name != tool.Function.Name {
+			nameMap[name] = tool.Function.Name
+		}
 		wrapper := KiroToolWrapper{}
 		wrapper.ToolSpecification.Name = name
 		wrapper.ToolSpecification.Description = normalizeToolDesc(desc, name)
 		wrapper.ToolSpecification.InputSchema = InputSchema{JSON: ensureObjectSchema(tool.Function.Parameters)}
 		result = append(result, wrapper)
 	}
-	return result
+	return result, nameMap
 }
 
 // Keep this guidance stable across client turns so the system prefix can be cached.
