@@ -167,7 +167,7 @@ func (s *AccountUsageService) refreshKiroUsageAccount(ctx context.Context, accou
 	result, err := s.oauthRefreshAPI.RefreshNow(ctx, account, executor)
 	if err != nil {
 		if isNonRetryableRefreshError(err) {
-			s.markKiroTerminalAuthFailure(ctx, account)
+			s.markKiroTerminalAuthFailure(ctx, account, err)
 		}
 		return account, false, err
 	}
@@ -183,18 +183,38 @@ func (s *AccountUsageService) refreshKiroUsageAccount(ctx context.Context, accou
 	return account, true, nil
 }
 
+// kiroTerminalAuthFailurePrefix is the stored marker written by this package
+// and by token_refresh_service when a refresh itself returned a non-retryable
+// auth failure. Only that marker is terminal.
+const kiroTerminalAuthFailurePrefix = "Token refresh failed (non-retryable): "
+
+// kiroStoredTerminalAuthFailure reports whether the stored error came from a
+// refresh that the auth host rejected terminally. It matches the refresh marker
+// prefix rather than scanning the whole message: upstream 402/403 bodies are
+// copied verbatim into ErrorMessage, and a quota or entitlement body carrying a
+// word like "subscription required" or "access_denied" is a recoverable
+// scheduling error, not a dead refresh token. Treating those as terminal would
+// block the force-refresh recovery that handleKiroOAuthAuthReject relies on.
 func kiroStoredTerminalAuthFailure(account *Account) bool {
 	if account == nil || account.Status != StatusError {
 		return false
 	}
-	return isNonRetryableRefreshError(errors.New(account.ErrorMessage))
+	suffix, ok := cutKiroTerminalAuthFailurePrefix(account.ErrorMessage)
+	if !ok {
+		return false
+	}
+	return isNonRetryableRefreshError(errors.New(suffix))
 }
 
-func (s *AccountUsageService) markKiroTerminalAuthFailure(ctx context.Context, account *Account) {
-	if account == nil {
+func cutKiroTerminalAuthFailurePrefix(message string) (string, bool) {
+	return strings.CutPrefix(strings.TrimSpace(message), kiroTerminalAuthFailurePrefix)
+}
+
+func (s *AccountUsageService) markKiroTerminalAuthFailure(ctx context.Context, account *Account, cause error) {
+	if account == nil || cause == nil {
 		return
 	}
-	const msg = "Token refresh failed (non-retryable): invalid_grant"
+	msg := kiroTerminalAuthFailurePrefix + logredact.RedactText(cause.Error())
 	account.Status = StatusError
 	account.Schedulable = false
 	account.ErrorMessage = msg

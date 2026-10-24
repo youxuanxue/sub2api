@@ -139,9 +139,22 @@
         "utf8.RuneStart(desc[end])",
         "claudeToolChoiceTypeAndName",
         "buildClaudeToolChoiceDirective",
-        "resolveKiroToolChoiceName"
+        "resolveKiroToolChoiceName",
+        "applyKiroToolNameRewrites(payload)",
+        "canonicalKiroToolUseID(id)",
+        "withoutKiroReadPages(name, input)",
+        "kiroToolInputFromValue(block[\"input\"])"
       ],
-      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Only the exact Claude Code identity line is replaced; project rules and unknown templates must survive. Haiku must not emit additionalModelRequestFields even when thinking is requested. parseBase64Image must decode then sniff MIME against bytes so MIME≠bytes / corrupt payloads fail closed before Bedrock. Keep nonempty in-conversation system context in order and truncate tool descriptions at UTF-8 boundaries."
+      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Only the exact Claude Code identity line is replaced; project rules and unknown templates must survive. Haiku must not emit additionalModelRequestFields even when thinking is requested. parseBase64Image must decode then sniff MIME against bytes so MIME≠bytes / corrupt payloads fail closed before Bedrock. Keep nonempty in-conversation system context in order and truncate tool descriptions at UTF-8 boundaries. Kiro request-compat owners live in this vendored file and must survive re-vendoring: over-long tool names are rewritten in prompt text to match the 64-char tool spec, tool_use ids are canonicalized so a tool_use and its tool_result stay paired, Claude Read.pages is stripped (Kiro 400s on it), and invalid tool JSON is dropped rather than forwarded as an empty object."
+    },
+    {
+      "path": "backend/internal/integration/kiro/translator_gap_test.go",
+      "must_contain": [
+        "TestClaudeToKiro_RewritesLongToolNamesInPromptBody",
+        "TestClaudeToKiro_StripsReadPagesKeepsOtherTools",
+        "TestClaudeToKiro_RejectsInvalidToolJSONAndCanonicalizesIDs"
+      ],
+      "rationale": "Regression: Kiro request-compat gaps (long tool-name rewrite, Read.pages strip, invalid tool JSON rejection plus tool_use id canonicalization) are anchored by focused tests because their owners sit in a vendored, lint-exempt file that upstream re-vendoring can silently revert."
     },
     {
       "path": "backend/internal/integration/kiro/image_format.go",
@@ -388,9 +401,10 @@
         "func reresolveProfileArnAfterStaleWithDoer",
         "func kiroRestFetchWithDoer",
         "buildKiroHeaderValues(host)",
-        "applyKiroBaseHeaders(req, account, headerValues)"
+        "applyKiroBaseHeaders(req, account, headerValues)",
+        "\"/ListAvailableProfiles\", `{}`"
       ],
-      "rationale": "Control-plane calls route through management.us-east-1.kiro.dev first with a codewhisperer.* fallback. Usage is not a host-only swap: the current management protocol requires /Get-Usage-Limits while legacy retains /getUsageLimits. When both fail, the primary management HTTP verdict remains authoritative so a legacy Invalid-token response cannot mask a real management quota verdict. A missing profileArn still triggers shared stale-profile recovery."
+      "rationale": "Control-plane calls route through management.us-east-1.kiro.dev first with a codewhisperer.* fallback. Usage is not a host-only swap: the current management protocol requires /Get-Usage-Limits while legacy retains /getUsageLimits. When both fail, the primary management HTTP verdict remains authoritative so a legacy Invalid-token response cannot mask a real management quota verdict. A missing profileArn still triggers shared stale-profile recovery. ListAvailableProfiles must post an empty object: upstream rejects a maxResults field, and a re-vendored `{\"maxResults\":10}` body breaks profileArn resolution for every Kiro account."
     },
     {
       "path": "backend/internal/integration/kiro/rest_test.go",
@@ -398,7 +412,8 @@
         "TestGetUsageLimits_UsesHostSpecificPathsAndLegacyFallback",
         "TestGetUsageLimits_PrimaryQuotaErrorNotMaskedByLegacyInvalidToken",
         "TestGetUsageLimits_AllHostsInvalidTokenKeepsAuthVerdict",
-        "TestGetUsageLimits_RetriesAfterStaleProfileArn"
+        "TestGetUsageLimits_RetriesAfterStaleProfileArn",
+        "TestListAvailableProfiles_OmitsMaxResults"
       ],
       "rationale": "Behavioral coverage for the host-specific management/legacy usage paths, fallback success, primary HTTP verdict preservation, Invalid-token classification, and stale profileArn recovery."
     },

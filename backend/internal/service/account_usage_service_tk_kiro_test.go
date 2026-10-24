@@ -727,3 +727,46 @@ func TestPersistKiroProfileArnIfChanged_SkipsWhenUnchanged(t *testing.T) {
 		t.Fatalf("unexpected credential write: %+v", repo.credentials)
 	}
 }
+
+// Only the refresh marker is terminal. Upstream 402/403 bodies are copied
+// verbatim into ErrorMessage; a quota or entitlement body that happens to
+// contain a non-retryable needle must stay recoverable so the live 403
+// force-refresh path can still bring the account back.
+func TestKiroStoredTerminalAuthFailure_OnlyRefreshMarkerIsTerminal(t *testing.T) {
+	terminal := []string{
+		"Token refresh failed (non-retryable): invalid_grant",
+		"Token refresh failed (non-retryable): refresh_token_invalidated",
+		"  Token refresh failed (non-retryable): app_session_terminated",
+	}
+	for _, msg := range terminal {
+		account := &Account{Status: StatusError, ErrorMessage: msg}
+		if !kiroStoredTerminalAuthFailure(account) {
+			t.Fatalf("stored refresh marker must be terminal: %q", msg)
+		}
+	}
+
+	recoverable := []string{
+		"Payment required (402): You have reached the limit.",
+		"Payment required (402): subscription required, please upgrade your plan",
+		`Forbidden (403): {"error":"access_denied","message":"not entitled"}`,
+		"Forbidden (403): bearer token is invalid",
+		"Stream data interval timeout (repeated failures) for model: claude-opus-5",
+		// The marker prefix alone, with a retryable cause, is not terminal.
+		"Token refresh failed (non-retryable): upstream 503",
+	}
+	for _, msg := range recoverable {
+		account := &Account{Status: StatusError, ErrorMessage: msg}
+		if kiroStoredTerminalAuthFailure(account) {
+			t.Fatalf("recoverable upstream error must not be terminal: %q", msg)
+		}
+	}
+
+	// Status gates the check: an active account is never terminal.
+	active := &Account{Status: StatusActive, ErrorMessage: terminal[0]}
+	if kiroStoredTerminalAuthFailure(active) {
+		t.Fatal("active account must not be treated as terminal")
+	}
+	if kiroStoredTerminalAuthFailure(nil) {
+		t.Fatal("nil account must not be treated as terminal")
+	}
+}
