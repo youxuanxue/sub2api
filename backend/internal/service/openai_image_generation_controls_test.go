@@ -524,6 +524,42 @@ func TestOpenAIGatewayService_CodexImageGenerationBridgeOverridePrecedence(t *te
 			},
 			want: false,
 		},
+		{
+			name:   "kimi account ignores channel openai true",
+			global: false,
+			channel: &Channel{ID: 1, Status: StatusActive, FeaturesConfig: map[string]any{
+				featureKeyCodexImageGenerationBridge: map[string]any{PlatformOpenAI: true},
+			}},
+			account: &Account{Platform: PlatformKimi, Type: AccountTypeAPIKey},
+			want:    false,
+		},
+		{
+			name:    "kimi account ignores enabled global",
+			global:  true,
+			account: &Account{Platform: PlatformKimi, Type: AccountTypeAPIKey},
+			want:    false,
+		},
+		{
+			name:    "deepseek account ignores enabled global",
+			global:  true,
+			account: &Account{Platform: PlatformDeepseek, Type: AccountTypeAPIKey},
+			want:    false,
+		},
+		{
+			name:   "minimax account ignores channel openai true",
+			global: false,
+			channel: &Channel{ID: 1, Status: StatusActive, FeaturesConfig: map[string]any{
+				featureKeyCodexImageGenerationBridge: map[string]any{PlatformOpenAI: true},
+			}},
+			account: &Account{Platform: PlatformMiniMax, Type: AccountTypeAPIKey},
+			want:    false,
+		},
+		{
+			name:    "nil account never bridges",
+			global:  true,
+			account: nil,
+			want:    false,
+		},
 	}
 
 	for _, tt := range tests {

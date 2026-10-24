@@ -29,8 +29,8 @@ package service
 // Gemini 一定 400 的 JSON Schema 字段集。任何加入此表的字段都必须在 PR
 // 描述里附 prod 错误日志或 Gemini 文档引用，避免无证据的 deny 蔓延。
 var tkUnsupportedToolSchemaKeywords = map[string]struct{}{
-	"propertyNames":    {}, // Draft 6+: properties name schema
-	"const":            {}, // Draft 6+: literal constraint
+	"propertyNames": {}, // Draft 6+: properties name schema
+	// const 由 cleanToolSchemaNode 收成 enum，不能在这里先删掉，否则字面量约束丢失。
 	"exclusiveMinimum": {}, // Draft 6+ numeric form
 	"exclusiveMaximum": {}, // Draft 6+ numeric form
 }

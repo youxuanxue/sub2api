@@ -605,6 +605,27 @@ func TestIsModelRateLimited_AnthropicFableFamilyKey(t *testing.T) {
 	}
 }
 
+func TestAntigravityImageModelRateLimitStaysOffGeminiFamily(t *testing.T) {
+	imageKeys := antigravityModelRateLimitKeys("gemini-3.1-flash-image")
+	require.Equal(t, []string{"gemini-3.1-flash-image"}, imageKeys)
+
+	textKeys := antigravityModelRateLimitKeys("gemini-3-flash-preview")
+	require.Equal(t, []string{"gemini-3-flash-preview", antigravityGeminiModelRateLimitKey}, textKeys)
+
+	future := time.Now().Add(10 * time.Minute).Format(time.RFC3339)
+	account := &Account{
+		Platform: PlatformAntigravity,
+		Extra: map[string]any{
+			modelRateLimitsKey: map[string]any{
+				antigravityGeminiModelRateLimitKey: map[string]any{"rate_limit_reset_at": future},
+			},
+		},
+	}
+	// Use catalog aliases that DefaultAntigravityModelMapping still accepts.
+	require.False(t, account.isModelRateLimitedWithContext(context.Background(), "gemini-3.1-flash-image"))
+	require.True(t, account.isModelRateLimitedWithContext(context.Background(), "gemini-3-flash-preview"))
+}
+
 func TestIsAnthropicFableModel(t *testing.T) {
 	require.True(t, isAnthropicFableModel("claude-fable-5"))
 	require.True(t, isAnthropicFableModel("claude-fable-5-1"))
