@@ -1,0 +1,174 @@
+# Kiro relay refs that no longer need attention. One owner/repo#n per line.
+# Both TK已覆盖 and TK不适用 stay out of later tracking issues.
+# resolved_refs() reads this file. Delete a line to admit that ref again.
+# Baseline: origin/main 0995e4bef, GitHub youxuanxue/sub2api#2766 on 2026-10-23.
+
+Quorinex/Kiro-Go#109  # TK已覆盖：token 估算、cache 记账与 credits 用量
+Quorinex/Kiro-Go#114  # TK已覆盖：tool_choice none/any/具名
+Quorinex/Kiro-Go#119  # TK已覆盖：900KiB 裁剪；RTK 不移植
+Quorinex/Kiro-Go#128  # TK已覆盖：粘性会话；不移植对方面板
+Quorinex/Kiro-Go#137  # TK已覆盖：Kiro 凭据校验与 api_key 数据面
+Quorinex/Kiro-Go#147  # TK已覆盖：有输出时 meteringEvent 可收束
+Quorinex/Kiro-Go#150  # TK不适用：对方默认口令，不是 TokenKey 密钥
+Quorinex/Kiro-Go#154  # TK已覆盖：有输出时 meteringEvent 可收束
+Quorinex/Kiro-Go#157  # TK已覆盖：token 估算、cache 记账与 credits 用量
+Quorinex/Kiro-Go#158  # TK已覆盖：有输出时 meteringEvent 可收束
+Quorinex/Kiro-Go#159  # TK已覆盖：有输出时 meteringEvent 可收束
+TsinHzl/kiro2cc-proxy#45  # TK不适用：无复现的咨询
+TsinHzl/kiro2cc-proxy#46  # TK已覆盖：账号级 file tool chunking，不自动续写
+TsinHzl/kiro2cc-proxy#47  # TK不适用：TK不适用：没有 PREV_H0 内容哈希键
+TsinHzl/kiro2cc-proxy#48  # TK不适用：TK不适用：thinking 不注入 ANSI 转义
+TsinHzl/kiro2cc-proxy#50  # TK已覆盖：token 估算、cache 记账与 credits 用量
+TsinHzl/kiro2cc-proxy#51  # TK不适用：无复现的咨询
+TsinHzl/kiro2cc-proxy#52  # TK已覆盖：tool_result 图片保留；不扩 Fable
+TsinHzl/kiro2cc-proxy#53  # TK已覆盖：tool_result 图片保留；不扩 Fable
+ZyphrZero/kiro.rs#103  # TK已覆盖：空工具参数按 schema 还原为 {}
+ZyphrZero/kiro.rs#104  # TK已覆盖：SSE 已设 X-Accel-Buffering: no
+ZyphrZero/kiro.rs#105  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
+ZyphrZero/kiro.rs#106  # TK已覆盖：token 估算、cache 记账与 credits 用量
+ZyphrZero/kiro.rs#109  # TK不适用：对方 UI、clientMode 或随机选证
+ZyphrZero/kiro.rs#111  # TK已覆盖：token 估算、cache 记账与 credits 用量
+ZyphrZero/kiro.rs#117  # TK已覆盖：Kiro 等待预算
+ZyphrZero/kiro.rs#123  # TK已覆盖：CONTENT_FILTERED 拒答且不换号
+ZyphrZero/kiro.rs#124  # TK不适用：对方发版、CI 或本机工具链
+ZyphrZero/kiro.rs#126  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
+ZyphrZero/kiro.rs#44  # TK不适用：无复现的咨询
+ZyphrZero/kiro.rs#79  # TK已覆盖：空工具参数按 schema 还原为 {}
+ZyphrZero/kiro.rs#84  # TK不适用：招募、空标题、停更或路线图汇总
+ZyphrZero/kiro.rs#85  # TK不适用：招募、空标题、停更或路线图汇总
+ZyphrZero/kiro.rs#93  # TK已覆盖：数据面区域以 profile ARN 为准
+ZyphrZero/kiro.rs#94  # TK已覆盖：token 估算、cache 记账与 credits 用量
+ZyphrZero/kiro.rs#98  # TK已覆盖：Kiro 为真 SSE，中途错误写入流
+hank9999/kiro.rs#11  # TK已覆盖：图片格式嗅探；对方 Admin UI 不适用
+hank9999/kiro.rs#128  # TK不适用：对方 UI、clientMode 或随机选证
+hank9999/kiro.rs#133  # TK不适用：非 Kiro Claude 目录
+hank9999/kiro.rs#135  # TK已覆盖：并发、RPM 与负载调度
+hank9999/kiro.rs#140  # TK已覆盖：并发、RPM 与负载调度
+hank9999/kiro.rs#142  # TK已覆盖：只用官方 runtime 与过渡 q
+hank9999/kiro.rs#149  # TK已覆盖：Kiro 凭据校验与 api_key 数据面
+hank9999/kiro.rs#150  # TK已覆盖：粘性会话；不移植对方面板
+hank9999/kiro.rs#166  # TK不适用：对方 UI、clientMode 或随机选证
+hank9999/kiro.rs#170  # TK不适用：无复现的咨询
+hank9999/kiro.rs#178  # TK已覆盖：管理端账号能力已有
+hank9999/kiro.rs#180  # TK已覆盖：并发、RPM 与负载调度
+hank9999/kiro.rs#192  # TK不适用：非 Kiro Claude 目录
+hank9999/kiro.rs#199  # TK已覆盖：tool_result 图片保留；不扩 Fable
+hank9999/kiro.rs#201  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
+hank9999/kiro.rs#202  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
+hank9999/kiro.rs#204  # TK已覆盖：粘性会话；不移植对方面板
+hank9999/kiro.rs#35  # TK已覆盖：管理端账号能力已有
+hank9999/kiro.rs#40  # TK已覆盖：Kiro 凭据校验与 api_key 数据面
+hank9999/kiro.rs#94  # TK已覆盖：并发、RPM 与负载调度
+justlovemaki/AIClient2API#719  # TK不适用：对方默认口令，不是 TokenKey 密钥
+justlovemaki/AIClient2API#720  # TK不适用：非 Kiro Claude 目录
+justlovemaki/AIClient2API#721  # TK不适用：非 Kiro Claude 目录
+justlovemaki/AIClient2API#727  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
+justlovemaki/AIClient2API#728  # TK已覆盖：900KiB 裁剪；RTK 不移植
+justlovemaki/AIClient2API#735  # TK不适用：非 Kiro Claude 目录
+justlovemaki/AIClient2API#755  # TK不适用：非 Kiro Claude 目录
+jwadow/kiro-gateway#143  # TK已覆盖：token 估算、cache 记账与 credits 用量
+jwadow/kiro-gateway#144  # TK已覆盖：管理端账号能力已有
+jwadow/kiro-gateway#149  # TK已覆盖：token 估算、cache 记账与 credits 用量
+jwadow/kiro-gateway#150  # TK已覆盖：数据面区域以 profile ARN 为准
+jwadow/kiro-gateway#159  # TK已覆盖：token 估算、cache 记账与 credits 用量
+jwadow/kiro-gateway#160  # TK已覆盖：token 估算、cache 记账与 credits 用量
+jwadow/kiro-gateway#162  # TK已覆盖：API key 发现模型；日期快照别名
+jwadow/kiro-gateway#164  # TK已覆盖：redacted_thinking 不转发、不 422
+jwadow/kiro-gateway#168  # TK已覆盖：数据面区域以 profile ARN 为准
+jwadow/kiro-gateway#182  # TK已覆盖：超长工具名截断为 64
+jwadow/kiro-gateway#183  # TK不适用：TK不适用：对方 cl100k 下载重试，TokenKey 用本地估算
+jwadow/kiro-gateway#184  # TK已覆盖：API key 发现模型；日期快照别名
+jwadow/kiro-gateway#185  # TK不适用：招募、空标题、停更或路线图汇总
+jwadow/kiro-gateway#188  # TK已覆盖：API key 发现模型；日期快照别名
+jwadow/kiro-gateway#190  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#191  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#192  # TK已覆盖：adaptive thinking 与 effort
+jwadow/kiro-gateway#195  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#197  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#198  # TK已覆盖：API key 发现模型；日期快照别名
+jwadow/kiro-gateway#199  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#200  # TK不适用：招募、空标题、停更或路线图汇总
+jwadow/kiro-gateway#202  # TK不适用：招募、空标题、停更或路线图汇总
+jwadow/kiro-gateway#203  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+jwadow/kiro-gateway#204  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+jwadow/kiro-gateway#206  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#207  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#208  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
+jwadow/kiro-gateway#209  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+jwadow/kiro-gateway#211  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
+jwadow/kiro-gateway#219  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#226  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#234  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#236  # TK不适用：TK不适用：对方 PROXY_API_KEY，不是 TokenKey 用户密钥
+jwadow/kiro-gateway#239  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+jwadow/kiro-gateway#246  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
+jwadow/kiro-gateway#255  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#256  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#260  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
+jwadow/kiro-gateway#261  # TK已覆盖：数据面区域以 profile ARN 为准
+jwadow/kiro-gateway#264  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#267  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+jwadow/kiro-gateway#268  # TK已覆盖：Kiro 为真 SSE，中途错误写入流
+jwadow/kiro-gateway#271  # TK已覆盖：内嵌 system 消息不 422
+jwadow/kiro-gateway#276  # TK已覆盖：数据面区域以 profile ARN 为准
+jwadow/kiro-gateway#277  # TK不适用：对方默认口令，不是 TokenKey 密钥
+jwadow/kiro-gateway#279  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
+jwadow/kiro-gateway#280  # TK已覆盖：token 估算、cache 记账与 credits 用量
+jwadow/kiro-gateway#282  # TK不适用：对方 UI、clientMode 或随机选证
+jwadow/kiro-gateway#283  # TK不适用：招募、空标题、停更或路线图汇总
+jwadow/kiro-gateway#284  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
+jwadow/kiro-gateway#81  # TK已覆盖：数据面区域以 profile ARN 为准
+jwadow/kiro-gateway#84  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+jwadow/kiro-gateway#85  # TK不适用：TK不适用：对方启动时复用 HTTP client
+minpeter/kiro-lb#101  # TK不适用：对方 UI、clientMode 或随机选证
+minpeter/kiro-lb#102  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#103  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#104  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#105  # TK已覆盖：仅 signature 的 reasoning 帧仍派发
+minpeter/kiro-lb#106  # TK已覆盖：未知模型在上游前失败
+minpeter/kiro-lb#107  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#108  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#111  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#112  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#113  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#116  # TK不适用：无复现的咨询
+minpeter/kiro-lb#117  # TK不适用：非 Kiro Claude 目录
+minpeter/kiro-lb#118  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#119  # TK不适用：对方发版、CI 或本机工具链
+minpeter/kiro-lb#56  # TK不适用：对方发版、CI 或本机工具链
+minpeter/kiro-lb#57  # TK已覆盖：Opus/Sonnet 4.8、5、5.5 已在目录
+minpeter/kiro-lb#58  # TK不适用：对方发版、CI 或本机工具链
+minpeter/kiro-lb#59  # TK不适用：对方发版、CI 或本机工具链
+minpeter/kiro-lb#60  # TK已覆盖：900KiB 裁剪；RTK 不移植
+minpeter/kiro-lb#61  # TK已覆盖：图片与历史 thinking 不计入下一轮
+minpeter/kiro-lb#62  # TK已覆盖：图片与历史 thinking 不计入下一轮
+minpeter/kiro-lb#63  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#64  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#65  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#66  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#67  # TK不适用：对方发版、CI 或本机工具链
+minpeter/kiro-lb#68  # TK不适用：对方发版、CI 或本机工具链
+minpeter/kiro-lb#69  # TK不适用：对方发版、CI 或本机工具链
+minpeter/kiro-lb#70  # TK不适用：对方发版、CI 或本机工具链
+minpeter/kiro-lb#71  # TK不适用：招募、空标题、停更或路线图汇总
+minpeter/kiro-lb#72  # TK不适用：非 Kiro Claude 目录
+minpeter/kiro-lb#73  # TK已覆盖：并发、RPM 与负载调度
+minpeter/kiro-lb#74  # TK已覆盖：数据面区域以 profile ARN 为准
+minpeter/kiro-lb#75  # TK不适用：对方 UI、clientMode 或随机选证
+minpeter/kiro-lb#76  # TK已覆盖：token 估算、cache 记账与 credits 用量
+minpeter/kiro-lb#77  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#78  # TK不适用：对方 UI、clientMode 或随机选证
+minpeter/kiro-lb#79  # TK不适用：对方 UI、clientMode 或随机选证
+minpeter/kiro-lb#81  # TK不适用：对方 UI、clientMode 或随机选证
+minpeter/kiro-lb#82  # TK不适用：对方 UI、clientMode 或随机选证
+minpeter/kiro-lb#83  # TK不适用：对方 UI、clientMode 或随机选证
+minpeter/kiro-lb#84  # TK不适用：对方发版、CI 或本机工具链
+minpeter/kiro-lb#86  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#87  # TK不适用：对方发版、CI 或本机工具链
+minpeter/kiro-lb#88  # TK不适用：对方 SQLite、Docker、单文件凭据或 InferX
+minpeter/kiro-lb#89  # TK已覆盖：token 估算、cache 记账与 credits 用量
+minpeter/kiro-lb#90  # TK不适用：对方发版、CI 或本机工具链
+minpeter/kiro-lb#93  # TK已覆盖：图片与历史 thinking 不计入下一轮
+minpeter/kiro-lb#98  # TK不适用：对方发版、CI 或本机工具链
+xiaokui-dev/cliproxyapi-kiro-plugin#1  # TK已覆盖：数据面区域以 profile ARN 为准
+xiaokui-dev/cliproxyapi-kiro-plugin#2  # TK已覆盖：token 估算、cache 记账与 credits 用量

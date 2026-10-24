@@ -156,11 +156,26 @@ class WatchdogFlowTest(unittest.TestCase):
         self.assertIn("- [x]", api.comments[0]["body"])
         self.assertEqual(api.issues[0]["state"], "closed")
 
+    def test_settled_relay_refs_stay_resolved_without_anchors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            directory = root / "ops/issue-watchdog"
+            directory.mkdir(parents=True)
+            settled = directory / "relay-settled.txt"
+            settled.write_text("# comment\n\nQuorinex/Kiro-Go#114  # covered\n")
+            with patch.object(mod.ledger, "load_ledger", return_value=[]):
+                self.assertEqual(mod.resolved_refs(root), {"Quorinex/Kiro-Go#114"})
+            settled.write_text("not-a-ref\n")
+            with patch.object(mod.ledger, "load_ledger", return_value=[]):
+                with self.assertRaisesRegex(ValueError, "expected owner/repo#n"):
+                    mod.resolved_refs(root)
+
     def test_resolutions_use_grouped_refs_and_revoke_missing_anchors(self):
         source = mod.SOURCES["upstream"]
         entry = {"upstream": source["repo"] + "#1, #2", "fixed_if_all_present": ["fixed.py:proof"]}
         with (patch.dict(mod.ledger.SOURCES, {"upstream": source}, clear=True),
               patch.object(mod.ledger, "load_ledger", return_value=[entry]),
+              patch.object(mod, "settled_refs", return_value=set()),
               patch.object(mod.engine, "check_fact", return_value={"ok": True})):
             self.assertEqual(mod.resolved_refs(), {source["repo"] + "#1", source["repo"] + "#2"})
             with patch.object(mod.engine, "check_fact", return_value={"ok": False}):
