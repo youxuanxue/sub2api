@@ -770,3 +770,65 @@ func TestKiroStoredTerminalAuthFailure_OnlyRefreshMarkerIsTerminal(t *testing.T)
 		t.Fatal("nil account must not be treated as terminal")
 	}
 }
+
+// A terminal refresh failure must stop hammering the auth host AND say why.
+// Returning a silent no-op made a dead account look identical to a healthy
+// one with nothing to refresh, so the usage view showed no reason and the
+// operator had no signal that recovery needs Clear Error / re-authorization.
+func TestRefreshKiroUsageAccount_TerminalSkipIsObservable(t *testing.T) {
+	account := &Account{
+		ID:           5501,
+		Platform:     PlatformKiro,
+		Type:         AccountTypeOAuth,
+		Status:       StatusError,
+		ErrorMessage: "Token refresh failed (non-retryable): invalid_grant",
+	}
+	repo := &refreshAPIAccountRepo{account: account}
+	cache := &refreshAPICacheStub{lockResult: true}
+	executor := &refreshAPIExecutorStub{needsRefresh: true}
+	svc := &AccountUsageService{
+		accountRepo:              repo,
+		oauthRefreshAPI:          NewOAuthRefreshAPI(repo, cache),
+		kiroOAuthRefreshExecutor: executor,
+	}
+
+	_, didRefresh, err := svc.refreshKiroUsageAccount(context.Background(), account)
+	if didRefresh {
+		t.Fatal("terminal account must not report a refresh")
+	}
+	if executor.refreshCalls != 0 {
+		t.Fatalf("refreshCalls = %d, terminal account must not reach the auth host", executor.refreshCalls)
+	}
+	if err == nil {
+		t.Fatal("terminal skip must surface a reason, not a silent no-op")
+	}
+	if !errors.Is(err, errKiroUsageTerminalAuthFailure) {
+		t.Fatalf("err = %v, want errKiroUsageTerminalAuthFailure", err)
+	}
+	// The operator needs the recovery action, not just a classification.
+	if !strings.Contains(err.Error(), "re-authorize") {
+		t.Fatalf("err = %q, must name the recovery action", err.Error())
+	}
+
+	// A recoverable stored error keeps the normal refresh path.
+	recoverable := &Account{
+		ID:           5502,
+		Platform:     PlatformKiro,
+		Type:         AccountTypeOAuth,
+		Status:       StatusError,
+		ErrorMessage: "Payment required (402): You have reached the limit.",
+	}
+	repo2 := &refreshAPIAccountRepo{account: recoverable}
+	executor2 := &refreshAPIExecutorStub{
+		needsRefresh: true,
+		credentials:  map[string]any{"access_token": "recovered"},
+	}
+	svc2 := &AccountUsageService{
+		accountRepo:              repo2,
+		oauthRefreshAPI:          NewOAuthRefreshAPI(repo2, &refreshAPICacheStub{lockResult: true}),
+		kiroOAuthRefreshExecutor: executor2,
+	}
+	if _, didRefresh2, err2 := svc2.refreshKiroUsageAccount(context.Background(), recoverable); err2 != nil || !didRefresh2 {
+		t.Fatalf("recoverable error must still refresh: didRefresh=%v err=%v", didRefresh2, err2)
+	}
+}

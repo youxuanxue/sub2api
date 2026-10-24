@@ -18,6 +18,13 @@ var kiroBonusKeySanitizer = regexp.MustCompile(`[^a-z0-9]+`)
 
 var errKiroUsageTokenRefreshInProgress = errors.New("kiro OAuth token refresh already in progress")
 
+// errKiroUsageTerminalAuthFailure is returned instead of a silent no-op when a
+// stored terminal refresh failure blocks another refresh attempt. The account
+// genuinely cannot self-heal, so the usage read stays degraded and names the
+// reason; recovery is an operator Clear Error or a re-authorization.
+var errKiroUsageTerminalAuthFailure = errors.New(
+	"kiro OAuth refresh token was rejected as terminal; clear the account error or re-authorize to retry")
+
 var kiroUsageSensitiveErrorKeys = []string{
 	"accessToken",
 	"refreshToken",
@@ -149,7 +156,10 @@ func (s *AccountUsageService) fetchKiroAccountInfo(account *kiroproto.Account) (
 
 // refreshKiroUsageAccount force-refreshes only credentials. It deliberately does not
 // clear account errors or re-enable scheduling: a successful control-plane query
-// is not proof that a prior 402 quota rejection has recovered.
+// is not proof that a prior 402 quota rejection has recovered. A stored terminal
+// refresh failure short-circuits before the auth host is touched and returns
+// errKiroUsageTerminalAuthFailure, so the degraded usage read names the reason
+// instead of looking like a healthy account with nothing to refresh.
 func (s *AccountUsageService) refreshKiroUsageAccount(ctx context.Context, account *Account) (*Account, bool, error) {
 	if s == nil || account == nil || s.oauthRefreshAPI == nil {
 		return account, false, nil
@@ -162,7 +172,9 @@ func (s *AccountUsageService) refreshKiroUsageAccount(ctx context.Context, accou
 		return account, false, nil
 	}
 	if kiroStoredTerminalAuthFailure(account) {
-		return account, false, nil
+		// Skipping is deliberate, but it must not look like "nothing to do":
+		// the operator needs to see why this account stopped self-healing.
+		return account, false, errKiroUsageTerminalAuthFailure
 	}
 	result, err := s.oauthRefreshAPI.RefreshNow(ctx, account, executor)
 	if err != nil {
