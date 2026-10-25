@@ -121,9 +121,18 @@ def scan_source(repo, work, checkpoint, target="", lookback_days=30, api=watchdo
     if target:
         sync = {}
         resolved = watchdog.resolved_refs()
+        # Delivery state is keyed per platform: the same ref can be queued in two
+        # platform Issues and each has its own published signature.
+        delivered = dict((previous or {}).get("published", {}))
         for platform, items in grouped.items():
             sync[platform] = watchdog.queue.sync_queue(
-                repo, items, target, api, resolved=resolved, platform=platform)
+                repo, items, target, api, resolved=resolved, platform=platform,
+                published=delivered.get(platform, {}))
+            # Keep any prior map when a result carries none, so a caller that does
+            # not report delivery state cannot silently erase it.
+            if "published" in sync[platform]:
+                delivered[platform] = sync[platform].pop("published")
+        state["published"] = delivered
         report["sync"] = sync
         (work / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         checkpoint.parent.mkdir(parents=True, exist_ok=True)

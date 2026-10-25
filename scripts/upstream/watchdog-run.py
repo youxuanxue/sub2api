@@ -97,10 +97,11 @@ def resolved_refs(root=ROOT):
     return resolved
 
 
-def sync_issues(source, report, target_repo, api=gh, entries=()):
+def sync_issues(source, report, target_repo, api=gh, entries=(), published=None):
     items = [{**item, "number": engine.issue_number(item["upstream"])}
              for item in entries if item.get("topics") and item.get("impact") != "not_applicable"]
-    return queue.sync_queue(source["repo"], items, target_repo, api, resolved=resolved_refs(), platform="upstream")
+    return queue.sync_queue(source["repo"], items, target_repo, api, resolved=resolved_refs(),
+                            platform="upstream", published=published)
 
 
 def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
@@ -130,7 +131,14 @@ def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
             stream.write(summary)
     if target_repo:
-        sync_issues(source, report, target_repo, api, triage["issues"])
+        outcome = sync_issues(source, report, target_repo, api, triage["issues"],
+                              published=(previous or {}).get("published", {}))
+        # Carry delivery state forward so a deleted line or a replaced Issue cannot
+        # make the next run re-publish what was already delivered.
+        if "published" in outcome:
+            snapshot["published"] = outcome.pop("published")
+        elif (previous or {}).get("published"):
+            snapshot["published"] = previous["published"]
     # Commit the cursor only after fetching, reporting and GitHub synchronization succeed.
     # The workflow saves this cache only on success; a retry replays the previous window.
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
