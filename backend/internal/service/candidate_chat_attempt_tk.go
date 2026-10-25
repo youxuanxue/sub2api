@@ -264,7 +264,13 @@ func (s *OpenAIGatewayService) beginCandidateChatAttempt(ctx context.Context, c 
 		}
 		if !a.started {
 			if cause != nil || err == nil {
-				return nil, &UpstreamFailoverError{StatusCode: http.StatusGatewayTimeout, Scope: GatewayFailureScopeAccount, Reason: "first_output_unavailable", ClientStatusCode: http.StatusGatewayTimeout, ClientMessage: "Upstream did not produce a complete response before failover"}
+				// ClientErrorType must be set: handleFailoverExhausted only honors
+				// ClientStatusCode when the type is non-empty, otherwise it falls
+				// through to mapUpstreamError and reports 504 as a generic 502.
+				// That collapsed "upstream produced nothing" into the same code as a
+				// real upstream 502, so neither clients nor our own 504 alerting
+				// could tell them apart.
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusGatewayTimeout, Scope: GatewayFailureScopeAccount, Reason: "first_output_unavailable", ClientStatusCode: http.StatusGatewayTimeout, ClientErrorType: firstOutputUnavailableClientErrorType, ClientMessage: "Upstream did not produce a complete response before failover"}
 			}
 		} else if a.stream && !a.terminal && err == nil {
 			err = errCandidateChatIncomplete

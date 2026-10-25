@@ -213,12 +213,20 @@ func (g *streamFirstOutputGuard) BudgetFired(guarded, caller context.Context) bo
 	return guarded != nil && guarded.Err() != nil && (caller == nil || caller.Err() == nil)
 }
 
+// firstOutputUnavailableClientErrorType is required alongside ClientStatusCode:
+// handleFailoverExhausted only honors ClientStatusCode when the error type is
+// non-empty, and otherwise maps 504 down to a generic 502 (openai_gateway_handler.go
+// mapUpstreamError). Without it, "upstream produced no useful output" was
+// indistinguishable from a real upstream 502 for both clients and our 504 alerting.
+const firstOutputUnavailableClientErrorType = "timeout_error"
+
 func streamFirstOutputFailoverError() error {
 	return &UpstreamFailoverError{
 		StatusCode:       http.StatusGatewayTimeout,
 		Scope:            GatewayFailureScopeAccount,
 		Reason:           "first_output_unavailable",
 		ClientStatusCode: http.StatusGatewayTimeout,
+		ClientErrorType:  firstOutputUnavailableClientErrorType,
 		ClientMessage:    "Upstream did not produce a complete response before failover",
 	}
 }
@@ -231,6 +239,7 @@ func streamFirstOutputFailoverErrorAfterKeepalive() error {
 		Scope:                    GatewayFailureScopeAccount,
 		Reason:                   "first_output_unavailable",
 		ClientStatusCode:         http.StatusGatewayTimeout,
+		ClientErrorType:          firstOutputUnavailableClientErrorType,
 		ClientMessage:            "Upstream did not produce a complete response before failover",
 		SafeToFailoverAfterWrite: true,
 	}

@@ -2257,9 +2257,10 @@
         "errCandidateChatIncomplete",
         "newAPIChatFirstOutputTimeoutWithEffort(",
         "streamFirstOutputHighEffort(effort)",
-        "CandidateChatSwitchLimit"
+        "CandidateChatSwitchLimit",
+        "ClientErrorType: firstOutputUnavailableClientErrorType"
       ],
-      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 120s / high-effort 600s); non-streaming defaults to 300s. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly."
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 120s / high-effort 600s); non-streaming defaults to 300s. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly. The first-output failover must keep ClientErrorType set: handleFailoverExhausted only honors ClientStatusCode when the type is non-empty, so dropping it silently reports the 504 as a generic 502 and makes 'upstream produced no useful output' indistinguishable from a real upstream 502 for clients and for 504 alerting."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
@@ -2312,7 +2313,8 @@
         "Do not fall back to openai_high_effort_* here",
         "defaultKiroFirstOutputTimeout",
         "defaultKiroHighEffortFirstOutputTimeout",
-        "cfg.Gateway.NewAPIChatHighEffortFirstOutputTimeout > 0"
+        "cfg.Gateway.NewAPIChatHighEffortFirstOutputTimeout > 0",
+        "const firstOutputUnavailableClientErrorType = \"timeout_error\""
       ],
       "rationale": "Universal stream first-useful-output budget SSOT (120s / 600s high-effort, cap 600) plus Grok first-byte inherit helper. Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired. Kiro has independent generated defaults; reasoning never renews this shared fixed timer. NewAPI high-effort streaming must keep its own override: the 600s stream high-effort SSOT is sized for long-thinking claude-opus / gpt-6 families, and inheriting it on domestic NewAPI models disables pre-output replay on the slowest third of streaming traffic (cn-prod: high/max TTFT P50 6909ms vs 4219ms standard, while post-first-token generation is shorter, 5617ms vs 11919ms)."
     },
