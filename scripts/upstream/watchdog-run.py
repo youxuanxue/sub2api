@@ -97,11 +97,44 @@ def resolved_refs(root=ROOT):
     return resolved
 
 
+def partition_entries(entries):
+    """Split scan output by WHO judged it, which is what the tracking Issue is for.
+
+    The queue may only hold work a human (or a rotted fix anchor) says TokenKey
+    still owes: `tokenkey_status` in QUEUE_STATUSES. Keyword hits carry
+    KEYWORD_STATUSES -- the classifier's own rationale says "not yet manually
+    verified" -- so they are leads, not tasks, and are reported as intel instead.
+
+    Filtering on `impact` was the original mistake: it is the classifier's guess,
+    and `watchdog-run.py` only ever used it to drop `not_applicable`, which the
+    upstream classifier cannot even emit from a keyword path. That is why the
+    Issue grew to thousands of never-checked lines.
+    """
+    relevant = [{**item, "number": engine.issue_number(item["upstream"])}
+                for item in entries if item.get("topics") and item.get("impact") != "not_applicable"]
+    intel = [item for item in relevant
+             if item.get("tokenkey_status") in ledger.KEYWORD_STATUSES]
+    settled = {id(item) for item in relevant
+               if item.get("tokenkey_status") in ledger.SETTLED_STATUSES}
+    # Fail closed: an entry carrying no status, or one Step 1's allowlist does not
+    # know, stays in the queue. Dropping it would hide work on a classifier change,
+    # and a visible extra task is cheaper than a silently lost one.
+    queued = [item for item in relevant
+              if item.get("tokenkey_status") not in ledger.KEYWORD_STATUSES
+              and id(item) not in settled]
+    return queued, intel
+
+
 def sync_issues(source, report, target_repo, api=gh, entries=(), published=None):
-    items = [{**item, "number": engine.issue_number(item["upstream"])}
-             for item in entries if item.get("topics") and item.get("impact") != "not_applicable"]
-    return queue.sync_queue(source["repo"], items, target_repo, api, resolved=resolved_refs(),
-                            platform="upstream", published=published)
+    queued, intel = partition_entries(entries)
+    # Intel has no Issue carrier until the rotating intel Issue lands; until then it
+    # stays in the report artifact rather than being appended to the queue, so the
+    # queue stops growing immediately and no lead is silently dropped.
+    report["intel_pending_carrier"] = [item["upstream"] for item in intel]
+    outcome = queue.sync_queue(source["repo"], queued, target_repo, api,
+                               resolved=resolved_refs(), platform="upstream",
+                               published=published)
+    return {**outcome, "queued": len(queued), "intel": len(intel)}
 
 
 def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
