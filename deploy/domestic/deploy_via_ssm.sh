@@ -64,6 +64,11 @@ if [[ ! -f "${MANIFEST}" ]]; then
   exit 1
 fi
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "deploy_via_ssm: python3 not found on PATH" >&2
+  exit 1
+fi
+
 read -r SSM_REGION SSM_INSTANCE_ID PUBLIC_ORIGIN < <(python3 - "${MANIFEST}" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as handle:
@@ -194,8 +199,22 @@ case "${ACTION}" in
         echo "deploy_via_ssm pull: S3 dry-run refuses to print signed URLs; use unit tests" >&2
         exit 1
       fi
-      REMOTE="$(python3 "${REPO_ROOT}/deploy/domestic/image_distribution.py" render \
-        --tag "${TAG}" --revision "${REVISION}" --digest "${DIGEST}")"
+      # The renderer normally needs boto3. Diagnose after the fact rather than
+      # pre-checking it: what the renderer imports is the renderer's business,
+      # and a missing-boto3 traceback is otherwise the operator's first clue.
+      # This is a local entrypoint, so the python3 that wins on PATH may be any
+      # of several installs (CI's interpreter is controlled, which is why the
+      # west path never hits this).
+      if ! REMOTE="$(python3 "${REPO_ROOT}/deploy/domestic/image_distribution.py" render \
+        --tag "${TAG}" --revision "${REVISION}" --digest "${DIGEST}")"; then
+        if ! python3 -c 'import boto3' >/dev/null 2>&1; then
+          echo "deploy_via_ssm pull: the python3 on PATH ($(command -v python3)) cannot import boto3," >&2
+          echo "  which the S3 archive transport needs. Either install it for that interpreter" >&2
+          echo "  (python3 -m pip install boto3), or put one that has it first on PATH." >&2
+          echo "  --transport ghcr is the explicit fallback and does not need boto3." >&2
+        fi
+        exit 1
+      fi
       run_ssm "${COMMENT_PREFIX} prewarm ${TAG}" "${REMOTE}"
       exit 0
     fi

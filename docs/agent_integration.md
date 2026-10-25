@@ -833,9 +833,10 @@ compare runtime settings to a JSON file
 
 #### `manage-account-model-mapping-runtime.py check-accounts`
 
-post-release read-only account model_mapping SSOT diff (prod only by default)
+post-release read-only account model_mapping SSOT diff (prod, cn-prod or all)
 
 - `--json`: machine-readable output
+- `--target` (default: `prod`): prod (default), cn-prod, or all
 - `--prod-instance-id`: use this prod EC2 instance id instead of resolving the prod stack
 - `--bundle`: generated model-surface bundle to check against
 - `--parallel` (default: `6`): parallel SSM workers

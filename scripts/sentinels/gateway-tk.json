@@ -6422,14 +6422,17 @@
         "if _is_supplier_managed_account(row):",
         "if _is_gemini_web_account(row):",
         "jsonb_typeof(a.credentials->'gemini_web') = 'object'",
-        "a.credentials->'gemini_web_relay' = 'true'::jsonb"
+        "a.credentials->'gemini_web_relay' = 'true'::jsonb",
+        "CN_PROD_MANIFEST = REPO_ROOT / \"deploy\" / \"domestic\" / \"prod-target.json\"",
+        "def _resolve_cn_prod_target(",
+        "return (\"cn-prod\", region, instance_id)"
       ],
       "must_not_contain": [
         "GO_HELPER",
         "--ssot-repo-root",
         "--allow-extra-model-mapping"
       ],
-      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script consumes the checksummed bundle, prioritizes property-selected account overrides, preserves compatible extras, keeps check-accounts read-only, and scopes release-gate to explicit prod model activation. Supplier-managed accounts remain owned by supplier Sync. Generic deploy wiring is prohibited by the workflow sentinel above."
+      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script consumes the checksummed bundle, prioritizes property-selected account overrides, preserves compatible extras, keeps check-accounts read-only, and scopes release-gate to explicit prod model activation. Supplier-managed accounts remain owned by supplier Sync. Generic deploy wiring is prohibited by the workflow sentinel above. cn-prod is a first-class read-only check target: its SSM identity must keep coming from deploy/domestic/prod-target.json (the same manifest deploy_via_ssm.sh releases through), so the check can never drift onto a different host than the one cn-prod releases deploy to, and it must keep reporting the label 'cn-prod'. Collapsing it back onto --prod-instance-id would relabel it 'prod', making a cn-prod report indistinguishable from a real prod one in release evidence -- which is how cn-prod went unchecked for model_mapping entirely."
     },
     {
       "path": "ops/pricing/account_model_mapping_runtime_doc.py",

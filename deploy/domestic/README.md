@@ -112,6 +112,9 @@ bash deploy/domestic/deploy_via_ssm.sh prepare \
 `--public-url` 与 `prod-target.json` 的 `public_origin` 一致（静态 IP，不能用指向美西 prod
 的域名冒充 cn-prod 验证）。
 
+`--state` 是 `prepare` 实际写入的目录，形如 `/opt/tokenkey/releases/<version>-<shortsha>`；
+`prepare` 的回执里有 `state` 字段，直接取那个值，不要照抄本文的示例版本号。
+
 `--postcheck-plan` 必须由生成器产出，**不要手写**。它同时被两个阶段消费：`configure()`
 校验 `range`，切流后 `finish()` 还要读 `changes` 拼发版说明。手写一份只带 `range` 的
 plan 能通过切流前校验，却会让通知阶段抛 `KeyError`（2026-10-23 cn-prod 1.8.318 踩过）。
@@ -129,7 +132,7 @@ python3 scripts/release_post_check.py plan \
 # 上游 429/限流按故障速查定点复测，复测结论与原因都要留在 cases 里，不删分母。
 
 python3 /opt/tokenkey/releases/artifacts-ssm/bluegreen.py promote \
-  --state /opt/tokenkey/releases/RELEASE \
+  --state /opt/tokenkey/releases/1.8.306-2d4b4cdbf \
   --receipt PREPARED_RECEIPT_SHA256 \
   --postcheck-plan /private/post-plan.json \
   --smoke-report /private/candidate-smoke.json \
@@ -209,7 +212,7 @@ Docker 的 `unless-stopped` 重启策略负责活动容器重启；原单容器 
 确认接收；不等同所有群成员已读。失败/缺配置可用同一状态重试：
 
 ```bash
-python3 bluegreen.py notify --state /opt/tokenkey/releases/RELEASE \
+python3 bluegreen.py notify --state /opt/tokenkey/releases/1.8.306-2d4b4cdbf \
   --receipt PREPARED_RECEIPT_SHA256 \
   --postcheck-plan /private/post-plan.json \
   --smoke-report /private/candidate-smoke.json \

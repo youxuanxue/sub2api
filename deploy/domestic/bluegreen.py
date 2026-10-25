@@ -261,6 +261,35 @@ def shell(state, body):
                     shlex.quote(str(library)) + '\n' + body], check=True)
 
 
+def reclaim_candidate_name(target):
+    """Free the candidate color's container name, or refuse and say why.
+
+    promote() stops the outgoing color and deliberately keeps its name and
+    image so rollback() can restart it. Every later release therefore finds a
+    stopped container already sitting on the candidate name -- that is the
+    normal steady state, not a surprise, and the west path never trips on it
+    because `compose up --force-recreate` replaces such a container itself.
+
+    So an *exited* container on the candidate name is reclaimed here, after its
+    identity is recorded for the operator. A container that is still running,
+    restarting, or paused is never touched: that is either a live color or an
+    in-flight deploy, and removing it would cut traffic.
+    """
+    existing = run('docker', 'ps', '-a', '--filter', 'name=^/' + target + '$',
+                   '--format', '{{.ID}} {{.State}}').strip()
+    if not existing:
+        return
+    container_id, _, state = existing.partition(' ')
+    state = state.strip()
+    if state != 'exited':
+        raise ValueError(
+            f'candidate name {target} is held by a {state} container '
+            f'({container_id[:12]}); preserve it for explicit inspection')
+    print(json.dumps({'stage': 'reclaimed_candidate_name', 'target': target,
+                      'removed': container_id, 'previous_state': state}))
+    run('docker', 'rm', container_id)
+
+
 def prepare(args):
     state = args.state
     if state.exists():
@@ -277,9 +306,7 @@ def prepare(args):
     if image['Architecture'] != 'amd64' or image['Config']['Labels'].get('org.opencontainers.image.revision') != args.revision:
         raise ValueError('candidate architecture/revision does not match reviewed artifact')
     target = 'tokenkey-green' if old == 'tokenkey-blue' else 'tokenkey-blue'
-    existing = run('docker', 'ps', '-a', '--filter', 'name=^/' + target + '$', '--format', '{{.ID}}').strip()
-    if existing:
-        raise ValueError('candidate name already exists; preserve it for explicit inspection')
+    reclaim_candidate_name(target)
     service = json.loads(run('docker', 'compose', '--project-directory', str(ROOT),
                             '-f', str(ROOT / 'compose.yml'), '-f', str(ROOT / 'compose.override.yml'),
                             '-f', str(ROOT / 'compose.local.yml'), 'config', '--format', 'json'))['services']['tokenkey']
@@ -300,7 +327,11 @@ def prepare(args):
     shell(state, f'wait_healthy {target}\nwait_ready {target}')
     receipt['target_identity'] = identity(inspect(target))
     write_private(state / 'prepared.json', receipt)
+    # 'state' is echoed because promote needs it verbatim: the operator should
+    # never have to guess or reconstruct this path (README once showed a
+    # '.../RELEASE' placeholder that reads like a real directory).
     print(json.dumps({'stage': 'prepared', 'target': target, 'revision': args.revision,
+                      'state': str(state),
                       'receipt_sha256': digest(state / 'prepared.json')}))
 
 
