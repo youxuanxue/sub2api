@@ -72,6 +72,15 @@ parity lead, not a resolution -- it is exactly the case where TokenKey may still
 be missing that behavior -- so it stays in the queue and is also listed under
 `upstream_fixes` in the scan report for a focused parity check.
 
+The topic gate is per source. A relay/gateway repository keeps the full table --
+"账号" alone runs ~45% true positives there, so a high hit rate reflects what that
+repository is about. A CLI client's tracker needs four terms dropped (`session`,
+`schedul`, `usage`, `image`): `session` matched 3255 of claude-code's titles at
+roughly 2% true positives, because every issue there mentions a session. The
+narrowing is scoped rather than global, since dropping those words everywhere
+would blind the relay side. Measured effect: claude-code 5230 -> 1813 gated,
+Wei-Shaw/sub2api unchanged at 1217.
+
 Migrating an existing long tracking Issue needs one read-only step first:
 
     python3 scripts/upstream/watchdog-run.py seed-published --source upstream \

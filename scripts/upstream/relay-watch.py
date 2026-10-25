@@ -78,7 +78,8 @@ def collect(repo, previous, started, lookback_days=30, api=watchdog.gh):
     findings = []
     for number, row in sorted(rows.items()):
         prior = context.get(str(number), {})
-        matched = sorted(set(prior.get("topics", [])) | set(topics(row, comments.get(number, []))))
+        matched = sorted(set(prior.get("topics", []))
+                         | set(topics(row, comments.get(number, []), source_repo=repo)))
         hints = sorted(set(prior.get("platform_hints", [])) | set(platform_hints(row, comments.get(number, []))))
         if not matched:
             continue
