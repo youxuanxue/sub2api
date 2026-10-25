@@ -72,6 +72,19 @@ parity lead, not a resolution -- it is exactly the case where TokenKey may still
 be missing that behavior -- so it stays in the queue and is also listed under
 `upstream_fixes` in the scan report for a focused parity check.
 
+Relay findings also pass an off-topic gate: what a relay repository does for
+ITSELF is not news about relaying. Calibrated against one hand-labelled day of
+output (33 findings), the patterns dropped 5 of the 9 off-topic items and none of
+the 24 worth reading -- desktop UI of their own app, ads, their design RFCs, their
+own CI failures, and `dashboard`/`payment` scoped changes.
+
+`feat(...)` product work is deliberately NOT dropped. On that day no new feature
+mattered to us, so excluding features would have scored zero false positives too
+-- but a new feature is how an upstream protocol change first appears ("support
+new beta header"), and missing one costs more than reading a few extra lines.
+Only titles are matched: bodies quote logs and screenshots, so a body match
+rejects real reports that merely mention someone's dashboard.
+
 The topic gate is per source. A relay/gateway repository keeps the full table --
 "账号" alone runs ~45% true positives there, so a high hit rate reflects what that
 repository is about. A CLI client's tracker needs four terms dropped (`session`,

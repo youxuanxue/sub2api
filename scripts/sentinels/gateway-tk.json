@@ -769,7 +769,8 @@
         "test_published_map_survives_line_deletion_and_recovers_from_comments",
         "test_intel_rotates_per_period_without_republishing_or_retiring",
         "test_intel_never_collides_with_the_queue_issue",
-        "test_topic_gate_narrows_only_for_the_client_tracker"
+        "test_topic_gate_narrows_only_for_the_client_tracker",
+        "test_off_topic_findings_are_dropped_without_losing_relay_signal"
       ],
       "rationale": "Aggregate lifecycle, append-only discovery, local resolution and idempotent replay must survive upstream refactors."
     },
@@ -780,7 +781,9 @@
         "def platform_findings(",
         "issues/comments?",
         "merged_at",
-        "temporary.replace(checkpoint)"
+        "temporary.replace(checkpoint)",
+        "OFF_TOPIC = re.compile(",
+        "def off_topic("
       ],
       "rationale": "Relay monitoring must retain discussion changes and true merge evidence, committing cursors only after publication."
     },

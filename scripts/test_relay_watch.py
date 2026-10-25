@@ -343,6 +343,65 @@ class QueueTest(unittest.TestCase):
         self.assertEqual(queue.topics_for(None), queue.TOPICS)
         self.assertEqual(queue.topics_for("some/other-repo"), queue.TOPICS)
 
+    def test_off_topic_findings_are_dropped_without_losing_relay_signal(self):
+        """Calibrated on one real day of output, labelled by hand. The negative
+        side is the point: these are the titles we must never drop, because each
+        one describes a way relaying itself breaks."""
+        off_topic = [
+            "[RFC] 菜单栏托盘与悬浮窗交互行为意向探讨（悬停显示悬浮窗 / 单击启动主窗口）",
+            "2026 TAG机场VPN怎么样？ChatGPT、Claude Code、Gemini和Cursor等AI工具都能用机场",
+            "perf(dashboard): precompute durable dashboard and report snapshots",
+            "fix(payment): preserve subscription purchase details in order displays",
+            "v8.0.42 fails go vet (lostcancel in a Home regression test)",
+        ]
+        for title in off_topic:
+            with self.subTest(title=title[:40]):
+                self.assertTrue(mod.off_topic({"title": title}), title)
+
+        must_keep = [
+            "cpa长时间运行会oom",
+            "缓存异常",
+            "经验分享：疑似限速账号的恢复过程记录（个例，未确认原因）",
+            "Re-login does not return an account to rotation after its refresh token expires",
+            "A login's persisted snapshot can undo a concurrent disable",
+            "Claude cloaking: date pin never holds for non-native clients",
+            "Gemini-format streams lose finishReason for Codex clients",
+            "fix(codex): cap usage_limit_reached cooldown to avoid over-long stalls",
+            "fix(management): isolate auth file entry serialization to prevent 500",
+            "fix(proxy,qos): 修复 QoS 到期巡检 DashMap 自死锁与 Docker Headless Argon 熔断",
+            "fix(thinking): forward requested reasoning effort verbatim",
+            "fix(antigravity): neutralize stale system identities on forwarding",
+        ]
+        for title in must_keep:
+            with self.subTest(title=title[:40]):
+                self.assertFalse(mod.off_topic({"title": title}), title)
+
+        # `fix(management)` appears on both sides, so the scope alone cannot decide:
+        # one exposes a feature, the other fixes a 500. Only the latter is kept.
+        self.assertTrue(mod.off_topic({"title": "fix(payment): tidy order display"}))
+        self.assertFalse(mod.off_topic(
+            {"title": "fix(management): isolate auth file serialization to prevent 500"}))
+
+        # New features stay IN deliberately: an upstream protocol change usually
+        # arrives as one, and missing that costs more than reading a few extra lines.
+        for title in ["feat(codex): support native history/notes backend endpoints",
+                      "feat(anthropic): support new beta header"]:
+            with self.subTest(title=title[:40]):
+                self.assertFalse(mod.off_topic({"title": title}), title)
+
+        # Only the title is read. A real report quotes logs and screenshots, so
+        # matching the body would reject it for merely mentioning someone's
+        # dashboard or pasting `go vet` output.
+        self.assertFalse(mod.off_topic({
+            "title": "cpa长时间运行会oom",
+            "body": "见 dashboard 截图，内存持续上涨；另附 go vet 输出"}))
+
+        # The gate runs inside platform_findings, so a dropped item reaches no queue.
+        kept = mod.platform_findings(
+            [{"title": "cpa长时间运行会oom", "platform_hints": ["openai"]},
+             {"title": "2026 TAG机场VPN怎么样？", "platform_hints": ["openai"]}], ["openai"])
+        self.assertEqual([i["title"] for i in kept["openai"]], ["cpa长时间运行会oom"])
+
     def test_upstream_title_is_data_and_task_remains_a_markdown_checkbox(self):
         api = FakeGitHub()
         self.publish(api, [candidate(title="[click](evil) @all\n<!-- injected -->")])
