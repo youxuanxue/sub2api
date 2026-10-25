@@ -11739,9 +11739,13 @@
       "must_contain": [
         "STATIC_SITE_IP = '154.8.214.179'",
         "def domestic_site_host(caddy):",
-        "data_layout.require_directory(DATA)"
+        "data_layout.require_directory(DATA)",
+        "def reclaim_candidate_name(target, routed):",
+        "if target == routed:",
+        "if requests != 0:",
+        "reclaim_candidate_name(target, old)"
       ],
-      "rationale": "Beijing serves the static IP site and keeps /var/lib/tokenkey on the root disk. A later edit must not require a dedicated mountpoint or the api-cn.tokenkey.dev site label."
+      "rationale": "Beijing serves the static IP site and keeps /var/lib/tokenkey on the root disk. A later edit must not require a dedicated mountpoint or the api-cn.tokenkey.dev site label. reclaim_candidate_name must keep deciding on ROUTED-ness, not run state: cn-prod has two legitimate steady states that leave a container on the candidate name -- promote() keeps the outgoing color exited for rollback, and remediate-newapi-nonstream-timeout.sh deliberately recreates the previous color so both sides carry the new budget. Refusing every running container blocked all cn-prod releases after any budget remediation; dropping the routed-color or in_flight checks would instead cut live traffic or truncate a draining response."
     },
     {
       "path": "deploy/domestic/test_bluegreen.py",
@@ -11787,9 +11791,13 @@
         "if inflight['draining']:",
         "commit_cutover {color}",
         "drain_container {old}",
-        "fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)"
+        "fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)",
+        "def reclaim_candidate_name(target, routed):",
+        "if target == routed:",
+        "if requests != 0:",
+        "reclaim_candidate_name(target, old)"
       ],
-      "rationale": "Domestic SSH release must retain shared cutover/drain, receipt verification, mount isolation, host serialization and the verified release notification call; upstream/refactors must not replace it with a Compose restart or silently omit notifications."
+      "rationale": "Domestic SSH release must retain shared cutover/drain, receipt verification, mount isolation, host serialization and the verified release notification call; upstream/refactors must not replace it with a Compose restart or silently omit notifications. reclaim_candidate_name must keep deciding on ROUTED-ness, not run state: cn-prod has two legitimate steady states that leave a container on the candidate name -- promote() keeps the outgoing color exited for rollback, and remediate-newapi-nonstream-timeout.sh deliberately recreates the previous color so both sides carry the new budget. Refusing every running container blocked all cn-prod releases after any budget remediation; dropping the routed-color or in_flight checks would instead cut live traffic or truncate a draining response."
     },
     {
       "path": "deploy/domestic/bluegreen.py",
@@ -11799,9 +11807,13 @@
         "domestic QA archive upload must stay disabled",
         "domestic QA archive storage must not be s3",
         "env['QA_CAPTURE_ENABLED'] = 'true'",
-        "env['TELEMETRY_ARCHIVE_ENABLED'] = 'false'"
+        "env['TELEMETRY_ARCHIVE_ENABLED'] = 'false'",
+        "def reclaim_candidate_name(target, routed):",
+        "if target == routed:",
+        "if requests != 0:",
+        "reclaim_candidate_name(target, old)"
       ],
-      "rationale": "cn-prod candidates must keep local QA capture on and refuse telemetry archive, QA archive, and S3 storage. Reverting the overlay to capture-disabled or copying a prod archive env would upload or drop capture without a gateway code change."
+      "rationale": "cn-prod candidates must keep local QA capture on and refuse telemetry archive, QA archive, and S3 storage. Reverting the overlay to capture-disabled or copying a prod archive env would upload or drop capture without a gateway code change. reclaim_candidate_name must keep deciding on ROUTED-ness, not run state: cn-prod has two legitimate steady states that leave a container on the candidate name -- promote() keeps the outgoing color exited for rollback, and remediate-newapi-nonstream-timeout.sh deliberately recreates the previous color so both sides carry the new budget. Refusing every running container blocked all cn-prod releases after any budget remediation; dropping the routed-color or in_flight checks would instead cut live traffic or truncate a draining response."
     },
     {
       "path": "deploy/domestic/test_bluegreen.py",
