@@ -2,6 +2,7 @@
 import copy
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -68,6 +69,45 @@ class IssueLedgerTest(unittest.TestCase):
             with self.subTest(entries=entries), self.assertRaises((ValueError, TypeError)):
                 self.write_ledger(entries)
                 mod.load_ledger(self.source, self.root)
+
+    def test_unknown_judgment_status_fails_instead_of_defaulting(self):
+        """The tracking Issue is filtered on these status sets, so a status nobody
+        classified must fail here rather than silently default into one bucket and
+        change what the queue shows."""
+        judged = dict(self.entry, upstream=self.source["repo"] + "#1")
+        for status in ("mostly_ok", "", "FIXED_IN_TOKENKEY", "unresolved"):
+            with self.subTest(status=status), self.assertRaises(ValueError):
+                self.write_ledger([dict(judged, judgment={
+                    "impact": "medium", "tokenkey_status": status, "rationale": "why"})])
+                mod.load_ledger(self.source, self.root)
+
+        # Every status the real ledgers and the classifiers emit must stay loadable,
+        # and each must belong to exactly one bucket.
+        self.assertFalse(mod.QUEUE_STATUSES & mod.SETTLED_STATUSES)
+        self.assertFalse(mod.QUEUE_STATUSES & mod.KEYWORD_STATUSES)
+        self.assertFalse(mod.SETTLED_STATUSES & mod.KEYWORD_STATUSES)
+        for status in sorted(mod.JUDGMENT_STATUSES):
+            with self.subTest(status=status):
+                self.write_ledger([dict(judged, judgment={
+                    "impact": "medium", "tokenkey_status": status, "rationale": "why"})])
+                entries = mod.load_ledger(self.source, self.root)
+                self.assertEqual(entries[0]["judgment"]["tokenkey_status"], status)
+
+    def test_shipped_ledgers_and_classifier_statuses_are_all_classified(self):
+        """An allowlist that omits a status the repository actually uses would fail
+        closed on the real ledgers, so pin both the shipped judgments and every
+        status the keyword classifiers can emit."""
+        for source in mod.SOURCES.values():
+            for entry in mod.load_ledger(source):
+                status = (entry.get("judgment") or {}).get("tokenkey_status")
+                if status is not None:
+                    self.assertIn(status, mod.JUDGMENT_STATUSES, entry["upstream"])
+        emitted = set()
+        for name in ("upstream/issue-triage-generate.py", "anthropic/cc-issue-triage-generate.py"):
+            text = (Path(__file__).parent / name).read_text(encoding="utf-8")
+            emitted |= set(re.findall(r'status = "([a-z_]+)"', text))
+        self.assertTrue(emitted)
+        self.assertLessEqual(emitted, mod.KEYWORD_STATUSES)
 
     def test_cli_fails_missing_ledger_and_uses_requested_root_for_anchors(self):
         command = [sys.executable, str(Path(mod.__file__)), "--root", str(self.root), "--ledger", "upstream"]

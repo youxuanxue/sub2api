@@ -17,6 +17,20 @@ SOURCES = {
 }
 IMPACTS = {"critical", "high", "needs_review", "needs_prod_validation", "medium", "fixed",
            "not_applicable", "low", "unknown_low_signal"}
+# A judgment's status says WHO decided and whether TokenKey still owes work. The
+# tracking Issue is filtered on these sets, not on `impact`: `impact` carries the
+# keyword classifier's guess, which is explicitly "not yet manually verified".
+# QUEUE  -> a human (or a rotted fix anchor) says TokenKey still owes work.
+# SETTLED-> a human says nothing more is owed.
+# KEYWORD-> no human has ruled; the classifier guessed. Never enters the queue.
+# Allowlisted, not denylisted: a NEW status must fail here rather than silently
+# default into one bucket and change what the queue shows.
+QUEUE_STATUSES = {"unresolved_in_tokenkey", "needs_tokenkey_review",
+                  "partially_mitigated", "unresolved_observability"}
+SETTLED_STATUSES = {"fixed_in_tokenkey", "intentional_policy",
+                    "known_protocol_limitation", "outside_tokenkey_runtime"}
+KEYWORD_STATUSES = {"candidate_unverified", "not_prioritized", "not_applicable"}
+JUDGMENT_STATUSES = QUEUE_STATUSES | SETTLED_STATUSES | KEYWORD_STATUSES
 
 
 def issue_refs(value: str, repo: str) -> set[str]:
@@ -72,6 +86,11 @@ def load_ledger(source: dict, root: Path = ROOT) -> list[dict]:
                 any(not isinstance(judgment.get(k), str) or not judgment[k].strip()
                     for k in ("tokenkey_status", "rationale"))):
                 raise ValueError(f"{ref}: invalid judgment")
+            if judgment["tokenkey_status"] not in JUDGMENT_STATUSES:
+                raise ValueError(f"{ref}: unknown tokenkey_status "
+                                 f"{judgment['tokenkey_status']!r}; add it to QUEUE_STATUSES, "
+                                 "SETTLED_STATUSES or KEYWORD_STATUSES so the queue filter "
+                                 "states where it belongs")
         if "history" in entry and (not isinstance(entry["history"], list) or
                                     any(not isinstance(h, dict) for h in entry["history"])):
             raise ValueError(f"{ref}: history must be a list of historical field differences")
