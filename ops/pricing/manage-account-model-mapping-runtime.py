@@ -2652,7 +2652,18 @@ def cmd_selftest(_args) -> int:
     cn_manifest = json.loads(CN_PROD_MANIFEST.read_text(encoding="utf-8"))
     assert cn_only[0][2] == cn_manifest["ssm_instance_id"], cn_only
     assert cn_only[0][1] == cn_manifest["ssm_region"], cn_only
-    both = _resolve_check_targets(target="all")
+    # "all" refuses a pin by design, so the prod half would otherwise reach for
+    # live AWS. The selftest must stay hermetic (CI has no prod credentials):
+    # stub the prod resolver and assert only what this function decides --
+    # which targets, in which order, under which labels.
+    _real_resolve_prod = _resolve_prod_target
+    try:
+        globals()["_resolve_prod_target"] = (
+            lambda prod_instance_id=None: ("prod", "eu-west-2", "mi-0000000000000prod")
+        )
+        both = _resolve_check_targets(target="all")
+    finally:
+        globals()["_resolve_prod_target"] = _real_resolve_prod
     assert [t[0] for t in both] == ["prod", "cn-prod"], both
     assert len({t[2] for t in both}) == 2, both
     for bad_target in ("bogus", "", "cn_prod"):
