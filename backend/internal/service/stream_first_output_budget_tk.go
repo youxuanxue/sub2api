@@ -98,8 +98,21 @@ func newAPIChatFirstOutputTimeoutWithEffort(cfg *config.Config, stream bool, hig
 		return defaultNewAPIChatNonstreamFirstOutput
 	}
 	// Explicit legacy/platform override wins over the universal stream default
-	// for standard effort; high effort always prefers the high-effort SSOT.
+	// for standard effort; high effort prefers its own NewAPI override and
+	// otherwise falls back to the high-effort SSOT.
+	//
+	// The stream high-effort SSOT (600s) is sized for long-thinking families
+	// (claude-opus / gpt-6 class) that really do stall before the first token.
+	// NewAPI serves domestic models, where cn-prod measurement shows the
+	// opposite shape: high/max TTFT P50 6909ms against 4219ms for standard
+	// effort, while post-first-token generation is *shorter* (5617ms vs
+	// 11919ms). Inheriting 600s there leaves the slowest third of streaming
+	// traffic with no pre-output replay at all, so this platform gets its own
+	// knob. Zero keeps the historical inherit.
 	if highEffort {
+		if cfg != nil && cfg.Gateway.NewAPIChatHighEffortFirstOutputTimeout > 0 {
+			return time.Duration(cfg.Gateway.NewAPIChatHighEffortFirstOutputTimeout) * time.Second
+		}
 		return resolveStreamFirstOutputTimeout(cfg, true)
 	}
 	if cfg != nil && cfg.Gateway.NewAPIChatFirstOutputTimeout > 0 {

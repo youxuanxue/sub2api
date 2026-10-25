@@ -256,6 +256,12 @@ gateway:
   # first-output-timeout-ssot:end
   # Replayable NewAPI Chat streaming override (seconds, 0=inherit stream SSOT, max 60).
   newapi_chat_first_output_timeout: 0
+  # Same for high/xhigh/max reasoning effort (seconds, 0=inherit the stream
+  # high-effort SSOT above, max 60). The 600s high-effort budget is sized for
+  # long-thinking claude-opus / gpt-6 families; domestic NewAPI models measured
+  # on cn-prod do not stall before the first token, so they can use a short
+  # budget here without losing pre-output replay.
+  newapi_chat_high_effort_first_output_timeout: 0
   # Non-stream NewAPI default lives in the SSOT block above; max bound is
   # NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX in ops/stage0/first_output_timeout_ssot.py.
   # Grok text Responses first-byte timeout (seconds, 0=inherit stream_first_output SSOT, max 60)
