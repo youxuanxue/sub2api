@@ -1136,6 +1136,16 @@ type GatewayConfig struct {
 	// (not total stream duration). Seconds; zero inherits StreamFirstOutputTimeoutSeconds.
 	// Cap is 60. At most three attempts share 3x this per-attempt budget.
 	NewAPIChatFirstOutputTimeout int `mapstructure:"newapi_chat_first_output_timeout"`
+	// Same, for high/xhigh/max reasoning effort on NewAPI Chat streaming. Zero
+	// inherits the stream high-effort SSOT (600s), which is the long-thinking
+	// budget sized for claude-opus / gpt-6 class models. Domestic NewAPI models
+	// measured on cn-prod do not actually think before the first token (TTFT P50
+	// 6909ms vs 4219ms for standard effort, while post-first-token generation is
+	// *shorter*: 5617ms vs 11919ms), so 600s there only disables pre-output
+	// replay on the slowest third of streaming traffic. Cap is 60, like the
+	// standard-effort key. Deliberately absent from
+	// ops/stage0/first_output_timeout_ssot.py: it may differ per deployment.
+	NewAPIChatHighEffortFirstOutputTimeout int `mapstructure:"newapi_chat_high_effort_first_output_timeout"`
 	// Bounds a replayable NewAPI Chat *non-streaming* attempt until a complete
 	// useful JSON body. Seconds; zero uses the default 600. Cap is 900.
 	// At most three attempts share 3x this per-attempt budget.
@@ -2715,7 +2725,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 600)
 	viper.SetDefault("gateway.newapi_chat_nonstream_first_output_timeout", 600)
 	// first-output-timeout-ssot:end
-	viper.SetDefault("gateway.newapi_chat_first_output_timeout", 0) // 0 = inherit stream SSOT
+	viper.SetDefault("gateway.newapi_chat_first_output_timeout", 0)             // 0 = inherit stream SSOT
+	viper.SetDefault("gateway.newapi_chat_high_effort_first_output_timeout", 0) // 0 = inherit stream high-effort SSOT
 	viper.SetDefault("gateway.grok_response_header_timeout", 0)
 	viper.SetDefault("gateway.log_upstream_error_body", true)
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)
@@ -3712,6 +3723,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.NewAPIChatFirstOutputTimeout < 0 || c.Gateway.NewAPIChatFirstOutputTimeout > 60 {
 		return fmt.Errorf("gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)")
+	}
+	if c.Gateway.NewAPIChatHighEffortFirstOutputTimeout < 0 || c.Gateway.NewAPIChatHighEffortFirstOutputTimeout > 60 {
+		return fmt.Errorf("gateway.newapi_chat_high_effort_first_output_timeout must be between 0-60 seconds (streaming high-effort first-output override)")
 	}
 	if c.Gateway.NewAPIChatNonstreamFirstOutputTimeout < 0 || c.Gateway.NewAPIChatNonstreamFirstOutputTimeout > 900 {
 		return fmt.Errorf("gateway.newapi_chat_nonstream_first_output_timeout must be between 0-900 seconds")

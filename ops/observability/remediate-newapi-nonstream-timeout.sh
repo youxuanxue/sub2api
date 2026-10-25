@@ -4,18 +4,26 @@
 # Default/max seconds: ops/stage0/first_output_timeout_ssot.py
 # (python3 scripts/checks/first-output-timeout-ssot.py --apply).
 #
-# Two budgets share this script because the host-side procedure (env upsert,
+# Three budgets share this script because the host-side procedure (env upsert,
 # compose fallback patch, standby recreate, Caddy hot-cutover, previous-color
-# recreate) is identical and must not fork into two copies that drift:
+# recreate) is identical and must not fork into copies that drift:
 #
 #   MODE=nonstream (default) — GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT
 #       Whole-body useful-JSON wait. SSOT-owned default 600, max 900.
 #   MODE=stream              — GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT
-#       Streaming first-output override; 0 = inherit the stream SSOT. This key is
-#       deliberately NOT in first_output_timeout_ssot.py's generated tables (see
-#       its module docstring) so it may differ per deployment — cn-prod can run a
-#       short budget to make pre-output replay actually engage while prod keeps 0.
-#       Bound 0..60 mirrors config.go's validation for the same key.
+#       Streaming first-output override; 0 = inherit the stream SSOT.
+#   MODE=stream-high-effort  — GATEWAY_NEWAPI_CHAT_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT
+#       Same, for high/xhigh/max reasoning effort; 0 = inherit the stream
+#       high-effort SSOT (600s). That 600s is sized for long-thinking
+#       claude-opus / gpt-6 families; NewAPI serves domestic models which do not
+#       stall before the first token, so leaving it at 600s disables pre-output
+#       replay on the slowest third of streaming traffic.
+#
+#       Both stream keys are deliberately NOT in first_output_timeout_ssot.py's
+#       generated tables (see its module docstring) so they may differ per
+#       deployment — cn-prod can run short budgets to make pre-output replay
+#       actually engage while prod keeps 0. Bound 0..60 mirrors config.go's
+#       validation for the same keys.
 #
 # Safe path (default):
 #   1) upsert .env + patch compose fallbacks
@@ -23,14 +31,16 @@
 #   3) Caddy hot-cutover to inactive
 #   4) recreate previous color so both sides carry the new budget
 #
-# Delivered via run-probe.sh. Requires (mode-specific, so a stream change can
-# never be authorized by a nonstream token or vice versa):
-#   APPLY=yes-newapi-nonstream-timeout   (MODE=nonstream)
-#   APPLY=yes-newapi-stream-timeout      (MODE=stream)
+# Delivered via run-probe.sh. Requires (mode-specific, so one budget's change can
+# never be authorized by another budget's token):
+#   APPLY=yes-newapi-nonstream-timeout          (MODE=nonstream)
+#   APPLY=yes-newapi-stream-timeout             (MODE=stream)
+#   APPLY=yes-newapi-stream-high-effort-timeout (MODE=stream-high-effort)
 #
 # Optional:
 #   WANT_TIMEOUT=<seconds>  (nonstream 1..NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX;
-#                            stream 0..60. Default from SSOT / 0 for stream)
+#                            stream / stream-high-effort 0..60.
+#                            Default from SSOT / 0 for the stream modes)
 set -euo pipefail
 
 APPLY="${APPLY:-}"
@@ -52,8 +62,16 @@ case "$MODE" in
     WANT_MAX=60
     EXPECT_APPLY=yes-newapi-stream-timeout
     ;;
+  stream-high-effort)
+    KEY=GATEWAY_NEWAPI_CHAT_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT
+    WANT_TIMEOUT="${WANT_TIMEOUT:-0}"
+    # 0 keeps the inherit-high-effort-SSOT behavior.
+    WANT_MIN=0
+    WANT_MAX=60
+    EXPECT_APPLY=yes-newapi-stream-high-effort-timeout
+    ;;
   *)
-    echo "::error::MODE must be nonstream|stream (got '$MODE')"
+    echo "::error::MODE must be nonstream|stream|stream-high-effort (got '$MODE')"
     exit 2
     ;;
 esac

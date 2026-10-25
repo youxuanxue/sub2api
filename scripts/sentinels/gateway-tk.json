@@ -2294,9 +2294,10 @@
         "c.Writer.Size() >= 0",
         "Do not fall back to openai_high_effort_* here",
         "defaultKiroFirstOutputTimeout",
-        "defaultKiroHighEffortFirstOutputTimeout"
+        "defaultKiroHighEffortFirstOutputTimeout",
+        "cfg.Gateway.NewAPIChatHighEffortFirstOutputTimeout > 0"
       ],
-      "rationale": "Universal stream first-useful-output budget SSOT (120s / 600s high-effort, cap 600) plus Grok first-byte inherit helper. Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired. Kiro has independent generated defaults; reasoning never renews this shared fixed timer."
+      "rationale": "Universal stream first-useful-output budget SSOT (120s / 600s high-effort, cap 600) plus Grok first-byte inherit helper. Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired. Kiro has independent generated defaults; reasoning never renews this shared fixed timer. NewAPI high-effort streaming must keep its own override: the 600s stream high-effort SSOT is sized for long-thinking claude-opus / gpt-6 families, and inheriting it on domestic NewAPI models disables pre-output replay on the slowest third of streaming traffic (cn-prod: high/max TTFT P50 6909ms vs 4219ms standard, while post-first-token generation is shorter, 5617ms vs 11919ms)."
     },
     {
       "path": "backend/internal/repository/http_upstream.go",
@@ -15965,7 +15966,9 @@
         "gateway.newapi_chat_nonstream_first_output_timeout must be between 0-900 seconds",
         "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)",
         "viper.SetDefault(\"gateway.grok_response_header_timeout\", 0)",
-        "gateway.grok_response_header_timeout must be between 0-60 seconds"
+        "gateway.grok_response_header_timeout must be between 0-60 seconds",
+        "gateway.newapi_chat_high_effort_first_output_timeout",
+        "c.Gateway.NewAPIChatHighEffortFirstOutputTimeout > 60"
       ],
       "rationale": "First-output viper defaults (including NewAPI nonstream) are generated from ops/stage0/first_output_timeout_ssot.py via scripts/checks/first-output-timeout-ssot.py --apply. Markers pin the generate region; edit SSOT then --apply, never hand-edit seconds here."
     },
@@ -16011,7 +16014,8 @@
         "TestNewAPIChatFirstOutputTimeoutResolver",
         "non-stream must not use ResponseHeaderTimeout",
         "non-stream default is 3×600s",
-        "stream default is 3×120s"
+        "stream default is 3×120s",
+        "TestNewAPIChatHighEffortFirstOutputOverride"
       ],
       "rationale": "Focused unit tests lock stream vs nonstream first-output budgets and forbid ResponseHeaderTimeout from redefining either."
     },

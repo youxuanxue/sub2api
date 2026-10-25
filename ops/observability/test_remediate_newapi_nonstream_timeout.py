@@ -61,6 +61,9 @@ class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
         # deployment), so assert that rather than look it up there.
         self.assertIn("KEY=GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT", text)
         self.assertIn("yes-newapi-stream-timeout", text)
+        # MODE=stream-high-effort likewise.
+        self.assertIn("KEY=GATEWAY_NEWAPI_CHAT_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT", text)
+        self.assertIn("yes-newapi-stream-high-effort-timeout", text)
         self.assertNotIn(
             "GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT",
             str(sorted(EXPECTED_ENV_NEWAPI_NONSTREAM)),
@@ -84,13 +87,21 @@ class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
             ("nonstream", "0"),  # nonstream has no inherit semantics
             ("stream", "61"),
             ("stream", "120"),  # the old stream SSOT value is out of this key's range
+            ("stream-high-effort", "61"),
+            ("stream-high-effort", "600"),  # the inherited high-effort SSOT is out of range
         ):
             with self.subTest(mode=mode, want=bad):
                 proc = self._reject(bad, mode)
                 self.assertEqual(proc.returncode, 2, msg=proc.stdout + proc.stderr)
                 self.assertIn("out of allowed range", proc.stdout + proc.stderr)
 
-        for mode, good in (("nonstream", "600"), ("stream", "12"), ("stream", "0")):
+        for mode, good in (
+            ("nonstream", "600"),
+            ("stream", "12"),
+            ("stream", "0"),
+            ("stream-high-effort", "30"),
+            ("stream-high-effort", "0"),
+        ):
             with self.subTest(mode=mode, want=good):
                 proc = self._reject(good, mode)
                 self.assertNotIn("out of allowed range", proc.stdout + proc.stderr)
@@ -98,7 +109,7 @@ class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
     def test_unknown_mode_refused(self) -> None:
         proc = self._reject("12", "bogus")
         self.assertEqual(proc.returncode, 2, msg=proc.stdout + proc.stderr)
-        self.assertIn("MODE must be nonstream|stream", proc.stdout + proc.stderr)
+        self.assertIn("MODE must be nonstream|stream|stream-high-effort", proc.stdout + proc.stderr)
 
     def test_cutover_syncs_gemini_web_control_alias(self) -> None:
         text = SCRIPT.read_text(encoding="utf-8")

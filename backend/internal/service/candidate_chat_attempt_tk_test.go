@@ -275,3 +275,42 @@ func TestNewAPIChatFirstOutputTimeoutResolver(t *testing.T) {
 	cfg.Gateway.NewAPIChatFirstOutputTimeout = 0
 	require.Equal(t, 45*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, true, false))
 }
+
+// NewAPI high-effort streaming gets its own budget so domestic models are not
+// stuck on the 600s long-thinking SSOT. Covers both directions: unset must keep
+// inheriting, and set must not leak into any neighboring budget.
+func TestNewAPIChatHighEffortFirstOutputOverride(t *testing.T) {
+	// Unset (zero) keeps the historical inherit from the stream high-effort SSOT.
+	require.Equal(t, 600*time.Second, newAPIChatFirstOutputTimeoutWithEffort(nil, true, true))
+
+	cfg := &config.Config{}
+	require.Equal(t, 600*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, true, true))
+
+	// Set: high effort uses the NewAPI override instead of 600s.
+	cfg.Gateway.NewAPIChatHighEffortFirstOutputTimeout = 30
+	require.Equal(t, 30*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, true, true))
+
+	// It must not bleed into standard-effort streaming...
+	require.Equal(t, 120*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, true, false))
+	cfg.Gateway.NewAPIChatFirstOutputTimeout = 20
+	require.Equal(t, 20*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, true, false))
+	// ...nor swap with it: high effort keeps its own value, not the 20s one.
+	require.Equal(t, 30*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, true, true))
+
+	// ...nor into non-stream, which owns a separate whole-body budget.
+	require.Equal(t, 600*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, false, true))
+	require.Equal(t, 600*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, false, false))
+
+	// ...nor into the cross-platform stream SSOT used by anthropic/gemini/kiro,
+	// which is what keeps gpt/claude families on their long-thinking budget.
+	require.Equal(t, 600*time.Second, resolveStreamFirstOutputTimeout(cfg, true))
+
+	// The explicit stream high-effort SSOT still wins where it applies.
+	cfg.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 300
+	require.Equal(t, 300*time.Second, resolveStreamFirstOutputTimeout(cfg, true))
+	// NewAPI override still takes precedence for NewAPI chat.
+	require.Equal(t, 30*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, true, true))
+	// Clearing the NewAPI override falls back to that SSOT, not to 600s.
+	cfg.Gateway.NewAPIChatHighEffortFirstOutputTimeout = 0
+	require.Equal(t, 300*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, true, true))
+}
