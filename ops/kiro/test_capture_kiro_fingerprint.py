@@ -26,13 +26,25 @@ BASE_TLS = {
     "key_share_groups": [29],
     "psk_modes": [1],
 }
+# Fixture HTTP identity is derived from the sole Go compile owner so these
+# TLS-lane tests never go stale against a version bump; HTTP identity drift has
+# its own dedicated tests below.
+_OWNER = eng.committed_http_identity() or {}
+_UA_BASE = (
+    f"aws-sdk-rust/{_OWNER.get('kiroCLISDKVersion', '0.0.0')} ua/2.1"
+    f" api/codewhispererruntime/{_OWNER.get('kiroCLIAPIVersion', '0.0.0')}"
+    f" os/macos lang/rust/{_OWNER.get('kiroCLIRustVersion', '0.0.0')}"
+)
+OWNER_USER_AGENT = f"{_UA_BASE} md/appVersion-{_OWNER.get('DefaultKiroCLIVersion', '0.0.0')} app/AmazonQ-For-CLI"
+OWNER_AMZ_USER_AGENT = f"{_UA_BASE} m/F app/AmazonQ-For-CLI"
+
 HTTP = {
     "host": "codewhisperer.us-east-1.amazonaws.com",
     "path": "/",
     "method": "POST",
     "headers": {
-        "user-agent": "aws-sdk-rust/1.3.10 ua/2.1 api/codewhispererruntime/0.1.10231 os/macos lang/rust/1.92.0 md/appVersion-2.18.0 app/AmazonQ-For-CLI",
-        "x-amz-user-agent": "aws-sdk-rust/1.3.10 ua/2.1 api/codewhispererruntime/0.1.10231 os/macos lang/rust/1.92.0 m/F app/AmazonQ-For-CLI",
+        "user-agent": OWNER_USER_AGENT,
+        "x-amz-user-agent": OWNER_AMZ_USER_AGENT,
         "x-amz-target": "AmazonCodeWhispererService.GenerateCompletions",
         "content-type": "application/x-amz-json-1.0",
     },
@@ -191,6 +203,48 @@ class BundleAndProfileTests(unittest.TestCase):
         changed = dict(profile)
         changed["cipher_suites"] = list(reversed(profile["cipher_suites"]))
         self.assertNotEqual(eng.runtime_profile_digest(profile), eng.runtime_profile_digest(changed))
+
+    def test_wire_http_version_drift_is_not_reported_as_aligned(self):
+        """Regression: a real bundle whose wire appVersion outran the compile
+        owner used to exit 0 (aligned) because only TLS fields were compared."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = complete_bundle(Path(tmp))
+            committed = eng.build_canonical_profile(bundle)
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_COMPLETE)
+        for record in bundle["evidence_lanes"]["http"]["observed"]["records"]:
+            record["headers"]["user-agent"] = record["headers"]["user-agent"].replace(
+                f"md/appVersion-{_OWNER['DefaultKiroCLIVersion']}", "md/appVersion-99.99.99"
+            )
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_DRIFT)
+        drift = eng.http_identity_drift(bundle)
+        self.assertEqual(
+            drift, [("DefaultKiroCLIVersion", _OWNER["DefaultKiroCLIVersion"], "99.99.99")]
+        )
+
+    def test_non_version_user_agent_segment_drift_is_detected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = complete_bundle(Path(tmp))
+            committed = eng.build_canonical_profile(bundle)
+        for record in bundle["evidence_lanes"]["http"]["observed"]["records"]:
+            record["headers"]["user-agent"] = record["headers"]["user-agent"].replace(
+                f"aws-sdk-rust/{_OWNER['kiroCLISDKVersion']}", "aws-sdk-rust/9.9.9"
+            )
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_DRIFT)
+
+    def test_unparsable_wire_user_agent_is_incomplete_never_aligned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = complete_bundle(Path(tmp))
+            committed = eng.build_canonical_profile(bundle)
+        for record in bundle["evidence_lanes"]["http"]["observed"]["records"]:
+            record["headers"]["user-agent"] = "garbage/0"
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_INCOMPLETE)
+        self.assertEqual(eng.observed_http_identity(bundle), None)
+
+    def test_committed_owner_is_read_from_the_single_go_pin(self):
+        owner = eng.committed_http_identity()
+        self.assertIsNotNone(owner)
+        self.assertRegex(owner["DefaultKiroCLIVersion"], r"^\d+\.\d+\.\d+$")
+        self.assertIsNone(eng.committed_http_identity(Path("/nonexistent/constants.go")))
 
     def test_semantic_drift_not_sample_ja3_drift(self):
         with tempfile.TemporaryDirectory() as tmp:

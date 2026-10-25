@@ -23,6 +23,7 @@ from typing import Any
 SCHEMA_VERSION = 3
 REPO_ROOT = Path(__file__).resolve().parents[2]
 KIRO_TLS_PROFILE_JSON = REPO_ROOT / "deploy/aws/stage0/tk_canonical_kiro_cli.json"
+KIRO_HTTP_OWNER_GO = REPO_ROOT / "backend/internal/pkg/kiro/constants.go"
 KIRO_PROFILE_NAME = "tk_canonical_kiro_cli"
 DEFAULT_AUTH_CACHE = Path.home() / ".aws/sso/cache/kiro-auth-token.json"
 NOT_OBSERVED = "NOT_OBSERVED"
@@ -310,6 +311,69 @@ def load_committed_profile(path: Path = KIRO_TLS_PROFILE_JSON) -> dict[str, Any]
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def committed_http_identity(path: Path = KIRO_HTTP_OWNER_GO) -> dict[str, str] | None:
+    """Read the sole Go compile owner's Kiro CLI HTTP identity.
+
+    Returns None when the owner file is absent so callers can treat it as
+    unobserved rather than silently aligned.
+    """
+    if not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8")
+    fields: dict[str, str] = {}
+    for symbol in ("DefaultKiroCLIVersion", "kiroCLISDKVersion", "kiroCLIAPIVersion", "kiroCLIRustVersion"):
+        match = re.search(rf'\b{symbol}\s*=\s*"([^"]+)"', text)
+        if match is None:
+            return None
+        fields[symbol] = match.group(1)
+    return fields
+
+
+def observed_http_identity(bundle: dict[str, Any]) -> dict[str, str] | None:
+    """Project the real CLI User-Agent segments observed on the wire."""
+    lanes = _lanes(bundle)
+    http = lanes.get("http")
+    if not isinstance(http, dict):
+        return None
+    records = (http.get("observed") or {}).get("records")
+    if not isinstance(records, list):
+        return None
+    successful = [r for r in records if isinstance(r, dict) and r.get("success") is True]
+    if not successful:
+        return None
+    user_agent = str((successful[0].get("headers") or {}).get("user-agent") or "")
+    patterns = {
+        "DefaultKiroCLIVersion": r"md/appVersion-(\S+)",
+        "kiroCLISDKVersion": r"aws-sdk-rust/(\S+)",
+        "kiroCLIAPIVersion": r"api/codewhispererruntime/(\S+)",
+        "kiroCLIRustVersion": r"lang/rust/(\S+)",
+    }
+    observed: dict[str, str] = {}
+    for symbol, pattern in patterns.items():
+        match = re.search(pattern, user_agent)
+        if match is None:
+            return None
+        observed[symbol] = match.group(1)
+    return observed
+
+
+def http_identity_drift(bundle: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Semantic diff of wire HTTP identity against the single compile owner.
+
+    Each entry is (symbol, committed, observed). Callers treat a missing owner
+    or unparsable wire evidence as incomplete, never as aligned.
+    """
+    committed = committed_http_identity()
+    observed = observed_http_identity(bundle)
+    if committed is None or observed is None:
+        return [("http_identity", "NOT_OBSERVED", "NOT_OBSERVED")]
+    return [
+        (symbol, committed[symbol], observed[symbol])
+        for symbol in sorted(committed)
+        if committed[symbol] != observed[symbol]
+    ]
+
+
 def compute_bundle_exit_code(bundle: dict[str, Any], committed: dict[str, Any] | None) -> int:
     lanes = _lanes(bundle)
     if set(lanes) != {"tls", "http", "protocol", "auth"}:
@@ -324,6 +388,11 @@ def compute_bundle_exit_code(bundle: dict[str, Any], committed: dict[str, Any] |
             return EXIT_DRIFT
     except (KeyError, TypeError, ValueError):
         return EXIT_INVALID
+    drift = http_identity_drift(bundle)
+    if drift:
+        if any(observed == NOT_OBSERVED for _, _, observed in drift):
+            return EXIT_INCOMPLETE
+        return EXIT_DRIFT
     return EXIT_COMPLETE
 
 
@@ -358,6 +427,8 @@ def cmd_check(args: argparse.Namespace) -> int:
     bundle = _load(args.bundle)
     code = compute_bundle_exit_code(bundle, load_committed_profile())
     print({0: "aligned", 1: "drift", 2: "invalid", 3: "incomplete"}[code])
+    for symbol, committed, observed in http_identity_drift(bundle):
+        print(f"  http identity: {symbol} committed={committed} observed={observed}")
     return code
 
 
