@@ -261,19 +261,30 @@ def shell(state, body):
                     shlex.quote(str(library)) + '\n' + body], check=True)
 
 
-def reclaim_candidate_name(target):
+def reclaim_candidate_name(target, routed):
     """Free the candidate color's container name, or refuse and say why.
 
-    promote() stops the outgoing color and deliberately keeps its name and
-    image so rollback() can restart it. Every later release therefore finds a
-    stopped container already sitting on the candidate name -- that is the
-    normal steady state, not a surprise, and the west path never trips on it
-    because `compose up --force-recreate` replaces such a container itself.
+    Two different steady states legitimately leave a container on the candidate
+    name, and neither is a half-finished deploy:
 
-    So an *exited* container on the candidate name is reclaimed here, after its
-    identity is recorded for the operator. A container that is still running,
-    restarting, or paused is never touched: that is either a live color or an
-    in-flight deploy, and removing it would cut traffic.
+    * promote() stops the outgoing color but keeps its name and image so
+      rollback() can restart it, so the next release finds an *exited*
+      container there.
+    * remediate-newapi-nonstream-timeout.sh finishes by recreating the previous
+      color ("so both sides carry ${WANT_TIMEOUT}"), so after a budget change
+      *both* colors are running on purpose -- the standby one included.
+
+    The west path never trips on either, because `compose up --force-recreate`
+    replaces whatever sits on the name. Refusing any running container would
+    therefore block every cn-prod release once a budget remediation had run.
+
+    So the real question is not "is it running" but "does traffic depend on it":
+    `routed` is the color Caddy currently points at, read from the live
+    Caddyfile by the caller. The routed color is never touched. A non-routed
+    container is reclaimed only once it also reports no in-flight requests, so
+    a standby that is still finishing a drained request is left alone rather
+    than cut off mid-response. Anything whose drain state cannot be read is
+    refused, not assumed idle.
     """
     existing = run('docker', 'ps', '-a', '--filter', 'name=^/' + target + '$',
                    '--format', '{{.ID}} {{.State}}').strip()
@@ -281,13 +292,39 @@ def reclaim_candidate_name(target):
         return
     container_id, _, state = existing.partition(' ')
     state = state.strip()
-    if state != 'exited':
+    if target == routed:
         raise ValueError(
-            f'candidate name {target} is held by a {state} container '
-            f'({container_id[:12]}); preserve it for explicit inspection')
+            f'candidate name {target} is the routed color '
+            f'({container_id[:12]}); refusing to touch live traffic')
+    if state != 'exited':
+        if state != 'running':
+            raise ValueError(
+                f'candidate name {target} is held by a {state} container '
+                f'({container_id[:12]}); preserve it for explicit inspection')
+        try:
+            inflight = json.loads(run(
+                'docker', 'exec', target, 'wget', '-q', '-T', '5', '-O', '-',
+                'http://localhost:8080/health/inflight'))
+        except (RuntimeError, ValueError) as exc:
+            raise ValueError(
+                f'candidate name {target} holds a running container '
+                f'({container_id[:12]}) whose drain state could not be read '
+                f'({exc}); preserve it for explicit inspection') from None
+        requests = inflight.get('in_flight')
+        if not isinstance(requests, int):
+            raise ValueError(
+                f'candidate name {target} holds a running container '
+                f'({container_id[:12]}) with no in_flight count; '
+                'preserve it for explicit inspection')
+        if requests != 0:
+            raise ValueError(
+                f'candidate name {target} holds a running container '
+                f'({container_id[:12]}) still serving {requests} request(s); '
+                'preserve it for explicit inspection')
     print(json.dumps({'stage': 'reclaimed_candidate_name', 'target': target,
-                      'removed': container_id, 'previous_state': state}))
-    run('docker', 'rm', container_id)
+                      'removed': container_id, 'previous_state': state,
+                      'routed': routed}))
+    run('docker', 'rm', '-f', container_id)
 
 
 def prepare(args):
@@ -306,7 +343,9 @@ def prepare(args):
     if image['Architecture'] != 'amd64' or image['Config']['Labels'].get('org.opencontainers.image.revision') != args.revision:
         raise ValueError('candidate architecture/revision does not match reviewed artifact')
     target = 'tokenkey-green' if old == 'tokenkey-blue' else 'tokenkey-blue'
-    reclaim_candidate_name(target)
+    # `old` is the routed color as parsed from the live Caddyfile above, so the
+    # reclaim guard decides on actual traffic rather than on run state alone.
+    reclaim_candidate_name(target, old)
     service = json.loads(run('docker', 'compose', '--project-directory', str(ROOT),
                             '-f', str(ROOT / 'compose.yml'), '-f', str(ROOT / 'compose.override.yml'),
                             '-f', str(ROOT / 'compose.local.yml'), 'config', '--format', 'json'))['services']['tokenkey']

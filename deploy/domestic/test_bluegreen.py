@@ -60,13 +60,30 @@ class DomesticBluegreenTest(unittest.TestCase):
             return ''
 
         with patch.object(bg, 'run', side_effect=fake_run):
-            bg.reclaim_candidate_name('tokenkey-green')
-        self.assertIn(('docker', 'rm', 'deadbeefcafe1234'), calls)
+            bg.reclaim_candidate_name('tokenkey-green', 'tokenkey-blue')
+        self.assertIn(('docker', 'rm', '-f', 'deadbeefcafe1234'), calls)
 
-    def test_running_candidate_name_is_never_removed(self):
-        """A live or in-flight container on that name must survive: removing it
-        would cut traffic. Only an exited one is the prior release's leftover."""
-        for state in ('running', 'restarting', 'paused'):
+    def test_idle_unrouted_running_candidate_is_reclaimed(self):
+        """remediate-newapi-nonstream-timeout.sh ends by recreating the previous
+        color on purpose, so after a budget change both colors run. Refusing any
+        running container would block every cn-prod release from then on."""
+        calls = []
+
+        def fake_run(*args):
+            calls.append(args)
+            if args[:3] == ('docker', 'ps', '-a'):
+                return 'abc123456789 running\n'
+            if args[:2] == ('docker', 'exec'):
+                return '{"draining":false,"in_flight":0}'
+            return ''
+
+        with patch.object(bg, 'run', side_effect=fake_run):
+            bg.reclaim_candidate_name('tokenkey-green', 'tokenkey-blue')
+        self.assertIn(('docker', 'rm', '-f', 'abc123456789'), calls)
+
+    def test_routed_color_is_never_reclaimed(self):
+        """The color Caddy points at carries live traffic, whatever its state."""
+        for state in ('running', 'exited'):
             with self.subTest(state=state):
                 removals = []
 
@@ -79,7 +96,71 @@ class DomesticBluegreenTest(unittest.TestCase):
 
                 with patch.object(bg, 'run', side_effect=fake_run):
                     with self.assertRaises(ValueError) as caught:
-                        bg.reclaim_candidate_name('tokenkey-green')
+                        bg.reclaim_candidate_name('tokenkey-green', 'tokenkey-green')
+                self.assertIn('routed color', str(caught.exception))
+                self.assertEqual(removals, [])
+
+    def test_busy_or_unreadable_running_candidate_is_never_removed(self):
+        """A standby still finishing a drained request, or one whose drain state
+        cannot be read, must survive: cutting it would truncate a response."""
+        cases = {
+            'still serving': '{"draining":true,"in_flight":3}',
+            'no in_flight count': '{"draining":false}',
+            'unparseable': 'not json at all',
+        }
+        for label, payload in cases.items():
+            with self.subTest(case=label):
+                removals = []
+
+                def fake_run(*args):
+                    if args[:3] == ('docker', 'ps', '-a'):
+                        return 'abc123456789 running\n'
+                    if args[:2] == ('docker', 'exec'):
+                        return payload
+                    if args[:2] == ('docker', 'rm'):
+                        removals.append(args)
+                    return ''
+
+                with patch.object(bg, 'run', side_effect=fake_run):
+                    with self.assertRaises(ValueError):
+                        bg.reclaim_candidate_name('tokenkey-green', 'tokenkey-blue')
+                self.assertEqual(removals, [])
+
+    def test_unreachable_running_candidate_is_never_removed(self):
+        """An exec failure is not evidence of idleness."""
+        removals = []
+
+        def fake_run(*args):
+            if args[:3] == ('docker', 'ps', '-a'):
+                return 'abc123456789 running\n'
+            if args[:2] == ('docker', 'exec'):
+                raise RuntimeError('docker failed (exit 1)')
+            if args[:2] == ('docker', 'rm'):
+                removals.append(args)
+            return ''
+
+        with patch.object(bg, 'run', side_effect=fake_run):
+            with self.assertRaises(ValueError) as caught:
+                bg.reclaim_candidate_name('tokenkey-green', 'tokenkey-blue')
+        self.assertIn('drain state could not be read', str(caught.exception))
+        self.assertEqual(removals, [])
+
+    def test_restarting_or_paused_candidate_name_is_never_removed(self):
+        """Neither state can be proven idle, so neither is reclaimable."""
+        for state in ('restarting', 'paused', 'created', 'dead'):
+            with self.subTest(state=state):
+                removals = []
+
+                def fake_run(*args):
+                    if args[:3] == ('docker', 'ps', '-a'):
+                        return f'abc123456789 {state}\n'
+                    if args[:2] == ('docker', 'rm'):
+                        removals.append(args)
+                    return ''
+
+                with patch.object(bg, 'run', side_effect=fake_run):
+                    with self.assertRaises(ValueError) as caught:
+                        bg.reclaim_candidate_name('tokenkey-green', 'tokenkey-blue')
                 self.assertIn(state, str(caught.exception))
                 self.assertEqual(removals, [])
 
@@ -92,7 +173,7 @@ class DomesticBluegreenTest(unittest.TestCase):
             return ''
 
         with patch.object(bg, 'run', side_effect=fake_run):
-            bg.reclaim_candidate_name('tokenkey-green')
+            bg.reclaim_candidate_name('tokenkey-green', 'tokenkey-blue')
         self.assertEqual(removals, [])
 
     def test_candidate_preserves_runtime_and_reuses_only_private_network(self):
