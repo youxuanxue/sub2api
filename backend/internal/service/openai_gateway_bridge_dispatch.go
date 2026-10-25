@@ -134,13 +134,15 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		upstreamModel = out.Model
 	}
 	result = &OpenAIForwardResult{
-		Model:          out.Model,
-		UpstreamModel:  upstreamModel,
-		Stream:         out.Stream,
-		Duration:       out.Duration,
-		Usage:          openAIUsageFromNewAPIDTO(out.Usage),
-		ImageCount:     out.ImageCount,
-		EnableThinking: tkThinkingModeActiveFromBody(body),
+		Model:                out.Model,
+		UpstreamModel:        upstreamModel,
+		Stream:               out.Stream,
+		Duration:             out.Duration,
+		FirstTokenMs:         out.FirstTokenMs,
+		bridgeTTFTShadowOnly: true,
+		Usage:                openAIUsageFromNewAPIDTO(out.Usage),
+		ImageCount:           out.ImageCount,
+		EnableThinking:       tkThinkingModeActiveFromBody(body),
 	}
 	result.PrecomputedCost, err = costWriter.finish(func() *CostBreakdown {
 		if out.Usage == nil {

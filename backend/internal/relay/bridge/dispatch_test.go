@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 )
 
@@ -33,5 +34,37 @@ func TestEnsureNewAPIDepsSeedsTransportTuning(t *testing.T) {
 	}
 	if transport.IdleConnTimeout != 90*time.Second {
 		t.Errorf("IdleConnTimeout = %v, want 90s (upstream InitEnv default; zero value never reaps idle conns)", transport.IdleConnTimeout)
+	}
+}
+
+func TestFirstTokenMs_OnlyReportsObservedStreamResponse(t *testing.T) {
+	start := time.Unix(100, 0)
+	first := start.Add(1250 * time.Millisecond)
+
+	tests := []struct {
+		name   string
+		info   *relaycommon.RelayInfo
+		stream bool
+		want   *int
+	}{
+		{name: "nil relay", info: nil, stream: true},
+		{name: "non stream", info: &relaycommon.RelayInfo{StartTime: start, FirstResponseTime: first}, stream: false},
+		{name: "no response", info: &relaycommon.RelayInfo{StartTime: start}, stream: true},
+		{name: "observed response", info: &relaycommon.RelayInfo{StartTime: start, FirstResponseTime: first}, stream: true, want: func() *int { v := 1250; return &v }()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := firstTokenMs(tt.info, tt.stream)
+			if tt.want == nil {
+				if got != nil {
+					t.Fatalf("firstTokenMs() = %d, want nil", *got)
+				}
+				return
+			}
+			if got == nil || *got != *tt.want {
+				t.Fatalf("firstTokenMs() = %v, want %d", got, *tt.want)
+			}
+		})
 	}
 }
