@@ -17481,6 +17481,15 @@
         "if classifyZhipuWindowUnit(e.unit) != cnZhipuWindowUnknown {"
       ],
       "rationale": "GLM Coding Plan reports both windows as CREDIT_LIMIT. They must be classified by unit, not by reset-time order: at period end the weekly window resets before the 5h one, so the time heuristic labels the two tiers backwards and drives threshold decisions the wrong way."
+    },
+    {
+      "path": "scripts/upstream/issue-triage-generate.py",
+      "must_contain": [
+        "def _keyword(",
+        "(?<![0-9a-z])",
+        "HIGH_PATTERNS = ["
+      ],
+      "rationale": "Keywords match as words, never substrings: plain `in` made `pst` match \"upstream\" (52 of 54 title hits) and `token` match `max_tokens`, so the classifier labelled code identifiers and log fragments as production-sensitive signal. The guards are character classes, not `\\b`, because `\\b` does not work for CJK terms or for keywords carrying their own punctuation (`gpt-image`, `input_tokens=0`, `response.completed`)."
     }
   ]
 }

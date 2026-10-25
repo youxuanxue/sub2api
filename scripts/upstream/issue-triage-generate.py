@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 HIGH_PATTERNS = [
@@ -38,11 +39,28 @@ def norm(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
 
 
+@lru_cache(maxsize=None)
+def _keyword(pattern: str) -> re.Pattern[str]:
+    """Match a keyword as a word, not as a substring.
+
+    Plain `in` made several keywords near-universal in this tracker: `pst` matched
+    "u**pst**ream" (52 of 54 title hits), `token` matched `max_tokens` and
+    `"input_tokens":0` (26 of 86), and bare status codes matched hex digests and
+    request ids. Those hits are code identifiers and log fragments, not the signal
+    the keyword stands for.
+
+    The guards are character classes rather than `\b`, so a keyword that already
+    carries its own punctuation still matches inside ordinary prose: `gpt-image`,
+    `x-stainless`, `input_tokens=0`, `response.completed` and every CJK term are
+    unaffected (CJK has no ASCII word boundary, and `\b` would misfire there).
+    """
+    return re.compile(rf"(?<![0-9a-z]){re.escape(pattern)}(?![0-9a-z])", re.I)
+
+
 def matches(text: str, groups: list[tuple[str, list[str]]]) -> list[str]:
     out = []
-    lower = text.lower()
     for name, pats in groups:
-        if any(p.lower() in lower for p in pats):
+        if any(_keyword(p).search(text) for p in pats):
             out.append(name)
     return out
 
