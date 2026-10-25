@@ -28,6 +28,9 @@ on:
       upstream_issue:
         description: Optional issue number to investigate, including closed upstream issues
         type: string
+      intel_period:
+        description: Override the rotating intel Issue period (e.g. 2026-W43); empty means the current ISO week
+        type: string
 
 permissions:
   contents: read
@@ -69,9 +72,11 @@ jobs:
           GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
           WATCHDOG_SOURCE: ${{ matrix.source }}
           FORCE_ISSUE: ${{ inputs.source == matrix.source && inputs.upstream_issue || '' }}
+          INTEL_PERIOD: ${{ inputs.intel_period }}
         run: |
           python3 scripts/upstream/watchdog-run.py scan \
             --source "$WATCHDOG_SOURCE" --upstream-issue "$FORCE_ISSUE" \
+            --intel-period "$INTEL_PERIOD" \
             --sync-repo "$GITHUB_REPOSITORY"
 
       - uses: actions/upload-artifact@v7

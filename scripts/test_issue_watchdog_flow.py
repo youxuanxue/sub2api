@@ -3,6 +3,7 @@
 import copy
 import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -211,6 +212,41 @@ class WatchdogFlowTest(unittest.TestCase):
         # A lead is a bullet, never a checkbox: ticking it must not look actionable.
         self.assertNotIn("- [ ]", intel_body)
         self.assertNotIn("- [x]", intel_body)
+
+    def test_scan_threads_intel_period_and_reports_both_counts(self):
+        """An operator needs the two counts to tell a working queue from a keyword
+        dump, and the period must be overridable so a replay lands in the same
+        intel Issue instead of opening a second one for the same week."""
+        source = mod.SOURCES["upstream"]
+        with tempfile.TemporaryDirectory() as tmp:
+            work, checkpoint = Path(tmp) / "work", Path(tmp) / "state.json"
+            summary_path = Path(tmp) / "summary.md"
+            row = {"number": 7001, "title": "Billing drift", "body": "计费 usage",
+                   "state": "open", "html_url": "https://example.invalid/7001",
+                   "updated_at": "2026-10-20T00:00:00Z"}
+            api = FakeGitHub()
+
+            def fake(*args, **kwargs):
+                if args[:1] == ("api",) and "--paginate" in args and "issues?" in args[-1]:
+                    return [[row]]
+                return api(*args, **kwargs)
+
+            with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary_path)}):
+                mod.scan(source, work, checkpoint, target_repo="example/fork",
+                         api=fake, period="2019-W07")
+            report = json.loads((work / "report.json").read_text())
+            self.assertEqual(report["intel"]["period"], "2019-W07")
+            self.assertNotEqual("2019-W07", mod.queue.intel_period())
+            summary = summary_path.read_text()
+            self.assertIn("## 跟踪队列", summary)
+            self.assertIn("线索（关键词命中，未核验）", summary)
+            self.assertIn("2019-W07", summary)
+            # The requested period owns the intel Issue identity, not today's week.
+            intel = next(r for r in api.issues if "watchdog-intel:v1" in r["body"])
+            self.assertIn("period:2019-W07", intel["body"])
+            # Delivery state for both carriers survives in the checkpoint.
+            state = json.loads(checkpoint.read_text())
+            self.assertIn("intel_published", state)
 
     def test_resolutions_use_grouped_refs_and_revoke_missing_anchors(self):
         source = mod.SOURCES["upstream"]

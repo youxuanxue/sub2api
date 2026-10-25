@@ -143,7 +143,7 @@ def sync_issues(source, report, target_repo, api=gh, entries=(), published=None,
             "intel_published": intel_outcome.pop("published")}
 
 
-def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
+def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh, period=""):
     facts = [entry for entry in ledger.load_ledger(source, ROOT) if "fixed_if_all_present" in entry]
     started = datetime.now(timezone.utc).isoformat()
     previous = engine.load_json(checkpoint) if checkpoint.exists() else None
@@ -166,13 +166,11 @@ def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
     engine.write_json(work / "agent-input.json", engine.agent_input(report))
     summary = engine.report_markdown(report, f"# {source['repo']}")
     (work / "report.md").write_text(summary, encoding="utf-8")
-    if os.environ.get("GITHUB_STEP_SUMMARY"):
-        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
-            stream.write(summary)
     if target_repo:
         outcome = sync_issues(source, report, target_repo, api, triage["issues"],
                               published=(previous or {}).get("published", {}),
-                              intel_published=(previous or {}).get("intel_published", {}))
+                              intel_published=(previous or {}).get("intel_published", {}),
+                              period=period or None)
         # Carry delivery state forward so a deleted line or a replaced Issue cannot
         # make the next run re-publish what was already delivered.
         if "published" in outcome:
@@ -183,6 +181,19 @@ def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
             snapshot["intel_published"] = outcome.pop("intel_published")
         elif (previous or {}).get("intel_published"):
             snapshot["intel_published"] = previous["intel_published"]
+        # The operator reads these two numbers to tell a working queue from a
+        # keyword dump, so write them after the sync, when they are facts.
+        summary += (f"\n## 跟踪队列\n\n- 待办（已判断仍欠工作）：{outcome.get('queued', 0)}\n"
+                    f"- 线索（关键词命中，未核验）：{outcome.get('intel', 0)}"
+                    f" -> 情报单 {report.get('intel', {}).get('period', '-')}\n")
+        (work / "report.md").write_text(summary, encoding="utf-8")
+        # sync_issues records where the leads went, so the artifact must be rewritten
+        # after it; the first write happens before the sync so a failed publish still
+        # leaves the scan's own findings on disk.
+        engine.write_json(work / "report.json", report)
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+            stream.write(summary)
     # Commit the cursor only after fetching, reporting and GitHub synchronization succeed.
     # The workflow saves this cache only on success; a retry replays the previous window.
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
@@ -248,14 +259,20 @@ def main():
     parser.add_argument("--work", type=Path, default=Path(".cache/issue-watchdog"))
     parser.add_argument("--checkpoint", type=Path, default=Path(".cache/watchdog-state/snapshot.json"))
     parser.add_argument("--upstream-issue", default="")
+    parser.add_argument("--intel-period", default="",
+                        help="ISO week for the rotating intel Issue, e.g. 2026-W43; "
+                             "omitted means the current week")
     parser.add_argument("--sync-repo", default="", help="explicit target repository; omitted means no GitHub writes")
     args = parser.parse_args()
     if args.upstream_issue and (not args.upstream_issue.isascii()
                                or not args.upstream_issue.isdecimal() or int(args.upstream_issue) < 1):
         parser.error("--upstream-issue must be a positive issue number")
+    if args.intel_period and not re.fullmatch(r"\d{4}-W\d{2}", args.intel_period):
+        parser.error("--intel-period must look like 2026-W43")
     source = SOURCES[args.source]
     if args.command == "scan":
-        scan(source, args.work, args.checkpoint, args.upstream_issue, args.sync_repo)
+        scan(source, args.work, args.checkpoint, args.upstream_issue, args.sync_repo,
+             period=args.intel_period)
     elif args.command == "prepare-fix":
         prepare_fix(args.source, args.work)
     else:
