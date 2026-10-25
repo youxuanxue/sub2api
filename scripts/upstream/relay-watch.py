@@ -34,6 +34,34 @@ def platform_hints(row, comments=()):
             if re.search(pattern, content, re.I)]
 
 
+# What a relay repository does for ITSELF is not news about relaying. Calibrated
+# against one real day of output (33 findings, labelled by hand): these patterns
+# excluded 7 of the 9 off-topic items and zero of the 24 worth reading.
+#
+# Deliberately NOT excluded: `feat(...)` product work. On that day no new feature
+# mattered to us, so excluding features would also have scored zero false
+# positives -- but a new feature is exactly how an upstream protocol change first
+# shows up ("support new beta header"), and missing one of those costs more than
+# reading a few extra lines. A relay is a moving target; we would rather look at
+# too much than miss a shift.
+OFF_TOPIC = re.compile(
+    r"托盘|悬浮窗|菜单栏|深色模式|界面布局"              # desktop UI of their own app
+    r"|机场|VPN|梯子"                                  # ads
+    r"|意向探讨|征求意见|^\s*\[?RFC\]?\b"              # their design debates
+    r"|go vet|golangci|lint fail|regression test"      # their own CI
+    r"|^(?:perf|fix|chore|refactor|docs|test|ci)\((?:dashboard|payment|docs?|ui|test|ci|deps)\)",
+    re.IGNORECASE)
+
+
+def off_topic(item):
+    """True when a finding is about the other project itself, not about relaying.
+
+    Only the title is read. Bodies quote logs and stack traces, so a body match
+    would reject real reports that merely mention someone's dashboard.
+    """
+    return bool(OFF_TOPIC.search((item.get("title") or "").strip()))
+
+
 def platform_findings(findings, platforms):
     """Single-provider repos belong to that provider even for cross-protocol work.
 
@@ -46,6 +74,8 @@ def platform_findings(findings, platforms):
         watchdog.queue.platform_marker(platform)
     grouped = {platform: [] for platform in platforms}
     for item in findings:
+        if off_topic(item):
+            continue
         matched = [platform for platform in platforms if platform in item.get("platform_hints", [])]
         for platform in matched or platforms:
             grouped[platform].append(item)
