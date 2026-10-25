@@ -28,7 +28,7 @@ class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
 
     def test_dry_run_before_mutate(self) -> None:
         text = SCRIPT.read_text(encoding="utf-8")
-        apply_at = text.index('APPLY" != "yes-newapi-nonstream-timeout"')
+        apply_at = text.index('APPLY" != "$EXPECT_APPLY"')
         backup_at = text.index("=== backup ===")
         cutover_call = text.index('commit_cutover "$INACTIVE"')
         self.assertLess(apply_at, backup_at)
@@ -49,15 +49,56 @@ class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
 
     def test_want_timeout_matches_ssot_default_and_max(self) -> None:
         text = SCRIPT.read_text(encoding="utf-8")
+        # MODE=nonstream keeps the SSOT-owned default and max.
         self.assertIn(
             f'WANT_TIMEOUT="${{WANT_TIMEOUT:-{NEWAPI_NONSTREAM_DEFAULT}}}"',
             text,
         )
-        self.assertIn(
-            f'WANT_TIMEOUT" -gt {NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX}',
-            text,
-        )
+        self.assertIn(f"WANT_MAX={NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX}", text)
         self.assertIn("yes-newapi-nonstream-timeout", text)
+        # MODE=stream carries its own key, bound and APPLY token. The stream key
+        # is deliberately absent from the SSOT tables (it may differ per
+        # deployment), so assert that rather than look it up there.
+        self.assertIn("KEY=GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT", text)
+        self.assertIn("yes-newapi-stream-timeout", text)
+        self.assertNotIn(
+            "GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT",
+            str(sorted(EXPECTED_ENV_NEWAPI_NONSTREAM)),
+        )
+
+    def _reject(self, want: str, mode: str) -> subprocess.CompletedProcess[str]:
+        # No APPLY token, so the worst case is a dry run; bounds are checked
+        # before any host inspection, which is what these cases exercise.
+        return subprocess.run(
+            ["bash", str(SCRIPT)],
+            capture_output=True,
+            text=True,
+            env={"PATH": "/usr/bin:/bin", "MODE": mode, "WANT_TIMEOUT": want},
+        )
+
+    def test_bounds_enforced_per_mode(self) -> None:
+        # Guard must fire in both directions: reject what is out of range for
+        # the mode, and do NOT reject what is in range for it.
+        for mode, bad in (
+            ("nonstream", "901"),
+            ("nonstream", "0"),  # nonstream has no inherit semantics
+            ("stream", "61"),
+            ("stream", "120"),  # the old stream SSOT value is out of this key's range
+        ):
+            with self.subTest(mode=mode, want=bad):
+                proc = self._reject(bad, mode)
+                self.assertEqual(proc.returncode, 2, msg=proc.stdout + proc.stderr)
+                self.assertIn("out of allowed range", proc.stdout + proc.stderr)
+
+        for mode, good in (("nonstream", "600"), ("stream", "12"), ("stream", "0")):
+            with self.subTest(mode=mode, want=good):
+                proc = self._reject(good, mode)
+                self.assertNotIn("out of allowed range", proc.stdout + proc.stderr)
+
+    def test_unknown_mode_refused(self) -> None:
+        proc = self._reject("12", "bogus")
+        self.assertEqual(proc.returncode, 2, msg=proc.stdout + proc.stderr)
+        self.assertIn("MODE must be nonstream|stream", proc.stdout + proc.stderr)
 
     def test_cutover_syncs_gemini_web_control_alias(self) -> None:
         text = SCRIPT.read_text(encoding="utf-8")

@@ -1,8 +1,21 @@
 #!/usr/bin/env bash
-# Write-capable: raise NewAPI Chat non-stream first-output budget on a
-# blue/green host WITHOUT draining the live upstream first.
+# Write-capable: set a NewAPI Chat first-output budget on a blue/green host
+# WITHOUT draining the live upstream first.
 # Default/max seconds: ops/stage0/first_output_timeout_ssot.py
 # (python3 scripts/checks/first-output-timeout-ssot.py --apply).
+#
+# Two budgets share this script because the host-side procedure (env upsert,
+# compose fallback patch, standby recreate, Caddy hot-cutover, previous-color
+# recreate) is identical and must not fork into two copies that drift:
+#
+#   MODE=nonstream (default) — GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT
+#       Whole-body useful-JSON wait. SSOT-owned default 600, max 900.
+#   MODE=stream              — GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT
+#       Streaming first-output override; 0 = inherit the stream SSOT. This key is
+#       deliberately NOT in first_output_timeout_ssot.py's generated tables (see
+#       its module docstring) so it may differ per deployment — cn-prod can run a
+#       short budget to make pre-output replay actually engage while prod keeps 0.
+#       Bound 0..60 mirrors config.go's validation for the same key.
 #
 # Safe path (default):
 #   1) upsert .env + patch compose fallbacks
@@ -10,22 +23,46 @@
 #   3) Caddy hot-cutover to inactive
 #   4) recreate previous color so both sides carry the new budget
 #
-# Delivered via run-probe.sh. Requires:
-#   APPLY=yes-newapi-nonstream-timeout
+# Delivered via run-probe.sh. Requires (mode-specific, so a stream change can
+# never be authorized by a nonstream token or vice versa):
+#   APPLY=yes-newapi-nonstream-timeout   (MODE=nonstream)
+#   APPLY=yes-newapi-stream-timeout      (MODE=stream)
 #
 # Optional:
-#   WANT_TIMEOUT=<seconds>  (range 1..NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX; default from SSOT)
+#   WANT_TIMEOUT=<seconds>  (nonstream 1..NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX;
+#                            stream 0..60. Default from SSOT / 0 for stream)
 set -euo pipefail
 
 APPLY="${APPLY:-}"
-WANT_TIMEOUT="${WANT_TIMEOUT:-600}"
-KEY=GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT
+MODE="${MODE:-nonstream}"
+
+case "$MODE" in
+  nonstream)
+    KEY=GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT
+    WANT_TIMEOUT="${WANT_TIMEOUT:-600}"
+    WANT_MIN=1
+    WANT_MAX=900
+    EXPECT_APPLY=yes-newapi-nonstream-timeout
+    ;;
+  stream)
+    KEY=GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT
+    WANT_TIMEOUT="${WANT_TIMEOUT:-0}"
+    # 0 keeps the inherit-stream-SSOT behavior, so it must stay reachable here.
+    WANT_MIN=0
+    WANT_MAX=60
+    EXPECT_APPLY=yes-newapi-stream-timeout
+    ;;
+  *)
+    echo "::error::MODE must be nonstream|stream (got '$MODE')"
+    exit 2
+    ;;
+esac
 
 case "$WANT_TIMEOUT" in
   ''|*[!0-9]*) echo "::error::WANT_TIMEOUT must be int"; exit 2 ;;
 esac
-if [ "$WANT_TIMEOUT" -lt 1 ] || [ "$WANT_TIMEOUT" -gt 900 ]; then
-  echo "::error::WANT_TIMEOUT out of allowed range 1..900 (got $WANT_TIMEOUT)"
+if [ "$WANT_TIMEOUT" -lt "$WANT_MIN" ] || [ "$WANT_TIMEOUT" -gt "$WANT_MAX" ]; then
+  echo "::error::WANT_TIMEOUT out of allowed range ${WANT_MIN}..${WANT_MAX} for MODE=${MODE} (got $WANT_TIMEOUT)"
   exit 2
 fi
 
@@ -140,9 +177,9 @@ caddy_validate_image() {
 commit_cutover() {
   local color="$1" upstream tmp backup ts img
   upstream="tokenkey-${color}:8080"
-  tmp="${CADDY_DIR}/Caddyfile.nonstream-${color}.new"
+  tmp="${CADDY_DIR}/Caddyfile.${MODE}-${color}.new"
   ts="$(date +%Y%m%d-%H%M%S)"
-  backup="${CADDY_DIR}/Caddyfile.before-nonstream-${color}-${ts}"
+  backup="${CADDY_DIR}/Caddyfile.before-${MODE}-${color}-${ts}"
   img="$(caddy_validate_image)"
 
   render_caddy_with_upstream "${upstream}" "${tmp}"
@@ -214,7 +251,7 @@ ALIAS_SH
 }
 
 echo "=== meta ==="
-echo "host_kind=${HOST_KIND} root=${ROOT} active=${ACTIVE} inactive=${INACTIVE} want=${KEY}=${WANT_TIMEOUT}"
+echo "mode=${MODE} host_kind=${HOST_KIND} root=${ROOT} active=${ACTIVE} inactive=${INACTIVE} want=${KEY}=${WANT_TIMEOUT}"
 
 echo "=== before .env ==="
 sudo awk -v k="$KEY" -F= '$1==k {print}' "$ENV_FILE" || echo "(missing)"
@@ -228,17 +265,17 @@ echo "=== inflight active (must stay serving until cutover) ==="
 sudo docker exec "$ACTIVE_CTR" wget -q -T 3 -O - http://localhost:8080/health/inflight 2>/dev/null || true
 echo
 
-if [ "$APPLY" != "yes-newapi-nonstream-timeout" ]; then
+if [ "$APPLY" != "$EXPECT_APPLY" ]; then
   echo "=== dry-run ==="
-  echo "{\"apply\":false,\"host_kind\":\"${HOST_KIND}\",\"active\":\"${ACTIVE}\",\"inactive\":\"${INACTIVE}\",\"want\":${WANT_TIMEOUT}}"
+  echo "{\"apply\":false,\"mode\":\"${MODE}\",\"key\":\"${KEY}\",\"host_kind\":\"${HOST_KIND}\",\"active\":\"${ACTIVE}\",\"inactive\":\"${INACTIVE}\",\"want\":${WANT_TIMEOUT}}"
   exit 0
 fi
 
 echo "=== backup ==="
 ts="$(date +%Y%m%d-%H%M%S)"
-sudo cp -a "$ENV_FILE" "${ENV_FILE}.before-nonstream-timeout-${ts}"
-sudo cp -a "$COMPOSE_BG" "${COMPOSE_BG}.before-nonstream-timeout-${ts}"
-sudo cp -a "$LIVE_CADDY" "${LIVE_CADDY}.before-nonstream-timeout-${ts}"
+sudo cp -a "$ENV_FILE" "${ENV_FILE}.before-${MODE}-timeout-${ts}"
+sudo cp -a "$COMPOSE_BG" "${COMPOSE_BG}.before-${MODE}-timeout-${ts}"
+sudo cp -a "$LIVE_CADDY" "${LIVE_CADDY}.before-${MODE}-timeout-${ts}"
 
 echo "=== upsert .env ==="
 upsert_env "$KEY" "$WANT_TIMEOUT"
@@ -274,7 +311,7 @@ bring_up_inactive_cn() {
   # container identity onto the standby color with the alternate host port
   # (blue=18081, green=18082) and an explicit timeout override.
   local work compose_out
-  work="${ROOT}/.remediate-nonstream-${WANT_TIMEOUT}-${ts}"
+  work="${ROOT}/.remediate-${MODE}-${WANT_TIMEOUT}-${ts}"
   sudo mkdir -p "$work"
   compose_out="${work}/compose.json"
   sudo python3 - "$ACTIVE_CTR" "$INACTIVE_CTR" "$compose_out" "$KEY" "$WANT_TIMEOUT" <<'PY'
@@ -416,7 +453,7 @@ if [ "$HOST_KIND" = aws ]; then
     up -d --no-deps --force-recreate --timeout 60 "$OLD_CTR"
 else
   # Rebuild the drained previous color from the now-serving container identity.
-  work="${ROOT}/.remediate-nonstream-${WANT_TIMEOUT}-${ts}"
+  work="${ROOT}/.remediate-${MODE}-${WANT_TIMEOUT}-${ts}"
   old_compose="${work}/compose-old.json"
   sudo python3 - "$NEW_ACTIVE_CTR" "$OLD_CTR" "$old_compose" "$KEY" "$WANT_TIMEOUT" <<'PY'
 import json, pathlib, subprocess, sys
@@ -503,6 +540,7 @@ print(json.dumps({
   "host_kind": "${HOST_KIND}",
   "serving": "${NEW_ACTIVE_CTR}",
   "standby": "${OLD_CTR}",
+  "mode": "${MODE}",
   "timeout": ${WANT_TIMEOUT},
   "key": "${KEY}",
 }))
