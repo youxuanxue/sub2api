@@ -504,7 +504,7 @@
       "channel_type": 17
     },
     "glm-5.1": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,

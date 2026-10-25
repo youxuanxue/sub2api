@@ -788,8 +788,13 @@ func TestPublicCatalog_HidesStaleAliTokenPlanGLMAndShowsHappyHorse(t *testing.T)
 		assert.False(t, isTkCuratedNewAPIModelDisplayed(stale))
 		assert.True(t, s.IsModelPriced(stale, PlatformNewAPI), "stale %s keeps settlement pricing", stale)
 	}
-	// glm-5.1 stays Qianfan-displayable but left the generic ch17 PAYG floor.
-	assert.True(t, isTkCuratedNewAPIModelDisplayed("glm-5.1"))
+	// glm-5.1 was sole-supplied by the Baidu Qianfan Token Plan; that
+	// subscription was not renewed (operator decision 2026-10-25), so it is no
+	// longer displayable anywhere. It keeps settlement pricing like the stale
+	// GLM IDs above, and it still must not reappear on the ch17 PAYG floor.
+	assert.False(t, isTkCuratedNewAPIModelDisplayed("glm-5.1"))
+	assert.False(t, visible["glm-5.1"], "retired glm-5.1 must not be advertised")
+	assert.True(t, s.IsModelPriced("glm-5.1", PlatformNewAPI), "retired glm-5.1 keeps settlement pricing")
 	assert.NotContains(t, tkServedModelsManifestPresetIDsByChannelType(newapiconstant.ChannelTypeAli), "glm-5")
 	assert.NotContains(t, tkServedModelsManifestPresetIDsByChannelType(newapiconstant.ChannelTypeAli), "glm-5.1")
 	for _, video := range []string{"happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v"} {

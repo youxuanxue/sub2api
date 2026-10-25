@@ -42,6 +42,15 @@ func TestCatalogLifecycleWithdrawalFacts(t *testing.T) {
 	require.False(t, isCatalogModelRecommended("grok-4.5"))
 	require.False(t, isCatalogModelRecommended("grok-imagine-image"))
 	// Unsourced NewAPI long-tail: display=false in tk_served_models.json.
+	// glm-5.1 and kimi-k2.6 were sole-supplied by the Baidu Qianfan Token Plan.
+	// That subscription was not renewed (operator decision 2026-10-25), so both
+	// lose display: kimi-k2.6 already had Baidu's own sunset notice above, while
+	// glm-5.1 has no upstream announcement and therefore belongs here, not in
+	// catalogModelWithdrawals (whose Source must be a published notice).
+	// glm-4.7/glm-4.5-air stay as deliberate aliases onto the in-service glm-5.2.
+	require.False(t, isTkCuratedNewAPIModelDisplayed("glm-5.1"))
+	require.False(t, isTkCuratedNewAPIModelDisplayed("kimi-k2.6"))
+	require.True(t, isTkCuratedNewAPIModelDisplayed("glm-5.2"))
 	require.False(t, isTkCuratedNewAPIModelDisplayed("kimi-k2.5"))
 	require.False(t, isTkCuratedNewAPIModelDisplayed("moonshot-v1-128k"))
 	require.False(t, isTkCuratedNewAPIModelDisplayed("doubao-seedream-5-0-260128"))
