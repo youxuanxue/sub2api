@@ -250,6 +250,65 @@ class QueueTest(unittest.TestCase):
                 self.publish(junk, [candidate()], published={REPO + "#1": record})
                 self.assertIn("当前待处理：1", junk.issues[0]["body"])
 
+    def test_intel_rotates_per_period_without_republishing_or_retiring(self):
+        """Intel needs an Issue carrier because the report artifact expires in days,
+        but it must not accumulate: each period gets its own Issue and the previous
+        one is closed, never deleted, so a lead stays searchable while no single
+        Issue grows past one period's delta."""
+        api = FakeGitHub()
+        first = queue.sync_intel(REPO, [candidate(), candidate(2)], "example/fork", api,
+                                 period="2026-W43")
+        self.assertEqual((first["created"], first["leads"], first["closed"]), (1, 2, 0))
+        intel = api.issues[0]
+        body = "".join(c["body"] for c in api.comments)
+        self.assertIn("example/relay#1", body)
+        # A lead is a bullet, not a task: a checkbox here would invite a tick that
+        # the promotion path (a judgment in the git ledger) would never see.
+        self.assertNotIn("- [ ]", body)
+        self.assertNotIn("- [x]", body)
+
+        # Same period, same leads: nothing republished.
+        api.calls.clear()
+        again = queue.sync_intel(REPO, [candidate(), candidate(2)], "example/fork", api,
+                                 period="2026-W43", published=first["published"])
+        self.assertEqual(api.writes, [])
+        self.assertEqual(again["closed"], 0)
+
+        # Next period: a fresh Issue carries the delta and the old one is closed.
+        rotated = queue.sync_intel(REPO, [candidate(3)], "example/fork", api,
+                                   period="2026-W44", published=again["published"])
+        self.assertEqual((rotated["created"], rotated["closed"]), (1, 1))
+        self.assertEqual(len(api.issues), 2)
+        self.assertEqual(next(row for row in api.issues
+                              if row["number"] == intel["number"])["state"], "closed")
+        fresh_body = "".join(c["body"] for c in api.comments
+                             if c["issue_number"] != intel["number"])
+        self.assertIn("example/relay#3", fresh_body)
+        self.assertNotIn("example/relay#1", fresh_body)
+
+        # Rotation must not resurrect an earlier period's leads into the new Issue.
+        api.calls.clear()
+        queue.sync_intel(REPO, [candidate(), candidate(2), candidate(3)], "example/fork", api,
+                         period="2026-W44", published=rotated["published"])
+        self.assertEqual([w for w in api.writes if "comments" in str(w)], [])
+
+    def test_intel_never_collides_with_the_queue_issue(self):
+        """The queue's discovery scan raises on a second match, so an intel Issue
+        sharing that marker namespace would break every later run."""
+        api = FakeGitHub()
+        self.publish(api, [candidate()])
+        queue.sync_intel(REPO, [candidate(2)], "example/fork", api, period="2026-W43")
+        self.assertEqual(len(api.issues), 2)
+        # Both publishers must still find exactly their own Issue.
+        api.calls.clear()
+        self.publish(api, [candidate()])
+        queue.sync_intel(REPO, [candidate(2)], "example/fork", api, period="2026-W43",
+                         published={REPO + "#2": [queue.hashlib.sha256(
+                             queue.json.dumps({k: candidate(2).get(k) for k in
+                                 ("title", "updated_at", "state", "merged_at")},
+                                 sort_keys=True).encode()).hexdigest()[:16], "2026-W43"]})
+        self.assertNotIn("duplicate", "".join(str(c) for c in api.calls))
+
     def test_upstream_title_is_data_and_task_remains_a_markdown_checkbox(self):
         api = FakeGitHub()
         self.publish(api, [candidate(title="[click](evil) @all\n<!-- injected -->")])

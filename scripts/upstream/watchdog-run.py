@@ -125,16 +125,22 @@ def partition_entries(entries):
     return queued, intel
 
 
-def sync_issues(source, report, target_repo, api=gh, entries=(), published=None):
+def sync_issues(source, report, target_repo, api=gh, entries=(), published=None,
+                intel_published=None, period=None):
     queued, intel = partition_entries(entries)
-    # Intel has no Issue carrier until the rotating intel Issue lands; until then it
-    # stays in the report artifact rather than being appended to the queue, so the
-    # queue stops growing immediately and no lead is silently dropped.
-    report["intel_pending_carrier"] = [item["upstream"] for item in intel]
     outcome = queue.sync_queue(source["repo"], queued, target_repo, api,
                                resolved=resolved_refs(), platform="upstream",
                                published=published)
-    return {**outcome, "queued": len(queued), "intel": len(intel)}
+    # Leads get their own rotating Issue: the report artifact expires in days, so an
+    # artifact-only lead gets exactly one chance to be seen and then vanishes with no
+    # record it existed. Published separately so a lead never lands in the queue.
+    intel_outcome = queue.sync_intel(source["repo"], intel, target_repo, api,
+                                     platform="upstream", period=period,
+                                     published=intel_published)
+    report["intel"] = {"period": period or queue.intel_period(),
+                       "leads": len(intel), "issue": intel_outcome}
+    return {**outcome, "queued": len(queued), "intel": len(intel),
+            "intel_published": intel_outcome.pop("published")}
 
 
 def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
@@ -165,13 +171,18 @@ def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
             stream.write(summary)
     if target_repo:
         outcome = sync_issues(source, report, target_repo, api, triage["issues"],
-                              published=(previous or {}).get("published", {}))
+                              published=(previous or {}).get("published", {}),
+                              intel_published=(previous or {}).get("intel_published", {}))
         # Carry delivery state forward so a deleted line or a replaced Issue cannot
         # make the next run re-publish what was already delivered.
         if "published" in outcome:
             snapshot["published"] = outcome.pop("published")
         elif (previous or {}).get("published"):
             snapshot["published"] = previous["published"]
+        if "intel_published" in outcome:
+            snapshot["intel_published"] = outcome.pop("intel_published")
+        elif (previous or {}).get("intel_published"):
+            snapshot["intel_published"] = previous["intel_published"]
     # Commit the cursor only after fetching, reporting and GitHub synchronization succeed.
     # The workflow saves this cache only on success; a retry replays the previous window.
     checkpoint.parent.mkdir(parents=True, exist_ok=True)

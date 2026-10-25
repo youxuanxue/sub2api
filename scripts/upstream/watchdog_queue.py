@@ -15,12 +15,35 @@ PLATFORMS = {
     "google": {"label": "google-tracking", "title": "[google] Gemini/Antigravity 中转网关、计费与账号问题跟踪", "description": "Daily Google relay gateway, billing and account tracking"},
 }
 MARKER = "<!-- watchdog-tracking:v1 -->"
+# Intel lives in its own namespace, never under `watchdog-tracking`: the queue's
+# discovery scan matches that prefix and raises on a second hit, so sharing it
+# would make every run die on `duplicate upstream tracking Issues`.
+# Discovery prefix, deliberately unterminated: every intel Issue's marker carries
+# a platform and period after it, so matching must be on the prefix.
+INTEL_MARKER = "<!-- watchdog-intel:v1 "
+INTEL_RECORD = re.compile(r"^- \[([^\]]+)\].*?<!-- watchdog-intel-item:(\S+) ([0-9a-f]+) -->$",
+                          re.MULTILINE)
 
 
 def platform_marker(platform):
     if platform not in PLATFORMS:
         raise ValueError(f"unknown tracking platform: {platform}")
     return f"<!-- watchdog-tracking:v1 platform:{platform} -->"
+
+
+def intel_marker(platform, period):
+    """Identity of one period's intel Issue. Period scoping is what bounds size:
+    each Issue holds a single period's leads, not the historical sum."""
+    if platform not in PLATFORMS:
+        raise ValueError(f"unknown tracking platform: {platform}")
+    if not re.fullmatch(r"\d{4}-W\d{2}", period or ""):
+        raise ValueError(f"intel period must look like 2026-W43: {period!r}")
+    return f"<!-- watchdog-intel:v1 platform:{platform} period:{period} -->"
+
+
+def intel_period(when=None):
+    year, week, _ = (when or datetime.now(timezone.utc).date()).isocalendar()
+    return f"{year}-W{week:02d}"
 
 
 RECORD = re.compile(r"^- \[([ xX])\] (.*?) <!-- watchdog-item:([^ ]+) ([0-9a-f]+) (pending|fixed) ([^ ]+) -->$", re.MULTILINE)
@@ -74,6 +97,96 @@ def trusted_authors(target, api):
         return permissions[author_id]
 
     return trusted
+
+
+def sync_intel(repo, items, target, api, platform="upstream", period=None, published=None):
+    """Publish keyword leads to a rotating, per-period Issue.
+
+    Leads are not tasks: the classifier states it has not verified them, so they
+    are plain bullets, never checkboxes. Ticking one here must not retire anything
+    -- the promotion path is a judgment in the git ledger, which moves the ref into
+    the queue on the next run.
+
+    Rotation is what keeps this readable: a new period opens a fresh Issue and
+    closes the previous one. Closed, never deleted, so a lead stays searchable
+    long after the report artifact has expired -- which is the whole reason intel
+    needs an Issue carrier and not just a CI artifact.
+
+    Delivery state comes from the caller's `published` map rather than this Issue's
+    own history, so rotating to a new Issue cannot re-publish an earlier period.
+    """
+    period = period or intel_period()
+    marker = intel_marker(platform, period)
+    config = PLATFORMS[platform]
+    pages = api("api", "--paginate", "--slurp",
+                f"repos/{target}/issues?{urlencode({'state': 'all', 'per_page': 100})}")
+    trusted = trusted_authors(target, api)
+    rows = [row for page in pages for row in page
+            if "pull_request" not in row and INTEL_MARKER in (row.get("body") or "") and trusted(row)]
+    current = [row for row in rows if marker in (row.get("body") or "")]
+    if len(current) > 1:
+        raise ValueError("duplicate intel Issues for one period")
+    issue = current[0] if current else None
+
+    items = [{**item, "upstream": item.get("upstream") or f"{repo}#{item['number']}"} for item in items]
+    delivered = dict(published or {})
+    fresh = []
+    for item in sorted(items, key=lambda item: item["upstream"]):
+        ref = item["upstream"]
+        signature = hashlib.sha256(json.dumps({k: item.get(k) for k in
+            ("title", "updated_at", "state", "merged_at")}, sort_keys=True).encode()).hexdigest()[:16]
+        # Dedup on content alone, never on the period: including the period would
+        # republish every still-open lead each week, which is exactly the
+        # accumulation this rotation exists to stop. A lead is published once, in
+        # the period it was found; the closed Issue keeps it searchable after that.
+        # A changed signature is new information and does publish again.
+        record = delivered.get(ref)
+        if isinstance(record, (list, tuple)) and record and record[0] == signature:
+            continue
+        source, number = ref.rsplit("#", 1)
+        route = "pull" if item.get("kind") == "pr" else "issues"
+        state = "merged" if item.get("merged_at") else item.get("state", "open")
+        fresh.append(f"- [{ref}](https://github.com/{source}/{route}/{number}) "
+                     f"{safe_title(item.get('title'))} — {state}; "
+                     f"{item.get('updated_at') or 'unknown'} "
+                     f"<!-- watchdog-intel-item:{ref} {signature} -->")
+        delivered[ref] = [signature, period]
+
+    created = 0
+    if not issue and not fresh:
+        return {"created": 0, "commented": 0, "leads": 0, "closed": 0, "published": delivered}
+    if not issue:
+        issue = api("api", "--method", "POST", f"repos/{target}/issues", payload={
+            "title": f"{config['title']} — 线索 {period}",
+            "body": marker + "\n" + managed_body("", f"{platform} 来源本期关键词线索；仅供排查参考。\n"
+                "这些条目**未经人工核验**，不是待办：勾选在此无效。\n"
+                "确认要做的请在 ops/issue-watchdog 账本登记判断，下一轮它会进入跟踪队列。\n"
+                f"下一周期开启时本单自动关闭（不删除），历史可检索。"),
+            "labels": [config["label"]]})
+        created = 1
+    endpoint = f"repos/{target}/issues/{issue['number']}"
+    commented = 0
+    while fresh:
+        body = f"<!-- watchdog-intel-day:{datetime.now(timezone.utc).date().isoformat()} -->\n"
+        chunk = []
+        while fresh and len((body + "\n".join(chunk + [fresh[0]])).encode()) < COMMENT_LIMIT:
+            chunk.append(fresh.pop(0))
+        if not chunk:
+            raise ValueError("intel lead exceeds comment limit")
+        api("api", "--method", "POST", endpoint + "/comments",
+            payload={"body": body + "\n".join(chunk) + "\n"})
+        commented += 1
+
+    # Close prior periods only after this one exists, so a lead is never carried by
+    # nothing. Closing is not deleting: the Issue stays searchable.
+    closed = 0
+    for row in rows:
+        if row["number"] != issue["number"] and row.get("state") == "open":
+            api("api", "--method", "PATCH", f"repos/{target}/issues/{row['number']}",
+                payload={"state": "closed", "state_reason": "completed"})
+            closed += 1
+    return {"created": created, "commented": commented, "leads": len(items),
+            "closed": closed, "published": delivered}
 
 
 def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstream",

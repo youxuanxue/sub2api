@@ -735,7 +735,11 @@
         "RECORD.sub(lambda m: \"\" if m[3] in resolved else m[0]",
         "retired = resolved | manual",
         "Never seed a checkbox",
-        "published=None"
+        "published=None",
+        "def sync_intel(",
+        "def intel_marker(",
+        "INTEL_MARKER = \"<!-- watchdog-intel:v1 \"",
+        "Dedup on content alone, never on the period"
       ],
       "rationale": "One aggregate per platform preserves scoped decisions, bounds daily comments and replays without duplicate writes. The deletion condition is `resolved`, never `retired`: `manual` is rebuilt from the live comments on every run, so a human-checked line IS the only durable carrier of that tick -- deleting it discards the verdict and the task returns next round. `retired = resolved | manual` still gates the pending set and the re-offer skip, which is what keeps an upstream closure or merge from ever retiring a task."
     },
@@ -755,7 +759,9 @@
         "test_upstream_closure_and_merge_are_not_local_fixes",
         "test_partial_comment_failure_replays_without_duplicate_issue_or_tasks",
         "test_stale_overlapping_scan_cannot_republish_old_discussion_state",
-        "test_published_map_survives_line_deletion_and_recovers_from_comments"
+        "test_published_map_survives_line_deletion_and_recovers_from_comments",
+        "test_intel_rotates_per_period_without_republishing_or_retiring",
+        "test_intel_never_collides_with_the_queue_issue"
       ],
       "rationale": "Aggregate lifecycle, append-only discovery, local resolution and idempotent replay must survive upstream refactors."
     },
