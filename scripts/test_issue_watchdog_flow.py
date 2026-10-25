@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Behavioral checks for the shared watchdog, with GitHub isolated at the API boundary."""
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -247,6 +248,56 @@ class WatchdogFlowTest(unittest.TestCase):
             # Delivery state for both carriers survives in the checkpoint.
             state = json.loads(checkpoint.read_text())
             self.assertIn("intel_published", state)
+
+    def test_seeding_marks_existing_refs_delivered_without_publishing(self):
+        """The first run after the intel split would otherwise republish everything
+        the old Issue already carried. Seeding records those refs as delivered,
+        writes only the checkpoint, and must never infer a human verdict."""
+        source = mod.SOURCES["upstream"]
+        ref = f"{source['repo']}#4242"
+        # The fixture must carry the signature the publisher would compute, or the
+        # test proves nothing about dedup -- it would just differ and republish.
+        signature = hashlib.sha256(json.dumps(
+            {"title": "t", "updated_at": "2026-10-20T00:00:00Z", "state": "open",
+             "merged_at": None}, sort_keys=True).encode()).hexdigest()[:16]
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = Path(tmp) / "state.json"
+            api = FakeGitHub()
+            # A ticked line in the old Issue: seeding records delivery, not the tick.
+            api.comments.append({"id": 1, "issue_number": 9, "user": {"login": "owner"},
+                                 "body": "<!-- watchdog-day:2026-10-21:1 -->\n"
+                                 f"- [x] [{ref}](https://example.invalid/4242) t — open; "
+                                 f"2026-10-20T00:00:00Z <!-- watchdog-item:{ref} "
+                                 f"{signature} pending 2026-10-20T00:00:00Z -->"})
+            out = mod.seed_published(source, checkpoint, "example/fork", "9",
+                                     api=api, period="2026-W43")
+            self.assertEqual(out["seeded"], 1)
+            self.assertEqual(api.writes, [])
+
+            state = json.loads(checkpoint.read_text())
+            self.assertEqual(state["published"][ref][0], signature)
+            self.assertEqual(state["intel_published"][ref], [signature, "2026-W43"])
+            # No verdict was invented: the delivery record carries no checkbox.
+            self.assertEqual(len(state["published"][ref]), 3)
+
+            # Idempotent: a second seeding writes the same thing.
+            mod.seed_published(source, checkpoint, "example/fork", "9",
+                               api=api, period="2026-W43")
+            self.assertEqual(json.loads(checkpoint.read_text())["published"], state["published"])
+
+            # A seeded ref is not republished by the next real sync.
+            api.calls.clear()
+            item = {"number": 4242, "upstream": ref, "url": mod.engine.issue_url(ref),
+                    "title": "t", "topics": ["billing"], "impact": "medium",
+                    "tokenkey_status": "candidate_unverified",
+                    "updated_at": "2026-10-20T00:00:00Z", "state": "open",
+                    "merged_at": None}
+            with patch.object(mod, "resolved_refs", return_value=set()):
+                mod.sync_issues(source, {"high_unresolved": []}, "example/fork", api,
+                                entries=[item],
+                                intel_published=json.loads(checkpoint.read_text())["intel_published"],
+                                period="2026-W43")
+            self.assertEqual([c for c in api.writes if "comments" in str(c)], [])
 
     def test_resolutions_use_grouped_refs_and_revoke_missing_anchors(self):
         source = mod.SOURCES["upstream"]
