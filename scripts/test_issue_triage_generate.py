@@ -43,6 +43,43 @@ class IssueTriageGenerateTest(unittest.TestCase):
             self.assertEqual(rc, 0)
             return json.loads(dst.read_text(encoding="utf-8"))
 
+    def test_keywords_match_words_not_substrings(self) -> None:
+        """Plain `in` made several keywords near-universal in this tracker. Each
+        pair below is (text that must NOT match, text that must). The negative
+        side is the point: those hits are code identifiers and log fragments, not
+        the signal the keyword stands for."""
+        noise_then_signal = [
+            # `pst` matched "upstream" -- 52 of its 54 title hits in a real scan.
+            ("rate_limit_cooldown", "gateway: upstream req failed", "配额 00:00 PST 重置"),
+            # `token` matched max_tokens / "input_tokens":0 -- 26 of 86.
+            ("security", "max_tokens 超限需要调整", "账号 token 泄露"),
+            # Bare status codes matched hex digests, request ids, dated versions.
+            ("image_oauth", "digest 03ca308aaba69e502bc1f35b", "上游返回 502"),
+            ("rate_limit_cooldown", "trace 429778b4-5ff9-4a1e", "上游返回 429"),
+            # `oauth` matched Go identifiers like IsOpenAIOAuthLike().
+            ("image_oauth", "调用 IsOpenAIOAuthLike() 判断", "oauth 授权失败"),
+        ]
+        for category, noise, signal in noise_then_signal:
+            with self.subTest(category=category):
+                self.assertNotIn(category, mod.matches(noise, mod.HIGH_PATTERNS), noise)
+                self.assertIn(category, mod.matches(signal, mod.HIGH_PATTERNS), signal)
+
+        # Keywords carrying their own punctuation, and every CJK term, must keep
+        # matching inside ordinary prose: \b would misfire on both.
+        still_match = [
+            ("image_oauth", "用 gpt-image 生图失败"),
+            ("claude_mimicry", "header x-stainless-lang 不一致"),
+            ("billing_usage", "日志出现 input_tokens=0"),
+            ("account_pool_health", "缺少 response.completed 事件"),
+            ("account_pool_health", "报 stream disconnected 错误"),
+            ("billing_usage", "本次计费异常"),
+            ("image_oauth", "生成图片失败"),
+            ("rate_limit_cooldown", "触发限流"),
+        ]
+        for category, text in still_match:
+            with self.subTest(text=text):
+                self.assertIn(category, mod.matches(text, mod.HIGH_PATTERNS), text)
+
     def test_u2028_inside_string_value_does_not_split_record(self) -> None:
         # One issue whose title carries a raw U+2028 LINE SEPARATOR — valid JSON,
         # single producer line, but str.splitlines() would cut it in two.
