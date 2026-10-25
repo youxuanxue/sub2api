@@ -57,10 +57,33 @@ TOPICS = {
 }
 
 
-def topics(row, comments=()):
+# One table cannot serve both kinds of repository. In a relay/gateway project
+# "session", "schedul", "usage" and "image" are domain terms: "账号" alone carries
+# ~45% true positives there. In a CLI client's tracker they are ordinary nouns --
+# `session` matched 3255 of claude-code's titles at roughly 2% true positives
+# ("Archived sessions inaccessible", "New theme is too dark"), and `image` mostly
+# matched bare issue templates. Dropping them globally would blind the relay side,
+# so the narrowing is scoped to the source that needs it.
+NOISY_FOR_CLIENT_TRACKER = ("session", "schedul", "usage", "image")
+
+
+def topics_for(source_repo=None):
+    """Topic gate for one source. Unknown or omitted source keeps the full table."""
+    if source_repo != "anthropics/claude-code":
+        return TOPICS
+    narrowed = {}
+    for name, pattern in TOPICS.items():
+        kept = [alt for alt in pattern.split("|") if alt not in NOISY_FOR_CLIENT_TRACKER]
+        if kept:
+            narrowed[name] = "|".join(kept)
+    return narrowed
+
+
+def topics(row, comments=(), source_repo=None):
     content = " ".join([row.get("title") or "", row.get("body") or "",
                         *[(comment.get("body") or "") for comment in comments]])
-    return [name for name, pattern in TOPICS.items() if re.search(pattern, content, re.I)]
+    return [name for name, pattern in topics_for(source_repo).items()
+            if re.search(pattern, content, re.I)]
 
 
 def managed_body(body, content):

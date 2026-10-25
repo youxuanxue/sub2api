@@ -191,7 +191,8 @@ def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh, perio
             raise ValueError("the requested upstream number is a pull request")
         rows = [item for item in rows if item["number"] != row["number"]] + [row]
     classifier = module("watchdog_classifier", source["classifier"])
-    triage = {"issues": [{**classifier.classify(row), "topics": queue.topics(row),
+    triage = {"issues": [{**classifier.classify(row),
+                          "topics": queue.topics(row, source_repo=source["repo"]),
                           "state": row.get("state", "open")} for row in rows]}
     fixes = {"issues": []}
     report = engine.build_report(rows, triage, fixes, facts, force_issue)

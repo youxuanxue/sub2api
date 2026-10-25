@@ -309,6 +309,40 @@ class QueueTest(unittest.TestCase):
                                  sort_keys=True).encode()).hexdigest()[:16], "2026-W43"]})
         self.assertNotIn("duplicate", "".join(str(c) for c in api.calls))
 
+    def test_topic_gate_narrows_only_for_the_client_tracker(self):
+        """One table cannot serve both repositories. In a gateway project these are
+        domain terms; in a CLI client's tracker they are ordinary nouns -- `session`
+        matched 3255 of claude-code's titles at roughly 2% true positives. Narrowing
+        must therefore be scoped: dropping them globally would blind the relay side,
+        which is the signal we exist to watch."""
+        client = "anthropics/claude-code"
+        # Each title must contain ONLY a narrowed word, or it proves nothing: a
+        # title with no topic word at all gates empty on both sides anyway.
+        client_noise = ["Archived sessions inaccessible", "scheduling pool stuck",
+                        "image preview is blurry", "usage bar renders twice"]
+        for title in client_noise:
+            with self.subTest(title=title):
+                row = {"title": title, "body": ""}
+                self.assertEqual(queue.topics(row, source_repo=client), [])
+                # The same words still gate in a relay repository.
+                self.assertNotEqual(queue.topics(row), [])
+
+        # Real relay signal survives on both sides, narrowed or not.
+        for title, topic in [("账号 session 过期无法刷新", "account"),
+                             ("调度池卡住不恢复", "scheduling"),
+                             ("计费重复扣费", "billing"),
+                             ("oauth 授权失败 401", "account")]:
+            with self.subTest(title=title):
+                row = {"title": title, "body": ""}
+                self.assertIn(topic, queue.topics(row, source_repo=REPO))
+                self.assertIn(topic, queue.topics(row, source_repo=client))
+
+        # Every dimension survives the narrowing: a dropped topic would silently
+        # stop gating that whole class of issue.
+        self.assertEqual(set(queue.topics_for(client)), set(queue.TOPICS))
+        self.assertEqual(queue.topics_for(None), queue.TOPICS)
+        self.assertEqual(queue.topics_for("some/other-repo"), queue.TOPICS)
+
     def test_upstream_title_is_data_and_task_remains_a_markdown_checkbox(self):
         api = FakeGitHub()
         self.publish(api, [candidate(title="[click](evil) @all\n<!-- injected -->")])

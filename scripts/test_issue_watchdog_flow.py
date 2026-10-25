@@ -299,6 +299,37 @@ class WatchdogFlowTest(unittest.TestCase):
                                 period="2026-W43")
             self.assertEqual([c for c in api.writes if "comments" in str(c)], [])
 
+    def test_scan_passes_its_source_to_the_topic_gate(self):
+        """The per-source narrowing only takes effect if the caller says which source
+        it is scanning; omitting it falls back to the full table and silently
+        restores the noise."""
+        source = mod.SOURCES["anthropic"]
+        seen = []
+        row = {"number": 8001, "title": "Archived sessions inaccessible", "body": "",
+               "state": "open", "html_url": "https://example.invalid/8001",
+               "updated_at": "2026-10-20T00:00:00Z"}
+        with tempfile.TemporaryDirectory() as tmp:
+            api = FakeGitHub()
+
+            def fake(*args, **kwargs):
+                if args[:1] == ("api",) and "--paginate" in args and "issues?" in args[-1]:
+                    return [[row]]
+                return api(*args, **kwargs)
+
+            real = mod.queue.topics
+
+            def spy(item, comments=(), source_repo=None):
+                seen.append(source_repo)
+                return real(item, comments, source_repo=source_repo)
+
+            with patch.object(mod.queue, "topics", spy):
+                mod.scan(source, Path(tmp) / "w", Path(tmp) / "s.json", api=fake)
+        self.assertEqual(set(seen), {source["repo"]})
+        # And that scoping is what drops this title: it gates empty for the client
+        # tracker while still gating for a relay repository.
+        self.assertEqual(real(row, source_repo=source["repo"]), [])
+        self.assertNotEqual(real(row), [])
+
     def test_resolutions_use_grouped_refs_and_revoke_missing_anchors(self):
         source = mod.SOURCES["upstream"]
         entry = {"upstream": source["repo"] + "#1, #2", "fixed_if_all_present": ["fixed.py:proof"]}
