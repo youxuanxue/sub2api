@@ -726,9 +726,11 @@
         "def platform_marker(",
         "def trusted_authors(",
         "watchdog-tracking:v1",
-        "watchdog-day:"
+        "watchdog-day:",
+        "RECORD.sub(lambda m: \"\" if m[3] in resolved else m[0]",
+        "retired = resolved | manual"
       ],
-      "rationale": "One aggregate per platform preserves scoped decisions, bounds daily comments and replays without duplicate writes."
+      "rationale": "One aggregate per platform preserves scoped decisions, bounds daily comments and replays without duplicate writes. The deletion condition is `resolved`, never `retired`: `manual` is rebuilt from the live comments on every run, so a human-checked line IS the only durable carrier of that tick -- deleting it discards the verdict and the task returns next round. `retired = resolved | manual` still gates the pending set and the re-offer skip, which is what keeps an upstream closure or merge from ever retiring a task."
     },
     {
       "path": "scripts/test_relay_watch.py",

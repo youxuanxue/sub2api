@@ -173,20 +173,30 @@ class QueueTest(unittest.TestCase):
         self.publish(api, [candidate(), upstream_done, candidate(3)])
         self.assertIn("当前待处理：3", api.issues[0]["body"])
 
-        # Our own checkbox retires a task and removes it from the queue.
+        # Our own checkbox leaves the task out of the pending set, and its line is
+        # KEPT: `manual` is rebuilt from live comments every run, so that line is
+        # the only durable carrier of the tick.
         api.comments[0]["body"] = api.comments[0]["body"].replace(
             "- [ ] [example/relay#1]", "- [x] [example/relay#1]")
         self.publish(api, [])
         body = api.comments[0]["body"]
-        self.assertNotIn("example/relay#1", body)
-        self.assertNotIn("- [x]", body)
+        self.assertIn("- [x] [example/relay#1]", body)
 
         # The upstream-merged PR stays in the queue: nobody on our side judged it.
         self.assertIn("example/relay#2", body)
         self.assertIn("example/relay#3", body)
         self.assertIn("当前待处理：2", api.issues[0]["body"])
 
-        # A recorded fix judgment also retires one, and replays stay idempotent.
+        # Re-offering a ticked ref must not resurrect it, even a round later and
+        # even when the upstream has since been updated.
+        api.calls.clear()
+        self.publish(api, [candidate()])
+        self.assertEqual(api.writes, [])
+        self.publish(api, [candidate(updated_at="2026-10-24T09:00:00Z")])
+        self.assertEqual(api.writes, [])
+        self.assertIn("当前待处理：2", api.issues[0]["body"])
+
+        # A recorded fix judgment deletes its line instead: git holds that trail.
         self.publish(api, [], resolved={REPO + "#3"})
         self.assertNotIn("example/relay#3", api.comments[0]["body"])
         api.calls.clear()
