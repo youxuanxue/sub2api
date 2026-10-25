@@ -40,7 +40,10 @@ case "$WINDOW_MINUTES" in ''|*[!0-9]*) echo "bad WINDOW_MINUTES (want integer)" 
 # PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
 # the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
 # run-probe.sh ships it next to this script.
-for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+# $0 rather than BASH_SOURCE: a broken host bash must not cost us the probe,
+# so this resolves identically under bash and the dash fallback (`sh probe.sh`).
+_tk_self_dir="$(dirname "$0")"
+for _tk_lib in "${TK_LIB_DIR:-$_tk_self_dir}" "$_tk_self_dir/../lib"; do
   [ -f "$_tk_lib/resolve-app-container.sh" ] && break
 done
 # shellcheck source=../lib/resolve-app-container.sh
