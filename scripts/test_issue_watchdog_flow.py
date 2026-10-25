@@ -186,13 +186,31 @@ class WatchdogFlowTest(unittest.TestCase):
         with patch.object(mod, "resolved_refs", return_value=set()):
             outcome = mod.sync_issues(source, report, "example/fork", api, entries=entries)
         self.assertEqual((outcome["queued"], outcome["intel"]), (3, 2))
-        self.assertEqual(len(report["intel_pending_carrier"]), 2)
-        body = "".join(comment["body"] for comment in api.comments)
+        self.assertEqual(report["intel"]["leads"], 2)
+
+        # Two Issues now exist: the queue carries judged work, intel carries leads,
+        # and no ref appears in both.
+        queue_issue = next(row for row in api.issues
+                           if mod.queue.platform_marker("upstream") in row["body"])
+        intel_issue = next(row for row in api.issues
+                           if "watchdog-intel:v1" in row["body"])
+        self.assertNotEqual(queue_issue["number"], intel_issue["number"])
+        queued_body = "".join(c["body"] for c in api.comments
+                              if c["issue_number"] == queue_issue["number"])
+        intel_body = "".join(c["body"] for c in api.comments
+                             if c["issue_number"] == intel_issue["number"])
         for number in (3, 4, 7):
-            self.assertIn(f"{source['repo']}#{number}", body)
-        for number in (1, 2, 5, 6):
-            self.assertNotIn(f"{source['repo']}#{number}", body)
-        self.assertIn("当前待处理：3", api.issues[0]["body"])
+            self.assertIn(f"{source['repo']}#{number}", queued_body)
+            self.assertNotIn(f"{source['repo']}#{number}", intel_body)
+        for number in (1, 2):
+            self.assertIn(f"{source['repo']}#{number}", intel_body)
+            self.assertNotIn(f"{source['repo']}#{number}", queued_body)
+        for number in (5, 6):
+            self.assertNotIn(f"{source['repo']}#{number}", queued_body + intel_body)
+        self.assertIn("当前待处理：3", queue_issue["body"])
+        # A lead is a bullet, never a checkbox: ticking it must not look actionable.
+        self.assertNotIn("- [ ]", intel_body)
+        self.assertNotIn("- [x]", intel_body)
 
     def test_resolutions_use_grouped_refs_and_revoke_missing_anchors(self):
         source = mod.SOURCES["upstream"]

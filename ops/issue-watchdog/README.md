@@ -72,6 +72,24 @@ parity lead, not a resolution -- it is exactly the case where TokenKey may still
 be missing that behavior -- so it stays in the queue and is also listed under
 `upstream_fixes` in the scan report for a focused parity check.
 
+The tracking Issue holds only work TokenKey still owes: an entry whose
+`judgment.tokenkey_status` is in `QUEUE_STATUSES`, or whose recorded fix anchors
+have rotted. Keyword hits carry `KEYWORD_STATUSES` -- the classifier states it has
+not verified them -- so they are leads, not tasks, and go to a separate intel
+Issue. An entry with no known status fails closed into the queue: a visible extra
+task is cheaper than a silently lost one.
+
+Intel rotates per ISO week (`<!-- watchdog-intel:v1 platform:X period:YYYY-Www -->`,
+its own marker namespace so the queue's discovery scan cannot see it and raise on a
+duplicate). A new period opens a fresh Issue and closes the previous one -- closed,
+never deleted, so a lead stays searchable long after the report artifact expires,
+which is why intel needs an Issue carrier at all. Leads are plain bullets, never
+checkboxes: ticking one there would never be seen, because the promotion path is a
+judgment in the ledger, which moves the ref into the queue on the next run.
+Deduplication is on the content signature alone and never includes the period --
+including it would republish every still-open lead each week, which is the
+accumulation the rotation exists to prevent.
+
 The first scan of a source takes the lookback window only. There is no
 full-backlog bootstrap: mirroring every open upstream issue once produced a
 thousands-strong tracking Issue that nobody read, which defeats the point of
