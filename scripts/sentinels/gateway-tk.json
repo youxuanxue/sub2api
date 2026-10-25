@@ -721,7 +721,9 @@
         "Fail closed",
         "ledger.SETTLED_STATUSES",
         "--intel-period",
-        "跟踪队列"
+        "跟踪队列",
+        "def seed_published(",
+        "seed-published"
       ],
       "rationale": "Preserve incremental recovery and idempotent Issue projection as one owner. The tracking queue is partitioned by WHO judged an entry, never by `impact`: keyword hits are unverified leads and must not enter the queue, while an entry with no known status fails closed INTO the queue so a classifier change cannot hide work."
     },
@@ -809,7 +811,8 @@
         "test_failed_sync_does_not_advance_checkpoint_and_retry_converges",
         "test_missing_and_empty_anchors_revoke_runtime_fixed_classification",
         "test_queue_holds_judged_work_only_and_keyword_leads_become_intel",
-        "test_scan_threads_intel_period_and_reports_both_counts"
+        "test_scan_threads_intel_period_and_reports_both_counts",
+        "test_seeding_marks_existing_refs_delivered_without_publishing"
       ],
       "rationale": "The normal scripts unittest gate exercises no-change, operator decisions, cursor replay and stale evidence."
     },

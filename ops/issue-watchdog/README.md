@@ -72,6 +72,19 @@ parity lead, not a resolution -- it is exactly the case where TokenKey may still
 be missing that behavior -- so it stays in the queue and is also listed under
 `upstream_fixes` in the scan report for a focused parity check.
 
+Migrating an existing long tracking Issue needs one read-only step first:
+
+    python3 scripts/upstream/watchdog-run.py seed-published --source upstream \
+      --sync-repo <owner/repo> --seed-from-issue <number>
+
+That records every ref the old Issue already carries as delivered, writing only
+the checkpoint. Without it the first run after the split republishes the whole
+backlog as intel -- measured on #2769, 3985 lines in one period instead of the
+~714 weekly delta. Seeding is idempotent and never infers a verdict: a human tick
+is read from the Issue's comments, so seeding cannot retire anything. Once seeded,
+strip the old Issue's `watchdog-tracking` marker before closing it, or discovery
+(which scans `state=all`) reopens it as soon as the queue is non-empty.
+
 The tracking Issue holds only work TokenKey still owes: an entry whose
 `judgment.tokenkey_status` is in `QUEUE_STATUSES`, or whose recorded fix anchors
 have rotted. Keyword hits carry `KEYWORD_STATUSES` -- the classifier states it has

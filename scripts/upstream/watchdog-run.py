@@ -143,6 +143,42 @@ def sync_issues(source, report, target_repo, api=gh, entries=(), published=None,
             "intel_published": intel_outcome.pop("published")}
 
 
+def seed_published(source, checkpoint, target_repo, issue_number, api=gh, period=""):
+    """Record an existing tracking Issue's refs as already delivered, publishing nothing.
+
+    Without this, the first run after the intel split republishes every ref the old
+    Issue already carried -- measured on #2769, 3985 lines in one period instead of
+    the ~714 weekly delta. Seeding is read-only against GitHub except for the
+    checkpoint it writes, and it is idempotent: running it twice records the same
+    signatures.
+
+    Only the delivery map is seeded. A tick is never inferred here: a human verdict
+    is read from the Issue's own comments, so seeding cannot retire anything.
+    """
+    period = period or queue.intel_period()
+    endpoint = f"repos/{target_repo}/issues/{issue_number}"
+    comments = [row for page in api("api", "--paginate", "--slurp",
+                                    endpoint + "/comments?per_page=100") for row in page]
+    delivered, intel = {}, {}
+    for comment in comments:
+        for _checked, _text, ref, signature, status, updated in queue.RECORD.findall(
+                comment.get("body") or ""):
+            delivered[ref] = [signature, status, updated]
+            intel[ref] = [signature, period]
+    previous = engine.load_json(checkpoint) if checkpoint.exists() else {}
+    snapshot = dict(previous) or {"version": 1, "repo": source["repo"],
+                                  "cursor": datetime.now(timezone.utc).isoformat(), "issues": []}
+    snapshot["published"] = {**snapshot.get("published", {}), **delivered}
+    snapshot["intel_published"] = {**snapshot.get("intel_published", {}), **intel}
+    checkpoint.parent.mkdir(parents=True, exist_ok=True)
+    temporary = checkpoint.with_suffix(".tmp")
+    engine.write_json(temporary, snapshot)
+    temporary.replace(checkpoint)
+    print(f"::notice::seeded {len(delivered)} refs from {target_repo}#{issue_number} "
+          f"as already delivered (queue + intel {period}); nothing published")
+    return {"seeded": len(delivered), "period": period}
+
+
 def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh, period=""):
     facts = [entry for entry in ledger.load_ledger(source, ROOT) if "fixed_if_all_present" in entry]
     started = datetime.now(timezone.utc).isoformat()
@@ -254,11 +290,13 @@ def verify_fix(source, work, target_repo, api=gh):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["scan", "prepare-fix", "verify-fix"])
+    parser.add_argument("command", choices=["scan", "prepare-fix", "verify-fix", "seed-published"])
     parser.add_argument("--source", choices=SOURCES, required=True)
     parser.add_argument("--work", type=Path, default=Path(".cache/issue-watchdog"))
     parser.add_argument("--checkpoint", type=Path, default=Path(".cache/watchdog-state/snapshot.json"))
     parser.add_argument("--upstream-issue", default="")
+    parser.add_argument("--seed-from-issue", default="",
+                        help="existing tracking Issue number whose refs count as already delivered")
     parser.add_argument("--intel-period", default="",
                         help="ISO week for the rotating intel Issue, e.g. 2026-W43; "
                              "omitted means the current week")
@@ -270,7 +308,12 @@ def main():
     if args.intel_period and not re.fullmatch(r"\d{4}-W\d{2}", args.intel_period):
         parser.error("--intel-period must look like 2026-W43")
     source = SOURCES[args.source]
-    if args.command == "scan":
+    if args.command == "seed-published":
+        if not args.sync_repo or not args.seed_from_issue.isdecimal():
+            parser.error("seed-published needs --sync-repo and a numeric --seed-from-issue")
+        seed_published(source, args.checkpoint, args.sync_repo, args.seed_from_issue,
+                       period=args.intel_period)
+    elif args.command == "scan":
         scan(source, args.work, args.checkpoint, args.upstream_issue, args.sync_repo,
              period=args.intel_period)
     elif args.command == "prepare-fix":
