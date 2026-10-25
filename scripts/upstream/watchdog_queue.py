@@ -133,8 +133,12 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
     # Issue that also kept every retired task grows without bound and stops being read.
     retired = resolved | manual
     # Retire before appending anything; retries remain idempotent.
+    # Delete only ledger-resolved lines: git already holds that audit trail. A
+    # human checkbox must KEEP its line, because that line is the only durable
+    # carrier of the tick -- `manual` is rebuilt from live comments on every run,
+    # so deleting the line discards the verdict and the task returns next round.
     for comment in owned:
-        body = RECORD.sub(lambda m: "" if m[3] in retired else m[0], comment.get("body") or "")
+        body = RECORD.sub(lambda m: "" if m[3] in resolved else m[0], comment.get("body") or "")
         body = re.sub(r"\n{3,}", "\n\n", body).rstrip() + "\n"
         if body != comment.get("body"):
             api("api", "--method", "PATCH", f"repos/{target}/issues/comments/{comment['id']}", payload={"body": body})

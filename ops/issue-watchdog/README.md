@@ -59,10 +59,12 @@ and lifecycle remain independent in each platform Issue.
 Both workflows use a serialized writer.
 
 A checked task records a local resolution or dismissal (add a reason/fix PR in
-plain text) and then **leaves the queue**: the tracking Issue holds only what
-TokenKey still owes, so a settled task is removed rather than kept as a
-struck-through line. The audit trail lives in git -- the ledger entry and the fix
-commit say who judged what and why, which a crossed-out comment line cannot.
+plain text) and then **leaves the pending set**: the tracking Issue counts only
+what TokenKey still owes. Its line stays as `- [x]`, because `manual` is rebuilt
+from the live comments on every run -- that line is the only durable carrier of
+the tick, so deleting it would discard the verdict and re-offer the task on the
+next round. A ledger-resolved task has its line removed instead: git already
+holds that audit trail in the ledger entry and the fix commit.
 
 Only our own verdict retires a task: a checkbox, or a recorded fix judgment with
 resolving anchors. Upstream closure and PR merge never do. An upstream merge is a
