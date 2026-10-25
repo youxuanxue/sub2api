@@ -276,6 +276,28 @@ func TestNewAPIChatFirstOutputTimeoutResolver(t *testing.T) {
 	require.Equal(t, 45*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, true, false))
 }
 
+// A first-output failover must carry ClientErrorType, otherwise
+// handleFailoverExhausted ignores ClientStatusCode and mapUpstreamError reports
+// the 504 as a generic 502 — making "upstream produced nothing" indistinguishable
+// from a real upstream 502 for clients and for our own 504 alerting.
+func TestFirstOutputFailoverCarriesClientErrorType(t *testing.T) {
+	for name, err := range map[string]error{
+		"stream_budget":           streamFirstOutputFailoverError(),
+		"stream_budget_keepalive": streamFirstOutputFailoverErrorAfterKeepalive(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var failover *UpstreamFailoverError
+			require.ErrorAs(t, err, &failover)
+			require.Equal(t, http.StatusGatewayTimeout, failover.ClientStatusCode)
+			require.NotEmpty(t, failover.ClientErrorType,
+				"empty ClientErrorType makes handleFailoverExhausted downgrade the 504 to 502")
+			require.Equal(t, "timeout_error", failover.ClientErrorType)
+			require.Equal(t, "first_output_unavailable", string(failover.Reason))
+			require.Equal(t, GatewayFailureScopeAccount, failover.Scope)
+		})
+	}
+}
+
 // NewAPI high-effort streaming gets its own budget so domestic models are not
 // stuck on the 600s long-thinking SSOT. Covers both directions: unset must keep
 // inheriting, and set must not leak into any neighboring budget.
