@@ -31,10 +31,10 @@
         "KiroCLIUserAgent",
         "KiroCLIAmzUserAgent",
         "DefaultKiroAccountPriority",
-        "2.33.1",
+        "const DefaultKiroCLIVersion = \"",
         "app/AmazonQ-For-CLI"
       ],
-      "rationale": "Single TK-owned Kiro CLI release and HTTP identity. The exact aws-sdk-rust User-Agent pair comes from real CLI wire capture rather than release inference; losing these constants or reintroducing a second builder makes Kiro egress drift from the only supported client identity. DefaultKiroAccountPriority remains the creation-time default for native Kiro accounts."
+      "rationale": "Single TK-owned Kiro CLI release and HTTP identity. The exact aws-sdk-rust User-Agent pair comes from real CLI wire capture rather than release inference; losing these constants or reintroducing a second builder makes Kiro egress drift from the only supported client identity. DefaultKiroAccountPriority remains the creation-time default for native Kiro accounts. Anchor the DECLARATION (const DefaultKiroCLIVersion = ...), never the current version value: a literal version here protects nothing the symbol names already cover, turns every legitimate release bump into churn in a deletion-discipline file, and fails preflight with a misleading \"lost a required symbol\" message when a bump forgets this hand-maintained mirror. Version-vs-wire drift is owned by constants_test.go and by http_identity_drift in ops/kiro/capture_kiro_fingerprint.py, which compare against real capture evidence. Same rule as scripts/sentinels/grok.json."
     },
     {
       "path": "backend/internal/integration/kiro/headers.go",

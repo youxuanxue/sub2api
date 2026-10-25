@@ -8,6 +8,7 @@
 |------|------|
 | [cc-fingerprint-changelog.md](./cc-fingerprint-changelog.md) | Claude Code 指纹对齐 changelog（skill 追加） |
 | [antigravity-fingerprint-changelog.md](./antigravity-fingerprint-changelog.md) | Antigravity 指纹对齐 changelog（skill 追加） |
+| [kiro-fingerprint-changelog.md](./kiro-fingerprint-changelog.md) | Kiro CLI 指纹对齐 changelog（skill 追加） |
 
 命名约定：带日期后缀的报告由对应 skill / 脚本刷新；不要把一次性排障笔记堆回本目录。
 
