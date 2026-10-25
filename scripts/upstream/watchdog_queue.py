@@ -76,7 +76,8 @@ def trusted_authors(target, api):
     return trusted
 
 
-def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstream"):
+def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstream",
+               published=None):
     """Publish relevant findings immediately, regardless of risk/manual judgment.
 
     A checked task is an explicit TokenKey resolution. Ledger resolutions also
@@ -102,7 +103,10 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
     items = [{**item, "upstream": item.get("upstream") or f"{repo}#{item['number']}"} for item in items]
     items = [item for item in items if item["upstream"] not in resolved]
     if not issue and not items:
-        return {"created": 0, "commented": 0, "pending": 0}
+        # Nothing to publish: hand back the delivery state unchanged rather than an
+        # empty map, which the caller would persist and then re-publish everything.
+        return {"created": 0, "commented": 0, "pending": 0,
+                "published": dict(published or {})}
     created = 0
     if not issue:
         labels = {row["name"] for page in api("api", "--paginate", "--slurp",
@@ -120,7 +124,27 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
     comments = [row for page in api("api", "--paginate", "--slurp", endpoint + "/comments?per_page=100") for row in page]
     # Only repository writers may supply state; other public comments are prose.
     owned = [row for row in comments if re.search(r"<!-- watchdog-day:\d{4}-\d{2}-\d{2}:\d+ -->", row.get("body") or "") and trusted(row)]
+    # Delivery state belongs to the checkpoint, human intent to the Issue. Seeding
+    # `latest` from the checkpoint first means a signature survives a line being
+    # deleted or the Issue being replaced; the comment scrape then overrides it for
+    # any ref the Issue still carries, so the Issue stays a recovery source when the
+    # Actions cache is evicted. Ticks are only ever read from the comments: a human
+    # verdict must not be inventable by whatever wrote the checkpoint.
     latest, manual = {}, set()
+    for ref, record in (published or {}).items():
+        if not isinstance(record, (list, tuple)) or len(record) < 2:
+            continue
+        signature, status = record[0], record[1]
+        updated = record[2] if len(record) >= 3 else "unknown"
+        if not isinstance(signature, str) or status not in ("pending", "fixed"):
+            continue
+        if updated != "unknown":
+            try:
+                datetime.fromisoformat(str(updated).replace("Z", "+00:00"))
+            except ValueError:
+                updated = "unknown"
+        # Never seed a checkbox: a verdict is read from the Issue, never from state.
+        latest[ref] = (signature, status, " ", updated)
     for comment in owned:
         for checked, text, ref, signature, status, updated in RECORD.findall(comment.get("body") or ""):
             latest[ref] = (signature, status, checked, updated)
@@ -199,4 +223,9 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
         changes["state"] = state
     if changes:
         api("api", "--method", "PATCH", endpoint, payload=changes)
-    return {"created": created, "commented": commented, "pending": pending}
+    # Hand the delivery state back so the caller can persist it in the checkpoint.
+    # Retired refs stay in the map: forgetting them would re-publish on the next run.
+    delivered = {ref: [signature, status, updated]
+                 for ref, (signature, status, _, updated) in latest.items()}
+    return {"created": created, "commented": commented, "pending": pending,
+            "published": delivered}

@@ -714,7 +714,8 @@
         "def fetch_snapshot(",
         "def sync_issues(",
         "def resolved_refs(",
-        "temporary.replace(checkpoint)"
+        "temporary.replace(checkpoint)",
+        "snapshot[\"published\"]"
       ],
       "rationale": "Preserve incremental recovery and idempotent Issue projection as one owner."
     },
@@ -728,7 +729,9 @@
         "watchdog-tracking:v1",
         "watchdog-day:",
         "RECORD.sub(lambda m: \"\" if m[3] in resolved else m[0]",
-        "retired = resolved | manual"
+        "retired = resolved | manual",
+        "Never seed a checkbox",
+        "published=None"
       ],
       "rationale": "One aggregate per platform preserves scoped decisions, bounds daily comments and replays without duplicate writes. The deletion condition is `resolved`, never `retired`: `manual` is rebuilt from the live comments on every run, so a human-checked line IS the only durable carrier of that tick -- deleting it discards the verdict and the task returns next round. `retired = resolved | manual` still gates the pending set and the re-offer skip, which is what keeps an upstream closure or merge from ever retiring a task."
     },
@@ -747,7 +750,8 @@
         "test_fixed_upstream_open_issue_is_removed_and_all_done_closes",
         "test_upstream_closure_and_merge_are_not_local_fixes",
         "test_partial_comment_failure_replays_without_duplicate_issue_or_tasks",
-        "test_stale_overlapping_scan_cannot_republish_old_discussion_state"
+        "test_stale_overlapping_scan_cannot_republish_old_discussion_state",
+        "test_published_map_survives_line_deletion_and_recovers_from_comments"
       ],
       "rationale": "Aggregate lifecycle, append-only discovery, local resolution and idempotent replay must survive upstream refactors."
     },

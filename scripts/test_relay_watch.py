@@ -203,6 +203,53 @@ class QueueTest(unittest.TestCase):
         self.publish(api, [upstream_done], resolved={REPO + "#3"})
         self.assertEqual(api.writes, [])
 
+    def test_published_map_survives_line_deletion_and_recovers_from_comments(self):
+        """Delivery state lives in the checkpoint so that losing a line -- deleted by
+        hand, or by a future Issue rotation -- cannot make the next run re-publish
+        what was already delivered. The Issue stays a recovery source for when the
+        Actions cache is evicted, but a tick is only ever read from the comments."""
+        api = FakeGitHub()
+        first = self.publish(api, [candidate()])
+        delivered = first["published"]
+        self.assertIn(REPO + "#1", delivered)
+
+        # A line vanishes from the comment body for a reason other than retirement.
+        api.comments[0]["body"] = api.comments[0]["body"].replace(
+            "- [ ] [example/relay#1]", "")
+        api.calls.clear()
+        self.publish(api, [candidate()], published=delivered)
+        self.assertEqual(api.writes, [])
+
+        # Without that memory the same round re-publishes -- this is what the
+        # checkpoint buys, and why rotation needs it before changing Issues.
+        api.calls.clear()
+        self.publish(api, [candidate()])
+        self.assertTrue(api.writes)
+
+        # Cache eviction: no checkpoint, so signatures come back from the comments.
+        fresh = FakeGitHub()
+        seed = self.publish(fresh, [candidate()])["published"]
+        fresh.calls.clear()
+        self.publish(fresh, [candidate()], published={})
+        self.assertEqual(fresh.writes, [])
+
+        # A checkpoint carries delivery state but must never invent a verdict: a
+        # tick is read from the Issue only, so whatever wrote the state cannot
+        # retire work on a human's behalf. Pin it with a record that tries.
+        ticked = FakeGitHub()
+        self.publish(ticked, [candidate()],
+                     published={REPO + "#1": ["deadbeef", "pending", "2026-10-01T00:00:00Z", "x"]})
+        self.assertIn("- [ ] [example/relay#1]", "".join(c["body"] for c in ticked.comments))
+        self.assertIn("当前待处理：1", ticked.issues[0]["body"])
+        self.assertEqual(seed[REPO + "#1"][1], "pending")
+
+        # A malformed or hostile record is ignored rather than crashing the run.
+        for record in ([], ["sig"], ["sig", "bogus"], ["sig", "pending", "not-a-date"], "x", None):
+            with self.subTest(record=record):
+                junk = FakeGitHub()
+                self.publish(junk, [candidate()], published={REPO + "#1": record})
+                self.assertIn("当前待处理：1", junk.issues[0]["body"])
+
     def test_upstream_title_is_data_and_task_remains_a_markdown_checkbox(self):
         api = FakeGitHub()
         self.publish(api, [candidate(title="[click](evil) @all\n<!-- injected -->")])
