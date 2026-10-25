@@ -30,13 +30,8 @@ BASE_TLS = {
 # TLS-lane tests never go stale against a version bump; HTTP identity drift has
 # its own dedicated tests below.
 _OWNER = eng.committed_http_identity() or {}
-_UA_BASE = (
-    f"aws-sdk-rust/{_OWNER.get('kiroCLISDKVersion', '0.0.0')} ua/2.1"
-    f" api/codewhispererruntime/{_OWNER.get('kiroCLIAPIVersion', '0.0.0')}"
-    f" os/macos lang/rust/{_OWNER.get('kiroCLIRustVersion', '0.0.0')}"
-)
-OWNER_USER_AGENT = f"{_UA_BASE} md/appVersion-{_OWNER.get('DefaultKiroCLIVersion', '0.0.0')} app/AmazonQ-For-CLI"
-OWNER_AMZ_USER_AGENT = f"{_UA_BASE} m/F app/AmazonQ-For-CLI"
+OWNER_USER_AGENT = _OWNER.get("KiroCLIUserAgent", "aws-sdk-rust/0.0.0 app/AmazonQ-For-CLI")
+OWNER_AMZ_USER_AGENT = _OWNER.get("KiroCLIAmzUserAgent", "aws-sdk-rust/0.0.0 m/F app/AmazonQ-For-CLI")
 
 HTTP = {
     "host": "codewhisperer.us-east-1.amazonaws.com",
@@ -204,47 +199,116 @@ class BundleAndProfileTests(unittest.TestCase):
         changed["cipher_suites"] = list(reversed(profile["cipher_suites"]))
         self.assertNotEqual(eng.runtime_profile_digest(profile), eng.runtime_profile_digest(changed))
 
+    def _bundle_and_committed(self, tmp):
+        bundle = complete_bundle(Path(tmp))
+        return bundle, eng.build_canonical_profile(bundle)
+
+    def _set_ua(self, bundle, value, header="user-agent"):
+        for record in bundle["evidence_lanes"]["http"]["observed"]["records"]:
+            record["headers"][header] = value
+
     def test_wire_http_version_drift_is_not_reported_as_aligned(self):
         """Regression: a real bundle whose wire appVersion outran the compile
         owner used to exit 0 (aligned) because only TLS fields were compared."""
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = complete_bundle(Path(tmp))
-            committed = eng.build_canonical_profile(bundle)
+            bundle, committed = self._bundle_and_committed(tmp)
         self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_COMPLETE)
-        for record in bundle["evidence_lanes"]["http"]["observed"]["records"]:
-            record["headers"]["user-agent"] = record["headers"]["user-agent"].replace(
-                f"md/appVersion-{_OWNER['DefaultKiroCLIVersion']}", "md/appVersion-99.99.99"
-            )
+        self._set_ua(bundle, OWNER_USER_AGENT.replace(
+            f"md/appVersion-{_OWNER['DefaultKiroCLIVersion']}", "md/appVersion-99.99.99"))
         self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_DRIFT)
         drift = eng.http_identity_drift(bundle)
-        self.assertEqual(
-            drift, [("DefaultKiroCLIVersion", _OWNER["DefaultKiroCLIVersion"], "99.99.99")]
-        )
+        self.assertEqual([d[0] for d in drift], ["KiroCLIUserAgent"])
 
     def test_non_version_user_agent_segment_drift_is_detected(self):
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = complete_bundle(Path(tmp))
-            committed = eng.build_canonical_profile(bundle)
-        for record in bundle["evidence_lanes"]["http"]["observed"]["records"]:
-            record["headers"]["user-agent"] = record["headers"]["user-agent"].replace(
-                f"aws-sdk-rust/{_OWNER['kiroCLISDKVersion']}", "aws-sdk-rust/9.9.9"
-            )
+            bundle, committed = self._bundle_and_committed(tmp)
+        self._set_ua(bundle, OWNER_USER_AGENT.replace(
+            f"aws-sdk-rust/{_OWNER['kiroCLISDKVersion']}", "aws-sdk-rust/9.9.9"))
         self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_DRIFT)
 
-    def test_unparsable_wire_user_agent_is_incomplete_never_aligned(self):
+    def test_non_version_metadata_drift_is_detected(self):
+        """ua/, os/ and app/ segments are load-bearing mimicry, not noise."""
+        for original, replacement in (
+            ("ua/2.1", "ua/2.2"),
+            ("os/macos", "os/linux"),
+            ("app/AmazonQ-For-CLI", "app/Kiro-For-IDE"),
+        ):
+            with self.subTest(segment=original):
+                with tempfile.TemporaryDirectory() as tmp:
+                    bundle, committed = self._bundle_and_committed(tmp)
+                self.assertIn(original, OWNER_USER_AGENT)
+                self._set_ua(bundle, OWNER_USER_AGENT.replace(original, replacement))
+                self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_DRIFT)
+
+    def test_amz_user_agent_header_is_compared_too(self):
+        """x-amz-user-agent is a committed owner symbol, not an unread header."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle, committed = self._bundle_and_committed(tmp)
+        self._set_ua(bundle, "totally/different 0.0.0", header="x-amz-user-agent")
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_DRIFT)
+        self.assertEqual([d[0] for d in eng.http_identity_drift(bundle)], ["KiroCLIAmzUserAgent"])
+
+    def test_samples_disagreeing_with_each_other_are_not_aligned(self):
+        """the harness runs >=3 samples; only the first used to be read, so a
+        mid-capture upgrade reported aligned."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle, committed = self._bundle_and_committed(tmp)
+        records = bundle["evidence_lanes"]["http"]["observed"]["records"]
+        extra = json.loads(json.dumps(records[0]))
+        extra["headers"]["user-agent"] = OWNER_USER_AGENT.replace(
+            f"md/appVersion-{_OWNER['DefaultKiroCLIVersion']}", "md/appVersion-99.99.99")
+        records.append(extra)
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_INCOMPLETE)
+        self.assertIsNone(eng.observed_http_identity(bundle))
+
+    def test_renamed_segment_is_drift_not_a_retry_verdict(self):
+        """a reformatted segment is actionable drift, not 'capture failed'."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle, committed = self._bundle_and_committed(tmp)
+        self._set_ua(bundle, OWNER_USER_AGENT.replace("md/appVersion-", "md/cliVersion-"))
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_DRIFT)
+
+    def test_unusable_wire_evidence_is_incomplete_never_aligned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle, committed = self._bundle_and_committed(tmp)
+        self._set_ua(bundle, "")
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_INCOMPLETE)
+        self.assertIsNone(eng.observed_http_identity(bundle))
+
+    def test_emit_profile_path_does_not_compare_the_compile_owner(self):
+        """Regression: committed=None means 'do not compare committed state',
+        so a capture whose version legitimately outruns the pin still emits."""
         with tempfile.TemporaryDirectory() as tmp:
             bundle = complete_bundle(Path(tmp))
-            committed = eng.build_canonical_profile(bundle)
-        for record in bundle["evidence_lanes"]["http"]["observed"]["records"]:
-            record["headers"]["user-agent"] = "garbage/0"
-        self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_INCOMPLETE)
-        self.assertEqual(eng.observed_http_identity(bundle), None)
+        self._set_ua(bundle, OWNER_USER_AGENT.replace(
+            f"md/appVersion-{_OWNER['DefaultKiroCLIVersion']}", "md/appVersion-99.99.99"))
+        bundle["kiro_cli_version"] = "99.99.99"
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, None), eng.EXIT_COMPLETE)
+        self.assertTrue(eng.build_canonical_profile(bundle))
 
-    def test_committed_owner_is_read_from_the_single_go_pin(self):
+    def test_committed_owner_rejects_ambiguous_or_commented_declarations(self):
+        """a commented-out or duplicated decl must not be read as the owner."""
         owner = eng.committed_http_identity()
         self.assertIsNotNone(owner)
         self.assertRegex(owner["DefaultKiroCLIVersion"], r"^\d+\.\d+\.\d+$")
+        self.assertIn("md/appVersion-", owner["KiroCLIUserAgent"])
         self.assertIsNone(eng.committed_http_identity(Path("/nonexistent/constants.go")))
+        real = eng.KIRO_HTTP_OWNER_GO.read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            for label, text in (
+                ("commented-out", '// const DefaultKiroCLIVersion = "2.18.0"\n' + real),
+                ("block-comment", '/* DefaultKiroCLIVersion = "9.9.9" */\n' + real),
+                ("build-ignored", "//go:build ignore\n" + real),
+                ("duplicate-decl", real + '\nconst DefaultKiroCLIVersion = "7.7.7"\n'),
+            ):
+                with self.subTest(case=label):
+                    path = Path(tmp) / f"{label}.go"
+                    path.write_text(text, encoding="utf-8")
+                    result = eng.committed_http_identity(path)
+                    if label in ("build-ignored", "duplicate-decl"):
+                        self.assertIsNone(result)
+                    else:
+                        self.assertEqual(result["DefaultKiroCLIVersion"], owner["DefaultKiroCLIVersion"])
 
     def test_semantic_drift_not_sample_ja3_drift(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -311,26 +311,56 @@ def load_committed_profile(path: Path = KIRO_TLS_PROFILE_JSON) -> dict[str, Any]
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def committed_http_identity(path: Path = KIRO_HTTP_OWNER_GO) -> dict[str, str] | None:
-    """Read the sole Go compile owner's Kiro CLI HTTP identity.
+def _strip_go_comments(text: str) -> str:
+    """Drop // line comments and /* */ blocks so a commented-out or merely
+    mentioned declaration can never be read as the owner's value."""
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return "\n".join(re.sub(r"//.*$", "", line) for line in text.splitlines())
 
-    Returns None when the owner file is absent so callers can treat it as
-    unobserved rather than silently aligned.
+
+def committed_http_identity(path: Path = KIRO_HTTP_OWNER_GO) -> dict[str, str] | None:
+    """Reconstruct the compile owner's full Kiro CLI HTTP identity.
+
+    Returns the two complete header values the Go owner builds, so the gate
+    compares entire wire strings instead of a hand-picked subset of segments.
+    Returns None when the owner cannot be read unambiguously (absent file,
+    missing symbol, or the same symbol declared more than once) so callers can
+    treat it as unobserved rather than silently aligned.
     """
     if not path.is_file():
         return None
-    text = path.read_text(encoding="utf-8")
+    raw = path.read_text(encoding="utf-8")
+    # Build-tag check must run on the RAW text: _strip_go_comments removes the
+    # //go:build line itself.
+    if re.search(r"^//go:build\s+ignore\b", raw, re.M):
+        return None
+    text = _strip_go_comments(raw)
     fields: dict[str, str] = {}
     for symbol in ("DefaultKiroCLIVersion", "kiroCLISDKVersion", "kiroCLIAPIVersion", "kiroCLIRustVersion"):
-        match = re.search(rf'\b{symbol}\s*=\s*"([^"]+)"', text)
-        if match is None:
+        matches = re.findall(rf'\b{symbol}\s*=\s*"([^"]+)"', text)
+        if len(matches) != 1:
             return None
-        fields[symbol] = match.group(1)
-    return fields
+        fields[symbol] = matches[0]
+    base = (
+        f"aws-sdk-rust/{fields['kiroCLISDKVersion']} ua/2.1"
+        f" api/codewhispererruntime/{fields['kiroCLIAPIVersion']}"
+        f" os/macos lang/rust/{fields['kiroCLIRustVersion']}"
+    )
+    return {
+        **fields,
+        "KiroCLIUserAgent": f"{base} md/appVersion-{fields['DefaultKiroCLIVersion']} app/AmazonQ-For-CLI",
+        "KiroCLIAmzUserAgent": f"{base} m/F app/AmazonQ-For-CLI",
+    }
 
 
 def observed_http_identity(bundle: dict[str, Any]) -> dict[str, str] | None:
-    """Project the real CLI User-Agent segments observed on the wire."""
+    """The two complete wire UA headers all successful samples agree on.
+
+    The harness runs the real CLI at least three times, so headers that differ
+    between samples (mid-capture upgrade, two binaries on PATH) are unusable
+    evidence rather than an aligned observation -- the anthropic engine enforces
+    the same cross-record invariant.
+    """
     lanes = _lanes(bundle)
     http = lanes.get("http")
     if not isinstance(http, dict):
@@ -338,30 +368,33 @@ def observed_http_identity(bundle: dict[str, Any]) -> dict[str, str] | None:
     records = (http.get("observed") or {}).get("records")
     if not isinstance(records, list):
         return None
-    successful = [r for r in records if isinstance(r, dict) and r.get("success") is True]
+    successful = [
+        r
+        for r in records
+        if isinstance(r, dict) and r.get("success") is True and isinstance(r.get("status_code"), int)
+    ]
     if not successful:
         return None
-    user_agent = str((successful[0].get("headers") or {}).get("user-agent") or "")
-    patterns = {
-        "DefaultKiroCLIVersion": r"md/appVersion-(\S+)",
-        "kiroCLISDKVersion": r"aws-sdk-rust/(\S+)",
-        "kiroCLIAPIVersion": r"api/codewhispererruntime/(\S+)",
-        "kiroCLIRustVersion": r"lang/rust/(\S+)",
-    }
     observed: dict[str, str] = {}
-    for symbol, pattern in patterns.items():
-        match = re.search(pattern, user_agent)
-        if match is None:
+    for symbol, header in (("KiroCLIUserAgent", "user-agent"), ("KiroCLIAmzUserAgent", "x-amz-user-agent")):
+        values = {str((r.get("headers") or {}).get(header) or "") for r in successful}
+        if len(values) != 1:
             return None
-        observed[symbol] = match.group(1)
+        value = values.pop()
+        if not value:
+            return None
+        observed[symbol] = value
     return observed
 
 
 def http_identity_drift(bundle: dict[str, Any]) -> list[tuple[str, str, str]]:
-    """Semantic diff of wire HTTP identity against the single compile owner.
+    """Semantic diff of the wire HTTP identity against the single compile owner.
 
-    Each entry is (symbol, committed, observed). Callers treat a missing owner
-    or unparsable wire evidence as incomplete, never as aligned.
+    Each entry is (symbol, committed, observed). Comparing the two complete
+    header values means a renamed or reformatted segment, an `os/`, `ua/` or
+    `app/` change, and a wholesale x-amz-user-agent swap all surface as drift
+    rather than slipping through a segment allowlist. Missing owner or unusable
+    evidence stays NOT_OBSERVED -- incomplete, never aligned.
     """
     committed = committed_http_identity()
     observed = observed_http_identity(bundle)
@@ -369,7 +402,7 @@ def http_identity_drift(bundle: dict[str, Any]) -> list[tuple[str, str, str]]:
         return [("http_identity", "NOT_OBSERVED", "NOT_OBSERVED")]
     return [
         (symbol, committed[symbol], observed[symbol])
-        for symbol in sorted(committed)
+        for symbol in ("KiroCLIUserAgent", "KiroCLIAmzUserAgent")
         if committed[symbol] != observed[symbol]
     ]
 
@@ -388,11 +421,16 @@ def compute_bundle_exit_code(bundle: dict[str, Any], committed: dict[str, Any] |
             return EXIT_DRIFT
     except (KeyError, TypeError, ValueError):
         return EXIT_INVALID
-    drift = http_identity_drift(bundle)
-    if drift:
-        if any(observed == NOT_OBSERVED for _, _, observed in drift):
-            return EXIT_INCOMPLETE
-        return EXIT_DRIFT
+    if committed is not None:
+        # committed is None means "do not compare against committed state" (the
+        # emit-profile path, which refreshes the profile from a capture whose
+        # version legitimately outruns the Go owner). Only reconcile the wire
+        # HTTP identity when the caller is actually checking committed state.
+        drift = http_identity_drift(bundle)
+        if drift:
+            if any(observed == NOT_OBSERVED for _, _, observed in drift):
+                return EXIT_INCOMPLETE
+            return EXIT_DRIFT
     return EXIT_COMPLETE
 
 

@@ -78,7 +78,9 @@ python3 ops/kiro/check_kiro_tls_profile_parity.py
    migration 投影至同名 DB row，不能改已发布 migration。
 4. 重跑 uTLS capture，至少三次；`shuffle_extensions=true` 时必须看到多个 extension
    orders，并用 `check-replay` 比较 semantic projection，而非固定 JA3 hash。
-5. 运行 focused tests、sentinel、preflight 和全量测试后再提交。
+5. **changelog**：`docs/ops/kiro-fingerprint-changelog.md` 追加一行，记录 runtime
+   digest（变或不变）—— 这是下一个人判断「要不要 migration」的唯一依据。
+6. 运行 focused tests、sentinel、preflight 和全量测试后再提交。
 
 ## 禁止
 
