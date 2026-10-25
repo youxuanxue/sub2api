@@ -163,8 +163,14 @@ wait_healthy() {
 }
 
 health_http_ok() {
-  local name="$1" code
-  code="$(sudo docker exec "$name" wget -q -T 3 -S -O - http://localhost:8080/health 2>&1 | awk '/^  HTTP/{print $2; exit}')"
+  local name="$1" code out
+  # Send the body to /dev/null and keep only wget's -S header trace on stderr.
+  # Reading both from one stream (-O -) interleaves the JSON body with the
+  # headers, so a body that arrives first shifts the "  HTTP/1.1 200 OK" line
+  # and the match silently fails on a container that is in fact healthy. That
+  # aborted a rollback on 2026-10-25 with the standby already serving 200.
+  out="$(sudo docker exec "$name" wget -q -T 3 -S -O /dev/null http://localhost:8080/health 2>&1 || true)"
+  code="$(printf '%s\n' "$out" | awk 'match($0, /HTTP\/[0-9.]+ [0-9]{3}/) {print substr($0, RSTART+RLENGTH-3, 3); exit}')"
   echo "http_health $name code=${code:-?}"
   [ "$code" = 200 ]
 }
