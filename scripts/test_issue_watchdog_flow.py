@@ -157,6 +157,43 @@ class WatchdogFlowTest(unittest.TestCase):
         self.assertNotIn(item["upstream"], api.comments[0]["body"])
         self.assertEqual(api.issues[0]["state"], "closed")
 
+    def test_queue_holds_judged_work_only_and_keyword_leads_become_intel(self):
+        """The Issue is for work TokenKey still owes. A keyword hit is a lead, not a
+        task -- the classifier's own rationale says it is unverified -- so it must
+        not enter the queue. An unknown or missing status fails closed into the
+        queue: a visible extra task is cheaper than a silently lost one."""
+        source = mod.SOURCES["upstream"]
+        base = {**finding(source), "topics": ["billing"], "impact": "medium"}
+
+        def entry(number, status):
+            ref = f"{source['repo']}#{number}"
+            return {**base, "number": number, "upstream": ref,
+                    "url": mod.engine.issue_url(ref), "tokenkey_status": status}
+
+        entries = [entry(1, "candidate_unverified"), entry(2, "not_prioritized"),
+                   entry(3, "needs_tokenkey_review"), entry(4, "partially_mitigated"),
+                   entry(5, "fixed_in_tokenkey"), entry(6, "intentional_policy"),
+                   dict(base, number=7, upstream=f"{source['repo']}#7",
+                        url=mod.engine.issue_url(f"{source['repo']}#7"))]
+        queued, intel = mod.partition_entries(entries)
+        self.assertEqual([item["number"] for item in queued], [3, 4, 7])
+        self.assertEqual([item["number"] for item in intel], [1, 2])
+
+        # Keyword leads are not dropped on the floor: they are reported so the
+        # rotating intel Issue can carry them, and nothing is lost in the meantime.
+        report = {"high_unresolved": []}
+        api = FakeGitHub()
+        with patch.object(mod, "resolved_refs", return_value=set()):
+            outcome = mod.sync_issues(source, report, "example/fork", api, entries=entries)
+        self.assertEqual((outcome["queued"], outcome["intel"]), (3, 2))
+        self.assertEqual(len(report["intel_pending_carrier"]), 2)
+        body = "".join(comment["body"] for comment in api.comments)
+        for number in (3, 4, 7):
+            self.assertIn(f"{source['repo']}#{number}", body)
+        for number in (1, 2, 5, 6):
+            self.assertNotIn(f"{source['repo']}#{number}", body)
+        self.assertIn("当前待处理：3", api.issues[0]["body"])
+
     def test_resolutions_use_grouped_refs_and_revoke_missing_anchors(self):
         source = mod.SOURCES["upstream"]
         entry = {"upstream": source["repo"] + "#1, #2", "fixed_if_all_present": ["fixed.py:proof"]}

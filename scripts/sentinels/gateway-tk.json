@@ -715,9 +715,13 @@
         "def sync_issues(",
         "def resolved_refs(",
         "temporary.replace(checkpoint)",
-        "snapshot[\"published\"]"
+        "snapshot[\"published\"]",
+        "def partition_entries(",
+        "ledger.KEYWORD_STATUSES",
+        "Fail closed",
+        "ledger.SETTLED_STATUSES"
       ],
-      "rationale": "Preserve incremental recovery and idempotent Issue projection as one owner."
+      "rationale": "Preserve incremental recovery and idempotent Issue projection as one owner. The tracking queue is partitioned by WHO judged an entry, never by `impact`: keyword hits are unverified leads and must not enter the queue, while an entry with no known status fails closed INTO the queue so a classifier change cannot hide work."
     },
     {
       "path": "scripts/upstream/watchdog_queue.py",
@@ -795,7 +799,8 @@
         "test_related_candidates_publish_without_high_risk_and_fixed_are_excluded",
         "test_resolutions_use_grouped_refs_and_revoke_missing_anchors",
         "test_failed_sync_does_not_advance_checkpoint_and_retry_converges",
-        "test_missing_and_empty_anchors_revoke_runtime_fixed_classification"
+        "test_missing_and_empty_anchors_revoke_runtime_fixed_classification",
+        "test_queue_holds_judged_work_only_and_keyword_leads_become_intel"
       ],
       "rationale": "The normal scripts unittest gate exercises no-change, operator decisions, cursor replay and stale evidence."
     },
