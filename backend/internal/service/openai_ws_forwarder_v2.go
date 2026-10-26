@@ -685,7 +685,7 @@ readLoop:
 				message = replaceOpenAIWSMessageModel(message, mappedModel, originalModel)
 			}
 			if openAIWSEventMayContainToolCalls(eventType) && openAIWSMessageLikelyContainsToolCalls(message) {
-				if corrected, changed := s.toolCorrector.CorrectToolCallsInSSEBytes(message); changed {
+				if corrected, changed := s.toolCorrector.CorrectToolCallsInSSEBytes(c, message); changed {
 					message = corrected
 				}
 			}
@@ -840,7 +840,7 @@ readLoop:
 		if needModelReplace {
 			finalResponse = s.replaceModelInResponseBody(finalResponse, mappedModel, originalModel)
 		}
-		finalResponse = s.correctToolCallsInResponseBody(finalResponse)
+		finalResponse = s.correctToolCallsInResponseBody(c, finalResponse)
 		populateOpenAIUsageFromResponseJSON(finalResponse, usage)
 		if responseID == "" {
 			responseID = strings.TrimSpace(gjson.GetBytes(finalResponse, "id").String())

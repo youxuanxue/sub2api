@@ -477,13 +477,26 @@ func TestLogOpenAIWSBindResponseAccountWarn(t *testing.T) {
 	})
 }
 
+// 工具名改写随出站身份而定：以 OpenCode 身份发出才还原 OpenCode 词表，官方 Codex
+// 身份保持原样。该用例原先用官方 Codex UA 断言 apply_patch→edit，正是被修复的错配
+// 本身——官方 Codex 客户端的工具注册表里没有 edit。
 func TestOpenAIGatewayService_Forward_WSv2_RewriteModelAndToolCallsOnCompletedEvent(t *testing.T) {
+	t.Run("opencode identity restores the OpenCode vocabulary", func(t *testing.T) {
+		assertOpenAIWSV2CompletedToolName(t, "some-third-party-agent/1.0", "edit")
+	})
+	t.Run("official codex identity keeps the native tool name", func(t *testing.T) {
+		assertOpenAIWSV2CompletedToolName(t, "codex_cli_rs/0.98.0", "apply_patch")
+	})
+}
+
+func assertOpenAIWSV2CompletedToolName(t *testing.T, userAgent, wantToolName string) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
-	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.98.0")
+	c.Request.Header.Set("User-Agent", userAgent)
 	groupID := int64(3001)
 	c.Set("api_key", &APIKey{GroupID: &groupID})
 
@@ -545,7 +558,7 @@ func TestOpenAIGatewayService_Forward_WSv2_RewriteModelAndToolCallsOnCompletedEv
 	require.NotNil(t, result)
 	require.Equal(t, "resp_model_tool_1", result.RequestID)
 	require.Equal(t, "custom-original-model", gjson.GetBytes(rec.Body.Bytes(), "model").String(), "响应模型应回写为原始请求模型")
-	require.Equal(t, "edit", gjson.GetBytes(rec.Body.Bytes(), "tool_calls.0.function.name").String(), "工具名称应被修正为 OpenCode 规范")
+	require.Equal(t, wantToolName, gjson.GetBytes(rec.Body.Bytes(), "tool_calls.0.function.name").String(), "工具名改写必须与本次请求的出站身份一致")
 }
 
 func TestOpenAIWSPayloadString_OnlyAcceptsStringValues(t *testing.T) {

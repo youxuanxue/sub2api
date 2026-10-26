@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -61,12 +62,14 @@ func NewCodexToolCorrector() *CodexToolCorrector {
 }
 
 // CorrectToolCallsInSSEData 修正 SSE 数据中的工具调用
-// 返回修正后的数据和是否进行了修正
-func (c *CodexToolCorrector) CorrectToolCallsInSSEData(data string) (string, bool) {
+// 返回修正后的数据和是否进行了修正。
+// ginCtx 提供本次请求的出站身份；只有以 OpenCode 身份发出的请求才做词表还原
+// （见 openai_tool_corrector_gate_tk.go）。
+func (c *CodexToolCorrector) CorrectToolCallsInSSEData(ginCtx *gin.Context, data string) (string, bool) {
 	if data == "" || data == "\n" {
 		return data, false
 	}
-	correctedBytes, corrected := c.CorrectToolCallsInSSEBytes([]byte(data))
+	correctedBytes, corrected := c.CorrectToolCallsInSSEBytes(ginCtx, []byte(data))
 	if !corrected {
 		return data, false
 	}
@@ -75,7 +78,7 @@ func (c *CodexToolCorrector) CorrectToolCallsInSSEData(data string) (string, boo
 
 // CorrectToolCallsInSSEBytes 修正 SSE JSON 数据中的工具调用（字节路径）。
 // 返回修正后的数据和是否进行了修正。
-func (c *CodexToolCorrector) CorrectToolCallsInSSEBytes(data []byte) ([]byte, bool) {
+func (c *CodexToolCorrector) CorrectToolCallsInSSEBytes(ginCtx *gin.Context, data []byte) ([]byte, bool) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return data, false
 	}
@@ -84,6 +87,12 @@ func (c *CodexToolCorrector) CorrectToolCallsInSSEBytes(data []byte) ([]byte, bo
 	}
 	if !gjson.ValidBytes(data) {
 		// 不是有效 JSON，直接返回原数据
+		return data, false
+	}
+	// 名字映射与参数改写同受一个门控：参数改写（path→filePath 等）此前独立于
+	// 名字是否命中映射表，所以名字原样通过的合法 edit 调用参数照样被改坏。
+	if !openAIToolCorrectionUsesOpenCodeVocabulary(ginCtx) {
+		observeSuppressedCodexToolCorrection(ginCtx, data)
 		return data, false
 	}
 
