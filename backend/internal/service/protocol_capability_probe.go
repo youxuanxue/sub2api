@@ -213,8 +213,13 @@ func (s *AccountTestService) runEndpointProtocolProbe(
 	}
 	// Agent Plan probes only Chat Completions; strip lingering soft /responses
 	// (and any other protocol) so persisted capability matches Plan-facing SSOT.
+	// Only rewrite when Chat remains — an empty sanitize must not wipe a
+	// Responses-only prior into [] (that skips destructive-refuse and leaves
+	// the shared capability with no text protocol until a later Chat positive).
 	if len(witnesses) > 0 && isNewAPIVolcEngineAgentPlanAccount(witnesses[0]) {
-		resolution.SupportedProtocols = volcAgentPlanRoutingSupportedProtocols(resolution.SupportedProtocols)
+		if sanitized := volcAgentPlanRoutingSupportedProtocols(resolution.SupportedProtocols); len(sanitized) > 0 {
+			resolution.SupportedProtocols = sanitized
+		}
 	}
 	if !allowDestructive && protocolCapabilityMutationIsDestructive(capability, resolution) {
 		slog.Warn("protocol_capability_probe_destructive_refused",

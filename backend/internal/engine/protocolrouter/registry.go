@@ -225,14 +225,14 @@ func preservesChatToMessages(req CanonicalRequest) bool {
 
 func preservesResponsesConversion(req CanonicalRequest) bool {
 	// Align with ResponsesToChatCompletionsRequest and messages→chat: function
-	// tools plus text/image/video are preserved. Audio and previous_response_id
-	// continuation stay fail-closed. Reasoning effort / prompt-cache metadata
-	// map or drop in the converter and must not block admission — otherwise
-	// Chat-only supplies (Volc Agent Plan, dual-stack relays) reject shapes
-	// force-chat already serves after ResponsesIdentity.
+	// tools plus text/image/video are preserved; reasoning.effort maps to Chat.
+	// Audio, previous_response_id continuation, and prompt-cache metadata stay
+	// fail-closed — the converter does not preserve prompt_cache_key /
+	// cache_control, so Plan must not claim those features are preserved.
 	return preservesMessagesToResponsesContent(req) &&
 		req.responsesPath == ResponsesPathRoot &&
-		req.profile.Continuation == ContinuationNone
+		req.profile.Continuation == ContinuationNone &&
+		req.profile.PromptCache == PromptCacheNone
 }
 
 // PreservesResponsesToChat reports whether Responses→Chat keeps request

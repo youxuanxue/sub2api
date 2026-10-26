@@ -20,7 +20,7 @@ func TestPreservesResponsesToChat_AlignsWithConverterSurface(t *testing.T) {
 		{"video", RequestProfile{ContentKinds: ContentText | ContentVideo}, true},
 		{"tools_image", RequestProfile{Tools: true, ContentKinds: ContentText | ContentImage}, true},
 		{"reasoning_effort", RequestProfile{Reasoning: ReasoningEffort, ContentKinds: ContentText}, true},
-		{"prompt_cache", RequestProfile{PromptCache: PromptCacheKey, ContentKinds: ContentText}, true},
+		{"prompt_cache", RequestProfile{PromptCache: PromptCacheKey, ContentKinds: ContentText}, false},
 		{"audio", RequestProfile{ContentKinds: ContentAudio}, false},
 		{"continuation", RequestProfile{Continuation: ContinuationPreviousResponse, ContentKinds: ContentText}, false},
 	} {

@@ -12518,9 +12518,9 @@
       "must_contain": [
         "func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {",
         "if isNewAPIVolcEngineAgentPlanAccount(account) {\n\t\treturn []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}\n\t}",
-        "resolution.SupportedProtocols = volcAgentPlanRoutingSupportedProtocols(resolution.SupportedProtocols)"
+        "if sanitized := volcAgentPlanRoutingSupportedProtocols(resolution.SupportedProtocols); len(sanitized) > 0 {\n\t\t\tresolution.SupportedProtocols = sanitized\n\t\t}"
       ],
-      "rationale": "Capability probes follow account-declared endpoints and do not infer native protocols from compatibility ingress. Volc Agent Plan must probe Chat Completions only and sanitize persisted rows to chat-only on write — soft /responses positives seeded ResponsesIdentity and caused missing-input 400s."
+      "rationale": "Capability probes follow account-declared endpoints and do not infer native protocols from compatibility ingress. Volc Agent Plan must probe Chat Completions only and sanitize persisted rows to chat-only on write when Chat remains — soft /responses positives seeded ResponsesIdentity and caused missing-input 400s; empty sanitize must not wipe Responses-only priors to []."
     },
     {
       "path": "backend/internal/service/protocol_capability_probe_test.go",
@@ -13735,9 +13735,9 @@
       "must_contain": [
         "func preservesResponsesConversion(req CanonicalRequest) bool {",
         "func PreservesResponsesToChat(req CanonicalRequest) bool {",
-        "preservesMessagesToResponsesContent(req) &&\n\t\treq.responsesPath == ResponsesPathRoot &&\n\t\treq.profile.Continuation == ContinuationNone"
+        "preservesMessagesToResponsesContent(req) &&\n\t\treq.responsesPath == ResponsesPathRoot &&\n\t\treq.profile.Continuation == ContinuationNone &&\n\t\treq.profile.PromptCache == PromptCacheNone"
       ],
-      "rationale": "Responses→Chat preserve must match ResponsesToChatCompletionsRequest (tools + text/image/video); text-only-without-tools would mis-kill Chat-only Agent Plan / dual-stack relay admission for shapes force-chat already serves."
+      "rationale": "Responses→Chat preserve must match ResponsesToChatCompletionsRequest (tools + text/image/video + mapped reasoning); prompt-cache stays fail-closed because the converter does not preserve it. text-only-without-tools would mis-kill Chat-only Agent Plan / dual-stack relay admission for shapes force-chat already serves."
     },
     {
       "path": "backend/internal/engine/protocolrouter/responses_to_chat_preserve_tk_test.go",
@@ -13745,9 +13745,10 @@
         "func TestPreservesResponsesToChat_AlignsWithConverterSurface(",
         "\"audio\"",
         "\"tools_image\"",
+        "\"prompt_cache\"",
         "AdapterResponsesToChat"
       ],
-      "rationale": "Pins Responses→Chat admission surface: tools/image/video/reasoning OK; audio and previous_response_id continuation fail-closed."
+      "rationale": "Pins Responses→Chat admission surface: tools/image/video/reasoning OK; audio, prompt-cache, and previous_response_id continuation fail-closed."
     },
     {
       "path": "backend/internal/service/account_supported_protocols_test.go",
