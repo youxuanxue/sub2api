@@ -87,8 +87,16 @@ padding, on accounts 305 / 325 / 326.
 
 Verified:
 
-- The threshold does not depend on the model. On one account, `claude-sonnet-5`
-  and `claude-opus-5.5` accepted and rejected the same ladder byte for byte.
+- The threshold appeared not to depend on the model: on one account,
+  `claude-sonnet-5` and `claude-opus-5.5` accepted and rejected the same ladder
+  byte for byte. **This one is unconfirmed and may reverse.** A later probe the
+  same day had `claude-sonnet-4.5` rejected at a size the other two accepted on
+  the same account, and the cross-model comparison currently mixes two baselines:
+  the `sonnet-4.5` rejection reproduced both on real translator output and on a
+  hand-built body, while the `sonnet-5` / `opus-5.5` acceptances were measured
+  only on a hand-built body. A same-baseline comparison is still being
+  collected. Until it lands, do not treat model-independence as settled, and do
+  not assume a raised limit would be accepted on every model.
 - The threshold does depend on the account, which was not previously known. At
   least two tiers exist: two accounts' boundaries fall in the same 16-byte
   interval, (993,815, 993,831], and a third sits about 4.5 KB higher, at
