@@ -155,6 +155,30 @@ func TestTkNewAPIBridgeUpstreamFailoverError_NVIDIAForcesRequestScoped(t *testin
 		"non-NVIDIA model_not_found stays account-fault shaped when forced through failover helper")
 }
 
+func TestTkNewAPIBridgeUpstreamFailoverError_429FeedsUnifiedSoftPriority(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ordinary := newNewAPIBridgeAccount()
+	// Volcengine/Kimi ServerOverloaded shape seen on cn-prod: HTTP 429 with
+	// TooManyRequests / temporarily busy — must tag account_rate_limit so
+	// candidate_failure_tk soft-demotes (+1000) after the shared threshold.
+	for _, msg := range []string{
+		"The service is currently unable to handle additional requests due to server overload. Please retry later.",
+		"Requests rate limit exceeded",
+	} {
+		failover := tkNewAPIBridgeUpstreamFailoverError(c, ordinary, upstreamBridgeError(429, msg))
+		require.NotNil(t, failover)
+		require.Equal(t, http.StatusTooManyRequests, failover.StatusCode)
+		require.Equal(t, GatewayFailureScopeAccount, failover.Scope)
+		require.Equal(t, candidateAccountRateLimitReason, failover.Reason)
+		require.True(t, failover.ShouldRetryNextAccount())
+		require.True(t, candidateFailureAttributable(failover),
+			"NewAPI account 429 must feed unified soft priority demotion")
+	}
+	// Untagged bare 429 stays outside attribution (existing negative contract).
+	require.False(t, candidateFailureAttributable(&UpstreamFailoverError{StatusCode: 429}))
+}
+
 func TestBridgeOpaqueBadResponse404CoolsExecutedModelAndFailovers(t *testing.T) {
 	account := parameterCompatibilityAccount(PlatformNewAPI, "z-ai/glm-5.3-flash", protocolrouter.ProtocolChatCompletions)
 	request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone, "gpt-5.4", false, []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}]}`))

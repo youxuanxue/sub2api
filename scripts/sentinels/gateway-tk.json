@@ -346,9 +346,11 @@
         "isNewAPINVIDIABuildAccount(account) && tkIsBridgeOpaqueBadResponse404(apiErr)",
         "tkBridgeUpstreamShouldFailoverAfterPenalty(account, apiErr)",
         "apiErr.GetErrorCode() == newapitypes.ErrorCodeBadResponseBody",
-        "upstream.Type == string(newapitypes.ErrorCodeBadResponseBody)"
+        "upstream.Type == string(newapitypes.ErrorCodeBadResponseBody)",
+        "failoverErr.Reason = candidateAccountRateLimitReason",
+        "if statusCode == http.StatusTooManyRequests {"
       ],
-      "rationale": "Bridge retirement must both switch accounts and cool the executed model; opaque bad_response_status_code 404 cool+failover stays NVIDIA-only; account-level penalty statuses remain narrow. Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
+      "rationale": "Bridge retirement must both switch accounts and cool the executed model; opaque bad_response_status_code 404 cool+failover stays NVIDIA-only; account-level penalty statuses remain narrow; NewAPI account-pressure 429 must tag account_rate_limit so unified soft priority demotion can rank healthier siblings. Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
@@ -377,9 +379,10 @@
         "func TestBridgeModelRetirementCoolsExecutedModel(",
         "func TestBridgeModelRetirementWithoutPlanDoesNotGuessCooldownKey(",
         "func TestTkBridgeUpstreamShouldFailoverAfterPenalty_OpaqueBadResponse404IsNVIDIAOnly(",
-        "func TestBridgeOpaqueBadResponse404DoesNotCoolOrdinaryNewAPI("
+        "func TestBridgeOpaqueBadResponse404DoesNotCoolOrdinaryNewAPI(",
+        "func TestTkNewAPIBridgeUpstreamFailoverError_429FeedsUnifiedSoftPriority("
       ],
-      "rationale": "Bridge boundary regression asserts switching plus exact-model cooldown and no guessed key; opaque 404 failover/cool stays NVIDIA-only."
+      "rationale": "Bridge boundary regression asserts switching plus exact-model cooldown and no guessed key; opaque 404 failover/cool stays NVIDIA-only; NewAPI 429 tags account_rate_limit for soft priority demotion."
     },
     {
       "path": "backend/internal/service/account_model_mapping_nvidia_tk_test.go",
@@ -1850,9 +1853,10 @@
       "path": "backend/internal/service/newapi_bridge_failover_tk.go",
       "must_contain": [
         "Semantic:   tkBridgeFailureSemantic(apiErr)",
-        "RequestScopedTransient: semantic == gatewayFailureSemanticTransientFault"
+        "RequestScopedTransient: semantic == gatewayFailureSemanticTransientFault",
+        "failoverErr.Reason = candidateAccountRateLimitReason"
       ],
-      "rationale": "Recognized supplier 500 outages reach the shared failover policy without credential penalties."
+      "rationale": "Recognized supplier 500 outages reach the shared failover policy without credential penalties; NewAPI account-pressure 429 tags account_rate_limit for unified soft priority demotion."
     },
     {
       "path": "backend/internal/handler/candidate_chat_messages_tk_test.go",
@@ -2113,7 +2117,7 @@
       "must_not_contain": [
         "PlatformNewAPI"
       ],
-      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, observed errors cannot count twice, and OpenAI capacity-shed overload still feeds soft effective-priority demotion without hard unsched."
+      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, observed errors cannot count twice, and OpenAI capacity-shed overload plus tagged account_rate_limit 429 (including NewAPI bridge ServerOverloaded) still feed soft effective-priority demotion without hard unsched."
     },
     {
       "path": "backend/internal/service/protocol_execution.go",
@@ -2140,12 +2144,13 @@
         "TestCandidateTransportFailureAttribution",
         "TestCandidateFailureAttributionSoftDeprioritizesOpenAICapacityShed",
         "TestCandidateFailureCodex429UsesUnifiedPriority",
+        "TestCandidateFailureNewAPI429UsesUnifiedPriority",
         "http_400_capacity_shed",
         "selectAccount_demotes_after_threshold",
         "ExecuteSelectedProtocol",
         "classifyOpenAIAPIKeyHealthFailure(observed)"
       ],
-      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution, OpenAI capacity-shed soft priority demotion (including HTTP 400 construction), and legacy breaker deduplication across platforms and key modes."
+      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution, OpenAI capacity-shed and NewAPI ServerOverloaded 429 soft priority demotion (including HTTP 400 construction), and legacy breaker deduplication across platforms and key modes."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
