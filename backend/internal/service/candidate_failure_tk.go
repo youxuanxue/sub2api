@@ -108,6 +108,8 @@ func candidateFailureAttributable(err error) bool {
 	if !failure.ShouldRetryNextAccount() || failure.StatusCode == 529 {
 		return false
 	}
+	// Account-pressure 429 (OpenAI OAuth + NewAPI bridge ServerOverloaded / rate
+	// limit) shares the soft +1000 demotion path; bare untagged 429 does not.
 	if failure.StatusCode == http.StatusTooManyRequests {
 		return failure.Scope == GatewayFailureScopeAccount && failure.Reason == candidateAccountRateLimitReason
 	}
