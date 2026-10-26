@@ -153,6 +153,55 @@ func TestForwardAsAnthropic_VolcAgentPlanUsesChatFallback(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "协议兼容测试通过")
 }
 
+func TestForwardAsChatCompletionsDispatched_ConvertsResponsesShapedBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	oldDispatch := dispatchNewAPIChatCompletions
+	t.Cleanup(func() { dispatchNewAPIChatCompletions = oldDispatch })
+
+	var capturedBody []byte
+	dispatchNewAPIChatCompletions = func(_ context.Context, c *gin.Context, _ bridge.ChannelContextInput, body []byte) (*bridge.DispatchOutcome, *newapitypes.NewAPIError) {
+		capturedBody = append([]byte(nil), body...)
+		c.Writer.Header().Set("Content-Type", "application/json")
+		c.Writer.WriteHeader(http.StatusOK)
+		_, _ = c.Writer.Write([]byte(`{"id":"chatcmpl_bridge","object":"chat.completion","model":"kimi-k3","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`))
+		return &bridge.DispatchOutcome{
+			Usage:         &newapidto.Usage{PromptTokens: 3, CompletionTokens: 1, TotalTokens: 4},
+			Model:         "kimi-k3",
+			UpstreamModel: "kimi-k3",
+			Stream:        false,
+		}, nil
+	}
+
+	account := &Account{
+		ID:          4501,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: 43,
+		Credentials: map[string]any{"api_key": "sk-newapi", "base_url": "https://newapi.example"},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+	body := []byte(`{
+		"model": "kimi-k3",
+		"stream": false,
+		"instructions": "请简洁回答。",
+		"input": [{"role":"user","content":"hello"}]
+	}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	result, err := (&OpenAIGatewayService{}).ForwardAsChatCompletionsDispatched(context.Background(), c, account, body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, gjson.GetBytes(capturedBody, "messages").IsArray(),
+		"bridge chat dispatch must convert Responses-shaped body to messages")
+	require.False(t, gjson.GetBytes(capturedBody, "input").Exists(),
+		"converted bridge chat body must not retain Responses input")
+}
+
 func TestIsNewAPIResponsesProactiveChatFallbackModel_Kimi(t *testing.T) {
 	require.True(t, isNewAPIResponsesProactiveChatFallbackModel("kimi-k3"))
 	require.True(t, isNewAPIResponsesProactiveChatFallbackModel("moonshot-v1-128k"))
