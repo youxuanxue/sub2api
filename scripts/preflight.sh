@@ -1661,7 +1661,7 @@ fi
 # an absolute-path-with-directory check, a system-path denylist, and a sha256
 # readback. This gate keeps the ad-hoc shape from coming back into the repo.
 if _preflight_selected 'cn-prod remote file transfer'; then
-echo "=== sub2api: cn-prod remote file transfer (put-file SSOT) ==="
+echo "=== sub2api: cn-prod remote file transfer ==="
 _pf_transfer_fail=0
 
 for _pf_need in \
