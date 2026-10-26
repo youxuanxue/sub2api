@@ -112,7 +112,12 @@ func streamFirstOutputBudgetReason(high bool) string {
 	return "default"
 }
 
-func openAIFirstOutputBudgetReason(c *gin.Context, body []byte, effort string) string {
+// firstOutputBudgetReason selects the first-output budget *class*
+// (default / high_effort / compact / large_body). Shared selection policy for
+// OpenAI-native streams and NewAPI Chat replay (#2610 strategy); each platform
+// still resolves the numeric timeout via its own knobs
+// (openAIFirstOutputTimeout vs newAPIChatFirstOutputTimeoutWithEffort).
+func firstOutputBudgetReason(c *gin.Context, body []byte, effort string) string {
 	if isOpenAIResponsesCompactPath(c) || HasCompactionTriggerInInput(body) {
 		return "compact"
 	}
@@ -123,6 +128,18 @@ func openAIFirstOutputBudgetReason(c *gin.Context, body []byte, effort string) s
 		return "high_effort"
 	}
 	return streamFirstOutputBudgetReason(streamFirstOutputHighEffort(effort))
+}
+
+// firstOutputBudgetForcesHigh reports whether a budget-reason class must use
+// the platform high-latency first-output timeout (compact / large body /
+// explicit or model-family high reasoning).
+func firstOutputBudgetForcesHigh(reason string) bool {
+	switch reason {
+	case "compact", "large_body", "high_effort":
+		return true
+	default:
+		return false
+	}
 }
 
 // FinalizeOpsFirstOutputEvaluation annotates only actual timeout events. A

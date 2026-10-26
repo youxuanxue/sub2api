@@ -1,9 +1,9 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills, 2026-10-13 universal ordinary/complex first-output budgets approved as 120s/600s; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation; 2026-10-19 NewAPI Chat nonstream first-output default/host inject raised to 600, config max 900; 2026-10-19 OpenAI capacity-shed soft effective-priority demotion; 2026-10-20 all-platform load-aware fallback only after retaining usable affinity; user broadened #2749 beyond VolcEngine)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills, 2026-10-13 universal ordinary/complex first-output budgets approved as 120s/600s; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation; 2026-10-19 NewAPI Chat nonstream first-output default/host inject raised to 600, config max 900; 2026-10-19 OpenAI capacity-shed soft effective-priority demotion; 2026-10-20 all-platform load-aware fallback only after retaining usable affinity; user broadened #2749 beyond VolcEngine; 2026-10-26 NewAPI Chat first-output promotion classes aligned with OpenAI compact/large-body/high-reasoning strategy, numeric knobs remain platform-owned)"
 created: 2026-09-07
-revised_at: 2026-10-20
+revised_at: 2026-10-26
 ---
 
 # Candidate Eligibility SSOT
@@ -293,6 +293,9 @@ viper / compose / remediate / `config.example.yaml` / Go defaults (preflight
 Codex client thinking; compact path (`/responses/compact`),
 `compaction_trigger` input, or request body ≥ `OPENAI_FORCE_HIGH_BODY_BYTES`
 force the high-effort budget even when `reasoning.effort` is medium/low.
+NewAPI Chat replay uses the **same promotion classes** (compact / large body /
+high reasoning → high-latency tier) via `firstOutputBudgetReason`; only
+the numeric knobs differ (`newapi_chat_*` / universal stream inherit).
 
 ### Kiro fixed request waiting budget (#2621 conversation approval)
 
@@ -328,7 +331,12 @@ not redefine these budgets. Grok’s first-byte header wait inherits
 A replayable NewAPI Chat request may immediately try another eligible account
 on its first pre-output failure; it does not wait for three cross-request failures.
 Streaming inherits the universal stream budget above (legacy
-`gateway.newapi_chat_first_output_timeout` overrides when >0). Non-streaming
+`gateway.newapi_chat_first_output_timeout` overrides when >0). Compact path,
+body ≥ `OPENAI_FORCE_HIGH_BODY_BYTES`, or high reasoning (effort / long-thinking
+model family) promote to the NewAPI high-latency tier
+(`gateway.newapi_chat_high_effort_first_output_timeout`, else stream high-effort
+SSOT) — strategy-aligned with OpenAI #2610; values remain platform-owned.
+Non-streaming
 uses `gateway.newapi_chat_nonstream_first_output_timeout`; numeric default,
 host-inject fallback, Go fallback, and config max are owned only by
 `ops/stage0/first_output_timeout_ssot.py` (regenerate via
