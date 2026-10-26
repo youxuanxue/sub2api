@@ -87,20 +87,28 @@ padding, on accounts 305 / 325 / 326.
 
 Verified:
 
-- The threshold appeared not to depend on the model: on one account,
-  `claude-sonnet-5` and `claude-opus-5.5` accepted and rejected the same ladder
-  byte for byte. **This one is unconfirmed and may reverse.** A later probe the
-  same day sent the same shape at the same 920,000 bytes on the same account,
-  varying only `modelId`: `claude-sonnet-4.5` returned 400
-  `CONTENT_LENGTH_EXCEEDS_THRESHOLD` while `claude-sonnet-5` and
-  `claude-opus-5.5` both returned 200, putting `sonnet-4.5`'s threshold somewhere
-  near 300,000–350,000 rather than just under 1,000,000. The comparison mixes two
-  baselines, though: the `sonnet-4.5` rejection reproduced both on real translator
-  output and on a hand-built body, while the `sonnet-5` / `opus-5.5` acceptances
-  were measured only on a hand-built body. A same-baseline re-test is still being
-  collected. Until it lands, do not treat model-independence as settled, do not
-  base a limit decision on it, and do not assume a raised limit would be accepted
-  on every model.
+- **The threshold does depend on the model.** An earlier reading of these probes
+  said it did not, because `claude-sonnet-5` and `claude-opus-5.5` accepted and
+  rejected the same ladder byte for byte on one account. A same-baseline re-test
+  has since refuted that as a general claim: on the same account, on real
+  translator output, at the same 920,000 bytes, varying only `modelId`,
+  `claude-sonnet-5` returned 200 while `claude-sonnet-4.5` returned 400
+  `CONTENT_LENGTH_EXCEEDS_THRESHOLD`, putting `sonnet-4.5`'s threshold near
+  300,000–350,000 rather than just under 1,000,000. The original observation holds
+  only between those two models, which happen to share a high threshold.
+  Evidence grades that still differ: the `sonnet-4.5` rejection reproduced on both
+  real translator output and a hand-built body, while the opus-series acceptances
+  at 962,560 are hand-built only (a real-translator re-test for `opus-5.5` is in
+  flight). `sonnet-4.5` and `haiku-4.5` were rejected at 962,560 and must stay at
+  921,600. Any limit change has to be made per model, not globally.
+- **The size the guard validates is 81 bytes short of what ships.**
+  `ValidatePayloadSize` runs before `setPayloadProfileArnForAccount`, and
+  `ProfileArn` carries `omitempty`, so the injected
+  `"profileArn":"<65-char ARN>"` (65 + 16 bytes of wrapper) falls entirely outside
+  what the guard measured. Confirmed on real wire: `wire_bytes=920081` against
+  `validated_bytes_equiv=920000`. Every threshold figure in this document is
+  therefore 81 bytes optimistic about what reaches Kiro. A separate PR fixes the
+  gap; this contract's 900 KiB limit is unchanged.
 - The threshold does depend on the account, which was not previously known. At
   least two tiers exist: two accounts' boundaries fall in the same 16-byte
   interval, (993,815, 993,831], and a third sits about 4.5 KB higher, at
