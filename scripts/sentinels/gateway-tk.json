@@ -17632,6 +17632,7 @@
       "must_contain": [
         "func TestForwardImagesEmitsTimingWithoutChangingResult",
         "func TestImageTimingNonstreamObservesArrivalBeforeBufferedParsing",
+        "func TestImageTimingParsesSSERegardlessOfContentType",
         "func TestImageTimingForwardRetryAndKeepaliveWriter"
       ],
       "rationale": "Preserve real forwarding-hook coverage, nonstream arrival timing and retry/keepalive compatibility; helper-only tests cannot detect lost transport injection."
