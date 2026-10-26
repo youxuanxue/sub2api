@@ -163,6 +163,17 @@ threshold as a stable contract. The 2026-10-26 probes are such evidence, but
 recording them here does not itself authorize a new limit: that requires
 gateway-path validation and a separate approval.
 
+## Pending exception (not in force)
+
+A **gated** exception for Claude Code auto-mode classifier transcripts — allow
+structured whole-record deletion of old tool-process lines inside current user
+prose when an account Extra flag is on — is proposed in
+[`kiro-auto-mode-transcript-trim.md`](kiro-auto-mode-transcript-trim.md)
+(`status: pending`). Until that document is human-approved and flipped out of
+`pending`, this overflow contract’s “must not shorten current user prose” rule
+and default off behavior remain authoritative. Head/tail truncation, summarization,
+and cross-platform overflow failover stay out of scope here.
+
 ## Verification
 
 The linked Story covers history truncation, current-message and UTF-8 integrity,

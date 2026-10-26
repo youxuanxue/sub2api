@@ -26,7 +26,7 @@ func normalizeKiroToolHistory(payload *KiroPayload) {
 			if u.UserInputMessageContext != nil {
 				u.UserInputMessageContext.Tools = nil
 			}
-			if len(history) > 0 && history[len(history)-1].UserInputMessage != nil {
+			if !payload.preserveUserTurnBoundaries && len(history) > 0 && history[len(history)-1].UserInputMessage != nil {
 				mergeKiroUserMessages(history[len(history)-1].UserInputMessage, u)
 				continue
 			}
@@ -35,7 +35,7 @@ func normalizeKiroToolHistory(payload *KiroPayload) {
 	}
 	// Consecutive user blocks (including the current message) are one logical
 	// result batch. Preserve all IDs and images when joining them.
-	if len(history) > 0 && history[len(history)-1].UserInputMessage != nil {
+	if !payload.preserveUserTurnBoundaries && len(history) > 0 && history[len(history)-1].UserInputMessage != nil {
 		previous := history[len(history)-1].UserInputMessage
 		mergeKiroUserMessages(previous, current)
 		current.Content = previous.Content

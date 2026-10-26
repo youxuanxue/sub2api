@@ -3,6 +3,7 @@ title: Kiro auto-mode 请求超限处理与 transcript 裁剪边界
 status: proposed
 approved_by: pending
 risk: high
+intent_carrier: docs/approved/kiro-auto-mode-transcript-trim.md
 ---
 
 ## 目标与当前结论
@@ -19,7 +20,10 @@ risk: high
 记录较旧或工具可重新执行，并不证明记录与当前判定无关。
 但《新证据一》已验证：这批 413 的 wire 正文里不存在结构化工具记录，该路径在这批流量上无事可做。
 
-本文件是修订后的方案建议，保留 pending 状态，不把会话中的方向确认扩大为生产上线授权。
+本文件是修订后的方案建议与证据账本。**受限 transcript 原型**的审批载体已落到
+[`approved/kiro-auto-mode-transcript-trim.md`](approved/kiro-auto-mode-transcript-trim.md)
+（`status: pending`）。会话中确认「做受限原型」不等于生产默认开启；须该 approved
+文档经人工审批后，方可把账号 Extra 开关用于非副本流量。
 
 ## 已有证据与适用范围
 
@@ -248,20 +252,39 @@ Claude Code 2.1.301 的分类器提示明确使用 assistant 提案解释用户�
 - [kiro-lb 的容量实验](https://github.com/minpeter/kiro-lb/pull/26)
   使用不同模型和账号，不能推翻本项目此前上游实测，也不能作为直接放宽本地保护的依据。
 
+### 2026-10-26 开源深挖（强化上述结论）
+
+会话专家调研已读 kiro-lb #26/#60、Kiro-Go #104/#119（含 `truncateCurrentMessage`）、jwadow/kiro-gateway
+`payload_guards` + AGENTS、petehsu/KiroProxy、jasminnanda/kirogo INTERNALS、pi-provider-kiro
+`history.ts`、iTerm2 / claude-auto-permission、CC 逆向报告与相关 issues。固化到
+[`approved/kiro-auto-mode-transcript-trim.md`](approved/kiro-auto-mode-transcript-trim.md)
+§Community survey。摘要：
+
+| 社区路径 | 对本批 auto-mode 413 |
+|---|---|
+| 只裁外层 history / 先剥图 | **无效**（history 空） |
+| RTK / tool-result clip | **无效**（零 tool_result） |
+| 硬截 current / AI 摘要 | **禁止**（安全 + 与 overflow 契约冲突） |
+| 静默 failover Anthropic | **无先例**；须另案显式供应源 |
+| 客户端有界分类 | **正确修复面**；非网关算法许可 |
+
+**没有任何**开源网关声明已解决「CC auto-mode transcript → Kiro ~900KiB → 413」且保持分类安全等价。
+
 ## 当前交付范围
 
-本 PR 只完成已获授权的诊断改动，不增加 transcript 解析器、原型入口或裁剪开关：
+**诊断**（已获授权、可继续并存）：
 
 - Kiro 本地超限记录转换器输入大小/hash、现有裁剪前后序列化大小以及 system、history、current text、工具等组成。
-  转换器输入可能已经过 schema 等处理，不标为原始入站 wire。
-- QA 区分实际读取的 wire 字节/hash、读取是否完整，以及保存/脱敏后正文的字节/hash。
-  只有读到 EOF 且无读取错误时才声明完整 wire hash；不改变旧 `request_sha256` 的含义。
-- 新增诊断只包含大小、计数、完整性和 hash，不附加用户正文，不扩大 QA 正文保存上限。
-- 所有请求沿用现有裁剪与本地 413 路径，包括 auto-mode transcript；不新增任何正文改写。
-- 诊断测量现有转换和裁剪前后的 Kiro payload；不因尺寸错误跨账号重试，不放宽 Kiro 限制。
-- 本次不输出 transcript 检测结果或删除类别/条数；这些属于尚未实现的候选实验。
+- QA 区分 wire 字节/hash 与完整性；诊断不含用户正文。
 
-本方案不修改生产服务、账号、路由、计费、超时或权限模式，不伪造分类器允许结果。
+**受限原型**（2026-10-26 起，审批载体
+[`approved/kiro-auto-mode-transcript-trim.md`](approved/kiro-auto-mode-transcript-trim.md)）：
+
+- 增加识别 / 解析 / 整条删除旧工具过程的 **gated** 实现与单元测试；默认关闭。
+- 未人工批准前：不得改生产账号 Extra 默认值，不得宣称已修复现网 413。
+- 头尾截断、摘要、跨平台 failover、抬限：仍不在本交付范围。
+
+本方案不伪造分类器允许结果。
 
 ## 用户可见的处理路径
 
@@ -270,9 +293,9 @@ Claude Code 2.1.301 的分类器提示明确使用 assistant 提案解释用户�
 | 在客户端使用普通权限确认模式 | 避开这类 auto-mode 辅助分类请求；增加用户确认次数 | 待在受控客户端验证；不代表所有大请求都不会超限，不自动代用户切换 |
 | 显式选择已验证能承接完整输入的供应源 | 保留自动模式及完整分类输入；供应源、费用和数据去向可能变化 | 当前未选定供应源；不自动跨平台路由 |
 | 客户端压缩或修复其分类器输入生成 | 客户端掌握真实角色和协议，更适合决定输入组织方式 | 未验证具体版本、配置或修复；不能承诺升级或 `/compact` 一定有效 |
-| 网关按结构删除旧工具过程记录 | 在这批 413 流量上收益为零：wire 正文里零 `tool_use` / `tool_result`（《新证据一》） | 不再是优先验证对象；留作其它 Kiro 流量的候选 |
-| 抬高 `maxPayloadBytes` 到 940 KiB | 解决 45 次一次性突发；38 次 cron 仅推迟约 15 分钟~1 小时；6 次刻意让给安全余量、30 次仍 413 | 阈值证据已就绪（《新证据二》）；落地前须经 `/v1/messages` 验证网关路径，并单独评审 |
-| 网关按标签删除、摘要或头尾截断 transcript | 有机会缩小正文，但会改变安全审查材料 | 明确不实施 |
+| 网关按结构删除旧工具过程记录（受限原型） | 对《新证据一》外层 Anthropic wire 收益可能仍为 0；须解析 `<transcript>` **内部**结构化记录后实测 | **进行中**：见 [approved 原型](approved/kiro-auto-mode-transcript-trim.md)；默认关闭；审批前仅副本/测试 |
+| 抬高 `maxPayloadBytes` 到 940 KiB | 解决 45 次一次性突发；38 次 cron 仅推迟约 15 分钟~1 小时；6 次刻意让给安全余量、30 次仍 413 | 阈值证据已就绪（《新证据二》）；落地前须经 `/v1/messages` 验证网关路径，并单独评审（**本原型不包含抬限**） |
+| 网关按标签删除、摘要或头尾截断 transcript | 有机会缩小正文，但会改变安全审查材料 | **明确不实施**（与受限整条删除不是同一路径） |
 
 诊断交付与用户体验修复分别验收。普通权限确认会减少自动化，不能悄悄作为默认产品修复；
 保留自动模式的长期处理仍需客户端兼容修复或能承接完整输入的供应源。

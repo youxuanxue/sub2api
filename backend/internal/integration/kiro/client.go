@@ -176,6 +176,10 @@ type KiroPayload struct {
 	// BindWireProfileArn) needs the same retention rules the translator used.
 	// Unexported, so it is never serialized and never reaches Kiro.
 	hasSystemPriming bool
+
+	// preserveUserTurnBoundaries keeps compact summary blocks as independent
+	// history entries so the size truncator can remove complete old blocks.
+	preserveUserTurnBoundaries bool
 }
 
 // AdditionalModelRequestFields carries Kiro adaptive-thinking controls that

@@ -2671,9 +2671,11 @@ func setDefaults() {
 
 	// QA capture
 	viper.SetDefault("qa_capture.enabled", true)
-	viper.SetDefault("qa_capture.body_max_bytes", 256*1024)
+	// 1.1 MiB: covers ~1.05MB Claude Code auto-mode classifier wires so
+	// <transcript> close markers are not lost to the former 256 KiB prefix.
+	viper.SetDefault("qa_capture.body_max_bytes", 1153434)
 	// traj/synth opt-in 记录用更高上限，避免长 thinking 被截断。
-	viper.SetDefault("qa_capture.opt_in_body_max_bytes", 1024*1024)
+	viper.SetDefault("qa_capture.opt_in_body_max_bytes", 2*1024*1024)
 	viper.SetDefault("qa_capture.worker_count", 8)
 	viper.SetDefault("qa_capture.queue_size", 2048)
 	viper.SetDefault("qa_capture.storage.driver", "localfs")

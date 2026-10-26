@@ -310,7 +310,7 @@ func (s *Service) Enabled() bool {
 
 func (s *Service) BodyMaxBytes() int {
 	if s == nil || s.bodyMaxBytes <= 0 {
-		return 256 * 1024
+		return 1153434 // 1.1 MiB; keep aligned with qa_capture.body_max_bytes default
 	}
 	return s.bodyMaxBytes
 }
@@ -319,7 +319,7 @@ func (s *Service) BodyMaxBytes() int {
 // 避免长 thinking 被截断）。<=0 或低于普通上限时回退到 BodyMaxBytes()。
 func (s *Service) OptInBodyMaxBytes() int {
 	if s == nil {
-		return 1024 * 1024
+		return 2 * 1024 * 1024
 	}
 	if s.optInBodyMaxBytes > s.BodyMaxBytes() {
 		return s.optInBodyMaxBytes
