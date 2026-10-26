@@ -211,6 +211,11 @@ func (s *AccountTestService) runEndpointProtocolProbe(
 	if err != nil {
 		return ProtocolProbeRunResult{}, err
 	}
+	// Agent Plan probes only Chat Completions; strip lingering soft /responses
+	// (and any other protocol) so persisted capability matches Plan-facing SSOT.
+	if len(witnesses) > 0 && isNewAPIVolcEngineAgentPlanAccount(witnesses[0]) {
+		resolution.SupportedProtocols = volcAgentPlanRoutingSupportedProtocols(resolution.SupportedProtocols)
+	}
 	if !allowDestructive && protocolCapabilityMutationIsDestructive(capability, resolution) {
 		slog.Warn("protocol_capability_probe_destructive_refused",
 			"capability_key", capability.CapabilityKey,

@@ -164,8 +164,27 @@ func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {
 	return routingSupportedProtocolsForInbound(account, "", nil)
 }
 
+// volcAgentPlanRoutingSupportedProtocols is the Plan-facing and probe-write
+// SSOT for Volc Agent Plan text protocols: Chat Completions only. Soft
+// /responses positives and stale capability rows must not keep Responses in
+// the supported set after sanitize.
+func volcAgentPlanRoutingSupportedProtocols(protocols []protocolrouter.Protocol) []protocolrouter.Protocol {
+	for _, protocol := range protocols {
+		if protocol == protocolrouter.ProtocolChatCompletions {
+			return []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}
+		}
+	}
+	return nil
+}
+
 func routingSupportedProtocolsForInbound(account *Account, inbound protocolrouter.Protocol, request *protocolrouter.CanonicalRequest) []protocolrouter.Protocol {
 	protocols := account.SupportedProtocols()
+	// Volc Agent Plan text is Chat Completions only. Soft /responses probe
+	// positives must not remain Plan-facing (same false-positive class as
+	// TokenSea/CloudWise). Runtime filter + probe sanitize share this owner.
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		return volcAgentPlanRoutingSupportedProtocols(protocols)
+	}
 	if protocolGeminiEndpointProfile(account) == protocolrouter.GeminiEndpointNativeAPIKey {
 		for _, protocol := range protocols {
 			if protocol == protocolrouter.ProtocolGeminiGenerateContent {
@@ -363,8 +382,11 @@ func protocolResolvedModelAllowedForTargetWithAdmission(
 	// as "endpoint exists". Execute already forces raw chat
 	// (shouldForwardOpenAIResponsesViaRawChatCompletions). Plan must not pick
 	// responses or Claude Code + non-Claude would convert onto a dead wire.
+	// Volc Agent Plan is the same class for kimi-k3 text: root exposes
+	// /responses, but Chat Completions is the only stable native protocol.
 	if target == protocolrouter.ProtocolResponses &&
-		(account.IsOpenAICloudwiseRelay() || account.IsOpenAITokenseaRelay()) {
+		(account.IsOpenAICloudwiseRelay() || account.IsOpenAITokenseaRelay() ||
+			isNewAPIVolcEngineAgentPlanAccount(account)) {
 		return false
 	}
 	if target == protocolrouter.ProtocolGeminiGenerateContent {
@@ -549,10 +571,9 @@ func protocolExactEndpoint(account *Account, protocol protocolrouter.Protocol, r
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		base := strings.TrimRight(newapiintegration.VolcEngineAgentPlanBaseURL, "/")
-		// Exact /responses may still exist on the capability row for modality
-		// admission (audio ResponsesIdentity → known-negative). Text traffic
-		// must not POST chat bodies there — force-chat + protocolExecution
-		// ChatCompletionsEndpoint pin the wire to /chat/completions.
+		// Plan-facing capability is Chat-only (volcAgentPlanRoutingSupportedProtocols).
+		// Keep the /responses URL resolver for any residual identity path; text
+		// wire stays on /chat/completions via force-chat + protocolExecution.
 		if protocol == protocolrouter.ProtocolResponses {
 			return base + "/responses", nil
 		}

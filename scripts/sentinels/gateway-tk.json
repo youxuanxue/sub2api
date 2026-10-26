@@ -3021,10 +3021,11 @@
         "return openAIRequestEligibilityReason(ctx, account, requestedModel, requireCompact, requiredCapability)",
         "func openAIRequestEligibilityReason(",
         "protocolRuntimeAuthorizationReady",
+        "accountInputModalityRejection(ctx, account, requestedModel)",
         "protocolRequestEligibilityReason",
-        "accountInputModalityRejection(ctx, account, requestedModel)"
+        "Multimodal supply gate before Plan"
       ],
-      "rationale": "Legacy and advanced OpenAI scheduling share request compatibility while account status remains a separate gate; multimodal supply known-negatives must veto Direct newapi/openai candidates too."
+      "rationale": "Legacy and advanced OpenAI scheduling share request compatibility while account status remains a separate gate; multimodal supply known-negatives must veto Direct newapi/openai candidates before protocolrouter.Plan so Chat-only supplies keep clear audio 400s instead of no_legal_route."
     },
     {
       "path": "backend/internal/service/candidate_eligibility_test.go",
@@ -12494,10 +12495,13 @@
       "must_contain": [
         "func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {",
         "func routingSupportedProtocolsForInbound(account *Account, inbound protocolrouter.Protocol, request *protocolrouter.CanonicalRequest) []protocolrouter.Protocol {",
+        "func volcAgentPlanRoutingSupportedProtocols(protocols []protocolrouter.Protocol) []protocolrouter.Protocol {",
+        "if isNewAPIVolcEngineAgentPlanAccount(account) {\n\t\treturn volcAgentPlanRoutingSupportedProtocols(protocols)\n\t}",
+        "isNewAPIVolcEngineAgentPlanAccount(account))",
         "OpenAIToGeminiConversionPreserves(inbound, *request)",
         "protocols := account.SupportedProtocols()"
       ],
-      "rationale": "Routing targets are derived from persisted endpoint capabilities."
+      "rationale": "Routing targets are derived from persisted endpoint capabilities. Volc Agent Plan Plan-facing + model-allowance omit native Responses (soft probe false-positive class shared with TokenSea/CloudWise); volcAgentPlanRoutingSupportedProtocols is the chat-only sanitize owner."
     },
     {
       "path": "backend/internal/service/account_supported_protocols_test.go",
@@ -12513,9 +12517,10 @@
       "path": "backend/internal/service/protocol_capability_probe.go",
       "must_contain": [
         "func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {",
-        "if isNewAPIVolcEngineAgentPlanAccount(account) {\n\t\treturn []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}\n\t}"
+        "if isNewAPIVolcEngineAgentPlanAccount(account) {\n\t\treturn []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}\n\t}",
+        "resolution.SupportedProtocols = volcAgentPlanRoutingSupportedProtocols(resolution.SupportedProtocols)"
       ],
-      "rationale": "Capability probes follow account-declared endpoints and do not infer native protocols from compatibility ingress. Volc Agent Plan must probe Chat Completions only — soft /responses positives seeded ResponsesIdentity and caused missing-input 400s."
+      "rationale": "Capability probes follow account-declared endpoints and do not infer native protocols from compatibility ingress. Volc Agent Plan must probe Chat Completions only and sanitize persisted rows to chat-only on write — soft /responses positives seeded ResponsesIdentity and caused missing-input 400s."
     },
     {
       "path": "backend/internal/service/protocol_capability_probe_test.go",
@@ -13718,11 +13723,48 @@
         "func TestForward_VolcForceChat_BoundResponsesIdentityPlanPostsToChatURL(",
         "func TestForwardAsChatCompletions_BoundChatPlanConvertsResponsesShapedBody(",
         "func TestVolcAgentPlan_ResponsesInboundPlansToChat(",
+        "stale_responses_row_tools_image",
         "func TestForwardAsAnthropic_VolcAgentPlanUsesChatFallback(",
         "func TestIsNewAPIResponsesProactiveChatFallbackModel_Kimi(",
         "func TestForwardAsResponsesDispatched_KimiProactiveChatFallback("
       ],
-      "rationale": "Focused regressions for cn-prod kimi-k3 protocol-compat: Volc Agent Plan force-chat (including bound ResponsesIdentity plan must POST to /chat/completions, not /responses), Responses-shaped /v1/chat/completions conversion on raw/bound-Chat/NewAPI bridge paths, Messages→chat fallback, chat-only probe Plan responses_to_chat, and proactive Responses→chat for kimi/moonshot/k3. Deleting any of these lets upstream merge revive missing-input/missing-messages 400s without a compile break."
+      "rationale": "Focused regressions for cn-prod kimi-k3 protocol-compat: Volc Agent Plan force-chat (including bound ResponsesIdentity plan must POST to /chat/completions, not /responses), Responses-shaped /v1/chat/completions conversion on raw/bound-Chat/NewAPI bridge paths, Messages→chat fallback, chat-only Plan responses_to_chat even with stale Responses rows and tools/image, and proactive Responses→chat for kimi/moonshot/k3. Deleting any of these lets upstream merge revive missing-input/missing-messages 400s without a compile break."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/registry.go",
+      "must_contain": [
+        "func preservesResponsesConversion(req CanonicalRequest) bool {",
+        "func PreservesResponsesToChat(req CanonicalRequest) bool {",
+        "preservesMessagesToResponsesContent(req) &&\n\t\treq.responsesPath == ResponsesPathRoot &&\n\t\treq.profile.Continuation == ContinuationNone"
+      ],
+      "rationale": "Responses→Chat preserve must match ResponsesToChatCompletionsRequest (tools + text/image/video); text-only-without-tools would mis-kill Chat-only Agent Plan / dual-stack relay admission for shapes force-chat already serves."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/responses_to_chat_preserve_tk_test.go",
+      "must_contain": [
+        "func TestPreservesResponsesToChat_AlignsWithConverterSurface(",
+        "\"audio\"",
+        "\"tools_image\"",
+        "AdapterResponsesToChat"
+      ],
+      "rationale": "Pins Responses→Chat admission surface: tools/image/video/reasoning OK; audio and previous_response_id continuation fail-closed."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols_test.go",
+      "must_contain": [
+        "func TestVolcAgentPlanRoutingSupportedProtocols_ChatOnly(",
+        "func TestProtocolProbeCandidates_VolcAgentPlanChatOnly("
+      ],
+      "rationale": "Agent Plan chat-only Plan-facing sanitize and probe-candidate regressions."
+    },
+    {
+      "path": "backend/internal/service/candidate_multimodal_supply_tk_test.go",
+      "must_contain": [
+        "func TestVolcKimiAudioCandidateAdmission(",
+        "chat_only_capability",
+        "modality must win before Plan/no_legal_route on chat-only Agent Plan"
+      ],
+      "rationale": "Volc kimi-k3 audio known-negative must win on Direct OpenAI eligibility even when capability is Chat-only (Plan cannot convert audio Responses)."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward.go",

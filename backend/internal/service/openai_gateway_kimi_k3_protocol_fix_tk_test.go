@@ -208,32 +208,58 @@ func TestForwardAsChatCompletions_BoundChatPlanConvertsResponsesShapedBody(t *te
 	require.Contains(t, rec.Body.String(), "协议兼容测试通过")
 }
 
-// TestVolcAgentPlan_ResponsesInboundPlansToChat verifies defense #3 after
-// chat-only probes: capability without Responses selects responses_to_chat
-// with the chat endpoint (not ResponsesIdentity).
+// TestVolcAgentPlan_ResponsesInboundPlansToChat verifies chat-only Plan:
+// capability without Responses, and stale Responses rows, both select
+// responses_to_chat (not ResponsesIdentity), including tools/image shapes.
 func TestVolcAgentPlan_ResponsesInboundPlansToChat(t *testing.T) {
-	account := volcAgentPlanKimiAccountForTest()
-	account.Credentials["model_mapping"] = map[string]any{"kimi-k3": "kimi-k3"}
-	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions)
+	for _, tc := range []struct {
+		name       string
+		capability []protocolrouter.Protocol
+		profile    protocolrouter.RequestProfile
+	}{
+		{
+			name:       "chat_only_text",
+			capability: []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions},
+			profile:    protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		},
+		{
+			name: "stale_responses_row_tools_image",
+			capability: []protocolrouter.Protocol{
+				protocolrouter.ProtocolChatCompletions,
+				protocolrouter.ProtocolResponses,
+			},
+			profile: protocolrouter.RequestProfile{
+				Tools:        true,
+				ToolChoice:   protocolrouter.ToolChoiceAuto,
+				ContentKinds: protocolrouter.ContentText | protocolrouter.ContentImage,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := volcAgentPlanKimiAccountForTest()
+			account.Credentials["model_mapping"] = map[string]any{"kimi-k3": "kimi-k3"}
+			attachTestProtocolCapability(account, tc.capability...)
 
-	body := []byte(`{"model":"kimi-k3","input":[{"role":"user","content":"hi"}],"stream":false}`)
-	req, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
-		InboundProtocol: protocolrouter.ProtocolResponses,
-		RequestedModel:  "kimi-k3",
-		ResponsesPath:   protocolrouter.ResponsesPathRoot,
-		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
-		Body:            body,
-	})
-	require.NoError(t, err)
+			body := []byte(`{"model":"kimi-k3","input":[{"role":"user","content":"hi"}],"stream":false}`)
+			req, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+				InboundProtocol: protocolrouter.ProtocolResponses,
+				RequestedModel:  "kimi-k3",
+				ResponsesPath:   protocolrouter.ResponsesPathRoot,
+				Profile:         tc.profile,
+				Body:            body,
+			})
+			require.NoError(t, err)
 
-	snap, err := protocolAccountSnapshotForRequest(account, req)
-	require.NoError(t, err)
-	plan, err := protocolRoutingTestRouter().Plan(req, snap)
-	require.NoError(t, err)
-	require.Equal(t, protocolrouter.ProtocolChatCompletions, plan.TargetProtocol(),
-		"chat-only Agent Plan capability must not plan ResponsesIdentity")
-	require.Equal(t, protocolrouter.AdapterResponsesToChat, plan.AdapterID())
-	require.Equal(t, newapiintegration.VolcEngineAgentPlanBaseURL+"/chat/completions", plan.Endpoint())
+			snap, err := protocolAccountSnapshotForRequest(account, req)
+			require.NoError(t, err)
+			plan, err := protocolRoutingTestRouter().Plan(req, snap)
+			require.NoError(t, err)
+			require.Equal(t, protocolrouter.ProtocolChatCompletions, plan.TargetProtocol(),
+				"Agent Plan must not plan ResponsesIdentity")
+			require.Equal(t, protocolrouter.AdapterResponsesToChat, plan.AdapterID())
+			require.Equal(t, newapiintegration.VolcEngineAgentPlanBaseURL+"/chat/completions", plan.Endpoint())
+		})
+	}
 }
 
 func volcAgentPlanResponsesIdentityPlan(t *testing.T, body []byte, responsesURL, chatURL string) protocolrouter.Plan {

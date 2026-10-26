@@ -97,6 +97,13 @@ func openAIRequestEligibilityReason(ctx context.Context, account *Account, reque
 	if !protocolRuntimeAuthorizationReady(ctx, account) {
 		return openAICompatIneligibleAuthorization
 	}
+	// Multimodal supply gate before Plan (same order as candidateSupportsRequest).
+	// Chat-only supplies reject non-convertible audio at Plan; modality must win
+	// so Volc kimi-k3 audio keeps the known-negative 400, not no_legal_route.
+	// docs/approved/multimodal-supply-capability-ssot.md
+	if modality := accountInputModalityRejection(ctx, account, requestedModel); modality != "" {
+		return fmt.Sprintf("%s(%s)", openAICompatIneligibleInputModality, modality)
+	}
 	if eligible, reason := protocolRequestEligibilityReason(ctx, account, admissionModel); !eligible {
 		if reason == "model_not_supported" {
 			return openAICompatIneligibleModelUnsupported
@@ -105,11 +112,6 @@ func openAIRequestEligibilityReason(ctx context.Context, account *Account, reque
 			return detail
 		}
 		return openAICompatIneligibleNoLegalRoute
-	}
-	// Multimodal supply gate (Direct OpenAI/newapi scheduler). Universal path
-	// hits the same owner via candidateSupportsRequest.
-	if modality := accountInputModalityRejection(ctx, account, requestedModel); modality != "" {
-		return fmt.Sprintf("%s(%s)", openAICompatIneligibleInputModality, modality)
 	}
 	if !protocolRoutingOwnsOpenAITextCapability(ctx, requiredCapability) &&
 		!account.SupportsOpenAIEndpointCapability(requiredCapability) {

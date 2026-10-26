@@ -55,34 +55,45 @@ func multimodalAudioChatBody(model string) []byte {
 
 func TestVolcKimiAudioCandidateAdmission(t *testing.T) {
 	for _, endpoint := range []string{"/v1/chat/completions", "/v1/responses"} {
-		t.Run(endpoint, func(t *testing.T) {
-			volc := multimodalSupplyVolcAccount(42, 10)
-			attachTestProtocolCapability(&volc, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
-			groups := []Group{grp(10, PlatformNewAPI, 1, false)}
-			r, _, key := globalCandidateFixture(groups, []Account{volc})
-			body := multimodalAudioChatBody("kimi-k3")
-			if endpoint == "/v1/responses" {
-				body = []byte(`{"model":"kimi-k3","input":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"UklGRg==","format":"wav"}}]}]}`)
+		for _, chatOnly := range []bool{false, true} {
+			name := endpoint
+			if chatOnly {
+				name += "/chat_only_capability"
 			}
-			ctx := r.WithRequest(context.Background(), ShapeOpenAIChat, endpoint, "kimi-k3", body)
-			require.Equal(t, openAICompatIneligibleInputModality+"(audio)", openAIRequestEligibilityReason(ctx, &volc, "kimi-k3", false, ""))
-			_, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, endpoint, "kimi-k3", body, "", "")
-			require.ErrorIs(t, err, ErrUnsupportedInputModality)
-			require.Equal(t, "audio", UnsupportedInputModalityFromError(err))
-			require.Nil(t, state)
-			require.Equal(t, "No available endpoints support input audio for model: kimi-k3", TkUnsupportedInputModalityMessage("kimi-k3", UnsupportedInputModalityFromError(err)))
+			t.Run(name, func(t *testing.T) {
+				volc := multimodalSupplyVolcAccount(42, 10)
+				if chatOnly {
+					attachTestProtocolCapability(&volc, protocolrouter.ProtocolChatCompletions)
+				} else {
+					attachTestProtocolCapability(&volc, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
+				}
+				groups := []Group{grp(10, PlatformNewAPI, 1, false)}
+				r, _, key := globalCandidateFixture(groups, []Account{volc})
+				body := multimodalAudioChatBody("kimi-k3")
+				if endpoint == "/v1/responses" {
+					body = []byte(`{"model":"kimi-k3","input":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"UklGRg==","format":"wav"}}]}]}`)
+				}
+				ctx := r.WithRequest(context.Background(), ShapeOpenAIChat, endpoint, "kimi-k3", body)
+				require.Equal(t, openAICompatIneligibleInputModality+"(audio)", openAIRequestEligibilityReason(ctx, &volc, "kimi-k3", false, ""),
+					"modality must win before Plan/no_legal_route on chat-only Agent Plan")
+				_, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, endpoint, "kimi-k3", body, "", "")
+				require.ErrorIs(t, err, ErrUnsupportedInputModality)
+				require.Equal(t, "audio", UnsupportedInputModalityFromError(err))
+				require.Nil(t, state)
+				require.Equal(t, "No available endpoints support input audio for model: kimi-k3", TkUnsupportedInputModalityMessage("kimi-k3", UnsupportedInputModalityFromError(err)))
 
-			// Unknown suppliers retain the existing conservative policy. This is
-			// eligibility, not a claim that Moonshot accepts input_audio.
-			other := multimodalSupplyNVIDIAAccount(138, 10)
-			other.Credentials["base_url"] = "https://api.moonshot.cn/v1"
-			other.Credentials["model_mapping"] = map[string]any{"kimi-k3": "kimi-k3"}
-			attachTestProtocolCapability(&other, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
-			mixed, _, mixedKey := globalCandidateFixture(groups, []Account{volc, other})
-			_, chosen, err := mixed.PrepareCandidateRequest(context.Background(), mixedKey, ShapeOpenAIChat, endpoint, "kimi-k3", body, "", "")
-			require.NoError(t, err)
-			require.Equal(t, other.ID, chosen.current.account.ID)
-		})
+				// Unknown suppliers retain the existing conservative policy. This is
+				// eligibility, not a claim that Moonshot accepts input_audio.
+				other := multimodalSupplyNVIDIAAccount(138, 10)
+				other.Credentials["base_url"] = "https://api.moonshot.cn/v1"
+				other.Credentials["model_mapping"] = map[string]any{"kimi-k3": "kimi-k3"}
+				attachTestProtocolCapability(&other, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
+				mixed, _, mixedKey := globalCandidateFixture(groups, []Account{volc, other})
+				_, chosen, err := mixed.PrepareCandidateRequest(context.Background(), mixedKey, ShapeOpenAIChat, endpoint, "kimi-k3", body, "", "")
+				require.NoError(t, err)
+				require.Equal(t, other.ID, chosen.current.account.ID)
+			})
+		}
 	}
 
 	volc := multimodalSupplyVolcAccount(42, 10)
