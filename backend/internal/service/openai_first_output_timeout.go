@@ -235,15 +235,6 @@ func (s *openAIFirstOutputStage) Close() error {
 	return closeErr
 }
 
-// openAIFirstOutputForceHighBudget reports whether compact or large-body
-// requests must use the high-effort first-output budget regardless of
-// reasoning.effort. Owned with OPENAI_FORCE_HIGH_BODY_BYTES in
-// ops/stage0/first_output_timeout_ssot.py.
-func openAIFirstOutputForceHighBudget(c *gin.Context, body []byte) bool {
-	reason := firstOutputBudgetReason(c, body, "")
-	return reason == "compact" || reason == "large_body"
-}
-
 func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string, forceHigh bool) time.Duration {
 	if s == nil || s.cfg == nil {
 		return resolveStreamFirstOutputTimeout(nil, forceHigh || streamFirstOutputHighEffort(reasoningEffort))
