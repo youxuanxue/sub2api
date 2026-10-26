@@ -17600,6 +17600,41 @@
         "func TestCodexToolCorrectionSuppressionSilentOnBenignTraffic(t *testing.T) {"
       ],
       "rationale": "Keep the bidirectional regression: OpenCode identity still restores the OpenCode vocabulary, Codex identity leaves both names and arguments untouched, an explicit originator header wins, and normal Codex traffic never registers a mismatch observation."
+    },
+    {
+      "path": "backend/internal/service/openai_images.go",
+      "must_contain": [
+        "ctx, finishTiming := beginImageForwardTiming(ctx, c, account)",
+        "finishTiming(err != nil, images)"
+      ],
+      "rationale": "Keep image forward timing around the real account forwarding path so retries and downstream writes remain correlated without changing usage duration."
+    },
+    {
+      "path": "backend/internal/service/openai_plugin_transport.go",
+      "must_contain": [
+        "request, timing := observeImageUpstream(request)",
+        "defer func() { timing.response(response, err) }()"
+      ],
+      "rationale": "Every image HTTP attempt, including plugin transport and multi-fetch, must wrap its actual response before buffered SSE reads. Dropping this hook silently removes generation/network phase evidence."
+    },
+    {
+      "path": "backend/internal/service/image_upstream_timing_tk.go",
+      "must_contain": [
+        "const imageTimingPrefixLimit = 2048",
+        "t.parser.feed(p[:n], t.markLocked)",
+        "t.log.Info(\"image.upstream_timing\", fields...)",
+        "f.log.Info(\"image.forward_timing\","
+      ],
+      "rationale": "Single bounded timing owner observes SSE at body Read time and emits attempt/forward audit records without retaining images or prompts."
+    },
+    {
+      "path": "backend/internal/service/image_upstream_timing_tk_test.go",
+      "must_contain": [
+        "func TestForwardImagesEmitsTimingWithoutChangingResult",
+        "func TestImageTimingNonstreamObservesArrivalBeforeBufferedParsing",
+        "func TestImageTimingForwardRetryAndKeepaliveWriter"
+      ],
+      "rationale": "Preserve real forwarding-hook coverage, nonstream arrival timing and retry/keepalive compatibility; helper-only tests cannot detect lost transport injection."
     }
   ]
 }
