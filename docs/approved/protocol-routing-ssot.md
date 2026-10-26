@@ -4,11 +4,15 @@ status: approved
 approved_by: "feng (conversation approval, 2026-08-27)"
 authors: [codex]
 created: 2026-08-24
-revised: 2026-09-23
+revised: 2026-10-26
 revision_note: >
-  §7: diagnosis actions (test/schedulable/same-key add) do not probe; background
-  probes refuse destructive identity_conflict / chat_completions drop on verified
-  shared capabilities; explicit admin protocol-probe remains the write path.
+  2026-10-26: Volc Agent Plan joins TokenSea/CloudWise as Plan-facing Chat-only
+  (omit native responses); responses→chat preserve aligns with converter
+  (tools/image/video); modality gate order owned by candidate-eligibility /
+  multimodal SSOTs. §7: diagnosis actions (test/schedulable/same-key add) do not
+  probe; background probes refuse destructive identity_conflict / chat_completions
+  drop on verified shared capabilities; explicit admin protocol-probe remains the
+  write path.
   Slimmed §§7–14 to contract-only after ship; §§1–6 unchanged.
   Plans and Execute no longer compare account or capability revision tokens.
   Send-time freshness is authoritative reload plus route-fact equivalence.
@@ -322,18 +326,22 @@ supplier identities are rejected before endpoint planning. Dual-stack
 OpenAI relays that advertise `messages` plus `chat_completions` and/or
 `responses` therefore convert inbound Claude Code `/v1/messages` for GPT and
 other non-Claude models instead of identity-forwarding onto a Claude-only
-native path. TokenSea and CloudWise also omit native `responses` from Plan
-because their advertised Responses support is a probe false-positive; the
-legal conversion for those identities is `chat_completions`. The
+native path. TokenSea, CloudWise, and Volc Agent Plan also omit native `responses` from Plan
+because their advertised Responses support is a probe false-positive (soft 400 /
+HTML “endpoint exists”); the legal conversion for those identities is
+`chat_completions`. Volc Agent Plan additionally persists Chat-only capability
+(`volcAgentPlanRoutingSupportedProtocols` + chat-only probe candidates) so
+stale `/responses` rows cannot re-seed ResponsesIdentity. The
 `messages → chat_completions` conversion preserves Claude Code function tools
 and images, matching the already-proven `messages → responses` surface, so a
 tools-bearing Claude Code body does not fail closed back onto identity.
 
 The `chat_completions -> messages` and `responses -> messages` adapters also
 preserve function tools and images through the existing apicompat conversions.
-They still reject server-side continuation, unsupported reasoning/cache features
-and non-root Responses paths. A supply mismatch is candidate-local
-`ErrNoLegalRoute`, not an internal selection error.
+`responses → chat_completions` matches that content/tool surface (and maps
+reasoning effort in apicompat); it still rejects audio input and
+`previous_response_id` continuation, and non-root Responses paths. A supply
+mismatch is candidate-local `ErrNoLegalRoute`, not an internal selection error.
 
 Endpoint resolution must reproduce the identity used to obtain the capability
 key. A configurable endpoint with an empty or mismatched URL never falls back
@@ -419,7 +427,11 @@ Verdicts: `positive` adds; `endpoint_negative` removes; `model_specific` /
 directly mutate capability. Background/auto probes must refuse persisting a new
 `identity_conflict` (or dropping previously verified `chat_completions`) onto a shared
 capability that already had verified routing evidence; only the explicit admin
-protocol-probe path may write that fail-closed transition.
+protocol-probe path may write that fail-closed transition. Volc Agent Plan probe
+candidates are Chat Completions only; after generation, persisted
+`supported_protocols` are sanitized through `volcAgentPlanRoutingSupportedProtocols`
+so prior soft `/responses` rows cannot remain. The same helper filters Plan-facing
+targets at snapshot time for accounts that have not yet been re-probed.
 
 ## 8. Governed profiles and admin surface
 

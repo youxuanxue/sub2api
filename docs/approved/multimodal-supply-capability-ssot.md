@@ -6,7 +6,7 @@ approved_at: 2026-10-08
 created: 2026-10-08
 authors: [auto]
 risk: high
-revision_note: "v1.6: feng 2026-10-23 会话批准 DashScope 按量 × kimi-k3 / deepseek-v4.1-flash 视频限制；图片与其它模型不上表。v1.5: feng 2026-10-16 会话批准 Volc Agent Plan × kimi-k3 原生音频限制；复用共享能力门。v1.4: feng 2026-10-15 会话批准 Ali Token Plan × glm-5.3 图片限制；双账号双协议实测修正旧图片支持结论，保留文本及视频原策略。"
+revision_note: "v1.7: feng 2026-10-26 会话批准 Volc Agent Plan chat-only 对齐 — modality 门在 Direct OpenAI 选号中先于 Plan，避免 Chat-only capability 下音频被 no_legal_route 盖住。v1.6: feng 2026-10-23 会话批准 DashScope 按量 × kimi-k3 / deepseek-v4.1-flash 视频限制；图片与其它模型不上表。v1.5: feng 2026-10-16 会话批准 Volc Agent Plan × kimi-k3 原生音频限制；复用共享能力门。v1.4: feng 2026-10-15 会话批准 Ali Token Plan × glm-5.3 图片限制；双账号双协议实测修正旧图片支持结论，保留文本及视频原策略。"
 ---
 
 # Multimodal supply capability SSOT
@@ -44,7 +44,7 @@ revision_note: "v1.6: feng 2026-10-23 会话批准 DashScope 按量 × kimi-k3 /
    | `gpt-5.3-codex-spark` | image | OpenAI OAuth / SetupToken | `does not support image input` |
 
    对照允许（不上负表）：`kimi-k3` video/image 在 Volc；`kimi-k3` image 与 `deepseek-v4.1-flash` image 在 DashScope 按量；`glm-5.3-flash` video/image 在 Volc；`glm-5.2` video/image 在 Ali（历史记录）；`glm-5.3` video 在 Ali 未因本次图片证据改变策略，旧 image 支持结论已由下方实测推翻；`gpt-5.5+` video 在 tokensea；kimi-k3 image 在 NVIDIA；**Anthropic/Kiro** image+video 全系 gateway servable（无硬拒）；Ali 多数 `qwen*` video「does not meet the requirements」按素材问题处理。2026-10-23 DashScope 按量上 `deepseek-v4-pro` / `glm-5.3` 返回 200 但未看见图片或视频，`glm-5.3-flash` 为 `access_denied`，都不上表。Gemini Web edge 探针组报 Unsupported model、Antigravity 多为 429 capacity——**不上** modality known-negative。
-3. **准入**：`candidateSupportsRequest` 内与其它准入谓词求交（可在 Plan 前短路）；命中 known-negative → 该账号不是候选。
+3. **准入**：`candidateSupportsRequest` 与 Direct OpenAI `openAIRequestEligibilityReason` 均在 `protocolrouter.Plan` **之前**求交 modality 门；命中 known-negative → 该账号不是候选。顺序固定，避免 Chat-only 供应上音频/不可转换形状先变成 `no_legal_protocol_route`。
 4. **未知供应**：不在表内 → **仍准入**（LiteLLM 保守策略），待探针升级为已知。不把 v1 做成 known-positive 全表。
 
 ### 不做什么（v1 / v1.1 / v1.2 / v1.3）
@@ -62,7 +62,7 @@ revision_note: "v1.6: feng 2026-10-23 会话批准 DashScope 按量 × kimi-k3 /
 | 请求 ContentKinds（含 ContentVideo） | `protocolrouter/parse_request.go` → `protocolContentKinds` | 只解析入站 body；不读账号 |
 | OpenAI 多模态 conversion 是否保留 video | `protocolrouter/registry.go` → `preservesMessagesToResponsesContent` 允许集含 `ContentVideo` | 与 image 同级；不开放到 text-only Gemini 身份路径 |
 | known-negative / admit 谓词 | `service/candidate_multimodal_supply_tk.go` | 唯一供应能力表；禁止在 handler 复制 |
-| 准入接线 | `service/candidate_eligibility.go` → `candidateSupportsRequest` | 调用 admit 谓词；不在此写表 |
+| 准入接线 | `candidateSupportsRequest`（Universal）与 `openAIRequestEligibilityReason`（Direct OpenAI/newapi）；均在 Plan **之前**调用 `accountInputModalityRejection` | 调用 admit 谓词；不在此写表。Chat-only 供应与 Responses→Chat preserve 见 [protocol-routing-ssot](protocol-routing-ssot.md) |
 | 契约与扩展节奏 | 本文 | 扩表必须附探针证据日期与 URL/日志锚点 |
 
 ## 客户请求形态（TokenKey 实测，2026-10-08 prod 1.8.279）

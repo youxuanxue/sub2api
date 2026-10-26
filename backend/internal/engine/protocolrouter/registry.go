@@ -224,7 +224,22 @@ func preservesChatToMessages(req CanonicalRequest) bool {
 }
 
 func preservesResponsesConversion(req CanonicalRequest) bool {
-	return preservesTextOnlyWithoutTools(req) && preservesResponsesConversionOptions(req)
+	// Align with ResponsesToChatCompletionsRequest and messages→chat: function
+	// tools plus text/image/video are preserved. Audio and previous_response_id
+	// continuation stay fail-closed. Reasoning effort / prompt-cache metadata
+	// map or drop in the converter and must not block admission — otherwise
+	// Chat-only supplies (Volc Agent Plan, dual-stack relays) reject shapes
+	// force-chat already serves after ResponsesIdentity.
+	return preservesMessagesToResponsesContent(req) &&
+		req.responsesPath == ResponsesPathRoot &&
+		req.profile.Continuation == ContinuationNone
+}
+
+// PreservesResponsesToChat reports whether Responses→Chat keeps request
+// semantics. Tests and Agent Plan regressions pin this owner instead of
+// re-stating the content/tool matrix.
+func PreservesResponsesToChat(req CanonicalRequest) bool {
+	return preservesResponsesConversion(req)
 }
 
 func preservesResponsesToMessages(req CanonicalRequest) bool {

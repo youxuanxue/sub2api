@@ -385,6 +385,43 @@ func TestProtocolProbeCandidates_VolcAgentPlanChatOnly(t *testing.T) {
 	}
 }
 
+func TestVolcAgentPlanRoutingSupportedProtocols_ChatOnly(t *testing.T) {
+	got := volcAgentPlanRoutingSupportedProtocols([]protocolrouter.Protocol{
+		protocolrouter.ProtocolResponses,
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolMessages,
+	})
+	want := []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sanitize = %v, want %v", got, want)
+	}
+	if got := volcAgentPlanRoutingSupportedProtocols([]protocolrouter.Protocol{protocolrouter.ProtocolResponses}); got != nil {
+		t.Fatalf("responses-only sanitize = %v, want nil", got)
+	}
+
+	account := &Account{
+		ID:          125,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Credentials: map[string]any{
+			"api_key":       "secret",
+			"base_url":      newapiintegration.VolcEngineAgentPlanBaseURL,
+			"model_mapping": map[string]any{"kimi-k3": "kimi-k3"},
+		},
+	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
+	if got := routingSupportedProtocols(account); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Plan-facing protocols = %v, want %v", got, want)
+	}
+	if protocolResolvedModelAllowedForTarget(account, "", protocolrouter.ProtocolResponses, "kimi-k3", "kimi-k3", nil) {
+		t.Fatal("Agent Plan must not allow native Responses targets")
+	}
+	if !protocolResolvedModelAllowedForTarget(account, "", protocolrouter.ProtocolChatCompletions, "kimi-k3", "kimi-k3", nil) {
+		t.Fatal("Agent Plan must allow Chat Completions")
+	}
+}
+
 func TestProtocolAccountSnapshotUsesCanonicalQianfanTokenPlanEndpoints(t *testing.T) {
 	account := &Account{
 		ID:          130,
