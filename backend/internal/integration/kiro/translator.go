@@ -1707,7 +1707,7 @@ func truncatePayloadToLimit(payload *KiroPayload, hasPriming bool) {
 	// history survives when screenshots are the excess (kiro-lb#60).
 	stripOldestHistoryImagesUntilFit(payload, hasPriming)
 	if payloadByteSize(payload) <= maxPayloadBytes {
-		normalizeKiroToolHistory(payload)
+		normalizeAndRefitPayload(payload, hasPriming)
 		return
 	}
 	// Keep the post-image history. Turn dropping cannot see bytes it is
@@ -1726,7 +1726,115 @@ func truncatePayloadToLimit(payload *KiroPayload, hasPriming bool) {
 			}
 		}
 	}
+	normalizeAndRefitPayload(payload, hasPriming)
+}
+
+// normalizeAndRefitPayload runs the final tool-history normalization and then
+// re-checks the serialized size. Normalization can grow the payload: dropping
+// turns may remove the result that paired with a retained tool call, and
+// repairKiroToolResultPair then synthesizes a fallback result for it. Without
+// this re-check a payload the reductions had brought under the limit can leave
+// the truncator oversized and be rejected by ValidatePayloadSize. Reduction
+// stays inside the approved policy: only history turns are dropped, never
+// current user prose and never tool definitions.
+func normalizeAndRefitPayload(payload *KiroPayload, hasPriming bool) {
 	normalizeKiroToolHistory(payload)
+	if payloadByteSize(payload) <= maxPayloadBytes {
+		return
+	}
+	// Dropping turns cannot help when the retained floor (priming plus the
+	// current message) is itself oversized. Bail out before mutating history
+	// so an unfittable payload reaches the caller's 413 unchanged.
+	if minimumPayloadByteSize(payload, hasPriming) > maxPayloadBytes {
+		return
+	}
+	// Normalization can add bytes on every round, so byte progress is the
+	// termination condition rather than a fixed round count. Dropping a turn
+	// also strictly shrinks the entry count, which bounds the loop.
+	previous := payloadByteSize(payload)
+	for {
+		if !dropOldestHistoryTurn(payload, hasPriming) {
+			return
+		}
+		normalizeKiroToolHistory(payload)
+		size := payloadByteSize(payload)
+		if size <= maxPayloadBytes {
+			return
+		}
+		if size >= previous {
+			// No progress: another round would only churn the history.
+			return
+		}
+		previous = size
+	}
+}
+
+// dropOldestHistoryTurn removes the oldest droppable conversation entry so the
+// payload can shrink after normalization grew it past the limit. System priming
+// is preserved and a retained tool result never outlives the call that preceded
+// it. It reports whether anything was removed.
+func dropOldestHistoryTurn(payload *KiroPayload, hasPriming bool) bool {
+	history := payload.ConversationState.History
+	primingCount := 0
+	if hasPriming && len(history) >= 2 {
+		primingCount = 2
+	}
+	priming := history[:primingCount]
+	conversation := history[primingCount:]
+	if len(conversation) > 0 && isTruncationPlaceholderEntry(conversation[0]) {
+		conversation = conversation[1:]
+	}
+	if len(conversation) == 0 {
+		return false
+	}
+
+	// Drop the oldest entry, then any tool result that just lost its call.
+	remaining := conversation[1:]
+	for len(remaining) > 0 {
+		user := remaining[0].UserInputMessage
+		if user == nil || user.UserInputMessageContext == nil || len(user.UserInputMessageContext.ToolResults) == 0 {
+			break
+		}
+		remaining = remaining[1:]
+	}
+
+	rebuilt := make([]KiroHistoryMessage, 0, len(priming)+1+len(remaining))
+	rebuilt = append(rebuilt, priming...)
+	if len(remaining) > 0 {
+		// A trailing user entry is merged into the current message by the next
+		// normalization, which would grow the payload and prepend the note to
+		// the user's own prose. Keep the note only when history follows it; by
+		// then the current message carries the only remaining context anyway.
+		rebuilt = append(rebuilt, KiroHistoryMessage{
+			UserInputMessage: &KiroUserInputMessage{
+				Content: truncationPlaceholder,
+				ModelID: currentMessageModelID(payload),
+				Origin:  "AI_EDITOR",
+			},
+		})
+	}
+	rebuilt = append(rebuilt, remaining...)
+	payload.ConversationState.History = rebuilt
+	return true
+}
+
+// minimumPayloadByteSize reports the size the payload would have with every
+// droppable conversation entry removed. History is restored before returning.
+func minimumPayloadByteSize(payload *KiroPayload, hasPriming bool) int {
+	history := payload.ConversationState.History
+	primingCount := 0
+	if hasPriming && len(history) >= 2 {
+		primingCount = 2
+	}
+	payload.ConversationState.History = history[:primingCount]
+	size := payloadByteSize(payload)
+	payload.ConversationState.History = history
+	return size
+}
+
+func isTruncationPlaceholderEntry(entry KiroHistoryMessage) bool {
+	user := entry.UserInputMessage
+	return user != nil && user.Content == truncationPlaceholder
 }
 
 func truncateHistoryTurns(payload *KiroPayload, hasPriming bool) {

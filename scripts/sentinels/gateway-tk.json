@@ -17767,6 +17767,27 @@
         "TestSmallPayloadHasNoDiagnosticsOrWireChange"
       ],
       "rationale": "Pin size accounting and unchanged protected text and small-request wire shape."
+    },
+    {
+      "path": "backend/internal/integration/kiro/translator.go",
+      "must_contain": [
+        "normalizeAndRefitPayload(payload, hasPriming)",
+        "func normalizeAndRefitPayload(",
+        "func dropOldestHistoryTurn(",
+        "minimumPayloadByteSize(payload, hasPriming) > maxPayloadBytes"
+      ],
+      "rationale": "Final tool-history normalization can grow the payload (an orphaned tool call gains a synthesized fallback result), so the truncator must re-check the serialized size and drop more history instead of handing ValidatePayloadSize an oversized payload. The minimum-size bail-out keeps an unfittable payload byte-identical for the caller-owned 413."
+    },
+    {
+      "path": "backend/internal/integration/kiro/payload_normalize_refit_tk_test.go",
+      "must_contain": [
+        "TestNormalizeGrowthWithoutRefitExceedsLimit",
+        "TestNormalizeGrowthRefitFitsPayload",
+        "TestRefitLeavesFittingPayloadByteIdentical",
+        "TestRefitConvergesOnGrowthTrigger",
+        "TestRefitTerminatesWhenNormalizeKeepsGrowing"
+      ],
+      "rationale": "Bidirectional regression for the post-normalize size re-check: the pre-fix tail is pinned as oversized at the measured trigger, the shipped truncator fits it, fitting payloads stay byte-identical, and a pathological growth input still terminates."
     }
   ]
 }
