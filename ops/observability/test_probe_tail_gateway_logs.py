@@ -153,6 +153,7 @@ class ProbeTailGatewayLogsTest(unittest.TestCase):
                     if [ "$1" = logs ]; then
                       cat <<'LOGS'
                     2026-08-31T14:21:00Z INFO http request completed {"request_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","path":"/v1/chat/completions","status_code":502,"latency_ms":12}
+                    2026-08-31T14:21:00Z INFO image.upstream_timing {"request_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","image_forward_index":2,"image_attempt_index":1,"image_request_written_ms":5,"image_tool_started_ms":1234,"image_generating_ms":2345,"image_result_ms":60001,"image_body_end_reason":"eof","image_upstream_body_bytes":8192,"image_connection_reused":false,"prompt":"private-image-prompt","Authorization":"secret-token"}
                     2026-08-31T14:21:01Z INFO http request completed {"request_id":"ffffffff-0000-0000-0000-000000000000","client_request_id":"other","path":"/v1/chat/completions","status_code":200}
                     2026-08-31T14:21:02Z INFO http request completed {"request_id":"11111111-2222-3333-4444-555555555555","client_request_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","path":"/v1/messages","status_code":200,"latency_ms":800}
                     LOGS
@@ -196,6 +197,16 @@ class ProbeTailGatewayLogsTest(unittest.TestCase):
                     ),
                 },
             )
+            timing = payload["related"][0]
+            self.assertEqual(timing["image_forward_index"], 2)
+            self.assertEqual(timing["image_attempt_index"], 1)
+            self.assertEqual(timing["image_tool_started_ms"], 1234)
+            self.assertEqual(timing["image_generating_ms"], 2345)
+            self.assertEqual(timing["image_result_ms"], 60001)
+            self.assertEqual(timing["image_body_end_reason"], "eof")
+            self.assertIs(timing["image_connection_reused"], False)
+            self.assertNotIn("private-image-prompt", proc.stdout)
+            self.assertNotIn("secret-token", proc.stdout)
             self.assertEqual(payload["meta"]["matched_total"], 2)
             self.assertIn("db", payload)
             self.assertIn("error", payload["db"]["usage_logs"])

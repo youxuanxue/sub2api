@@ -664,10 +664,18 @@ func (s *OpenAIGatewayService) ForwardImages(
 	body []byte,
 	parsed *OpenAIImagesRequest,
 	channelMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (result *OpenAIForwardResult, err error) {
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
 	}
+	ctx, finishTiming := beginImageForwardTiming(ctx, c, account)
+	defer func() {
+		images := 0
+		if result != nil {
+			images = result.ImageCount
+		}
+		finishTiming(err != nil, images)
+	}()
 	switch account.Type {
 	case AccountTypeAPIKey:
 		return s.forwardOpenAIImagesAPIKey(ctx, c, account, body, parsed, channelMappedModel)
