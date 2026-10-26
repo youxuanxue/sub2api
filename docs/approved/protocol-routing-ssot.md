@@ -1,18 +1,18 @@
 ---
 title: Protocol Routing Single Source of Truth
 status: approved
-approved_by: "feng (conversation approval, 2026-08-27)"
+approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment)"
 authors: [codex]
 created: 2026-08-24
 revised: 2026-10-26
 revision_note: >
   2026-10-26: Volc Agent Plan joins TokenSea/CloudWise as Plan-facing Chat-only
   (omit native responses); responses→chat preserve aligns with converter
-  (tools/image/video); modality gate order owned by candidate-eligibility /
-  multimodal SSOTs. §7: diagnosis actions (test/schedulable/same-key add) do not
-  probe; background probes refuse destructive identity_conflict / chat_completions
-  drop on verified shared capabilities; explicit admin protocol-probe remains the
-  write path.
+  (tools/image/video + mapped reasoning.effort; prompt-cache still fail-closed);
+  modality gate order owned by candidate-eligibility / multimodal SSOTs. §7:
+  diagnosis actions (test/schedulable/same-key add) do not probe; background
+  probes refuse destructive identity_conflict / chat_completions drop on verified
+  shared capabilities; explicit admin protocol-probe remains the write path.
   Slimmed §§7–14 to contract-only after ship; §§1–6 unchanged.
   Plans and Execute no longer compare account or capability revision tokens.
   Send-time freshness is authoritative reload plus route-fact equivalence.
@@ -338,9 +338,10 @@ tools-bearing Claude Code body does not fail closed back onto identity.
 
 The `chat_completions -> messages` and `responses -> messages` adapters also
 preserve function tools and images through the existing apicompat conversions.
-`responses → chat_completions` matches that content/tool surface (and maps
-reasoning effort in apicompat); it still rejects audio input and
-`previous_response_id` continuation, and non-root Responses paths. A supply
+`responses → chat_completions` matches that content/tool surface and maps
+`reasoning.effort` in apicompat; it still rejects audio input,
+`previous_response_id` continuation, `prompt_cache_key` / `cache_control`
+(converter does not preserve them), and non-root Responses paths. A supply
 mismatch is candidate-local `ErrNoLegalRoute`, not an internal selection error.
 
 Endpoint resolution must reproduce the identity used to obtain the capability
