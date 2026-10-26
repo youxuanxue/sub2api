@@ -191,7 +191,7 @@ func (t *imageUpstreamTiming) response(resp *http.Response, err error) {
 		t.finish("no_body")
 		return
 	}
-	resp.Body = &imageTimingBody{ReadCloser: resp.Body, timing: t, sse: isEventStreamResponse(resp.Header)}
+	resp.Body = &imageTimingBody{ReadCloser: resp.Body, timing: t}
 }
 func (t *imageUpstreamTiming) finish(reason string) {
 	t.mu.Lock()
@@ -218,7 +218,6 @@ func (t *imageUpstreamTiming) finish(reason string) {
 type imageTimingBody struct {
 	io.ReadCloser
 	timing *imageUpstreamTiming
-	sse    bool
 }
 
 func (b *imageTimingBody) Read(p []byte) (int, error) {
@@ -233,9 +232,7 @@ func (b *imageTimingBody) Read(p []byte) (int, error) {
 		if n > 0 {
 			t.markLocked("image_first_body_byte_ms")
 			t.fields["image_last_body_byte_ms"] = t.now().Sub(t.start).Milliseconds()
-			if b.sse {
-				t.parser.feed(p[:n], t.markLocked)
-			}
+			t.parser.feed(p[:n], t.markLocked)
 		}
 	}
 	t.mu.Unlock()
@@ -255,6 +252,8 @@ func (b *imageTimingBody) Close() error {
 // Observe SSE at Read time, including buffered/non-streaming consumers. Keep
 // only a bounded line prefix, never copy base64 images/full event bodies. Huge
 // lines are scanned once for delimiters; unknown/late type fields remain absent.
+// Codex can omit Content-Type: recognize physical SSE lines regardless of that
+// header. JSON strings containing escaped SSE text do not form physical frames.
 // Event timestamps are taken at frame completion, not when the type prefix
 // arrives: a large final image can take time to transfer after its event header.
 const imageTimingPrefixLimit = 2048

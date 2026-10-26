@@ -90,6 +90,11 @@ func firstOutputHighEffortModel(model string) bool {
 // wait for replayable NewAPI Chat. Streaming inherits the universal stream SSOT
 // (legacy NewAPIChatFirstOutputTimeout overrides when >0). Non-stream keeps its
 // own whole-body budget (default 600s).
+//
+// Callers decide highEffort via the shared first-output promotion policy
+// (firstOutputBudgetReason / firstOutputBudgetForcesHigh): compact,
+// large body, or high reasoning — same classes as OpenAI #2610; only the
+// numeric knobs differ (NewAPI high-effort override vs OpenAI high-effort).
 func newAPIChatFirstOutputTimeoutWithEffort(cfg *config.Config, stream bool, highEffort bool) time.Duration {
 	if !stream {
 		if cfg != nil && cfg.Gateway.NewAPIChatNonstreamFirstOutputTimeout > 0 {

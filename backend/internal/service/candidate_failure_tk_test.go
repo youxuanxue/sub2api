@@ -412,3 +412,39 @@ func TestCandidateFailureCodex429UsesUnifiedPriority(t *testing.T) {
 		})
 	}
 }
+
+func TestCandidateFailureNewAPI429UsesUnifiedPriority(t *testing.T) {
+	group := grp(10, PlatformNewAPI, 1, false)
+	model := "kimi-k3"
+	accounts := []Account{globalCandidateAccount(1, 1, 10), globalCandidateAccount(2, 2, 10)}
+	for i := range accounts {
+		accounts[i].Platform = PlatformNewAPI
+		accounts[i].ChannelType = 1
+		attachTestProtocolCapability(&accounts[i], protocolrouter.ProtocolChatCompletions)
+	}
+	r, _, key := globalCandidateFixture([]Group{group}, accounts)
+	counter := &candidateFailureTestCounter{counts: map[CandidateFailureScope]int64{}}
+	r.candidateGateway.rateLimitService = &RateLimitService{openaiSaturationCounter: counter}
+	body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}]}`)
+	ctx, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/chat/completions", model, body, "", "")
+	require.NoError(t, err)
+	plan := *state.current.plan
+	upstream := plan.ResolvedModel()
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	failure := tkNewAPIBridgeUpstreamFailoverError(c, &accounts[0], upstreamBridgeError(429,
+		"The service is currently unable to handle additional requests due to server overload. Please retry later."))
+	require.True(t, candidateFailureAttributable(failure))
+	for n := int64(1); n <= candidateFailureThreshold; n++ {
+		state.observeFailure(ctx, &accounts[0], plan, failure)
+		require.Equal(t, n, counter.counts[CandidateFailureScope{1, upstream}])
+		picked, err := state.selectAccount(ctx, candidateSelectOptions{})
+		require.NoError(t, err)
+		if n < candidateFailureThreshold {
+			require.Equal(t, int64(1), picked.Account.ID)
+		} else {
+			require.Equal(t, int64(2), picked.Account.ID, "NewAPI ServerOverloaded 429 must soft-demote after threshold")
+		}
+	}
+	require.Equal(t, 1001, candidateSelectionEffectivePriority(&accounts[0], nil, state.failureCounts(ctx, []*candidateExecutionPath{{account: &accounts[0], plan: &plan, model: model}})))
+	require.Equal(t, 1, accounts[0].Priority, "soft demotion must not rewrite configured priority")
+}

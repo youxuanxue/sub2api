@@ -226,7 +226,12 @@ func (s *OpenAIGatewayService) beginCandidateChatAttempt(ctx context.Context, c 
 	if effort == "" {
 		effort = gjson.GetBytes(body, "reasoning.effort").String()
 	}
-	timeout := newAPIChatFirstOutputTimeoutWithEffort(s.cfg, stream, streamFirstOutputHighEffort(effort))
+	// Same promotion policy as OpenAI (#2610): compact / ≥1MiB body / high
+	// reasoning (effort or long-thinking model family) → high-latency tier.
+	// Numeric seconds still come from NewAPI / universal stream knobs.
+	budgetReason := firstOutputBudgetReason(c, body, effort)
+	forceHigh := firstOutputBudgetForcesHigh(budgetReason)
+	timeout := newAPIChatFirstOutputTimeoutWithEffort(s.cfg, stream, forceHigh)
 	if r.chatDeadline.IsZero() {
 		r.chatDeadline = time.Now().Add(candidateChatMaxAttempts * timeout)
 	}
@@ -236,11 +241,12 @@ func (s *OpenAIGatewayService) beginCandidateChatAttempt(ctx context.Context, c 
 	r.chatAttempts++
 	timeout = min(timeout, time.Until(r.chatDeadline))
 	reason := "default"
-	if !stream {
+	switch {
+	case !stream:
 		reason = "nonstream"
-	} else if streamFirstOutputHighEffort(effort) {
-		reason = "high_effort"
-	} else if s.cfg == nil || s.cfg.Gateway.NewAPIChatFirstOutputTimeout <= 0 {
+	case forceHigh:
+		reason = budgetReason
+	case s.cfg == nil || s.cfg.Gateway.NewAPIChatFirstOutputTimeout <= 0:
 		reason = "newapi_inherit"
 	}
 	RecordOpsFirstOutputBudget(c, account, timeout, reason)

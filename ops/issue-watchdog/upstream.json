@@ -348,25 +348,39 @@
     {
       "upstream": "Wei-Shaw/sub2api#1824",
       "severity": "high",
-      "summary": "OpenAI 403 handler skips the per-account counter + temp_unschedulable + SetError writes when the response body matches a Cloudflare / Arkose challenge keyword (cloudflare / just a moment / arkoselabs / funcaptcha / challenge-platform). Failover still proceeds for the in-flight request; the OAuth account stays in the pool for unrelated traffic.",
+      "summary": "OpenAI OAuth image/CF/Arkose/HTML 403 paths skip the consecutive-403 counter, temp_unschedulable, and SetError via tkOpenAI403PrePenaltyGates (CF/Arkose keywords + HTML body + client-induced capability) plus openAIIsHTMLBody / isCloudflareBotBlockResponse companions. Failover still proceeds; healthy OAuth accounts stay in the pool.",
       "fixed_by": [
+        "backend/internal/service/ratelimit_service_tk_openai_403_gate.go",
+        "backend/internal/service/ratelimit_service_tk_anthropic_ladder.go",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go",
         "backend/internal/service/ratelimit_service.go",
-        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go"
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403_test.go"
       ],
       "fixed_if_all_present": [
-        "backend/internal/service/ratelimit_service.go:openAICloudflareChallengeKeywords",
-        "backend/internal/service/ratelimit_service.go:openai_403_cf_challenge_skip_cooldown",
-        "backend/internal/service/ratelimit_service.go:See upstream Wei-Shaw/sub2api#1824 and #2413",
+        "backend/internal/service/ratelimit_service_tk_anthropic_ladder.go:openAICloudflareChallengeKeywords",
+        "backend/internal/service/ratelimit_service_tk_anthropic_ladder.go:See upstream Wei-Shaw/sub2api#1824 and #2413",
+        "backend/internal/service/ratelimit_service_tk_openai_403_gate.go:openai_403_cf_challenge_skip_cooldown",
+        "backend/internal/service/ratelimit_service_tk_openai_403_gate.go:openai_403_html_body_skip_cooldown",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go:func openAIIsHTMLBody",
         "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403CloudflareChallengeSkipsCooldown",
-        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403RealAccountErrorStillCoolsDown"
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403RealAccountErrorStillCoolsDown",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403OpenAIAccessDeniedHTMLSkipsCooldown"
       ],
       "status": "fixed_in_tokenkey",
       "judgment": {
-        "impact": "needs_prod_validation",
-        "tokenkey_status": "partially_mitigated",
-        "rationale": "OpenAI 403 now starts with temporary unschedulable state, but repeated CF/Arkose challenges can still cool down or error accounts."
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Prod USW audit 2026-10-26: openai oauth error accounts are only 401 token revoked/expired/refresh/privacy — none carry CF/HTML image 403 SetError. Challenge/HTML gates + bot-block skip are live; residual partially_mitigated judgment was outdated after gate extraction."
       },
       "history": [
+        {
+          "judgment": {
+            "impact": "needs_prod_validation",
+            "tokenkey_status": "partially_mitigated",
+            "rationale": "OpenAI 403 now starts with temporary unschedulable state, but repeated CF/Arkose challenges can still cool down or error accounts."
+          }
+        },
         {
           "judgment": {
             "impact": "fixed",
@@ -872,11 +886,40 @@
     },
     {
       "upstream": "Wei-Shaw/sub2api#2410",
+      "severity": "medium",
+      "summary": "Ops error/system logs carry request attribution (user_id, api_key_id, account_id, group_id, client_ip, api_key_prefix) end-to-end; admin ops tables filter and display identity. Pre-auth failures without a recognized API key still omit user fields by design.",
+      "fixed_by": [
+        "backend/internal/service/ops_port.go",
+        "backend/internal/service/ops_system_log_sink.go",
+        "frontend/src/views/admin/ops/components/OpsErrorLogTable.vue",
+        "frontend/src/views/admin/ops/components/OpsSystemLogTable.vue"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ops_port.go:UserID    *int64",
+        "backend/internal/service/ops_port.go:APIKeyID  *int64",
+        "backend/internal/service/ops_port.go:ClientIP  *string",
+        "backend/internal/service/ops_system_log_sink.go:UserID:          userID",
+        "backend/internal/service/ops_system_log_sink.go:APIKeyID:        apiKeyID",
+        "frontend/src/views/admin/ops/components/OpsErrorLogTable.vue:row.user_id",
+        "frontend/src/views/admin/ops/components/OpsErrorLogTable.vue:row.api_key_id",
+        "frontend/src/views/admin/ops/components/OpsSystemLogTable.vue:filters.user_id",
+        "frontend/src/views/admin/ops/components/OpsSystemLogTable.vue:filters.api_key_id"
+      ],
+      "status": "fixed_in_tokenkey",
       "judgment": {
-        "impact": "medium",
-        "tokenkey_status": "partially_mitigated",
-        "rationale": "ClientIP attribution behind reverse proxy fixed via #1326 trusted-proxies defaults; unified ops log correlation (user/api_key/email/IP across SLA + system logs) still needs separate production audit."
-      }
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Prod USW audit 2026-10-26 ops_error_logs 24h: n=1481, null_user=0, null_key=0, null_ip=0; keyed-but-null-user=0. account_id null only on pre-upstream rows. System log partitions carry user_id/api_key_id/account_id; admin ops UI filters/displays them."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "medium",
+            "tokenkey_status": "partially_mitigated",
+            "rationale": "ClientIP attribution behind reverse proxy fixed via #1326 trusted-proxies defaults; unified ops log correlation (user/api_key/email/IP across SLA + system logs) still needs separate production audit."
+          }
+        }
+      ]
     },
     {
       "upstream": "Wei-Shaw/sub2api#2411",
