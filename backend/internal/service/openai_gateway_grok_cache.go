@@ -429,6 +429,24 @@ func isGrokFreeCacheFunctionToolIntent(tools, toolChoice gjson.Result) bool {
 	}
 }
 
+// grokClientOwnsSearchFunction reports whether a function tool named
+// web_search / x_search is the client's own implementation rather than a
+// capability-only declaration that is safe to convert to xAI's native tool.
+//
+// The signal is a declared argument schema: parameters.properties with at least
+// one entry. A client that spelled out arguments implements the tool itself and
+// expects the tool_call back, so its declaration must reach the upstream
+// intact. Grok Build declares search with no argument schema (an absent
+// parameters field or a bare {"type":"object"}), which carries no client
+// semantics and still converts, keeping Free OAuth cache-capable.
+//
+// Description is deliberately NOT part of the signal: Grok Build's own
+// declaration carries one ("search"), so it cannot separate the two cases.
+func grokClientOwnsSearchFunction(tool gjson.Result) bool {
+	properties := tool.Get("parameters.properties")
+	return properties.IsObject() && len(properties.Map()) > 0
+}
+
 func appendMissingGrokFreeCacheNativeTools(body []byte) ([]byte, error) {
 	return appendGrokFreeCacheNativeTools(body, false)
 }
@@ -470,7 +488,17 @@ func appendGrokFreeCacheNativeToolsWithPolicy(body []byte, allowPureClientTools,
 			}
 			// Grok Build may declare search as function tools. Convert to native
 			// entries so Free OAuth stays cache-capable without duplicate names.
-			if (name == "web_search" || name == "x_search") && allowFunctionSearch {
+			//
+			// Only a bare declaration is converted. Grok Build's search tools
+			// carry no schema of their own, so replacing them with
+			// {"type":"web_search"} loses nothing. A client that implements its
+			// own web_search declares its own argument schema; replacing
+			// that declaration wholesale hijacked the call — the model invoked
+			// xAI's native search and the client waited forever for a tool_call
+			// it would never receive. An explicit declaration now wins over the
+			// cache-routing preference.
+			if (name == "web_search" || name == "x_search") && allowFunctionSearch &&
+				!grokClientOwnsSearchFunction(tool) {
 				if present[name] {
 					continue
 				}

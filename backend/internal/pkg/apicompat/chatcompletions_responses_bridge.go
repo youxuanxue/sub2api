@@ -139,7 +139,9 @@ func EffectiveResponsesTools(req *ResponsesRequest) ([]ResponsesTool, error) {
 		if err := json.Unmarshal(raw, &item); err != nil {
 			return nil, fmt.Errorf("parse responses additional tools item: %w", err)
 		}
-		tools = append(tools, item.Tools...)
+		// First writer wins, so a carrier entry repeating a top-level
+		// declaration is dropped rather than reaching the upstream twice.
+		tools, _ = AppendResponsesToolsDeduped(tools, item.Tools...)
 	}
 
 	// A completed client tool search can introduce tools for the remainder of
@@ -169,7 +171,7 @@ func EffectiveResponsesTools(req *ResponsesRequest) ([]ResponsesTool, error) {
 		if err := json.Unmarshal(promotedRaw, &discovered); err != nil {
 			return nil, fmt.Errorf("decode promoted responses tools: %w", err)
 		}
-		tools = append(tools, discovered...)
+		tools, _ = AppendResponsesToolsDeduped(tools, discovered...)
 	}
 	return tools, nil
 }

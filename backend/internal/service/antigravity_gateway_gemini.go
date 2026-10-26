@@ -434,6 +434,25 @@ handleSuccess:
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnect = streamRes.clientDisconnect
+		// TK: 上游在任何终止事件之前干净 EOF 必须记 stream_truncated 并失败，
+		// 不能按 HTTP 200 + usage 0/0 伪成功收尾。字节已写出，禁止重放。
+		if truncErr := finalizeAntigravityGeminiStreamTruncation(c, streamRes, account, requestID); truncErr != nil {
+			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_truncated", prefix)
+			truncatedUsage := ClaudeUsage{}
+			if usage != nil {
+				truncatedUsage = *usage
+			}
+			return &ForwardResult{
+				RequestID:       requestID,
+				UpstreamHeaders: resp.Header,
+				Usage:           truncatedUsage,
+				Model:           originalModel,
+				UpstreamModel:   forwardedModel,
+				Stream:          true,
+				Duration:        time.Since(startTime),
+				FirstTokenMs:    firstTokenMs,
+			}, truncErr
+		}
 		if requireErr := requireGeminiImageModelStreamOutput(mappedModel, c); requireErr != nil {
 			setOpsUpstreamError(c, http.StatusBadGateway, requireErr.Error(), "empty_image_stream")
 			return &ForwardResult{

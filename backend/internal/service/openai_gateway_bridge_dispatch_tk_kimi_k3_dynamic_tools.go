@@ -3,6 +3,8 @@ package service
 import (
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -46,7 +48,11 @@ func applyMoonshotK3DynamicToolsShape(model string, body []byte) []byte {
 			allTools = append(allTools, tool.Value())
 		}
 	}
-	allTools = append(allTools, promoted...)
+	// A client may declare the same tool both at top level and in the dynamic
+	// system message; promoting blindly sent two identical declarations
+	// upstream. First writer wins. Owner: apicompat.AppendRawResponsesToolsDeduped
+	// (handles the Chat Completions {"function":{"name":...}} nesting used here).
+	allTools, _ = apicompat.AppendRawResponsesToolsDeduped(allTools, promoted...)
 
 	shaped := body
 	if next, err := sjson.SetBytes(shaped, "messages", kept); err == nil {

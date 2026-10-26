@@ -1132,9 +1132,21 @@ func withoutKiroReadPages(name string, input map[string]interface{}) map[string]
 	return cloned
 }
 
-// applyKiroToolNameRewrites replaces an over-long original tool name in the
-// prompt text with the 64-character name sent in the tool spec. Tool result
-// bodies are left unchanged. Names that were not length-truncated are not rewritten.
+// applyKiroToolNameRewrites replaces an original tool name in the prompt text
+// and tool descriptions with the name actually sent in the tool spec. Tool
+// result bodies are left unchanged.
+//
+// Scope: every rewrite except a case-only one, not just length-truncated names.
+// sanitizeToolName converts snake_case to camelCase unconditionally, so a spec
+// advertising `myTool` used to sit beside prompt text and descriptions still
+// saying `my_tool`, inviting the model to call a name the upstream never saw.
+//
+// Case-only differences (`Write` → `write`) are deliberately skipped. The
+// replacement is a blanket strings.ReplaceAll over prose, and those names are
+// ordinary English words: rewriting them corrupts sentences that merely mention
+// the tool ("successive Write and Edit calls"), which TestUS070_FileToolGuidanceScope
+// locks. A case-only mismatch is also the mildest kind, while snake_case and
+// truncated names are distinctive enough to replace safely.
 func applyKiroToolNameRewrites(payload *KiroPayload) {
 	if payload == nil || len(payload.ToolNameMap) == 0 {
 		return
@@ -1142,7 +1154,7 @@ func applyKiroToolNameRewrites(payload *KiroPayload) {
 	originals := make([]string, 0, len(payload.ToolNameMap))
 	shortByOriginal := make(map[string]string, len(payload.ToolNameMap))
 	for shortened, original := range payload.ToolNameMap {
-		if len(original) <= 64 || shortened == "" || shortened == original {
+		if shortened == "" || shortened == original || strings.EqualFold(shortened, original) {
 			continue
 		}
 		shortByOriginal[original] = shortened

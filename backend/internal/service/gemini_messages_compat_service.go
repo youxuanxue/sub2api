@@ -3025,6 +3025,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 	}
 	var firstTokenMs *int
 	var best geminiResponseSignal
+	var terminal geminiNativeStreamTerminalState
 	sawDataEvent := false
 	lastWroteDataEvent := false
 	fallback := &geminiSSEFallbackBody{}
@@ -3057,6 +3058,9 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 				// @google/genai throws "Incomplete JSON segment at the end" when
 				// the stream closes with a residual unterminated SSE frame
 				// (e.g. "data: [DONE]\n" without a trailing blank line).
+				if payload == "[DONE]" {
+					terminal.ObserveDone()
+				}
 				if payload != "" && payload != "[DONE]" {
 					rawToWrite := payload
 
@@ -3072,6 +3076,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 					}
 
 					sawDataEvent = true
+					terminal.ObserveEvent(rawBytes)
 					if sig, ok := detectGeminiResponseSignal(rawBytes); ok && sig.Kind > best.Kind {
 						best = sig
 					}
@@ -3175,6 +3180,18 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 	}
 
 	s.finalizeGeminiSSESignal(c, account, true, upstreamRequestID, best, sawDataEvent, fallback)
+
+	// TK: 上游在任何终止事件之前干净 EOF 时不能再按成功收尾——此前无条件返回
+	// nil error，把上游截断伪装成 `HTTP 200 + usage 0/0`：客户端拿到半截回答，
+	// Ops 侧完全无感，断流账号继续按健康参与候选评分。字节已写给客户端，所以
+	// 这里返回普通终止错误（不是 UpstreamFailoverError），禁止重放。
+	if terminal.IsTruncated() && !geminiNativeStreamClientAborted(callerCtx) {
+		ensureClientStarted()
+		_, _ = fmt.Fprint(c.Writer, geminiNativeSSEErrorFrame(http.StatusBadGateway, GeminiNativeStreamTruncatedCode))
+		flusher.Flush()
+		return &geminiNativeStreamResult{usage: usage, firstTokenMs: firstTokenMs},
+			recordGeminiNativeStreamTruncation(c, account, upstreamRequestID)
+	}
 
 	return &geminiNativeStreamResult{usage: usage, firstTokenMs: firstTokenMs}, nil
 }
