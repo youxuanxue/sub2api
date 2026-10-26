@@ -20,6 +20,17 @@ func directImagesTestAccount() *Account {
 // openAIImagesFixturePNG1x1 is a minimal valid 1×1 PNG (base64).
 const openAIImagesFixturePNG1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 
+func openAIImagesResponsesSSEFixture() *http.Response {
+	body := "" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"created_at\":1710000000,\"usage\":{\"input_tokens\":5,\"output_tokens\":20,\"output_tokens_details\":{\"image_tokens\":20}},\"tool_usage\":{\"image_gen\":{\"images\":1,\"output_tokens\":20,\"output_tokens_details\":{\"image_tokens\":20}}},\"output\":[{\"type\":\"image_generation_call\",\"result\":\"" + openAIImagesFixturePNG1x1 + "\",\"output_format\":\"png\",\"size\":\"1024x1024\"}]}}\n\n" +
+		"data: [DONE]\n\n"
+	return &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Type": {"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
 func openAIImagesNativeJSONFixture() *http.Response {
 	body := `{"created":1710000000,"data":[{"b64_json":"` + openAIImagesFixturePNG1x1 + `","output_format":"png","size":"1024x1024","quality":"low"}],"usage":{"input_tokens":5,"output_tokens":20,"output_tokens_details":{"image_tokens":20}}}`
 	return &http.Response{
@@ -27,6 +38,26 @@ func openAIImagesNativeJSONFixture() *http.Response {
 		Header:     http.Header{"Content-Type": {"application/json"}},
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
+}
+
+func TestCodexDirectImagesFallsBackToResponsesOnEndpointNotFound(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw a square"}`)
+	c, rec := newOpenAIImagesTestContext(t, body)
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{StatusCode: http.StatusNotFound, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"native endpoint unavailable"}}`))},
+		openAIImagesResponsesSSEFixture(),
+	}}
+	svc := newOpenAIImagesTestService(upstream)
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+	result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.ImageCount)
+	require.Equal(t, 2, len(upstream.requests))
+	require.Equal(t, "/backend-api/codex/images/generations", upstream.requests[0].URL.Path)
+	require.Equal(t, "/backend-api/codex/responses", upstream.requests[1].URL.Path)
+	require.Contains(t, rec.Body.String(), `"b64_json":"`+openAIImagesFixturePNG1x1+`"`)
 }
 
 func TestCodexDirectImagesDropsLegacyTkImageContract(t *testing.T) {
