@@ -45,7 +45,7 @@ risk: high
 
 | 组成 | 字节 | 占比 |
 | --- | --- | --- |
-| `system`（含一个 138,692 B 带 `cache_control` 的块） | 139,156 | 约 14% |
+| `system`（含一个 138,752 B 带 `cache_control` 的 wire element） | 139,156 | 约 14% |
 | `messages`（2 个 user 轮，**零 assistant 轮**） | 约 840 KB | 约 86% |
 | `tools` / `input_schema` | 0（key 不存在） | 0% |
 | `tool_result` / `tool_use` / 图片 | 0 次出现 | 0% |
@@ -55,6 +55,11 @@ risk: high
   该 flag 基于**完整** body 计算，不是 256 KiB 前缀截断的产物，因此不受 QA 前缀上限影响。
 - transcript 以 **user 角色 text block** 拼装（turn 2 为 69~71 个 block，单块 87 B 到 28,623 B），
   正是本文件对 `jGo` 的静态分析所预测的形状。**wire 格式里不存在结构化工具记录供网关整条删除。**
+- 本文件的 system 块字节数一律用 **wire element** 口径（含 JSON 包装）：
+  分类器块是 138,752 B，其中 text 字符串值本身 138,692 B，`{"type":"text","text":` 加
+  `,"cache_control":{"type":"ephemeral"}}` 的包装与引号共 60 B。
+  用 wire element 是因为 `maxPayloadBytes` 作用于序列化 body，138,752 才是计入限制的量；
+  138,692 只在讨论 prompt 文本本身时才相关。
 
 所以候选路径第 6 步（从旧到新整条删除旧工具过程记录）在这批流量上收益为零。
 这不等于该路径对其它 Kiro 流量无效，但它不再是这批 413 的优先验证对象。
@@ -65,19 +70,24 @@ risk: high
 | --- | --- |
 | `<transcript>` 标记，每请求 2 次出现 | 已验证存在于 prod 入站正文 |
 | `max_tokens: 64` | 已验证（本文件此前只写“小输出预算”） |
-| 安全分类 system 块 138,692 B，带 `cache_control` | 已验证，字节精确 |
+| 安全分类块（`system[1]`）138,752 B wire element，带 `cache_control` | 已验证，逐块哈希比对（本轮唯一强度**上调**的结论） |
 | `querySource` / `auto_mode` 字面量 | 0 次出现，与本文件既有声明一致 |
 
 ### `workload/cron` 不是独立负载
 
 三个 UA（`workload/cron`、`claude-cli/2.1.301 (external, cli)`、`claude-cli/2.1.302 (external, cli)`）
-的中间 system 块**逐字节相同（138,752 B）**，`max_tokens` 均为 64，turn 2 均为 69~71 个 block，
+的**分类器块 `system[1]`（138,752 B）和尾部块 `system[2]`（287 B）逐字节相同**，
+已由逐块哈希验证（`system[1]` text `168a6de892af` / element `ab34e2627b1a`，`system[2]` `bb7148e5a3a6`，
+三个 UA 全部一致）。`max_tokens` 均为 64，turn 2 均为 69~71 个 block，
 assistant 轮 / tools / 图片全部为 0。cron 只差调度方式，请求形状一致。
 本文件对 `2.1.301` 的分析可以无修改地适用于 cron 行；把 cron 当成独立负载是错的。
 
-本轮测量对安全分类 system 块给出两个数：组成表里的 138,692 B 和跨 UA 比对的 138,752 B。
-两者差 60 B，尚未核实是同一块的不同口径（例如是否含 JSON 包装或 `cache_control` 字段）
-还是两次不同取样。跨 UA“逐字节相同”的结论在各自口径内成立；引用精确字节前应先核实口径。
+**范围限定：相同的是这两个块，不是整个 `system` 数组。** `system[0]` 是一个小的 per-client 前导，
+每个 UA 的 `text_sha12` 都不同（cron `ae8c2fd79099`、2.1.301 `f11cdfdf1aef`、2.1.302 `c10cfd7d16ee`），
+cron 为 113 B element / 90 B text，另两个 UA 为 95 B / 72 B。
+因此 `system` 数组总长在三个 UA 上分别是 139,156 / 139,152 / 139,134 B：
+差额 = 4 B 数组标点 + 18 B 仅在 `system[0]` 的真实内容差异。
+不要把本节读成“system 块跨 UA 相同”。
 
 ### 增长是锯齿状的，不是无界的
 
