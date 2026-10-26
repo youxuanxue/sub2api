@@ -156,6 +156,9 @@ func (s *OpenAIGatewayService) tkApplyOpenAIPassthroughUpstreamHeaders(
 		if req.Header.Get("originator") == "" {
 			req.Header.Set("originator", resolveCodexOutboundIdentity("").originator)
 		}
+		// 透传放行客户端 originator；响应侧的词表门控消费最终出站值，
+		// 身份与词表因此始终一致（openai_tool_corrector_gate_tk.go）。
+		rememberOpenAIUpstreamOriginator(c, req.Header.Get("originator"))
 		// 用隔离后的 session 标识符覆盖客户端透传值，防止跨用户会话碰撞。
 		if clientSessionID == "" {
 			clientSessionID = promptCacheKey

@@ -17564,6 +17564,42 @@
         "func AppendRawResponsesToolsDeduped(base []any, extra ...any) ([]any, bool) {"
       ],
       "rationale": "Single dedupe owner for the three tool-merge points (carrier lift, EffectiveResponsesTools, Moonshot K3 promotion) that used a bare append and shipped two entries of one name upstream — observed as two `shell`, and two `web_search` at the Anthropic exit. Key shape is type+name, matching grokResponsesToolDedupKey; first writer wins so the client's own declaration survives."
+    },
+    {
+      "path": "backend/internal/service/openai_tool_corrector_gate_tk.go",
+      "must_contain": [
+        "func openAIToolCorrectionUsesOpenCodeVocabulary(c *gin.Context) bool {",
+        "return strings.EqualFold(openAIUpstreamOriginatorFromContext(c), openAIOpenCodeOriginator)",
+        "func rememberOpenAIUpstreamOriginator(c *gin.Context, originator string) {",
+        "func observeSuppressedCodexToolCorrection(c *gin.Context, data []byte) {"
+      ],
+      "rationale": "Response-side OpenCode tool-vocabulary restoration must consume the single outbound-identity owner. Dropping this gate re-breaks official Codex clients: their legitimate apply_patch/update_plan calls get rewritten to edit/todowrite, which are absent from the client tool registry, and the agent loop stalls."
+    },
+    {
+      "path": "backend/internal/service/openai_tool_corrector.go",
+      "must_contain": [
+        "if !openAIToolCorrectionUsesOpenCodeVocabulary(ginCtx) {",
+        "observeSuppressedCodexToolCorrection(ginCtx, data)",
+        "func (c *CodexToolCorrector) CorrectToolCallsInSSEBytes(ginCtx *gin.Context, data []byte) ([]byte, bool) {"
+      ],
+      "rationale": "Upstream owns this file and keeps the ungated rewriter, so a merge can silently revert the gate. The gate must stay ahead of both name mapping and parameter rewriting: correctToolParametersAtPath used to run independently of a mapping hit, so a legitimate edit call had its path/old_string arguments broken even when its name passed through."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_scheduling.go",
+      "must_contain": [
+        "rememberOpenAIUpstreamOriginator(c, originator)",
+        "func resolvedOpenAIUpstreamOriginator(c *gin.Context, isOfficialClient bool) string {"
+      ],
+      "rationale": "resolveOpenAIUpstreamOriginator is the single owner of this request's outbound identity and must publish its decision for the response-side tool-vocabulary gate. If it stops recording, every request falls back to unknown identity and OpenCode clients lose the restoration they depend on."
+    },
+    {
+      "path": "backend/internal/service/openai_tool_corrector_gate_tk_test.go",
+      "must_contain": [
+        "func TestCodexToolCorrectionGateFollowsUpstreamOriginator(t *testing.T) {",
+        "func TestCodexToolCorrectionGateHonorsExplicitOriginatorHeader(t *testing.T) {",
+        "func TestCodexToolCorrectionSuppressionSilentOnBenignTraffic(t *testing.T) {"
+      ],
+      "rationale": "Keep the bidirectional regression: OpenCode identity still restores the OpenCode vocabulary, Codex identity leaves both names and arguments untouched, an explicit originator header wins, and normal Codex traffic never registers a mismatch observation."
     }
   ]
 }

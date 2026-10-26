@@ -228,7 +228,16 @@ func (s *OpenAIGatewayService) GenerateSessionHashWithFallback(c *gin.Context, b
 	return currentHash
 }
 
+// resolveOpenAIUpstreamOriginator 是本次请求出站身份的单一 owner。
+// 响应侧的 OpenCode 工具词表还原（openai_tool_corrector_gate_tk.go）消费这里的
+// 决定，不得另起一套判定——否则以 Codex 身份发出的响应会被按 OpenCode 词表改写。
 func resolveOpenAIUpstreamOriginator(c *gin.Context, isOfficialClient bool) string {
+	originator := resolvedOpenAIUpstreamOriginator(c, isOfficialClient)
+	rememberOpenAIUpstreamOriginator(c, originator)
+	return originator
+}
+
+func resolvedOpenAIUpstreamOriginator(c *gin.Context, isOfficialClient bool) string {
 	if c != nil {
 		if originator := strings.TrimSpace(c.GetHeader("originator")); originator != "" {
 			return originator
@@ -237,7 +246,7 @@ func resolveOpenAIUpstreamOriginator(c *gin.Context, isOfficialClient bool) stri
 	if isOfficialClient {
 		return openai.CodexDefaultOriginator
 	}
-	return "opencode"
+	return openAIOpenCodeOriginator
 }
 
 // BindStickySession sets session -> account binding with standard TTL.

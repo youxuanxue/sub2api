@@ -2,8 +2,38 @@ package service
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
+
+// newOpenCodeIdentityTestContext 构造一个「已以 OpenCode 身份出站」的请求上下文。
+// 响应侧词表还原只在该身份下生效（openai_tool_corrector_gate_tk.go），所以保留
+// 原有映射断言的测试必须显式提供身份——它们从前不提供，是因为门控不存在。
+func newOpenCodeIdentityTestContext(t *testing.T) *gin.Context {
+	t.Helper()
+	return newToolCorrectionTestContext(t, "", "")
+}
+
+// newToolCorrectionTestContext 走真实的出站身份 owner（resolveOpenAIUpstreamOriginator），
+// 而不是直接塞上下文键——门控与出站身份必须同源，测试不能绕过那个 owner。
+func newToolCorrectionTestContext(t *testing.T, userAgent, originator string) *gin.Context {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	if userAgent != "" {
+		c.Request.Header.Set("User-Agent", userAgent)
+	}
+	if originator != "" {
+		c.Request.Header.Set("originator", originator)
+	}
+	isOfficial := originator != "" || userAgent != ""
+	resolveOpenAIUpstreamOriginator(c, isOfficial)
+	return c
+}
 
 func TestMayContainToolCallPayload(t *testing.T) {
 	if mayContainToolCallPayload([]byte(`{"type":"response.output_text.delta","delta":"hello"}`)) {
@@ -16,6 +46,7 @@ func TestMayContainToolCallPayload(t *testing.T) {
 
 func TestCorrectToolCallsInSSEData(t *testing.T) {
 	corrector := NewCodexToolCorrector()
+	ginCtx := newOpenCodeIdentityTestContext(t)
 
 	tests := []struct {
 		name            string
@@ -224,7 +255,7 @@ func TestCorrectToolCallsInSSEData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, corrected := corrector.CorrectToolCallsInSSEData(tt.input)
+			result, corrected := corrector.CorrectToolCallsInSSEData(ginCtx, tt.input)
 
 			if corrected != tt.expectCorrected {
 				t.Errorf("Expected corrected=%v, got %v", tt.expectCorrected, corrected)
@@ -311,6 +342,7 @@ func TestGetToolNameMapping(t *testing.T) {
 
 func TestCorrectorStats(t *testing.T) {
 	corrector := NewCodexToolCorrector()
+	ginCtx := newOpenCodeIdentityTestContext(t)
 
 	stats := corrector.GetStats()
 	if stats.TotalCorrected != 0 {
@@ -320,9 +352,9 @@ func TestCorrectorStats(t *testing.T) {
 		t.Errorf("Expected empty CorrectionsByTool, got length %d", len(stats.CorrectionsByTool))
 	}
 
-	corrector.CorrectToolCallsInSSEData(`{"tool_calls":[{"function":{"name":"apply_patch"}}]}`)
-	corrector.CorrectToolCallsInSSEData(`{"tool_calls":[{"function":{"name":"apply_patch"}}]}`)
-	corrector.CorrectToolCallsInSSEData(`{"tool_calls":[{"function":{"name":"update_plan"}}]}`)
+	corrector.CorrectToolCallsInSSEData(ginCtx, `{"tool_calls":[{"function":{"name":"apply_patch"}}]}`)
+	corrector.CorrectToolCallsInSSEData(ginCtx, `{"tool_calls":[{"function":{"name":"apply_patch"}}]}`)
+	corrector.CorrectToolCallsInSSEData(ginCtx, `{"tool_calls":[{"function":{"name":"update_plan"}}]}`)
 
 	stats = corrector.GetStats()
 	if stats.TotalCorrected != 3 {
@@ -349,6 +381,7 @@ func TestCorrectorStats(t *testing.T) {
 
 func TestComplexSSEData(t *testing.T) {
 	corrector := NewCodexToolCorrector()
+	ginCtx := newOpenCodeIdentityTestContext(t)
 
 	input := `{
 		"id": "chatcmpl-123",
@@ -374,7 +407,7 @@ func TestComplexSSEData(t *testing.T) {
 		]
 	}`
 
-	result, corrected := corrector.CorrectToolCallsInSSEData(input)
+	result, corrected := corrector.CorrectToolCallsInSSEData(ginCtx, input)
 
 	if !corrected {
 		t.Error("Expected data to be corrected")
@@ -418,6 +451,7 @@ func TestComplexSSEData(t *testing.T) {
 // TestCorrectToolParameters 测试工具参数修正
 func TestCorrectToolParameters(t *testing.T) {
 	corrector := NewCodexToolCorrector()
+	ginCtx := newOpenCodeIdentityTestContext(t)
 
 	tests := []struct {
 		name     string
@@ -463,7 +497,7 @@ func TestCorrectToolParameters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			corrected, changed := corrector.CorrectToolCallsInSSEData(tt.input)
+			corrected, changed := corrector.CorrectToolCallsInSSEData(ginCtx, tt.input)
 			if !changed {
 				t.Error("expected data to be corrected")
 			}

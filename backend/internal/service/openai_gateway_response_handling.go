@@ -552,7 +552,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			searchCounter += countGrokNativeSearchCallsInSSEDataDedup(dataBytes, streamSearchSeen)
 
 			// Correct Codex tool calls if needed (apply_patch -> edit, etc.)
-			if correctedData, corrected := s.toolCorrector.CorrectToolCallsInSSEBytes(dataBytes); corrected {
+			if correctedData, corrected := s.toolCorrector.CorrectToolCallsInSSEBytes(c, dataBytes); corrected {
 				dataBytes = correctedData
 				data = string(correctedData)
 				line = "data: " + data
@@ -1061,15 +1061,16 @@ func (s *OpenAIGatewayService) replaceModelInSSELine(line, fromModel, toModel st
 	return "data: " + updated
 }
 
-// correctToolCallsInResponseBody 修正响应体中的工具调用
-func (s *OpenAIGatewayService) correctToolCallsInResponseBody(body []byte) []byte {
+// correctToolCallsInResponseBody 修正响应体中的工具调用。
+// c 提供出站身份，门控与流式路径同源。
+func (s *OpenAIGatewayService) correctToolCallsInResponseBody(c *gin.Context, body []byte) []byte {
 	if len(body) == 0 {
 		return body
 	}
 
 	updated := body
 	if s != nil && s.toolCorrector != nil {
-		if corrected, changed := s.toolCorrector.CorrectToolCallsInSSEBytes(updated); changed {
+		if corrected, changed := s.toolCorrector.CorrectToolCallsInSSEBytes(c, updated); changed {
 			updated = corrected
 		}
 	}
@@ -1691,7 +1692,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 			body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 		}
 		// Correct tool calls in final response
-		body = s.correctToolCallsInResponseBody(body)
+		body = s.correctToolCallsInResponseBody(c, body)
 		var restoreErr error
 		body, restoreErr = tkRestoreGatewayResponseBody(c, body)
 		if restoreErr != nil {

@@ -2187,7 +2187,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 			body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 		}
 		// Correct tool calls in final response
-		body = s.correctToolCallsInResponseBody(body)
+		body = s.correctToolCallsInResponseBody(c, body)
 		var restoreErr error
 		body, restoreErr = tkRestoreGatewayResponseBody(c, body)
 		if restoreErr != nil {

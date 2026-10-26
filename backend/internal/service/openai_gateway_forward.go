@@ -222,6 +222,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	setOpenAICompatMessagesBridgeContext(c, compatMessagesBridge)
 
 	isCodexCLI := openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")) || (s.cfg != nil && s.cfg.Gateway.ForceCodexCLI)
+	// 响应侧的 OpenCode 工具词表门控消费同一个身份判定，不另起一套。
+	publishOpenAIClientOutboundIdentity(c, isCodexCLI)
 	codexImageGenerationExplicitToolPolicy := codexImageGenerationExplicitToolPolicyAllow
 	if isCodexCLI {
 		codexImageGenerationExplicitToolPolicy = account.CodexImageGenerationExplicitToolPolicy()

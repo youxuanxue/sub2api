@@ -11,6 +11,7 @@ func TestOpenAIGatewayService_ToolCorrection(t *testing.T) {
 	service := &OpenAIGatewayService{
 		toolCorrector: NewCodexToolCorrector(),
 	}
+	ginCtx := newOpenCodeIdentityTestContext(t)
 
 	tests := []struct {
 		name     string
@@ -56,7 +57,7 @@ func TestOpenAIGatewayService_ToolCorrection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := service.correctToolCallsInResponseBody(tt.input)
+			result := service.correctToolCallsInResponseBody(ginCtx, tt.input)
 			resultStr := string(result)
 
 			// 检查是否包含期望的工具名称
@@ -89,7 +90,7 @@ func TestOpenAIGatewayService_ToolCorrectorInitialization(t *testing.T) {
 
 	// 测试修正器可以正常工作
 	data := `{"tool_calls":[{"function":{"name":"apply_patch"}}]}`
-	corrected, changed := service.toolCorrector.CorrectToolCallsInSSEData(data)
+	corrected, changed := service.toolCorrector.CorrectToolCallsInSSEData(newOpenCodeIdentityTestContext(t), data)
 
 	if !changed {
 		t.Error("expected tool call to be corrected")
@@ -113,8 +114,9 @@ func TestToolCorrectionStats(t *testing.T) {
 		`{"tool_calls":[{"function":{"name":"apply_patch"}}]}`,
 	}
 
+	ginCtx := newOpenCodeIdentityTestContext(t)
 	for _, data := range testData {
-		service.toolCorrector.CorrectToolCallsInSSEData(data)
+		service.toolCorrector.CorrectToolCallsInSSEData(ginCtx, data)
 	}
 
 	stats := service.toolCorrector.GetStats()

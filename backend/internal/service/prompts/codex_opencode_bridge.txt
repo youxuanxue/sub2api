@@ -1,3 +1,13 @@
+<!-- 本文件当前未被任何代码引用（无 go:embed、无读取调用）。
+     注入侧已于 ebd5253e22（2026-03-07,「/response端点移除强制注入大量
+     instructions内容」）移除；与之配套的响应侧改写器
+     internal/service/openai_tool_corrector.go 仍然存在，自此成为单边逻辑。
+     该错配曾导致官方 Codex 客户端合法请求的 apply_patch 被改写成 edit
+     （客户端工具注册表里没有 edit，Agent 循环断链）；改写器现已按出站
+     originator 身份门控，仅对以 opencode 身份出站的请求生效。
+     保留本文件：upstream/main 同样保留，删除只会制造 merge 冲突面；
+     且其内容是该映射表来历的直接物证。注释形态确保即使恢复注入也不会
+     混进提示词正文。 -->
 # Codex Running in OpenCode
 
 You are running Codex through OpenCode, an open-source terminal coding assistant. OpenCode provides different tools but follows Codex operating principles.

@@ -186,6 +186,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 	debugEnabled := isOpenAIWSModeDebugEnabled()
 	isCodexCLI := openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")) || (s.cfg != nil && s.cfg.Gateway.ForceCodexCLI)
+	// 响应侧的 OpenCode 工具词表门控消费同一个身份判定，不另起一套。
+	publishOpenAIClientOutboundIdentity(c, isCodexCLI)
 
 	type openAIWSClientPayload struct {
 		payloadRaw               []byte
@@ -1210,7 +1212,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					upstreamMessage = replaceOpenAIWSMessageModel(upstreamMessage, mappedModel, originalModel)
 				}
 				if openAIWSEventMayContainToolCalls(eventType) && openAIWSMessageLikelyContainsToolCalls(upstreamMessage) {
-					if corrected, changed := s.toolCorrector.CorrectToolCallsInSSEBytes(upstreamMessage); changed {
+					if corrected, changed := s.toolCorrector.CorrectToolCallsInSSEBytes(c, upstreamMessage); changed {
 						upstreamMessage = corrected
 					}
 				}

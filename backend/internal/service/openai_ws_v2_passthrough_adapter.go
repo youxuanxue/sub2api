@@ -840,6 +840,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
 		isCodexCLI = true
 	}
+	// 响应侧的 OpenCode 工具词表门控消费同一个身份判定，不另起一套。
+	publishOpenAIClientOutboundIdentity(c, isCodexCLI)
 	turnState := ""
 	turnMetadata := ""
 	if c != nil {
