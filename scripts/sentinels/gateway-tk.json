@@ -2437,7 +2437,7 @@
       "path": "backend/internal/service/candidate_selection_tk.go",
       "must_contain": [
         "list.ListCandidateAccounts(ctx, ids)",
-        "preparePath := candidatePathContextPreparer(r)",
+        "preparePath = candidatePathContextPreparer(r)",
         "r.evaluatePathWithPreparation(ctx, account, group, preparePath)",
         "selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins",
         "pool = recoverCandidateWindowPool(pool)",

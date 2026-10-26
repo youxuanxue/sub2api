@@ -74,6 +74,12 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 	defer BeginImageIngressPhase(ctx, ImageIngressCandidates)()
 	r.hasSoftAffinity = false
 	ctx = r.withProfitPricing(ctx)
+	// The first pass is the ingress admission projection. The immediately
+	// following acquiring pass keeps the same groups and account list, so its
+	// static account×group eligibility can be reused. Failover and revalidation
+	// clear skipGroupRefresh and therefore always rebuild this projection.
+	reuseAdmissionPaths := options.acquire && r.skipGroupRefresh && len(options.excluded) == 0 && r.continuationAccountID == 0 && r.admissionPathsValid
+	r.admissionPathsUsed = reuseAdmissionPaths
 	// Admission publishes one group refresh. The scheduler select that follows
 	// on this same request reuses it; the next select (failover) reads again.
 	if r.skipGroupRefresh {
@@ -144,9 +150,30 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 	supported := false
 	var capacityHint *Group
 	var candidates []*candidateExecutionPath
+	var cachedByAccount map[int64][]*candidateExecutionPath
+	var groupByID map[int64]*Group
+	if reuseAdmissionPaths {
+		r.hasSoftAffinity = stickyID > 0 || promptCacheStickyID > 0
+		groupByID = make(map[int64]*Group, len(r.groups))
+		for i := range r.groups {
+			groupByID[r.groups[i].ID] = &r.groups[i]
+		}
+		for _, path := range r.admissionPaths {
+			if path == nil || path.account == nil || path.group == nil {
+				continue
+			}
+			if cachedByAccount == nil {
+				cachedByAccount = make(map[int64][]*candidateExecutionPath)
+			}
+			cachedByAccount[path.account.ID] = append(cachedByAccount[path.account.ID], path)
+		}
+	}
 	// Memoize pathContext within this selection only. Do not retain across
 	// RevalidateTurn / account refresh — group policy and body can change.
-	preparePath := candidatePathContextPreparer(r)
+	var preparePath func(context.Context, *Group) (context.Context, string, ChannelMappingResult, error)
+	if !reuseAdmissionPaths {
+		preparePath = candidatePathContextPreparer(r)
+	}
 	for i := range accounts {
 		account := &accounts[i]
 		accountStickyID := stickyID
@@ -156,6 +183,22 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 		}
 		if accountStickyID > 0 {
 			r.hasSoftAffinity = true
+		}
+		if reuseAdmissionPaths {
+			for _, path := range cachedByAccount[account.ID] {
+				group := groupByID[path.group.ID]
+				if group == nil || !usable[group.ID] {
+					continue
+				}
+				path.group = group
+				path.sticky = account.ID == accountStickyID || account.ID == r.continuationAccountID
+				candidates = append(candidates, path)
+				supported = true
+				if capacityHint == nil {
+					capacityHint = group
+				}
+			}
+			continue
 		}
 		if _, excluded := options.excluded[account.ID]; excluded {
 			diag.reject("excluded")
@@ -242,6 +285,10 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 		if accountReady {
 			diag.Ready++
 		}
+	}
+	if !options.acquire {
+		r.admissionPaths = append(r.admissionPaths[:0], candidates...)
+		r.admissionPathsValid = true
 	}
 	if supported && capacityHint != nil {
 		platform := strings.TrimSpace(capacityHint.Platform)
@@ -365,6 +412,21 @@ func openAIFilterPrimaryReason(stats openAISelectionFilterStats) string {
 // selectAccount is shared by initial admission, real slot acquisition and retry.
 // Account ID is deduplicated only after selecting the admitted payment tier.
 func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateSelectOptions) (*AccountSelectionResult, error) {
+	result, err := r.selectAccountOnce(ctx, options)
+	// Admission paths are only a static candidate projection. If a fresh
+	// account/group recheck rejects every cached path, rebuild once so a policy
+	// or capability change cannot turn a transient stale snapshot into a hard
+	// capacity error.
+	if err != nil && r.admissionPathsUsed && errors.Is(err, ErrUniversalCapacityUnavailable) {
+		r.admissionPathsUsed = false
+		r.admissionPathsValid = false
+		r.admissionPaths = nil
+		return r.selectAccountOnce(ctx, options)
+	}
+	return result, err
+}
+
+func (r *CandidateRequest) selectAccountOnce(ctx context.Context, options candidateSelectOptions) (*AccountSelectionResult, error) {
 	defer BeginImageIngressPhase(ctx, ImageIngressSelection)()
 	paths, supported, evaluationErr := r.candidates(ctx, options)
 	capacityPlatform := r.capacityPlatformHint
