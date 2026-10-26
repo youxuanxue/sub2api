@@ -50,16 +50,30 @@ func ensureNewAPIDeps() {
 type DispatchOutcome struct {
 	Usage *dto.Usage
 
-	Model           string
-	UpstreamModel   string
-	Stream          bool
-	Duration        time.Duration
+	Model         string
+	UpstreamModel string
+	Stream        bool
+	Duration      time.Duration
+	// FirstTokenMs is the elapsed time until the first upstream SSE event.
+	// It is populated only when the relay observed a streamed response.
+	FirstTokenMs    *int
 	AdaptorRelayFmt types.RelayFormat
 	AdaptorAPIType  int
 	// ImageCount is the number of images requested (image generations only, default 1).
 	// Propagated so the gateway bills per-image (output_cost_per_image) instead of by
 	// tokens; without it imagen via the bridge silently falls back to token billing.
 	ImageCount int
+}
+
+func firstTokenMs(info *relaycommon.RelayInfo, stream bool) *int {
+	if info == nil || !stream || !info.HasSendResponse() {
+		return nil
+	}
+	ms := int(info.FirstResponseTime.Sub(info.StartTime).Milliseconds())
+	if ms < 0 {
+		return nil
+	}
+	return &ms
 }
 
 func installBodyStorage(c *gin.Context, body []byte) error {
@@ -136,6 +150,7 @@ func DispatchChatCompletions(ctx context.Context, c *gin.Context, in ChannelCont
 		UpstreamModel:   upstream,
 		Stream:          lo.FromPtrOr(req.Stream, false),
 		Duration:        dur,
+		FirstTokenMs:    firstTokenMs(relayInfo, lo.FromPtrOr(req.Stream, false)),
 		AdaptorRelayFmt: types.RelayFormatOpenAI,
 		AdaptorAPIType:  apiType,
 		ImageCount:      observer.imageCount(),

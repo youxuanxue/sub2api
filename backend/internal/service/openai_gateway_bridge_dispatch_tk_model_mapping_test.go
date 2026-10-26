@@ -102,6 +102,37 @@ func TestForwardAsChatCompletionsDispatched_RewritesGLMDatedModelBeforeBridge(t 
 	}
 }
 
+func TestForwardAsChatCompletionsDispatched_PropagatesBridgeFirstTokenMs(t *testing.T) {
+	oldDispatch := dispatchNewAPIChatCompletions
+	t.Cleanup(func() { dispatchNewAPIChatCompletions = oldDispatch })
+
+	dispatchNewAPIChatCompletions = func(_ context.Context, _ *gin.Context, _ bridge.ChannelContextInput, _ []byte) (*bridge.DispatchOutcome, *newapitypes.NewAPIError) {
+		firstTokenMs := 4321
+		return &bridge.DispatchOutcome{Model: "kimi-k3", Stream: true, FirstTokenMs: &firstTokenMs}, nil
+	}
+
+	account := &Account{
+		ID:          61,
+		Platform:    PlatformNewAPI,
+		ChannelType: 17,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "test-key"},
+	}
+	svc := &OpenAIGatewayService{}
+	c, _ := gin.CreateTestContext(nil)
+
+	result, err := svc.ForwardAsChatCompletionsDispatched(context.Background(), c, account, []byte(`{"model":"kimi-k3","stream":true,"messages":[{"role":"user","content":"hi"}]}`), "", "")
+	if err != nil {
+		t.Fatalf("ForwardAsChatCompletionsDispatched: %v", err)
+	}
+	if result == nil || result.FirstTokenMs == nil || *result.FirstTokenMs != 4321 {
+		t.Fatalf("bridge first_token_ms = %v, want 4321", result)
+	}
+	if got := result.FirstTokenMsForAccountScheduling(); got != nil {
+		t.Fatalf("bridge TTFT should remain shadow-only for scheduling, got %d", *got)
+	}
+}
+
 func TestForwardAsChatCompletionsDispatched_VertexLocationUsesMappedModel(t *testing.T) {
 	oldDispatch := dispatchNewAPIChatCompletions
 	t.Cleanup(func() { dispatchNewAPIChatCompletions = oldDispatch })

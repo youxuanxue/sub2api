@@ -181,27 +181,42 @@ type OpenAIForwardResult struct {
 	ResponseHeaders       http.Header
 	Duration              time.Duration
 	FirstTokenMs          *int
-	ClientDisconnect      bool
-	ImageCount            int
-	ImageSize             string
-	ImageInputSize        string
-	ImageOutputSize       string
-	ImageOutputSizes      []string
-	ImageSizeSource       string
-	ImageSizeBreakdown    map[string]int
-	VideoCount            int
-	VideoResolution       string
-	VideoDurationSeconds  int
-	protocolRouteFacts    RouteFacts
-	VideoGenerateAudio    *bool
-	VideoHasInputImage    bool
-	WebSearchCalls        int
-	SearchCount           int
-	AudioUsage            *AudioUsage
+	// bridgeTTFTShadowOnly keeps newly wired bridge TTFT out of the global
+	// account scheduler until model/input-bucket scoped evidence is available.
+	// FirstTokenMs remains available for usage logs and observability.
+	bridgeTTFTShadowOnly bool
+	ClientDisconnect     bool
+	ImageCount           int
+	ImageSize            string
+	ImageInputSize       string
+	ImageOutputSize      string
+	ImageOutputSizes     []string
+	ImageSizeSource      string
+	ImageSizeBreakdown   map[string]int
+	VideoCount           int
+	VideoResolution      string
+	VideoDurationSeconds int
+	protocolRouteFacts   RouteFacts
+	VideoGenerateAudio   *bool
+	VideoHasInputImage   bool
+	WebSearchCalls       int
+	SearchCount          int
+	AudioUsage           *AudioUsage
 
 	wsReplayInput                []json.RawMessage
 	wsReplayInputExists          bool
 	wsAccountFailoverReplayInput []json.RawMessage
+}
+
+// FirstTokenMsForAccountScheduling returns TTFT only for paths whose runtime
+// score is already scoped safely. Bridge TTFT is currently shadow-only because
+// the scheduler's runtime EWMA is account-wide rather than model/input-bucket
+// scoped.
+func (r *OpenAIForwardResult) FirstTokenMsForAccountScheduling() *int {
+	if r == nil || r.bridgeTTFTShadowOnly {
+		return nil
+	}
+	return r.FirstTokenMs
 }
 
 func (r *OpenAIForwardResult) ProtocolRouteFacts() (RouteFacts, bool) {
