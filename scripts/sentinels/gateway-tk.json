@@ -2274,7 +2274,7 @@
         "CandidateChatSwitchLimit",
         "ClientErrorType: firstOutputUnavailableClientErrorType"
       ],
-      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 120s / high-effort 600s); non-streaming defaults to 300s. Promotion classes (compact / large body / high reasoning) align with OpenAI via firstOutputBudgetReason; numeric knobs remain NewAPI/stream-owned. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly. The first-output failover must keep ClientErrorType set: handleFailoverExhausted only honors ClientStatusCode when the type is non-empty, so dropping it silently reports the 504 as a generic 502 and makes 'upstream produced no useful output' indistinguishable from a real upstream 502 for clients and for 504 alerting."
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 120s / high-effort 600s); non-streaming defaults to 600s (first_output_timeout_ssot.py). Promotion classes (compact / large body / high reasoning) align with OpenAI via firstOutputBudgetReason; numeric knobs remain NewAPI/stream-owned. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly. The first-output failover must keep ClientErrorType set: handleFailoverExhausted only honors ClientStatusCode when the type is non-empty, so dropping it silently reports the 504 as a generic 502 and makes 'upstream produced no useful output' indistinguishable from a real upstream 502 for clients and for 504 alerting."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
@@ -2290,7 +2290,6 @@
     {
       "path": "backend/internal/service/openai_first_output_timeout.go",
       "must_contain": [
-        "func openAIFirstOutputForceHighBudget(c *gin.Context, body []byte) bool",
         "func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string, forceHigh bool) time.Duration",
         "first-output-timeout-ssot:begin",
         "openAIFirstOutputLargeBodyBytes",
@@ -2299,7 +2298,7 @@
         "return resolveStreamFirstOutputTimeout(s.cfg, false)",
         "openai_first_output_timeout_seconds=0 remains an emergency disable"
       ],
-      "rationale": "OpenAI native first-semantic-output timeout must inherit the universal stream SSOT via resolveStreamFirstOutputTimeout; explicit openai_first_output_timeout_seconds=0 stays emergency disable. Compact / compaction_trigger / large body force high-effort. Large-body bytes are generated from first_output_timeout_ssot.py."
+      "rationale": "OpenAI native first-semantic-output timeout must inherit the universal stream SSOT via resolveStreamFirstOutputTimeout; explicit openai_first_output_timeout_seconds=0 stays emergency disable. Promotion classes (compact / large body / high reasoning) are selected by firstOutputBudgetReason / firstOutputBudgetForcesHigh; this file owns numeric OpenAI knobs and the large-body byte constant from first_output_timeout_ssot.py."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
