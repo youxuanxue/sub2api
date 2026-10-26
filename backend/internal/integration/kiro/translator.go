@@ -428,6 +428,9 @@ func ClaudeToKiroWithFileToolGuidance(req *ClaudeRequest, thinking, enabled bool
 
 	normalizeKiroToolHistory(payload)
 	applyKiroToolNameRewrites(payload)
+	// Retained so a later wire-sizing pass (BindWireProfileArn) reduces under
+	// the same retention rules this call used.
+	payload.hasSystemPriming = systemPrompt != ""
 	truncatePayloadToLimit(payload, systemPrompt != "")
 
 	return payload
@@ -1510,6 +1513,9 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 
 	normalizeKiroToolHistory(payload)
 	applyKiroToolNameRewrites(payload)
+	// Retained so a later wire-sizing pass (BindWireProfileArn) reduces under
+	// the same retention rules this call used.
+	payload.hasSystemPriming = systemPrompt != ""
 	truncatePayloadToLimit(payload, systemPrompt != "")
 
 	return payload

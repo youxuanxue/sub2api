@@ -170,6 +170,12 @@ type KiroPayload struct {
 
 	// Populated only when the translated payload needs size reduction.
 	SizeDiagnostics *PayloadSizeDiagnostics `json:"-"`
+
+	// hasSystemPriming records whether History begins with the two-entry system
+	// priming pair. A wire-sizing pass that runs after translation (see
+	// BindWireProfileArn) needs the same retention rules the translator used.
+	// Unexported, so it is never serialized and never reaches Kiro.
+	hasSystemPriming bool
 }
 
 // AdditionalModelRequestFields carries Kiro adaptive-thinking controls that

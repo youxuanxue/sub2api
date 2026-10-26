@@ -17796,6 +17796,39 @@
         "TestRefitTerminatesWhenNormalizeKeepsGrowing"
       ],
       "rationale": "Bidirectional regression for the post-normalize size re-check: the pre-fix tail is pinned as oversized at the measured trigger, the shipped truncator fits it, fitting payloads stay byte-identical, and a pathological growth input still terminates."
+    },
+    {
+      "path": "backend/internal/integration/kiro/payload_wire_profile_arn_tk.go",
+      "must_contain": [
+        "func BindWireProfileArn(payload *KiroPayload, account *Account)",
+        "setPayloadProfileArnForAccount(payload, account)",
+        "truncatePayloadToLimit(payload, payload.hasSystemPriming)"
+      ],
+      "rationale": "Kiro payload guard must measure the bytes that reach the wire. profileArn is injected on the dispatch path and carries omitempty, so validating before the bind undercounts every request by the whole `\"profileArn\":\"<arn>\"` member (81 bytes for the 65-char ARNs in use). The bind must stay ahead of reduction, not merely ahead of validation: the truncator converges on the same maxPayloadBytes, so binding after it would 413 a payload the approved policy says to reduce further. See docs/approved/kiro-payload-overflow.md."
+    },
+    {
+      "path": "backend/internal/integration/kiro/payload_wire_profile_arn_tk_test.go",
+      "must_contain": [
+        "TestWireProfileArnCostsEightyOneBytes",
+        "TestWireGuardRejectsPayloadOnlyTheArnPushesOver",
+        "TestWireBindReducesRatherThanRejectsWhenHistoryCanGo",
+        "TestWireBindLeavesFittingPayloadOtherwiseUnchanged",
+        "TestWireBindAcceptsPayloadExactlyAtLimitWithArn",
+        "TestWireBindAddsNothingForAccountWithoutArn",
+        "TestWireBindIsIdempotent",
+        "TestDispatchStillRestoresProfileArnAfterCall"
+      ],
+      "rationale": "Bidirectional regression for the profileArn wire-size undercount: the injected regression (fits at validation, over once the ARN lands) is pinned as rejected, a reducible payload is pinned as reduced rather than 413'd, fitting payloads stay byte-identical apart from the field they must carry, an account without an ARN gains no phantom bytes, repeat binds stay idempotent, and client.go's defer restore of the caller's ProfileArn is kept."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_wire_profile_arn_tk_test.go",
+      "must_contain": [
+        "TestKiroGatewayService_Forward_RejectsWhenProfileArnPushesOverLimit",
+        "TestKiroGatewayService_Forward_FittingRequestStillDispatches",
+        "require.False(t, upstream.gotRequest",
+        "require.False(t, errors.As(err, &failover)"
+      ],
+      "rationale": "Gateway-level proof that the wire-size rejection happens before any upstream call and stays caller-owned: not wrapped as UpstreamFailoverError, so it neither selects another account nor penalizes account health, while a fitting request still dispatches."
     }
   ]
 }
