@@ -970,8 +970,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if reasoningEffort != nil {
 		reasoningEffortValue = *reasoningEffort
 	}
-	firstOutputBudgetReason := openAIFirstOutputBudgetReason(c, body, reasoningEffortValue)
-	forceHighFirstOutput := firstOutputBudgetReason == "compact" || firstOutputBudgetReason == "large_body"
+	firstOutputBudgetReason := firstOutputBudgetReason(c, body, reasoningEffortValue)
+	forceHighFirstOutput := firstOutputBudgetForcesHigh(firstOutputBudgetReason)
 	firstOutputTimeout := time.Duration(0)
 	if reqStream && account.Platform == PlatformOpenAI {
 		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffortValue, forceHighFirstOutput)

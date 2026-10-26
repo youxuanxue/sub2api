@@ -240,7 +240,7 @@ func (s *openAIFirstOutputStage) Close() error {
 // reasoning.effort. Owned with OPENAI_FORCE_HIGH_BODY_BYTES in
 // ops/stage0/first_output_timeout_ssot.py.
 func openAIFirstOutputForceHighBudget(c *gin.Context, body []byte) bool {
-	reason := openAIFirstOutputBudgetReason(c, body, "")
+	reason := firstOutputBudgetReason(c, body, "")
 	return reason == "compact" || reason == "large_body"
 }
 

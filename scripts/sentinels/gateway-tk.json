@@ -2264,11 +2264,12 @@
         "a.abortOnClientGone(ctx.Err())",
         "errCandidateChatIncomplete",
         "newAPIChatFirstOutputTimeoutWithEffort(",
-        "streamFirstOutputHighEffort(effort)",
+        "firstOutputBudgetReason(",
+        "firstOutputBudgetForcesHigh(",
         "CandidateChatSwitchLimit",
         "ClientErrorType: firstOutputUnavailableClientErrorType"
       ],
-      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 120s / high-effort 600s); non-streaming defaults to 300s. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly. The first-output failover must keep ClientErrorType set: handleFailoverExhausted only honors ClientStatusCode when the type is non-empty, so dropping it silently reports the 504 as a generic 502 and makes 'upstream produced no useful output' indistinguishable from a real upstream 502 for clients and for 504 alerting."
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 120s / high-effort 600s); non-streaming defaults to 300s. Promotion classes (compact / large body / high reasoning) align with OpenAI via firstOutputBudgetReason; numeric knobs remain NewAPI/stream-owned. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly. The first-output failover must keep ClientErrorType set: handleFailoverExhausted only honors ClientStatusCode when the type is non-empty, so dropping it silently reports the 504 as a generic 502 and makes 'upstream produced no useful output' indistinguishable from a real upstream 502 for clients and for 504 alerting."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
@@ -16051,12 +16052,15 @@
       "must_contain": [
         "TestCandidateChatStreamVersusNonstreamBudgets",
         "TestNewAPIChatFirstOutputTimeoutResolver",
+        "TestNewAPIChatFirstOutputPromotionAlignsWithOpenAIStrategy",
         "non-stream must not use ResponseHeaderTimeout",
         "non-stream default is 3×600s",
         "stream default is 3×120s",
-        "TestNewAPIChatHighEffortFirstOutputOverride"
+        "TestNewAPIChatHighEffortFirstOutputOverride",
+        "large_body_forces_newapi_high_latency",
+        "high_effort_forces_newapi_high_latency"
       ],
-      "rationale": "Focused unit tests lock stream vs nonstream first-output budgets and forbid ResponseHeaderTimeout from redefining either."
+      "rationale": "Focused unit tests lock stream vs nonstream first-output budgets, forbid ResponseHeaderTimeout from redefining either, and cover NewAPI promotion parity with OpenAI (large body / high effort → NewAPI high-latency knobs)."
     },
     {
       "path": "deploy/aws/stage0/docker-compose.yml",

@@ -19,7 +19,7 @@ func TestFirstOutputObservationRecordsActualBudgetAndRecovery(t *testing.T) {
 	account := &Account{ID: 1, Platform: PlatformOpenAI}
 	BeginOpsFirstOutputAttempt(c)
 	budget := svc.openAIFirstOutputTimeout("medium", false)
-	reason := openAIFirstOutputBudgetReason(c, []byte(`{"input":"hi"}`), "medium")
+	reason := firstOutputBudgetReason(c, []byte(`{"input":"hi"}`), "medium")
 	RecordOpsFirstOutputBudget(c, account, budget, reason)
 	_ = svc.newOpenAIFirstOutputTimeoutError(context.Background(), c, account, nil, "direct/no_proxy", time.Now(), "model", "medium", budget, "semantic_output", nil)
 	// Failed execution followed by a successful one, with multiple error events
@@ -45,13 +45,18 @@ func TestFirstOutputObservationRecordsActualBudgetAndRecovery(t *testing.T) {
 func TestFirstOutputBudgetReasonUsesSelectionInputs(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses/compact", nil)
-	require.Equal(t, "compact", openAIFirstOutputBudgetReason(c, []byte(`{}`), "medium"))
+	require.Equal(t, "compact", firstOutputBudgetReason(c, []byte(`{}`), "medium"))
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	require.Equal(t, "large_body", openAIFirstOutputBudgetReason(c, []byte(strings.Repeat(" ", openAIFirstOutputLargeBodyBytes)), "medium"))
-	require.Equal(t, "high_effort", openAIFirstOutputBudgetReason(c, []byte(`{}`), "xhigh"))
-	require.Equal(t, "high_effort", openAIFirstOutputBudgetReason(c, []byte(`{"model":"gpt-6-astra"}`), "medium"))
-	require.Equal(t, "high_effort", openAIFirstOutputBudgetReason(c, []byte(`{"model":"gpt-5.6-sol"}`), "medium"))
-	require.Equal(t, "default", openAIFirstOutputBudgetReason(c, []byte(`{}`), "medium"))
+	require.Equal(t, "large_body", firstOutputBudgetReason(c, []byte(strings.Repeat(" ", openAIFirstOutputLargeBodyBytes)), "medium"))
+	require.Equal(t, "high_effort", firstOutputBudgetReason(c, []byte(`{}`), "xhigh"))
+	require.Equal(t, "high_effort", firstOutputBudgetReason(c, []byte(`{"model":"gpt-6-astra"}`), "medium"))
+	require.Equal(t, "high_effort", firstOutputBudgetReason(c, []byte(`{"model":"gpt-5.6-sol"}`), "medium"))
+	require.Equal(t, "default", firstOutputBudgetReason(c, []byte(`{}`), "medium"))
+	require.True(t, firstOutputBudgetForcesHigh("compact"))
+	require.True(t, firstOutputBudgetForcesHigh("large_body"))
+	require.True(t, firstOutputBudgetForcesHigh("high_effort"))
+	require.False(t, firstOutputBudgetForcesHigh("default"))
+	require.False(t, firstOutputBudgetForcesHigh("newapi_inherit"))
 }
 
 func TestUniversalFirstOutputObservationIgnoresCallerCancel(t *testing.T) {
