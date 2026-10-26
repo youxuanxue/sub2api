@@ -1668,7 +1668,7 @@ for _pf_need in \
     '^  put-file)$' \
     'sha256 mismatch' \
     'must be an absolute path inside a directory' \
-    'refusing to write into a system path'
+    'outside the permitted roots'
 do
     if ! grep -qE "$_pf_need" deploy/domestic/deploy_via_ssm.sh 2>/dev/null; then
         echo "  FAIL: deploy_via_ssm.sh put-file lost a required guard: $_pf_need"
@@ -1683,7 +1683,7 @@ unset _pf_need
 # -I skips binaries (a stale .pyc otherwise reports as "Binary file ... matches")
 # and __pycache__ is excluded outright: only source text composes remote commands.
 _pf_bad_redirect=$(grep -rnIE --exclude-dir=__pycache__ --exclude='*.pyc' \
-    'base64 -d[^|>]*> *[A-Za-z_][A-Za-z0-9_.-]*( |$)' \
+    'base64 (-d|-D|--decode)[^|>]*> *[A-Za-z_][A-Za-z0-9_.-]*( |$)' \
     deploy/ ops/ .cursor/skills/ scripts/ 2>/dev/null \
     | grep -v 'preflight.sh' \
     | grep -vE '> *(/|\$)' || true)

@@ -111,7 +111,7 @@
     "SSM host command script parse": "deploy",
     "gateway smoke suite unit tests": "deploy",
     "run-probe.sh --env loop regression guard": "base",
-    "cn-prod remote file transfer": "deploy",
+    "cn-prod remote file transfer": "remote-transfer",
     "data-layer capacity verdict selftest": "observability",
     "capacity-first safety contracts": "observability",
     "phase1 production activation safety contracts": "observability",
@@ -305,6 +305,12 @@
     "stage0-tests": [
       "ops/*",
       "deploy/*"
+    ],
+    "remote-transfer": [
+      "ops/*",
+      "deploy/*",
+      "scripts/*",
+      ".cursor/skills/*"
     ],
     "script-tests": [
       "scripts/*",

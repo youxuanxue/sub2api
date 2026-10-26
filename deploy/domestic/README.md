@@ -124,8 +124,11 @@ plan 能通过切流前校验，却会让通知阶段抛 `KeyError`（2026-10-23
 2026-10-25 发版时一条手写传输里的 `> bash` 笔误把重定向打到远端 cwd（`/usr/bin`），
 `/usr/bin/bash` 被 truncate 成 0 字节：服务没断，但主机上所有 `#!/bin/bash` 单元全挂 ——
 `tokenkey-disk-metrics`（磁盘/内存告警）瞎了约 9 小时，`sysstat-summary` 失败，盯盘 probe
-取不到数。`put-file` 用 python `repr` 引用的 base64 分块传输，拒绝裸文件名与系统路径，
-落盘后校验 sha256；`--run` 会先 `bash -n` 再执行。
+取不到数。`put-file` 用 python `repr` 引用的 gzip+base64 分块传输（SSM 整个 document 上限 97KB，
+裸 base64 会把 77KB 脚本撑过线），落盘后按原始字节校验 sha256；`--run` 先 `bash -n` 再执行。
+`--remote` 只允许写 `/private/*`、`/opt/tokenkey/*`、`/var/lib/tokenkey/*`，裸文件名、`..`
+穿越和其它路径一律拒绝 —— 用 allowlist 而非系统路径黑名单，是因为黑名单仍会放过
+`/usr/local/bin`（本次事故里被打挂的告警脚本就在那儿）。
 
 ```bash
 # 1) 在仓库侧生成 plan（revision 用完整 SHA，与 prepare 的 --revision 一致）

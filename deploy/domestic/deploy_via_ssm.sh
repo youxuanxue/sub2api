@@ -341,9 +341,21 @@ PY
         exit 1
         ;;
     esac
+    # Allowlist, not denylist: a denylist of system paths still accepted
+    # /usr/local/bin — where this incident's own broken alert script lives —
+    # plus /root and /boot. Only the directories this tool legitimately writes
+    # are permitted; anything else is a caller mistake worth stopping.
     case "${REMOTE_PATH}" in
-      /bin/*|/sbin/*|/usr/bin/*|/usr/sbin/*|/lib/*|/usr/lib/*|/etc/*|*/..*)
-        echo "deploy_via_ssm put-file: refusing to write into a system path: ${REMOTE_PATH}" >&2
+      */../*|*/..) 
+        echo "deploy_via_ssm put-file: --remote must not traverse with ..: ${REMOTE_PATH}" >&2
+        exit 1
+        ;;
+    esac
+    case "${REMOTE_PATH}" in
+      /private/*|/opt/tokenkey/*|/var/lib/tokenkey/*) : ;;
+      *)
+        echo "deploy_via_ssm put-file: --remote outside the permitted roots: ${REMOTE_PATH}" >&2
+        echo "  permitted: /private/* (evidence), /opt/tokenkey/* (release state), /var/lib/tokenkey/*" >&2
         exit 1
         ;;
     esac
@@ -353,8 +365,12 @@ PY
     esac
     if [[ "${RUN_AFTER_PUT}" == "1" && "${REMOTE_MODE}" == "600" ]]; then
       REMOTE_MODE="700"
+      echo "deploy_via_ssm put-file: --run needs an executable file; using mode 700" >&2
     fi
-    FILE_B64="$(base64 < "${LOCAL_PATH}" | tr -d '\n')"
+    # gzip before base64, exactly as sync-controls does: SSM caps the whole
+    # document at 97KB, and plain base64 inflates by 4/3, so an uncompressed
+    # 77KB script already fails with MaxDocumentSizeExceeded.
+    FILE_B64="$(gzip -cn < "${LOCAL_PATH}" | base64 | tr -d '\n')"
     LOCAL_SHA="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${LOCAL_PATH}")"
     REMOTE="$(python3 - "${REMOTE_PATH}" "${FILE_B64}" "${REMOTE_MODE}" "${LOCAL_SHA}" "${RUN_AFTER_PUT}" <<'PY_PUT'
 import sys
@@ -374,7 +390,7 @@ for part in parts:
     # destination is only ever named via "$DEST", never spliced into a redirect.
     lines.append(f"printf %s {part!r} >> \"$STAGING\"")
 lines += [
-    'base64 -d "$STAGING" > "$DEST"',
+    'base64 -d "$STAGING" | gzip -d > "$DEST"',
     'rm -f "$STAGING"',
     f"chmod {mode} \"$DEST\"",
     f"GOT=$(sha256sum \"$DEST\" | cut -d\" \" -f1)",
