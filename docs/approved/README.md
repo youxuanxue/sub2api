@@ -113,6 +113,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`openai-compat-first-selection-failure.md`](openai-compat-first-selection-failure.md) | OpenAI-compatible first-selection failure contract |
 | [`gpt-image-aspect-ratio-soft-control.md`](gpt-image-aspect-ratio-soft-control.md) | GPT Image `aspect_ratio` soft marker, floor identity |
 | [`gpt-image-strict-canvas-postprocess.md`](gpt-image-strict-canvas-postprocess.md) | GPT Image local exact canvas + format post-process（已合并 #2385） |
+| [`gpt-image-native-cutover.md`](gpt-image-native-cutover.md) | GPT Image OAuth 默认原生 Images，404/405 回退 Responses |
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
 | [`candidate-eligibility-ssot.md`](candidate-eligibility-ssot.md) | Candidate scheduling policy and implementation boundary |
 | [`multimodal-supply-capability-ssot.md`](multimodal-supply-capability-ssot.md) | Multimodal supply gate: ContentKinds ∩ evidence-backed known-negatives (not a Plan rewrite) |

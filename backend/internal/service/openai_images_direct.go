@@ -30,14 +30,12 @@ func isOpenAIImagesForceResponses(ctx context.Context) bool {
 // usesCodexDirectImages reports whether OAuth images may call ChatGPT's
 // /backend-api/codex/images/* Direct endpoint.
 //
-// TokenKey previously preferred Direct for gpt-image-2*; customer fidelity
-// matrices and codex2api both require the Codex Responses + image_generation
-// tool path instead (tools[].size/quality/background/output_format). Direct
-// remains available only as an emergency ForceResponses=false override is not
-// exposed — keep this false so OAuth always matches codex2api.
+// Native Images is the default OAuth transport for the GPT Image model family.
+// The native endpoint is materially faster; request fidelity is completed by
+// the prompt guidance and the shared local canvas/format post-process. A 404
+// or 405 from native still retries once through Responses in the caller.
 func usesCodexDirectImages(model string) bool {
-	_ = model
-	return false
+	return codexDirectImagesModelFamilies(model)
 }
 
 // codexDirectImagesModelFamilies lists models that historically used Direct
@@ -75,6 +73,12 @@ func buildOpenAIImagesOAuthPayload(parsed *OpenAIImagesRequest, model string) ([
 			prompt = rawPrompt
 		}
 	}
+	// The native Images backend soft-serves quality and size fields. Reuse the
+	// Responses scaffold and add explicit prompt intent before style/AR hints;
+	// response metadata and strict canvas post-processing decide what was honored.
+	prompt = applyOpenAIImagesPerceivedQualityPrompt(prompt, parsed.IsEdits())
+	prompt = applyOpenAIImagesNativeQualityGuidance(prompt, parsed.Quality)
+	prompt = applyOpenAIImagesNativeSizeGuidance(prompt, parsed)
 	prompt = applyOpenAIImagesStyleGuidance(prompt, parsed.Style)
 	prompt = applyOpenAIImagesAspectRatioMarker(prompt, resolveOpenAIImagesAspectRatioForMarker(parsed, true))
 	payload["prompt"] = prompt

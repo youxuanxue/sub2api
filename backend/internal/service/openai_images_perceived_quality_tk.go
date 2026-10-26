@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -160,4 +161,52 @@ func applyOpenAIImagesPerceivedQualityPrompt(prompt string, edit bool) string {
 	}
 	lines = append(lines, constraints, avoid)
 	return strings.Join(lines, "\n")
+}
+
+// applyOpenAIImagesNativeQualityGuidance adds the quality intent that the
+// Codex Images backend can observe in the prompt. Its JSON quality field is
+// soft and the response metadata remains authoritative for the actual tier.
+func applyOpenAIImagesNativeQualityGuidance(prompt, quality string) string {
+	quality = strings.ToLower(strings.TrimSpace(quality))
+	var guidance string
+	switch quality {
+	case "high":
+		guidance = "Rendering fidelity: use the highest supported image-generation quality for the final image; preserve fine local detail, natural material texture, clean edges, and smooth tonal transitions. Do not produce a draft or simplified rendering."
+	case "medium":
+		guidance = "Rendering fidelity: use a balanced production-quality rendering with clear subject detail, natural material texture, clean edges, and coherent lighting."
+	case "low":
+		guidance = "Rendering fidelity: use a fast draft rendering while preserving the requested subject, composition, colors, and text exactly."
+	default:
+		return prompt
+	}
+	if strings.Contains(prompt, guidance) {
+		return prompt
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return guidance
+	}
+	return strings.TrimSpace(prompt) + "\n" + guidance
+}
+
+// applyOpenAIImagesNativeSizeGuidance gives the native backend a deterministic
+// aspect-ratio and canvas hint. Strict local canvas post-processing still owns
+// the final customer dimensions.
+func applyOpenAIImagesNativeSizeGuidance(prompt string, parsed *OpenAIImagesRequest) string {
+	if parsed == nil || !parsed.ExplicitSize {
+		return prompt
+	}
+	size := strings.TrimSpace(upstreamOpenAIImagesSize(parsed))
+	parts := strings.SplitN(size, "x", 2)
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+		return prompt
+	}
+	width, height := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	guidance := fmt.Sprintf("Generate the image with a width of %s pixels and a height of %s pixels. Use this exact canvas aspect ratio and a fully framed composition.", width, height)
+	if strings.Contains(prompt, guidance) {
+		return prompt
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return guidance
+	}
+	return strings.TrimSpace(prompt) + "\n" + guidance
 }

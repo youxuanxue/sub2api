@@ -106,7 +106,7 @@ func TestForwardOpenAIImagesOAuth_RetriesOnMainModelUnsupported(t *testing.T) {
 	require.NoError(t, err)
 	account := directImagesTestAccount()
 
-	result, err := svc.forwardOpenAIImagesOAuth(context.Background(), c, account, parsed, "")
+	result, err := svc.forwardOpenAIImagesOAuth(withOpenAIImagesForceResponses(context.Background()), c, account, parsed, "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -159,7 +159,7 @@ func TestForwardOpenAIImagesOAuth_ExhaustedMainModelFallbackPassthrough(t *testi
 	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 	require.NoError(t, err)
 
-	_, err = svc.forwardOpenAIImagesOAuth(context.Background(), c, directImagesTestAccount(), parsed, "")
+	_, err = svc.forwardOpenAIImagesOAuth(withOpenAIImagesForceResponses(context.Background()), c, directImagesTestAccount(), parsed, "")
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Contains(t, rec.Body.String(), "gpt-5.5")

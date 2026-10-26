@@ -6933,10 +6933,10 @@
       "path": "backend/internal/service/openai_images_direct.go",
       "must_contain": [
         "func usesCodexDirectImages(model string) bool {",
-        "keep this false so OAuth always matches codex2api",
-        "_ = model"
+        "return codexDirectImagesModelFamilies(model)",
+        "Native Images is the default OAuth transport for the GPT Image model family."
       ],
-      "rationale": "OAuth GPT Image must stay on Codex Responses + image_generation tools (codex2api parity). Restoring Direct /codex/images/* as the default silently breaks size/format fidelity matrices even when post-process helpers remain."
+      "rationale": "OAuth GPT Image uses the native Codex Images endpoint by default because the measured completion latency is materially lower. The local strict canvas/format owner and the 404/405 Responses fallback preserve the customer contract. Removing this anchor would silently revert the latency cutover during an upstream merge."
     },
     {
       "path": "backend/internal/service/openai_images_strict_canvas_tk.go",

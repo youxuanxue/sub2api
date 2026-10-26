@@ -129,6 +129,25 @@ func TestApplyOpenAIImagesPerceivedQualityPromptScaffold(t *testing.T) {
 	require.Contains(t, applyOpenAIImagesPerceivedQualityPrompt("a ceramic mug", false), "Primary request:")
 }
 
+func TestApplyOpenAIImagesNativeQualityGuidance(t *testing.T) {
+	prompt := "Primary request: a detailed ceramic teapot"
+	high := applyOpenAIImagesNativeQualityGuidance(prompt, "high")
+	require.Contains(t, high, "highest supported image-generation quality")
+	require.Contains(t, high, "fine local detail")
+	require.Equal(t, high, applyOpenAIImagesNativeQualityGuidance(high, "high"))
+	require.NotContains(t, applyOpenAIImagesNativeQualityGuidance(prompt, "auto"), "Rendering fidelity:")
+	require.NotContains(t, applyOpenAIImagesNativeQualityGuidance(prompt, "invalid"), "Rendering fidelity:")
+}
+
+func TestApplyOpenAIImagesNativeSizeGuidance(t *testing.T) {
+	parsed := &OpenAIImagesRequest{Size: "1024x1536", ExplicitSize: true}
+	guided := applyOpenAIImagesNativeSizeGuidance("a portrait poster", parsed)
+	require.Contains(t, guided, "width of 1024 pixels")
+	require.Contains(t, guided, "height of 1536 pixels")
+	require.Equal(t, guided, applyOpenAIImagesNativeSizeGuidance(guided, parsed))
+	require.Equal(t, "a portrait poster", applyOpenAIImagesNativeSizeGuidance("a portrait poster", &OpenAIImagesRequest{Size: "auto"}))
+}
+
 func TestBuildOpenAIImagesResponsesRequest_PerceivedQualityWiring(t *testing.T) {
 	t.Setenv(openAIImagesPromptScaffoldEnv, "")
 	t.Setenv(openAIImagesReasoningEffortEnv, "")
