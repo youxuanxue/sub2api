@@ -72,6 +72,14 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
+	// Volc Agent Plan text is Chat Completions only. Probe Extra can mark
+	// /responses as present (HTML or soft 400), but native Responses is not
+	// usable for kimi-k3 — cn-prod 2026-10-26 customer batch saw
+	// missing-messages 400s and HTML JSON-parse 500s when Messages/Responses
+	// stayed on the Responses transport.
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		return true
+	}
 	if account.routesByModel() {
 		// Model protocol_rules are the authority. Probe Extra must not collapse
 		// Grok/GPT/Muse into Chat Completions.
