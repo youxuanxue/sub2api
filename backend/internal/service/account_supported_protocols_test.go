@@ -367,6 +367,24 @@ func TestProtocolAccountSnapshotUsesCanonicalAgentPlanEndpoints(t *testing.T) {
 	}
 }
 
+func TestProtocolProbeCandidates_VolcAgentPlanChatOnly(t *testing.T) {
+	account := &Account{
+		ID:          125,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": newapiintegration.VolcEngineAgentPlanBaseURL,
+		},
+	}
+	got := ProtocolProbeCandidates(account)
+	want := []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("probe candidates = %v, want %v", got, want)
+	}
+}
+
 func TestProtocolAccountSnapshotUsesCanonicalQianfanTokenPlanEndpoints(t *testing.T) {
 	account := &Account{
 		ID:          130,

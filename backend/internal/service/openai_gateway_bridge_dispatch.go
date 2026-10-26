@@ -67,7 +67,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	// Clients may POST Responses-shaped bodies (`input`, no `messages`) to
 	// /v1/chat/completions. Convert before the Chat Completions adaptor so
 	// upstreams that only accept `messages` do not 400.
-	if !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists() {
+	if isResponsesShapedChatBody(body) {
 		converted, convertErr := s.convertResponsesShapedChatBody(body)
 		if convertErr != nil {
 			return nil, convertErr

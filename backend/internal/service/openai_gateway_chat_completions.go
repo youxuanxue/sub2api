@@ -102,6 +102,17 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	if target, planned := protocolExecutionTarget(ctx); planned {
 		switch target {
 		case protocolrouter.ProtocolChatCompletions:
+			// Bound Chat plans skip resolveUpstreamProtocol below. Still convert
+			// Responses-shaped bodies (`input`, no `messages`) before raw CC —
+			// otherwise Volc/Chat upstreams return missing `messages`
+			// (cn-prod kimi-k3 2026-10-26 responses_shape_chat).
+			if isResponsesShapedChatBody(body) {
+				chatBody, convertErr := s.convertResponsesShapedChatBody(body)
+				if convertErr != nil {
+					return nil, convertErr
+				}
+				body = chatBody
+			}
 			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		case protocolrouter.ProtocolMessages:
 			return s.forwardChatCompletionsViaNativeAnthropic(ctx, c, account, body, defaultMappedModel)
@@ -129,7 +140,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	// Some clients send a Responses-shaped body to the
 	// /v1/chat/completions URL. Detect it before protocol routing so Chat
 	// Completions upstreams never see `input` without `messages`.
-	isResponsesShape := !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists()
+	isResponsesShape := isResponsesShapedChatBody(body)
 	inbound := APIProtocolChatCompletions
 	if isResponsesShape {
 		inbound = APIProtocolResponses

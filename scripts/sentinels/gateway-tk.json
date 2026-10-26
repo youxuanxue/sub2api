@@ -1383,9 +1383,10 @@
         "freshPlan, err := planProtocolRoute(ctx, router, request, fresh)",
         "protocolrouter.AdapterGeminiToChat:",
         "protocolExecutorsFromContext(ctx).GeminiToChat",
-        "validateOAuthProxyBinding(freshAccount)"
+        "validateOAuthProxyBinding(freshAccount)",
+        "func protocolExecutionChatCompletionsEndpoint(ctx context.Context, fallback string) string {"
       ],
-      "rationale": "Send-time freshness must enforce the same native-only route policy as admission."
+      "rationale": "Send-time freshness must enforce the same native-only route policy as admission. CC fallback must ignore Responses/Messages plan endpoints (Volc force-chat + ResponsesIdentity)."
     },
     {
       "path": "backend/internal/service/candidate_thinking_tools_tk_test.go",
@@ -5514,9 +5515,11 @@
     {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
       "must_contain": [
-        "case APIProtocolChatCompletions:\n\t\tif isResponsesShape {\n\t\t\tchatBody, err := s.convertResponsesShapedChatBody(body)"
+        "case APIProtocolChatCompletions:\n\t\tif isResponsesShape {\n\t\t\tchatBody, err := s.convertResponsesShapedChatBody(body)",
+        "Bound Chat plans skip resolveUpstreamProtocol below. Still convert",
+        "if isResponsesShapedChatBody(body) {"
       ],
-      "rationale": "Chat Completions upstreams must convert Responses-shaped /v1/chat/completions bodies (input, no messages) before raw forward. Restricting conversion to adaptive/routesByModel previously let Volc Agent Plan and other force-chat accounts forward input unchanged and upstream 400 missing messages (cn-prod kimi-k3 2026-10-26)."
+      "rationale": "Chat Completions upstreams must convert Responses-shaped /v1/chat/completions bodies (input, no messages) before raw forward — both the resolveUpstreamProtocol path and the bound protocolExecutionTarget ChatCompletions early-return (cn-prod kimi-k3 responses_shape_chat 45bdb549)."
     },
     {
       "path": "backend/internal/service/openai_responses_unsupported_user_test.go",
@@ -10761,10 +10764,11 @@
       "path": "backend/internal/service/openai_gateway_cc_pipeline.go",
       "must_contain": [
         "resolveCCFallbackTarget(ctx context.Context, account *Account)",
-        "if targetURL = protocolExecutionEndpoint(ctx, \"\"); targetURL != \"\" {",
+        "if targetURL = protocolExecutionChatCompletionsEndpoint(ctx, \"\"); targetURL != \"\" {",
+        "targetURL = protocolExecutionChatCompletionsEndpoint(ctx, targetURL)",
         "apiKey, _, err = s.GetAccessToken(ctx, account)"
       ],
-      "rationale": "Messages/Responses-to-Chat converters must share Plan-bound endpoint and credential consumption; legacy resolver rules apply only without a Plan."
+      "rationale": "Messages/Responses-to-Chat converters share Plan-bound Chat Completions endpoints and credentials. ResponsesIdentity plan endpoints must not override CC fallback URLs (cn-prod kimi-k3 missing-input when messages POSTed to /responses)."
     },
     {
       "path": "backend/internal/service/protocol_execution_test.go",
@@ -12508,9 +12512,10 @@
     {
       "path": "backend/internal/service/protocol_capability_probe.go",
       "must_contain": [
-        "func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {"
+        "func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {",
+        "if isNewAPIVolcEngineAgentPlanAccount(account) {\n\t\treturn []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}\n\t}"
       ],
-      "rationale": "Capability probes follow account-declared endpoints and do not infer native protocols from compatibility ingress."
+      "rationale": "Capability probes follow account-declared endpoints and do not infer native protocols from compatibility ingress. Volc Agent Plan must probe Chat Completions only — soft /responses positives seeded ResponsesIdentity and caused missing-input 400s."
     },
     {
       "path": "backend/internal/service/protocol_capability_probe_test.go",
@@ -13710,11 +13715,14 @@
         "func TestForwardAsChatCompletions_VolcAgentPlanConvertsResponsesShapedBody(",
         "func TestForwardAsChatCompletionsDispatched_ConvertsResponsesShapedBody(",
         "func TestForwardAsResponses_VolcAgentPlanUsesChatFallback(",
+        "func TestForward_VolcForceChat_BoundResponsesIdentityPlanPostsToChatURL(",
+        "func TestForwardAsChatCompletions_BoundChatPlanConvertsResponsesShapedBody(",
+        "func TestVolcAgentPlan_ResponsesInboundPlansToChat(",
         "func TestForwardAsAnthropic_VolcAgentPlanUsesChatFallback(",
         "func TestIsNewAPIResponsesProactiveChatFallbackModel_Kimi(",
         "func TestForwardAsResponsesDispatched_KimiProactiveChatFallback("
       ],
-      "rationale": "Focused regressions for cn-prod kimi-k3 protocol-compat: Volc Agent Plan force-chat, Responses-shaped /v1/chat/completions conversion on raw and NewAPI bridge paths, Messages→chat fallback, and proactive Responses→chat for kimi/moonshot/k3. Deleting any of these lets upstream merge revive missing-messages 400s without a compile break."
+      "rationale": "Focused regressions for cn-prod kimi-k3 protocol-compat: Volc Agent Plan force-chat (including bound ResponsesIdentity plan must POST to /chat/completions, not /responses), Responses-shaped /v1/chat/completions conversion on raw/bound-Chat/NewAPI bridge paths, Messages→chat fallback, chat-only probe Plan responses_to_chat, and proactive Responses→chat for kimi/moonshot/k3. Deleting any of these lets upstream merge revive missing-input/missing-messages 400s without a compile break."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward.go",

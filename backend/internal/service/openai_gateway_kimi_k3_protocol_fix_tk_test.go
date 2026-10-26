@@ -15,6 +15,7 @@ import (
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapidto "github.com/QuantumNous/new-api/dto"
 	newapitypes "github.com/QuantumNous/new-api/types"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
@@ -121,6 +122,179 @@ func TestForwardAsResponses_VolcAgentPlanUsesChatFallback(t *testing.T) {
 		"Volc /v1/responses must fall back to chat/completions, not native /responses")
 	require.True(t, gjson.GetBytes(upstream.lastBody, "messages").IsArray())
 	require.Equal(t, "response", gjson.Get(rec.Body.String(), "object").String())
+}
+
+// TestForward_VolcForceChat_BoundResponsesIdentityPlanPostsToChatURL guards the
+// production path: ExecuteSelectedProtocol binds ResponsesIdentity with a
+// /responses endpoint. Force-chat must convert the body AND still POST to
+// /chat/completions — posting messages to /responses yields missing `input`
+// (cn-prod 4cb4479d / responses_compat after 1.8.326).
+func TestForward_VolcForceChat_BoundResponsesIdentityPlanPostsToChatURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	chatJSON := `{"id":"chatcmpl_k3_plan","object":"chat.completion","model":"kimi-k3","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`
+	upstream := &httpUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(chatJSON)),
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	account := volcAgentPlanKimiAccountForTest()
+	body := []byte(`{"model":"kimi-k3","input":[{"role":"user","content":"hi"}],"max_output_tokens":64,"stream":false,"store":false,"instructions":"请简洁回答。"}`)
+
+	responsesURL := newapiintegration.VolcEngineAgentPlanBaseURL + "/responses"
+	chatURL := newapiintegration.VolcEngineAgentPlanBaseURL + "/chat/completions"
+	ctx := withProtocolExecutionPlan(context.Background(), volcAgentPlanResponsesIdentityPlan(t, body, responsesURL, chatURL))
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	result, err := svc.Forward(ctx, c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, chatURL, upstream.lastReq.URL.String(),
+		"bound ResponsesIdentity plan must not pin force-chat to /responses")
+	require.True(t, gjson.GetBytes(upstream.lastBody, "messages").IsArray())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
+	require.Equal(t, "response", gjson.Get(rec.Body.String(), "object").String())
+}
+
+// TestForwardAsChatCompletions_BoundChatPlanConvertsResponsesShapedBody guards
+// the early protocolExecutionTarget ChatCompletions return: without convert,
+// Responses-shaped bodies hit Volc as missing `messages` (cn-prod 45bdb549).
+func TestForwardAsChatCompletions_BoundChatPlanConvertsResponsesShapedBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	chatJSON := `{"id":"chatcmpl_k3_shape","object":"chat.completion","model":"kimi-k3","choices":[{"index":0,"message":{"role":"assistant","content":"协议兼容测试通过"},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":4,"total_tokens":12}}`
+	upstream := &httpUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(chatJSON)),
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	account := volcAgentPlanKimiAccountForTest()
+	body := []byte(`{
+		"model": "kimi-k3",
+		"max_output_tokens": 2048,
+		"stream": false,
+		"store": false,
+		"instructions": "请简洁回答。",
+		"input": [{"role":"user","content":"只回复：协议兼容测试通过"}]
+	}`)
+
+	chatURL := newapiintegration.VolcEngineAgentPlanBaseURL + "/chat/completions"
+	ctx := withProtocolExecutionPlan(context.Background(), volcAgentPlanChatIdentityPlan(t, body, chatURL))
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	result, err := svc.ForwardAsChatCompletions(ctx, c, account, body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, chatURL, upstream.lastReq.URL.String())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "messages").IsArray(),
+		"bound Chat plan must still convert Responses-shaped chat body")
+	require.False(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
+	require.Contains(t, rec.Body.String(), "协议兼容测试通过")
+}
+
+// TestVolcAgentPlan_ResponsesInboundPlansToChat verifies defense #3 after
+// chat-only probes: capability without Responses selects responses_to_chat
+// with the chat endpoint (not ResponsesIdentity).
+func TestVolcAgentPlan_ResponsesInboundPlansToChat(t *testing.T) {
+	account := volcAgentPlanKimiAccountForTest()
+	account.Credentials["model_mapping"] = map[string]any{"kimi-k3": "kimi-k3"}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions)
+
+	body := []byte(`{"model":"kimi-k3","input":[{"role":"user","content":"hi"}],"stream":false}`)
+	req, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "kimi-k3",
+		ResponsesPath:   protocolrouter.ResponsesPathRoot,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            body,
+	})
+	require.NoError(t, err)
+
+	snap, err := protocolAccountSnapshotForRequest(account, req)
+	require.NoError(t, err)
+	plan, err := protocolRoutingTestRouter().Plan(req, snap)
+	require.NoError(t, err)
+	require.Equal(t, protocolrouter.ProtocolChatCompletions, plan.TargetProtocol(),
+		"chat-only Agent Plan capability must not plan ResponsesIdentity")
+	require.Equal(t, protocolrouter.AdapterResponsesToChat, plan.AdapterID())
+	require.Equal(t, newapiintegration.VolcEngineAgentPlanBaseURL+"/chat/completions", plan.Endpoint())
+}
+
+func volcAgentPlanResponsesIdentityPlan(t *testing.T, body []byte, responsesURL, chatURL string) protocolrouter.Plan {
+	t.Helper()
+	req, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "kimi-k3",
+		ResponsesPath:   protocolrouter.ResponsesPathRoot,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            body,
+	})
+	require.NoError(t, err)
+	snap, err := protocolrouter.NewAccountSnapshot(protocolrouter.AccountSnapshotInput{
+		AccountID:          125,
+		CapabilityKey:      "volc-agent-plan",
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolResponses, protocolrouter.ProtocolChatCompletions},
+		ResolvedModel:      "kimi-k3",
+		ExactEndpoints: map[protocolrouter.Protocol]string{
+			protocolrouter.ProtocolResponses:       responsesURL,
+			protocolrouter.ProtocolChatCompletions: chatURL,
+		},
+		ModelAllowed: map[protocolrouter.Protocol]bool{
+			protocolrouter.ProtocolResponses:       true,
+			protocolrouter.ProtocolChatCompletions: true,
+		},
+		Transports: []protocolrouter.TransportID{protocolrouter.TransportHTTP},
+	})
+	require.NoError(t, err)
+	plan, err := protocolRoutingTestRouter().Plan(req, snap)
+	require.NoError(t, err)
+	require.Equal(t, protocolrouter.ProtocolResponses, plan.TargetProtocol())
+	require.Equal(t, responsesURL, plan.Endpoint())
+	return plan
+}
+
+func volcAgentPlanChatIdentityPlan(t *testing.T, body []byte, chatURL string) protocolrouter.Plan {
+	t.Helper()
+	req, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolChatCompletions,
+		RequestedModel:  "kimi-k3",
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            body,
+	})
+	require.NoError(t, err)
+	snap, err := protocolrouter.NewAccountSnapshot(protocolrouter.AccountSnapshotInput{
+		AccountID:          125,
+		CapabilityKey:      "volc-agent-plan",
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions},
+		ResolvedModel:      "kimi-k3",
+		ExactEndpoints: map[protocolrouter.Protocol]string{
+			protocolrouter.ProtocolChatCompletions: chatURL,
+		},
+		ModelAllowed: map[protocolrouter.Protocol]bool{protocolrouter.ProtocolChatCompletions: true},
+		Transports:   []protocolrouter.TransportID{protocolrouter.TransportHTTP},
+	})
+	require.NoError(t, err)
+	plan, err := protocolRoutingTestRouter().Plan(req, snap)
+	require.NoError(t, err)
+	require.Equal(t, protocolrouter.ProtocolChatCompletions, plan.TargetProtocol())
+	require.Equal(t, chatURL, plan.Endpoint())
+	return plan
 }
 
 func TestForwardAsAnthropic_VolcAgentPlanUsesChatFallback(t *testing.T) {
