@@ -740,6 +740,18 @@
         "TestOAuthUnavailableProxyKeepsCachedUsageReadable"
       ],
       "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok_cache.go",
+      "must_contain": [
+        "func grokClientOwnsSearchFunction(tool gjson.Result) bool {",
+        "properties := tool.Get(\"parameters.properties\")",
+        "!grokClientOwnsSearchFunction(tool)"
+      ],
+      "must_not_contain": [
+        "if (name == \"web_search\" || name == \"x_search\") && allowFunctionSearch {"
+      ],
+      "rationale": "Free-cache routing may convert a bare Grok Build search declaration to xAI's native tool, but NOT a client's own implementation: replacing a declaration that carries parameters.properties hijacks the call — the model invokes xAI search and the client waits forever for a tool_call it never receives. The ownership signal must stay the declared argument schema, never description (Grok Build's own declaration carries one). must_not_contain pins the pre-fix unguarded condition so an upstream merge cannot silently restore the hijack."
     }
   ]
 }
