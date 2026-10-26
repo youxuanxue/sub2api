@@ -89,17 +89,20 @@ Verified:
 
 - The threshold does not depend on the model. On one account, `claude-sonnet-5`
   and `claude-opus-5.5` accepted and rejected the same ladder byte for byte.
-- The threshold does depend on the account, which was not previously known. Two
-  accounts' boundaries fall in the same 16-byte interval, (993,815, 993,831];
-  a third sits about 4.5 KB higher, at (998,387, 998,400]. This is the accurate
-  statement. It is not evidence of continuous per-account variation.
+- The threshold does depend on the account, which was not previously known. At
+  least two tiers exist: two accounts' boundaries fall in the same 16-byte
+  interval, (993,815, 993,831], and a third sits about 4.5 KB higher, at
+  (998,387, 998,400]. Three samples cannot establish which tier is normal, so
+  neither tier is called an outlier. This is also not evidence of continuous
+  per-account variation.
 - This is deterministic, not jitter: one size was rejected 4/4 on each of the
   two lower accounts, and the higher account's boundary reproduced byte for byte
   on later calls.
 - The measured surface is the whole serialized body, not just the current
   message. Moving the padding into history turns reproduced the same boundary.
 - The existing 921,600-byte limit therefore has roughly 72,215 bytes of real
-  margin below the lowest observed boundary (993,815) — the 28,400 figure above
+  margin below the lowest observed boundary (993,815) — a figure that rests only
+  on that observation, not on which tier is normal — the 28,400 figure above
   is margin below a probe value, not below a boundary.
 - `ops_error_logs` has never recorded an upstream `CONTENT_LENGTH_EXCEEDS_THRESHOLD`
   (0 occurrences over the retained window since 2026-10-11). Every 413 with a
@@ -111,10 +114,11 @@ Still unknown, and material to any future limit change:
 
 - Only 3 of 24 accounts were probed; the rest were quota-exhausted or invalid.
   An unprobed account could sit below any raised limit.
-- The 4.5 KB outlier is unexplained. Credential field lengths, region, creation
-  date, plan, channel type, tier and quota dimension were all checked and are
-  identical across the accounts; name prefix does not explain it either. The
-  difference is upstream-side and not visible in TK's database.
+- The roughly 4.5 KB gap between the two tiers is unexplained. Credential field
+  lengths, region, creation date, plan, channel type, tier and quota dimension
+  were all checked and are identical across the accounts; name prefix does not
+  explain it either. The difference is upstream-side and not visible in TK's
+  database.
 - All measurements are from a single day. This contract's warning that the
   boundary may move with upstream protocol changes still holds.
 - The gateway path is unverified. These probes bypassed TK translation, and
