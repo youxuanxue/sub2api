@@ -56,6 +56,14 @@ type CandidateRequest struct {
 	cachedAccounts    []Account
 	cachedAccountsKey string
 	skipGroupRefresh  bool
+	// admissionPaths are the static candidate paths built by the universal
+	// ingress pass. The handler immediately selects again after billing/user
+	// admission; reusing these paths avoids evaluating the same account×group
+	// policy twice. The selected path is still rechecked against fresh group and
+	// account state before a slot is committed.
+	admissionPaths      []*candidateExecutionPath
+	admissionPathsValid bool
+	admissionPathsUsed  bool
 }
 
 type candidateRequestContextKey struct{}
@@ -242,6 +250,9 @@ func (r *CandidateRequest) RevalidateTurn(ctx context.Context, accountID int64, 
 	// after admission. Drop the one-shot scheduler reuse before selecting again.
 	r.skipGroupRefresh = false
 	r.accountsCached = false
+	r.admissionPaths = nil
+	r.admissionPathsValid = false
+	r.admissionPathsUsed = false
 	r.continuationAccountID = accountID
 	r.model, r.body = model, append([]byte(nil), body...)
 	r.bodyModelsResolved = false
