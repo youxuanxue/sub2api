@@ -110,7 +110,7 @@ func TestForwardOpenAIImagesOAuth_PersistsDispatchEffortWithoutCodexFidelity(t *
 	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 	require.NoError(t, err)
 
-	result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
+	result, err := svc.ForwardImages(withOpenAIImagesForceResponses(context.Background()), c, directImagesTestAccount(), body, parsed, "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.ReasoningEffort)
@@ -133,7 +133,7 @@ func TestForwardOpenAIImagesOAuth_QuotedLabelKeepsMediumAndVerbatimScaffold(t *t
 	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 	require.NoError(t, err)
 
-	result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
+	result, err := svc.ForwardImages(withOpenAIImagesForceResponses(context.Background()), c, directImagesTestAccount(), body, parsed, "")
 	require.NoError(t, err)
 	require.NotNil(t, result.ReasoningEffort)
 	require.Equal(t, "medium", *result.ReasoningEffort)
@@ -154,7 +154,7 @@ func TestForwardOpenAIImagesOAuth_EnvEffortAndScaffoldOffAreWhatGetsSent(t *test
 	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 	require.NoError(t, err)
 
-	result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
+	result, err := svc.ForwardImages(withOpenAIImagesForceResponses(context.Background()), c, directImagesTestAccount(), body, parsed, "")
 	require.NoError(t, err)
 	require.NotNil(t, result.ReasoningEffort)
 	require.Equal(t, "xhigh", *result.ReasoningEffort)

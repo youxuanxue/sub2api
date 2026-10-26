@@ -151,7 +151,7 @@ func TestForwardImagesOAuthPadsUpstreamSoftSizeThroughResponses(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, parsed.ExplicitSize)
 
-	result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
+	result, err := svc.ForwardImages(withOpenAIImagesForceResponses(context.Background()), c, directImagesTestAccount(), body, parsed, "")
 	require.NoError(t, err)
 	require.Equal(t, 1, result.ImageCount)
 	require.Equal(t, "/backend-api/codex/responses", result.UpstreamEndpoint)

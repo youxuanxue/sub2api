@@ -49,7 +49,7 @@ func TestForwardImages_ToolChoiceMustBeSpecifiedFailsOver(t *testing.T) {
 				Credentials: map[string]any{"access_token": "test-token"}}
 
 			before := time.Now()
-			result, err := svc.ForwardImages(context.Background(), c, account, body, parsed, "")
+			result, err := svc.ForwardImages(withOpenAIImagesForceResponses(context.Background()), c, account, body, parsed, "")
 
 			require.Nil(t, result)
 			// Verify the actual outbound request, not just the builder in isolation.
