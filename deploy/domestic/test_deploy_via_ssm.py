@@ -183,6 +183,136 @@ class DeployViaSsmTest(unittest.TestCase):
         self.assertNotEqual(dry.returncode, 0)
         self.assertEqual(dry.stdout, '')
 
+    def test_s3_pull_skips_path_python_without_boto3(self) -> None:
+        """PATH may lead with a user python3 that lacks boto3; pick a later one."""
+        no_boto = self.repo / "py-user"
+        yes_boto = self.repo / "py-aws"
+        no_boto.mkdir()
+        yes_boto.mkdir()
+        real_python = shutil.which("python3")
+        self.assertIsNotNone(real_python)
+        # Realistic PATH-leading interpreter: general work is fine, boto3 is not.
+        # Match the exact probe string deploy_via_ssm uses (`-c 'import boto3'`),
+        # not a bare *boto3* substring (paths must not false-positive).
+        (no_boto / "python3").write_text(
+            textwrap.dedent(
+                f"""\
+                #!/usr/bin/env bash
+                if [[ "${{1:-}}" == "-c" && "${{2:-}}" == "import boto3" ]]; then
+                  echo "No module named boto3" >&2
+                  exit 1
+                fi
+                if [[ "$*" == *image_distribution.py* ]]; then
+                  echo "deploy_via_ssm must not render with the PATH-leading python" >&2
+                  exit 99
+                fi
+                exec "{real_python}" "$@"
+                """
+            )
+        )
+        (no_boto / "python3").chmod(0o755)
+        marker = self.repo / "used-aws-python"
+        (yes_boto / "python3").write_text(
+            textwrap.dedent(
+                f"""\
+                #!/usr/bin/env bash
+                if [[ "${{1:-}}" == "-c" && "${{2:-}}" == "import boto3" ]]; then
+                  exit 0
+                fi
+                touch "{marker}"
+                exec "{real_python}" "$@"
+                """
+            )
+        )
+        (yes_boto / "python3").chmod(0o755)
+        renderer = self.repo / "deploy/domestic/image_distribution.py"
+        renderer.write_text(
+            "import sys\n"
+            "assert sys.argv[1:] == ['render', '--tag', '1.8.306', '--revision', '"
+            + "a" * 40
+            + "', '--digest', '']\n"
+            "print('set -eu; echo verified-prewarm-aws-python')\n"
+        )
+        env = {
+            **os.environ,
+            # Leading user python3 (no boto3), then aws-capable, then fake aws/jq.
+            "PATH": f"{no_boto}:{yes_boto}:{self.fakebin}:{os.environ.get('PATH', '')}",
+        }
+        env.pop("CN_PROD_PYTHON3", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                "deploy/domestic/deploy_via_ssm.sh",
+                "pull",
+                "--transport",
+                "s3",
+                "--tag",
+                "1.8.306",
+                "--revision",
+                "a" * 40,
+            ],
+            cwd=self.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertTrue(marker.exists(), msg="expected boto3-capable python3 to run render")
+        self.assertIn("boto3 ok", proc.stderr)
+        remote = json.loads(self.ssm_parameters.read_text())["commands"][0]
+        self.assertIn("echo verified-prewarm-aws-python", remote)
+
+    def test_s3_pull_cn_prod_python3_override(self) -> None:
+        override = self.repo / "override-python3"
+        real_python = shutil.which("python3")
+        self.assertIsNotNone(real_python)
+        marker = self.repo / "used-override-python"
+        override.write_text(
+            textwrap.dedent(
+                f"""\
+                #!/usr/bin/env bash
+                if [[ "${{1:-}}" == "-c" && "${{2:-}}" == "import boto3" ]]; then
+                  exit 0
+                fi
+                touch "{marker}"
+                exec "{real_python}" "$@"
+                """
+            )
+        )
+        override.chmod(0o755)
+        renderer = self.repo / "deploy/domestic/image_distribution.py"
+        renderer.write_text(
+            "import sys\nprint('set -eu; echo verified-override')\n"
+        )
+        env = {
+            **os.environ,
+            "PATH": f"{self.fakebin}:{os.environ.get('PATH', '')}",
+            "CN_PROD_PYTHON3": str(override),
+        }
+        proc = subprocess.run(
+            [
+                "bash",
+                "deploy/domestic/deploy_via_ssm.sh",
+                "pull",
+                "--transport",
+                "s3",
+                "--tag",
+                "1.8.306",
+                "--revision",
+                "a" * 40,
+            ],
+            cwd=self.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertTrue(marker.exists())
+        remote = json.loads(self.ssm_parameters.read_text())["commands"][0]
+        self.assertIn("echo verified-override", remote)
+
     def test_pull_strips_v_and_sends_ssm(self) -> None:
         proc = self._run("pull", "--tag", "v1.8.306")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)

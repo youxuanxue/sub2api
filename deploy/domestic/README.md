@@ -89,7 +89,8 @@ SSH 22 或从运维机 scp 离线 tar。入口脚本：
 
 ```bash
 # 1) Release 成功后 distribute-cn-image.yml 自动上传并预下载；重复调用复用已验证镜像
-# 运维机需 boto3 和现有 AWS 短期身份；revision 是已审完整源码 SHA
+# 运维机需现有 AWS 短期身份；S3 render 需要 boto3（入口自动挑选能 import 的 python3，
+# 也可设 CN_PROD_PYTHON3）；revision 是已审完整源码 SHA
 bash deploy/domestic/deploy_via_ssm.sh pull --tag 1.8.306 --revision REVIEWED_FULL_SHA
 # 可选：--digest sha256:… 再校验 amd64 manifest digest（不是 multiarch index）
 # 显式备用路径；旧版本没有 S3 工件时也走此入口
