@@ -188,6 +188,19 @@ func protocolExecutionEndpoint(ctx context.Context, fallback string) string {
 	return plan.Endpoint()
 }
 
+// protocolExecutionChatCompletionsEndpoint returns the bound plan endpoint only
+// when the plan targets Chat Completions. Responses/Messages identity plans must
+// not override CC fallback URLs — otherwise force-chat posts converted `messages`
+// bodies to `/responses` and upstream returns missing `input` (cn-prod kimi-k3
+// 2026-10-26 Volc Agent Plan).
+func protocolExecutionChatCompletionsEndpoint(ctx context.Context, fallback string) string {
+	target, planned := protocolExecutionTarget(ctx)
+	if !planned || target != protocolrouter.ProtocolChatCompletions {
+		return fallback
+	}
+	return protocolExecutionEndpoint(ctx, fallback)
+}
+
 func protocolExecutionURL(ctx context.Context, fallback string) string {
 	planned := strings.TrimSpace(protocolExecutionEndpoint(ctx, ""))
 	if planned == "" {

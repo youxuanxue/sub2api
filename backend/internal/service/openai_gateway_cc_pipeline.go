@@ -177,10 +177,12 @@ func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) 
 	return buildOpenAIChatCompletionsURL(validatedURL), nil
 }
 
-// resolveCCFallbackTarget 解析两条 CC 回退路径共用的账号凭证与上游端点
-// Bound protocol plans own the endpoint and use the shared protocol credential binding.
+// resolveCCFallbackTarget 解析两条 CC 回退路径共用的账号凭证与上游端点。
+// Bound Chat Completions plans own the endpoint; Responses/Messages identity
+// plans must not supply their URL here (force-chat would POST messages to
+// /responses). See protocolExecutionChatCompletionsEndpoint.
 func (s *OpenAIGatewayService) resolveCCFallbackTarget(ctx context.Context, account *Account) (apiKey string, targetURL string, err error) {
-	if targetURL = protocolExecutionEndpoint(ctx, ""); targetURL != "" {
+	if targetURL = protocolExecutionChatCompletionsEndpoint(ctx, ""); targetURL != "" {
 		apiKey, _, err = s.GetAccessToken(ctx, account)
 		return apiKey, targetURL, err
 	}
@@ -212,7 +214,9 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	userAgent string,
 	grokCacheIdentity string,
 ) (*http.Response, error) {
-	targetURL = protocolExecutionEndpoint(ctx, targetURL)
+	// Chat Completions wire only: never let a Responses/Messages plan endpoint
+	// replace the resolved CC URL (Volc force-chat + ResponsesIdentity).
+	targetURL = protocolExecutionChatCompletionsEndpoint(ctx, targetURL)
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	if attempt, _ := ctx.Value(candidateChatAttemptKey{}).(*candidateChatAttempt); attempt != nil {
 		upstreamCtx = ctx

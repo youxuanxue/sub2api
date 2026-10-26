@@ -612,6 +612,12 @@ func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {
 	default:
 		return nil
 	}
+	// Volc Agent Plan: do not probe /responses (soft 400/HTML looks "present"
+	// and used to seed ResponsesIdentity). Chat Completions is the only text
+	// protocol for kimi-k3 on this root.
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		return []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}
+	}
 	candidates := make([]protocolrouter.Protocol, 0, len(protocolrouter.AllProtocols()))
 	for _, protocol := range protocolrouter.AllProtocols() {
 		if protocol == protocolrouter.ProtocolGeminiGenerateContent {

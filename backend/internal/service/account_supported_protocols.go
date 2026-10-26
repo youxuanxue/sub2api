@@ -549,6 +549,10 @@ func protocolExactEndpoint(account *Account, protocol protocolrouter.Protocol, r
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		base := strings.TrimRight(newapiintegration.VolcEngineAgentPlanBaseURL, "/")
+		// Exact /responses may still exist on the capability row for modality
+		// admission (audio ResponsesIdentity → known-negative). Text traffic
+		// must not POST chat bodies there — force-chat + protocolExecution
+		// ChatCompletionsEndpoint pin the wire to /chat/completions.
 		if protocol == protocolrouter.ProtocolResponses {
 			return base + "/responses", nil
 		}

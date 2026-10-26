@@ -119,6 +119,12 @@ func upstreamRoutingModel(account *Account, body []byte, defaultMappedModel stri
 	return resolveMappedUpstreamModel(account, body, defaultMappedModel)
 }
 
+// isResponsesShapedChatBody reports a Responses-shaped payload posted to a Chat
+// Completions URL: `input` present, `messages` absent.
+func isResponsesShapedChatBody(body []byte) bool {
+	return !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists()
+}
+
 // convertResponsesShapedChatBody 把发到 /v1/chat/completions 的 Responses 形状
 // 请求体（Cursor 兼容）转换为 Chat Completions 请求体。
 func (s *OpenAIGatewayService) convertResponsesShapedChatBody(body []byte) ([]byte, error) {
