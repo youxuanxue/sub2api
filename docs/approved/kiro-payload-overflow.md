@@ -24,6 +24,12 @@ depending on an undocumented boundary that may move with upstream protocol
 changes. The limit applies to the final JSON body after Claude-to-Kiro
 translation; it is not a limit on the client's original HTTP body.
 
+Those 2026-10-17 probes are coarse: they took no sample between 950,000 and
+999,999, so 950,000 is the largest value tried, not a measured boundary. A
+2026-10-26 direct re-probe narrowed the real boundary and found it varies by
+account. See Evidence Update (2026-10-26) below. The 900 KiB limit and the
+approved behavior in this contract are unchanged.
+
 ## Approved Behavior
 
 The translator reduces a payload that exceeds 900 KiB in this order:
@@ -67,13 +73,75 @@ request content. The typed rejection is caller-owned: it is not wrapped as an
 `UpstreamFailoverError`, does not select another account, and does not penalize
 account health.
 
+## Evidence Update (2026-10-26)
+
+New direct evidence, recorded here because the Evidence And Decision section
+above is the first thing a reader consults and its boundary range is now known
+to be coarse. This section adds evidence only. It changes no approved behavior:
+the 900 KiB limit, the reduction order, the no-rewrite rules for user prose and
+tool definitions, and the 413 semantics all stand as written above.
+
+Method: 39 upstream requests direct to
+`runtime.us-east-1.kiro.dev/generateAssistantResponse` with synthetic `x`
+padding, on accounts 305 / 325 / 326.
+
+Verified:
+
+- The threshold does not depend on the model. On one account, `claude-sonnet-5`
+  and `claude-opus-5.5` accepted and rejected the same ladder byte for byte.
+- The threshold does depend on the account, which was not previously known. At
+  least two tiers exist: two accounts' boundaries fall in the same 16-byte
+  interval, (993,815, 993,831], and a third sits about 4.5 KB higher, at
+  (998,387, 998,400]. Three samples cannot establish which tier is normal, so
+  neither tier is called an outlier. This is also not evidence of continuous
+  per-account variation.
+- This is deterministic, not jitter: one size was rejected 4/4 on each of the
+  two lower accounts, and the higher account's boundary reproduced byte for byte
+  on later calls.
+- The measured surface is the whole serialized body, not just the current
+  message. Moving the padding into history turns reproduced the same boundary.
+- The existing 921,600-byte limit therefore has roughly 72,215 bytes of real
+  margin below the lowest observed boundary (993,815) — a figure that rests only
+  on that observation, not on which tier is normal — the 28,400 figure above
+  is margin below a probe value, not below a boundary.
+- `ops_error_logs` has never recorded an upstream `CONTENT_LENGTH_EXCEEDS_THRESHOLD`
+  (0 occurrences over the retained window since 2026-10-11). Every 413 with a
+  recorded byte size was the local guard. This confirms this contract's finding
+  that the batch made no upstream call, and it is why the real upstream boundary
+  can only be obtained by direct probing.
+
+Still unknown, and material to any future limit change:
+
+- Only 3 of 24 accounts were probed; the rest were quota-exhausted or invalid.
+  An unprobed account could sit below any raised limit.
+- The roughly 4.5 KB gap between the two tiers is unexplained. Credential field
+  lengths, region, creation date, plan, channel type, tier and quota dimension
+  were all checked and are identical across the accounts; name prefix does not
+  explain it either. The difference is upstream-side and not visible in TK's
+  database.
+- All measurements are from a single day. This contract's warning that the
+  boundary may move with upstream protocol changes still holds.
+- The gateway path is unverified. These probes bypassed TK translation, and
+  measured translated bodies were materially smaller than their ingress bodies
+  (ingress 966,247–984,081 vs translated 928,064–958,922 for the same shape).
+  Any `maxPayloadBytes` change must be validated through `/v1/messages` first.
+
+Raising the limit is a separate decision and needs its own review. The
+candidate value under discussion, its yield attribution, and the remaining
+unknowns are tracked in
+[`../task-breakdown-kiro-auto-mode-transcript-trim.md`](../task-breakdown-kiro-auto-mode-transcript-trim.md)
+(status `proposed`). The kiro-lb capacity experiment is still not a basis for
+relaxing this limit.
+
 ## Scope Boundary
 
 This decision does not raise the Kiro wire limit, summarize history, shorten
 current user prose, or add provider fallback. It does not change authentication,
 billing, scheduling, persistence, database schema, or deployment state. A future
 limit change requires new direct evidence because Kiro does not publish this
-threshold as a stable contract.
+threshold as a stable contract. The 2026-10-26 probes are such evidence, but
+recording them here does not itself authorize a new limit: that requires
+gateway-path validation and a separate approval.
 
 ## Verification
 
