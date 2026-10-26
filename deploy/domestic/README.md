@@ -120,11 +120,28 @@ bash deploy/domestic/deploy_via_ssm.sh prepare \
 plan 能通过切流前校验，却会让通知阶段抛 `KeyError`（2026-10-23 cn-prod 1.8.318 踩过）。
 `configure()` 现在会在切流前就拒绝缺 `changes` 的 plan。
 
+送文件到主机**只用** `deploy_via_ssm.sh put-file`，不要手写 `base64 -d > ...` 一行流。
+2026-10-25 发版时一条手写传输里的 `> bash` 笔误把重定向打到远端 cwd（`/usr/bin`），
+`/usr/bin/bash` 被 truncate 成 0 字节：服务没断，但主机上所有 `#!/bin/bash` 单元全挂 ——
+`tokenkey-disk-metrics`（磁盘/内存告警）瞎了约 9 小时，`sysstat-summary` 失败，盯盘 probe
+取不到数。`put-file` 用 python `repr` 引用的 gzip+base64 分块传输（SSM 整个 document 上限 97KB，
+裸 base64 会把 77KB 脚本撑过线），落盘后按原始字节校验 sha256；`--run` 先 `bash -n` 再执行。
+`--remote` 只允许写 `/private/*`、`/opt/tokenkey/*`、`/var/lib/tokenkey/*`，裸文件名、`..`
+穿越和其它路径一律拒绝 —— 用 allowlist 而非系统路径黑名单，是因为黑名单仍会放过
+`/usr/local/bin`（本次事故里被打挂的告警脚本就在那儿）。目标已存在且内容不同时拒绝
+覆盖，要覆盖得显式加 `--force`；内容相同的重复 put 直接放过（幂等）。
+
 ```bash
 # 1) 在仓库侧生成 plan（revision 用完整 SHA，与 prepare 的 --revision 一致）
 python3 scripts/release_post_check.py plan \
   --live LIVE_FULL_SHA --new NEW_FULL_SHA > /tmp/post-plan.json
-# 2) 连同候选 smoke 证据一起放到主机 /private/（root-only, 0600）
+
+# 2) 连同候选 smoke 证据一起放到主机 /private/（put-file 默认 0600, root-only）
+bash deploy/domestic/deploy_via_ssm.sh put-file \
+  --local /tmp/post-plan.json --remote /private/post-plan.json
+# 候选 smoke 脚本要在主机执行就加 --run（自动 0700，先 bash -n 再跑）：
+bash deploy/domestic/deploy_via_ssm.sh put-file \
+  --local /tmp/cn_candidate_smoke.sh --remote /private/cn_candidate_smoke.sh --run
 
 # 候选 smoke 证据由操作者对 prepared 候选的真实请求产出，schema 见 post_release.py：
 #   {"revision": NEW_FULL_SHA, "container_id": 候选容器 Id, "cases": [{"name":…, "passed": true}, …]}
