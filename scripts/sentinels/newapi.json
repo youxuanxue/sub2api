@@ -618,6 +618,7 @@
         "shouldFallbackNewAPIResponsesToChat(apiErr)",
         "forwardResponsesViaNewAPIBridgeChatCompletions",
         "isNewAPIResponsesProactiveChatFallbackModel(requestedModel)",
+        "convertResponsesShapedChatBody(body)",
         "applyNewAPIQwenAccountShape",
         "applyNewAPIAliFixedSamplingShape",
         "applyMoonshotK3DynamicToolsShape",
@@ -640,7 +641,9 @@
         "applyMoonshotThinkingShape(c, account,",
         "bufferChatCompletionsAsResponses",
         "bufferStreamChatCompletionsAsResponses",
-        "streamChatCompletionsAsResponses"
+        "streamChatCompletionsAsResponses",
+        "strings.HasPrefix(model, \"kimi\") || strings.HasPrefix(model, \"moonshot\") ||",
+        "model == \"k3\" || strings.HasPrefix(model, \"k3-\")"
       ],
       "rationale": "TK companion for NewAPI /v1/responses fallback: convert the client Responses request to Chat Completions, dispatch through the NewAPI bridge, then convert the captured Chat response back to Responses JSON/SSE. It also owns the shared dense-Qwen3 non-streaming request shape used by native chat dispatch. GLM/Qwen stream-only upstream shaping must buffer SSE into JSON for non-stream clients, while dense Qwen3 must send enable_thinking=false when stream=false. Responses→chat fallback must also pin kimi-k3 fixed sampling, promote Moonshot dynamic tools, and apply Moonshot thinking shape before the Ali adaptor. Without this file ch41/ch43 regress to conversion errors or upstream request-validation 400s."
     },

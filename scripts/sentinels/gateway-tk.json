@@ -5512,6 +5512,13 @@
       "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner."
     },
     {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "case APIProtocolChatCompletions:\n\t\tif isResponsesShape {\n\t\t\tchatBody, err := s.convertResponsesShapedChatBody(body)"
+      ],
+      "rationale": "Chat Completions upstreams must convert Responses-shaped /v1/chat/completions bodies (input, no messages) before raw forward. Restricting conversion to adaptive/routesByModel previously let Volc Agent Plan and other force-chat accounts forward input unchanged and upstream 400 missing messages (cn-prod kimi-k3 2026-10-26)."
+    },
+    {
       "path": "backend/internal/service/openai_responses_unsupported_user_test.go",
       "must_contain": [
         "TestOpenAIGatewayService_Forward_StripsUserFieldFromAPIKeyResponsesPassthrough",
@@ -13668,9 +13675,23 @@
         "if target, planned := protocolExecutionTarget(ctx); planned {",
         "if account.IsAnthropicProtocol() {",
         "if account.IsOpenAIApiKey() {",
-        "if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {"
+        "if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {",
+        "if isNewAPIVolcEngineAgentPlanAccount(account) {\n\t\treturn true\n\t}"
       ],
-      "rationale": "P2 protocol-dispatch companion owns the load-bearing early-routing order after Grok: planned protocol target → Anthropic-protocol native → API-key normalize → shouldForward raw-CC. Reordering (especially Anthropic after raw-CC, or normalize after shouldForward) silently breaks CN Anthropic Responses and CloudWise dual-stack accounts. Focused regressions live in openai_gateway_forward_tk_protocol_dispatch_test.go."
+      "rationale": "P2 protocol-dispatch companion owns the load-bearing early-routing order after Grok: planned protocol target → Anthropic-protocol native → API-key normalize → shouldForward raw-CC. Reordering (especially Anthropic after raw-CC, or normalize after shouldForward) silently breaks CN Anthropic Responses and CloudWise dual-stack accounts. Volc Agent Plan must force Chat Completions even when Extra claims Responses (cn-prod kimi-k3 missing-messages / HTML JSON-parse). Focused regressions live in openai_gateway_forward_tk_protocol_dispatch_test.go and openai_gateway_kimi_k3_protocol_fix_tk_test.go."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_kimi_k3_protocol_fix_tk_test.go",
+      "must_contain": [
+        "func TestShouldForwardOpenAIResponsesViaRawChatCompletions_VolcAgentPlanIgnoresResponsesFlag(",
+        "func TestForwardAsChatCompletions_VolcAgentPlanConvertsResponsesShapedBody(",
+        "func TestForwardAsChatCompletionsDispatched_ConvertsResponsesShapedBody(",
+        "func TestForwardAsResponses_VolcAgentPlanUsesChatFallback(",
+        "func TestForwardAsAnthropic_VolcAgentPlanUsesChatFallback(",
+        "func TestIsNewAPIResponsesProactiveChatFallbackModel_Kimi(",
+        "func TestForwardAsResponsesDispatched_KimiProactiveChatFallback("
+      ],
+      "rationale": "Focused regressions for cn-prod kimi-k3 protocol-compat: Volc Agent Plan force-chat, Responses-shaped /v1/chat/completions conversion on raw and NewAPI bridge paths, Messages→chat fallback, and proactive Responses→chat for kimi/moonshot/k3. Deleting any of these lets upstream merge revive missing-messages 400s without a compile break."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward.go",
