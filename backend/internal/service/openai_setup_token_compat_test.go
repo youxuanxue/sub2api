@@ -67,7 +67,7 @@ func TestOpenAIGatewayServiceGetAccessTokenSetupToken(t *testing.T) {
 	}
 }
 
-func TestOpenAISetupTokenImagesUsesOAuthResponsesPath(t *testing.T) {
+func TestOpenAISetupTokenImagesUsesOAuthNativePath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
@@ -100,8 +100,9 @@ func TestOpenAISetupTokenImagesUsesOAuthResponsesPath(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
 	require.True(t, failoverErr.RetryableOnSameAccount)
 	require.False(t, failoverErr.SameAccountRetryDeadline.IsZero())
-	require.Equal(t, chatgptCodexURL, upstream.lastReq.URL.String())
-	require.Equal(t, "image_generation", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
+	require.Equal(t, strings.TrimSuffix(chatgptCodexURL, "/responses")+"/images/generations", upstream.lastReq.URL.String())
+	require.Equal(t, "gpt-image-2", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Contains(t, gjson.GetBytes(upstream.lastBody, "prompt").String(), "draw a square")
 }
 
 func TestOpenAISetupTokenWSCompatibility(t *testing.T) {

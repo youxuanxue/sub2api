@@ -4,12 +4,25 @@ package service
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func openAIImagesResponsesSSEFixture() *http.Response {
+	body := "" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"created_at\":1710000000,\"usage\":{\"input_tokens\":5,\"output_tokens\":20,\"output_tokens_details\":{\"image_tokens\":20}},\"tool_usage\":{\"image_gen\":{\"images\":1,\"output_tokens\":20,\"output_tokens_details\":{\"image_tokens\":20}}},\"output\":[{\"type\":\"image_generation_call\",\"result\":\"" + openAIImagesFixturePNG1x1 + "\",\"output_format\":\"png\",\"size\":\"1024x1024\"}]}}\n\n" +
+		"data: [DONE]\n\n"
+	return &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Type": {"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
 
 func TestOpenAIImagesCodexSoftModelRejectsInputFidelity(t *testing.T) {
 	for _, model := range []string{"gpt-image-2", "GPT-IMAGE-2", " gpt-image-2-codex ", "gpt-image-2-codex-2026-10-13"} {
