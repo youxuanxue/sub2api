@@ -16,8 +16,8 @@ func CleanJSONSchema(schema map[string]any) map[string]any {
 	// (Go map 是引用的，直接修改 schema)
 	flattenRefs(schema, extractDefs(schema))
 
-	// 递归清理
-	cleaned := cleanJSONSchemaRecursive(schema)
+	// 递归清理（root 节点单独标记：空 object 的 reason 占位只允许注入在工具参数根上）
+	cleaned := cleanJSONSchemaNode(schema, true)
 	result, ok := cleaned.(map[string]any)
 	if !ok {
 		return nil
@@ -111,6 +111,12 @@ func deepCopy(src any) any {
 // cleanJSONSchemaRecursive 递归核心清理逻辑
 // 返回处理后的值 (通常是 input map，但可能修改内部结构)
 func cleanJSONSchemaRecursive(value any) any {
+	return cleanJSONSchemaNode(value, false)
+}
+
+// cleanJSONSchemaNode 与 cleanJSONSchemaRecursive 相同，但额外携带 isRoot：
+// 只有工具参数根节点才允许注入 "reason" 占位属性 (步骤 7)。
+func cleanJSONSchemaNode(value any, isRoot bool) any {
 	schemaMap, ok := value.(map[string]any)
 	if !ok {
 		return value
@@ -147,15 +153,10 @@ func cleanJSONSchemaRecursive(value any) any {
 	if items, ok := schemaMap["items"]; ok {
 		// [FIX] Gemini 期望 "items" 是单个 Schema 对象（列表验证），而不是数组（元组验证）。
 		if itemsArr, ok := items.([]any); ok {
-			// 策略：将元组 [A, B] 视为 A、B 中的最佳匹配项。
-			best := extractBestSchemaFromUnion(itemsArr)
-			if best == nil {
-				// 回退到通用字符串
-				best = map[string]any{"type": "string"}
-			}
-			// 用处理后的对象替换原有数组
-			cleanedBest := cleanJSONSchemaRecursive(best)
-			schemaMap["items"] = cleanedBest
+			// Draft-07 元组形式 items: [A, B]。Gemini 只接受单个 items Schema
+			// (列表校验)，位置约束无法表达；但不能像以前那样只保留最佳分支、
+			// 把其余位置声明整段丢掉。合并所有位置的字段，再交给常规清洗。
+			schemaMap["items"] = cleanJSONSchemaRecursive(mergeTupleEntries(itemsArr))
 		} else {
 			cleanJSONSchemaRecursive(items)
 		}
@@ -174,9 +175,12 @@ func cleanJSONSchemaRecursive(value any) any {
 	}
 
 	// 2. [FIX] 处理 anyOf/oneOf 联合类型: 合并属性而非直接删除
+	// type:"array" 必须和 object / 无 type 一样参与合并：白名单过滤 (步骤 5) 会删掉
+	// anyOf，分支里的 items 随之消失，再被步骤 8 的 array 兜底填成 items:{type:string}，
+	// 把 array-of-object 降级成 array-of-string。
 	var unionArray []any
 	typeStr, _ := schemaMap["type"].(string)
-	if typeStr == "" || typeStr == "object" {
+	if typeStr == "" || typeStr == "object" || typeStr == "array" {
 		if anyOf, ok := schemaMap["anyOf"].([]any); ok {
 			unionArray = anyOf
 		} else if oneOf, ok := schemaMap["oneOf"].([]any); ok {
@@ -366,13 +370,30 @@ func cleanJSONSchemaRecursive(value any) any {
 				hasProps = true
 			}
 			if !hasProps {
-				schemaMap["properties"] = map[string]any{
-					"reason": map[string]any{
-						"type":        "string",
-						"description": "Reason for calling this tool",
-					},
+				if isRoot {
+					// 工具参数根节点确实没有参数：保留 upstream 的 reason 占位，
+					// 这是「无参工具」的既有契约。
+					schemaMap["properties"] = map[string]any{
+						"reason": map[string]any{
+							"type":        "string",
+							"description": "Reason for calling this tool",
+						},
+					}
+					schemaMap["required"] = []any{"reason"}
+				} else {
+					// 嵌套 object 为空通常不是「无字段」，而是 additionalProperties /
+					// patternProperties 形式的字符串映射被白名单过滤掉了。以前这里
+					// 复用根节点那段，凭空注入 required 的 "reason"：客户端从未声明
+					// 该字段，模型却会照着填。Gemini 要求 object 必须带 properties，
+					// 所以仍给一个占位，但 **不进 required**，模型可以整体省略。
+					schemaMap["properties"] = map[string]any{
+						placeholderObjectPropertyName: map[string]any{
+							"type":        "string",
+							"description": "Free-form entry; this object accepts arbitrary string-valued keys",
+						},
+					}
+					delete(schemaMap, "required")
 				}
-				schemaMap["required"] = []any{"reason"}
 			}
 		}
 
@@ -448,6 +469,10 @@ func cleanJSONSchemaRecursive(value any) any {
 
 	return schemaMap
 }
+
+// placeholderObjectPropertyName 是嵌套空 object 的占位字段名。它只为满足
+// Gemini「object 必须声明 properties」而存在，永不进 required。
+const placeholderObjectPropertyName = "value"
 
 func hasKey(m map[string]any, k string) bool {
 	_, ok := m[k]
@@ -561,6 +586,54 @@ func mergeAllOf(m map[string]any) {
 		}
 		m["required"] = validReqs
 	}
+}
+
+// mergeTupleEntries 把 Draft-07 元组 items: [A, B] 压成单个列表校验 Schema。
+// 以最佳分支为底，再把其余位置独有的 properties / enum 并进来，保证没有任何
+// 已声明字段消失。required 被刻意丢弃：某个位置的必填项对其他位置不成立，
+// 保留它会让模型以为每个元素都必须带该字段。
+func mergeTupleEntries(entries []any) any {
+	best, _ := deepCopy(extractBestSchemaFromUnion(entries)).(map[string]any)
+	if best == nil {
+		return map[string]any{"type": "string"}
+	}
+	delete(best, "required")
+
+	for _, entry := range entries {
+		entryMap, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if props, ok := entryMap["properties"].(map[string]any); ok {
+			target, _ := best["properties"].(map[string]any)
+			if target == nil {
+				target = make(map[string]any)
+				best["properties"] = target
+			}
+			for k, v := range props {
+				if _, exists := target[k]; !exists {
+					target[k] = deepCopy(v)
+				}
+			}
+		}
+		if enum, ok := entryMap["enum"].([]any); ok {
+			target, _ := best["enum"].([]any)
+			for _, v := range enum {
+				duplicate := false
+				for _, existing := range target {
+					if existing == v {
+						duplicate = true
+						break
+					}
+				}
+				if !duplicate {
+					target = append(target, deepCopy(v))
+				}
+			}
+			best["enum"] = target
+		}
+	}
+	return best
 }
 
 // extractBestSchemaFromUnion 从 anyOf/oneOf 中选取最佳分支

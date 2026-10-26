@@ -2951,7 +2951,12 @@ func TestForwardAsAnthropicForGrokFunctionToolUsesCacheCapableMixedRoute(t *test
 	require.Equal(t, "function", tools[0].Get("type").String())
 	require.Equal(t, "lookup", tools[0].Get("name").String())
 	require.Equal(t, "object", tools[0].Get("parameters.type").String())
-	require.Equal(t, "web_search", tools[1].Get("type").String())
+	// The client declared web_search with its own argument schema, so it owns
+	// the tool and keeps the function form; only the missing x_search is added
+	// natively to stay on the cache-capable tier.
+	require.Equal(t, "function", tools[1].Get("type").String())
+	require.Equal(t, "web_search", tools[1].Get("name").String())
+	require.Equal(t, "string", tools[1].Get("parameters.properties.query.type").String())
 	require.Equal(t, "x_search", tools[2].Get("type").String())
 	require.Equal(t, "auto", gjson.GetBytes(upstream.lastBody, "tool_choice").String())
 

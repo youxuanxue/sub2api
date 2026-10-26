@@ -270,7 +270,12 @@ func liftResponsesAdditionalTools(requestBody map[string]any) (bool, error) {
 		if !ok {
 			return false, fmt.Errorf("additional_tools.tools must be an array")
 		}
-		tools = append(tools, additional...)
+		// Dedupe on type+name: a carrier entry repeating a top-level tool
+		// otherwise reaches the upstream twice (two `shell`, or two
+		// `web_search` once the Anthropic exit maps the native form onto a
+		// same-named function). First writer wins, keeping the client's own
+		// declaration. Owner: apicompat.AppendRawResponsesToolsDeduped.
+		tools, _ = apicompat.AppendRawResponsesToolsDeduped(tools, additional...)
 		changed = true
 	}
 	if !changed {

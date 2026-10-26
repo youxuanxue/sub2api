@@ -20,6 +20,9 @@ type antigravityStreamResult struct {
 	usage            *ClaudeUsage
 	firstTokenMs     *int
 	clientDisconnect bool // 客户端是否在流式传输过程中断开
+	// truncated 表示上游在任何终止事件之前干净 EOF。判定与归因都归
+	// gemini_native_stream_truncation_tk.go 所有，这里只传递事实。
+	truncated bool
 }
 
 func (s *AntigravityGatewayService) observeAntigravityGeminiSSELine(c *gin.Context, line string) {
@@ -152,6 +155,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	scanner.Buffer(scanBuf[:0], maxLineSize)
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
+	var terminal geminiNativeStreamTerminalState
 
 	type scanEvent struct {
 		line string
@@ -246,7 +250,12 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		select {
 		case ev, ok := <-events:
 			if !ok {
-				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: cw.Disconnected()}, nil
+				return &antigravityStreamResult{
+					usage:            usage,
+					firstTokenMs:     firstTokenMs,
+					clientDisconnect: cw.Disconnected(),
+					truncated:        terminal.IsTruncated(),
+				}, nil
 			}
 			if ev.err != nil {
 				if disconnect, handled := handleStreamReadError(ev.err, cw.Disconnected(), "antigravity gemini"); handled {
@@ -274,6 +283,9 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				// throws "Incomplete JSON segment at the end" when the stream
 				// closes. Native Gemini wire format does not use [DONE].
 				if payload == "" || payload == "[DONE]" {
+					if payload == "[DONE]" {
+						terminal.ObserveDone()
+					}
 					continue
 				}
 
@@ -282,6 +294,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				if parseErr == nil && inner != nil {
 					payload = string(inner)
 				}
+				terminal.ObserveEvent(inner)
 
 				// 解析 usage
 				if u := extractGeminiUsage(inner); u != nil {

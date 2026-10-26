@@ -17512,6 +17512,58 @@
         "HIGH_PATTERNS = ["
       ],
       "rationale": "Keywords match as words, never substrings: plain `in` made `pst` match \"upstream\" (52 of 54 title hits) and `token` match `max_tokens`, so the classifier labelled code identifiers and log fragments as production-sensitive signal. The guards are character classes, not `\\b`, because `\\b` does not work for CJK terms or for keywords carrying their own punctuation (`gpt-image`, `input_tokens=0`, `response.completed`)."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_stream_truncation_tk.go",
+      "must_contain": [
+        "func (t *geminiNativeStreamTerminalState) IsTruncated() bool {",
+        "return t != nil && t.sawDataEvent && !t.sawTerminal",
+        "func geminiNativeStreamClientAborted(ctx context.Context) bool {",
+        "upstream_stream_truncated"
+      ],
+      "rationale": "Gemini native/Antigravity pass-through streams must not end a clean upstream EOF as success: before this owner existed they returned nil error, shipping a half answer under HTTP 200 + usage 0/0 with no ops_upstream_error and no SLA, so a truncating account kept scoring healthy and kept its session stickiness. IsTruncated requires sawDataEvent so empty streams stay with finalizeGeminiSSESignal; any non-empty finishReason (MAX_TOKENS/SAFETY/RECITATION) is terminal because those are model-side results, not upstream faults."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_stream_truncation_tk_test.go",
+      "must_contain": [
+        "func TestGeminiNativeStreamTruncationGuard(t *testing.T) {",
+        "func TestAntigravityGeminiStreamTruncationGuard(t *testing.T) {",
+        "func TestGeminiNativeStreamTruncation_ClientAbortIsNotUpstreamFault(t *testing.T) {",
+        "geminiNativeTruncationCases()"
+      ],
+      "rationale": "Both paths drive one shared case matrix so neither can drift, and every silent case asserts zero stream_truncated events — a guard that fires and swallows its own error would otherwise pass. The suite also pins the buffered-stream contract (docs/approved/anthropic-buffered-stream-failure-contract.md): bytes already reached the client, so truncation is a terminal error and must never become an UpstreamFailoverError replay."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "terminal.ObserveEvent(rawBytes)",
+        "if terminal.IsTruncated() && !geminiNativeStreamClientAborted(callerCtx) {"
+      ],
+      "rationale": "The truncation guard only holds while both injection points survive in handleNativeStreamingResponse: ObserveEvent feeds sawDataEvent, and dropping it would leave IsTruncated permanently false — a silently disarmed guard. Upstream changes this file often, so pin both lines."
+    },
+    {
+      "path": "backend/internal/integration/kiro/tool_name_collision.go",
+      "must_contain": [
+        "func ValidateClaudeToolNames(tools []ClaudeTool) error {",
+        "func ValidateOpenAIToolNames(tools []OpenAITool) error {",
+        "normalized := shortenToolName(sanitizeToolName(name))"
+      ],
+      "rationale": "Kiro tool names are camelCase, so convertClaudeTools' nameMap[normalized]=original silently drops the first of two colliding declarations and the response path can only map the upstream name back to one original — a client declaring both Read and read (Claude Code builtin plus any MCP `read`) could be handed a tool_use it never declared. Validate-then-reject mirrors aliasOpenAIOAuthReservedToolNames: fail the request loudly rather than half-rewrite it."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service.go",
+      "must_contain": [
+        "if err := kiroproto.ValidateClaudeToolNames(req.Tools); err != nil {"
+      ],
+      "rationale": "The collision pre-check must stay ahead of translation; without this call site the validator exists but never runs."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/responses_tool_dedup.go",
+      "must_contain": [
+        "func ResponsesToolDedupKey(tool ResponsesTool) string {",
+        "func AppendRawResponsesToolsDeduped(base []any, extra ...any) ([]any, bool) {"
+      ],
+      "rationale": "Single dedupe owner for the three tool-merge points (carrier lift, EffectiveResponsesTools, Moonshot K3 promotion) that used a bare append and shipped two entries of one name upstream — observed as two `shell`, and two `web_search` at the Anthropic exit. Key shape is type+name, matching grokResponsesToolDedupKey; first writer wins so the client's own declaration survives."
     }
   ]
 }

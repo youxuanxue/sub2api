@@ -291,6 +291,18 @@ func (s *KiroGatewayService) Forward(
 	thinking := req.Thinking != nil &&
 		(req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive")
 
+	// Kiro tool names are camelCase, so two distinct client names can normalize
+	// to one. Reject before translation: the reverse map keeps only the last
+	// writer, so the client could otherwise receive a tool_use for a name it
+	// never declared. See kiroproto.ValidateClaudeToolNames.
+	if err := kiroproto.ValidateClaudeToolNames(req.Tools); err != nil {
+		return nil, &KiroInvalidRequestError{
+			StatusCode: http.StatusBadRequest,
+			Message:    err.Error(),
+			Body:       err.Error(),
+		}
+	}
+
 	payload := kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, account.IsKiroFileToolChunkingEnabled())
 	if err := kiroproto.ValidateKiroImages(payload); err != nil {
 		message := err.Error()
