@@ -29,6 +29,17 @@ func TestUS070_FileToolChunkingAccountOptIn(t *testing.T) {
 	require.False(t, (&Account{Platform: PlatformKiro}).IsKiroFileToolChunkingEnabled())
 }
 
+func TestKiroAutoModeTranscriptTrimAccountOptIn(t *testing.T) {
+	require.False(t, (*Account)(nil).IsKiroAutoModeTranscriptTrimEnabled())
+	for _, platform := range []string{PlatformKiro, PlatformAnthropic} {
+		for _, flag := range []any{nil, false, true, "true", 1} {
+			a := &Account{Platform: platform, Extra: map[string]any{"kiro_auto_mode_transcript_trim": flag}}
+			require.Equal(t, platform == PlatformKiro && flag == true, a.IsKiroAutoModeTranscriptTrimEnabled())
+		}
+	}
+	require.False(t, (&Account{Platform: PlatformKiro}).IsKiroAutoModeTranscriptTrimEnabled())
+}
+
 func TestUS070_FileToolChunkingForward(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		for _, flag := range []any{nil, false, true, "true"} {

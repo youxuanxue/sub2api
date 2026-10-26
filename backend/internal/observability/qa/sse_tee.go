@@ -215,7 +215,7 @@ func qaRequestCaptureBytes(req *http.Request, raw []byte, limits ...int) []byte 
 	if encoding == "" || encoding == "identity" {
 		return raw
 	}
-	limit := int64(256 * 1024)
+	limit := int64(1153434) // 1.1 MiB; callers should pass BodyMaxBytes()
 	if len(limits) > 0 && limits[0] > 0 {
 		limit = int64(limits[0])
 	}

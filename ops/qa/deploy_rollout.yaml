@@ -72,6 +72,9 @@ prod:
     partition_owner_observed: qa_lifecycle_boundary
   QA_CAPTURE_ENABLED:
     policy_target: prod.capture_enabled
+  QA_CAPTURE_BODY_MAX_BYTES:
+    policy_target: prod.capture_body_max_bytes
+    default_bytes: 1153434
   raw_archive_recovery:
     repository_state: ready
     repository_iam_state: contract_ready

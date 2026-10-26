@@ -304,7 +304,8 @@ func (s *KiroGatewayService) Forward(
 		}
 	}
 
-	payload := kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, account.IsKiroFileToolChunkingEnabled())
+	fileToolChunking := account.IsKiroFileToolChunkingEnabled()
+	payload := kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, fileToolChunking)
 	if err := kiroproto.ValidateKiroImages(payload); err != nil {
 		message := err.Error()
 		var unsupported *kiroproto.ErrUnsupportedKiroImage
@@ -325,16 +326,49 @@ func (s *KiroGatewayService) Forward(
 	kiroproto.BindWireProfileArn(payload, kiroAcct)
 	if err := kiroproto.ValidatePayloadSize(payload); err != nil {
 		var tooLarge *kiroproto.PayloadTooLargeError
-		if errors.As(err, &tooLarge) {
-			// This is the complete converter input, which may differ from inbound
-			// wire bytes. QA separately fingerprints the inbound wire stream.
+		if !errors.As(err, &tooLarge) {
+			return nil, fmt.Errorf("kiro forward: validate payload size: %w", err)
+		}
+		var autoModeTrimReport *kiroproto.AutoModeTranscriptTrimReport
+		var compactMessageSplitReport *kiroproto.CompactMessageSplitReport
+		payloadFits := false
+		// Pending prototype (docs/approved/kiro-auto-mode-transcript-trim.md):
+		// only on overflow, opt-in Extra, preserve compact text-block boundaries
+		// before re-running the ordinary history truncator. Under-budget requests
+		// stay byte-identical (S4).
+		if account.IsKiroAutoModeTranscriptTrimEnabled() {
+			splitReport := kiroproto.SplitClaudeCompactUserMessage(&req)
+			compactMessageSplitReport = &splitReport
+			if splitReport.Applied {
+				payload = kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, fileToolChunking)
+				kiroproto.BindWireProfileArn(payload, kiroAcct)
+				payloadFits = kiroproto.ValidatePayloadSize(payload) == nil
+			}
+			report := kiroproto.TrimClaudeAutoModeTranscriptUntil(&req, func(r *kiroproto.ClaudeRequest) bool {
+				p := kiroproto.ClaudeToKiroWithFileToolGuidance(r, thinking, fileToolChunking)
+				kiroproto.BindWireProfileArn(p, kiroAcct)
+				return kiroproto.ValidatePayloadSize(p) != nil
+			})
+			autoModeTrimReport = &report
+			if report.Applied && !payloadFits {
+				payload = kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, fileToolChunking)
+				if imgErr := kiroproto.ValidateKiroImages(payload); imgErr != nil {
+					return nil, fmt.Errorf("kiro forward: validate images after auto-mode trim: %w", imgErr)
+				}
+				kiroproto.BindWireProfileArn(payload, kiroAcct)
+				payloadFits = kiroproto.ValidatePayloadSize(payload) == nil
+			}
+		}
+		if !payloadFits {
 			inputBody := requestBody
 			diagnostic, _ := json.Marshal(struct {
-				Kind                 string                            `json:"kind"`
-				ConverterInputBytes  int                               `json:"converter_input_bytes"`
-				ConverterInputSHA256 string                            `json:"converter_input_sha256"`
-				Payload              *kiroproto.PayloadSizeDiagnostics `json:"payload"`
-			}{"kiro_local_payload_too_large", len(inputBody), fmt.Sprintf("%x", sha256.Sum256(inputBody)), payload.SizeDiagnostics})
+				Kind                 string                                  `json:"kind"`
+				ConverterInputBytes  int                                     `json:"converter_input_bytes"`
+				ConverterInputSHA256 string                                  `json:"converter_input_sha256"`
+				Payload              *kiroproto.PayloadSizeDiagnostics       `json:"payload"`
+				CompactMessageSplit  *kiroproto.CompactMessageSplitReport    `json:"compact_message_split,omitempty"`
+				AutoModeTrim         *kiroproto.AutoModeTranscriptTrimReport `json:"auto_mode_transcript_trim,omitempty"`
+			}{"kiro_local_payload_too_large", len(inputBody), fmt.Sprintf("%x", sha256.Sum256(inputBody)), payload.SizeDiagnostics, compactMessageSplitReport, autoModeTrimReport})
 			if c != nil {
 				c.Set(OpsInternalErrorDetailKey, string(diagnostic))
 			}
@@ -349,7 +383,6 @@ func (s *KiroGatewayService) Forward(
 				Body:       message,
 			}
 		}
-		return nil, fmt.Errorf("kiro forward: validate payload size: %w", err)
 	}
 
 	proxyURL := ""

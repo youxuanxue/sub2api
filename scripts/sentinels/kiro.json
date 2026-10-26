@@ -1320,7 +1320,8 @@
     {
       "path": "backend/internal/service/kiro_gateway_service.go",
       "must_contain": [
-        "kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, account.IsKiroFileToolChunkingEnabled())"
+        "fileToolChunking := account.IsKiroFileToolChunkingEnabled()",
+        "kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, fileToolChunking)"
       ],
       "rationale": "The selected account owns the chunking opt-in; keep the Forward-to-translator binding so an upstream merge cannot silently disable the policy."
     },

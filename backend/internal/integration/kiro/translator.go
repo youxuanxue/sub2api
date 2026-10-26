@@ -205,6 +205,14 @@ type ClaudeRequest struct {
 	OutputConfig *ClaudeOutputConfig   `json:"output_config,omitempty"`
 	Tools        []ClaudeTool          `json:"tools,omitempty"`
 	ToolChoice   interface{}           `json:"tool_choice,omitempty"`
+	// ContextManagement is retained so the gateway can identify Claude Code
+	// compaction requests before translating their large summary message. Kiro
+	// does not receive this field; it is an inbound routing signal only.
+	ContextManagement json.RawMessage `json:"context_management,omitempty"`
+	// preserveUserTurnBoundaries is set only by the gated compact splitter so
+	// Kiro normalization does not merge the newly separated summary blocks back
+	// into one current message.
+	preserveUserTurnBoundaries bool
 }
 
 type ClaudeOutputConfig struct {
@@ -388,6 +396,7 @@ func ClaudeToKiroWithFileToolGuidance(req *ClaudeRequest, thinking, enabled bool
 
 	// 构建 payload
 	payload := &KiroPayload{}
+	payload.preserveUserTurnBoundaries = req.preserveUserTurnBoundaries
 	payload.ToolNameMap = toolNameMap
 	payload.ConversationState.ChatTriggerType = "MANUAL"
 	payload.ConversationState.AgentTaskType = "vibe"
