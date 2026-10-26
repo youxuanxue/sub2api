@@ -27,6 +27,7 @@ type CaptureInput struct {
 	FirstTokenMs     *int64
 	Stream           bool
 	RequestBody      []byte
+	RequestCapture   *RequestCaptureMetadata
 	// UpstreamRequestBody 仅在 traj/synth opt-in 且网关真的改写过请求体时非空
 	//（转发到上游的最终请求与客户端原始请求字节不等）。进 blob 的
 	// request.upstream_body + request.upstream_divergent，供导出侧标记失真记录。

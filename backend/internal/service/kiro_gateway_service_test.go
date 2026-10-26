@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -312,6 +313,24 @@ func TestKiroGatewayService_Forward_OversizedPayloadRejectedBeforeUpstream(t *te
 	var failoverErr *UpstreamFailoverError
 	require.NotErrorAs(t, err, &failoverErr)
 	require.False(t, upstream.gotRequest, "oversized payload must not reach Kiro upstream")
+	detail := c.GetString(OpsInternalErrorDetailKey)
+	var diagnostic struct {
+		Kind                 string                           `json:"kind"`
+		ConverterInputBytes  int                              `json:"converter_input_bytes"`
+		ConverterInputSHA256 string                           `json:"converter_input_sha256"`
+		Payload              kiroproto.PayloadSizeDiagnostics `json:"payload"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(detail), &diagnostic))
+	require.Equal(t, "kiro_local_payload_too_large", diagnostic.Kind)
+	require.Equal(t, len(body), diagnostic.ConverterInputBytes)
+	require.Equal(t, fmt.Sprintf("%x", sha256.Sum256(body)), diagnostic.ConverterInputSHA256)
+	require.Greater(t, diagnostic.Payload.After.CurrentToolsBytes, diagnostic.Payload.LimitBytes)
+	require.Greater(t, diagnostic.Payload.After.TotalBytes, diagnostic.Payload.LimitBytes)
+	require.NotContains(t, detail, "oversized_tool")
+	require.NotContains(t, detail, "preserve this current message")
+	require.Nil(t, c.Value(OpsUpstreamStatusCodeKey))
+	require.Nil(t, c.Value(OpsUpstreamErrorsKey))
+
 }
 
 func TestKiroGatewayService_ClientInstructionsRoundTrip(t *testing.T) {

@@ -17644,6 +17644,85 @@
         "func TestImageTimingForwardRetryAndKeepaliveWriter"
       ],
       "rationale": "Preserve real forwarding-hook coverage, nonstream arrival timing and retry/keepalive compatibility; helper-only tests cannot detect lost transport injection."
+    },
+    {
+      "path": "backend/internal/observability/qa/sse_tee.go",
+      "must_contain": [
+        "c.Set(contextKeyRequestCapture, requestCapture.metadata())",
+        "r.complete && !r.readFailed",
+        "r.digest.Write(p[:n])",
+        "d.FullWireSHA256 = d.WireReadSHA256"
+      ],
+      "rationale": "QA fingerprints all consumed wire bytes without draining unread input; only EOF without read errors permits a full hash."
+    },
+    {
+      "path": "backend/internal/observability/qa/service.go",
+      "must_contain": [
+        "RequestCapture:             requestCapture",
+        "requestPayload[\"capture\"] = input.RequestCapture",
+        "requestPayload[\"saved_body_sha256\"] = trajectory.SHA256Hex(requestValue)"
+      ],
+      "rationale": "Persist wire completeness separately from bounded redacted QA body hashes so matching prefixes cannot imply equal full requests."
+    },
+    {
+      "path": "backend/internal/observability/qa/request_capture_metadata_test.go",
+      "must_contain": [
+        "TestRequestCaptureFingerprintsFullInputBeyondSharedPrefix",
+        "TestRequestCaptureDoesNotClaimUnreadOrPartialBodyIsComplete",
+        "TestRequestCaptureGzipFingerprintIsWireNotDecoded",
+        "TestRequestCaptureReadFailureDoesNotProduceFullHash"
+      ],
+      "rationale": "Keep full versus prefix, incomplete read, gzip and read-error regressions for QA capture metadata."
+    },
+    {
+      "path": "backend/internal/observability/qa/middleware_synth_test.go",
+      "must_contain": [
+        "capture[\"full_wire_sha256\"]",
+        "request[\"saved_body_sha256\"]"
+      ],
+      "rationale": "Exercise metadata through middleware and blob persistence, not just the reader helper."
+    },
+    {
+      "path": "backend/internal/integration/kiro/translator.go",
+      "must_contain": [
+        "Before:     measurePayloadSize(payload, hasPriming)",
+        "payload.SizeDiagnostics.After = measurePayloadSize(payload, hasPriming)"
+      ],
+      "rationale": "Bracket existing Kiro reduction with size accounting without changing the reduction policy."
+    },
+    {
+      "path": "backend/internal/integration/kiro/payload_size_diagnostics.go",
+      "must_contain": [
+        "func measurePayloadSize(",
+        "CurrentTextBytes",
+        "SystemPrimingBytes",
+        "d.OtherBytes = d.TotalBytes -"
+      ],
+      "rationale": "Keep disjoint serialized component sizes for local Kiro overflow diagnostics."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service.go",
+      "must_contain": [
+        "kiro_local_payload_too_large",
+        "c.Set(OpsInternalErrorDetailKey, string(diagnostic))"
+      ],
+      "rationale": "Persist sanitized converter-input fingerprints and Kiro size breakdown on local 413 before upstream execution."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_kiro_non_failover_test.go",
+      "must_contain": [
+        "TestKiroLocal413DiagnosticsSurviveOpsMiddleware"
+      ],
+      "rationale": "Pin internal-only diagnostics persistence with caller-owned 413 and no upstream attribution."
+    },
+    {
+      "path": "backend/internal/integration/kiro/payload_size_diagnostics_test.go",
+      "must_contain": [
+        "TestPayloadSizeDiagnosticsPreservesProtectedText",
+        "TestPayloadSizeDiagnosticsTracksHistoryReduction",
+        "TestSmallPayloadHasNoDiagnosticsOrWireChange"
+      ],
+      "rationale": "Pin size accounting and unchanged protected text and small-request wire shape."
     }
   ]
 }
