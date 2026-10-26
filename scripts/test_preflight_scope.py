@@ -133,6 +133,26 @@ class SelectionTest(unittest.TestCase):
         for key, gate in self.data['backgrounds'].items():
             self.assertIn(gate, self.data['gates'], key)
 
+    def test_echo_label_matches_the_guarded_gate_name(self):
+        # plan.py derives gate names from `echo "=== sub2api: <name> ==="`, and
+        # treats any label missing from the manifest as "unregistered gate:
+        # always run". So a label that drifts from its own
+        # _preflight_selected name does not fail — it silently downgrades to
+        # always-run, and the registered entry's scope is never used. That
+        # happened for real: 'cn-prod remote file transfer (put-file SSOT)'
+        # shipped in #2907 and masked that PR's own scope fix until #2910.
+        # Drift must fail here rather than degrade quietly.
+        import re
+        script = (ROOT / 'scripts/preflight.sh').read_text()
+        labels = re.findall(r'^echo "=== sub2api: (.+) ==="$', script, re.M)
+        unregistered = sorted(set(labels) - set(self.data['gates']))
+        self.assertFalse(
+            unregistered,
+            'preflight.sh echo labels not registered in .preflight/gates.json '
+            '(they silently become always-run, ignoring their scope): '
+            f'{unregistered}',
+        )
+
 
 class GitScopeTest(unittest.TestCase):
     def setUp(self):
