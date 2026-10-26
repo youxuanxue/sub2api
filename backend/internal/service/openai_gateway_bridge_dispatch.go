@@ -64,6 +64,16 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions) {
 		return s.ForwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel)
 	}
+	// Clients may POST Responses-shaped bodies (`input`, no `messages`) to
+	// /v1/chat/completions. Convert before the Chat Completions adaptor so
+	// upstreams that only accept `messages` do not 400.
+	if isResponsesShapedChatBody(body) {
+		converted, convertErr := s.convertResponsesShapedChatBody(body)
+		if convertErr != nil {
+			return nil, convertErr
+		}
+		body = converted
+	}
 	// Sticky routing for newapi bridge: derive a key (or accept client-sent one),
 	// inject prompt_cache_key into body AND set X-Session-Id header on the gin
 	// request so GLM-style adaptors can pick it up. See docs/approved/sticky-routing.md.

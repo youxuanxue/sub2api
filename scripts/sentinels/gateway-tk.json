@@ -346,9 +346,11 @@
         "isNewAPINVIDIABuildAccount(account) && tkIsBridgeOpaqueBadResponse404(apiErr)",
         "tkBridgeUpstreamShouldFailoverAfterPenalty(account, apiErr)",
         "apiErr.GetErrorCode() == newapitypes.ErrorCodeBadResponseBody",
-        "upstream.Type == string(newapitypes.ErrorCodeBadResponseBody)"
+        "upstream.Type == string(newapitypes.ErrorCodeBadResponseBody)",
+        "failoverErr.Reason = candidateAccountRateLimitReason",
+        "if statusCode == http.StatusTooManyRequests {"
       ],
-      "rationale": "Bridge retirement must both switch accounts and cool the executed model; opaque bad_response_status_code 404 cool+failover stays NVIDIA-only; account-level penalty statuses remain narrow. Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
+      "rationale": "Bridge retirement must both switch accounts and cool the executed model; opaque bad_response_status_code 404 cool+failover stays NVIDIA-only; account-level penalty statuses remain narrow; NewAPI account-pressure 429 must tag account_rate_limit so unified soft priority demotion can rank healthier siblings. Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
@@ -377,9 +379,10 @@
         "func TestBridgeModelRetirementCoolsExecutedModel(",
         "func TestBridgeModelRetirementWithoutPlanDoesNotGuessCooldownKey(",
         "func TestTkBridgeUpstreamShouldFailoverAfterPenalty_OpaqueBadResponse404IsNVIDIAOnly(",
-        "func TestBridgeOpaqueBadResponse404DoesNotCoolOrdinaryNewAPI("
+        "func TestBridgeOpaqueBadResponse404DoesNotCoolOrdinaryNewAPI(",
+        "func TestTkNewAPIBridgeUpstreamFailoverError_429FeedsUnifiedSoftPriority("
       ],
-      "rationale": "Bridge boundary regression asserts switching plus exact-model cooldown and no guessed key; opaque 404 failover/cool stays NVIDIA-only."
+      "rationale": "Bridge boundary regression asserts switching plus exact-model cooldown and no guessed key; opaque 404 failover/cool stays NVIDIA-only; NewAPI 429 tags account_rate_limit for soft priority demotion."
     },
     {
       "path": "backend/internal/service/account_model_mapping_nvidia_tk_test.go",
@@ -1380,9 +1383,10 @@
         "freshPlan, err := planProtocolRoute(ctx, router, request, fresh)",
         "protocolrouter.AdapterGeminiToChat:",
         "protocolExecutorsFromContext(ctx).GeminiToChat",
-        "validateOAuthProxyBinding(freshAccount)"
+        "validateOAuthProxyBinding(freshAccount)",
+        "func protocolExecutionChatCompletionsEndpoint(ctx context.Context, fallback string) string {"
       ],
-      "rationale": "Send-time freshness must enforce the same native-only route policy as admission."
+      "rationale": "Send-time freshness must enforce the same native-only route policy as admission. CC fallback must ignore Responses/Messages plan endpoints (Volc force-chat + ResponsesIdentity)."
     },
     {
       "path": "backend/internal/service/candidate_thinking_tools_tk_test.go",
@@ -1850,9 +1854,10 @@
       "path": "backend/internal/service/newapi_bridge_failover_tk.go",
       "must_contain": [
         "Semantic:   tkBridgeFailureSemantic(apiErr)",
-        "RequestScopedTransient: semantic == gatewayFailureSemanticTransientFault"
+        "RequestScopedTransient: semantic == gatewayFailureSemanticTransientFault",
+        "failoverErr.Reason = candidateAccountRateLimitReason"
       ],
-      "rationale": "Recognized supplier 500 outages reach the shared failover policy without credential penalties."
+      "rationale": "Recognized supplier 500 outages reach the shared failover policy without credential penalties; NewAPI account-pressure 429 tags account_rate_limit for unified soft priority demotion."
     },
     {
       "path": "backend/internal/handler/candidate_chat_messages_tk_test.go",
@@ -2113,7 +2118,7 @@
       "must_not_contain": [
         "PlatformNewAPI"
       ],
-      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, observed errors cannot count twice, and OpenAI capacity-shed overload still feeds soft effective-priority demotion without hard unsched."
+      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, observed errors cannot count twice, and OpenAI capacity-shed overload plus tagged account_rate_limit 429 (including NewAPI bridge ServerOverloaded) still feed soft effective-priority demotion without hard unsched."
     },
     {
       "path": "backend/internal/service/protocol_execution.go",
@@ -2140,12 +2145,13 @@
         "TestCandidateTransportFailureAttribution",
         "TestCandidateFailureAttributionSoftDeprioritizesOpenAICapacityShed",
         "TestCandidateFailureCodex429UsesUnifiedPriority",
+        "TestCandidateFailureNewAPI429UsesUnifiedPriority",
         "http_400_capacity_shed",
         "selectAccount_demotes_after_threshold",
         "ExecuteSelectedProtocol",
         "classifyOpenAIAPIKeyHealthFailure(observed)"
       ],
-      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution, OpenAI capacity-shed soft priority demotion (including HTTP 400 construction), and legacy breaker deduplication across platforms and key modes."
+      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution, OpenAI capacity-shed and NewAPI ServerOverloaded 429 soft priority demotion (including HTTP 400 construction), and legacy breaker deduplication across platforms and key modes."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
@@ -2264,11 +2270,12 @@
         "a.abortOnClientGone(ctx.Err())",
         "errCandidateChatIncomplete",
         "newAPIChatFirstOutputTimeoutWithEffort(",
-        "streamFirstOutputHighEffort(effort)",
+        "firstOutputBudgetReason(",
+        "firstOutputBudgetForcesHigh(",
         "CandidateChatSwitchLimit",
         "ClientErrorType: firstOutputUnavailableClientErrorType"
       ],
-      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 120s / high-effort 600s); non-streaming defaults to 300s. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly. The first-output failover must keep ClientErrorType set: handleFailoverExhausted only honors ClientStatusCode when the type is non-empty, so dropping it silently reports the 504 as a generic 502 and makes 'upstream produced no useful output' indistinguishable from a real upstream 502 for clients and for 504 alerting."
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 120s / high-effort 600s); non-streaming defaults to 600s (first_output_timeout_ssot.py). Promotion classes (compact / large body / high reasoning) align with OpenAI via firstOutputBudgetReason; numeric knobs remain NewAPI/stream-owned. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly. The first-output failover must keep ClientErrorType set: handleFailoverExhausted only honors ClientStatusCode when the type is non-empty, so dropping it silently reports the 504 as a generic 502 and makes 'upstream produced no useful output' indistinguishable from a real upstream 502 for clients and for 504 alerting."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
@@ -2284,7 +2291,6 @@
     {
       "path": "backend/internal/service/openai_first_output_timeout.go",
       "must_contain": [
-        "func openAIFirstOutputForceHighBudget(c *gin.Context, body []byte) bool",
         "func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string, forceHigh bool) time.Duration",
         "first-output-timeout-ssot:begin",
         "openAIFirstOutputLargeBodyBytes",
@@ -2293,7 +2299,7 @@
         "return resolveStreamFirstOutputTimeout(s.cfg, false)",
         "openai_first_output_timeout_seconds=0 remains an emergency disable"
       ],
-      "rationale": "OpenAI native first-semantic-output timeout must inherit the universal stream SSOT via resolveStreamFirstOutputTimeout; explicit openai_first_output_timeout_seconds=0 stays emergency disable. Compact / compaction_trigger / large body force high-effort. Large-body bytes are generated from first_output_timeout_ssot.py."
+      "rationale": "OpenAI native first-semantic-output timeout must inherit the universal stream SSOT via resolveStreamFirstOutputTimeout; explicit openai_first_output_timeout_seconds=0 stays emergency disable. Promotion classes (compact / large body / high reasoning) are selected by firstOutputBudgetReason / firstOutputBudgetForcesHigh; this file owns numeric OpenAI knobs and the large-body byte constant from first_output_timeout_ssot.py."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
@@ -5507,6 +5513,15 @@
       "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner."
     },
     {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "case APIProtocolChatCompletions:\n\t\tif isResponsesShape {\n\t\t\tchatBody, err := s.convertResponsesShapedChatBody(body)",
+        "Bound Chat plans skip resolveUpstreamProtocol below. Still convert",
+        "if isResponsesShapedChatBody(body) {"
+      ],
+      "rationale": "Chat Completions upstreams must convert Responses-shaped /v1/chat/completions bodies (input, no messages) before raw forward — both the resolveUpstreamProtocol path and the bound protocolExecutionTarget ChatCompletions early-return (cn-prod kimi-k3 responses_shape_chat 45bdb549)."
+    },
+    {
       "path": "backend/internal/service/openai_responses_unsupported_user_test.go",
       "must_contain": [
         "TestOpenAIGatewayService_Forward_StripsUserFieldFromAPIKeyResponsesPassthrough",
@@ -6918,10 +6933,10 @@
       "path": "backend/internal/service/openai_images_direct.go",
       "must_contain": [
         "func usesCodexDirectImages(model string) bool {",
-      "return codexDirectImagesModelFamilies(model)",
-      "Native Images is the default OAuth transport for the GPT Image model family."
+        "return codexDirectImagesModelFamilies(model)",
+        "Native Images is the default OAuth transport for the GPT Image model family."
       ],
-    "rationale": "OAuth GPT Image uses the native Codex Images endpoint by default because the measured completion latency is materially lower. The local strict canvas/format owner and the 404/405 Responses fallback preserve the customer contract. Removing this anchor would silently revert the latency cutover during an upstream merge."
+      "rationale": "OAuth GPT Image uses the native Codex Images endpoint by default because the measured completion latency is materially lower. The local strict canvas/format owner and the 404/405 Responses fallback preserve the customer contract. Removing this anchor would silently revert the latency cutover during an upstream merge."
     },
     {
       "path": "backend/internal/service/openai_images_strict_canvas_tk.go",
@@ -8852,6 +8867,29 @@
       "rationale": "Injection chain for the bare family-name fallback: both Messages and CountTokens call TkApplyBareModelAlias at the handler throat — right after the request model is parsed and BEFORE channel mapping / session hash / scheduling / usage recording — gated to the anthropic path via QuotaPlatform (force-platform first, group platform fallback). This pre-scheduling placement is what keeps billing keys, sticky sessions and account selection consistent on the resolved full id. An upstream merge that drops these call sites recompiles cleanly but silently reverts bare 'opus' to the unsupported-model 400."
     },
     {
+      "path": "backend/internal/service/gateway_anthropic_context_window_alias_ingress_tk.go",
+      "must_contain": [
+        "func TkStripContextWindowAliasAtIngress(platform string, parsed *ParsedRequest) ([]byte, string)",
+        "func tkContextWindowAliasIngressPlatform(platform string) bool",
+        "case \"\", PlatformAnthropic, PlatformKiro:"
+      ],
+      "rationale": "Handler-throat owner of the Claude Code [1m] context-window alias strip (claude-code #60913). The forward-stage strips in gateway_forward_tk.go / gateway_anthropic_passthrough_tk.go / gateway_count_tokens_tk.go all run AFTER an account is chosen, so account selection used to judge the BRACKETED id: Kiro accounts (kiroSupportsModel exact catalog lookup) and accounts with an explicit model_mapping answered 'unsupported' and were filtered out of the candidate set, while empty-mapping Anthropic accounts escaped only via IsModelSupported's 'no mapping = allow all' short-circuit. Two amplifiers rode on it — tkGroupUnsupportedModelCacheKey keyed the 60s group negative cache on the suffixed id (one failure then fast-failed the group x model pair for a full minute), and tkWrapSelectionFailure surfaced 400 'Unsupported model: claude-sonnet-5[1m]' / 429, both of which Claude Code renders as 'temporarily unavailable' and which drop CC auto mode to manual confirmation. The platform gate must stay exactly {empty, anthropic, kiro}: empty covers universal / composite keys whose winning account is not yet known, and OpenAI-compat platforms own their own strip at openai_compat_context_window_alias_tk.go. Covered in both directions by gateway_anthropic_context_window_alias_ingress_tk_test.go."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "service.TkStripContextWindowAliasAtIngress(service.QuotaPlatform(c.Request.Context(), apiKey), parsedReq)"
+      ],
+      "rationale": "Injection chain for the [1m] context-window alias strip: both Messages and CountTokens must call TkStripContextWindowAliasAtIngress at the handler throat, BEFORE TkApplyBareModelAlias and before channel mapping / session hash / account selection / the group negative-cache key. Ordering is load-bearing — tkResolveBareModelAlias strips internally for its own table lookup, so 'sonnet[1m]' already resolved, but a FULL id like 'claude-sonnet-5[1m]' is an alias-table miss and is exactly the class that reached SelectAccountWithLoadAwareness unrepaired. These are one-line hooks in an upstream-shaped file that compile clean if dropped, which would silently revert bracketed models to the selection-stage 400/429. Regression anchors: gateway_handler_context_window_alias_ingress_tk_test.go."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk.go",
+      "must_contain": [
+        "service.TkStripContextWindowAliasAtIngress(forcedPlatform, parsed)"
+      ],
+      "rationale": "Universal-key ingress must strip the Claude Code [1m] alias before PrepareCandidateIngress for the same reason as the direct-key handler throat: candidate evaluation and Plan judge the requested model against each account's catalog / model_mapping, and a bracketed id matches nothing. Dropping this hook recompiles cleanly and silently reverts universal keys to candidate-admission rejection on 1M-context requests. Anchored alongside the sibling TkApplyBareModelAlias hook in the same block."
+    },
+    {
       "path": "backend/internal/service/gateway_forward_tk.go",
       "must_contain": [
         "return replaceBody(tkApplyAnthropicRequestCompatibilityRules(account, tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(getBody(), account)))))"
@@ -10726,10 +10764,11 @@
       "path": "backend/internal/service/openai_gateway_cc_pipeline.go",
       "must_contain": [
         "resolveCCFallbackTarget(ctx context.Context, account *Account)",
-        "if targetURL = protocolExecutionEndpoint(ctx, \"\"); targetURL != \"\" {",
+        "if targetURL = protocolExecutionChatCompletionsEndpoint(ctx, \"\"); targetURL != \"\" {",
+        "targetURL = protocolExecutionChatCompletionsEndpoint(ctx, targetURL)",
         "apiKey, _, err = s.GetAccessToken(ctx, account)"
       ],
-      "rationale": "Messages/Responses-to-Chat converters must share Plan-bound endpoint and credential consumption; legacy resolver rules apply only without a Plan."
+      "rationale": "Messages/Responses-to-Chat converters share Plan-bound Chat Completions endpoints and credentials. ResponsesIdentity plan endpoints must not override CC fallback URLs (cn-prod kimi-k3 missing-input when messages POSTed to /responses)."
     },
     {
       "path": "backend/internal/service/protocol_execution_test.go",
@@ -12473,9 +12512,10 @@
     {
       "path": "backend/internal/service/protocol_capability_probe.go",
       "must_contain": [
-        "func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {"
+        "func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {",
+        "if isNewAPIVolcEngineAgentPlanAccount(account) {\n\t\treturn []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}\n\t}"
       ],
-      "rationale": "Capability probes follow account-declared endpoints and do not infer native protocols from compatibility ingress."
+      "rationale": "Capability probes follow account-declared endpoints and do not infer native protocols from compatibility ingress. Volc Agent Plan must probe Chat Completions only — soft /responses positives seeded ResponsesIdentity and caused missing-input 400s."
     },
     {
       "path": "backend/internal/service/protocol_capability_probe_test.go",
@@ -13663,9 +13703,26 @@
         "if target, planned := protocolExecutionTarget(ctx); planned {",
         "if account.IsAnthropicProtocol() {",
         "if account.IsOpenAIApiKey() {",
-        "if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {"
+        "if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {",
+        "if isNewAPIVolcEngineAgentPlanAccount(account) {\n\t\treturn true\n\t}"
       ],
-      "rationale": "P2 protocol-dispatch companion owns the load-bearing early-routing order after Grok: planned protocol target → Anthropic-protocol native → API-key normalize → shouldForward raw-CC. Reordering (especially Anthropic after raw-CC, or normalize after shouldForward) silently breaks CN Anthropic Responses and CloudWise dual-stack accounts. Focused regressions live in openai_gateway_forward_tk_protocol_dispatch_test.go."
+      "rationale": "P2 protocol-dispatch companion owns the load-bearing early-routing order after Grok: planned protocol target → Anthropic-protocol native → API-key normalize → shouldForward raw-CC. Reordering (especially Anthropic after raw-CC, or normalize after shouldForward) silently breaks CN Anthropic Responses and CloudWise dual-stack accounts. Volc Agent Plan must force Chat Completions even when Extra claims Responses (cn-prod kimi-k3 missing-messages / HTML JSON-parse). Focused regressions live in openai_gateway_forward_tk_protocol_dispatch_test.go and openai_gateway_kimi_k3_protocol_fix_tk_test.go."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_kimi_k3_protocol_fix_tk_test.go",
+      "must_contain": [
+        "func TestShouldForwardOpenAIResponsesViaRawChatCompletions_VolcAgentPlanIgnoresResponsesFlag(",
+        "func TestForwardAsChatCompletions_VolcAgentPlanConvertsResponsesShapedBody(",
+        "func TestForwardAsChatCompletionsDispatched_ConvertsResponsesShapedBody(",
+        "func TestForwardAsResponses_VolcAgentPlanUsesChatFallback(",
+        "func TestForward_VolcForceChat_BoundResponsesIdentityPlanPostsToChatURL(",
+        "func TestForwardAsChatCompletions_BoundChatPlanConvertsResponsesShapedBody(",
+        "func TestVolcAgentPlan_ResponsesInboundPlansToChat(",
+        "func TestForwardAsAnthropic_VolcAgentPlanUsesChatFallback(",
+        "func TestIsNewAPIResponsesProactiveChatFallbackModel_Kimi(",
+        "func TestForwardAsResponsesDispatched_KimiProactiveChatFallback("
+      ],
+      "rationale": "Focused regressions for cn-prod kimi-k3 protocol-compat: Volc Agent Plan force-chat (including bound ResponsesIdentity plan must POST to /chat/completions, not /responses), Responses-shaped /v1/chat/completions conversion on raw/bound-Chat/NewAPI bridge paths, Messages→chat fallback, chat-only probe Plan responses_to_chat, and proactive Responses→chat for kimi/moonshot/k3. Deleting any of these lets upstream merge revive missing-input/missing-messages 400s without a compile break."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward.go",
@@ -16051,12 +16108,15 @@
       "must_contain": [
         "TestCandidateChatStreamVersusNonstreamBudgets",
         "TestNewAPIChatFirstOutputTimeoutResolver",
+        "TestNewAPIChatFirstOutputPromotionAlignsWithOpenAIStrategy",
         "non-stream must not use ResponseHeaderTimeout",
         "non-stream default is 3×600s",
         "stream default is 3×120s",
-        "TestNewAPIChatHighEffortFirstOutputOverride"
+        "TestNewAPIChatHighEffortFirstOutputOverride",
+        "large_body_forces_newapi_high_latency",
+        "high_effort_forces_newapi_high_latency"
       ],
-      "rationale": "Focused unit tests lock stream vs nonstream first-output budgets and forbid ResponseHeaderTimeout from redefining either."
+      "rationale": "Focused unit tests lock stream vs nonstream first-output budgets, forbid ResponseHeaderTimeout from redefining either, and cover NewAPI promotion parity with OpenAI (large body / high effort → NewAPI high-latency knobs)."
     },
     {
       "path": "deploy/aws/stage0/docker-compose.yml",
@@ -17632,9 +17692,110 @@
       "must_contain": [
         "func TestForwardImagesEmitsTimingWithoutChangingResult",
         "func TestImageTimingNonstreamObservesArrivalBeforeBufferedParsing",
+        "func TestImageTimingParsesSSERegardlessOfContentType",
         "func TestImageTimingForwardRetryAndKeepaliveWriter"
       ],
       "rationale": "Preserve real forwarding-hook coverage, nonstream arrival timing and retry/keepalive compatibility; helper-only tests cannot detect lost transport injection."
+    },
+    {
+      "path": "backend/internal/observability/qa/sse_tee.go",
+      "must_contain": [
+        "c.Set(contextKeyRequestCapture, requestCapture.metadata())",
+        "r.complete && !r.readFailed",
+        "r.digest.Write(p[:n])",
+        "d.FullWireSHA256 = d.WireReadSHA256"
+      ],
+      "rationale": "QA fingerprints all consumed wire bytes without draining unread input; only EOF without read errors permits a full hash."
+    },
+    {
+      "path": "backend/internal/observability/qa/service.go",
+      "must_contain": [
+        "RequestCapture:             requestCapture",
+        "requestPayload[\"capture\"] = input.RequestCapture",
+        "requestPayload[\"saved_body_sha256\"] = trajectory.SHA256Hex(requestValue)"
+      ],
+      "rationale": "Persist wire completeness separately from bounded redacted QA body hashes so matching prefixes cannot imply equal full requests."
+    },
+    {
+      "path": "backend/internal/observability/qa/request_capture_metadata_test.go",
+      "must_contain": [
+        "TestRequestCaptureFingerprintsFullInputBeyondSharedPrefix",
+        "TestRequestCaptureDoesNotClaimUnreadOrPartialBodyIsComplete",
+        "TestRequestCaptureGzipFingerprintIsWireNotDecoded",
+        "TestRequestCaptureReadFailureDoesNotProduceFullHash"
+      ],
+      "rationale": "Keep full versus prefix, incomplete read, gzip and read-error regressions for QA capture metadata."
+    },
+    {
+      "path": "backend/internal/observability/qa/middleware_synth_test.go",
+      "must_contain": [
+        "capture[\"full_wire_sha256\"]",
+        "request[\"saved_body_sha256\"]"
+      ],
+      "rationale": "Exercise metadata through middleware and blob persistence, not just the reader helper."
+    },
+    {
+      "path": "backend/internal/integration/kiro/translator.go",
+      "must_contain": [
+        "Before:     measurePayloadSize(payload, hasPriming)",
+        "payload.SizeDiagnostics.After = measurePayloadSize(payload, hasPriming)"
+      ],
+      "rationale": "Bracket existing Kiro reduction with size accounting without changing the reduction policy."
+    },
+    {
+      "path": "backend/internal/integration/kiro/payload_size_diagnostics.go",
+      "must_contain": [
+        "func measurePayloadSize(",
+        "CurrentTextBytes",
+        "SystemPrimingBytes",
+        "d.OtherBytes = d.TotalBytes -"
+      ],
+      "rationale": "Keep disjoint serialized component sizes for local Kiro overflow diagnostics."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service.go",
+      "must_contain": [
+        "kiro_local_payload_too_large",
+        "c.Set(OpsInternalErrorDetailKey, string(diagnostic))"
+      ],
+      "rationale": "Persist sanitized converter-input fingerprints and Kiro size breakdown on local 413 before upstream execution."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_kiro_non_failover_test.go",
+      "must_contain": [
+        "TestKiroLocal413DiagnosticsSurviveOpsMiddleware"
+      ],
+      "rationale": "Pin internal-only diagnostics persistence with caller-owned 413 and no upstream attribution."
+    },
+    {
+      "path": "backend/internal/integration/kiro/payload_size_diagnostics_test.go",
+      "must_contain": [
+        "TestPayloadSizeDiagnosticsPreservesProtectedText",
+        "TestPayloadSizeDiagnosticsTracksHistoryReduction",
+        "TestSmallPayloadHasNoDiagnosticsOrWireChange"
+      ],
+      "rationale": "Pin size accounting and unchanged protected text and small-request wire shape."
+    },
+    {
+      "path": "backend/internal/integration/kiro/translator.go",
+      "must_contain": [
+        "normalizeAndRefitPayload(payload, hasPriming)",
+        "func normalizeAndRefitPayload(",
+        "func dropOldestHistoryTurn(",
+        "minimumPayloadByteSize(payload, hasPriming) > maxPayloadBytes"
+      ],
+      "rationale": "Final tool-history normalization can grow the payload (an orphaned tool call gains a synthesized fallback result), so the truncator must re-check the serialized size and drop more history instead of handing ValidatePayloadSize an oversized payload. The minimum-size bail-out keeps an unfittable payload byte-identical for the caller-owned 413."
+    },
+    {
+      "path": "backend/internal/integration/kiro/payload_normalize_refit_tk_test.go",
+      "must_contain": [
+        "TestNormalizeGrowthWithoutRefitExceedsLimit",
+        "TestNormalizeGrowthRefitFitsPayload",
+        "TestRefitLeavesFittingPayloadByteIdentical",
+        "TestRefitConvergesOnGrowthTrigger",
+        "TestRefitTerminatesWhenNormalizeKeepsGrowing"
+      ],
+      "rationale": "Bidirectional regression for the post-normalize size re-check: the pre-fix tail is pinned as oversized at the measured trigger, the shipped truncator fits it, fitting payloads stay byte-identical, and a pathological growth input still terminates."
     }
   ]
 }

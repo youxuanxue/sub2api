@@ -82,7 +82,9 @@ OpenAI Images 转发额外输出 `component=audit.image_timing` 的两类日志�
 `image_upstream_body_bytes` 是应用实际读取的响应体字节数（transport 解压后的大小，不是线上压缩字节数）。
 `image_body_read_ms` 累加 Read 调用的等待时间，**包含等待生成，不能称为纯下载耗时**。
 
-SSE 在 transport 返回的 body Read 时被动观察，客户端非流式时也有效；不会提前读取、额外请求或改变响应。
+SSE 在 transport 返回的 body Read 时按实际行和帧分隔符识别，不依赖上游 Content-Type
+（Codex 实测会省略该响应头）；客户端非流式时也有效。不会提前读取、额外请求或改变响应。
+普通 JSON 及其中转义的 SSE 文本不会生成事件里程碑。
 只保留有界的行前缀，图片正文不复制；超长行标记 `image_event_prefix_truncated=true`。
 事件 type 在前缀之外或跨多行 JSON 时可能无法识别，不推测缺失里程碑。
 时间戳在完整帧结束时记录，因此包含该事件内容的传输时间；没有预览事件就没有预览耗时。

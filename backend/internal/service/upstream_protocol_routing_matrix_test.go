@@ -310,6 +310,36 @@ func matchesKnownZhipuNonAPIKeyDifference(tc routingMatrixCase, want, got routin
 		reflect.DeepEqual(got, routingObservation{Error: "account 801 missing api_key", Status: http.StatusOK})
 }
 
+// matchesKnownChatResponsesShapeMessagesConvert records the reviewed delta where
+// Responses-shaped /v1/chat/completions bodies used to be forwarded with body_kind=input
+// to Chat Completions upstreams. Current behavior converts to messages first
+// (cn-prod kimi-k3 missing-messages 400). Only the body_kind flip with otherwise
+// identical upstream observation is allowed.
+func matchesKnownChatResponsesShapeMessagesConvert(tc routingMatrixCase, want, got routingObservation) bool {
+	if tc.ingress.name != "chat_responses_shape" {
+		return false
+	}
+	if want.Status != got.Status || want.Error != got.Error || want.Panic != got.Panic {
+		return false
+	}
+	if want.ClientErrorType != got.ClientErrorType || want.ClientErrorCode != got.ClientErrorCode || want.ClientErrorMessage != got.ClientErrorMessage {
+		return false
+	}
+	if len(want.Requests) == 0 || len(want.Requests) != len(got.Requests) {
+		return false
+	}
+	for i := range want.Requests {
+		w, g := want.Requests[i], got.Requests[i]
+		if w.BodyKind != "input" || g.BodyKind != "messages" {
+			return false
+		}
+		if w.URL != g.URL || w.Authorization != g.Authorization || w.APIKey != g.APIKey || w.AnthropicVersion != g.AnthropicVersion || w.Model != g.Model {
+			return false
+		}
+	}
+	return true
+}
+
 // matchesKnownOfficialHostFallbackRefusal 记录一个已审查的差异：省略 base_url
 // 的 OpenAI API Key 以前会把凭据发到 api.openai.com（录制结果是 502）。
 // 现在在出站前拒绝这次回退。只接受「旧观测确有官方主机请求、新观测没有上游请求」
@@ -379,6 +409,7 @@ func TestUpstreamProtocolRoutingMatrixMatchesMainGolden(t *testing.T) {
 	knownGrokOmittedBase := 0
 	knownGrokProbeNoRefuse := 0
 	knownGrokProbeNoChat := 0
+	knownChatResponsesShapeConvert := 0
 	for i, tc := range cases {
 		index := golden.Results[i]
 		require.GreaterOrEqual(t, index, 0)
@@ -407,6 +438,10 @@ func TestUpstreamProtocolRoutingMatrixMatchesMainGolden(t *testing.T) {
 			knownGrokProbeNoChat++
 			continue
 		}
+		if matchesKnownChatResponsesShapeMessagesConvert(tc, want, got) {
+			knownChatResponsesShapeConvert++
+			continue
+		}
 		mismatched++
 		if len(differences) < 12 {
 			differences = append(differences, fmt.Sprintf("%s\nmain: %s\ncurrent: %s", tc.key(), want, got))
@@ -426,4 +461,6 @@ func TestUpstreamProtocolRoutingMatrixMatchesMainGolden(t *testing.T) {
 	require.Equal(t, 24, knownGrokProbeNoRefuse, "unexpected change to the Grok probe-no official fallback refusal")
 	// 探针 no 且凭证有 base_url（base 与 both）：改走 Chat Completions。
 	require.Equal(t, 24, knownGrokProbeNoChat, "unexpected change to the Grok probe-no chat completions difference")
+	// chat_responses_shape：Chat Completions 上游一律先把 input 转成 messages。
+	require.Equal(t, 1272, knownChatResponsesShapeConvert, "unexpected change to Responses-shaped chat body conversion")
 }

@@ -86,6 +86,13 @@ func isNewAPIResponsesProactiveChatFallbackModel(model string) bool {
 	if strings.HasPrefix(model, "qwen") || strings.HasPrefix(model, "doubao-") {
 		return true
 	}
+	// Moonshot/Kimi K3 supplies (incl. Volc-compatible aliases) speak Chat
+	// Completions; proactive fallback avoids adaptor Responses attempts that
+	// surface as missing-messages 400s.
+	if strings.HasPrefix(model, "kimi") || strings.HasPrefix(model, "moonshot") ||
+		model == "k3" || strings.HasPrefix(model, "k3-") {
+		return true
+	}
 	return false
 }
 

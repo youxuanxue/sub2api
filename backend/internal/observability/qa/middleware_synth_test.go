@@ -13,7 +13,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -195,5 +197,14 @@ func TestQAMetadataSurvivesBodyCaptureLimit(t *testing.T) {
 		request, ok := payload["request"].(map[string]any)
 		require.True(t, ok)
 		require.Equal(t, body[:32], request["body"], "metadata lookup must not expand the persisted capture")
+		capture := request["capture"].(map[string]any)
+		require.Equal(t, float64(len(body)), capture["wire_bytes_read"])
+		require.Equal(t, true, capture["wire_read_complete"])
+		require.Equal(t, true, capture["wire_capture_truncated"])
+		require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(body))), capture["full_wire_sha256"])
+		require.Equal(t, float64(32), request["saved_body_bytes"])
+		require.Equal(t, record.RequestSha256, request["saved_body_sha256"])
+		require.NotEqual(t, request["saved_body_sha256"], capture["full_wire_sha256"])
+
 	}
 }

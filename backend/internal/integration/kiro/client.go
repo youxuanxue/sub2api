@@ -167,6 +167,9 @@ type KiroPayload struct {
 	// in tool_use responses so the client can match them to its tool registry.
 	// Not serialized to the Kiro API request body.
 	ToolNameMap map[string]string `json:"-"`
+
+	// Populated only when the translated payload needs size reduction.
+	SizeDiagnostics *PayloadSizeDiagnostics `json:"-"`
 }
 
 // AdditionalModelRequestFields carries Kiro adaptive-thinking controls that

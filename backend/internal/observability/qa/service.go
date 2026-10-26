@@ -371,6 +371,8 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 	requestID, _ := c.Request.Context().Value(ctxkey.RequestID).(string)
 	trajectoryID, _ := c.Request.Context().Value(ctxkey.TrajectoryID).(string)
 	requestBytes, _ := c.Get(contextKeyRequestBytes)
+	captureValue, _ := c.Get(contextKeyRequestCapture)
+	requestCapture, _ := captureValue.(*RequestCaptureMetadata)
 	teeValue, _ := c.Get(contextKeyTeeWriter)
 	tee, _ := teeValue.(*teeResponseWriter)
 
@@ -451,6 +453,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		FirstTokenMs:               firstTokenMs,
 		Stream:                     captureStreamFlag(c, streamChunks),
 		RequestBody:                requestBody,
+		RequestCapture:             requestCapture,
 		UpstreamRequestBody:        upstreamRequestBody,
 		ResponseBody:               responseBody,
 		ResponseHeaders:            captureResponseHeaders(c),
@@ -683,6 +686,13 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	requestPayload := map[string]any{
 		"path": input.InboundEndpoint,
 		"body": requestValue,
+	}
+	if input.RequestCapture != nil {
+		requestPayload["capture"] = input.RequestCapture
+		// Same semantics as qa_records.request_sha256: saved, redacted value,
+		// NOT the full inbound request. Preserve the existing column contract.
+		requestPayload["saved_body_sha256"] = trajectory.SHA256Hex(requestValue)
+		requestPayload["saved_body_bytes"] = len(redactionValueString(requestValue))
 	}
 	if len(input.UpstreamRequestBody) > 0 {
 		requestPayload["upstream_body"] = redactionBodyValue(s.sanitizeQABodyMemo(input.UpstreamRequestBody, preserveThinking, redactionMemo))

@@ -102,6 +102,17 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	if target, planned := protocolExecutionTarget(ctx); planned {
 		switch target {
 		case protocolrouter.ProtocolChatCompletions:
+			// Bound Chat plans skip resolveUpstreamProtocol below. Still convert
+			// Responses-shaped bodies (`input`, no `messages`) before raw CC —
+			// otherwise Volc/Chat upstreams return missing `messages`
+			// (cn-prod kimi-k3 2026-10-26 responses_shape_chat).
+			if isResponsesShapedChatBody(body) {
+				chatBody, convertErr := s.convertResponsesShapedChatBody(body)
+				if convertErr != nil {
+					return nil, convertErr
+				}
+				body = chatBody
+			}
 			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		case protocolrouter.ProtocolMessages:
 			return s.forwardChatCompletionsViaNativeAnthropic(ctx, c, account, body, defaultMappedModel)
@@ -127,16 +138,19 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	}
 
 	// Some clients send a Responses-shaped body to the
-	// /v1/chat/completions URL. Detect it before protocol routing so adaptive
-	// accounts never forward the body unchanged to a Chat Completions endpoint.
-	isResponsesShape := !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists()
+	// /v1/chat/completions URL. Detect it before protocol routing so Chat
+	// Completions upstreams never see `input` without `messages`.
+	isResponsesShape := isResponsesShapedChatBody(body)
 	inbound := APIProtocolChatCompletions
 	if isResponsesShape {
 		inbound = APIProtocolResponses
 	}
-	// 按模型分流与 adaptive 账号按请求体形状处理 Responses 形状入站；其余账号
-	// 维持原样把请求体交给所选路径。
-	convertResponsesShape := isResponsesShape && (account.routesByModel() || account.IsAdaptiveAPIProtocol())
+	// Anthropic promotion for Responses-shaped chat stays limited to adaptive /
+	// model-routed accounts (native Anthropic endpoints). Chat Completions
+	// upstreams always convert — NewAPI Volc Agent Plan and other force-chat
+	// accounts previously forwarded the body unchanged and upstream returned
+	// "missing messages parameter" (cn-prod kimi-k3 2026-10-26).
+	convertResponsesShapeToAnthropic := isResponsesShape && (account.routesByModel() || account.IsAdaptiveAPIProtocol())
 
 	// 上游协议统一由 resolveUpstreamProtocol 判定（按模型分流时带上游模型目录）。Anthropic 分流必须先于
 	// ShouldUseResponsesAPI：Anthropic 协议账号经 probe 落标
@@ -147,13 +161,13 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	}
 	switch s.resolveUpstreamProtocolFor(ctx, account, inbound, routingModel) {
 	case APIProtocolAnthropic:
-		if convertResponsesShape {
+		if convertResponsesShapeToAnthropic {
 			return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, "")
 		}
 		// CC 入站经 CC→Responses→Anthropic 转换链直通供应商原生 Anthropic 端点。
 		return s.forwardChatCompletionsViaNativeAnthropic(ctx, c, account, body, defaultMappedModel)
 	case APIProtocolChatCompletions:
-		if convertResponsesShape {
+		if isResponsesShape {
 			chatBody, err := s.convertResponsesShapedChatBody(body)
 			if err != nil {
 				return nil, err

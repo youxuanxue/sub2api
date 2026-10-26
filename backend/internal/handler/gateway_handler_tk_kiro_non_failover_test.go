@@ -14,6 +14,41 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestKiroLocal413DiagnosticsSurviveOpsMiddleware(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 2)
+	t.Cleanup(func() { resetOpsErrorLoggerStateForTest(t) })
+	gin.SetMode(gin.TestMode)
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := &GatewayHandler{}
+	const detail = `{"kind":"kiro_local_payload_too_large","converter_input_bytes":1000000}`
+	router := gin.New()
+	router.Use(OpsErrorLoggerMiddleware(ops))
+	router.POST("/v1/messages", func(c *gin.Context) {
+		c.Set(service.OpsInternalErrorDetailKey, detail)
+		require.True(t, h.tkHandleMessagesNonFailoverForwardError(c, &service.KiroInvalidRequestError{
+			StatusCode: http.StatusRequestEntityTooLarge,
+			Message:    "Request is too large for Kiro after conversation history truncation",
+		}))
+	})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	require.Equal(t, service.TkClientFacingRequestTooLargeMessage, gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	require.NotContains(t, rec.Body.String(), "converter_input_bytes")
+	select {
+	case job := <-opsErrorLogQueue:
+		require.Equal(t, detail, *job.entry.UpstreamErrorDetail)
+		require.Equal(t, "client_request", job.entry.ErrorSource)
+		require.Equal(t, "client", job.entry.ErrorOwner)
+		require.Equal(t, http.StatusRequestEntityTooLarge, job.entry.StatusCode)
+		require.False(t, job.entry.Stream)
+		require.Nil(t, job.entry.UpstreamStatusCode)
+		require.Empty(t, job.entry.UpstreamErrors)
+	default:
+		t.Fatal("local 413 must enqueue its size diagnostics")
+	}
+}
+
 // Companion extraction of Messages-path non-failover errors must preserve the
 // same status codes / no-failover early returns as the prior inline chain.
 func TestTkHandleMessagesNonFailoverForwardError_Matrix(t *testing.T) {

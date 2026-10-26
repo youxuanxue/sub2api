@@ -180,6 +180,14 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	reqModel := parsedReq.Model
 	reqStream := parsedReq.Stream
 
+	// TK: strip the Claude Code "[1m]" context-window alias BEFORE account
+	// selection, so the per-account support predicate, the group negative-cache
+	// key and the session hash all see the bare id (claude-code #60913; see
+	// service/gateway_anthropic_context_window_alias_ingress_tk.go). Must precede
+	// TkApplyBareModelAlias so bare-family resolution gets a clean id.
+	if newBody, bare := service.TkStripContextWindowAliasAtIngress(service.QuotaPlatform(c.Request.Context(), apiKey), parsedReq); bare != "" {
+		body, reqModel = newBody, bare
+	}
 	// TK: bare claude family-name → latest servable full id (see service/gateway_request_tk_bare_model_alias.go).
 	if newBody, resolved := service.TkApplyBareModelAlias(service.QuotaPlatform(c.Request.Context(), apiKey), parsedReq); resolved != "" {
 		body, reqModel = newBody, resolved
@@ -1741,6 +1749,9 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
+	// TK: strip the Claude Code "[1m]" context-window alias before selection
+	// (claude-code #60913); same ordering contract as Messages above.
+	service.TkStripContextWindowAliasAtIngress(service.QuotaPlatform(c.Request.Context(), apiKey), parsedReq)
 	// TK: bare claude family-name → latest servable full id (see service/gateway_request_tk_bare_model_alias.go).
 	service.TkApplyBareModelAlias(service.QuotaPlatform(c.Request.Context(), apiKey), parsedReq)
 

@@ -261,6 +261,55 @@ func TestCandidateChatStreamVersusNonstreamBudgets(t *testing.T) {
 	_, _ = finishS(nil, nil)
 }
 
+func TestNewAPIChatFirstOutputPromotionAlignsWithOpenAIStrategy(t *testing.T) {
+	a := globalCandidateAccount(1, 1, 10)
+	a.Platform, a.ChannelType = PlatformNewAPI, 1
+	attachTestProtocolCapability(&a, protocolrouter.ProtocolChatCompletions)
+	r, _, key := globalCandidateFixture([]Group{grp(10, PlatformNewAPI, 1, false)}, []Account{a})
+	cfg := &config.Config{}
+	cfg.Gateway.StreamFirstOutputTimeoutSeconds = 120
+	cfg.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 600
+	cfg.Gateway.NewAPIChatHighEffortFirstOutputTimeout = 45
+	r.candidateOpenAI.cfg = cfg
+
+	begin := func(body []byte) *opsFirstOutputObservationState {
+		ctx, state := prepareGlobalCandidate(t, r, key)
+		ctx = withProtocolExecutionPlan(ctx, *state.current.plan)
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))).WithContext(ctx)
+		_, finish, err := r.candidateOpenAI.beginCandidateChatAttempt(ctx, c, &a, body)
+		require.NoError(t, err)
+		require.NotNil(t, finish)
+		obs := opsFirstOutputObservation(c)
+		_, _ = finish(nil, nil)
+		return obs
+	}
+
+	t.Run("small_body_default_inherits", func(t *testing.T) {
+		body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+		obs := begin(body)
+		require.Equal(t, "newapi_inherit", obs.BudgetReason)
+		require.Equal(t, int64(120000), obs.BudgetMS)
+	})
+
+	t.Run("large_body_forces_newapi_high_latency", func(t *testing.T) {
+		// Same 1MiB threshold as OpenAI #2610; numeric timeout stays on NewAPI knobs.
+		pad := strings.Repeat("x", openAIFirstOutputLargeBodyBytes)
+		body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"` + pad + `"}],"stream":true}`)
+		require.GreaterOrEqual(t, len(body), openAIFirstOutputLargeBodyBytes)
+		obs := begin(body)
+		require.Equal(t, "large_body", obs.BudgetReason)
+		require.Equal(t, int64(45000), obs.BudgetMS)
+	})
+
+	t.Run("high_effort_forces_newapi_high_latency", func(t *testing.T) {
+		body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}],"stream":true,"reasoning_effort":"high"}`)
+		obs := begin(body)
+		require.Equal(t, "high_effort", obs.BudgetReason)
+		require.Equal(t, int64(45000), obs.BudgetMS)
+	})
+}
+
 func TestNewAPIChatFirstOutputTimeoutResolver(t *testing.T) {
 	require.Equal(t, 120*time.Second, newAPIChatFirstOutputTimeoutWithEffort(nil, true, false))
 	require.Equal(t, 600*time.Second, newAPIChatFirstOutputTimeoutWithEffort(nil, false, false))

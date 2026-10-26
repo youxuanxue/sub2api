@@ -111,8 +111,20 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		if shape == service.ShapeAnthropicMessages || shape == service.ShapeAnthropicCountTokens {
 			parsed, parseErr := service.ParseGatewayRequest(service.NewRequestBodyRef(body), service.PlatformAnthropic)
 			if parseErr == nil {
+				rewritten := body
+				// TK: the Claude Code "[1m]" context-window alias must go before
+				// candidate evaluation, for the same reason as the direct-key handler
+				// throat: a bracketed id fails the per-account support predicate
+				// (claude-code #60913). Runs first so bare-family resolution below
+				// sees a clean id.
+				if stripped, bare := service.TkStripContextWindowAliasAtIngress(forcedPlatform, parsed); bare != "" {
+					rewritten = stripped
+				}
 				if normalized, resolved := service.TkApplyBareModelAlias(forcedPlatform, parsed); resolved != "" {
-					body = normalized
+					rewritten = normalized
+				}
+				if !bytes.Equal(rewritten, body) {
+					body = rewritten
 					// Planning and forwarding consume the same alias rewrite, including
 					// compressed requests. This is independent of group model policy.
 					c.Request.Body = io.NopCloser(bytes.NewReader(body))

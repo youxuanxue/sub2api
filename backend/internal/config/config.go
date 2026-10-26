@@ -1156,7 +1156,7 @@ type GatewayConfig struct {
 	GrokResponseHeaderTimeout int `mapstructure:"grok_response_header_timeout"`
 	// OpenAIFirstOutputTimeoutSeconds: native HTTP Responses 首个语义输出超时（秒）。
 	// 默认 120；显式 0 表示紧急禁用该闸。compact / compaction_trigger / 大 body
-	// 强制走 high-effort 预算（见 openAIFirstOutputForceHighBudget）。
+	// 强制走 high-effort 预算（见 firstOutputBudgetReason / firstOutputBudgetForcesHigh）。
 	OpenAIFirstOutputTimeoutSeconds int `mapstructure:"openai_first_output_timeout_seconds"`
 	// OpenAIHighEffortFirstOutputTimeoutSeconds: high/xhigh/max（及 force-high）首个语义输出超时（秒）。
 	// 默认 600；0 表示回退到 StreamFirstOutputHighEffortTimeoutSeconds（stream SSOT 代码默认 600）。

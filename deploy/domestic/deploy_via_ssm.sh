@@ -86,6 +86,56 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
+# S3 archive render needs boto3 on the *operator* machine. macOS agents often
+# put a Homebrew/user python3 first on PATH that has no boto3, while
+# /usr/bin/python3 (or another PATH entry) does. Prefer an interpreter that
+# can import boto3; fall back to PATH python3 so unit tests and stub renderers
+# keep working. Override with CN_PROD_PYTHON3 when needed.
+resolve_python_with_boto3() {
+  local cand seen="" dir
+  local -a cands=()
+  if [[ -n "${CN_PROD_PYTHON3:-}" ]]; then
+    if [[ ! -x "${CN_PROD_PYTHON3}" ]]; then
+      echo "deploy_via_ssm: CN_PROD_PYTHON3 is not executable: ${CN_PROD_PYTHON3}" >&2
+      return 1
+    fi
+    if "${CN_PROD_PYTHON3}" -c 'import boto3' >/dev/null 2>&1; then
+      printf '%s\n' "${CN_PROD_PYTHON3}"
+      return 0
+    fi
+    echo "deploy_via_ssm: CN_PROD_PYTHON3=${CN_PROD_PYTHON3} cannot import boto3" >&2
+    return 1
+  fi
+  # Preserve PATH order (first boto3-capable hit wins). Do not pipe into a
+  # while-read subshell — return would not escape the function.
+  local _old_ifs="${IFS}"
+  IFS=':'
+  # shellcheck disable=SC2086 # intentional PATH split on ':'
+  for dir in ${PATH}; do
+    [[ -n "${dir}" && -x "${dir}/python3" ]] || continue
+    cands+=("${dir}/python3")
+  done
+  IFS="${_old_ifs}"
+  cands+=(
+    "${REPO_ROOT}/.venv/bin/python3"
+    /usr/bin/python3
+    /opt/homebrew/bin/python3
+    /usr/local/bin/python3
+  )
+  for cand in "${cands[@]}"; do
+    [[ -n "${cand}" && -x "${cand}" ]] || continue
+    case " ${seen} " in
+      *" ${cand} "*) continue ;;
+    esac
+    seen="${seen} ${cand}"
+    if "${cand}" -c 'import boto3' >/dev/null 2>&1; then
+      printf '%s\n' "${cand}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 read -r SSM_REGION SSM_INSTANCE_ID PUBLIC_ORIGIN < <(python3 - "${MANIFEST}" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as handle:
@@ -216,19 +266,27 @@ case "${ACTION}" in
         echo "deploy_via_ssm pull: S3 dry-run refuses to print signed URLs; use unit tests" >&2
         exit 1
       fi
-      # The renderer normally needs boto3. Diagnose after the fact rather than
-      # pre-checking it: what the renderer imports is the renderer's business,
-      # and a missing-boto3 traceback is otherwise the operator's first clue.
-      # This is a local entrypoint, so the python3 that wins on PATH may be any
-      # of several installs (CI's interpreter is controlled, which is why the
-      # west path never hits this).
-      if ! REMOTE="$(python3 "${REPO_ROOT}/deploy/domestic/image_distribution.py" render \
+      # Prefer a boto3-capable local interpreter (see resolve_python_with_boto3).
+      # Fall back to PATH python3 so stub renderers / CI without boto3 still run
+      # far enough to surface the real import error.
+      if [[ -n "${CN_PROD_PYTHON3:-}" ]]; then
+        PYTHON_S3="$(resolve_python_with_boto3)" || exit 1
+      else
+        PYTHON_S3="$(resolve_python_with_boto3 2>/dev/null || true)"
+        if [[ -z "${PYTHON_S3}" ]]; then
+          PYTHON_S3="$(command -v python3)"
+        else
+          echo "deploy_via_ssm: using ${PYTHON_S3} for S3 archive render (boto3 ok)" >&2
+        fi
+      fi
+      if ! REMOTE="$("${PYTHON_S3}" "${REPO_ROOT}/deploy/domestic/image_distribution.py" render \
         --tag "${TAG}" --revision "${REVISION}" --digest "${DIGEST}")"; then
-        if ! python3 -c 'import boto3' >/dev/null 2>&1; then
-          echo "deploy_via_ssm pull: the python3 on PATH ($(command -v python3)) cannot import boto3," >&2
-          echo "  which the S3 archive transport needs. Either install it for that interpreter" >&2
-          echo "  (python3 -m pip install boto3), or put one that has it first on PATH." >&2
-          echo "  --transport ghcr is the explicit fallback and does not need boto3." >&2
+        if ! "${PYTHON_S3}" -c 'import boto3' >/dev/null 2>&1; then
+          echo "deploy_via_ssm pull: no local python3 can import boto3 (tried PATH order," >&2
+          echo "  .venv, /usr/bin, Homebrew). S3 archive transport needs it." >&2
+          echo "  Fix: pip install boto3 into one of those interpreters, set" >&2
+          echo "  CN_PROD_PYTHON3=/path/to/python3, or use --transport ghcr." >&2
+          echo "  Last tried: ${PYTHON_S3}" >&2
         fi
         exit 1
       fi

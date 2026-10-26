@@ -2,7 +2,10 @@ package qa
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"hash"
 	"io"
 	"mime"
 	"net/http"
@@ -15,8 +18,9 @@ import (
 )
 
 const (
-	contextKeyRequestBytes = "qa_request_bytes"
-	contextKeyTeeWriter    = "qa_tee_writer"
+	contextKeyRequestBytes   = "qa_request_bytes"
+	contextKeyRequestCapture = "qa_request_capture"
+	contextKeyTeeWriter      = "qa_tee_writer"
 )
 
 type teeResponseWriter struct {
@@ -132,6 +136,7 @@ func Middleware(svc *Service) gin.HandlerFunc {
 		c.Next()
 		if requestCapture != nil {
 			c.Set(contextKeyRequestBytes, qaRequestCaptureBytes(captureRequest, requestCapture.body.Bytes(), maxBytes))
+			c.Set(contextKeyRequestCapture, requestCapture.metadata())
 		}
 		svc.CaptureFromContext(c)
 	}
@@ -139,12 +144,56 @@ func Middleware(svc *Service) gin.HandlerFunc {
 
 type requestCaptureReader struct {
 	io.ReadCloser
-	body  bytes.Buffer
-	limit int
+	body       bytes.Buffer
+	limit      int
+	digest     hash.Hash
+	bytesRead  int64
+	complete   bool
+	readFailed bool
+}
+
+// All fields refer to inbound wire bytes BEFORE decoding/redaction. EOF is
+// required for a full hash; never drain an unread body just for diagnostics.
+// WireCaptureTruncated describes the bounded wire buffer, not decoded body size.
+type RequestCaptureMetadata struct {
+	WireBytesRead         int64  `json:"wire_bytes_read"`
+	WireReadSHA256        string `json:"wire_read_sha256"`
+	WireReadComplete      bool   `json:"wire_read_complete"`
+	FullWireSHA256        string `json:"full_wire_sha256,omitempty"`
+	WireCaptureBytes      int    `json:"wire_capture_bytes"`
+	WireCaptureLimitBytes int    `json:"wire_capture_limit_bytes"`
+	WireCaptureTruncated  bool   `json:"wire_capture_truncated"`
+}
+
+func (r *requestCaptureReader) metadata() *RequestCaptureMetadata {
+	d := &RequestCaptureMetadata{
+		WireBytesRead: r.bytesRead, WireReadComplete: r.complete && !r.readFailed,
+		WireCaptureBytes: r.body.Len(), WireCaptureLimitBytes: r.limit,
+		WireCaptureTruncated: r.bytesRead > int64(r.body.Len()),
+	}
+	if r.digest != nil {
+		d.WireReadSHA256 = hex.EncodeToString(r.digest.Sum(nil))
+	}
+	if d.WireReadComplete {
+		d.FullWireSHA256 = d.WireReadSHA256
+	}
+	return d
 }
 
 func (r *requestCaptureReader) Read(p []byte) (int, error) {
 	n, err := r.ReadCloser.Read(p)
+	if r.digest == nil {
+		r.digest = sha256.New()
+	}
+	if n > 0 {
+		_, _ = r.digest.Write(p[:n])
+		r.bytesRead += int64(n)
+	}
+	if err == io.EOF {
+		r.complete = true
+	} else if err != nil {
+		r.readFailed = true
+	}
 	if remaining := r.limit - r.body.Len(); remaining > 0 && n > 0 {
 		_, _ = r.body.Write(p[:min(n, remaining)])
 	}

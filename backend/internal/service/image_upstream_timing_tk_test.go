@@ -194,7 +194,8 @@ func TestImageTimingRealHTTPRecordsTLSUploadAndSSEWithoutChangingBody(t *testing
 			w.WriteHeader(400)
 			return
 		}
-		w.Header().Set("Content-Type", "text/event-stream")
+		// Match live Codex: SSE frames without a Content-Type response header.
+		w.Header()["Content-Type"] = nil
 		if err := http.NewResponseController(w).Flush(); err != nil {
 			t.Error(err)
 			return
@@ -212,6 +213,7 @@ func TestImageTimingRealHTTPRecordsTLSUploadAndSSEWithoutChangingBody(t *testing
 	resp, err := server.Client().Do(req)
 	timing.response(resp, err)
 	require.NoError(t, err)
+	require.Empty(t, resp.Header.Get("Content-Type"))
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
@@ -223,6 +225,57 @@ func TestImageTimingRealHTTPRecordsTLSUploadAndSSEWithoutChangingBody(t *testing
 	require.Equal(t, int64(len(payload)), fields["image_upstream_body_bytes"])
 	require.Equal(t, false, fields["image_connection_reused"])
 	require.NotContains(t, fields, "image_tool_started_ms", "missing upstream milestones stay absent")
+}
+
+func TestImageTimingParsesSSERegardlessOfContentType(t *testing.T) {
+	for _, contentType := range []string{"", "application/json", "text/event-stream"} {
+		t.Run(contentType, func(t *testing.T) {
+			core, logs := observer.New(zap.InfoLevel)
+			now := time.Unix(300, 0)
+			timing := &imageUpstreamTiming{now: func() time.Time { return now }, start: now, fields: map[string]int64{}, log: zap.New(core)}
+			chunks := []string{
+				"data: {\"type\":\"response.created\"}\n\n",
+				"data: {\"type\":\"response.image_generation_call.generating\"}\n\n",
+				"data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"aGVsbG8=\"}}\n\n",
+				"data: {\"type\":\"response.completed\"}\n\n",
+			}
+			source := &imageTimingScriptedBody{now: &now, chunks: append([]string{}, chunks...), delays: []time.Duration{time.Second, 2 * time.Second, 5 * time.Second, time.Second}}
+			resp := &http.Response{StatusCode: 200, Header: make(http.Header), Body: source}
+			if contentType != "" {
+				resp.Header.Set("Content-Type", contentType)
+			}
+			timing.response(resp, nil)
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+			require.Equal(t, strings.Join(chunks, ""), string(body))
+			require.Equal(t, contentType, resp.Header.Get("Content-Type"))
+			fields := logs.All()[0].ContextMap()
+			require.Equal(t, int64(1000), fields["image_response_created_ms"])
+			require.Equal(t, int64(3000), fields["image_generating_ms"])
+			require.Equal(t, int64(8000), fields["image_result_ms"])
+			require.Equal(t, int64(9000), fields["image_response_completed_ms"])
+		})
+	}
+}
+
+func TestImageTimingJSONDoesNotInventSSEMilestones(t *testing.T) {
+	core, logs := observer.New(zap.InfoLevel)
+	now := time.Unix(400, 0)
+	timing := &imageUpstreamTiming{now: func() time.Time { return now }, start: now, fields: map[string]int64{}, log: zap.New(core)}
+	body := `{"type":"response.completed","data":[{"b64_json":"aGVsbG8=","revised_prompt":"data: {\"type\":\"response.created\"}\n\nevent: response.completed"}]}`
+	resp := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}
+	timing.response(resp, nil)
+	got, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, body, string(got))
+	fields := logs.All()[0].ContextMap()
+	require.Equal(t, int64(len(body)), fields["image_upstream_body_bytes"])
+	require.Equal(t, "eof", fields["image_body_end_reason"])
+	require.NotContains(t, fields, "image_first_event_ms")
+	require.NotContains(t, fields, "image_response_created_ms")
+	require.NotContains(t, fields, "image_response_completed_ms")
 }
 
 func TestForwardImagesEmitsTimingWithoutChangingResult(t *testing.T) {

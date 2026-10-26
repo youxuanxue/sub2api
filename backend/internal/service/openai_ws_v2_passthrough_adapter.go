@@ -946,10 +946,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if current := usageMeta.reasoningEffort.Load(); current != nil {
 				reasoningEffort = *current
 			}
-			budgetReason := openAIFirstOutputBudgetReason(nil, payload, reasoningEffort)
+			budgetReason := firstOutputBudgetReason(nil, payload, reasoningEffort)
 			timeout := s.openAIFirstOutputTimeout(
 				reasoningEffort,
-				budgetReason == "compact" || budgetReason == "large_body",
+				firstOutputBudgetForcesHigh(budgetReason),
 			)
 			if timeout <= 0 {
 				timeout = s.openAIWSPassthroughIdleTimeout()
