@@ -48,6 +48,10 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 - `target=prod`：只发版/部署腾讯美西 prod（**默认路径**）。
 - `target=cn-prod`：复用同一 GHCR 包，经 `deploy/domestic/deploy_via_ssm.sh`
   `pull --tag X.Y.Z --revision FULL_SHA` → `sync-controls` → `prepare`，再候选实测与 `bluegreen.py promote`。
+  候选 smoke 脚本与证据 JSON **一律经 `deploy_via_ssm.sh put-file` 落盘**（`--run` 先 `bash -n` 再执行），
+  禁止手写 `base64 -d > ...`：2026-10-25 这样一条笔误（`> bash`，远端 cwd 为 `/usr/bin`）
+  把 `/usr/bin/bash` truncate 成 0 字节，服务未断但主机 bash-shebang 告警 job 全挂约 9 小时。
+  preflight 门禁 `cn-prod remote file transfer` 守这条。
   Release 成功后，等待对应 release run 触发的 `distribute-cn-image.yml` 成功（私有 S3 + SSM 预下载）；
   不以 Release 构建绿灯代替分发绿灯。重复 pull 复用已验镜像，初始化权限与保留期见国内 README。
   `--transport ghcr` 为显式备用路径，S3 缺失/失败不自动降级。

@@ -9,6 +9,13 @@
 #   bash deploy/domestic/deploy_via_ssm.sh sync-controls
 #   bash deploy/domestic/deploy_via_ssm.sh prepare --tag 1.8.306 --revision FULL_SHA \
 #        --image tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf
+#   bash deploy/domestic/deploy_via_ssm.sh put-file --local /tmp/post-plan.json \
+#        --remote /private/post-plan.json [--mode 600] [--run]
+#
+# put-file is the ONLY sanctioned way to land a candidate-smoke script or its
+# evidence JSON on cn-prod. Hand-written `base64 -d > ...` one-liners are what
+# truncated /usr/bin/bash to 0 bytes on 2026-10-25 (a `> bash` typo, cwd
+# /usr/bin), taking the host's bash-shebang alert jobs down with it.
 #
 # Identity: deploy/domestic/prod-target.json (ssm_region + ssm_instance_id).
 # Does not mutate AWS prod, DNS, or public_origin. prepare does not cut traffic.
@@ -29,6 +36,10 @@ REVISION=""
 IMAGE=""
 DIGEST=""
 TRANSPORT="s3"
+LOCAL_PATH=""
+REMOTE_PATH=""
+REMOTE_MODE="600"
+RUN_AFTER_PUT="0"
 
 usage() {
   sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
@@ -37,10 +48,14 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    pull|sync-controls|prepare)
+    pull|sync-controls|prepare|put-file)
       ACTION="$1"
       shift
       ;;
+    --local) LOCAL_PATH="${2:-}"; shift 2 ;;
+    --remote) REMOTE_PATH="${2:-}"; shift 2 ;;
+    --mode) REMOTE_MODE="${2:-}"; shift 2 ;;
+    --run) RUN_AFTER_PUT="1"; shift ;;
     --tag) TAG="${2:-}"; shift 2 ;;
     --revision) REVISION="${2:-}"; shift 2 ;;
     --image) IMAGE="${2:-}"; shift 2 ;;
@@ -55,7 +70,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${ACTION}" ]]; then
-  echo "deploy_via_ssm: action required (pull|sync-controls|prepare)" >&2
+  echo "deploy_via_ssm: action required (pull|sync-controls|prepare|put-file)" >&2
   usage
 fi
 
@@ -301,6 +316,82 @@ print("\n".join(lines))
 PY
 )"
     run_ssm "${COMMENT_PREFIX} sync-controls" "${REMOTE}"
+    ;;
+
+  put-file)
+    # Lands one local file on cn-prod under a chosen absolute path. Every byte
+    # travels as base64 inside python-repr-quoted printf lines (the same shape
+    # sync-controls already proved), so no caller ever hand-writes a shell
+    # redirect — the failure mode that truncated /usr/bin/bash on 2026-10-25.
+    if [[ -z "${LOCAL_PATH}" || -z "${REMOTE_PATH}" ]]; then
+      echo "deploy_via_ssm put-file: --local and --remote required" >&2
+      exit 1
+    fi
+    if [[ ! -f "${LOCAL_PATH}" ]]; then
+      echo "deploy_via_ssm put-file: local file not found: ${LOCAL_PATH}" >&2
+      exit 1
+    fi
+    # An absolute path with a real directory: a bare name like `bash` would
+    # resolve against the remote cwd, which is exactly how /usr/bin/bash died.
+    case "${REMOTE_PATH}" in
+      /*/*) : ;;
+      *)
+        echo "deploy_via_ssm put-file: --remote must be an absolute path inside a directory (got: ${REMOTE_PATH})" >&2
+        echo "  a bare name resolves against the remote cwd — that is the 2026-10-25 bash truncation" >&2
+        exit 1
+        ;;
+    esac
+    case "${REMOTE_PATH}" in
+      /bin/*|/sbin/*|/usr/bin/*|/usr/sbin/*|/lib/*|/usr/lib/*|/etc/*|*/..*)
+        echo "deploy_via_ssm put-file: refusing to write into a system path: ${REMOTE_PATH}" >&2
+        exit 1
+        ;;
+    esac
+    case "${REMOTE_MODE}" in
+      [0-7][0-7][0-7]) : ;;
+      *) echo "deploy_via_ssm put-file: --mode must be three octal digits (got: ${REMOTE_MODE})" >&2; exit 1 ;;
+    esac
+    if [[ "${RUN_AFTER_PUT}" == "1" && "${REMOTE_MODE}" == "600" ]]; then
+      REMOTE_MODE="700"
+    fi
+    FILE_B64="$(base64 < "${LOCAL_PATH}" | tr -d '\n')"
+    LOCAL_SHA="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${LOCAL_PATH}")"
+    REMOTE="$(python3 - "${REMOTE_PATH}" "${FILE_B64}" "${REMOTE_MODE}" "${LOCAL_SHA}" "${RUN_AFTER_PUT}" <<'PY_PUT'
+import sys
+remote_path, b64, mode, want_sha, run_after = sys.argv[1:6]
+chunk = 60000
+parts = [b64[i:i + chunk] for i in range(0, len(b64), chunk)]
+staging = "/tmp/cn-prod-put-file.b64"
+lines = [
+    "set -euo pipefail",
+    f"DEST={remote_path!r}",
+    f"STAGING={staging!r}",
+    'mkdir -p "$(dirname "$DEST")"',
+    'rm -f "$STAGING"',
+]
+for part in parts:
+    # repr-quoted: the payload can never break out into shell syntax, and the
+    # destination is only ever named via "$DEST", never spliced into a redirect.
+    lines.append(f"printf %s {part!r} >> \"$STAGING\"")
+lines += [
+    'base64 -d "$STAGING" > "$DEST"',
+    'rm -f "$STAGING"',
+    f"chmod {mode} \"$DEST\"",
+    f"GOT=$(sha256sum \"$DEST\" | cut -d\" \" -f1)",
+    f"WANT={want_sha!r}",
+    'if [ "$GOT" != "$WANT" ]; then echo "put-file: sha256 mismatch on $DEST (got $GOT want $WANT)" >&2; exit 1; fi',
+    f"printf 'put_file ok path=%s mode=%s sha256=%s\\n' \"$DEST\" {mode!r} \"$GOT\"",
+]
+if run_after == "1":
+    lines += [
+        'bash -n "$DEST"',
+        "echo put_file_syntax_ok",
+        'bash "$DEST"',
+    ]
+print("\n".join(lines))
+PY_PUT
+)"
+    run_ssm "${COMMENT_PREFIX} put-file ${REMOTE_PATH}" "${REMOTE}"
     ;;
 
   prepare)

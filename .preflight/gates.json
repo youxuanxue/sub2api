@@ -111,6 +111,7 @@
     "SSM host command script parse": "deploy",
     "gateway smoke suite unit tests": "deploy",
     "run-probe.sh --env loop regression guard": "base",
+    "cn-prod remote file transfer": "deploy",
     "data-layer capacity verdict selftest": "observability",
     "capacity-first safety contracts": "observability",
     "phase1 production activation safety contracts": "observability",
@@ -370,8 +371,7 @@
     ]
   },
   "requires": {
-    "nonprod archive/restore rehearsal": [
-    ],
+    "nonprod archive/restore rehearsal": [],
     "model-family alert artifact drift": [
       "generated model-surface bundle drift"
     ],

@@ -1650,6 +1650,58 @@ else
     echo "  ok: active-user discovery / override / failure reporting"
 fi
 
+# ---- sub2api: cn-prod remote file transfer (put-file SSOT) ------------------
+# 2026-10-25: a rollout-release agent hand-wrote a candidate-smoke transfer as
+#   echo "<b64>" | base64 -d > bash /tmp/cn_candidate_smoke.sh
+# The stray `> bash` redirected into the remote cwd (/usr/bin), truncating
+# /usr/bin/bash to 0 bytes. Service stayed up, but every bash-shebang unit on
+# the host died: tokenkey-disk-metrics (host disk/memory alerting) was blind for
+# ~9h, sysstat-summary failed, and the billing-watch probe could not run.
+# deploy_via_ssm.sh put-file now owns this transfer: repr-quoted base64 chunks,
+# an absolute-path-with-directory check, a system-path denylist, and a sha256
+# readback. This gate keeps the ad-hoc shape from coming back into the repo.
+if _preflight_selected 'cn-prod remote file transfer'; then
+echo "=== sub2api: cn-prod remote file transfer (put-file SSOT) ==="
+_pf_transfer_fail=0
+
+for _pf_need in \
+    '^  put-file)$' \
+    'sha256 mismatch' \
+    'must be an absolute path inside a directory' \
+    'refusing to write into a system path'
+do
+    if ! grep -qE "$_pf_need" deploy/domestic/deploy_via_ssm.sh 2>/dev/null; then
+        echo "  FAIL: deploy_via_ssm.sh put-file lost a required guard: $_pf_need"
+        echo "        — put-file is the sanctioned cn-prod file transfer; see deploy/domestic/README.md"
+        _pf_transfer_fail=1
+    fi
+done
+unset _pf_need
+
+# A redirect whose target is a bare word (no / and no $) is the exact defect.
+# Scoped to deploy/ops/skill surfaces that compose remote commands.
+# -I skips binaries (a stale .pyc otherwise reports as "Binary file ... matches")
+# and __pycache__ is excluded outright: only source text composes remote commands.
+_pf_bad_redirect=$(grep -rnIE --exclude-dir=__pycache__ --exclude='*.pyc' \
+    'base64 -d[^|>]*> *[A-Za-z_][A-Za-z0-9_.-]*( |$)' \
+    deploy/ ops/ .cursor/skills/ scripts/ 2>/dev/null \
+    | grep -v 'preflight.sh' \
+    | grep -vE '> *(/|\$)' || true)
+if [ -n "$_pf_bad_redirect" ]; then
+    echo "  FAIL: base64 -d redirected into a bare filename (resolves against remote cwd)"
+    echo "$_pf_bad_redirect" | sed 's/^/        /' | head -5
+    echo "        — this is the 2026-10-25 /usr/bin/bash truncation; use deploy_via_ssm.sh put-file"
+    _pf_transfer_fail=1
+fi
+
+if [ "$_pf_transfer_fail" -eq 0 ]; then
+    echo "  ok: put-file present; no bare-filename redirects in remote command composition"
+else
+    errors=$((errors + 1))
+fi
+unset _pf_transfer_fail _pf_bad_redirect
+fi
+
 # ---- sub2api: codex fingerprint pin consistency -----------------------------
 # The Codex (OpenAI-platform) client version has one service source:
 # DefaultOpenAICodexVersion. The UA default, gateway `version` header, Go
