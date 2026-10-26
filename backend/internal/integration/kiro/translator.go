@@ -1696,6 +1696,13 @@ func truncatePayloadToLimit(payload *KiroPayload, hasPriming bool) {
 	if payloadByteSize(payload) <= maxPayloadBytes {
 		return
 	}
+	payload.SizeDiagnostics = &PayloadSizeDiagnostics{
+		LimitBytes: maxPayloadBytes,
+		Before:     measurePayloadSize(payload, hasPriming),
+	}
+	defer func() {
+		payload.SizeDiagnostics.After = measurePayloadSize(payload, hasPriming)
+	}()
 	// Images are stripped oldest-first before any turn is dropped so text
 	// history survives when screenshots are the excess (kiro-lb#60).
 	stripOldestHistoryImagesUntilFit(payload, hasPriming)

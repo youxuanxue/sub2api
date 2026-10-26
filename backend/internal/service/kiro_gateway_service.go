@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -319,6 +320,18 @@ func (s *KiroGatewayService) Forward(
 	if err := kiroproto.ValidatePayloadSize(payload); err != nil {
 		var tooLarge *kiroproto.PayloadTooLargeError
 		if errors.As(err, &tooLarge) {
+			// This is the complete converter input, which may differ from inbound
+			// wire bytes. QA separately fingerprints the inbound wire stream.
+			inputBody := requestBody
+			diagnostic, _ := json.Marshal(struct {
+				Kind                 string                            `json:"kind"`
+				ConverterInputBytes  int                               `json:"converter_input_bytes"`
+				ConverterInputSHA256 string                            `json:"converter_input_sha256"`
+				Payload              *kiroproto.PayloadSizeDiagnostics `json:"payload"`
+			}{"kiro_local_payload_too_large", len(inputBody), fmt.Sprintf("%x", sha256.Sum256(inputBody)), payload.SizeDiagnostics})
+			if c != nil {
+				c.Set(OpsInternalErrorDetailKey, string(diagnostic))
+			}
 			message := fmt.Sprintf(
 				"Request is too large for Kiro after conversation history truncation (%d bytes; limit %d bytes)",
 				tooLarge.Size,

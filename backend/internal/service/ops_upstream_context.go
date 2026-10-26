@@ -100,7 +100,7 @@ const (
 	OpsClientPolicyDeniedReasonLocalPolicyDenied      = OpsClientBusinessLimitedReasonLocalPolicyDenied
 
 	// OpsInternalErrorDetailKey carries a sanitized, truncated detail string for
-	// internal-phase errors that bubble up as 5xx from middleware.
+	// local failures, including pre-upstream payload validation and middleware 5xx.
 	OpsInternalErrorDetailKey = "ops_internal_error_detail"
 
 	// OpsClientClosedRequestKey marks local failures caused by the caller closing
