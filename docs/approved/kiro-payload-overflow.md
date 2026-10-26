@@ -90,13 +90,17 @@ Verified:
 - The threshold appeared not to depend on the model: on one account,
   `claude-sonnet-5` and `claude-opus-5.5` accepted and rejected the same ladder
   byte for byte. **This one is unconfirmed and may reverse.** A later probe the
-  same day had `claude-sonnet-4.5` rejected at a size the other two accepted on
-  the same account, and the cross-model comparison currently mixes two baselines:
-  the `sonnet-4.5` rejection reproduced both on real translator output and on a
-  hand-built body, while the `sonnet-5` / `opus-5.5` acceptances were measured
-  only on a hand-built body. A same-baseline comparison is still being
-  collected. Until it lands, do not treat model-independence as settled, and do
-  not assume a raised limit would be accepted on every model.
+  same day sent the same shape at the same 920,000 bytes on the same account,
+  varying only `modelId`: `claude-sonnet-4.5` returned 400
+  `CONTENT_LENGTH_EXCEEDS_THRESHOLD` while `claude-sonnet-5` and
+  `claude-opus-5.5` both returned 200, putting `sonnet-4.5`'s threshold somewhere
+  near 300,000–350,000 rather than just under 1,000,000. The comparison mixes two
+  baselines, though: the `sonnet-4.5` rejection reproduced both on real translator
+  output and on a hand-built body, while the `sonnet-5` / `opus-5.5` acceptances
+  were measured only on a hand-built body. A same-baseline re-test is still being
+  collected. Until it lands, do not treat model-independence as settled, do not
+  base a limit decision on it, and do not assume a raised limit would be accepted
+  on every model.
 - The threshold does depend on the account, which was not previously known. At
   least two tiers exist: two accounts' boundaries fall in the same 16-byte
   interval, (993,815, 993,831], and a third sits about 4.5 KB higher, at
