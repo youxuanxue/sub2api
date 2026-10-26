@@ -317,6 +317,12 @@ func (s *KiroGatewayService) Forward(
 			Body:       message,
 		}
 	}
+	// Bind the account's profileArn before measuring. The dispatch path injects
+	// it just before marshal, and omitempty keeps an unset field off the wire
+	// entirely, so validating first undercounts every request by the whole
+	// `"profileArn":"<arn>"` member. Reduction re-runs inside this call, so a
+	// payload that no longer fits is trimmed rather than rejected.
+	kiroproto.BindWireProfileArn(payload, kiroAcct)
 	if err := kiroproto.ValidatePayloadSize(payload); err != nil {
 		var tooLarge *kiroproto.PayloadTooLargeError
 		if errors.As(err, &tooLarge) {
