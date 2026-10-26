@@ -128,7 +128,8 @@ plan 能通过切流前校验，却会让通知阶段抛 `KeyError`（2026-10-23
 裸 base64 会把 77KB 脚本撑过线），落盘后按原始字节校验 sha256；`--run` 先 `bash -n` 再执行。
 `--remote` 只允许写 `/private/*`、`/opt/tokenkey/*`、`/var/lib/tokenkey/*`，裸文件名、`..`
 穿越和其它路径一律拒绝 —— 用 allowlist 而非系统路径黑名单，是因为黑名单仍会放过
-`/usr/local/bin`（本次事故里被打挂的告警脚本就在那儿）。
+`/usr/local/bin`（本次事故里被打挂的告警脚本就在那儿）。目标已存在且内容不同时拒绝
+覆盖，要覆盖得显式加 `--force`；内容相同的重复 put 直接放过（幂等）。
 
 ```bash
 # 1) 在仓库侧生成 plan（revision 用完整 SHA，与 prepare 的 --revision 一致）

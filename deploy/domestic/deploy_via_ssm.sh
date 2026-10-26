@@ -10,7 +10,7 @@
 #   bash deploy/domestic/deploy_via_ssm.sh prepare --tag 1.8.306 --revision FULL_SHA \
 #        --image tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf
 #   bash deploy/domestic/deploy_via_ssm.sh put-file --local /tmp/post-plan.json \
-#        --remote /private/post-plan.json [--mode 600] [--run]
+#        --remote /private/post-plan.json [--mode 600] [--run] [--force]
 #
 # put-file is the ONLY sanctioned way to land a candidate-smoke script or its
 # evidence JSON on cn-prod. Hand-written `base64 -d > ...` one-liners are what
@@ -40,6 +40,7 @@ LOCAL_PATH=""
 REMOTE_PATH=""
 REMOTE_MODE="600"
 RUN_AFTER_PUT="0"
+FORCE_OVERWRITE="0"
 
 usage() {
   sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
@@ -56,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --remote) REMOTE_PATH="${2:-}"; shift 2 ;;
     --mode) REMOTE_MODE="${2:-}"; shift 2 ;;
     --run) RUN_AFTER_PUT="1"; shift ;;
+    --force) FORCE_OVERWRITE="1"; shift ;;
     --tag) TAG="${2:-}"; shift 2 ;;
     --revision) REVISION="${2:-}"; shift 2 ;;
     --image) IMAGE="${2:-}"; shift 2 ;;
@@ -372,9 +374,9 @@ PY
     # 77KB script already fails with MaxDocumentSizeExceeded.
     FILE_B64="$(gzip -cn < "${LOCAL_PATH}" | base64 | tr -d '\n')"
     LOCAL_SHA="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${LOCAL_PATH}")"
-    REMOTE="$(python3 - "${REMOTE_PATH}" "${FILE_B64}" "${REMOTE_MODE}" "${LOCAL_SHA}" "${RUN_AFTER_PUT}" <<'PY_PUT'
+    REMOTE="$(python3 - "${REMOTE_PATH}" "${FILE_B64}" "${REMOTE_MODE}" "${LOCAL_SHA}" "${RUN_AFTER_PUT}" "${FORCE_OVERWRITE}" <<'PY_PUT'
 import sys
-remote_path, b64, mode, want_sha, run_after = sys.argv[1:6]
+remote_path, b64, mode, want_sha, run_after, force = sys.argv[1:7]
 chunk = 60000
 parts = [b64[i:i + chunk] for i in range(0, len(b64), chunk)]
 staging = "/tmp/cn-prod-put-file.b64"
@@ -385,6 +387,19 @@ lines = [
     'mkdir -p "$(dirname "$DEST")"',
     'rm -f "$STAGING"',
 ]
+if force != "1":
+    # Clobbering a live file is how this tool once blanked a host alert script
+    # (/usr/local/bin/tokenkey-disk-metrics.sh, 2026-10-26). An identical file
+    # is a harmless re-put; a differing one needs --force said out loud.
+    lines += [
+        'if [ -e "$DEST" ]; then',
+        '  EXIST=$(sha256sum "$DEST" | cut -d" " -f1)',
+        f'  if [ "$EXIST" != {want_sha!r} ]; then',
+        '    echo "put-file: $DEST exists with different content (sha $EXIST); pass --force to overwrite" >&2',
+        '    exit 1',
+        '  fi',
+        'fi',
+    ]
 for part in parts:
     # repr-quoted: the payload can never break out into shell syntax, and the
     # destination is only ever named via "$DEST", never spliced into a redirect.
