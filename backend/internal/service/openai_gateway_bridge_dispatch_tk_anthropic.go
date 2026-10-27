@@ -225,6 +225,14 @@ func anthropicToChatCompletionsBody(req *apicompat.AnthropicRequest, upstreamMod
 	if req.TopP != nil {
 		chatReq["top_p"] = *req.TopP
 	}
+	// Preserve an explicit client effort across the Messages → Chat bridge.
+	// Kimi's provider normalizer may later map `none` to wire-level `low`, but
+	// dropping the field here changes the request semantics before that policy
+	// gets a chance to run and makes usage attribution depend on the provider
+	// default. The original client value is stamped separately at usage time.
+	if effort := apicompat.AnthropicExplicitReasoningEffort(req); effort != "" {
+		chatReq["reasoning_effort"] = effort
+	}
 	if len(req.StopSeqs) > 0 {
 		chatReq["stop"] = req.StopSeqs
 	}

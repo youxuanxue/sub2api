@@ -138,6 +138,21 @@ func stampOpenAIRequestedReasoningEffort(result *service.OpenAIForwardResult, c 
 	result.RequestedReasoningEffort = service.RequestedReasoningEffortFromContext(c.Request.Context())
 }
 
+// stampOpenAIRequestedReasoningEffortFromBody uses the immutable inbound body
+// as the final source of client intent. Bridge and provider normalizers are
+// allowed to rewrite the outbound effort (for example none -> low on Kimi),
+// but usage_logs must retain the value the client actually sent.
+func stampOpenAIRequestedReasoningEffortFromBody(result *service.OpenAIForwardResult, c *gin.Context, body []byte) {
+	if result == nil {
+		return
+	}
+	if effort := service.CanonicalRequestedReasoningEffort(body, strings.TrimSpace(gjson.GetBytes(body, "model").String())); effort != nil {
+		result.RequestedReasoningEffort = effort
+		return
+	}
+	stampOpenAIRequestedReasoningEffort(result, c)
+}
+
 func stampForwardRequestedReasoningEffort(result *service.ForwardResult, requested *string) {
 	if result == nil || result.RequestedReasoningEffort != nil {
 		return

@@ -497,6 +497,25 @@ func anthropicReasoningEffort(req *AnthropicRequest) string {
 	return mapAnthropicEffortToResponses(effort)
 }
 
+// AnthropicExplicitReasoningEffort returns only an effort explicitly supplied
+// by the client. It omits the bridge's historical medium default, because
+// adding that default to a provider-specific request changes omitted semantics.
+func AnthropicExplicitReasoningEffort(req *AnthropicRequest) string {
+	if req == nil {
+		return ""
+	}
+	if req.Thinking != nil && strings.EqualFold(strings.TrimSpace(req.Thinking.Type), "disabled") {
+		return "none"
+	}
+	if req.Reasoning != nil && strings.TrimSpace(req.Reasoning.Effort) != "" {
+		return mapAnthropicEffortToResponses(strings.ToLower(strings.TrimSpace(req.Reasoning.Effort)))
+	}
+	if req.OutputConfig != nil && strings.TrimSpace(req.OutputConfig.Effort) != "" {
+		return mapAnthropicEffortToResponses(strings.ToLower(strings.TrimSpace(req.OutputConfig.Effort)))
+	}
+	return ""
+}
+
 // mapAnthropicEffortToResponses maps shared effort levels directly and maps
 // Anthropic's max to OpenAI's xhigh.
 func mapAnthropicEffortToResponses(effort string) string {

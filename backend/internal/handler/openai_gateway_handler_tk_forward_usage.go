@@ -35,7 +35,7 @@ func (h *OpenAIGatewayHandler) tkSubmitHTTPForwardUsage(res *service.OpenAIForwa
 	if res == nil {
 		return
 	}
-	stampOpenAIRequestedReasoningEffort(res, in.C)
+	stampOpenAIRequestedReasoningEffortFromBody(res, in.C, in.Body)
 	in.APIKey, in.Subscription = snapshotCandidateBilling(in.C.Request.Context(), in.APIKey, in.Subscription)
 	in.ChannelMapping = service.CandidateChannelMapping(in.C.Request.Context(), in.ChannelMapping)
 	userAgent := in.C.GetHeader("User-Agent")
