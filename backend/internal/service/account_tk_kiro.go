@@ -44,6 +44,12 @@ func KiroAdminTestModels() []claude.Model {
 			CreatedAt:   "",
 		},
 		{
+			ID:          "claude-haiku-5-5",
+			Type:        "model",
+			DisplayName: "Claude Haiku 5.5",
+			CreatedAt:   "",
+		},
+		{
 			ID:          "claude-sonnet-4-6",
 			Type:        "model",
 			DisplayName: "Claude Sonnet 4.6",

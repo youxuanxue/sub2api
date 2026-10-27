@@ -8861,6 +8861,14 @@
       "rationale": "Anthropic shorthand model aliases (\"opus\"/\"sonnet\"/\"haiku\"/\"fable\"/\"claude-<family>\" → latest servable full id, plus dotted version aliases like \"opus-4.7\"/\"claude-opus-4.7\" → the catalog-backed canonical id), derived dynamically from the unified Claude display projection (native Anthropic plus Kiro-backed Claude models) with no hand-kept family list. A serving-owner refresh changes the answer with zero alias edits. Trigger is lexical-exact only (after lower+trim and [1m] strip); full ids, dated snapshots and the retired claude-3-5-haiku-20241022 are natural byte-identical misses, so the deprecated-model interceptor and unsupported-model 400 contract are untouched. If this companion or its derivation from the real table is silently dropped by an upstream merge, shorthand names regress to 'Unsupported model' 400s."
     },
     {
+      "path": "backend/internal/service/gateway_request_tk_bare_model_alias_test.go",
+      "must_contain": [
+        "func TestTkDeriveBareModelAliases_RealTablePin(t *testing.T)",
+        "\"haiku\": \"claude-haiku-5-5\""
+      ],
+      "rationale": "Keep the deliberate real-table pin for shorthand alias semantics: when the servable Claude catalog advances, the bare haiku alias must change only with an explicit reviewed update alongside the catalog change."
+    },
+    {
       "path": "backend/internal/handler/gateway_handler.go",
       "must_contain": [
         "service.TkApplyBareModelAlias(service.QuotaPlatform(c.Request.Context(), apiKey), parsedReq)"
