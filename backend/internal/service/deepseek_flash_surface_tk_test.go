@@ -22,12 +22,19 @@ func TestDeepSeekFlashSurfacePreservesProviderModelIdentity(t *testing.T) {
 		if override.ChannelType == newapiconstant.ChannelTypeAli && override.BaseURL == "https://token-plan.cn-beijing.maas.aliyuncs.com" {
 			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-flash"], override.BaseURL)
 			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-v4.1-flash"], override.BaseURL)
-			require.Equal(t, "deepseek-v4-flash-0731", override.ModelMapping["deepseek-v4-flash"], override.BaseURL)
-			require.Equal(t, "deepseek-v4-pro", override.ModelMapping["deepseek-v4-pro-0813"], override.BaseURL)
+			require.Equal(t, "deepseek-v4-flash-0731", override.ModelMapping["deepseek-v4-flash-0731"], override.BaseURL)
+			require.NotContains(t, override.ModelMapping, "deepseek-v4-flash")
+			require.Equal(t, "deepseek-v4-pro-0813", override.ModelMapping["deepseek-v4-pro-0813"], override.BaseURL)
+			require.Equal(t, "deepseek-v4-pro", override.ModelMapping["deepseek-v4-pro"], override.BaseURL)
 		}
 		if override.ChannelType == newapiconstant.ChannelTypeVolcEngine && override.BaseURL == "https://ark.cn-beijing.volces.com/api/plan/v3" {
 			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-flash"], override.BaseURL)
 			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-v4.1-flash"], override.BaseURL)
+		}
+		if override.ChannelType == newapiconstant.ChannelTypeBaiduV2 && override.BaseURL == "https://qianfan.baidubce.com/v2/tokenplan/personal" {
+			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-flash"], override.BaseURL)
+			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-v4.1-flash"], override.BaseURL)
+			require.NotContains(t, override.ModelMapping, "deepseek-v4-flash")
 		}
 	}
 	display := tkServedModelsManifestDisplayPresetIDsByChannelType(newapiconstant.ChannelTypeDeepSeek)

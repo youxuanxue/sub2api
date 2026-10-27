@@ -151,6 +151,9 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			}
 			mapping := identityModelMapping(ids)
 			for alias, target := range newAPIVolcEngineAgentPlanModelAliases() {
+				if volcEngineAgentPlanMappingKeyForbidden(alias) {
+					continue
+				}
 				mapping[alias] = target
 			}
 			return mapping, true
@@ -173,6 +176,9 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			}
 			mapping := identityModelMapping(ids)
 			for alias, target := range newAPIQianfanTokenPlanModelAliases() {
+				if qianfanTokenPlanMappingKeyForbidden(alias) {
+					continue
+				}
 				mapping[alias] = target
 			}
 			return mapping, true
@@ -405,6 +411,9 @@ func accountModelMappingForbiddenKeysByScope() map[string][]string {
 		"account_override:" + normalizeAccountModelMappingOverrideScope(
 			PlatformNewAPI, newapiconstant.ChannelTypeAli, newapiintegration.AliTokenPlanBaseURL,
 		): append([]string(nil), aliTokenPlanForbiddenModelMappingKeys...),
+		"account_override:" + normalizeAccountModelMappingOverrideScope(
+			PlatformNewAPI, newapiconstant.ChannelTypeBaiduV2, newapiintegration.QianfanTokenPlanBaseURL,
+		): append([]string(nil), qianfanTokenPlanForbiddenModelMappingKeys...),
 		PlatformAnthropic: kiroExclusiveModelIDs(),
 		PlatformAntigravity: append(
 			append(domain.AntigravityStructuralDeadModelMappingKeys(), domain.GeminiProImageModelIDs()...),

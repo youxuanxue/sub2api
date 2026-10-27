@@ -384,20 +384,28 @@ def _resolve_apply_targets(
     target: str,
     prod_instance_id: str | None = None,
 ) -> list[tuple[str, str, str]]:
+    """Resolve account-mapping apply targets.
+
+    Account floor convergence is the same reviewed write on prod and cn-prod.
+    Runtime setting mutations stay prod-only and do not use this resolver for
+    a non-prod target.
+    """
     target = target.strip().lower()
     pinned_prod_instance = _normalize_instance_id(prod_instance_id, "--prod-instance-id")
     if target == "prod":
         return [_resolve_prod_target(pinned_prod_instance)]
-    if pinned_prod_instance:
-        fail("--prod-instance-id is only valid with --target prod")
-    fail("--target must be prod")
+    if target in {"cn-prod", "all"}:
+        if pinned_prod_instance:
+            fail("--prod-instance-id is only valid with --target prod")
+        return _resolve_check_targets(target=target)
+    fail("--target must be prod, cn-prod, or all")
 
 
 def _resolve_runtime_mutation_target(
     target: str,
 ) -> tuple[str, str, str]:
     normalized = target.strip().lower()
-    if normalized in {"all", "all-deployable-and-prod"}:
+    if normalized != "prod":
         fail("runtime writes require one explicit --target: prod")
     targets = _resolve_apply_targets(normalized)
     if len(targets) != 1:
@@ -1450,6 +1458,8 @@ def cmd_validate(args) -> int:
 
 
 def cmd_check(args) -> int:
+    if str(args.target).strip().lower() != "prod":
+        fail("runtime check requires --target prod")
     want = load_doc(args.file)
     targets = _resolve_apply_targets(args.target)
     rows: list[dict[str, Any]] = []
@@ -2652,6 +2662,14 @@ def cmd_selftest(_args) -> int:
     cn_manifest = json.loads(CN_PROD_MANIFEST.read_text(encoding="utf-8"))
     assert cn_only[0][2] == cn_manifest["ssm_instance_id"], cn_only
     assert cn_only[0][1] == cn_manifest["ssm_region"], cn_only
+    apply_cn = _resolve_apply_targets("cn-prod")
+    assert apply_cn == cn_only, apply_cn
+    try:
+        _resolve_runtime_mutation_target("cn-prod")
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("runtime mutation accepted cn-prod")
     # "all" refuses a pin by design, so the prod half would otherwise reach for
     # live AWS. The selftest must stay hermetic (CI has no prod credentials):
     # stub the prod resolver and assert only what this function decides --
@@ -2662,9 +2680,11 @@ def cmd_selftest(_args) -> int:
             lambda prod_instance_id=None: ("prod", "eu-west-2", "mi-0000000000000prod")
         )
         both = _resolve_check_targets(target="all")
+        apply_both = _resolve_apply_targets("all")
     finally:
         globals()["_resolve_prod_target"] = _real_resolve_prod
     assert [t[0] for t in both] == ["prod", "cn-prod"], both
+    assert apply_both == both, apply_both
     assert len({t[2] for t in both}) == 2, both
     for bad_target in ("bogus", "", "cn_prod"):
         try:
@@ -3329,7 +3349,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--bundle", help="generated model-surface bundle to check against")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     sp = sub.add_parser("apply-accounts", help="explicitly apply reviewed SSOT diffs to live accounts")
-    sp.add_argument("--target", required=True, help="prod")
+    sp.add_argument("--target", required=True, help="prod, cn-prod, or all")
     sp.add_argument("--account-ids", help="comma-separated positive account IDs for targeted apply (single explicit target only)")
     sp.add_argument("--expected-plan-sha256", help="required in targeted mode for non-dry-run; must match recomputed plan digest")
     sp.add_argument("--confirm", help=f"required for writes: {APPLY_CONFIRM}")

@@ -253,7 +253,6 @@ func newAPIVolcEngineAgentPlanModelAliases() map[string]string {
 	return map[string]string{
 		"deepseek-chat":           "deepseek-v4.1-flash",
 		"deepseek-flash":          "deepseek-v4.1-flash",
-		"deepseek-v4-flash-0731":  "deepseek-v4-flash",
 		"doubao-seedream-5.0-pro": "doubao-seedream-5-0-pro",
 		"kimi-k2.8":               "kimi-k2.8-preview",
 	}
@@ -263,14 +262,26 @@ func newAPIVolcEngineAgentPlanModelAliases() map[string]string {
 // operator-withdrawn legacy aliases. apply-accounts must strip both from Plan
 // accounts without withdrawing the same names from other providers.
 var volcEngineAgentPlanForbiddenModelMappingKeys = []string{
+	"deepseek-v4-flash-0731",
 	"doubao-seed-2.0-code",
+	"doubao-seed-2.0-lite",
 	"doubao-seed-2.0-pro",
 	"doubao-seed-2.1-turbo",
 	"doubao-seedream-5.0-lite",
 	"glm-4.5-air",
 	"glm-5.2",
 	"kimi-k2.6",
+	"kimi-k2.7-code",
 	"minimax-m2.7",
+}
+
+func volcEngineAgentPlanMappingKeyForbidden(key string) bool {
+	for _, forbidden := range volcEngineAgentPlanForbiddenModelMappingKeys {
+		if key == forbidden {
+			return true
+		}
+	}
+	return false
 }
 
 // aliTokenPlanForbiddenModelMappingKeys include unavailable Token Plan supply
@@ -306,6 +317,7 @@ var aliTokenPlanForbiddenModelMappingKeys = []string{
 	"text-embedding-v4",
 	"auto",
 	"decision-model-preview",
+	"deepseek-v4-flash",
 	"qwen-audio-3.0-realtime-plus",
 }
 
@@ -314,12 +326,10 @@ var aliTokenPlanForbiddenModelMappingKeys = []string{
 // PAYG aliases retain their original targets.
 func newAPIAliTokenPlanModelAliases() map[string]string {
 	return map[string]string{
-		"deepseek-chat":        "deepseek-v4.1-flash",
-		"deepseek-flash":       "deepseek-v4.1-flash",
-		"deepseek-v4-flash":    "deepseek-v4-flash-0731",
-		"deepseek-v4-pro-0813": "deepseek-v4-pro",
-		"qwen-plus":            "qwen3.7-plus",
-		"qwen-max":             "qwen3.8-max",
+		"deepseek-chat":  "deepseek-v4.1-flash",
+		"deepseek-flash": "deepseek-v4.1-flash",
+		"qwen-plus":      "qwen3.7-plus",
+		"qwen-max":       "qwen3.8-max",
 	}
 }
 
@@ -331,13 +341,51 @@ func newAPIAliTokenPlanModelDisplayPresetIDs() []string {
 	)
 }
 
+// qianfanTokenPlanForbiddenModelMappingKeys are withdrawn from the Token Plan
+// Person mapping. Regular Qianfan (https://qianfan.baidubce.com) keeps its own
+// scope membership. apply-accounts strips these extras instead of preserving them.
+var qianfanTokenPlanForbiddenModelMappingKeys = []string{
+	"deepseek-v4-flash",
+	"glm-4.5-air",
+	"glm-4.7",
+	"kimi-k2.6",
+}
+
+func qianfanTokenPlanMappingKeyForbidden(key string) bool {
+	for _, forbidden := range qianfanTokenPlanForbiddenModelMappingKeys {
+		if key == forbidden {
+			return true
+		}
+	}
+	return false
+}
+
 func newAPIQianfanTokenPlanModelMappingPresetIDs() []string {
-	ids := tkServedModelsManifestPresetIDsForSelector(
+	raw := tkServedModelsManifestPresetIDsForSelector(
 		PlatformNewAPI,
 		newapiconstant.ChannelTypeBaiduV2,
 		newapiintegration.QianfanTokenPlanBaseURL,
 	)
+	ids := make([]string, 0, len(raw)+1)
+	seen := make(map[string]struct{}, len(raw)+1)
+	for _, id := range raw {
+		if qianfanTokenPlanMappingKeyForbidden(id) {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
 	for alias := range newAPIQianfanTokenPlanModelAliases() {
+		if qianfanTokenPlanMappingKeyForbidden(alias) {
+			continue
+		}
+		if _, ok := seen[alias]; ok {
+			continue
+		}
+		seen[alias] = struct{}{}
 		ids = append(ids, alias)
 	}
 	sort.Strings(ids)
@@ -346,8 +394,7 @@ func newAPIQianfanTokenPlanModelMappingPresetIDs() []string {
 
 func newAPIQianfanTokenPlanModelAliases() map[string]string {
 	return map[string]string{
-		"glm-4.5-air": "glm-5.2",
-		"glm-4.7":     "glm-5.2",
+		"deepseek-flash": "deepseek-v4.1-flash",
 	}
 }
 

@@ -854,7 +854,7 @@ explicit model-activation check: prod account model_mapping must cover the selec
 
 explicitly apply reviewed SSOT diffs to live accounts
 
-- `--target` (required): prod
+- `--target` (required): prod, cn-prod, or all
 - `--account-ids`: comma-separated positive account IDs for targeted apply (single explicit target only)
 - `--expected-plan-sha256`: required in targeted mode for non-dry-run; must match recomputed plan digest
 - `--confirm`: required for writes: yes-apply-account-model-mapping

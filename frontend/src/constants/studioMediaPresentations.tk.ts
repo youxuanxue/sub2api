@@ -345,6 +345,16 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     imageSizes: SEEDREAM_IMAGE_SIZES,
   },
   {
+    modelId: 'doubao-seedream-5.0-flash',
+    displayName: 'Seedream 5.0 · Flash',
+    qualityBadge: 'fast',
+    qualityBadgeKey: 'studio.badge.fast',
+    vendorLabel: VOLC,
+    modality: 'image',
+    supportedParams: [],
+    imageSizes: SEEDREAM_IMAGE_SIZES,
+  },
+  {
     modelId: 'doubao-seedream-4-5-251128',
     displayName: 'Seedream 4.5',
     qualityBadge: 'standard',
@@ -375,6 +385,17 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     supportedParams: [],
     imageSizes: WAN27_IMAGE_SIZES,
     flatPricePerImage: true,
+  },
+  {
+    modelId: 'qwen-image-3.0-pro',
+    displayName: 'Qwen Image 3.0 · Pro',
+    qualityBadge: 'ultra',
+    qualityBadgeKey: 'studio.badge.ultra',
+    vendorLabel: DASHSCOPE,
+    modality: 'image',
+    supportedParams: [],
+    // 2K pixel chips. Catalog bills image_price_2k for these sizes.
+    imageSizes: WAN27_IMAGE_SIZES,
   },
   {
     modelId: 'grok-imagine-image',
@@ -538,6 +559,37 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     videoDurations: [5],
   },
   {
+    modelId: 'doubao-seedance-2.0',
+    displayName: 'Seedance 2.0',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    // Agent Plan wire ID. Pricing page 16:9 examples are 5s.
+    videoDurations: [5],
+  },
+  {
+    modelId: 'doubao-seedance-2.0-fast',
+    displayName: 'Seedance 2.0 · Fast',
+    qualityBadge: 'fast',
+    qualityBadgeKey: 'studio.badge.fast',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    videoDurations: [5],
+  },
+  {
+    modelId: 'doubao-seedance-2.5',
+    displayName: 'Seedance 2.5',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    videoDurations: [5],
+  },
+  {
     modelId: 'happyhorse-1.1-t2v',
     displayName: 'HappyHorse 1.1 · Text',
     qualityBadge: 'cinematic',
@@ -572,6 +624,18 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     // up to 9 images[] which the companion maps to reference_image media.
     supportedParams: ['seed', 'firstFrameImage'],
     videoDurations: [3, 5, 10, 15],
+  },
+  {
+    modelId: 'wan3.0-video',
+    displayName: 'Wan 3.0 · Video',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: DASHSCOPE,
+    modality: 'video',
+    supportedParams: ['seed'],
+    // Model page allows up to 30s. Studio only offers the priced 5s example
+    // until a discrete duration table is captured.
+    videoDurations: [5],
   },
 ]
 

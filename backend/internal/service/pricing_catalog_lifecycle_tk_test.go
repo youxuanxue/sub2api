@@ -47,7 +47,7 @@ func TestCatalogLifecycleWithdrawalFacts(t *testing.T) {
 	// lose display: kimi-k2.6 already had Baidu's own sunset notice above, while
 	// glm-5.1 has no upstream announcement and therefore belongs here, not in
 	// catalogModelWithdrawals (whose Source must be a published notice).
-	// glm-4.7/glm-4.5-air stay as deliberate aliases onto the in-service glm-5.2.
+	// glm-4.7/glm-4.5-air are withdrawn from the Qianfan Token Plan mapping.
 	require.False(t, isTkCuratedNewAPIModelDisplayed("glm-5.1"))
 	require.False(t, isTkCuratedNewAPIModelDisplayed("kimi-k2.6"))
 	require.True(t, isTkCuratedNewAPIModelDisplayed("glm-5.2"))

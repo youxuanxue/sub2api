@@ -46,8 +46,19 @@ func TestNewAPIAvailableModelPresetIDs_AgentPlan(t *testing.T) {
 	got := NewAPIAvailableModelPresetIDs(account)
 	require.NotEmpty(t, got)
 	want := slices.Clone(tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL()))
-	for alias, target := range newAPIVolcEngineAgentPlanModelAliases() {
-		want = append(want, alias, target)
+	kept := want[:0]
+	for _, id := range want {
+		if volcEngineAgentPlanMappingKeyForbidden(id) {
+			continue
+		}
+		kept = append(kept, id)
+	}
+	want = kept
+	for alias := range newAPIVolcEngineAgentPlanModelAliases() {
+		if volcEngineAgentPlanMappingKeyForbidden(alias) {
+			continue
+		}
+		want = append(want, alias)
 	}
 	slices.Sort(want)
 	require.Equal(t, slices.Compact(want), got)
@@ -89,6 +100,10 @@ func TestNewAPIModelMappingPresetIDs_AgentPlanUsesPropertiesNotAccountID(t *test
 	planIDs := NewAPIModelMappingPresetIDsForAccount(agentPlan)
 	payAsYouGoIDs := NewAPIModelMappingPresetIDsForAccount(payAsYouGo)
 	for _, modelID := range owner.IDsByScope["newapi:45:"+newapiintegration.VolcEngineAgentPlanBaseURL] {
+		if volcEngineAgentPlanMappingKeyForbidden(modelID) {
+			require.NotContains(t, planIDs, modelID)
+			continue
+		}
 		require.Contains(t, planIDs, modelID)
 		if !slices.Contains(owner.IDsByChannel[45], modelID) {
 			require.NotContains(t, payAsYouGoIDs, modelID, "plan-only models must not leak into pay-as-you-go presets")

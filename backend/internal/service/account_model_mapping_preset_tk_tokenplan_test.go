@@ -25,7 +25,6 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	require.Contains(t, want, "qwen3.6-flash")
 	for _, model := range []string{
 		"deepseek-flash",
-		"deepseek-v4-flash",
 		"deepseek-v4-flash-0731",
 		"deepseek-v4-pro",
 		"deepseek-v4-pro-0813",
@@ -35,9 +34,12 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 		"happyhorse-1.1-t2v",
 		"happyhorse-1.1-i2v",
 		"happyhorse-1.1-r2v",
+		"qwen-image-3.0-pro",
+		"wan3.0-video",
 	} {
 		require.Contains(t, want, model)
 	}
+	require.NotContains(t, want, "deepseek-v4-flash")
 	for _, stale := range []string{"glm-4.5", "glm-4.5-air", "glm-4.6", "glm-4.7", "glm-5", "glm-5.1"} {
 		require.NotContains(t, want, stale)
 	}
@@ -53,8 +55,9 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, mapping, len(want))
 	require.Equal(t, "deepseek-v4.1-flash", mapping["deepseek-flash"])
-	require.Equal(t, "deepseek-v4-flash-0731", mapping["deepseek-v4-flash"])
-	require.Equal(t, "deepseek-v4-pro", mapping["deepseek-v4-pro-0813"])
+	require.NotContains(t, mapping, "deepseek-v4-flash")
+	require.Equal(t, "deepseek-v4-flash-0731", mapping["deepseek-v4-flash-0731"])
+	require.Equal(t, "deepseek-v4-pro-0813", mapping["deepseek-v4-pro-0813"])
 	require.Equal(t, "deepseek-v4.1-flash", mapping["deepseek-v4.1-flash"])
 	require.Equal(t, "glm-5.2", mapping["glm-5.2"])
 	require.Equal(t, "glm-5.3", mapping["glm-5.3"])
@@ -113,9 +116,15 @@ func TestNewAPIModelMappingPresetIDsForQianfanTokenPlanAccount(t *testing.T) {
 	}
 	want := newAPIQianfanTokenPlanModelMappingPresetIDs()
 	require.NotEmpty(t, want, "manifest SSOT must expose Qianfan Token Plan preset ids")
-	require.Contains(t, want, "deepseek-v4-flash")
+	require.Contains(t, want, "deepseek-v4.1-flash")
+	require.Contains(t, want, "deepseek-flash")
+	require.Contains(t, want, "glm-5.3")
 	require.Contains(t, want, "deepseek-v4-pro-0813")
 	require.Contains(t, want, "glm-5.3-flash")
+	require.NotContains(t, want, "deepseek-v4-flash")
+	require.NotContains(t, want, "kimi-k2.6")
+	require.NotContains(t, want, "glm-4.5-air")
+	require.NotContains(t, want, "glm-4.7")
 	require.NotContains(t, want, "ernie-5.0", "PAYG Qianfan ids must not leak into Token Plan override")
 
 	got := NewAPIModelMappingPresetIDsForAccount(account)
@@ -124,6 +133,12 @@ func TestNewAPIModelMappingPresetIDsForQianfanTokenPlanAccount(t *testing.T) {
 	mapping, ok := accountModelMappingForAccount(context.Background(), account, nil, nil, nil)
 	require.True(t, ok)
 	require.Equal(t, "deepseek-v4-pro-0813", mapping["deepseek-v4-pro-0813"])
+	require.Equal(t, "deepseek-v4.1-flash", mapping["deepseek-v4.1-flash"])
+	require.Equal(t, "deepseek-v4.1-flash", mapping["deepseek-flash"])
+	require.Equal(t, "glm-5.3", mapping["glm-5.3"])
+	for _, withdrawn := range qianfanTokenPlanForbiddenModelMappingKeys {
+		require.NotContains(t, mapping, withdrawn)
+	}
 	for alias, target := range newAPIQianfanTokenPlanModelAliases() {
 		require.Equal(t, target, mapping[alias])
 		require.Contains(t, mapping, target)
@@ -155,6 +170,10 @@ func TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides(t *testing.T) 
 			require.Contains(t, override.ModelMapping, "wan2.7-image")
 			require.Contains(t, override.ModelMapping, "wan2.7-image-pro")
 			require.Contains(t, override.ModelMapping, "qwen-audio-3.0-tts-plus")
+			require.Equal(t, "qwen-image-3.0-pro", override.ModelMapping["qwen-image-3.0-pro"])
+			require.Equal(t, "wan3.0-video", override.ModelMapping["wan3.0-video"])
+			require.Equal(t, "deepseek-v4-pro-0813", override.ModelMapping["deepseek-v4-pro-0813"])
+			require.NotContains(t, override.ModelMapping, "deepseek-v4-flash")
 			for _, video := range []string{
 				"happyhorse-1.1-t2v",
 				"happyhorse-1.1-i2v",
@@ -180,9 +199,19 @@ func TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides(t *testing.T) 
 		if override.ChannelType == newapiconstant.ChannelTypeBaiduV2 &&
 			override.BaseURL == newapiintegration.QianfanTokenPlanBaseURL {
 			foundQFPlan = true
-			require.Contains(t, override.ModelMapping, "kimi-k2.6")
-			require.Contains(t, override.ModelMapping, "deepseek-v4-pro-0813")
+			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-v4.1-flash"])
+			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-flash"])
+			require.Equal(t, "glm-5.3", override.ModelMapping["glm-5.3"])
+			require.Equal(t, "deepseek-v4-pro-0813", override.ModelMapping["deepseek-v4-pro-0813"])
+			require.NotContains(t, override.ModelMapping, "kimi-k2.6")
+			require.NotContains(t, override.ModelMapping, "glm-4.5-air")
+			require.NotContains(t, override.ModelMapping, "glm-4.7")
+			require.NotContains(t, override.ModelMapping, "deepseek-v4-flash")
 			require.NotContains(t, override.ModelMapping, "ernie-5.0")
+			scope := "account_override:" + normalizeAccountModelMappingOverrideScope(
+				PlatformNewAPI, newapiconstant.ChannelTypeBaiduV2, newapiintegration.QianfanTokenPlanBaseURL,
+			)
+			require.ElementsMatch(t, qianfanTokenPlanForbiddenModelMappingKeys, floor.ForbiddenModelMappingKeys[scope])
 		}
 	}
 	require.True(t, foundAli, "Ali Token Plan account override must be exported in bundle floor")
