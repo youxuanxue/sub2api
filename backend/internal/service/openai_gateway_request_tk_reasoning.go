@@ -9,7 +9,7 @@ func tkPreserveExplicitNoneReasoning(account *Account, model string) bool {
 		return false
 	}
 	model = account.GetMappedModel(model)
-	if isOpenAICodexReasoningGPTModel(model) || isDeepSeekCodexModel(model) {
+	if isOpenAICodexReasoningGPTModel(model) || isDeepSeekCodexModel(model) || resolveMoonshotThinkingFamily(model) == moonshotThinkingK3 {
 		return true
 	}
 	metadata, ok := account.GetUpstreamModelMetadata(model)

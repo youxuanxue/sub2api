@@ -1490,7 +1490,8 @@
         "account.GetMappedModel(model)",
         "isOpenAICodexReasoningGPTModel(model)",
         "isDeepSeekCodexModel(model)",
-        "account.GetUpstreamModelMetadata(model)"
+        "account.GetUpstreamModelMetadata(model)",
+        "resolveMoonshotThinkingFamily(model) == moonshotThinkingK3"
       ],
       "rationale": "Reuse account alias and catalog capability owners to distinguish real reasoning choices from synthetic none placeholders."
     },
@@ -7616,7 +7617,8 @@
     {
       "path": "backend/internal/service/openai_compat_model.go",
       "must_contain": [
-        "applyOpenAICompatContextWindowModelAlias(trimmed)"
+        "applyOpenAICompatContextWindowModelAlias(trimmed)",
+        "return apicompat.AnthropicExplicitReasoningEffort(req)"
       ],
       "rationale": "NormalizeOpenAICompatRequestedModel / applyOpenAICompatModelNormalization must strip Claude Code [1m] aliases before reasoning-suffix normalization and upstream forward on the /v1/messages OpenAI-compat bridge."
     },
@@ -13738,7 +13740,8 @@
         "stale_responses_row_tools_image",
         "func TestForwardAsAnthropic_VolcAgentPlanUsesChatFallback(",
         "func TestIsNewAPIResponsesProactiveChatFallbackModel_Kimi(",
-        "func TestForwardAsResponsesDispatched_KimiProactiveChatFallback("
+        "func TestForwardAsResponsesDispatched_KimiProactiveChatFallback(",
+        "func TestVolcKimiFallbackReasoningWireAndUsage(t *testing.T)"
       ],
       "rationale": "Focused regressions for cn-prod kimi-k3 protocol-compat: Volc Agent Plan force-chat (including bound ResponsesIdentity plan must POST to /chat/completions, not /responses), Responses-shaped /v1/chat/completions conversion on raw/bound-Chat/NewAPI bridge paths, Messages→chat fallback, chat-only Plan responses_to_chat even with stale Responses rows and tools/image, and proactive Responses→chat for kimi/moonshot/k3. Deleting any of these lets upstream merge revive missing-input/missing-messages 400s without a compile break."
     },
@@ -16508,14 +16511,17 @@
     {
       "path": "backend/internal/service/openai_gateway_bridge_responses_fallback.go",
       "must_contain": [
-        "normalizeBridgeChatProviderRequest(account, in, chatBody)"
+        "normalizeBridgeChatProviderRequest(account, in, chatBody)",
+        "reasoningEffort = extractOpenAIReasoningEffortFromBody(chatBody, upstreamModel)"
       ],
       "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
     },
     {
       "path": "backend/internal/service/openai_gateway_responses_chat_fallback.go",
       "must_contain": [
-        "normalizeChatProviderRequest(account, targetURL, chatBody)"
+        "normalizeChatProviderRequest(account, targetURL, chatBody)",
+        "chatBody, err = applyMoonshotThinkingShape(c, account, upstreamModel, chatBody)",
+        "reasoningEffort = extractOpenAIReasoningEffortFromBody(chatBody, upstreamModel)"
       ],
       "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
     },

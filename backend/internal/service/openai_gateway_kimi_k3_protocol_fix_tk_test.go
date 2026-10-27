@@ -5,7 +5,9 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -427,6 +429,7 @@ func TestForwardAsResponsesDispatched_KimiProactiveChatFallback(t *testing.T) {
 
 	dispatchNewAPIChatCompletions = func(_ context.Context, c *gin.Context, _ bridge.ChannelContextInput, body []byte) (*bridge.DispatchOutcome, *newapitypes.NewAPIError) {
 		require.True(t, gjson.GetBytes(body, "messages").IsArray())
+		require.Equal(t, "low", gjson.GetBytes(body, "reasoning_effort").String())
 		c.Writer.Header().Set("Content-Type", "application/json")
 		c.Writer.WriteHeader(http.StatusOK)
 		_, _ = c.Writer.Write([]byte(`{"id":"chatcmpl_kimi","object":"chat.completion","model":"kimi-k3","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`))
@@ -438,7 +441,7 @@ func TestForwardAsResponsesDispatched_KimiProactiveChatFallback(t *testing.T) {
 		}, nil
 	}
 
-	body := []byte(`{"model":"kimi-k3","input":"hello","stream":false}`)
+	body := []byte(`{"model":"kimi-k3","input":"hello","reasoning":{"effort":"none"},"stream":false}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -458,6 +461,77 @@ func TestForwardAsResponsesDispatched_KimiProactiveChatFallback(t *testing.T) {
 	result, err := svc.ForwardAsResponsesDispatched(context.Background(), c, account, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
+	require.Equal(t, "low", optionalStringValue(result.ReasoningEffort))
 	require.False(t, responsesCalled)
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// Exercise the public service dispatch used by Volc Agent Plan, including the
+// raw Chat fallback; helper-only tests missed these production regressions.
+func TestVolcKimiFallbackReasoningWireAndUsage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, endpoint := range []string{"messages", "responses"} {
+		for _, stream := range []bool{false, true} {
+			for _, effort := range []string{"", "none", "low", "medium", "max"} {
+				t.Run(fmt.Sprintf("%s/stream=%v/effort=%s", endpoint, stream, effort), func(t *testing.T) {
+					req := map[string]any{"model": "customer-kimi", "stream": stream}
+					if endpoint == "messages" {
+						req["messages"] = []map[string]string{{"role": "user", "content": "hello"}}
+						req["max_tokens"] = 128
+					} else {
+						req["input"] = "hello"
+						req["max_output_tokens"] = 128
+					}
+					if effort != "" {
+						req["reasoning"] = map[string]string{"effort": effort}
+					}
+					body, err := json.Marshal(req)
+					require.NoError(t, err)
+					original := bytes.Clone(body)
+					response := `{"id":"chatcmpl_kimi","object":"chat.completion","model":"kimi-k3","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`
+					contentType := "application/json"
+					if stream {
+						contentType = "text/event-stream"
+						response = "data: {\"id\":\"chatcmpl_kimi\",\"model\":\"kimi-k3\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"OK\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl_kimi\",\"model\":\"kimi-k3\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\ndata: [DONE]\n\n"
+					}
+					upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{contentType}}, Body: io.NopCloser(strings.NewReader(response))}}
+					svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+					account := volcAgentPlanKimiAccountForTest()
+					account.Credentials["model_mapping"] = map[string]any{"customer-kimi": "kimi-k3"}
+					rec := httptest.NewRecorder()
+					c, _ := gin.CreateTestContext(rec)
+					c.Request = httptest.NewRequest(http.MethodPost, "/v1/"+endpoint, bytes.NewReader(body))
+					var result *OpenAIForwardResult
+					if endpoint == "messages" {
+						result, err = svc.ForwardAsAnthropicDispatched(context.Background(), c, account, body, "", "")
+					} else {
+						result, err = svc.ForwardAsResponsesDispatched(context.Background(), c, account, body)
+					}
+					require.NoError(t, err)
+					require.NotNil(t, result)
+					require.Equal(t, original, body, "ingress must remain available for requested effort attribution")
+					require.Equal(t, "/api/plan/v3/chat/completions", upstream.lastReq.URL.Path)
+					require.Equal(t, "kimi-k3", gjson.GetBytes(upstream.lastBody, "model").String())
+					want := effort
+					if effort == "none" {
+						want = "low"
+					}
+					if effort == "medium" {
+						want = "high"
+					}
+					if want == "" {
+						require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning_effort").Exists())
+						require.False(t, gjson.GetBytes(upstream.lastBody, "thinking").Exists())
+						require.Nil(t, result.ReasoningEffort)
+					} else {
+						require.Equal(t, want, gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
+						require.Equal(t, want, optionalStringValue(result.ReasoningEffort))
+					}
+					require.Equal(t, 200, rec.Code)
+					require.Contains(t, rec.Body.String(), "OK")
+					require.Equal(t, 2, result.Usage.OutputTokens)
+				})
+			}
+		}
+	}
 }

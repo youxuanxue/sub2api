@@ -104,6 +104,12 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	// 独立 Ollama Cloud token 钩子；chatReq.Model 已是模型映射后的 upstreamModel。
 	chatBody = clampOllamaCloudUpstreamMaxTokens(account, chatBody)
 	chatBody = ensureDeepSeekChatReasoningPlaceholders(account, chatBody)
+	if resolveMoonshotThinkingFamily(upstreamModel) == moonshotThinkingK3 {
+		chatBody, err = applyMoonshotThinkingShape(c, account, upstreamModel, chatBody)
+		if err != nil {
+			return nil, err
+		}
+	}
 	// Keep the final outbound tier for usage-time reconciliation. A policy
 	// filter that removes the field therefore leaves this nil.
 	serviceTier := extractOpenAIServiceTierFromBody(chatBody)
@@ -126,6 +132,10 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	if err != nil {
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
+	}
+	// Meter the selected Kimi wire effort, after supplier normalization.
+	if resolveMoonshotThinkingFamily(upstreamModel) == moonshotThinkingK3 {
+		reasoningEffort = extractOpenAIReasoningEffortFromBody(chatBody, upstreamModel)
 	}
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, chatBody, clientStream, apiKey, account.GetOpenAIUserAgent(), "")
 	if err != nil {
