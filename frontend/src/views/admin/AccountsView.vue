@@ -192,10 +192,8 @@
           @toggle-schedulable="handleBulkToggleSchedulable"
         />
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <!-- TK(防闪烁): overscan = 当前 page_size,使账号页(行数天然受 page_size 上界约束)始终渲染
-             整页行,等价于不开窗。fluid 模式走 table-auto——列宽由「当前已渲染的行」内容决定,虚拟化下
-             可见行集随滚动/测量变化会让换行单元格的高度抖动,打破 @tanstack/vue-virtual 的测量自收敛
-             假设,整页渲染后列宽对每帧恒定。 -->
+        <!-- 列宽由 column.width 固定（table-layout: fixed），虚拟窗口滚动不会改列宽，
+             因此行高只取决于该行自己的内容。overscan 保持一小段，避免整页 100 行同时挂载。 -->
         <DataTable
           ref="dataTableRef"
           fluid
@@ -210,7 +208,8 @@
           default-sort-order="asc"
           :sort-storage-key="ACCOUNT_SORT_STORAGE_KEY"
           :estimate-row-height="76"
-          :overscan="pagination.page_size"
+          :virtualize-threshold="20"
+          :overscan="8"
         >
           <template #header-select>
             <input
@@ -603,9 +602,9 @@ const authStore = useAuthStore()
 const proxies = ref<AccountProxy[]>([])
 // Active groups — feeds the filter dropdown + create/edit/bulk modals (unchanged).
 const groups = ref<AdminGroup[]>([])
-// Active + DISABLED groups — used ONLY to resolve chip names below. An account can
-// stay bound to a now-disabled group; the old embedded row.groups showed that chip,
-// so the resolver must see inactive groups too (groups.getAll() is active-only).
+// Active + inactive groups — used ONLY to resolve chip names below. An account can
+// stay bound to a now-disabled group; the old embedded row.groups showed that chip.
+// Loaded once via getAllIncludingInactive(); the filter dropdown uses the active subset.
 const groupsForChips = ref<AdminGroup[]>([])
 
 // Group-chip resolution for the (lite) accounts list. The lite list payload omits
@@ -615,9 +614,7 @@ const groupsForChips = ref<AdminGroup[]>([])
 // `groups` for non-lite responses (single-account fetches, older data).
 const groupById = computed(() => {
   const map = new Map<number, AdminGroup>()
-  // Active set first, then the inactive-inclusive set (superset) so every bound
-  // group_id resolves — including disabled groups. If the inactive fetch failed,
-  // the active set still covers active bindings.
+  // Active subset first, then the full set so disabled bindings still resolve.
   for (const g of groups.value) map.set(g.id, g)
   for (const g of groupsForChips.value) map.set(g.id, g)
   return map
@@ -1200,11 +1197,12 @@ const resetAutoRefreshCache = () => {
 
 const isFirstLoad = ref(true)
 
+const isActiveAccountGroup = (group: AdminGroup) => !group.status || group.status === 'active'
+
 const loadAccountDependencies = async () => {
-  const [proxiesResult, groupsResult, allGroupsResult] = await Promise.allSettled([
+  const [proxiesResult, groupsResult] = await Promise.allSettled([
     adminAPI.proxies.getAll(),
-    adminAPI.groups.getAll(),
-    // Inactive-inclusive set for chip resolution only (disabled-group bindings).
+    // One request: inactive groups stay available for chip names, active ones feed filters.
     adminAPI.groups.getAllIncludingInactive()
   ])
   if (proxiesResult.status === 'fulfilled') {
@@ -1213,14 +1211,11 @@ const loadAccountDependencies = async () => {
     console.error('Failed to load proxies:', proxiesResult.reason)
   }
   if (groupsResult.status === 'fulfilled') {
-    groups.value = groupsResult.value
+    const allGroups = groupsResult.value
+    groupsForChips.value = allGroups
+    groups.value = allGroups.filter(isActiveAccountGroup)
   } else {
     console.error('Failed to load groups:', groupsResult.reason)
-  }
-  if (allGroupsResult.status === 'fulfilled') {
-    groupsForChips.value = allGroupsResult.value
-  } else {
-    console.error('Failed to load inactive-inclusive groups:', allGroupsResult.reason)
   }
 }
 
@@ -1903,45 +1898,66 @@ const platformTypeBadgesById = computed<Record<number, {
 
 // All available columns
 //
-// Wrap-first column policy under DataTable's fluid mode:
+// Wrap-first column policy under DataTable's fixed fluid layout:
 //   - `nowrap` is reserved for cells whose contents are atomic UI primitives
 //     that visually break when wrapped (single checkbox, toggle switch,
 //     row of action buttons that must stay together).
-//   - All other columns get `min-w-0` so the browser's table-auto algorithm
-//     can compress them below their natural min-content width, letting cell
-//     contents wrap (text → multi-line, badge groups → multi-row via the
-//     existing `flex flex-wrap` containers). This is what keeps the table
-//     fitting the viewport at 100% browser zoom without a horizontal
-//     scrollbar — the alternative (more aggressive nowrap) silently clips
-//     the rightmost columns under fluid mode (overflow-x: hidden).
+//   - Other columns use `min-w-0` so text and badge groups wrap inside the
+//     width assigned by ACCOUNT_COLUMN_WIDTHS. Widths are proportional hints;
+//     the browser scales the visible subset to the container, so the table
+//     stays within the viewport and a virtualized row keeps a stable height.
 const nowrap = 'whitespace-nowrap align-middle'
 const wrap = (maxW: string) => `min-w-0 align-top ${maxW}`
+// Proportional widths keep table-layout:fixed stable while the virtual window moves.
+// They are hints: the browser scales the visible subset to the container width.
+const ACCOUNT_COLUMN_WIDTHS: Record<string, string> = {
+  select: '3%',
+  name: '13%',
+  id: '6%',
+  platform_type: '11%',
+  capacity: '9%',
+  status: '8%',
+  schedulable: '6%',
+  today_stats: '9%',
+  groups: '9%',
+  usage: '16%',
+  proxy: '8%',
+  priority: '6%',
+  scheduler_score: '10%',
+  rate_multiplier: '6%',
+  upstream_billing_rate: '8%',
+  last_used_at: '7%',
+  created_at: '8%',
+  expires_at: '8%',
+  notes: '8%',
+  actions: '7%'
+}
 const allColumns = computed(() => {
   const c = [
-    { key: 'select', label: '', sortable: false, class: nowrap },
-    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, class: 'min-w-0 max-w-[10rem] break-words align-top' },
-    { key: 'id', label: t('admin.accounts.columns.id'), sortable: true, class: nowrap },
-    { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, class: wrap('max-w-[9rem]') },
-    { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false, class: wrap('max-w-[9rem]') },
-    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, class: wrap('max-w-[8rem]') },
-    { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true, class: nowrap },
-    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false, class: wrap('max-w-[9rem]') }
+    { key: 'select', label: '', sortable: false, class: nowrap, width: ACCOUNT_COLUMN_WIDTHS.select },
+    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, class: 'min-w-0 break-words align-top', width: ACCOUNT_COLUMN_WIDTHS.name },
+    { key: 'id', label: t('admin.accounts.columns.id'), sortable: true, class: nowrap, width: ACCOUNT_COLUMN_WIDTHS.id },
+    { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, class: wrap(''), width: ACCOUNT_COLUMN_WIDTHS.platform_type },
+    { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false, class: wrap(''), width: ACCOUNT_COLUMN_WIDTHS.capacity },
+    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, class: wrap(''), width: ACCOUNT_COLUMN_WIDTHS.status },
+    { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true, class: nowrap, width: ACCOUNT_COLUMN_WIDTHS.schedulable },
+    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false, class: wrap(''), width: ACCOUNT_COLUMN_WIDTHS.today_stats }
   ]
   if (!authStore.isSimpleMode) {
-    c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false, class: wrap('max-w-[8rem]') })
+    c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false, class: wrap(''), width: ACCOUNT_COLUMN_WIDTHS.groups })
   }
-  c.push({ key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false, class: wrap('max-w-[15rem]') })
+  c.push({ key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false, class: wrap('max-w-[15rem]'), width: ACCOUNT_COLUMN_WIDTHS.usage })
   c.push(
-    { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false, class: wrap('max-w-[7rem]') },
-    { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true, class: nowrap },
-    { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false, class: wrap('max-w-[9rem]') },
-    { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true, class: nowrap },
-    { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true, class: nowrap },
-    { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true, class: wrap('max-w-[5rem]') },
-    { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true, class: wrap('max-w-[5rem]') },
-    { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true, class: wrap('max-w-[5rem]') },
-    { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false, class: wrap('max-w-[8rem]') },
-    { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false, class: nowrap }
+    { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false, class: wrap(''), width: ACCOUNT_COLUMN_WIDTHS.proxy },
+    { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true, class: nowrap, width: ACCOUNT_COLUMN_WIDTHS.priority },
+    { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false, class: wrap(''), width: ACCOUNT_COLUMN_WIDTHS.scheduler_score },
+    { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true, class: nowrap, width: ACCOUNT_COLUMN_WIDTHS.rate_multiplier },
+    { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true, class: nowrap, width: ACCOUNT_COLUMN_WIDTHS.upstream_billing_rate },
+    { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true, class: wrap(''), width: ACCOUNT_COLUMN_WIDTHS.last_used_at },
+    { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true, class: wrap(''), width: ACCOUNT_COLUMN_WIDTHS.created_at },
+    { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true, class: wrap(''), width: ACCOUNT_COLUMN_WIDTHS.expires_at },
+    { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false, class: wrap(''), width: ACCOUNT_COLUMN_WIDTHS.notes },
+    { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false, class: nowrap, width: ACCOUNT_COLUMN_WIDTHS.actions }
   )
   return c
 })

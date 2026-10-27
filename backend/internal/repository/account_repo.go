@@ -1664,6 +1664,16 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 }
 
 func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) ([]service.Account, *pagination.PaginationResult, error) {
+	return r.listWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode, channelType, false)
+}
+
+// ListWithFiltersLite is the admin accounts page path. It keeps group IDs (the
+// list resolves names from the groups endpoint) and skips loading full group rows.
+func (r *accountRepository) ListWithFiltersLite(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) ([]service.Account, *pagination.PaginationResult, error) {
+	return r.listWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode, channelType, true)
+}
+
+func (r *accountRepository) listWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int, groupIDsOnly bool) ([]service.Account, *pagination.PaginationResult, error) {
 	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, channelType)
 	// Clone before Count so interceptor-appended predicates (SoftDeleteMixin's
 	// deleted_at IS NULL) don't accumulate on the shared builder and pollute the
@@ -1686,7 +1696,12 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 		return nil, nil, err
 	}
 
-	outAccounts, err := r.accountsToService(ctx, accounts)
+	var outAccounts []service.Account
+	if groupIDsOnly {
+		outAccounts, err = r.hydrateAccounts(ctx, accounts, true)
+	} else {
+		outAccounts, err = r.accountsToService(ctx, accounts)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3970,6 +3985,10 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 }
 
 func (r *accountRepository) accountsToService(ctx context.Context, accounts []*dbent.Account) ([]service.Account, error) {
+	return r.hydrateAccounts(ctx, accounts, false)
+}
+
+func (r *accountRepository) hydrateAccounts(ctx context.Context, accounts []*dbent.Account, groupIDsOnly bool) ([]service.Account, error) {
 	if len(accounts) == 0 {
 		return []service.Account{}, nil
 	}
@@ -3990,7 +4009,14 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 	if err != nil {
 		return nil, err
 	}
-	groupsByAccount, groupIDsByAccount, accountGroupsByAccount, err := r.loadAccountGroups(ctx, accountIDs)
+	var groupsByAccount map[int64][]*service.Group
+	var groupIDsByAccount map[int64][]int64
+	var accountGroupsByAccount map[int64][]service.AccountGroup
+	if groupIDsOnly {
+		groupIDsByAccount, err = r.loadAccountGroupIDsByAccount(ctx, accountIDs)
+	} else {
+		groupsByAccount, groupIDsByAccount, accountGroupsByAccount, err = r.loadAccountGroups(ctx, accountIDs)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -4089,6 +4115,34 @@ func (r *accountRepository) loadProxies(ctx context.Context, proxyIDs []int64) (
 		}
 	}
 	return proxyMap, nil
+}
+
+// loadAccountGroupIDsByAccount reads membership rows only. The admin list page
+// resolves group names from GET /admin/groups/all, so the full group JSON is unused.
+func (r *accountRepository) loadAccountGroupIDsByAccount(ctx context.Context, accountIDs []int64) (map[int64][]int64, error) {
+	groupIDsByAccount := make(map[int64][]int64)
+	accountIDs = uniquePositiveInt64s(accountIDs)
+	if len(accountIDs) == 0 {
+		return groupIDsByAccount, nil
+	}
+
+	for start := 0; start < len(accountIDs); start += postgresParameterBatchSize {
+		end := start + postgresParameterBatchSize
+		if end > len(accountIDs) {
+			end = len(accountIDs)
+		}
+		entries, err := clientFromContext(ctx, r.client).AccountGroup.Query().
+			Where(dbaccountgroup.AccountIDIn(accountIDs[start:end]...)).
+			Order(dbaccountgroup.ByAccountID(), dbaccountgroup.ByPriority()).
+			All(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, ag := range entries {
+			groupIDsByAccount[ag.AccountID] = append(groupIDsByAccount[ag.AccountID], ag.GroupID)
+		}
+	}
+	return groupIDsByAccount, nil
 }
 
 func (r *accountRepository) loadAccountGroups(ctx context.Context, accountIDs []int64) (map[int64][]*service.Group, map[int64][]int64, map[int64][]service.AccountGroup, error) {

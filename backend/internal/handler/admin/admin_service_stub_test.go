@@ -66,6 +66,7 @@ type stubAdminService struct {
 		channelType int
 		calls       int
 	}
+	liteListCalls int
 	lastListUsers struct {
 		page      int
 		pageSize  int
@@ -460,6 +461,11 @@ func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int,
 		end = total
 	}
 	return accounts[start:end], int64(total), nil
+}
+
+func (s *stubAdminService) ListAccountsLite(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, channelType int) ([]service.Account, int64, error) {
+	s.liteListCalls++
+	return s.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType)
 }
 
 func (s *stubAdminService) ListAccountsForSchedulerScoreFilter(_ context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {

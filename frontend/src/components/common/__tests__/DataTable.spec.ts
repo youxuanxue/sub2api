@@ -277,4 +277,34 @@ describe('DataTable', () => {
 
     expect(wrapper.emitted('update:selectedKeys')?.at(-1)?.[0]).toEqual([99, 1, 2])
   })
+
+  it('uses fixed column widths when every fluid column declares one', async () => {
+    const data = Array.from({ length: 30 }, (_, i) => ({ id: i + 1, name: `Row ${i + 1}` }))
+    const wrapper = mount(DataTable, {
+      props: {
+        fluid: true,
+        columns: [
+          { key: 'id', label: 'ID', width: '20%' },
+          { key: 'name', label: 'Name', width: '80%' }
+        ],
+        data,
+        rowKey: 'id',
+        virtualizeThreshold: 10,
+        overscan: 2
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    expect((wrapper.vm as any).shouldVirtualize).toBe(true)
+    const exposed = (wrapper.vm as any).virtualizer
+    const instance = exposed?.value ?? exposed
+    expect(instance.options.count).toBe(data.length)
+    const table = wrapper.get('table')
+    expect(table.element.style.tableLayout).toBe('fixed')
+    const cols = wrapper.findAll('col')
+    expect(cols).toHaveLength(2)
+    expect(cols[0].element.style.width).toBe('20%')
+    expect(cols[1].element.style.width).toBe('80%')
+  })
 })

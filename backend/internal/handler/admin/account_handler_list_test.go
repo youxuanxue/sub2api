@@ -56,6 +56,7 @@ func TestAccountHandlerListLiteUsesCompactDTOAndETag(t *testing.T) {
 	credentialsStatus, ok := liteItem["credentials_status"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, true, credentialsStatus["has_access_token"])
+	require.Equal(t, 1, adminSvc.liteListCalls)
 
 	// The ETag must represent the same compact body and return 304 on refresh.
 	rec304 := httptest.NewRecorder()
@@ -63,6 +64,7 @@ func TestAccountHandlerListLiteUsesCompactDTOAndETag(t *testing.T) {
 	req304.Header.Set("If-None-Match", rec.Header().Get("ETag"))
 	router.ServeHTTP(rec304, req304)
 	require.Equal(t, http.StatusNotModified, rec304.Code)
+	require.Equal(t, 2, adminSvc.liteListCalls)
 
 	// Omitting lite preserves the legacy full response shape.
 	recFull := httptest.NewRecorder()
