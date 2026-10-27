@@ -211,3 +211,32 @@ Raw 生命周期的保留运维入口：
 | 合成 Object Storage 兼容性探针 | `ops/qa/probe_hcloud_object_storage.py` | 显式 opt-in，仅专用合成 bucket；不证明生产迁移完成 |
 
 普通 gateway 发布保留独立 maintenance pin 与上述存储坐标；不重做切换，也不重启旧 Bundle/worker/queue。
+
+## 旧 capture 目录修复
+
+cn-prod 的线上修复结果见 [验收记录](../../docs/ops/cn-qa-layout-repair-20261027.md)。
+
+若宿主缺少 `qa_hourly_storage_cutover_utc`，新 capture 会继续写旧日目录，
+小时清理任务成功也不代表这些文件已清理。`repair_capture_layout.py` 是一次性修复入口：
+先 `plan`，核对主机、文件数和 cutover，再用输出的 SHA 执行 `apply`。两阶段均须传
+`--expected-host`、`--app`、`--postgres`、`--data-dir`、`--plan`；apply 另传 `--plan-sha256`。
+计划绑定运行中的网关身份、数据目录和半小时时效；不得覆盖不同的既有 cutover。
+
+工具持有既有宿主锁和 QAMA 数据库锁，核对 capture 身份、时间及压缩文件 SHA，
+按原始捕获小时创建硬链接，事务更新四个 URI 字段，提交成功后才移除旧目录项。
+文件内容不变，过期删除仍由现有 cleanup owner 执行。最近一分钟的文件留待下一轮计划，
+避免迁移尚未完成的写入；在线修复后必须等待 capture 队列排空，再次核对旧路径、
+新请求小时路径和所有保留引用，并观察 cleanup 回执。不要仅凭一次 apply 宣称完成。
+旧小时过期文件也先整理为小时目录，不额外引入按 mtime 删除规则。
+
+运行不需要重启网关，不恢复 S3，不清除历史 failure。工具应与
+`local_maintenance_host.py` 一起放入独立修复目录，不覆盖已安装的生命周期 owner。
+真实 PostgreSQL/libzstd 验证已接入 `make -C backend test-qa-local`，
+修改修复工具或测试会触发后端 CI。可单独运行：
+
+```bash
+QA_LAYOUT_INTEGRATION=1 python3 -m unittest discover -s ops/qa -p 'test_repair_capture_layout*.py' -v
+```
+
+macOS Homebrew 的 libzstd 不在默认动态库搜索路径时，显式设置
+`DYLD_LIBRARY_PATH=/opt/homebrew/lib` 后运行同一命令。
