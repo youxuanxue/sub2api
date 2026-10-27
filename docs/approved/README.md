@@ -129,6 +129,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`kiro-claude-code-completion-continuity.md`](kiro-claude-code-completion-continuity.md) | Kiro Claude Code completion |
 | [`kiro-content-filter-outcome.md`](kiro-content-filter-outcome.md) | Kiro content-filter outcome |
 | [`kiro-payload-overflow.md`](kiro-payload-overflow.md) | Kiro translated-payload overflow and current-turn preservation |
+| [`kiro-auto-mode-transcript-trim.md`](kiro-auto-mode-transcript-trim.md) | Kiro auto-mode / compact transcript constrained trimming |
 | [`kiro-turn-boundary.md`](kiro-turn-boundary.md) | Kiro client-owned turn boundary |
 | [`volcengine-plan-asr.md`](volcengine-plan-asr.md) | VolcEngine Agent Plan speech recognition |
 | [`anthropic-window-util-sched.md`](anthropic-window-util-sched.md) | Upstream window-util scheduling |

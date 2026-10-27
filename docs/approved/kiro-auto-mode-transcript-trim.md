@@ -1,7 +1,7 @@
 ---
 title: Kiro Auto-Mode Transcript 受限裁剪原型
-status: pending
-approved_by: pending
+status: approved
+approved_by: "user (本会话批准：同意审批)"
 risk: high
 owners: [tk-gateway]
 related_prs: []
