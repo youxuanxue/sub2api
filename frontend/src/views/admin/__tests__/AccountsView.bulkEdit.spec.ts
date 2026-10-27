@@ -275,14 +275,14 @@ describe('admin AccountsView bulk edit scope', () => {
     const wrapper = mountAccountsView()
 
     await flushPromises()
-    expect(getAllGroups).toHaveBeenCalledTimes(1)
+    expect(getAllGroups).not.toHaveBeenCalled()
     expect(getAllIncludingInactive).toHaveBeenCalledTimes(1)
     expect(wrapper.get('[data-test="account-group-options"]').text()).not.toContain('Kimi')
 
     await wrapper.get('[data-test="refresh-accounts"]').trigger('click')
     await flushPromises()
 
-    expect(getAllGroups).toHaveBeenCalledTimes(2)
+    expect(getAllGroups).not.toHaveBeenCalled()
     expect(getAllIncludingInactive).toHaveBeenCalledTimes(2)
     expect(wrapper.get('[data-test="account-group-options"]').text()).toContain('Kimi')
   })
@@ -307,7 +307,7 @@ describe('admin AccountsView bulk edit scope', () => {
     })
 
     await flushPromises()
-    expect(getAllGroups).toHaveBeenCalledTimes(1)
+    expect(getAllGroups).not.toHaveBeenCalled()
     expect(getAllIncludingInactive).toHaveBeenCalledTimes(1)
 
     await wrapper.setProps({ showAccounts: false })
@@ -315,7 +315,7 @@ describe('admin AccountsView bulk edit scope', () => {
     await wrapper.setProps({ showAccounts: true })
     await flushPromises()
 
-    expect(getAllGroups).toHaveBeenCalledTimes(2)
+    expect(getAllGroups).not.toHaveBeenCalled()
     expect(getAllIncludingInactive).toHaveBeenCalledTimes(2)
     expect(listAccounts).toHaveBeenCalledTimes(1)
     expect(wrapper.get('[data-test="account-group-options"]').text()).toContain('Kimi')

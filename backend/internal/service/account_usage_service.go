@@ -82,6 +82,18 @@ type accountWindowStatsBatchReader interface {
 	GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error)
 }
 
+// accountWindowStatsMultiStartReader aggregates one window per account when the
+// window starts differ. One statement replaces a query per distinct start.
+type accountWindowStatsMultiStartReader interface {
+	GetAccountWindowStatsForStarts(ctx context.Context, accountIDs []int64, startTimes []time.Time) (map[int64]*usagestats.AccountStats, error)
+}
+
+// accountWindowStatsDualWindowReader aggregates two nested windows (for example
+// 7d and 5h) in one scan of the wider window.
+type accountWindowStatsDualWindowReader interface {
+	GetAccountWindowStatsDualWindow(ctx context.Context, accountIDs []int64, earlierStart, laterStart time.Time) (map[int64]*usagestats.AccountStats, map[int64]*usagestats.AccountStats, error)
+}
+
 // apiUsageCache 缓存从 Anthropic API 获取的使用率数据（utilization, resets_at）
 // 同时支持缓存错误响应（负缓存），防止 429 等错误导致的重试风暴
 type apiUsageCache struct {

@@ -107,8 +107,12 @@
   >
     <table
       class="divide-y divide-gray-200 dark:divide-dark-700"
-      :class="fluid ? 'w-full min-w-0 max-w-full table-auto' : 'w-full min-w-max'"
+      :class="fluid ? 'w-full min-w-0 max-w-full' : 'w-full min-w-max'"
+      :style="fixedColumnLayout ? { tableLayout: 'fixed' } : fluid ? { tableLayout: 'auto' } : undefined"
     >
+      <colgroup v-if="fixedColumnLayout">
+        <col v-for="column in columns" :key="column.key" :style="{ width: column.width }" />
+      </colgroup>
       <thead class="table-header bg-gray-50 dark:bg-dark-800">
         <tr>
           <th
@@ -857,6 +861,10 @@ const flatItemKey = (idx: number): string => flatItemKeys.value[idx] ?? `empty:$
 // --- Virtual scrolling ---
 // 是否启用虚拟化:仅桌面端且行数超过阈值时开启。小列表全量渲染,彻底绕开虚拟器的
 // 估算/测量/滚动补偿链路,消除可变行高导致的滚动抖动。
+const fixedColumnLayout = computed(() =>
+  props.fluid && props.columns.length > 0 && props.columns.every(column => Boolean(column.width))
+)
+
 const shouldVirtualize = computed(() =>
   isDesktopViewport.value && (sortedData.value?.length ?? 0) > (props.virtualizeThreshold ?? 100)
 )

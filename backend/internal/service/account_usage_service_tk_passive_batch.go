@@ -12,9 +12,9 @@ import (
 // 聚合查询批量化，消除账号列表页逐行扇出的 N+1：
 //
 //   - accountRepo.GetByIDs 一次取回全部账号（原单查路径每个账号一条 GetByID）；
-//   - 对需要窗口统计的 Anthropic OAuth/SetupToken 账号，按 GetCurrentWindowStartTime().Unix()
-//     分桶，每个不同窗口起点只跑一条 GetAccountWindowStatsBatch（ANY($1)），结果预热进
-//     UsageCache.windowStatsCache（addWindowStats 命中即不再单查）；
+//   - 对需要窗口统计的 Anthropic OAuth/SetupToken 账号，用一条 unnest 查询覆盖不同窗口起点
+//     （没有该能力时才按起点分桶回退），结果预热进 UsageCache.windowStatsCache
+//     （addWindowStats 命中即不再单查）；5h/7d 本地窗口用一条双窗口扫描代替两次聚合；
 //   - 随后对每个账号调用同一内部 helper，保证返回 UsageInfo 与单查路径逐字节一致
 //     （含 OpenAI codex 被动重建、Anthropic 7d/7d-Sonnet 子窗、forbidden/ban 标记等）。
 //
@@ -108,6 +108,8 @@ func (s *AccountUsageService) prefetchWindowStatsForPassive(ctx context.Context,
 
 	byStart := make(map[int64][]int64)
 	startTimes := make(map[int64]time.Time)
+	ids := make([]int64, 0)
+	starts := make([]time.Time, 0)
 	for _, account := range accounts {
 		if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
 			continue
@@ -122,34 +124,47 @@ func (s *AccountUsageService) prefetchWindowStatsForPassive(ctx context.Context,
 		startKey := startTime.Unix()
 		byStart[startKey] = append(byStart[startKey], account.ID)
 		startTimes[startKey] = startTime
+		ids = append(ids, account.ID)
+		starts = append(starts, startTime)
 	}
 	if len(byStart) == 0 {
 		return
 	}
 
 	now := time.Now()
+	if multi, ok := s.usageLogRepo.(accountWindowStatsMultiStartReader); ok {
+		statsByAccount, err := multi.GetAccountWindowStatsForStarts(ctx, ids, starts)
+		if err == nil {
+			s.storePrefetchedWindowStats(ids, statsByAccount, now)
+			return
+		}
+	}
 	for startKey, ids := range byStart {
 		startTime := startTimes[startKey]
 		statsByAccount, err := batchReader.GetAccountWindowStatsBatch(ctx, ids, startTime)
 		if err != nil {
 			continue // 失败开放：该桶不预热，单查回填
 		}
-		for _, id := range ids {
-			ws := &WindowStats{}
-			if stats := statsByAccount[id]; stats != nil {
-				ws = &WindowStats{
-					Requests:     stats.Requests,
-					Tokens:       stats.Tokens,
-					Cost:         stats.Cost,
-					StandardCost: stats.StandardCost,
-					UserCost:     stats.UserCost,
-				}
+		s.storePrefetchedWindowStats(ids, statsByAccount, now)
+	}
+}
+
+func (s *AccountUsageService) storePrefetchedWindowStats(ids []int64, statsByAccount map[int64]*usagestats.AccountStats, now time.Time) {
+	for _, id := range ids {
+		ws := &WindowStats{}
+		if stats := statsByAccount[id]; stats != nil {
+			ws = &WindowStats{
+				Requests:     stats.Requests,
+				Tokens:       stats.Tokens,
+				Cost:         stats.Cost,
+				StandardCost: stats.StandardCost,
+				UserCost:     stats.UserCost,
 			}
-			s.cache.windowStatsCache.Store(id, &windowStatsCache{
-				stats:     ws,
-				timestamp: now,
-			})
 		}
+		s.cache.windowStatsCache.Store(id, &windowStatsCache{
+			stats:     ws,
+			timestamp: now,
+		})
 	}
 }
 
@@ -176,6 +191,9 @@ func (s *AccountUsageService) loadLocalWindowStatsForPassive(ctx context.Context
 	}
 
 	now := time.Now()
+	if dual, ok := s.loadDualWindowStats(ctx, ids, now); ok {
+		return dual
+	}
 	if batchReader, ok := s.usageLogRepo.(accountWindowStatsBatchReader); ok {
 		fiveHourByAccount, fiveErr := batchReader.GetAccountWindowStatsBatch(ctx, ids, now.Add(-5*time.Hour))
 		sevenDayByAccount, sevenErr := batchReader.GetAccountWindowStatsBatch(ctx, ids, now.Add(-7*24*time.Hour))
@@ -221,6 +239,9 @@ func (s *AccountUsageService) loadOpenAICodexWindowStatsForPassive(ctx context.C
 	}
 
 	now := time.Now()
+	if dual, ok := s.loadDualWindowStats(ctx, ids, now); ok {
+		return dual
+	}
 	if batchReader, ok := s.usageLogRepo.(accountWindowStatsBatchReader); ok {
 		fiveHourByAccount, fiveErr := batchReader.GetAccountWindowStatsBatch(ctx, ids, now.Add(-5*time.Hour))
 		sevenDayByAccount, sevenErr := batchReader.GetAccountWindowStatsBatch(ctx, ids, now.Add(-7*24*time.Hour))
@@ -246,6 +267,25 @@ func (s *AccountUsageService) loadOpenAICodexWindowStatsForPassive(ctx context.C
 		result[id] = windows
 	}
 	return result
+}
+
+func (s *AccountUsageService) loadDualWindowStats(ctx context.Context, ids []int64, now time.Time) (map[int64]localWindowStatsForPassive, bool) {
+	dual, ok := s.usageLogRepo.(accountWindowStatsDualWindowReader)
+	if !ok || len(ids) == 0 {
+		return nil, false
+	}
+	sevenDayByAccount, fiveHourByAccount, err := dual.GetAccountWindowStatsDualWindow(ctx, ids, now.Add(-7*24*time.Hour), now.Add(-5*time.Hour))
+	if err != nil {
+		return nil, false
+	}
+	result := make(map[int64]localWindowStatsForPassive, len(ids))
+	for _, id := range ids {
+		result[id] = localWindowStatsForPassive{
+			fiveHour: fiveHourByAccount[id],
+			sevenDay: sevenDayByAccount[id],
+		}
+	}
+	return result, true
 }
 
 func applyPreloadedCodexWindowStats(usage *UsageInfo, preloaded *localWindowStatsForPassive) {
