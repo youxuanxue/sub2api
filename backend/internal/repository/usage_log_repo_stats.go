@@ -336,6 +336,169 @@ func (r *usageLogRepository) GetAccountWindowStats(ctx context.Context, accountI
 	return stats, nil
 }
 
+// accountWindowStatsForStartsQuery builds one constant-bound aggregate per
+// distinct window start. Each arm matches GetAccountWindowStatsBatch
+// (account_id = ANY AND created_at >= $constant), so a partitioned usage_logs
+// can prune on the constant. A per-row created_at join cannot. Accounts with
+// no logs are absent from the result; the caller zero-fills them.
+func accountWindowStatsForStartsQuery(distinctStarts int) string {
+	if distinctStarts < 1 {
+		distinctStarts = 1
+	}
+	arms := make([]string, 0, distinctStarts)
+	for i := 0; i < distinctStarts; i++ {
+		idParam := i*2 + 1
+		startParam := i*2 + 2
+		arms = append(arms, fmt.Sprintf(`
+		SELECT
+			account_id,
+			COUNT(*) as requests,
+			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
+			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as cost,
+			COALESCE(SUM(total_cost), 0) as standard_cost,
+			COALESCE(SUM(actual_cost), 0) as user_cost
+		FROM usage_logs
+		WHERE account_id = ANY($%d) AND created_at >= $%d
+		GROUP BY account_id`, idParam, startParam))
+	}
+	return strings.Join(arms, "\nUNION ALL")
+}
+
+// accountWindowStatsDualWindowSQL scans the wider window once and splits the
+// narrower window with FILTER. $2 is the earlier start, $3 the later start.
+const accountWindowStatsDualWindowSQL = `
+		SELECT
+			account_id,
+			COUNT(*) FILTER (WHERE created_at >= $2) as earlier_requests,
+			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) FILTER (WHERE created_at >= $2), 0) as earlier_tokens,
+			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)) FILTER (WHERE created_at >= $2), 0) as earlier_cost,
+			COALESCE(SUM(total_cost) FILTER (WHERE created_at >= $2), 0) as earlier_standard_cost,
+			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $2), 0) as earlier_user_cost,
+			COUNT(*) FILTER (WHERE created_at >= $3) as later_requests,
+			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) FILTER (WHERE created_at >= $3), 0) as later_tokens,
+			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)) FILTER (WHERE created_at >= $3), 0) as later_cost,
+			COALESCE(SUM(total_cost) FILTER (WHERE created_at >= $3), 0) as later_standard_cost,
+			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $3), 0) as later_user_cost
+		FROM usage_logs
+		WHERE account_id = ANY($1) AND created_at >= $2
+		GROUP BY account_id`
+
+type accountWindowStartGroup struct {
+	start time.Time
+	ids   []int64
+}
+
+func groupAccountWindowStarts(accountIDs []int64, startTimes []time.Time) []accountWindowStartGroup {
+	index := make(map[int64]int, len(accountIDs))
+	groups := make([]accountWindowStartGroup, 0)
+	for i, accountID := range accountIDs {
+		key := startTimes[i].UTC().UnixNano()
+		pos, ok := index[key]
+		if !ok {
+			pos = len(groups)
+			index[key] = pos
+			groups = append(groups, accountWindowStartGroup{start: startTimes[i].UTC()})
+		}
+		groups[pos].ids = append(groups[pos].ids, accountID)
+	}
+	return groups
+}
+
+func zeroAccountWindowStats(accountIDs []int64) map[int64]*usagestats.AccountStats {
+	result := make(map[int64]*usagestats.AccountStats, len(accountIDs))
+	for _, accountID := range accountIDs {
+		result[accountID] = &usagestats.AccountStats{}
+	}
+	return result
+}
+
+// GetAccountWindowStatsForStarts aggregates one window per account. accountIDs
+// and startTimes are parallel. Accounts that share a start share one UNION arm.
+// Missing logs stay at the zero value filled in before the query.
+func (r *usageLogRepository) GetAccountWindowStatsForStarts(ctx context.Context, accountIDs []int64, startTimes []time.Time) (map[int64]*usagestats.AccountStats, error) {
+	result := zeroAccountWindowStats(accountIDs)
+	if len(accountIDs) == 0 {
+		return result, nil
+	}
+	if len(accountIDs) != len(startTimes) {
+		return nil, fmt.Errorf("account window starts length mismatch: %d ids, %d starts", len(accountIDs), len(startTimes))
+	}
+
+	groups := groupAccountWindowStarts(accountIDs, startTimes)
+	args := make([]any, 0, len(groups)*2)
+	for _, group := range groups {
+		args = append(args, pq.Array(group.ids), group.start)
+	}
+	rows, err := r.sql.QueryContext(ctx, accountWindowStatsForStartsQuery(len(groups)), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var accountID int64
+		stats := &usagestats.AccountStats{}
+		if err := rows.Scan(
+			&accountID,
+			&stats.Requests,
+			&stats.Tokens,
+			&stats.Cost,
+			&stats.StandardCost,
+			&stats.UserCost,
+		); err != nil {
+			return nil, err
+		}
+		result[accountID] = stats
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// GetAccountWindowStatsDualWindow aggregates two nested windows in one scan.
+// earlierStart must be at or before laterStart (the wider window). Accounts
+// with no logs in the wider window are filled with zero stats.
+func (r *usageLogRepository) GetAccountWindowStatsDualWindow(ctx context.Context, accountIDs []int64, earlierStart, laterStart time.Time) (map[int64]*usagestats.AccountStats, map[int64]*usagestats.AccountStats, error) {
+	earlier := zeroAccountWindowStats(accountIDs)
+	later := zeroAccountWindowStats(accountIDs)
+	if len(accountIDs) == 0 {
+		return earlier, later, nil
+	}
+
+	rows, err := r.sql.QueryContext(ctx, accountWindowStatsDualWindowSQL, pq.Array(accountIDs), earlierStart, laterStart)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var accountID int64
+		var earlierStats, laterStats usagestats.AccountStats
+		if err := rows.Scan(
+			&accountID,
+			&earlierStats.Requests,
+			&earlierStats.Tokens,
+			&earlierStats.Cost,
+			&earlierStats.StandardCost,
+			&earlierStats.UserCost,
+			&laterStats.Requests,
+			&laterStats.Tokens,
+			&laterStats.Cost,
+			&laterStats.StandardCost,
+			&laterStats.UserCost,
+		); err != nil {
+			return nil, nil, err
+		}
+		earlier[accountID] = &earlierStats
+		later[accountID] = &laterStats
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return earlier, later, nil
+}
+
 // GetAccountWindowStatsBatch 批量获取同一窗口起点下多个账号的统计数据。
 // 返回 map[accountID]*AccountStats，未命中的账号会返回零值统计，便于上层直接复用。
 func (r *usageLogRepository) GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error) {

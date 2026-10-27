@@ -712,7 +712,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType)
+	accounts, total, err := h.tkListAccounts(c.Request.Context(), lite, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

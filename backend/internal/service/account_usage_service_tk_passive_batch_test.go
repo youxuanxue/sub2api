@@ -58,18 +58,38 @@ func (e *passiveBatchErr) Error() string { return e.msg }
 // passiveBatchUsageLogRepo 统计窗口统计的批量/单查次数。
 type passiveBatchUsageLogRepo struct {
 	UsageLogRepository
-	cost        map[int64]float64
-	batchCalls  atomic.Int64
-	singleCalls atomic.Int64
+	cost            map[int64]float64
+	batchCalls      atomic.Int64
+	singleCalls     atomic.Int64
+	multiStartCalls atomic.Int64
+	dualWindowCalls atomic.Int64
 }
 
-func (r *passiveBatchUsageLogRepo) GetAccountWindowStatsBatch(_ context.Context, accountIDs []int64, _ time.Time) (map[int64]*usagestats.AccountStats, error) {
-	r.batchCalls.Add(1)
+func (r *passiveBatchUsageLogRepo) statsFor(accountIDs []int64) map[int64]*usagestats.AccountStats {
 	out := make(map[int64]*usagestats.AccountStats, len(accountIDs))
 	for _, id := range accountIDs {
 		out[id] = &usagestats.AccountStats{Cost: r.cost[id], StandardCost: r.cost[id], Requests: 1}
 	}
-	return out, nil
+	return out
+}
+
+func (r *passiveBatchUsageLogRepo) GetAccountWindowStatsBatch(_ context.Context, accountIDs []int64, _ time.Time) (map[int64]*usagestats.AccountStats, error) {
+	r.batchCalls.Add(1)
+	return r.statsFor(accountIDs), nil
+}
+
+func (r *passiveBatchUsageLogRepo) GetAccountWindowStatsForStarts(_ context.Context, accountIDs []int64, startTimes []time.Time) (map[int64]*usagestats.AccountStats, error) {
+	r.multiStartCalls.Add(1)
+	if len(accountIDs) != len(startTimes) {
+		return nil, errAccountNotFoundPassiveBatch
+	}
+	return r.statsFor(accountIDs), nil
+}
+
+func (r *passiveBatchUsageLogRepo) GetAccountWindowStatsDualWindow(_ context.Context, accountIDs []int64, _, _ time.Time) (map[int64]*usagestats.AccountStats, map[int64]*usagestats.AccountStats, error) {
+	r.dualWindowCalls.Add(1)
+	stats := r.statsFor(accountIDs)
+	return stats, stats, nil
 }
 
 func (r *passiveBatchUsageLogRepo) GetAccountWindowStats(_ context.Context, accountID int64, _ time.Time) (*usagestats.AccountStats, error) {
@@ -134,10 +154,46 @@ func TestGetPassiveUsageBatch_EqualsSinglePerAccount(t *testing.T) {
 	// 账号读取批量化：恰好一次 GetByIDs。
 	require.Equal(t, int64(1), repo.byIDsCalls.Load(), "accounts must be fetched in one GetByIDs call")
 
-	// 窗口统计批量化：两个不同窗口起点 → 两条批量查询；prefetch 预热缓存后
-	// addWindowStats 命中缓存，零单查。
-	require.Equal(t, int64(2), logRepo.batchCalls.Load(), "one window-stats batch query per distinct window start")
+	// 不同窗口起点收成一条常量下界 UNION ALL；prefetch 预热缓存后 addWindowStats 零单查。
+	require.Equal(t, int64(1), logRepo.multiStartCalls.Load(), "distinct window starts must share one query")
+	require.Zero(t, logRepo.batchCalls.Load(), "multi-start query replaces per-start batches")
 	require.Zero(t, logRepo.singleCalls.Load(), "prefetched cache must spare per-account window-stats single queries")
+}
+
+type batchOnlyUsageLogRepo struct {
+	UsageLogRepository
+	inner *passiveBatchUsageLogRepo
+}
+
+func (r *batchOnlyUsageLogRepo) GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, start time.Time) (map[int64]*usagestats.AccountStats, error) {
+	return r.inner.GetAccountWindowStatsBatch(ctx, accountIDs, start)
+}
+
+func (r *batchOnlyUsageLogRepo) GetAccountWindowStats(ctx context.Context, accountID int64, start time.Time) (*usagestats.AccountStats, error) {
+	return r.inner.GetAccountWindowStats(ctx, accountID, start)
+}
+
+func TestGetPassiveUsageBatch_FallsBackToPerStartBatches(t *testing.T) {
+	now := time.Now()
+	winA := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, now.Location()).Add(-2 * time.Hour)
+	winB := winA.Add(-time.Hour)
+	accounts := []Account{
+		passiveAnthropicAccount(1, winA),
+		passiveAnthropicAccount(3, winB),
+	}
+	inner := &passiveBatchUsageLogRepo{cost: map[int64]float64{1: 5, 3: 9}}
+	svc := &AccountUsageService{
+		accountRepo:  &passiveBatchAccountRepo{accounts: accounts},
+		usageLogRepo: &batchOnlyUsageLogRepo{inner: inner},
+		cache:        NewUsageCache(),
+	}
+
+	got := svc.GetPassiveUsageBatch(context.Background(), []int64{1, 3})
+
+	require.Len(t, got, 2)
+	require.Equal(t, int64(2), inner.batchCalls.Load(), "without multi-start support, one batch query per window start")
+	require.Zero(t, inner.multiStartCalls.Load())
+	require.Zero(t, inner.singleCalls.Load())
 }
 
 func TestAccountUsageService_GetPassiveUsage_OpenAIOAuthExpiredCodexFallsBackToLocalWindowStats(t *testing.T) {
@@ -186,7 +242,8 @@ func TestGetPassiveUsageBatch_IncludesGrokLocalWindows(t *testing.T) {
 	require.NotNil(t, got[9].FiveHour)
 	require.NotNil(t, got[9].SevenDay)
 	require.Equal(t, 1.25, got[9].FiveHour.WindowStats.Cost)
-	require.Equal(t, int64(2), logRepo.batchCalls.Load(), "grok local 5h/7d windows must be batched in overview")
+	require.Equal(t, int64(1), logRepo.dualWindowCalls.Load(), "grok local 5h/7d windows must share one scan")
+	require.Zero(t, logRepo.batchCalls.Load(), "dual-window scan replaces the 5h and 7d batch queries")
 	require.Zero(t, logRepo.singleCalls.Load(), "grok local overview path must not issue per-account window queries")
 }
 
@@ -209,7 +266,8 @@ func TestGetPassiveUsageBatch_IncludesLocalWindowAdapters(t *testing.T) {
 	require.Equal(t, 2.5, got[10].FiveHour.WindowStats.Cost)
 	require.Equal(t, 3.5, got[11].SevenDay.WindowStats.Cost)
 	require.NotContains(t, got, int64(12))
-	require.Equal(t, int64(2), logRepo.batchCalls.Load(), "local-window accounts share 5h and 7d batch queries")
+	require.Equal(t, int64(1), logRepo.dualWindowCalls.Load(), "local-window accounts share one 5h/7d scan")
+	require.Zero(t, logRepo.batchCalls.Load(), "dual-window scan replaces the 5h and 7d batch queries")
 	require.Zero(t, logRepo.singleCalls.Load(), "local-window overview path must not issue per-account window queries")
 }
 
