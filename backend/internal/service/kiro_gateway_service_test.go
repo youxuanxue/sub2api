@@ -333,6 +333,46 @@ func TestKiroGatewayService_Forward_OversizedPayloadRejectedBeforeUpstream(t *te
 
 }
 
+func TestKiroGatewayService_Forward_CompactBlockSplitCoversClassifierWithoutContextManagement(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	frame := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"trimmed"}`))
+	frame = appendKiroTerminalStop(frame, "END_TURN")
+	upstream := &kiroSequenceUpstream{bodies: [][]byte{frame}}
+	svc := NewKiroGatewayService(upstream, nil, nil)
+
+	blocks := make([]map[string]any, 30)
+	for i := range blocks {
+		blocks[i] = map[string]any{
+			"type": "text",
+			"text": strings.Repeat(string(rune('a'+i%26)), 40*1024),
+		}
+	}
+	body, err := json.Marshal(map[string]any{
+		"model":      "claude-opus-5",
+		"messages":   []map[string]any{{"role": "user", "content": blocks}},
+		"max_tokens": 64,
+		"stream":     false,
+	})
+	require.NoError(t, err)
+
+	account := newKiroAccountForTest()
+	account.Extra = map[string]any{"kiro_auto_mode_transcript_trim": true}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	result, err := svc.Forward(context.Background(), c, account, &ParsedRequest{
+		Body: NewRequestBodyRef(body), Model: "claude-opus-5", Stream: false,
+	}, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.requests, 1)
+
+	var sent kiroproto.KiroPayload
+	require.NoError(t, json.Unmarshal(upstream.requests[0], &sent))
+	require.NoError(t, kiroproto.ValidatePayloadSize(&sent))
+	require.Contains(t, sent.ConversationState.CurrentMessage.UserInputMessage.Content, strings.Repeat("d", 40*1024))
+	require.Less(t, len(sent.ConversationState.History), len(blocks))
+}
+
 func TestKiroGatewayService_ClientInstructionsRoundTrip(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const answer = "RELEASE_OK_7291"
