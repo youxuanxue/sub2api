@@ -12,7 +12,7 @@ import (
 // 聚合查询批量化，消除账号列表页逐行扇出的 N+1：
 //
 //   - accountRepo.GetByIDs 一次取回全部账号（原单查路径每个账号一条 GetByID）；
-//   - 对需要窗口统计的 Anthropic OAuth/SetupToken 账号，用一条 unnest 查询覆盖不同窗口起点
+//   - 对需要窗口统计的 Anthropic OAuth/SetupToken 账号，按相同窗口起点 UNION ALL 一条常量下界聚合
 //     （没有该能力时才按起点分桶回退），结果预热进 UsageCache.windowStatsCache
 //     （addWindowStats 命中即不再单查）；5h/7d 本地窗口用一条双窗口扫描代替两次聚合；
 //   - 随后对每个账号调用同一内部 helper，保证返回 UsageInfo 与单查路径逐字节一致

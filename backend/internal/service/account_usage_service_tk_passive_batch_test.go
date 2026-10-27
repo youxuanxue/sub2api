@@ -154,7 +154,7 @@ func TestGetPassiveUsageBatch_EqualsSinglePerAccount(t *testing.T) {
 	// 账号读取批量化：恰好一次 GetByIDs。
 	require.Equal(t, int64(1), repo.byIDsCalls.Load(), "accounts must be fetched in one GetByIDs call")
 
-	// 不同窗口起点收成一条 unnest 查询；prefetch 预热缓存后 addWindowStats 零单查。
+	// 不同窗口起点收成一条常量下界 UNION ALL；prefetch 预热缓存后 addWindowStats 零单查。
 	require.Equal(t, int64(1), logRepo.multiStartCalls.Load(), "distinct window starts must share one query")
 	require.Zero(t, logRepo.batchCalls.Load(), "multi-start query replaces per-start batches")
 	require.Zero(t, logRepo.singleCalls.Load(), "prefetched cache must spare per-account window-stats single queries")

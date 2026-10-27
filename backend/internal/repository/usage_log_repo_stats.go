@@ -336,19 +336,33 @@ func (r *usageLogRepository) GetAccountWindowStats(ctx context.Context, accountI
 	return stats, nil
 }
 
-// accountWindowStatsForStartsSQL aggregates a different window start per account
-// in one index nested-loop. LEFT JOIN keeps accounts with no logs at zero.
-const accountWindowStatsForStartsSQL = `
-		SELECT w.account_id,
-			COUNT(u.account_id) as requests,
-			COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) as tokens,
-			COALESCE(SUM(COALESCE(u.account_stats_cost, u.total_cost) * COALESCE(u.account_rate_multiplier, 1)), 0) as cost,
-			COALESCE(SUM(u.total_cost), 0) as standard_cost,
-			COALESCE(SUM(u.actual_cost), 0) as user_cost
-		FROM unnest($1::bigint[], $2::timestamptz[]) AS w(account_id, start_at)
-		LEFT JOIN usage_logs u
-			ON u.account_id = w.account_id AND u.created_at >= w.start_at
-		GROUP BY w.account_id`
+// accountWindowStatsForStartsQuery builds one constant-bound aggregate per
+// distinct window start. Each arm matches GetAccountWindowStatsBatch
+// (account_id = ANY AND created_at >= $constant), so a partitioned usage_logs
+// can prune on the constant. A per-row created_at join cannot. Accounts with
+// no logs are absent from the result; the caller zero-fills them.
+func accountWindowStatsForStartsQuery(distinctStarts int) string {
+	if distinctStarts < 1 {
+		distinctStarts = 1
+	}
+	arms := make([]string, 0, distinctStarts)
+	for i := 0; i < distinctStarts; i++ {
+		idParam := i*2 + 1
+		startParam := i*2 + 2
+		arms = append(arms, fmt.Sprintf(`
+		SELECT
+			account_id,
+			COUNT(*) as requests,
+			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
+			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as cost,
+			COALESCE(SUM(total_cost), 0) as standard_cost,
+			COALESCE(SUM(actual_cost), 0) as user_cost
+		FROM usage_logs
+		WHERE account_id = ANY($%d) AND created_at >= $%d
+		GROUP BY account_id`, idParam, startParam))
+	}
+	return strings.Join(arms, "\nUNION ALL")
+}
 
 // accountWindowStatsDualWindowSQL scans the wider window once and splits the
 // narrower window with FILTER. $2 is the earlier start, $3 the later start.
@@ -369,6 +383,27 @@ const accountWindowStatsDualWindowSQL = `
 		WHERE account_id = ANY($1) AND created_at >= $2
 		GROUP BY account_id`
 
+type accountWindowStartGroup struct {
+	start time.Time
+	ids   []int64
+}
+
+func groupAccountWindowStarts(accountIDs []int64, startTimes []time.Time) []accountWindowStartGroup {
+	index := make(map[int64]int, len(accountIDs))
+	groups := make([]accountWindowStartGroup, 0)
+	for i, accountID := range accountIDs {
+		key := startTimes[i].UTC().UnixNano()
+		pos, ok := index[key]
+		if !ok {
+			pos = len(groups)
+			index[key] = pos
+			groups = append(groups, accountWindowStartGroup{start: startTimes[i].UTC()})
+		}
+		groups[pos].ids = append(groups[pos].ids, accountID)
+	}
+	return groups
+}
+
 func zeroAccountWindowStats(accountIDs []int64) map[int64]*usagestats.AccountStats {
 	result := make(map[int64]*usagestats.AccountStats, len(accountIDs))
 	for _, accountID := range accountIDs {
@@ -378,7 +413,8 @@ func zeroAccountWindowStats(accountIDs []int64) map[int64]*usagestats.AccountSta
 }
 
 // GetAccountWindowStatsForStarts aggregates one window per account. accountIDs
-// and startTimes are parallel. Missing logs yield a zero row via LEFT JOIN.
+// and startTimes are parallel. Accounts that share a start share one UNION arm.
+// Missing logs stay at the zero value filled in before the query.
 func (r *usageLogRepository) GetAccountWindowStatsForStarts(ctx context.Context, accountIDs []int64, startTimes []time.Time) (map[int64]*usagestats.AccountStats, error) {
 	result := zeroAccountWindowStats(accountIDs)
 	if len(accountIDs) == 0 {
@@ -388,7 +424,12 @@ func (r *usageLogRepository) GetAccountWindowStatsForStarts(ctx context.Context,
 		return nil, fmt.Errorf("account window starts length mismatch: %d ids, %d starts", len(accountIDs), len(startTimes))
 	}
 
-	rows, err := r.sql.QueryContext(ctx, accountWindowStatsForStartsSQL, pq.Array(accountIDs), pq.Array(startTimes))
+	groups := groupAccountWindowStarts(accountIDs, startTimes)
+	args := make([]any, 0, len(groups)*2)
+	for _, group := range groups {
+		args = append(args, pq.Array(group.ids), group.start)
+	}
+	rows, err := r.sql.QueryContext(ctx, accountWindowStatsForStartsQuery(len(groups)), args...)
 	if err != nil {
 		return nil, err
 	}
