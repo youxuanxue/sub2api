@@ -77,6 +77,7 @@ test-qa-local: verify-toolchain
 		CGO_ENABLED=0 GOOS=linux GOARCH="$$qa_arch" go build -trimpath -o "$$qa_test_dir/qa-local-maintenance" ./cmd/qa-local-maintenance; \
 		cd ..; \
 		QA_LOCAL_BINARY="$$qa_test_dir/qa-local-maintenance" python3 -m unittest discover -s ops/qa -p 'test_local_maintenance*.py' -v
+	cd .. && QA_LAYOUT_INTEGRATION=1 python3 -m unittest discover -s ops/qa -p 'test_repair_capture_layout*.py' -v
 
 lint: ensure-golangci-lint
 	$(GOLANGCI_LINT) run ./... $(GOLANGCI_LINT_FAST_ARGS)

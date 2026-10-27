@@ -94,6 +94,9 @@ def classify(paths: Iterable[str]) -> dict[str, bool]:
             "ops/qa/local_maintenance_host.py",
             "ops/qa/test_local_maintenance_host.py",
             "ops/qa/test_local_maintenance_integration.py",
+            "ops/qa/repair_capture_layout.py",
+            "ops/qa/test_repair_capture_layout.py",
+            "ops/qa/test_repair_capture_layout_integration.py",
         }:
             result["backend"] = True
             matched = True

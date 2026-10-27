@@ -23,6 +23,9 @@ class ChangedSurfacesTest(unittest.TestCase):
             "ops/qa/local_maintenance_host.py",
             "ops/qa/test_local_maintenance_host.py",
             "ops/qa/test_local_maintenance_integration.py",
+            "ops/qa/repair_capture_layout.py",
+            "ops/qa/test_repair_capture_layout.py",
+            "ops/qa/test_repair_capture_layout_integration.py",
         ):
             with self.subTest(path=path):
                 result = changed_surfaces.classify([path])
