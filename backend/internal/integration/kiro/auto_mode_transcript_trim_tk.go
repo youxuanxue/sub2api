@@ -269,14 +269,11 @@ func parseTranscriptFromBlocks(blocks []ClaudeContentBlock) (*transcriptParse, s
 		if b.Type != "text" {
 			return nil, "parse_failed"
 		}
-		trim := strings.TrimRightFunc(b.Text, unicode.IsSpace)
-		if trim == "" {
-			continue
-		}
-		if !json.Valid([]byte(trim)) {
+		blockRecords, err := parseTranscriptNDJSON(b.Text)
+		if err != nil {
 			return nil, "parse_failed"
 		}
-		records = append(records, transcriptRecord{raw: trim})
+		records = append(records, blockRecords...)
 	}
 	if len(records) == 0 {
 		return nil, "parse_failed"
@@ -470,6 +467,22 @@ func classifyOneTranscriptRecord(raw string, isLast bool) transcriptRecordKind {
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &probe); err != nil {
 		return recordKindUnknown
+	}
+	// Claude Code compact transcripts use single-key records such as
+	// {"user": ...} and {"Bash": ...}, rather than the typed records used by
+	// the classifier transcript. Keep this allowlist narrow: an unrecognised
+	// top-level key remains unknown and therefore fail-closed.
+	if len(probe) == 1 {
+		for key := range probe {
+			switch strings.ToLower(key) {
+			case "user":
+				return recordKindUser
+			case "meta":
+				return recordKindMeta
+			case "bash", "askuserquestion", "workflow", "monitor", "edit", "write", "taskstop":
+				return recordKindToolProcess
+			}
+		}
 	}
 	role := strings.ToLower(jsonRawString(probe["role"]))
 	typ := strings.ToLower(jsonRawString(probe["type"]))

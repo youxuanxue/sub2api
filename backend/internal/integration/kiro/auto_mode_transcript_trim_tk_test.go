@@ -121,6 +121,53 @@ func TestTrimClaudeAutoModeTranscript_ContentBlocksShape(t *testing.T) {
 	require.Equal(t, "prefix turn", out[0].Text)
 }
 
+func TestTrimClaudeAutoModeTranscript_ContentBlocksAllowGroupedClaudeCodeRecords(t *testing.T) {
+	blocks := []ClaudeContentBlock{
+		{Type: "text", Text: autoModeTranscriptOpen},
+		{Type: "text", Text: `{"user":{"text":"keep authorization"}}
+{"Bash":{"command":"old command"}}
+{"Edit":{"path":"old file"}}`},
+		{Type: "text", Text: `{"meta":{"status":"old status"}}
+{"Bash":{"command":"latest command"}}`},
+		{Type: "text", Text: autoModeTranscriptClose},
+	}
+	req := &ClaudeRequest{
+		MaxTokens: 64,
+		Messages:  []ClaudeMessage{{Role: "user", Content: blocks}},
+	}
+	rep := TrimClaudeAutoModeTranscriptUntil(req, func(r *ClaudeRequest) bool {
+		return true
+	})
+	require.True(t, rep.Candidate)
+	require.True(t, rep.Applied, "skip=%s", rep.SkipReason)
+	require.Equal(t, "content_blocks", rep.Shape)
+	require.Equal(t, 2, rep.ToolProcessRemoved)
+	require.Equal(t, 0, rep.MetaRemoved)
+	require.Contains(t, joinClaudeUserText(req), "keep authorization")
+	require.Contains(t, joinClaudeUserText(req), "latest command")
+	require.NotContains(t, joinClaudeUserText(req), "old command")
+}
+
+func TestTrimClaudeAutoModeTranscript_ContentBlocksRejectUnknownGroupedRecord(t *testing.T) {
+	blocks := []ClaudeContentBlock{
+		{Type: "text", Text: autoModeTranscriptOpen},
+		{Type: "text", Text: `{"user":{"text":"keep authorization"}}
+{"UnknownTool":{"payload":"do not classify"}}
+{"Bash":{"command":"latest command"}}`},
+		{Type: "text", Text: autoModeTranscriptClose},
+	}
+	req := &ClaudeRequest{
+		MaxTokens: 64,
+		Messages:  []ClaudeMessage{{Role: "user", Content: blocks}},
+	}
+	before := joinClaudeUserText(req)
+	rep := MaybeTrimClaudeAutoModeTranscript(req)
+	require.True(t, rep.Candidate)
+	require.False(t, rep.Applied)
+	require.Equal(t, "unknown_record_role", rep.SkipReason)
+	require.Equal(t, before, joinClaudeUserText(req))
+}
+
 func TestMaybeTrimClaudeAutoModeTranscript_ParseFailureLeavesRequestUntouched(t *testing.T) {
 	t.Parallel()
 	raw := autoModeTranscriptOpen + "\nnot-json\n" + autoModeTranscriptClose
