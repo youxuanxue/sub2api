@@ -32,3 +32,7 @@
 - b: ccc2d2d684dace38347f927d0c1941f6c30469063ff4534631fe79c37a4b19f8
 
 执行端日志：/tmp/cn-qa-layout-{before,baseline-detail,mid,cleanup,final,closeout}.log。
+
+PR 复审补强（未再次部署）：版本 2 计划绑定 PostgreSQL 容器身份；保留期内无已提交
+引用的文件延期迁移，并通过真实数据库未提交 INSERT 场景验证。上述版本 1 线上计划
+和回执保留为历史证据，当前工具再次执行时须重新 plan。

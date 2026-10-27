@@ -3,6 +3,7 @@ import datetime as dt
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -73,10 +74,12 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(json.loads(self.target.read_bytes())['captured_at'],self.payload['captured_at'])
 
     def test_db_failure_preserves_source_and_destination(self):
+        old_uri='file:///app/data/'+self.item['source']
         class FailingDB:
             def query(_, sql):
                 if sql.startswith('SELECT value'):return '2026-10-27T10:00:00Z'
-                if sql.startswith('UPDATE'):raise ValueError('database unavailable')
+                if sql.startswith('SELECT old_uri'):return old_uri
+                if sql.startswith('UPDATE qa_records'):raise ValueError('database unavailable')
                 return ''
         plan={'entries':[self.item],'existing_cutover':'','cutover':'2026-10-27T10:00:00Z'}
         with self.assertRaisesRegex(ValueError,'database unavailable'):
@@ -85,10 +88,12 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(self.target.read_bytes(),self.raw)
 
     def test_db_commit_precedes_retirement(self):
+        old_uri='file:///app/data/'+self.item['source']
         class RecordingDB:
             committed=False
             def query(db, sql):
                 if sql.startswith('SELECT value'):return '2026-10-27T10:00:00Z'
+                if sql.startswith('SELECT old_uri'):return old_uri
                 if sql.startswith('SELECT count'):return '0'
                 if sql=='COMMIT;':db.committed=True
                 return ''
@@ -100,6 +105,22 @@ class RepairTests(unittest.TestCase):
             repair.apply(db,self.root,{'entries':[self.item],'existing_cutover':'','cutover':'2026-10-27T10:00:00Z'})
         self.assertEqual(self.target.read_bytes(),self.raw)
         self.assertFalse(self.source.exists())
+
+    def test_plan_rejects_changed_postgres_before_mutation(self):
+        args=SimpleNamespace(expected_host='host',data_dir=str(self.root))
+        app={'Id':'app-id','Image':'image','State':{'StartedAt':'start'},'RestartCount':0}
+        postgres={**app,'Id':'pg-id'}
+        plan={'version':2,'hostname':'host','root':str(self.root),
+              'app':repair.fingerprint(app),'postgres':repair.fingerprint(postgres)}
+        repair.validate_plan_target(plan,args,app,postgres)
+        for changed in ({**postgres,'Id':'other-pg'},
+                        {**postgres,'State':{'StartedAt':'restarted'}}):
+            with self.assertRaisesRegex(ValueError,'PostgreSQL target changed'):
+                repair.validate_plan_target(plan,args,app,changed)
+        with self.assertRaisesRegex(ValueError,'generate a new plan'):
+            repair.validate_plan_target({**plan,'version':1},args,app,postgres)
+        self.assertEqual(self.source.read_bytes(),self.raw)
+        self.assertFalse(self.target.exists())
 
 
 if __name__=='__main__':unittest.main()

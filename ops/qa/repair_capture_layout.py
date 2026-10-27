@@ -218,6 +218,13 @@ def fingerprint(app):
     return [app['Id'], app['Image'], app['State']['StartedAt'], app['RestartCount']]
 
 
+def validate_plan_target(plan, args, app, postgres):
+    require(plan.get('version') == 2, 'unsupported plan; generate a new plan')
+    require(plan['hostname'] == args.expected_host and plan['root'] == args.data_dir
+            and plan['app'] == fingerprint(app), 'plan target changed')
+    require(plan['postgres'] == fingerprint(postgres), 'plan PostgreSQL target changed')
+
+
 def guard(args, db):
     require(socket.gethostname() == args.expected_host, 'host mismatch')
     lifecycle_host.require_legacy_paused()
@@ -250,16 +257,31 @@ def apply(db, root, plan):
     require(current == plan['existing_cutover'] or current == plan['cutover'], 'cutover changed since plan')
     db.query('BEGIN; INSERT INTO settings(key,value) VALUES ('+quote(CUTOVER)+','+quote(plan['cutover'])+') ON CONFLICT(key) DO NOTHING; COMMIT;')
     require(db.query('SELECT value FROM settings WHERE key='+quote(CUTOVER)+';') == plan['cutover'], 'cutover not active')
-    link_targets(root, items)
-    mapping = [{'old_uri':'file:///app/data/'+e['source'], 'new_uri':'file:///app/data/'+e['destination']} for e in items]
-    db.query('CREATE TEMP TABLE qa_layout_map(old_uri text PRIMARY KEY,new_uri text NOT NULL); INSERT INTO qa_layout_map SELECT * FROM json_populate_recordset(NULL::qa_layout_map,'+quote(json.dumps(mapping))+');')
+    mapping = [{'old_uri':'file:///app/data/'+e['source'],
+                'new_uri':'file:///app/data/'+e['destination'],
+                'captured_at':e['captured_at']} for e in items]
+    db.query('CREATE TEMP TABLE qa_layout_map(old_uri text PRIMARY KEY,new_uri text NOT NULL,captured_at timestamptz NOT NULL,ready boolean); INSERT INTO qa_layout_map SELECT * FROM json_populate_recordset(NULL::qa_layout_map,'+quote(json.dumps(mapping))+');')
+    # A file can precede its INSERT by an unbounded amount of time. Age of its
+    # mtime is not proof of metadata persistence. Keep retained unreferenced
+    # files at their original path until a subsequent invocation sees the row.
+    # Expired orphans remain eligible under the existing whole-hour policy.
+    refs = ' UNION '.join(f'SELECT {field} AS uri FROM qa_records' for field in FIELDS)
+    db.query(f"WITH refs AS MATERIALIZED ({refs}) UPDATE qa_layout_map SET ready = "
+             "captured_at < date_trunc('hour',statement_timestamp()) - interval '24 hours' "
+             "OR old_uri IN (SELECT uri FROM refs WHERE uri IS NOT NULL) "
+             "OR new_uri IN (SELECT uri FROM refs WHERE uri IS NOT NULL);")
+    ready = set(db.query('SELECT old_uri FROM qa_layout_map WHERE ready;').splitlines())
+    selected = [item for item in items if 'file:///app/data/'+item['source'] in ready]
+    db.query('DELETE FROM qa_layout_map WHERE NOT ready;')
+    link_targets(root, selected)
     db.query('BEGIN;')
     for field in FIELDS:
         db.query(f'UPDATE qa_records q SET {field}=m.new_uri FROM qa_layout_map m WHERE q.{field}=m.old_uri;')
     for field in FIELDS:
         require(db.query(f'SELECT count(*) FROM qa_records q JOIN qa_layout_map m ON q.{field}=m.old_uri;') == '0', 'legacy references remain')
     db.query('COMMIT;')
-    retire_source_links(root, items)
+    retire_source_links(root, selected)
+    return {'migrated_files':len(selected), 'deferred_files':len(items)-len(selected)}
 
 
 def main():
@@ -277,12 +299,14 @@ def main():
         db = DB(args.postgres)
         try:
             root, app = guard(args, db)
+            postgres = inspect(args.postgres)
             now = utc(db.query('SELECT clock_timestamp();'))
             if args.mode == 'plan':
                 current = db.query('SELECT value FROM settings WHERE key='+quote(CUTOVER)+';')
                 cutover = utc(current) if current else now.replace(minute=0,second=0,microsecond=0)
                 require(cutover <= now and cutover.minute == 0 and cutover.second == 0 and cutover.microsecond == 0, 'invalid cutover')
-                plan = {'version':1,'hostname':args.expected_host,'root':str(root), 'app':fingerprint(app),
+                plan = {'version':2,'hostname':args.expected_host,'root':str(root), 'app':fingerprint(app),
+                        'postgres':fingerprint(postgres),
                         'existing_cutover':current,'cutover':current or cutover.strftime('%Y-%m-%dT%H:00:00Z'),
                         'created_at':now.isoformat(),'entries':inventory(root,Decoder(),now)}
                 save(args.plan,plan)
@@ -290,12 +314,12 @@ def main():
                 raw = Path(args.plan).read_bytes()
                 require(args.plan_sha256 and digest(raw)==args.plan_sha256,'exact plan SHA required')
                 plan=json.loads(raw)
-                require(plan['hostname']==args.expected_host and plan['root']==str(root) and plan['app']==fingerprint(app),'plan target changed')
+                validate_plan_target(plan,args,app,postgres)
                 require(dt.timedelta(0)<=now-utc(plan['created_at'])<dt.timedelta(minutes=30),'plan expired')
-                apply(db,root,plan)
+                result = apply(db,root,plan)
                 require(fingerprint(inspect(args.app))==plan['app'],'gateway changed during repair')
-                save(args.plan+'.applied.json',{'ok':True,'plan_sha256':args.plan_sha256,'files':len(plan['entries']),'gateway_unchanged':True,'completed_at':dt.datetime.now(dt.timezone.utc).isoformat()})
-            print(json.dumps({'mode':args.mode,'files':len(plan['entries']),'compressed_bytes':sum(e['bytes'] for e in plan['entries']),'plan_sha256':digest(encoded(plan)),'cutover':plan['cutover'],'gateway_unchanged':True}))
+                save(args.plan+'.applied.json',{'ok':True,'plan_sha256':args.plan_sha256,'files':len(plan['entries']),**result,'gateway_unchanged':True,'completed_at':dt.datetime.now(dt.timezone.utc).isoformat()})
+            print(json.dumps({'mode':args.mode,'files':len(plan['entries']),'compressed_bytes':sum(e['bytes'] for e in plan['entries']),'plan_sha256':digest(encoded(plan)),'cutover':plan['cutover'],'gateway_unchanged':True,**(result if args.mode=='apply' else {})}))
         finally:
             db.close()
 

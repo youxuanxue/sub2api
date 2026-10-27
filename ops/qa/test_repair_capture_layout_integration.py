@@ -70,6 +70,59 @@ class RepairIntegration(unittest.TestCase):
             finally:
                 other.close()
 
+            # Reproduce a legacy file whose INSERT is still uncommitted long
+            # after the file mtime. It must keep its original usable URI.
+            now = repair.utc(db.query('SELECT clock_timestamp();'))
+            hour = now.replace(minute=0,second=0,microsecond=0)
+            db.query("CREATE TABLE IF NOT EXISTS qa_records_"+hour.strftime('%Y%m%d_%H')+
+                     " PARTITION OF qa_records FOR VALUES FROM ("+repair.quote(hour.isoformat())+
+                     ") TO ("+repair.quote((hour+dt.timedelta(hours=1)).isoformat())+");")
+
+            def blob(rid, captured):
+                path=root/'qa_blobs'/captured.strftime('%Y/%m/%d')/rid[:2]/(rid+'.json.zst')
+                path.parent.mkdir(parents=True,exist_ok=True)
+                data=json.dumps({'request_id':rid,'captured_at':captured.isoformat()}).encode()
+                buf=ctypes.create_string_buffer(lib.ZSTD_compressBound(len(data)))
+                n=lib.ZSTD_compress(buf,len(buf),data,len(data),1)
+                self.assertFalse(lib.ZSTD_isError(n))
+                path.write_bytes(buf.raw[:n])
+                os.utime(path,(now.timestamp()-120,now.timestamp()-120))
+                return path,repair.entry(root,path,repair.Decoder(),now)
+
+            pending_source,pending_item=blob('cd-delayed',now)
+            expired_source,expired_item=blob('ef-orphan',now-dt.timedelta(hours=26))
+            pending_old='file:///app/data/'+pending_item['source']
+            pending_target=root/pending_item['destination']
+            original=pending_source.read_bytes()
+            writer=repair.DB(name)
+            self.addCleanup(writer.close)
+            writer.query('BEGIN; INSERT INTO qa_records VALUES(3,'+repair.quote(now.isoformat())+','+
+                         ','.join([repair.quote(pending_old)]*4)+');')
+            deferred_plan={**plan,'existing_cutover':plan['cutover'],'entries':[pending_item,expired_item]}
+
+            def apply_once(value):
+                connection=repair.DB(name)
+                try:
+                    return repair.apply(connection,root,value)
+                finally:
+                    connection.close()
+
+            result=apply_once(deferred_plan)
+            self.assertEqual(result,{'migrated_files':1,'deferred_files':1})
+            self.assertEqual(pending_source.read_bytes(),original)
+            self.assertFalse(pending_target.exists())
+            self.assertFalse(expired_source.exists())
+            self.assertEqual(repair.Decoder()((root/expired_item['destination']).read_bytes())['request_id'],'ef-orphan')
+            writer.query('COMMIT;')
+            self.assertEqual(db.query('SELECT blob_uri FROM qa_records WHERE id=3;'),pending_old)
+            self.assertEqual(pending_source.read_bytes(),original)
+            self.assertEqual(apply_once(deferred_plan),{'migrated_files':2,'deferred_files':0})
+            self.assertFalse(pending_source.exists())
+            self.assertEqual(pending_target.read_bytes(),original)
+            for field in repair.FIELDS:
+                self.assertEqual(db.query('SELECT '+field+' FROM qa_records WHERE id=3;'),
+                                 'file:///app/data/'+pending_item['destination'])
+
 
 if __name__ == '__main__':
     unittest.main()
