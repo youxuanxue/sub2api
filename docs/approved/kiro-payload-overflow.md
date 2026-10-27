@@ -5,7 +5,7 @@ approved_by: "user (explicitly requested the overflow-policy fix after direct Ki
 approved_at: 2026-10-17
 owners: [tk-gateway]
 risk: high
-related_prs: [2688]
+related_prs: [2688, 2941]
 ---
 
 # Kiro Payload Overflow Contract
