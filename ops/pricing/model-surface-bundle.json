@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "19a2d49907ecf9da6c17095acf5fc545a19357b2c6988cee94c4f0d742ab6e9a",
+  "floor_sha256": "98681f01769eeba37ccaad398a18764b307d792c750c99238b6af5fe6747889d",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -194,6 +194,7 @@
       },
       "kiro": {
         "claude-haiku-4-5": "claude-haiku-4-5",
+        "claude-haiku-5-5": "claude-haiku-5-5",
         "claude-opus-4-5": "claude-opus-4-5",
         "claude-opus-4-6": "claude-opus-4-6",
         "claude-opus-4-7": "claude-opus-4-7",
@@ -585,6 +586,7 @@
         "minimax-m2.7"
       ],
       "anthropic": [
+        "claude-haiku-5-5",
         "claude-opus-5",
         "claude-opus-5-5",
         "claude-sonnet-5-5"

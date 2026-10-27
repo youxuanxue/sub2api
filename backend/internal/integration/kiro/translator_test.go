@@ -266,12 +266,14 @@ func TestClaudeToKiro_ToolChoiceNamedResolvesSanitizedName(t *testing.T) {
 	}
 }
 
-func TestClaudeToKiro_HaikuThinkingOmitsAdditionalModelRequestFields(t *testing.T) {
-	// Positive: Haiku + thinking must not emit AMRF (prod 2026-10-04 Kiro 400).
+func TestClaudeToKiro_Claude45ThinkingOmitsAdditionalModelRequestFields(t *testing.T) {
+	// Positive: Claude 4.5 + thinking must not emit AMRF (upstream 400).
 	for _, model := range []string{
 		"claude-haiku-4-5-20251001",
 		"claude-haiku-4-5",
 		"claude-haiku-4.5",
+		"claude-sonnet-4-5",
+		"claude-opus-4.5",
 	} {
 		req := &ClaudeRequest{
 			Model:     model,
@@ -294,6 +296,27 @@ func TestClaudeToKiro_HaikuThinkingOmitsAdditionalModelRequestFields(t *testing.
 		if len(payload.ConversationState.History) == 0 {
 			t.Fatalf("model %q: expected system priming history for thinking prompt", model)
 		}
+	}
+}
+
+func TestClaudeToKiro_Haiku55ThinkingEmitsAdditionalModelRequestFields(t *testing.T) {
+	req := &ClaudeRequest{
+		Model:        "claude-haiku-5-5",
+		MaxTokens:    2048,
+		Messages:     []ClaudeMessage{{Role: "user", Content: "hi"}},
+		Thinking:     &ClaudeThinkingConfig{Type: "adaptive"},
+		OutputConfig: &ClaudeOutputConfig{Effort: "high"},
+	}
+	payload := ClaudeToKiro(req, true)
+	if payload == nil || payload.AdditionalModelRequestFields == nil {
+		t.Fatal("Haiku 5.5 thinking must emit additionalModelRequestFields")
+	}
+	fields := payload.AdditionalModelRequestFields
+	if fields.Thinking == nil || fields.Thinking.Type != "adaptive" || fields.Thinking.Display != "summarized" {
+		t.Fatalf("unexpected Haiku 5.5 thinking fields: %+v", fields.Thinking)
+	}
+	if fields.OutputConfig == nil || fields.OutputConfig.Effort != "high" {
+		t.Fatalf("unexpected Haiku 5.5 output_config: %+v", fields.OutputConfig)
 	}
 }
 
@@ -403,6 +426,13 @@ func TestKiroSupportsAdditionalModelRequestFields(t *testing.T) {
 		{"claude-haiku-4.5", false},
 		{"claude-haiku-4-5-20251001", false},
 		{"CLAUDE-HAIKU-4.5", false},
+		{"claude-sonnet-4.5", false},
+		{"claude-opus-4-5", false},
+		{"claude-opus-4.6", true},
+		{"claude-opus-4.7", true},
+		{"claude-opus-4.8", true},
+		{"claude-haiku-5.5", true},
+		{"claude-haiku-5-5", true},
 		{"claude-sonnet-4.6", true},
 		{"claude-opus-4.6", true},
 		{"", true},

@@ -446,11 +446,13 @@ func ClaudeToKiroWithFileToolGuidance(req *ClaudeRequest, thinking, enabled bool
 }
 
 // kiroSupportsAdditionalModelRequestFields reports whether Kiro upstream accepts
-// additionalModelRequestFields for the resolved model ID. Haiku is excluded:
-// prod 2026-10-04 us4/us5/us6 all returned 400 AMRF-not-supported for
-// claude-haiku-4-5-20251001, which prod then wrapped as recovered-200 via tokensea.
+// additionalModelRequestFields for the resolved model ID. The Claude 4.5
+// generation is excluded: current upstream rejects AMRF for Haiku, Sonnet and
+// Opus 4.5 with REQUEST_BODY_INVALID. Claude 4.6+ was independently verified
+// upstream on 2026-10-27 to accept the same thinking/effort shape.
 func kiroSupportsAdditionalModelRequestFields(modelID string) bool {
-	return !strings.Contains(strings.ToLower(strings.TrimSpace(modelID)), "haiku")
+	modelID = strings.ToLower(strings.TrimSpace(modelID))
+	return !strings.Contains(modelID, "-4.5") && !strings.Contains(modelID, "-4-5")
 }
 
 // buildAdditionalModelRequestFields maps Claude thinking requests onto Kiro

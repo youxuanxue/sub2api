@@ -107,7 +107,8 @@
       "must_contain": [
         "TestBuildAdditionalModelRequestFields_IgnoresClientDisplayOmitted",
         "TestClaudeToKiro_ThinkingOutputLimitWire",
-        "TestClaudeToKiro_HaikuThinkingOmitsAdditionalModelRequestFields",
+        "TestClaudeToKiro_Claude45ThinkingOmitsAdditionalModelRequestFields",
+        "TestClaudeToKiro_Haiku55ThinkingEmitsAdditionalModelRequestFields",
         "TestClaudeToKiro_NonHaikuThinkingStillEmitsAdditionalModelRequestFields",
         "TestClaudeToKiro_ToolChoiceNoneOmitsTools",
         "TestClaudeToKiro_ToolChoiceAnyAddsDirective",
@@ -116,7 +117,7 @@
         "TestClaudeToKiro_ClientBudgetAndEffortAreHonored",
         "TestClaudeToKiro_HistoryThinkingIsNotForwarded"
       ],
-      "rationale": "Client thinking.display=omitted must not propagate to Kiro upstream wire; prod mirror QA depends on summarized upstream reasoning. AMRF max_tokens below 1024 must be omitted while preserving the native inferenceConfig limit and thinking controls. Haiku + thinking must omit additionalModelRequestFields (prod 2026-10-04 us4/5/6 400 AMRF-not-supported → tokensea failover) while non-Haiku thinking still emits AMRF. Missing budget_tokens and effort default to max_thinking_length 16000 and medium; explicit client values win. Thinking and redacted_thinking blocks from history must not be written into the next Kiro turn."
+      "rationale": "Client thinking.display=omitted must not propagate to Kiro upstream wire; prod mirror QA depends on summarized upstream reasoning. AMRF max_tokens below 1024 must be omitted while preserving the native inferenceConfig limit and thinking controls. All Claude 4.5 models must omit additionalModelRequestFields (current upstream 400 REQUEST_BODY_INVALID for Haiku/Sonnet/Opus 4.5), while Claude 4.6+ including Haiku 5.5 accepts AMRF for native reasoning. Missing budget_tokens and effort default to max_thinking_length 16000 and medium; explicit client values win. Thinking and redacted_thinking blocks from history must not be written into the next Kiro turn."
     },
     {
       "path": "backend/internal/integration/kiro/translator.go",
