@@ -558,9 +558,12 @@
         "TestClassifyKiroImageValidationDoesNotMaskProviderFailure",
         "TestClassifyKiroForwardError_ImageFormatDoesNotFailover",
         "TestIsKiroImageClientError",
-        "TkClientFacingBusy429Message, quotaErr.ClientMessage()"
+        "TkClientFacingBusy429Message, quotaErr.ClientMessage()",
+        "TestKiroGatewayService_Forward_OversizedPayloadRejectedBeforeUpstream",
+        "require.True(t, invalidRequestErr.ContextOverflow)",
+        "require.Contains(t, invalidRequestErr.ClientMessage(), \"prompt is too long\")"
       ],
-      "rationale": "Wire regression coverage for normal tool calls, client-owned tool names, stop reasons, content filtering, incomplete streams, retry integrity and thinking side channels. Image format must be request-owned (no pool burn) while provider failures that only echo image text still failover. Quota-exhausted ClientMessage must assert the shared busy-429 SSOT."
+      "rationale": "Wire regression coverage for normal tool calls, client-owned tool names, stop reasons, content filtering, incomplete streams, retry integrity and thinking side channels. Image format must be request-owned (no pool burn) while provider failures that only echo image text still failover. Quota-exhausted ClientMessage must assert the shared busy-429 SSOT. Local payload-overflow coverage is anchored on its outcome, not just the test name: ContextOverflow must stay set and the public copy must stay the actionable prompt-is-too-long text. An upstream merge that reverts the classification to a bare 413 request_too_large keeps this test compiling and passing on the old assertions, which is exactly how Claude Code regressed to rendering the model as unavailable (#2941)."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder.go",
