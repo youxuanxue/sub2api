@@ -373,6 +373,36 @@ func TestKiroGatewayService_Forward_CompactBlockSplitCoversClassifierWithoutCont
 	require.Less(t, len(sent.ConversationState.History), len(blocks))
 }
 
+func TestKiroGatewayService_Forward_MalformedAutoModeTranscriptFailsClosed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &kiroSequenceUpstream{bodies: [][]byte{nil}}
+	svc := NewKiroGatewayService(upstream, nil, nil)
+	blocks := make([]map[string]any, 30)
+	blocks[0] = map[string]any{"type": "text", "text": "<transcript>\nnot-json\n</transcript>"}
+	for i := 1; i < len(blocks); i++ {
+		blocks[i] = map[string]any{"type": "text", "text": strings.Repeat("x", 40*1024)}
+	}
+	body, err := json.Marshal(map[string]any{
+		"model":      "claude-opus-5",
+		"messages":   []map[string]any{{"role": "user", "content": blocks}},
+		"max_tokens": 64,
+		"stream":     false,
+	})
+	require.NoError(t, err)
+	account := newKiroAccountForTest()
+	account.Extra = map[string]any{"kiro_auto_mode_transcript_trim": true}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	result, err := svc.Forward(context.Background(), c, account, &ParsedRequest{
+		Body: NewRequestBodyRef(body), Model: "claude-opus-5", Stream: false,
+	}, time.Now())
+	require.Nil(t, result)
+	var invalidRequestErr *KiroInvalidRequestError
+	require.ErrorAs(t, err, &invalidRequestErr)
+	require.Equal(t, http.StatusRequestEntityTooLarge, invalidRequestErr.StatusCode)
+	require.Empty(t, upstream.requests, "malformed auto-mode transcript must not be block-trimmed")
+}
+
 func TestKiroGatewayService_ClientInstructionsRoundTrip(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const answer = "RELEASE_OK_7291"

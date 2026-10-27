@@ -355,7 +355,11 @@ func (s *KiroGatewayService) Forward(
 				kiroproto.BindWireProfileArn(payload, kiroAcct)
 				payloadFits = kiroproto.ValidatePayloadSize(payload) == nil
 			}
-			if !payloadFits {
+			// A request that positively matches the structured auto-mode shape but
+			// fails its parse/role gates must remain untouched. Falling through to
+			// blind block deletion would defeat the fail-closed safety contract.
+			allowCompactBlockSplit := !report.Candidate || report.Applied
+			if !payloadFits && allowCompactBlockSplit {
 				splitReport := kiroproto.SplitClaudeCompactUserMessage(&req)
 				compactMessageSplitReport = &splitReport
 				if splitReport.Applied {
