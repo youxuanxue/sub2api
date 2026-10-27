@@ -44,8 +44,11 @@ func (h *GatewayHandler) tkHandleMessagesNonFailoverForwardError(c *gin.Context,
 	if errors.As(err, &kiroInvalidRequestErr) {
 		status := kiroInvalidRequestErr.ClientStatusCode()
 		// The public copy drops byte counts, truncation state and the supplier
-		// name; keep the full oversize detail for ops before writing it.
-		if status == http.StatusRequestEntityTooLarge {
+		// name; keep the full oversize detail for ops before writing it. Gate on
+		// the error's own classification, not on the public status: a local
+		// context overflow now ships as 400, so a status check would silently
+		// stop annotating exactly the case that carries the size diagnostics.
+		if kiroInvalidRequestErr.ContextOverflow || status == http.StatusRequestEntityTooLarge {
 			service.TkAnnotateRequestTooLargeOps(c, status, kiroInvalidRequestErr.Message)
 		}
 		h.errorResponse(c, status, kiroInvalidRequestErr.ClientErrorType(), kiroInvalidRequestErr.ClientMessage())

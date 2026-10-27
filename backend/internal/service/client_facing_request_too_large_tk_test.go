@@ -92,6 +92,7 @@ func TestTkLooksLikeUpstreamSupplierLeakMessage(t *testing.T) {
 func TestClientFacingConstants_CarryNoSupplierName(t *testing.T) {
 	wireBound := map[string]string{
 		"TkClientFacingRequestTooLargeMessage":         TkClientFacingRequestTooLargeMessage,
+		"TkClientFacingContextOverflowMessage":         TkClientFacingContextOverflowMessage,
 		"TkClientFacingUnsupportedMessage":             TkClientFacingUnsupportedMessage,
 		"TkClientFacingBusy429Message":                 TkClientFacingBusy429Message,
 		"GrokCredentialUnavailableClientMessage":       GrokCredentialUnavailableClientMessage,
@@ -119,4 +120,45 @@ func TestSupplierLeakNeedles_DerivedFromPlatformRegistry(t *testing.T) {
 		require.False(t, TkLooksLikeUpstreamSupplierLeakMessage("the "+exempt+" API shape"),
 			"protocol family %q must stay usable in client copy", exempt)
 	}
+}
+
+// The local input-limit rejection must be distinguishable from the byte-size
+// ceiling on all three client-facing axes, and must stay free of supply-side
+// detail even though its copy is longer than the bare SSOT.
+func TestKiroInvalidRequestError_ContextOverflowIsActionable400(t *testing.T) {
+	internal := "Request is too large for Kiro after conversation history truncation (1126130 bytes; limit 921600 bytes)"
+	err := &KiroInvalidRequestError{
+		StatusCode:      http.StatusRequestEntityTooLarge,
+		Message:         internal,
+		Body:            internal,
+		ContextOverflow: true,
+	}
+
+	require.Equal(t, http.StatusBadRequest, err.ClientStatusCode(),
+		"413 is the byte ceiling; an input overflow is a 400 like native Anthropic")
+	require.Equal(t, "invalid_request_error", err.ClientErrorType())
+
+	public := err.ClientMessage()
+	require.Equal(t, TkClientFacingContextOverflowMessage, public)
+	// The phrase Anthropic-shaped clients key on, plus the one action a caller
+	// can take. Without these the client renders "model unavailable".
+	require.Contains(t, public, "prompt is too long")
+	require.Contains(t, public, "/compact")
+	for _, leak := range []string{"Kiro", "kiro", "1126130", "921600", "truncation", "conversation history"} {
+		require.NotContains(t, public, leak, "public overflow copy must not carry %q", leak)
+	}
+
+	// Internal text is untouched for ops.
+	require.Contains(t, err.Message, "1126130")
+	require.Contains(t, err.Error(), "1126130")
+
+	// Negative: an upstream byte-ceiling 413 is unaffected by this change.
+	upstream := &KiroInvalidRequestError{
+		StatusCode: http.StatusRequestEntityTooLarge,
+		Message:    "request body exceeds the maximum allowed size",
+	}
+	require.Equal(t, http.StatusRequestEntityTooLarge, upstream.ClientStatusCode())
+	require.Equal(t, "request_too_large", upstream.ClientErrorType())
+	require.Equal(t, TkClientFacingRequestTooLargeMessage, upstream.ClientMessage())
+	require.NotContains(t, upstream.ClientMessage(), "/compact")
 }

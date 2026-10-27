@@ -26,21 +26,25 @@ func TestKiroLocal413DiagnosticsSurviveOpsMiddleware(t *testing.T) {
 	router.POST("/v1/messages", func(c *gin.Context) {
 		c.Set(service.OpsInternalErrorDetailKey, detail)
 		require.True(t, h.tkHandleMessagesNonFailoverForwardError(c, &service.KiroInvalidRequestError{
-			StatusCode: http.StatusRequestEntityTooLarge,
-			Message:    "Request is too large for Kiro after conversation history truncation",
+			StatusCode:      http.StatusRequestEntityTooLarge,
+			Message:         "Request is too large for Kiro after conversation history truncation",
+			ContextOverflow: true,
 		}))
 	})
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
-	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
-	require.Equal(t, service.TkClientFacingRequestTooLargeMessage, gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	// The local guard ships 400 invalid_request_error so Anthropic-shaped
+	// clients read it as a prompt-length problem; ops still gets the full
+	// size diagnostics, which is what this test exists to protect.
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, service.TkClientFacingContextOverflowMessage, gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
 	require.NotContains(t, rec.Body.String(), "converter_input_bytes")
 	select {
 	case job := <-opsErrorLogQueue:
 		require.Equal(t, detail, *job.entry.UpstreamErrorDetail)
 		require.Equal(t, "client_request", job.entry.ErrorSource)
 		require.Equal(t, "client", job.entry.ErrorOwner)
-		require.Equal(t, http.StatusRequestEntityTooLarge, job.entry.StatusCode)
+		require.Equal(t, http.StatusBadRequest, job.entry.StatusCode)
 		require.False(t, job.entry.Stream)
 		require.Nil(t, job.entry.UpstreamStatusCode)
 		require.Empty(t, job.entry.UpstreamErrors)
@@ -82,17 +86,34 @@ func TestTkHandleMessagesNonFailoverForwardError_Matrix(t *testing.T) {
 		require.Equal(t, err.ClientMessage(), gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
 	})
 
+	// Local input-limit guard: 400 invalid_request_error with actionable copy.
+	t.Run("context_overflow", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		err := &service.KiroInvalidRequestError{
+			StatusCode:      http.StatusRequestEntityTooLarge,
+			Message:         "Request is too large for Kiro after conversation history truncation",
+			ContextOverflow: true,
+		}
+		require.True(t, h.tkHandleMessagesNonFailoverForwardError(c, err))
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		require.Equal(t, "invalid_request_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+		require.Equal(t, service.TkClientFacingContextOverflowMessage, gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	})
+
+	// An upstream byte-ceiling 413 (no ContextOverflow) keeps 413 and the bare
+	// SSOT copy: that is a different failure the caller cannot fix by compacting.
 	t.Run("request_too_large", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
 		err := &service.KiroInvalidRequestError{
 			StatusCode: http.StatusRequestEntityTooLarge,
-			Message:    "Request is too large for Kiro after conversation history truncation",
+			Message:    "request body exceeds the maximum allowed size",
 		}
 		require.True(t, h.tkHandleMessagesNonFailoverForwardError(c, err))
 		require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 		require.Equal(t, "request_too_large", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-		require.Equal(t, err.ClientMessage(), gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+		require.Equal(t, service.TkClientFacingRequestTooLargeMessage, gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
 	})
 
 	t.Run("quota_exhausted", func(t *testing.T) {

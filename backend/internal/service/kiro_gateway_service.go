@@ -388,9 +388,10 @@ func (s *KiroGatewayService) Forward(
 				tooLarge.Limit,
 			)
 			return nil, &KiroInvalidRequestError{
-				StatusCode: http.StatusRequestEntityTooLarge,
-				Message:    message,
-				Body:       message,
+				StatusCode:      http.StatusRequestEntityTooLarge,
+				Message:         message,
+				Body:            message,
+				ContextOverflow: true,
 			}
 		}
 	}

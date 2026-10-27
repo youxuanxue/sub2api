@@ -18,6 +18,29 @@ import (
 // and structured logs, so ops loses nothing.
 const TkClientFacingRequestTooLargeMessage = "Request too large"
 
+// TkClientFacingContextOverflowMessage is the client-visible body for a
+// conversation that exceeds the serving model's INPUT limit — a different
+// failure from TkClientFacingRequestTooLargeMessage above, which belongs to the
+// byte-size ceiling an upstream enforces on the HTTP body itself.
+//
+// Anthropic's own contract separates these: 413 `request_too_large` is the
+// per-endpoint byte maximum (32 MB on Messages, rejected at the edge), while a
+// prompt that outgrows the context window is 400 `invalid_request_error` whose
+// message leads with "prompt is too long". A gateway that answers an input
+// overflow with 413 hands Claude Code a status it only ever sees for a 32 MB
+// body, so the client renders it as the model being unavailable and callers
+// switch models instead of shortening the conversation.
+//
+// The copy therefore does two things the bare "Request too large" could not:
+// it carries the "prompt is too long" prefix the Anthropic-shaped clients
+// already key on (see the antigravity passthrough allowlist and
+// tkWriteAnthropicErrorResponse, which prepends the same phrase), and it names
+// the one action a caller can actually take. It still withholds every
+// supply-side detail — no supplier, no byte counts, and no mention that the
+// gateway had already trimmed history trying to fit.
+const TkClientFacingContextOverflowMessage = "prompt is too long: the conversation exceeds this model's input limit. " +
+	"Use /compact to shorten it, or start a new session."
+
 // tkSupplierLeakExtraNeedles are supplier identifiers that are NOT platform
 // registry keys: vendor runtimes and brand spellings a caller must never see.
 // The registry-derived names below cover the rest.

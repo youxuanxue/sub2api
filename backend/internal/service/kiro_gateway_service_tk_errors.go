@@ -65,6 +65,12 @@ type KiroInvalidRequestError struct {
 	StatusCode int
 	Message    string
 	Body       string
+	// ContextOverflow marks the local payload-size guard specifically: the
+	// conversation outgrew the serving model's INPUT limit. It is never set for
+	// an upstream rejection. Classification is carried as a field rather than
+	// inferred from StatusCode because the public status for this case is an
+	// ordinary 400, indistinguishable from any other validation rejection.
+	ContextOverflow bool
 }
 
 // KiroEndpointQuotaExhaustedError is raised when every Kiro upstream endpoint
@@ -107,13 +113,21 @@ func (e *KiroInvalidRequestError) Error() string {
 	return fmt.Sprintf("kiro rejected request: %s", e.Message)
 }
 
-// ClientMessage returns the public copy. A wire-size rejection collapses to the
-// request-too-large SSOT: byte counts, truncation state and the fulfilling
-// supplier are internal detail the caller cannot act on. Any other message that
-// still names the supplier collapses too, rather than shipping the name.
+// ClientMessage returns the public copy. Both oversize cases drop byte counts,
+// truncation state and the fulfilling supplier — internal detail the caller
+// cannot act on — but they are different failures and get different copy: a
+// local context overflow gets the actionable prompt-length text, an upstream
+// byte-size 413 the bare request-too-large SSOT. Any other message that still
+// names the supplier collapses too, rather than shipping the name.
 func (e *KiroInvalidRequestError) ClientMessage() string {
 	if e == nil || strings.TrimSpace(e.Message) == "" {
 		return "The request was rejected"
+	}
+	// A local context overflow is an input-limit failure, not a byte-size one:
+	// it gets the actionable "prompt is too long" copy the Anthropic-shaped
+	// clients key on. An upstream byte-size 413 keeps the bare SSOT.
+	if e.ContextOverflow {
+		return TkClientFacingContextOverflowMessage
 	}
 	if e.ClientStatusCode() == http.StatusRequestEntityTooLarge {
 		return TkClientFacingRequestTooLargeMessage
@@ -127,9 +141,17 @@ func (e *KiroInvalidRequestError) ClientMessage() string {
 
 // ClientStatusCode returns the public status for a Kiro request-validation
 // failure. Upstream validation errors historically omit a status and remain
-// ordinary 400s; the local wire-size guard uses 413.
+// ordinary 400s, and the local context-overflow guard is a 400 as well. A 413
+// survives only when an upstream enforced its own HTTP body byte ceiling.
 func (e *KiroInvalidRequestError) ClientStatusCode() int {
 	if e == nil || e.StatusCode == 0 {
+		return http.StatusBadRequest
+	}
+	// The local input-limit guard reports 400: 413 request_too_large is the
+	// per-endpoint byte ceiling in Anthropic's contract, and answering a
+	// context overflow with it makes Claude Code show the model as
+	// unavailable instead of surfacing the prompt length.
+	if e.ContextOverflow {
 		return http.StatusBadRequest
 	}
 	return e.StatusCode
@@ -141,6 +163,8 @@ func (e *KiroInvalidRequestError) ClientErrorType() string {
 	if e.ClientStatusCode() == http.StatusRequestEntityTooLarge {
 		return "request_too_large"
 	}
+	// ContextOverflow lands here as invalid_request_error, matching the native
+	// Anthropic shape for a prompt that outgrew the context window.
 	return "invalid_request_error"
 }
 
