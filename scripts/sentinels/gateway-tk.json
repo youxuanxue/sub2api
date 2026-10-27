@@ -10072,9 +10072,10 @@
       "must_contain": [
         "func (s *AccountUsageService) GetPassiveUsageBatch(",
         "func (s *AccountUsageService) prefetchWindowStatsForPassive(",
-        "GetAccountWindowStatsBatch("
+        "GetAccountWindowStatsBatch(",
+        "GetAccountWindowStatsForStarts("
       ],
-      "rationale": "Batch passive-usage service method: GetByIDs (one query) + bucketed GetAccountWindowStatsBatch prefetch (one ANY($1) per distinct window start, seeded into windowStatsCache) + per-account GetPassiveUsage reuse for byte-identical output. This is the engine of the per-row /usage fan-out fix. Pins the public method, the prefetch helper, and the batch SQL call so an upstream merge cannot silently revert it to per-account queries."
+      "rationale": "Batch passive-usage service method: GetByIDs (one query) plus a constant-bound GetAccountWindowStatsForStarts prefetch (UNION ALL of ANY($1) AND created_at >= $constant per distinct start, seeded into windowStatsCache). GetAccountWindowStatsBatch remains the fallback. Pins the public method, the prefetch helper, and both SQL calls so an upstream merge cannot silently revert the page to per-account queries."
     },
     {
       "path": "backend/internal/repository/dashboard_aggregation_repo_tk_user_platform.go",
@@ -17905,6 +17906,30 @@
         "canonical := canonicalRequestedReasoningEffortValue(raw)"
       ],
       "rationale": "Requested reasoning attribution must preserve the client-facing none value before model-family normalization; otherwise Messages requests can be recorded as the effective default after a future upstream merge."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler.go",
+      "must_contain": [
+        "h.tkListAccounts("
+      ],
+      "rationale": "Admin account list must enter the lite hydration path. Replacing this call with ListAccounts reloads full group rows for every page while the JSON shape stays the same, so tests that only check the DTO still pass."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "func (r *accountRepository) ListWithFiltersLite(",
+        "loadAccountGroupIDsByAccount("
+      ],
+      "rationale": "Lite admin account list keeps group_ids and skips full group entity hydration. Dropping either symbol sends GET /admin/accounts?lite=1 back through the full group join."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_stats.go",
+      "must_contain": [
+        "func accountWindowStatsForStartsQuery(",
+        "WHERE account_id = ANY($%d) AND created_at >= $%d",
+        "UNION ALL"
+      ],
+      "rationale": "Heterogeneous account usage windows must stay one constant-bound aggregate per distinct start. A per-row created_at join cannot prune daily usage_logs partitions."
     }
   ]
 }
