@@ -105,6 +105,40 @@ func TestAnthropicToChatCompletionsBody_CleanSchemaPreserved(t *testing.T) {
 	}
 }
 
+func TestAnthropicToChatCompletionsBody_PreservesExplicitReasoningEffort(t *testing.T) {
+	for _, effort := range []string{"none", "low"} {
+		t.Run(effort, func(t *testing.T) {
+			req := &apicompat.AnthropicRequest{
+				Model:     "kimi-k3",
+				MaxTokens: 64,
+				Reasoning: &apicompat.ResponsesReasoning{Effort: effort},
+				Messages: []apicompat.AnthropicMessage{{
+					Role: "user", Content: json.RawMessage(`"hello"`),
+				}},
+			}
+			out, err := anthropicToChatCompletionsBody(req, "kimi-k3")
+			requireNoError(t, err)
+			if got := gjson.GetBytes(out, "reasoning_effort").String(); got != effort {
+				t.Fatalf("reasoning_effort=%q want %q; body=%s", got, effort, out)
+			}
+		})
+	}
+}
+
+func TestAnthropicToChatCompletionsBody_DoesNotAddDefaultReasoningEffort(t *testing.T) {
+	req := &apicompat.AnthropicRequest{
+		Model: "kimi-k3",
+		Messages: []apicompat.AnthropicMessage{{
+			Role: "user", Content: json.RawMessage(`"hello"`),
+		}},
+	}
+	out, err := anthropicToChatCompletionsBody(req, "kimi-k3")
+	requireNoError(t, err)
+	if got := gjson.GetBytes(out, "reasoning_effort"); got.Exists() {
+		t.Fatalf("omitted effort must stay omitted, got %s", got.Raw)
+	}
+}
+
 func TestTkBridgeCanonicalJSON_InvalidPassthrough(t *testing.T) {
 	raw := json.RawMessage(`{not-json`)
 	got := tkBridgeCanonicalJSON(raw)
@@ -126,5 +160,12 @@ func assertJSONEq(t *testing.T, want, got string) {
 	gotB, _ := json.Marshal(gotV)
 	if string(wantB) != string(gotB) {
 		t.Fatalf("JSON mismatch\nwant: %s\ngot:  %s", wantB, gotB)
+	}
+}
+
+func requireNoError(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

@@ -202,6 +202,19 @@ func TestOpenAIReasoningEffortPolicyForCompositeTarget(t *testing.T) {
 	require.Equal(t, body, got)
 }
 
+func TestStampOpenAIRequestedReasoningEffortFromBodyKeepsClientNone(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+	result := &service.OpenAIForwardResult{}
+	body := []byte(`{"model":"kimi-k3","reasoning":{"effort":"none"}}`)
+
+	stampOpenAIRequestedReasoningEffortFromBody(result, c, body)
+
+	require.NotNil(t, result.RequestedReasoningEffort)
+	require.Equal(t, "none", *result.RequestedReasoningEffort)
+}
+
 func TestOpenAIShapedReasoningEffortPolicyForAnthropicGroup(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
