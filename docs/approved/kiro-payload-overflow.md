@@ -65,13 +65,28 @@ rejects it locally before any upstream call:
 
 | Client API | HTTP status | Error type |
 | --- | --- | --- |
-| `/v1/messages` | 413 | `request_too_large` |
-| `/v1/chat/completions` | 413 | `request_too_large` |
+| `/v1/messages` | 400 | `invalid_request_error` |
+| `/v1/chat/completions` | 400 | `invalid_request_error` |
 
-The error message may report the serialized size and limit, but must not include
-request content. The typed rejection is caller-owned: it is not wrapped as an
-`UpstreamFailoverError`, does not select another account, and does not penalize
-account health.
+Revised 2026-10-27 (was 413 `request_too_large` on both rows). In Anthropic's
+own contract 413 `request_too_large` is the per-endpoint HTTP body byte ceiling
+— 32 MB on Messages, rejected at the edge before reaching the API — while a
+prompt that outgrows the model's input limit is 400 `invalid_request_error`
+whose message leads with `prompt is too long`. This local guard is the second
+case, so it now reports the second shape. Returning 413 gave Claude Code a
+status it only ever sees for a 32 MB body: it rendered as the model being
+unavailable, and callers switched models instead of shortening the
+conversation. An upstream 413 passed through from a supplier keeps 413
+`request_too_large` unchanged; only the local input-limit guard moved.
+
+The client-facing message must not include request content, the serialized
+size, the limit, the fulfilling supplier, or the fact that history truncation
+was attempted — none of which a caller can act on. It states that the prompt is
+too long and names the one available action (compact the conversation or start a
+new session). The full oversize diagnostics stay internal via
+`TkAnnotateRequestTooLargeOps` and the ops error log. The typed rejection is
+caller-owned: it is not wrapped as an `UpstreamFailoverError`, does not select
+another account, and does not penalize account health.
 
 ## Evidence Update (2026-10-26)
 
@@ -79,7 +94,9 @@ New direct evidence, recorded here because the Evidence And Decision section
 above is the first thing a reader consults and its boundary range is now known
 to be coarse. This section adds evidence only. It changes no approved behavior:
 the 900 KiB limit, the reduction order, the no-rewrite rules for user prose and
-tool definitions, and the 413 semantics all stand as written above.
+tool definitions, and the local-rejection semantics all stand as written above
+(the rejection's status/type was revised on 2026-10-27 as noted there; the
+no-upstream-call, non-failover and no-penalty properties are unchanged).
 
 Method: 39 upstream requests direct to
 `runtime.us-east-1.kiro.dev/generateAssistantResponse` with synthetic `x`

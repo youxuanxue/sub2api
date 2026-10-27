@@ -5142,11 +5142,11 @@
       "path": "backend/internal/service/gateway_forward_as_chat_completions_test.go",
       "must_contain": [
         "TestForwardAsChatCompletions_KiroAccountBridgesViaKiroGateway",
-        "TestUS065_ForwardAsChatCompletions_KiroOversizedPayloadReturns413WithoutUpstream",
+        "TestUS065_ForwardAsChatCompletions_KiroOversizedPayloadReturns400WithoutUpstream",
         "TestTkCCPreservesKiroUpstreamStream",
         "generateAssistantResponse"
       ],
-      "rationale": "Regression: ForwardAsChatCompletions on a valid Kiro request must hit the Kiro EventStream upstream (generateAssistantResponse) and return a chat.completion body, not anthropic.com /v1/messages. An oversized translated request must instead return local 413 request_too_large with zero upstream calls."
+      "rationale": "Regression: ForwardAsChatCompletions on a valid Kiro request must hit the Kiro EventStream upstream (generateAssistantResponse) and return a chat.completion body, not anthropic.com /v1/messages. An oversized translated request must instead be rejected locally with zero upstream calls, as 400 invalid_request_error (revised 2026-10-27 from 413 request_too_large: 413 is Anthropic's per-endpoint byte ceiling, so returning it for an input overflow made Claude Code report the model as unavailable)."
     },
     {
       "path": "backend/internal/integration/kiro/translator.go",
@@ -5176,18 +5176,22 @@
       "path": "backend/internal/service/kiro_gateway_service.go",
       "must_contain": [
         "kiroproto.ValidatePayloadSize(payload)",
-        "StatusCode: http.StatusRequestEntityTooLarge"
+        "StatusCode:      http.StatusRequestEntityTooLarge",
+        "ContextOverflow: true"
       ],
-      "rationale": "Kiro validates the final translated payload before creating an upstream request and returns a typed caller-owned 413 when history truncation cannot reach the approved wire limit."
+      "rationale": "Kiro validates the final translated payload before creating an upstream request and returns a typed caller-owned local rejection when history truncation cannot reach the approved wire limit. ContextOverflow is anchored because it is what separates this input-limit failure from an upstream HTTP-body byte-ceiling 413: dropping the field silently returns the local guard to shipping 413 request_too_large, which Claude Code renders as the model being unavailable."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_errors.go",
       "must_contain": [
         "func (e *KiroInvalidRequestError) ClientStatusCode() int",
         "func (e *KiroInvalidRequestError) ClientErrorType() string",
+        "func (e *KiroInvalidRequestError) ClientMessage() string",
+        "if e.ContextOverflow {",
+        "return TkClientFacingContextOverflowMessage",
         "return \"request_too_large\""
       ],
-      "rationale": "Messages and Chat Completions must share one Kiro invalid-request status/type owner so local overflow cannot drift from 413 request_too_large to generic 502 on one entrypoint."
+      "rationale": "Messages and Chat Completions must share one Kiro invalid-request status/type/message owner so local overflow cannot drift on one entrypoint. The owner holds two distinct outcomes and both are anchored: a local ContextOverflow is 400 invalid_request_error with the actionable prompt-is-too-long copy, while an upstream HTTP-body byte ceiling stays 413 request_too_large with the bare SSOT. Collapsing them in either direction regresses a real customer-visible failure (413 on an input overflow reads as 'model unavailable' in Claude Code)."
     },
     {
       "path": "backend/internal/service/openai_images_responses.go",
@@ -17816,7 +17820,7 @@
       "must_contain": [
         "TestKiroLocal413DiagnosticsSurviveOpsMiddleware"
       ],
-      "rationale": "Pin internal-only diagnostics persistence with caller-owned 413 and no upstream attribution."
+      "rationale": "Pin internal-only diagnostics persistence for the caller-owned local overflow rejection, with no upstream attribution. The public body is 400 invalid_request_error and carries none of the size detail; the ops entry must still receive the full diagnostics."
     },
     {
       "path": "backend/internal/integration/kiro/payload_size_diagnostics_test.go",

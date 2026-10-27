@@ -395,7 +395,7 @@ func TestForwardAsChatCompletions_KiroAccountBridgesViaKiroGateway(t *testing.T)
 	require.True(t, gjson.GetBytes(rec.Body.Bytes(), "usage").Exists())
 }
 
-func TestUS065_ForwardAsChatCompletions_KiroOversizedPayloadReturns413WithoutUpstream(t *testing.T) {
+func TestUS065_ForwardAsChatCompletions_KiroOversizedPayloadReturns400WithoutUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body, err := json.Marshal(map[string]any{
@@ -433,14 +433,25 @@ func TestUS065_ForwardAsChatCompletions_KiroOversizedPayloadReturns413WithoutUps
 	require.Nil(t, result)
 	var invalidRequestErr *KiroInvalidRequestError
 	require.ErrorAs(t, err, &invalidRequestErr)
-	require.Equal(t, http.StatusRequestEntityTooLarge, invalidRequestErr.ClientStatusCode())
-	require.Equal(t, "request_too_large", invalidRequestErr.ClientErrorType())
+	// A local input-limit rejection is a 400 invalid_request_error: 413
+	// request_too_large is the per-endpoint byte ceiling, and returning it for a
+	// context overflow makes Anthropic-shaped clients report the model as
+	// unavailable instead of the prompt being too long.
+	require.True(t, invalidRequestErr.ContextOverflow)
+	require.Equal(t, http.StatusRequestEntityTooLarge, invalidRequestErr.StatusCode, "internal status keeps the oversize origin")
+	require.Equal(t, http.StatusBadRequest, invalidRequestErr.ClientStatusCode())
+	require.Equal(t, "invalid_request_error", invalidRequestErr.ClientErrorType())
 	var failoverErr *UpstreamFailoverError
 	require.NotErrorAs(t, err, &failoverErr)
 
-	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
-	require.Equal(t, "request_too_large", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-	require.Contains(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String(), "too large")
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "invalid_request_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	publicMsg := gjson.GetBytes(rec.Body.Bytes(), "error.message").String()
+	require.Contains(t, publicMsg, "prompt is too long")
+	require.Contains(t, publicMsg, "/compact")
+	for _, leak := range []string{"Kiro", "kiro", "921600", "truncation"} {
+		require.NotContains(t, publicMsg, leak)
+	}
 	require.Nil(t, upstream.lastReq, "oversized payload must not reach Kiro upstream")
 }
 

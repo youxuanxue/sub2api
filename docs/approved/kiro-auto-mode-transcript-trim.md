@@ -47,7 +47,9 @@ Claude Code `/compact`/`/autocompact` 也会把待压缩内容放进最后一个
   1. 从最旧到最新，整条删除已结束的旧工具过程记录（如 Bash/Read/Write/Edit
      调用及其结果）；每删一条重测尺寸；省略处插入固定占位句；
   2. 仍超限则删除最旧的非授权元数据记录；
-  3. 仍超限 → 保持现有本地 413，零上游、不 failover、不罚号。
+  3. 仍超限 → 保持现有本地拒绝，零上游、不 failover、不罚号（对客状态/文案由
+     [`kiro-payload-overflow`](kiro-payload-overflow.md) 拥有；2026-10-27 起为
+     400 `invalid_request_error`）。
 - **硬保留**：全部真实 `user` 原文；最新 action 及其紧邻 meta/outcome；
   `<transcript>` 外壳与结尾标记；安全 system / 分类器提示；工具 schema。
 - **账号开关**：复用 `Account.Extra` 布尔
@@ -67,7 +69,9 @@ Claude Code `/compact`/`/autocompact` 也会把待压缩内容放进最后一个
   「不得缩短 current user prose」在本开关开启且识别成功时，允许上述**结构化
   整条删除**所导致的 current 文本变短；**禁止**头尾截断、摘要、模型总结、
   按角色盲删 assistant、或改写用户授权原文。
-- 900 KiB（`maxPayloadBytes`）护栏、413 语义、非 failover、不罚号：**不变**。
+- 900 KiB（`maxPayloadBytes`）护栏、本地拒绝语义、非 failover、不罚号：**不变**。
+  （对客状态/文案 2026-10-27 由 413 `request_too_large` 改为 400
+  `invalid_request_error`，owner 是 overflow 契约，本文件不复制。）
   抬限到 940 KiB 等容量变更**不在本文件范围**，仍走 overflow / 任务拆解中的
   单独审批。
 

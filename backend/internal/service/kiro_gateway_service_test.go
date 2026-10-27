@@ -309,7 +309,10 @@ func TestKiroGatewayService_Forward_OversizedPayloadRejectedBeforeUpstream(t *te
 	var invalidRequestErr *KiroInvalidRequestError
 	require.ErrorAs(t, err, &invalidRequestErr)
 	require.Equal(t, http.StatusRequestEntityTooLarge, invalidRequestErr.StatusCode)
-	require.Contains(t, invalidRequestErr.ClientMessage(), "too large")
+	require.True(t, invalidRequestErr.ContextOverflow)
+	// Public copy is the actionable input-limit text, not the byte-size SSOT.
+	require.Equal(t, http.StatusBadRequest, invalidRequestErr.ClientStatusCode())
+	require.Contains(t, invalidRequestErr.ClientMessage(), "prompt is too long")
 	var failoverErr *UpstreamFailoverError
 	require.NotErrorAs(t, err, &failoverErr)
 	require.False(t, upstream.gotRequest, "oversized payload must not reach Kiro upstream")
