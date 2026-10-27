@@ -164,6 +164,7 @@ import { resolveFacadeApiBaseUrl } from '@/features/home/marketProfile.tk'
 import { getMePricingCatalog } from '@/api/me-pricing'
 import { getPublicPricing, type PublicCatalogModel } from '@/api/pricing'
 import {
+  attachPublicImageTiers,
   isUniversalKey,
   priceMapFromPublicCatalog,
   priceMapFromMeCatalog,
@@ -452,7 +453,7 @@ async function loadPriceMap(keyId: number): Promise<MediaPriceMap> {
   }
   try {
     const catalog = await getMePricingCatalog({ apiKeyId: keyId })
-    return priceMapFromMeCatalog(catalog.models || [])
+    return attachPublicImageTiers(priceMapFromMeCatalog(catalog.models || []), publicCatalogModels.value)
   } catch {
     return new Map()
   }

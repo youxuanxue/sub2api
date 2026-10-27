@@ -24,6 +24,10 @@ export interface PublicPricing {
   billing_mode?: string
   /** USD per generated image (image billing_mode). */
   output_cost_per_image?: number
+  /** Explicit 1K/2K/4K list prices. When set, settlement uses these instead of the 1.5×/2× multiplier. */
+  image_price_1k?: number
+  image_price_2k?: number
+  image_price_4k?: number
   /** USD per second of generated video (video billing_mode). Minimum tier when video_price_tiers is set. */
   output_cost_per_second?: number
   output_cost_per_character?: number

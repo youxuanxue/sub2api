@@ -44,7 +44,8 @@ export function priceMapFromPublicCatalog(
       m.pricing?.output_cost_per_image,
       m.pricing?.output_cost_per_second,
       m.vendor,
-      m.pricing?.video_price_tiers
+      m.pricing?.video_price_tiers,
+      m.pricing
     )
     if (entry) map.set(m.model_id, entry)
   }
@@ -71,7 +72,8 @@ function mediaPriceFromCatalogRow(
   perImage: number | undefined | null,
   perSecond: number | undefined | null,
   vendor: string | undefined,
-  videoTiersRaw?: readonly PublicPricingVideoTier[]
+  videoTiersRaw?: readonly PublicPricingVideoTier[],
+  imageTiers?: { image_price_1k?: number; image_price_2k?: number; image_price_4k?: number }
 ): MediaPrice | undefined {
   const billingMode = pricingCatalogModality(billingModeRaw)
   if (billingMode !== 'image' && billingMode !== 'video') return undefined
@@ -79,13 +81,46 @@ function mediaPriceFromCatalogRow(
   const hasVideo = perSecond != null && perSecond > 0
   if ((billingMode === 'image' && !hasImage) || (billingMode === 'video' && !hasVideo && !videoTiersRaw?.length)) return undefined
   const videoTiers = mapVideoPriceTiers(videoTiersRaw)
-  return {
+  const entry: MediaPrice = {
     perImage: billingMode === 'image' && hasImage ? perImage : undefined,
     perSecond: billingMode === 'video' && hasVideo ? perSecond : undefined,
     videoTiers: billingMode === 'video' ? videoTiers : undefined,
     billingMode,
     vendor,
   }
+  const imagePrice1K = positiveTier(imageTiers?.image_price_1k)
+  const imagePrice2K = positiveTier(imageTiers?.image_price_2k)
+  const imagePrice4K = positiveTier(imageTiers?.image_price_4k)
+  if (imagePrice1K != null) entry.imagePrice1K = imagePrice1K
+  if (imagePrice2K != null) entry.imagePrice2K = imagePrice2K
+  if (imagePrice4K != null) entry.imagePrice4K = imagePrice4K
+  return entry
+}
+
+function positiveTier(price: number | undefined): number | undefined {
+  return price != null && price > 0 ? price : undefined
+}
+
+/** Copy explicit image tiers from the public catalog onto a price map that only has per-image. */
+export function attachPublicImageTiers(
+  map: MediaPriceMap,
+  publicModels: readonly PublicCatalogModel[]
+): MediaPriceMap {
+  const tiers = new Map<string, Pick<MediaPrice, 'imagePrice1K' | 'imagePrice2K' | 'imagePrice4K'>>()
+  for (const m of publicModels) {
+    const imagePrice1K = positiveTier(m.pricing?.image_price_1k)
+    const imagePrice2K = positiveTier(m.pricing?.image_price_2k)
+    const imagePrice4K = positiveTier(m.pricing?.image_price_4k)
+    if (imagePrice1K == null && imagePrice2K == null && imagePrice4K == null) continue
+    tiers.set(m.model_id, { imagePrice1K, imagePrice2K, imagePrice4K })
+  }
+  if (tiers.size === 0) return map
+  const out = new Map(map)
+  for (const [id, row] of out) {
+    const tier = tiers.get(id)
+    if (tier) out.set(id, { ...row, ...tier })
+  }
+  return out
 }
 
 function mapVideoPriceTiers(raw?: readonly PublicPricingVideoTier[]): VideoPriceTier[] | undefined {

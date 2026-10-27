@@ -17,8 +17,11 @@ describe('classifyImageBillingTier (mirror of backend ClassifyImageBillingTier)'
 
   it('classifies pixel strings by max edge', () => {
     expect(classifyImageBillingTier('1024x1024')).toBe('1K')
-    expect(classifyImageBillingTier('1536x1024')).toBe('2K') // maxEdge 1536 ≤ 2048
+    expect(classifyImageBillingTier('1536x1024')).toBe('2K') // maxEdge 1536 ≤ 2560
     expect(classifyImageBillingTier('1024x1536')).toBe('2K')
+    expect(classifyImageBillingTier('2560x1440')).toBe('2K')
+    expect(classifyImageBillingTier('1728x2368')).toBe('2K')
+    expect(classifyImageBillingTier('2688x1536')).toBe('4K')
     expect(classifyImageBillingTier('3840x2160')).toBe('4K')
   })
 
@@ -31,6 +34,18 @@ describe('classifyImageBillingTier (mirror of backend ClassifyImageBillingTier)'
 })
 
 describe('estimateImageCost (mirror of CalculateImageCost)', () => {
+  it('explicit image_price_2k replaces the 1.5× fallback', () => {
+    const base = 0.25 / 6.7
+    const price2K = 0.5 / 6.7
+    expect(estimateImageCost({
+      baseImagePrice: base,
+      size: '2048x2048',
+      n: 1,
+      imagePrice2K: price2K,
+    })).toBeCloseTo(price2K, 10)
+    expect(estimateImageCost({ baseImagePrice: base, size: '2048x2048', n: 1 })).toBeCloseTo(base * 1.5, 10)
+  })
+
   it('tiered model 2K ×1.5 × 1 = base×1.5 (the size-tier multiplier path — seedream)', () => {
     // Imagen now bills FLAT (no size tier); the ×1.5 path is exercised by seedream,
     // whose pixel options classify to 2K. estimateImageCost itself is model-agnostic —

@@ -2,6 +2,7 @@
 import type { ApiKey } from '@/types'
 
 export {
+  attachPublicImageTiers,
   buildCatalogBillingIndex,
   priceMapFromMeCatalog,
   priceMapFromPublicCatalog,

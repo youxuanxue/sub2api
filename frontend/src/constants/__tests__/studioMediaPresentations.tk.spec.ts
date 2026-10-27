@@ -459,14 +459,25 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
       expect(m.flatPricePerImage).toBe(true)
       expect(m.flatImageBilling).toBeFalsy()
     }
-    // Wan 2.7 sends pixels like Seedream but bills flat CNY/image (Token Plan / DashScope).
-    for (const m of MEDIA_MODEL_PRESENTATIONS.filter((m) => m.imageSizes === WAN27_IMAGE_SIZES)) {
+    // Wan 2.7 sends these pixels but bills flat CNY/image. Qwen Image 3.0 Pro
+    // uses the same chips and bills the 2K tier, so array identity is not the price flag.
+    for (const m of MEDIA_MODEL_PRESENTATIONS.filter((m) => m.modelId.startsWith('wan2.7-image'))) {
+      expect(m.imageSizes).toBe(WAN27_IMAGE_SIZES)
       expect(m.flatPricePerImage).toBe(true)
       expect(m.flatImageBilling).toBeFalsy()
     }
-    // Seedream sends real pixel sizes → keeps the 1K/2K/4K size-tier multiplier:
-    // neither flat flag set.
+    const qwenImage = MEDIA_MODEL_PRESENTATIONS.find((m) => m.modelId === 'qwen-image-3.0-pro')!
+    expect(qwenImage.imageSizes).toBe(WAN27_IMAGE_SIZES)
+    expect(qwenImage.flatPricePerImage).toBeFalsy()
+    expect(qwenImage.flatImageBilling).toBeFalsy()
+    // Seedream sends real pixel sizes → keeps the 1K/2K/4K size-tier multiplier,
+    // except Flash, whose official list is one price per successful image.
     for (const m of MEDIA_MODEL_PRESENTATIONS.filter((m) => m.imageSizes === SEEDREAM_IMAGE_SIZES)) {
+      if (m.modelId === 'doubao-seedream-5.0-flash') {
+        expect(m.flatPricePerImage).toBe(true)
+        expect(m.flatImageBilling).toBeFalsy()
+        continue
+      }
       expect(m.flatPricePerImage).toBeFalsy()
       expect(m.flatImageBilling).toBeFalsy()
     }

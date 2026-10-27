@@ -266,9 +266,22 @@ watch([generationPlan, () => props.catalogLoading], ([plan, loading]) => {
   if (!loading) imageOptions.value = normalizeImageOptions(plan, imageOptions.value)
 }, { immediate: true })
 const classifiedTier = computed(() => classifyImageBillingTier(sentSize.value))
-const sizeMultiplier = computed(() => IMAGE_SIZE_MULTIPLIER[classifiedTier.value])
 // Billing and request capabilities are independent.
 const pricesFlat = computed(() => !!selected.value?.presentation.flatImageBilling || !!selected.value?.presentation.flatPricePerImage)
+const sizeMultiplier = computed(() => {
+  const base = selected.value?.baseImagePrice
+  const fallback = IMAGE_SIZE_MULTIPLIER[classifiedTier.value]
+  if (pricesFlat.value || base == null || base <= 0) return fallback
+  const unit = estimateImageCost({
+    baseImagePrice: base,
+    size: classifiedTier.value,
+    n: 1,
+    imagePrice1K: selected.value?.imagePrice1K,
+    imagePrice2K: selected.value?.imagePrice2K,
+    imagePrice4K: selected.value?.imagePrice4K,
+  })
+  return unit / base
+})
 const effectiveN = n
 const prompt = ref('')
 const userEditedPrompt = ref(false)
@@ -300,6 +313,9 @@ const estimate = computed(() => {
     size: pricesFlat.value ? '1K' : sentSize.value, // flat ⇒ ×1, no size tier
     n: effectiveN.value,
     rateMultiplier: props.rateMultiplier,
+    imagePrice1K: selected.value.imagePrice1K,
+    imagePrice2K: selected.value.imagePrice2K,
+    imagePrice4K: selected.value.imagePrice4K,
   })
 })
 // Affordability is gated on the backend HOLD upper bound. For imagen/seedream that
@@ -314,12 +330,18 @@ const holdEstimate = computed(() => {
       size: '1K',
       n: effectiveN.value, // gemini → 1 (n-locked); imagen → real n (multi-image, flat per image)
       rateMultiplier: props.rateMultiplier,
+      imagePrice1K: selected.value.imagePrice1K,
+      imagePrice2K: selected.value.imagePrice2K,
+      imagePrice4K: selected.value.imagePrice4K,
     })
   }
   return estimateImageHoldCost({
     baseImagePrice: selected.value.baseImagePrice,
     n: n.value,
     rateMultiplier: props.rateMultiplier,
+    imagePrice1K: selected.value.imagePrice1K,
+    imagePrice2K: selected.value.imagePrice2K,
+    imagePrice4K: selected.value.imagePrice4K,
   })
 })
 const canAfford = computed(() => holdEstimate.value == null || holdEstimate.value <= props.balance)
@@ -452,6 +474,9 @@ async function generate(): Promise<void> {
     size: pricesFlat.value ? '1K' : submittedSize,
     n: 1,
     rateMultiplier: props.rateMultiplier,
+    imagePrice1K: resolved.imagePrice1K,
+    imagePrice2K: resolved.imagePrice2K,
+    imagePrice4K: resolved.imagePrice4K,
   })
   try {
     const plan = generationPlan.value

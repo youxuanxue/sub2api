@@ -182,10 +182,10 @@ export const SEEDREAM_IMAGE_SIZES: ImageSizeOption[] = [
 ]
 
 /**
- * Wan 2.7: OpenAI-compat size is WxH pixels; Ali adaptor rewrites `x` → `*`.
- * Official 2K recommended set (wan2.7-image max; Studio also uses this for pro —
- * 4K remains available via API for pro but is not a Studio chip yet).
- * Billing is flat per successful image (no Seedream-style size-tier multiplier).
+ * Official 2K recommended pixels for Wan 2.7 and Qwen Image 3.0.
+ * OpenAI-compat size is WxH; Ali adaptor rewrites `x` → `*`.
+ * Wan 2.7 bills flat per image. Qwen Image 3.0 Pro shares these pixels and
+ * bills image_price_2k, so flatPricePerImage stays off for that model.
  * ref: https://help.aliyun.com/zh/model-studio/text-to-image
  */
 export const WAN27_IMAGE_SIZES: ImageSizeOption[] = [
@@ -353,6 +353,7 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     modality: 'image',
     supportedParams: [],
     imageSizes: SEEDREAM_IMAGE_SIZES,
+    flatPricePerImage: true, // Ark lists one output price per image; mirrors tkIsFlatPerImageModel
   },
   {
     modelId: 'doubao-seedream-4-5-251128',
@@ -394,7 +395,7 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     vendorLabel: DASHSCOPE,
     modality: 'image',
     supportedParams: [],
-    // 2K pixel chips. Catalog bills image_price_2k for these sizes.
+    // Same 2K pixels as Wan. Catalog image_price_2k bills them; not a flat price.
     imageSizes: WAN27_IMAGE_SIZES,
   },
   {
@@ -672,6 +673,10 @@ function buildMediaPresentationForCatalogRow(
 export interface MediaPrice {
   /** USD per image at the 1K base tier (image models). */
   perImage?: number
+  /** Registry image_price_* (USD). Present when the catalog publishes an explicit size tier. */
+  imagePrice1K?: number
+  imagePrice2K?: number
+  imagePrice4K?: number
   /** USD per second (video models). Minimum tier when videoTiers is set. */
   perSecond?: number
   /** Official resolution×audio ladder (from public /pricing). */
@@ -689,6 +694,9 @@ export interface ResolvedMediaModel {
   servedId: string
   /** Live price for this model (from the catalog), per modality. */
   baseImagePrice?: number
+  imagePrice1K?: number
+  imagePrice2K?: number
+  imagePrice4K?: number
   perSecond?: number
   videoTiers?: readonly VideoPriceTier[]
 }
@@ -729,6 +737,9 @@ export function resolveAvailableModels(
       presentation: resolvedPresentation,
       servedId,
       baseImagePrice,
+      imagePrice1K: price?.imagePrice1K,
+      imagePrice2K: price?.imagePrice2K,
+      imagePrice4K: price?.imagePrice4K,
       perSecond,
       videoTiers: price?.videoTiers,
     })
