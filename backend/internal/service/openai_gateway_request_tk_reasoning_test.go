@@ -21,6 +21,8 @@ func TestCompatibleResponsesPreservesExplicitNoneForReasoningModels(t *testing.T
 		{name: "DeepSeek without metadata", model: "deepseek-v4-flash", want: "none"},
 		{name: "mapped DeepSeek alias", model: "coding", target: "deepseek-v4-pro", want: "none"},
 		{name: "discovered reasoning model", model: "custom-reasoner", known: true, want: "none"},
+		{name: "Kimi without metadata", model: "kimi-k3", want: "none"},
+		{name: "mapped Kimi alias", model: "coding", target: "kimi-k3", want: "none"},
 		{name: "catalog placeholder", model: "company-coding-model"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

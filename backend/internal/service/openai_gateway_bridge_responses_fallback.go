@@ -304,6 +304,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
+	if resolveMoonshotThinkingFamily(upstreamModel) == moonshotThinkingK3 {
+		reasoningEffort = extractOpenAIReasoningEffortFromBody(chatBody, upstreamModel)
+	}
 	if serviceTier == nil {
 		serviceTier = extractOpenAIServiceTierFromBody(chatBody)
 	}

@@ -139,6 +139,11 @@ func openAIReasoningEffortToClaudeOutputEffort(effort string) string {
 // normally translated to OpenAI xhigh, but GPT-5.6 accepts the original max
 // value on Responses and Chat Completions.
 func openAICompatAnthropicReasoningEffort(req *apicompat.AnthropicRequest, upstreamModel, convertedEffort string) string {
+	// Kimi omission must remain omission after alias resolution; the generic
+	// Anthropic converter defaults to medium for historical GPT compatibility.
+	if resolveMoonshotThinkingFamily(upstreamModel) == moonshotThinkingK3 {
+		return apicompat.AnthropicExplicitReasoningEffort(req)
+	}
 	if convertedEffort == "none" {
 		return convertedEffort
 	}
