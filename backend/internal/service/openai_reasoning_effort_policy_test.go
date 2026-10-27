@@ -24,6 +24,10 @@ func TestCanonicalRequestedReasoningEffort(t *testing.T) {
 	require.NotNil(t, claude)
 	require.Equal(t, "high", *claude)
 
+	none := CanonicalRequestedReasoningEffort([]byte(`{"model":"kimi-k3","reasoning":{"effort":"none"}}`))
+	require.NotNil(t, none)
+	require.Equal(t, "none", *none)
+
 	require.Nil(t, CanonicalRequestedReasoningEffort([]byte(`{"model":"gpt-5.4"}`), "gpt-5.4"))
 }
 

@@ -483,6 +483,13 @@ func anthropicReasoningEffort(req *AnthropicRequest) string {
 	if req.Thinking != nil && req.Thinking.Type == "disabled" {
 		return "none"
 	}
+	// Some OpenAI-compatible clients send Responses-shaped reasoning on the
+	// Messages endpoint. Preserve it before applying the Anthropic default.
+	// This is intentionally kept in the shared resolver so the direct Chat and
+	// Responses bridges cannot diverge.
+	if req.Reasoning != nil && strings.TrimSpace(req.Reasoning.Effort) != "" {
+		return mapAnthropicEffortToResponses(strings.ToLower(strings.TrimSpace(req.Reasoning.Effort)))
+	}
 	effort := "medium"
 	if req.OutputConfig != nil && req.OutputConfig.Effort != "" {
 		effort = req.OutputConfig.Effort

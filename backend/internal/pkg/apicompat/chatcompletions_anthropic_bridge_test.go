@@ -329,6 +329,23 @@ func TestAnthropicToChatCompletionsRequest_ReasoningEffortDefaultMedium(t *testi
 	require.Equal(t, "medium", out.ReasoningEffort)
 }
 
+func TestAnthropicToChatCompletionsRequest_ResponsesReasoningEffortPreserved(t *testing.T) {
+	for _, effort := range []string{"none", "low"} {
+		t.Run(effort, func(t *testing.T) {
+			req := &AnthropicRequest{
+				Model:     "kimi-k3",
+				MaxTokens: 100,
+				Reasoning: &ResponsesReasoning{Effort: effort},
+				Messages:  []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"hi"`)}},
+			}
+
+			out, err := AnthropicToChatCompletionsRequest(req)
+			require.NoError(t, err)
+			require.Equal(t, effort, out.ReasoningEffort)
+		})
+	}
+}
+
 func TestAnthropicToChatCompletionsRequest_ServerToolDropped(t *testing.T) {
 	req := &AnthropicRequest{
 		Model:     "claude-sonnet-4-20250514",

@@ -24,7 +24,9 @@ def generation_terminal(protocol, events, stream):
     if protocol == 'openai-chat':
         reasons = [c.get('finish_reason') for e in events for c in e.get('choices', [])
                    if c.get('finish_reason') is not None]
-        allowed = {'stop', 'tool_calls', 'function_call'}
+        # Safety refusal is a completed generation.  Its visible content may
+        # be empty while the provider still returns usage and/or reasoning.
+        allowed = {'stop', 'tool_calls', 'function_call', 'content_filter'}
     elif protocol == 'anthropic-messages':
         reasons = [obj['stop_reason'] for e in events for obj in objects(e)
                    if obj.get('stop_reason') is not None]
@@ -116,9 +118,24 @@ def validate_response(case, status, ctype, raw, stream):
         if not any(type(obj.get(field)) is int and obj[field] >= 0 for obj in dictionaries
                    for field in ('input_tokens', 'prompt_tokens', 'promptTokenCount', 'total_tokens')):
             return 'usage_missing'
-        if protocol != 'openai-embeddings' and case['request_type'] != 'tool' and not any(
-                isinstance(obj.get(field), str) and obj[field] for obj in dictionaries for field in ('text', 'content', 'refusal')):
-            return 'semantic_output_missing'
+        if protocol != 'openai-embeddings' and case['request_type'] != 'tool':
+            has_output = any(
+                isinstance(obj.get(field), str) and obj[field]
+                for obj in dictionaries for field in ('text', 'content', 'refusal'))
+            if not has_output and protocol == 'openai-chat':
+                choices = [choice for event in events for choice in event.get('choices', [])]
+                finish_reasons = {choice.get('finish_reason') for choice in choices}
+                # Always-thinking providers can stop after emitting only
+                # reasoning_content. Treat that as a valid response shape;
+                # answer_text() intentionally remains visible-content-only for
+                # exact answer assertions.
+                has_output = (
+                    'content_filter' in finish_reasons or
+                    any(isinstance(choice.get('delta' if stream else 'message', {}).get('reasoning_content'), str)
+                        and choice.get('delta' if stream else 'message', {}).get('reasoning_content')
+                        for choice in choices))
+            if not has_output:
+                return 'semantic_output_missing'
         if case['request_type'] == 'tool':
             tool = any(obj.get('type') in ('tool_use', 'function_call') or obj.get('tool_calls') or obj.get('functionCall') for obj in dictionaries)
             if not tool:

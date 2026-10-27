@@ -17872,6 +17872,21 @@
         "require.False(t, errors.As(err, &failover)"
       ],
       "rationale": "Gateway-level proof that the wire-size rejection happens before any upstream call and stays caller-owned: not wrapped as UpstreamFailoverError, so it neither selects another account nor penalizes account health, while a fitting request still dispatches."
+    },
+    {
+      "path": "backend/internal/handler/composite_platform.go",
+      "must_contain": [
+        "for _, path := range []string{\"reasoning.effort\", \"reasoning_effort\", \"output_config.effort\"}"
+      ],
+      "rationale": "Messages-side OpenAI reasoning policy binding must keep nested and flat client effort fields aligned with output_config so future upstream merges cannot silently restore the old output_config-only gate."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_request_body.go",
+      "must_contain": [
+        "func canonicalRequestedReasoningEffortValue(raw string) string",
+        "canonical := canonicalRequestedReasoningEffortValue(raw)"
+      ],
+      "rationale": "Requested reasoning attribution must preserve the client-facing none value before model-family normalization; otherwise Messages requests can be recorded as the effective default after a future upstream merge."
     }
   ]
 }

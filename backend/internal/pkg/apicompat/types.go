@@ -31,7 +31,13 @@ type AnthropicRequest struct {
 	// 时丢弃该字段，网关侧后续的 metadata 重写(ensureClaudeOAuthMetadataUserID/
 	// RewriteUserIDWithMasking) 在 body 里拿不到起点，就无法重建一个合法的
 	// user_id，进而导致请求被归类为第三方 app。
-	Metadata     json.RawMessage        `json:"metadata,omitempty"`
+	Metadata json.RawMessage `json:"metadata,omitempty"`
+	// Reasoning is an OpenAI-compatible extension accepted on the Messages
+	// surface.  Messages clients using the Responses-shaped
+	// reasoning.effort field must keep that preference through the
+	// Messages→Chat/Responses bridges; otherwise the bridge falls back to its
+	// default effort and silently changes the request semantics.
+	Reasoning    *ResponsesReasoning    `json:"reasoning,omitempty"`
 	OutputConfig *AnthropicOutputConfig `json:"output_config,omitempty"`
 }
 
