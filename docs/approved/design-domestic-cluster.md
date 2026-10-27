@@ -8,7 +8,7 @@ risk: high
 provider: ucloud
 ---
 
-> **现状（2026-10-23）**：cn-prod 已迁至**腾讯北京**（身份见 [`deploy/domestic/prod-target.json`](../../deploy/domestic/prod-target.json)）。国内长期 HTTPS 入口是 `https://api.galaxywaveai.com`（`154.8.214.179`）。`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前不改这条解析，也不把它写成 `public_origin` 或 `SERVER_FRONTEND_URL`。本文 UCloud 资源、供应与首客章节为首次上线历史；蓝绿发布授权与边界仍有效。UCloud 仅剩 `106.75.29.139` 转发，计划 2026-10-24 退役。
+> **现状（2026-10-27）**：cn-prod 在**腾讯北京**（身份见 [`deploy/domestic/prod-target.json`](../../deploy/domestic/prod-target.json)）。国内长期 HTTPS 入口是 `https://api.galaxywaveai.com`（`154.8.214.179`）。`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前不改这条解析，也不把它写成 `public_origin` 或 `SERVER_FRONTEND_URL`。本文 UCloud 资源、供应与首客章节为首次上线历史；蓝绿发布授权与边界仍有效。UCloud `106.75.29.139` 已于 2026-10-27 销毁。
 
 # 已确认的交付范围
 
