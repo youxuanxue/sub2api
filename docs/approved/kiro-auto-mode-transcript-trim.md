@@ -53,12 +53,12 @@ Claude Code `/compact`/`/autocompact` 也会把待压缩内容放进最后一个
 - **账号开关**：复用 `Account.Extra` 布尔
   `kiro_auto_mode_transcript_trim=true`（仅 Kiro；缺省/非布尔 = 关闭）。无
   schema 变更。关闭时行为与今完全一致。
-- **Compact block split**：仅在本地超限、开关开启、`context_management` 存在、
-  `max_tokens>64`、最后一个 user 消息包含至少两个纯 `text`/`input_text` block、
-  总文本至少 256 KiB 且请求没有 assistant turn 时，将每个 block 变成一个独立
-  user turn；最后一个 block 保留为 current，其余交给既有 history 裁剪器整条删除。
-  混合图片/工具 block、单 block、小消息、缺少 context-management 或 classifier
-  budget 均保持原文。
+- **Compact block split**：仅在本地超限、开关开启、最后一个 user 消息包含至少两个
+  纯 `text`/`input_text` block、总文本至少 256 KiB 且请求没有 assistant turn 时，
+  将每个 block 变成一个独立 user turn；最后一个 block 保留为 current，其余交给既有
+  history 裁剪器整条删除。`context_management` 和 `max_tokens` 不再是硬跳过条件，
+  因而同一受控开关也覆盖 max_tokens=64 的 auto-mode 请求和没有该字段的 compact
+  请求。混合图片/工具 block、单 block、小消息仍保持原文。
 - **可观测性**：诊断只报尺寸、删除类别/条数、识别是否命中、hash；不落正文。
 
 ### MODIFIED（相对 overflow 契约的**有条件例外**）
@@ -87,11 +87,11 @@ Claude Code `/compact`/`/autocompact` 也会把待压缩内容放进最后一个
 |---|---|---|---|
 | S1 | 正 | 开关开 + 可解析 auto-mode + 存在可删旧工具过程且删后 ≤900KiB | 改写后通过 `ValidatePayloadSize`，可上游；保留项完整 |
 | S2 | 负 | 开关开但解析失败 / 缺最新 action | **原文不动**，413（若仍超限） |
-| S3 | 负 | 开关关或非 auto-mode 普通大 user 文本 | 零改写，现有 overflow 行为 |
+| S3 | 负 | 开关关、单 block、含图片/工具、含 assistant turn，或无法安全识别的普通大文本 | 零改写，现有 overflow 行为 |
 | S4 | 回归 | 未超限的小请求 | 字节级与今一致 |
 | S5 | 安全 | 先禁止后简短确认、撤回、第三方插入、依赖旧 Write 内容的动作 | 减肥后判定与未改写基线对比；漂移则失败，不得上线 |
 | S6 | 正 | 开关开 + compact 多 text block + 删除旧 block 后 ≤900KiB | 保留最新 block，整条删除旧 block 后通过本地尺寸校验 |
-| S7 | 负 | compact 形状缺 context-management、含图片/工具或只有一个 block | 原文不动，沿用 413 |
+| S7 | 负 | 含图片/工具或只有一个 block | 原文不动，沿用 413 |
 
 ## Prototype gates（审批前必须可演示）
 
@@ -108,7 +108,8 @@ Claude Code `/compact`/`/autocompact` 也会把待压缩内容放进最后一个
 - 单元：识别、NDJSON/content-blocks 解析、按预算停删、解析失败不改写、already_fits。
 - 聚焦：`go test -tags=unit` 覆盖本原型包与既有 US-065 overflow 回归（flag 默认关）。
 - 网关：仅 `ValidatePayloadSize` 失败且 Extra 开启时进入 compact block split 或
-  `TrimClaudeAutoModeTranscriptUntil`；413 诊断只带计数与 skip reason。
+  `TrimClaudeAutoModeTranscriptUntil`；两条路径都在每次完整记录/完整 block 删除后
+  重测，413 诊断只带计数与 skip reason。
 - 人工：开关账号副本演示 S1–S5；未批准前禁止改生产默认 Extra。
 - Story：[`US-071`](../../.testing/user-stories/stories/US-071-kiro-auto-mode-transcript-trim.md)；
   本 `pending` 文档无 related_prs，直至实现 PR 与人工 merge 审批。

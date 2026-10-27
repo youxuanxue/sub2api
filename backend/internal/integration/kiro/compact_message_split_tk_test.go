@@ -33,7 +33,7 @@ func TestSplitClaudeCompactUserMessage_PreservesBlocksAsTurns(t *testing.T) {
 	require.Equal(t, strings.Repeat("c", 100*1024), req.Messages[3].Content)
 }
 
-func TestSplitClaudeCompactUserMessage_RejectsClassifierAndMixedContent(t *testing.T) {
+func TestSplitClaudeCompactUserMessage_AllowsClassifierAndMissingContextManagement(t *testing.T) {
 	base := []any{
 		map[string]any{"type": "text", "text": strings.Repeat("x", 200*1024)},
 		map[string]any{"type": "text", "text": strings.Repeat("y", 100*1024)},
@@ -41,9 +41,18 @@ func TestSplitClaudeCompactUserMessage_RejectsClassifierAndMixedContent(t *testi
 
 	classifier := &ClaudeRequest{MaxTokens: 64, Messages: []ClaudeMessage{{Role: "user", Content: base}}}
 	rep := SplitClaudeCompactUserMessage(classifier)
-	require.False(t, rep.Applied)
-	require.Equal(t, "classifier_budget", rep.SkipReason)
-	require.Len(t, classifier.Messages, 1)
+	require.True(t, rep.Applied, "skip=%s", rep.SkipReason)
+	require.True(t, rep.Candidate)
+	require.Len(t, classifier.Messages, 2)
+	require.Equal(t, strings.Repeat("x", 200*1024), classifier.Messages[0].Content)
+	require.Equal(t, strings.Repeat("y", 100*1024), classifier.Messages[1].Content)
+
+	compact := &ClaudeRequest{MaxTokens: 64000, Messages: []ClaudeMessage{{Role: "user", Content: base}}}
+	rep = SplitClaudeCompactUserMessage(compact)
+	require.True(t, rep.Applied, "skip=%s", rep.SkipReason)
+	require.True(t, rep.Candidate)
+	require.Len(t, compact.Messages, 2)
+	require.Equal(t, strings.Repeat("y", 100*1024), compact.Messages[1].Content)
 
 	mixed := &ClaudeRequest{MaxTokens: 64000, ContextManagement: json.RawMessage(`{}`), Messages: []ClaudeMessage{{
 		Role:    "user",
@@ -83,11 +92,10 @@ func TestSplitClaudeCompactUserMessage_AllowsExistingHistoryTruncatorToFitWire(t
 		})
 	}
 	req := &ClaudeRequest{
-		Model:             "claude-opus-5",
-		MaxTokens:         64000,
-		ContextManagement: json.RawMessage(`{}`),
-		System:            strings.Repeat("system ", 10*1024),
-		Messages:          []ClaudeMessage{{Role: "user", Content: blocks}},
+		Model:     "claude-opus-5",
+		MaxTokens: 64,
+		System:    strings.Repeat("system ", 10*1024),
+		Messages:  []ClaudeMessage{{Role: "user", Content: blocks}},
 	}
 	before := ClaudeToKiro(req, false)
 	require.Error(t, ValidatePayloadSize(before))

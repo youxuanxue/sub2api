@@ -2,8 +2,8 @@ package kiro
 
 import "strings"
 
-// CompactMessageSplitReport is size/count metadata for the gated compact
-// message normalization. It never contains request text.
+// CompactMessageSplitReport is size/count metadata for the gated multi-block
+// user-message normalization. It never contains request text.
 type CompactMessageSplitReport struct {
 	Candidate    bool   `json:"candidate"`
 	Applied      bool   `json:"applied"`
@@ -16,26 +16,16 @@ type CompactMessageSplitReport struct {
 
 const compactMessageMinTextBytes = 256 * 1024
 
-// SplitClaudeCompactUserMessage preserves block boundaries in the large
-// summary message emitted by Claude Code compact/autocompact. Each text block
-// becomes a separate user turn, allowing the existing Kiro history truncator
-// to remove complete old blocks and retain the newest block. It is deliberately
-// conservative: mixed content, assistant turns, a single block, and small
-// messages are left untouched.
+// SplitClaudeCompactUserMessage preserves block boundaries in a large
+// multi-block user message. Each text block becomes a separate user turn,
+// allowing the existing Kiro history truncator to remove complete old blocks
+// and retain the newest block. The account opt-in is the authorization to use
+// this lossy overflow fallback; mixed content, assistant turns, a single block,
+// and small messages are still left untouched.
 func SplitClaudeCompactUserMessage(req *ClaudeRequest) CompactMessageSplitReport {
 	rep := CompactMessageSplitReport{MessageIndex: -1}
 	if req == nil || len(req.Messages) == 0 {
 		rep.SkipReason = "nil_or_empty_request"
-		return rep
-	}
-	// Auto-mode classifiers also use many text blocks, but their max_tokens is
-	// 64 or less and they must stay on the existing structured-transcript path.
-	if req.MaxTokens <= 64 {
-		rep.SkipReason = "classifier_budget"
-		return rep
-	}
-	if len(req.ContextManagement) == 0 {
-		rep.SkipReason = "missing_context_management"
 		return rep
 	}
 	last := len(req.Messages) - 1

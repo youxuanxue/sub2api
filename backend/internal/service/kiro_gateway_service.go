@@ -337,26 +337,32 @@ func (s *KiroGatewayService) Forward(
 		// before re-running the ordinary history truncator. Under-budget requests
 		// stay byte-identical (S4).
 		if account.IsKiroAutoModeTranscriptTrimEnabled() {
-			splitReport := kiroproto.SplitClaudeCompactUserMessage(&req)
-			compactMessageSplitReport = &splitReport
-			if splitReport.Applied {
-				payload = kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, fileToolChunking)
-				kiroproto.BindWireProfileArn(payload, kiroAcct)
-				payloadFits = kiroproto.ValidatePayloadSize(payload) == nil
-			}
+			// Give the structured auto-mode path first chance. It can remove only
+			// records it has classified as old tool process, preserving user
+			// authorization and the latest action. If it cannot help, the generic
+			// block fallback below may still preserve enough block boundaries to fit.
 			report := kiroproto.TrimClaudeAutoModeTranscriptUntil(&req, func(r *kiroproto.ClaudeRequest) bool {
 				p := kiroproto.ClaudeToKiroWithFileToolGuidance(r, thinking, fileToolChunking)
 				kiroproto.BindWireProfileArn(p, kiroAcct)
 				return kiroproto.ValidatePayloadSize(p) != nil
 			})
 			autoModeTrimReport = &report
-			if report.Applied && !payloadFits {
+			if report.Applied {
 				payload = kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, fileToolChunking)
 				if imgErr := kiroproto.ValidateKiroImages(payload); imgErr != nil {
 					return nil, fmt.Errorf("kiro forward: validate images after auto-mode trim: %w", imgErr)
 				}
 				kiroproto.BindWireProfileArn(payload, kiroAcct)
 				payloadFits = kiroproto.ValidatePayloadSize(payload) == nil
+			}
+			if !payloadFits {
+				splitReport := kiroproto.SplitClaudeCompactUserMessage(&req)
+				compactMessageSplitReport = &splitReport
+				if splitReport.Applied {
+					payload = kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, fileToolChunking)
+					kiroproto.BindWireProfileArn(payload, kiroAcct)
+					payloadFits = kiroproto.ValidatePayloadSize(payload) == nil
+				}
 			}
 		}
 		if !payloadFits {
