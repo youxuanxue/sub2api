@@ -1876,7 +1876,7 @@ func explicitRequestedReasoningEffortFromBody(body []byte) string {
 // later persist "xhigh".
 func CanonicalRequestedReasoningEffort(body []byte, modelCandidates ...string) *string {
 	if raw := explicitRequestedReasoningEffortFromBody(body); raw != "" {
-		canonical := NormalizeMaxReasoningEffort(raw)
+		canonical := canonicalRequestedReasoningEffortValue(raw)
 		if canonical == "" {
 			return nil
 		}
@@ -1893,6 +1893,17 @@ func CanonicalRequestedReasoningEffort(body []byte, modelCandidates ...string) *
 		}
 	}
 	return nil
+}
+
+// canonicalRequestedReasoningEffortValue keeps the full client-facing effort
+// vocabulary for usage attribution.  "none" is intentionally not a valid
+// group ceiling, but it is a valid client request and must not be discarded
+// before the effective upstream effort is recorded.
+func canonicalRequestedReasoningEffortValue(raw string) string {
+	if strings.EqualFold(strings.TrimSpace(raw), "none") {
+		return "none"
+	}
+	return NormalizeMaxReasoningEffort(raw)
 }
 
 func canonicalReasoningEffortFromModelSuffix(model string) string {
@@ -1996,7 +2007,7 @@ func CanonicalRequestedReasoningEffortFromReqBody(reqBody map[string]any, modelC
 		}
 	}
 	if raw != "" {
-		canonical := NormalizeMaxReasoningEffort(raw)
+		canonical := canonicalRequestedReasoningEffortValue(raw)
 		if canonical == "" {
 			return nil
 		}

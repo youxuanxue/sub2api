@@ -133,6 +133,29 @@ func TestOpenAIReasoningEffortPolicyForCompositeTarget(t *testing.T) {
 	require.True(t, changed)
 	require.JSONEq(t, `{"reasoning":{"effort":"medium"}}`, string(bound))
 
+	for _, input := range []struct {
+		name string
+		body []byte
+		want string
+	}{
+		{name: "nested reasoning", body: []byte(`{"reasoning":{"effort":"max"}}`), want: `{"reasoning":{"effort":"medium"}}`},
+		{name: "flat compatibility field", body: []byte(`{"reasoning_effort":"max"}`), want: `{"reasoning_effort":"medium"}`},
+	} {
+		t.Run(input.name, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+			ctx.Request = ctx.Request.WithContext(service.WithResolvedTargetPlatform(ctx.Request.Context(), service.PlatformOpenAI))
+			bindOpenAIReasoningEffortPolicyForMessagesRequest(ctx, apiKey, input.body)
+			bound, changed, err := service.ApplyOpenAIReasoningEffortPolicyFromContext(ctx.Request.Context(), input.body)
+			require.NoError(t, err)
+			require.True(t, changed)
+			require.JSONEq(t, input.want, string(bound))
+			requested := service.RequestedReasoningEffortFromContext(ctx.Request.Context())
+			require.NotNil(t, requested)
+			require.Equal(t, "max", *requested)
+		})
+	}
+
 	omittedCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	omittedCtx.Request = httptest.NewRequest("POST", "/v1/messages", nil)
 	omittedCtx.Request = omittedCtx.Request.WithContext(service.WithResolvedTargetPlatform(omittedCtx.Request.Context(), service.PlatformOpenAI))

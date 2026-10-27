@@ -1560,6 +1560,33 @@ func TestAnthropicToResponses_OutputConfigWithoutThinking(t *testing.T) {
 	assert.Equal(t, "auto", resp.Reasoning.Summary)
 }
 
+func TestAnthropicToResponses_ResponsesReasoningEffortPreserved(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{input: "none", want: "none"},
+		{input: "low", want: "low"},
+		{input: "max", want: "xhigh"},
+	} {
+		tc := tc
+		t.Run(tc.input, func(t *testing.T) {
+			effort := tc.input
+			req := &AnthropicRequest{
+				Model:     "kimi-k3",
+				MaxTokens: 1024,
+				Reasoning: &ResponsesReasoning{Effort: effort},
+				Messages:  []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"Hello"`)}},
+			}
+
+			resp, err := AnthropicToResponses(req)
+			require.NoError(t, err)
+			require.NotNil(t, resp.Reasoning)
+			require.Equal(t, tc.want, resp.Reasoning.Effort)
+		})
+	}
+}
+
 func TestAnthropicToResponses_OutputConfigHigh(t *testing.T) {
 	// output_config.effort="high" → mapped to "high" (1:1).
 	req := &AnthropicRequest{

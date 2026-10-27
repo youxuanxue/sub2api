@@ -98,6 +98,20 @@ func TestForwardAsAnthropic_ForceChatCompletionsPreservesFinalModelReasoningEffo
 			effortJSON: `,"output_config":{"effort":"max"},"thinking":{"type":"disabled"}`,
 			wantEffort: "none",
 		},
+		{
+			name:       "Messages reasoning none keeps Kimi effective low",
+			model:      "kimi-k3",
+			mapped:     "kimi-k3",
+			effortJSON: `,"reasoning":{"effort":"none"}`,
+			wantEffort: "low",
+		},
+		{
+			name:       "Messages reasoning low keeps Kimi low",
+			model:      "kimi-k3",
+			mapped:     "kimi-k3",
+			effortJSON: `,"reasoning":{"effort":"low"}`,
+			wantEffort: "low",
+		},
 	}
 
 	for _, tt := range tests {

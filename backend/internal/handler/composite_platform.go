@@ -175,11 +175,19 @@ func bindOpenAIReasoningEffortPolicyForMessagesRequest(c *gin.Context, apiKey *s
 		return
 	}
 	bindRequestedReasoningEffort(c, body, strings.TrimSpace(gjson.GetBytes(body, "model").String()))
-	// The Messages bridge synthesizes a default OpenAI effort when
-	// output_config.effort is omitted. Bind the group policy only for an
-	// explicit client value so the ceiling does not alter that default.
-	effort := gjson.GetBytes(body, "output_config.effort")
-	if !effort.Exists() || effort.Type != gjson.String || strings.TrimSpace(effort.String()) == "" {
+	// The Messages bridge synthesizes a default OpenAI effort when no explicit
+	// effort is present. Bind the group policy only for an explicit client value
+	// so the ceiling does not alter that default. Messages accepts the same
+	// nested/flat compatibility fields as the OpenAI surfaces.
+	hasExplicitEffort := false
+	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort"} {
+		effort := gjson.GetBytes(body, path)
+		if effort.Exists() && effort.Type == gjson.String && strings.TrimSpace(effort.String()) != "" {
+			hasExplicitEffort = true
+			break
+		}
+	}
+	if !hasExplicitEffort {
 		return
 	}
 	maxEffort, mappings, overLimit, ok := openAIReasoningEffortPolicyForRequest(c, apiKey)

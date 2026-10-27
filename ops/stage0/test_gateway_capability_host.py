@@ -97,6 +97,35 @@ class BindingTests(unittest.TestCase):
 
 
 class ScenarioTests(unittest.TestCase):
+    def test_openai_chat_reasoning_only_stop_is_not_an_empty_response(self):
+        case = {'protocol': 'openai-chat', 'request_type': 'plain'}
+        response = {
+            'choices': [{'finish_reason': 'stop', 'message': {'content': '',
+                         'reasoning_content': '苹果、香蕉、'}}],
+            'usage': {'prompt_tokens': 1, 'completion_tokens': 11},
+        }
+        self.assertIsNone(validate_response(case, 200, 'application/json',
+                                             json.dumps(response).encode(), False))
+
+        stream = [
+            {'choices': [{'delta': {'reasoning_content': '苹果、香蕉、'}}]},
+            {'choices': [{'delta': {}, 'finish_reason': 'stop'}],
+             'usage': {'prompt_tokens': 1, 'completion_tokens': 11}},
+        ]
+        raw = (''.join('data: ' + json.dumps(event) + '\n\n' for event in stream) +
+               'data: [DONE]\n\n').encode()
+        self.assertIsNone(validate_response(case, 200, 'text/event-stream', raw, True))
+
+    def test_openai_chat_content_filter_is_a_valid_safety_terminal(self):
+        case = {'protocol': 'openai-chat', 'request_type': 'plain'}
+        response = {
+            'choices': [{'finish_reason': 'content_filter', 'message': {
+                'content': '', 'reasoning_content': 'safety refusal reasoning'}}],
+            'usage': {'prompt_tokens': 1, 'completion_tokens': 28},
+        }
+        self.assertIsNone(validate_response(case, 200, 'application/json',
+                                             json.dumps(response).encode(), False))
+
     def test_truncated_or_missing_generation_terminal_cannot_pass(self):
         from test_prod_replay import server
         bodies = {
