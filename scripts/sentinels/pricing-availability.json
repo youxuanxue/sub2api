@@ -594,9 +594,11 @@
         "grok-4.3",
         "grok-build-0.1",
         "def validate_official_list_base_tax",
-        "official_list_base_tax.multiplier must be within [1,2]"
+        "official_list_base_tax.multiplier must be within [1,2]",
+        "def validate_canonical_formatting",
+        "errors.extend(validate_canonical_formatting(text, data))"
       ],
-      "rationale": "The overlay gate validates media failure billing, critical price anchors, and executable base-tax policy. Tax config must have a bounded multiplier, unique normalized providers, and valid non-duplicated fallback matchers before either an embedded release or runtime sync can consume it."
+      "rationale": "The overlay gate validates media failure billing, critical price anchors, and executable base-tax policy. Tax config must have a bounded multiplier, unique normalized providers, and valid non-duplicated fallback matchers before either an embedded release or runtime sync can consume it. validate_canonical_formatting and its call site in main() are the only mechanical anchor for the overlay's layout SSOT: the sensor re-renders the whole document with json.dumps(indent=2, ensure_ascii=False), so a hand-edit in any other layout comes back as a whole-file reflow that the sensor workflow reported as provider price drift (#2967). Dropping the check makes layout invisible to the gate again while every price still parses."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_media_unpriced_guard_contract_test.go",
@@ -946,6 +948,42 @@
         "func TestAntigravityCatalogWithdrawalPreservesOtherSupplies("
       ],
       "rationale": "Pins Antigravity-only withdrawal of the unsupported tiered default path while retaining native Gemini public models and Argon."
+    },
+    {
+      "path": "ops/pricing/pricing-registry-sensor.py",
+      "must_contain": [
+        "if args.candidate_registry and changed_owners:",
+        "json.dumps(candidate, indent=2, ensure_ascii=False) + \"\\n\""
+      ],
+      "rationale": "changed_owners is the single signal for \"is there drift worth a PR\"; the sensor workflow consumes summary.candidate_owner_count rather than a registry byte diff. Writing the candidate unconditionally turns any non-canonical hand-edit into a whole-file reflow and reopens the false price-drift PR of #2967, while the canonical dumps() call is the layout the overlay gate enforces."
+    },
+    {
+      "path": "ops/pricing/apply-pricing-hotfix.py",
+      "must_contain": [
+        "new_text = json.dumps(data, indent=2, ensure_ascii=False) + \"\\n\""
+      ],
+      "must_not_contain": [
+        "def format_number("
+      ],
+      "rationale": "The hotfix append path is the second writer of the overlay and must render in the same canonical layout. It previously hand-serialized prices as plain decimals, which the overlay gate now rejects; format_number was that renderer and must not come back (the live overlay already carries 2285 scientific-notation lines, so the \"never scientific notation\" rule was already false)."
+    },
+    {
+      "path": "scripts/checks/test_pricing_overlay.py",
+      "must_contain": [
+        "class CanonicalFormattingTest",
+        "test_rejects_compact_hand_edit",
+        "test_shipped_overlay_is_canonical"
+      ],
+      "rationale": "Focused both-directions regression for the layout gate: the exact #2967 compact hand-edit must fail, and the shipped overlay must stay canonical so the guard is proven to protect something rather than merely existing."
+    },
+    {
+      "path": "ops/pricing/test_pricing_registry_sensor.py",
+      "must_contain": [
+        "class CandidateWriteTests",
+        "test_non_canonical_registry_is_not_reflowed_into_a_candidate",
+        "test_real_drift_still_writes_a_canonical_candidate"
+      ],
+      "rationale": "Proves the candidate write is gated on real owner drift in both directions: a non-canonical registry produces no candidate, while genuine drift still writes a canonical one. Without the positive case the gate could silently stop emitting candidates at all."
     }
   ]
 }

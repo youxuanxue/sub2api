@@ -9,6 +9,9 @@ entry verifies:
 
   1. The file at `path` exists.
   2. Every literal string in `must_contain` appears at least once in the file.
+  3. No literal string in `must_not_contain` appears in the file. Use this for
+     anchors whose regression is a reintroduction rather than a deletion (e.g.
+     the pre-fix unguarded search-tool condition).
 
 Exit codes:
   0  — all sentinels intact.
@@ -75,7 +78,8 @@ def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
     if not file_path.is_file():
         return False, [f"file missing: {path_str}"]
     must_contain = entry.get("must_contain") or []
-    if not must_contain:
+    must_not_contain = entry.get("must_not_contain") or []
+    if not must_contain and not must_not_contain:
         return True, []
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace")
@@ -85,6 +89,9 @@ def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
     for needle in must_contain:
         if needle not in content:
             failures.append(f"missing literal `{needle}` in {path_str}")
+    for needle in must_not_contain:
+        if needle in content:
+            failures.append(f"forbidden literal `{needle}` present in {path_str}")
     return (len(failures) == 0), failures
 
 
