@@ -353,7 +353,17 @@ func normalizeVolcKimiThinking(body []byte) ([]byte, error) {
 			mode = "disabled"
 		default:
 			if value.IsObject() && (path == "thinking" || path == "chat_template_kwargs.thinking") {
-				mode = value.Get("type").String()
+				rawType := value.Get("type")
+				// A missing or blank type is unspecified, not a malformed switch.
+				// Volc Agent Plan accepts thinking.type="" and still returns
+				// reasoning tokens (cn-prod direct replay, 2026-10-28, accounts
+				// 77 and 11). Rejecting it locally was a false 400. Effort
+				// normalization below rewrites a blank type to enabled when
+				// reasoning_effort is present.
+				if !rawType.Exists() || strings.TrimSpace(rawType.String()) == "" {
+					continue
+				}
+				mode = strings.TrimSpace(rawType.String())
 			}
 		}
 		if mode != "enabled" && mode != "disabled" && mode != "auto" {
