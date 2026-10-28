@@ -11,9 +11,9 @@ CASES="${CASES:-01,02,03,04,05,06,08,10}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-150}"
 UPSTREAM_URL="${UPSTREAM_URL:-https://chatgpt.com/backend-api/codex/responses}"
 # Defaults must match DefaultOpenAICodexVersion (setting_gateway_runtime.go).
-DEFAULT_CODEX_UA="codex-tui/0.164.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.164.0)"
+DEFAULT_CODEX_UA="codex-tui/0.165.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.165.0)"
 CODEX_USER_AGENT="${CODEX_USER_AGENT:-$DEFAULT_CODEX_UA}"
-CODEX_VERSION="${CODEX_VERSION:-0.164.0}"
+CODEX_VERSION="${CODEX_VERSION:-0.165.0}"
 PP_IMAGE="${PP_IMAGE:-python:3.12-slim}"
 
 TK_DOCKER="${TK_DOCKER:-sudo docker}"
