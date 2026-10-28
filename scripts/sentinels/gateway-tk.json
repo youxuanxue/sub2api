@@ -12607,6 +12607,21 @@
       "rationale": "Declared public aliases share one registry owner and must not raise served_at_fallback. Stable deepseek-flash follows the current Flash owner; the fixed 0731 snapshot shares the current Flash price owner and is covered by the DeepSeek boundary regression."
     },
     {
+      "path": "backend/internal/service/tk_pricing_overlay.json",
+      "must_contain": [
+        "\"kimi-k3.1-pro\": {\n    \"litellm_provider\": \"moonshot\""
+      ],
+      "rationale": "kimi-k3.1-pro is supplied by the VolcEngine Agent Plan, but the public catalog vendor is the Moonshot OEM. Pinning litellm_provider on this row keeps an upstream overlay refresh from putting the supply-channel badge back."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_oem_vendor_tk_test.go",
+      "must_contain": [
+        "TestPublicCatalog_PlanSuppliedModelsKeepOEMVendor",
+        "\"kimi-k3.1-pro\":       \"moonshot\""
+      ],
+      "rationale": "Public catalog must keep showing kimi-k3.1-pro as moonshot after the overlay vendor correction. The assertion is the behavioral anchor; the overlay needle above is the data anchor."
+    },
+    {
       "path": "backend/internal/service/deepseek_flash_surface_tk_test.go",
       "must_contain": [
         "TestDeepSeekFlashSurfacePreservesProviderModelIdentity",
