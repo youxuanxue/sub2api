@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Fixed migration boundaries: Ali Token Plan promotes the live Flash identity
-// while other provider floors keep their existing canonical DeepSeek names.
+// Fixed migration boundaries: DeepSeek identities stay on Volc and Qianfan
+// plan floors. Ali Token Plan does not serve the series.
 func TestDeepSeekFlashSurfacePreservesProviderModelIdentity(t *testing.T) {
 	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
@@ -20,12 +20,17 @@ func TestDeepSeekFlashSurfacePreservesProviderModelIdentity(t *testing.T) {
 	require.Equal(t, "deepseek-v4-pro", official["deepseek-v4-pro"])
 	for _, override := range floor.AccountOverrides {
 		if override.ChannelType == newapiconstant.ChannelTypeAli && override.BaseURL == "https://token-plan.cn-beijing.maas.aliyuncs.com" {
-			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-flash"], override.BaseURL)
-			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-v4.1-flash"], override.BaseURL)
-			require.Equal(t, "deepseek-v4-flash-0731", override.ModelMapping["deepseek-v4-flash-0731"], override.BaseURL)
-			require.NotContains(t, override.ModelMapping, "deepseek-v4-flash")
-			require.Equal(t, "deepseek-v4-pro-0813", override.ModelMapping["deepseek-v4-pro-0813"], override.BaseURL)
-			require.Equal(t, "deepseek-v4-pro", override.ModelMapping["deepseek-v4-pro"], override.BaseURL)
+			for _, model := range []string{
+				"deepseek-chat",
+				"deepseek-flash",
+				"deepseek-v4-flash",
+				"deepseek-v4-flash-0731",
+				"deepseek-v4-pro",
+				"deepseek-v4-pro-0813",
+				"deepseek-v4.1-flash",
+			} {
+				require.NotContains(t, override.ModelMapping, model, override.BaseURL)
+			}
 		}
 		if override.ChannelType == newapiconstant.ChannelTypeVolcEngine && override.BaseURL == "https://ark.cn-beijing.volces.com/api/plan/v3" {
 			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-flash"], override.BaseURL)

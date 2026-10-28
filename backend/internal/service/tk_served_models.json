@@ -21,10 +21,6 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
-        },
-        {
-          "channel_type": 17,
-          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
         }
       ]
     },
@@ -47,10 +43,6 @@
       "price_owner": "deepseek-v4-flash",
       "scopes": [
         {
-          "channel_type": 17,
-          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
-        },
-        {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
         },
@@ -64,10 +56,6 @@
       "display": false,
       "channel_type": 43,
       "scopes": [
-        {
-          "channel_type": 17,
-          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
-        },
         {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
@@ -83,7 +71,7 @@
       "channel_type": 25
     },
     "kimi-k2.6": {
-      "display": true,
+      "display": false,
       "channel_type": 25,
       "scopes": [
         {
@@ -296,27 +284,27 @@
       "channel_type": 45
     },
     "doubao-seed-1-8-251228": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-1-6-250615": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-1-6-251015": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-1-6-flash-250615": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-1-6-flash-250828": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-1-6-vision-250815": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seed-character-251128": {
@@ -324,23 +312,23 @@
       "channel_type": 45
     },
     "doubao-seed-code-preview-251028": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-1-5-pro-32k-250115": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-1-5-pro-32k-character-250715": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-1-5-lite-32k-250115": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-1-5-vision-pro-32k-250115": {
-      "display": true,
+      "display": false,
       "channel_type": 45
     },
     "doubao-seedance-1-0-pro-250528": {
@@ -348,7 +336,7 @@
       "channel_type": 45
     },
     "doubao-seedance-1-5-pro-251215": {
-      "display": true,
+      "display": false,
       "channel_type": 45,
       "scopes": [
         {
@@ -484,7 +472,7 @@
       "channel_type": 45
     },
     "glm-5.2": {
-      "display": true,
+      "display": false,
       "channel_type": 17,
       "scopes": [
         {
@@ -558,7 +546,7 @@
       ]
     },
     "glm-5": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -637,7 +625,7 @@
       ]
     },
     "deepseek-v4-flash-0731": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -646,16 +634,12 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
-        },
-        {
-          "channel_type": 17,
-          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
         }
       ],
       "price_owner": "deepseek-v4-flash"
     },
     "deepseek-v3.2": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -664,7 +648,7 @@
       ]
     },
     "deepseek-v3.2-think": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -763,7 +747,7 @@
       ]
     },
     "ernie-x1.1": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -772,7 +756,7 @@
       ]
     },
     "ernie-x1.1-preview": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -898,10 +882,6 @@
       "display": false,
       "price_owner": "deepseek-v4-pro",
       "scopes": [
-        {
-          "channel_type": 17,
-          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
-        },
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"

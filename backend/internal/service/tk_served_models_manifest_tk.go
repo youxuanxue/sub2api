@@ -317,7 +317,13 @@ var aliTokenPlanForbiddenModelMappingKeys = []string{
 	"text-embedding-v4",
 	"auto",
 	"decision-model-preview",
+	"deepseek-chat",
+	"deepseek-flash",
 	"deepseek-v4-flash",
+	"deepseek-v4-flash-0731",
+	"deepseek-v4-pro",
+	"deepseek-v4-pro-0813",
+	"deepseek-v4.1-flash",
 	"qwen-audio-3.0-realtime-plus",
 }
 
@@ -326,10 +332,8 @@ var aliTokenPlanForbiddenModelMappingKeys = []string{
 // PAYG aliases retain their original targets.
 func newAPIAliTokenPlanModelAliases() map[string]string {
 	return map[string]string{
-		"deepseek-chat":  "deepseek-v4.1-flash",
-		"deepseek-flash": "deepseek-v4.1-flash",
-		"qwen-plus":      "qwen3.7-plus",
-		"qwen-max":       "qwen3.8-max",
+		"qwen-plus": "qwen3.7-plus",
+		"qwen-max":  "qwen3.8-max",
 	}
 }
 

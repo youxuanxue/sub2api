@@ -24,11 +24,6 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	require.NotEmpty(t, want, "manifest SSOT must expose Ali Token Plan preset ids")
 	require.Contains(t, want, "qwen3.6-flash")
 	for _, model := range []string{
-		"deepseek-flash",
-		"deepseek-v4-flash-0731",
-		"deepseek-v4-pro",
-		"deepseek-v4-pro-0813",
-		"deepseek-v4.1-flash",
 		"glm-5.2",
 		"glm-5.3",
 		"happyhorse-1.1-t2v",
@@ -39,7 +34,17 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	} {
 		require.Contains(t, want, model)
 	}
-	require.NotContains(t, want, "deepseek-v4-flash")
+	for _, deepseek := range []string{
+		"deepseek-chat",
+		"deepseek-flash",
+		"deepseek-v4-flash",
+		"deepseek-v4-flash-0731",
+		"deepseek-v4-pro",
+		"deepseek-v4-pro-0813",
+		"deepseek-v4.1-flash",
+	} {
+		require.NotContains(t, want, deepseek)
+	}
 	for _, stale := range []string{"glm-4.5", "glm-4.5-air", "glm-4.6", "glm-4.7", "glm-5", "glm-5.1"} {
 		require.NotContains(t, want, stale)
 	}
@@ -54,11 +59,11 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	mapping, ok := accountModelMappingForAccount(context.Background(), account, nil, nil, nil)
 	require.True(t, ok)
 	require.Len(t, mapping, len(want))
-	require.Equal(t, "deepseek-v4.1-flash", mapping["deepseek-flash"])
+	require.NotContains(t, mapping, "deepseek-flash")
 	require.NotContains(t, mapping, "deepseek-v4-flash")
-	require.Equal(t, "deepseek-v4-flash-0731", mapping["deepseek-v4-flash-0731"])
-	require.Equal(t, "deepseek-v4-pro-0813", mapping["deepseek-v4-pro-0813"])
-	require.Equal(t, "deepseek-v4.1-flash", mapping["deepseek-v4.1-flash"])
+	require.NotContains(t, mapping, "deepseek-v4-flash-0731")
+	require.NotContains(t, mapping, "deepseek-v4-pro-0813")
+	require.NotContains(t, mapping, "deepseek-v4.1-flash")
 	require.Equal(t, "glm-5.2", mapping["glm-5.2"])
 	require.Equal(t, "glm-5.3", mapping["glm-5.3"])
 
@@ -159,20 +164,27 @@ func TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides(t *testing.T) 
 			foundAli = true
 			require.Contains(t, override.ModelMapping, "qwen3.6-flash")
 			for _, model := range []string{
-				"deepseek-v4-flash-0731",
-				"deepseek-v4-pro",
-				"deepseek-v4.1-flash",
 				"glm-5.2",
 				"glm-5.3",
 			} {
 				require.Contains(t, override.ModelMapping, model)
+			}
+			for _, deepseek := range []string{
+				"deepseek-chat",
+				"deepseek-flash",
+				"deepseek-v4-flash",
+				"deepseek-v4-flash-0731",
+				"deepseek-v4-pro",
+				"deepseek-v4-pro-0813",
+				"deepseek-v4.1-flash",
+			} {
+				require.NotContains(t, override.ModelMapping, deepseek)
 			}
 			require.Contains(t, override.ModelMapping, "wan2.7-image")
 			require.Contains(t, override.ModelMapping, "wan2.7-image-pro")
 			require.Contains(t, override.ModelMapping, "qwen-audio-3.0-tts-plus")
 			require.Equal(t, "qwen-image-3.0-pro", override.ModelMapping["qwen-image-3.0-pro"])
 			require.Equal(t, "wan3.0-video", override.ModelMapping["wan3.0-video"])
-			require.Equal(t, "deepseek-v4-pro-0813", override.ModelMapping["deepseek-v4-pro-0813"])
 			require.NotContains(t, override.ModelMapping, "deepseek-v4-flash")
 			for _, video := range []string{
 				"happyhorse-1.1-t2v",

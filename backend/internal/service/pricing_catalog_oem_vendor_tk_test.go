@@ -24,7 +24,6 @@ func TestPublicCatalog_PlanSuppliedModelsKeepOEMVendor(t *testing.T) {
 		"deepseek-v4-pro":     "deepseek",
 		"deepseek-v4.1-flash": "deepseek",
 		"glm-5.3":             "zhipu",
-		"glm-5.2":             "zhipu",
 		"kimi-k3":             "moonshot",
 		"qwen3.7-plus":        "dashscope",
 		"doubao-seed-2.1-pro": "volcengine", // ByteDance OEM / Ark native
@@ -34,5 +33,9 @@ func TestPublicCatalog_PlanSuppliedModelsKeepOEMVendor(t *testing.T) {
 		got, ok := byID[id]
 		require.True(t, ok, "%s must appear on public catalog (display+recommended)", id)
 		assert.Equal(t, want, got, "%s must show OEM vendor, not supply-channel vendor", id)
+	}
+	for _, hidden := range []string{"glm-5.2", "deepseek-v4-flash-0731"} {
+		_, ok := byID[hidden]
+		require.False(t, ok, "%s stays priced and mapped, and is absent from the public catalog", hidden)
 	}
 }

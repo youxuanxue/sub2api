@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "a1e997f0d801f927ab32c4fd8764ad4da01f1daac0800e2a769f1083631ad6f2",
+  "floor_sha256": "b3270c17b194e32a38508350681a7e27ab76c3352ae0abaa25b19213ff27477b",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -377,12 +377,6 @@
         "channel_type": 17,
         "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com",
         "model_mapping": {
-          "deepseek-chat": "deepseek-v4.1-flash",
-          "deepseek-flash": "deepseek-v4.1-flash",
-          "deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
-          "deepseek-v4-pro": "deepseek-v4-pro",
-          "deepseek-v4-pro-0813": "deepseek-v4-pro-0813",
-          "deepseek-v4.1-flash": "deepseek-v4.1-flash",
           "glm-5.2": "glm-5.2",
           "glm-5.3": "glm-5.3",
           "happyhorse-1.1-i2v": "happyhorse-1.1-i2v",
@@ -544,7 +538,13 @@
       "account_override:newapi:17:https://token-plan.cn-beijing.maas.aliyuncs.com": [
         "auto",
         "decision-model-preview",
+        "deepseek-chat",
+        "deepseek-flash",
         "deepseek-v4-flash",
+        "deepseek-v4-flash-0731",
+        "deepseek-v4-pro",
+        "deepseek-v4-pro-0813",
+        "deepseek-v4.1-flash",
         "glm-4.5",
         "glm-4.5-air",
         "glm-4.6",
