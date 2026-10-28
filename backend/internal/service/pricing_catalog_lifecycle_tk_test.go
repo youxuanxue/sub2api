@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"testing"
 	"time"
@@ -47,14 +48,29 @@ func TestCatalogLifecycleWithdrawalFacts(t *testing.T) {
 	// lose display: kimi-k2.6 already had Baidu's own sunset notice above, while
 	// glm-5.1 has no upstream announcement and therefore belongs here, not in
 	// catalogModelWithdrawals (whose Source must be a published notice).
-	// glm-4.7/glm-4.5-air stay as deliberate aliases onto the in-service glm-5.2.
+	// glm-4.7/glm-4.5-air are withdrawn from the Qianfan Token Plan mapping.
 	require.False(t, isTkCuratedNewAPIModelDisplayed("glm-5.1"))
 	require.False(t, isTkCuratedNewAPIModelDisplayed("kimi-k2.6"))
-	require.True(t, isTkCuratedNewAPIModelDisplayed("glm-5.2"))
+	// glm-5.2 stays mapped and priced. Public display is off; glm-5.3 is the advertised generation.
+	require.True(t, isCatalogModelRecommended("glm-5.2"))
+	require.False(t, isTkCuratedNewAPIModelDisplayed("glm-5.2"))
+	require.False(t, isTkCuratedNewAPIModelDisplayed("deepseek-v4-flash-0731"))
 	require.False(t, isTkCuratedNewAPIModelDisplayed("kimi-k2.5"))
 	require.False(t, isTkCuratedNewAPIModelDisplayed("moonshot-v1-128k"))
 	require.False(t, isTkCuratedNewAPIModelDisplayed("doubao-seedream-5-0-260128"))
 	require.True(t, isTkCuratedNewAPIModelDisplayed("doubao-seedream-5-0-pro"))
+}
+
+func TestManifestDisplayAgreesWithWithdrawal(t *testing.T) {
+	var doc tkServedModelsManifestFile
+	require.NoError(t, json.Unmarshal(tkServedModelsManifestRaw, &doc))
+	for id, entry := range doc.Entries {
+		if _, withdrawn := catalogWithdrawnModelIDs[id]; !withdrawn || !isTkCuratedNewAPIModelListed(id) {
+			continue
+		}
+		require.False(t, entry.Display, "withdrawn curated model %s keeps display=false in the manifest", id)
+		require.False(t, isTkCuratedNewAPIModelDisplayed(id), id)
+	}
 }
 
 func TestCatalogLifecyclePublicFilterKeepsCachedPricing(t *testing.T) {

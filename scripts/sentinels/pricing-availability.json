@@ -647,9 +647,9 @@
         "https://qianfan.baidubce.com/v2/tokenplan/personal",
         "https://api.xrtoken.net",
         "\"glm-5.1\": {\n      \"display\": false",
-        "\"glm-5.2\": {\n      \"display\": true"
+        "\"glm-5.2\": {\n      \"display\": false"
       ],
-      "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner. glm-5.1 must stay display:false: the Baidu Qianfan Token Plan was its only supply (both scopes are qianfan, no sibling channel) and that subscription was not renewed (2026-10-25), so re-enabling display would advertise a model with zero healthy supply. glm-5.2 is the in-service replacement and must stay display:true, so a blanket GLM withdrawal cannot quietly take it down with glm-5.1. Settlement pricing for glm-5.1 is deliberately kept (retirement is presentation-only)."
+      "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner. glm-5.1 must stay display:false: the Baidu Qianfan Token Plan was its only supply (both scopes are qianfan, no sibling channel) and that subscription was not renewed (2026-10-25), so re-enabling display would advertise a model with zero healthy supply. glm-5.2 stays mapped and priced, and its manifest display is false so the public catalog follows glm-5.3. Settlement pricing for glm-5.1 is deliberately kept (retirement is presentation-only)."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay.go",

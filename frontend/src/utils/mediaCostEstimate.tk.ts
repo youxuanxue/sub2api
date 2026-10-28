@@ -56,6 +56,8 @@ export function classifyImageBillingTier(size: string | undefined | null): Image
       return '4K'
     case '2048x2048':
     case '2048x1152':
+    case '2560x1440':
+    case '1440x2560':
       return '2K'
     case '3840x2160':
     case '2160x3840':
@@ -67,8 +69,9 @@ export function classifyImageBillingTier(size: string | undefined | null): Image
     const h = Number.parseInt(parts[1].trim(), 10)
     if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
       const maxEdge = Math.max(w, h)
+      // image_billing_size.go: 2K tops at 2560 so 2560x1440 stays 2K.
       if (maxEdge <= 1024) return '1K'
-      if (maxEdge <= 2048) return '2K'
+      if (maxEdge <= 2560) return '2K'
       return '4K'
     }
   }
@@ -88,6 +91,18 @@ export interface ImageCostInput {
   n: number
   /** effective group × override rate; defaults to 1 (list price). */
   rateMultiplier?: number
+  /** Registry image_price_* when set. Wins over the 1.5×/2× fallback, matching tkRegistryImageTierPrice. */
+  imagePrice1K?: number
+  imagePrice2K?: number
+  imagePrice4K?: number
+}
+
+function explicitImageTierPrice(
+  input: Pick<ImageCostInput, 'imagePrice1K' | 'imagePrice2K' | 'imagePrice4K'>,
+  tier: ImageSizeTier
+): number | undefined {
+  const price = tier === '1K' ? input.imagePrice1K : tier === '2K' ? input.imagePrice2K : input.imagePrice4K
+  return price != null && price > 0 ? price : undefined
 }
 
 /** estimateImageCost mirrors CalculateImageCost (USD). */
@@ -97,7 +112,8 @@ export function estimateImageCost(input: ImageCostInput): number {
   const tier = (['1K', '2K', '4K'] as const).includes(input.size as ImageSizeTier)
     ? (input.size as ImageSizeTier)
     : classifyImageBillingTier(input.size)
-  const unit = base * IMAGE_SIZE_MULTIPLIER[tier]
+  const explicit = explicitImageTierPrice(input, tier)
+  const unit = explicit ?? base * IMAGE_SIZE_MULTIPLIER[tier]
   return unit * count * clampRate(input.rateMultiplier ?? 1)
 }
 
@@ -111,7 +127,11 @@ export function estimateImageCost(input: ImageCostInput): number {
 export function estimateImageHoldCost(input: Omit<ImageCostInput, 'size'>): number {
   const count = input.n > 0 ? input.n : 1
   const base = input.baseImagePrice > 0 ? input.baseImagePrice : IMAGE_FALLBACK_BASE_PRICE
-  return base * IMAGE_SIZE_MULTIPLIER['4K'] * count * clampRate(input.rateMultiplier ?? 1)
+  let unit = base * IMAGE_SIZE_MULTIPLIER['4K']
+  for (const price of [input.imagePrice1K, input.imagePrice2K, input.imagePrice4K]) {
+    if (price != null && price > unit) unit = price
+  }
+  return unit * count * clampRate(input.rateMultiplier ?? 1)
 }
 
 export interface VideoCostInput {

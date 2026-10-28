@@ -893,6 +893,9 @@ function bakeoffImageCost(r: ResolvedMediaModel): number {
     size: bakeoffImagePricesFlat(r) ? '1K' : bakeoffImageSize(r) || '2K',
     n: 1,
     rateMultiplier: props.rateMultiplier,
+    imagePrice1K: r.imagePrice1K,
+    imagePrice2K: r.imagePrice2K,
+    imagePrice4K: r.imagePrice4K,
   })
 }
 

@@ -200,14 +200,26 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		ids := tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
-		seen := identityModelMapping(ids)
-		for alias := range newAPIVolcEngineAgentPlanModelAliases() {
-			if _, exists := seen[alias]; !exists {
-				ids = append(ids, alias)
+		kept := make([]string, 0, len(ids)+len(newAPIVolcEngineAgentPlanModelAliases()))
+		seen := make(map[string]struct{}, len(ids))
+		for _, id := range ids {
+			if volcEngineAgentPlanMappingKeyForbidden(id) {
+				continue
 			}
+			kept = append(kept, id)
+			seen[id] = struct{}{}
 		}
-		sort.Strings(ids)
-		return ids
+		for alias := range newAPIVolcEngineAgentPlanModelAliases() {
+			if volcEngineAgentPlanMappingKeyForbidden(alias) {
+				continue
+			}
+			if _, exists := seen[alias]; exists {
+				continue
+			}
+			kept = append(kept, alias)
+		}
+		sort.Strings(kept)
+		return kept
 	}
 	if isNewAPIAliTokenPlanAccount(account) {
 		ids := newAPIAliTokenPlanModelMappingPresetIDs()

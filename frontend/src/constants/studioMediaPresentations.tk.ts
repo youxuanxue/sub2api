@@ -182,10 +182,10 @@ export const SEEDREAM_IMAGE_SIZES: ImageSizeOption[] = [
 ]
 
 /**
- * Wan 2.7: OpenAI-compat size is WxH pixels; Ali adaptor rewrites `x` → `*`.
- * Official 2K recommended set (wan2.7-image max; Studio also uses this for pro —
- * 4K remains available via API for pro but is not a Studio chip yet).
- * Billing is flat per successful image (no Seedream-style size-tier multiplier).
+ * Official 2K recommended pixels for Wan 2.7 and Qwen Image 3.0.
+ * OpenAI-compat size is WxH; Ali adaptor rewrites `x` → `*`.
+ * Wan 2.7 bills flat per image. Qwen Image 3.0 Pro shares these pixels and
+ * bills image_price_2k, so flatPricePerImage stays off for that model.
  * ref: https://help.aliyun.com/zh/model-studio/text-to-image
  */
 export const WAN27_IMAGE_SIZES: ImageSizeOption[] = [
@@ -345,6 +345,17 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     imageSizes: SEEDREAM_IMAGE_SIZES,
   },
   {
+    modelId: 'doubao-seedream-5.0-flash',
+    displayName: 'Seedream 5.0 · Flash',
+    qualityBadge: 'fast',
+    qualityBadgeKey: 'studio.badge.fast',
+    vendorLabel: VOLC,
+    modality: 'image',
+    supportedParams: [],
+    imageSizes: SEEDREAM_IMAGE_SIZES,
+    flatPricePerImage: true, // Ark lists one output price per image; mirrors tkIsFlatPerImageModel
+  },
+  {
     modelId: 'doubao-seedream-4-5-251128',
     displayName: 'Seedream 4.5',
     qualityBadge: 'standard',
@@ -375,6 +386,17 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     supportedParams: [],
     imageSizes: WAN27_IMAGE_SIZES,
     flatPricePerImage: true,
+  },
+  {
+    modelId: 'qwen-image-3.0-pro',
+    displayName: 'Qwen Image 3.0 · Pro',
+    qualityBadge: 'ultra',
+    qualityBadgeKey: 'studio.badge.ultra',
+    vendorLabel: DASHSCOPE,
+    modality: 'image',
+    supportedParams: [],
+    // Same 2K pixels as Wan. Catalog image_price_2k bills them; not a flat price.
+    imageSizes: WAN27_IMAGE_SIZES,
   },
   {
     modelId: 'grok-imagine-image',
@@ -538,6 +560,37 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     videoDurations: [5],
   },
   {
+    modelId: 'doubao-seedance-2.0',
+    displayName: 'Seedance 2.0',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    // Agent Plan wire ID. Pricing page 16:9 examples are 5s.
+    videoDurations: [5],
+  },
+  {
+    modelId: 'doubao-seedance-2.0-fast',
+    displayName: 'Seedance 2.0 · Fast',
+    qualityBadge: 'fast',
+    qualityBadgeKey: 'studio.badge.fast',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    videoDurations: [5],
+  },
+  {
+    modelId: 'doubao-seedance-2.5',
+    displayName: 'Seedance 2.5',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    videoDurations: [5],
+  },
+  {
     modelId: 'happyhorse-1.1-t2v',
     displayName: 'HappyHorse 1.1 · Text',
     qualityBadge: 'cinematic',
@@ -572,6 +625,18 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     // up to 9 images[] which the companion maps to reference_image media.
     supportedParams: ['seed', 'firstFrameImage'],
     videoDurations: [3, 5, 10, 15],
+  },
+  {
+    modelId: 'wan3.0-video',
+    displayName: 'Wan 3.0 · Video',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: DASHSCOPE,
+    modality: 'video',
+    supportedParams: ['seed'],
+    // Model page allows up to 30s. Studio only offers the priced 5s example
+    // until a discrete duration table is captured.
+    videoDurations: [5],
   },
 ]
 
@@ -608,6 +673,10 @@ function buildMediaPresentationForCatalogRow(
 export interface MediaPrice {
   /** USD per image at the 1K base tier (image models). */
   perImage?: number
+  /** Registry image_price_* (USD). Present when the catalog publishes an explicit size tier. */
+  imagePrice1K?: number
+  imagePrice2K?: number
+  imagePrice4K?: number
   /** USD per second (video models). Minimum tier when videoTiers is set. */
   perSecond?: number
   /** Official resolution×audio ladder (from public /pricing). */
@@ -625,6 +694,9 @@ export interface ResolvedMediaModel {
   servedId: string
   /** Live price for this model (from the catalog), per modality. */
   baseImagePrice?: number
+  imagePrice1K?: number
+  imagePrice2K?: number
+  imagePrice4K?: number
   perSecond?: number
   videoTiers?: readonly VideoPriceTier[]
 }
@@ -665,6 +737,9 @@ export function resolveAvailableModels(
       presentation: resolvedPresentation,
       servedId,
       baseImagePrice,
+      imagePrice1K: price?.imagePrice1K,
+      imagePrice2K: price?.imagePrice2K,
+      imagePrice4K: price?.imagePrice4K,
       perSecond,
       videoTiers: price?.videoTiers,
     })

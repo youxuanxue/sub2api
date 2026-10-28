@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  attachPublicImageTiers,
   buildCatalogBillingIndex,
   priceMapFromMeCatalog,
   priceMapFromPublicCatalog,
@@ -35,6 +36,36 @@ describe('studioMediaCatalog', () => {
       billingMode: 'video',
       vendor: 'xai',
     })
+  })
+
+  it('priceMapFromPublicCatalog carries explicit image tiers', () => {
+    const map = priceMapFromPublicCatalog(
+      [
+        {
+          model_id: 'qwen-image-3.0-pro',
+          vendor: 'dashscope',
+          pricing: {
+            billing_mode: 'image',
+            output_cost_per_image: 0.03731343283582089,
+            image_price_1k: 0.03731343283582089,
+            image_price_2k: 0.07462686567164178,
+          },
+        },
+      ] as never,
+      new Set(['qwen-image-3.0-pro'])
+    )
+    expect(map.get('qwen-image-3.0-pro')?.imagePrice2K).toBeCloseTo(0.5 / 6.7, 10)
+    const overlaid = attachPublicImageTiers(
+      new Map([['qwen-image-3.0-pro', { perImage: 0.03731343283582089, billingMode: 'image' as const }]]),
+      [
+        {
+          model_id: 'qwen-image-3.0-pro',
+          pricing: { image_price_2k: 0.07462686567164178 },
+        },
+      ] as never
+    )
+    expect(overlaid.get('qwen-image-3.0-pro')?.imagePrice2K).toBeCloseTo(0.5 / 6.7, 10)
+    expect(overlaid.get('qwen-image-3.0-pro')?.perImage).toBeCloseTo(0.25 / 6.7, 10)
   })
 
   it('priceMapFromPublicCatalog ignores per-unit rows without media billing_mode', () => {

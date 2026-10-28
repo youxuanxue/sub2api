@@ -27,9 +27,15 @@ func TestVolcEnginePlanAliasesAndProviderIsolation(t *testing.T) {
 	mapping, ok := accountModelMappingForAccount(context.Background(), account, nil, nil, nil)
 	require.True(t, ok)
 	display := NewAPIModelDisplayIDsForAccount(account)
+	forbidden := make(map[string]struct{}, len(volcEngineAgentPlanForbiddenModelMappingKeys))
+	for _, key := range volcEngineAgentPlanForbiddenModelMappingKeys {
+		forbidden[key] = struct{}{}
+	}
 	for alias, target := range newAPIVolcEngineAgentPlanModelAliases() {
 		require.Equal(t, target, mapping[alias])
-		require.Equal(t, target, mapping[target], "aliases must resolve in one hop")
+		if _, retired := forbidden[target]; !retired {
+			require.Equal(t, target, mapping[target], "aliases must resolve in one hop")
+		}
 		require.NotContains(t, display, alias)
 		billingAccount := volcEnginePlanTestAccount()
 		rawMapping := make(map[string]any, len(mapping))
@@ -46,9 +52,20 @@ func TestVolcEnginePlanAliasesAndProviderIsolation(t *testing.T) {
 		require.Equal(t, model, mapping[model])
 	}
 	require.Equal(t, "kimi-k2.8-preview", mapping["kimi-k2.8-preview"])
-	require.NotContains(t, display, "kimi-k2.8-preview", "no public catalog until Moonshot publishes PAYG list")
+	require.NotContains(t, display, "kimi-k2.8-preview")
 	require.Equal(t, "deepseek-v4.1-flash", mapping["deepseek-flash"])
+	require.Equal(t, "deepseek-v4.1-flash", mapping["deepseek-chat"])
 	require.Equal(t, "kimi-k2.8-preview", mapping["kimi-k2.8"])
+	require.Equal(t, "deepseek-v4-flash", mapping["deepseek-v4-flash"])
+	require.Equal(t, "ark-code-latest", mapping["ark-code-latest"])
+	for _, model := range []string{"kimi-k3.1-pro", "doubao-seedream-5.0-flash", "doubao-seedance-2.0", "doubao-seedance-2.0-fast", "doubao-seedance-2.5"} {
+		require.Equal(t, model, mapping[model])
+		require.Contains(t, display, model)
+	}
+	for _, retired := range []string{"doubao-seed-2.0-lite", "kimi-k2.7-code", "deepseek-v4-flash-0731"} {
+		require.NotContains(t, mapping, retired)
+		require.NotContains(t, display, retired)
+	}
 	require.Equal(t, "doubao-seedream-5-0-pro", mapping["doubao-seedream-5.0-pro"])
 	for _, retired := range []string{"doubao-seed-2.1-turbo", "doubao-seed-2.0-code", "doubao-seed-2.0-pro", "doubao-seedream-5.0-lite"} {
 		require.NotContains(t, mapping, retired)

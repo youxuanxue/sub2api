@@ -55,14 +55,19 @@ class AccountViolationTest(unittest.TestCase):
         return CHK._antigravity_policy()
 
     def _live_mm(self):
-        mm = dict(self._policy()["mapping"])
-        # Fixed boundary: an unknown non-Claude, non-forbidden extra proves the
-        # checker does not fork the Go floor into an exact local list.
-        mm["test-extra-nonclaude-boundary"] = "test-extra-nonclaude-boundary"
-        return mm
+        # Derived from the bundle projection. An extra key is not part of that
+        # projection, so it is a violation rather than a second local model list.
+        return dict(self._policy()["mapping"])
 
     def test_live_antigravity_account_clean(self):
         self.assertIsNone(CHK._account_violation({"model_mapping": self._live_mm()}))
+
+    def test_extra_key_is_violation(self):
+        mm = self._live_mm()
+        mm["test-extra-nonclaude-boundary"] = "test-extra-nonclaude-boundary"
+        reason = CHK._account_violation({"model_mapping": mm})
+        self.assertIsNotNone(reason)
+        self.assertIn("test-extra-nonclaude-boundary", reason)
 
     def test_empty_mapping_is_violation(self):
         self.assertIsNotNone(CHK._account_violation({"model_mapping": None}))

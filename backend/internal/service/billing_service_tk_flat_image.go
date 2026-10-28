@@ -18,6 +18,10 @@ func tkIsFlatPerImageModel(model string) bool {
 	if strings.HasPrefix(m, "wan2.7-image") {
 		return true
 	}
+	// Seedream 5.0 Flash: Ark lists one output price per successful image.
+	if m == "doubao-seedream-5.0-flash" {
+		return true
+	}
 	return false
 }
 

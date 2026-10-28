@@ -19,11 +19,15 @@ projections, not parallel model lists.
 
 ## Approved Decisions
 
-1. **One live-validity rule.** The Go bundle owns the required account mapping floor
-   and forbidden keys/prefixes. A live mapping is valid when it contains every
-   required key with the required target and contains no forbidden entry. Other
-   entries are compatible extras for preheat and rollback and must survive routine
-   check/apply. There is no strict-vs-floor mode switch. An
+1. **One live-validity rule.** The Go bundle owns the account mapping for each
+   scope. A managed live mapping is valid only when its keys and targets equal
+   that scope. `check-accounts`, `apply-accounts`, and `release-gate` share this
+   rule: keys outside the scope are drift and are deleted on apply. There is no
+   strict-vs-floor mode switch. Forbidden keys and prefixes still reject a
+   runtime replacement that would reintroduce a withdrawn key; they do not keep
+   a second deletion list for account convergence. Supplier-source managed
+   accounts stay exempt, and an account whose scope has no bundle floor is not
+   rewritten. An
    `account_overrides` entry is a full replacement for its property-based
    `account_override:<platform>:<channel_type>:<base_url>` scope and takes
    precedence over the shared platform/channel scope only when all selector
@@ -65,7 +69,8 @@ projections, not parallel model lists.
 - Property-selected account bundle scopes override shared channel floors without
   producing a false-positive drift finding; same-platform/channel accounts with a
   different base URL continue to use the shared floor.
-- Routine apply preserves compatible extras and removes forbidden entries.
+- Routine apply writes the account scope's bundle mapping exactly and removes
+  every other key.
 - Guarded ch41 profile assignment is prod-only, verifies
   `id + name + platform + channel_type + current profile`, writes only
   `vertex_capability_profile`, performs no empty write, and verifies the read-back;

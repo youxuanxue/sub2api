@@ -843,7 +843,7 @@ post-release read-only account model_mapping SSOT diff (prod, cn-prod or all)
 
 #### `manage-account-model-mapping-runtime.py release-gate`
 
-explicit model-activation check: prod account model_mapping must cover the selected bundle floor
+explicit model-activation check: prod account model_mapping must equal the selected bundle scope
 
 - `--json`: machine-readable output
 - `--prod-instance-id`: use this prod EC2 instance id instead of resolving the prod stack
@@ -854,7 +854,7 @@ explicit model-activation check: prod account model_mapping must cover the selec
 
 explicitly apply reviewed SSOT diffs to live accounts
 
-- `--target` (required): prod
+- `--target` (required): prod, cn-prod, or all
 - `--account-ids`: comma-separated positive account IDs for targeted apply (single explicit target only)
 - `--expected-plan-sha256`: required in targeted mode for non-dry-run; must match recomputed plan digest
 - `--confirm`: required for writes: yes-apply-account-model-mapping

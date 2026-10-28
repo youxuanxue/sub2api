@@ -26,9 +26,10 @@ done
 TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
 PSQL="sudo docker exec -i $TK_PG psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
 
-# Candidate catalog (pi-provider-volcengine-agent-plan + ark-code-latest alias).
-CHAT_MODELS="${AGENT_PLAN_CHAT_MODELS:-kimi-k2.6 kimi-k2.7-code ark-code-latest}"
-RESPONSES_MODELS="${AGENT_PLAN_RESPONSES_MODELS:-doubao-seed-2.0-mini doubao-seed-2.0-lite deepseek-v4-flash doubao-seed-evolving doubao-seed-2.0-code doubao-seed-2.0-pro minimax-m2.7 minimax-m3 glm-5.2 deepseek-v4-pro kimi-k3 ark-code-latest}"
+# Candidate catalog for a manual activation probe. Withdrawn Plan names stay out
+# unless the caller overrides the lists.
+CHAT_MODELS="${AGENT_PLAN_CHAT_MODELS:-kimi-k2.6 ark-code-latest}"
+RESPONSES_MODELS="${AGENT_PLAN_RESPONSES_MODELS:-doubao-seed-2.0-mini deepseek-v4-flash doubao-seed-evolving doubao-seed-2.0-code doubao-seed-2.0-pro minimax-m2.7 minimax-m3 glm-5.2 deepseek-v4-pro kimi-k3 ark-code-latest}"
 
 emit() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4"; }
 

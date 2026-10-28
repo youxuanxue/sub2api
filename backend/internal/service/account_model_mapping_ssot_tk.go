@@ -151,6 +151,9 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			}
 			mapping := identityModelMapping(ids)
 			for alias, target := range newAPIVolcEngineAgentPlanModelAliases() {
+				if volcEngineAgentPlanMappingKeyForbidden(alias) {
+					continue
+				}
 				mapping[alias] = target
 			}
 			return mapping, true
@@ -173,6 +176,9 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			}
 			mapping := identityModelMapping(ids)
 			for alias, target := range newAPIQianfanTokenPlanModelAliases() {
+				if qianfanTokenPlanMappingKeyForbidden(alias) {
+					continue
+				}
 				mapping[alias] = target
 			}
 			return mapping, true
@@ -405,6 +411,9 @@ func accountModelMappingForbiddenKeysByScope() map[string][]string {
 		"account_override:" + normalizeAccountModelMappingOverrideScope(
 			PlatformNewAPI, newapiconstant.ChannelTypeAli, newapiintegration.AliTokenPlanBaseURL,
 		): append([]string(nil), aliTokenPlanForbiddenModelMappingKeys...),
+		"account_override:" + normalizeAccountModelMappingOverrideScope(
+			PlatformNewAPI, newapiconstant.ChannelTypeBaiduV2, newapiintegration.QianfanTokenPlanBaseURL,
+		): append([]string(nil), qianfanTokenPlanForbiddenModelMappingKeys...),
 		PlatformAnthropic: kiroExclusiveModelIDs(),
 		PlatformAntigravity: append(
 			append(domain.AntigravityStructuralDeadModelMappingKeys(), domain.GeminiProImageModelIDs()...),
@@ -423,8 +432,8 @@ func accountModelMappingForbiddenPrefixesByScope() map[string][]string {
 	return map[string][]string{
 		PlatformAntigravity: {"gpt-oss-"},
 		// Google image surface converged to gemini-*-image; Vertex ch41 floors
-		// no longer list imagen-*. Forbid the prefix so leftover keys cannot
-		// survive as compatible extras and reappear in Studio entitlement pools.
+		// no longer list imagen-*. The prefix rejects a runtime replacement that
+		// would put imagen-* back after account convergence deleted it.
 		PlatformNewAPI: {"imagen-"},
 	}
 }

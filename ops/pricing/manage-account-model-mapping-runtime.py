@@ -30,11 +30,11 @@ procurement projection (exact client→upstream set), not the platform/channel
 serving floor. Applying the floor would fight the next Sync.
 
 ``release-gate`` is an explicit, **prod-only** modelops/model-activation floor
-check. It compares live prod account mappings to the selected release bundle's
-required floor and fails closed when prod is behind that model surface. It is not a
-generic binary deploy or rollback prerequisite. Live prod may be ahead for
-preheating or rollback, but forbidden keys/prefixes from the selected bundle
-still fail the check. Native accounts may keep empty ``model_mapping``;
+check. It uses the same exact-match rule as ``check-accounts``: every managed
+account mapping must equal the selected bundle scope. Extra keys fail the gate.
+It is not a generic binary deploy or rollback prerequisite. Forbidden
+keys/prefixes still reject a runtime replacement that would put them back.
+Native accounts may keep empty ``model_mapping``;
 Antigravity empty rows serve the compiled default plus the runtime overlay.
 Newapi Plan accounts keep explicit reviewed mappings.
 See ``docs/global/agent-reference.md`` § Model serving SSOT.
@@ -384,20 +384,28 @@ def _resolve_apply_targets(
     target: str,
     prod_instance_id: str | None = None,
 ) -> list[tuple[str, str, str]]:
+    """Resolve account-mapping apply targets.
+
+    Account floor convergence is the same reviewed write on prod and cn-prod.
+    Runtime setting mutations stay prod-only and do not use this resolver for
+    a non-prod target.
+    """
     target = target.strip().lower()
     pinned_prod_instance = _normalize_instance_id(prod_instance_id, "--prod-instance-id")
     if target == "prod":
         return [_resolve_prod_target(pinned_prod_instance)]
-    if pinned_prod_instance:
-        fail("--prod-instance-id is only valid with --target prod")
-    fail("--target must be prod")
+    if target in {"cn-prod", "all"}:
+        if pinned_prod_instance:
+            fail("--prod-instance-id is only valid with --target prod")
+        return _resolve_check_targets(target=target)
+    fail("--target must be prod, cn-prod, or all")
 
 
 def _resolve_runtime_mutation_target(
     target: str,
 ) -> tuple[str, str, str]:
     normalized = target.strip().lower()
-    if normalized in {"all", "all-deployable-and-prod"}:
+    if normalized != "prod":
         fail("runtime writes require one explicit --target: prod")
     targets = _resolve_apply_targets(normalized)
     if len(targets) != 1:
@@ -633,11 +641,17 @@ def _mapping_diff(
 ) -> dict[str, Any]:
     missing = sorted(k for k in want if k not in got)
     bad = sorted(k for k in want if k in got and got[k] != want[k])
-    forbidden = _forbidden_mapping_entries(policy_scope, got, floor)
+    extra = sorted(k for k in got if k not in want)
+    # Forbidden entries that the floor itself requires stay in want and are
+    # written. Report only withdrawals that are outside the desired set.
+    forbidden = [
+        key for key in _forbidden_mapping_entries(policy_scope, got, floor)
+        if key not in want
+    ]
     return {
         "missing_keys": missing,
         "forbidden_keys": forbidden,
-        "compatible_extra_keys": sorted(k for k in got if k not in want and k not in forbidden),
+        "extra_keys": extra,
         "bad_targets": [
             {"key": k, "got": got[k], "want": want[k]}
             for k in bad
@@ -648,7 +662,7 @@ def _mapping_diff(
 
 
 def _has_mapping_diff(diff: dict[str, Any]) -> bool:
-    return bool(diff["missing_keys"] or diff["forbidden_keys"] or diff["bad_targets"])
+    return bool(diff["missing_keys"] or diff["extra_keys"] or diff["bad_targets"])
 
 
 def _short_list(values: list[Any], limit: int = 8) -> str:
@@ -666,9 +680,9 @@ def _format_mapping_diff_reason(scope: str, diff: dict[str, Any]) -> str:
     if diff["bad_targets"]:
         bad = [f"{b['key']}->{b['got']!r} want {b['want']!r}" for b in diff["bad_targets"]]
         parts.append("bad_targets: " + _short_list(bad))
+    if diff["extra_keys"]:
+        parts.append("extra: " + _short_list(diff["extra_keys"]))
     parts.append(f"count current={diff['current_count']} desired={diff['desired_count']}")
-    if diff["compatible_extra_keys"]:
-        parts.append("preserved_extras: " + _short_list(diff["compatible_extra_keys"]))
     return "; ".join(parts)
 
 
@@ -713,12 +727,12 @@ def _account_plan(
     if not want:
         return None
     got, err = _model_mapping(row)
+    desired = dict(sorted(want.items()))
     if err:
-        got = {}
         diff = {
             "missing_keys": sorted(want),
             "forbidden_keys": [],
-            "compatible_extra_keys": [],
+            "extra_keys": [],
             "bad_targets": [],
             "current_count": 0,
             "desired_count": len(want),
@@ -729,12 +743,6 @@ def _account_plan(
         if not _has_mapping_diff(diff):
             return None
         reason = _format_mapping_diff_reason(scope, diff)
-    reconciled = {
-        key: value
-        for key, value in got.items()
-        if key not in set(diff["forbidden_keys"])
-    }
-    reconciled.update(want)
     return {
         "kind": "account",
         "id": row.get("id"),
@@ -744,7 +752,7 @@ def _account_plan(
         "scope": scope,
         "reason": reason,
         "diff": diff,
-        "desired_model_mapping": dict(sorted(reconciled.items())),
+        "desired_model_mapping": desired,
     }
 
 
@@ -1450,6 +1458,8 @@ def cmd_validate(args) -> int:
 
 
 def cmd_check(args) -> int:
+    if str(args.target).strip().lower() != "prod":
+        fail("runtime check requires --target prod")
     want = load_doc(args.file)
     targets = _resolve_apply_targets(args.target)
     rows: list[dict[str, Any]] = []
@@ -1686,7 +1696,7 @@ def _print_release_gate_human(report: dict[str, Any]) -> None:
         print("FAIL: prod runtime model_mapping replacement conflicts with the selected bundle policy.")
         print("Account planning was skipped. Correct and sync the runtime, or clear it to use the compiled floor:")
     else:
-        print("FAIL: prod account model_mapping is behind the selected model-activation bundle floor.")
+        print("FAIL: prod account model_mapping does not match the selected model-activation bundle scope.")
         print("Review and apply the SSOT diff before activating the model surface:")
     for step in _release_gate_remediation(report):
         print(f"  {step}")
@@ -2234,10 +2244,8 @@ def cmd_selftest(_args) -> int:
     )
     mismatch_plan = _account_plan(mismatched_override, floor)
     assert mismatch_plan and mismatch_plan["scope"] == "newapi_channel_type:45"
-    assert mismatch_plan["desired_model_mapping"] == {
-        "agent-plan-model": "agent-plan-model",
-        "generic-model": "generic-model",
-    }
+    assert mismatch_plan["diff"]["extra_keys"] == ["agent-plan-model"]
+    assert mismatch_plan["desired_model_mapping"] == {"generic-model": "generic-model"}
     original_run_check_sql_json = globals()["_run_check_sql_json"]
     original_load_effective_floor = globals()["_load_effective_floor"]
     globals()["_run_check_sql_json"] = lambda _region, _instance_id, _label: {
@@ -2296,8 +2304,11 @@ def cmd_selftest(_args) -> int:
             "vertex-pro": "vertex-pro",
         },
     )
-    assert _account_plan(vertex57, floor) is None
-    compatible_extra_row = {
+    vertex57_plan = _account_plan(vertex57, floor)
+    assert vertex57_plan
+    assert vertex57_plan["diff"]["extra_keys"] == ["vertex-pro"]
+    assert vertex57_plan["desired_model_mapping"] == floor["vertex_capability_profiles"]["core-ultra"]
+    extra_only_row = {
         "id": 3,
         "platform": "openai",
         "type": "oauth",
@@ -2309,18 +2320,24 @@ def cmd_selftest(_args) -> int:
             "future-model": "future-model",
         },
     }
-    assert _account_plan(compatible_extra_row, floor) is None
-    compatible_extra_row["model_mapping"].pop("gpt-5.6-sol")
-    preserved_extra_plan = _account_plan(compatible_extra_row, floor)
-    assert preserved_extra_plan
-    assert preserved_extra_plan["diff"]["compatible_extra_keys"] == ["future-model"]
-    assert preserved_extra_plan["desired_model_mapping"]["future-model"] == "future-model"
+    extra_only_plan = _account_plan(extra_only_row, floor)
+    assert extra_only_plan
+    assert extra_only_plan["diff"]["missing_keys"] == []
+    assert extra_only_plan["diff"]["extra_keys"] == ["future-model"]
+    assert extra_only_plan["desired_model_mapping"] == floor["platforms"]["openai"]
+    extra_only_row["model_mapping"].pop("gpt-5.6-sol")
+    missing_and_extra_plan = _account_plan(extra_only_row, floor)
+    assert missing_and_extra_plan
+    assert missing_and_extra_plan["diff"]["missing_keys"] == ["gpt-5.6-sol"]
+    assert missing_and_extra_plan["diff"]["extra_keys"] == ["future-model"]
+    assert "future-model" not in missing_and_extra_plan["desired_model_mapping"]
+    assert missing_and_extra_plan["desired_model_mapping"] == floor["platforms"]["openai"]
     plan = _account_plan(
         {"id": 1, "platform": "grok", "type": "oauth", "model_mapping": {"grok": "grok-4.3"}},
         floor,
     )
     assert plan and plan["desired_model_mapping"]["grok-latest"] == "grok-4.3"
-    assert _account_plan({
+    antigravity_extra_plan = _account_plan({
         "platform": "antigravity",
         "type": "oauth",
         "model_mapping": {
@@ -2329,7 +2346,10 @@ def cmd_selftest(_args) -> int:
             "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
             "claude-sonnet-5": "claude-sonnet-5",
         },
-    }, floor) is None
+    }, floor)
+    assert antigravity_extra_plan
+    assert antigravity_extra_plan["diff"]["extra_keys"] == ["claude-sonnet-5"]
+    assert antigravity_extra_plan["desired_model_mapping"] == floor["platforms"]["antigravity"]
     forbidden_plan = _account_plan({
         "platform": "antigravity",
         "type": "oauth",
@@ -2345,8 +2365,14 @@ def cmd_selftest(_args) -> int:
         "test-forbidden-exact",
         "test-forbidden-prefix-boundary",
     ]
-    assert forbidden_plan["desired_model_mapping"]["future-model"] == "future-model"
+    assert forbidden_plan["diff"]["extra_keys"] == [
+        "future-model",
+        "test-forbidden-exact",
+        "test-forbidden-prefix-boundary",
+    ]
+    assert "future-model" not in forbidden_plan["desired_model_mapping"]
     assert "test-forbidden-exact" not in forbidden_plan["desired_model_mapping"]
+    assert forbidden_plan["desired_model_mapping"] == floor["platforms"]["antigravity"]
     policy_scope, policy_forbidden_key = next(
         (scope, sorted(keys)[0])
         for scope, keys in sorted(floor["forbidden_model_mapping_keys"].items())
@@ -2400,12 +2426,20 @@ def cmd_selftest(_args) -> int:
     }
     scoped_plan = _account_plan(scoped_row, scoped_floor)
     assert scoped_plan["diff"]["forbidden_keys"] == ["platform-forbidden", "retired-alias"]
-    assert "compatible-extra" in scoped_plan["desired_model_mapping"]
+    assert scoped_plan["diff"]["extra_keys"] == [
+        "compatible-extra",
+        "platform-forbidden",
+        "retired-alias",
+    ]
+    assert "compatible-extra" not in scoped_plan["desired_model_mapping"]
+    assert scoped_plan["desired_model_mapping"] == override["model_mapping"]
     assert _mapping_policy_violations(scoped_row, scoped_floor)
     assert _account_plan({**scoped_row, "model_mapping": scoped_plan["desired_model_mapping"]}, scoped_floor) is None
     payg_plan = _account_plan({**scoped_row, "base_url": "https://payg.example.test"}, scoped_floor)
     assert payg_plan["diff"]["forbidden_keys"] == ["platform-forbidden"]
-    assert "retired-alias" in payg_plan["desired_model_mapping"]
+    assert "retired-alias" not in payg_plan["diff"]["forbidden_keys"]
+    assert "retired-alias" not in payg_plan["desired_model_mapping"]
+    assert payg_plan["desired_model_mapping"] == floor["newapi_channel_types"]["45"]
     from unittest.mock import patch
 
     runtime_raw = canonical_json({"newapi_channel_types": {"45": {"runtime-model": "runtime-target"}}})
@@ -2522,8 +2556,8 @@ def cmd_selftest(_args) -> int:
     )
     assert _runtime_setting_violation(None) is None
     effective_floor = _load_effective_floor(None)
-    # Real bundle policy, not a second model list: reconcile retired aliases,
-    # repair a stale target, preserve compatible extras, and reach a fixed point.
+    # Real bundle policy, not a second model list: drop keys outside the scope,
+    # repair a stale target, and reach a fixed point on the exact bundle mapping.
     for override in effective_floor.get("account_overrides") or []:
         scope = _BUNDLE.account_override_scope(override)
         retired = (effective_floor.get("forbidden_model_mapping_keys") or {}).get(scope) or []
@@ -2536,9 +2570,8 @@ def cmd_selftest(_args) -> int:
         row = {**override, "id": 999, "type": "apikey", "model_mapping": stale}
         plan = _account_plan(row, effective_floor)
         assert plan["diff"]["forbidden_keys"] == sorted(retired)
-        assert plan["desired_model_mapping"] == {
-            **wanted, "selftest-compatible-extra": wanted[sample],
-        }
+        assert "selftest-compatible-extra" in plan["diff"]["extra_keys"]
+        assert plan["desired_model_mapping"] == wanted
         assert _account_plan({**row, "model_mapping": plan["desired_model_mapping"]}, effective_floor) is None
         # A different endpoint must not inherit a property-scoped withdrawal.
         other = {**row, "base_url": "https://selftest-other-provider.example"}
@@ -2652,6 +2685,14 @@ def cmd_selftest(_args) -> int:
     cn_manifest = json.loads(CN_PROD_MANIFEST.read_text(encoding="utf-8"))
     assert cn_only[0][2] == cn_manifest["ssm_instance_id"], cn_only
     assert cn_only[0][1] == cn_manifest["ssm_region"], cn_only
+    apply_cn = _resolve_apply_targets("cn-prod")
+    assert apply_cn == cn_only, apply_cn
+    try:
+        _resolve_runtime_mutation_target("cn-prod")
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("runtime mutation accepted cn-prod")
     # "all" refuses a pin by design, so the prod half would otherwise reach for
     # live AWS. The selftest must stay hermetic (CI has no prod credentials):
     # stub the prod resolver and assert only what this function decides --
@@ -2662,9 +2703,11 @@ def cmd_selftest(_args) -> int:
             lambda prod_instance_id=None: ("prod", "eu-west-2", "mi-0000000000000prod")
         )
         both = _resolve_check_targets(target="all")
+        apply_both = _resolve_apply_targets("all")
     finally:
         globals()["_resolve_prod_target"] = _real_resolve_prod
     assert [t[0] for t in both] == ["prod", "cn-prod"], both
+    assert apply_both == both, apply_both
     assert len({t[2] for t in both}) == 2, both
     for bad_target in ("bogus", "", "cn_prod"):
         try:
@@ -2970,7 +3013,7 @@ def cmd_selftest(_args) -> int:
             "id": 20, "scope": "openai",
             "observed_model_mapping": {"gpt-5.6": "gpt-5.6", "gpt-5.6-luna": "gpt-5.6-luna", "gpt-5.6-terra": "gpt-5.6-terra"},
             "desired_model_mapping": {"gpt-5.6": "gpt-5.6", "gpt-5.6-luna": "gpt-5.6-luna", "gpt-5.6-sol": "gpt-5.6-sol", "gpt-5.6-terra": "gpt-5.6-terra"},
-            "diff": {"missing_keys": ["gpt-5.6-sol"], "forbidden_keys": [], "compatible_extra_keys": [], "bad_targets": [], "current_count": 3, "desired_count": 4},
+            "diff": {"missing_keys": ["gpt-5.6-sol"], "forbidden_keys": [], "extra_keys": [], "bad_targets": [], "current_count": 3, "desired_count": 4},
         }],
         "group_changes": [],
     }
@@ -3192,7 +3235,7 @@ def cmd_selftest(_args) -> int:
             "id": 20,
             "observed_model_mapping": {"k": "v"},
             "desired_model_mapping": {"k": "v", "k2": "v2"},
-            "diff": {"missing_keys": ["k2"], "forbidden_keys": [], "compatible_extra_keys": [], "bad_targets": [], "current_count": 1, "desired_count": 2},
+            "diff": {"missing_keys": ["k2"], "forbidden_keys": [], "extra_keys": [], "bad_targets": [], "current_count": 1, "desired_count": 2},
         }],
         "group_changes": [],
     }
@@ -3216,19 +3259,17 @@ def cmd_selftest(_args) -> int:
     plan_diff_missing = {**plan_base, "missing_ids": [99]}
     assert _compute_plan_sha256(plan_diff_missing) != sha_base, "missing_ids must affect digest"
 
-    # --- Targeted apply: compatible-extra preservation in desired ---
-    # _account_plan reconciles: keeps extras not in forbidden_keys, adds wanted keys
-    # This is implicitly tested by _account_plan returning reconciled mapping.
-    # Explicitly test that _collect_apply_plan preserves compatible extras in the plan.
-    compatible_extra_accounts = [
+    # Targeted apply writes the bundle scope exactly: add the missing floor key
+    # and delete the live key that the scope does not contain.
+    exact_scope_accounts = [
         {"id": 40, "name": "acc-40", "platform": "openai", "type": "oauth",
          "model_mapping": {"gpt-5.6": "gpt-5.6", "gpt-5.6-luna": "gpt-5.6-luna",
                            "gpt-5.6-terra": "gpt-5.6-terra",
-                           "custom-extra": "custom-target"}},  # missing sol, has compatible extra
+                           "custom-extra": "custom-target"}},
     ]
     globals()["_run_check_sql_json"] = lambda _r, _i, _l: {
         "runtime_setting": None,
-        "accounts": compatible_extra_accounts,
+        "accounts": exact_scope_accounts,
         "antigravity_groups": [],
     }
     globals()["_load_effective_floor"] = lambda _raw: floor
@@ -3236,12 +3277,10 @@ def cmd_selftest(_args) -> int:
         compat_plan = _collect_apply_plan("prod", "us-east-1", "i-test", account_ids=[40])
         assert compat_plan["changed_ids"] == [40]
         change = compat_plan["account_changes"][0]
-        # desired_model_mapping should contain both the floor keys AND the compatible extra
-        assert "custom-extra" in change["desired_model_mapping"], \
-            "compatible extras must be preserved in desired_model_mapping"
-        assert change["desired_model_mapping"]["custom-extra"] == "custom-target"
-        assert "gpt-5.6-sol" in change["desired_model_mapping"], \
-            "missing floor key must be added"
+        assert "custom-extra" not in change["desired_model_mapping"]
+        assert change["diff"]["extra_keys"] == ["custom-extra"]
+        assert "gpt-5.6-sol" in change["desired_model_mapping"]
+        assert change["desired_model_mapping"] == floor["platforms"]["openai"]
     finally:
         globals()["_run_check_sql_json"] = original_run_check_sql_json2
         globals()["_load_effective_floor"] = original_load_effective_floor2
@@ -3322,14 +3361,14 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     sp = sub.add_parser(
         "release-gate",
-        help="explicit model-activation check: prod account model_mapping must cover the selected bundle floor",
+        help="explicit model-activation check: prod account model_mapping must equal the selected bundle scope",
     )
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.add_argument("--prod-instance-id", help="use this prod EC2 instance id instead of resolving the prod stack")
     sp.add_argument("--bundle", help="generated model-surface bundle to check against")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     sp = sub.add_parser("apply-accounts", help="explicitly apply reviewed SSOT diffs to live accounts")
-    sp.add_argument("--target", required=True, help="prod")
+    sp.add_argument("--target", required=True, help="prod, cn-prod, or all")
     sp.add_argument("--account-ids", help="comma-separated positive account IDs for targeted apply (single explicit target only)")
     sp.add_argument("--expected-plan-sha256", help="required in targeted mode for non-dry-run; must match recomputed plan digest")
     sp.add_argument("--confirm", help=f"required for writes: {APPLY_CONFIRM}")

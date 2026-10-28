@@ -2388,6 +2388,45 @@
     ],
     "default_video_resolution": "720p"
   },
+  "doubao-seedance-2.0": {
+    "litellm_provider": "volcengine",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.06895880597014925,
+    "source": "VolcEngine Ark model pricing https://www.volcengine.com/docs/82379/1099320, captured 2026-10-27: doubao-seedance-2.0 input-without-video is 46 CNY/M tokens at 480p/720p, 51 at 1080p, and 26 at 4k. Per-second tiers reuse the token densities already checked on doubao-seedance-2-0-260128 (480p 10044, 720p 21600, 1080p 48600 tokens/s) and match the published 16:9 5s examples (480p ¥2.31, 720p ¥4.97, 1080p ¥12.39). Input-with-video rates are not served. video_price_tiers is the billing SSOT; output_cost_per_second is the 480p floor. failure_billing: 「仅对成功生成的视频计费。」",
+    "failure_billing": "success_only",
+    "video_price_tiers": [
+      {"resolution": "480p", "output_cost_per_second": 0.06895880597014925},
+      {"resolution": "720p", "output_cost_per_second": 0.14829850746268658},
+      {"resolution": "1080p", "output_cost_per_second": 0.3699402985074627, "default_for_model": true},
+      {"resolution": "4k", "output_cost_per_second": 0.7543880597014926}
+    ],
+    "default_video_resolution": "1080p"
+  },
+  "doubao-seedance-2.0-fast": {
+    "litellm_provider": "volcengine",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.055466865671641795,
+    "source": "VolcEngine Ark model pricing https://www.volcengine.com/docs/82379/1099320, captured 2026-10-27: doubao-seedance-2.0-fast input-without-video is 37 CNY/M tokens at 480p/720p. Tiers reuse doubao-seedance-2-0-fast-260128 (480p 10044, 720p 21600 tokens/s); 720p 5s example is ¥4.00. 1080p/4k are not offered. Input-with-video rates are not served. video_price_tiers is the billing SSOT; output_cost_per_second is the 480p floor. failure_billing: 「仅对成功生成的视频计费。」",
+    "failure_billing": "success_only",
+    "video_price_tiers": [
+      {"resolution": "480p", "output_cost_per_second": 0.055466865671641795},
+      {"resolution": "720p", "output_cost_per_second": 0.11928358208955224, "default_for_model": true}
+    ],
+    "default_video_resolution": "720p"
+  },
+  "doubao-seedance-2.5": {
+    "litellm_provider": "volcengine",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.10029850746268656,
+    "source": "VolcEngine Ark model pricing https://www.volcengine.com/docs/82379/1099320, captured 2026-10-27: doubao-seedance-2.5 input-without-video is 70 CNY/M tokens at 480p/720p and 77 at 1080p. 720p uses 21600 tokens/s (7.56 CNY/5s) and 1080p uses 48600 tokens/s (18.71 CNY/5s). 480p uses the published 16:9 5s example ¥3.36, which is 9600 tokens/s, not the 10044 density on the older dated row. Default when resolution is omitted is 720p. Input-with-video rates are not served. video_price_tiers is the billing SSOT; output_cost_per_second is the 480p floor. failure_billing: 「仅对成功生成的视频计费。」",
+    "failure_billing": "success_only",
+    "video_price_tiers": [
+      {"resolution": "480p", "output_cost_per_second": 0.10029850746268656},
+      {"resolution": "720p", "output_cost_per_second": 0.22567164179104476, "default_for_model": true},
+      {"resolution": "1080p", "output_cost_per_second": 0.5585373134328357}
+    ],
+    "default_video_resolution": "720p"
+  },
   "doubao-seedream-4-0-250828": {
     "litellm_provider": "volcengine",
     "mode": "image_generation",
@@ -2405,6 +2444,13 @@
     "mode": "image_generation",
     "output_cost_per_image": 0.03283582089552239,
     "source": "VolcEngine official https://www.volcengine.com/docs/82379/1544106, verified 2026-09-09: doubao-seedream-5-0-lite 0.22 CNY/successfully generated image, input free; CNY/USD=6.7. Agent Plan model ID documented at https://www.volcengine.com/docs/82379/2375486. Retained for historical settlement after Agent Plan withdrawal 2026-10-08."
+  },
+  "doubao-seedream-5.0-flash": {
+    "litellm_provider": "volcengine",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.017910447761194027,
+    "failure_billing": "success_only",
+    "source": "VolcEngine Ark model pricing https://www.volcengine.com/docs/82379/1099320, captured 2026-10-27: doubao-seedream-5-0-flash output ¥0.12/image, input free; CNY/USD=6.7. Agent Plan personal overview spells the wire ID doubao-seedream-5.0-flash."
   },
   "doubao-seedream-5-0-pro": {
     "litellm_provider": "volcengine",
@@ -8533,6 +8579,19 @@
     "supports_prompt_caching": true,
     "source": "Moonshot China official Kimi K3 price https://platform.kimi.com/docs/pricing/chat-k3, captured 2026-07-20: cache-hit input ¥2.00/M, cache-miss input ¥20.00/M, output ¥100.00/M, divided by TokenKey CNY/USD=6.7. Account 83 uses api.moonshot.cn."
   },
+  "kimi-k3.1-pro": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.9402985074626867e-06,
+    "output_cost_per_token": 1.0149253731343282e-05,
+    "cache_read_input_token_cost": 1.9402985074626867e-07,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 131072,
+    "supports_function_calling": true,
+    "supports_reasoning": true,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark model pricing https://www.volcengine.com/docs/82379/1099320, captured 2026-10-27: kimi-k3.1-pro input ¥13/Mtok, cache-hit ¥1.30/Mtok, output ¥68/Mtok; CNY/USD=6.7. Cache storage ¥0.017/Mtok/hour is not a separate overlay field. Agent Plan personal overview lists 1024k context and 128k max output."
+  },
   "minimax-m2": {
     "litellm_provider": "volcengine",
     "mode": "chat",
@@ -10409,6 +10468,15 @@
     "cache_read_input_token_cost": 1.4925373134328357e-08,
     "source": "Alibaba DashScope qwen3.8-flash official China-mainland (Beijing) list https://help.aliyun.com/zh/model-studio/qwen3-8-flash, captured 2026-10-19: input ¥0.8/Mtok, output ¥2.7/Mtok (flat, 非思考和思考同价), 输入（缓存命中）¥0.1/Mtok, 显式缓存创建 ¥1.25/Mtok, 显式缓存命中 ¥0.1/Mtok; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. cache_read=¥0.1 covers both implicit and explicit hits (same official list). Batch half-price and promo discounts not modeled."
   },
+  "qwen-image-3.0-pro": {
+    "litellm_provider": "dashscope",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.03731343283582089,
+    "image_price_1k": 0.03731343283582089,
+    "image_price_2k": 0.07462686567164178,
+    "failure_billing": "success_only",
+    "source": "Alibaba Model Studio Beijing list https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-10-27: qwen-image-3.0-pro output 1K ¥0.25/image, 2K ¥0.50/image; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. output_cost_per_image and image_price_1k are the 1K tier. Input images ¥0.02/image are not in this output-image overlay. Failed generations are not billed."
+  },
   "wan2.7-image": {
     "litellm_provider": "dashscope",
     "mode": "image_generation",
@@ -10422,6 +10490,19 @@
     "output_cost_per_image": 0.07462686567164178,
     "failure_billing": "success_only",
     "source": "https://help.aliyun.com/zh/model-studio/wan2-7-image-pro, captured 2026-09-05: Beijing list 0.5 CNY/image ÷ 6.7 USD; Token Plan sync multimodal-generation probe 200 on 2026-09-05."
+  },
+  "wan3.0-video": {
+    "litellm_provider": "dashscope",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.04477611940298507,
+    "source": "Alibaba Model Studio wan3.0-video https://help.aliyun.com/zh/model-studio/wan3-0-video, captured 2026-10-27: 华北2（北京）视频生成 480P ¥0.3/s, 720P ¥0.6/s, 1080P ¥1.2/s; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. video_price_tiers is the billing SSOT; output_cost_per_second is the 480P floor. Default when resolution is omitted is 720p because the model page lists 480P/720P/1080P without naming a default. Failed generations are not billed.",
+    "failure_billing": "success_only",
+    "video_price_tiers": [
+      {"resolution": "480p", "output_cost_per_second": 0.04477611940298507},
+      {"resolution": "720p", "output_cost_per_second": 0.08955223880597014, "default_for_model": true},
+      {"resolution": "1080p", "output_cost_per_second": 0.1791044776119403}
+    ],
+    "default_video_resolution": "720p"
   },
   "qwen-audio-3.0-tts-plus": {
     "litellm_provider": "dashscope",

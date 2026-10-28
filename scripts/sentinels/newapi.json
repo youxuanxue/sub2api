@@ -1059,6 +1059,7 @@
       "must_contain": [
         "QianfanTokenPlanBaseURL",
         "QianfanTokenPlanAnthropicBaseURL",
+        "QianfanTokenPlanDefaultTestModel = \"deepseek-v4.1-flash\"",
         "NormalizeQianfanTokenPlanBaseURL",
         "IsQianfanTokenPlanBaseURL"
       ],

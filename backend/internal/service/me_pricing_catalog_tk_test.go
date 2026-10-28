@@ -866,13 +866,17 @@ func TestBuildForUser_ChannelAndAccountHideLegacyTokenPlanAliases(t *testing.T) 
 		require.True(t, replacements[model.ModelID], "legacy channel or account row leaked: %s", model.ModelID)
 		visible[model.ModelID] = true
 	}
-	require.True(t, visible["deepseek-flash"], "official Flash name remains selectable")
-	require.False(t, visible["deepseek-chat"], "historical chat alias remains hidden")
+	require.True(t, visible["qwen3.7-plus"], "Ali Token Plan qwen-plus replacement stays selectable")
+	require.True(t, visible["qwen3.8-max"], "Ali Token Plan qwen-max replacement stays selectable")
+	require.False(t, visible["qwen-plus"], "legacy qwen-plus alias stays hidden")
+	require.False(t, visible["qwen-max"], "legacy qwen-max alias stays hidden")
+	require.False(t, visible["deepseek-flash"], "DeepSeek is not an Ali Token Plan alias")
+	require.False(t, visible["deepseek-chat"], "DeepSeek is not an Ali Token Plan alias")
 }
 
 func TestBuildForUser_AnnouncedWithdrawalsHiddenAcrossSources(t *testing.T) {
 	for platform, current := range map[string]string{
-		PlatformNewAPI: "glm-5.2", PlatformOpenAI: firstRecommendedCatalogIDForTest(t, supportedOpenAICatalogModels),
+		PlatformNewAPI: "glm-5.3", PlatformOpenAI: firstRecommendedCatalogIDForTest(t, supportedOpenAICatalogModels),
 		PlatformAnthropic: "claude-sonnet-4-5", PlatformGemini: "gemini-2.5-pro",
 		PlatformAntigravity: "gemini-3.1-flash-image",
 	} {
@@ -901,17 +905,18 @@ func TestBuildForUser_AnnouncedWithdrawalsHiddenAcrossSources(t *testing.T) {
 	}
 }
 
-func TestBuildForUser_ChannelGLM52UsesCatalogOfficialPrice(t *testing.T) {
+// The catalog card below is the assertion input. glm-5.3 is the displayed curated id.
+func TestBuildForUser_ChannelDisplayedGLMUsesCatalogOfficialPrice(t *testing.T) {
 	gNewapi := mkGroupForMe(50, "zhipu", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "zhipu-key", ptrI(50))
 	channel := mkChannelWithModel(100, "stale-zhipu-channel",
 		[]AvailableGroupRef{{ID: 50, Platform: "newapi"}},
-		[]SupportedModel{mkSupportedModel("glm-5.2", "newapi", mkPricing(0.000001484, 0.000004664, 0.000000276))},
+		[]SupportedModel{mkSupportedModel("glm-5.3", "newapi", mkPricing(0.000001484, 0.000004664, 0.000000276))},
 	)
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
 			mkPublicCatalogModel(
-				"glm-5.2",
+				"glm-5.3",
 				"zhipu",
 				tkCNYPerMTokToUSDPerToken(8)*tkOfficialListBaseTaxMultiplier()*1000,
 				tkCNYPerMTokToUSDPerToken(28)*tkOfficialListBaseTaxMultiplier()*1000,
@@ -929,7 +934,7 @@ func TestBuildForUser_ChannelGLM52UsesCatalogOfficialPrice(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Models, 1)
 	row := resp.Models[0]
-	assert.Equal(t, "glm-5.2", row.ModelID)
+	assert.Equal(t, "glm-5.3", row.ModelID)
 	assert.Equal(t, "zhipu", row.Vendor)
 	require.NotNil(t, row.YourPrice.InputPer1K)
 	require.NotNil(t, row.YourPrice.OutputPer1K)
