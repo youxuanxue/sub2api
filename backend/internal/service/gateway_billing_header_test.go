@@ -105,7 +105,7 @@ func TestBuildOAuthRequest_BillingMatchesWireUserAgent(t *testing.T) {
 				resetGatewayForwardingSettingsCacheForTest(t)
 				c, _ := gin.CreateTestContext(httptest.NewRecorder())
 				c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-				body := []byte(`{"model":"claude-haiku-4-5","system":[{"type":"text","text":""}],"messages":[{"role":"user","content":"hello world"}]}`)
+				body := []byte(`{"model":"claude-haiku-4-5","system":[{"type":"text","text":""}],"messages":[{"role":"user","content":"这是一个用于验证中文指纹计算的测试消息，请保持一致。"}]}`)
 				billing, err := buildBillingAttributionText(body, "2.1.81")
 				require.NoError(t, err)
 				body, err = sjson.SetBytes(body, "system.0.text", billing)
@@ -144,6 +144,10 @@ func TestBuildOAuthRequest_BillingMatchesWireUserAgent(t *testing.T) {
 				version := ExtractCLIVersion(wantUA)
 				require.Contains(t, gjson.GetBytes(wireBody, "system.0.text").String(),
 					"cc_version="+version+"."+computeClaudeCodeFingerprint(wireBody, version)+";")
+				if !tc.mimic {
+					// Independently calculated with Node.js for the cached 2.9.0 UA + Chinese first-user text.
+					require.Contains(t, gjson.GetBytes(wireBody, "system.0.text").String(), "cc_version=2.9.0.ac8;")
+				}
 				actualBody, err := io.ReadAll(req.Body)
 				require.NoError(t, err)
 				require.Equal(t, wireBody, actualBody)

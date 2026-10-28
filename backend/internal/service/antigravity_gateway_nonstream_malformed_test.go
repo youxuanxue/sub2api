@@ -25,28 +25,37 @@ func TestAntigravityMalformedFunctionCallNonStreaming(t *testing.T) {
 		{"normal tool", `data: {"response":{"candidates":[{"finishReason":"STOP","content":{"parts":[{"functionCall":{"name":"read","args":{}}}]}}]}}` + "\n\n", http.StatusOK},
 		{"normal text", `data: {"response":{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"hello"}]}}]}}` + "\n\n", http.StatusOK},
 	} {
-		for _, protocol := range []string{"responses", "chat"} {
+		for _, protocol := range []string{"responses", "chat", "claude"} {
 			t.Run(protocol+"/"+tc.name, func(t *testing.T) {
 				svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, nil)
 				c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/responses", nil)
 				resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(tc.frames))}
-				handle := svc.handleResponsesNonStreamingFromAntigravity
-				if protocol == "chat" {
-					handle = svc.handleChatCompletionsNonStreamingFromAntigravity
+				var err error
+				switch protocol {
+				case "chat":
+					_, err = svc.handleChatCompletionsNonStreamingFromAntigravity(c, resp, time.Now(), "test-model")
+				case "claude":
+					// Claude Messages native non-stream path (not just Chat/Responses compat).
+					_, err = svc.handleClaudeStreamToNonStreaming(c, resp, time.Now(), "test-model")
+				default:
+					_, err = svc.handleResponsesNonStreamingFromAntigravity(c, resp, time.Now(), "test-model")
 				}
-				_, err := handle(c, resp, time.Now(), "test-model")
 				require.Equal(t, tc.status, recorder.Code)
 				if tc.status == http.StatusBadGateway {
 					require.Error(t, err)
 					require.Contains(t, recorder.Body.String(), `"type":"malformed_function_call"`)
 					require.Contains(t, recorder.Body.String(), "MALFORMED_FUNCTION_CALL")
 					require.NotContains(t, recorder.Body.String(), `"status":"completed"`)
+					require.NotContains(t, recorder.Body.String(), `"type":"message"`)
 				} else {
 					require.NoError(t, err)
-					if protocol == "responses" {
+					switch protocol {
+					case "responses":
 						require.Contains(t, recorder.Body.String(), `"status":"completed"`)
-					} else {
+					case "chat":
 						require.Contains(t, recorder.Body.String(), `"choices"`)
+					default:
+						require.Contains(t, recorder.Body.String(), `"type":"message"`)
 					}
 				}
 			})

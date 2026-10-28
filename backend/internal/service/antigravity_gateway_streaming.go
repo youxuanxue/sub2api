@@ -1016,7 +1016,12 @@ func (s *AntigravityGatewayService) handleClaudeStreamToNonStreaming(c *gin.Cont
 
 		errMsg := "Failed to parse upstream response"
 		errType := "upstream_error"
-		if strings.Contains(err.Error(), "stream data interval timeout") {
+		if errors.Is(err, antigravity.ErrMalformedFunctionCall) {
+			// Match Chat/Responses compat: do not collapse MALFORMED into a vague
+			// upstream_error, and never surface an empty Claude 200.
+			errMsg = err.Error()
+			errType = "malformed_function_call"
+		} else if strings.Contains(err.Error(), "stream data interval timeout") {
 			errMsg = "Upstream stream data interval timeout"
 			errType = "upstream_timeout"
 		} else if errors.Is(err, bufio.ErrTooLong) {
