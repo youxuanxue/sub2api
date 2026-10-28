@@ -1,31 +1,57 @@
 #!/usr/bin/env bash
-# Pin one cn-prod NewAPI account via reserved probe group and ladder concurrency
-# at ~5k input / 1k output. Emits metrics only (never prints the probe API key).
+# Pin one cn-prod NewAPI account via reserved probe group and ladder concurrency.
+# Default path replays REQUEST_POOL and keeps each body's output limit.
+# PROMPT_TOKENS_TARGET switches to one owned filler; MAX_TOKENS defaults to 1000.
+# Forces stream and include_usage. Emits metrics only
+# (never prints the probe API key or message text).
+# Live traffic requires APPROVE=yes-formal-tpm-loadtest. Default entrance is the
+# public cn-prod site, not the in-host loopback.
 #
 # Env:
+#   APPROVE      must be yes-formal-tpm-loadtest
 #   ACCOUNT_ID   required numeric account id
-#   MODEL        default kimi-k3
-#   PROMPT_TOKENS_TARGET  default 5000
-#   MAX_TOKENS   default 1000
-#   STEPS        default "1,2,4,8,12,16"
-#   REQS_PER_STEP default 12
+#   MODEL        default kimi-k3; overrides the body model when set
+#   PROMPT_TOKENS_TARGET  when set, send one owned filler context of about this many
+#                         tokens instead of REQUEST_POOL. MAX_TOKENS default 1000.
+#   REQUEST_POOL default /tmp/tk-rt-cases-200-bodies.jsonl.gz
+#   STEPS        default "5,10,15"
+#   HOLD_S       default 300; each concurrency stays full for this many seconds
 #   CALIBRATE_N  default 2
-#   BASE_URL     default active-color loopback (18081 blue / 18082 green)
+#   TIMEOUT_S    default 600
+#   BASE_URL     default https://api.galaxywaveai.com
 set -euo pipefail
 
 ACCOUNT_ID="${ACCOUNT_ID:?ACCOUNT_ID required}"
 MODEL="${MODEL:-kimi-k3}"
-PROMPT_TOKENS_TARGET="${PROMPT_TOKENS_TARGET:-5000}"
-MAX_TOKENS="${MAX_TOKENS:-1000}"
-STEPS="${STEPS:-1,2,4,8,12,16}"
-REQS_PER_STEP="${REQS_PER_STEP:-12}"
+REQUEST_POOL="${REQUEST_POOL:-/tmp/tk-rt-cases-200-bodies.jsonl.gz}"
+STEPS="${STEPS:-5,10,15}"
+HOLD_S="${HOLD_S:-300}"
 CALIBRATE_N="${CALIBRATE_N:-2}"
-TIMEOUT_S="${TIMEOUT_S:-180}"
-export ACCOUNT_ID MODEL PROMPT_TOKENS_TARGET MAX_TOKENS STEPS REQS_PER_STEP CALIBRATE_N TIMEOUT_S
+TIMEOUT_S="${TIMEOUT_S:-600}"
+export ACCOUNT_ID MODEL REQUEST_POOL STEPS HOLD_S CALIBRATE_N TIMEOUT_S
+if [[ -n "${PROMPT_TOKENS_TARGET:-}" ]]; then
+  export PROMPT_TOKENS_TARGET
+  MAX_TOKENS="${MAX_TOKENS:-1000}"
+  export MAX_TOKENS
+fi
+case "$HOLD_S" in
+  ''|*[!0-9]*)
+    echo '{"verdict":"setup_error","error":"HOLD_S must be a positive integer"}' >&2
+    exit 2
+    ;;
+esac
+if [[ "$HOLD_S" -lt 1 ]]; then
+  echo '{"verdict":"setup_error","error":"HOLD_S must be >= 1"}' >&2
+  exit 2
+fi
 
 if [[ ! "$ACCOUNT_ID" =~ ^[0-9]+$ ]]; then
   echo '{"verdict":"setup_error","error":"ACCOUNT_ID must be numeric"}' >&2
   exit 2
+fi
+if [[ "${APPROVE:-}" != "yes-formal-tpm-loadtest" ]]; then
+  echo '{"phase":"loadtest_blocked","error":"load test requires human approval","need":"APPROVE=yes-formal-tpm-loadtest","will_not_send_traffic":true}' >&2
+  exit 10
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -63,13 +89,7 @@ fi
 APP_CONTAINER="$(tk_resolve_app_container auto)"
 export APP_CONTAINER
 
-# Blue/green loopback ports from domestic compose.local.yml convention.
-case "$APP_CONTAINER" in
-  *-blue) APP_LOOP_URL="http://127.0.0.1:18081" ;;
-  *-green) APP_LOOP_URL="http://127.0.0.1:18082" ;;
-  *) APP_LOOP_URL="http://127.0.0.1:18080" ;;
-esac
-BASE_URL="${BASE_URL:-$APP_LOOP_URL}"
+BASE_URL="${BASE_URL:-https://api.galaxywaveai.com}"
 export BASE_URL
 
 PLATFORM="$("${DOCKER_BIN[@]}" exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -c \
@@ -94,8 +114,9 @@ print(json.dumps({
     "platform": os.environ["PLATFORM"],
     "concurrency": int(os.environ.get("CONC") or 0),
     "model": os.environ["MODEL"],
-    "prompt_tokens_target": int(os.environ["PROMPT_TOKENS_TARGET"]),
-    "max_tokens": int(os.environ["MAX_TOKENS"]),
+    "cases_path": os.environ["REQUEST_POOL"],
+    "prompt_tokens_target": int(os.environ["PROMPT_TOKENS_TARGET"]) if os.environ.get("PROMPT_TOKENS_TARGET") else None,
+    "max_tokens": int(os.environ["MAX_TOKENS"]) if os.environ.get("MAX_TOKENS") else None,
     "base_url": os.environ["BASE_URL"],
     "app_container": os.environ["APP_CONTAINER"],
 }, ensure_ascii=False))
@@ -125,121 +146,200 @@ echo "{\"phase\":\"pinned\",\"account_id\":${ACCOUNT_ID},\"probe_group_id\":${PR
 sleep 3
 
 export PROBE_KEY
-# Run on host Python against the active color loopback (never print PROBE_KEY).
+REQUEST_LOG="${REQUEST_LOG:-/tmp/tk-single-acct-ladder-${ACCOUNT_ID}.jsonl}"
+: > "$REQUEST_LOG"
+export REQUEST_LOG
+LADDER_METRICS_PY=""
+for candidate in \
+  "$SCRIPT_DIR/tpm_burst_recipe1.py" \
+  /tmp/tpm_burst_recipe1.py; do
+  if [[ -f "$candidate" ]]; then
+    LADDER_METRICS_PY="$candidate"
+    break
+  fi
+done
+if [[ -z "$LADDER_METRICS_PY" ]]; then
+  echo '{"verdict":"setup_error","error":"tpm_burst_recipe1.py not found; pass --with ops/observability/tpm_burst_recipe1.py"}' >&2
+  exit 2
+fi
+export LADDER_METRICS_PY
+# Summaries stay on stdout. Per-request rows go to REQUEST_LOG because SSM inline output is capped.
+echo "{\"phase\":\"request_log_open\",\"path\":\"${REQUEST_LOG}\"}"
 python3 - <<'PY'
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import statistics
+import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 api_key = os.environ["PROBE_KEY"]
 model = os.environ["MODEL"]
-prompt_target = int(os.environ["PROMPT_TOKENS_TARGET"])
-max_tokens = int(os.environ["MAX_TOKENS"])
+cases_path = os.environ["REQUEST_POOL"]
+prompt_tokens_target = os.environ.get("PROMPT_TOKENS_TARGET", "").strip()
+max_tokens_target = os.environ.get("MAX_TOKENS", "").strip()
 steps = [int(x) for x in os.environ["STEPS"].split(",") if x.strip()]
-reqs_per_step = int(os.environ["REQS_PER_STEP"])
+hold_s = float(os.environ["HOLD_S"])
 cal_n = int(os.environ["CALIBRATE_N"])
 timeout_s = float(os.environ["TIMEOUT_S"])
 base_url = os.environ["BASE_URL"].rstrip("/")
 account_id = int(os.environ["ACCOUNT_ID"])
+request_log_path = os.environ["REQUEST_LOG"]
+metrics_py = os.environ["LADDER_METRICS_PY"]
 
+_spec = importlib.util.spec_from_file_location("tpm_burst_recipe1", metrics_py)
+if _spec is None or _spec.loader is None:
+    raise SystemExit("cannot load tpm_burst_recipe1")
+_metrics = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = _metrics
+_spec.loader.exec_module(_metrics)
 
-def pad_prompt(target_tokens: int) -> str:
-    unit = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda "
-    need_chars = max(64, int(target_tokens * 4))
-    return (unit * (need_chars // len(unit) + 1))[:need_chars]
-
-
-messages = [
-    {
-        "role": "user",
-        "content": (
-            f"Load-test single-account pin id={account_id}. "
-            f"Reply with a dense English essay until the output limit. "
-            f"Ignore filler except as bulk.\n\n"
-            f"{pad_prompt(prompt_target)}"
+if prompt_tokens_target:
+    cases = [
+        _metrics.synthetic_context_case(
+            prompt_tokens_target=int(prompt_tokens_target),
+            max_tokens=int(max_tokens_target or "1000"),
+        )
+    ]
+    print(
+        json.dumps(
+            {
+                "phase": "cases_loaded",
+                "source": "synthetic_context",
+                "prompt_tokens_target": int(prompt_tokens_target),
+                "max_tokens": int(max_tokens_target or "1000"),
+                "replayable_n": 1,
+            },
+            ensure_ascii=False,
         ),
-    }
-]
+        flush=True,
+    )
+else:
+    try:
+        cases = _metrics.load_chat_case_pool(cases_path)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(json.dumps({"phase": "cases_unreadable", "path": cases_path, "error": type(exc).__name__}), flush=True)
+        raise SystemExit(2)
+    if not cases:
+        print(json.dumps({"phase": "cases_empty", "path": cases_path}), flush=True)
+        raise SystemExit(2)
+    print(
+        json.dumps(
+            {"phase": "cases_loaded", "path": cases_path, **_metrics.summarize_case_pool(cases)},
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
 
 
-def one() -> dict:
-    body = json.dumps(
-        {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "stream": False,
-            "temperature": 0.2,
-        }
-    ).encode()
+def one(step_name: str = "ladder", inflight: int = 1) -> dict:
+    global seq_n
+    with seq_lock:
+        seq_n += 1
+        seq = seq_n
+        case = cases[(seq - 1) % len(cases)]
+    fields = _metrics.case_replay_fields(case)
+    started_unix = time.time()
+    t0 = time.perf_counter()
+    body = json.dumps(_metrics.prepare_replay_body(case["body"], model=model)).encode()
     req = urllib.request.Request(
         base_url + "/v1/chat/completions",
         data=body,
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            "Accept": "text/event-stream",
             "User-Agent": f"tokenkey-single-acct-ladder/{account_id}",
         },
         method="POST",
     )
-    t0 = time.time()
+    events: list[tuple[float, dict]] = []
+    done = False
+    transport_error = ""
+    status = 0
+    hdrs: dict[str, str] = {}
     try:
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-            raw = resp.read()
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=timeout_s) as resp:
             status = resp.status
             hdrs = {k.lower(): v for k, v in resp.headers.items()}
+            for raw_line in resp:
+                now = time.perf_counter()
+                if now - t0 > timeout_s:
+                    transport_error = "request wall time exceeded timeout"
+                    break
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                chunk = line[5:].strip()
+                if chunk == "[DONE]":
+                    done = True
+                    break
+                try:
+                    obj = json.loads(chunk)
+                except json.JSONDecodeError:
+                    transport_error = "non-json sse"
+                    break
+                if isinstance(obj, dict):
+                    events.append((now, obj))
     except urllib.error.HTTPError as e:
-        raw = e.read() if e.fp else b""
         status = e.code
         hdrs = {k.lower(): v for k, v in (e.headers.items() if e.headers else [])}
-    except Exception as e:  # noqa: BLE001 — surface transport failures in metrics
-        return {
-            "ok": False,
-            "status_code": 0,
-            "error": type(e).__name__,
-            "latency_s": round(time.time() - t0, 3),
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-            "request_id": None,
-        }
-    latency = time.time() - t0
-    prompt_tokens = completion_tokens = total_tokens = 0
-    err = None
-    try:
-        data = json.loads(raw.decode("utf-8", errors="replace"))
-        usage = data.get("usage") or {}
-        prompt_tokens = int(usage.get("prompt_tokens") or 0)
-        completion_tokens = int(usage.get("completion_tokens") or 0)
-        total_tokens = int(usage.get("total_tokens") or (prompt_tokens + completion_tokens))
-        if status >= 400:
-            err = str(data.get("error") or data)[:240]
-    except Exception as e:  # noqa: BLE001
-        err = f"parse:{type(e).__name__}"
-        data = None
-    return {
-        "ok": 200 <= status < 300 and total_tokens > 0,
-        "status_code": status,
-        "error": err,
-        "latency_s": round(latency, 3),
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "total_tokens": total_tokens,
-        "request_id": hdrs.get("x-request-id"),
-    }
+        raw = e.read() if e.fp else b""
+        transport_error = raw.decode("utf-8", errors="replace")[:300]
+        if api_key and api_key in transport_error:
+            transport_error = transport_error.replace(api_key, "<redacted>")
+    except Exception as e:  # noqa: BLE001 — surface transport failures in the request row
+        transport_error = str(e)[:300]
+        if api_key and api_key in transport_error:
+            transport_error = transport_error.replace(api_key, "<redacted>")
+    sample = _metrics.sample_from_stream_events(
+        events,
+        t0=t0,
+        status=status,
+        done=done,
+        duration_s=time.perf_counter() - t0,
+        transport_error=transport_error,
+    )
+    record = _metrics.request_record_from_sample(
+        sample,
+        account_id=account_id,
+        model=model,
+        step=step_name,
+        inflight=inflight,
+        seq=seq,
+        started_unix=started_unix,
+        request_id=hdrs.get("x-request-id"),
+        case_sha256=fields.get("case_sha256"),
+        reasoning_effort=fields.get("reasoning_effort"),
+        output_limit=fields.get("output_limit"),
+        output_limit_field=fields.get("output_limit_field"),
+        redacted_marker=fields.get("redacted_marker"),
+    )
+    line = json.dumps(record, ensure_ascii=False)
+    with log_lock:
+        request_log.write(line + "\n")
+        request_log.flush()
+    return record
+
+
+seq_n = 0
+seq_lock = threading.Lock()
+log_lock = threading.Lock()
+request_log = open(request_log_path, "a", encoding="utf-8")
 
 
 print(json.dumps({"phase": "calibrate_start", "n": cal_n}), flush=True)
 cal = []
 for i in range(cal_n):
-    r = one()
+    r = one("calibrate", 1)
     cal.append(r)
     print(json.dumps({"phase": "calibrate_sample", "i": i + 1, **{k: v for k, v in r.items() if k != "error"} , "error": (r.get("error") or "")[:120]}), flush=True)
 
@@ -252,6 +352,7 @@ cal_summary = {
     "completion_tokens_mean": round(statistics.mean(r["completion_tokens"] for r in ok_cal), 1) if ok_cal else None,
     "total_tokens_mean": round(statistics.mean(r["total_tokens"] for r in ok_cal), 1) if ok_cal else None,
     "latency_s_mean": round(statistics.mean(r["latency_s"] for r in ok_cal), 3) if ok_cal else None,
+    "content_emitted_n": sum(1 for r in cal if r.get("content_emitted")),
     "fail_status_hist": dict(Counter(str(r["status_code"]) for r in cal if not r["ok"])),
 }
 print(json.dumps(cal_summary), flush=True)
@@ -261,15 +362,26 @@ if len(ok_cal) == 0:
 
 ladder = []
 for inflight in steps:
-    n = reqs_per_step
-    print(json.dumps({"phase": "step_start", "inflight": inflight, "n": n}), flush=True)
+    print(json.dumps({"phase": "step_start", "inflight": inflight, "hold_s": hold_s}), flush=True)
     t0 = time.time()
+    deadline = t0 + hold_s
     results: list[dict] = []
-    with ThreadPoolExecutor(max_workers=inflight) as pool:
-        futs = [pool.submit(one) for _ in range(n)]
-        for fut in as_completed(futs):
-            results.append(fut.result())
+    workers = max(1, inflight)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        pending: set = set()
+        while True:
+            now = time.time()
+            if now < deadline and len(pending) < workers:
+                pending.add(pool.submit(one, "ladder", inflight))
+                continue
+            if not pending:
+                break
+            timeout = max(0.01, deadline - now) if now < deadline else None
+            done, pending = wait(pending, timeout=timeout, return_when=FIRST_COMPLETED)
+            for fut in done:
+                results.append(fut.result())
     wall = time.time() - t0
+    n = len(results)
     ok = [r for r in results if r["ok"]]
     tok_sum = sum(r["total_tokens"] for r in ok)
     # Count InflightBatchsize in error bodies
@@ -281,11 +393,15 @@ for inflight in steps:
     step = {
         "phase": "step_summary",
         "inflight": inflight,
+        "hold_s": hold_s,
         "n": n,
         "wall_s": round(wall, 2),
+        "hold_filled": wall + 1e-6 >= hold_s,
         "success_n": len(ok),
         "fail_n": n - len(ok),
         "success_rate": round(len(ok) / n, 4) if n else 0,
+        "content_emitted_n": sum(1 for r in results if r.get("content_emitted")),
+        "content_rate": round(sum(1 for r in results if r.get("content_emitted")) / n, 4) if n else 0,
         "approx_rpm": round(len(ok) / wall * 60, 2) if wall > 0 else 0,
         "approx_tpm": round(tok_sum / wall * 60, 2) if wall > 0 else 0,
         "tok_sum_success": tok_sum,
@@ -310,10 +426,13 @@ print(
             "model": model,
             "calibrate": cal_summary,
             "steps": ladder,
+            "request_log": request_log_path,
+            "request_rows": seq_n,
         }
     ),
     flush=True,
 )
+request_log.close()
 PY
 
 # Attribution check: usage_logs for this account in the last 45 minutes
