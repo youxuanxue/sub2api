@@ -6,13 +6,7 @@
 | ------ | ------------------------------------------------ | ------ | ------------------------------------------------------------------------------------- |
 | US-051 | Prod component release | Done | `.testing/user-stories/stories/US-051-prod-component-release.md` |
 | US-050 | Candidate Eligibility SSOT | Done | `.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md` |
-| US-001 | Channel type bridge dispatch baseline            | Done   | `.testing/user-stories/stories/US-001-channel-type-bridge-dispatch-baseline.md`       |
-| US-002 | OpenAI entrypoints affinity prefetch integration | Done   | `.testing/user-stories/stories/US-002-openai-affinity-entrypoints.md`                 |
-| US-003 | Gateway responses/chat affinity integration      | Done   | `.testing/user-stories/stories/US-003-gateway-responses-chat-affinity-entrypoints.md` |
-| US-004 | Bridge emergency kill switch and runtime counters | Done   | `.testing/user-stories/stories/US-004-bridge-killswitch-runtime-counters.md`          |
-| US-005 | Preserve newapi core while converging peripheral TK features to upstream | Done   | `.testing/user-stories/stories/US-005-newapi-openai-compat-and-upstream-payment-gate.md` |
 | US-006 | Upstream prompt-cache 粘性路由（统一注入） | InTest | `.testing/user-stories/stories/US-006-sticky-routing-prompt-cache.md` |
-| US-007 | 重新引入上游 Backend Mode 并 fresh-install 默认开启 | InTest | `.testing/user-stories/stories/US-007-readopt-backend-mode-default-true.md` |
 | US-008 | newapi group + `/v1/chat/completions` 端到端走通 | Draft  | `.testing/user-stories/stories/US-008-newapi-group-chat-completions-e2e.md` |
 | US-009 | newapi group + `/v1/messages`（一站式 K）端到端走通 | Draft  | `.testing/user-stories/stories/US-009-newapi-group-messages-e2e.md` |
 | US-010 | newapi group + `/v1/responses` 端到端走通 | Draft  | `.testing/user-stories/stories/US-010-newapi-group-responses-e2e.md` |
@@ -39,12 +33,8 @@
 | US-031 | Onboarding Tour 对普通用户开放（服务端字段记忆已看过） | InTest | `.testing/user-stories/stories/US-031-onboarding-tour-unlock-for-regular-users.md` |
 | US-034 | OpenAI-compat `/v1/messages` 大输入自动压缩（账号优先、分组兜底） | InTest | `.testing/user-stories/stories/US-034-messages-compaction-policy.md` |
 | US-035 | Model surface bundle activation 与 generic deploy 解耦 | InTest | `.testing/user-stories/stories/US-035-model-surface-bundle-activation.md` |
-| US-036 | Capacity-first 数据层安全保护 | Done   | `.testing/user-stories/stories/US-036-capacity-first-data-layer-safety.md` |
-| US-037 | Data-layer 非生产归档恢复演练 | Done   | `.testing/user-stories/stories/US-037-data-layer-archive-rehearsal.md` |
 | US-038 | Kiro CONTENT_FILTERED 返回客户端错误且不触发 failover | InTest | `.testing/user-stories/stories/US-038-kiro-content-filter-client-error.md` |
 | US-041 | Kiro Claude Code completion continuity preserves unfinished work | InTest | `.testing/user-stories/stories/US-041-kiro-claude-code-completion-continuity.md` |
-| US-043 | Global pricing has one registry owner and protected hot reload | Done | `.testing/user-stories/stories/US-043-pricing-registry-hot-reload.md` |
-| US-045 | QA single-owner 迁移边界 | Done | `.testing/user-stories/stories/US-045-qa-phase2-production-integrity.md` |
 | US-046 | 默认 API Key 的诚实能力发现与统一菜单 | Done | `.testing/user-stories/stories/US-046-universal-key-capability-discovery.md` |
 | US-047 | Anthropic 缓冲流失败进入 failover，部分内容诚实标记截断 | Done | `.testing/user-stories/stories/US-047-anthropic-buffered-stream-failure-contract.md` |
 | US-048 | 运营以供应源安全接入并热更新模型供应账号 | InTest | `.testing/user-stories/stories/US-048-model-supplier-source-management.md` |
@@ -78,8 +68,6 @@
 | US-067 | OAuth 搜索历史补全保留工具权限 | InTest | `.testing/user-stories/stories/US-067-oauth-search-history-tool-permissions.md` |
 
 | US-068 | cn-prod 私有镜像预下载 | InTest | `.testing/user-stories/stories/US-068-cn-image-prewarm.md` |
-
-| US-069 | QA independent local lifecycle | Done | `.testing/user-stories/stories/US-069-qa-local-provision.md` |
 
 | US-070 | Kiro 文件工具按账号分块与轮次保真 | InTest | `.testing/user-stories/stories/US-070-kiro-file-tool-chunking.md` |
 

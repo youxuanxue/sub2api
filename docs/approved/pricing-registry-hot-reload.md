@@ -164,3 +164,7 @@ until a human decides the requested/routed/billing relationship.
 - Deploy, sensor and workstation paths cannot publish the runtime snapshot.
 - Upstream merge-tree conflict surface may not grow beyond the minimum existing
   TK companion hook; deletions of upstream pricing machinery are forbidden.
+
+一次性迁移对照留在
+`.testing/user-stories/attachments/US-043-pricing-registry-migration-parity.json`。
+它固定引入 registry 时的旧实现、registry blob 与 exact-byte SHA-256，不再复算。

@@ -263,7 +263,7 @@ across different accounts, and no expansion of profit-control applicability.
 Story completion requires these contract suites to pass. It does not require
 repeated live price snapshots or a production failure on demand. A contract or
 implementation change reruns its tests; a price-only change follows the pricing
-registry validation/hot-reload contract (US-043). A deployment follows US-051 and
+registry validation/hot-reload contract (`docs/approved/pricing-registry-hot-reload.md`). A deployment follows US-051 and
 Stage0 gates. An observed operational regression creates a concrete incident or
 failing regression test; it must not be hidden by a green Story.
 
@@ -376,7 +376,7 @@ and changing account cost; disabled or inapplicable profit control cannot preven
 the negative case. No blanket revenue-neutral or margin-safe claim is made.
 The accepted policy keeps lowest eligible equivalent-origin attribution; changes
 to that policy or profit applicability require a business decision. Ordinary
-price changes validate their new input under US-043 and existing monitoring,
+price changes validate their new input under the pricing registry hot-reload contract and existing monitoring,
 without reopening this Story or updating the example's prices.
 
 ## AG Messages permission administration — 2026-09-30
