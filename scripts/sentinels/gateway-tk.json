@@ -2114,12 +2114,14 @@
         "isOpenAIRequestScopedCapacityShed",
         "counter.IncrementCandidateFailure",
         "candidateTransportFailure",
-        "errors.As(err, &observed)"
+        "errors.As(err, &observed)",
+        "candidateFailureThreshold        int64 = 1",
+        "candidateFailurePriorityCapSteps int64 = 10"
       ],
       "must_not_contain": [
         "PlatformNewAPI"
       ],
-      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, observed errors cannot count twice, and OpenAI capacity-shed overload plus tagged account_rate_limit 429 (including NewAPI bridge ServerOverloaded) still feed soft effective-priority demotion without hard unsched."
+      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, observed errors cannot count twice, and OpenAI capacity-shed overload plus tagged account_rate_limit 429 (including NewAPI bridge ServerOverloaded) still feed soft effective-priority demotion without hard unsched. The first attributable failure adds 1000; each later failure in the same fixed 90-second window adds another 1000 up to 10000. Later failures do not refresh that window."
     },
     {
       "path": "backend/internal/service/protocol_execution.go",
@@ -2150,9 +2152,10 @@
         "http_400_capacity_shed",
         "selectAccount_demotes_after_threshold",
         "ExecuteSelectedProtocol",
-        "classifyOpenAIAPIKeyHealthFailure(observed)"
+        "classifyOpenAIAPIKeyHealthFailure(observed)",
+        "TestCandidateFailurePriorityStacksUntilCap"
       ],
-      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution, OpenAI capacity-shed and NewAPI ServerOverloaded 429 soft priority demotion (including HTTP 400 construction), and legacy breaker deduplication across platforms and key modes."
+      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution, OpenAI capacity-shed and NewAPI ServerOverloaded 429 soft priority demotion (including HTTP 400 construction), per-failure stacking up to the 10000 cap, and legacy breaker deduplication across platforms and key modes."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
@@ -3317,9 +3320,11 @@
         "eligibleForOpenAICapacitySaturationPreference(account)",
         "isNewAPINVIDIABuildAccount(account)",
         "nvidiaBuildInstabilityWindowSeconds",
-        "candidateSaturatedFor(account, count)"
+        "candidateSaturatedFor(account, count)",
+        "func candidateFailurePriorityPenalty(count int64) int",
+        "return int(count) * saturationPriorityPenalty"
       ],
-      "rationale": "One scoped interpretation of counters feeds account scoring and sticky preference, with Redis-owned expiry."
+      "rationale": "One scoped interpretation of counters feeds account scoring and sticky preference, with Redis-owned expiry. Attributable-failure effective priority is count times 1000, clamped by candidateFailurePriorityCapSteps."
     },
     {
       "path": "backend/internal/service/openai_candidate_eligibility.go",

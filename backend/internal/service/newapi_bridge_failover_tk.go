@@ -166,10 +166,11 @@ func tkNewAPIBridgeUpstreamFailoverError(c *gin.Context, account *Account, apiEr
 		ResponseBody:           body,
 		RequestScopedTransient: semantic == gatewayFailureSemanticTransientFault,
 	}
-	// Feed the unified soft effective-priority demotion (+1000 after the shared
-	// failure threshold). Same tag OpenAI account-pressure 429 already uses in
-	// newOpenAIAccountFailoverError; without it, NewAPI ServerOverloaded / rate
-	// limit 429s failover but never rank healthier siblings first.
+	// Feed the unified soft effective-priority demotion (+1000 per attributable
+	// failure in the fixed 90-second window, capped). Same
+	// tag OpenAI account-pressure 429 already uses in newOpenAIAccountFailoverError;
+	// without it, NewAPI ServerOverloaded / rate limit 429s failover but never
+	// rank healthier siblings first.
 	if statusCode == http.StatusTooManyRequests {
 		failoverErr.Scope = GatewayFailureScopeAccount
 		failoverErr.Reason = candidateAccountRateLimitReason
