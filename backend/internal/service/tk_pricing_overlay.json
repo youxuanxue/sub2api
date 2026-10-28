@@ -8580,7 +8580,7 @@
     "source": "Moonshot China official Kimi K3 price https://platform.kimi.com/docs/pricing/chat-k3, captured 2026-07-20: cache-hit input ¥2.00/M, cache-miss input ¥20.00/M, output ¥100.00/M, divided by TokenKey CNY/USD=6.7. Account 83 uses api.moonshot.cn."
   },
   "kimi-k3.1-pro": {
-    "litellm_provider": "volcengine",
+    "litellm_provider": "moonshot",
     "mode": "chat",
     "input_cost_per_token": 1.9402985074626867e-06,
     "output_cost_per_token": 1.0149253731343282e-05,
@@ -8590,7 +8590,7 @@
     "supports_function_calling": true,
     "supports_reasoning": true,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark model pricing https://www.volcengine.com/docs/82379/1099320, captured 2026-10-27: kimi-k3.1-pro input ¥13/Mtok, cache-hit ¥1.30/Mtok, output ¥68/Mtok; CNY/USD=6.7. Cache storage ¥0.017/Mtok/hour is not a separate overlay field. Agent Plan personal overview lists 1024k context and 128k max output."
+    "source": "Public vendor is OEM moonshot, not the VolcEngine Agent Plan supply channel. List price captured from VolcEngine Ark model pricing https://www.volcengine.com/docs/82379/1099320 on 2026-10-27: kimi-k3.1-pro input ¥13/Mtok, cache-hit ¥1.30/Mtok, output ¥68/Mtok; CNY/USD=6.7. Cache storage ¥0.017/Mtok/hour is not a separate overlay field. Agent Plan personal overview lists 1024k context and 128k max output."
   },
   "minimax-m2": {
     "litellm_provider": "volcengine",
