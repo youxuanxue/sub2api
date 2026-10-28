@@ -1,17 +1,17 @@
-# US-071-kiro-auto-mode-transcript-trim
+# US-072-kiro-auto-mode-transcript-trim
 
-- ID: US-071
+- ID: US-072
 - Title: Gated auto-mode transcript trim on Kiro overflow
 - Priority: P1
 - As a / I want / So that:
   As a TokenKey operator enabling a Kiro account Extra flag, I want oversized
   Claude Code auto-mode classifier requests to drop only whole old tool-process
   (then meta) transcript records under a size budget, so that some overflow
-  413s can recover without head/tail truncation or silent summarization.
-- Trace: `docs/approved/kiro-auto-mode-transcript-trim.md` (status: pending)
+  can recover without head/tail truncation or silent summarization.
+- Trace: `docs/approved/kiro-auto-mode-transcript-trim.md` (status: shipped; #2933, #2934, #2939, #2941)
 - Risk Focus:
   - 逻辑错误: trim runs only after local overflow; under-budget requests unchanged.
-  - 行为回归: flag off / non-candidate / parse failure → existing US-065 413 path.
+  - 行为回归: flag off / non-candidate / parse failure → existing US-065 public 400 overflow path.
   - 安全问题: user lines and latest action retained; no head/tail or summary rewrite.
   - 运行时: still zero upstream on residual overflow; no failover; diagnostics counts only.
 
@@ -24,7 +24,8 @@
    or nothing removable remains; user text and latest action survive.
 2. **AC-002 (negative / S2)**: Given the flag on but unparseable transcript or
    missing latest action, when overflow occurs, then the request body is not
-   rewritten and the gateway returns the existing typed 413.
+   rewritten and the public envelope follows US-065: 400 `invalid_request_error`
+   whose message leads with `prompt is too long`.
 3. **AC-003 (negative / S3)**: Given the flag off, or a non-auto-mode oversized
    user prose request, when Forward runs, then no transcript rewrite occurs
    (US-065 behavior).
@@ -70,9 +71,11 @@ cd backend && go test -tags=unit ./internal/integration/kiro ./internal/service 
 
 ## Evidence
 
-Prototype only; production Extra default remains unset until
-`docs/approved/kiro-auto-mode-transcript-trim.md` leaves `pending`.
+Shipped with the gateway from `#2933` (1.8.329) through `#2941` (public 400 envelope).
+2026-10-28: user confirmed development is complete and the path is released.
+Account Extra default stays unset; rewrite runs only when
+`kiro_auto_mode_transcript_trim=true`.
 
 ## Status
 
-- [x] InTest - unit coverage for detect/parse/budget/blocks/opt-in; gateway overflow hook present; human approval of pending doc still required before prod enablement.
+- [x] Done — opt-in trim and compact block split are in the released gateway; flag default remains off.

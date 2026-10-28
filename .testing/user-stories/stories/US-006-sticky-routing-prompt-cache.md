@@ -79,4 +79,4 @@
 
 ## Status
 
-- [x] InTest（V1.1 实现与自动化验证已完成，待合并后切 Done）
+- [x] InTest（实现已在主干。审批基线 `sticky-routing.md` 仍是 `approved`，所以本故事维持 InTest，不在这里改成 Done。）

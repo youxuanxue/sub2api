@@ -8,7 +8,7 @@ risk: high
 
 # QA raw-only
 
-> **现状（2026-10-23）**：raw-only 契约仍有效；归档目标已由 Hetzner 改回 AWS S3（见下文「存储和迁移」后续段落），**上传当前暂停**（`host_watch.paused_jobs`）。标题中的 Hetzner 迁移为历史。
+> **现状（2026-10-23，2026-10-28 确认仍有效）**：raw-only 契约仍有效；归档目标已由 Hetzner 改回 AWS S3（见下文「存储和迁移」后续段落），**上传当前暂停**（`host_watch.paused_jobs`）。标题中的 Hetzner 迁移为历史。下文 Hetzner 切换步骤是当时的操作记录。现网按文首这段和 2026-10-16 之后的段落读：目标曾回到 AWS S3，上传暂停，本地 24h 清理独立运行。
 
 用户决定删除 QA 主机、Bundle/ZIP 和用户导出能力。本文替代 QA Bundle 会话导出及 uk1 共享 worker 的设计决策；网关蓝绿发布继续沿用既有 owner。
 

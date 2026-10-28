@@ -33,6 +33,22 @@ class StoryIndexTest(unittest.TestCase):
         row = "| US-050 | Catalog | InTest | `.testing/user-stories/stories/example.md` |"
         self.assertTrue(self.check_index(row + "\n" + row))
 
+    def test_two_story_files_sharing_an_id_fail(self):
+        stories = [
+            {"id": "US-071", "status": "InTest",
+             "path": ROOT / ".testing/user-stories/stories/US-071-a.md"},
+            {"id": "US-071", "status": "InTest",
+             "path": ROOT / ".testing/user-stories/stories/US-071-b.md"},
+        ]
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "index.md"
+            path.write_text(
+                "| US-071 | Catalog | InTest | `.testing/user-stories/stories/US-071-b.md` |\n",
+                encoding="utf-8",
+            )
+            issues = QUALITY.verify_index(path, stories)
+        self.assertTrue(any(item.startswith("duplicate story id US-071:") for item in issues), issues)
+
 
 if __name__ == "__main__":
     unittest.main()

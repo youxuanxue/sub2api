@@ -20,10 +20,11 @@ intent_carrier: docs/approved/kiro-auto-mode-transcript-trim.md
 记录较旧或工具可重新执行，并不证明记录与当前判定无关。
 但《新证据一》已验证：这批 413 的 wire 正文里不存在结构化工具记录，该路径在这批流量上无事可做。
 
-本文件是修订后的方案建议与证据账本。**受限 transcript 原型**的审批载体已落到
+本文件是修订后的方案建议与证据账本。受限 transcript 路径的契约是
 [`approved/kiro-auto-mode-transcript-trim.md`](approved/kiro-auto-mode-transcript-trim.md)
-（`status: pending`）。会话中确认「做受限原型」不等于生产默认开启；须该 approved
-文档经人工审批后，方可把账号 Extra 开关用于非副本流量。
+（`status: shipped`）。它已随网关发布；生产默认 Extra 仍然关闭。把开关用于某个账号，
+是逐账号打开 `kiro_auto_mode_transcript_trim=true`，不是改全局默认。对客超限文案自
+`#2941` 起为 400，不再是这里早期记录里的 413。
 
 ## 已有证据与适用范围
 
@@ -277,11 +278,11 @@ Claude Code 2.1.301 的分类器提示明确使用 assistant 提案解释用户�
 - Kiro 本地超限记录转换器输入大小/hash、现有裁剪前后序列化大小以及 system、history、current text、工具等组成。
 - QA 区分 wire 字节/hash 与完整性；诊断不含用户正文。
 
-**受限原型**（2026-10-26 起，审批载体
-[`approved/kiro-auto-mode-transcript-trim.md`](approved/kiro-auto-mode-transcript-trim.md)）：
+**受限路径**（2026-10-26 起设计，2026-10-28 确认已随网关发布；审批载体
+[`approved/kiro-auto-mode-transcript-trim.md`](approved/kiro-auto-mode-transcript-trim.md)，`status: shipped`）：
 
-- 增加识别 / 解析 / 整条删除旧工具过程的 **gated** 实现与单元测试；默认关闭。
-- 未人工批准前：不得改生产账号 Extra 默认值，不得宣称已修复现网 413。
+- 识别 / 解析 / 整条删除旧工具过程的实现与单元测试已在主干。默认关闭。
+- 发布不改生产账号 Extra 默认值。对客超限文案自 `#2941` 起为 400 `prompt is too long`。
 - 头尾截断、摘要、跨平台 failover、抬限：仍不在本交付范围。
 
 本方案不伪造分类器允许结果。
@@ -293,7 +294,7 @@ Claude Code 2.1.301 的分类器提示明确使用 assistant 提案解释用户�
 | 在客户端使用普通权限确认模式 | 避开这类 auto-mode 辅助分类请求；增加用户确认次数 | 待在受控客户端验证；不代表所有大请求都不会超限，不自动代用户切换 |
 | 显式选择已验证能承接完整输入的供应源 | 保留自动模式及完整分类输入；供应源、费用和数据去向可能变化 | 当前未选定供应源；不自动跨平台路由 |
 | 客户端压缩或修复其分类器输入生成 | 客户端掌握真实角色和协议，更适合决定输入组织方式 | 未验证具体版本、配置或修复；不能承诺升级或 `/compact` 一定有效 |
-| 网关按结构删除旧工具过程记录（受限原型） | 对《新证据一》外层 Anthropic wire 收益可能仍为 0；须解析 `<transcript>` **内部**结构化记录后实测 | **进行中**：见 [approved 原型](approved/kiro-auto-mode-transcript-trim.md)；默认关闭；审批前仅副本/测试 |
+| 网关按结构删除旧工具过程记录（受限路径） | 对《新证据一》外层 Anthropic wire 收益可能仍为 0；须解析 `<transcript>` **内部**结构化记录后实测 | **已上线，默认关闭**：见 [shipped 契约](approved/kiro-auto-mode-transcript-trim.md)；`#2933` 起进入发布网关；Extra `kiro_auto_mode_transcript_trim=true` 才改写 |
 | 抬高 `maxPayloadBytes` 到 940 KiB | 解决 45 次一次性突发；38 次 cron 仅推迟约 15 分钟~1 小时；6 次刻意让给安全余量、30 次仍 413 | 阈值证据已就绪（《新证据二》）；落地前须经 `/v1/messages` 验证网关路径，并单独评审（**本原型不包含抬限**） |
 | 网关按标签删除、摘要或头尾截断 transcript | 有机会缩小正文，但会改变安全审查材料 | **明确不实施**（与受限整条删除不是同一路径） |
 

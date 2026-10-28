@@ -182,9 +182,9 @@ func (a *Account) IsKiroFileToolChunkingEnabled() bool {
 	return enabled
 }
 
-// IsKiroAutoModeTranscriptTrimEnabled is an explicit per-account opt-in for the
-// pending auto-mode/compact transcript reduction prototype
-// (docs/approved/kiro-auto-mode-transcript-trim.md). Missing/non-bool = off.
+// IsKiroAutoModeTranscriptTrimEnabled is an explicit per-account opt-in
+// (docs/approved/kiro-auto-mode-transcript-trim.md). The path ships with the
+// gateway; missing/non-bool Extra stays off.
 func (a *Account) IsKiroAutoModeTranscriptTrimEnabled() bool {
 	if a == nil || !a.IsKiro() {
 		return false

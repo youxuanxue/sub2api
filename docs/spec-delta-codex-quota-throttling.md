@@ -37,4 +37,4 @@
 - `AccountUsageCell.spec.ts`：主动查询与旧批量响应竞态、reset/次数查询更新 override 行、失败提示。
 - `playwright.codex-quota.config.ts`：真实 Accounts UI 点击查询，100% → 1%，重载保留，失败提示。
 
-未部署前，线上行为仍以现有版本为准。
+修复已随 #2770（2026-10-21）进入主干。「未部署」只描述写本文时的 1.8.311，不描述当前发布。

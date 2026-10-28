@@ -32,7 +32,7 @@
 | US-024 | NewAPI 第五平台 round-3 audit 修复（BatchCreate 透传 channel_type/load_factor + ops openai-token-stats gpt% 过滤放行 newapi） | Done | `.testing/user-stories/stories/US-024-newapi-batch-import-and-token-stats-round-3.md` |
 | US-025 | NewAPI 第五平台 round-4 audit 修复（sticky 会话指向已删除账号时主动清理 Redis 绑定） | Done | `.testing/user-stories/stories/US-025-newapi-sticky-session-deleted-account-cleanup.md` |
 | US-026 | NewAPI 第五平台 round-5 audit 修复（admin SubscriptionsView 平台筛选下拉漏掉 newapi） | Done | `.testing/user-stories/stories/US-026-newapi-subscriptions-platform-filter.md` |
-| US-027 | OpenAI Codex 伪装 Claude — Thinking 多轮空响应根治 + 流式空内容护栏 | InTest | `.testing/user-stories/stories/US-027-openai-codex-as-claude-thinking-continuity.md` |
+| US-027 | OpenAI Codex 伪装 Claude — Thinking 多轮空响应根治 + 流式空内容护栏 | Done | `.testing/user-stories/stories/US-027-openai-codex-as-claude-thinking-continuity.md` |
 | US-028 | 公开模型 + 价格目录页（未登录可访） | InTest | `.testing/user-stories/stories/US-028-public-pricing-catalog.md` |
 | US-029 | 注册赠额（默认 $1.00 USD，admin 可配；3 条注册路径全覆盖） | InTest | `.testing/user-stories/stories/US-029-signup-bonus-balance.md` |
 | US-030 | 注册成功自动签发 trial API Key（Dashboard Quick Start 卡片 v1.5 deferred） | InTest | `.testing/user-stories/stories/US-030-auto-first-api-key.md` |
@@ -84,3 +84,5 @@
 | US-070 | Kiro 文件工具按账号分块与轮次保真 | InTest | `.testing/user-stories/stories/US-070-kiro-file-tool-chunking.md` |
 
 | US-071 | Kiro 协议与凭据可靠性 | InTest | `.testing/user-stories/stories/US-071-kiro-stream-auth-reliability.md` |
+
+| US-072 | Kiro auto-mode transcript trim | Done | `.testing/user-stories/stories/US-072-kiro-auto-mode-transcript-trim.md` |

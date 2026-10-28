@@ -172,24 +172,27 @@ relaxing this limit.
 
 ## Scope Boundary
 
-This decision does not raise the Kiro wire limit, summarize history, shorten
-current user prose, or add provider fallback. It does not change authentication,
+This decision does not raise the Kiro wire limit, summarize history, or add
+provider fallback. Shortening current user prose is forbidden except for the
+shipped, default-off account flag in the next section. It does not change authentication,
 billing, scheduling, persistence, database schema, or deployment state. A future
 limit change requires new direct evidence because Kiro does not publish this
 threshold as a stable contract. The 2026-10-26 probes are such evidence, but
 recording them here does not itself authorize a new limit: that requires
 gateway-path validation and a separate approval.
 
-## Pending exception (not in force)
+## Gated exception (in force when the account flag is on)
 
-A **gated** exception for Claude Code auto-mode classifier transcripts — allow
+A **gated** exception for Claude Code auto-mode classifier transcripts allows
 structured whole-record deletion of old tool-process lines inside current user
-prose when an account Extra flag is on — is proposed in
+prose when account Extra `kiro_auto_mode_transcript_trim=true`. The contract is
 [`kiro-auto-mode-transcript-trim.md`](kiro-auto-mode-transcript-trim.md)
-(`status: pending`). Until that document is human-approved and flipped out of
-`pending`, this overflow contract’s “must not shorten current user prose” rule
-and default off behavior remain authoritative. Head/tail truncation, summarization,
-and cross-platform overflow failover stay out of scope here.
+(`status: shipped`). It has been in the released gateway since 1.8.329
+(`#2933` and follow-ups; public overflow copy is the 400 envelope from
+`#2941`). Missing or non-boolean Extra stays off, and that default-off path
+still obeys this document’s “must not shorten current user prose” rule.
+Head/tail truncation, summarization, and cross-platform overflow failover stay
+out of scope here.
 
 ## Verification
 

@@ -1,6 +1,7 @@
 ---
 title: Prod-only QA S3 用户面与小时归档生命周期
-status: approved
+status: archived
+superseded_by: qa-raw-only.md
 approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-17; S3-only user surface, capture-sealed archive-gated hourly DROP, fail-closed single maintenance owner, no automatic emergency deletion, and PR #1688 Bundle bootstrap/app rollback contract)"
 approved_at: 2026-08-05
 last_reviewed: 2026-08-19
@@ -16,24 +17,23 @@ scope:
   - edge QA removal
 ---
 
-> QA 产品导出与 worker 部分由 [QA raw-only](qa-raw-only.md) 替代；raw 生命周期与网关蓝绿约束继续有效。
+> **已归档（2026-10-28）。** 现行 QA 契约是 [qa-raw-only](qa-raw-only.md)：prod capture、raw archive，以及暂停上传期间的本地 24h 清理。用户导出、Bundle、worker 和 `deploy-qa-bundle.yml` 已退役。本文保留 2026-08 的小时归档与 shard 状态机记录（`archive/state.go` 仍引用 §14.1），不再授权执行用户面、Bundle 或独立 worker 发布。
 
 
 # Prod-only QA S3 用户面与小时归档生命周期
 
 ## 1. 决策摘要
 
-QA 数据面只有一个目标形态：
+下面是 2026-08 写下的目标形态。其中用户列表、详情、ZIP 与 S3 QA Bundle 已经退役。
 
 > 只有 prod 捕获 QA。`tokenkey-qa-maintenance.timer` 在每小时 `HH:15`
 > 供给未来小时分区、归档并 restore-verify 上一小时，然后 DROP 已可靠进入 raw S3 的精确小时分区，
 > 最后清理对应 Blob/DLQ。正常完成后 PostgreSQL 只保留当前正在写入的小时；失败小时保留到归档成功，
-> 不做 DEFAULT、逐行 DELETE、rehome、copy 或 move。用户列表、详情和导出均读取 user/API-key scoped
-> S3 QA Bundle；ZIP 只在用户请求导出时从已提交 Bundle 生成，不回源 prod。Edge 完全退出 QA。
+> 不做 DEFAULT、逐行 DELETE、rehome、copy 或 move。用户列表、详情、ZIP 与 S3 QA Bundle
+> 属于这段历史目标，已由 qa-raw-only 退役，不再执行。Edge 完全退出 QA。
 
-本文件是 QA lifecycle 的唯一批准基线。`ops/qa/policy.yaml` 是实现后的目标策略 SSOT，
-`ops/qa/deploy_rollout.yaml` 必须分别记录 repository readiness 与 observed live state。
-文档批准不表示实现、部署或生产 DROP 已发生。
+本文不再是 QA lifecycle 的批准基线。现行契约是 [qa-raw-only](qa-raw-only.md)。
+`ops/qa/policy.yaml` 与 `ops/qa/deploy_rollout.yaml` 继续记录策略和观测状态，但不恢复用户导出。
 
 目标数据契约：
 

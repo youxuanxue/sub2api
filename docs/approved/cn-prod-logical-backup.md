@@ -34,6 +34,8 @@ risk: high
 > 新监控上线前已验证稳定：archive-check 连续 31 次成功、`NRestarts=0`、回执 137 秒新鲜
 > （门禁要求 ≤900s）、`backup_count` 4→8，且 `backup.json` 已由新 runner 在 02:30 与
 > 08:30 两次真实备份后产出（`status=ok`）。本文件自此仅作历史记录。
+>
+> **文末步骤不再执行。** 下面是 2026-10-19 的逻辑 dump 说明。逻辑 dump 已于 2026-10-23 停止。不要再按这些步骤跑 `tokenkey-pgdump.sh`。现行备份是 pgBackRest，监控是 `ops-cn-backup-watch.yml`。
 
 Reuse `deploy/aws/stage0/tokenkey-pgdump.sh` for the independent domestic
 PostgreSQL database, including usage details. No database restart, gateway

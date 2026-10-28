@@ -37,4 +37,4 @@ Raw-only 验证：Playwright 桌面/手机 Keys 与管理员编辑通过；captu
 
 ## Status
 
-- [x] Done: repository implementation and local verification; new raw storage acceptance completed independently of gateway rollout.
+- [x] Done: repository implementation and local verification; new raw storage acceptance completed independently of gateway rollout. 组件发布设计现已归档，现行 QA 契约是 `docs/approved/qa-raw-only.md`。本故事记录的是当时那次验收，不把 Bundle Worker 发布权交回去。

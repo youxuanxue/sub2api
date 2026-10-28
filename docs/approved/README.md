@@ -2,7 +2,7 @@
 title: Approved docs index
 status: approved
 approved_by: "docs cleanup 2026-07-09"
-revised_at: 2026-09-03
+revised_at: 2026-10-28
 ---
 
 # Approved docs index
@@ -52,7 +52,7 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 
 Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
-2026-09-30 增量：[Gemini Web 直接 Pro 与共享画布契约](gemini-web-channel.md)（已获本次会话实施授权，待发布验证）。
+2026-09-30 增量：[Gemini Web 直接 Pro 与共享画布契约](gemini-web-channel.md)（`status: approved`）。
 
 ## TokenKey SSOT 导航
 
@@ -93,13 +93,13 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | File | Topic |
 | --- | --- |
 | [`admin-ui-newapi-platform-end-to-end.md`](admin-ui-newapi-platform-end-to-end.md) | Admin UI newapi lifecycle |
-| [`deploy-stage0-workflow.md`](deploy-stage0-workflow.md) | Cloud-agent tag/deploy workflow |
+| [`gpt-image-strict-canvas-postprocess.md`](gpt-image-strict-canvas-postprocess.md) | GPT Image local exact canvas + format post-process（已合并 #2385） |
+| [`kiro-auto-mode-transcript-trim.md`](kiro-auto-mode-transcript-trim.md) | Kiro auto-mode / compact transcript trim；已随网关发布，Extra 默认关闭 |
 | [`messages-compaction-policy.md`](messages-compaction-policy.md) | Messages auto-compaction |
 | [`newapi-allow-image-generation-ops.md`](newapi-allow-image-generation-ops.md) | newapi image-generation ops switch |
 | [`newapi-as-fifth-platform.md`](newapi-as-fifth-platform.md) | NewAPI as fifth platform |
 | [`newapi-followup-bugs-and-forwarding-fields.md`](newapi-followup-bugs-and-forwarding-fields.md) | NewAPI follow-up fixes |
 | [`openai-codex-as-claude-thinking-continuity.md`](openai-codex-as-claude-thinking-continuity.md) | Codex-as-Claude thinking continuity |
-| [`sticky-routing.md`](sticky-routing.md) | Sticky routing and prompt cache |
 
 ## Active by theme
 
@@ -108,11 +108,12 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | File | Topic |
 | --- | --- |
 | [`gateway-failover-policy-ssot.md`](gateway-failover-policy-ssot.md) | Gateway failover decision owner |
+| [`sticky-routing.md`](sticky-routing.md) | Sticky routing and prompt cache（`approved`；US-006 仍为 InTest） |
+| [`gemini-web-channel.md`](gemini-web-channel.md) | Gemini Web Cookie HTTP 通路与直接 Pro 画布 |
 | [`client-closed-499-ssot.md`](client-closed-499-ssot.md) | Client-closed 499 classification owners (ingress predicate, constant, ops phase) |
 | [`upstream-model-retirement.md`](upstream-model-retirement.md) | Upstream model retirement evidence, failover and SLA attribution |
 | [`openai-compat-first-selection-failure.md`](openai-compat-first-selection-failure.md) | OpenAI-compatible first-selection failure contract |
 | [`gpt-image-aspect-ratio-soft-control.md`](gpt-image-aspect-ratio-soft-control.md) | GPT Image `aspect_ratio` soft marker, floor identity |
-| [`gpt-image-strict-canvas-postprocess.md`](gpt-image-strict-canvas-postprocess.md) | GPT Image local exact canvas + format post-process（已合并 #2385） |
 | [`gpt-image-native-cutover.md`](gpt-image-native-cutover.md) | GPT Image OAuth 默认原生 Images，404/405 回退 Responses |
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
 | [`candidate-eligibility-ssot.md`](candidate-eligibility-ssot.md) | Candidate scheduling policy and implementation boundary |
@@ -129,10 +130,10 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`kiro-claude-code-completion-continuity.md`](kiro-claude-code-completion-continuity.md) | Kiro Claude Code completion |
 | [`kiro-content-filter-outcome.md`](kiro-content-filter-outcome.md) | Kiro content-filter outcome |
 | [`kiro-payload-overflow.md`](kiro-payload-overflow.md) | Kiro translated-payload overflow and current-turn preservation |
-| [`kiro-auto-mode-transcript-trim.md`](kiro-auto-mode-transcript-trim.md) | Kiro auto-mode / compact transcript constrained trimming |
 | [`kiro-turn-boundary.md`](kiro-turn-boundary.md) | Kiro client-owned turn boundary |
 | [`volcengine-plan-asr.md`](volcengine-plan-asr.md) | VolcEngine Agent Plan speech recognition |
 | [`anthropic-window-util-sched.md`](anthropic-window-util-sched.md) | Upstream window-util scheduling |
+| [`antigravity-images-generations-adapter.md`](antigravity-images-generations-adapter.md) | Antigravity OpenAI Images：复用原生 Gemini Plan、单张 b64_json |
 | [`anthropic-buffered-stream-failure-contract.md`](anthropic-buffered-stream-failure-contract.md) | Anthropic buffered stream failure |
 | [`claude-context-error-recovery.md`](claude-context-error-recovery.md) | Claude context rejection recognition and committed SSE failure reporting |
 | [`cc-only-disable-prep-decisions.md`](cc-only-disable-prep-decisions.md) | Relaxing cc-only OAuth identity gates |
@@ -153,22 +154,23 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`design-phase1-prod-activation-gates.md`](design-phase1-prod-activation-gates.md) | Phase1 activation gates |
 | [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 archive 桶 |
 | [`ops-error-logs-column-contract.md`](ops-error-logs-column-contract.md) | `ops_error_logs` 列契约：声明 == 写入 ∪ DB 托管（无 Ent schema 表的机械替代） |
-| [`design-prod-qa-24h-s3-lifecycle.md`](design-prod-qa-24h-s3-lifecycle.md) | QA 24h S3 lifecycle |
+| [`qa-raw-only.md`](qa-raw-only.md) | 现行 QA 契约：prod capture、raw archive、上传暂停时的本地 24h 清理 |
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
 | [`qa-redaction-identified-formats-only.md`](qa-redaction-identified-formats-only.md) | QA 脱敏已识别格式边界与性能优化 |
 | [`design-prod-physical-backup.md`](design-prod-physical-backup.md) | 每周全量、两小时块增量、WAL 连续归档及隔离验收 |
-| [`cn-prod-logical-backup.md`](cn-prod-logical-backup.md) | 国内节点逻辑 dump（退役中，cn-prod 已改 pgBackRest） |
+| [`cn-prod-logical-backup.md`](cn-prod-logical-backup.md) | 逻辑 dump 已停；文首引用块说明为何保留 pgBackRest 监控，文末步骤不再执行 |
 | [`design-fleet-pgdump-restore-canary.md`](design-fleet-pgdump-restore-canary.md) | Fleet pgdump restore canary |
-| [`hcloud-pgdump-storage.md`](hcloud-pgdump-storage.md) | archived：Hetzner 期 pgdump 存储（已被物理备份取代） |
 | [`hetzner-cloud-full-migration.md`](hetzner-cloud-full-migration.md) | 舰队不变量锁（Hetzner 期选址为历史；执行 SSOT：`deploy/hetzner/README.md`） |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
-| [`prod-component-release.md`](prod-component-release.md) | Independent prod component releases |
+| [`deploy-stage0-workflow.md`](deploy-stage0-workflow.md) | Gateway blue/green release（`approved`；Bundle Worker 选择已归档） |
+| [`stage0-release-check-remediation.md`](stage0-release-check-remediation.md) | Stage0 release-check remediation |
 
 ### Ops / admin / misc
 
 | File | Topic |
 | --- | --- |
 | [`ops-unified-contract.md`](ops-unified-contract.md) | Ops unified contract |
+| [`prod-replay-capability-matrix.md`](prod-replay-capability-matrix.md) | Offline gateway capability matrix；与部署无关 |
 | [`ops-sla-error-owner-scope.md`](ops-sla-error-owner-scope.md) | Ops SLA owner scope |
 | [`proxy-unreachable-p0-alert.md`](proxy-unreachable-p0-alert.md) | 代理出口 IP:port 不可达 P0 告警 |
 | [`admin-dashboard-rollup-performance.md`](admin-dashboard-rollup-performance.md) | Admin dashboard rollups |
@@ -185,30 +187,21 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 | File | Topic |
 | --- | --- |
-| [`upstream-merge-2026-08-15-migrations.md`](upstream-merge-2026-08-15-migrations.md) | Upstream merge 2026-08-15 migrations |
+| [`upstream-merge-2026-08-15-migrations.md`](upstream-merge-2026-08-15-migrations.md) | Upstream merge 2026-08-15 migrations（`shipped`） |
 | [`upstream-merge-20260923.md`](upstream-merge-20260923.md) | TokenKey upstream merge 2026-09-23 |
 | [`upstream-merge-20260930.md`](upstream-merge-20260930.md) | 隔离上游合并与 TokenKey 不变量裁决；不授权主线合并或部署 |
 | [`upstream-merge-2026-10-06.md`](upstream-merge-2026-10-06.md) | 隔离上游合并、241 迁移与 TokenKey CHECK/404 裁决；不授权主线合并或部署 |
-| [`upstream-merge-2026-10-22-migrations.md`](upstream-merge-2026-10-22-migrations.md) | 2026-10-22 上游迁移已随 #2796 合入 |
+| [`upstream-merge-2026-10-22-migrations.md`](upstream-merge-2026-10-22-migrations.md) | 2026-10-22 上游迁移已随 #2796 合入（`shipped`） |
 
-## Pending baselines
-
-- [Gemini Web 新通路](gemini-web-channel.md) — 数据库会话、worker 鉴权、官方响应与单 owner 契约。
-
-- [Gateway capability verification](prod-replay-capability-matrix.md) — offline matrix planning and explicit isolated checks, independent of deployment.
-
-- [Stage0 release-check remediation](stage0-release-check-remediation.md) — approved fixes and production impact boundaries.
-
-- [Antigravity OpenAI Images 协议适配](antigravity-images-generations-adapter.md)：复用原生 Gemini Plan、单张 b64_json、参数边界与计费前响应校验。
-
-## QA raw-only 与历史设计
+## 已归档的 QA 设计
 
 | File | Topic |
 | --- | --- |
-| [qa-raw-only.md](qa-raw-only.md) | QA raw-only 契约（Hetzner 目标已由 AWS S3 取代；上传暂停） |
+| [design-prod-qa-24h-s3-lifecycle.md](design-prod-qa-24h-s3-lifecycle.md) | archived：24h 用户面与 Bundle；shard 状态机仅供历史核对 |
 | [qa-bundle-session-export.md](qa-bundle-session-export.md) | archived：退役用户会话导出 |
 | [design-split-deploy-qa-bundle.md](design-split-deploy-qa-bundle.md) | archived：退役 Bundle worker 发布 |
 | [prod-component-release.md](prod-component-release.md) | archived：原组件发布设计，由 raw-only 替代 |
+| [hcloud-pgdump-storage.md](hcloud-pgdump-storage.md) | archived：Hetzner 期 pgdump 存储，由物理备份取代 |
 
 网关生产蓝绿发布以 [deploy-stage0-workflow.md](deploy-stage0-workflow.md) 为基线，QA 部分以 raw-only 覆盖。
 

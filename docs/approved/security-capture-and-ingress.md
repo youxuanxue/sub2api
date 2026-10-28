@@ -12,7 +12,7 @@ risk: high
 此锚点覆盖 R-001/002/003/004/005/009 的可回滚代码修复，不代表批准生产部署、
 删除已有证据、修改管理员 MFA 绑定或执行凭据迁移。
 
-现有 QA 生命周期继续遵循 `design-prod-qa-24h-s3-lifecycle.md`。
+现行 QA 生命周期遵循 `qa-raw-only.md`。`design-prod-qa-24h-s3-lifecycle.md` 已归档，只保留小时归档与 shard 状态机的历史记录。
 不新增 schema、第二归档/删除 owner 或新的采集开关。
 
 批准的修复行为：
