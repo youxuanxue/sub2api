@@ -3,10 +3,26 @@ import datetime as dt
 import hashlib, json, os, random, subprocess, time, urllib.request, urllib.error
 from pathlib import Path
 
+# Live traffic requires the same approval token as the other cn-prod load scripts.
+# The 2026-10-14 archived run used https://api-cn.tokenkey.dev; that name now
+# points at overseas prod. Current entrance is the Beijing public site.
+if os.environ.get("APPROVE") != "yes-formal-tpm-loadtest":
+    print(
+        json.dumps(
+            {
+                "phase": "loadtest_blocked",
+                "need": "APPROVE=yes-formal-tpm-loadtest",
+                "will_not_send_traffic": True,
+            }
+        ),
+        flush=True,
+    )
+    raise SystemExit(10)
+
 KEY = os.environ["TK_PERF_KEY"]
 KID = int(os.environ["TK_PERF_KEY_ID"])
 RUN = "cn-prod-kimik3-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-BASE = "https://api-cn.tokenkey.dev"
+BASE = "https://api.galaxywaveai.com"
 MODEL = "kimi-k3"
 OUT = Path("/tmp") / RUN
 OUT.mkdir(mode=0o700)
@@ -107,7 +123,9 @@ def request(target, words, seq, phase, concurrency=1):
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=150) as resp:
+        # Do not follow the macOS system proxy; a local dial timeout is not a gateway result.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=150) as resp:
             r["http_status"] = resp.status
             r["server_request_id"] = resp.headers.get("X-Request-ID")
             r["headers_ms"] = (time.perf_counter() - start) * 1000

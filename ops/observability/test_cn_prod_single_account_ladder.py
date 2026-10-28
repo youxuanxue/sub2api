@@ -52,6 +52,26 @@ class SingleAccountLadderProbeTest(unittest.TestCase):
         self.assertIn("probe-cn-prod-single-account-ladder.sh", text)
         self.assertIn("probe_reserved_resources.sh", text)
 
+    def test_public_entrance_approval_and_five_minute_hold(self) -> None:
+        text = PROBE.read_text(encoding="utf-8")
+        self.assertIn("https://api.galaxywaveai.com", text)
+        self.assertIn("yes-formal-tpm-loadtest", text)
+        self.assertIn('HOLD_S="${HOLD_S:-300}"', text)
+        self.assertIn('STEPS="${STEPS:-5,10,15}"', text)
+        self.assertIn('REQUEST_LOG="${REQUEST_LOG:-/tmp/tk-single-acct-ladder-${ACCOUNT_ID}.jsonl}"', text)
+        self.assertIn("request_record_from_sample", text)
+        self.assertIn("load_chat_case_pool", text)
+        self.assertIn("prepare_replay_body", text)
+        self.assertIn("synthetic_context_case", text)
+        self.assertIn('export PROMPT_TOKENS_TARGET', text)
+        self.assertIn('REQUEST_POOL="${REQUEST_POOL:-/tmp/tk-rt-cases-200-bodies.jsonl.gz}"', text)
+        self.assertNotIn("pad_prompt", text)
+        self.assertIn("tpm_burst_recipe1.py", text)
+        self.assertIn("sys.modules[_spec.name] = _metrics", text)
+        self.assertIn("ProxyHandler({})", text)
+        self.assertNotIn("urllib.request.urlopen", text)
+        self.assertNotIn('BASE_URL="${BASE_URL:-$APP_LOOP_URL}"', text)
+
 
 if __name__ == "__main__":
     unittest.main()
