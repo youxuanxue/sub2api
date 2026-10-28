@@ -161,7 +161,7 @@ func TestTkNewAPIBridgeUpstreamFailoverError_429FeedsUnifiedSoftPriority(t *test
 	ordinary := newNewAPIBridgeAccount()
 	// Volcengine/Kimi ServerOverloaded shape seen on cn-prod: HTTP 429 with
 	// TooManyRequests / temporarily busy — must tag account_rate_limit so
-	// candidate_failure_tk soft-demotes (+1000) after the shared threshold.
+	// candidate_failure_tk soft-demotes (+1000) on the first attributable failure.
 	for _, msg := range []string{
 		"The service is currently unable to handle additional requests due to server overload. Please retry later.",
 		"Requests rate limit exceeded",

@@ -87,27 +87,23 @@ func TestCandidateFailurePriorityDirectUniversalAndModelIsolation(t *testing.T) 
 				plan := *state.current.plan
 				require.Equal(t, upstream, plan.ResolvedModel())
 				failure := &UpstreamFailoverError{StatusCode: http.StatusBadGateway, Scope: GatewayFailureScopeAccount}
-				for range 2 {
-					_, err := ExecuteSelectedProtocol(ctx, r.router, &AccountSelectionResult{Account: &accounts[0], ProtocolPlan: &plan}, &accounts[0],
-						func(context.Context, *Account, string) error { return nil }, protocolExecutionAccountLoaderForTest(&accounts[0]),
-						protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
-							return nil, failure
-						}))
-					require.ErrorIs(t, err, failure)
-				}
 				picked, err := state.selectAccount(ctx, candidateSelectOptions{})
 				require.NoError(t, err)
 				require.Equal(t, int64(1), picked.Account.ID)
-				observed := state.observeFailure(ctx, &accounts[0], plan, failure)
+				_, observed := ExecuteSelectedProtocol(ctx, r.router, &AccountSelectionResult{Account: &accounts[0], ProtocolPlan: &plan}, &accounts[0],
+					func(context.Context, *Account, string) error { return nil }, protocolExecutionAccountLoaderForTest(&accounts[0]),
+					protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+						return nil, failure
+					}))
 				require.ErrorIs(t, observed, failure)
 				state.observeFailure(ctx, &accounts[0], plan, observed)
 				_, _, legacyEligible := classifyOpenAIAPIKeyHealthFailure(observed)
 				require.False(t, legacyEligible, "shared failure cannot also trigger the legacy account-wide breaker")
-				require.Equal(t, int64(3), counter.counts[CandidateFailureScope{1, upstream}])
+				require.Equal(t, int64(1), counter.counts[CandidateFailureScope{1, upstream}], "one completed attempt counts once")
 				require.Zero(t, counter.counts[CandidateFailureScope{1, model}])
 				picked, err = state.selectAccount(ctx, candidateSelectOptions{})
 				require.NoError(t, err)
-				require.Equal(t, int64(2), picked.Account.ID, "large capacity cannot rescue the failing priority-1 account")
+				require.Equal(t, int64(2), picked.Account.ID, "one attributable failure soft-demotes despite large capacity")
 				state.continuationAccountID = 1
 				picked, err = state.selectAccount(ctx, candidateSelectOptions{})
 				require.NoError(t, err)
@@ -175,7 +171,7 @@ func TestCandidateFailureNativeExecutionUsesForwardModel(t *testing.T) {
 			require.Equal(t, map[CandidateFailureScope]int64{{42, tc.upstream}: 3}, counter.counts)
 			counts := map[int64]int64{42: 3}
 			failureCounts := state.failureCounts(ctx, []*candidateExecutionPath{path})
-			require.Equal(t, 1001, candidateSelectionEffectivePriority(account, counts, failureCounts), "existing feedback keeps the original fixed priority penalty")
+			require.Equal(t, 3001, candidateSelectionEffectivePriority(account, counts, failureCounts), "three failures in the window stack three +1000 steps")
 			counts = map[int64]int64{}
 			failureCounts = state.failureCounts(ctx, []*candidateExecutionPath{path})
 			require.Equal(t, int64(3), failureCounts[42], "native candidates must read their own feedback")
@@ -350,8 +346,19 @@ func TestCandidateFailureAttributionSoftDeprioritizesOpenAICapacityShed(t *testi
 		require.Equal(t, candidateFailureThreshold, counter.counts[CandidateFailureScope{1, upstream}])
 		picked, err := state.selectAccount(ctx, candidateSelectOptions{})
 		require.NoError(t, err)
-		require.Equal(t, int64(2), picked.Account.ID, "HTTP 400 capacity shed must soft-demote after threshold")
+		require.Equal(t, int64(2), picked.Account.ID, "HTTP 400 capacity shed must soft-demote on the first attributable failure")
 	})
+}
+
+func TestCandidateFailurePriorityStacksUntilCap(t *testing.T) {
+	account := &Account{ID: 1, Priority: 1}
+	capPenalty := int(candidateFailurePriorityCapSteps) * saturationPriorityPenalty
+	require.Equal(t, 1, candidateSelectionEffectivePriority(account, nil, nil))
+	require.Equal(t, 1, candidateSelectionEffectivePriority(account, nil, map[int64]int64{1: 0}))
+	require.Equal(t, 1001, candidateSelectionEffectivePriority(account, nil, map[int64]int64{1: 1}))
+	require.Equal(t, 3001, candidateSelectionEffectivePriority(account, nil, map[int64]int64{1: 3}))
+	require.Equal(t, 1+capPenalty, candidateSelectionEffectivePriority(account, nil, map[int64]int64{1: candidateFailurePriorityCapSteps}))
+	require.Equal(t, 1+capPenalty, candidateSelectionEffectivePriority(account, nil, map[int64]int64{1: candidateFailurePriorityCapSteps + 100}), "further failures stay at the cap")
 }
 
 func TestCandidateFailureCodex429UsesUnifiedPriority(t *testing.T) {
@@ -396,7 +403,7 @@ func TestCandidateFailureCodex429UsesUnifiedPriority(t *testing.T) {
 				if n < candidateFailureThreshold {
 					require.Equal(t, int64(1), picked.Account.ID)
 				} else {
-					require.Equal(t, int64(2), picked.Account.ID)
+					require.Equal(t, int64(2), picked.Account.ID, "one Codex 429 must soft-demote")
 				}
 			}
 			require.Equal(t, 1001, candidateSelectionEffectivePriority(&accounts[0], nil, state.failureCounts(ctx, []*candidateExecutionPath{{account: &accounts[0], plan: &plan, model: model}})))
@@ -442,9 +449,12 @@ func TestCandidateFailureNewAPI429UsesUnifiedPriority(t *testing.T) {
 		if n < candidateFailureThreshold {
 			require.Equal(t, int64(1), picked.Account.ID)
 		} else {
-			require.Equal(t, int64(2), picked.Account.ID, "NewAPI ServerOverloaded 429 must soft-demote after threshold")
+			require.Equal(t, int64(2), picked.Account.ID, "one NewAPI ServerOverloaded 429 must soft-demote")
 		}
 	}
 	require.Equal(t, 1001, candidateSelectionEffectivePriority(&accounts[0], nil, state.failureCounts(ctx, []*candidateExecutionPath{{account: &accounts[0], plan: &plan, model: model}})))
 	require.Equal(t, 1, accounts[0].Priority, "soft demotion must not rewrite configured priority")
+	state.observeFailure(ctx, &accounts[0], plan, failure)
+	require.Equal(t, int64(2), counter.counts[CandidateFailureScope{1, upstream}])
+	require.Equal(t, 2001, candidateSelectionEffectivePriority(&accounts[0], nil, state.failureCounts(ctx, []*candidateExecutionPath{{account: &accounts[0], plan: &plan, model: model}})), "a later failure in the window adds another 1000")
 }

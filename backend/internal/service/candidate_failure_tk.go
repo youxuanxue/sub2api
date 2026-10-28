@@ -31,8 +31,12 @@ func candidateTransportFailure(ctx context.Context, rendered, cause error) error
 type candidateObservedFailure struct{ error }
 
 const (
-	candidateFailureWindowSeconds       = 90
-	candidateFailureThreshold     int64 = 3
+	candidateFailureWindowSeconds = 90
+	// The first attributable failure demotes immediately. Each later failure in
+	// the same fixed window adds another saturationPriorityPenalty, up to this
+	// many steps. Later failures do not extend the window.
+	candidateFailureThreshold        int64 = 1
+	candidateFailurePriorityCapSteps int64 = 10
 	// Set by a provider classifier only after excluding quota and model limits.
 	candidateAccountRateLimitReason GatewayFailureReason = "account_rate_limit"
 )
@@ -116,7 +120,9 @@ func candidateFailureAttributable(err error) bool {
 	// RequestScopedTransient / RetryableOnSameAccount mean "no hard unsched; prefer
 	// same-account retry first". OpenAI capacity-shed overload (often StatusCode
 	// 400 from newOpenAIUpstreamFailoverError, or 5xx from transport) still feeds
-	// the unified soft effective-priority demotion so healthier accounts rank first.
+	// the unified soft effective-priority demotion on the first hit and stacks
+	// one more step per later failure in the fixed window, so healthier
+	// accounts rank first until the window expires.
 	if failure.RequestScopedTransient || failure.RetryableOnSameAccount {
 		return candidateFailureSoftPriorityEligible(failure)
 	}
@@ -125,8 +131,10 @@ func candidateFailureAttributable(err error) bool {
 
 // candidateFailureSoftPriorityEligible is the narrow carve-in for provider
 // capacity sheds that were historically excluded from the Redis failure counter
-// to avoid cascading temp_unschedulable. Soft priority (+1000 after threshold)
-// is safe: accounts stay schedulable, only ranking changes.
+// to avoid cascading temp_unschedulable. Soft priority (+1000 on the first
+// attributable failure, plus 1000 per later failure in the fixed 90-second
+// window, capped at 10 steps) is safe: accounts stay schedulable, only ranking
+// changes, and the window expiry clears the whole penalty.
 func candidateFailureSoftPriorityEligible(failure *UpstreamFailoverError) bool {
 	if failure == nil {
 		return false

@@ -80,10 +80,16 @@ func candidateEffectivePriority(account *Account, counts map[int64]int64) int {
 	return priority
 }
 
-func candidateSelectionEffectivePriority(account *Account, counts, failureCounts map[int64]int64) int {
-	priority := candidateEffectivePriority(account, counts)
-	if failureCounts[account.ID] >= candidateFailureThreshold {
-		priority += saturationPriorityPenalty
+func candidateFailurePriorityPenalty(count int64) int {
+	if count < candidateFailureThreshold {
+		return 0
 	}
-	return priority
+	if count > candidateFailurePriorityCapSteps {
+		count = candidateFailurePriorityCapSteps
+	}
+	return int(count) * saturationPriorityPenalty
+}
+
+func candidateSelectionEffectivePriority(account *Account, counts, failureCounts map[int64]int64) int {
+	return candidateEffectivePriority(account, counts) + candidateFailurePriorityPenalty(failureCounts[account.ID])
 }
