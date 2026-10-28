@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Pin one cn-prod NewAPI account via reserved probe group and ladder concurrency.
-# Replays customer chat bodies from REQUEST_POOL. Does not invent a filler prompt
-# or override max_tokens. Forces stream and include_usage. Emits metrics only
+# Default path replays REQUEST_POOL and keeps each body's output limit.
+# PROMPT_TOKENS_TARGET switches to one owned filler; MAX_TOKENS defaults to 1000.
+# Forces stream and include_usage. Emits metrics only
 # (never prints the probe API key or message text).
 # Live traffic requires APPROVE=yes-formal-tpm-loadtest. Default entrance is the
 # public cn-prod site, not the in-host loopback.
@@ -296,7 +297,9 @@ def one(step_name: str = "ladder", inflight: int = 1) -> dict:
         if api_key and api_key in transport_error:
             transport_error = transport_error.replace(api_key, "<redacted>")
     except Exception as e:  # noqa: BLE001 — surface transport failures in the request row
-        transport_error = type(e).__name__
+        transport_error = str(e)[:300]
+        if api_key and api_key in transport_error:
+            transport_error = transport_error.replace(api_key, "<redacted>")
     sample = _metrics.sample_from_stream_events(
         events,
         t0=t0,

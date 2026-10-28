@@ -7,6 +7,10 @@ FILE="${FILE:?FILE required}"
 OFFSET="${OFFSET:-0}"
 MAX="${MAX:-9000}"
 case "$FILE" in
+  *..*)
+    echo '{"error":"refused path"}' >&2
+    exit 2
+    ;;
   /tmp/tk-single-acct-ladder-*.jsonl) ;;
   *)
     echo '{"error":"refused path"}' >&2
@@ -28,8 +32,18 @@ python3 - <<'PY'
 import base64
 import json
 import os
+import re
+import sys
 
-path = os.environ["FILE"]
+raw = os.environ["FILE"]
+root = os.path.realpath("/tmp")
+path = os.path.realpath(raw)
+name = os.path.basename(path)
+if os.path.dirname(path) != root or not re.fullmatch(
+    r"tk-single-acct-ladder-[A-Za-z0-9._-]+\.jsonl", name
+):
+    print('{"error":"refused path"}', file=sys.stderr)
+    raise SystemExit(2)
 off = int(os.environ["OFFSET"])
 n = int(os.environ["MAX"])
 with open(path, "rb") as handle:
