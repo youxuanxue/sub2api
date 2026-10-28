@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -52,7 +52,15 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
 - Canonical `thinking.type` is preserved. Boolean `thinking`, `enable_thinking`,
   and `chat_template_kwargs.{thinking,enable_thinking}` are normalized to the
   canonical on/off intent. Conflicting or malformed switches return a field-level
-  400. Unrelated body fields and retry input are preserved.
+  400. A missing or blank `thinking.type` (`""` or whitespace) is unspecified,
+  not malformed: it must not 400. When `reasoning_effort` is also present, the
+  effort rule below rewrites that blank type to `enabled`. Unrelated body
+  fields and retry input are preserved.
+- 2026-10-28 cn-prod user 2 sent `thinking: {"type":""}` with `reasoning_effort`
+  (`max` / `high` / `xhigh` / `medium`). The gateway returned 400 before relay.
+  Direct replay of two captured bodies to Volc Agent Plan (accounts 77 and 11,
+  output capped at 16 tokens, stream off) returned HTTP 200 with
+  `reasoning_tokens`. That local 400 was a false reject.
 - Public kimi-k3 surface stays Moonshot-compatible: `reasoning_effort` accepts
   `low|high|max` plus common aliases (`highest`→`max`, `medium`→`high`, nested
   `reasoning.effort`, etc.). Unknown effort tokens return a field-level 400.
