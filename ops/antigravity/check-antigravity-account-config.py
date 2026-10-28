@@ -181,8 +181,8 @@ def _account_violation(row: dict) -> str | None:
     """Return a human reason if the account is misconfigured, else None.
 
     Two independent checks (both reported if both fail):
-      1. explicit live model_mapping (complete bundle floor coverage and
-         forbidden key/prefix policy, non-empty; non-forbidden extras allowed).
+      1. explicit live model_mapping equals the bundle floor: every floor key
+         is present with the floor target, and every other key is a violation.
       2. group binding — an active+schedulable account MUST be bound to an
          antigravity group via account_groups, else the scheduler finds no
          account for that group and fast-fails every request with
@@ -212,13 +212,16 @@ def _account_violation(row: dict) -> str | None:
             reasons.append("bad bundle floor remaps: " + ", ".join(
                 f"{k}->{mm.get(k)!r} want {expected_mapping[k]!r}" for k in bad_floor_targets
             ))
+        extra = sorted(k for k in mm if k not in expected_mapping)
+        if extra:
+            reasons.append("extra model_mapping keys: " + ", ".join(extra))
         leaked = sorted(
-            k for k in mm
+            k for k in extra
             if any(k.startswith(prefix) for prefix in forbidden_prefixes)
         )
         if leaked:
             reasons.append("serves unsupported models: " + ", ".join(leaked))
-        forbidden = sorted(k for k in mm if k in forbidden_keys)
+        forbidden = sorted(k for k in extra if k in forbidden_keys)
         if forbidden:
             reasons.append("contains forbidden model_mapping keys from bundle: " + ", ".join(forbidden))
 

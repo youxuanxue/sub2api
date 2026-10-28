@@ -843,7 +843,7 @@ post-release read-only account model_mapping SSOT diff (prod, cn-prod or all)
 
 #### `manage-account-model-mapping-runtime.py release-gate`
 
-explicit model-activation check: prod account model_mapping must cover the selected bundle floor
+explicit model-activation check: prod account model_mapping must equal the selected bundle scope
 
 - `--json`: machine-readable output
 - `--prod-instance-id`: use this prod EC2 instance id instead of resolving the prod stack

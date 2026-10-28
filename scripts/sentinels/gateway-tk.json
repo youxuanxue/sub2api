@@ -6459,7 +6459,8 @@
         "\"runtime_setting_targets\"",
         "def cmd_apply_accounts(",
         "def _resolve_runtime_mutation_target(",
-        "\"compatible_extra_keys\"",
+        "\"extra_keys\"",
+        "\"custom-extra\" not in change[\"desired_model_mapping\"]",
         "\"resolved_targets\"",
         "--activation-floor-sha256",
         "diff = _mapping_diff(scope, got, want, floor)",
@@ -6492,7 +6493,7 @@
         "--ssot-repo-root",
         "--allow-extra-model-mapping"
       ],
-      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script consumes the checksummed bundle, prioritizes property-selected account overrides, preserves compatible extras, keeps check-accounts read-only, and scopes release-gate to explicit prod model activation. Supplier-managed accounts remain owned by supplier Sync. Generic deploy wiring is prohibited by the workflow sentinel above. cn-prod is a first-class read-only check target: its SSM identity must keep coming from deploy/domestic/prod-target.json (the same manifest deploy_via_ssm.sh releases through), so the check can never drift onto a different host than the one cn-prod releases deploy to, and it must keep reporting the label 'cn-prod'. Collapsing it back onto --prod-instance-id would relabel it 'prod', making a cn-prod report indistinguishable from a real prod one in release evidence -- which is how cn-prod went unchecked for model_mapping entirely."
+      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script consumes the checksummed bundle, prioritizes property-selected account overrides, and writes each managed account to that scope exactly: missing keys are added, wrong targets are repaired, and every other key is deleted. check-accounts stays read-only, and release-gate stays an explicit prod model-activation check of the same rule. Supplier-managed accounts remain owned by supplier Sync. Generic deploy wiring is prohibited by the workflow sentinel above. cn-prod is a first-class read-only check target: its SSM identity must keep coming from deploy/domestic/prod-target.json (the same manifest deploy_via_ssm.sh releases through), so the check can never drift onto a different host than the one cn-prod releases deploy to, and it must keep reporting the label 'cn-prod'. Collapsing it back onto --prod-instance-id would relabel it 'prod', making a cn-prod report indistinguishable from a real prod one in release evidence -- which is how cn-prod went unchecked for model_mapping entirely."
     },
     {
       "path": "ops/pricing/account_model_mapping_runtime_doc.py",

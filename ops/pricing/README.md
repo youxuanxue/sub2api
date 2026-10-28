@@ -122,10 +122,15 @@ a scope replacement, not an incremental patch.
 - Default post-release account checks are prod-only and read-only.
 - Native accounts may use empty mappings and platform defaults, including the
   Antigravity runtime overlay. Newapi Plan accounts keep explicit reviewed mappings.
-- Plan alias withdrawals belong to the Go owner in
+- `check-accounts` and `apply-accounts` compare each managed account to the exact
+  bundle scope: every scope key must be present with the same target, and every
+  other key is drift. `apply-accounts` deletes those extra keys. Supplier-source
+  accounts and scopes with no bundle floor stay untouched.
+- Plan alias withdrawals still belong to the Go owner in
   `tk_served_models_manifest_tk.go`, including its property-scoped forbidden keys.
-  Regenerate the bundle after editing it; removing only an alias would leave it
-  preserved as a compatible extra during account convergence.
+  Those lists reject a runtime replacement that would put a withdrawn key back.
+  Regenerate the bundle after editing the owner; a key absent from the scope is
+  removed on the next apply.
 - `sync-runtime` and `clear-runtime` require explicit `--target prod` and remain
   dry-run without the fixed confirmation phrase.
 - Persistent account changes require an explicit reviewed apply.

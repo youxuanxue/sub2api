@@ -432,8 +432,8 @@ func accountModelMappingForbiddenPrefixesByScope() map[string][]string {
 	return map[string][]string{
 		PlatformAntigravity: {"gpt-oss-"},
 		// Google image surface converged to gemini-*-image; Vertex ch41 floors
-		// no longer list imagen-*. Forbid the prefix so leftover keys cannot
-		// survive as compatible extras and reappear in Studio entitlement pools.
+		// no longer list imagen-*. The prefix rejects a runtime replacement that
+		// would put imagen-* back after account convergence deleted it.
 		PlatformNewAPI: {"imagen-"},
 	}
 }

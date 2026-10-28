@@ -12,7 +12,7 @@
   - Go owner：`backend/internal/service/account_model_mapping_ssot_tk.go`
   - 激活入口：`ops/pricing/modelops.py activate`
 - Risk Focus:
-  - 逻辑错误：current/target delta、required floor、forbidden policy 或 compatible extras 计算错误。
+  - 逻辑错误：current/target delta、scope 精确集合或 forbidden runtime policy 计算错误。
   - 行为回归：generic deploy 被 live mapping gate 阻塞，或 Edge 诊断/apply CLI 被误删。
   - 安全问题：陈旧、digest 不匹配、同源伪独立证据绕过写入门禁。
   - 运行时问题：runtime replacement shadow target artifact，或 apply 后 gate 未收敛。
@@ -24,7 +24,7 @@
 3. **AC-003（负向 evidence）**：Given evidence 过期、target digest 不匹配、缺少 verdict/account 或 probe/pricing 同源，When activation 校验，Then 在 SSM/apply 前拒绝。
 4. **AC-004（runtime shadow）**：Given prod 存在或在 pre-gate 后出现 `tk_account_model_mapping_runtime`，When activation 校验或写入 target bundle，Then 在账号写事务前拒绝并要求 fold-in 或 clear。
 5. **AC-005（显式写入）**：Given 人工审过 dry-run，When 提供 `yes-activate-model-surface`，Then 只向 prod apply，且 post-apply release gate 必须通过；generic deploy/rollback 不调用该链。
-6. **AC-006（live validity）**：Given live mapping 含完整 required floor、无 forbidden 项且有兼容 extras，When check/apply，Then extras 不报 drift且不被删除；forbidden 项被 plan 删除。
+6. **AC-006（live validity）**：Given live mapping 与该账号范围的 bundle 键或目标不一致，When check/apply，Then 缺键、错目标和多出来的键都报 drift，apply 写成与该范围完全一致。
 7. **AC-007（Admin contract）**：Given 任一 first-class account platform，When 调用 `GET /admin/accounts/:id/models`，Then 每个 option 仅返回 `id` 与 `display_name`。
 
 ## Assertions
@@ -32,7 +32,7 @@
 - Bundle schema、canonical SHA-256、mapping 字符串形状与 required/forbidden 冲突全部 fail closed。
 - Evidence 同时绑定 current/target floor digest，24 小时 freshness 由代码常量和测试共同约束。
 - Activation 固定一次解析出的 prod instance，并在账号写事务内锁表复核 runtime shadow；不生成 Edge target，不复用 generic deploy workflow。
-- Mapping reconciliation 保留 compatible extras，只补 required、改错 target、删 forbidden。
+- Mapping reconciliation 写成该账号范围的 bundle 映射，多出来的键删除。
 - Admin response 对七个平台逐项断言精确两字段。
 
 ## Linked Tests
