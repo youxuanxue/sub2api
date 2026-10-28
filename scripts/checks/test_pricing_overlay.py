@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import unittest
 
@@ -194,6 +195,58 @@ class XAILongContextEvidenceContractTest(unittest.TestCase):
             "source": "Official flat xAI pricing without a tier contract.",
         }
         self.assertFalse(self.errors(row))
+
+
+class CanonicalFormattingTest(unittest.TestCase):
+    """The gate must reject any layout the sensor would reflow (#2967)."""
+
+    # Non-ASCII source text is representative: real rows carry Chinese evidence
+    # notes, so ensure_ascii=True is a layout the sensor would reflow.
+    data = {
+        "owner": {"mode": "chat", "input_cost_per_token": 1e-6,
+                  "output_cost_per_token": 2e-6,
+                  "source": "官方价目表，仅对成功生成计费"},
+        "_aliases": {"alias": "owner"},
+    }
+
+    def canonical(self) -> str:
+        return json.dumps(self.data, indent=2, ensure_ascii=False) + "\n"
+
+    def test_accepts_canonical_rendering(self) -> None:
+        self.assertEqual(
+            CHECK.validate_canonical_formatting(self.canonical(), self.data), [],
+        )
+
+    def test_rejects_compact_hand_edit(self) -> None:
+        # The exact #2967 regression: a hand-edited row collapsed onto one line.
+        compact = self.canonical().replace(
+            '"_aliases": {\n    "alias": "owner"\n  }',
+            '"_aliases": {"alias": "owner"}',
+        )
+        self.assertNotEqual(compact, self.canonical())
+        self.assertTrue(CHECK.validate_canonical_formatting(compact, self.data))
+
+    def test_rejects_other_non_canonical_layouts(self) -> None:
+        for label, text in (
+            ("no trailing newline", self.canonical().rstrip("\n")),
+            ("indent 4", json.dumps(self.data, indent=4, ensure_ascii=False) + "\n"),
+            ("escaped non-ascii", json.dumps(self.data, indent=2) + "\n"),
+            ("blank line appended", self.canonical() + "\n"),
+        ):
+            with self.subTest(label=label):
+                self.assertTrue(CHECK.validate_canonical_formatting(text, self.data))
+
+    def test_error_names_the_rerender_command(self) -> None:
+        errors = CHECK.validate_canonical_formatting("{}\n", self.data)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("tk_pricing_overlay.json", errors[0])
+        self.assertIn("indent=2", errors[0])
+
+    def test_shipped_overlay_is_canonical(self) -> None:
+        text = CHECK.OVERLAY.read_text(encoding="utf-8")
+        self.assertEqual(
+            CHECK.validate_canonical_formatting(text, json.loads(text)), [],
+        )
 
 
 if __name__ == "__main__":

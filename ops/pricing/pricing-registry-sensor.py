@@ -502,7 +502,12 @@ def main(argv: list[str] | None = None) -> int:
     markdown = render_markdown(report)
     if args.report_md:
         _write_text(args.report_md, markdown)
-    if args.candidate_registry:
+    if args.candidate_registry and changed_owners:
+        # Only write when an owner actually changed. The sensor always renders the
+        # whole document canonically, so writing unconditionally turns any hand-edit
+        # that used a different layout into a whole-file reflow, which the sensor
+        # workflow then reports as provider price drift (#2967). changed_owners is the
+        # single signal for "worth a PR"; the workflow's byte diff just consumes it.
         _write_text(
             args.candidate_registry,
             json.dumps(candidate, indent=2, ensure_ascii=False) + "\n",

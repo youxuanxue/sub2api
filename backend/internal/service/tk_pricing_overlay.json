@@ -2395,10 +2395,23 @@
     "source": "VolcEngine Ark model pricing https://www.volcengine.com/docs/82379/1099320, captured 2026-10-27: doubao-seedance-2.0 input-without-video is 46 CNY/M tokens at 480p/720p, 51 at 1080p, and 26 at 4k. Per-second tiers reuse the token densities already checked on doubao-seedance-2-0-260128 (480p 10044, 720p 21600, 1080p 48600 tokens/s) and match the published 16:9 5s examples (480p ¥2.31, 720p ¥4.97, 1080p ¥12.39). Input-with-video rates are not served. video_price_tiers is the billing SSOT; output_cost_per_second is the 480p floor. failure_billing: 「仅对成功生成的视频计费。」",
     "failure_billing": "success_only",
     "video_price_tiers": [
-      {"resolution": "480p", "output_cost_per_second": 0.06895880597014925},
-      {"resolution": "720p", "output_cost_per_second": 0.14829850746268658},
-      {"resolution": "1080p", "output_cost_per_second": 0.3699402985074627, "default_for_model": true},
-      {"resolution": "4k", "output_cost_per_second": 0.7543880597014926}
+      {
+        "resolution": "480p",
+        "output_cost_per_second": 0.06895880597014925
+      },
+      {
+        "resolution": "720p",
+        "output_cost_per_second": 0.14829850746268658
+      },
+      {
+        "resolution": "1080p",
+        "output_cost_per_second": 0.3699402985074627,
+        "default_for_model": true
+      },
+      {
+        "resolution": "4k",
+        "output_cost_per_second": 0.7543880597014926
+      }
     ],
     "default_video_resolution": "1080p"
   },
@@ -2409,8 +2422,15 @@
     "source": "VolcEngine Ark model pricing https://www.volcengine.com/docs/82379/1099320, captured 2026-10-27: doubao-seedance-2.0-fast input-without-video is 37 CNY/M tokens at 480p/720p. Tiers reuse doubao-seedance-2-0-fast-260128 (480p 10044, 720p 21600 tokens/s); 720p 5s example is ¥4.00. 1080p/4k are not offered. Input-with-video rates are not served. video_price_tiers is the billing SSOT; output_cost_per_second is the 480p floor. failure_billing: 「仅对成功生成的视频计费。」",
     "failure_billing": "success_only",
     "video_price_tiers": [
-      {"resolution": "480p", "output_cost_per_second": 0.055466865671641795},
-      {"resolution": "720p", "output_cost_per_second": 0.11928358208955224, "default_for_model": true}
+      {
+        "resolution": "480p",
+        "output_cost_per_second": 0.055466865671641795
+      },
+      {
+        "resolution": "720p",
+        "output_cost_per_second": 0.11928358208955224,
+        "default_for_model": true
+      }
     ],
     "default_video_resolution": "720p"
   },
@@ -2421,9 +2441,19 @@
     "source": "VolcEngine Ark model pricing https://www.volcengine.com/docs/82379/1099320, captured 2026-10-27: doubao-seedance-2.5 input-without-video is 70 CNY/M tokens at 480p/720p and 77 at 1080p. 720p uses 21600 tokens/s (7.56 CNY/5s) and 1080p uses 48600 tokens/s (18.71 CNY/5s). 480p uses the published 16:9 5s example ¥3.36, which is 9600 tokens/s, not the 10044 density on the older dated row. Default when resolution is omitted is 720p. Input-with-video rates are not served. video_price_tiers is the billing SSOT; output_cost_per_second is the 480p floor. failure_billing: 「仅对成功生成的视频计费。」",
     "failure_billing": "success_only",
     "video_price_tiers": [
-      {"resolution": "480p", "output_cost_per_second": 0.10029850746268656},
-      {"resolution": "720p", "output_cost_per_second": 0.22567164179104476, "default_for_model": true},
-      {"resolution": "1080p", "output_cost_per_second": 0.5585373134328357}
+      {
+        "resolution": "480p",
+        "output_cost_per_second": 0.10029850746268656
+      },
+      {
+        "resolution": "720p",
+        "output_cost_per_second": 0.22567164179104476,
+        "default_for_model": true
+      },
+      {
+        "resolution": "1080p",
+        "output_cost_per_second": 0.5585373134328357
+      }
     ],
     "default_video_resolution": "720p"
   },
@@ -10498,9 +10528,19 @@
     "source": "Alibaba Model Studio wan3.0-video https://help.aliyun.com/zh/model-studio/wan3-0-video, captured 2026-10-27: 华北2（北京）视频生成 480P ¥0.3/s, 720P ¥0.6/s, 1080P ¥1.2/s; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. video_price_tiers is the billing SSOT; output_cost_per_second is the 480P floor. Default when resolution is omitted is 720p because the model page lists 480P/720P/1080P without naming a default. Failed generations are not billed.",
     "failure_billing": "success_only",
     "video_price_tiers": [
-      {"resolution": "480p", "output_cost_per_second": 0.04477611940298507},
-      {"resolution": "720p", "output_cost_per_second": 0.08955223880597014, "default_for_model": true},
-      {"resolution": "1080p", "output_cost_per_second": 0.1791044776119403}
+      {
+        "resolution": "480p",
+        "output_cost_per_second": 0.04477611940298507
+      },
+      {
+        "resolution": "720p",
+        "output_cost_per_second": 0.08955223880597014,
+        "default_for_model": true
+      },
+      {
+        "resolution": "1080p",
+        "output_cost_per_second": 0.1791044776119403
+      }
     ],
     "default_video_resolution": "720p"
   },
