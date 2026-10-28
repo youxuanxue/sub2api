@@ -8,9 +8,10 @@ import (
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
+	"github.com/tidwall/gjson"
 )
 
-func requiresSystemChatRole(account *Account, targetURL string) bool {
+func requiresSystemChatRole(account *Account, targetURL, upstreamModel string) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
@@ -19,6 +20,11 @@ func requiresSystemChatRole(account *Account, targetURL string) bool {
 	}
 	switch account.Platform {
 	case PlatformDeepseek, PlatformKimi, PlatformZhipu:
+		return true
+	}
+	// OpenCode multiplexes providers: only its DeepSeek models require system.
+	// Use the mapped outbound model and selected destination, not the client alias.
+	if (account.IsOpenCodeGo() || isOfficialOpenCodeHost(targetURL)) && isDeepSeekCatalogModel(upstreamModel) {
 		return true
 	}
 	// OpenAI-compatible accounts can point at the same strict providers. Match
@@ -40,7 +46,7 @@ func requiresSystemChatRole(account *Account, targetURL string) bool {
 // RawMessage preserves unknown fields and numeric precision. The input remains
 // untouched so a retry on another account sees the original developer roles.
 func normalizeStrictChatDeveloperRoles(account *Account, targetURL string, body []byte) ([]byte, error) {
-	if !requiresSystemChatRole(account, targetURL) {
+	if !requiresSystemChatRole(account, targetURL, gjson.GetBytes(body, "model").String()) {
 		return body, nil
 	}
 	var root map[string]json.RawMessage
