@@ -388,7 +388,8 @@
         "data-testid=\"studio-mode-image\"",
         "data-testid=\"studio-mode-video\"",
         "data-testid=\"studio-mode-bakeoff\"",
-        "gen !== priceCatalogGen || selectedKeyId.value !== keyId"
+        "gen !== priceCatalogGen || selectedKeyId.value !== keyId",
+        "attachPublicImageTiers(priceMapFromMeCatalog(catalog.models || []), publicCatalogModels.value)"
       ],
       "rationale": "The Studio's EXPLICIT chat|image|video|bake-off modality tabs are the source of truth for which gateway endpoint a request hits — replacing the old modalityForModel() id-prefix guess that silently misrouted non-{seedance,veo,gpt-image,imagen,seedream} media model ids to /v1/chat/completions. Chat is the folded-in /playground surface (default landing); the bake-off tab opens the cross-model compare view (BakeOff.vue). Losing these tabs regresses to implicit-modality misrouting or hides a generation surface. Price results are published only for the latest selected-key request; late success or failure must not replace current prices."
     },
@@ -480,7 +481,8 @@
       "must_contain": [
         "export function estimateImageCost",
         "export function estimateVideoCost",
-        "export function resolveVideoPerSecond"
+        "export function resolveVideoPerSecond",
+        "if (maxEdge <= 2560) return '2K'"
       ],
       "rationale": "Single source of truth for the client-side media cost MIRROR (price on the Generate button + cost panel + pricing estimator). Must stay aligned with backend CalculateImageCost / CalculateVideoCost; deleting it silently drops the pre-generation price the whole 'price on the button' UX depends on."
     },
@@ -511,7 +513,8 @@
         "from '@/utils/pricingCatalogPresentation.tk'",
         "pricingCatalogModality",
         "m.your_price?.video_price_tiers",
-        "mapVideoPriceTiers"
+        "mapVideoPriceTiers",
+        "export function attachPublicImageTiers"
       ],
       "rationale": "Studio catalog membership must consume the same billing_mode classifier as /models and /pricing. A local classifier here would recreate a second modality owner and allow Studio availability to drift from the public catalog tabs."
     },
@@ -1608,7 +1611,8 @@
         "ImageGenerationParameters",
         "gatewayGenerateImage",
         "normalizeImageOptions",
-        "StudioGatewayError"
+        "StudioGatewayError",
+        "imagePrice2K: selected.value.imagePrice2K"
       ],
       "rationale": "TK-only Studio image-generation surface (mounted by MediaStudioView when mode==='image'). The model card picker, the per-model aspect-ratio chips, and the generate button are the contract the studio e2e drives. The aspect chips are MODEL-SPECIFIC by design: each model's imageSizes (studioMediaPresentations.tk.ts) decides the exact `size` string sent — Imagen ratio codes, Seedream pixels — so an upstream merge that drops the aspect picker or reverts it to a fixed pixel preset reintroduces the Imagen 'Invalid aspect ratio, 3:2' hard-400 on landscape/portrait. mountStudioImageLibrary (SSOT with BakeOff) anchors onMounted IndexedDB hydrate + s3Key re-presign (POST /v1/images/presign) so reloaded sessions don't show dead thumbnails; useStudioImagePreview + StudioImagePreviewLightbox mirror the video SSOT lightbox (#1092). pricesFlat is the FE mirror of the backend Imagen flat-billing exemption (billing_service_tk_flat_image.go): it ORs flatImageBilling (gemini-native) with the model's flatPricePerImage (imagen) and drives the estimate/hold/formula/billed note to drop the 1K/2K/4K size multiplier for imagen WITHOUT touching imagen's /v1/images routing, multi-image n, or no-image-input behaviors — dropping it desyncs the quoted price from settlement (UI over-quotes imagen ×1.5 while the gateway now bills flat). useStudioImageCardActions is the shared image download owner (SSOT sibling of the video path's useStudioVideoCardActions) — dropping the wiring reverts the view to a private downloadMedia bypass. Anchoring the test-ids keeps the surface from compiling green with the feature silently gone. Image controls now use the shared capability-backed ImageGenerationParameters and request builder; billing flags never select routes."
     },
@@ -1866,6 +1870,8 @@
         "happyhorse-1.1-t2v",
         "happyhorse-1.1-i2v",
         "happyhorse-1.1-r2v",
+        "qwen-image-3.0-pro",
+        "doubao-seedream-5.0-flash",
         "gemini-3-pro-image",
         "gemini-3.1-flash-image",
         "veo-3.1-generate-001",
