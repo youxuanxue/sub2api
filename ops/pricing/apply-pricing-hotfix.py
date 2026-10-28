@@ -32,7 +32,6 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from decimal import Decimal
 from pathlib import Path
 
 LITELLM_URL_DEFAULT = (
@@ -193,48 +192,28 @@ def upsert_model_pricing(existing: list, new_entry: dict) -> list:
     return out
 
 
-def format_number(v) -> str:
-    """价格以普通十进制输出（不出现 1e-05 这类科学计数法），与 overlay 文件既有风格一致。"""
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, int):
-        return str(v)
-    d = v if isinstance(v, Decimal) else Decimal(str(v))
-    s = format(d, "f")
-    if "." in s:
-        s = s.rstrip("0").rstrip(".")
-    return s or "0"
-
-
 def render_overlay_block(model: str, entry: dict) -> str:
-    """手工序列化 overlay 条目（2 空格缩进、价格普通十进制），供文本追加。"""
-    lines = [f'  {json.dumps(model, ensure_ascii=False)}: {{']
-    items = list(entry.items())
-    for i, (k, v) in enumerate(items):
-        comma = "," if i < len(items) - 1 else ""
-        if isinstance(v, str):
-            rendered = json.dumps(v, ensure_ascii=False)
-        else:
-            rendered = format_number(v)
-        lines.append(f'    {json.dumps(k, ensure_ascii=False)}: {rendered}{comma}')
-    lines.append("  }")
-    return "\n".join(lines)
+    """按 overlay 规范布局序列化单个条目，供 dry-run 预览。"""
+    rendered = json.dumps({model: entry}, indent=2, ensure_ascii=False)
+    return rendered[rendered.index("\n") + 1:rendered.rindex("\n")]
 
 
 def insert_overlay_entry(text: str, model: str, entry: dict) -> str:
-    """把条目以文本方式追加到 overlay JSON 末尾（既有内容一个字节不动）。"""
+    """追加条目并整篇按 overlay 规范布局重排。
+
+    overlay 的布局 SSOT 是 json.dumps(indent=2, ensure_ascii=False)：
+    pricing-registry-sensor.py 每次都整篇按该形态渲染候选，
+    scripts/checks/pricing-overlay.py 机械校验该形态。任何别的布局
+    （包括曾经手工追加的普通十进制价格）都会在传感器下一次运行时被整篇
+    重排，并被当成 provider 价格漂移报出来（#2967）。
+    """
     data = json.loads(text)
     if model in data:
         raise ValueError(
             f"model {model!r} already present in overlay — edit it by hand "
-            "(textual append cannot replace in place)")
-    trimmed = text.rstrip("\n")
-    if not trimmed.endswith("}"):
-        raise ValueError("overlay file does not end with '}'")
-    body = trimmed[:-1].rstrip()
-    if not body.endswith("}"):
-        raise ValueError("overlay file has no trailing entry to append after")
-    new_text = body + ",\n" + render_overlay_block(model, entry) + "\n}\n"
+            "(append cannot replace in place)")
+    data[model] = entry
+    new_text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     parsed = json.loads(new_text)  # 追加后必须仍是合法 JSON
     if model not in parsed:
         raise ValueError("post-insert validation failed")
@@ -478,28 +457,28 @@ def cmd_selftest(_args) -> int:
         {"platform": "anthropic", "models": ["a"], "billing_mode": "token"})
     assert shared[0]["models"] == ["b"] and shared[1]["models"] == ["a"]
 
-    # format_number: 永不输出科学计数法。
-    assert format_number(1e-05) == "0.00001"
-    assert format_number(0.04) == "0.04"
-    assert format_number(True) == "true" and format_number(7) == "7"
-
-    # insert_overlay_entry: 既有文本零搅动 + 追加后合法；重复键拒绝。
+    # insert_overlay_entry: 语义保留 + 输出即 overlay 规范布局；重复键拒绝。
     base = '{\n  "_meta": {\n    "note": "x"\n  },\n  "m1": {\n    "mode": "chat"\n  }\n}\n'
     inserted = insert_overlay_entry(base, "m2", {"mode": "chat", "input_cost_per_token": 1e-05})
-    assert inserted.startswith(base[:-3])  # 原文本（除收尾）原样保留
     parsed = json.loads(inserted)
     assert parsed["m2"]["input_cost_per_token"] == 1e-05
-    assert "1e-05" not in inserted  # 普通十进制
+    assert parsed["_meta"] == {"note": "x"} and parsed["m1"] == {"mode": "chat"}
+    # 布局必须与 sensor / pricing-overlay.py 规范一致，否则下次传感器整篇重排（#2967）。
+    assert inserted == json.dumps(parsed, indent=2, ensure_ascii=False) + "\n"
+    assert render_overlay_block("m2", {"mode": "chat"}) == \
+        '  "m2": {\n    "mode": "chat"\n  }'
     try:
         insert_overlay_entry(base, "m1", {"mode": "chat"})
         raise AssertionError("duplicate key must be rejected")
     except ValueError:
         pass
 
-    # 真实 overlay 文件:只读校验可被追加(不落盘)。
+    # 真实 overlay 文件:只读校验可被追加(不落盘)且仍是规范布局。
     real = OVERLAY_PATH.read_text()
     out = insert_overlay_entry(real, "tk-selftest-sentinel-model", {"mode": "chat"})
-    assert json.loads(out)["tk-selftest-sentinel-model"]["mode"] == "chat"
+    real_parsed = json.loads(out)
+    assert real_parsed["tk-selftest-sentinel-model"]["mode"] == "chat"
+    assert out == json.dumps(real_parsed, indent=2, ensure_ascii=False) + "\n"
 
     # strip_pricing_response_fields: 剥 id / 空值 / interval 内嵌 id。
     stripped = strip_pricing_response_fields([

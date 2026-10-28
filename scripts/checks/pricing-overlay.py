@@ -21,6 +21,11 @@ a soft rule that bit us once becomes a mechanical gate). It asserts:
   4. `_config.official_list_base_tax` is a valid executable policy: one bounded
      multiplier, unique normalized providers, and non-duplicated fallback matchers.
   5. `_aliases` is a single-hop alias -> canonical-owner map with no overlap.
+  6. The file is byte-identical to its canonical `json.dumps(indent=2)` rendering.
+     The sensor rewrites the whole document in that form, so any hand-edit using a
+     different layout comes back as a diff on the next sensor run and is reported as
+     provider price drift. Keeping the layout mechanical keeps the sensor diff
+     restricted to real price changes.
 
 Usage: python3 scripts/checks/pricing-overlay.py [--quiet]
 Exit 0 ok, 1 violation, 2 missing dep / file / unparseable.
@@ -557,6 +562,30 @@ def validate_overlay_dict(data: dict) -> list[str]:
     return errors
 
 
+CANONICAL_HINT = (
+    "re-render with: python3 -c \"import json,pathlib;"
+    "p=pathlib.Path('backend/internal/service/tk_pricing_overlay.json');"
+    "p.write_text(json.dumps(json.loads(p.read_text()),indent=2,ensure_ascii=False)+chr(10))\""
+)
+
+
+def validate_canonical_formatting(text: str, data: dict) -> list[str]:
+    """Assert the overlay text equals its canonical indent=2 rendering.
+
+    ops/pricing/pricing-registry-sensor.py writes the candidate registry with
+    json.dumps(indent=2, ensure_ascii=False) + newline. A hand-edit in any other
+    layout is semantically fine but makes the next sensor run emit a whole-file
+    reflow, which the sensor workflow reports as provider price drift (#2967).
+    """
+    canonical = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    if text == canonical:
+        return []
+    return [
+        "overlay is not in canonical json.dumps(indent=2) form; the pricing sensor "
+        f"would reflow it and report the reflow as price drift. {CANONICAL_HINT}"
+    ]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--quiet", action="store_true", help="suppress success output")
@@ -572,13 +601,15 @@ def main() -> int:
         print(f"  FAIL: pricing overlay not found: {overlay}", flush=True)
         return 2
     try:
-        data = json.loads(overlay.read_text(encoding="utf-8"))
+        text = overlay.read_text(encoding="utf-8")
+        data = json.loads(text)
     except (ValueError, OSError) as exc:
         print(f"  FAIL: pricing overlay unparseable: {exc}", flush=True)
         return 2
 
     entries = {k: v for k, v in data.items() if not k.startswith("_")}
     errors = validate_overlay_dict(data)
+    errors.extend(validate_canonical_formatting(text, data))
 
     if errors:
         print(f"  FAIL: pricing overlay invalid ({len(errors)} issue(s)):", flush=True)

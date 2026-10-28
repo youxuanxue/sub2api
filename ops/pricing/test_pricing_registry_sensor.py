@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import sys
+import tempfile
 import unittest
 
 _MODULE_PATH = pathlib.Path(__file__).with_name("pricing-registry-sensor.py")
@@ -280,6 +282,85 @@ class PricingRegistrySensorTests(unittest.TestCase):
         self.assertIn("pricing-overlay", drift_fields[0]["rejected_reason"])
         self.assertTrue(
             any("pricing-overlay" in item["reason"] for item in report["report_only_evidence"])
+        )
+
+
+class CandidateWriteTests(unittest.TestCase):
+    """main() must not emit a candidate when no owner changed (#2967)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = pathlib.Path(self.tmp.name)
+        self.registry_path = root / "registry.json"
+        self.source_path = root / "source.json"
+        self.candidate_path = root / "candidate.json"
+        self.registry = {
+            "_meta": {"note": "owner"},
+            "model-a": {
+                "mode": "chat",
+                "litellm_provider": "provider-a",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+                "source": "human-approved",
+            },
+        }
+
+    def run_sensor(self, source: dict, *, registry_text: str | None = None) -> int:
+        if registry_text is None:
+            registry_text = json.dumps(self.registry, indent=2, ensure_ascii=False) + "\n"
+        self.registry_path.write_text(registry_text, encoding="utf-8")
+        self.source_path.write_text(json.dumps(source), encoding="utf-8")
+        return sensor.main([
+            "--registry", str(self.registry_path),
+            "--source", str(self.source_path),
+            "--candidate-registry", str(self.candidate_path),
+        ])
+
+    def test_no_drift_leaves_candidate_unwritten(self) -> None:
+        rc = self.run_sensor({
+            "model-a": {
+                "litellm_provider": "provider-a",
+                "mode": "chat",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+            }
+        })
+        self.assertEqual(rc, 0)
+        self.assertFalse(self.candidate_path.exists())
+
+    def test_non_canonical_registry_is_not_reflowed_into_a_candidate(self) -> None:
+        """The #2967 regression: a compact hand-edit must not look like price drift."""
+        compact = json.dumps(self.registry, indent=2, ensure_ascii=False)
+        compact = compact.replace(
+            '"_meta": {\n    "note": "owner"\n  }', '"_meta": {"note": "owner"}',
+        ) + "\n"
+        rc = self.run_sensor({
+            "model-a": {
+                "litellm_provider": "provider-a",
+                "mode": "chat",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+            },
+        }, registry_text=compact)
+        self.assertEqual(rc, 0)
+        self.assertFalse(self.candidate_path.exists())
+
+    def test_real_drift_still_writes_a_canonical_candidate(self) -> None:
+        rc = self.run_sensor({
+            "model-a": {
+                "litellm_provider": "provider-a",
+                "mode": "chat",
+                "input_cost_per_token": 4e-6,
+                "output_cost_per_token": 2e-6,
+            }
+        })
+        self.assertEqual(rc, 0)
+        text = self.candidate_path.read_text(encoding="utf-8")
+        data = json.loads(text)
+        self.assertEqual(data["model-a"]["input_cost_per_token"], 4e-6)
+        self.assertEqual(
+            text, json.dumps(data, indent=2, ensure_ascii=False) + "\n",
         )
 
 
