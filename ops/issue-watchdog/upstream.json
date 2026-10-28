@@ -1396,6 +1396,103 @@
           }
         }
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8377",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-parity-utf16-malformed-opencode-developer)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_billing_block.go",
+        "backend/internal/service/gateway_billing_block_test.go"
+      ],
+      "summary": "cc_version 指纹按 JavaScript UTF-16 码元取下标 4/7/20，避免中文/emoji 首条 user 文本算错后缀。",
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_billing_block.go:unicode/utf16",
+        "backend/internal/service/gateway_billing_block.go:utf16.AppendRune"
+      ],
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Port Wei-Shaw#8377 UTF-16 fingerprint indexing for Claude Code mimicry."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8361",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-parity-utf16-malformed-opencode-developer)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/pkg/antigravity/response_transformer.go",
+        "backend/internal/service/antigravity_gateway_streaming.go",
+        "backend/internal/service/antigravity_gateway_compat.go"
+      ],
+      "summary": "Antigravity 非流式 MALFORMED_FUNCTION_CALL 返回 502/malformed_function_call，不再空成功 200。同根 #8362。",
+      "fixed_if_all_present": [
+        "backend/internal/pkg/antigravity/response_transformer.go:ErrMalformedFunctionCall",
+        "backend/internal/service/antigravity_gateway_streaming.go:antigravity.ErrMalformedFunctionCall"
+      ],
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Port Wei-Shaw#8362 non-stream malformed tool-call error semantics."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8362",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-parity-utf16-malformed-opencode-developer)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/pkg/antigravity/response_transformer.go",
+        "backend/internal/service/antigravity_gateway_streaming.go",
+        "backend/internal/service/antigravity_gateway_compat.go"
+      ],
+      "summary": "Antigravity 非流式畸形工具调用错误语义修复（实现 PR）。同根 #8361。",
+      "fixed_if_all_present": [
+        "backend/internal/pkg/antigravity/response_transformer.go:ErrMalformedFunctionCall",
+        "backend/internal/service/antigravity_gateway_compat.go:malformed_function_call"
+      ],
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Same Antigravity malformed non-stream fix as #8361."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8375",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-parity-utf16-malformed-opencode-developer)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_chat_roles.go",
+        "backend/internal/service/openai_chat_roles_test.go"
+      ],
+      "summary": "OpenCode Zen/Go 承载的 DeepSeek Chat 将 developer→system，避免上游 422。同根 #8376。",
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_chat_roles.go:isDeepSeekCatalogModel",
+        "backend/internal/service/openai_chat_roles.go:isOfficialOpenCodeHost"
+      ],
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Port Wei-Shaw#8376 OpenCode DeepSeek developer role normalization."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8376",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-parity-utf16-malformed-opencode-developer)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_chat_roles.go",
+        "backend/internal/service/openai_chat_roles_test.go"
+      ],
+      "summary": "OpenCode DeepSeek developer→system 角色适配（实现 PR）。同根 #8375。",
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_chat_roles.go:isDeepSeekCatalogModel(upstreamModel)",
+        "backend/internal/service/openai_chat_roles.go:account.IsOpenCodeGo()"
+      ],
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Same OpenCode DeepSeek developer role fix as #8375."
+      }
     }
   ]
 }

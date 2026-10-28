@@ -17951,6 +17951,38 @@
         "UNION ALL"
       ],
       "rationale": "Heterogeneous account usage windows must stay one constant-bound aggregate per distinct start. A per-row created_at join cannot prune daily usage_logs partitions."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_streaming.go",
+      "must_contain": [
+        "return nil, nil, antigravity.ErrMalformedFunctionCall",
+        "errors.Is(err, antigravity.ErrMalformedFunctionCall)",
+        "errType = \"malformed_function_call\""
+      ],
+      "rationale": "Antigravity Claude non-stream collect must early-return ErrMalformedFunctionCall (Wei-Shaw#8361/#8362), and handleClaudeStreamToNonStreaming must map it to 502/malformed_function_call instead of a vague upstream_error or empty Claude 200. Upstream merges into this hotspot can drop either hook while tests on Chat/Responses compat still pass."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat.go",
+      "must_contain": [
+        "return s.writeAntigravityCompatError(c, http.StatusBadGateway, \"malformed_function_call\", err.Error())"
+      ],
+      "rationale": "Chat/Responses Antigravity compat must surface MALFORMED_FUNCTION_CALL as 502/malformed_function_call via mapAntigravityCompatCollectionError. Dropping this branch restores empty completed 200 for signature-only malformed tool frames (Wei-Shaw#8361/#8362)."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_roles.go",
+      "must_contain": [
+        "if (account.IsOpenCodeGo() || isOfficialOpenCodeHost(targetURL)) && isDeepSeekCatalogModel(upstreamModel) {"
+      ],
+      "rationale": "OpenCode Zen/Go multiplexes providers: only DeepSeek catalog models on OpenCode Go / official OpenCode hosts may remap developer→system (Wei-Shaw#8375/#8376). Upstream role-compat merges can drop this branch and leave OpenCode DeepSeek Chat at 422 while Ali/Kimi/Zhipu paths still look fine."
+    },
+    {
+      "path": "backend/internal/service/gateway_billing_block.go",
+      "must_contain": [
+        "\"unicode/utf16\"",
+        "utf16.AppendRune(textUnits, r)",
+        "sample := string(utf16.Decode(chars))"
+      ],
+      "rationale": "Claude Code cc_version fingerprint must sample JavaScript UTF-16 code units (Wei-Shaw#8377). A silent revert to UTF-8 byte indexing keeps ASCII fingerprints green while Chinese/emoji first-user text mismatches the official CLI suffix."
     }
   ]
 }

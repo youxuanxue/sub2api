@@ -908,6 +908,11 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 				continue
 			}
 
+			// 最后的错误帧可能没有 parts，必须在聚合选择前保留失败原因。
+			if extractGeminiFinishReason(parsed) == "MALFORMED_FUNCTION_CALL" {
+				return nil, nil, antigravity.ErrMalformedFunctionCall
+			}
+
 			last = parsed
 
 			// 保留最后一个有 parts 的响应，并收集所有 parts
@@ -1011,7 +1016,12 @@ func (s *AntigravityGatewayService) handleClaudeStreamToNonStreaming(c *gin.Cont
 
 		errMsg := "Failed to parse upstream response"
 		errType := "upstream_error"
-		if strings.Contains(err.Error(), "stream data interval timeout") {
+		if errors.Is(err, antigravity.ErrMalformedFunctionCall) {
+			// Match Chat/Responses compat: do not collapse MALFORMED into a vague
+			// upstream_error, and never surface an empty Claude 200.
+			errMsg = err.Error()
+			errType = "malformed_function_call"
+		} else if strings.Contains(err.Error(), "stream data interval timeout") {
 			errMsg = "Upstream stream data interval timeout"
 			errType = "upstream_timeout"
 		} else if errors.Is(err, bufio.ErrTooLong) {
