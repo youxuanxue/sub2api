@@ -25,6 +25,7 @@ func TestPublicCatalog_PlanSuppliedModelsKeepOEMVendor(t *testing.T) {
 		"deepseek-v4.1-flash": "deepseek",
 		"glm-5.3":             "zhipu",
 		"kimi-k3":             "moonshot",
+		"kimi-k3.1-pro":       "moonshot",
 		"qwen3.7-plus":        "dashscope",
 		"doubao-seed-2.1-pro": "volcengine", // ByteDance OEM / Ark native
 		"minimax-m3":          "minimax",
