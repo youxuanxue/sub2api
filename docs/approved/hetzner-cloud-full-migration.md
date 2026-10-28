@@ -25,18 +25,23 @@ related_designs:
 
 ## 已锁定
 
-> 下表「去哪 / 控面 / Secrets / 旧机」为 Hetzner 期的**历史选址**，不描述现网主机；仍有效的是其中的不变量（蓝绿、单正式名、活库禁覆盖、禁止双写）。
+仍有效的是不变量。Hetzner `fsn1` / `cax21`、`/tokenkey/hetzner/…` 和「停写后的旧 Lightsail」是当时的选址记录，不描述现网主机。现网主机只读 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。
 
-| | |
-|---|---|
-| 去哪 | Hetzner **`fsn1`**，机型 **`cax21`**（4c/8G **arm64**） |
-| 控面 | **SSM Hybrid**；蓝绿经 AWS SSM → `deploy_via_ssm_bluegreen.sh`（首发单色 `tokenkey` → blue） |
+| 不变量 | 内容 |
+| --- | --- |
 | 身份 | 正式域名不变；稳态 `API_DOMAIN` 单正式名 |
 | 数据 | 换机整库复刻用 precious-class `pg_dump` + logs data-only |
-| live 库 | **禁止**用旧机全量 dump 覆盖已在服务的 HZ |
+| live 库 | 禁止用旧机全量 dump 覆盖已经在服务的库 |
 | 双写 | 禁止业务库双活双写；Redis 不热迁 |
+| 控面形状 | 蓝绿经 SSM → `deploy_via_ssm_bluegreen.sh`；不因换云改成双写 |
+
+### 历史选址（Hetzner 期，已退役）
+
+| 项 | 当时的记录 |
+| --- | --- |
+| 落点 | Hetzner `fsn1`，机型 `cax21`（4c/8G arm64） |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
-| 旧机 | Lightsail / AWS 停写后 ≥7d 再退役 |
+| 旧机 | Lightsail / AWS 停写后 ≥7 天再退役 |
 
 延迟与上游成功率不承诺与全球多区一致。换机编排：[`.cursor/skills/tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 

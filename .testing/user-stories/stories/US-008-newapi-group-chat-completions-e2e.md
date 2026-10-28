@@ -48,3 +48,5 @@ HTTP+PG end-to-end (follow-up PR `feature/newapi-fifth-platform-e2e`; tracked by
 - [x] Draft
 
 > **Honest status note (2026-04-20 audit)**: 此故事的核心 AC 是「`POST /v1/chat/completions` 端到端走通」。当前 PR 仅交付 scheduler-tier 的 mock 单测（覆盖"调度池能选到 newapi 账号"+"池空不回退"+"openai 不变"三条调度不变量），未跑过任何真 HTTP→Auth→bridge→newapi upstream 的端到端请求。AC-001 / AC-002 / AC-003 中标注的 e2e 测试函数 `TestUS008_HTTP_NewAPIGroup_ChatCompletions_E2E` 仍是 *(planned)*，不存在于代码中。按 `test-philosophy.mdc §6`「阅读代码 ≠ 验证、单测全绿不是结论」纪律，本故事 status 保持 `Draft`，只有 follow-up PR `feature/newapi-fifth-platform-e2e` 跑通真 e2e 后才能升 `InTest → Done`。
+>
+> **2026-10-28：** 第五平台后来的 admin/runtime 回合已由 Done 的 US-022–US-026 盖住相邻缺口。那几份故事没有替换本故事的真 HTTP e2e，所以这里继续 Draft。

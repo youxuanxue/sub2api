@@ -332,10 +332,10 @@ func (s *KiroGatewayService) Forward(
 		var autoModeTrimReport *kiroproto.AutoModeTranscriptTrimReport
 		var compactMessageSplitReport *kiroproto.CompactMessageSplitReport
 		payloadFits := false
-		// Pending prototype (docs/approved/kiro-auto-mode-transcript-trim.md):
-		// only on overflow, opt-in Extra, preserve compact text-block boundaries
-		// before re-running the ordinary history truncator. Under-budget requests
-		// stay byte-identical (S4).
+		// Shipped opt-in (docs/approved/kiro-auto-mode-transcript-trim.md):
+		// only on overflow, Extra kiro_auto_mode_transcript_trim=true, preserve
+		// compact text-block boundaries before re-running the ordinary history
+		// truncator. Under-budget requests stay byte-identical (S4). Default off.
 		if account.IsKiroAutoModeTranscriptTrimEnabled() {
 			// Give the structured auto-mode path first chance. It can remove only
 			// records it has classified as old tool process, preserving user

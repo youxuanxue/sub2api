@@ -255,9 +255,22 @@ def verify_index(index: Path, stories: list[dict]) -> List[str]:
     """The index is navigation; the linked Story owns its status."""
     if not index.is_file():
         return ["missing user-stories/index.md"]
-    by_id = {story["id"]: story for story in stories}
+    by_id: dict[str, dict] = {}
+    duplicate_names: dict[str, list[str]] = {}
+    for story in stories:
+        story_id = story.get("id")
+        if not story_id:
+            continue
+        name = Path(story["path"]).name
+        if story_id in by_id:
+            duplicate_names.setdefault(story_id, [Path(by_id[story_id]["path"]).name]).append(name)
+        else:
+            by_id[story_id] = story
     seen: set[str] = set()
-    issues = []
+    issues = [
+        f"duplicate story id {story_id}: {', '.join(names)}"
+        for story_id, names in sorted(duplicate_names.items())
+    ]
     for line in index.read_text(encoding="utf-8").splitlines():
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
         if not cells or not re.fullmatch(r"US-\d+", cells[0]):

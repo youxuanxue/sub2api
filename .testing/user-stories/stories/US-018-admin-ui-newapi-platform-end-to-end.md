@@ -71,3 +71,5 @@ Stage-4 review surfaces a regression.
 ## Status
 
 - [ ] Draft (prototype scope: composable + GroupsView + CreateAccountModal + Badge wired; vitest specs pending stage 4)
+
+审批基线 `admin-ui-newapi-platform-end-to-end.md` 已是 `shipped`。本故事仍是 Draft：上面的 stage-4 vitest 范围没有关闭，不因审批文档已发布而改 AC 或升 Done。

@@ -6,9 +6,9 @@ import (
 	"unicode"
 )
 
-// Auto-mode transcript trim prototype.
-// Contract: docs/approved/kiro-auto-mode-transcript-trim.md (pending until human approval).
-// Default callers must leave Extra unset; this package never enables itself.
+// Auto-mode transcript trim.
+// Contract: docs/approved/kiro-auto-mode-transcript-trim.md (shipped, opt-in).
+// Callers enable it only through Account.Extra; this package never enables itself.
 
 const (
 	autoModeTranscriptOpen  = "<transcript>"

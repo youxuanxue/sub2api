@@ -1,15 +1,15 @@
 ---
-title: Kiro Auto-Mode Transcript 受限裁剪原型
-status: approved
-approved_by: "user (本会话批准：同意审批)"
+title: Kiro Auto-Mode Transcript 受限裁剪
+status: shipped
+approved_by: "user (本会话批准：同意审批；2026-10-28 确认研发完成并已上线)"
 risk: high
 owners: [tk-gateway]
-related_prs: []
-related_commits: []
-supersedes_note: "补丁关系见 kiro-payload-overflow.md §Pending exception；不替代 900 KiB 本地护栏"
+related_prs: [2933, 2934, 2939, 2941]
+related_commits: [149f604e1]
+supersedes_note: "有条件例外见 kiro-payload-overflow.md §Gated exception；不替代 900 KiB 本地护栏"
 ---
 
-# Kiro Auto-Mode / Compact Transcript 受限裁剪原型
+# Kiro Auto-Mode / Compact Transcript 受限裁剪
 
 ## Background
 
@@ -22,18 +22,20 @@ current tool-result/图片）对 **current user prose** 无能为力，本地 41
 
 Claude Code `/compact`/`/autocompact` 也会把待压缩内容放进最后一个 user 消息的
 多个 text block。转换器若先把这些 block 拼接，history 裁剪器看不到可删除的边界。
-本原型在同一受控开关下先保留这些边界，再让既有 history 裁剪器按完整 block 删除。
+实现在同一受控开关下先保留这些边界，再让既有 history 裁剪器按完整 block 删除。
 
 需求分析与证据见
 [`../task-breakdown-kiro-auto-mode-transcript-trim.md`](../task-breakdown-kiro-auto-mode-transcript-trim.md)
-（《新证据一》结构、《新证据二》容量）。本文件是**原型设计审批基线**（`pending`）：
-人工审批前不得默认开启生产改写。
+（《新证据一》结构、《新证据二》容量）。实现已随 `#2933` 进入主干，并包含在
+`1.8.329` 及之后的网关发布中（对客超限文案自 `#2941` / `1.8.331` 起为 400）。
+2026-10-28 用户确认该路径已完成研发并上线。行为仍由账号 Extra
+`kiro_auto_mode_transcript_trim=true` 开启；缺省或非布尔保持关闭，不改生产默认值。
 
 ## Delta
 
 ### ADDED
 
-- **受限原型路径（默认关闭）**：仅当译成 Kiro 并跑完既有 history/tool 裁剪后
+- **受限路径（默认关闭，已随网关发布）**：仅当译成 Kiro 并跑完既有 history/tool 裁剪后
   **仍超过 `maxPayloadBytes`**，且请求被识别为 Claude Code auto-mode 分类器、
   transcript 可完整解析时，才按固定顺序整条删除可丢弃记录并**每删一条重测**；
   未超限请求保持字节级不变（S4）。支持 NDJSON 单块与 marker 分隔的
@@ -90,16 +92,16 @@ Claude Code `/compact`/`/autocompact` 也会把待压缩内容放进最后一个
 | # | 类型 | 场景 | 期望 |
 |---|---|---|---|
 | S1 | 正 | 开关开 + 可解析 auto-mode + 存在可删旧工具过程且删后 ≤900KiB | 改写后通过 `ValidatePayloadSize`，可上游；保留项完整 |
-| S2 | 负 | 开关开但解析失败 / 缺最新 action | **原文不动**，413（若仍超限） |
+| S2 | 负 | 开关开但解析失败 / 缺最新 action | **原文不动**；若仍超限，公开信封沿用 overflow 契约的 400 `invalid_request_error`（`prompt is too long`） |
 | S3 | 负 | 开关关、单 block、含图片/工具、含 assistant turn，或无法安全识别的普通大文本 | 零改写，现有 overflow 行为 |
 | S4 | 回归 | 未超限的小请求 | 字节级与今一致 |
 | S5 | 安全 | 先禁止后简短确认、撤回、第三方插入、依赖旧 Write 内容的动作 | 减肥后判定与未改写基线对比；漂移则失败，不得上线 |
 | S6 | 正 | 开关开 + compact 多 text block + 删除旧 block 后 ≤900KiB | 保留最新 block，整条删除旧 block 后通过本地尺寸校验 |
-| S7 | 负 | 含图片/工具或只有一个 block | 原文不动，沿用 413 |
+| S7 | 负 | 含图片/工具或只有一个 block | 原文不动；若仍超限，公开信封为 400 `invalid_request_error` |
 
-## Prototype gates（审批前必须可演示）
+## Release gates
 
-对齐任务拆解 §原型验收门槛：
+对齐任务拆解 §原型验收门槛。下列是已上线开关路径的行为，不是待审批清单：
 
 1. 格式/版本/角色/转义边界文档化；无法判断则不改写。
 2. 完整解析；错误即保持原文。
@@ -113,10 +115,10 @@ Claude Code `/compact`/`/autocompact` 也会把待压缩内容放进最后一个
 - 聚焦：`go test -tags=unit` 覆盖本原型包与既有 US-065 overflow 回归（flag 默认关）。
 - 网关：仅 `ValidatePayloadSize` 失败且 Extra 开启时进入 compact block split 或
   `TrimClaudeAutoModeTranscriptUntil`；两条路径都在每次完整记录/完整 block 删除后
-  重测，413 诊断只带计数与 skip reason。
-- 人工：开关账号副本演示 S1–S5；未批准前禁止改生产默认 Extra。
-- Story：[`US-071`](../../.testing/user-stories/stories/US-071-kiro-auto-mode-transcript-trim.md)；
-  本 `pending` 文档无 related_prs，直至实现 PR 与人工 merge 审批。
+  重测。公开拒绝沿用 overflow 契约的 400；诊断只带计数与 skip reason。
+- 生产默认 Extra 保持关闭。开启仍是逐账号 `kiro_auto_mode_transcript_trim=true`。
+- Story：[`US-072`](../../.testing/user-stories/stories/US-072-kiro-auto-mode-transcript-trim.md)。
+  实现 PR：`#2933`、`#2934`、`#2939`、`#2941`。
 
 ## Scope Boundary
 
@@ -134,4 +136,4 @@ Web impact: none。
 - 客户端有界分类（iTerm2、claude-auto-permission、CC 自身投影）证明正确修复面在**拼装方**；不能外推为网关可任意改官方 transcript。
 - 未见「超限静默改打 Anthropic」的成熟开源先例；跨供应源须产品显式路径，另案审批。
 
-因此本原型定位为：**强门禁实验**，须用完整样本分报「尺寸 / 上游 / 安全判定」；若 wire 仅有伪装成 user text 的拼接、无可解析行级工具记录，应诚实标「对本批流量未解决」，不得改用标签裁剪凑绿。
+因此该路径定位为：**强门禁、默认关闭的已发布能力**。须用完整样本分报「尺寸 / 上游 / 安全判定」；若 wire 仅有伪装成 user text 的拼接、无可解析行级工具记录，应诚实标「对本批流量未解决」，不得改用标签裁剪凑绿。

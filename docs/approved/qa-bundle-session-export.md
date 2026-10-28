@@ -18,8 +18,8 @@ superseded_by: qa-raw-only.md
 
 用户已批准会话及工具链重建、推理信息保留、字段来源可追溯，以及 TokenKey 仓库内
 traj SSOT 和过时内容清理。本文记录该实现授权；不授权部署、删除线上证据或改变采集权限。
-QA 存储、授权、归档与下载生命周期继续由
-[QA lifecycle](design-prod-qa-24h-s3-lifecycle.md) 裁决。
+QA 存储、授权、归档与下载的现行契约是 [QA raw-only](qa-raw-only.md)。
+已归档的 [24h lifecycle](design-prod-qa-24h-s3-lifecycle.md) 不再裁决这些事实。
 
 ## 导出契约
 

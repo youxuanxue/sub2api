@@ -84,4 +84,4 @@ cd backend && go test -tags=unit -count=1 ./internal/pkg/apicompat/... ./interna
 
 ## Status
 
-- [ ] InTest — 实现已完成，preflight + PR 合并待跟进；shipped 后翻 Done 并补 Evidence。
+- [x] Done — 实现已随 `#31` 合入，审批基线 `openai-codex-as-claude-thinking-continuity.md` 为 `shipped`。生产验收以 release/deploy smoke 为准，不在本故事回填运行日志。

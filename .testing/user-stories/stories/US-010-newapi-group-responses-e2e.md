@@ -49,3 +49,5 @@ HTTP+PG end-to-end (follow-up PR; tracked by this story remaining Draft until co
 - [x] Draft
 
 > **Honest status note (2026-04-20 audit)**: 此故事的核心 AC 是「`POST /v1/responses` 端到端走通」。当前 PR 完全没有 `/v1/responses` 入口的专属测试 — scheduler-tier 的 newapi 选池逻辑被传递性覆盖，但 responses 入口的 HTTP→Auth→handler→bridge dispatch 链路从未真跑过。AC 标注的 `TestUS010_HTTP_NewAPIGroup_Responses_E2E` 仍是 *(planned)*，且 responses 入口的 unit-tier 也无任何 `TestUS010_*` 函数。按 `test-philosophy.mdc §6` 纪律，本故事 status 保持 `Draft`，是 8 个 newapi 故事中覆盖最薄的一条，follow-up PR 必须优先打掉这条。
+>
+> **2026-10-28：** 第五平台后来的 admin/runtime 回合已由 Done 的 US-022–US-026 盖住相邻缺口。那几份故事没有替换本故事的真 HTTP e2e，所以这里继续 Draft。

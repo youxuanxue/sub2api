@@ -19,11 +19,13 @@ scope: ".github/workflows/deploy-stage0.yml + scripts/checks/bluegreen-migration
 
 # Cloud-Agent-Driven Stage0 Blue/Green Deployment Workflow
 
-The approved 2026-09-10 [component release revision](prod-component-release.md)
-supersedes the prod component selection and cutover/completion ordering below.
-The same entry selects gateway, QA maintenance, and Bundle Worker independently;
-gateway smoke overlaps the original SSM request drain, and success still joins
-that command and preserves the five-minute observation.
+Gateway production release stays on `deploy-stage0.yml` and the blue/green SSM
+owner in this document. The 2026-09-10
+[component release revision](prod-component-release.md) and its Bundle Worker
+selection are archived and superseded by [qa-raw-only](qa-raw-only.md). They do
+not select a worker and do not gate gateway cutover. QA maintenance follows
+qa-raw-only. Gateway smoke still overlaps the SSM request drain, and success
+still joins that command and preserves the five-minute observation.
 
 ## 1. Why this exists
 
@@ -275,9 +277,10 @@ To stay focused on prod deploy automation and nothing else:
 - **No post-commit auto-rollback** — pre-cutover failures leave the old color
   untouched; an incomplete cutover commit restores the old Caddy route; after
   a committed cutover, re-dispatch the previous app tag so rollback goes
-  through the same health/smoke path. QA Worker/host-runner rollback is a
-  separate lifecycle governed only by
-  `docs/approved/design-prod-qa-24h-s3-lifecycle.md` section 18.2.
+  through the same health/smoke path. Bundle Worker rollback is retired.
+  QA maintenance pin and the local lifecycle follow
+  `docs/approved/qa-raw-only.md`. Archived
+  `design-prod-qa-24h-s3-lifecycle.md` section 18.2 is not an execution path.
 - **No CFN `ImageTag` parameter mutation** — drift between the CFN
   parameter and runtime `TOKENKEY_IMAGE` remains the accepted trade-off
   documented in `deploy/aws/README.md` §升级 / 发版.
