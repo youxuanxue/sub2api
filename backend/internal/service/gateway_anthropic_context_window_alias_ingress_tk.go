@@ -1,6 +1,9 @@
 package service
 
 import (
+	"strings"
+
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -113,4 +116,26 @@ func TkStripContextWindowAliasAtIngress(platform string, parsed *ParsedRequest) 
 		"TK context-window alias stripped at ingress before account selection (claude-code #60913): requested=%s bare=%s platform=%s",
 		requested, bare, platform)
 	return newBody, bare
+}
+
+// TkStripContextWindowAliasJSONModel removes a trailing Claude Code
+// context-window alias from a chat-completions document's top-level model.
+// Chat admission does not go through TkStripContextWindowAliasAtIngress, and
+// Kiro's catalog is an exact match, so "claude-opus-5-5[1m]" never entered the
+// Kiro pool even though the upstream request is the bare id. The rewrite is
+// idempotent and leaves every other field untouched.
+func TkStripContextWindowAliasJSONModel(body []byte) ([]byte, string, bool) {
+	if len(body) == 0 {
+		return nil, "", false
+	}
+	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	bare, stripped := tkStripContextWindowModelAlias(model)
+	if !stripped || bare == "" {
+		return nil, "", false
+	}
+	next, err := sjson.SetBytes(body, "model", bare)
+	if err != nil {
+		return nil, "", false
+	}
+	return next, bare, true
 }

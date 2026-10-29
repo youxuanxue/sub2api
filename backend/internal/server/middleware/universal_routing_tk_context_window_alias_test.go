@@ -120,12 +120,11 @@ func TestUniversalContextWindowAliasComposesWithBareFamilyAlias(t *testing.T) {
 }
 
 // No collateral damage: requests the strip must not touch keep a byte-identical
-// body. A forced non-Anthropic platform is out of scope (the OpenAI-compat shape
-// owns its own strip), and a non-Anthropic protocol path is never parsed here.
+// body. A forced non-Anthropic platform on the Messages path stays gated out.
+// Chat completions owns its own strip, covered below.
 func TestUniversalContextWindowAliasPreservesOutOfScopeRequests(t *testing.T) {
 	for _, tc := range []struct{ name, path, model, force string }{
 		{"bare id untouched", "/v1/messages", "claude-opus-5", ""},
-		{"chat completions path", "/v1/chat/completions", "claude-opus-5[1m]", ""},
 		{"forced antigravity platform", "/v1/messages", "claude-opus-5[1m]", service.PlatformAntigravity},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -157,6 +156,31 @@ func TestUniversalContextWindowAliasPreservesOutOfScopeRequests(t *testing.T) {
 // rejects it with 403 for the bare id too), so the only assertable contract is
 // that the suffix is still present in the rejection — proof the Anthropic-only
 // gate held rather than silently widening to OpenAI-compat.
+// Chat completions must evaluate and forward the bare id. Kiro's catalog does
+// not contain the "[1m]" suffix, so leaving it on the model admits only
+// accounts whose mapping normalizes the alias (TokenSea) and skips Kiro.
+func TestUniversalChatContextWindowAliasStrippedBeforeCandidateEvaluation(t *testing.T) {
+	const body = `{"model":"claude-opus-5-5[1m]","messages":[{"role":"user","content":"hello"}]}`
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", body)
+	key := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(1, service.PlatformAnthropic)}})
+	evaluated := false
+	resolver.SetCandidateEvaluator(service.NewProtocolRouter(), func(_ context.Context, _ service.Group, model string, shape service.UniversalShape) (service.GroupCandidateEligibility, error) {
+		evaluated = true
+		require.Equal(t, service.ShapeOpenAIChat, shape)
+		require.Equal(t, "claude-opus-5-5", model)
+		return service.GroupCandidateEligibility{Supported: true, Available: true}, nil
+	})
+
+	require.False(t, MaybeResolveUniversal(c, key, resolver))
+	require.True(t, evaluated)
+
+	handlerBody, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+	require.NoError(t, err)
+	require.Equal(t, "claude-opus-5-5", gjson.GetBytes(handlerBody, "model").String())
+	require.Equal(t, "hello", gjson.GetBytes(handlerBody, "messages.0.content").String())
+}
+
 func TestUniversalContextWindowAliasSkipsForcedOpenAIPlatform(t *testing.T) {
 	c, rec := newTestCtx(http.MethodPost, "/v1/messages",
 		`{"model":"gpt-5.5[1m]","messages":[{"role":"user","content":"hello"}]}`)

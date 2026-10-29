@@ -76,6 +76,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if stripped, bare, ok := service.TkStripContextWindowAliasJSONModel(body); ok {
+		body = stripped
+		reqModel = bare
+	}
 	if h.rejectDeprecatedOpenAICompatModel(c, apiKey, reqModel, false) {
 		return
 	}

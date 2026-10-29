@@ -1980,9 +1980,10 @@
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
       "must_contain": [
         "errors.Is(err, service.ErrCandidateContinuationUnavailable)",
-        "writeCandidateContinuationError(c, shape)"
+        "writeCandidateContinuationError(c, shape)",
+        "service.TkStripContextWindowAliasJSONModel(body)"
       ],
-      "rationale": "Unavailable continuation is a client error, not a retryable internal failure."
+      "rationale": "Unavailable continuation is a client error, not a retryable internal failure. Chat completions must strip a trailing [1m] context-window alias before candidate evaluation so Kiro's exact catalog and TokenSea see the same bare model the upstream request uses."
     },
     {
       "path": "backend/internal/service/openai_ws_forwarder_ingress.go",
@@ -5739,9 +5740,10 @@
     {
       "path": "backend/internal/handler/gateway_handler_chat_completions.go",
       "must_contain": [
-        "account.GetPoolModeRetryCount(), failoverErr"
+        "account.GetPoolModeRetryCount(), failoverErr",
+        "service.TkStripContextWindowAliasJSONModel(body)"
       ],
-      "rationale": "/v1/chat/completions (Anthropic-backed converter) must thread account.GetPoolModeRetryCount() into the shared failover loop — same contract as the anthropic /v1/messages gateway."
+      "rationale": "/v1/chat/completions (Anthropic-backed converter) must thread account.GetPoolModeRetryCount() into the shared failover loop — same contract as the anthropic /v1/messages gateway. It must also strip a trailing [1m] context-window alias before account selection so Kiro's exact catalog sees the same bare id the upstream request uses."
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler.go",
@@ -8939,6 +8941,7 @@
       "path": "backend/internal/service/gateway_anthropic_context_window_alias_ingress_tk.go",
       "must_contain": [
         "func TkStripContextWindowAliasAtIngress(platform string, parsed *ParsedRequest) ([]byte, string)",
+        "func TkStripContextWindowAliasJSONModel(",
         "func tkContextWindowAliasIngressPlatform(platform string) bool",
         "case \"\", PlatformAnthropic, PlatformKiro:"
       ],
@@ -17643,7 +17646,8 @@
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
         "CanonicalRequestBodyValidated(c.Request.Context(), protocolrouter.ProtocolChatCompletions, body)",
-        "service.ReuseParsedCanonicalRequest("
+        "service.ReuseParsedCanonicalRequest(",
+        "service.TkStripContextWindowAliasJSONModel(body)"
       ],
       "rationale": "Chat completions reuse the admission decode and skip a second full-buffer validity walk only for that same body."
     },
