@@ -11,8 +11,7 @@ function exportRows(report: HistoricalBillingReport, labels: HistoricalBillingEx
   const values = (row: HistoricalBillingRow, total = false) => [
     report.user_id, total ? labels.total : row.date,
     total ? '' : row.platform || labels.unknownPlatform,
-    row.requests, row.input_tokens, row.output_tokens, row.cache_creation_tokens,
-    row.cache_read_tokens, row.total_tokens, row.actual_cost,
+    row.requests, row.input_tokens, row.output_tokens, row.total_tokens, row.actual_cost,
     report.timezone,
   ]
   return [labels.headers, ...report.rows.map(row => values(row)), values(report.totals, true)]
@@ -34,7 +33,7 @@ export function fillHistoricalBillingWorkbook(wb: Workbook, report: HistoricalBi
   const sheet = wb.addWorksheet('Billing')
   for (const row of exportRows(report, labels)) sheet.addRow(row)
   sheet.columns.forEach((column, i) => { column.width = i === 2 ? 22 : 20 })
-  sheet.getColumn(10).numFmt = '@' // exact decimal money; authoritative totals come from the server
+  sheet.getColumn(8).numFmt = '@' // exact decimal money; authoritative totals come from the server
   for (const index of [1, sheet.rowCount]) {
     sheet.getRow(index).font = { bold: true, color: { argb: 'FF0F766E' } }
     sheet.getRow(index).height = 32
