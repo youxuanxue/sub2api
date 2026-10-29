@@ -29,7 +29,8 @@ func TestCandidateMappedModelWithoutPreservingRouteIsCapacity(t *testing.T) {
 			require.Equal(t, int64(10), state.current.account.ID)
 			require.Equal(t, protocolrouter.ProtocolChatCompletions, state.current.plan.TargetProtocol())
 		} else {
-			require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+			require.ErrorIs(t, err, ErrUniversalUnsupportedRequest)
+			require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
 			require.NotErrorIs(t, err, ErrUniversalUnsupportedModel)
 		}
 		_, _, err = r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/chat/completions", "missing-model", []byte(`{"model":"missing-model","messages":[{"role":"user","content":"OK"}]}`), "", "")

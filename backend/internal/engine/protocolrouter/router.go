@@ -121,7 +121,17 @@ func (r *Router) plan(request CanonicalRequest, account AccountSnapshot, nativeO
 		if !account.hasTransport(route.transport) || r.adapters[route.adapterID] == nil {
 			continue
 		}
-		if route.preserves == nil || (!route.preserves(request) && !account.preservesGeminiWebProReference(providerRequest, route.target)) {
+		evaluated := request
+		droppedFields := ""
+		if route.adapterID == AdapterResponsesToChat {
+			next, adjustment, ok := downgradeResponsesToChat(providerRequest)
+			if !ok {
+				continue
+			}
+			evaluated = next
+			droppedFields = adjustment
+		}
+		if route.preserves == nil || (!route.preserves(evaluated) && !account.preservesGeminiWebProReference(providerRequest, route.target)) {
 			continue
 		}
 		responsesPath := ResponsesPathNone
@@ -139,6 +149,18 @@ func (r *Router) plan(request CanonicalRequest, account AccountSnapshot, nativeO
 			continue
 		}
 		effective, adjustment := compatibleRequest(providerRequest, account.requestCapabilities(route.target))
+		if droppedFields != "" {
+			next, _, ok := downgradeResponsesToChat(effective)
+			if !ok {
+				continue
+			}
+			effective = next
+			if adjustment != "" {
+				adjustment = droppedFields + "," + adjustment
+			} else {
+				adjustment = droppedFields
+			}
+		}
 		if providerAdjustment != "" {
 			if adjustment != "" {
 				adjustment = providerAdjustment + "," + adjustment

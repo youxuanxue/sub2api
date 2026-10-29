@@ -51,7 +51,8 @@ func TestCandidateEligibilityTokenseaUsesPlanAcrossEntrances(t *testing.T) {
 			case !tc.chat:
 				require.Empty(t, candidates)
 				require.Nil(t, selected)
-				require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+				require.ErrorIs(t, err, ErrUniversalUnsupportedRequest)
+				require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
 			case !tc.schedulable:
 				require.Empty(t, candidates)
 				require.Nil(t, selected)

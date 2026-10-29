@@ -87,6 +87,18 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 		assert.Empty(t, w.Header().Get("Retry-After"))
 	})
 
+	t.Run("unsupported_request_returns_400", func(t *testing.T) {
+		c, w := newCtx(t)
+		err := fmt.Errorf("%w: deepseek-v4.1-flash", service.ErrUniversalUnsupportedRequest)
+		status, errType, msg := tkSelectFailureStatusMessage(c, err, "deepseek-v4.1-flash")
+
+		require.Equal(t, http.StatusBadRequest, status)
+		assert.Equal(t, service.TkUnsupportedRequestErrType, errType)
+		assert.Equal(t, service.TkUnsupportedRequestMessage("deepseek-v4.1-flash"), msg)
+		assert.Empty(t, w.Header().Get("Retry-After"))
+		assert.NotContains(t, msg, "busy")
+	})
+
 	t.Run("load_batch_cross_vendor_gpt_returns_400", func(t *testing.T) {
 		c, w := newCtx(t)
 		err := service.TkSelectionNoAvailableAccountsError("gpt")

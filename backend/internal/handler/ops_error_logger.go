@@ -2386,8 +2386,10 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c, errType)
 	clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)
 	_, ingressRejected := middleware2.GetIngressRejectReason(c)
+	clientRequestReason := service.OpsClientBusinessLimitedReason(c)
 	clientRequestRejected := ingressRejected || hasOpsClientRequestRejected(c) ||
-		(clientBusinessLimited && service.OpsClientBusinessLimitedReason(c) == service.OpsClientBusinessLimitedReasonUnsupportedModel)
+		(clientBusinessLimited && (clientRequestReason == service.OpsClientBusinessLimitedReasonUnsupportedModel ||
+			clientRequestReason == service.OpsClientBusinessLimitedReasonUnsupportedRequest))
 	effectiveUpstreamError := upstreamError && !localModelConfiguration
 	if localModelConfiguration {
 		phase = "routing"

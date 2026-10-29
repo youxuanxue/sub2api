@@ -1,11 +1,14 @@
 ---
 title: Protocol Routing Single Source of Truth
 status: approved
-approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment)"
+approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, and audio behind native Responses)"
 authors: [codex]
 created: 2026-08-24
-revised: 2026-10-26
+revised: 2026-10-29
 revision_note: >
+  2026-10-29: Responses→Chat drops prompt_cache_key, cache_control,
+  previous_response_id, and audio, then still serves. That plan ranks behind
+  native Responses, which keeps the fields. Lossless preserve stays unchanged.
   2026-10-26: Volc Agent Plan joins TokenSea/CloudWise as Plan-facing Chat-only
   (omit native responses); responses→chat preserve aligns with converter
   (tools/image/video + mapped reasoning.effort; prompt-cache still fail-closed);
@@ -339,10 +342,14 @@ tools-bearing Claude Code body does not fail closed back onto identity.
 The `chat_completions -> messages` and `responses -> messages` adapters also
 preserve function tools and images through the existing apicompat conversions.
 `responses → chat_completions` matches that content/tool surface and maps
-`reasoning.effort` in apicompat; it still rejects audio input,
-`previous_response_id` continuation, `prompt_cache_key` / `cache_control`
-(converter does not preserve them), and non-root Responses paths. A supply
-mismatch is candidate-local `ErrNoLegalRoute`, not an internal selection error.
+`reasoning.effort` in apicompat. `prompt_cache_key`, `cache_control`,
+`previous_response_id`, and audio input are removed from the effective request
+and the plan is marked `responses_chat_drop_unsupported_fields` (compatibility
+rank 1). Native `responses` keeps those fields at rank 0, so selection prefers
+an account that can serve them unchanged. Non-root Responses paths stay
+rejected. A supply mismatch is candidate-local `ErrNoLegalRoute`, not an
+internal selection error. Known-negative input modalities stay on the
+multimodal supply gate and are decided before this drop.
 
 Endpoint resolution must reproduce the identity used to obtain the capability
 key. A configurable endpoint with an empty or mismatched URL never falls back

@@ -454,6 +454,9 @@ func candidatePathAllowsEndpoint(ctx context.Context, account *Account, group *G
 }
 
 func candidateSelectionError(supported bool, err error, model, platformHint string, groupID int64, diag *CandidateCapacityDiag) error {
+	if !supported && unsupportedRequestSelection(err) {
+		return fmt.Errorf("%w: %s", ErrUniversalUnsupportedRequest, model)
+	}
 	if err != nil && (!supported || !errors.Is(err, protocolrouter.ErrNoLegalRoute)) {
 		capacity := newUniversalCapacityError(platformHint, groupID, diag)
 		if remapped, ok := remapProtocolSelectionFailure(err, capacity); ok {
@@ -467,13 +470,19 @@ func candidateSelectionError(supported bool, err error, model, platformHint stri
 	return fmt.Errorf("%w: %s", ErrUniversalUnsupportedModel, model)
 }
 
-// remapProtocolSelectionFailure classifies unknown/conflicted protocol capability
-// away from opaque platform 500s ("Failed to prepare authorized candidates").
+// remapProtocolSelectionFailure keeps a supported-but-not-ready selection off
+// opaque platform 500s ("Failed to prepare authorized candidates").
 //
-// These failures are treated as capacity (429): capability links can recover
-// without a client model change (us4 2026-09-23 prepare storm self-healed in
-// ~45m). They are NOT unsupported-model — see candidate-eligibility SSOT /
+// A finished selection where nothing supported the request is classified first
+// by unsupportedRequestSelection, including unknown or conflicted capability
+// evidence. That is a client 400, not a busy pool and not unsupported-model —
+// see candidate-eligibility SSOT /
 // TestCandidateEligibilityUnknownCapabilityIsNotEntitlement.
+func unsupportedRequestSelection(err error) bool {
+	return err != nil &&
+		(errors.Is(err, ErrProtocolRouteUnavailable) || errors.Is(err, ErrProtocolCapabilityUnknown))
+}
+
 func remapProtocolSelectionFailure(err, capacity error) (error, bool) {
 	if err == nil {
 		return nil, false

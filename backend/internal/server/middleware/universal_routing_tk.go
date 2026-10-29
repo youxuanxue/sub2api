@@ -193,6 +193,9 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		} else if errors.Is(err, service.ErrUniversalUnsupportedModel) {
 			reqLog.Warn("universal_routing.unsupported_model")
 			writeUniversalRoutingUnsupportedModelError(c, shape, model)
+		} else if errors.Is(err, service.ErrUniversalUnsupportedRequest) {
+			reqLog.Warn("universal_routing.unsupported_request")
+			writeUniversalRoutingUnsupportedRequestError(c, shape, model)
 		} else if errors.Is(err, service.ErrUnsupportedInputModality) {
 			reqLog.Warn("universal_routing.unsupported_input_modality")
 			writeUniversalRoutingUnsupportedInputModalityError(c, shape, model, err)
@@ -216,14 +219,14 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 			applyUniversalCapacityPlatformHint(c, err)
 			writeUniversalRoutingCapacityError(c, shape)
 		} else if errors.Is(err, service.ErrProtocolCapabilityUnknown) || errors.Is(err, service.ErrProtocolRouteUnavailable) {
-			// Defense in depth: selection/eligibility should already remap these
-			// to capacity; any residual leak must not become opaque prepare-500.
+			// Defense in depth: selection/eligibility should already classify
+			// these. Unknown capability and a route miss with no supported
+			// account are both a client 400, not a busy pool.
 			reqLog.Warn("universal_routing.protocol_route_unavailable", zap.Error(err))
 			if detail := sanitizeMiddlewareInternalErrorDetail(err); detail != "" {
 				c.Set(service.OpsInternalErrorDetailKey, detail)
 			}
-			service.MarkOpsRoutingCapacityLimited(c)
-			writeUniversalRoutingCapacityError(c, shape)
+			writeUniversalRoutingUnsupportedRequestError(c, shape, model)
 		} else if status := infraerrors.Code(err); status >= 400 && status < 500 {
 			writeCandidateBillingError(c, shape, err)
 		} else {
@@ -264,6 +267,26 @@ func writeUniversalRoutingUnsupportedModelError(c *gin.Context, shape service.Un
 			"message": message,
 			"type":    "invalid_request_error",
 			"code":    "unsupported_model",
+		}})
+	}
+}
+
+func writeUniversalRoutingUnsupportedRequestError(c *gin.Context, shape service.UniversalShape, model string) {
+	const status = http.StatusBadRequest
+	message := service.TkUnsupportedRequestMessage(model)
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonUnsupportedRequest)
+	switch shape {
+	case service.ShapeGemini:
+		GoogleErrorWriter(c, status, message)
+	case service.ShapeAnthropicMessages, service.ShapeAnthropicCountTokens:
+		c.JSON(status, gin.H{"type": "error", "error": gin.H{
+			"type": service.TkUnsupportedRequestErrType, "message": message,
+		}})
+	default:
+		c.JSON(status, gin.H{"error": gin.H{
+			"message": message,
+			"type":    service.TkUnsupportedRequestErrType,
+			"code":    service.TkUnsupportedRequestCode,
 		}})
 	}
 }

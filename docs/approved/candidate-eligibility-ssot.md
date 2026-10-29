@@ -1,9 +1,9 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills, 2026-10-13 universal ordinary/complex first-output budgets approved as 120s/600s; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation; 2026-10-19 NewAPI Chat nonstream first-output default/host inject raised to 600, config max 900; 2026-10-19 OpenAI capacity-shed soft effective-priority demotion; 2026-10-20 all-platform load-aware fallback only after retaining usable affinity; user broadened #2749 beyond VolcEngine; 2026-10-26 NewAPI Chat first-output promotion classes aligned with OpenAI compact/large-body/high-reasoning strategy, numeric knobs remain platform-owned; 2026-10-28 attributable failures add 1000 effective priority each in a fixed 90-second window, capped at 10000)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills, 2026-10-13 universal ordinary/complex first-output budgets approved as 120s/600s; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation; 2026-10-19 NewAPI Chat nonstream first-output default/host inject raised to 600, config max 900; 2026-10-19 OpenAI capacity-shed soft effective-priority demotion; 2026-10-20 all-platform load-aware fallback only after retaining usable affinity; user broadened #2749 beyond VolcEngine; 2026-10-26 NewAPI Chat first-output promotion classes aligned with OpenAI compact/large-body/high-reasoning strategy, numeric knobs remain platform-owned; 2026-10-28 attributable failures add 1000 effective priority each in a fixed 90-second window, capped at 10000; 2026-10-29 a route miss or unknown capability with no supported account is HTTP 400 unsupported_request, not the busy 429)"
 created: 2026-09-07
-revised_at: 2026-10-28
+revised_at: 2026-10-29
 ---
 
 # Candidate Eligibility SSOT
@@ -662,3 +662,17 @@ Validation: `TestCodexClaudeModelAdmission`, `TestCodexClaudePlanAndSelection`,
 `TestCodexClaudeCatalogProjection`. No account status, model cooldown, Key binding,
 pricing, or curated catalog is changed by this fix. Existing cooldown entries expire
 normally; clearing them is not a substitute for preventing the invalid attempts.
+
+## Unsupported request is not busy (2026-10-29)
+
+Approved by feng in conversation: a selection that finishes with no account able
+to serve the request must not use the busy 429 copy. That includes a route
+miss and unknown or conflicted capability evidence. The result is
+`ErrUniversalUnsupportedRequest`, HTTP 400, `invalid_request_error` /
+`unsupported_request`, message `Unsupported request for model: <model>`.
+Ops classifies it as a client request, not routing capacity.
+
+Accounts that can serve the request but are not ready (concurrency, cooldown,
+quota) stay a capacity 429. A concrete unsupported model name and a
+known-negative input modality keep their existing 400s. A concrete model miss
+still outranks unknown peer evidence.
