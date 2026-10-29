@@ -47,6 +47,16 @@ export interface FormPricingRule {
   pricing: PricingFormEntry[]
 }
 
+/** Shared by the channel editor and its payload conversion. */
+export const WEB_SEARCH_EMULATION_PLATFORMS: ReadonlySet<string> = new Set([
+  'anthropic',
+  'openai',
+  'command_code',
+  'opencode_go',
+  'minimax',
+  'zhipu',
+])
+
 /** Per-platform UI section in the channel-edit form. */
 export interface PlatformSection {
   platform: GroupPlatform
@@ -193,9 +203,9 @@ export function apiToFormSections(
  * Convert per-platform form sections back to the API payload posted by
  * ChannelsView. Preserves `features_config` keys not managed by the form.
  *
- * `web_search_emulation` is always written when at least one anthropic
- * section is enabled (so the UI can flip it from on → off); cleared when
- * no anthropic section is active.
+ * `web_search_emulation` is written for every platform in
+ * WEB_SEARCH_EMULATION_PLATFORMS (false included for disabled sections) so a
+ * UI save cannot wipe API-written dimensions for other platforms.
  */
 export function formSectionsToApi(
   sections: PlatformSection[],
@@ -250,15 +260,14 @@ export function formSectionsToApi(
     }
   }
 
-  // Always (re-)write web_search_emulation when an anthropic section is
-  // enabled so a UI toggle from on→off correctly persists. When no anthropic
-  // section is active the key is cleared to keep features_config tight.
+  // Collect web_search_emulation for every whitelisted platform. Disabled
+  // sections write false so a stale true cannot survive a save.
   const wsEmulation: Record<string, boolean> = {}
   for (const section of sections) {
-    if (!section.enabled) continue
-    if (section.platform === PLATFORM_ANTHROPIC) {
-      wsEmulation[section.platform] = !!section.web_search_emulation
-    }
+    if (!WEB_SEARCH_EMULATION_PLATFORMS.has(section.platform)) continue
+    wsEmulation[section.platform] = section.enabled
+      ? !!section.web_search_emulation
+      : false
   }
   if (Object.keys(wsEmulation).length > 0) {
     featuresConfig.web_search_emulation = wsEmulation

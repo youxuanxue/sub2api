@@ -990,7 +990,7 @@ func (s *ChannelService) applyUpdateInput(ctx context.Context, channel *Channel,
 		channel.BillingModelSource = input.BillingModelSource
 	}
 	if input.FeaturesConfig != nil {
-		channel.FeaturesConfig = input.FeaturesConfig
+		channel.FeaturesConfig = mergeWebSearchEmulationDimensions(channel.FeaturesConfig, input.FeaturesConfig)
 	}
 	if input.ApplyPricingToAccountStats != nil {
 		channel.ApplyPricingToAccountStats = *input.ApplyPricingToAccountStats
@@ -999,6 +999,50 @@ func (s *ChannelService) applyUpdateInput(ctx context.Context, channel *Channel,
 		channel.AccountStatsPricingRules = *input.AccountStatsPricingRules
 	}
 	return nil
+}
+
+// mergeWebSearchEmulationDimensions preserves platforms omitted by partial clients.
+// An omitted key inherits the current map; an explicit empty map or null clears
+// it. Supplied platform values replace their previous values. Other feature keys
+// retain whole-block replacement semantics.
+func mergeWebSearchEmulationDimensions(existing, incoming map[string]any) map[string]any {
+	if incoming == nil {
+		return nil
+	}
+	current, _ := existing[featureKeyWebSearchEmulation].(map[string]any)
+	rawIncoming, present := incoming[featureKeyWebSearchEmulation]
+	incomingDims, incomingIsMap := rawIncoming.(map[string]any)
+
+	if !present && len(current) > 0 {
+		return withWebSearchEmulationKey(incoming, current)
+	}
+	if !incomingIsMap || len(current) == 0 || len(incomingDims) == 0 {
+		return incoming
+	}
+
+	merged := make(map[string]any, len(incomingDims)+len(current))
+	for platform, value := range current {
+		merged[platform] = value
+	}
+	for platform, value := range incomingDims {
+		merged[platform] = value
+	}
+	return withWebSearchEmulationKey(incoming, merged)
+}
+
+// withWebSearchEmulationKey returns a copy of incoming whose
+// web_search_emulation key points at a copy of value.
+func withWebSearchEmulationKey(incoming, value map[string]any) map[string]any {
+	out := make(map[string]any, len(incoming)+1)
+	for key, item := range incoming {
+		out[key] = item
+	}
+	copied := make(map[string]any, len(value))
+	for platform, item := range value {
+		copied[platform] = item
+	}
+	out[featureKeyWebSearchEmulation] = copied
+	return out
 }
 
 // checkGroupConflicts 检查待关联的分组是否已属于其他渠道。

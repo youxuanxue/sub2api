@@ -18047,6 +18047,23 @@
         "sample := string(utf16.Decode(chars))"
       ],
       "rationale": "Claude Code cc_version fingerprint must sample JavaScript UTF-16 code units (Wei-Shaw#8377). A silent revert to UTF-8 byte indexing keeps ASCII fingerprints green while Chinese/emoji first-user text mismatches the official CLI suffix."
+    },
+    {
+      "path": "backend/internal/service/channel_service.go",
+      "must_contain": [
+        "channel.FeaturesConfig = mergeWebSearchEmulationDimensions(channel.FeaturesConfig, input.FeaturesConfig)",
+        "func mergeWebSearchEmulationDimensions("
+      ],
+      "rationale": "Partial channel updates must preserve omitted web-search platform dimensions while supporting explicit clear."
+    },
+    {
+      "path": "backend/internal/service/channel_websearch_merge_test.go",
+      "must_contain": [
+        "TestChannelService_ApplyUpdateInputMergesWebSearchEmulationDimensions",
+        "TestChannelService_ApplyUpdateInputInheritsWebSearchEmulationWhenKeyAbsent",
+        "TestChannelService_ApplyUpdateInputClearsWebSearchEmulationExplicitly"
+      ],
+      "rationale": "Keep behavior regressions for partial updates, omitted keys and explicit clear alongside the channel update call site."
     }
   ]
 }

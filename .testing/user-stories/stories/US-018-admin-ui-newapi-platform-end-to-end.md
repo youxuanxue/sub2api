@@ -21,7 +21,7 @@
 4. AC-004 (回归 / 4 个老平台 Badge 不变)：Given 历史平台 `anthropic`/`openai`/`gemini`/`antigravity`，When 渲染 PlatformTypeBadge，Then label 与 class 与升级前快照完全一致（颜色：橙/绿/蓝/紫）。
 5. AC-005 (回归 / CreateAccountModal 4 个老平台分支不变)：Given 用户选 `anthropic`/`openai`/`gemini`/`antigravity`，When 触发 OAuth/apikey/bedrock/upstream 各子流程的 `handleSubmit`，Then 走原有分支，`isOAuthFlow` 不被 newapi 改动影响。
 6. AC-006 (正向 + NEGATIVE / ChannelsView round-trip 保留 newapi 数据)：Given 一个 channel 同时绑定 anthropic group 与 newapi group + 二者都有 `model_mapping` / `model_pricing`，When `apiToFormSections` 转成 form sections 再 `formSectionsToApi` 转回 API payload，Then payload 同时包含 `model_mapping.anthropic` 与 `model_mapping.newapi`，且 `model_pricing` 同时含两平台。NEGATIVE：当 platforms 参数被替换为历史的 4 元素列表时，`newapi` 数据被丢弃 —— 用以证明**修复在做实际工作**而非凑巧通过。
-7. AC-007 (回归 / `features_config.web_search_emulation` 持久化语义)：Given anthropic section 启用，When 把 `web_search_emulation` 从 `true` 翻转为 `false` 再 `formSectionsToApi`，Then `features_config.web_search_emulation.anthropic === false`（不是被默默保留为 `true`）。当 anthropic section 完全没启用时，`web_search_emulation` 键被整体删除。
+7. AC-007 (回归 / `features_config.web_search_emulation` 持久化语义)：Given anthropic section 启用，When 把 `web_search_emulation` 从 `true` 翻转为 `false` 再 `formSectionsToApi`，Then `features_config.web_search_emulation.anthropic === false`（不是被默默保留为 `true`）。已存在但禁用的白名单平台 section 显式写 false；未出现在表单中的 API 平台维度由后端继承，不能因一次页面保存而丢失。显式空对象/null 才清空整个映射。
 8. AC-008 (正向 / useModelWhitelist 把 newapi 当作 OpenAI-compat)：Given platform `'newapi'`，When 调用 `getModelsByPlatform('newapi')` 与 `getPresetMappingsByPlatform('newapi')`，Then 二者均与 `'openai'` 完全一致（共享 OpenAI 模型 ID 命名空间）。这保证 `BulkEditAccountModal` 与 `ModelWhitelistSelector` 自动覆盖 newapi，不需要单独维护一套预设。
 9. AC-009 (正向 / GroupsView 把 newapi 当作 OpenAI-compat)：Given GroupsView 创建/编辑表单 platform === 'newapi'，When 渲染，Then "Messages 调度配置" 区块**可见**（`isOpenAICompatPlatform` 返回 true）；"账号过滤控制" 区块**可见**但 `require_oauth_only` / `require_privacy_set` 两个 toggle **隐藏**（newapi 是 API key 平台，无 OAuth 概念）。
 
@@ -49,7 +49,7 @@ Vitest specs (test names are descriptive in JS-land — convention `it('...')` n
 - `frontend/src/utils/__tests__/channelFormConversion.spec.ts`::`REGRESSION — round-trips a channel with only the 4 legacy platforms (no behavior change for existing channels)` *(AC-006 回归)*
 - `frontend/src/utils/__tests__/channelFormConversion.spec.ts`::`preserves features_config.web_search_emulation flag through the round-trip when anthropic section is enabled` *(AC-007 正向)*
 - `frontend/src/utils/__tests__/channelFormConversion.spec.ts`::`clears web_search_emulation when the anthropic section is disabled (toggle on→off must persist)` *(AC-007 状态翻转)*
-- `frontend/src/utils/__tests__/channelFormConversion.spec.ts`::`drops features_config.web_search_emulation entirely when no anthropic section is enabled` *(AC-007 清除)*
+- `frontend/src/utils/__tests__/channelFormConversion.spec.ts`::`drops features_config.web_search_emulation entirely when no whitelisted platform section is present` *(AC-007 清除)*
 - `frontend/src/composables/__tests__/useModelWhitelist.spec.ts`::`newapi 模型列表与 openai 完全一致（OpenAI-compat 协议默认提示）` *(AC-008 模型列表)*
 - `frontend/src/composables/__tests__/useModelWhitelist.spec.ts`::`newapi 预设映射与 openai 完全一致（共享模型 ID 命名空间）` *(AC-008 预设映射)*
 - 运行命令: `cd frontend && pnpm test:run usePlatformOptions PlatformTypeBadge channelFormConversion useModelWhitelist`
@@ -73,3 +73,5 @@ Stage-4 review surfaces a regression.
 - [ ] Draft (prototype scope: composable + GroupsView + CreateAccountModal + Badge wired; vitest specs pending stage 4)
 
 审批基线 `admin-ui-newapi-platform-end-to-end.md` 已是 `shipped`。本故事仍是 Draft：上面的 stage-4 vitest 范围没有关闭，不因审批文档已发布而改 AC 或升 Done。
+
+- `frontend/e2e/channel-websearch.e2e.ts`：真实 UI 编辑 OpenAI/Anthropic 开关、保存并重开、禁用平台、全局关闭时保留配置；非支持平台不展示开关。

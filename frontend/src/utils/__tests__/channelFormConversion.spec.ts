@@ -326,7 +326,30 @@ describe('channelFormConversion (US-017 — round-trip preserves all 5 gateway p
     expect(payload.features_config.web_search_emulation).toEqual({ anthropic: false })
   })
 
-  it('drops features_config.web_search_emulation entirely when no anthropic section is enabled', () => {
+  it('writes every present whitelisted platform dimension, including explicit false for disabled sections', () => {
+    const channel = makeChannel({
+      group_ids: [1, 2],
+      features_config: {
+        web_search_emulation: { anthropic: true, openai: true },
+      },
+      model_mapping: {
+        anthropic: { foo: 'bar' },
+        openai: { gpt: 'gpt-4o' },
+      },
+    })
+
+    const sections = apiToFormSections(channel, ALL_GROUPS)
+    const openai = sections.find((s) => s.platform === 'openai')!
+    openai.enabled = false
+
+    const payload = formSectionsToApi(sections, channel.features_config)
+    expect(payload.features_config.web_search_emulation).toEqual({
+      anthropic: true,
+      openai: false,
+    })
+  })
+
+  it('drops features_config.web_search_emulation entirely when no whitelisted platform section is present', () => {
     const channel = makeChannel({
       group_ids: [5],
       features_config: { web_search_emulation: { anthropic: true } },

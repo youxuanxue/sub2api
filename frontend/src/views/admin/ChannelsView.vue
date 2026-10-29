@@ -323,8 +323,8 @@
               </div>
             </div>
 
-            <!-- Web Search Emulation (Anthropic only, hidden when global disabled) -->
-            <div v-if="section.platform === 'anthropic' && webSearchGlobalEnabled" class="border-t border-gray-200 pt-3 dark:border-dark-600">
+            <!-- Web Search Emulation (platform whitelist, hidden when global disabled) -->
+            <div v-if="WEB_SEARCH_EMULATION_PLATFORMS.has(section.platform) && webSearchGlobalEnabled" class="border-t border-gray-200 pt-3 dark:border-dark-600">
               <div class="flex items-center justify-between">
                 <div>
                   <label class="text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -334,7 +334,7 @@
                     {{ t('admin.channels.form.webSearchEmulationHint') }}
                   </p>
                 </div>
-                <Toggle v-model="section.web_search_emulation" />
+                <Toggle v-model="section.web_search_emulation" :aria-label="t('admin.channels.form.webSearchEmulation')" />
               </div>
             </div>
 
@@ -643,6 +643,7 @@ import { STATUS_ACTIVE, STATUS_DISABLED } from '@/constants/channel'
 import {
   apiToFormSections,
   formSectionsToApi,
+  WEB_SEARCH_EMULATION_PLATFORMS,
   type PlatformSection,
 } from '@/utils/channelFormConversion'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
