@@ -1,7 +1,9 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -189,6 +191,7 @@ func isKiroEndpointQuotaExhaustedError(msg string) bool {
 type kiroForwardErrorObservation struct {
 	Kind   string
 	Reason string
+	Status int
 }
 
 func classifyAndRecordKiroForwardError(c *gin.Context, account *Account, err error, model string) error {
@@ -234,6 +237,9 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 			}
 			return nil, &KiroInvalidRequestError{StatusCode: statusCode, Message: message, Body: msg}
 		}
+		if obs, failover, matched := kiroJSONForbiddenFailover(statusCode, msg, body); matched {
+			return obs, failover
+		}
 		return nil, &UpstreamFailoverError{
 			StatusCode:   statusCode,
 			ResponseBody: body,
@@ -257,6 +263,9 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 				message = "The request was rejected"
 			}
 			return nil, &KiroInvalidRequestError{StatusCode: statusCode, Message: message, Body: msg}
+		}
+		if obs, failover, matched := kiroJSONForbiddenFailover(statusCode, msg, body); matched {
+			return obs, failover
 		}
 		return nil, &UpstreamFailoverError{
 			StatusCode:   statusCode,
@@ -335,10 +344,10 @@ func recordKiroForwardError(c *gin.Context, account *Account, err error, observa
 		return
 	}
 	safeErr := truncateString(sanitizeUpstreamErrorMessage(err.Error()), 2048)
-	setOpsUpstreamError(c, 0, safeErr, "")
+	setOpsUpstreamError(c, observation.Status, safeErr, "")
 	event := OpsUpstreamErrorEvent{
 		Platform:           PlatformKiro,
-		UpstreamStatusCode: 0,
+		UpstreamStatusCode: observation.Status,
 		Kind:               observation.Kind,
 		Reason:             observation.Reason,
 		Message:            safeErr,
@@ -548,6 +557,40 @@ func isKiroInvalidModelError(msg string) bool {
 		return false
 	}
 	return strings.Contains(strings.ToUpper(msg), "INVALID_MODEL_ID")
+}
+
+// kiroJSONForbiddenFailover turns a JSON Kiro 403 into a structured failover
+// error. Live bodies are small objects such as {"message":"..."} or
+// {"__type":"AccessDeniedException"}, which fail looksLikeStructuredErrorJSON
+// and stop the chat-completions loop on that account. HTML and empty 403s stay
+// on the fail-fast path.
+func kiroJSONForbiddenFailover(statusCode int, rawMsg string, body []byte) (*kiroForwardErrorObservation, error, bool) {
+	trimmed := bytes.TrimSpace(body)
+	if statusCode != http.StatusForbidden || len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {
+		return nil, nil, false
+	}
+	message := "upstream forbidden"
+	if strings.Contains(strings.ToLower(rawMsg), "accessdeniedexception") ||
+		strings.Contains(strings.ToLower(string(trimmed)), "accessdeniedexception") {
+		message = "AccessDeniedException"
+	}
+	wrapped, err := json.Marshal(map[string]any{
+		"error": map[string]string{
+			"type":    "permission_error",
+			"message": message,
+		},
+	})
+	if err != nil {
+		return nil, nil, false
+	}
+	return &kiroForwardErrorObservation{
+		Kind:   "upstream_error",
+		Reason: "access_denied",
+		Status: statusCode,
+	}, &UpstreamFailoverError{
+		StatusCode:   statusCode,
+		ResponseBody: wrapped,
+	}, true
 }
 
 func parseKiroHTTPError(msg string) (int, []byte, bool) {
