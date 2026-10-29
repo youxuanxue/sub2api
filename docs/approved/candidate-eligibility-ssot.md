@@ -1,7 +1,7 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills, 2026-10-13 universal ordinary/complex first-output budgets approved as 120s/600s; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation; 2026-10-19 NewAPI Chat nonstream first-output default/host inject raised to 600, config max 900; 2026-10-19 OpenAI capacity-shed soft effective-priority demotion; 2026-10-20 all-platform load-aware fallback only after retaining usable affinity; user broadened #2749 beyond VolcEngine; 2026-10-26 NewAPI Chat first-output promotion classes aligned with OpenAI compact/large-body/high-reasoning strategy, numeric knobs remain platform-owned; 2026-10-28 attributable failures add 1000 effective priority each in a fixed 90-second window, capped at 10000; 2026-10-29 a route miss or unknown capability with no supported account is HTTP 400 unsupported_request, not the busy 429)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills, 2026-10-13 universal ordinary/complex first-output budgets approved as 120s/600s; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation; 2026-10-19 NewAPI Chat nonstream first-output default/host inject raised to 600, config max 900; 2026-10-19 OpenAI capacity-shed soft effective-priority demotion; 2026-10-20 all-platform load-aware fallback only after retaining usable affinity; user broadened #2749 beyond VolcEngine; 2026-10-26 NewAPI Chat first-output promotion classes aligned with OpenAI compact/large-body/high-reasoning strategy, numeric knobs remain platform-owned; 2026-10-28 attributable failures add 1000 effective priority each in a fixed 90-second window, capped at 10000; 2026-10-29 a route miss or unknown capability with no supported account is HTTP 400 unsupported_request, not the busy 429; 2026-10-29 an HTTP previous_response_id with no binding for this user is dropped and not pinned; 2026-10-29 the unbound pointer is also dropped on the first WebSocket frame, while later WebSocket delta turns stay fail-closed)"
 created: 2026-09-07
 revised_at: 2026-10-29
 ---
@@ -121,10 +121,20 @@ Excluded, unschedulable or deleted bound accounts never become eligible through
 this rule; their existing binding still permits fallback load ordering.
 
 Initial placement without an existing effective affinity and required execution
-ownership retain their existing behavior. In particular, `previous_response_id`
-and subsequent WebSocket turns remain pinned by the existing continuation owner;
-initial WebSocket selection can use soft fallback. Load-read errors disable the
-ordering pass. Missing/negative load or nonpositive capacity for a non-sticky
+ownership retain their existing behavior. A `previous_response_id` bound to
+this user, and subsequent WebSocket turns, remain pinned by the existing
+continuation owner. On HTTP and on the first WebSocket frame, a
+`previous_response_id` with no binding for this user, a failed binding lookup,
+or a message id in that field is removed before selection and is not forwarded
+or pinned; the first WebSocket frame forwards the authorized body returned by
+candidate admission, so the actual upstream payload also loses the pointer.
+Later WebSocket turns are deltas that depend on the upstream holding the
+earlier conversation, so stripping their pointer would silently start over;
+they stay fail-closed when the pointer is unreadable or belongs to another
+account, and a verified pointer to a different execution account still
+requires reconnecting. A message id on a later turn remains a policy close
+instead of a strip. Initial WebSocket selection can use soft fallback.
+Load-read errors disable the ordering pass. Missing/negative load or nonpositive capacity for a non-sticky
 candidate leaves that equivalent band unchanged. The policy consumes the existing
 fresh batch load read and uses the existing atomic acquisition, fresh recheck,
 binding and waiting owners. Failed acquisition or recheck cannot publish a new

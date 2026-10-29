@@ -64,6 +64,10 @@ type CandidateRequest struct {
 	admissionPaths      []*candidateExecutionPath
 	admissionPathsValid bool
 	admissionPathsUsed  bool
+	// continuationDecided records that admission already resolved this
+	// request's previous_response_id, so ingress reuses that answer instead of
+	// repeating the lookup with a narrower scope.
+	continuationDecided bool
 }
 
 type candidateRequestContextKey struct{}
@@ -95,6 +99,35 @@ func CandidateRequestFromContext(ctx context.Context) *CandidateRequest {
 	}
 	r, _ := ctx.Value(candidateRequestContextKey{}).(*CandidateRequest)
 	return r
+}
+
+// CandidateRequestBody returns the payload after candidate authorization and
+// any safety shaping. WebSocket ingress must forward this exact body when a
+// continuation pointer was removed during admission.
+func CandidateRequestBody(ctx context.Context) ([]byte, bool) {
+	r := CandidateRequestFromContext(ctx)
+	if r == nil {
+		return nil, false
+	}
+	return append([]byte(nil), r.body...), true
+}
+
+// CandidateContinuationOwned reports whether the authenticated user owns this
+// previous_response_id according to the candidate continuation owner, and
+// whether candidate admission already ran for this request. Ingress must not
+// repeat the ownership lookup with a narrower scope (for example the key's own
+// group only), or HTTP and WebSocket would disagree about the same binding.
+// CandidateContinuationOwned reports whether candidate admission authorized
+// this request's previous_response_id, and whether admission ran at all.
+// Ingress must not repeat the ownership lookup with a narrower scope (for
+// example the key's own group only), or HTTP and WebSocket would disagree
+// about the same binding.
+func CandidateContinuationOwned(ctx context.Context) (owned bool, decided bool) {
+	r := CandidateRequestFromContext(ctx)
+	if r == nil || !r.continuationDecided {
+		return false, false
+	}
+	return r.continuationAccountID > 0, true
 }
 
 func CandidateSubscription(ctx context.Context, fallback *UserSubscription) *UserSubscription {
@@ -178,6 +211,28 @@ func (r *UniversalRoutingResolver) PrepareCandidateWebSocket(ctx context.Context
 	return r.prepareCandidateRequest(ctx, key, ShapeOpenAIChat, path, model, body, session, forcedPlatform, true, "application/json", "")
 }
 
+// authorizeResponsesContinuation pins an owned previous_response_id to the
+// account that served it. A missing binding, another user's id, a message id,
+// or a failed lookup is removed from the body and is not pinned, so selection
+// serves the current body without forwarding the pointer.
+func (s *OpenAIGatewayService) authorizeResponsesContinuation(ctx context.Context, key *APIKey, eligible []Group, body []byte) ([]byte, int64, error) {
+	previous := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String())
+	if previous == "" {
+		return body, 0, nil
+	}
+	if s != nil {
+		accountID, err := s.ResolveCandidateContinuation(ctx, key, eligible, previous)
+		if err == nil && accountID > 0 {
+			return body, accountID, nil
+		}
+	}
+	stripped, stripErr := DropUnauthorizedPreviousResponseID(body)
+	if stripErr != nil || bytes.Equal(stripped, body) {
+		return nil, 0, ErrCandidateContinuationUnavailable
+	}
+	return stripped, 0, nil
+}
+
 func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, key *APIKey, shape UniversalShape, path, model string, body []byte, session, forcedPlatform string, websocket bool, contentType, promptCacheSession string) (context.Context, *CandidateRequest, error) {
 	if !r.CandidateSchedulingEnabled() || key == nil || shape == ShapeSkip || strings.TrimSpace(model) == "" {
 		return ctx, nil, nil
@@ -217,15 +272,25 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 		state.requestProfile, state.requestProfileValid = candidateRequestProfile(shape, path, model, body)
 	}
 	ctx = context.WithValue(ctx, candidateRequestContextKey{}, state)
-	if previous := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String()); previous != "" {
-		owner, err := r.candidateOpenAI.ResolveCandidateContinuation(ctx, key, eligible, previous)
-		if err != nil {
-			return ctx, nil, err
+	nextBody, owner, err := r.candidateOpenAI.authorizeResponsesContinuation(ctx, key, eligible, body)
+	if err != nil {
+		return ctx, nil, err
+	}
+	state.continuationDecided = strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String()) != ""
+	if !bytes.Equal(nextBody, body) {
+		body = nextBody
+		state.body = append([]byte(nil), body...)
+		ctx = r.WithRequest(ctx, shape, path, model, body)
+		if refreshed, ok := ProtocolRoutingRequest(ctx); ok {
+			state.requestProfile, state.requestProfileValid = refreshed.Profile(), true
+		} else {
+			state.requestProfile, state.requestProfileValid = candidateRequestProfile(shape, path, model, body)
 		}
+	} else if owner > 0 {
 		state.continuationAccountID = owner
 	}
 
-	_, err := state.selectAccount(ctx, candidateSelectOptions{})
+	_, err = state.selectAccount(ctx, candidateSelectOptions{})
 	if err != nil {
 		return ctx, nil, err
 	}
@@ -235,6 +300,10 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 // RevalidateTurn pins the execution account while rechecking authorization and
 // payment before a subsequent WebSocket turn reserves funds.
 func (r *CandidateRequest) RevalidateTurn(ctx context.Context, accountID int64, model string, body []byte) error {
+	// A later WebSocket frame is a delta that relies on the upstream holding the
+	// earlier turns. Dropping its pointer would silently start a fresh
+	// conversation and lose that context, so an unverifiable pointer keeps the
+	// explicit failure instead of being stripped like the first frame.
 	if previous := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String()); previous != "" {
 		owner, err := r.resolver.candidateOpenAI.ResolveCandidateContinuation(ctx, r.key, r.groups, previous)
 		if err != nil {

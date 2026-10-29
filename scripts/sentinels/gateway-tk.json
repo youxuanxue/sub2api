@@ -2119,6 +2119,9 @@
         "capacityDiag          *CandidateCapacityDiag",
         "func (r *CandidateRequest) pathContext(",
         "ResolveCandidateContinuation(ctx, key, eligible, previous)",
+        "func CandidateRequestBody(ctx context.Context) ([]byte, bool)",
+        "func CandidateContinuationOwned(ctx context.Context) (owned bool, decided bool)",
+        "if owner != accountID {",
         "CheckCandidateBillingEligibility",
         "r.onBind(selected.ctx, selected.group, subscription)",
         "r.peekGroupRPM(ctx, billing, r.key.User, group)",
@@ -2787,7 +2790,10 @@
         "TestGlobalCandidateModelGrantsCannotBeBorrowed",
         "TestGlobalCandidateWindowRecoveryAndStickyAdmission",
         "TestGlobalCandidateNativeConverterParityAndGoogleFailover",
-        "TestCandidateResponsesImagePermissionPrecedesBillingOrigin"
+        "TestCandidateResponsesImagePermissionPrecedesBillingOrigin",
+        "TestPrepareCandidateWebSocketStripsUnverifiedPreviousResponseID",
+        "TestRevalidateTurnStillRejectsUnverifiedPreviousResponseID",
+        "TestCandidateContinuationDecisionCoversLegacyGroupBinding"
       ],
       "rationale": "Executable regressions cover production selection, topology, duplicate membership, capacity races and wait revalidation."
     },
@@ -2807,7 +2813,8 @@
         "TestCandidateWebSocket_ZeroWalletUsesActiveSubscription",
         "TestCandidateWebSocket_RechecksKeyAndEntitlementBeforeNextFrame",
         "TestCandidateWebSocket_PassthroughReacquiresSlotsForEachTurn",
-        "TestCandidateWebSocket_ReasoningPolicyFollowsEachTurnBillingOrigin"
+        "TestCandidateWebSocket_ReasoningPolicyFollowsEachTurnBillingOrigin",
+        "TestCandidateWebSocket_StripsUnverifiedContinuationOnFirstFrame"
       ],
       "rationale": "Socket integration pins first-frame admission, recurring authorization, subscription-only clients and per-turn slots."
     },
@@ -13846,7 +13853,7 @@
         "func PreservesResponsesToChat(req CanonicalRequest) bool {",
         "preservesMessagesToResponsesContent(req) &&\n\t\treq.responsesPath == ResponsesPathRoot &&\n\t\treq.profile.Continuation == ContinuationNone &&\n\t\treq.profile.PromptCache == PromptCacheNone"
       ],
-      "rationale": "Responses→Chat lossless preserve must match ResponsesToChatCompletionsRequest (tools + text/image/video + mapped reasoning). prompt_cache_key, cache_control, previous_response_id, and audio are dropped before this check and rank behind native Responses. text-only-without-tools would mis-kill Chat-only Agent Plan / dual-stack relay admission for shapes force-chat already serves."
+      "rationale": "Responses→Chat lossless preserve must match ResponsesToChatCompletionsRequest (tools + text/image/video + mapped reasoning). prompt_cache_key, cache_control, previous_response_id, conversation, conversation_id, and audio are dropped before this check and rank behind native Responses. text-only-without-tools would mis-kill Chat-only Agent Plan / dual-stack relay admission for shapes force-chat already serves."
     },
     {
       "path": "backend/internal/engine/protocolrouter/responses_to_chat_preserve_tk_test.go",
@@ -13865,10 +13872,32 @@
         "func TestResponsesToChatDropsUnsupportedFieldsBehindNative(",
         "ResponsesChatDroppedUnsupportedFields",
         "previous_response_id",
+        "conversation_id",
         "input_audio",
         "native plan dropped fields"
       ],
-      "rationale": "Chat-only Responses→Chat must drop prompt_cache_key, cache_control, previous_response_id, and audio at compatibility rank 1. An account that also supports native Responses must keep those fields at rank 0."
+      "rationale": "Chat-only Responses→Chat must drop prompt_cache_key, cache_control, previous_response_id, conversation, conversation_id, and audio at compatibility rank 1. An account that also supports native Responses must keep those fields at rank 0."
+    },
+    {
+      "path": "backend/internal/service/candidate_identity_tk_test.go",
+      "must_contain": [
+        "func TestAuthorizeResponsesContinuationDropsUnownedAndKeepsOwned(",
+        "require.Equal(t, int64(115), accountID)",
+        "require.NotContains(t, string(dropped), \"previous_response_id\")",
+        "redis unavailable",
+        "msg_123456"
+      ],
+      "rationale": "An owned previous_response_id stays on the body and pins its account. An id with no binding for this user, a lookup failure, or a message id in that field is removed and not pinned."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_test.go",
+      "must_contain": [
+        "func TestOpenAIResponses_DropsUnownedHTTPContinuation(",
+        "func TestOpenAIResponses_DropsHTTPContinuationOwnedByAnotherUser(",
+        "func TestOpenAIResponses_DropsMessageIDAsPreviousResponseID(",
+        "previous_response_id is not available for this user"
+      ],
+      "rationale": "Direct /v1/responses drops an unowned id, another user's id, or a message id used as previous_response_id, then continues from the current body. The tests assert the ownership rejection string is absent from those drop paths."
     },
     {
       "path": "backend/internal/service/account_supported_protocols_test.go",

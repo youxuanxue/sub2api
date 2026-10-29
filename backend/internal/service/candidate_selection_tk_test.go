@@ -62,6 +62,94 @@ func globalCandidateAccount(id int64, priority int, groups ...int64) Account {
 	return a
 }
 
+func TestPrepareCandidateWebSocketStripsUnverifiedPreviousResponseID(t *testing.T) {
+	for _, scenario := range []string{"missing", "foreign", "lookup_error", "owned"} {
+		t.Run(scenario, func(t *testing.T) {
+			group := grp(10, PlatformOpenAI, 0, false)
+			account := globalCandidateAccount(1, 1, 10)
+			account.Extra["openai_apikey_responses_websockets_v2_enabled"] = true
+			attachTestProtocolCapability(&account, protocolrouter.ProtocolResponses)
+			r, _, key := globalCandidateFixture([]Group{group}, []Account{account})
+			r.candidateOpenAI.cfg = newSchedulerTestOpenAIWSV2Config()
+			cache := &candidateIdentityTestCache{}
+			if scenario == "foreign" || scenario == "owned" {
+				userID := key.UserID
+				if scenario == "foreign" {
+					userID++
+				}
+				require.NoError(t, NewOpenAIWSStateStore(cache).BindResponseAccount(WithCandidateIdentity(context.Background(), userID, key.ID), 10, "resp_test", account.ID, time.Hour))
+			}
+			if scenario == "lookup_error" {
+				cache.readErr = errors.New("lookup failed")
+			}
+			r.candidateOpenAI.cache = cache
+			body := []byte(`{"type":"response.create","model":"gpt-5.4","previous_response_id":"resp_test","input":"hello"}`)
+			ctx, state, err := r.PrepareCandidateWebSocket(context.Background(), key, "/v1/responses", "gpt-5.4", body, "", "")
+			require.NoError(t, err)
+			forwarded, ok := CandidateRequestBody(ctx)
+			require.True(t, ok)
+			if scenario == "owned" {
+				require.JSONEq(t, string(body), string(forwarded))
+				require.Equal(t, account.ID, state.continuationAccountID)
+			} else {
+				require.JSONEq(t, `{"type":"response.create","model":"gpt-5.4","input":"hello"}`, string(forwarded))
+				require.Zero(t, state.continuationAccountID)
+			}
+			require.Contains(t, string(body), "resp_test")
+		})
+	}
+}
+
+// A later WebSocket frame is a delta: stripping its pointer would silently
+// start a fresh upstream conversation and lose earlier turns, so revalidation
+// must keep the explicit failure.
+func TestRevalidateTurnStillRejectsUnverifiedPreviousResponseID(t *testing.T) {
+	group := grp(10, PlatformOpenAI, 0, false)
+	account := globalCandidateAccount(1, 1, 10)
+	account.Extra["openai_apikey_responses_websockets_v2_enabled"] = true
+	attachTestProtocolCapability(&account, protocolrouter.ProtocolResponses)
+	r, _, key := globalCandidateFixture([]Group{group}, []Account{account})
+	r.candidateOpenAI.cfg = newSchedulerTestOpenAIWSV2Config()
+	cache := &candidateIdentityTestCache{}
+	r.candidateOpenAI.cache = cache
+	body := []byte(`{"type":"response.create","model":"gpt-5.4","previous_response_id":"resp_other","input":"delta"}`)
+	_, state, err := r.PrepareCandidateWebSocket(context.Background(), key, "/v1/responses", "gpt-5.4", body, "", "")
+	require.NoError(t, err)
+	require.ErrorIs(t, state.RevalidateTurn(context.Background(), account.ID, "gpt-5.4", body), ErrCandidateContinuationUnavailable)
+	// An unreadable binding surfaces its lookup error; the handler turns either
+	// failure into the same fail-closed close, so no pointer is forwarded.
+	cache.readErr = errors.New("lookup failed")
+	require.Error(t, state.RevalidateTurn(context.Background(), account.ID, "gpt-5.4", body))
+}
+
+// A binding written before candidate identity existed has no candidate index
+// and lives only under its group record. Candidate admission reads it through
+// the eligible group list, so ingress must consume that decision instead of
+// re-checking ownership against the key's own group and dropping a pointer
+// admission already authorized.
+func TestCandidateContinuationDecisionCoversLegacyGroupBinding(t *testing.T) {
+	group := grp(10, PlatformOpenAI, 0, false)
+	account := globalCandidateAccount(1, 1, 10)
+	account.Extra["openai_apikey_responses_websockets_v2_enabled"] = true
+	attachTestProtocolCapability(&account, protocolrouter.ProtocolResponses)
+	r, _, key := globalCandidateFixture([]Group{group}, []Account{account})
+	r.candidateOpenAI.cfg = newSchedulerTestOpenAIWSV2Config()
+	cache := &candidateIdentityTestCache{}
+	require.NoError(t, NewOpenAIWSStateStore(cache).BindResponseAccount(context.Background(), 10, "resp_legacy", account.ID, time.Hour))
+	require.NoError(t, NewOpenAIWSStateStore(cache).BindHTTPResponseOwner(context.Background(), 10, "resp_legacy", key.UserID, key.ID, time.Hour))
+	r.candidateOpenAI.cache = cache
+
+	body := []byte(`{"type":"response.create","model":"gpt-5.4","previous_response_id":"resp_legacy","input":"hello"}`)
+	ctx, state, err := r.PrepareCandidateWebSocket(context.Background(), key, "/v1/responses", "gpt-5.4", body, "", "")
+	require.NoError(t, err)
+	require.Equal(t, account.ID, state.continuationAccountID)
+	// The decision is request-scoped: ingress asks whether admission authorized
+	// the pointer it just planned, without repeating the lookup.
+	owned, decided := CandidateContinuationOwned(ctx)
+	require.True(t, decided)
+	require.True(t, owned)
+}
+
 func TestGlobalCandidateAccountPriorityIgnoresGroupTopology(t *testing.T) {
 	for _, duplicate := range []bool{false, true} {
 		groups := []Group{grp(10, PlatformAnthropic, -100, false), grp(20, PlatformGemini, 100, false)}

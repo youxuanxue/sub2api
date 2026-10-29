@@ -60,6 +60,48 @@ func (c *candidateIdentityFirstWriteFailureCache) SetSessionAccountID(ctx contex
 	return c.candidateIdentityTestCache.SetSessionAccountID(ctx, groupID, sessionHash, accountID, ttl)
 }
 
+func TestAuthorizeResponsesContinuationDropsUnownedAndKeepsOwned(t *testing.T) {
+	cache := &candidateIdentityTestCache{}
+	writer := NewOpenAIWSStateStore(cache)
+	ctx := WithCandidateIdentity(context.Background(), 10, 20)
+	require.NoError(t, writer.BindResponseAccount(ctx, 1, "resp_owned", 115, time.Hour))
+	svc := &OpenAIGatewayService{cache: cache}
+	ownedBody := []byte(`{"model":"m","previous_response_id":"resp_owned","input":"hello"}`)
+	kept, accountID, err := svc.authorizeResponsesContinuation(context.Background(), &APIKey{UserID: 10, ID: 21}, []Group{{ID: 11}}, ownedBody)
+	require.NoError(t, err)
+	require.Equal(t, int64(115), accountID)
+	require.Equal(t, string(ownedBody), string(kept))
+
+	foreignBody := []byte(`{"model":"m","previous_response_id":"resp_owned","input":"hello"}`)
+	dropped, accountID, err := svc.authorizeResponsesContinuation(context.Background(), &APIKey{UserID: 99, ID: 20}, []Group{{ID: 1}, {ID: 11}}, foreignBody)
+	require.NoError(t, err)
+	require.Zero(t, accountID)
+	require.NotContains(t, string(dropped), "previous_response_id")
+	require.NotContains(t, string(dropped), "resp_owned")
+	require.Contains(t, string(dropped), "hello")
+
+	missingBody := []byte(`{"model":"m","previous_response_id":"resp_missing","input":"continue"}`)
+	dropped, accountID, err = svc.authorizeResponsesContinuation(context.Background(), &APIKey{UserID: 10, ID: 21}, []Group{{ID: 11}}, missingBody)
+	require.NoError(t, err)
+	require.Zero(t, accountID)
+	require.NotContains(t, string(dropped), "resp_missing")
+	require.Contains(t, string(dropped), "continue")
+
+	cache.readErr = errors.New("redis unavailable")
+	dropped, accountID, err = svc.authorizeResponsesContinuation(context.Background(), &APIKey{UserID: 10, ID: 21}, []Group{{ID: 11}}, ownedBody)
+	require.NoError(t, err)
+	require.Zero(t, accountID)
+	require.NotContains(t, string(dropped), "previous_response_id")
+	require.Contains(t, string(dropped), "hello")
+
+	messageIDBody := []byte(`{"model":"m","previous_response_id":"msg_123456","input":"hello"}`)
+	dropped, accountID, err = svc.authorizeResponsesContinuation(context.Background(), &APIKey{UserID: 10, ID: 21}, []Group{{ID: 11}}, messageIDBody)
+	require.NoError(t, err)
+	require.Zero(t, accountID)
+	require.NotContains(t, string(dropped), "msg_123456")
+	require.Contains(t, string(dropped), "hello")
+}
+
 func TestCandidateContinuation_NewBindingSurvivesBillingOriginAndKeyChange(t *testing.T) {
 	cache := &candidateIdentityTestCache{}
 	writer := NewOpenAIWSStateStore(cache)

@@ -226,8 +226,9 @@ func preservesChatToMessages(req CanonicalRequest) bool {
 func preservesResponsesConversion(req CanonicalRequest) bool {
 	// Lossless surface: function tools, text/image/video, and mapped
 	// reasoning.effort. prompt_cache_key, cache_control, previous_response_id,
-	// and audio are not preserved here. downgradeResponsesToChat removes them
-	// before this check and marks the plan so native Responses stays ahead.
+	// conversation, conversation_id, and audio are not preserved here.
+	// downgradeResponsesToChat removes them before this check and marks the
+	// plan so native Responses stays ahead.
 	return preservesMessagesToResponsesContent(req) &&
 		req.responsesPath == ResponsesPathRoot &&
 		req.profile.Continuation == ContinuationNone &&

@@ -515,31 +515,73 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			zap.String("previous_response_id_kind", previousResponseIDKind),
 			zap.Int("previous_response_id_len", len(previousResponseID)),
 		)
-		if previousResponseIDKind == service.OpenAIPreviousResponseIDKindMessageID {
-			reqLog.Warn("openai.request_validation_failed",
-				zap.String("reason", "previous_response_id_looks_like_message_id"),
+		// A message id, a missing binding, or a failed lookup cannot be used as
+		// continuation. Drop the pointer and serve the current body. Do not
+		// forward it: an upstream account that owns the id may hold another
+		// user's history.
+		dropPointer := func(reason string, cause error) bool {
+			fields := []zap.Field{zap.String("reason", reason)}
+			if cause != nil {
+				fields = append(fields, zap.Error(cause))
+			}
+			reqLog.Warn("openai.request_validation_failed", fields...)
+			stripped, stripErr := service.DropUnauthorizedPreviousResponseID(body)
+			if stripErr != nil {
+				reqLog.Warn("openai.previous_response_drop_failed", zap.Error(stripErr))
+				h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id is not available for this user")
+				return false
+			}
+			body = stripped
+			sessionHashBody = body
+			reparsed, parseErr := newCanonicalProtocolRequest(
+				protocolrouter.ProtocolResponses,
+				responsesPath,
+				reqModel,
+				reqStream,
+				body,
 			)
-			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id must be a response.id (resp_*), not a message id")
-			return
+			if parseErr != nil {
+				h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+				return false
+			}
+			canonicalRequest = reparsed
+			c.Request = c.Request.WithContext(service.WithProtocolRouting(c.Request.Context(), h.protocolRouter, canonicalRequest))
+			return true
 		}
-		groupID := int64(0)
-		if apiKey.GroupID != nil {
-			groupID = *apiKey.GroupID
-		}
-		owned, ownershipErr := h.gatewayService.ValidateOpenAIHTTPResponseOwner(
-			c.Request.Context(),
-			groupID,
-			previousResponseID,
-			subject.UserID,
-			apiKey.ID,
-		)
-		if ownershipErr != nil {
-			reqLog.Warn("openai.previous_response_owner_lookup_failed", zap.Error(ownershipErr))
-		}
-		if !owned {
-			reqLog.Warn("openai.request_validation_failed", zap.String("reason", "previous_response_owner_mismatch"))
-			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id is not available for this user")
-			return
+		if previousResponseIDKind == service.OpenAIPreviousResponseIDKindMessageID {
+			if !dropPointer("previous_response_id_looks_like_message_id", nil) {
+				return
+			}
+		} else if owned, decided := service.CandidateContinuationOwned(c.Request.Context()); decided {
+			// Candidate admission resolves the pointer through the candidate
+			// identity owner and every eligible group. Repeating the lookup here
+			// with only the key's own group would drop a binding admission kept.
+			if !owned {
+				if !dropPointer("previous_response_owner_mismatch_dropped", nil) {
+					return
+				}
+			}
+		} else {
+			groupID := int64(0)
+			if apiKey.GroupID != nil {
+				groupID = *apiKey.GroupID
+			}
+			owned, ownershipErr := h.gatewayService.ValidateOpenAIHTTPResponseOwner(
+				c.Request.Context(),
+				groupID,
+				previousResponseID,
+				subject.UserID,
+				apiKey.ID,
+			)
+			if ownershipErr != nil || !owned {
+				reason := "previous_response_owner_mismatch_dropped"
+				if ownershipErr != nil {
+					reason = "previous_response_owner_lookup_failed_dropped"
+				}
+				if !dropPointer(reason, ownershipErr) {
+					return
+				}
+			}
 		}
 	}
 	service.SetOpenAIHTTPResponseOwner(c, subject.UserID, apiKey.ID)
@@ -2590,6 +2632,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 		ctx = nextCtx
 		c.Request = c.Request.WithContext(ctx)
+		if authorizedBody, ok := service.CandidateRequestBody(ctx); ok {
+			// Candidate admission may strip an unowned or unresolvable
+			// previous_response_id. Keep the actual forwarded frame aligned with
+			// the body that was authorized and selected.
+			firstMessage = authorizedBody
+		}
 		candidate.SetBindingObserver(func(next context.Context, group *service.Group, subscription *service.UserSubscription) {
 			ctx = next
 			c.Request = c.Request.WithContext(next)
@@ -2621,8 +2669,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	previousResponseID := strings.TrimSpace(gjson.GetBytes(firstMessage, "previous_response_id").String())
 	previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 	if previousResponseID != "" && previousResponseIDKind == service.OpenAIPreviousResponseIDKindMessageID {
-		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "previous_response_id must be a response.id (resp_*), not a message id")
-		return
+		// The first frame follows the same strip-and-continue policy even when
+		// candidate scheduling is disabled. Later delta frames remain fail-closed.
+		stripped, stripErr := service.DropUnauthorizedPreviousResponseID(firstMessage)
+		if stripErr != nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "previous_response_id is not available for this user")
+			return
+		}
+		firstMessage = stripped
+		previousResponseID = ""
+		previousResponseIDKind = ""
 	}
 	firstMessageToolCoverage := service.AnalyzeToolCallOutputContextCoverageBytes(firstMessage)
 	previousResponseCanMove := !firstMessageToolCoverage.HasFunctionCallOutput || firstMessageToolCoverage.ContextCoversAllCallIDs
