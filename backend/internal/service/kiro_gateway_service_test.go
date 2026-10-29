@@ -1280,6 +1280,44 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	require.Equal(t, TkClientFacingBusy429Message, quotaErr.ClientMessage())
 }
 
+func TestClassifyKiroForwardError_AccessDeniedContinuesFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	account := newKiroAccountForTest()
+	err := classifyAndRecordKiroForwardError(
+		c,
+		account,
+		fmt.Errorf(`kiro event stream error: AccessDeniedException: {"message":"not authorized to invoke this model"}`),
+		"claude-opus-5-5",
+	)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusForbidden, failoverErr.StatusCode)
+	require.JSONEq(t, `{"error":{"type":"permission_error","message":"AccessDeniedException"}}`, string(failoverErr.ResponseBody))
+
+	rawEvents, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events := rawEvents.([]*OpsUpstreamErrorEvent)
+	require.Len(t, events, 1)
+	require.Equal(t, "access_denied", events[0].Reason)
+	require.Equal(t, http.StatusForbidden, events[0].UpstreamStatusCode)
+	require.Contains(t, events[0].Message, "AccessDeniedException")
+
+	htmlErr := fmt.Errorf("HTTP 403 from CodeWhisperer: <html>forbidden</html>")
+	_, plain := classifyKiroForwardError(htmlErr, "claude-opus-5-5")
+	var plainFailover *UpstreamFailoverError
+	require.ErrorAs(t, plain, &plainFailover)
+	require.Equal(t, "<html>forbidden</html>", string(plainFailover.ResponseBody))
+
+	_, messageOnly := classifyKiroForwardError(
+		fmt.Errorf(`HTTP 403 from q.us-east-1.amazonaws.com: {"message":"User is not authorized to perform kiro:GenerateAssistantResponse"}`),
+		"claude-opus-5-5",
+	)
+	var messageFailover *UpstreamFailoverError
+	require.ErrorAs(t, messageOnly, &messageFailover)
+	require.JSONEq(t, `{"error":{"type":"permission_error","message":"upstream forbidden"}}`, string(messageFailover.ResponseBody))
+}
+
 func TestClassifyKiroForwardError_TransportFailureTriggersFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())

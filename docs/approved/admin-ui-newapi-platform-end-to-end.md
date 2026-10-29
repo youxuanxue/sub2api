@@ -432,3 +432,15 @@ const PLATFORM_TYPE_BG: Record<AccountPlatform, string> = { /* 同形 */ }
 2. **配色**：cyan（`gatewayPlatforms.ts` 已声明）。批准还是覆盖？
 3. **本地化策略**：品牌名继续保留英文（当前惯例）+ 字段标签走 i18n key。批准还是要求把品牌名也加 i18n？
 
+
+## 渠道 Web Search 平台维度保留（PR #2973）
+
+本会话用户明确要求“#2973 请复审、修复，推送”，授权闭合渠道保存丢失配置的问题。
+`features_config.web_search_emulation` 按平台合并：请求内的值覆盖旧值，遗漏的平台继承；
+省略整个键时继承原映射，显式空对象或 null 清空。其他 feature 键仍遵循整块替换。
+页面和提交逻辑共用 `channelFormConversion.ts` 的平台白名单；已禁用的平台 section
+显式提交 false。页面不表示的 API 维度由后端保留，不根据当前页面是否有 section 清空它们。
+
+防覆盖 owner：`gateway-tk.json` 锚住服务更新调用及回归测试；`frontend-tk.json` 锚住共享白名单、
+转换器、页面消费点和 CI 浏览器入口。验收沿用 US-018 AC-007，真实 UI 保存旅程由
+`frontend/e2e/channel-websearch.e2e.ts` 覆盖。

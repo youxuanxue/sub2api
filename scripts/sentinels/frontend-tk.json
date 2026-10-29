@@ -2801,6 +2801,29 @@
         "(account?.platform === 'anthropic' || account?.platform === 'openai') && account?.type === 'apikey' && webSearchGlobalEnabled"
       ],
       "rationale": "Edit must expose the same web search emulation control as create for OpenAI API-key accounts; if this condition narrows back to anthropic, an operator can set the mode at create time but can never see or change it afterwards."
+    },
+    {
+      "path": "frontend/src/utils/channelFormConversion.ts",
+      "must_contain": [
+        "export const WEB_SEARCH_EMULATION_PLATFORMS",
+        "WEB_SEARCH_EMULATION_PLATFORMS.has(section.platform)"
+      ],
+      "rationale": "Render and submit must share one platform policy for web-search channel settings."
+    },
+    {
+      "path": "frontend/src/views/admin/ChannelsView.vue",
+      "must_contain": [
+        "  WEB_SEARCH_EMULATION_PLATFORMS,",
+        "WEB_SEARCH_EMULATION_PLATFORMS.has(section.platform) && webSearchGlobalEnabled"
+      ],
+      "rationale": "The channel view imports the form policy so visible toggles match submitted platform dimensions."
+    },
+    {
+      "path": ".github/workflows/backend-ci.yml",
+      "must_contain": [
+        "pnpm exec playwright test --config playwright.channel-websearch.config.ts"
+      ],
+      "rationale": "Real channel UI saves and reloads must remain exercised in CI."
     }
   ]
 }

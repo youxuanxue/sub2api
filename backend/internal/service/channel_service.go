@@ -1001,25 +1001,10 @@ func (s *ChannelService) applyUpdateInput(ctx context.Context, channel *Channel,
 	return nil
 }
 
-// mergeWebSearchEmulationDimensions keeps the per-platform dimensions of
-// features_config.web_search_emulation across channel updates.
-//
-// Why: the key is a map keyed by platform ("anthropic", "openai", ...), but
-// UpdateChannel replaces features_config as a whole block. A client that only
-// knows about a subset of platforms (the admin UI used to submit the anthropic
-// dimension only) therefore erased every other platform's setting on each save —
-// silently disabling web search emulation for openai/command_code/... channels.
-//
-// Rules:
-//   - key present in the request: request dimensions win, missing dimensions are
-//     inherited from the current value;
-//   - key absent from the request: the whole key is inherited, so clients that do
-//     not know the feature cannot wipe it;
-//   - explicit empty object {} or null: treated as "clear" and replaces the value.
-//
-// Other features_config keys keep the historical whole-block replacement
-// semantics. No generic deep merge is performed: nested objects are replaced as
-// a unit so deleting a dimension stays expressible.
+// mergeWebSearchEmulationDimensions preserves platforms omitted by partial clients.
+// An omitted key inherits the current map; an explicit empty map or null clears
+// it. Supplied platform values replace their previous values. Other feature keys
+// retain whole-block replacement semantics.
 func mergeWebSearchEmulationDimensions(existing, incoming map[string]any) map[string]any {
 	if incoming == nil {
 		return nil

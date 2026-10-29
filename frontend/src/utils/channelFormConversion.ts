@@ -47,8 +47,7 @@ export interface FormPricingRule {
   pricing: PricingFormEntry[]
 }
 
-/** Per-platform UI section in the channel-edit form. */
-/** Channel-level web_search_emulation platforms (must match ChannelsView). */
+/** Shared by the channel editor and its payload conversion. */
 export const WEB_SEARCH_EMULATION_PLATFORMS: ReadonlySet<string> = new Set([
   'anthropic',
   'openai',
@@ -58,6 +57,7 @@ export const WEB_SEARCH_EMULATION_PLATFORMS: ReadonlySet<string> = new Set([
   'zhipu',
 ])
 
+/** Per-platform UI section in the channel-edit form. */
 export interface PlatformSection {
   platform: GroupPlatform
   enabled: boolean

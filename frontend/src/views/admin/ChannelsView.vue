@@ -334,7 +334,7 @@
                     {{ t('admin.channels.form.webSearchEmulationHint') }}
                   </p>
                 </div>
-                <Toggle v-model="section.web_search_emulation" />
+                <Toggle v-model="section.web_search_emulation" :aria-label="t('admin.channels.form.webSearchEmulation')" />
               </div>
             </div>
 
@@ -643,6 +643,7 @@ import { STATUS_ACTIVE, STATUS_DISABLED } from '@/constants/channel'
 import {
   apiToFormSections,
   formSectionsToApi,
+  WEB_SEARCH_EMULATION_PLATFORMS,
   type PlatformSection,
 } from '@/utils/channelFormConversion'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -663,17 +664,6 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 // Web Search global enabled state (loaded once on mount)
-// Platforms that support the channel-level Web Search emulation toggle.
-// Keep in sync with formSectionsToApi in @/utils/channelFormConversion.
-const WEB_SEARCH_EMULATION_PLATFORMS: ReadonlySet<string> = new Set([
-  'anthropic',
-  'openai',
-  'command_code',
-  'opencode_go',
-  'minimax',
-  'zhipu',
-])
-
 const webSearchGlobalEnabled = ref(false)
 async function loadWebSearchGlobalState() {
   try {

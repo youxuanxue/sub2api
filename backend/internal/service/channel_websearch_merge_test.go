@@ -128,3 +128,17 @@ func TestChannelService_ApplyUpdateInputInheritsWebSearchEmulationWhenKeyAbsent(
 	require.True(t, ok)
 	require.Equal(t, false, bedrock["anthropic"])
 }
+
+func TestChannelService_ApplyUpdateInputClearsWebSearchEmulationExplicitly(t *testing.T) {
+	for _, value := range []any{nil, map[string]any{}} {
+		channel := &Channel{FeaturesConfig: map[string]any{
+			featureKeyWebSearchEmulation: map[string]any{"openai": true, "future-platform": true},
+		}}
+		err := (&ChannelService{}).applyUpdateInput(context.Background(), channel, &UpdateChannelInput{
+			FeaturesConfig: map[string]any{featureKeyWebSearchEmulation: value},
+		})
+		require.NoError(t, err)
+		require.Equal(t, value, channel.FeaturesConfig[featureKeyWebSearchEmulation])
+		require.False(t, channel.IsWebSearchEmulationEnabled("openai"))
+	}
+}

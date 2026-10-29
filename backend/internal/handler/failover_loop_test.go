@@ -234,6 +234,26 @@ func TestSleepWithContext(t *testing.T) {
 // HandleFailoverError — 基本切换流程
 // ---------------------------------------------------------------------------
 
+func TestHandleFailoverError_Unstructured403StopsStructured403Continues(t *testing.T) {
+	mock := &mockTempUnscheduler{}
+	fs := newFastFailoverState(3, false)
+	raw := &service.UpstreamFailoverError{
+		StatusCode:   http.StatusForbidden,
+		ResponseBody: []byte(`{"message":"AccessDeniedException"}`),
+	}
+	require.Equal(t, FailoverExhausted, fs.HandleFailoverError(context.Background(), mock, 340, service.PlatformKiro, testSameAccountRetryLimit, raw))
+	require.Zero(t, fs.SwitchCount)
+
+	fs = newFastFailoverState(3, false)
+	wrapped := &service.UpstreamFailoverError{
+		StatusCode:   http.StatusForbidden,
+		ResponseBody: []byte(`{"error":{"type":"permission_error","message":"AccessDeniedException"}}`),
+	}
+	require.Equal(t, FailoverContinue, fs.HandleFailoverError(context.Background(), mock, 340, service.PlatformKiro, testSameAccountRetryLimit, wrapped))
+	require.Equal(t, 1, fs.SwitchCount)
+	require.Contains(t, fs.FailedAccountIDs, int64(340))
+}
+
 func TestHandleFailoverError_BasicSwitch(t *testing.T) {
 	t.Run("显式停止不切换账号且旧错误默认仍切换", func(t *testing.T) {
 		mock := &mockTempUnscheduler{}

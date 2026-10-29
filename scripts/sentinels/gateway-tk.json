@@ -4783,9 +4783,27 @@
         "rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)",
         "rewriteNewAPIBridgeBodyModel(account, body, \"\")",
         "applyNewAPIAliFixedSamplingShape",
-        "applyMoonshotK3DynamicToolsShape"
+        "applyMoonshotK3DynamicToolsShape",
+        "applyNewAPIAnthropicThinkingTemperature"
       ],
-      "rationale": "Bridge chat/embeddings/images dispatch and admin account-test probes must call rewriteNewAPIBridgeBodyModel after sticky injection so upstream model_mapping alias applies on the newapi adaptor path. Chat and account-test paths must also pin kimi-k3 fixed sampling and promote Moonshot dynamic tools before the Ali/Volc adaptors."
+      "rationale": "Bridge chat/embeddings/images dispatch and admin account-test probes must call rewriteNewAPIBridgeBodyModel after sticky injection so upstream model_mapping alias applies on the newapi adaptor path. Chat and account-test paths must also pin kimi-k3 fixed sampling and promote Moonshot dynamic tools before the Ali/Volc adaptors. Chat dispatch must pin temperature to 1 before the new-api Claude adaptor turns reasoning_effort into thinking, or Opus 5.5 returns 400."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic_thinking_temperature.go",
+      "must_contain": [
+        "func applyNewAPIAnthropicThinkingTemperature",
+        "func newAPIClaudeRequestEnablesThinking",
+        "account.ChannelType != newapiconstant.ChannelTypeAnthropic"
+      ],
+      "rationale": "Opus 5.5 rejects a non-1 temperature once the new-api Claude adaptor turns reasoning_effort, reasoning.max_tokens, or a -thinking suffix into thinking.type=enabled. The helper must stay limited to Anthropic-channel Claude requests that carry those signals."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic_thinking_temperature_test.go",
+      "must_contain": [
+        "TestApplyNewAPIAnthropicThinkingTemperature_PinsNonDefaultTemperature",
+        "TestApplyNewAPIAnthropicThinkingTemperature_LeavesUnconstrainedRequests"
+      ],
+      "rationale": "Regression for the thinking-temperature pin: reasoning_effort, reasoning.max_tokens, and -thinking set temperature to 1; already-1, no thinking signal, omitted temperature, non-Claude, and non-Anthropic channel stay unchanged."
     },
     {
       "path": "backend/internal/service/openai_codex_transform.go",
@@ -18025,6 +18043,23 @@
         "sample := string(utf16.Decode(chars))"
       ],
       "rationale": "Claude Code cc_version fingerprint must sample JavaScript UTF-16 code units (Wei-Shaw#8377). A silent revert to UTF-8 byte indexing keeps ASCII fingerprints green while Chinese/emoji first-user text mismatches the official CLI suffix."
+    },
+    {
+      "path": "backend/internal/service/channel_service.go",
+      "must_contain": [
+        "channel.FeaturesConfig = mergeWebSearchEmulationDimensions(channel.FeaturesConfig, input.FeaturesConfig)",
+        "func mergeWebSearchEmulationDimensions("
+      ],
+      "rationale": "Partial channel updates must preserve omitted web-search platform dimensions while supporting explicit clear."
+    },
+    {
+      "path": "backend/internal/service/channel_websearch_merge_test.go",
+      "must_contain": [
+        "TestChannelService_ApplyUpdateInputMergesWebSearchEmulationDimensions",
+        "TestChannelService_ApplyUpdateInputInheritsWebSearchEmulationWhenKeyAbsent",
+        "TestChannelService_ApplyUpdateInputClearsWebSearchEmulationExplicitly"
+      ],
+      "rationale": "Keep behavior regressions for partial updates, omitted keys and explicit clear alongside the channel update call site."
     }
   ]
 }

@@ -61,11 +61,11 @@ for (const role of ['user', 'admin'] as const) {
     const csv = await csvDownload
     expect(csv.suggestedFilename()).toBe('billing_user-16_2026-06-04_2026-10-29_month.csv')
     const content = await readFile((await csv.path())!, 'utf8')
-    const headers = ['User', 'Date / month', 'Platform', 'Requests', 'Input tokens', 'Output tokens', 'Cache write tokens', 'Cache read tokens', 'Total tokens', 'Actual charge (USD)', 'Billing timezone']
+    const headers = ['User', 'Date / month', 'Platform', 'Requests', 'Input tokens', 'Output tokens', 'Total tokens', 'Actual charge (USD)', 'Billing timezone']
     expect(content.replace(/^\uFEFF/, '').split('\r\n')).toEqual([
       headers.map(header => `"${header}"`).join(','),
-      '"16","2026-06","openai","2","10","20","30","40","100","0.3000000003","UTC"',
-      '"16","Total","","2","10","20","30","40","100","0.3000000003","UTC"',
+      '"16","2026-06","openai","2","10","20","100","0.3000000003","UTC"',
+      '"16","Total","","2","10","20","100","0.3000000003","UTC"',
       '',
     ])
     const excelDownload = page.waitForEvent('download')
@@ -75,11 +75,11 @@ for (const role of ['user', 'admin'] as const) {
     await workbook.xlsx.readFile((await excel.path())!)
     const sheet = workbook.getWorksheet('Billing')!
     expect(sheet.getCell('B2').value).toBe('2026-06')
-    expect(sheet.getCell('J2').value).toBe('0.3000000003')
-    expect(sheet.getCell('J3').value).toBe('0.3000000003')
+    expect(sheet.getCell('H2').value).toBe('0.3000000003')
+    expect(sheet.getCell('H3').value).toBe('0.3000000003')
     expect(sheet.getRow(1).values).toEqual([undefined, ...headers])
-    expect(sheet.getRow(2).values).toEqual([undefined, 16, '2026-06', 'openai', 2, 10, 20, 30, 40, 100, '0.3000000003', 'UTC'])
-    expect(sheet.getRow(3).values).toEqual([undefined, 16, 'Total', '', 2, 10, 20, 30, 40, 100, '0.3000000003', 'UTC'])
+    expect(sheet.getRow(2).values).toEqual([undefined, 16, '2026-06', 'openai', 2, 10, 20, 100, '0.3000000003', 'UTC'])
+    expect(sheet.getRow(3).values).toEqual([undefined, 16, 'Total', '', 2, 10, 20, 100, '0.3000000003', 'UTC'])
     expect(requests).toHaveLength(beforeDownloads)
     await page.screenshot({ path: testInfo.outputPath(`${role}-historical-bill.png`), fullPage: true })
     await page.setViewportSize({ width: 390, height: 844 })
