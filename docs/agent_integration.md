@@ -456,6 +456,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /api/v1/admin/tls-fingerprint-profiles/:id` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/tls-fingerprint-profiles/:id` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/usage` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/usage/billing-history` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/usage/cleanup-tasks` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/usage/cleanup-tasks` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/usage/cleanup-tasks/:id/cancel` from `backend/internal/server/routes/admin.go`
@@ -606,6 +607,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /api/v1/subscriptions/summary` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/usage` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/usage/:id` from `backend/internal/server/routes/user.go`
+- `GET /api/v1/usage/billing-history` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/usage/dashboard/api-keys` from `backend/internal/server/routes/user.go`
 - `POST /api/v1/usage/dashboard/api-keys-usage` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/usage/dashboard/models` from `backend/internal/server/routes/user.go`

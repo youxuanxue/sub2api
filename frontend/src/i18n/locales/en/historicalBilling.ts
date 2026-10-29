@@ -1,0 +1,26 @@
+export default {
+  historicalBilling: {
+    title: 'Historical usage bill',
+    description: 'Daily usage and actual charges, including retained history before request details.',
+    open: 'View historical bill', close: 'Close historical bill',
+    selectUser: 'Select a user in the usage filters below to view their historical bill.',
+    user: 'User', range: 'Billing period', all: 'Since registration', custom: 'Custom dates',
+    start: 'Start date', end: 'End date', platform: 'Platform', allPlatforms: 'All platforms',
+    unknownPlatform: 'Unspecified platform', granularity: 'Group by', day: 'Day', month: 'Month',
+    refresh: 'Refresh bill', csv: 'Download CSV', excel: 'Download Excel',
+    loading: 'Loading bill…', error: 'Could not load the bill. Please retry; previous results are not shown.',
+    invalidRange: 'Choose a start and end date, with the end on or after the start.',
+    empty: 'No retained usage records for this selection.',
+    timezone: 'Billing timezone', coverage: 'Retained usage dates', queried: 'Queried at', updated: 'Latest aggregation',
+    scope: 'Selected period', provisional: 'Period in progress', recorded: 'Recorded', total: 'Total',
+    note: 'Dates use the billing timezone. Missing dates are not filled with zero. Current-day figures are provisional and may lag recent requests. Model, key and group filters from request details do not apply to this bill.',
+    precision: 'Downloads match this displayed snapshot and retain the stored precision of USD amounts.',
+    exportError: 'Could not download the bill. Please retry.',
+    headers: {
+      date: 'Date / month', platform: 'Platform', requests: 'Requests', input: 'Input tokens', output: 'Output tokens',
+      creation: 'Cache write tokens', read: 'Cache read tokens', tokens: 'Total tokens', cost: 'Actual charge (USD)',
+      status: 'Period status', updated: 'Aggregation time', queried: 'Query time',
+      selectedPlatform: 'Selected platform', availableStart: 'First retained date', availableEnd: 'Last retained date',
+    },
+  },
+}

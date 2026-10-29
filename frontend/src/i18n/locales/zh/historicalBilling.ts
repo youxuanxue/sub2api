@@ -1,0 +1,26 @@
+export default {
+  historicalBilling: {
+    title: '历史用量账单',
+    description: '按日查看用量与实际消费，包含请求明细保留期以前的历史汇总。',
+    open: '查询历史账单', close: '收起历史账单',
+    selectUser: '请先在下方使用记录筛选中选择用户，再查询其历史账单。',
+    user: '用户', range: '账单时间范围', all: '自注册以来', custom: '自定义日期',
+    start: '开始日期', end: '结束日期', platform: '平台', allPlatforms: '全部平台',
+    unknownPlatform: '未标注平台', granularity: '汇总粒度', day: '按日', month: '按月',
+    refresh: '刷新账单', csv: '下载 CSV', excel: '下载 Excel',
+    loading: '正在查询账单…', error: '账单查询失败，请重试；当前不显示上次查询结果。',
+    invalidRange: '请选择开始和结束日期，结束日期须不早于开始日期。',
+    empty: '所选范围内没有已保留的用量记录。',
+    timezone: '账单时区', coverage: '已保留用量日期', queried: '查询时间', updated: '最近汇总时间',
+    scope: '本次查询范围', provisional: '周期未结束', recorded: '已记录', total: '合计',
+    note: '日期按账单时区计算；无记录日期不填零。当天数据尚未结束，可能滞后于最新请求。请求明细中的模型、Key、分组筛选不适用于此账单。',
+    precision: '下载内容与当前显示的查询快照一致，USD 金额保留存储精度。',
+    exportError: '账单下载失败，请重试。',
+    headers: {
+      date: '日期 / 月份', platform: '平台', requests: '请求数', input: '输入 Token', output: '输出 Token',
+      creation: '缓存写入 Token', read: '缓存读取 Token', tokens: '总 Token', cost: '实际消费（USD）',
+      status: '周期状态', updated: '汇总时间', queried: '查询时间',
+      selectedPlatform: '所选平台', availableStart: '最早保留日期', availableEnd: '最新保留日期',
+    },
+  },
+}
