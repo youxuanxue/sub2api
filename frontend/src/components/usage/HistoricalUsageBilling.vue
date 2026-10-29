@@ -95,7 +95,7 @@ async function download(format: 'csv' | 'xlsx') {
   if (!snapshot?.rows.length || exporting.value) return
   exporting.value = true
   const labels = {
-    headers: [t('historicalBilling.user'), ...headerKeys.map(key => t(`historicalBilling.headers.${key}`)), t('historicalBilling.timezone')],
+    headers: [t('historicalBilling.user'), ...headerKeys.filter(key => key !== 'creation' && key !== 'read').map(key => t(`historicalBilling.headers.${key}`)), t('historicalBilling.timezone')],
     total: t('historicalBilling.total'), unknownPlatform: t('historicalBilling.unknownPlatform'),
   }
   try {
