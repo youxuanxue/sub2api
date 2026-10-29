@@ -210,3 +210,5 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 - [Kimi 请求错误修复与请求体边界](kimi-input-error-remediation.md) — Direct/Universal 共享路由上限、解压完整性与客户端参数改法。
 
 - [Kiro 流、规则与刷新可靠性](kiro-stream-auth-reliability.md) — 已批准的协议校验、规则保留、工具身份及认证防护。
+
+- [用户历史用量账单查询与下载](historical-usage-billing.md)

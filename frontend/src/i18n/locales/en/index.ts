@@ -1,3 +1,4 @@
+import historicalBilling from './historicalBilling'
 import landing from './landing'
 import common from './common'
 import dashboard from './dashboard'
@@ -7,6 +8,7 @@ import admin from './admin'
 import misc from './misc'
 
 export default {
+  ...historicalBilling,
   imageGeneration: {
     "softRatio": "Aspect ratio is a composition preference; the model determines the actual output dimensions.",
     "exactCanvas": "Selected size is returned as the final canvas (gateway local pad/coerce).",

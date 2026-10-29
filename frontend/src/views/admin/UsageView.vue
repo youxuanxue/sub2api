@@ -1,5 +1,6 @@
 <template>
     <div class="space-y-6">
+      <HistoricalUsageBilling admin :user-id="filters.user_id" />
       <UsageStatsCards :stats="usageStats" />
       <!-- Charts Section -->
       <div class="space-y-4">
@@ -198,6 +199,7 @@
 </template>
 
 <script setup lang="ts">
+import HistoricalUsageBilling from '@/components/usage/HistoricalUsageBilling.vue'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'

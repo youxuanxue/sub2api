@@ -3,6 +3,36 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/server/routes/user.go",
+      "must_contain": [
+        "usage.GET(\"/billing-history\", h.Usage.HistoricalBilling)"
+      ],
+      "rationale": "Preserve authenticated historical-bill access backed by retained daily aggregates."
+    },
+    {
+      "path": "backend/internal/server/routes/admin.go",
+      "must_contain": [
+        "usage.GET(\"/billing-history\", h.Admin.Usage.HistoricalBilling)"
+      ],
+      "rationale": "Admin historical bills reuse the same scoped query contract as users."
+    },
+    {
+      "path": "backend/internal/service/usage_historical_billing.go",
+      "must_contain": [
+        "func (s *UsageService) GetHistoricalBilling(",
+        "decimal.NewFromString(row.ActualCost)"
+      ],
+      "rationale": "Historical bill owner keeps exact charges and one date/platform aggregation path."
+    },
+    {
+      "path": "backend/internal/handler/usage_historical_billing_test.go",
+      "must_contain": [
+        "func TestUS073_HistoricalBillingUserIsolationAndAdminParity(t *testing.T)",
+        "require.JSONEq(t, userReply.Body.String(), adminReply.Body.String())"
+      ],
+      "rationale": "Preserve tenant-scope and user/admin bill parity behavioral assertions."
+    },
+    {
       "path": "backend/internal/handler/admin/dashboard_handler.go",
       "must_contain": [
         "strings.TrimSpace(c.Query(\"model\")), strings.TrimSpace(c.Query(\"billing_mode\"))"

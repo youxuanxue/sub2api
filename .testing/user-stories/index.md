@@ -74,3 +74,5 @@
 | US-071 | Kiro 协议与凭据可靠性 | InTest | `.testing/user-stories/stories/US-071-kiro-stream-auth-reliability.md` |
 
 | US-072 | Kiro auto-mode transcript trim | Done | `.testing/user-stories/stories/US-072-kiro-auto-mode-transcript-trim.md` |
+
+| US-073 | 用户历史用量账单查询与下载 | Done | `.testing/user-stories/stories/US-073-historical-usage-billing.md` |
