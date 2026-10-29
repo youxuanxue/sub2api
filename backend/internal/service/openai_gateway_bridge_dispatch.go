@@ -101,6 +101,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
+	body = applyNewAPIAnthropicThinkingTemperature(account, gjson.GetBytes(body, "model").String(), body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}

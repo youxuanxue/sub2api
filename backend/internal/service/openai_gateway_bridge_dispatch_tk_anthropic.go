@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -78,6 +79,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	if err != nil {
 		return nil, err
 	}
+	chatBody = applyNewAPIAnthropicThinkingTemperature(account, gjson.GetBytes(chatBody, "model").String(), chatBody)
 	if strings.TrimSpace(in.APIKey) == "" {
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}

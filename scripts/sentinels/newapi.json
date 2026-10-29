@@ -918,12 +918,13 @@
         "rewriteNewAPIBridgeBodyModel(account, body, \"\")",
         "applyNewAPIAliFixedSamplingShape",
         "applyMoonshotK3DynamicToolsShape",
-        "applyMoonshotThinkingShape(c, account,"
+        "applyMoonshotThinkingShape(c, account,",
+        "applyNewAPIAnthropicThinkingTemperature"
       ],
       "must_not_contain": [
         "tkWrapBridgeRelayError(c, apiErr)"
       ],
-      "rationale": "The Anthropic-gateway bridge boundary (GatewayService ForwardAsChatCompletionsDispatched / ForwardAsResponsesDispatched, 2 sites) is the same penalty chokepoint class as openai_gateway_bridge_dispatch.go and must stay wired identically: zero penalty-less tkWrapBridgeRelayError(c, apiErr) calls. Without this entry only the OpenAI-gateway file was anchored and a refactor here would silently drop the account penalty for messages-dispatch newapi traffic. Both bridge dispatch sites must also rewrite body.model via rewriteNewAPIBridgeBodyModel so dated GLM ids reach DashScope as glm-4.7. Chat dispatch must also pin kimi-k3 fixed sampling, promote Moonshot dynamic tools, and pass the selected account to the thinking owner, preserving the Volc Kimi thinking/tool policy before adaptor dispatch."
+      "rationale": "The Anthropic-gateway bridge boundary (GatewayService ForwardAsChatCompletionsDispatched / ForwardAsResponsesDispatched, 2 sites) is the same penalty chokepoint class as openai_gateway_bridge_dispatch.go and must stay wired identically: zero penalty-less tkWrapBridgeRelayError(c, apiErr) calls. Without this entry only the OpenAI-gateway file was anchored and a refactor here would silently drop the account penalty for messages-dispatch newapi traffic. Both bridge dispatch sites must also rewrite body.model via rewriteNewAPIBridgeBodyModel so dated GLM ids reach DashScope as glm-4.7. Chat dispatch must also pin kimi-k3 fixed sampling, promote Moonshot dynamic tools, pass the selected account to the thinking owner, and pin Claude thinking temperature to 1 before the new-api adaptor."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",
@@ -931,9 +932,10 @@
         "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)",
         "applyNewAPIAliFixedSamplingShape",
         "applyMoonshotK3DynamicToolsShape",
-        "applyMoonshotThinkingShape(c, account,"
+        "applyMoonshotThinkingShape(c, account,",
+        "applyNewAPIAnthropicThinkingTemperature"
       ],
-      "rationale": "ForwardAsAnthropicDispatched is the 7th penalty wiring site (anthropic-shaped requests routed over the newapi bridge). Same risk class as the other dispatch boundaries: reverting to the plain wrapper compiles clean and silently disconnects the account penalty. Anthropic→chat conversion must also pin kimi-k3 fixed sampling, promote Moonshot dynamic tools, and apply Moonshot thinking shape before bridge.DispatchChatCompletions or DashScope/Volc reject top_p=0.001 / thinking bool / missing content."
+      "rationale": "ForwardAsAnthropicDispatched is the 7th penalty wiring site (anthropic-shaped requests routed over the newapi bridge). Same risk class as the other dispatch boundaries: reverting to the plain wrapper compiles clean and silently disconnects the account penalty. Anthropic→chat conversion must also pin kimi-k3 fixed sampling, promote Moonshot dynamic tools, apply Moonshot thinking shape, and pin Claude thinking temperature to 1 before bridge.DispatchChatCompletions."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
