@@ -85,8 +85,8 @@ const app = useAppStore()
 const { expanded, range, startDate, endDate, granularity, platform, report, platforms, loading, failed, invalidRange, reload } = useHistoricalBilling(props.admin, toRef(props, 'userId'))
 const exporting = ref(false)
 const counterKeys = ['requests', 'input_tokens', 'output_tokens', 'cache_creation_tokens', 'cache_read_tokens', 'total_tokens'] as const
-const headerKeys = ['date', 'platform', 'requests', 'input', 'output', 'creation', 'read', 'tokens', 'cost', 'status']
-const tableHeaders = computed(() => [...headerKeys, 'updated'].map(key => t(`historicalBilling.headers.${key}`)))
+const headerKeys = ['date', 'platform', 'requests', 'input', 'output', 'creation', 'read', 'tokens', 'cost']
+const tableHeaders = computed(() => [...headerKeys, 'status', 'updated'].map(key => t(`historicalBilling.headers.${key}`)))
 function formatTime(value: string) {
   return new Date(value).toLocaleString(undefined, { timeZone: report.value?.timezone })
 }
@@ -95,11 +95,8 @@ async function download(format: 'csv' | 'xlsx') {
   if (!snapshot?.rows.length || exporting.value) return
   exporting.value = true
   const labels = {
-    headers: [t('historicalBilling.user'), ...headerKeys.map(key => t(`historicalBilling.headers.${key}`)),
-      t('historicalBilling.timezone'), t('historicalBilling.headers.updated'), t('historicalBilling.headers.queried'),
-      t('historicalBilling.start'), t('historicalBilling.end'), t('historicalBilling.granularity'),
-      t('historicalBilling.headers.selectedPlatform'), t('historicalBilling.headers.availableStart'), t('historicalBilling.headers.availableEnd')],
-    total: t('historicalBilling.total'), provisional: t('historicalBilling.provisional'), recorded: t('historicalBilling.recorded'), unknownPlatform: t('historicalBilling.unknownPlatform'),
+    headers: [t('historicalBilling.user'), ...headerKeys.map(key => t(`historicalBilling.headers.${key}`)), t('historicalBilling.timezone')],
+    total: t('historicalBilling.total'), unknownPlatform: t('historicalBilling.unknownPlatform'),
   }
   try {
     let blob: Blob
