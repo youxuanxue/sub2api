@@ -243,6 +243,12 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 	if err != nil {
 		return ctx, nil, err
 	}
+	if websocket && !bytes.Equal(nextBody, body) {
+		// The forwarded WebSocket frame is the caller's original payload.
+		// Rewriting only this planning copy would still send an unverified
+		// previous_response_id upstream.
+		return ctx, nil, ErrCandidateContinuationUnavailable
+	}
 	if !bytes.Equal(nextBody, body) {
 		body = nextBody
 		state.body = append([]byte(nil), body...)

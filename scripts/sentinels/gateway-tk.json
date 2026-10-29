@@ -2118,6 +2118,7 @@
         "capacityDiag          *CandidateCapacityDiag",
         "func (r *CandidateRequest) pathContext(",
         "ResolveCandidateContinuation(ctx, key, eligible, previous)",
+        "websocket && !bytes.Equal(nextBody, body)",
         "CheckCandidateBillingEligibility",
         "r.onBind(selected.ctx, selected.group, subscription)",
         "r.peekGroupRPM(ctx, billing, r.key.User, group)",
@@ -2786,7 +2787,8 @@
         "TestGlobalCandidateModelGrantsCannotBeBorrowed",
         "TestGlobalCandidateWindowRecoveryAndStickyAdmission",
         "TestGlobalCandidateNativeConverterParityAndGoogleFailover",
-        "TestCandidateResponsesImagePermissionPrecedesBillingOrigin"
+        "TestCandidateResponsesImagePermissionPrecedesBillingOrigin",
+        "TestPrepareCandidateWebSocketRejectsUnverifiedPreviousResponseID"
       ],
       "rationale": "Executable regressions cover production selection, topology, duplicate membership, capacity races and wait revalidation."
     },

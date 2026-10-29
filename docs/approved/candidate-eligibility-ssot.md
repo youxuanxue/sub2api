@@ -125,9 +125,10 @@ ownership retain their existing behavior. A `previous_response_id` bound to
 this user, and subsequent WebSocket turns, remain pinned by the existing
 continuation owner. An HTTP `previous_response_id` with no binding for this
 user, a failed binding lookup, or a message id in that field is removed
-before selection and is not forwarded or pinned. WebSocket
-turn revalidation stays fail-closed when the continuation is missing or
-belongs to another account. Initial WebSocket selection can use soft fallback.
+before selection and is not forwarded or pinned. The first WebSocket frame
+and later turn revalidation stay fail-closed when that pointer is missing,
+unreadable, or belongs to another account, because the forwarded frame is the
+original payload. Initial WebSocket selection can use soft fallback.
 Load-read errors disable the ordering pass. Missing/negative load or nonpositive capacity for a non-sticky
 candidate leaves that equivalent band unchanged. The policy consumes the existing
 fresh batch load read and uses the existing atomic acquisition, fresh recheck,

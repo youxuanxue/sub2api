@@ -62,6 +62,24 @@ func globalCandidateAccount(id int64, priority int, groups ...int64) Account {
 	return a
 }
 
+func TestPrepareCandidateWebSocketRejectsUnverifiedPreviousResponseID(t *testing.T) {
+	group := grp(10, PlatformOpenAI, 0, false)
+	account := globalCandidateAccount(1, 1, 10)
+	attachTestProtocolCapability(&account, protocolrouter.ProtocolResponses, protocolrouter.ProtocolChatCompletions)
+	r, _, key := globalCandidateFixture([]Group{group}, []Account{account})
+	body := []byte(`{"model":"gpt-5.4","previous_response_id":"resp_other","input":"hello"}`)
+
+	_, _, err := r.PrepareCandidateWebSocket(context.Background(), key, "/v1/responses", "gpt-5.4", body, "", "")
+	require.ErrorIs(t, err, ErrCandidateContinuationUnavailable)
+
+	_, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/responses", "gpt-5.4", body, "", "")
+	require.NoError(t, err)
+	require.Zero(t, state.continuationAccountID)
+	require.NotContains(t, string(state.body), "previous_response_id")
+	require.NotContains(t, string(state.body), "resp_other")
+	require.Contains(t, string(state.body), "hello")
+}
+
 func TestGlobalCandidateAccountPriorityIgnoresGroupTopology(t *testing.T) {
 	for _, duplicate := range []bool{false, true} {
 		groups := []Group{grp(10, PlatformAnthropic, -100, false), grp(20, PlatformGemini, 100, false)}
