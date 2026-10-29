@@ -948,7 +948,7 @@ func TestOpenAIResponses_SetsClientTransportHTTP(t *testing.T) {
 	require.Equal(t, service.OpenAIClientTransportHTTP, service.GetOpenAIClientTransport(c))
 }
 
-func TestOpenAIResponses_RejectsMessageIDAsPreviousResponseID(t *testing.T) {
+func TestOpenAIResponses_DropsMessageIDAsPreviousResponseID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	w := httptest.NewRecorder()
@@ -970,10 +970,15 @@ func TestOpenAIResponses_RejectsMessageIDAsPreviousResponseID(t *testing.T) {
 	})
 
 	h := newOpenAIHandlerForPreviousResponseIDValidation(t, nil)
+	h.protocolRouter = service.NewProtocolRouter()
 	h.Responses(c)
 
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), "previous_response_id must be a response.id")
+	require.NotContains(t, w.Body.String(), "previous_response_id must be a response.id")
+	request, ok := service.ProtocolRoutingRequest(c.Request.Context())
+	require.True(t, ok)
+	require.NotContains(t, string(request.Body()), "previous_response_id")
+	require.NotContains(t, string(request.Body()), "msg_123456")
+	require.Contains(t, string(request.Body()), "hello")
 }
 
 func TestOpenAIResponses_AcceptsHTTPContinuationPreviousResponseIDBeforeRouting(t *testing.T) {
@@ -1005,7 +1010,7 @@ func TestOpenAIResponses_AcceptsHTTPContinuationPreviousResponseIDBeforeRouting(
 	require.NotContains(t, w.Body.String(), "Responses WebSocket v2")
 }
 
-func TestOpenAIResponses_RejectsHTTPContinuationOwnedByAnotherUser(t *testing.T) {
+func TestOpenAIResponses_DropsHTTPContinuationOwnedByAnotherUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	w := httptest.NewRecorder()
@@ -1025,14 +1030,19 @@ func TestOpenAIResponses_RejectsHTTPContinuationOwnedByAnotherUser(t *testing.T)
 	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 2, Concurrency: 1})
 
 	h := newOpenAIHandlerForPreviousResponseIDValidation(t, nil)
+	h.protocolRouter = service.NewProtocolRouter()
 	require.NoError(t, h.gatewayService.BindOpenAIHTTPResponseOwner(context.Background(), groupID, "resp_other_tenant", 1, 101))
 	h.Responses(c)
 
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), "previous_response_id is not available for this user")
+	require.NotContains(t, w.Body.String(), "previous_response_id is not available for this user")
+	request, ok := service.ProtocolRoutingRequest(c.Request.Context())
+	require.True(t, ok)
+	require.NotContains(t, string(request.Body()), "previous_response_id")
+	require.NotContains(t, string(request.Body()), "resp_other_tenant")
+	require.Contains(t, string(request.Body()), "hello")
 }
 
-func TestOpenAIResponses_RejectsUnownedHTTPContinuation(t *testing.T) {
+func TestOpenAIResponses_DropsUnownedHTTPContinuation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	w := httptest.NewRecorder()
@@ -1047,10 +1057,15 @@ func TestOpenAIResponses_RejectsUnownedHTTPContinuation(t *testing.T) {
 	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1, Concurrency: 1})
 
 	h := newOpenAIHandlerForPreviousResponseIDValidation(t, nil)
+	h.protocolRouter = service.NewProtocolRouter()
 	h.Responses(c)
 
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), "previous_response_id is not available for this user")
+	require.NotContains(t, w.Body.String(), "previous_response_id is not available for this user")
+	request, ok := service.ProtocolRoutingRequest(c.Request.Context())
+	require.True(t, ok)
+	require.NotContains(t, string(request.Body()), "previous_response_id")
+	require.NotContains(t, string(request.Body()), "resp_unknown")
+	require.Contains(t, string(request.Body()), "hello")
 }
 
 func TestOpenAIResponses_FunctionCallOutputHTTPGuidanceDoesNotSuggestPreviousResponseReuse(t *testing.T) {

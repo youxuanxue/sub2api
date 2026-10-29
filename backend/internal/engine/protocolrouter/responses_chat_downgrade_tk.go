@@ -12,13 +12,14 @@ import (
 const ResponsesChatDroppedUnsupportedFields = "responses_chat_drop_unsupported_fields"
 
 // downgradeResponsesToChat removes prompt_cache_key, cache_control,
-// previous_response_id, and audio parts so a Chat-only supply can still serve
-// the request. The original request is returned unchanged when none of those
-// fields are present. ok is false only when a body that claimed those fields
-// cannot be rewritten.
+// previous_response_id, conversation, conversation_id, and audio parts so a
+// Chat-only supply can still serve the request. The original request is
+// returned unchanged when none of those fields are present. ok is false only
+// when a body that claimed those fields cannot be rewritten.
 func downgradeResponsesToChat(request CanonicalRequest) (CanonicalRequest, string, bool) {
 	profile := request.Profile()
 	if profile.Continuation != ContinuationPreviousResponse &&
+		profile.Continuation != ContinuationConversation &&
 		profile.PromptCache == PromptCacheNone &&
 		profile.ContentKinds&ContentAudio == 0 {
 		return request, "", true
@@ -46,6 +47,14 @@ func stripResponsesChatUnsupported(body []byte) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	rewritten, changed := stripResponsesChatValue(document)
+	if root, ok := rewritten.(map[string]any); ok {
+		for _, key := range []string{"conversation", "conversation_id"} {
+			if _, exists := root[key]; exists {
+				delete(root, key)
+				changed = true
+			}
+		}
+	}
 	if !changed {
 		return body, false, nil
 	}

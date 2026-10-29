@@ -80,4 +80,37 @@ func TestResponsesToChatDropsUnsupportedFieldsBehindNative(t *testing.T) {
 	if plainPlan.CompatibilityRank() != 0 || plainPlan.Adjustment() != "" {
 		t.Fatalf("plain text must stay rank 0, got %d %q", plainPlan.CompatibilityRank(), plainPlan.Adjustment())
 	}
+
+	convBody := []byte(`{"model":"deepseek-v4.1-flash","conversation":"conv_1","conversation_id":"conv_probe","input":"hi"}`)
+	convRequest, err := ParseCanonicalRequest(ProtocolResponses, ResponsesPathRoot, "deepseek-v4.1-flash", false, convBody)
+	if err != nil {
+		t.Fatalf("ParseCanonicalRequest conversation: %v", err)
+	}
+	if convRequest.Profile().Continuation != ContinuationConversation {
+		t.Fatalf("conversation profile = %s", convRequest.Profile().Continuation)
+	}
+	convChat, err := router.Plan(convRequest, testAccount(t, ProtocolChatCompletions))
+	if err != nil {
+		t.Fatalf("conversation chat Plan: %v", err)
+	}
+	if convChat.CompatibilityRank() != 1 || convChat.Adjustment() != ResponsesChatDroppedUnsupportedFields {
+		t.Fatalf("conversation chat rank/adjustment = %d/%q", convChat.CompatibilityRank(), convChat.Adjustment())
+	}
+	convEffective := convChat.effectiveRequest.Body()
+	if bytes.Contains(convEffective, []byte("conversation_id")) || bytes.Contains(convEffective, []byte("conv_1")) || bytes.Contains(convEffective, []byte("conv_probe")) {
+		t.Fatalf("conversation chat plan kept the id: %s", convEffective)
+	}
+	if !bytes.Contains(convEffective, []byte("hi")) {
+		t.Fatalf("conversation chat plan dropped the text: %s", convEffective)
+	}
+	convNative, err := router.Plan(convRequest, testAccount(t, ProtocolResponses, ProtocolChatCompletions))
+	if err != nil {
+		t.Fatalf("conversation native Plan: %v", err)
+	}
+	if convNative.TargetProtocol() != ProtocolResponses || convNative.CompatibilityRank() != 0 {
+		t.Fatalf("conversation native Plan = %s rank %d", convNative.TargetProtocol(), convNative.CompatibilityRank())
+	}
+	if !bytes.Contains(convNative.effectiveRequest.Body(), []byte("conversation_id")) || !bytes.Contains(convNative.effectiveRequest.Body(), []byte("conv_probe")) {
+		t.Fatalf("native plan dropped conversation_id: %s", convNative.effectiveRequest.Body())
+	}
 }

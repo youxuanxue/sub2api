@@ -1399,6 +1399,17 @@ func (s *OpenAIGatewayService) ValidateOpenAIHTTPResponseOwner(
 	return ownerUserID == userID || (ownerUserID <= 0 && ownerAPIKeyID == apiKeyID), nil
 }
 
+// DropUnauthorizedPreviousResponseID removes previous_response_id so an
+// unowned continuation pointer is not forwarded and cannot resume another
+// user's upstream history. The rest of the request body is kept.
+func DropUnauthorizedPreviousResponseID(body []byte) ([]byte, error) {
+	updated, _, err := dropPreviousResponseIDFromRawPayload(body)
+	if err != nil {
+		return body, err
+	}
+	return updated, nil
+}
+
 // BindOpenAIHTTPResponseOwner records an HTTP continuation owner independently
 // from the upstream account selected for that response.
 func (s *OpenAIGatewayService) BindOpenAIHTTPResponseOwner(

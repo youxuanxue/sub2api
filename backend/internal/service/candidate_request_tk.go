@@ -178,6 +178,28 @@ func (r *UniversalRoutingResolver) PrepareCandidateWebSocket(ctx context.Context
 	return r.prepareCandidateRequest(ctx, key, ShapeOpenAIChat, path, model, body, session, forcedPlatform, true, "application/json", "")
 }
 
+// authorizeResponsesContinuation pins an owned previous_response_id to the
+// account that served it. A missing binding, another user's id, a message id,
+// or a failed lookup is removed from the body and is not pinned, so selection
+// serves the current body without forwarding the pointer.
+func (s *OpenAIGatewayService) authorizeResponsesContinuation(ctx context.Context, key *APIKey, eligible []Group, body []byte) ([]byte, int64, error) {
+	previous := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String())
+	if previous == "" {
+		return body, 0, nil
+	}
+	if s != nil {
+		accountID, err := s.ResolveCandidateContinuation(ctx, key, eligible, previous)
+		if err == nil && accountID > 0 {
+			return body, accountID, nil
+		}
+	}
+	stripped, stripErr := DropUnauthorizedPreviousResponseID(body)
+	if stripErr != nil || bytes.Equal(stripped, body) {
+		return nil, 0, ErrCandidateContinuationUnavailable
+	}
+	return stripped, 0, nil
+}
+
 func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, key *APIKey, shape UniversalShape, path, model string, body []byte, session, forcedPlatform string, websocket bool, contentType, promptCacheSession string) (context.Context, *CandidateRequest, error) {
 	if !r.CandidateSchedulingEnabled() || key == nil || shape == ShapeSkip || strings.TrimSpace(model) == "" {
 		return ctx, nil, nil
@@ -217,15 +239,24 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 		state.requestProfile, state.requestProfileValid = candidateRequestProfile(shape, path, model, body)
 	}
 	ctx = context.WithValue(ctx, candidateRequestContextKey{}, state)
-	if previous := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String()); previous != "" {
-		owner, err := r.candidateOpenAI.ResolveCandidateContinuation(ctx, key, eligible, previous)
-		if err != nil {
-			return ctx, nil, err
+	nextBody, owner, err := r.candidateOpenAI.authorizeResponsesContinuation(ctx, key, eligible, body)
+	if err != nil {
+		return ctx, nil, err
+	}
+	if !bytes.Equal(nextBody, body) {
+		body = nextBody
+		state.body = append([]byte(nil), body...)
+		ctx = r.WithRequest(ctx, shape, path, model, body)
+		if refreshed, ok := ProtocolRoutingRequest(ctx); ok {
+			state.requestProfile, state.requestProfileValid = refreshed.Profile(), true
+		} else {
+			state.requestProfile, state.requestProfileValid = candidateRequestProfile(shape, path, model, body)
 		}
+	} else if owner > 0 {
 		state.continuationAccountID = owner
 	}
 
-	_, err := state.selectAccount(ctx, candidateSelectOptions{})
+	_, err = state.selectAccount(ctx, candidateSelectOptions{})
 	if err != nil {
 		return ctx, nil, err
 	}

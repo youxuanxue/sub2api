@@ -515,31 +515,64 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			zap.String("previous_response_id_kind", previousResponseIDKind),
 			zap.Int("previous_response_id_len", len(previousResponseID)),
 		)
-		if previousResponseIDKind == service.OpenAIPreviousResponseIDKindMessageID {
-			reqLog.Warn("openai.request_validation_failed",
-				zap.String("reason", "previous_response_id_looks_like_message_id"),
+		// A message id, a missing binding, or a failed lookup cannot be used as
+		// continuation. Drop the pointer and serve the current body. Do not
+		// forward it: an upstream account that owns the id may hold another
+		// user's history.
+		dropPointer := func(reason string, cause error) bool {
+			fields := []zap.Field{zap.String("reason", reason)}
+			if cause != nil {
+				fields = append(fields, zap.Error(cause))
+			}
+			reqLog.Warn("openai.request_validation_failed", fields...)
+			stripped, stripErr := service.DropUnauthorizedPreviousResponseID(body)
+			if stripErr != nil {
+				reqLog.Warn("openai.previous_response_drop_failed", zap.Error(stripErr))
+				h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id is not available for this user")
+				return false
+			}
+			body = stripped
+			sessionHashBody = body
+			reparsed, parseErr := newCanonicalProtocolRequest(
+				protocolrouter.ProtocolResponses,
+				responsesPath,
+				reqModel,
+				reqStream,
+				body,
 			)
-			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id must be a response.id (resp_*), not a message id")
-			return
+			if parseErr != nil {
+				h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+				return false
+			}
+			canonicalRequest = reparsed
+			c.Request = c.Request.WithContext(service.WithProtocolRouting(c.Request.Context(), h.protocolRouter, canonicalRequest))
+			return true
 		}
-		groupID := int64(0)
-		if apiKey.GroupID != nil {
-			groupID = *apiKey.GroupID
-		}
-		owned, ownershipErr := h.gatewayService.ValidateOpenAIHTTPResponseOwner(
-			c.Request.Context(),
-			groupID,
-			previousResponseID,
-			subject.UserID,
-			apiKey.ID,
-		)
-		if ownershipErr != nil {
-			reqLog.Warn("openai.previous_response_owner_lookup_failed", zap.Error(ownershipErr))
-		}
-		if !owned {
-			reqLog.Warn("openai.request_validation_failed", zap.String("reason", "previous_response_owner_mismatch"))
-			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id is not available for this user")
-			return
+		if previousResponseIDKind == service.OpenAIPreviousResponseIDKindMessageID {
+			if !dropPointer("previous_response_id_looks_like_message_id", nil) {
+				return
+			}
+		} else {
+			groupID := int64(0)
+			if apiKey.GroupID != nil {
+				groupID = *apiKey.GroupID
+			}
+			owned, ownershipErr := h.gatewayService.ValidateOpenAIHTTPResponseOwner(
+				c.Request.Context(),
+				groupID,
+				previousResponseID,
+				subject.UserID,
+				apiKey.ID,
+			)
+			if ownershipErr != nil || !owned {
+				reason := "previous_response_owner_mismatch_dropped"
+				if ownershipErr != nil {
+					reason = "previous_response_owner_lookup_failed_dropped"
+				}
+				if !dropPointer(reason, ownershipErr) {
+					return
+				}
+			}
 		}
 	}
 	service.SetOpenAIHTTPResponseOwner(c, subject.UserID, apiKey.ID)
