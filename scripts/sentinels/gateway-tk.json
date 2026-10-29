@@ -11845,9 +11845,30 @@
     {
       "path": "scripts/checks/caddyfile-syntax.sh",
       "must_contain": [
-        "python3 -m unittest deploy/domestic/test_runtime.py deploy/domestic/test_bluegreen.py deploy/domestic/test_post_release.py deploy/domestic/test_deploy_via_ssm.py deploy/domestic/test_data_layout.py deploy/domestic/test_pgdump.py deploy/domestic/test_image_distribution.py"
+        "python3 -m unittest deploy/domestic/test_runtime.py deploy/domestic/test_bluegreen.py deploy/domestic/test_post_release.py deploy/domestic/test_deploy_via_ssm.py deploy/domestic/test_data_layout.py deploy/domestic/test_pgdump.py deploy/domestic/test_image_distribution.py deploy/domestic/test_candidate_smoke.py"
       ],
-      "rationale": "Keep domestic ingress, blue/green, root-disk layout, and image-warm regressions in the existing Docker/Caddy preflight and CI gate; syntax-only adaptation misses alias bypasses and interrupted-drain rollback failures."
+      "rationale": "Keep domestic ingress, blue/green, root-disk layout, image-warm, and candidate-smoke regressions in the existing Docker/Caddy preflight and CI gate; syntax-only adaptation misses alias bypasses and interrupted-drain rollback failures."
+    },
+    {
+      "path": "deploy/domestic/deploy_via_ssm.sh",
+      "must_contain": [
+        "candidate-smoke|promote)",
+        "smoke_script = controls + \"/candidate_smoke.py\"",
+        "promote_script = controls + \"/bluegreen.py\"",
+        "--public-url must equal manifest public_origin"
+      ],
+      "rationale": "cn-prod candidate checks and cutover stay on deploy_via_ssm subcommands. The synced candidate_smoke.py writes the report; promote calls the synced bluegreen.py and refuses a public URL other than the manifest origin."
+    },
+    {
+      "path": "deploy/domestic/candidate_smoke.py",
+      "must_contain": [
+        "def published_port(",
+        "def evaluate(",
+        "/health",
+        "/api/v1/settings/public",
+        "container_id"
+      ],
+      "rationale": "The prepared candidate is probed on its loopback color port. The smoke report keeps docker inspect Id and failed cases so promote can reject a bad candidate."
     },
     {
       "path": "deploy/domestic/bluegreen.py",
