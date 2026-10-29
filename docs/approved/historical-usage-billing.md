@@ -19,6 +19,8 @@ authors: [codex]
 用户在本会话下载验收后明确要求从文件移除汇总时间、查询时间、开始/结束日期、
 汇总粒度、所选平台、最早/最新保留日期和周期状态；此要求作为导出字段调整的审批依据。
 PR #2974 合并后，用户进一步要求从下载文件移除缓存写入 Token、缓存读取 Token 两列。
+用户在 v1.8.337 验收时进一步要求页面表格与下载字段对齐，此要求授权移除页面的缓存
+写入/读取 Token、周期状态和汇总时间列，并由共享列定义保持字段及顺序一致。
 
 ## 契约
 
@@ -41,7 +43,8 @@ PR #2974 合并后，用户进一步要求从下载文件移除缓存写入 Toke
 - Decimal 字符串保留费用精度；服务端 Decimal 累计。CSV 和 Excel 均导出当前成功查询快照，
   使用同一行/合计。文件仅包含用户、日期/月、平台、请求数、输入/输出/总 token、实际费用和账单时区，
   不导出汇总时间、查询时间、开始/结束日期、汇总粒度、所选平台、最早/最新保留日期、周期状态；
-  缓存写入/读取 token 也不导出；页面仍显示缓存 token 和辅助信息。总 token 保持原口径（含缓存），
+  缓存写入/读取 token 也不导出；页面表格使用相同业务列，用户与时区在表格外显示，
+  查询范围/覆盖范围/更新时间及当天数据提示仍在表格外提供。总 token 保持原口径（含缓存），
   不因隐藏列而重算。Excel 金额为精确文本、请求及 token 为数值。
 - 失败、换用户、换筛选、关闭或销毁组件立即失效旧数据，禁止下载旧用户/旧筛选的账单。
   取消/迟到响应不能覆盖新查询；生成 Excel 期间切换用户或关闭后不下载旧快照。
@@ -63,6 +66,7 @@ PR #2974 合并后，用户进一步要求从下载文件移除缓存写入 Toke
 | 前端 API | `frontend/src/api/historicalBilling.ts` |
 | 选择、取消、失败和切换状态 | `frontend/src/composables/useHistoricalBilling.ts` |
 | 共享展示与下载入口 | `frontend/src/components/usage/HistoricalUsageBilling.vue` |
+| 页面与文件的业务列/顺序 | `frontend/src/utils/historicalBillingColumns.ts` |
 | CSV/Excel 字段与精度 | `frontend/src/utils/historicalBillingExport.ts` |
 
 ## 验收

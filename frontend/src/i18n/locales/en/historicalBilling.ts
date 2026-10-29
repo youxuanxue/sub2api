@@ -12,14 +12,13 @@ export default {
     invalidRange: 'Choose a start and end date, with the end on or after the start.',
     empty: 'No retained usage records for this selection.',
     timezone: 'Billing timezone', coverage: 'Retained usage dates', queried: 'Queried at', updated: 'Latest aggregation',
-    scope: 'Selected period', provisional: 'Period in progress', recorded: 'Recorded', total: 'Total',
+    scope: 'Selected period', total: 'Total',
     note: 'Dates use the billing timezone. Missing dates are not filled with zero. Current-day figures are provisional and may lag recent requests. Model, key and group filters from request details do not apply to this bill.',
     precision: 'Downloads match this displayed snapshot and retain the stored precision of USD amounts.',
     exportError: 'Could not download the bill. Please retry.',
     headers: {
       date: 'Date / month', platform: 'Platform', requests: 'Requests', input: 'Input tokens', output: 'Output tokens',
-      creation: 'Cache write tokens', read: 'Cache read tokens', tokens: 'Total tokens', cost: 'Actual charge (USD)',
-      status: 'Period status', updated: 'Aggregation time',
+      tokens: 'Total tokens', cost: 'Actual charge (USD)',
     },
   },
 }

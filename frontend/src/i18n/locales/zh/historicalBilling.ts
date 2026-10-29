@@ -12,14 +12,13 @@ export default {
     invalidRange: '请选择开始和结束日期，结束日期须不早于开始日期。',
     empty: '所选范围内没有已保留的用量记录。',
     timezone: '账单时区', coverage: '已保留用量日期', queried: '查询时间', updated: '最近汇总时间',
-    scope: '本次查询范围', provisional: '周期未结束', recorded: '已记录', total: '合计',
+    scope: '本次查询范围', total: '合计',
     note: '日期按账单时区计算；无记录日期不填零。当天数据尚未结束，可能滞后于最新请求。请求明细中的模型、Key、分组筛选不适用于此账单。',
     precision: '下载内容与当前显示的查询快照一致，USD 金额保留存储精度。',
     exportError: '账单下载失败，请重试。',
     headers: {
       date: '日期 / 月份', platform: '平台', requests: '请求数', input: '输入 Token', output: '输出 Token',
-      creation: '缓存写入 Token', read: '缓存读取 Token', tokens: '总 Token', cost: '实际消费（USD）',
-      status: '周期状态', updated: '汇总时间',
+      tokens: '总 Token', cost: '实际消费（USD）',
     },
   },
 }

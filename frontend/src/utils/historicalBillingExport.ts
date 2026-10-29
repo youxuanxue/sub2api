@@ -1,5 +1,6 @@
 import type { Workbook } from 'exceljs'
 import type { HistoricalBillingReport, HistoricalBillingRow } from '@/api/historicalBilling'
+import { historicalBillingValues } from './historicalBillingColumns'
 
 export interface HistoricalBillingExportLabels {
   headers: string[]
@@ -8,12 +9,11 @@ export interface HistoricalBillingExportLabels {
 }
 
 function exportRows(report: HistoricalBillingReport, labels: HistoricalBillingExportLabels) {
-  const values = (row: HistoricalBillingRow, total = false) => [
-    report.user_id, total ? labels.total : row.date,
-    total ? '' : row.platform || labels.unknownPlatform,
-    row.requests, row.input_tokens, row.output_tokens, row.total_tokens, row.actual_cost,
-    report.timezone,
-  ]
+  const values = (row: HistoricalBillingRow, total = false) => {
+    const cells = historicalBillingValues(row, labels.unknownPlatform)
+    if (total) { cells[0] = labels.total; cells[1] = '' }
+    return [report.user_id, ...cells, report.timezone]
+  }
   return [labels.headers, ...report.rows.map(row => values(row)), values(report.totals, true)]
 }
 

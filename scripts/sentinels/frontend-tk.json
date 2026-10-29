@@ -20,9 +20,18 @@
       "path": "frontend/src/components/usage/HistoricalUsageBilling.vue",
       "must_contain": [
         "useHistoricalBilling(props.admin",
-        "if (report.value !== snapshot) return"
+        "if (report.value !== snapshot) return",
+        "HISTORICAL_BILLING_COLUMNS.map(",
+        "historicalBillingValues(row,"
       ],
-      "rationale": "Shared billing lifecycle prevents stale exports across tenants and filter changes."
+      "rationale": "Shared billing lifecycle prevents stale exports across tenants and filter changes. Bill columns and values share the download owner to prevent display/export drift."
+    },
+    {
+      "path": "frontend/src/utils/historicalBillingExport.ts",
+      "must_contain": [
+        "historicalBillingValues(row, labels.unknownPlatform)"
+      ],
+      "rationale": "CSV and Excel must consume the same business columns as the historical bill table."
     },
     {
       "path": "Makefile",
