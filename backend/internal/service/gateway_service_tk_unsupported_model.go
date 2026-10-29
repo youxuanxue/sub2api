@@ -12,6 +12,21 @@ var ErrUnsupportedModel = errors.New("unsupported model")
 
 const TkUnsupportedModelErrType = "invalid_request_error"
 
+const (
+	TkUnsupportedRequestErrType = "invalid_request_error"
+	TkUnsupportedRequestCode    = "unsupported_request"
+)
+
+// TkUnsupportedRequestMessage is the client copy when entitled accounts exist
+// but none can serve this request. It must not say the service is busy.
+func TkUnsupportedRequestMessage(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return "Unsupported request"
+	}
+	return "Unsupported request for model: " + model
+}
+
 // TkUnsupportedModelMessage builds the client-facing message for an unserveable
 // model name (single source so path A and path B never drift).
 func TkUnsupportedModelMessage(model string) string {

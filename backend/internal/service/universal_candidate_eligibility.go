@@ -13,6 +13,11 @@ import (
 
 var ErrUniversalCapacityUnavailable = errors.New("universal key: entitled pools are temporarily unavailable")
 
+// ErrUniversalUnsupportedRequest means no entitled account could serve the
+// request: no legal route, or capability evidence is unknown or conflicted.
+// It is a client error, not a temporary pool gap.
+var ErrUniversalUnsupportedRequest = errors.New("universal key: request is not supported")
+
 // UniversalCapacityError wraps ErrUniversalCapacityUnavailable with the best
 // known platform when entitled pools support the model but none are currently
 // schedulable. Ops uses Platform for attribution when no backing group was bound.
@@ -260,12 +265,15 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 		if !supported && unsupportedModel && (errors.Is(evaluationErr, ErrProtocolCapabilityUnknown) || errors.Is(evaluationErr, ErrProtocolRouteUnavailable)) {
 			return nil, fmt.Errorf("%w: %s", ErrUniversalUnsupportedModel, model)
 		}
+		if !supported && unsupportedRequestSelection(evaluationErr) {
+			return nil, fmt.Errorf("%w: %s", ErrUniversalUnsupportedRequest, model)
+		}
 		capacity := ErrUniversalCapacityUnavailable
 		if supported && capacityHint != nil {
 			capacity = newUniversalCapacityError(capacityHint.Platform, capacityHint.ID, nil)
 		}
-		// Bare protocol-capability failures (no concrete unsupportedModel peer)
-		// become capacity — retryable platform state, not opaque prepare-500.
+		// Supported-but-not-ready protocol failures stay capacity. A selection
+		// where nothing supported the request is classified above.
 		if remapped, ok := remapProtocolSelectionFailure(evaluationErr, capacity); ok {
 			return nil, remapped
 		}

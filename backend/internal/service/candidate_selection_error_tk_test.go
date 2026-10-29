@@ -39,17 +39,32 @@ func TestRemapProtocolSelectionFailure(t *testing.T) {
 func TestCandidateSelectionError_ProtocolDoesNotOpaque500(t *testing.T) {
 	t.Parallel()
 
-	t.Run("capacity_when_nothing_supported", func(t *testing.T) {
+	t.Run("unsupported_request_when_capability_unknown", func(t *testing.T) {
 		err := candidateSelectionError(false, ErrProtocolCapabilityUnknown, "deepseek-v4-pro", PlatformNewAPI, 47, nil)
-		require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+		require.ErrorIs(t, err, ErrUniversalUnsupportedRequest)
+		require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
 		require.NotErrorIs(t, err, ErrProtocolCapabilityUnknown)
 		require.NotErrorIs(t, err, ErrUniversalUnsupportedModel)
+	})
+
+	t.Run("unsupported_request_when_nothing_supported", func(t *testing.T) {
+		err := candidateSelectionError(false, ErrProtocolRouteUnavailable, "deepseek-v4.1-flash", PlatformNewAPI, 3, nil)
+		require.ErrorIs(t, err, ErrUniversalUnsupportedRequest)
+		require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
+		require.NotErrorIs(t, err, ErrUniversalUnsupportedModel)
+		require.Equal(t, "Unsupported request for model: deepseek-v4.1-flash", TkUnsupportedRequestMessage("deepseek-v4.1-flash"))
 	})
 
 	t.Run("capacity_when_supported_but_exhausted", func(t *testing.T) {
 		err := candidateSelectionError(true, ErrProtocolRouteUnavailable, "deepseek-v4-pro", PlatformNewAPI, 47, nil)
 		require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
 		require.NotErrorIs(t, err, ErrProtocolRouteUnavailable)
+	})
+
+	t.Run("capacity_when_supported_despite_unknown_peer", func(t *testing.T) {
+		err := candidateSelectionError(true, ErrProtocolCapabilityUnknown, "deepseek-v4-pro", PlatformNewAPI, 47, nil)
+		require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+		require.NotErrorIs(t, err, ErrUniversalUnsupportedRequest)
 	})
 
 	t.Run("no_legal_route_with_supported_falls_to_capacity", func(t *testing.T) {

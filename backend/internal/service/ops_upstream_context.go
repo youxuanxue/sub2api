@@ -88,6 +88,7 @@ const (
 	OpsClientBusinessLimitedReasonLocalPolicyDenied        = "local_policy_denied"
 	OpsClientBusinessLimitedReasonLocalModelConfiguration  = "local_model_configuration"
 	OpsClientBusinessLimitedReasonUnsupportedModel         = "unsupported_model"
+	OpsClientBusinessLimitedReasonUnsupportedRequest       = "unsupported_request"
 	OpsClientBusinessLimitedReasonUnsupportedInputModality = "unsupported_input_modality"
 
 	// TK aliases kept after upstream renamed policy-denied → business-limited.

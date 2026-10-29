@@ -87,6 +87,11 @@ func tkSelectFailureStatusMessage(c *gin.Context, err error, reqModel string) (i
 		}
 		return http.StatusBadRequest, service.TkDeprecatedOpenAIErrorType, "Model is retired or not selectable"
 	}
+	if errors.Is(err, service.ErrUniversalUnsupportedRequest) {
+		markOpsClientRequestRejected(c)
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonUnsupportedRequest)
+		return http.StatusBadRequest, service.TkUnsupportedRequestErrType, service.TkUnsupportedRequestMessage(reqModel)
+	}
 	if errors.Is(err, service.ErrUnsupportedModel) {
 		// Own this to the client in ops regardless of the response envelope
 		// (/responses carries the type in `code`, not `type`).

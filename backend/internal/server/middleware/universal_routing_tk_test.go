@@ -492,7 +492,26 @@ func TestMaybeResolveUniversal_UnsupportedModelIs400(t *testing.T) {
 	}
 }
 
-func TestMaybeResolveUniversal_ProtocolCapabilityUnknownIs429Not500(t *testing.T) {
+func TestMaybeResolveUniversal_UnsupportedRequestIs400(t *testing.T) {
+	for _, path := range []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"} {
+		t.Run(path, func(t *testing.T) {
+			c, recorder := newTestCtx(http.MethodPost, path, `{"model":"deepseek-v4.1-flash","input":"hi"}`)
+			resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(21, service.PlatformAntigravity)}})
+			resolver.SetCandidateEvaluator(service.NewProtocolRouter(), func(context.Context, service.Group, string, service.UniversalShape) (service.GroupCandidateEligibility, error) {
+				return service.GroupCandidateEligibility{}, fmt.Errorf("%w: deepseek-v4.1-flash", service.ErrUniversalUnsupportedRequest)
+			})
+			key := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+			require.True(t, MaybeResolveUniversal(c, key, resolver))
+			require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+			require.Contains(t, recorder.Body.String(), "Unsupported request for model: deepseek-v4.1-flash")
+			require.NotContains(t, recorder.Body.String(), service.TkClientFacingBusy429Message)
+			require.False(t, service.HasOpsRoutingCapacityLimited(c))
+			require.Equal(t, service.OpsClientBusinessLimitedReasonUnsupportedRequest, service.OpsClientBusinessLimitedReason(c))
+		})
+	}
+}
+
+func TestMaybeResolveUniversal_ProtocolCapabilityUnknownIs400Not500(t *testing.T) {
 	for _, path := range []string{"/v1/chat/completions", "/v1/messages", "/v1beta/models/gemini-3-flash:generateContent"} {
 		t.Run(path, func(t *testing.T) {
 			c, recorder := newTestCtx(http.MethodPost, path, `{"model":"gemini-3-flash","messages":[{"role":"user","content":"hi"}]}`)
@@ -503,10 +522,12 @@ func TestMaybeResolveUniversal_ProtocolCapabilityUnknownIs429Not500(t *testing.T
 			})
 			key := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
 			require.True(t, MaybeResolveUniversal(c, key, resolver))
-			require.Equal(t, http.StatusTooManyRequests, recorder.Code, recorder.Body.String())
+			require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
 			require.NotContains(t, recorder.Body.String(), "Failed to prepare authorized candidates")
-			require.Contains(t, recorder.Body.String(), service.TkClientFacingBusy429Message)
-			require.True(t, service.HasOpsRoutingCapacityLimited(c))
+			require.NotContains(t, recorder.Body.String(), service.TkClientFacingBusy429Message)
+			require.Contains(t, recorder.Body.String(), "Unsupported request")
+			require.False(t, service.HasOpsRoutingCapacityLimited(c))
+			require.Equal(t, service.OpsClientBusinessLimitedReasonUnsupportedRequest, service.OpsClientBusinessLimitedReason(c))
 			require.False(t, c.GetBool(service.OpsRoutingInternalErrorKey))
 		})
 	}

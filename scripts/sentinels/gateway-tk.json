@@ -3359,7 +3359,7 @@
         "remapProtocolSelectionFailure(evaluationErr, capacity)",
         "metadata := gatewayRequestRoutingMetadata(body)"
       ],
-      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification. Concrete model misses outrank unknown peer capability evidence. UniversalCapacityError may carry selection diagnostics. Bare protocol-capability failures (no concrete unsupportedModel peer) remap to capacity."
+      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification. Concrete model misses outrank unknown peer capability evidence. UniversalCapacityError may carry selection diagnostics. A route miss or unknown capability with no supported account is ErrUniversalUnsupportedRequest (client 400), not busy. Supported-but-not-ready stays capacity."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
@@ -3374,7 +3374,7 @@
         "apiKey.GroupID = &backing.ID",
         "errors.Is(err, service.ErrProtocolCapabilityUnknown) || errors.Is(err, service.ErrProtocolRouteUnavailable)"
       ],
-      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit. True routing internals stay platform-owned 500 with sanitized ops detail — not remapped to client unsupported_model. capacity_unavailable logs selection filter counts when present. Residual protocol capability/route errors must write capacity 429 (defense in depth), not opaque prepare-500."
+      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit. True routing internals stay platform-owned 500 with sanitized ops detail — not remapped to client unsupported_model. capacity_unavailable logs selection filter counts when present. Residual unknown capability and route-unavailable with no supported account both write 400 unsupported_request, not busy and not opaque prepare-500."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk_alias_test.go",
@@ -15275,14 +15275,15 @@
         "TestCandidateSelectionError_ProtocolDoesNotOpaque500",
         "remapProtocolSelectionFailure(err, capacity)"
       ],
-      "rationale": "Focused regression that protocol capability unknown/route-unavailable becomes capacity 429 (not unsupported-model and not opaque 500)."
+      "rationale": "Unknown capability and a route miss with no supported account are unsupported_request, not capacity and not opaque 500. Supported-but-exhausted stays capacity."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk_test.go",
       "must_contain": [
-        "TestMaybeResolveUniversal_ProtocolCapabilityUnknownIs429Not500"
+        "TestMaybeResolveUniversal_ProtocolCapabilityUnknownIs400Not500",
+        "TestMaybeResolveUniversal_UnsupportedRequestIs400"
       ],
-      "rationale": "Middleware defense-in-depth: residual ErrProtocolCapabilityUnknown must still emit capacity 429 with ops detail."
+      "rationale": "Middleware defense-in-depth: residual ErrProtocolCapabilityUnknown and a selection that supports nothing both write 400 unsupported_request instead of the busy 429, and neither is an opaque prepare-500."
     },
     {
       "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",

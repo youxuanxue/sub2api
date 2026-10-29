@@ -1431,6 +1431,17 @@ func TestClassifyOpsUnsupportedModelExcludedFromSLA(t *testing.T) {
 	}
 }
 
+func TestClassifyOpsUniversalUnsupportedRequestIsClientRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonUnsupportedRequest)
+	phase, limited, owner, source := classifyOpsErrorLog(c, "invalid_request_error", "Unsupported request for model: deepseek-v4.1-flash", "unsupported_request", http.StatusBadRequest)
+	require.Equal(t, "request", phase)
+	require.True(t, limited)
+	require.Equal(t, "client", owner)
+	require.Equal(t, "client_request", source)
+}
+
 func TestClassifyOpsUniversalUnsupportedModelIsClientRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, errType := range []string{"invalid_request_error", "api_error"} {
