@@ -1493,6 +1493,31 @@
         "tokenkey_status": "fixed_in_tokenkey",
         "rationale": "Same OpenCode DeepSeek developer role fix as #8375."
       }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8390",
+      "severity": "normal",
+      "summary": "Channel UpdateChannel replaced features_config wholesale while the admin UI only submitted the anthropic web_search_emulation dimension, wiping openai/command_code/... settings. TokenKey now merges per-platform dimensions on applyUpdateInput and the channel editor renders/submits the whitelist platforms.",
+      "tokenkey_pr": "youxuanxue/sub2api#2973",
+      "fixed_by": [
+        "backend/internal/service/channel_service.go",
+        "backend/internal/service/channel_websearch_merge_test.go",
+        "frontend/src/utils/channelFormConversion.ts",
+        "frontend/src/views/admin/ChannelsView.vue"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/channel_service.go:func mergeWebSearchEmulationDimensions(existing, incoming map[string]any) map[string]any {",
+        "backend/internal/service/channel_service.go:channel.FeaturesConfig = mergeWebSearchEmulationDimensions(channel.FeaturesConfig, input.FeaturesConfig)",
+        "backend/internal/service/channel_websearch_merge_test.go:func TestMergeWebSearchEmulationDimensions_MissingDimensionsInherited(t *testing.T) {",
+        "frontend/src/utils/channelFormConversion.ts:export const WEB_SEARCH_EMULATION_PLATFORMS: ReadonlySet<string> = new Set([",
+        "frontend/src/views/admin/ChannelsView.vue:WEB_SEARCH_EMULATION_PLATFORMS.has(section.platform) && webSearchGlobalEnabled"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Ported Wei-Shaw/sub2api#8390: mergeWebSearchEmulationDimensions preserves non-submitted platform dimensions on channel update; FE whitelist renders/submits anthropic/openai/command_code/opencode_go/minimax/zhipu."
+      }
     }
   ]
 }
