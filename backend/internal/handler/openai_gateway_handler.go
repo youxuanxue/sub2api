@@ -2669,8 +2669,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	previousResponseID := strings.TrimSpace(gjson.GetBytes(firstMessage, "previous_response_id").String())
 	previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 	if previousResponseID != "" && previousResponseIDKind == service.OpenAIPreviousResponseIDKindMessageID {
-		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "previous_response_id must be a response.id (resp_*), not a message id")
-		return
+		// The first frame follows the same strip-and-continue policy even when
+		// candidate scheduling is disabled. Later delta frames remain fail-closed.
+		stripped, stripErr := service.DropUnauthorizedPreviousResponseID(firstMessage)
+		if stripErr != nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "previous_response_id is not available for this user")
+			return
+		}
+		firstMessage = stripped
+		previousResponseID = ""
+		previousResponseIDKind = ""
 	}
 	firstMessageToolCoverage := service.AnalyzeToolCallOutputContextCoverageBytes(firstMessage)
 	previousResponseCanMove := !firstMessageToolCoverage.HasFunctionCallOutput || firstMessageToolCoverage.ContextCoversAllCallIDs

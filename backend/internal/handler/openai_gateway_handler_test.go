@@ -1276,7 +1276,7 @@ func TestOpenAIResponsesWebSocket_IngressLeaseReleasedWhenUpgradeFails(t *testin
 	}, time.Second, 10*time.Millisecond)
 }
 
-func TestOpenAIResponsesWebSocket_RejectsMessageIDAsPreviousResponseID(t *testing.T) {
+func TestOpenAIResponsesWebSocket_StripsMessageIDAsPreviousResponseIDWithoutCandidateScheduling(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	h := newOpenAIHandlerForPreviousResponseIDValidation(t, nil)
@@ -1303,9 +1303,7 @@ func TestOpenAIResponsesWebSocket_RejectsMessageIDAsPreviousResponseID(t *testin
 	cancelRead()
 	require.Error(t, err)
 	var closeErr coderws.CloseError
-	require.ErrorAs(t, err, &closeErr)
-	require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
-	require.Contains(t, strings.ToLower(closeErr.Reason), "previous_response_id")
+	require.False(t, errors.As(err, &closeErr), "first-frame message ids must be stripped before the later-turn fail-closed path")
 }
 
 func TestOpenAIResponsesWebSocket_PreviousResponseIDKindLoggedBeforeAcquireFailure(t *testing.T) {
