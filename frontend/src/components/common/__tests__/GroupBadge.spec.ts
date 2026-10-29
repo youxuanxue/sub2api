@@ -86,8 +86,6 @@ describe('GroupBadge (hideRateValue — user-facing pages)', () => {
   it('keeps the subscription days label even when hideRateValue (not a rate)', () => {
     // alwaysShowRate would normally force the rate; hideRateValue must fall the
     // subscription badge back to its days label and drop the rate value.
-    // (i18n interpolation is disabled in this test build, so the days label
-    // renders as the raw key — we assert the rate is gone + the label exists.)
     const wrapper = mountBadge({
       subscriptionType: 'subscription',
       daysRemaining: 15,
@@ -97,6 +95,6 @@ describe('GroupBadge (hideRateValue — user-facing pages)', () => {
     })
     const text = wrapper.text()
     expect(text).not.toContain('3x')
-    expect(text).toContain('daysRemaining')
+    expect(text).toContain('15 days')
   })
 })
