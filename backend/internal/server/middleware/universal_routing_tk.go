@@ -107,6 +107,17 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 				writeUniversalBodyReadError(c, shape, decodeErr, "normalize", inputBytes)
 				return true
 			}
+			// TK: chat completions must drop the Claude Code "[1m]" alias before
+			// candidate evaluation. Kiro's catalog matches the bare id only;
+			// leaving the suffix here admits TokenSea and excludes Kiro even
+			// though the upstream request is the same bare model.
+			if stripped, _, ok := service.TkStripContextWindowAliasJSONModel(body); ok {
+				body = stripped
+				c.Request.Body = io.NopCloser(bytes.NewReader(body))
+				c.Request.ContentLength = int64(len(body))
+				c.Request.Header.Del("Content-Encoding")
+				c.Request.Header.Del("Content-Length")
+			}
 		}
 		if shape == service.ShapeAnthropicMessages || shape == service.ShapeAnthropicCountTokens {
 			parsed, parseErr := service.ParseGatewayRequest(service.NewRequestBodyRef(body), service.PlatformAnthropic)

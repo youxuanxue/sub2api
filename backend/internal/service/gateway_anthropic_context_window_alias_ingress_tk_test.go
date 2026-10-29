@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func parseAnthropicIngressBody(t *testing.T, body string) *ParsedRequest {
@@ -253,4 +254,25 @@ func TestTkStripContextWindowAliasAtIngress_BillingAndSessionHashConsistency(t *
 	svc := &GatewayService{}
 	require.Equal(t, svc.GenerateSessionHash(bareOnly), svc.GenerateSessionHash(aliased))
 	require.NotEmpty(t, svc.GenerateSessionHash(aliased))
+}
+
+func TestTkStripContextWindowAliasJSONModel_ChatBareIDAdmitsKiro(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-5-5[1m]","temperature":0.2,"messages":[{"role":"user","content":"hi"}]}`)
+	require.False(t, kiroSupportsModel("claude-opus-5-5[1m]"))
+
+	next, bare, ok := TkStripContextWindowAliasJSONModel(body)
+	require.True(t, ok)
+	require.Equal(t, "claude-opus-5-5", bare)
+	require.True(t, kiroSupportsModel(bare))
+	require.Equal(t, "claude-opus-5-5", gjson.GetBytes(next, "model").String())
+	require.Equal(t, "hi", gjson.GetBytes(next, "messages.0.content").String())
+	require.InDelta(t, 0.2, gjson.GetBytes(next, "temperature").Float(), 1e-9)
+
+	again, _, strippedAgain := TkStripContextWindowAliasJSONModel(next)
+	require.False(t, strippedAgain)
+	require.Nil(t, again)
+
+	kept, _, strippedKept := TkStripContextWindowAliasJSONModel([]byte(`{"model":"claude-[1m]-preview","messages":[]}`))
+	require.False(t, strippedKept)
+	require.Nil(t, kept)
 }
