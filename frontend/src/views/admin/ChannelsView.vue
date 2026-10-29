@@ -323,8 +323,8 @@
               </div>
             </div>
 
-            <!-- Web Search Emulation (Anthropic only, hidden when global disabled) -->
-            <div v-if="section.platform === 'anthropic' && webSearchGlobalEnabled" class="border-t border-gray-200 pt-3 dark:border-dark-600">
+            <!-- Web Search Emulation (platform whitelist, hidden when global disabled) -->
+            <div v-if="WEB_SEARCH_EMULATION_PLATFORMS.has(section.platform) && webSearchGlobalEnabled" class="border-t border-gray-200 pt-3 dark:border-dark-600">
               <div class="flex items-center justify-between">
                 <div>
                   <label class="text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -663,6 +663,17 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 // Web Search global enabled state (loaded once on mount)
+// Platforms that support the channel-level Web Search emulation toggle.
+// Keep in sync with formSectionsToApi in @/utils/channelFormConversion.
+const WEB_SEARCH_EMULATION_PLATFORMS: ReadonlySet<string> = new Set([
+  'anthropic',
+  'openai',
+  'command_code',
+  'opencode_go',
+  'minimax',
+  'zhipu',
+])
+
 const webSearchGlobalEnabled = ref(false)
 async function loadWebSearchGlobalState() {
   try {
