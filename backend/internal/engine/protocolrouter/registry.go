@@ -224,11 +224,10 @@ func preservesChatToMessages(req CanonicalRequest) bool {
 }
 
 func preservesResponsesConversion(req CanonicalRequest) bool {
-	// Align with ResponsesToChatCompletionsRequest and messages→chat: function
-	// tools plus text/image/video are preserved; reasoning.effort maps to Chat.
-	// Audio, previous_response_id continuation, and prompt-cache metadata stay
-	// fail-closed — the converter does not preserve prompt_cache_key /
-	// cache_control, so Plan must not claim those features are preserved.
+	// Lossless surface: function tools, text/image/video, and mapped
+	// reasoning.effort. prompt_cache_key, cache_control, previous_response_id,
+	// and audio are not preserved here. downgradeResponsesToChat removes them
+	// before this check and marks the plan so native Responses stays ahead.
 	return preservesMessagesToResponsesContent(req) &&
 		req.responsesPath == ResponsesPathRoot &&
 		req.profile.Continuation == ContinuationNone &&
