@@ -1,7 +1,7 @@
 ---
 title: Protocol Routing Single Source of Truth
 status: approved
-approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, conversation, conversation_id, and audio behind native Responses; unowned previous_response_id is dropped before forwarding)"
+approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, conversation, conversation_id, and audio behind native Responses; unowned previous_response_id is dropped before forwarding on HTTP and the first WebSocket frame, while later WebSocket turns stay fail-closed)"
 authors: [codex]
 created: 2026-08-24
 revised: 2026-10-29
@@ -9,9 +9,10 @@ revision_note: >
   2026-10-29: Responses→Chat drops prompt_cache_key, cache_control,
   previous_response_id, conversation, conversation_id, and audio, then still
   serves. That plan ranks behind native Responses, which keeps the fields.
-  An HTTP previous_response_id with no binding, a failed binding lookup, or a
-  message id in that field is removed before selection and is not forwarded.
-  Lossless preserve stays unchanged.
+  An HTTP or first-frame WebSocket previous_response_id with no binding, a
+  failed binding lookup, or a message id in that field is removed before
+  selection and is not forwarded. Later WebSocket turns stay fail-closed
+  rather than losing their delta context. Lossless preserve stays unchanged.
   2026-10-26: Volc Agent Plan joins TokenSea/CloudWise as Plan-facing Chat-only
   (omit native responses); responses→chat preserve aligns with converter
   (tools/image/video + mapped reasoning.effort; prompt-cache still fail-closed);
@@ -350,11 +351,14 @@ preserve function tools and images through the existing apicompat conversions.
 removed from the effective request and the plan is marked
 `responses_chat_drop_unsupported_fields` (compatibility rank 1). Native
 `responses` keeps those fields at rank 0, so selection prefers an account that
-can serve them unchanged. An HTTP `previous_response_id` with no binding for
-the authenticated user, a failed binding lookup, or a message id in that field
-is removed before that ranking and is not forwarded, so it cannot resume
-another user's upstream history; a binding this user can read still pins the
-original account and keeps the field on the native plan.
+can serve them unchanged. An HTTP or first-frame WebSocket
+`previous_response_id` with no binding for the authenticated user, a failed
+binding lookup, or a message id in that field is removed before that ranking
+and is not forwarded, so it cannot resume another user's upstream history; a
+binding this user can read still pins the original account and keeps the field
+on the native plan. Later WebSocket turns stay fail-closed instead of being
+stripped, because a delta frame without its pointer would silently restart the
+upstream conversation.
 Non-root Responses paths stay rejected. A supply mismatch is candidate-local
 `ErrNoLegalRoute`, not an internal selection error. Known-negative input
 modalities stay on the multimodal supply gate and are decided before this drop.

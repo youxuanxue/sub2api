@@ -2118,7 +2118,8 @@
         "capacityDiag          *CandidateCapacityDiag",
         "func (r *CandidateRequest) pathContext(",
         "ResolveCandidateContinuation(ctx, key, eligible, previous)",
-        "websocket && !bytes.Equal(nextBody, body)",
+        "func CandidateRequestBody(ctx context.Context) ([]byte, bool)",
+        "if owner != accountID {",
         "CheckCandidateBillingEligibility",
         "r.onBind(selected.ctx, selected.group, subscription)",
         "r.peekGroupRPM(ctx, billing, r.key.User, group)",
@@ -2788,7 +2789,8 @@
         "TestGlobalCandidateWindowRecoveryAndStickyAdmission",
         "TestGlobalCandidateNativeConverterParityAndGoogleFailover",
         "TestCandidateResponsesImagePermissionPrecedesBillingOrigin",
-        "TestPrepareCandidateWebSocketRejectsUnverifiedPreviousResponseID"
+        "TestPrepareCandidateWebSocketStripsUnverifiedPreviousResponseID",
+        "TestRevalidateTurnStillRejectsUnverifiedPreviousResponseID"
       ],
       "rationale": "Executable regressions cover production selection, topology, duplicate membership, capacity races and wait revalidation."
     },
@@ -2808,7 +2810,8 @@
         "TestCandidateWebSocket_ZeroWalletUsesActiveSubscription",
         "TestCandidateWebSocket_RechecksKeyAndEntitlementBeforeNextFrame",
         "TestCandidateWebSocket_PassthroughReacquiresSlotsForEachTurn",
-        "TestCandidateWebSocket_ReasoningPolicyFollowsEachTurnBillingOrigin"
+        "TestCandidateWebSocket_ReasoningPolicyFollowsEachTurnBillingOrigin",
+        "TestCandidateWebSocket_StripsUnverifiedContinuationOnFirstFrame"
       ],
       "rationale": "Socket integration pins first-frame admission, recurring authorization, subscription-only clients and per-turn slots."
     },

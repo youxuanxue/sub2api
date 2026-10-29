@@ -441,7 +441,7 @@ func TestCandidateWebSocket_ZeroWalletUsesActiveSubscription(t *testing.T) {
 }
 
 func TestCandidateWebSocket_RejectsInvalidFirstFrameBeforeUpstream(t *testing.T) {
-	for _, payload := range []string{`{`, `{"type":"response.create","input":"hello"}`, `{"type":"session.update","model":"gpt-5.4"}`, `{"type":"response.create","model":"gpt-5.4","previous_response_id":"resp_unknown","input":"hello"}`} {
+	for _, payload := range []string{`{`, `{"type":"response.create","input":"hello"}`, `{"type":"session.update","model":"gpt-5.4"}`} {
 		t.Run(payload, func(t *testing.T) {
 			fixture := newCandidateWSSocketFixture(t, service.OpenAIWSIngressModePassthrough, false)
 			conn := fixture.dial(t)
@@ -521,5 +521,42 @@ func TestCandidateWebSocket_PassthroughReacquiresSlotsForEachTurn(t *testing.T) 
 			default:
 			}
 		})
+	}
+}
+
+func TestCandidateWebSocket_StripsUnverifiedContinuationOnFirstFrame(t *testing.T) {
+	// A message id in that field is just another pointer this user cannot
+	// resume, so the first frame strips it exactly like an unbound resp_*.
+	for _, pointer := range []string{"resp_unknown", "msg_abc123"} {
+		for _, mode := range []string{service.OpenAIWSIngressModePassthrough, service.OpenAIWSIngressModeCtxPool} {
+			t.Run(pointer+"/"+mode, func(t *testing.T) {
+				fixture := newCandidateWSSocketFixture(t, mode, false)
+				conn := fixture.dial(t)
+				candidateWSWrite(t, conn, `{"type":"response.create","model":"gpt-5.4","previous_response_id":"`+pointer+`","input":"hello"}`)
+				data, err := candidateWSRead(t, conn)
+				require.NoError(t, err)
+				require.Equal(t, "response.completed", gjson.GetBytes(data, "type").String())
+				select {
+				case payload := <-fixture.upstream:
+					require.False(t, gjson.GetBytes(payload, "previous_response_id").Exists(), string(payload))
+					require.Equal(t, "hello", gjson.GetBytes(payload, "input").String())
+				case <-time.After(time.Second):
+					t.Fatal("upstream frame missing")
+				}
+				// A later delta frame cannot lose its pointer silently; it must fail
+				// closed rather than start a fresh conversation upstream.
+				candidateWSWrite(t, conn, `{"type":"response.create","model":"gpt-5.4","previous_response_id":"resp_unknown","input":"delta"}`)
+				_, err = candidateWSRead(t, conn)
+				require.Error(t, err)
+				var closeErr coderws.CloseError
+				require.ErrorAs(t, err, &closeErr)
+				require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
+				select {
+				case payload := <-fixture.upstream:
+					t.Fatalf("delta frame reached upstream: %s", payload)
+				case <-time.After(200 * time.Millisecond):
+				}
+			})
+		}
 	}
 }

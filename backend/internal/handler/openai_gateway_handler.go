@@ -2623,6 +2623,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 		ctx = nextCtx
 		c.Request = c.Request.WithContext(ctx)
+		if authorizedBody, ok := service.CandidateRequestBody(ctx); ok {
+			// Candidate admission may strip an unowned or unresolvable
+			// previous_response_id. Keep the actual forwarded frame aligned with
+			// the body that was authorized and selected.
+			firstMessage = authorizedBody
+		}
 		candidate.SetBindingObserver(func(next context.Context, group *service.Group, subscription *service.UserSubscription) {
 			ctx = next
 			c.Request = c.Request.WithContext(next)

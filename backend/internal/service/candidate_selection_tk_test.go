@@ -62,22 +62,64 @@ func globalCandidateAccount(id int64, priority int, groups ...int64) Account {
 	return a
 }
 
-func TestPrepareCandidateWebSocketRejectsUnverifiedPreviousResponseID(t *testing.T) {
+func TestPrepareCandidateWebSocketStripsUnverifiedPreviousResponseID(t *testing.T) {
+	for _, scenario := range []string{"missing", "foreign", "lookup_error", "owned"} {
+		t.Run(scenario, func(t *testing.T) {
+			group := grp(10, PlatformOpenAI, 0, false)
+			account := globalCandidateAccount(1, 1, 10)
+			account.Extra["openai_apikey_responses_websockets_v2_enabled"] = true
+			attachTestProtocolCapability(&account, protocolrouter.ProtocolResponses)
+			r, _, key := globalCandidateFixture([]Group{group}, []Account{account})
+			r.candidateOpenAI.cfg = newSchedulerTestOpenAIWSV2Config()
+			cache := &candidateIdentityTestCache{}
+			if scenario == "foreign" || scenario == "owned" {
+				userID := key.UserID
+				if scenario == "foreign" {
+					userID++
+				}
+				require.NoError(t, NewOpenAIWSStateStore(cache).BindResponseAccount(WithCandidateIdentity(context.Background(), userID, key.ID), 10, "resp_test", account.ID, time.Hour))
+			}
+			if scenario == "lookup_error" {
+				cache.readErr = errors.New("lookup failed")
+			}
+			r.candidateOpenAI.cache = cache
+			body := []byte(`{"type":"response.create","model":"gpt-5.4","previous_response_id":"resp_test","input":"hello"}`)
+			ctx, state, err := r.PrepareCandidateWebSocket(context.Background(), key, "/v1/responses", "gpt-5.4", body, "", "")
+			require.NoError(t, err)
+			forwarded, ok := CandidateRequestBody(ctx)
+			require.True(t, ok)
+			if scenario == "owned" {
+				require.JSONEq(t, string(body), string(forwarded))
+				require.Equal(t, account.ID, state.continuationAccountID)
+			} else {
+				require.JSONEq(t, `{"type":"response.create","model":"gpt-5.4","input":"hello"}`, string(forwarded))
+				require.Zero(t, state.continuationAccountID)
+			}
+			require.Contains(t, string(body), "resp_test")
+		})
+	}
+}
+
+// A later WebSocket frame is a delta: stripping its pointer would silently
+// start a fresh upstream conversation and lose earlier turns, so revalidation
+// must keep the explicit failure.
+func TestRevalidateTurnStillRejectsUnverifiedPreviousResponseID(t *testing.T) {
 	group := grp(10, PlatformOpenAI, 0, false)
 	account := globalCandidateAccount(1, 1, 10)
-	attachTestProtocolCapability(&account, protocolrouter.ProtocolResponses, protocolrouter.ProtocolChatCompletions)
+	account.Extra["openai_apikey_responses_websockets_v2_enabled"] = true
+	attachTestProtocolCapability(&account, protocolrouter.ProtocolResponses)
 	r, _, key := globalCandidateFixture([]Group{group}, []Account{account})
-	body := []byte(`{"model":"gpt-5.4","previous_response_id":"resp_other","input":"hello"}`)
-
-	_, _, err := r.PrepareCandidateWebSocket(context.Background(), key, "/v1/responses", "gpt-5.4", body, "", "")
-	require.ErrorIs(t, err, ErrCandidateContinuationUnavailable)
-
-	_, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/responses", "gpt-5.4", body, "", "")
+	r.candidateOpenAI.cfg = newSchedulerTestOpenAIWSV2Config()
+	cache := &candidateIdentityTestCache{}
+	r.candidateOpenAI.cache = cache
+	body := []byte(`{"type":"response.create","model":"gpt-5.4","previous_response_id":"resp_other","input":"delta"}`)
+	_, state, err := r.PrepareCandidateWebSocket(context.Background(), key, "/v1/responses", "gpt-5.4", body, "", "")
 	require.NoError(t, err)
-	require.Zero(t, state.continuationAccountID)
-	require.NotContains(t, string(state.body), "previous_response_id")
-	require.NotContains(t, string(state.body), "resp_other")
-	require.Contains(t, string(state.body), "hello")
+	require.ErrorIs(t, state.RevalidateTurn(context.Background(), account.ID, "gpt-5.4", body), ErrCandidateContinuationUnavailable)
+	// An unreadable binding surfaces its lookup error; the handler turns either
+	// failure into the same fail-closed close, so no pointer is forwarded.
+	cache.readErr = errors.New("lookup failed")
+	require.Error(t, state.RevalidateTurn(context.Background(), account.ID, "gpt-5.4", body))
 }
 
 func TestGlobalCandidateAccountPriorityIgnoresGroupTopology(t *testing.T) {

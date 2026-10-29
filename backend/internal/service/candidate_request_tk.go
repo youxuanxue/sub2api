@@ -97,6 +97,17 @@ func CandidateRequestFromContext(ctx context.Context) *CandidateRequest {
 	return r
 }
 
+// CandidateRequestBody returns the payload after candidate authorization and
+// any safety shaping. WebSocket ingress must forward this exact body when a
+// continuation pointer was removed during admission.
+func CandidateRequestBody(ctx context.Context) ([]byte, bool) {
+	r := CandidateRequestFromContext(ctx)
+	if r == nil {
+		return nil, false
+	}
+	return append([]byte(nil), r.body...), true
+}
+
 func CandidateSubscription(ctx context.Context, fallback *UserSubscription) *UserSubscription {
 	if r := CandidateRequestFromContext(ctx); r != nil {
 		return r.subscription
@@ -243,12 +254,6 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 	if err != nil {
 		return ctx, nil, err
 	}
-	if websocket && !bytes.Equal(nextBody, body) {
-		// The forwarded WebSocket frame is the caller's original payload.
-		// Rewriting only this planning copy would still send an unverified
-		// previous_response_id upstream.
-		return ctx, nil, ErrCandidateContinuationUnavailable
-	}
 	if !bytes.Equal(nextBody, body) {
 		body = nextBody
 		state.body = append([]byte(nil), body...)
@@ -272,6 +277,10 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 // RevalidateTurn pins the execution account while rechecking authorization and
 // payment before a subsequent WebSocket turn reserves funds.
 func (r *CandidateRequest) RevalidateTurn(ctx context.Context, accountID int64, model string, body []byte) error {
+	// A later WebSocket frame is a delta that relies on the upstream holding the
+	// earlier turns. Dropping its pointer would silently start a fresh
+	// conversation and lose that context, so an unverifiable pointer keeps the
+	// explicit failure instead of being stripped like the first frame.
 	if previous := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String()); previous != "" {
 		owner, err := r.resolver.candidateOpenAI.ResolveCandidateContinuation(ctx, r.key, r.groups, previous)
 		if err != nil {
