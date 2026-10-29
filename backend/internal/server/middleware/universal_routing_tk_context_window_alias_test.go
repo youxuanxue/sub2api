@@ -151,11 +151,6 @@ func TestUniversalContextWindowAliasPreservesOutOfScopeRequests(t *testing.T) {
 	}
 }
 
-// A forced OpenAI platform on the Anthropic-shaped path is gated out of the
-// strip. It never reaches candidate evaluation anyway (universal plan policy
-// rejects it with 403 for the bare id too), so the only assertable contract is
-// that the suffix is still present in the rejection — proof the Anthropic-only
-// gate held rather than silently widening to OpenAI-compat.
 // Chat completions must evaluate and forward the bare id. Kiro's catalog does
 // not contain the "[1m]" suffix, so leaving it on the model admits only
 // accounts whose mapping normalizes the alias (TokenSea) and skips Kiro.
@@ -181,6 +176,11 @@ func TestUniversalChatContextWindowAliasStrippedBeforeCandidateEvaluation(t *tes
 	require.Equal(t, "hello", gjson.GetBytes(handlerBody, "messages.0.content").String())
 }
 
+// A forced OpenAI platform on the Anthropic-shaped path is gated out of the
+// strip. It never reaches candidate evaluation anyway (universal plan policy
+// rejects it with 403 for the bare id too), so the only assertable contract is
+// that the suffix is still present in the rejection — proof the Anthropic-only
+// gate held rather than silently widening to OpenAI-compat.
 func TestUniversalContextWindowAliasSkipsForcedOpenAIPlatform(t *testing.T) {
 	c, rec := newTestCtx(http.MethodPost, "/v1/messages",
 		`{"model":"gpt-5.5[1m]","messages":[{"role":"user","content":"hello"}]}`)
