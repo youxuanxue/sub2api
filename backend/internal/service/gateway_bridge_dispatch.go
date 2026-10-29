@@ -96,6 +96,7 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 	if err != nil {
 		return nil, err
 	}
+	body = applyNewAPIAnthropicThinkingTemperature(account, gjson.GetBytes(body, "model").String(), body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}

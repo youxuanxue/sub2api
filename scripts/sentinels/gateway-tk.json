@@ -4785,9 +4785,27 @@
         "rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)",
         "rewriteNewAPIBridgeBodyModel(account, body, \"\")",
         "applyNewAPIAliFixedSamplingShape",
-        "applyMoonshotK3DynamicToolsShape"
+        "applyMoonshotK3DynamicToolsShape",
+        "applyNewAPIAnthropicThinkingTemperature"
       ],
-      "rationale": "Bridge chat/embeddings/images dispatch and admin account-test probes must call rewriteNewAPIBridgeBodyModel after sticky injection so upstream model_mapping alias applies on the newapi adaptor path. Chat and account-test paths must also pin kimi-k3 fixed sampling and promote Moonshot dynamic tools before the Ali/Volc adaptors."
+      "rationale": "Bridge chat/embeddings/images dispatch and admin account-test probes must call rewriteNewAPIBridgeBodyModel after sticky injection so upstream model_mapping alias applies on the newapi adaptor path. Chat and account-test paths must also pin kimi-k3 fixed sampling and promote Moonshot dynamic tools before the Ali/Volc adaptors. Chat dispatch must pin temperature to 1 before the new-api Claude adaptor turns reasoning_effort into thinking, or Opus 5.5 returns 400."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic_thinking_temperature.go",
+      "must_contain": [
+        "func applyNewAPIAnthropicThinkingTemperature",
+        "func newAPIClaudeRequestEnablesThinking",
+        "account.ChannelType != newapiconstant.ChannelTypeAnthropic"
+      ],
+      "rationale": "Opus 5.5 rejects a non-1 temperature once the new-api Claude adaptor turns reasoning_effort, reasoning.max_tokens, or a -thinking suffix into thinking.type=enabled. The helper must stay limited to Anthropic-channel Claude requests that carry those signals."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic_thinking_temperature_test.go",
+      "must_contain": [
+        "TestApplyNewAPIAnthropicThinkingTemperature_PinsNonDefaultTemperature",
+        "TestApplyNewAPIAnthropicThinkingTemperature_LeavesUnconstrainedRequests"
+      ],
+      "rationale": "Regression for the thinking-temperature pin: reasoning_effort, reasoning.max_tokens, and -thinking set temperature to 1; already-1, no thinking signal, omitted temperature, non-Claude, and non-Anthropic channel stay unchanged."
     },
     {
       "path": "backend/internal/service/openai_codex_transform.go",
