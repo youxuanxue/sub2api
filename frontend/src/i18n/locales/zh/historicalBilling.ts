@@ -19,8 +19,7 @@ export default {
     headers: {
       date: '日期 / 月份', platform: '平台', requests: '请求数', input: '输入 Token', output: '输出 Token',
       creation: '缓存写入 Token', read: '缓存读取 Token', tokens: '总 Token', cost: '实际消费（USD）',
-      status: '周期状态', updated: '汇总时间', queried: '查询时间',
-      selectedPlatform: '所选平台', availableStart: '最早保留日期', availableEnd: '最新保留日期',
+      status: '周期状态', updated: '汇总时间',
     },
   },
 }

@@ -19,8 +19,7 @@ export default {
     headers: {
       date: 'Date / month', platform: 'Platform', requests: 'Requests', input: 'Input tokens', output: 'Output tokens',
       creation: 'Cache write tokens', read: 'Cache read tokens', tokens: 'Total tokens', cost: 'Actual charge (USD)',
-      status: 'Period status', updated: 'Aggregation time', queried: 'Query time',
-      selectedPlatform: 'Selected platform', availableStart: 'First retained date', availableEnd: 'Last retained date',
+      status: 'Period status', updated: 'Aggregation time',
     },
   },
 }
