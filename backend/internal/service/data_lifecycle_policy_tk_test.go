@@ -17,16 +17,16 @@ func TestResolveDataLifecyclePolicyRoleLimits(t *testing.T) {
 		Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"},
 		DashboardAgg: config.DashboardAggregationConfig{
 			Retention: config.DashboardAggregationRetentionConfig{
-				UsageLogsDays:         180,
-				UsageBillingDedupDays: 365,
+				UsageLogsDays:         500,
+				UsageBillingDedupDays: 730,
 			},
 		},
 	}, cleanup)
 	require.Equal(t, "prod", prod.role)
-	require.Equal(t, 90, prod.usageLogRetentionDays)
+	require.Equal(t, 400, prod.usageLogRetentionDays)
 	require.Equal(t, 30, prod.errorLogRetentionDays)
 	require.Equal(t, 7, prod.systemLogRetentionDays)
-	require.Equal(t, 365, prod.billingDedupRetentionDays)
+	require.Equal(t, 400, prod.billingDedupRetentionDays)
 }
 
 func TestResolveDataLifecyclePolicyPreservesShorterAndZeroValues(t *testing.T) {
@@ -46,10 +46,10 @@ func TestResolveDataLifecyclePolicyPreservesShorterAndZeroValues(t *testing.T) {
 	require.Equal(t, 2, policy.usageLogRetentionDays)
 	require.Equal(t, 5, policy.errorLogRetentionDays)
 	require.Zero(t, policy.systemLogRetentionDays)
-	require.Equal(t, 365, policy.billingDedupRetentionDays)
+	require.Equal(t, 400, policy.billingDedupRetentionDays)
 }
 
-func TestResolveDataLifecyclePolicyFixesBillingDedupAtOneYear(t *testing.T) {
+func TestResolveDataLifecyclePolicyPinsBillingDedup(t *testing.T) {
 	for _, configured := range []int{0, 30, 730} {
 		cfg := &config.Config{
 			DashboardAgg: config.DashboardAggregationConfig{
@@ -59,13 +59,13 @@ func TestResolveDataLifecyclePolicyFixesBillingDedupAtOneYear(t *testing.T) {
 			},
 		}
 		policy := resolveDataLifecyclePolicy(cfg, config.OpsCleanupConfig{})
-		require.Equal(t, 365, policy.billingDedupRetentionDays)
+		require.Equal(t, 400, policy.billingDedupRetentionDays)
 	}
 }
 
 func TestUsageLogRetentionDaysUsesResolvedPolicy(t *testing.T) {
-	require.Equal(t, 90, UsageLogRetentionDays(nil))
-	require.Equal(t, 90, UsageLogRetentionDays(&config.Config{
+	require.Equal(t, 400, UsageLogRetentionDays(nil))
+	require.Equal(t, 180, UsageLogRetentionDays(&config.Config{
 		Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"},
 		DashboardAgg: config.DashboardAggregationConfig{
 			Retention: config.DashboardAggregationRetentionConfig{UsageLogsDays: 180},
@@ -83,7 +83,7 @@ func TestUsageLogRetentionDaysUsesResolvedPolicy(t *testing.T) {
 			Retention: config.DashboardAggregationRetentionConfig{UsageLogsDays: 2},
 		},
 	}))
-	require.Equal(t, 90, UsageLogRetentionDays(&config.Config{
+	require.Equal(t, 400, UsageLogRetentionDays(&config.Config{
 		DashboardAgg: config.DashboardAggregationConfig{
 			Retention: config.DashboardAggregationRetentionConfig{UsageLogsDays: 0},
 		},

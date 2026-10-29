@@ -11,7 +11,7 @@ const props = withDefaults(defineProps<{
 }>(), { maxDays: 3650 })
 const emit = defineEmits<{ 'update:modelValue': [value: number] }>()
 const { t } = useI18n()
-const presets = [1, 3, 7, 14, 30, 60, 90, 180, 365]
+const presets = [1, 3, 7, 14, 30, 60, 90, 180, 365, 400]
 const custom = ref(false)
 const options = computed(() => [
   ...(props.allowForever ? [{ value: 0, label: t('admin.ops.systemLogs.retentionForever') }] : []),

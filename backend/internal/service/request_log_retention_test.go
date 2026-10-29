@@ -20,7 +20,7 @@ func TestRequestLogRetention_RuntimePolicy(t *testing.T) {
 	}{
 		{"legacy uses deployment", `{"retention_days":30}`, true, 90},
 		{"short window", `{"request_retention_days":7}`, true, 7},
-		{"maximum", `{"request_retention_days":90}`, true, 90},
+		{"maximum", `{"request_retention_days":400}`, true, 400},
 		{"works without aggregation", `{"request_retention_days":14}`, false, 14},
 		{"legacy without aggregation", `{"retention_days":30}`, false, 90},
 	} {
@@ -62,7 +62,7 @@ func newRequestRetentionCleanup(t *testing.T, settings SettingRepository) (*OpsC
 }
 
 func TestRequestLogRetention_ReadFailureSkipsDeletion(t *testing.T) {
-	for _, raw := range []string{`{broken`, `{"request_retention_days":-1}`, `{"request_retention_days":0}`, `{"request_retention_days":91}`} {
+	for _, raw := range []string{`{broken`, `{"request_retention_days":-1}`, `{"request_retention_days":0}`, `{"request_retention_days":401}`} {
 		t.Run(raw, func(t *testing.T) {
 			settings := newRuntimeSettingRepoStub()
 			settings.values[SettingKeyOpsRuntimeLogConfig] = raw
@@ -93,7 +93,7 @@ func TestRuntimeLogConfig_RequestRetentionCompatibility(t *testing.T) {
 	updated, err := svc.UpdateRuntimeLogConfig(context.Background(), legacy, 1)
 	require.NoError(t, err)
 	require.Equal(t, 60, *updated.RequestRetentionDays)
-	for _, days := range []int{1, 90} {
+	for _, days := range []int{1, 90, 400} {
 		updated.RequestRetentionDays = &days
 		saved, err := svc.UpdateRuntimeLogConfig(context.Background(), updated, 1)
 		require.NoError(t, err)
@@ -102,7 +102,7 @@ func TestRuntimeLogConfig_RequestRetentionCompatibility(t *testing.T) {
 		require.NoError(t, json.Unmarshal([]byte(settings.values[SettingKeyOpsRuntimeLogConfig]), &persisted))
 		require.Equal(t, days, *persisted.RequestRetentionDays)
 	}
-	for _, days := range []int{-1, 0, 91, 3650} {
+	for _, days := range []int{-1, 0, 401, 3650} {
 		updated.RequestRetentionDays = &days
 		before := settings.values[SettingKeyOpsRuntimeLogConfig]
 		_, err := svc.UpdateRuntimeLogConfig(context.Background(), updated, 1)
@@ -111,5 +111,5 @@ func TestRuntimeLogConfig_RequestRetentionCompatibility(t *testing.T) {
 	}
 	reset, err := svc.ResetRuntimeLogConfig(context.Background(), 1)
 	require.NoError(t, err)
-	require.Equal(t, 90, *reset.RequestRetentionDays)
+	require.Equal(t, 400, *reset.RequestRetentionDays)
 }

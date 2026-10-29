@@ -1202,17 +1202,17 @@ func TestLoadDefaultDashboardAggregationConfig(t *testing.T) {
 	if cfg.DashboardAgg.BackfillMaxDays != 31 {
 		t.Fatalf("DashboardAgg.BackfillMaxDays = %d, want 31", cfg.DashboardAgg.BackfillMaxDays)
 	}
-	if cfg.DashboardAgg.Retention.UsageLogsDays != 90 {
-		t.Fatalf("DashboardAgg.Retention.UsageLogsDays = %d, want 90", cfg.DashboardAgg.Retention.UsageLogsDays)
+	if cfg.DashboardAgg.Retention.UsageLogsDays != 400 {
+		t.Fatalf("DashboardAgg.Retention.UsageLogsDays = %d, want 400", cfg.DashboardAgg.Retention.UsageLogsDays)
 	}
-	if cfg.DashboardAgg.Retention.UsageBillingDedupDays != 365 {
-		t.Fatalf("DashboardAgg.Retention.UsageBillingDedupDays = %d, want 365", cfg.DashboardAgg.Retention.UsageBillingDedupDays)
+	if cfg.DashboardAgg.Retention.UsageBillingDedupDays != 400 {
+		t.Fatalf("DashboardAgg.Retention.UsageBillingDedupDays = %d, want 400", cfg.DashboardAgg.Retention.UsageBillingDedupDays)
 	}
 	if cfg.DashboardAgg.Retention.HourlyDays != 180 {
 		t.Fatalf("DashboardAgg.Retention.HourlyDays = %d, want 180", cfg.DashboardAgg.Retention.HourlyDays)
 	}
-	if cfg.DashboardAgg.Retention.DailyDays != 730 {
-		t.Fatalf("DashboardAgg.Retention.DailyDays = %d, want 730", cfg.DashboardAgg.Retention.DailyDays)
+	if cfg.DashboardAgg.Retention.DailyDays != 400 {
+		t.Fatalf("DashboardAgg.Retention.DailyDays = %d, want 400", cfg.DashboardAgg.Retention.DailyDays)
 	}
 	if cfg.DashboardAgg.RecomputeDays != 2 {
 		t.Fatalf("DashboardAgg.RecomputeDays = %d, want 2", cfg.DashboardAgg.RecomputeDays)

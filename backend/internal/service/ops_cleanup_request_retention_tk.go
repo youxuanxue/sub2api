@@ -32,7 +32,7 @@ func (s *OpsCleanupService) requestRetentionDays(ctx context.Context) (int, erro
 		days = *value.RequestRetentionDays
 	}
 	if days < 1 || days > prodUsageLogRetentionDays {
-		return 0, fmt.Errorf("invalid request_retention_days: %d (expected 1–90)", days)
+		return 0, fmt.Errorf("invalid request_retention_days: %d (expected 1–%d)", days, prodUsageLogRetentionDays)
 	}
 	return days, nil
 }

@@ -2646,10 +2646,10 @@ func setDefaults() {
 	viper.SetDefault("dashboard_aggregation.lookback_seconds", 120)
 	viper.SetDefault("dashboard_aggregation.backfill_enabled", false)
 	viper.SetDefault("dashboard_aggregation.backfill_max_days", 31)
-	viper.SetDefault("dashboard_aggregation.retention.usage_logs_days", 90)
-	viper.SetDefault("dashboard_aggregation.retention.usage_billing_dedup_days", 365)
+	viper.SetDefault("dashboard_aggregation.retention.usage_logs_days", 400)
+	viper.SetDefault("dashboard_aggregation.retention.usage_billing_dedup_days", 400)
 	viper.SetDefault("dashboard_aggregation.retention.hourly_days", 180)
-	viper.SetDefault("dashboard_aggregation.retention.daily_days", 730)
+	viper.SetDefault("dashboard_aggregation.retention.daily_days", 400)
 	viper.SetDefault("dashboard_aggregation.recompute_days", 2)
 
 	// Usage cleanup task

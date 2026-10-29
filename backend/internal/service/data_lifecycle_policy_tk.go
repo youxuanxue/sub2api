@@ -3,10 +3,10 @@ package service
 import "github.com/Wei-Shaw/sub2api/internal/config"
 
 const (
-	prodUsageLogRetentionDays  = 90
+	prodUsageLogRetentionDays  = 400
 	prodErrorLogRetentionDays  = 30
 	prodSystemLogRetentionDays = 7
-	billingDedupRetentionDays  = 365
+	billingDedupRetentionDays  = 400
 )
 
 type dataLifecyclePolicy struct {
