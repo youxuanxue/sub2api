@@ -411,6 +411,9 @@ jobs:
       - name: Admin usage Excel export browser journeys
         working-directory: frontend
         run: pnpm exec playwright test --config playwright.usage-export.config.ts
+      - name: Historical billing query and download browser journeys
+        working-directory: frontend
+        run: pnpm exec playwright test --config playwright.historical-billing.config.ts
 
   candidate-browser:
     needs: changes

@@ -1,6 +1,12 @@
 .PHONY: build build-backend build-frontend build-datamanagementd test test-backend test-frontend test-frontend-lint test-frontend-typecheck test-frontend-critical test-datamanagementd
 
 FRONTEND_CRITICAL_VITEST := \
+	src/composables/__tests__/useHistoricalBilling.spec.ts \
+	src/utils/__tests__/historicalBillingExport.spec.ts \
+	src/i18n/__tests__/translationHtmlSafety.spec.ts \
+	src/i18n/__tests__/localesMessageCompile.spec.ts \
+	src/components/common/__tests__/GroupBadge.spec.ts \
+	src/components/payment/__tests__/SubscriptionPlanCard.spec.ts \
 	src/views/auth/__tests__/EmailVerifyView.spec.ts \
 	src/views/__tests__/HomeView.compact.spec.ts \
 	src/components/auth/__tests__/RegistrationActionTk.spec.ts \

@@ -1,3 +1,4 @@
+import historicalBilling from './historicalBilling'
 import landing from './landing'
 import common from './common'
 import dashboard from './dashboard'
@@ -7,6 +8,7 @@ import admin from './admin'
 import misc from './misc'
 
 export default {
+  ...historicalBilling,
   imageGeneration: {
     "softRatio": "比例为构图偏好，实际输出尺寸由模型决定。",
     "exactCanvas": "所选尺寸由网关本地精确画布兑现（上游像素可能先漂移，再 pad/coerce）。",

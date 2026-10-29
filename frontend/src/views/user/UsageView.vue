@@ -1,5 +1,6 @@
 <template>
     <div class="space-y-6">
+      <HistoricalUsageBilling />
       <UsageStatsCards :stats="usageStats" :show-account-cost="false" :show-standard-cost="false" />
 
       <div class="space-y-4">
@@ -233,6 +234,7 @@
 </template>
 
 <script setup lang="ts">
+import HistoricalUsageBilling from '@/components/usage/HistoricalUsageBilling.vue'
 import { computed, onMounted, onActivated, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
