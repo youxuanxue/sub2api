@@ -105,13 +105,19 @@ bash deploy/domestic/deploy_via_ssm.sh prepare \
   --tag 1.8.306 \
   --revision REVIEWED_FULL_SHA \
   --image tokenkey-domestic/tokenkey:1.8.306-SHORTSHA
+
+# 4) 候选实测。--state 用 prepare 回执里的 state，不要另写烟测脚本。
+bash deploy/domestic/deploy_via_ssm.sh candidate-smoke \
+  --state /opt/tokenkey/releases/1.8.306-SHORTSHA
 ```
 
 `bluegreen.py` 仍是国内主机适配入口。Caddy 站点可以是 `api-cn.tokenkey.dev`，也可以是北京静态 IP `154.8.214.179`（`https://` 与 `:443` 写法同样接受）。`/var/lib/tokenkey` 可以是独立挂载，也可以直接在根文件系统上；根盘用该目录与 `/` 的设备是否相同来识别，不会把普通目录伪装成 mountpoint。
 从共享 `deploy_via_ssm_bluegreen.sh` 提取健康检查、Caddy 切流、观察与 drain，未复制实现。切流后的本机健康观察使用 Caddy 里的那个站点名，因此静态 IP 站点不会再拿 `api-cn.tokenkey.dev` 去对本地证书。
-候选实测与 `promote` 仍在主机执行（可用 SSM Run Command / Session Manager），需要
-`--public-url` 与 `prod-target.json` 的 `public_origin` 一致（静态 IP，不能用指向美西 prod
-的域名冒充 cn-prod 验证）。
+候选实测是 `deploy_via_ssm.sh candidate-smoke`。它在主机上跑已同步的
+`candidate_smoke.py`，对候选 loopback（blue 18081、green 18082）请求 `/health` 和
+`/api/v1/settings/public`，把结果写到 `/private/candidate-smoke.json`。任一用例失败时
+命令非 0，失败用例仍留在文件里。`promote` 使用清单里的 `public_origin`，传入其他 URL
+会在下发前拒绝。
 
 `--state` 是 `prepare` 实际写入的目录，形如 `/opt/tokenkey/releases/<version>-<shortsha>`；
 `prepare` 的回执里有 `state` 字段，直接取那个值，不要照抄本文的示例版本号。
@@ -137,25 +143,20 @@ plan 能通过切流前校验，却会让通知阶段抛 `KeyError`（2026-10-23
 python3 scripts/release_post_check.py plan \
   --live LIVE_FULL_SHA --new NEW_FULL_SHA > /tmp/post-plan.json
 
-# 2) 连同候选 smoke 证据一起放到主机 /private/（put-file 默认 0600, root-only）
+# 2) plan 是数据，用 put-file 送到主机。上一版文件还在且内容不同时加 --force。
 bash deploy/domestic/deploy_via_ssm.sh put-file \
   --local /tmp/post-plan.json --remote /private/post-plan.json
-# 候选 smoke 脚本要在主机执行就加 --run（自动 0700，先 bash -n 再跑）：
-bash deploy/domestic/deploy_via_ssm.sh put-file \
-  --local /tmp/cn_candidate_smoke.sh --remote /private/cn_candidate_smoke.sh --run
 
-# 候选 smoke 证据由操作者对 prepared 候选的真实请求产出，schema 见 post_release.py：
-#   {"revision": NEW_FULL_SHA, "container_id": 候选容器 Id, "cases": [{"name":…, "passed": true}, …]}
-# 候选直连地址是 compose.local.yml 的 loopback 端口（inactive color 另一个端口）。
-# 上游 429/限流按故障速查定点复测，复测结论与原因都要留在 cases 里，不删分母。
-
-python3 /opt/tokenkey/releases/artifacts-ssm/bluegreen.py promote \
-  --state /opt/tokenkey/releases/1.8.306-2d4b4cdbf \
+# 3) 切流。receipt 用 prepare 回执的 receipt_sha256。public-url 取自 prod-target.json。
+bash deploy/domestic/deploy_via_ssm.sh promote \
+  --state /opt/tokenkey/releases/1.8.306-SHORTSHA \
   --receipt PREPARED_RECEIPT_SHA256 \
-  --postcheck-plan /private/post-plan.json \
-  --smoke-report /private/candidate-smoke.json \
-  --public-url https://CN_PROD_STATIC_IP
+  --postcheck-plan /private/post-plan.json
 ```
+
+`candidate-smoke` 写出的报告形态是 `{"revision","container_id","cases":[{"case","passed"}]}`。
+`container_id` 是 `docker inspect` 的 `Id`。上游 429/限流不在这四条控制面检查里；
+那种失败按故障速查对候选定点复测，复测结论留在证据里，不删分母。
 
 ### 私有 S3 分发初始化
 
@@ -205,14 +206,8 @@ prepare 只启动候选；复用当前应用环境、数据挂载和实际 Docke
 后续轮次若候选颜色名称已存在，先核对其是否仍承担回退义务；入口不会自动删除旧候选。
 Docker 的 `unless-stopped` 重启策略负责活动容器重启；原单容器 Compose 不再作为应用升级入口。
 切流前用 `scripts/release_post_check.py plan --live OLD_SHA --new NEW_SHA` 生成计划，
-两端传实际镜像完整源码 SHA。将候选实测汇总为 JSON：
-
-```json
-{"revision":"候选完整SHA","container_id":"候选完整Docker ID","cases":[{"case":"实际用例名","passed":true}]}
-```
-
-`cases` 必须来自真实实测，失败或未执行用例不得删掉。计划和烟测报告默认经 SSM
-（Run Command / Session Manager）写入主机私有目录；仅恢复路径才用受限 SSH。`promote`
+两端传实际镜像完整源码 SHA。候选实测由 `candidate-smoke` 写入
+`/private/candidate-smoke.json`，失败用例保留。计划经 `put-file` 落盘；仅恢复路径才用受限 SSH。`promote`
 在切流前核对源码/容器身份及全部用例通过，并固化控制脚本与证据哈希。
 `--public-url` 必须与 `prod-target.json` 中的 `public_origin` 一致，该清单也供公网监控使用，
 并随发布证据固化哈希；填入其他公网 IP 会在切流前拒绝。原国内域名已指向美西 prod，不能用

@@ -47,8 +47,10 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 
 - `target=prod`：只发版/部署腾讯美西 prod（**默认路径**）。
 - `target=cn-prod`：复用同一 GHCR 包，经 `deploy/domestic/deploy_via_ssm.sh`
-  `pull --tag X.Y.Z --revision FULL_SHA` → `sync-controls` → `prepare`，再候选实测与 `bluegreen.py promote`。
-  候选 smoke 脚本与证据 JSON **一律经 `deploy_via_ssm.sh put-file` 落盘**（`--run` 先 `bash -n` 再执行），
+  `pull --tag X.Y.Z --revision FULL_SHA` → `sync-controls` → `prepare` → `candidate-smoke --state <prepare state>`。
+  postcheck plan 用 `scripts/release_post_check.py plan` 生成后经 `put-file` 送到 `/private/post-plan.json`，
+  再 `promote --state … --receipt <prepared.json sha256> --postcheck-plan /private/post-plan.json`。
+  `promote` 的公网入口固定为 `prod-target.json` 的 `public_origin`。不要再写候选烟测脚本或 promote 包装脚本。
   禁止手写 `base64 -d > ...`：2026-10-25 这样一条笔误（`> bash`，远端 cwd 为 `/usr/bin`）
   把 `/usr/bin/bash` truncate 成 0 字节，服务未断但主机 bash-shebang 告警 job 全挂约 9 小时。
   preflight 门禁 `cn-prod remote file transfer` 守这条。

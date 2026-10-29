@@ -50,6 +50,7 @@ class DeployViaSsmTest(unittest.TestCase):
         # Minimal control files for sync-controls.
         for name, body in (
             ("bluegreen.py", "print('bluegreen')\n"),
+            ("candidate_smoke.py", "print('candidate')\n"),
             ("data_layout.py", "print('layout')\n"),
             ("post_release.py", "print('post')\n"),
             ("prod-target.json", json.dumps(manifest) + "\n"),
@@ -468,6 +469,86 @@ class DeployViaSsmTest(unittest.TestCase):
             proc.stdout,
         )
         self.assertIn("--revision '2d4b4cdbf8fbae7d1cf888d5c47b6a584ad6d2bd'", proc.stdout)
+
+    def _dry_run(self, *args: str) -> subprocess.CompletedProcess[str]:
+        env = {
+            **os.environ,
+            "PATH": f"{self.fakebin}:{os.environ.get('PATH', '')}",
+            "CN_PROD_SSM_DRY_RUN": "1",
+        }
+        return subprocess.run(
+            ["bash", "deploy/domestic/deploy_via_ssm.sh", *args],
+            cwd=self.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_candidate_smoke_dry_run_invokes_synced_script(self) -> None:
+        state = "/opt/tokenkey/releases/1.8.306-2d4b4cdbf"
+        proc = self._dry_run("candidate-smoke", "--state", state)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertIn("/opt/tokenkey/releases/artifacts-ssm/candidate_smoke.py", proc.stdout)
+        self.assertIn(f"--state '{state}'", proc.stdout)
+        self.assertIn("--out '/private/candidate-smoke.json'", proc.stdout)
+        self.assertNotIn("base64 -d", proc.stdout)
+        self.assertNotIn("send-command", self.aws_log.read_text())
+
+    def test_candidate_smoke_rejects_reconstructed_state(self) -> None:
+        proc = self._dry_run("candidate-smoke", "--state", "/opt/tokenkey/releases/RELEASE")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("--state must be", proc.stderr)
+
+    def test_promote_dry_run_uses_manifest_origin(self) -> None:
+        state = "/opt/tokenkey/releases/1.8.337-4529659c8"
+        receipt = "c02501b6371a83172929ff0ebcc1566f4dacec011b4fa720b9b09befa7f9d858"
+        origin = json.loads((self.repo / "deploy/domestic/prod-target.json").read_text())["public_origin"]
+        proc = self._dry_run(
+            "promote",
+            "--state",
+            state,
+            "--receipt",
+            receipt,
+            "--postcheck-plan",
+            "/private/post-plan.json",
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertIn("/opt/tokenkey/releases/artifacts-ssm/bluegreen.py' promote", proc.stdout)
+        self.assertIn(f"--public-url '{origin}'", proc.stdout)
+        self.assertIn("--smoke-report '/private/candidate-smoke.json'", proc.stdout)
+        self.assertIn(f"{state}/post-release/summary.md", proc.stdout)
+        self.assertNotIn("base64 -d", proc.stdout)
+
+    def test_promote_rejects_a_different_public_url(self) -> None:
+        proc = self._run(
+            "promote",
+            "--state",
+            "/opt/tokenkey/releases/1.8.337-4529659c8",
+            "--receipt",
+            "c02501b6371a83172929ff0ebcc1566f4dacec011b4fa720b9b09befa7f9d858",
+            "--postcheck-plan",
+            "/private/post-plan.json",
+            "--public-url",
+            "https://api.galaxywaveai.com",
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("public_origin", proc.stderr)
+        self.assertNotIn("send-command", self.aws_log.read_text())
+
+    def test_promote_extends_execution_timeout_for_the_delayed_check(self) -> None:
+        proc = self._run(
+            "promote",
+            "--state",
+            "/opt/tokenkey/releases/1.8.337-4529659c8",
+            "--receipt",
+            "c02501b6371a83172929ff0ebcc1566f4dacec011b4fa720b9b09befa7f9d858",
+            "--postcheck-plan",
+            "/private/post-plan.json",
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        params = json.loads(self.ssm_parameters.read_text())
+        self.assertEqual(params["executionTimeout"], ["1800"])
 
 
 if __name__ == "__main__":
