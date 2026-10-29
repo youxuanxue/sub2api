@@ -1003,11 +1003,18 @@ func TestOpenAIResponses_AcceptsHTTPContinuationPreviousResponseIDBeforeRouting(
 	})
 
 	h := newOpenAIHandlerForPreviousResponseIDValidation(t, nil)
+	h.protocolRouter = service.NewProtocolRouter()
 	require.NoError(t, h.gatewayService.BindOpenAIHTTPResponseOwner(context.Background(), groupID, "resp_123456", 1, 101))
 	h.Responses(c)
 
 	require.NotEqual(t, http.StatusBadRequest, w.Code)
 	require.NotContains(t, w.Body.String(), "Responses WebSocket v2")
+	// An owned pointer must survive: dropping every HTTP continuation is the
+	// regression this positive path exists to catch.
+	request, ok := service.ProtocolRoutingRequest(c.Request.Context())
+	require.True(t, ok)
+	require.Contains(t, string(request.Body()), `"previous_response_id":"resp_123456"`)
+	require.Contains(t, string(request.Body()), "hello")
 }
 
 func TestOpenAIResponses_DropsHTTPContinuationOwnedByAnotherUser(t *testing.T) {

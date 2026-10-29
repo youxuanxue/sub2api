@@ -122,6 +122,34 @@ func TestRevalidateTurnStillRejectsUnverifiedPreviousResponseID(t *testing.T) {
 	require.Error(t, state.RevalidateTurn(context.Background(), account.ID, "gpt-5.4", body))
 }
 
+// A binding written before candidate identity existed has no candidate index
+// and lives only under its group record. Candidate admission reads it through
+// the eligible group list, so ingress must consume that decision instead of
+// re-checking ownership against the key's own group and dropping a pointer
+// admission already authorized.
+func TestCandidateContinuationDecisionCoversLegacyGroupBinding(t *testing.T) {
+	group := grp(10, PlatformOpenAI, 0, false)
+	account := globalCandidateAccount(1, 1, 10)
+	account.Extra["openai_apikey_responses_websockets_v2_enabled"] = true
+	attachTestProtocolCapability(&account, protocolrouter.ProtocolResponses)
+	r, _, key := globalCandidateFixture([]Group{group}, []Account{account})
+	r.candidateOpenAI.cfg = newSchedulerTestOpenAIWSV2Config()
+	cache := &candidateIdentityTestCache{}
+	require.NoError(t, NewOpenAIWSStateStore(cache).BindResponseAccount(context.Background(), 10, "resp_legacy", account.ID, time.Hour))
+	require.NoError(t, NewOpenAIWSStateStore(cache).BindHTTPResponseOwner(context.Background(), 10, "resp_legacy", key.UserID, key.ID, time.Hour))
+	r.candidateOpenAI.cache = cache
+
+	body := []byte(`{"type":"response.create","model":"gpt-5.4","previous_response_id":"resp_legacy","input":"hello"}`)
+	ctx, state, err := r.PrepareCandidateWebSocket(context.Background(), key, "/v1/responses", "gpt-5.4", body, "", "")
+	require.NoError(t, err)
+	require.Equal(t, account.ID, state.continuationAccountID)
+	// The decision is request-scoped: ingress asks whether admission authorized
+	// the pointer it just planned, without repeating the lookup.
+	owned, decided := CandidateContinuationOwned(ctx)
+	require.True(t, decided)
+	require.True(t, owned)
+}
+
 func TestGlobalCandidateAccountPriorityIgnoresGroupTopology(t *testing.T) {
 	for _, duplicate := range []bool{false, true} {
 		groups := []Group{grp(10, PlatformAnthropic, -100, false), grp(20, PlatformGemini, 100, false)}

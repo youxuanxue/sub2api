@@ -552,6 +552,15 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			if !dropPointer("previous_response_id_looks_like_message_id", nil) {
 				return
 			}
+		} else if owned, decided := service.CandidateContinuationOwned(c.Request.Context()); decided {
+			// Candidate admission resolves the pointer through the candidate
+			// identity owner and every eligible group. Repeating the lookup here
+			// with only the key's own group would drop a binding admission kept.
+			if !owned {
+				if !dropPointer("previous_response_owner_mismatch_dropped", nil) {
+					return
+				}
+			}
 		} else {
 			groupID := int64(0)
 			if apiKey.GroupID != nil {

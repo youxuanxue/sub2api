@@ -64,6 +64,10 @@ type CandidateRequest struct {
 	admissionPaths      []*candidateExecutionPath
 	admissionPathsValid bool
 	admissionPathsUsed  bool
+	// continuationDecided records that admission already resolved this
+	// request's previous_response_id, so ingress reuses that answer instead of
+	// repeating the lookup with a narrower scope.
+	continuationDecided bool
 }
 
 type candidateRequestContextKey struct{}
@@ -106,6 +110,24 @@ func CandidateRequestBody(ctx context.Context) ([]byte, bool) {
 		return nil, false
 	}
 	return append([]byte(nil), r.body...), true
+}
+
+// CandidateContinuationOwned reports whether the authenticated user owns this
+// previous_response_id according to the candidate continuation owner, and
+// whether candidate admission already ran for this request. Ingress must not
+// repeat the ownership lookup with a narrower scope (for example the key's own
+// group only), or HTTP and WebSocket would disagree about the same binding.
+// CandidateContinuationOwned reports whether candidate admission authorized
+// this request's previous_response_id, and whether admission ran at all.
+// Ingress must not repeat the ownership lookup with a narrower scope (for
+// example the key's own group only), or HTTP and WebSocket would disagree
+// about the same binding.
+func CandidateContinuationOwned(ctx context.Context) (owned bool, decided bool) {
+	r := CandidateRequestFromContext(ctx)
+	if r == nil || !r.continuationDecided {
+		return false, false
+	}
+	return r.continuationAccountID > 0, true
 }
 
 func CandidateSubscription(ctx context.Context, fallback *UserSubscription) *UserSubscription {
@@ -254,6 +276,7 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 	if err != nil {
 		return ctx, nil, err
 	}
+	state.continuationDecided = strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String()) != ""
 	if !bytes.Equal(nextBody, body) {
 		body = nextBody
 		state.body = append([]byte(nil), body...)

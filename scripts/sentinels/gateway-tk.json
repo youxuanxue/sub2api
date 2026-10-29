@@ -2119,6 +2119,7 @@
         "func (r *CandidateRequest) pathContext(",
         "ResolveCandidateContinuation(ctx, key, eligible, previous)",
         "func CandidateRequestBody(ctx context.Context) ([]byte, bool)",
+        "func CandidateContinuationOwned(ctx context.Context) (owned bool, decided bool)",
         "if owner != accountID {",
         "CheckCandidateBillingEligibility",
         "r.onBind(selected.ctx, selected.group, subscription)",
@@ -2790,7 +2791,8 @@
         "TestGlobalCandidateNativeConverterParityAndGoogleFailover",
         "TestCandidateResponsesImagePermissionPrecedesBillingOrigin",
         "TestPrepareCandidateWebSocketStripsUnverifiedPreviousResponseID",
-        "TestRevalidateTurnStillRejectsUnverifiedPreviousResponseID"
+        "TestRevalidateTurnStillRejectsUnverifiedPreviousResponseID",
+        "TestCandidateContinuationDecisionCoversLegacyGroupBinding"
       ],
       "rationale": "Executable regressions cover production selection, topology, duplicate membership, capacity races and wait revalidation."
     },
