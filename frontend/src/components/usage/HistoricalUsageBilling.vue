@@ -51,17 +51,13 @@
             <table class="w-full whitespace-nowrap text-right text-sm tabular-nums">
               <thead class="sticky top-0 bg-gray-50 dark:bg-dark-800"><tr><th v-for="header in tableHeaders" :key="header" class="px-3 py-3">{{ header }}</th></tr></thead>
               <tbody><tr v-for="row in report.rows" :key="`${row.date}:${row.platform}`" class="border-t border-gray-100 dark:border-dark-700">
-                <td class="px-3 py-2">{{ row.date }}</td><td class="px-3 py-2">{{ row.platform || t('historicalBilling.unknownPlatform') }}</td>
-                <td v-for="key in counterKeys" :key="key" class="px-3 py-2">{{ row[key].toLocaleString() }}</td>
-                <td class="px-3 py-2 font-medium text-emerald-600">{{ row.actual_cost }}</td>
-                <td class="px-3 py-2" :class="row.provisional ? 'text-amber-600' : 'text-gray-500'">{{ t(row.provisional ? 'historicalBilling.provisional' : 'historicalBilling.recorded') }}</td>
-                <td class="px-3 py-2 text-xs text-gray-500">{{ formatTime(row.computed_at) }}</td>
+                <td v-for="(value, index) in historicalBillingValues(row, t('historicalBilling.unknownPlatform'))" :key="HISTORICAL_BILLING_COLUMNS[index].key"
+                  class="px-3 py-2" :class="{ 'font-medium text-emerald-600': HISTORICAL_BILLING_COLUMNS[index].key === 'actual_cost' }">{{ value.toLocaleString() }}</td>
               </tr></tbody>
               <tfoot class="sticky bottom-0 bg-gray-50 font-semibold dark:bg-dark-800"><tr>
                 <td colspan="2" class="px-3 py-3">{{ t('historicalBilling.total') }}</td>
-                <td v-for="key in counterKeys" :key="key" class="px-3 py-3">{{ report.totals[key].toLocaleString() }}</td>
-                <td class="px-3 py-3 text-emerald-600">{{ report.totals.actual_cost }}</td>
-                <td colspan="2" class="px-3 py-3">{{ report.totals.provisional ? t('historicalBilling.provisional') : '' }}</td>
+                <td v-for="column in HISTORICAL_BILLING_COLUMNS.slice(2)" :key="column.key" class="px-3 py-3"
+                  :class="{ 'text-emerald-600': column.key === 'actual_cost' }">{{ report.totals[column.key].toLocaleString() }}</td>
               </tr></tfoot>
             </table>
           </div>
@@ -77,6 +73,7 @@ import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'
 import { useHistoricalBilling } from '@/composables/useHistoricalBilling'
 import { historicalBillingCSV, fillHistoricalBillingWorkbook } from '@/utils/historicalBillingExport'
+import { HISTORICAL_BILLING_COLUMNS, historicalBillingValues } from '@/utils/historicalBillingColumns'
 import { useAppStore } from '@/stores/app'
 
 const props = withDefaults(defineProps<{ admin?: boolean; userId?: number }>(), { admin: false })
@@ -84,9 +81,7 @@ const { t } = useI18n()
 const app = useAppStore()
 const { expanded, range, startDate, endDate, granularity, platform, report, platforms, loading, failed, invalidRange, reload } = useHistoricalBilling(props.admin, toRef(props, 'userId'))
 const exporting = ref(false)
-const counterKeys = ['requests', 'input_tokens', 'output_tokens', 'cache_creation_tokens', 'cache_read_tokens', 'total_tokens'] as const
-const headerKeys = ['date', 'platform', 'requests', 'input', 'output', 'creation', 'read', 'tokens', 'cost']
-const tableHeaders = computed(() => [...headerKeys, 'status', 'updated'].map(key => t(`historicalBilling.headers.${key}`)))
+const tableHeaders = computed(() => HISTORICAL_BILLING_COLUMNS.map(column => t(`historicalBilling.headers.${column.header}`)))
 function formatTime(value: string) {
   return new Date(value).toLocaleString(undefined, { timeZone: report.value?.timezone })
 }
@@ -95,7 +90,7 @@ async function download(format: 'csv' | 'xlsx') {
   if (!snapshot?.rows.length || exporting.value) return
   exporting.value = true
   const labels = {
-    headers: [t('historicalBilling.user'), ...headerKeys.filter(key => key !== 'creation' && key !== 'read').map(key => t(`historicalBilling.headers.${key}`)), t('historicalBilling.timezone')],
+    headers: [t('historicalBilling.user'), ...tableHeaders.value, t('historicalBilling.timezone')],
     total: t('historicalBilling.total'), unknownPlatform: t('historicalBilling.unknownPlatform'),
   }
   try {
