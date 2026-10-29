@@ -8,7 +8,8 @@
     "Layout converged 2026-10-22 (exception path): .env at /var/lib/tokenkey/.env; app/caddy tokenkey/tokenkey-caddy; Docker root kept at /srv/tokenkey-rehearsal/docker; PG/redis keep cutover names with postgres/redis aliases. Receipt: /var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json.",
     "volume_mount keeps /srv/tokenkey-rehearsal (historical); /var/lib/tokenkey is a second mount of the same LUKS mapper.",
     "Tokyo i-045f062ce33e1a5af was retired and deleted 2026-10-23; its snapshots are deleted; never restore its S3 history chain as a writer.",
-    "Cutover receipt: docs/ops/reports/tencent-cutover-20261022.json"
+    "Cutover receipt: docs/ops/reports/tencent-cutover-20261022.json",
+    "2026-10-29: tokenkey-disk-metrics.timer is installed and expected active. It checks root / and /var/lib/tokenkey at 85% alert / 80% recover."
   ],
   "target": {
     "resolvable": true,
@@ -45,7 +46,6 @@
       "tokenkey-qa-maintenance": "User requested pause of QA uploads to S3; capture policy is separate.",
       "tokenkey-qa-boundary": "Historical archive acceptance hold keeps boundary disabled (DROP pause retained). Pause owner overrides qa_records lifecycle: watcher and qa_phase2 live health both expect disabled/inactive and alert on accidental enable.",
       "tokenkey-pgdump": "Retired after pgBackRest latest and historical recovery acceptance; never installed on the Tencent host (verified not-found 2026-10-22); retained backups are not deleted.",
-      "tokenkey-disk-metrics": "Not installed on Tencent cutover host (verified not-found 2026-10-22); pause until separately installed.",
       "tokenkey-ghcr-prune-daily": "Not installed on Tencent cutover host (verified not-found 2026-10-22); pause until separately installed."
     },
     "local_qa_jobs": [

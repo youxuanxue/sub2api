@@ -62,10 +62,11 @@ class CoveragePlanTest(unittest.TestCase):
                 'tokenkey-qa-maintenance',
                 'tokenkey-qa-boundary',
                 'tokenkey-pgdump',
-                'tokenkey-disk-metrics',
                 'tokenkey-ghcr-prune-daily',
             },
         )
+        self.assertIn('tokenkey-disk-metrics', prod['jobs'])
+        self.assertNotIn('tokenkey-disk-metrics', prod['paused_jobs'])
         self.assertEqual(self.config('cn-prod', self.domestic['instance_name'])['paused_jobs'], {})
         self.assertIn('tokenkey-pgdump', prod['jobs'])
         # Held-disabled boundary must stay monitored as expected-paused so

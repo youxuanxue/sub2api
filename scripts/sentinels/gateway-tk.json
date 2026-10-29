@@ -85,9 +85,11 @@
         "def test_validation_reminder_is_daily_and_never_masks_a_new_fault(",
         "def test_200_interception_pages_and_degraded_json_are_not_healthy(",
         "def test_two_failures_then_recovery_and_cooldown(",
-        "def test_delivery_failure_keeps_previous_state_for_retry("
+        "def test_delivery_failure_keeps_previous_state_for_retry(",
+        "self.assertIn('tokenkey-disk-metrics', prod['jobs'])",
+        "self.assertNotIn('tokenkey-disk-metrics', prod['paused_jobs'])"
       ],
-      "rationale": "Keep executable coverage, body validation, alert/recovery and retry regressions in the existing host watch test owner."
+      "rationale": "Keep executable coverage, body validation, alert/recovery and retry regressions in the existing host watch test owner. Prod disk-metrics stays an active watched job."
     },
     {
       "path": "deploy/aws/stage0/tokenkey-pgdump.sh",
