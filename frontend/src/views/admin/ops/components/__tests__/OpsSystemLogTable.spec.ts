@@ -193,7 +193,7 @@ describe('rolling log retention settings', () => {
     const wrapper = mountTable()
     await flushPromises()
     const requestField = wrapper.findAllComponents(LogRetentionSelect)[1]!
-    for (const value of [0, 91, 1.5, Number.NaN, -1, 3651]) {
+    for (const value of [0, 401, 1.5, Number.NaN, -1, 3651]) {
       requestField.vm.$emit('update:modelValue', value)
       await saveButton(wrapper).trigger('click')
     }

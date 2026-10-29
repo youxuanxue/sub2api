@@ -50,7 +50,7 @@ const runtimeConfig = reactive<OpsRuntimeLogConfig>({
   caller: true,
   stacktrace_level: 'error',
   retention_days: 30,
-  request_retention_days: 90
+  request_retention_days: 400
 })
 
 const filters = reactive({
@@ -243,7 +243,7 @@ const loadRuntimeConfig = async () => {
     runtimeConfig.caller = cfg.caller
     runtimeConfig.stacktrace_level = cfg.stacktrace_level
     runtimeConfig.retention_days = cfg.retention_days
-    runtimeConfig.request_retention_days = cfg.request_retention_days ?? 90
+    runtimeConfig.request_retention_days = cfg.request_retention_days ?? 400
     runtimeConfigLoaded.value = true
   } catch (err: any) {
     console.error('[OpsSystemLogTable] Failed to load runtime log config', err)
@@ -256,7 +256,7 @@ const loadRuntimeConfig = async () => {
 const saveRuntimeConfig = async () => {
   if (!runtimeConfigLoaded.value || runtimeLoading.value) return
   if (!Number.isInteger(runtimeConfig.retention_days) || runtimeConfig.retention_days < 1 || runtimeConfig.retention_days > 3650 ||
-      !Number.isInteger(runtimeConfig.request_retention_days) || runtimeConfig.request_retention_days < 1 || runtimeConfig.request_retention_days > 90) {
+      !Number.isInteger(runtimeConfig.request_retention_days) || runtimeConfig.request_retention_days < 1 || runtimeConfig.request_retention_days > 400) {
     appStore.showError(t('admin.ops.systemLogs.retentionDaysInvalid'))
     return
   }
@@ -271,7 +271,7 @@ const saveRuntimeConfig = async () => {
     runtimeConfig.caller = saved.caller
     runtimeConfig.stacktrace_level = saved.stacktrace_level
     runtimeConfig.retention_days = saved.retention_days
-    runtimeConfig.request_retention_days = saved.request_retention_days ?? 90
+    runtimeConfig.request_retention_days = saved.request_retention_days ?? 400
     appStore.showSuccess(t('admin.ops.systemLogs.runtimeConfigActive'))
   } catch (err: any) {
     console.error('[OpsSystemLogTable] Failed to save runtime log config', err)
@@ -296,7 +296,7 @@ const resetRuntimeConfig = async () => {
     runtimeConfig.caller = saved.caller
     runtimeConfig.stacktrace_level = saved.stacktrace_level
     runtimeConfig.retention_days = saved.retention_days
-    runtimeConfig.request_retention_days = saved.request_retention_days ?? 90
+    runtimeConfig.request_retention_days = saved.request_retention_days ?? 400
     appStore.showSuccess(t('admin.ops.systemLogs.runtimeConfigReset'))
     await fetchHealth()
   } catch (err: any) {
@@ -446,7 +446,7 @@ onMounted(async () => {
         </label>
         <label class="text-xs text-gray-600 dark:text-gray-300">
           {{ t('admin.ops.systemLogs.requestRetentionDays') }}
-          <LogRetentionSelect v-model="runtimeConfig.request_retention_days" :label="t('admin.ops.systemLogs.requestRetentionDays')" :max-days="90" class="mt-1" />
+          <LogRetentionSelect v-model="runtimeConfig.request_retention_days" :label="t('admin.ops.systemLogs.requestRetentionDays')" :max-days="400" class="mt-1" />
           <span class="mt-1 block text-[11px] text-gray-500 dark:text-gray-400">{{ t('admin.ops.systemLogs.requestRetentionDaysHint') }}</span>
         </label>
         <div class="md:col-span-2 xl:col-span-6">

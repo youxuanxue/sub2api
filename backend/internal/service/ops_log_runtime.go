@@ -92,7 +92,7 @@ func validateOpsRuntimeLogConfig(cfg *OpsRuntimeLogConfig) error {
 		return errors.New("retention_days must be between 1 and 3650")
 	}
 	if cfg.RequestRetentionDays != nil && (*cfg.RequestRetentionDays < 1 || *cfg.RequestRetentionDays > prodUsageLogRetentionDays) {
-		return errors.New("request_retention_days must be between 1 and 90")
+		return fmt.Errorf("request_retention_days must be between 1 and %d", prodUsageLogRetentionDays)
 	}
 	return nil
 }

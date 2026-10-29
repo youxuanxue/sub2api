@@ -99,7 +99,7 @@ func TestOpsCleanupServiceRunCleanupOnceUsesSeparateLogRetentions(t *testing.T) 
 	if dashboardRepo.cleanupUsageCalls != 1 || dashboardRepo.cleanupDedupCalls != 1 {
 		t.Fatalf("usage lifecycle calls = usage:%d dedup:%d, want 1 each", dashboardRepo.cleanupUsageCalls, dashboardRepo.cleanupDedupCalls)
 	}
-	if !cutoffMatchesDays(dashboardRepo.lastUsageCutoff, 90) || !cutoffMatchesDays(dashboardRepo.lastDedupCutoff, 365) {
+	if !cutoffMatchesDays(dashboardRepo.lastUsageCutoff, 90) || !cutoffMatchesDays(dashboardRepo.lastDedupCutoff, 400) {
 		t.Fatalf("unexpected usage cutoffs: usage=%s dedup=%s", dashboardRepo.lastUsageCutoff, dashboardRepo.lastDedupCutoff)
 	}
 	if counts.usageLogs != "ok" || counts.billingDedup != "ok" {

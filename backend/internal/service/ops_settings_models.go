@@ -113,7 +113,7 @@ type OpsRuntimeLogConfig struct {
 	StacktraceLevel   string `json:"stacktrace_level"`
 	// RetentionDays is the authoritative retention for ops_system_logs.
 	RetentionDays int `json:"retention_days"`
-	// RequestRetentionDays controls usage_logs and must be between 1 and 90 days.
+	// RequestRetentionDays controls usage_logs and must be between 1 and 400 days.
 	// A nil value from older clients preserves the existing setting.
 	RequestRetentionDays *int           `json:"request_retention_days"`
 	Source               string         `json:"source,omitempty"`

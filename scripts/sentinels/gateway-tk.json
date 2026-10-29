@@ -11823,10 +11823,10 @@
     {
       "path": "backend/internal/service/data_lifecycle_policy_tk.go",
       "must_contain": [
-        "prodUsageLogRetentionDays  = 90",
+        "prodUsageLogRetentionDays  = 400",
         "prodErrorLogRetentionDays  = 30",
         "prodSystemLogRetentionDays = 7",
-        "billingDedupRetentionDays  = 365",
+        "billingDedupRetentionDays  = 400",
         "func resolveDataLifecyclePolicy(",
         "billingDedupRetentionDays: billingDedupRetentionDays",
         "func capLifecycleRetention(",
