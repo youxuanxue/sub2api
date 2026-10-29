@@ -2,20 +2,25 @@
 # cn-prod release image + control sync via AWS SSM Hybrid (default path).
 #
 # Default: CI-verified private S3 archive. GHCR is an explicit fallback.
-# Neither path opens SSH or changes running containers.
+# Neither path opens SSH. prepare does not cut traffic; promote does.
 #
 # Usage:
 #   bash deploy/domestic/deploy_via_ssm.sh pull --tag 1.8.306|v1.8.306 --revision FULL_SHA
 #   bash deploy/domestic/deploy_via_ssm.sh sync-controls
 #   bash deploy/domestic/deploy_via_ssm.sh prepare --tag 1.8.306 --revision FULL_SHA \
 #        --image tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf
+#   bash deploy/domestic/deploy_via_ssm.sh candidate-smoke \
+#        --state /opt/tokenkey/releases/1.8.306-2d4b4cdbf
 #   bash deploy/domestic/deploy_via_ssm.sh put-file --local /tmp/post-plan.json \
-#        --remote /private/post-plan.json [--mode 600] [--run] [--force]
+#        --remote /private/post-plan.json [--force]
+#   bash deploy/domestic/deploy_via_ssm.sh promote \
+#        --state /opt/tokenkey/releases/1.8.306-2d4b4cdbf \
+#        --receipt PREPARED_RECEIPT_SHA256 \
+#        --postcheck-plan /private/post-plan.json
 #
-# put-file is the ONLY sanctioned way to land a candidate-smoke script or its
-# evidence JSON on cn-prod. Hand-written `base64 -d > ...` one-liners are what
-# truncated /usr/bin/bash to 0 bytes on 2026-10-25 (a `> bash` typo, cwd
-# /usr/bin), taking the host's bash-shebang alert jobs down with it.
+# candidate-smoke and promote run the control files sync-controls already
+# installed. put-file still lands the generated postcheck plan. Hand-written
+# `base64 -d > ...` one-liners truncated /usr/bin/bash on 2026-10-25.
 #
 # Identity: deploy/domestic/prod-target.json (ssm_region + ssm_instance_id).
 # Does not mutate AWS prod, DNS, or public_origin. prepare does not cut traffic.
@@ -41,18 +46,26 @@ REMOTE_PATH=""
 REMOTE_MODE="600"
 RUN_AFTER_PUT="0"
 FORCE_OVERWRITE="0"
+RELEASE_STATE=""
+RECEIPT=""
+POSTCHECK_PLAN=""
+PUBLIC_URL_ARG=""
 
 usage() {
-  sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    pull|sync-controls|prepare|put-file)
+    pull|sync-controls|prepare|candidate-smoke|promote|put-file)
       ACTION="$1"
       shift
       ;;
+    --state) RELEASE_STATE="${2:-}"; shift 2 ;;
+    --receipt) RECEIPT="${2:-}"; shift 2 ;;
+    --postcheck-plan) POSTCHECK_PLAN="${2:-}"; shift 2 ;;
+    --public-url) PUBLIC_URL_ARG="${2:-}"; shift 2 ;;
     --local) LOCAL_PATH="${2:-}"; shift 2 ;;
     --remote) REMOTE_PATH="${2:-}"; shift 2 ;;
     --mode) REMOTE_MODE="${2:-}"; shift 2 ;;
@@ -336,6 +349,7 @@ PY
     mkdir -p "${BUNDLE}/controls"
     cp \
       "${REPO_ROOT}/deploy/domestic/bluegreen.py" \
+      "${REPO_ROOT}/deploy/domestic/candidate_smoke.py" \
       "${REPO_ROOT}/deploy/domestic/data_layout.py" \
       "${REPO_ROOT}/deploy/domestic/post_release.py" \
       "${REPO_ROOT}/deploy/domestic/prod-target.json" \
@@ -517,5 +531,69 @@ python3 bluegreen.py prepare \\
 PY
 )"
     run_ssm "${COMMENT_PREFIX} prepare ${STATE_NAME}" "${REMOTE}"
+    ;;
+
+  candidate-smoke|promote)
+    if [[ ! "${RELEASE_STATE}" =~ ^/opt/tokenkey/releases/[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta)\.[0-9]+)?-[0-9a-f]{9}$ ]]; then
+      echo "deploy_via_ssm ${ACTION}: --state must be /opt/tokenkey/releases/<version>-<9 hex>" >&2
+      exit 1
+    fi
+    if [[ "${ACTION}" == "promote" ]]; then
+      if [[ ! "${RECEIPT}" =~ ^[a-f0-9]{64}$ ]]; then
+        echo "deploy_via_ssm promote: --receipt must be the prepared.json sha256" >&2
+        exit 1
+      fi
+      case "${POSTCHECK_PLAN}" in
+        /private/*|/opt/tokenkey/*|/var/lib/tokenkey/*) : ;;
+        *)
+          echo "deploy_via_ssm promote: --postcheck-plan must already be on the host under /private, /opt/tokenkey, or /var/lib/tokenkey" >&2
+          exit 1
+          ;;
+      esac
+      case "${POSTCHECK_PLAN}" in
+        */../*|*/..)
+          echo "deploy_via_ssm promote: --postcheck-plan must not traverse with .." >&2
+          exit 1
+          ;;
+      esac
+      if [[ -n "${PUBLIC_URL_ARG}" && "${PUBLIC_URL_ARG}" != "${PUBLIC_ORIGIN}" ]]; then
+        echo "deploy_via_ssm promote: --public-url must equal manifest public_origin ${PUBLIC_ORIGIN}" >&2
+        exit 1
+      fi
+      # Cutover plus the built-in 5 minute delayed check can exceed the default
+      # 1200s document timeout when the old color still has in-flight requests.
+      if [[ "${EXECUTION_TIMEOUT}" -lt 1800 ]]; then
+        EXECUTION_TIMEOUT=1800
+      fi
+      if [[ "${TIMEOUT_SECONDS}" -le "${EXECUTION_TIMEOUT}" ]]; then
+        TIMEOUT_SECONDS=$((EXECUTION_TIMEOUT + 60))
+      fi
+    fi
+    REMOTE="$(python3 - "${ACTION}" "${CONTROLS_DIR}" "${RELEASE_STATE}" "${RECEIPT}" "${POSTCHECK_PLAN}" "${PUBLIC_ORIGIN}" <<'PY'
+import sys
+action, controls, state, receipt, plan, origin = sys.argv[1:7]
+smoke = "/private/candidate-smoke.json"
+summary = state + "/post-release/summary.md"
+smoke_script = controls + "/candidate_smoke.py"
+promote_script = controls + "/bluegreen.py"
+if action == "candidate-smoke":
+    print(f'''set -euo pipefail
+test -f {smoke_script!r}
+python3 {smoke_script!r} --state {state!r} --out {smoke!r}
+''')
+else:
+    print(f'''set -euo pipefail
+test -f {promote_script!r}
+python3 {promote_script!r} promote \\
+  --state {state!r} \\
+  --receipt {receipt!r} \\
+  --postcheck-plan {plan!r} \\
+  --smoke-report {smoke!r} \\
+  --public-url {origin!r}
+python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).read_text())' {summary!r}
+''')
+PY
+)"
+    run_ssm "${COMMENT_PREFIX} ${ACTION} ${RELEASE_STATE##*/}" "${REMOTE}"
     ;;
 esac

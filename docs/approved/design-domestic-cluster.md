@@ -123,7 +123,7 @@ QA 旧路径由应用、鉴权和退役状态裁决。
 2026-10-15 用户明确要求“#2650 已合并。蓝绿发布部署 cn-prod。只部署 cn-prod 哈”。
 范围仅为 UCloud 国内节点：先启动同库候选并实测，使用共享 Caddy 切流和排空契约，
 保留旧容器/镜像供回退；不调用海外 prod/edge dispatcher，不改变用户、额度或供应配置。
-默认发版：`deploy_via_ssm.sh` `pull` → `sync-controls` → `prepare`，再主机侧候选实测与
-`bluegreen.py promote`（经 SSM Run Command / Session Manager）。日常不得为发版开放公网
+默认发版：`deploy_via_ssm.sh` `pull` → `sync-controls` → `prepare` → `candidate-smoke`，
+plan 经 `put-file`，再 `promote`。切流仍由已同步的 `bluegreen.py` 执行。日常不得为发版开放公网
 SSH 22；仅恢复路径临时放行运维出口 `/32` 并在结束后移除。主机适配入口见
 `deploy/domestic/bluegreen.py`；运维说明唯一 owner 为 `deploy/domestic/README.md`。
