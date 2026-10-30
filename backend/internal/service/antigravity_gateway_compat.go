@@ -248,7 +248,7 @@ func (s *AntigravityGatewayService) prepareAntigravityCompatCall(
 	}
 	geminiBody, err := s.buildAntigravityCompatGeminiBody(ctx, request.claudeBody, &claudeRequest, projectID, mappedModel)
 	if err != nil {
-		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", "Invalid request")
+		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", antigravitySchemaErrorMessage(err, "Invalid request"))
 	}
 
 	request.reasoningEffort = ApplyThinkingEnabledFallback(request.reasoningEffort, request.originalBody, mappedModel)

@@ -15,7 +15,7 @@ approved_at: 2026-10-30
 
 - Anthropic SSE：合法非负整数 usage 字段以字段存在性覆盖旧值，显式零有效；缺失或非法值不清空已有量。canonical cache read 存在时优先于 alias，写入总量显式零清除旧 TTL 明细。保留供应商 inclusive input 规范化；未知 TTL 差额价格不在本次裁决。
 - Kiro：仅识别一次起始 inline thinking envelope；进入正文后标签字面值完整保留。起始未闭合 reasoning 继续隐藏，原生 reasoning 事件保持独立。裸标签起始的字面示例与旧协议无法区分，继续保守隐藏。
-- Antigravity：SDK response schema aliases 转为 v1internal responseSchema；canonical 存在则优先（含非法值），响应 schema 不注入工具参数占位字段。共享原有 schema 清理算法，仅修正字段和根节点用途，不承诺支持任意 JSON Schema。
+- Antigravity：SDK response schema aliases 转为 v1internal responseSchema；canonical 存在则优先（含非法值），响应 schema 不注入工具参数占位字段。共享原有 schema 清理算法，修正字段和根节点用途，不承诺支持任意 JSON Schema。复审确认的递归引用会造成进程栈溢出，须在共享清洗入口有界展开：递归或超出展开预算的 schema 明确返回参数错误，不能截断约束后继续上游调用；正常无环复用保持可用。
 - Antigravity Gemini wire：复用既有锚定 system 开头的 Claude SDK identity/attribution 清理，保留项目规则、后续提及及用户正文；已有 Antigravity identity 不能跳过清理。
 - 动态工具：在 Responses 可表达的边界按消息顺序传递 additions、工具引用与名称映射；无法无损表达的删除或非法引用在调用上游前明确返回参数错误，不能静默丢弃后继续计费。
 

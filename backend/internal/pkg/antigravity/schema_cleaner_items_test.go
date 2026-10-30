@@ -44,7 +44,9 @@ func TestCleanJSONSchema_ArrayWithAnyOfKeepsItemStructure(t *testing.T) {
 		},
 	}
 
-	cleaned := CleanJSONSchema(input)
+	cleaned, err := CleanJSONSchema(input)
+
+	require.NoError(t, err)
 	require.NotNil(t, cleaned)
 
 	cleanedProps, ok := cleaned["properties"].(map[string]any)
@@ -89,7 +91,9 @@ func TestCleanJSONSchema_TupleItemsMergeInsteadOfDiscard(t *testing.T) {
 		},
 	}
 
-	cleaned := CleanJSONSchema(input)
+	cleaned, err := CleanJSONSchema(input)
+
+	require.NoError(t, err)
 	require.NotNil(t, cleaned)
 
 	entry := nestedField(t, nestedField(t, cleaned, "properties"), "entry")
@@ -117,7 +121,9 @@ func TestCleanJSONSchema_TupleItemsMergesEnumValues(t *testing.T) {
 		},
 	}
 
-	cleaned := CleanJSONSchema(input)
+	cleaned, err := CleanJSONSchema(input)
+
+	require.NoError(t, err)
 	items := nestedField(t, nestedField(t, nestedField(t, cleaned, "properties"), "op"), "items")
 	assert.Equal(t, "string", items["type"])
 	assert.ElementsMatch(t, []any{"read", "write"}, items["enum"])
@@ -141,7 +147,9 @@ func TestCleanJSONSchema_NestedRecordKeepsReasonOut(t *testing.T) {
 		},
 	}
 
-	cleaned := CleanJSONSchema(input)
+	cleaned, err := CleanJSONSchema(input)
+
+	require.NoError(t, err)
 	items := nestedField(t, nestedField(t, nestedField(t, cleaned, "properties"), "envs"), "items")
 	assert.Equal(t, "object", items["type"])
 	props, ok := items["properties"].(map[string]any)
@@ -153,7 +161,8 @@ func TestCleanJSONSchema_NestedRecordKeepsReasonOut(t *testing.T) {
 // Benign direction: a tool that genuinely takes no arguments still gets the
 // upstream reason placeholder at the parameter root.
 func TestCleanJSONSchema_RootEmptyObjectKeepsReasonPlaceholder(t *testing.T) {
-	cleaned := CleanJSONSchema(map[string]any{"type": "object"})
+	cleaned, err := CleanJSONSchema(map[string]any{"type": "object"})
+	require.NoError(t, err)
 	require.NotNil(t, cleaned)
 	props, ok := cleaned["properties"].(map[string]any)
 	require.True(t, ok)
@@ -185,7 +194,9 @@ func TestCleanJSONSchema_DeepNestingUnchanged(t *testing.T) {
 		},
 	}
 
-	cleaned := CleanJSONSchema(input)
+	cleaned, err := CleanJSONSchema(input)
+
+	require.NoError(t, err)
 	groups := nestedField(t, nestedField(t, cleaned, "properties"), "groups")
 	members := nestedField(t, nestedField(t, nestedField(t, groups, "items"), "properties"), "members")
 	assert.Equal(t, "array", members["type"])

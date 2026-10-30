@@ -102,7 +102,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	// Claude-family models keep TransformClaudeToGemini.
 	geminiBody, err := s.buildMessagesForwardUpstreamBody(ctx, body, &claudeReq, projectID, mappedModel, transformOpts)
 	if err != nil {
-		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", "Invalid request")
+		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", antigravitySchemaErrorMessage(err, "Invalid request"))
 	}
 
 	// Antigravity 上游只支持流式请求，统一使用 streamGenerateContent

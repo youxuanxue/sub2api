@@ -2,7 +2,7 @@ package antigravity
 
 // NormalizeGeminiResponseSchema translates SDK schema aliases to the v1internal
 // responseSchema field. Response schemas must not gain tool-argument placeholders.
-func NormalizeGeminiResponseSchema(payload map[string]any) bool {
+func NormalizeGeminiResponseSchema(payload map[string]any) (bool, error) {
 	modified := false
 	for _, key := range []string{"generationConfig", "generation_config"} {
 		gen, ok := payload[key].(map[string]any)
@@ -23,13 +23,16 @@ func NormalizeGeminiResponseSchema(payload map[string]any) bool {
 			continue
 		}
 		if object, ok := schema.(map[string]any); ok {
-			DeepCleanUndefined(object)
-			schema = cleanJSONSchema(object, false)
+			cleaned, err := cleanJSONSchema(object, false)
+			if err != nil {
+				return false, err
+			}
+			schema = cleaned
 			modified = true
 		}
 		gen["responseSchema"] = schema
 	}
-	return modified
+	return modified, nil
 }
 
 // NormalizeGeminiSystemIdentity uses the same narrowly anchored SDK metadata

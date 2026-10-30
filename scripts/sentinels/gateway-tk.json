@@ -1927,12 +1927,14 @@
         "func (s *AntigravityGatewayService) prepareForwardGeminiWireBody(projectID, mappedModel string, generateContentBody []byte) ([]byte, error)",
         "wrapped, err = s.wrapV1InternalRequest(projectID, mappedModel, normalized)",
         "func (s *AntigravityGatewayService) buildMessagesForwardUpstreamBody(",
-        "apicompat.NormalizeGeminiImageSize(sizeStr)"
+        "apicompat.NormalizeGeminiImageSize(sizeStr)",
+        "cleanedBody, err := cleanGeminiRequest(injectedBody)"
       ],
       "must_not_contain": [
-        "delete(request, \"sessionId\")"
+        "delete(request, \"sessionId\")",
+        "cleanErr == nil"
       ],
-      "rationale": "AG Gemini-family messages/chat/responses must share ForwardGemini's wrapV1InternalRequest wire (requestType/enabledCreditTypes), not a parallel envelope that drops sessionId."
+      "rationale": "AG Gemini-family messages/chat/responses must share ForwardGemini's wrapV1InternalRequest wire (requestType/enabledCreditTypes), not a parallel envelope that drops sessionId. Schema cleanup failures must propagate before any upstream request."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_gemini.go",
@@ -18298,6 +18300,46 @@
         "TestChatResponsesRejectedHintsDoNotRetryInterruptedErrorBody"
       ],
       "rationale": "Real bridge entrypoints must reject unsupported dynamic history before spending upstream calls; cache retries must stop on cancellation and truncated errors."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/schema_cleaner.go",
+      "must_contain": [
+        "func (e *schemaReferenceExpander) expand(",
+        "maxSchemaExpansionDepth",
+        "maxSchemaExpansionNodes",
+        "if e.active[name]",
+        "expanded, err := expander.expand(root, 0, nil)",
+        "maxSchemaExpansionBytes"
+      ],
+      "must_not_contain": [
+        "func flattenRefs("
+      ],
+      "rationale": "Reject cyclic and excessive schema expansion before recursive cleanup; restoring unbounded flattenRefs can terminate the gateway process."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/request_transformer.go",
+      "must_contain": [
+        "tools, err := buildTools(claudeReq.Tools)",
+        "params, err := CleanJSONSchema(inputSchema)"
+      ],
+      "rationale": "Claude-family tool transformation must propagate shared schema errors before upstream dispatch."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/schema_expansion_safety_tk_test.go",
+      "must_contain": [
+        "TestCleanJSONSchemaRejectsUnsafeExpansion",
+        "TestCleanJSONSchemaSharedReferencesRemainIndependent",
+        "TestTransformClaudeToGeminiRejectsUnsafeSchema",
+        "TestCleanJSONSchemaReferenceSiblingsAndAliases"
+      ],
+      "rationale": "Keep self/mutual reference, depth and expansion budget regressions plus ordinary shared-reference behavior."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_schema_safety_tk_test.go",
+      "must_contain": [
+        "TestAntigravityGatewayRejectsUnsafeSchemasBeforeUpstream"
+      ],
+      "rationale": "Real native Gemini and Claude-family Forward calls must reject unsafe schemas with 400 and zero upstream calls."
     }
   ]
 }

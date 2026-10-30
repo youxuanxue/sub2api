@@ -9,7 +9,7 @@
   - 逻辑错误：显式零值修正、cache aliases、响应 schema 与工具时序。
   - 行为回归：跨块正文和流式/非流式路径一致，现有工具参数清理不变。
   - 安全问题：真实 reasoning 不泄露；用户正文与项目规则不被身份清理误删；非法动态工具在上游调用前拒绝。
-  - 运行时：跨 SSE 块解析、工具结果顺序、有界兼容重试；不新增持久状态或后台任务。
+  - 运行时：跨 SSE 块解析、工具结果顺序、有界兼容重试；schema 引用循环和展开膨胀不能拖垮网关；不新增持久状态或后台任务。
 
 ## Acceptance Criteria
 
@@ -20,9 +20,11 @@
 
 5. AC-005 (regression): Given Chat 缓存提示 When 供应不支持并明确拒绝 Then 按共享预算重试且 key 不变；支持者保留 retention，取消和截断错误体不重试。
 
+6. AC-006 (negative): Given schema 自引用、互引用或展开超预算 When 进入 AG 工具/响应 schema 清洗 Then 返回参数错误且上游零调用；无环重复引用保持原有约束与正常转发。
+
 ## Assertions
 
-AC-001 断言最终 token 数与 cache creation cost；AC-002 断言流式/非流式正文逐字相等；AC-003 断言完整 schema 与 system/contents 对象；AC-004 断言有序工具输入和错误状态、上游调用次数；AC-005 断言最终出站缓存字段、相同 session identity 与有界请求次数。
+AC-001 断言最终 token 数与 cache creation cost；AC-002 断言流式/非流式正文逐字相等；AC-003 断言完整 schema 与 system/contents 对象；AC-004 断言有序工具输入和错误状态、上游调用次数；AC-005 断言最终出站缓存字段、相同 session identity 与有界请求次数；AC-006 断言错误类型、HTTP 400、上游零调用及正常无环引用的展开结果。
 
 ## Linked Tests
 
@@ -38,7 +40,11 @@ AC-001 断言最终 token 数与 cache creation cost；AC-002 断言流式/非�
 - `backend/internal/service/openai_gateway_dynamic_tools_tk_test.go`::`TestForwardAsAnthropic_DynamicToolErrorsReturn400BeforeUpstream` — AC-004。
 - `backend/internal/service/openai_chat_prompt_cache_tk_test.go`::`TestChatResponsesRetriesRejectedExplicitCacheHints` — AC-005。
 
-- 运行命令: `cd backend && GOMAXPROCS=2 go test -p 1 -tags=unit ./internal/integration/kiro ./internal/pkg/apicompat ./internal/pkg/antigravity ./internal/service -run 'TestAnthropicSSEFinal|TestInlineThinking|TestKiroGatewayService_Forward_.*(Thinking|Reasoning)|TestCleanGeminiRequest|TestAntigravityGeminiWire|TestAnthropicToResponses|TestAnthropicDynamicTools|TestCodexDynamicTools|TestForwardAsAnthropic_Dynamic|TestChatResponses|TestOpenAIPromptCacheHints' -count=1`
+- `backend/internal/pkg/antigravity/schema_expansion_safety_tk_test.go`::`TestCleanJSONSchemaRejectsUnsafeExpansion` — AC-006。
+- `backend/internal/pkg/antigravity/schema_expansion_safety_tk_test.go`::`TestCleanJSONSchemaSharedReferencesRemainIndependent` — AC-006。
+- `backend/internal/service/antigravity_gateway_schema_safety_tk_test.go`::`TestAntigravityGatewayRejectsUnsafeSchemasBeforeUpstream` — AC-006。
+
+- 运行命令: `cd backend && GOMAXPROCS=2 go test -p 1 -tags=unit ./internal/integration/kiro ./internal/pkg/apicompat ./internal/pkg/antigravity ./internal/service -run 'TestAnthropicSSEFinal|TestInlineThinking|TestKiroGatewayService_Forward_.*(Thinking|Reasoning)|TestCleanGeminiRequest|TestAntigravityGeminiWire|TestAnthropicToResponses|TestAnthropicDynamicTools|TestCodexDynamicTools|TestForwardAsAnthropic_Dynamic|TestChatResponses|TestOpenAIPromptCacheHints|TestCleanJSONSchema|TestTransformClaudeToGeminiRejectsUnsafeSchema|TestAntigravityGatewayRejectsUnsafeSchemasBeforeUpstream' -count=1`
 
 ## Evidence
 

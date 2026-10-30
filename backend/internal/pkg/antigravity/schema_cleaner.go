@@ -8,26 +8,158 @@ import (
 // CleanJSONSchema 清理 JSON Schema，移除 Antigravity/Gemini 不支持的字段
 // 参考 Antigravity-Manager/src-tauri/src/proxy/common/json_schema.rs 实现
 // 确保 schema 符合 JSON Schema draft 2020-12 且适配 Gemini v1internal
-func CleanJSONSchema(schema map[string]any) map[string]any {
+func CleanJSONSchema(schema map[string]any) (map[string]any, error) {
 	return cleanJSONSchema(schema, true)
 }
 
-func cleanJSONSchema(schema map[string]any, toolRoot bool) map[string]any {
+func cleanJSONSchema(schema map[string]any, toolRoot bool) (map[string]any, error) {
 	if schema == nil {
-		return nil
+		return nil, nil
 	}
-	// 0. 预处理：展开 $ref (Schema Flattening)
-	// (Go map 是引用的，直接修改 schema)
-	flattenRefs(schema, extractDefs(schema))
-
-	// 递归清理（root 节点单独标记：空 object 的 reason 占位只允许注入在工具参数根上）
-	cleaned := cleanJSONSchemaNode(schema, toolRoot, toolRoot)
-	result, ok := cleaned.(map[string]any)
-	if !ok {
-		return nil
+	// Expand into a bounded copy before any recursive cleanup. A recursive JSON
+	// Schema is valid JSON but cannot be represented by Gemini's inline schema.
+	if len(schema) > maxSchemaExpansionNodes {
+		return nil, schemaExpansionLimitError()
 	}
+	for _, key := range []string{"$defs", "definitions"} {
+		if defs, ok := schema[key].(map[string]any); ok && len(defs) > maxSchemaExpansionNodes {
+			return nil, schemaExpansionLimitError()
+		}
+	}
+	root := make(map[string]any, len(schema))
+	for key, value := range schema {
+		root[key] = value
+	}
+	expander := schemaReferenceExpander{defs: extractDefs(root), active: make(map[string]bool)}
+	expanded, err := expander.expand(root, 0, nil)
+	if err != nil {
+		return nil, err
+	}
+	DeepCleanUndefined(expanded)
+	cleaned := cleanJSONSchemaNode(expanded, toolRoot, toolRoot)
+	result, _ := cleaned.(map[string]any)
+	return result, nil
+}
 
-	return result
+// SchemaExpansionError describes input that cannot safely be flattened. It is
+// a client request error, never a reason to forward an uncleaned schema.
+type SchemaExpansionError struct{ reason string }
+
+func (e *SchemaExpansionError) Error() string { return "unsupported JSON schema: " + e.reason }
+
+const (
+	maxSchemaExpansionDepth = 128
+	maxSchemaExpansionNodes = 32768
+	maxSchemaExpansionBytes = 8 << 20
+)
+
+type schemaReferenceExpander struct {
+	defs   map[string]any
+	active map[string]bool
+	nodes  int
+	bytes  int
+}
+
+func schemaExpansionLimitError() error {
+	return &SchemaExpansionError{reason: "reference expansion exceeds the depth or size limit"}
+}
+
+// reserveString uses JSON's worst case of six bytes per input byte for escaping.
+// Bound before multiplying so hostile lengths cannot overflow the counter.
+func (e *schemaReferenceExpander) reserveString(value string) error {
+	if len(value) > (maxSchemaExpansionBytes-e.bytes-2)/6 {
+		return schemaExpansionLimitError()
+	}
+	e.bytes += 2 + 6*len(value)
+	return nil
+}
+
+func (e *schemaReferenceExpander) expand(value any, depth int, omitted map[string]bool) (any, error) {
+	e.nodes++
+	e.bytes += 32 // delimiters and scalar values; strings/keys have their own budget
+	if depth > maxSchemaExpansionDepth || e.nodes > maxSchemaExpansionNodes || e.bytes > maxSchemaExpansionBytes {
+		return nil, schemaExpansionLimitError()
+	}
+	switch node := value.(type) {
+	case map[string]any:
+		if len(node) > maxSchemaExpansionNodes-e.nodes {
+			return nil, schemaExpansionLimitError()
+		}
+		if ref, ok := node["$ref"].(string); ok && len(e.defs) > 0 {
+			parts := strings.Split(ref, "/")
+			name := parts[len(parts)-1]
+			// Siblings are independent input, not part of this reference chain. Expand
+			// them before entering the definition and omit their keys throughout alias
+			// resolution, so overridden recursive branches are never traversed.
+			siblings := make(map[string]any, len(node))
+			blocked := make(map[string]bool, len(omitted)+len(node))
+			for key := range omitted {
+				blocked[key] = true
+			}
+			for key, child := range node {
+				if key != "$ref" && !omitted[key] {
+					siblings[key] = child
+					blocked[key] = true
+				}
+			}
+			own, err := e.expand(siblings, depth+1, nil)
+			if err != nil {
+				return nil, err
+			}
+			result, _ := own.(map[string]any)
+			if definition, ok := e.defs[name].(map[string]any); ok {
+				if e.active[name] {
+					return nil, &SchemaExpansionError{reason: "recursive references are not supported"}
+				}
+				e.active[name] = true
+				inherited, err := e.expand(definition, depth+1, blocked)
+				delete(e.active, name)
+				if err != nil {
+					return nil, err
+				}
+				inheritedMap, _ := inherited.(map[string]any)
+				for key, child := range inheritedMap {
+					result[key] = child
+				}
+			}
+			return result, nil
+		}
+		result := make(map[string]any, len(node))
+		for key, child := range node {
+			if omitted[key] {
+				continue
+			}
+			if err := e.reserveString(key); err != nil {
+				return nil, err
+			}
+			copied, err := e.expand(child, depth+1, nil)
+			if err != nil {
+				return nil, err
+			}
+			result[key] = copied
+		}
+		return result, nil
+	case []any:
+		if len(node) > maxSchemaExpansionNodes-e.nodes {
+			return nil, schemaExpansionLimitError()
+		}
+		result := make([]any, len(node))
+		for i, child := range node {
+			copied, err := e.expand(child, depth+1, nil)
+			if err != nil {
+				return nil, err
+			}
+			result[i] = copied
+		}
+		return result, nil
+	case string:
+		if err := e.reserveString(node); err != nil {
+			return nil, err
+		}
+		return node, nil
+	default:
+		return value, nil
+	}
 }
 
 // extractDefs 提取并移除定义的 helper
@@ -46,47 +178,6 @@ func extractDefs(schema map[string]any) map[string]any {
 		delete(schema, "definitions")
 	}
 	return defs
-}
-
-// flattenRefs 递归展开 $ref
-func flattenRefs(schema map[string]any, defs map[string]any) {
-	if len(defs) == 0 {
-		return // 无需展开
-	}
-
-	// 检查并替换 $ref
-	if ref, ok := schema["$ref"].(string); ok {
-		delete(schema, "$ref")
-		// 解析引用名 (例如 #/$defs/MyType -> MyType)
-		parts := strings.Split(ref, "/")
-		refName := parts[len(parts)-1]
-
-		if defSchema, exists := defs[refName]; exists {
-			if defMap, ok := defSchema.(map[string]any); ok {
-				// 合并定义内容 (不覆盖现有 key)
-				for k, v := range defMap {
-					if _, has := schema[k]; !has {
-						schema[k] = deepCopy(v) // 需深拷贝避免共享引用
-					}
-				}
-				// 递归处理刚刚合并进来的内容
-				flattenRefs(schema, defs)
-			}
-		}
-	}
-
-	// 遍历子节点
-	for _, v := range schema {
-		if subMap, ok := v.(map[string]any); ok {
-			flattenRefs(subMap, defs)
-		} else if subArr, ok := v.([]any); ok {
-			for _, item := range subArr {
-				if itemMap, ok := item.(map[string]any); ok {
-					flattenRefs(itemMap, defs)
-				}
-			}
-		}
-	}
 }
 
 // deepCopy 深拷贝 (简单实现，仅针对 JSON 类型)

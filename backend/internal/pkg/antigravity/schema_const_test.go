@@ -26,13 +26,14 @@ func TestBuildToolsPreservesStringConst(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var property map[string]any
 			require.NoError(t, json.Unmarshal([]byte(tc.schema), &property))
-			tools := buildTools([]ClaudeTool{{
+			tools, err := buildTools([]ClaudeTool{{
 				Name: "dispatch",
 				InputSchema: map[string]any{
 					"type":       "object",
 					"properties": map[string]any{"action": property},
 				},
 			}})
+			require.NoError(t, err)
 			require.Len(t, tools, 1)
 			require.Len(t, tools[0].FunctionDeclarations, 1)
 			properties, ok := tools[0].FunctionDeclarations[0].Parameters["properties"].(map[string]any)
