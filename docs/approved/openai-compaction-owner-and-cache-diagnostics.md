@@ -1,8 +1,7 @@
 ---
 title: OpenAI native compaction state owner and cache miss diagnostics
-status: draft
-approved_by: pending
-approved_at: pending
+status: archived
+archived_reason: "Unapproved proposal retained as historical evidence; implementation remains unapproved."
 ---
 
 # OpenAI native compaction state owner and cache miss diagnostics
@@ -101,4 +100,3 @@ Redis 写入失败时不得宣称绑定成功：终态前返回 `503 compaction_
 可运行最小复现源码和日志分别保存在 `/tmp/openai_issue8426_diagnostic_tmp_test.go`、`/tmp/openai8426-diagnostic1030.log`，基于 `origin/main@130cb33c8`。复现覆盖普通重放和再次压缩：A 不可调度时当前选 B，手工设置真实硬 owner=A 的对照会拒绝 B。该测试确认缺陷机制，不是修复验收。
 
 所有新增状态均按版本管理；回退时保留旧记录自然过期，不删除账单和用户数据。实现前需要审批未知/旧 state 的失败策略、30/90 天寿命与上线切换，以及诊断 1% 采样/24h retention。线上模型调用和付费压缩不包含在本次审批。
-

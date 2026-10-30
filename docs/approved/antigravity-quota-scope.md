@@ -1,12 +1,12 @@
 ---
 title: Antigravity Argon 与 Flash 配额冷却范围
-status: pending
-approved_by: pending
+status: archived
+archived_reason: "Unapproved proposal retained as historical evidence; implementation remains unapproved."
 ---
 
-# 待审：Antigravity 配额冷却范围
+# 已归档：Antigravity 配额冷却范围
 
-本文件是 #8393 的待审方案，尚未实现或部署。菜单是否展示不决定模型能否经 `model_mapping` 访问；本方案不改菜单、mapping、账号启停或价格。
+本文件是 #8393 的历史待审方案，尚未实现或部署。菜单是否展示不决定模型能否经 `model_mapping` 访问；本方案不改菜单、mapping、账号启停或价格。
 
 ## 已核实与缺口
 
