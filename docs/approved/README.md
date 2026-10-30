@@ -7,6 +7,8 @@ revised_at: 2026-10-28
 
 # Approved docs index
 
+- [未知 TTL 缓存创建量计费](cache-creation-unknown-ttl-billing.md)：已知 TTL 保留原价，结算时仍未知的差额按 1h；不追补旧账。
+
 - [Kiro 文件工具分块兼容方案](kiro-file-tool-chunking.md)：已确认的按账号分块提示；实测缓解长静默断流，明确轮数、成本和非保证边界。
 
 - [cn-prod 私有镜像分发](cn-prod-image-distribution.md)：CI S3 中转、SSM 预下载和不中断网关的边界。

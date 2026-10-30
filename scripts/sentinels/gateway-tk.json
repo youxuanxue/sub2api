@@ -18398,6 +18398,23 @@
         "TestGeminiMessagesUnsafeToolSchemaRejectedBeforeUpstream"
       ],
       "rationale": "Preserve referenced array element structure, caller input and HTTP 400 with zero upstream calls for unsafe expansion."
+    },
+    {
+      "path": "backend/internal/service/billing_service.go",
+      "must_contain": [
+        "unknownTTLTokens = tokens.CacheCreationTokens - cacheCreation5mTokens - cacheCreation1hTokens",
+        "float64(cacheCreation1hTokens+unknownTTLTokens)*pricing.CacheCreation1hPrice*multiplier"
+      ],
+      "rationale": "Approved unknown TTL cache creation policy: charge unclassified aggregate tokens at the resolved 1h price while preserving known TTL details and raw usage."
+    },
+    {
+      "path": "backend/internal/service/billing_cache_unknown_ttl_tk_test.go",
+      "must_contain": [
+        "TestCacheCreationUnknownTTLUsesOneHourPrice",
+        "TestCacheCreationUnknownTTLUsesResolvedPricing",
+        "TestAnthropicSSECumulativeCacheCreationUnknownTTLSettlement"
+      ],
+      "rationale": "Keep partial and total-only TTL settlement regressions, resolved channel prices, raw usage preservation, cumulative SSE usage and explicit zero behavior."
     }
   ]
 }

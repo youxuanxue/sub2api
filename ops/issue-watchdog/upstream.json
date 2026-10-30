@@ -1539,8 +1539,8 @@
       "upstream": "Wei-Shaw/sub2api#8412",
       "judgment": {
         "impact": "medium",
-        "tokenkey_status": "unresolved_in_tokenkey",
-        "rationale": "2026-10-30近7天prod聚合742349条，部分TTL明细差额0条；6条total-only属于既有全量5m fallback。离线复现total11000/known1h3000只计已知部分；未知差额费率须业务裁决，建议按5m最低档且不伪造原始TTL、不追溯历史。尚未修改计价。"
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "2026-10-30用户明确批准未知TTL按1h收费。本分支实现：已知5m/1h按各自价，max(total-已知明细和,0)按解析后的1h价；完全无明细也按1h。非TTL模型保留标准cache-write价，原始usage不改、不追溯历史。近7天prod未见部分TTL差额；6条total-only适用新的未来结算规则。待PR合并及部署，未宣称线上生效。"
       }
     },
     {
@@ -1548,7 +1548,7 @@
       "judgment": {
         "impact": "high",
         "tokenkey_status": "partially_mitigated",
-        "rationale": "2026-10-30 prod EasyPay/USDT仍启用，但pay.callmodel.io解析NXDOMAIN；近7天无订单，不能据此认定不影响或BEpusdt不支持查单。本分支修复独立缺陷：queryOrder非2xx即拒绝paid-looking body，保留强制查单。DNS/支付商地址和真实查单能力仍待恢复验证，不能整体关闭。"
+        "rationale": "2026-10-30 08:04 UTC再次确认prod EasyPay/USDT仍启用，apiBase=https://pay.callmodel.io/payments/epay/v1/order/create-transaction；pay子域DNS不可解析，prod没有名称/镜像匹配epay/epusdt/payment的容器。callmodel.io同路径及/api.php返回网站HTML，api.callmodel.io跳转到站点，不能直接替换域名恢复支付。本分支修复queryOrder非2xx拒绝paid-looking body，保留强制查单；需恢复支付服务/DNS并验证创建与查单兼容，不能整体关闭。"
       }
     },
     {
