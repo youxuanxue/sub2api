@@ -214,46 +214,41 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	// Domain wire defaults and pricing overlay rows stay so existing mappings
 	// keep billing correctly.
 	"gemini-3.8-flash": {},
-	// gemini-4-argon: still withheld from the public catalog. Re-measured
-	// 2026-10-24 against the upstream bodies rather than model_availability, and
-	// BOTH earlier notes in this spot were partly wrong. Two different upstream
-	// failures run side by side, split by account, not by model:
+	// gemini-4-argon: published 2026-10-30 after the per-account split that the
+	// previous note was waiting on was finally explained. Upstream ships TWO
+	// catalog tiers to Antigravity OAuth accounts, and the split is in the
+	// catalog itself, not in quota or request shape. Evidence, all live prod,
+	// fetchAvailableModels on each of the 17 active accounts:
 	//
-	//   per-day upstream rows (ops_error_logs, 5 days to 10-24)
-	//     10-24  404=2   429/upstream=3   429/pool-empty=21
-	//     10-23  404=6   429/upstream=3   429/pool-empty=5
-	//     10-22  404=8   429/upstream=6   429/pool-empty=4
-	//     10-21  404=21  429/upstream=26  429/pool-empty=27
+	//   - 6 accounts (233/244/268/291/292/294) advertise 26 models including
+	//     gemini-4-argon-{high,medium,low};
+	//   - 11 accounts (228/229/231/232/247/249/250/271/272/275/293) advertise 20
+	//     models, where argon appears as the literal id
+	//     "gemini-4-argon-disabled";
+	//   - direct v1internal:generateContent on the daily endpoint returns 200 for
+	//     gemini-4-argon-high on all 6 advertised accounts, and Google's own 404
+	//     "Requested entity was not found." on the other 11 -- while
+	//     gemini-3.8-flash-high returns 200 on both tiers, which rules out auth,
+	//     account state, plan_type (all Pro) and payload.
 	//
-	//   - accounts 229/231/250/293 get Google's 404 "Requested entity was not
-	//     found." on /v1internal:streamGenerateContent -- byte-identical to what
-	//     retired gemini-3.7-flash returns;
-	//   - accounts 233/268/291/292/294 get quota 429s, "Resource has been
-	//     exhausted (e.g. check quota)." and "Individual quota reached. Please
-	//     upgrade your subscription", and carry 75-115h cooldowns with no reason
-	//     recorded (the 404 path writes a 30m one with
-	//     antigravity_404_model_unavailable, so these came from the quota path);
-	//   - usage_logs still shows successful billed calls through 10-21 (113 that
-	//     day), so the model does serve on the accounts that have quota.
+	// So the earlier 404-vs-429 confusion was two unrelated facts stacked: the
+	// 404s came from accounts that genuinely lack the model, and the 429s came
+	// from the free quota pool on accounts that have it. Publication is therefore
+	// correct, but the mapping floor must reach only the advertising accounts --
+	// activation is targeted (modelops activate --account-ids), not platform-wide.
+	// Re-check the tier with fetchAvailableModels before widening that set; an
+	// account moving tiers changes its answer without any TK change.
 	//
-	// The earlier claim that "the original note was wrong" overstated it: the 404
-	// it described is real, it just happens on a subset of accounts. Equally, the
-	// claim that this is purely capacity was incomplete.
+	// Paid plans serve from the daily endpoint (resolveAntigravityForwardBaseURL);
+	// probing prod returns 429 for every model, including ones that serve, so a
+	// prod-endpoint 429 is not quota evidence.
 	//
-	// Why that distinction decides the outcome: a retirement needs every tier
-	// wire failing the same way on every account (that is what gemini-3.7-flash
-	// showed, and why it was withdrawn). Here the split means neither call is
-	// safe -- do not retire it, and do not publish it either. Keep it withheld
-	// until the per-account difference is explained.
-	//
-	// Do not re-derive this from model_availability alone. That row still reads
-	// last_failure_kind=rate_limited / 429 with last_seen_ok_at 2026-10-21 while
-	// four accounts are getting 404s, because classifyFailureKind keeps the last
-	// classified failure and 429s dominate by volume. Reading it as the whole
-	// story is what produced the previous wrong note.
-	// Removing from this allowlist hides public catalog, menu fallback, and
-	// account-mapping floor together; domain wire defaults and pricing overlay
-	// rows stay, which is what lets existing mappings keep billing correctly.
+	// Do not re-derive any of this from model_availability alone. That row reads
+	// unreachable / rate_limited with a stale last_seen_ok_at while the model
+	// serves, because classifyFailureKind keeps the last classified failure and
+	// 429s dominate by volume. Reading it as the whole story is what produced the
+	// two earlier wrong notes in this spot.
+	"gemini-4-argon": {},
 	// Nano Banana 2 is Flash; Pro aliases belong to Gemini Web.
 	"nano-2":        {},
 	"nano-banana-2": {},
