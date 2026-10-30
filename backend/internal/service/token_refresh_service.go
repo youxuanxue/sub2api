@@ -1426,6 +1426,7 @@ func isNonRetryableRefreshError(err error) bool {
 		"refresh_token_invalidated", // OpenAI session ended; refresh token invalidated
 		"invalid_client",            // 客户端配置错误
 		"unauthorized_client",       // 客户端未授权
+		"client secret expired",     // Kiro IDC client secret 属于单个账号；不能写成 invalid_client，否则会被当成供应商级配置故障
 		"access_denied",             // 访问被拒绝
 		"missing_project_id",        // 缺少 project_id
 		"no refresh token available",

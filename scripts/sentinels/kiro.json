@@ -690,9 +690,18 @@
     {
       "path": "backend/internal/service/token_refresh_service.go",
       "must_contain": [
-        "NewKiroTokenRefresher"
+        "NewKiroTokenRefresher",
+        "client secret expired"
       ],
-      "rationale": "Registration of KiroTokenRefresher into the background refresh ticker's refreshers[]/executors[]. An upstream merge that rewrites NewTokenRefreshService must preserve this line, or kiro refresh never runs even though the refresher type still exists."
+      "rationale": "Registration of KiroTokenRefresher into the background refresh ticker's refreshers[]/executors[]. An upstream merge that rewrites NewTokenRefreshService must preserve this line, or kiro refresh never runs even though the refresher type still exists. 'client secret expired' must stay in the per-account non-retryable list and out of the shared-provider matcher: an expired Kiro IDC secret disables that account only."
+    },
+    {
+      "path": "backend/internal/service/token_refresh_service_test.go",
+      "must_contain": [
+        "TestKiroExpiredClientSecretStaysOnTheAccount",
+        "require.False(t, state.isTripped())"
+      ],
+      "rationale": "An expired Kiro IDC client secret is a permanent account failure. The background refresher must SetError and must not trip the provider cycle the way invalid_client does."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_kiro.go",
@@ -1124,6 +1133,8 @@
         "func (s *AccountUsageService) refreshKiroUsageAccount",
         "s.oauthRefreshAPI.RefreshNow",
         "isKiroUsageTokenAuthError",
+        "isKiroClientSecretExpiredError",
+        "Kiro OIDC client secret expired",
         "redactKiroUsageError",
         "persistKiroProfileArnIfChanged",
         "func (s *AccountUsageService) buildPassiveKiroUsage",
@@ -1166,6 +1177,7 @@
         "TestGetKiroUsage_NearExpiryUsesStillValidTokenWithoutRefresh",
         "TestGetKiroUsage_InvalidTokenForceRefreshesOnceAndRetries",
         "TestGetKiroUsage_RefreshFailureDoesNotClearRecoverableAccountError",
+        "TestGetKiroUsage_ExpiredClientSecretIsTerminalAndVisible",
         "TestGetKiroUsage_RefreshLockHeldDoesNotRetryOldToken",
         "TestRedactKiroUsageError_CamelCaseCredentials"
       ],
@@ -1344,11 +1356,13 @@
       "must_contain": [
         "RefreshTokenContext",
         "kiroRegionPattern",
+        "kiroIDCClientSecretExpired",
+        "Kiro refresh failed: client secret expired",
         "http.ErrUseLastResponse",
         "http.NewRequestWithContext",
         "result.ExpiresIn <= 0"
       ],
-      "rationale": "Kiro reliability: fail closed on corrupt streams, preserve real tool identity and keep OAuth refresh validation within the shared credential owner."
+      "rationale": "Kiro reliability: fail closed on corrupt streams, preserve real tool identity and keep OAuth refresh validation within the shared credential owner. An expired IDC client secret is a per-account terminal failure and must be reported as 'client secret expired' without the OAuth codes invalid_client or unauthorized_client; those codes make the background refresher trip the whole Kiro provider and leave the dead account schedulable."
     },
     {
       "path": "backend/internal/integration/kiro/reliability_test.go",
@@ -1369,9 +1383,11 @@
         "TestKiroReliabilityRefreshValidation",
         "TestKiroReliabilityRefreshRegionAndRedirect",
         "TestKiroReliabilityRefreshCancellation",
-        "TestKiroReliabilityProfileDoesNotRotateCredentials"
+        "TestKiroReliabilityProfileDoesNotRotateCredentials",
+        "TestKiroIDCClientSecretExpiredSkipsTokenEndpoint",
+        "require.NotContains(t, err.Error(), \"invalid_client\")"
       ],
-      "rationale": "Kiro reliability: fail closed on corrupt streams, preserve real tool identity and keep OAuth refresh validation within the shared credential owner."
+      "rationale": "Kiro reliability: fail closed on corrupt streams, preserve real tool identity and keep OAuth refresh validation within the shared credential owner. The IDC client-secret precheck must stay local, and its error must not carry invalid_client or the background refresher will treat one dead account as a provider-wide fault."
     },
     {
       "path": "backend/internal/service/kiro_reliability_test.go",

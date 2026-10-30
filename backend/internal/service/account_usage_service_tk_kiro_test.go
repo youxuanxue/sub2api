@@ -561,7 +561,7 @@ func TestGetKiroUsage_ExpiredClientSecretIsTerminalAndVisible(t *testing.T) {
 	account := newKiroUsageRefreshTestAccount(StatusActive, "", time.Now().Add(-time.Hour))
 	repo := &kiroUsageRefreshRepo{account: account}
 	executor := &kiroUsageRefreshExecutorStub{
-		refreshErr: errors.New("Kiro refresh failed: invalid_client client secret expired"),
+		refreshErr: errors.New("Kiro refresh failed: client secret expired"),
 	}
 	svc := &AccountUsageService{
 		accountRepo:              repo,

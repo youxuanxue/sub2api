@@ -45,10 +45,13 @@ func RefreshTokenContext(ctx context.Context, account *Account) (string, string,
 		endpoint = oidcTokenURL(region)
 		expectedHost = "oidc." + region + ".amazonaws.com"
 		if kiroIDCClientSecretExpired(account.ClientSecret, time.Now()) {
-			// The OIDC host answers this with a bare HTTP 400. Classifying it
-			// here avoids sending a dead client secret and lets callers treat
-			// the account as terminal instead of retrying it back into the pool.
-			return "", "", 0, "", fmt.Errorf("Kiro refresh failed: invalid_client client secret expired")
+			// The OIDC host answers this with a bare HTTP 400. Classify it
+			// here so callers can take this account out of the pool without
+			// sending a dead client secret. The phrase must not contain
+			// invalid_client or unauthorized_client: the background refresher
+			// treats those OAuth codes as a provider-wide configuration fault,
+			// leaves the account schedulable, and stops the rest of the cycle.
+			return "", "", 0, "", fmt.Errorf("Kiro refresh failed: client secret expired")
 		}
 		payload["clientId"], payload["clientSecret"], payload["grantType"] = account.ClientID, account.ClientSecret, "refresh_token"
 	}
@@ -133,7 +136,10 @@ func kiroRefreshHTTPError(status int, raw []byte) error {
 	}
 	switch failure.Error {
 	case "invalid_client", "unauthorized_client":
-		return fmt.Errorf("Kiro refresh failed: %d %s", status, failure.Error)
+		// Kiro IDC client credentials belong to one account. Echoing the
+		// OAuth code would trip the shared-provider breaker instead of
+		// marking this account terminal. See the precheck above.
+		return fmt.Errorf("Kiro refresh failed: %d client secret expired", status)
 	}
 	return fmt.Errorf("Kiro refresh failed: %d", status)
 }
