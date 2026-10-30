@@ -44,7 +44,7 @@ func (s *us046AccountRepoStub) ListSchedulableByGroupIDAndPlatform(context.Conte
 	return append([]Account(nil), s.accounts...), nil
 }
 
-func (s *us046AccountRepoStub) ListAllWithFilters(_ context.Context, platform, _, status string, _ string, groupID int64, _ string, _ int) ([]Account, error) {
+func (s *us046AccountRepoStub) ListAllWithFilters(_ context.Context, platform, _, status string, _ string, groupID int64, _ string, _ int, options ...AccountListOptions) ([]Account, error) {
 	var out []Account
 	for _, acc := range s.accounts {
 		if platform != "" && acc.Platform != platform {

@@ -14,18 +14,18 @@ import (
 )
 
 type tkAccountLiteLister interface {
-	ListAccountsLite(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, channelType int) ([]service.Account, int64, error)
+	ListAccountsLite(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, channelType int, options ...service.AccountListOptions) ([]service.Account, int64, error)
 }
 
 // tkListAccounts uses the lite hydration path when the admin service provides it.
 // Callers without that method keep the full list query.
-func (h *AccountHandler) tkListAccounts(ctx context.Context, lite bool, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode, sortBy, sortOrder string, channelType int) ([]service.Account, int64, error) {
+func (h *AccountHandler) tkListAccounts(ctx context.Context, lite bool, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode, sortBy, sortOrder string, channelType int, options ...service.AccountListOptions) ([]service.Account, int64, error) {
 	if lite {
 		if lister, ok := h.adminService.(tkAccountLiteLister); ok {
-			return lister.ListAccountsLite(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType)
+			return lister.ListAccountsLite(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType, options...)
 		}
 	}
-	return h.adminService.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType)
+	return h.adminService.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType, options...)
 }
 
 func parseAccountListChannelTypeQuery(raw string) (int, error) {

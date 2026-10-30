@@ -82,6 +82,7 @@ export default {
       editAccount: 'Edit Account',
       viewAccount: 'View Account',
       deleteAccount: 'Delete Account',
+      allProxies: 'All Proxies',
       searchAccounts: 'Search accounts...',
       notes: 'Notes',
       notesPlaceholder: 'Enter notes',

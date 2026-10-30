@@ -55,10 +55,18 @@ export async function list(
 }
 
 /**
- * Get all active proxies (without pagination)
- * @returns List of all active proxies
+ * Get active proxies, or the complete management catalog for account filters.
  */
-export async function getAll(): Promise<Proxy[]> {
+export async function getAll(options?: { includeInactive?: boolean }): Promise<Proxy[]> {
+  if (options?.includeInactive) {
+    const proxies: Proxy[] = []
+    for (let page = 1; ; page++) {
+      const result = await list(page, 100, { sort_by: 'id', sort_order: 'asc' })
+      proxies.push(...result.items)
+      if (proxies.length >= result.total) return proxies
+      if (result.items.length === 0) throw new Error('Incomplete proxy list response')
+    }
+  }
   const { data } = await apiClient.get<Proxy[]>('/admin/proxies/all')
   assertProxyArray(data)
   return data

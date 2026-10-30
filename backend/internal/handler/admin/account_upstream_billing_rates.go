@@ -63,7 +63,7 @@ func (h *AccountHandler) GetUpstreamBillingRates(c *gin.Context) {
 
 	accounts, total, err := h.adminService.ListAccounts(
 		c.Request.Context(), page, pageSize, platform, accountType, status,
-		search, groupID, privacyMode, sortBy, sortOrder, 0,
+		search, groupID, privacyMode, sortBy, sortOrder, 0, service.AccountListOptions{ProxyName: c.Query("proxy_name")},
 	)
 	if err != nil {
 		response.ErrorFrom(c, err)

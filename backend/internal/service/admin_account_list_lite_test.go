@@ -16,12 +16,12 @@ type liteListAccountRepo struct {
 	fullCalls int
 }
 
-func (r *liteListAccountRepo) ListWithFiltersLite(context.Context, pagination.PaginationParams, string, string, string, string, int64, string, int) ([]Account, *pagination.PaginationResult, error) {
+func (r *liteListAccountRepo) ListWithFiltersLite(context.Context, pagination.PaginationParams, string, string, string, string, int64, string, int, ...AccountListOptions) ([]Account, *pagination.PaginationResult, error) {
 	r.liteCalls++
 	return []Account{{ID: 7, Name: "lite"}}, &pagination.PaginationResult{Total: 1}, nil
 }
 
-func (r *liteListAccountRepo) ListWithFilters(context.Context, pagination.PaginationParams, string, string, string, string, int64, string, int) ([]Account, *pagination.PaginationResult, error) {
+func (r *liteListAccountRepo) ListWithFilters(context.Context, pagination.PaginationParams, string, string, string, string, int64, string, int, ...AccountListOptions) ([]Account, *pagination.PaginationResult, error) {
 	r.fullCalls++
 	return []Account{{ID: 8, Name: "full"}}, &pagination.PaginationResult{Total: 1}, nil
 }

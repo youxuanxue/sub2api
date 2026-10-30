@@ -138,12 +138,12 @@ const AccountTableActionsStub = {
 }
 
 const BulkEditAccountModalStub = {
-  props: ['show', 'target'],
+  props: ['show', 'target', 'proxies'],
   template: '<div data-test="bulk-edit-modal" :data-show="String(show)" :data-target-mode="target?.mode ?? \'\'"></div>'
 }
 
 const AccountTableFiltersStub = {
-  props: ['groups'],
+  props: ['groups', 'proxies'],
   template: '<div data-test="account-group-options">{{ groups.map(group => group.name).join(",") }}</div>'
 }
 
@@ -251,11 +251,28 @@ describe('admin AccountsView bulk edit scope', () => {
     const wrapper = mountAccountsView()
 
     await flushPromises()
+    wrapper.findComponent(AccountTableFiltersStub).vm.$emit('update:filters', { proxy_name: 'Office proxy' })
     await wrapper.get('[data-test="edit-filtered"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-show')).toBe('true')
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-target-mode')).toBe('filtered')
+    expect(wrapper.findComponent(BulkEditAccountModalStub).props('target').filters.proxy_name).toBe('Office proxy')
+  })
+
+  it('offers all proxy statuses for filtering and only active proxies for bulk assignment', async () => {
+    const active = { id: 1, name: 'Active', status: 'active' }
+    const inactive = { id: 2, name: 'Disabled', status: 'inactive' }
+    const expired = { id: 3, name: 'Expired', status: 'expired' }
+    getAllProxies.mockResolvedValue([active, inactive, expired])
+    const wrapper = mountAccountsView()
+    await flushPromises()
+    expect(getAllProxies).toHaveBeenCalledWith({ includeInactive: true })
+    expect(wrapper.findComponent(AccountTableFiltersStub).props('proxies')).toEqual([active, inactive, expired])
+    await wrapper.get('[data-test="edit-filtered"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(BulkEditAccountModalStub).props('proxies')).toEqual([active])
+    wrapper.unmount()
   })
 
   it('reloads account group choices during a manual refresh', async () => {

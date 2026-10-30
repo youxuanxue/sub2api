@@ -73,6 +73,7 @@ function mountFilters(filters: Record<string, unknown> = {}) {
         channel_type: '',
         ...filters
       },
+      proxies: [{ id: 1, name: 'Office proxy' }, { id: 2, name: 'Backup proxy' }] as any,
       groups: []
     },
     global: {
@@ -109,6 +110,19 @@ describe('AccountTableFilters', () => {
       channel_type: '17'
     })
     expect(wrapper.emitted('change')).toBeTruthy()
+  })
+
+  it('selects a proxy by its management name and clears the filter', async () => {
+    const wrapper = mountFilters({ platform: 'openai', proxy_name: 'Office proxy' })
+    await wrapper.find('[data-value="Backup proxy"]').trigger('click')
+    expect(wrapper.emitted('update:filters')?.at(-1)?.[0]).toMatchObject({
+      platform: 'openai', proxy_name: 'Backup proxy'
+    })
+    const proxySelect = wrapper.find('[aria-label="admin.accounts.allProxies"]')
+    await proxySelect.find('[data-value=""]').trigger('click')
+    expect(wrapper.emitted('update:filters')?.at(-1)?.[0]).toMatchObject({
+      platform: 'openai', proxy_name: ''
+    })
   })
 
   it('clears channel_type when leaving Extension Engine', async () => {

@@ -21,21 +21,21 @@ import (
 )
 
 // Account management implementations
-func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, channelType int) ([]Account, int64, error) {
-	return s.listAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType, false)
+func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, channelType int, options ...AccountListOptions) ([]Account, int64, error) {
+	return s.listAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType, false, options...)
 }
 
 // ListAccountsLite serves GET /admin/accounts?lite=1. Group names are resolved
 // by the groups endpoint, so this path does not load full group rows.
-func (s *adminServiceImpl) ListAccountsLite(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, channelType int) ([]Account, int64, error) {
-	return s.listAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType, true)
+func (s *adminServiceImpl) ListAccountsLite(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, channelType int, options ...AccountListOptions) ([]Account, int64, error) {
+	return s.listAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType, true, options...)
 }
 
 type accountLiteListRepository interface {
-	ListWithFiltersLite(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) ([]Account, *pagination.PaginationResult, error)
+	ListWithFiltersLite(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int, options ...AccountListOptions) ([]Account, *pagination.PaginationResult, error)
 }
 
-func (s *adminServiceImpl) listAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, channelType int, lite bool) ([]Account, int64, error) {
+func (s *adminServiceImpl) listAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, channelType int, lite bool, options ...AccountListOptions) ([]Account, int64, error) {
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && groupID > 0 {
 		if _, err := s.GetGroup(ctx, groupID); err != nil {
 			return nil, 0, err
@@ -44,25 +44,25 @@ func (s *adminServiceImpl) listAccounts(ctx context.Context, page, pageSize int,
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
 	if lite {
 		if liteRepo, ok := s.accountRepo.(accountLiteListRepository); ok {
-			accounts, result, err := liteRepo.ListWithFiltersLite(ctx, params, platform, accountType, status, search, groupID, privacyMode, channelType)
+			accounts, result, err := liteRepo.ListWithFiltersLite(ctx, params, platform, accountType, status, search, groupID, privacyMode, channelType, options...)
 			if err != nil {
 				return nil, 0, err
 			}
 			return accounts, result.Total, nil
 		}
 	}
-	accounts, result, err := s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode, channelType)
+	accounts, result, err := s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode, channelType, options...)
 	if err != nil {
 		return nil, 0, err
 	}
 	return accounts, result.Total, nil
 }
 
-func (s *adminServiceImpl) ListAccountsForSchedulerScoreFilter(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error) {
+func (s *adminServiceImpl) ListAccountsForSchedulerScoreFilter(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, options ...AccountListOptions) ([]Account, error) {
 	if s == nil || s.accountRepo == nil {
 		return nil, nil
 	}
-	return s.accountRepo.ListAllWithFilters(ctx, platform, accountType, status, search, groupID, privacyMode, 0)
+	return s.accountRepo.ListAllWithFilters(ctx, platform, accountType, status, search, groupID, privacyMode, 0, options...)
 }
 
 func (s *adminServiceImpl) ListOpenAISchedulableAccountsForSchedulerScore(ctx context.Context, groupID *int64) ([]Account, error) {
@@ -977,6 +977,7 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 			"",
 			"",
 			filters.ChannelType,
+			AccountListOptions{ProxyName: filters.ProxyName},
 		)
 		if err != nil {
 			return nil, err

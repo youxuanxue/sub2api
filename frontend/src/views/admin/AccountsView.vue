@@ -6,6 +6,7 @@
             v-model:searchQuery="params.search"
             :filters="params"
             :groups="groups"
+            :proxies="proxies"
             @update:filters="(newFilters) => Object.assign(params, newFilters)"
             @change="debouncedReload"
             @update:searchQuery="debouncedReload"
@@ -473,8 +474,8 @@
       </template>
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
-    <CreateAccountModal v-if="lazyMount('create', showCreate)" :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
-    <EditAccountModal v-if="lazyMount('edit', showEdit)" :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
+    <CreateAccountModal v-if="lazyMount('create', showCreate)" :show="showCreate" :proxies="activeProxies" :groups="groups" @close="showCreate = false" @created="reload" />
+    <EditAccountModal v-if="lazyMount('edit', showEdit)" :show="showEdit" :account="edAcc" :proxies="activeProxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal v-if="lazyMount('reauth', showReAuth)" :show="showReAuth" :account="reAuthAcc" :auto-generate="autoGenerateAuthLink" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <DuplicateAccountModal v-if="lazyMount('duplicate', !!duplicateAcc)" :show="!!duplicateAcc" :account="duplicateAcc" @close="duplicateAcc = null" @duplicated="handleAccountsDuplicated" />
     <AccountTestModal v-if="lazyMount('test', showTest)" :show="showTest" :account="testingAcc" @close="closeTestModal" @tested="handleAccountTested" />
@@ -501,7 +502,7 @@
       :selected-platforms="selPlatforms"
       :selected-types="selTypes"
       :target="bulkEditTarget ?? undefined"
-      :proxies="proxies"
+      :proxies="activeProxies"
       :groups="groups"
       @close="showBulkEdit = false"
       @updated="handleBulkUpdated"
@@ -600,6 +601,7 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
+const activeProxies = computed(() => proxies.value.filter(proxy => proxy.status === STATUS_ACTIVE))
 // Active groups — feeds the filter dropdown + create/edit/bulk modals (unchanged).
 const groups = ref<AdminGroup[]>([])
 // Active + inactive groups — used ONLY to resolve chip names below. An account can
@@ -670,6 +672,7 @@ type AccountBulkEditTarget =
         group?: string
         search?: string
         privacy_mode?: string
+        proxy_name?: string
         sort_by?: string
         sort_order?: AccountSortOrder
       }
@@ -1129,6 +1132,7 @@ const {
     ...loadInitialAccountFilterValues(),
     type: '',
     privacy_mode: '',
+    proxy_name: '',
     group: '',
     channel_type: '',
     search: '',
@@ -1201,7 +1205,7 @@ const isActiveAccountGroup = (group: AdminGroup) => !group.status || group.statu
 
 const loadAccountDependencies = async () => {
   const [proxiesResult, groupsResult] = await Promise.allSettled([
-    adminAPI.proxies.getAll(),
+    adminAPI.proxies.getAll({ includeInactive: true }),
     // One request: inactive groups stay available for chip names, active ones feed filters.
     adminAPI.groups.getAllIncludingInactive()
   ])
@@ -1261,6 +1265,7 @@ const buildUpstreamBillingRateFilters = () => {
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
+    proxy_name: typeof rawParams.proxy_name === 'string' ? rawParams.proxy_name : '',
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
   }
@@ -1538,6 +1543,7 @@ const refreshAccountsIncrementally = async () => {
         type?: string
         status?: string
         privacy_mode?: string
+        proxy_name?: string
         group?: string
         search?: string
         sort_by?: string
@@ -2256,6 +2262,7 @@ const buildBulkEditFilterSnapshot = () => {
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
+    proxy_name: typeof rawParams.proxy_name === 'string' ? rawParams.proxy_name : '',
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
     sort_order: sortOrder
   }
@@ -2339,6 +2346,7 @@ const buildAccountQueryFilters = () => ({
   status: params.status || '',
   group: params.group || '',
   privacy_mode: params.privacy_mode || '',
+  proxy_name: params.proxy_name || '',
   channel_type: params.channel_type == null || params.channel_type === '' ? '' : String(params.channel_type),
   search: params.search || '',
   sort_by: sortState.sort_by,
@@ -2350,6 +2358,9 @@ const accountMatchesCurrentFilters = (account: Account) => {
   if (filters.channel_type) {
     const wanted = Number(filters.channel_type)
     if (!Number.isFinite(wanted) || wanted <= 0 || account.channel_type !== wanted) return false
+  }
+  if (filters.proxy_name) {
+    if (proxyForRow(account)?.name !== filters.proxy_name) return false
   }
   if (filters.type && account.type !== filters.type) return false
   if (filters.status) {
