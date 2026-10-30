@@ -886,14 +886,28 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		assert.True(t, isPublicCatalogModelSupported("antigravity", "gemini-3.8-flash"))
 	})
 
-	t.Run("gemini-4-argon is hidden from public antigravity catalog after canary 404", func(t *testing.T) {
-		// 2026-10-16 prod OAuth listed Argon wires; 2026-10-22 SSOT canary
-		// returned unexpected 404 → public display off (allowlist removal).
+	t.Run("gemini-4-argon is published on antigravity after the per-account catalog tier split was explained", func(t *testing.T) {
+		// 2026-10-30: fetchAvailableModels on all 17 active AG OAuth accounts
+		// split 6/11 -- the advertising 6 serve gemini-4-argon-high with 200 on
+		// the daily endpoint, the other 11 advertise "gemini-4-argon-disabled"
+		// and return Google's 404, while gemini-3.8-flash-high serves on both
+		// tiers. Publication is per-account; the mapping floor reaches only the
+		// advertising accounts via targeted activation.
 		_, inAG := supportedAntigravityCatalogModels["gemini-4-argon"]
-		assert.False(t, inAG)
-		assert.False(t, isPublicCatalogModelSupported("antigravity", "gemini-4-argon"))
+		assert.True(t, inAG)
+		assert.True(t, isPublicCatalogModelSupported("antigravity", "gemini-4-argon"))
 		assert.False(t, isPublicCatalogModelSupported("gemini", "gemini-4-argon"),
 			"native gemini catalog stays off until separate Gemini-platform evidence")
+		// The published id is the bare name only. Tier wires stay non-public;
+		// TestAntigravityThinkingWireModelsNeverPublic owns that rule, and this
+		// asserts publication did not leak one in alongside the bare name.
+		for _, wire := range []string{"gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low"} {
+			_, leaked := supportedAntigravityCatalogModels[wire]
+			assert.False(t, leaked, "tier wire %s must not join the public catalog", wire)
+		}
+		// "disabled" is the literal id the 11 non-advertising accounts list; it
+		// is upstream vocabulary, never a TK request surface.
+		assert.False(t, isPublicCatalogModelSupported("antigravity", "gemini-4-argon-disabled"))
 	})
 
 	t.Run("grok-code-fast-1 is hidden from public grok catalog after canary 429", func(t *testing.T) {

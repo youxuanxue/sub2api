@@ -202,8 +202,10 @@ func TestAntigravityCatalogWithdrawalPreservesOtherSupplies(t *testing.T) {
 		require.False(t, isPublicCatalogModelSupported(PlatformGemini, model))
 		require.NotContains(t, supportedCatalogModelIDsForPlatform(PlatformGemini), model)
 	}
-	require.False(t, isPublicCatalogModelSupported(PlatformAntigravity, "gemini-4-argon"),
-		"public antigravity catalog hides gemini-4-argon after 2026-10-22 canary 404")
+	// gemini-4-argon used to be pinned here as "withheld". It is published as of
+	// 2026-10-30 (per-account catalog tier split explained), and its membership
+	// is owned by the argon case in pricing_catalog_tk_test.go. Asserting it
+	// here too would be a second, drifting copy of that decision.
 }
 
 func TestAntigravityModelUnavailableCannotCascadeToWholeAccount(t *testing.T) {
