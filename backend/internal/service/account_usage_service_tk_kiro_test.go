@@ -557,6 +557,38 @@ func TestGetKiroUsage_RefreshFailureDoesNotClearRecoverableAccountError(t *testi
 	}
 }
 
+func TestGetKiroUsage_ExpiredClientSecretIsTerminalAndVisible(t *testing.T) {
+	account := newKiroUsageRefreshTestAccount(StatusActive, "", time.Now().Add(-time.Hour))
+	repo := &kiroUsageRefreshRepo{account: account}
+	executor := &kiroUsageRefreshExecutorStub{
+		refreshErr: errors.New("Kiro refresh failed: invalid_client client secret expired"),
+	}
+	svc := &AccountUsageService{
+		accountRepo:              repo,
+		cache:                    NewUsageCache(),
+		oauthRefreshAPI:          NewOAuthRefreshAPI(repo, nil),
+		kiroOAuthRefreshExecutor: executor,
+		kiroUsageFetcher: func(_ *kiroproto.Account) (*kiroproto.AccountInfo, error) {
+			return nil, errors.New(`GetUsageLimits: HTTP 403: {"message":"Invalid token"}`)
+		},
+	}
+
+	usage, err := svc.getUsageForAccount(context.Background(), account, true)
+	if err != nil {
+		t.Fatalf("getUsageForAccount() error = %v", err)
+	}
+	if executor.refreshCalls != 1 {
+		t.Fatalf("refreshCalls = %d, want 1", executor.refreshCalls)
+	}
+	if usage.Error == "" || !strings.Contains(usage.Error, "Kiro OIDC client secret expired") {
+		t.Fatalf("usage error = %q, want expired client secret", usage.Error)
+	}
+	if repo.setErrorCalls != 1 || account.Schedulable || !strings.Contains(account.ErrorMessage, "client secret expired") {
+		t.Fatalf("terminal mark missing: setError=%d msg=%q schedulable=%v",
+			repo.setErrorCalls, account.ErrorMessage, account.Schedulable)
+	}
+}
+
 func TestGetKiroUsage_RefreshLockHeldDoesNotRetryOldToken(t *testing.T) {
 	account := newKiroUsageRefreshTestAccount(StatusError, "token refresh failed", time.Now().Add(-time.Minute))
 	repo := &kiroUsageRefreshRepo{account: account}

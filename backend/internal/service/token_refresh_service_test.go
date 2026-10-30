@@ -942,6 +942,7 @@ func TestIsNonRetryableRefreshError(t *testing.T) {
 		{name: "network_error", err: errors.New("network timeout"), expected: false},
 		{name: "invalid_grant", err: errors.New("invalid_grant"), expected: true},
 		{name: "invalid_client", err: errors.New("invalid_client"), expected: true},
+		{name: "kiro_client_secret_expired", err: errors.New("Kiro refresh failed: invalid_client client secret expired"), expected: true},
 		{name: "invalid_refresh_token", err: errors.New(`OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error":{"code":"invalid_refresh_token"}}`), expected: true},
 		{name: "token_expired", err: errors.New(`OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error":{"code":"token_expired"}}`), expected: true},
 		{name: "refresh_token_reused", err: errors.New(`OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error":{"code":"refresh_token_reused"}}`), expected: true},

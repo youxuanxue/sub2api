@@ -118,7 +118,11 @@ func (s *AccountUsageService) getKiroUsage(ctx context.Context, account *Account
 				slog.Warn("kiro usage token refresh failed",
 					"account_id", account.ID,
 					"error", redactKiroUsageError(refreshErr))
-				err = fmt.Errorf("%v; Kiro OAuth token refresh failed", err)
+				if isKiroClientSecretExpiredError(refreshErr) {
+					err = fmt.Errorf("%v; Kiro OIDC client secret expired", err)
+				} else {
+					err = fmt.Errorf("%v; Kiro OAuth token refresh failed", err)
+				}
 			}
 			if didRefresh {
 				usageAccount = refreshedAccount
@@ -236,6 +240,10 @@ func (s *AccountUsageService) markKiroTerminalAuthFailure(ctx context.Context, a
 	if err := s.accountRepo.SetError(ctx, account.ID, msg); err != nil {
 		slog.Warn("kiro terminal auth failure was not persisted", "account_id", account.ID, "error", err)
 	}
+}
+
+func isKiroClientSecretExpiredError(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "client secret expired")
 }
 
 func isKiroUsageTokenAuthError(err error) bool {

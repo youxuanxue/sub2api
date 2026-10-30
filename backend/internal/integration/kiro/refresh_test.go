@@ -4,7 +4,9 @@ package kiro
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -163,6 +165,92 @@ func TestKiroReliabilityRefreshErrorsDoNotLeakCredentials(t *testing.T) {
 	_, _, _, _, err := RefreshTokenContext(context.Background(), a)
 	require.ErrorContains(t, err, "invalid_grant")
 	require.NotContains(t, err.Error(), "secret-canary")
+}
+
+func TestKiroIDCClientSecretExpiredSkipsTokenEndpoint(t *testing.T) {
+	calls := 0
+	a := installRefreshClient(t, &http.Client{Transport: refreshTransport(func(*http.Request) (*http.Response, error) {
+		calls++
+		return restTestResponse(200, `{"accessToken":"new-access","expiresIn":3600}`), nil
+	})})
+	a.AuthMethod = "idc"
+	a.ClientID = "id"
+	a.ClientSecret = kiroClientSecretJWT(t, time.Now().Add(-time.Hour).Unix())
+	a.Region = "us-east-1"
+	_, _, _, _, err := RefreshTokenContext(context.Background(), a)
+	require.ErrorContains(t, err, "invalid_client")
+	require.ErrorContains(t, err, "client secret expired")
+	require.Zero(t, calls)
+}
+
+func TestKiroIDCClientSecretStillValidReachesTokenEndpoint(t *testing.T) {
+	calls := 0
+	a := installRefreshClient(t, &http.Client{Transport: refreshTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		require.Equal(t, "oidc.us-east-1.amazonaws.com", r.URL.Host)
+		return restTestResponse(200, `{"accessToken":"new-access","expiresIn":3600}`), nil
+	})})
+	a.AuthMethod = "idc"
+	a.ClientID = "id"
+	a.ClientSecret = kiroClientSecretJWT(t, time.Now().Add(24*time.Hour).Unix())
+	a.Region = "us-east-1"
+	access, _, _, _, err := RefreshTokenContext(context.Background(), a)
+	require.NoError(t, err)
+	require.Equal(t, "new-access", access)
+	require.Equal(t, 1, calls)
+}
+
+func TestKiroIDCOpaqueClientSecretStillReachesTokenEndpoint(t *testing.T) {
+	calls := 0
+	a := installRefreshClient(t, &http.Client{Transport: refreshTransport(func(*http.Request) (*http.Response, error) {
+		calls++
+		return restTestResponse(200, `{"accessToken":"new-access","expiresIn":3600}`), nil
+	})})
+	a.AuthMethod = "idc"
+	a.ClientID = "id"
+	a.ClientSecret = "not-a-jwt"
+	a.Region = "us-east-1"
+	_, _, _, _, err := RefreshTokenContext(context.Background(), a)
+	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+}
+
+func TestKiroSocialRefreshIgnoresExpiredIDCSecret(t *testing.T) {
+	calls := 0
+	a := installRefreshClient(t, &http.Client{Transport: refreshTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		require.Equal(t, "prod.us-east-1.auth.desktop.kiro.dev", r.URL.Host)
+		return restTestResponse(200, `{"accessToken":"new-access","expiresIn":3600}`), nil
+	})})
+	a.AuthMethod = "social"
+	a.ClientSecret = kiroClientSecretJWT(t, time.Now().Add(-time.Hour).Unix())
+	_, _, _, _, err := RefreshTokenContext(context.Background(), a)
+	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+}
+
+func TestKiroClientSecretExpirationMilliseconds(t *testing.T) {
+	exp := time.Now().Add(-time.Minute).UnixMilli()
+	got, ok := kiroClientSecretExpiration(kiroClientSecretJWT(t, exp))
+	require.True(t, ok)
+	require.WithinDuration(t, time.UnixMilli(exp), got, time.Second)
+}
+
+func kiroClientSecretJWT(t *testing.T, expiration int64) string {
+	t.Helper()
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS384"}`))
+	serialized := fmt.Sprintf(`{"expirationTimestamp":%d,"isExpired":false}`, expiration)
+	payloadObj, err := json.Marshal(map[string]string{"serialized": serialized})
+	require.NoError(t, err)
+	payload := base64.RawURLEncoding.EncodeToString(payloadObj)
+	return header + "." + payload + ".sig"
+}
+
+func TestKiroRefreshHTTPError_InvalidClientIsTerminalCode(t *testing.T) {
+	err := kiroRefreshHTTPError(400, []byte(`{"error":"invalid_client","error_description":"client secret expired","refreshToken":"secret-canary"}`))
+	require.ErrorContains(t, err, "invalid_client")
+	require.NotContains(t, err.Error(), "secret-canary")
+	require.NotContains(t, err.Error(), "error_description")
 }
 
 func TestKiroRefreshHTTPError_RevokedRefreshIsTerminal(t *testing.T) {

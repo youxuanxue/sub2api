@@ -3,6 +3,7 @@ package kiro
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -43,6 +44,12 @@ func RefreshTokenContext(ctx context.Context, account *Account) (string, string,
 		}
 		endpoint = oidcTokenURL(region)
 		expectedHost = "oidc." + region + ".amazonaws.com"
+		if kiroIDCClientSecretExpired(account.ClientSecret, time.Now()) {
+			// The OIDC host answers this with a bare HTTP 400. Classifying it
+			// here avoids sending a dead client secret and lets callers treat
+			// the account as terminal instead of retrying it back into the pool.
+			return "", "", 0, "", fmt.Errorf("Kiro refresh failed: invalid_client client secret expired")
+		}
 		payload["clientId"], payload["clientSecret"], payload["grantType"] = account.ClientID, account.ClientSecret, "refresh_token"
 	}
 	parsed, err := url.Parse(endpoint)
@@ -124,5 +131,71 @@ func kiroRefreshHTTPError(status int, raw []byte) error {
 		(strings.Contains(blob, "refresh") && (strings.Contains(blob, "revoked") || strings.Contains(blob, "rejected"))) {
 		return fmt.Errorf("Kiro refresh failed: %d invalid_grant", status)
 	}
+	switch failure.Error {
+	case "invalid_client", "unauthorized_client":
+		return fmt.Errorf("Kiro refresh failed: %d %s", status, failure.Error)
+	}
 	return fmt.Errorf("Kiro refresh failed: %d", status)
+}
+
+// kiroIDCClientSecretExpired reports whether an AWS SSO OIDC client secret can
+// no longer refresh. Kiro Builder ID registrations last about 90 days;
+// expirationTimestamp is carried inside the client-secret JWT. The sibling
+// isExpired claim is stamped at registration and stays false after expiry, so
+// only a parsed timestamp in the past counts. Unparseable secrets fail open
+// and still go to the token endpoint.
+func kiroIDCClientSecretExpired(secret string, now time.Time) bool {
+	exp, ok := kiroClientSecretExpiration(secret)
+	if !ok {
+		return false
+	}
+	return !exp.After(now)
+}
+
+func kiroClientSecretExpiration(secret string) (time.Time, bool) {
+	parts := strings.Split(secret, ".")
+	if len(parts) != 3 || parts[1] == "" {
+		return time.Time{}, false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		payload, err = base64.URLEncoding.DecodeString(parts[1])
+		if err != nil {
+			return time.Time{}, false
+		}
+	}
+	var wrapper struct {
+		Serialized string `json:"serialized"`
+	}
+	if err := json.Unmarshal(payload, &wrapper); err != nil || strings.TrimSpace(wrapper.Serialized) == "" {
+		return time.Time{}, false
+	}
+	decoder := json.NewDecoder(strings.NewReader(wrapper.Serialized))
+	decoder.UseNumber()
+	var claims struct {
+		ExpirationTimestamp json.Number `json:"expirationTimestamp"`
+	}
+	if err := decoder.Decode(&claims); err != nil {
+		return time.Time{}, false
+	}
+	raw := strings.TrimSpace(claims.ExpirationTimestamp.String())
+	if raw == "" {
+		return time.Time{}, false
+	}
+	n, err := claims.ExpirationTimestamp.Int64()
+	if err != nil {
+		f, ferr := claims.ExpirationTimestamp.Float64()
+		if ferr != nil {
+			return time.Time{}, false
+		}
+		n = int64(f)
+	}
+	switch {
+	case n > 1_000_000_000_000:
+		return time.UnixMilli(n), true
+	case n > 1_000_000_000:
+		return time.Unix(n, 0), true
+	default:
+		return time.Time{}, false
+	}
 }
