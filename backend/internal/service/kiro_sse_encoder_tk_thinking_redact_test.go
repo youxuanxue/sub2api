@@ -297,3 +297,81 @@ func TestKiroGatewayService_Forward_NonStreaming_EmitsThinkingWithPlaceholderSig
 	require.Contains(t, blocks[0], "UPSTREAM_SIG_NS")
 	require.Contains(t, blocks[0], "plan step one")
 }
+
+func TestKiroGatewayService_Forward_PreservesThinkingLiterals(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const answer = "Explain `<thinking>` literally.\n```xml\n<thinking>example\n```\nKeep the tail <thin"
+	for _, stream := range []bool{false, true} {
+		for _, reasoning := range []string{"none", "native", "inline"} {
+			t.Run(strconv.FormatBool(stream)+"/"+reasoning, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				var body []byte
+				switch reasoning {
+				case "native":
+					body = buildKiroEventStreamMessage("reasoningContentEvent", []byte(`{"text":"private plan","signature":"PRIVATE_SIGNATURE"}`))
+				case "inline":
+					body = buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"<thinking>private plan</thinking>"}`))
+				}
+				// Byte-sized events exercise delimiter splits through the real gateway.
+				for _, ch := range answer {
+					payload, err := json.Marshal(map[string]string{"content": string(ch)})
+					require.NoError(t, err)
+					body = append(body, buildKiroEventStreamMessage("assistantResponseEvent", payload)...)
+				}
+				body = appendKiroTerminalStop(body, "END_TURN")
+				svc := NewKiroGatewayService(&kiroFakeUpstream{body: body}, nil, nil)
+				reqBody, err := json.Marshal(map[string]any{
+					"model": "claude-sonnet-4-6", "messages": []map[string]any{{"role": "user", "content": "explain the literal tag"}},
+					"max_tokens": 128, "stream": stream,
+					"thinking": map[string]any{"type": "enabled", "budget_tokens": 1000},
+				})
+				require.NoError(t, err)
+				parsed := &ParsedRequest{Body: NewRequestBodyRef(reqBody), Model: "claude-sonnet-4-6", Stream: stream}
+				_, err = svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+				require.NoError(t, err)
+				var text, thinking strings.Builder
+				if stream {
+					for _, line := range strings.Split(rec.Body.String(), "\n") {
+						if !strings.HasPrefix(line, "data: ") {
+							continue
+						}
+						var event struct {
+							Delta struct{ Type, Text, Thinking string }
+						}
+						require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event))
+						if event.Delta.Type == "text_delta" {
+							text.WriteString(event.Delta.Text)
+						}
+						if event.Delta.Type == "thinking_delta" {
+							thinking.WriteString(event.Delta.Thinking)
+						}
+					}
+				} else {
+					var response struct {
+						Content []struct{ Type, Text, Thinking string }
+					}
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+					for _, block := range response.Content {
+						if block.Type == "text" {
+							text.WriteString(block.Text)
+						}
+						if block.Type == "thinking" {
+							thinking.WriteString(block.Thinking)
+						}
+					}
+				}
+				require.Equal(t, answer, text.String())
+				if reasoning == "native" {
+					require.Equal(t, "private plan", thinking.String())
+				} else {
+					require.Empty(t, thinking.String())
+				}
+				require.NotContains(t, rec.Body.String(), "PRIVATE_SIGNATURE")
+				if reasoning == "inline" {
+					require.NotContains(t, rec.Body.String(), "private plan")
+				}
+			})
+		}
+	}
+}

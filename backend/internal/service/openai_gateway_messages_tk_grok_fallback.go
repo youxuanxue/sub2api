@@ -149,6 +149,7 @@ func (s *OpenAIGatewayService) fallbackAnthropicToGrokChatCompletions(
 ) (*OpenAIForwardResult, error) {
 	chatBody, err := anthropicToChatCompletionsBody(anthropicReq, upstreamModel)
 	if err != nil {
+		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("fallback convert anthropic to chat completions: %w", err)
 	}
 	if strippedBody, stripErr := stripRedundantGrokChatViewImageTool(chatBody); stripErr != nil {

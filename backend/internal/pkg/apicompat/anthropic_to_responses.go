@@ -22,7 +22,7 @@ func AnthropicToResponsesWithMinOutputTokens(req *AnthropicRequest, minOutputTok
 	if err := openai.ValidateGPT61SolReasoningEffort(req.Model, anthropicReasoningEffort(req)); err != nil {
 		return nil, err
 	}
-	input, err := convertAnthropicToResponsesInput(req.System, req.Messages)
+	input, initialTools, err := convertAnthropicDynamicTools(req)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func AnthropicToResponsesWithMinOutputTokens(req *AnthropicRequest, minOutputTok
 	}
 
 	if len(req.Tools) > 0 {
-		out.Tools = convertAnthropicToolsToResponses(req.Tools)
+		out.Tools = convertAnthropicToolsToResponses(initialTools)
 	}
 
 	// An explicit thinking disable takes precedence over output_config.effort.

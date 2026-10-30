@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -61,9 +62,11 @@ func (s *AntigravityGatewayService) normalizeForwardGeminiGenerateContentBody(ge
 		return nil, err
 	}
 	injectedBody = tkEnsureGeminiContentRoles(injectedBody)
-	if cleanedBody, cleanErr := cleanGeminiRequest(injectedBody); cleanErr == nil {
-		injectedBody = cleanedBody
+	cleanedBody, err := cleanGeminiRequest(injectedBody)
+	if err != nil {
+		return nil, err
 	}
+	injectedBody = cleanedBody
 	reconciled, reconcileErr := enableMixedGeminiToolInvocations(injectedBody)
 	if reconcileErr != nil {
 		return nil, reconcileErr
@@ -120,4 +123,14 @@ func (s *AntigravityGatewayService) buildMessagesForwardUpstreamBody(
 		return s.buildAntigravityCompatGeminiBody(ctx, claudeBody, claudeReq, projectID, mappedModel)
 	}
 	return antigravity.TransformClaudeToGeminiWithOptions(claudeReq, projectID, mappedModel, transformOpts)
+}
+
+// Schema failures are safe client-facing diagnostics; other conversion errors
+// retain their existing generic messages.
+func antigravitySchemaErrorMessage(err error, fallback string) string {
+	var schemaErr *antigravity.SchemaExpansionError
+	if errors.As(err, &schemaErr) {
+		return schemaErr.Error()
+	}
+	return fallback
 }

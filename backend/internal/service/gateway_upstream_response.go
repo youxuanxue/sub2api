@@ -1273,24 +1273,12 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 			return nil
 		}
 
-		patch := &sseUsagePatch{}
-		if v, ok := parseSSEUsageInt(usageObj["input_tokens"]); ok && v > 0 {
-			patch.inputTokens = v
-			patch.hasInputTokens = true
-		}
+		patch := anthropicDeltaInputPatch(usageObj, nil)
 		if v, ok := parseSSEUsageInt(usageObj["output_tokens"]); ok && v > 0 {
 			patch.outputTokens = v
 			patch.hasOutputTokens = true
 		}
-		if v, ok := parseSSEUsageInt(usageObj["cache_creation_input_tokens"]); ok && v > 0 {
-			patch.cacheCreationInputTokens = v
-			patch.hasCacheCreationInput = true
-		}
-		if v, ok := parseSSEUsageInt(usageObj["cache_read_input_tokens"]); ok && v > 0 {
-			patch.cacheReadInputTokens = v
-			patch.hasCacheReadInput = true
-		}
-		if cc, ok := usageObj["cache_creation"].(map[string]any); ok {
+		if cc, ok := usageObj["cache_creation"].(map[string]any); ok && (!patch.hasCacheCreationInput || patch.cacheCreationInputTokens != 0) {
 			if v, exists := parseSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists {
 				patch.cacheCreation5mTokens = v
 				patch.hasCacheCreation5m = true

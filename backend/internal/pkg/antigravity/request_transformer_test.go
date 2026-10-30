@@ -246,7 +246,8 @@ func TestBuildTools_CustomTypeTools(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := buildTools(tt.tools)
+			result, err := buildTools(tt.tools)
+			require.NoError(t, err)
 
 			if len(result) != tt.expectedLen {
 				t.Errorf("%s: got %d tool declarations, want %d", tt.description, len(result), tt.expectedLen)
@@ -276,7 +277,9 @@ func TestBuildTools_DropsWebSearchWhenClientFunctionsPresent(t *testing.T) {
 		},
 	}
 
-	result := buildTools(tools)
+	result, err := buildTools(tools)
+
+	require.NoError(t, err)
 	// Antigravity v1internal rejects mixed built-in + functionDeclarations (#6464).
 	require.Len(t, result, 1)
 	require.Len(t, result[0].FunctionDeclarations, 1)
@@ -292,7 +295,9 @@ func TestBuildTools_KeepsWebSearchWhenNoClientFunctions(t *testing.T) {
 		},
 	}
 
-	result := buildTools(tools)
+	result, err := buildTools(tools)
+
+	require.NoError(t, err)
 	require.Len(t, result, 1)
 	require.NotNil(t, result[0].GoogleSearch)
 	require.NotNil(t, result[0].GoogleSearch.EnhancedContent)

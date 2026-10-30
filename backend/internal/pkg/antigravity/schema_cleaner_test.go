@@ -32,7 +32,9 @@ func TestCleanJSONSchema_ArrayPrefixItems(t *testing.T) {
 		},
 	}
 
-	cleaned := CleanJSONSchema(input)
+	cleaned, err := CleanJSONSchema(input)
+
+	require.NoError(t, err)
 	require.NotNil(t, cleaned)
 
 	query, ok := cleaned["properties"].(map[string]any)["query"].(map[string]any)
@@ -71,7 +73,9 @@ func TestCleanJSONSchema_ArrayMissingItemsFallback(t *testing.T) {
 		},
 	}
 
-	cleaned := CleanJSONSchema(input)
+	cleaned, err := CleanJSONSchema(input)
+
+	require.NoError(t, err)
 	require.NotNil(t, cleaned)
 
 	props, ok := cleaned["properties"].(map[string]any)
@@ -106,7 +110,9 @@ func TestCleanJSONSchema_ArrayExistingItemsPreserved(t *testing.T) {
 		},
 	}
 
-	cleaned := CleanJSONSchema(input)
+	cleaned, err := CleanJSONSchema(input)
+
+	require.NoError(t, err)
 	require.NotNil(t, cleaned)
 
 	props, ok := cleaned["properties"].(map[string]any)
@@ -138,7 +144,9 @@ func TestCleanJSONSchema_EnumOnlySchemaInTuple(t *testing.T) {
 		},
 	}
 
-	cleaned := CleanJSONSchema(input)
+	cleaned, err := CleanJSONSchema(input)
+
+	require.NoError(t, err)
 	require.NotNil(t, cleaned)
 
 	props, ok := cleaned["properties"].(map[string]any)
@@ -169,7 +177,9 @@ func TestCleanJSONSchema_ConstKeywordConversion(t *testing.T) {
 		},
 	}
 
-	cleaned := CleanJSONSchema(input)
+	cleaned, err := CleanJSONSchema(input)
+
+	require.NoError(t, err)
 	require.NotNil(t, cleaned)
 
 	props, ok := cleaned["properties"].(map[string]any)
@@ -202,7 +212,9 @@ func TestCleanJSONSchema_AnyOfNestedPrefixItems(t *testing.T) {
 		},
 	}
 
-	cleaned := CleanJSONSchema(input)
+	cleaned, err := CleanJSONSchema(input)
+
+	require.NoError(t, err)
 	require.NotNil(t, cleaned)
 
 	props, ok := cleaned["properties"].(map[string]any)
@@ -228,7 +240,9 @@ func TestCleanJSONSchema_EmptyPrefixItems(t *testing.T) {
 		},
 	}
 
-	cleaned := CleanJSONSchema(input)
+	cleaned, err := CleanJSONSchema(input)
+
+	require.NoError(t, err)
 	require.NotNil(t, cleaned)
 
 	props, ok := cleaned["properties"].(map[string]any)

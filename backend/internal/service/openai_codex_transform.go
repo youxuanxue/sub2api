@@ -457,7 +457,7 @@ func normalizeCodexToolChoice(reqBody map[string]any) bool {
 			delete(choiceMap, "function")
 			modified = true
 		}
-		if !codexToolsContainFunctionName(reqBody["tools"], name) {
+		if !codexToolsContainFunctionName(reqBody["tools"], name) && !codexInputAdditionalToolsContainFunctionName(reqBody["input"], name) {
 			reqBody["tool_choice"] = "auto"
 			return true
 		}
@@ -468,6 +468,20 @@ func normalizeCodexToolChoice(reqBody map[string]any) bool {
 	}
 	reqBody["tool_choice"] = "auto"
 	return true
+}
+
+func codexInputAdditionalToolsContainFunctionName(rawInput any, name string) bool {
+	input, ok := rawInput.([]any)
+	if !ok {
+		return false
+	}
+	for _, rawItem := range input {
+		item, ok := rawItem.(map[string]any)
+		if ok && strings.TrimSpace(firstNonEmptyString(item["type"])) == "additional_tools" && codexToolsContainFunctionName(item["tools"], name) {
+			return true
+		}
+	}
+	return false
 }
 
 func codexInputAdditionalToolsContainType(rawInput any, toolType string) bool {

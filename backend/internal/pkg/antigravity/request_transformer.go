@@ -161,7 +161,10 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 	generationConfig := buildGenerationConfig(reqForConfig)
 
 	// 4. 构建 tools
-	tools := buildTools(claudeReq.Tools)
+	tools, err := buildTools(claudeReq.Tools)
+	if err != nil {
+		return nil, fmt.Errorf("build tools: %w", err)
+	}
 
 	// 5. 构建内部请求
 	innerRequest := GeminiRequest{
@@ -853,9 +856,9 @@ func isCodeExecutionTool(tool ClaudeTool) bool {
 }
 
 // buildTools 构建 tools
-func buildTools(tools []ClaudeTool) []GeminiToolDeclaration {
+func buildTools(tools []ClaudeTool) ([]GeminiToolDeclaration, error) {
 	if len(tools) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	hasWebSearch := hasWebSearchTool(tools)
@@ -897,11 +900,11 @@ func buildTools(tools []ClaudeTool) []GeminiToolDeclaration {
 			inputSchema = tool.InputSchema
 		}
 
-		// 清理 JSON Schema
-		// 1. 深度清理 [undefined] 值
-		DeepCleanUndefined(inputSchema)
-		// 2. 转换为符合 Gemini v1internal 的 schema
-		params := CleanJSONSchema(inputSchema)
+		// Bound reference expansion before cleaning and converting the schema.
+		params, err := CleanJSONSchema(inputSchema)
+		if err != nil {
+			return nil, err
+		}
 		// 为 nil schema 提供默认值
 		if params == nil {
 			params = map[string]any{
@@ -952,8 +955,8 @@ func buildTools(tools []ClaudeTool) []GeminiToolDeclaration {
 		})
 	}
 	if len(declarations) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	return declarations
+	return declarations, nil
 }

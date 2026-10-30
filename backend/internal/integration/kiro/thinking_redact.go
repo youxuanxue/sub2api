@@ -4,8 +4,8 @@ import (
 	"strings"
 )
 
-// ExtractThinkingFromContent splits inline <thinking>...</thinking> tags that some
-// Kiro models embed in assistantResponseEvent text from the visible answer text.
+// ExtractThinkingFromContent separates a leading inline reasoning envelope
+// from assistantResponseEvent answer text. Native reasoning events are separate.
 func ExtractThinkingFromContent(content string) (visible string, thinking string) {
 	var redactor InlineThinkingRedactor
 	visible, thinking = redactor.Push(content)
@@ -27,17 +27,24 @@ func ExtractThinkingFromContent(content string) (visible string, thinking string
 	return strings.TrimSpace(visible), strings.TrimSpace(thinking)
 }
 
-// InlineThinkingRedactor removes inline <thinking>...</thinking> spans from a
-// stream of assistant text chunks. Kiro may split the tags across chunks, so a
-// stateless string replace leaks partial tags and reasoning text.
+// InlineThinkingRedactor recognizes one leading <thinking>...</thinking>
+// envelope (after optional ASCII whitespace), the legacy Kiro framing also used
+// by thinking_stash fixtures. Once answer text starts, every byte is literal:
+// a later tag, including one in Markdown/code, cannot open another envelope.
+// This is a framing rule, not a guess based on the words in the response.
+//
+// A bare literal starting with <thinking> is indistinguishable from that legacy
+// envelope. Keep the conservative interpretation there, including truncated
+// envelopes, rather than expose genuine reasoning. Native reasoning events do
+// not use this parser.
 type InlineThinkingRedactor struct {
-	pending    string
-	inThinking bool
+	pending     string
+	inThinking  bool
+	bodyStarted bool
 }
 
-// Push consumes one upstream assistant text chunk and returns visible text plus
-// extracted reasoning. It may hold a short suffix in pending when that suffix
-// could be the start of a split thinking tag.
+// Push preserves framing across chunks, holding only a possible opening prefix
+// before the answer starts or a possible closing suffix inside reasoning.
 func (r *InlineThinkingRedactor) Push(content string) (visible string, thinking string) {
 	r.pending += content
 	var out strings.Builder
@@ -57,21 +64,32 @@ func (r *InlineThinkingRedactor) Push(content string) (visible string, thinking 
 			_, _ = reasoning.WriteString(r.pending[:end])
 			r.pending = r.pending[end+len("</thinking>"):]
 			r.inThinking = false
+			r.bodyStarted = true
 			continue
 		}
 
-		start := strings.Index(r.pending, "<thinking>")
-		if start == -1 {
-			keep := longestTagPrefixSuffix(r.pending, "<thinking>")
-			if len(r.pending) > keep {
-				_, _ = out.WriteString(r.pending[:len(r.pending)-keep])
-				r.pending = r.pending[len(r.pending)-keep:]
-			}
+		if r.bodyStarted {
+			_, _ = out.WriteString(r.pending)
+			r.pending = ""
 			break
 		}
-		_, _ = out.WriteString(r.pending[:start])
-		r.pending = r.pending[start+len("<thinking>"):]
-		r.inThinking = true
+
+		// Leading whitespace is not evidence that the answer has started.
+		trimmed := strings.TrimLeft(r.pending, " \t\r\n")
+		_, _ = out.WriteString(r.pending[:len(r.pending)-len(trimmed)])
+		r.pending = trimmed
+		if r.pending == "" {
+			break
+		}
+		if strings.HasPrefix(r.pending, "<thinking>") {
+			r.pending = r.pending[len("<thinking>"):]
+			r.inThinking = true
+			continue
+		}
+		if strings.HasPrefix("<thinking>", r.pending) {
+			break // opening delimiter may continue in the next chunk
+		}
+		r.bodyStarted = true
 	}
 
 	return out.String(), reasoning.String()
@@ -86,14 +104,14 @@ func (r *InlineThinkingRedactor) Flush() (visible string, thinking string) {
 	}
 	if r.inThinking {
 		thinking = r.pending
-	} else if longestTagPrefixSuffix(r.pending, "<thinking>") == len(r.pending) ||
-		longestTagPrefixSuffix(r.pending, "</thinking>") == len(r.pending) {
+	} else if !r.bodyStarted && strings.HasPrefix("<thinking>", r.pending) {
 		thinking = r.pending
 	} else {
 		visible = r.pending
 	}
 	r.pending = ""
 	r.inThinking = false
+	r.bodyStarted = true
 	return visible, thinking
 }
 

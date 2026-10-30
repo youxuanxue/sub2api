@@ -131,7 +131,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 
 	injectedBody, wrappedBody, err := s.prepareForwardGeminiWire(projectID, mappedModel, body)
 	if err != nil {
-		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid request body")
+		return nil, s.writeGoogleError(c, http.StatusBadRequest, antigravitySchemaErrorMessage(err, "Invalid request body"))
 	}
 
 	// Antigravity Code Assist is reliable on the SSE endpoint. Keep the upstream
@@ -537,8 +537,10 @@ func cleanGeminiRequest(body []byte) ([]byte, error) {
 				}
 				for _, schemaKey := range []string{"parameters", "parametersJsonSchema", "parameters_json_schema", "response", "responseJsonSchema", "response_json_schema"} {
 					if params, ok := funcMap[schemaKey].(map[string]any); ok {
-						antigravity.DeepCleanUndefined(params)
-						cleaned := antigravity.CleanJSONSchema(params)
+						cleaned, err := antigravity.CleanJSONSchema(params)
+						if err != nil {
+							return nil, err
+						}
 						outKey := schemaKey
 						if schemaKey == "parametersJsonSchema" || schemaKey == "parameters_json_schema" {
 							outKey = "parameters"
@@ -552,18 +554,10 @@ func cleanGeminiRequest(body []byte) ([]byte, error) {
 		}
 	}
 
-	for _, genKey := range []string{"generationConfig", "generation_config"} {
-		gen, ok := payload[genKey].(map[string]any)
-		if !ok {
-			continue
-		}
-		for _, schemaKey := range []string{"responseSchema", "responseJsonSchema", "response_schema", "response_json_schema"} {
-			if schema, ok := gen[schemaKey].(map[string]any); ok {
-				antigravity.DeepCleanUndefined(schema)
-				gen[schemaKey] = antigravity.CleanJSONSchema(schema)
-				modified = true
-			}
-		}
+	if changed, err := antigravity.NormalizeGeminiResponseSchema(payload); err != nil {
+		return nil, err
+	} else if changed {
+		modified = true
 	}
 
 	if !modified {
