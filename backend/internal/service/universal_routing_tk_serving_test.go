@@ -1199,7 +1199,7 @@ func (r entitlementAwareStubAccountRepo) listSchedulableByGroupIDAndPlatforms(gr
 	return result
 }
 
-func (r entitlementAwareStubAccountRepo) ListAllWithFilters(_ context.Context, platform, _, status string, _ string, groupID int64, _ string, _ int) ([]Account, error) {
+func (r entitlementAwareStubAccountRepo) ListAllWithFilters(_ context.Context, platform, _, status string, _ string, groupID int64, _ string, _ int, options ...AccountListOptions) ([]Account, error) {
 	var result []Account
 	for _, acc := range r.accounts {
 		if platform != "" && acc.Platform != platform {

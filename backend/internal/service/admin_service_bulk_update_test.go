@@ -44,6 +44,7 @@ type accountRepoStubForBulkUpdate struct {
 	listCalled          bool
 	lastListParams      pagination.PaginationParams
 	lastListFilters     struct {
+		options     []AccountListOptions
 		platform    string
 		accountType string
 		status      string
@@ -126,11 +127,12 @@ func (s *accountRepoStubForBulkUpdate) ListByGroup(_ context.Context, groupID in
 	return nil, nil
 }
 
-func (s *accountRepoStubForBulkUpdate) ListAllWithFilters(context.Context, string, string, string, string, int64, string, int) ([]Account, error) {
+func (s *accountRepoStubForBulkUpdate) ListAllWithFilters(context.Context, string, string, string, string, int64, string, int, ...AccountListOptions) ([]Account, error) {
 	return nil, nil
 }
 
-func (s *accountRepoStubForBulkUpdate) ListWithFilters(_ context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) ([]Account, *pagination.PaginationResult, error) {
+func (s *accountRepoStubForBulkUpdate) ListWithFilters(_ context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int, options ...AccountListOptions) ([]Account, *pagination.PaginationResult, error) {
+	s.lastListFilters.options = options
 	s.listCalled = true
 	s.lastListParams = params
 	s.lastListFilters.platform = platform
@@ -362,6 +364,7 @@ func TestAdminServiceBulkUpdateAccounts_ResolvesIDsFromFilters(t *testing.T) {
 	filtersValue.Elem().FieldByName("Group").SetString("12")
 	filtersValue.Elem().FieldByName("PrivacyMode").SetString(PrivacyModeCFBlocked)
 	filtersValue.Elem().FieldByName("Search").SetString("bulk-target")
+	filtersValue.Elem().FieldByName("ProxyName").SetString("Office proxy")
 	filtersField.Set(filtersValue)
 
 	result, err := svc.BulkUpdateAccounts(context.Background(), input)
@@ -373,6 +376,7 @@ func TestAdminServiceBulkUpdateAccounts_ResolvesIDsFromFilters(t *testing.T) {
 	require.Equal(t, "bulk-target", repo.lastListFilters.search)
 	require.Equal(t, int64(12), repo.lastListFilters.groupID)
 	require.Equal(t, PrivacyModeCFBlocked, repo.lastListFilters.privacyMode)
+	require.Equal(t, []AccountListOptions{{ProxyName: "Office proxy"}}, repo.lastListFilters.options)
 	require.Equal(t, []int64{7, 11}, repo.bulkUpdateIDs)
 	require.Equal(t, 2, result.Success)
 	require.Equal(t, 0, result.Failed)

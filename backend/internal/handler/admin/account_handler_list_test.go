@@ -474,3 +474,13 @@ func TestAccountHandlerListSchedulerScoreIgnoresPagination(t *testing.T) {
 	require.Less(t, payload.Data.Items[0].SchedulerScore.BaseScore, 3.75)
 	require.Empty(t, payload.Data.Items[0].SchedulerScores)
 }
+
+func TestAccountHandlerListForwardsProxyName(t *testing.T) {
+	for _, lite := range []string{"0", "1"} {
+		router, adminSvc := setupAccountListRouter()
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?proxy_name=Office%20proxy&lite="+lite, nil))
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, []service.AccountListOptions{{ProxyName: "Office proxy"}}, adminSvc.lastListAccounts.options)
+	}
+}

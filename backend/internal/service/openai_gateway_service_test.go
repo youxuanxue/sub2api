@@ -111,7 +111,7 @@ func (r stubOpenAIAccountRepo) GetByIDs(ctx context.Context, ids []int64) ([]*Ac
 	return out, nil
 }
 
-func (r stubOpenAIAccountRepo) ListAllWithFilters(_ context.Context, platform, _, status string, _ string, groupID int64, _ string, _ int) ([]Account, error) {
+func (r stubOpenAIAccountRepo) ListAllWithFilters(_ context.Context, platform, _, status string, _ string, groupID int64, _ string, _ int, options ...AccountListOptions) ([]Account, error) {
 	var result []Account
 	for _, acc := range r.accounts {
 		if platform != "" && acc.Platform != platform {

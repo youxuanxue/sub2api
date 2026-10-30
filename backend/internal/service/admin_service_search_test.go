@@ -26,11 +26,11 @@ type accountRepoStubForAdminList struct {
 	listWithFiltersErr      error
 }
 
-func (s *accountRepoStubForAdminList) ListAllWithFilters(context.Context, string, string, string, string, int64, string, int) ([]Account, error) {
+func (s *accountRepoStubForAdminList) ListAllWithFilters(context.Context, string, string, string, string, int64, string, int, ...AccountListOptions) ([]Account, error) {
 	return nil, nil
 }
 
-func (s *accountRepoStubForAdminList) ListWithFilters(_ context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) ([]Account, *pagination.PaginationResult, error) {
+func (s *accountRepoStubForAdminList) ListWithFilters(_ context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int, options ...AccountListOptions) ([]Account, *pagination.PaginationResult, error) {
 	s.listWithFiltersCalls++
 	s.listWithFiltersParams = params
 	s.listWithFiltersPlatform = platform

@@ -222,6 +222,7 @@ type BulkUpdateAccountFilters struct {
 	Status      string                       `json:"status"`
 	Group       string                       `json:"group"`
 	Search      string                       `json:"search"`
+	ProxyName   string                       `json:"proxy_name"`
 	PrivacyMode string                       `json:"privacy_mode"`
 	ChannelType accountListChannelTypeFilter `json:"channel_type"`
 }
@@ -655,13 +656,14 @@ func (h *AccountHandler) listAccountSchedulerScoreFilterPool(
 	platform, accountType, status, search string,
 	groupID int64,
 	privacyMode string,
+	options ...service.AccountListOptions,
 ) []service.Account {
 	if h.adminService == nil || (platform != "" && platform != service.PlatformOpenAI) {
 		return nil
 	}
 	// 池只用于 OpenAI 分数计算（非 OpenAI 账号会在打分时被丢弃），
 	// 无论列表页平台过滤为何，查询一律限定 openai，避免无过滤时全表扫描。
-	accounts, err := h.adminService.ListAccountsForSchedulerScoreFilter(ctx, service.PlatformOpenAI, accountType, status, search, groupID, privacyMode)
+	accounts, err := h.adminService.ListAccountsForSchedulerScoreFilter(ctx, service.PlatformOpenAI, accountType, status, search, groupID, privacyMode, options...)
 	if err != nil {
 		slog.Warn("openai_scheduler_filter_score_pool_failed", "error", err)
 		return nil
@@ -712,7 +714,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	accounts, total, err := h.tkListAccounts(c.Request.Context(), lite, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType)
+	accounts, total, err := h.tkListAccounts(c.Request.Context(), lite, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType, service.AccountListOptions{ProxyName: c.Query("proxy_name")})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -756,7 +758,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 	if includeSchedulerScore && pageHasOpenAIAccounts {
-		schedulerFilterPool := h.listAccountSchedulerScoreFilterPool(c.Request.Context(), platform, accountType, status, search, groupID, privacyMode)
+		schedulerFilterPool := h.listAccountSchedulerScoreFilterPool(c.Request.Context(), platform, accountType, status, search, groupID, privacyMode, service.AccountListOptions{ProxyName: c.Query("proxy_name")})
 		schedulerScores, schedulerGroupScores = h.buildOpenAIAccountSchedulerScores(c.Request.Context(), accounts, schedulerFilterPool)
 	}
 
@@ -2246,6 +2248,7 @@ func toServiceBulkUpdateAccountFilters(filters *BulkUpdateAccountFilters) *servi
 		Status:      filters.Status,
 		Group:       filters.Group,
 		Search:      filters.Search,
+		ProxyName:   filters.ProxyName,
 		PrivacyMode: filters.PrivacyMode,
 		ChannelType: int(filters.ChannelType),
 	}

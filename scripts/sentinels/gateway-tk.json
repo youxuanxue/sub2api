@@ -3,6 +3,35 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "dbaccount.HasProxyWith(dbproxy.DeletedAtIsNil(), dbproxy.NameEQ(option.ProxyName))"
+      ],
+      "rationale": "Account proxy-name filtering must happen in the shared database query before count and pagination, excluding deleted proxies."
+    },
+    {
+      "path": "backend/internal/service/admin_account.go",
+      "must_contain": [
+        "AccountListOptions{ProxyName: filters.ProxyName}"
+      ],
+      "rationale": "Bulk edits resolved from filters must retain the selected proxy name and never widen the target account set."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_data.go",
+      "must_contain": [
+        "service.AccountListOptions{ProxyName: c.Query(\"proxy_name\")}"
+      ],
+      "rationale": "Unselected account exports must retain the proxy-name filter used by the list."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_proxy_filter_integration_test.go",
+      "must_contain": [
+        "func (s *AccountRepoSuite) TestListWithFiltersProxyName()",
+        "s.Require().ElementsMatch(tc.ids, ids)"
+      ],
+      "rationale": "Keep real-database exact-name, empty-filter, missing-name and lite/full regression coverage for proxy filtering."
+    },
+    {
       "path": "backend/internal/server/routes/user.go",
       "must_contain": [
         "usage.GET(\"/billing-history\", h.Usage.HistoricalBilling)"

@@ -102,7 +102,7 @@ const AccountBulkActionsBarStub = {
 }
 
 const AccountTableFiltersStub = {
-  emits: ['change'],
+  emits: ['change', 'update:filters'],
   template: '<button data-test="change-filter" @click="$emit(\'change\')">change filter</button>'
 }
 
@@ -229,6 +229,7 @@ describe('admin AccountsView select all filtered results', () => {
     const wrapper = mountView()
     await flushPromises()
 
+    wrapper.findComponent(AccountTableFiltersStub).vm.$emit('update:filters', { proxy_name: 'Office proxy' })
     await wrapper.get('[data-test="select-all-results"]').trigger('click')
     await flushPromises()
 
@@ -237,7 +238,8 @@ describe('admin AccountsView select all filtered results', () => {
     expect(wrapper.get('[data-test="all-results-selected"]').text()).toBe('true')
     expect(listAccounts).toHaveBeenCalledWith(1, 1000, expect.objectContaining({
       lite: '1',
-      include_scheduler_score: '0'
+      include_scheduler_score: '0',
+      proxy_name: 'Office proxy'
     }))
 
     await wrapper.get('[data-test="change-filter"]').trigger('click')

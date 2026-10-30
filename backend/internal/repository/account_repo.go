@@ -1570,8 +1570,13 @@ func (r *accountRepository) List(ctx context.Context, params pagination.Paginati
 	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "", 0)
 }
 
-func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) *dbent.AccountQuery {
+func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string, channelType int, options ...service.AccountListOptions) *dbent.AccountQuery {
 	q := r.client.Account.Query()
+	for _, option := range options {
+		if option.ProxyName != "" {
+			q = q.Where(dbaccount.HasProxyWith(dbproxy.DeletedAtIsNil(), dbproxy.NameEQ(option.ProxyName)))
+		}
+	}
 
 	if platform != "" {
 		q = q.Where(dbaccount.PlatformEQ(platform))
@@ -1663,18 +1668,18 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 	return q
 }
 
-func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) ([]service.Account, *pagination.PaginationResult, error) {
-	return r.listWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode, channelType, false)
+func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int, options ...service.AccountListOptions) ([]service.Account, *pagination.PaginationResult, error) {
+	return r.listWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode, channelType, false, options...)
 }
 
 // ListWithFiltersLite is the admin accounts page path. It keeps group IDs (the
 // list resolves names from the groups endpoint) and skips loading full group rows.
-func (r *accountRepository) ListWithFiltersLite(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) ([]service.Account, *pagination.PaginationResult, error) {
-	return r.listWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode, channelType, true)
+func (r *accountRepository) ListWithFiltersLite(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int, options ...service.AccountListOptions) ([]service.Account, *pagination.PaginationResult, error) {
+	return r.listWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode, channelType, true, options...)
 }
 
-func (r *accountRepository) listWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int, groupIDsOnly bool) ([]service.Account, *pagination.PaginationResult, error) {
-	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, channelType)
+func (r *accountRepository) listWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int, groupIDsOnly bool, options ...service.AccountListOptions) ([]service.Account, *pagination.PaginationResult, error) {
+	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, channelType, options...)
 	// Clone before Count so interceptor-appended predicates (SoftDeleteMixin's
 	// deleted_at IS NULL) don't accumulate on the shared builder and pollute the
 	// subsequent list query. Same pattern used in group_repo/promo_code_repo/user_repo
@@ -1708,8 +1713,8 @@ func (r *accountRepository) listWithFilters(ctx context.Context, params paginati
 	return outAccounts, paginationResultFromTotal(int64(total), params), nil
 }
 
-func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) ([]service.Account, error) {
-	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, channelType).All(ctx)
+func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int, options ...service.AccountListOptions) ([]service.Account, error) {
+	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, channelType, options...).All(ctx)
 	if err != nil {
 		return nil, err
 	}

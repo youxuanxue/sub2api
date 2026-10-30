@@ -251,11 +251,13 @@ describe('admin AccountsView bulk edit scope', () => {
     const wrapper = mountAccountsView()
 
     await flushPromises()
+    wrapper.findComponent(AccountTableFiltersStub).vm.$emit('update:filters', { proxy_name: 'Office proxy' })
     await wrapper.get('[data-test="edit-filtered"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-show')).toBe('true')
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-target-mode')).toBe('filtered')
+    expect(wrapper.findComponent(BulkEditAccountModalStub).props('target').filters.proxy_name).toBe('Office proxy')
   })
 
   it('reloads account group choices during a manual refresh', async () => {

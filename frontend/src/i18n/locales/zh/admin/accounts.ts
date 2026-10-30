@@ -81,6 +81,7 @@ export default {
       editAccount: '编辑账号',
       viewAccount: '查看账号',
       deleteAccount: '删除账号',
+      allProxies: '全部代理',
       searchAccounts: '搜索账号...',
       notes: '备注',
       notesPlaceholder: '请输入备注',
