@@ -60,6 +60,7 @@ afterEach(() => {
   unmountWrapper?.()
   unmountWrapper = undefined
   document.body.innerHTML = ''
+  document.documentElement.style.zoom = ''
   setViewportWidth(originalInnerWidth)
   vi.useRealTimers()
   vi.restoreAllMocks()
@@ -112,6 +113,18 @@ describe('Select dropdown viewport constraints', () => {
     expect(dropdown?.style.left).toBe('312px')
     expect(dropdown?.style.minWidth).toBe('0px')
     expect(dropdown?.style.maxWidth).toBe('0px')
+  })
+
+  it('keeps a teleported dropdown aligned when the admin shell uses CSS zoom', async () => {
+    document.documentElement.style.zoom = '0.8'
+    setViewportWidth(1280)
+    mockTriggerRect(400, 80)
+
+    const dropdown = await openSelect()
+
+    expect(dropdown).not.toBeNull()
+    expect(dropdown?.style.left).toBe('500px')
+    expect(dropdown?.style.top).toBe('79px')
   })
 })
 

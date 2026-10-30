@@ -6,6 +6,43 @@ export interface FloatingPanelPosition {
   maxHeight: number
 }
 
+/**
+ * Coordinates returned by getBoundingClientRect() are visual viewport pixels.
+ * The admin shell applies CSS zoom to the document root, while teleported
+ * fixed panels still consume the root's unscaled CSS pixels. Normalize both
+ * values at the boundary so every fixed panel uses the same coordinate space.
+ */
+export const getDocumentZoom = (): number => {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return 1
+  const root = document.documentElement
+  const zoom = Number.parseFloat(window.getComputedStyle(root).zoom || root.style.zoom)
+  return Number.isFinite(zoom) && zoom > 0 ? zoom : 1
+}
+
+export const getFixedViewport = () => {
+  const zoom = getDocumentZoom()
+  return {
+    width: (typeof window === 'undefined' ? 0 : window.innerWidth) / zoom,
+    height: (typeof window === 'undefined' ? 0 : window.innerHeight) / zoom,
+    zoom
+  }
+}
+
+export type FixedRect = Pick<DOMRect, 'top' | 'right' | 'bottom' | 'left' | 'width' | 'height'>
+
+export const normalizeFixedRect = (rect: FixedRect): FixedRect => {
+  const zoom = getDocumentZoom()
+  if (zoom === 1) return rect
+  return {
+    top: rect.top / zoom,
+    right: rect.right / zoom,
+    bottom: rect.bottom / zoom,
+    left: rect.left / zoom,
+    width: rect.width / zoom,
+    height: rect.height / zoom
+  }
+}
+
 export interface FloatingPanelOptions {
   viewportPadding?: number
   gap?: number

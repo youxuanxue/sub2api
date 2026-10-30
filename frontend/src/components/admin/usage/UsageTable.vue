@@ -543,6 +543,7 @@ import { useAppStore } from '@/stores/app'
 import { formatDateTime, formatReasoningEffort, reasoningEffortValuesEqual } from '@/utils/format'
 import { formatCacheTokens, formatMultiplier } from '@/utils/formatters'
 import { formatTokenPricePerMillion } from '@/utils/usagePricing'
+import { normalizeFixedRect } from '@/utils/floatingPanel'
 import { getUsageServiceTierLabel } from '@/utils/usageServiceTier'
 import { resolveUsageRequestType } from '@/utils/usageRequestType'
 import {
@@ -743,7 +744,7 @@ const formatDuration = (ms: number | null | undefined): string => {
 // Cost tooltip functions
 const showTooltip = (event: MouseEvent, row: AdminUsageLog) => {
   const target = event.currentTarget as HTMLElement
-  const rect = target.getBoundingClientRect()
+  const rect = normalizeFixedRect(target.getBoundingClientRect())
   tooltipData.value = row
   tooltipPosition.value.x = rect.right + 8
   tooltipPosition.value.y = rect.top + rect.height / 2
@@ -758,7 +759,7 @@ const hideTooltip = () => {
 // Token tooltip functions
 const showTokenTooltip = (event: MouseEvent, row: AdminUsageLog) => {
   const target = event.currentTarget as HTMLElement
-  const rect = target.getBoundingClientRect()
+  const rect = normalizeFixedRect(target.getBoundingClientRect())
   tokenTooltipData.value = row
   tokenTooltipPosition.value.x = rect.right + 8
   tokenTooltipPosition.value.y = rect.top + rect.height / 2

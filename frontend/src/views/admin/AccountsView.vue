@@ -593,7 +593,7 @@ import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import type { Account, AccountListItem, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, Group, WindowStats, AccountModelOption, UpstreamBillingProbeSnapshot } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
-import { getFloatingPanelPosition } from '@/utils/floatingPanel'
+import { getFixedViewport, getFloatingPanelPosition, normalizeFixedRect } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
 
 const { t } = useI18n()
@@ -1602,9 +1602,9 @@ const updateAccountToolsDropdownPosition = () => {
   if (!trigger) return
 
   const position = getFloatingPanelPosition(
-    trigger.getBoundingClientRect(),
-    document.documentElement.clientWidth || window.innerWidth,
-    window.innerHeight
+    normalizeFixedRect(trigger.getBoundingClientRect()),
+    getFixedViewport().width,
+    getFixedViewport().height
   )
   Object.assign(accountToolsDropdownPosition, position)
 }

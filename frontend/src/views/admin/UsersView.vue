@@ -815,7 +815,7 @@ import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { formatDateTime } from '@/utils/format'
-import { anchoredMenuStyle, getAnchoredMenuPosition } from '@/utils/floatingPanel'
+import { anchoredMenuStyle, getAnchoredMenuPosition, getFixedViewport, normalizeFixedRect } from '@/utils/floatingPanel'
 import { normalizePlatformUsage } from '@/utils/publicPlatforms'
 import Icon from '@/components/icons/Icon.vue'
 
@@ -1545,12 +1545,13 @@ const openActionMenu = (user: AdminUser, e: MouseEvent) => {
       return
     }
 
+    const { width: viewportWidth, height: viewportHeight } = getFixedViewport()
     menuPosition.value = anchoredMenuStyle(
       getAnchoredMenuPosition(
-        target.getBoundingClientRect(),
+        normalizeFixedRect(target.getBoundingClientRect()),
         { width: 192, height: 240 },
-        window.innerWidth,
-        window.innerHeight
+        viewportWidth,
+        viewportHeight
       )
     )
     activeMenuId.value = user.id
