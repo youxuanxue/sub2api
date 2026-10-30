@@ -26,12 +26,14 @@ for (const width of [1440, 390]) {
       else if (url.pathname === '/api/v1/admin/accounts') {
         const query = url.searchParams.get('proxy_name') || ''
         queries.push(query)
-        const items = query === 'Office proxy' ? accounts.slice(0, 1) : query ? [] : accounts
+        const items = query === 'Office proxy' ? accounts.slice(0, 1)
+          : query === 'Disabled proxy' ? accounts.slice(1, 2) : query ? [] : accounts
         data = { items, total: items.length, page: 1, page_size: 100, pages: 1 }
-      } else if (url.pathname === '/api/v1/admin/proxies/all') data = [
+      } else if (url.pathname === '/api/v1/admin/proxies') data = { items: [
         { id: 1, name: 'Office proxy', host: '192.0.2.10', port: 8080, protocol: 'http', status: 'active' },
-        { id: 2, name: 'Unused proxy', host: '198.51.100.20', port: 8080, protocol: 'http', status: 'active' }
-      ]
+        { id: 2, name: 'Disabled proxy', host: '198.51.100.20', port: 8080, protocol: 'http', status: 'inactive' },
+        { id: 3, name: 'Unused proxy', host: '203.0.113.30', port: 8080, protocol: 'http', status: 'expired' }
+      ], total: 3 }
       else if (url.pathname.endsWith('/all')) data = []
       else if (url.pathname.includes('/announcements')) data = { items: [], total: 0 }
       await route.fulfill({ json: { code: 0, data } })
@@ -48,7 +50,14 @@ for (const width of [1440, 390]) {
     expect(queries.at(-1)).toBe('Office proxy')
     await page.screenshot({ path: `e2e/artifacts/account-proxy-filter-${width}.png`, fullPage: true })
     await select.click()
+    await page.getByRole('option', { name: 'Disabled proxy', exact: true }).click()
+    await expect(page.getByText('proxy-other', { exact: true })).toBeVisible()
+    await expect(page.getByText('proxy-match', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('direct-account', { exact: true })).toHaveCount(0)
+    expect(queries.at(-1)).toBe('Disabled proxy')
+    await select.click()
     await page.getByRole('option', { name: 'Unused proxy', exact: true }).click()
+    await expect(page.getByText('proxy-other', { exact: true })).toHaveCount(0)
     await expect(page.getByText('proxy-match', { exact: true })).toHaveCount(0)
     expect(queries.at(-1)).toBe('Unused proxy')
     await select.click()

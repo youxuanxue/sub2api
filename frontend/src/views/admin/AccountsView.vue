@@ -474,8 +474,8 @@
       </template>
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
-    <CreateAccountModal v-if="lazyMount('create', showCreate)" :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
-    <EditAccountModal v-if="lazyMount('edit', showEdit)" :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
+    <CreateAccountModal v-if="lazyMount('create', showCreate)" :show="showCreate" :proxies="activeProxies" :groups="groups" @close="showCreate = false" @created="reload" />
+    <EditAccountModal v-if="lazyMount('edit', showEdit)" :show="showEdit" :account="edAcc" :proxies="activeProxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal v-if="lazyMount('reauth', showReAuth)" :show="showReAuth" :account="reAuthAcc" :auto-generate="autoGenerateAuthLink" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <DuplicateAccountModal v-if="lazyMount('duplicate', !!duplicateAcc)" :show="!!duplicateAcc" :account="duplicateAcc" @close="duplicateAcc = null" @duplicated="handleAccountsDuplicated" />
     <AccountTestModal v-if="lazyMount('test', showTest)" :show="showTest" :account="testingAcc" @close="closeTestModal" @tested="handleAccountTested" />
@@ -502,7 +502,7 @@
       :selected-platforms="selPlatforms"
       :selected-types="selTypes"
       :target="bulkEditTarget ?? undefined"
-      :proxies="proxies"
+      :proxies="activeProxies"
       :groups="groups"
       @close="showBulkEdit = false"
       @updated="handleBulkUpdated"
@@ -601,6 +601,7 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
+const activeProxies = computed(() => proxies.value.filter(proxy => proxy.status === STATUS_ACTIVE))
 // Active groups — feeds the filter dropdown + create/edit/bulk modals (unchanged).
 const groups = ref<AdminGroup[]>([])
 // Active + inactive groups — used ONLY to resolve chip names below. An account can
@@ -1204,7 +1205,7 @@ const isActiveAccountGroup = (group: AdminGroup) => !group.status || group.statu
 
 const loadAccountDependencies = async () => {
   const [proxiesResult, groupsResult] = await Promise.allSettled([
-    adminAPI.proxies.getAll(),
+    adminAPI.proxies.getAll({ includeInactive: true }),
     // One request: inactive groups stay available for chip names, active ones feed filters.
     adminAPI.groups.getAllIncludingInactive()
   ])

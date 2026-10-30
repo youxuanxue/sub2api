@@ -26,3 +26,33 @@ describe.each([
     await expect(load()).resolves.toBe(data)
   })
 })
+
+describe('complete proxy catalog', () => {
+  beforeEach(() => { get.mockReset() })
+
+  it('loads every page including inactive and expired proxies without a status filter', async () => {
+    const active = { id: 1, name: 'Active', status: 'active' }
+    const inactive = { id: 2, name: 'Disabled', status: 'inactive' }
+    const expired = { id: 3, name: 'Expired', status: 'expired' }
+    get.mockResolvedValueOnce({ data: { items: [active], total: 3 } })
+      .mockResolvedValueOnce({ data: { items: [inactive, expired], total: 3 } })
+    await expect(getAll({ includeInactive: true })).resolves.toEqual([active, inactive, expired])
+    expect(get).toHaveBeenCalledTimes(2)
+    for (const page of [1, 2]) {
+      expect(get).toHaveBeenNthCalledWith(page, '/admin/proxies', {
+        params: { page, page_size: 100, sort_by: 'id', sort_order: 'asc' }, signal: undefined
+      })
+    }
+  })
+
+  it('rejects an incomplete catalog rather than returning partial filter choices', async () => {
+    get.mockResolvedValue({ data: { items: [], total: 1 } })
+    await expect(getAll({ includeInactive: true })).rejects.toThrow('Incomplete proxy list response')
+  })
+
+  it('propagates a later page failure', async () => {
+    get.mockResolvedValueOnce({ data: { items: [{ id: 1 }], total: 2 } })
+      .mockRejectedValueOnce(new Error('network error'))
+    await expect(getAll({ includeInactive: true })).rejects.toThrow('network error')
+  })
+})

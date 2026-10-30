@@ -417,6 +417,9 @@ jobs:
       - name: Historical billing query and download browser journeys
         working-directory: frontend
         run: pnpm exec playwright test --config playwright.historical-billing.config.ts
+      - name: Account proxy filter browser journeys
+        working-directory: frontend
+        run: pnpm exec playwright test --config playwright.account-proxy-filter.config.ts
 
   candidate-browser:
     needs: changes
