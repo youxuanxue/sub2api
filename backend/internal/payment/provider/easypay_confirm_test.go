@@ -119,7 +119,7 @@ func TestEasyPayConfirmNotification(t *testing.T) {
 			body:        `<html>502 Bad Gateway</html>`,
 			status:      http.StatusBadGateway,
 			notifyTrade: "2026101600001",
-			wantErr:     "parse query",
+			wantErr:     "HTTP status 502",
 		},
 	}
 	for _, tt := range tests {
@@ -249,5 +249,45 @@ func TestEasyPayNotifyAllowsFreeTextNameOnly(t *testing.T) {
 		if _, err := e.VerifyNotification(context.Background(), encode(params), nil); err == nil {
 			t.Fatalf("value with &/= in %s must be rejected", field)
 		}
+	}
+}
+
+func TestEasyPayQueryRejectsNonSuccessHTTPStatus(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		want   string
+	}{
+		{"unsupported query endpoint", http.StatusNotFound, "404 page not found key=pkey-1", "order-query endpoint may be unsupported or misconfigured"},
+		{"forbidden with paid-looking body", http.StatusForbidden, `{"code":1,"status":1,"money":"10.00","trade_no":"2026101600001"}`, "HTTP status 403"},
+		{"server failure with paid-looking body", http.StatusInternalServerError, `{"code":1,"status":1,"money":"10.00","trade_no":"2026101600001"}`, "HTTP status 500"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			provider, calls := newConfirmTestEasyPay(t, tc.body, tc.status)
+			n := confirmTestNotification()
+			before := *n
+			for _, run := range []func() error{
+				func() error { _, err := provider.QueryOrder(context.Background(), n.OrderID); return err },
+				func() error { return provider.ConfirmNotification(context.Background(), n) },
+			} {
+				err := run()
+				if err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("error = %v, want containing %q", err, tc.want)
+				}
+				if strings.Contains(err.Error(), "pkey-1") || strings.Contains(err.Error(), "key=") {
+					t.Fatalf("error leaks upstream credentials: %v", err)
+				}
+			}
+			if n.TradeNo != before.TradeNo || n.OrderID != before.OrderID || n.Amount != before.Amount || n.Status != before.Status {
+				t.Fatalf("failed confirmation mutated notification: got %+v, want %+v", *n, before)
+			}
+			if calls.Load() != 2 {
+				t.Fatalf("query calls = %d, want 2", calls.Load())
+			}
+		})
 	}
 }

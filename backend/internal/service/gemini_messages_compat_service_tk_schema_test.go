@@ -34,7 +34,9 @@ func TestTKCleanToolSchema_StripsDraft2020Keywords(t *testing.T) {
 		},
 	}
 
-	out, ok := tkCleanToolSchema(in).(map[string]any)
+	cleaned, err := tkCleanToolSchema(in)
+	require.NoError(t, err)
+	out, ok := cleaned.(map[string]any)
 	require.True(t, ok)
 
 	props, ok := out["properties"].(map[string]any)

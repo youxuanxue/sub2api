@@ -390,7 +390,8 @@ func TestConvertClaudeToolsToGeminiTools_CustomType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := convertClaudeToolsToGeminiTools(tt.tools)
+			result, err := convertClaudeToolsToGeminiTools(tt.tools)
+			require.NoError(t, err)
 
 			if tt.expectedLen == 0 {
 				if result != nil {
@@ -603,7 +604,8 @@ func TestConvertClaudeToolsToGeminiTools_PreservesWebSearchAlongsideFunctions(t 
 		},
 	}
 
-	result := convertClaudeToolsToGeminiTools(tools)
+	result, err := convertClaudeToolsToGeminiTools(tools)
+	require.NoError(t, err)
 	require.Len(t, result, 2)
 
 	functionDecl, ok := result[0].(map[string]any)
