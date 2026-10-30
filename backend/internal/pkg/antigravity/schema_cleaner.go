@@ -13,6 +13,20 @@ func CleanJSONSchema(schema map[string]any) (map[string]any, error) {
 }
 
 func cleanJSONSchema(schema map[string]any, toolRoot bool) (map[string]any, error) {
+	expanded, err := ExpandSchemaReferences(schema)
+	if err != nil {
+		return nil, err
+	}
+	DeepCleanUndefined(expanded)
+	cleaned := cleanJSONSchemaNode(expanded, toolRoot, toolRoot)
+	result, _ := cleaned.(map[string]any)
+	return result, nil
+}
+
+// ExpandSchemaReferences returns a bounded copy with local definitions inlined.
+// It shares CleanJSONSchema's cycle, depth and size limits without applying its
+// provider-specific cleanup. The caller's schema is never modified.
+func ExpandSchemaReferences(schema map[string]any) (map[string]any, error) {
 	if schema == nil {
 		return nil, nil
 	}
@@ -35,9 +49,7 @@ func cleanJSONSchema(schema map[string]any, toolRoot bool) (map[string]any, erro
 	if err != nil {
 		return nil, err
 	}
-	DeepCleanUndefined(expanded)
-	cleaned := cleanJSONSchemaNode(expanded, toolRoot, toolRoot)
-	result, _ := cleaned.(map[string]any)
+	result, _ := expanded.(map[string]any)
 	return result, nil
 }
 

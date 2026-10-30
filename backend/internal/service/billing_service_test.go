@@ -1526,7 +1526,7 @@ func TestNormalizeCacheCreationBreakdown_BillingSafetyInvariant(t *testing.T) {
 	}
 }
 
-func TestComputeCacheCreationCost_PreservesZeroDetailFallback(t *testing.T) {
+func TestComputeCacheCreationCost_UnknownTTLUsesOneHourAfterInvalidDetails(t *testing.T) {
 	svc := &BillingService{}
 	pricing := &ModelPricing{
 		SupportsCacheBreakdown: true,
@@ -1546,7 +1546,7 @@ func TestComputeCacheCreationCost_PreservesZeroDetailFallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cost := svc.computeCacheCreationCost(pricing, tt.tokens, 0, 1)
-			require.InDelta(t, 100*4e-6, cost, 1e-12)
+			require.InDelta(t, 100*5e-6, cost, 1e-12)
 		})
 	}
 }

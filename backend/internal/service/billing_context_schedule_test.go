@@ -403,6 +403,46 @@ func TestPlazaSchedulePreservesCacheWrite1h(t *testing.T) {
 	require.Len(t, mergeEqualContextTiers([]ContextPricingTier{a, b}), 2)
 }
 
+// An explicit 5m display quote is distinct from unknown-TTL settlement.
+func TestPlazaScheduleKnownFiveMinuteQuoteAndUnknownTTLSettlement(t *testing.T) {
+	cp := sonnetChannel(PricingInterval{MinTokens: 272000, CacheWriteMultiplier: testPtrFloat64(2)})
+	cp[0].CacheWritePrice = testPtrFloat64(12.5e-6)
+	cp[0].CacheWrite1hPrice = testPtrFloat64(20e-6)
+	group := enabledGroup(PlatformAnthropic)
+	bs, resolver := newScheduleTestEnv(t, scheduleScenario{channel: cp, groupPlatform: PlatformAnthropic})
+	ctx := WithResolvedTargetPlatform(context.Background(), PlatformAnthropic)
+	sched, err := bs.ResolveContextPricingSchedule(ctx, resolver, ContextPricingScheduleInput{Model: "claude-sonnet-4", Group: group, Platform: PlatformAnthropic})
+	require.NoError(t, err)
+	display := plazaPricingFromSchedule(&cp[0], sched)
+	require.Len(t, display.Intervals, 2)
+	for _, tc := range []struct {
+		name        string
+		n, interval int
+		five, one   float64
+	}{
+		{"base", 1000, 0, 12.5e-6, 20e-6},
+		{"higher context", 300000, 1, 25e-6, 40e-6},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requirePrice(t, &tc.five, display.Intervals[tc.interval].CacheWritePrice, "display 5m")
+			requirePrice(t, &tc.one, display.Intervals[tc.interval].CacheWrite1hPrice, "display 1h")
+			for _, usage := range []struct {
+				name   string
+				tokens UsageTokens
+				price  float64
+			}{
+				{"known 5m", UsageTokens{CacheCreationTokens: tc.n, CacheCreation5mTokens: tc.n}, tc.five},
+				{"known 1h", UsageTokens{CacheCreationTokens: tc.n, CacheCreation1hTokens: tc.n}, tc.one},
+				{"unknown TTL", UsageTokens{CacheCreationTokens: tc.n}, tc.one},
+			} {
+				cost, err := bs.CalculateTokenCostForRequest(TokenCostRequest{Ctx: ctx, Model: "claude-sonnet-4", Group: group, Tokens: usage.tokens, RateMultiplier: 1, Resolver: resolver})
+				require.NoError(t, err)
+				require.InDelta(t, float64(tc.n)*usage.price, cost.ActualCost, 1e-10, usage.name)
+			}
+		})
+	}
+}
+
 // --- 对账：阶梯表推算的费用必须等于真实计费函数 ---
 
 type tokenKind int
@@ -501,7 +541,7 @@ func TestResolveContextPricingSchedule_ParityWithBilling(t *testing.T) {
 				}
 				assertCostClose(t, expectedCostFromSchedule(sched, kindInput, c), cost(UsageTokens{InputTokens: c}), "input@%d", c)
 				assertCostClose(t, expectedCostFromSchedule(sched, kindCacheRead, c), cost(UsageTokens{CacheReadTokens: c}), "cache_read@%d", c)
-				assertCostClose(t, expectedCostFromSchedule(sched, kindCacheWrite, c), cost(UsageTokens{CacheCreationTokens: c}), "cache_write@%d", c)
+				assertCostClose(t, expectedCostFromSchedule(sched, kindCacheWrite, c), cost(UsageTokens{CacheCreationTokens: c, CacheCreation5mTokens: c}), "cache_write_5m@%d", c)
 				wantOutput := float64(outputProbe) * tierPrice(tierAt(sched.Tiers, c), kindOutput)
 				gotOutput := cost(UsageTokens{InputTokens: c, OutputTokens: outputProbe}) - cost(UsageTokens{InputTokens: c})
 				assertCostClose(t, wantOutput, gotOutput, "output@%d", c)

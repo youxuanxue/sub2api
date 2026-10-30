@@ -1,5 +1,7 @@
 package service
 
+import "github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+
 // TK companion to upstream cleanToolSchema in gemini_messages_compat_service.go.
 //
 // 为什么独立成文件：
@@ -35,12 +37,18 @@ var tkUnsupportedToolSchemaKeywords = map[string]struct{}{
 	"exclusiveMaximum": {}, // Draft 6+ numeric form
 }
 
-// tkCleanToolSchema 是 upstream cleanToolSchema 的 TK extended 包装：先递归
-// 剥掉 TK 维护的额外不兼容关键字，再交给 upstream cleanToolSchema 完成既
-// 有清洗 (大写化 type、删 $schema 等)。call-site 见
-// convertClaudeToolsToGeminiTools 中的 cleanedParams 赋值。
-func tkCleanToolSchema(schema any) any {
-	return cleanToolSchema(tkStripUnsupportedToolSchemaKeywords(schema))
+// tkCleanToolSchema expands local references into a bounded copy before the
+// native Gemini cleanup drops definitions. The shared Antigravity expansion
+// owner rejects cycles and excessive expansion instead of forwarding empty items.
+func tkCleanToolSchema(schema any) (any, error) {
+	if root, ok := schema.(map[string]any); ok {
+		expanded, err := antigravity.ExpandSchemaReferences(root)
+		if err != nil {
+			return nil, err
+		}
+		schema = expanded
+	}
+	return cleanToolSchema(tkStripUnsupportedToolSchemaKeywords(schema)), nil
 }
 
 // tkStripUnsupportedToolSchemaKeywords 递归删掉 tkUnsupportedToolSchemaKeywords

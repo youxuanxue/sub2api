@@ -18338,12 +18338,14 @@
         "maxSchemaExpansionNodes",
         "if e.active[name]",
         "expanded, err := expander.expand(root, 0, nil)",
-        "maxSchemaExpansionBytes"
+        "maxSchemaExpansionBytes",
+        "func ExpandSchemaReferences(",
+        "expanded, err := ExpandSchemaReferences(schema)"
       ],
       "must_not_contain": [
         "func flattenRefs("
       ],
-      "rationale": "Reject cyclic and excessive schema expansion before recursive cleanup; restoring unbounded flattenRefs can terminate the gateway process."
+      "rationale": "Reject cyclic and excessive schema expansion before recursive cleanup; restoring unbounded flattenRefs can terminate the gateway process. Native Gemini and Antigravity must share this bounded expansion owner."
     },
     {
       "path": "backend/internal/pkg/antigravity/request_transformer.go",
@@ -18369,6 +18371,67 @@
         "TestAntigravityGatewayRejectsUnsafeSchemasBeforeUpstream"
       ],
       "rationale": "Real native Gemini and Claude-family Forward calls must reject unsafe schemas with 400 and zero upstream calls."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service_tk_schema.go",
+      "must_contain": [
+        "func tkCleanToolSchema(schema any) (any, error)",
+        "antigravity.ExpandSchemaReferences(root)"
+      ],
+      "rationale": "Native Gemini must expand references through the shared bounded owner before dropping definitions; never restore an unbounded local copy."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "tools, err := convertClaudeToolsToGeminiTools(req[\"tools\"])",
+        "func convertClaudeToolsToGeminiTools(tools any) ([]any, error)",
+        "cleanedParams, err := tkCleanToolSchema(params)",
+        "return nil, fmt.Errorf(\"invalid tool schema: %w\", err)"
+      ],
+      "rationale": "Native Gemini tool conversion propagates shared expansion errors to the existing HTTP 400 entrypoints before upstream dispatch."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service_tk_schema_refs_test.go",
+      "must_contain": [
+        "TestTKCleanToolSchemaExpandsReferencesWithoutMutatingInput",
+        "TestGeminiMessagesToolReferencesReachWireSchema",
+        "TestGeminiMessagesUnsafeToolSchemaRejectedBeforeUpstream"
+      ],
+      "rationale": "Preserve referenced array element structure, caller input and HTTP 400 with zero upstream calls for unsafe expansion."
+    },
+    {
+      "path": "backend/internal/service/billing_service.go",
+      "must_contain": [
+        "unknownTTLTokens = tokens.CacheCreationTokens - cacheCreation5mTokens - cacheCreation1hTokens",
+        "float64(cacheCreation1hTokens+unknownTTLTokens)*pricing.CacheCreation1hPrice*multiplier"
+      ],
+      "rationale": "Approved unknown TTL cache creation policy: charge unclassified aggregate tokens at the resolved 1h price while preserving known TTL details and raw usage."
+    },
+    {
+      "path": "backend/internal/service/billing_cache_unknown_ttl_tk_test.go",
+      "must_contain": [
+        "TestCacheCreationUnknownTTLUsesOneHourPrice",
+        "TestCacheCreationUnknownTTLUsesResolvedPricing",
+        "TestAnthropicSSECumulativeCacheCreationUnknownTTLSettlement"
+      ],
+      "rationale": "Keep partial and total-only TTL settlement regressions, resolved channel prices, raw usage preservation, cumulative SSE usage and explicit zero behavior."
+    },
+    {
+      "path": "backend/internal/service/billing_context_schedule.go",
+      "must_contain": [
+        "return UsageTokens{CacheCreationTokens: n, CacheCreation5mTokens: n}",
+        "return UsageTokens{CacheCreationTokens: n, CacheCreation1hTokens: n}"
+      ],
+      "rationale": "Price schedule probes must explicitly distinguish known 5m and 1h usage; unknown TTL settlement must not turn the displayed 5m quote into the 1h price."
+    },
+    {
+      "path": "backend/internal/service/billing_context_schedule_test.go",
+      "must_contain": [
+        "TestPlazaSchedulePreservesCacheWrite1h",
+        "TestPlazaScheduleKnownFiveMinuteQuoteAndUnknownTTLSettlement",
+        "TestResolveContextPricingSchedule_ParityWithBilling"
+      ],
+      "rationale": "Preserve independent 5m and 1h display quotes and verify aggregate-only settlement uses 1h for base and higher context tiers."
     }
   ]
 }

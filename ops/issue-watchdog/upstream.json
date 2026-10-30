@@ -1518,6 +1518,46 @@
         "tokenkey_status": "fixed_in_tokenkey",
         "rationale": "Ported Wei-Shaw/sub2api#8390: mergeWebSearchEmulationDimensions preserves non-submitted platform dimensions on channel update; FE whitelist renders/submits anthropic/openai/command_code/opencode_go/minimax/zhipu."
       }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#4632",
+      "judgment": {
+        "impact": "needs_prod_validation",
+        "tokenkey_status": "unresolved_observability",
+        "rationale": "2026-10-30 prod复核：六次原始完成事件明确cached_tokens=0，五对完整工具续轮保持历史前缀和cache key；最终出站身份及供应商cache admission轨迹缺失，不能归因system/session/failover。新增待审诊断方案见 docs/approved/openai-compaction-owner-and-cache-diagnostics.md；不改cache key或计费。"
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8393",
+      "judgment": {
+        "impact": "high",
+        "tokenkey_status": "unresolved_in_tokenkey",
+        "rationale": "2026-10-30真实quota：PRO账号233/294的Argon与Flash重置窗口不同，Argon变体共享窗口；当前调度仍统一antigravity:gemini family。历史429不足以证明具体误伤，但scope机制存在缺口。菜单下架而mapping可访问符合预期。建议基于有时效的真实quota证据拆PRO Argon子家族，unknown保持保守；方案待审，不改线上。"
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8412",
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "2026-10-30用户明确批准未知TTL按1h收费。本分支实现：已知5m/1h按各自价，max(total-已知明细和,0)按解析后的1h价；完全无明细也按1h。非TTL模型保留标准cache-write价，原始usage不改、不追溯历史。近7天prod未见部分TTL差额；6条total-only适用新的未来结算规则。待PR合并及部署，未宣称线上生效。"
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8414",
+      "judgment": {
+        "impact": "high",
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "2026-10-30 08:04 UTC再次确认prod EasyPay/USDT仍启用，apiBase=https://pay.callmodel.io/payments/epay/v1/order/create-transaction；pay子域DNS不可解析，prod没有名称/镜像匹配epay/epusdt/payment的容器。callmodel.io同路径及/api.php返回网站HTML，api.callmodel.io跳转到站点，不能直接替换域名恢复支付。本分支修复queryOrder非2xx拒绝paid-looking body，保留强制查单；需恢复支付服务/DNS并验证创建与查单兼容，不能整体关闭。"
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8426",
+      "judgment": {
+        "impact": "high",
+        "tokenkey_status": "unresolved_in_tokenkey",
+        "rationale": "2026-10-30离线普通replay/recompact均复现：A产生state、A不可调度时soft sticky退化选B，hard owner对照拒绝B。invalid_encrypted_content还可删除compaction整项后重试，存在静默丢历史风险。prod24h native_compaction_v2=0，未证明线上已触发。state租户隔离硬归属与禁止剥离方案见 docs/approved/openai-compaction-owner-and-cache-diagnostics.md，draft未实施。"
+      }
     }
   ]
 }

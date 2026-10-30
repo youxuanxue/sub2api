@@ -3719,7 +3719,11 @@ func convertClaudeMessagesToGeminiGenerateContent(body []byte) ([]byte, error) {
 	}
 	out["contents"] = contents
 
-	if tools := convertClaudeToolsToGeminiTools(req["tools"]); tools != nil {
+	tools, err := convertClaudeToolsToGeminiTools(req["tools"])
+	if err != nil {
+		return nil, err
+	}
+	if tools != nil {
 		out["tools"] = tools
 	}
 
@@ -3988,10 +3992,10 @@ func extractClaudeToolResultImageParts(v any) []any {
 	return parts
 }
 
-func convertClaudeToolsToGeminiTools(tools any) []any {
+func convertClaudeToolsToGeminiTools(tools any) ([]any, error) {
 	arr, ok := tools.([]any)
 	if !ok || len(arr) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	hasWebSearch := false
@@ -4039,7 +4043,10 @@ func convertClaudeToolsToGeminiTools(tools any) []any {
 			}
 		}
 		// 清理 JSON Schema
-		cleanedParams := tkCleanToolSchema(params)
+		cleanedParams, err := tkCleanToolSchema(params)
+		if err != nil {
+			return nil, fmt.Errorf("invalid tool schema: %w", err)
+		}
 
 		funcDecls = append(funcDecls, map[string]any{
 			"name":        name,
@@ -4060,9 +4067,9 @@ func convertClaudeToolsToGeminiTools(tools any) []any {
 		})
 	}
 	if len(out) == 0 {
-		return nil
+		return nil, nil
 	}
-	return out
+	return out, nil
 }
 
 func normalizeGeminiRequestForAIStudio(body []byte) []byte {

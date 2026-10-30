@@ -341,7 +341,7 @@ func (e *EasyPay) queryOrder(ctx context.Context, outTradeNo string) (*easyPayQu
 	for k, v := range params {
 		query.Set(k, v)
 	}
-	body, err := e.post(ctx, e.apiBase()+"/api.php?"+query.Encode(), params)
+	body, httpStatus, err := e.postRaw(ctx, e.apiBase()+"/api.php?"+query.Encode(), params)
 	if err != nil {
 		// The request URL carries the merchant key; never let it reach logs
 		// or audit records through *url.Error.
@@ -350,6 +350,14 @@ func (e *EasyPay) queryOrder(ctx context.Context, outTradeNo string) (*easyPayQu
 			err = urlErr.Err
 		}
 		return nil, fmt.Errorf("easypay query: %w", err)
+	}
+	// A paid-looking body is not confirmation when the gateway reports an HTTP
+	// failure. Do not echo the body or URL: either may contain merchant secrets.
+	if httpStatus < http.StatusOK || httpStatus >= http.StatusMultipleChoices {
+		if httpStatus == http.StatusNotFound || httpStatus == http.StatusMethodNotAllowed {
+			return nil, fmt.Errorf("easypay query: HTTP status %d; order-query endpoint may be unsupported or misconfigured", httpStatus)
+		}
+		return nil, fmt.Errorf("easypay query: HTTP status %d", httpStatus)
 	}
 	// Scalars are decoded leniently: PHP deployments commonly serialize
 	// integer columns as strings ("status":"1").
