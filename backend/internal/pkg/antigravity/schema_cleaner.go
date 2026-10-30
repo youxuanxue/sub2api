@@ -9,6 +9,10 @@ import (
 // 参考 Antigravity-Manager/src-tauri/src/proxy/common/json_schema.rs 实现
 // 确保 schema 符合 JSON Schema draft 2020-12 且适配 Gemini v1internal
 func CleanJSONSchema(schema map[string]any) map[string]any {
+	return cleanJSONSchema(schema, true)
+}
+
+func cleanJSONSchema(schema map[string]any, toolRoot bool) map[string]any {
 	if schema == nil {
 		return nil
 	}
@@ -17,7 +21,7 @@ func CleanJSONSchema(schema map[string]any) map[string]any {
 	flattenRefs(schema, extractDefs(schema))
 
 	// 递归清理（root 节点单独标记：空 object 的 reason 占位只允许注入在工具参数根上）
-	cleaned := cleanJSONSchemaNode(schema, true)
+	cleaned := cleanJSONSchemaNode(schema, toolRoot, toolRoot)
 	result, ok := cleaned.(map[string]any)
 	if !ok {
 		return nil
@@ -108,15 +112,9 @@ func deepCopy(src any) any {
 	}
 }
 
-// cleanJSONSchemaRecursive 递归核心清理逻辑
-// 返回处理后的值 (通常是 input map，但可能修改内部结构)
-func cleanJSONSchemaRecursive(value any) any {
-	return cleanJSONSchemaNode(value, false)
-}
-
-// cleanJSONSchemaNode 与 cleanJSONSchemaRecursive 相同，但额外携带 isRoot：
-// 只有工具参数根节点才允许注入 "reason" 占位属性 (步骤 7)。
-func cleanJSONSchemaNode(value any, isRoot bool) any {
+// cleanJSONSchemaNode shares schema normalization while limiting invented empty
+// object placeholders to tool parameters; response schemas retain their shape.
+func cleanJSONSchemaNode(value any, isRoot, toolSchema bool) any {
 	schemaMap, ok := value.(map[string]any)
 	if !ok {
 		return value
@@ -147,7 +145,7 @@ func cleanJSONSchemaNode(value any, isRoot bool) any {
 	// 1. [CRITICAL] 深度递归处理子项
 	if props, ok := schemaMap["properties"].(map[string]any); ok {
 		for _, v := range props {
-			cleanJSONSchemaRecursive(v)
+			cleanJSONSchemaNode(v, false, toolSchema)
 		}
 	}
 	if items, ok := schemaMap["items"]; ok {
@@ -156,19 +154,19 @@ func cleanJSONSchemaNode(value any, isRoot bool) any {
 			// Draft-07 元组形式 items: [A, B]。Gemini 只接受单个 items Schema
 			// (列表校验)，位置约束无法表达；但不能像以前那样只保留最佳分支、
 			// 把其余位置声明整段丢掉。合并所有位置的字段，再交给常规清洗。
-			schemaMap["items"] = cleanJSONSchemaRecursive(mergeTupleEntries(itemsArr))
+			schemaMap["items"] = cleanJSONSchemaNode(mergeTupleEntries(itemsArr), false, toolSchema)
 		} else {
-			cleanJSONSchemaRecursive(items)
+			cleanJSONSchemaNode(items, false, toolSchema)
 		}
 	}
 	// 如果既无 properties 也无 items，遍历其他 map/slice 子项递归
 	if !hasKey(schemaMap, "properties") && !hasKey(schemaMap, "items") {
 		for _, v := range schemaMap {
 			if _, isMap := v.(map[string]any); isMap {
-				cleanJSONSchemaRecursive(v)
+				cleanJSONSchemaNode(v, false, toolSchema)
 			} else if arr, isArr := v.([]any); isArr {
 				for _, item := range arr {
-					cleanJSONSchemaRecursive(item)
+					cleanJSONSchemaNode(item, false, toolSchema)
 				}
 			}
 		}
@@ -234,11 +232,11 @@ func cleanJSONSchemaNode(value any, isRoot bool) any {
 				// 对合并进来的新属性和 items 进行深度递归清洗，确保合并进来的子结构（如 prefixItems）也能被处理
 				if props, ok := schemaMap["properties"].(map[string]any); ok {
 					for _, pv := range props {
-						cleanJSONSchemaRecursive(pv)
+						cleanJSONSchemaNode(pv, false, toolSchema)
 					}
 				}
 				if items, ok := schemaMap["items"]; ok {
-					cleanJSONSchemaRecursive(items)
+					cleanJSONSchemaNode(items, false, toolSchema)
 				}
 			}
 		}
@@ -369,7 +367,7 @@ func cleanJSONSchemaNode(value any, isRoot bool) any {
 			if props, ok := schemaMap["properties"].(map[string]any); ok && len(props) > 0 {
 				hasProps = true
 			}
-			if !hasProps {
+			if !hasProps && toolSchema {
 				if isRoot {
 					// 工具参数根节点确实没有参数：保留 upstream 的 reason 占位，
 					// 这是「无参工具」的既有契约。

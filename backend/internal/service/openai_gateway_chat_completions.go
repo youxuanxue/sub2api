@@ -22,17 +22,11 @@ import (
 	"go.uber.org/zap"
 )
 
-// responsesShapeUnsupportedFields are top-level Responses API parameters that
-// Codex upstreams reject with "Unsupported parameter: ...". They must be
-// stripped when forwarding a raw client body through the Responses-shape
-// short-circuit in ForwardAsChatCompletions (see isResponsesShape branch).
-// The normal Chat Completions → Responses conversion path is unaffected
-// because ChatCompletionsRequest has no fields for these parameters — unknown
-// fields are dropped naturally by json.Unmarshal. Kept semantically in sync
-// with the compatibility filtering in openai_gateway_forward.go used by the
-// /v1/responses passthrough path. `user` is included per upstream
-// Wei-Shaw/sub2api#1264 — API clients that POST Responses-shape bodies
-// to /v1/chat/completions can carry `user`, which the Responses upstream rejects.
+// responsesShapeUnsupportedFields filters Responses-shaped bodies received on
+// the Chat URL. prompt_cache_retention is rejected only by Codex OAuth; API-key
+// upstreams retain it, as does the ordinary typed Chat-to-Responses conversion.
+// The remaining legacy compatibility filters keep their existing behavior,
+// including user removal for Wei-Shaw/sub2api#1264.
 var responsesShapeUnsupportedFields = []string{
 	"prompt_cache_retention",
 	"safety_identifier",
@@ -198,6 +192,9 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	}
 
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
+	if promptCacheKey == "" {
+		promptCacheKey = strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String())
+	}
 	compatPromptCacheInjected := false
 	if promptCacheKey == "" && !isResponsesShape && (account.UsesOpenAICodexProtocol() || account.IsOpenAIApiKey()) && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
 		promptCacheKey = deriveCompatPromptCacheKey(&chatReq, upstreamModel)
@@ -231,12 +228,12 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		if err != nil {
 			return nil, fmt.Errorf("rewrite model in responses-shape body: %w", err)
 		}
-		// Strip Responses API parameters that no Codex upstream accepts.
-		// Because this branch forwards the raw body (the normal path rebuilds
-		// it from ChatCompletionsRequest and drops unknown fields naturally),
-		// we must filter these fields explicitly here — otherwise the upstream
-		// rejects the request with "Unsupported parameter: ...".
+		// Raw Responses-shaped input bypasses the typed converter. Keep the
+		// legacy filters, with retention constrained to known Codex rejection.
 		for _, field := range cursorResponsesUnsupportedFields {
+			if field == "prompt_cache_retention" && !account.IsOpenAIOAuthLike() {
+				continue
+			}
 			if stripped, derr := sjson.DeleteBytes(responsesBody, field); derr == nil {
 				responsesBody = stripped
 			}
@@ -339,6 +336,16 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		}
 	}
 
+	// Codex OAuth does not implement explicit prompt-cache control. Remove the
+	// mode and protocol breakpoints together; keep the cache identity. Unknown
+	// API-key upstreams get their original hints until an explicit rejection.
+	if account.IsOpenAIOAuthLike() {
+		responsesBody, _, err = stripOpenAIExplicitPromptCacheHints(responsesBody)
+		if err != nil {
+			return nil, fmt.Errorf("strip Codex prompt-cache hints: %w", err)
+		}
+	}
+
 	// 4b. Apply OpenAI fast policy (may filter service_tier or block the request).
 	responsesBody, _, err = normalizeGPT6ResponsesSampling(responsesBody, upstreamModel)
 	if err != nil {
@@ -369,29 +376,56 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		upstreamCtx, cancelUpstream = context.WithCancel(upstreamCtx)
 	}
 	defer cancelUpstream()
-	upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, true, promptCacheKey, false)
-	releaseUpstreamCtx()
-	if err != nil {
-		return nil, fmt.Errorf("build upstream request: %w", err)
-	}
-
-	if promptCacheKey != "" {
-		apiKeyID := getAPIKeyIDFromContext(c)
-		sessionKey := promptCacheKey
-		if !compatPromptCacheTenantIsolated {
-			sessionKey = isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), promptCacheKey)
-		}
-		upstreamReq.Header.Set("session_id", generateSessionUUID(sessionKey))
-	}
-
-	// 7. Send request
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
-	if err != nil {
-		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+	retryState := openAIResponsesRejectedFieldRetryStateForRequest(c, responsesBody)
+	var resp *http.Response
+	var respBody []byte
+	var upstreamMsg string
+	var completeErrorBody, errorBodyRead bool
+	for {
+		upstreamReq, buildErr := s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, true, promptCacheKey, false)
+		releaseUpstreamCtx()
+		if buildErr != nil {
+			return nil, fmt.Errorf("build upstream request: %w", buildErr)
+		}
+		if promptCacheKey != "" {
+			sessionKey := promptCacheKey
+			if !compatPromptCacheTenantIsolated {
+				sessionKey = isolateOpenAIUpstreamSessionID(getAPIKeyIDFromContext(c), codexAccountIdentitySource(c, account), promptCacheKey)
+			}
+			upstreamReq.Header.Set("session_id", generateSessionUUID(sessionKey))
+		}
+		errorBodyRead = false
+		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
+		if err != nil {
+			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+		}
+		if resp.StatusCode != http.StatusBadRequest || (ctx != nil && ctx.Err() != nil) ||
+			(c.Request != nil && c.Request.Context().Err() != nil) || IsResponseCommitted(c) || c.Writer.Written() {
+			break
+		}
+		respBody, upstreamMsg, completeErrorBody = s.readOpenAIUpstreamErrorWithCompleteness(resp)
+		errorBodyRead = true
+		if !completeErrorBody {
+			break
+		}
+		retryBody, reason, changed, retryErr := normalizeOpenAIResponsesRejectedFieldRetryBody(resp.StatusCode, responsesBody, respBody)
+		if retryErr != nil {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("normalize rejected Responses field retry body: %w", retryErr)
+		}
+		// Reading the error body can outlive the caller. Recheck immediately
+		// before consuming retry budget and dispatching another attempt.
+		if (ctx != nil && ctx.Err() != nil) || (c.Request != nil && c.Request.Context().Err() != nil) ||
+			IsResponseCommitted(c) || c.Writer.Written() || !changed || !retryState.Allow(retryBody) {
+			break
+		}
+		_ = resp.Body.Close()
+		responsesBody = retryBody
+		logger.L().Debug("openai chat_completions: retrying rejected Responses field", zap.Int64("account_id", account.ID), zap.String("reason", reason))
 	}
 	defer func() {
 		cancelUpstream()
@@ -400,7 +434,9 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
-		respBody, upstreamMsg, completeErrorBody := s.readOpenAIUpstreamErrorWithCompleteness(resp)
+		if !errorBodyRead {
+			respBody, upstreamMsg, completeErrorBody = s.readOpenAIUpstreamErrorWithCompleteness(resp)
+		}
 		if !agentIdentityTaskRecoveryWasTried(ctx) && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, respBody) {
 			expectedTaskID := account.GetCredential("task_id")
 			if err := s.recoverAgentIdentityTask(ctx, account, expectedTaskID); err != nil {

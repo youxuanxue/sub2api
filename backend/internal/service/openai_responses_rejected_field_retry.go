@@ -130,6 +130,9 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 			return retryBody, "tool parameter root type rejection", true, nil
 		}
 	}
+	if retryBody, changed, err := normalizeOpenAIExplicitCacheHintRejection(body, code, message, param); err != nil || changed {
+		return retryBody, "explicit prompt cache hint rejection", changed, err
+	}
 	cacheMessageParam := openAIResponsesCacheModelRejectionParamFromMessage(message)
 	cacheParam := param
 	if cacheParam == "" {

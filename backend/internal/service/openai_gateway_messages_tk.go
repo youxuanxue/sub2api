@@ -295,6 +295,12 @@ func (s *OpenAIGatewayService) tkPrepareOpenAICompatMessagesSession(
 	}
 	out.compatReplayGuardEnabled = shouldAutoInjectPromptCacheKeyForCompat(upstreamModel)
 	out.compatCompactionPolicy = resolveOpenAICompatMessagesCompactionPolicy(account, apiKeyGroup(getAPIKeyFromContext(c)))
+	// Dynamic tool events are chronological state. Neither replay compaction
+	// nor latest-turn continuation may remove them before conversion. Keep the
+	// full replay and the stable prompt-cache key for these requests.
+	if apicompat.HasAnthropicDynamicToolChanges(anthropicReq) {
+		return out
+	}
 	out.compatContinuationEnabled = openAICompatContinuationEnabled(account, upstreamModel)
 	if out.compatContinuationEnabled {
 		out.previousResponseID = s.getOpenAICompatSessionResponseID(ctx, c, account, out.promptCacheKey)

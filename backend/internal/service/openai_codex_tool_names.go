@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -23,8 +25,8 @@ type codexToolNameField struct {
 	name   string
 }
 
-// aliasOpenAIOAuthReservedToolNames avoids names reserved by the ChatGPT
-// Codex backend. It validates every declaration/reference before mutating so
+// aliasOpenAIOAuthReservedToolNames avoids reserved names and shortens names
+// beyond the ChatGPT Codex backend limit using stable, reversible aliases. It validates every declaration/reference before mutating so
 // collisions cannot leave a partially rewritten request.
 func aliasOpenAIOAuthReservedToolNames(reqBody map[string]any) (map[string]string, bool, error) {
 	if reqBody == nil {
@@ -63,6 +65,10 @@ func aliasOpenAIOAuthReservedToolName(name string) string {
 	trimmed := strings.TrimSpace(name)
 	if strings.EqualFold(trimmed, codexReservedPythonToolName) {
 		return codexPythonToolAlias
+	}
+	if len(name) > 64 {
+		digest := sha256.Sum256([]byte(name))
+		return name[:47] + "_" + hex.EncodeToString(digest[:8])
 	}
 	return name
 }
@@ -147,7 +153,7 @@ func collectOpenAIResponsesToolNameFields(reqBody map[string]any) []codexToolNam
 }
 
 func aliasOpenAIOAuthReservedToolNamesBody(body []byte) ([]byte, map[string]string, bool, error) {
-	if len(body) == 0 || !containsASCIIFold(body, []byte(codexReservedPythonToolName)) {
+	if len(body) == 0 {
 		return body, nil, false, nil
 	}
 	var reqBody map[string]any
@@ -163,32 +169,6 @@ func aliasOpenAIOAuthReservedToolNamesBody(body []byte) ([]byte, map[string]stri
 		return body, nil, false, fmt.Errorf("encode OAuth reserved tool names: %w", err)
 	}
 	return normalized, reverse, true, nil
-}
-
-func containsASCIIFold(haystack, needle []byte) bool {
-	if len(needle) == 0 || len(haystack) < len(needle) {
-		return false
-	}
-	for i := 0; i <= len(haystack)-len(needle); i++ {
-		matched := true
-		for j := range needle {
-			a, b := haystack[i+j], needle[j]
-			if a >= 'A' && a <= 'Z' {
-				a += 'a' - 'A'
-			}
-			if b >= 'A' && b <= 'Z' {
-				b += 'a' - 'A'
-			}
-			if a != b {
-				matched = false
-				break
-			}
-		}
-		if matched {
-			return true
-		}
-	}
-	return false
 }
 
 func setCodexToolNameReverse(c *gin.Context, reverse map[string]string) {

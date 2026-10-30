@@ -76,3 +76,5 @@
 | US-072 | Kiro auto-mode transcript trim | Done | `.testing/user-stories/stories/US-072-kiro-auto-mode-transcript-trim.md` |
 
 | US-073 | 用户历史用量账单查询与下载 | Done | `.testing/user-stories/stories/US-073-historical-usage-billing.md` |
+
+| US-074 | 网关保留请求协议语义与最终计量 | InTest | `.testing/user-stories/stories/US-074-gateway-issue-remediation.md` |

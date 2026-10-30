@@ -754,6 +754,7 @@ func parseSSEUsagePassthrough(data string, usage *ClaudeUsage) {
 	}
 
 	parsed := gjson.Parse(data)
+	var deltaInputPatch *sseUsagePatch
 	switch parsed.Get("type").String() {
 	case "message_start":
 		msgUsage := parsed.Get("message.usage")
@@ -777,18 +778,12 @@ func parseSSEUsagePassthrough(data string, usage *ClaudeUsage) {
 			if tier := deltaUsage.Get("tk_billing_tier"); tier.Exists() {
 				usage.BillingTier = tier.String()
 			}
-			if v := deltaUsage.Get("input_tokens").Int(); v > 0 {
-				usage.InputTokens = int(v)
-			}
+			fields, _ := deltaUsage.Value().(map[string]any)
+			deltaInputPatch = anthropicDeltaInputPatch(fields, usage)
 			if v := deltaUsage.Get("output_tokens").Int(); v > 0 {
 				usage.OutputTokens = int(v)
 			}
-			if v := deltaUsage.Get("cache_creation_input_tokens").Int(); v > 0 {
-				usage.CacheCreationInputTokens = int(v)
-			}
-			if v := deltaUsage.Get("cache_read_input_tokens").Int(); v > 0 {
-				usage.CacheReadInputTokens = int(v)
-			}
+			mergeSSEUsagePatch(usage, deltaInputPatch)
 
 			cc5m := deltaUsage.Get("cache_creation.ephemeral_5m_input_tokens")
 			cc1h := deltaUsage.Get("cache_creation.ephemeral_1h_input_tokens")
@@ -831,13 +826,27 @@ func parseSSEUsagePassthrough(data string, usage *ClaudeUsage) {
 	if parsed.Get("type").String() == "message_start" {
 		usageNode = parsed.Get("message.usage")
 	}
-	normalizeAnthropicCompatiblePromptUsage(usageNode, usage)
+	if normalizeAnthropicCompatiblePromptUsageWithDelta(usageNode, usage, deltaInputPatch) && deltaInputPatch != nil {
+		// GLM/DeepSeek compatibility streams may report positive input_tokens
+		// as the inclusive prompt total. Retain their established subtraction;
+		// explicit zero and invalid canonical values still take precedence.
+		if value, valid := parseNonNegativeSSEUsageInt(usageNode.Get("input_tokens").Value()); valid && value > 0 {
+			deltaInputPatch.hasInputTokens = false
+		}
+	}
+	// Final canonical fields (or preserved values for invalid fields) win over
+	// aliases and TTL fallbacks. Missing fields retain those legacy fallbacks.
+	mergeSSEUsagePatch(usage, deltaInputPatch)
 }
 
 // normalizeAnthropicCompatiblePromptUsage converts provider-native OpenAI-style
 // prompt/cache fields into Claude's mutually-exclusive usage buckets. Native
 // Anthropic responses do not expose these aliases and are left alone.
 func normalizeAnthropicCompatiblePromptUsage(usageNode gjson.Result, usage *ClaudeUsage) bool {
+	return normalizeAnthropicCompatiblePromptUsageWithDelta(usageNode, usage, nil)
+}
+
+func normalizeAnthropicCompatiblePromptUsageWithDelta(usageNode gjson.Result, usage *ClaudeUsage, delta *sseUsagePatch) bool {
 	if usage == nil || !usageNode.Exists() {
 		return false
 	}
@@ -850,28 +859,34 @@ func normalizeAnthropicCompatiblePromptUsage(usageNode gjson.Result, usage *Clau
 	}
 
 	cacheReadTokens := usage.CacheReadInputTokens
-	if v := usageNode.Get("cache_read_input_tokens"); v.Exists() {
+	finalCacheRead := delta != nil && delta.hasCacheReadInput
+	if finalCacheRead {
+		cacheReadTokens = delta.cacheReadInputTokens
+	} else if v := usageNode.Get("cache_read_input_tokens"); v.Exists() {
 		cacheReadTokens = int(v.Int())
 	}
-	if cacheReadTokens == 0 {
+	if cacheReadTokens == 0 && !finalCacheRead {
 		if v := usageNode.Get("cached_tokens"); v.Exists() {
 			cacheReadTokens = int(v.Int())
 		}
 	}
-	if cacheReadTokens == 0 {
+	if cacheReadTokens == 0 && !finalCacheRead {
 		if v := usageNode.Get("prompt_tokens_details.cached_tokens"); v.Exists() {
 			cacheReadTokens = int(v.Int())
 		}
 	}
-	if cacheReadTokens == 0 && promptCacheHitTokens.Exists() {
+	if cacheReadTokens == 0 && !finalCacheRead && promptCacheHitTokens.Exists() {
 		cacheReadTokens = max(int(promptCacheHitTokens.Int()), 0)
 	}
 
 	cacheCreationTokens := usage.CacheCreationInputTokens
-	if v := usageNode.Get("cache_creation_input_tokens"); v.Exists() {
+	finalCacheCreation := delta != nil && delta.hasCacheCreationInput
+	if finalCacheCreation {
+		cacheCreationTokens = delta.cacheCreationInputTokens
+	} else if v := usageNode.Get("cache_creation_input_tokens"); v.Exists() {
 		cacheCreationTokens = int(v.Int())
 	}
-	if cacheCreationTokens == 0 {
+	if cacheCreationTokens == 0 && !finalCacheCreation {
 		cc5m := usageNode.Get("cache_creation.ephemeral_5m_input_tokens").Int()
 		cc1h := usageNode.Get("cache_creation.ephemeral_1h_input_tokens").Int()
 		if cc5m > 0 || cc1h > 0 {

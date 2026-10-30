@@ -62,6 +62,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	// 3. Convert Anthropic → Chat Completions body
 	chatBody, err := anthropicToChatCompletionsBody(&anthropicReq, upstreamModel)
 	if err != nil {
+		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert anthropic to chat completions: %w", err)
 	}
 	chatBody = applyNewAPIAliFixedSamplingShape(upstreamModel, chatBody)
@@ -185,6 +186,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 // ---------------------------------------------------------------------------
 
 func anthropicToChatCompletionsBody(req *apicompat.AnthropicRequest, upstreamModel string) ([]byte, error) {
+	if apicompat.HasAnthropicDynamicToolChanges(req) {
+		return nil, fmt.Errorf("dynamic tool changes require the Responses bridge; Chat Completions cannot preserve their history position")
+	}
 	var messages []tkBridgeChatMsg
 
 	if len(req.System) > 0 {

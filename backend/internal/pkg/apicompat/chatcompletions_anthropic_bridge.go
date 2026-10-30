@@ -50,6 +50,10 @@ func AnthropicToChatCompletionsRequestWithMinOutputTokens(req *AnthropicRequest,
 		return nil, fmt.Errorf("anthropic request is nil")
 	}
 
+	if HasAnthropicDynamicToolChanges(req) {
+		return nil, fmt.Errorf("dynamic tool changes require the Responses bridge; Chat Completions cannot preserve their history position")
+	}
+
 	messages, err := anthropicToChatMessages(req.System, req.Messages)
 	if err != nil {
 		return nil, err

@@ -82,6 +82,9 @@ type AnthropicContentBlock struct {
 	Name  string          `json:"name,omitempty"`
 	Input json.RawMessage `json:"input,omitempty"`
 
+	// type=tool_addition / tool_removal
+	Tool *AnthropicToolChange `json:"tool,omitempty"`
+
 	// type=tool_result
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   json.RawMessage `json:"content,omitempty"` // string or []AnthropicContentBlock
@@ -121,8 +124,16 @@ type AnthropicImageSource struct {
 	Data      string `json:"data"`
 }
 
+// AnthropicToolChange identifies a mid-conversation definition or reference.
+type AnthropicToolChange struct {
+	Type       string         `json:"type"`
+	Definition *AnthropicTool `json:"definition,omitempty"`
+	Name       string         `json:"name,omitempty"`
+}
+
 // AnthropicTool describes a tool available to the model.
 type AnthropicTool struct {
+	DeferLoading bool                   `json:"defer_loading,omitempty"`
 	Type         string                 `json:"type,omitempty"` // e.g. "web_search_20250305" for server tools
 	Name         string                 `json:"name"`
 	Description  string                 `json:"description,omitempty"`
@@ -246,24 +257,25 @@ type AnthropicDelta struct {
 
 // ResponsesRequest is the request body for POST /v1/responses.
 type ResponsesRequest struct {
-	PromptCacheOptions json.RawMessage     `json:"prompt_cache_options,omitempty"`
-	Model              string              `json:"model"`
-	Instructions       string              `json:"instructions,omitempty"`
-	Input              json.RawMessage     `json:"input"` // string or []ResponsesInputItem
-	MaxOutputTokens    *int                `json:"max_output_tokens,omitempty"`
-	Temperature        *float64            `json:"temperature,omitempty"`
-	TopP               *float64            `json:"top_p,omitempty"`
-	Stream             bool                `json:"stream,omitempty"`
-	Tools              []ResponsesTool     `json:"tools,omitempty"`
-	Include            []string            `json:"include,omitempty"`
-	Store              *bool               `json:"store,omitempty"`
-	ParallelToolCalls  *bool               `json:"parallel_tool_calls,omitempty"`
-	Reasoning          *ResponsesReasoning `json:"reasoning,omitempty"`
-	Text               *ResponsesText      `json:"text,omitempty"`
-	ToolChoice         json.RawMessage     `json:"tool_choice,omitempty"`
-	ServiceTier        string              `json:"service_tier,omitempty"`
-	PromptCacheKey     string              `json:"prompt_cache_key,omitempty"`
-	PreviousResponseID string              `json:"previous_response_id,omitempty"`
+	PromptCacheRetention string              `json:"prompt_cache_retention,omitempty"`
+	PromptCacheOptions   json.RawMessage     `json:"prompt_cache_options,omitempty"`
+	Model                string              `json:"model"`
+	Instructions         string              `json:"instructions,omitempty"`
+	Input                json.RawMessage     `json:"input"` // string or []ResponsesInputItem
+	MaxOutputTokens      *int                `json:"max_output_tokens,omitempty"`
+	Temperature          *float64            `json:"temperature,omitempty"`
+	TopP                 *float64            `json:"top_p,omitempty"`
+	Stream               bool                `json:"stream,omitempty"`
+	Tools                []ResponsesTool     `json:"tools,omitempty"`
+	Include              []string            `json:"include,omitempty"`
+	Store                *bool               `json:"store,omitempty"`
+	ParallelToolCalls    *bool               `json:"parallel_tool_calls,omitempty"`
+	Reasoning            *ResponsesReasoning `json:"reasoning,omitempty"`
+	Text                 *ResponsesText      `json:"text,omitempty"`
+	ToolChoice           json.RawMessage     `json:"tool_choice,omitempty"`
+	ServiceTier          string              `json:"service_tier,omitempty"`
+	PromptCacheKey       string              `json:"prompt_cache_key,omitempty"`
+	PreviousResponseID   string              `json:"previous_response_id,omitempty"`
 }
 
 // ResponsesReasoning configures reasoning effort in the Responses API.
@@ -296,6 +308,9 @@ type ResponsesInputItem struct {
 	Name      string `json:"name,omitempty"`
 	Arguments string `json:"arguments,omitempty"`
 	ID        string `json:"id,omitempty"`
+
+	// type=additional_tools
+	Tools []ResponsesTool `json:"tools,omitempty"`
 
 	// type=function_call_output
 	Output    string `json:"output,omitempty"`
@@ -722,24 +737,26 @@ func parseResponsesDeltaField(raw json.RawMessage) string {
 
 // ChatCompletionsRequest is the request body for POST /v1/chat/completions.
 type ChatCompletionsRequest struct {
-	PromptCacheOptions  json.RawMessage    `json:"prompt_cache_options,omitempty"`
-	Model               string             `json:"model"`
-	Messages            []ChatMessage      `json:"messages"`
-	Instructions        string             `json:"instructions,omitempty"` // OpenAI Responses API compat
-	MaxTokens           *int               `json:"max_tokens,omitempty"`
-	MaxCompletionTokens *int               `json:"max_completion_tokens,omitempty"`
-	Temperature         *float64           `json:"temperature,omitempty"`
-	TopP                *float64           `json:"top_p,omitempty"`
-	Stream              bool               `json:"stream,omitempty"`
-	StreamOptions       *ChatStreamOptions `json:"stream_options,omitempty"`
-	Tools               []ChatTool         `json:"tools,omitempty"`
-	ParallelToolCalls   *bool              `json:"parallel_tool_calls,omitempty"`
-	ToolChoice          json.RawMessage    `json:"tool_choice,omitempty"`
-	ReasoningEffort     string             `json:"reasoning_effort,omitempty"` // "low" | "medium" | "high" | "xhigh"
-	Thinking            json.RawMessage    `json:"thinking,omitempty"`         // Messages-compatible extension, preserved by the native converter.
-	ServiceTier         string             `json:"service_tier,omitempty"`
-	Stop                json.RawMessage    `json:"stop,omitempty"` // string or []string
-	ResponseFormat      json.RawMessage    `json:"response_format,omitempty"`
+	PromptCacheKey       string             `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention string             `json:"prompt_cache_retention,omitempty"`
+	PromptCacheOptions   json.RawMessage    `json:"prompt_cache_options,omitempty"`
+	Model                string             `json:"model"`
+	Messages             []ChatMessage      `json:"messages"`
+	Instructions         string             `json:"instructions,omitempty"` // OpenAI Responses API compat
+	MaxTokens            *int               `json:"max_tokens,omitempty"`
+	MaxCompletionTokens  *int               `json:"max_completion_tokens,omitempty"`
+	Temperature          *float64           `json:"temperature,omitempty"`
+	TopP                 *float64           `json:"top_p,omitempty"`
+	Stream               bool               `json:"stream,omitempty"`
+	StreamOptions        *ChatStreamOptions `json:"stream_options,omitempty"`
+	Tools                []ChatTool         `json:"tools,omitempty"`
+	ParallelToolCalls    *bool              `json:"parallel_tool_calls,omitempty"`
+	ToolChoice           json.RawMessage    `json:"tool_choice,omitempty"`
+	ReasoningEffort      string             `json:"reasoning_effort,omitempty"` // "low" | "medium" | "high" | "xhigh"
+	Thinking             json.RawMessage    `json:"thinking,omitempty"`         // Messages-compatible extension, preserved by the native converter.
+	ServiceTier          string             `json:"service_tier,omitempty"`
+	Stop                 json.RawMessage    `json:"stop,omitempty"` // string or []string
+	ResponseFormat       json.RawMessage    `json:"response_format,omitempty"`
 
 	// Legacy function calling (deprecated but still supported)
 	Functions    []ChatFunction  `json:"functions,omitempty"`

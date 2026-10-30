@@ -18116,6 +18116,188 @@
         "TestChannelService_ApplyUpdateInputClearsWebSearchEmulationExplicitly"
       ],
       "rationale": "Keep behavior regressions for partial updates, omitted keys and explicit clear alongside the channel update call site."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "antigravity.NormalizeGeminiResponseSchema(payload)"
+      ],
+      "rationale": "AG response JSON schema aliases must reach v1internal responseSchema through the shared wire owner."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_service.go",
+      "must_contain": [
+        "modified := antigravity.NormalizeGeminiSystemIdentity(request)"
+      ],
+      "rationale": "Existing Antigravity identity must not bypass SDK identity cleanup on native and converted Gemini requests."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/gemini_request_contract_tk.go",
+      "must_contain": [
+        "func NormalizeGeminiResponseSchema(",
+        "cleanJSONSchema(object, false)",
+        "func NormalizeGeminiSystemIdentity(",
+        "neutralizeClaudeIdentity(stripClaudeAttribution(text))"
+      ],
+      "rationale": "Response schemas do not inherit tool placeholders; system cleanup reuses the narrow identity owner."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_issue_contract_tk_test.go",
+      "must_contain": [
+        "TestCleanGeminiRequest_ResponseSchemaAliases",
+        "TestCleanGeminiRequest_ResponseSchemaCanonicalWins",
+        "TestCleanGeminiRequest_ResponseSchemaNestedEmptyObjects",
+        "TestAntigravityGeminiWire_NeutralizesSDKIdentity"
+      ],
+      "rationale": "Behavior regressions cover schema aliases, response shape, shared wire identity, project instructions and user text."
+    },
+    {
+      "path": "backend/internal/integration/kiro/thinking_redact.go",
+      "must_contain": [
+        "bodyStarted bool",
+        "if strings.HasPrefix(r.pending, \"<thinking>\")",
+        "if r.bodyStarted {"
+      ],
+      "rationale": "Kiro inline reasoning only interprets the initial envelope, never literal tags in the answer."
+    },
+    {
+      "path": "backend/internal/integration/kiro/thinking_redact_test.go",
+      "must_contain": [
+        "TestInlineThinkingRedactor_PreservesAnswerLiteralsAcrossChunks"
+      ],
+      "rationale": "Chunking cannot truncate answer code, tags or partial tag suffixes."
+    },
+    {
+      "path": "backend/internal/service/kiro_sse_encoder_tk_thinking_redact_test.go",
+      "must_contain": [
+        "TestKiroGatewayService_Forward_PreservesThinkingLiterals"
+      ],
+      "rationale": "Streaming and buffered Kiro forward paths preserve literal answer tags without exposing leading reasoning."
+    },
+    {
+      "path": "backend/internal/service/gateway_sse_delta_usage_tk.go",
+      "must_contain": [
+        "func anthropicDeltaInputPatch(",
+        "func parseNonNegativeSSEUsageInt(",
+        "patch.hasCacheCreation5m, patch.hasCacheCreation1h = true, true"
+      ],
+      "rationale": "Explicit nonnegative final counters, including zero, are authoritative; zero creation also clears stale TTL charges."
+    },
+    {
+      "path": "backend/internal/service/gateway_upstream_response.go",
+      "must_contain": [
+        "anthropicDeltaInputPatch("
+      ],
+      "rationale": "Standard Anthropic SSE parsing must retain final explicit zero corrections."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_passthrough.go",
+      "must_contain": [
+        "anthropicDeltaInputPatch("
+      ],
+      "rationale": "Passthrough Anthropic SSE parsing must share canonical presence semantics before alias normalization."
+    },
+    {
+      "path": "backend/internal/service/gateway_sse_usage_explicit_zero_tk_test.go",
+      "must_contain": [
+        "TestAnthropicSSEFinalInputCounters",
+        "TestAnthropicSSEFinalCanonicalCountersOutrankAliases"
+      ],
+      "rationale": "Billing regression covers zero, missing/invalid counters, aliases, inclusive CN counts and cleared TTL cost."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/anthropic_to_responses.go",
+      "must_contain": [
+        "convertAnthropicDynamicTools(req)"
+      ],
+      "rationale": "Dynamic tool history must preserve chronological declarations, reject unrepresentable changes, retain naming and bypass lossy history trimming."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/anthropic_dynamic_tools.go",
+      "must_contain": [
+        "func HasAnthropicDynamicToolChanges(",
+        "func convertAnthropicDynamicTools(",
+        "Type: \"additional_tools\"",
+        "tool_removal cannot be represented"
+      ],
+      "rationale": "Dynamic tool history must preserve chronological declarations, reject unrepresentable changes, retain naming and bypass lossy history trimming."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/anthropic_dynamic_tools_test.go",
+      "must_contain": [
+        "TestAnthropicDynamicTools_PreservesOrderAndReferences",
+        "TestAnthropicDynamicTools_RejectsUnrepresentableChanges",
+        "TestAnthropicDynamicTools_DirectChatRejectsInsteadOfDropping"
+      ],
+      "rationale": "Dynamic tool history must preserve chronological declarations, reject unrepresentable changes, retain naming and bypass lossy history trimming."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_tk.go",
+      "must_contain": [
+        "apicompat.HasAnthropicDynamicToolChanges(anthropicReq)"
+      ],
+      "rationale": "Dynamic tool history must preserve chronological declarations, reject unrepresentable changes, retain naming and bypass lossy history trimming."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_dynamic_tool_names_test.go",
+      "must_contain": [
+        "TestCodexDynamicTools_"
+      ],
+      "rationale": "Dynamic tool history must preserve chronological declarations, reject unrepresentable changes, retain naming and bypass lossy history trimming."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "stripOpenAIExplicitPromptCacheHints(responsesBody)",
+        "openAIResponsesRejectedFieldRetryStateForRequest(c, responsesBody)",
+        "normalizeOpenAIResponsesRejectedFieldRetryBody(resp.StatusCode, responsesBody, respBody)"
+      ],
+      "rationale": "Chat-to-Responses retains cache identity and shares bounded, explicit-rejection retries with native Responses."
+    },
+    {
+      "path": "backend/internal/service/openai_responses_rejected_field_retry.go",
+      "must_contain": [
+        "normalizeOpenAIExplicitCacheHintRejection(body, code, message, param)"
+      ],
+      "rationale": "Explicit-mode options and breakpoints must be removed atomically on a recognized rejection."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_prompt_cache_tk_test.go",
+      "must_contain": [
+        "TestChatResponsesPromptCacheCapabilities",
+        "TestChatResponsesRetriesRejectedExplicitCacheHints",
+        "TestChatResponsesRejectedHintsRespectSharedBudget"
+      ],
+      "rationale": "Real Chat forwarding tests cover OAuth vs API-key cache capabilities and bounded retries without changing session identity."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_dynamic_tools_tk_test.go",
+      "must_contain": [
+        "TestForwardAsAnthropic_DynamicToolErrorsReturn400BeforeUpstream",
+        "TestForwardAsAnthropic_DynamicToolsChatOnlyReturns400BeforeUpstream"
+      ],
+      "rationale": "Unrepresentable dynamic tool requests must return 400 without any upstream request."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",
+      "must_contain": [
+        "apicompat.HasAnthropicDynamicToolChanges(req)"
+      ],
+      "rationale": "Real bridge entrypoints must reject unsupported dynamic history before spending upstream calls; cache retries must stop on cancellation and truncated errors."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dynamic_tools_tk_test.go",
+      "must_contain": [
+        "TestAnthropicChatBridgesRejectDynamicToolsBeforeUpstream"
+      ],
+      "rationale": "Real bridge entrypoints must reject unsupported dynamic history before spending upstream calls; cache retries must stop on cancellation and truncated errors."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_prompt_cache_tk_test.go",
+      "must_contain": [
+        "TestChatResponsesRejectedHintsDoNotRetryInterruptedErrorBody"
+      ],
+      "rationale": "Real bridge entrypoints must reject unsupported dynamic history before spending upstream calls; cache retries must stop on cancellation and truncated errors."
     }
   ]
 }

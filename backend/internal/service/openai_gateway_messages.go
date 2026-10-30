@@ -145,6 +145,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	anthropicReq.Model = upstreamModel
 	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
 	if err != nil {
+		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert anthropic to responses: %w", err)
 	}
 

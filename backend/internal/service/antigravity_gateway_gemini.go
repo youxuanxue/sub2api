@@ -552,18 +552,8 @@ func cleanGeminiRequest(body []byte) ([]byte, error) {
 		}
 	}
 
-	for _, genKey := range []string{"generationConfig", "generation_config"} {
-		gen, ok := payload[genKey].(map[string]any)
-		if !ok {
-			continue
-		}
-		for _, schemaKey := range []string{"responseSchema", "responseJsonSchema", "response_schema", "response_json_schema"} {
-			if schema, ok := gen[schemaKey].(map[string]any); ok {
-				antigravity.DeepCleanUndefined(schema)
-				gen[schemaKey] = antigravity.CleanJSONSchema(schema)
-				modified = true
-			}
-		}
+	if antigravity.NormalizeGeminiResponseSchema(payload) {
+		modified = true
 	}
 
 	if !modified {

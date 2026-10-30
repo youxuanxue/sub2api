@@ -44,8 +44,8 @@ func TestInlineThinkingRedactor_SplitTagsAcrossChunks(t *testing.T) {
 func TestInlineThinkingRedactor_UnclosedThinkingFlushesAsThinking(t *testing.T) {
 	var redactor InlineThinkingRedactor
 
-	visible, thinking := redactor.Push("prefix <thinking>secret")
-	require.Equal(t, "prefix ", visible)
+	visible, thinking := redactor.Push("<thinking>secret")
+	require.Empty(t, visible)
 	require.Equal(t, "secret", thinking)
 
 	visible, thinking = redactor.Flush()
@@ -53,11 +53,11 @@ func TestInlineThinkingRedactor_UnclosedThinkingFlushesAsThinking(t *testing.T) 
 	require.Empty(t, thinking)
 }
 
-func TestInlineThinkingRedactor_FlushRedactsTrailingTagFragment(t *testing.T) {
+func TestInlineThinkingRedactor_FlushRedactsLeadingTagFragment(t *testing.T) {
 	var redactor InlineThinkingRedactor
 
-	visible, thinking := redactor.Push("visible <thin")
-	require.Equal(t, "visible ", visible)
+	visible, thinking := redactor.Push("<thin")
+	require.Empty(t, visible)
 	require.Empty(t, thinking)
 
 	visible, thinking = redactor.Flush()
@@ -92,4 +92,44 @@ func TestKiroToClaudeResponse_NoThinkingOmitsRedactedBlock(t *testing.T) {
 	)
 	require.Len(t, resp.Content, 1)
 	require.Equal(t, "text", resp.Content[0].Type)
+}
+
+// These inputs are assistant answer text, not the leading inline reasoning
+// envelope. Chunk boundaries must never turn a literal into hidden reasoning.
+func TestInlineThinkingRedactor_PreservesAnswerLiteralsAcrossChunks(t *testing.T) {
+	cases := []struct {
+		name     string
+		wire     string
+		visible  string
+		thinking string
+	}{
+		{"unclosed_literal", "Explain <thinking> and keep the rest of this answer", "Explain <thinking> and keep the rest of this answer", ""},
+		{"closed_literal", "Use <thinking>example</thinking> in this example", "Use <thinking>example</thinking> in this example", ""},
+		{"inline_code", "`<thinking>` is a literal tag", "`<thinking>` is a literal tag", ""},
+		{"fenced_code", "```xml\n<thinking>example\n```\nanswer", "```xml\n<thinking>example\n```\nanswer", ""},
+		{"partial_literal", "The prefix is <thin", "The prefix is <thin", ""},
+		{"less_than", "a < b and a trailing <", "a < b and a trailing <", ""},
+		{"after_reasoning", "<thinking>private</thinking>Explain <thinking>literally", "Explain <thinking>literally", "private"},
+		{"leading_reasoning", "\n<thinking>private</thinking>answer", "\nanswer", "private"},
+		{"unclosed_leading_reasoning", "<thinking>private tail", "", "private tail"},
+		{"incomplete_leading_envelope", "<thin", "", "<thin"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for split := 0; split <= len(tc.wire); split++ {
+				var r InlineThinkingRedactor
+				var visible, thinking strings.Builder
+				for _, chunk := range []string{tc.wire[:split], tc.wire[split:]} {
+					v, th := r.Push(chunk)
+					visible.WriteString(v)
+					thinking.WriteString(th)
+				}
+				v, th := r.Flush()
+				visible.WriteString(v)
+				thinking.WriteString(th)
+				require.Equal(t, tc.visible, visible.String(), "split=%d", split)
+				require.Equal(t, tc.thinking, thinking.String(), "split=%d", split)
+			}
+		})
+	}
 }
