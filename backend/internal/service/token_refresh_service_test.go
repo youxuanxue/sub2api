@@ -942,6 +942,7 @@ func TestIsNonRetryableRefreshError(t *testing.T) {
 		{name: "network_error", err: errors.New("network timeout"), expected: false},
 		{name: "invalid_grant", err: errors.New("invalid_grant"), expected: true},
 		{name: "invalid_client", err: errors.New("invalid_client"), expected: true},
+		{name: "kiro_client_secret_expired", err: errors.New("Kiro refresh failed: client secret expired"), expected: true},
 		{name: "invalid_refresh_token", err: errors.New(`OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error":{"code":"invalid_refresh_token"}}`), expected: true},
 		{name: "token_expired", err: errors.New(`OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error":{"code":"token_expired"}}`), expected: true},
 		{name: "refresh_token_reused", err: errors.New(`OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error":{"code":"refresh_token_reused"}}`), expected: true},
@@ -961,6 +962,42 @@ func TestIsNonRetryableRefreshError(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestKiroExpiredClientSecretStaysOnTheAccount(t *testing.T) {
+	account := &Account{
+		ID:          77,
+		Platform:    PlatformKiro,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{"refresh_token": "attempted"},
+	}
+	repo := &tokenRefreshAccountRepo{}
+	repo.accountsByID = map[int64]*Account{account.ID: account}
+	invalidator := &tokenCacheInvalidatorStub{}
+	svc := &TokenRefreshService{
+		accountRepo:      repo,
+		refreshPolicy:    DefaultBackgroundRefreshPolicy(),
+		cfg:              &config.TokenRefreshConfig{MaxRetries: 1},
+		cacheInvalidator: invalidator,
+	}
+	refresher := &tokenRefresherStub{err: errors.New("Kiro refresh failed: client secret expired")}
+
+	err := svc.refreshWithRetry(context.Background(), account, refresher, nil, time.Hour)
+
+	var permanentErr *accountPermanentRefreshError
+	require.ErrorAs(t, err, &permanentErr)
+	var providerErr *providerConfigurationRefreshError
+	require.False(t, errors.As(err, &providerErr))
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Contains(t, repo.lastErrorMessage, "client secret expired")
+	require.NotContains(t, repo.lastErrorMessage, "invalid_client")
+	require.Equal(t, 1, invalidator.calls)
+
+	state := &tokenRefreshProviderState{service: svc}
+	state.recordResult(err)
+	require.False(t, state.isTripped())
 }
 
 // ========== Path A (refreshAPI) 测试用例 ==========
