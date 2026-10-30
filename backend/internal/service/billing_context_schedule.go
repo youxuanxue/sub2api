@@ -285,15 +285,17 @@ func probeContextTier(seg contextSegment, resolved *ResolvedPricing, probe func(
 	if err != nil {
 		return tier, err
 	}
-	tier.CacheWrite, err = probeComponentPrice(func(n int) UsageTokens { return UsageTokens{CacheCreationTokens: n} }, c, delta, probe)
+	// CacheWrite quotes known 5m creation; aggregate-only usage is unknown TTL
+	// and follows the separate approved 1h settlement policy.
+	tier.CacheWrite, err = probeComponentPrice(func(n int) UsageTokens { return UsageTokens{CacheCreationTokens: n, CacheCreation5mTokens: n} }, c, delta, probe)
 	if err != nil {
 		return tier, err
 	}
-	// 输出价只随上下文所在档变化：固定上下文 c，对输出 token 数做差商（固定部分相减抵消）。
 	tier.CacheWrite1h, err = probeComponentPrice(func(n int) UsageTokens { return UsageTokens{CacheCreationTokens: n, CacheCreation1hTokens: n} }, c, delta, probe)
 	if err != nil {
 		return tier, err
 	}
+	// 输出价只随上下文所在档变化：固定上下文 c，对输出 token 数做差商（固定部分相减抵消）。
 	tier.Output, err = probeComponentPrice(func(n int) UsageTokens { return UsageTokens{InputTokens: c, OutputTokens: n} }, 0, contextProbeDelta, probe)
 	if err != nil {
 		return tier, err

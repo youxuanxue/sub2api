@@ -18415,6 +18415,23 @@
         "TestAnthropicSSECumulativeCacheCreationUnknownTTLSettlement"
       ],
       "rationale": "Keep partial and total-only TTL settlement regressions, resolved channel prices, raw usage preservation, cumulative SSE usage and explicit zero behavior."
+    },
+    {
+      "path": "backend/internal/service/billing_context_schedule.go",
+      "must_contain": [
+        "return UsageTokens{CacheCreationTokens: n, CacheCreation5mTokens: n}",
+        "return UsageTokens{CacheCreationTokens: n, CacheCreation1hTokens: n}"
+      ],
+      "rationale": "Price schedule probes must explicitly distinguish known 5m and 1h usage; unknown TTL settlement must not turn the displayed 5m quote into the 1h price."
+    },
+    {
+      "path": "backend/internal/service/billing_context_schedule_test.go",
+      "must_contain": [
+        "TestPlazaSchedulePreservesCacheWrite1h",
+        "TestPlazaScheduleKnownFiveMinuteQuoteAndUnknownTTLSettlement",
+        "TestResolveContextPricingSchedule_ParityWithBilling"
+      ],
+      "rationale": "Preserve independent 5m and 1h display quotes and verify aggregate-only settlement uses 1h for base and higher context tiers."
     }
   ]
 }
