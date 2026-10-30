@@ -41,7 +41,7 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
   }
 
   smoke_default_claude_user_agent() {
-    printf '%s' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/2.1.312 (external, cli)}"
+    printf '%s' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/2.1.314 (external, cli)}"
   }
 
   # smoke_human_base_url GATEWAY_BASE
