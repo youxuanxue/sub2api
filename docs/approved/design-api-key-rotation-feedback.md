@@ -27,3 +27,5 @@ API Key 操作栏新增“轮换”（英文文案 `revoke`）操作。操作在
 ## 验证
 
 专项单元测试覆盖轮换保留原记录、越权拒绝、写失败保留旧值，以及工单通知脱敏和飞书配置读取。后端运行 `go test -tags unit` 相关包；前端运行 `npm run typecheck` 和 Vitest（依赖安装后）。
+
+上游合并保护：轮换请求及其幂等 header 由 `scripts/sentinels/frontend-tk.json` 锚定；后端 wire/service 变更已完成人工 sentinel registry 复审。
