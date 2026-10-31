@@ -315,6 +315,72 @@ func (r *ManagedBatchRepository) CompleteItem(ctx context.Context, id int64, wor
 	return n == 1, err
 }
 
+// RetryItem releases an item lease without marking the request terminal.  It
+// is deliberately fenced by lease_owner so a worker that was killed and later
+// resumed cannot put a newer attempt back on the retry queue.
+func (r *ManagedBatchRepository) RetryItem(ctx context.Context, id int64, worker string, next time.Time, itemErr map[string]any) (bool, error) {
+	eraw, _ := json.Marshal(itemErr)
+	res, err := r.db.ExecContext(ctx, `UPDATE batch_items SET status='retry',next_attempt_at=$1,error=$2::jsonb,lease_owner=NULL,lease_expires_at=NULL,updated_at=NOW() WHERE id=$3 AND lease_owner=$4`, next, eraw, id, worker)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+type ManagedBatchProgress struct {
+	Total     int
+	Succeeded int
+	Failed    int
+	Cancelled int
+	Unknown   int
+	Pending   int
+	Running   int
+	Retry     int
+}
+
+// CountBatchItems is a read-only reconciliation snapshot. It intentionally
+// reports unknown separately: an unknown provider outcome must never be
+// silently counted as success.
+func (r *ManagedBatchRepository) CountBatchItems(ctx context.Context, batchID string) (ManagedBatchProgress, error) {
+	var p ManagedBatchProgress
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*),COUNT(*) FILTER (WHERE status='succeeded'),COUNT(*) FILTER (WHERE status='failed'),COUNT(*) FILTER (WHERE status='cancelled'),COUNT(*) FILTER (WHERE status='unknown'),COUNT(*) FILTER (WHERE status='pending'),COUNT(*) FILTER (WHERE status='running'),COUNT(*) FILTER (WHERE status='retry') FROM batch_items WHERE batch_id=$1`, batchID).Scan(&p.Total, &p.Succeeded, &p.Failed, &p.Cancelled, &p.Unknown, &p.Pending, &p.Running, &p.Retry)
+	return p, err
+}
+
+// CompareAndSwapBatchStatusWithOutbox makes the terminal state transition and
+// its notification one durable transaction. The event is inserted only when
+// the version fence succeeds; a stale worker therefore cannot emit a second
+// completion event.
+func (r *ManagedBatchRepository) CompareAndSwapBatchStatusWithOutbox(ctx context.Context, userID, apiKeyID int64, id string, version int64, status string, retryAt *time.Time, errCode, errMessage *string, event *ManagedBatchOutboxEvent) (bool, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `UPDATE batches SET status=$1,retry_at=$2,last_error_code=$3,last_error_message=$4,version=version+1,updated_at=NOW() WHERE id=$5 AND user_id=$6 AND (api_key_id=$7 OR api_key_id IS NULL) AND version=$8`, status, retryAt, errCode, errMessage, id, userID, apiKeyID, version)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil || n != 1 {
+		return false, err
+	}
+	if event != nil {
+		payload, marshalErr := json.Marshal(event.Payload)
+		if marshalErr != nil {
+			return false, marshalErr
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO batch_outbox (batch_id,event_type,payload,dedup_key,available_at) VALUES ($1,$2,$3::jsonb,$4,COALESCE($5,NOW())) ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`, event.BatchID, event.EventType, payload, event.DedupKey, event.AvailableAt); err != nil {
+			return false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (r *ManagedBatchRepository) AppendEvent(ctx context.Context, batchID string, itemID, shardID *int64, eventType string, payload map[string]any, eventKey *string) error {
 	b, _ := json.Marshal(payload)
 	_, err := r.db.ExecContext(ctx, `INSERT INTO batch_events (batch_id,item_id,shard_id,event_type,payload,event_key) VALUES ($1,$2,$3,$4,$5::jsonb,$6) ON CONFLICT (batch_id,event_key) WHERE event_key IS NOT NULL DO NOTHING`, batchID, itemID, shardID, eventType, b, eventKey)
