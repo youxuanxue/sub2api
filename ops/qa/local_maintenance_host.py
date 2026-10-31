@@ -252,7 +252,7 @@ def run_phase(config, phase, dry_run=False):
                     command.append('--dry-run')
                 if phase == 'cleanup' and config.get('node1_environment'):
                     command[command.index('--env-file'):command.index('--env-file')] = [
-                        '--env', 'QA_NODE1_RECEIPT_ROOT=/app/node1',
+                        '--env', 'QA_NODE1_RECEIPT_ROOT=/app/node1/receipts',
                         '--env', f"QA_NODE1_ENVIRONMENT={config['node1_environment']}",
                     ]
                 try:
