@@ -2876,6 +2876,14 @@
         "normalizeFixedRect(target.getBoundingClientRect())"
       ],
       "rationale": "Relay pulse matrix tooltips must normalize focus-trigger rectangles before rendering the body-teleported fixed tooltip."
+    },
+    {
+      "path": "frontend/src/api/keys.ts",
+      "must_contain": [
+        "export async function rotate(id: number): Promise<ApiKey>",
+        "'Idempotency-Key': `api-key-rotate-${id}-${requestID}`"
+      ],
+      "rationale": "API key rotation is a TokenKey control-plane action. Keep the endpoint call and its required idempotency header together so an upstream merge cannot silently remove rotation or make enforced idempotency reject the UI request."
     }
   ]
 }
