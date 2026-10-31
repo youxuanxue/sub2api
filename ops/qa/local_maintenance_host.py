@@ -20,8 +20,13 @@ BASE = Path('/usr/local/lib/tokenkey/qa-local')
 UNITS = Path('/etc/systemd/system')
 HOST_LOCK = Path('/var/lib/tokenkey/qa-lifecycle/host.lock')
 HOT_DATA = Path('/var/lib/tokenkey/app')
+NODE1_ROOT = Path('/var/lib/tokenkey/qa-node1')
 LEGACY = ('tokenkey-qa-maintenance', 'tokenkey-qa-boundary')
-PHASES = {'provision': '*-*-* *:00:00 UTC', 'cleanup': '*-*-* *:02/5:00 UTC'}
+PHASES = {
+    'provision': '*-*-* *:00:00 UTC',
+    'cleanup': '*-*-* *:02/5:00 UTC',
+}
+ARCHIVE_PHASE = 'archive'
 # Layout-exception hosts may rename the Postgres container; DNS alias
 # tokenkey-postgres on tokenkey_tokenkey-network keeps PGHOST stable.
 POSTGRES_RUNTIME_CANDIDATES = ('tokenkey-postgres', 'tk-archive-standby')
@@ -131,10 +136,34 @@ def require_legacy_paused():
             raise ValueError('legacy QA owner must remain paused: '+job)
 
 
-def unit_files(bundle, phase):
-    if phase not in PHASES:
+def unit_files(bundle, phase, environment='prod'):
+    if phase not in PHASES and phase != ARCHIVE_PHASE:
         raise ValueError('unknown local phase')
     name = 'tokenkey-qa-'+phase
+    if phase == 'archive':
+        return {
+            name+'.service': f'''[Unit]
+Description=TokenKey QA node1 hourly archive
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 {bundle}/node1_archive.py run --source-root {HOT_DATA} --node1-root {NODE1_ROOT} --environment {environment}
+TimeoutStartSec=1800
+UMask=0077
+Nice=19
+IOSchedulingClass=idle
+''',
+            name+'.timer': f'''[Unit]
+Description=TokenKey QA node1 archive schedule
+[Timer]
+OnCalendar=*-*-* 01/4:00:00 UTC
+OnBootSec=7min
+Persistent=true
+AccuracySec=30s
+[Install]
+WantedBy=timers.target
+''',
+        }
     return {
         name+'.service': f'''[Unit]
 Description=TokenKey QA local {phase}
@@ -160,7 +189,7 @@ WantedBy=timers.target
     }
 
 
-def cleanup_mounts():
+def cleanup_mounts(node1_root=None):
     mounts = []
     # Resolve HOT_DATA first: layout-exception hosts symlink
     # /var/lib/tokenkey/app → formal/app; the leaf dirs must still be real.
@@ -170,6 +199,12 @@ def cleanup_mounts():
         if not path.is_dir() or path.is_symlink() or path.resolve() != path:
             raise ValueError('cleanup requires a canonical real QA directory: '+name)
         mounts += ['--mount', f'type=bind,src={path},dst=/app/data/{name}']
+    if node1_root is not None:
+        node1_path = Path(node1_root).resolve()
+        receipt_root = node1_path / 'receipts'
+        if not receipt_root.is_dir() or receipt_root.is_symlink() or node1_path.is_symlink():
+            raise ValueError('cleanup requires a readable node1 receipt directory')
+        mounts += ['--mount', f'type=bind,src={node1_path},dst=/app/node1,readonly']
     return mounts
 
 
@@ -202,7 +237,7 @@ def run_phase(config, phase, dry_run=False):
                 env = Path(scratch)/'pg.env'
                 env.write_text(pg_environment(postgres))
                 env.chmod(0o600)
-                mounts = cleanup_mounts() if phase == 'cleanup' else []
+                mounts = cleanup_mounts(config.get('node1_root')) if phase == 'cleanup' else []
                 if dry_run:
                     mounts = [arg+',readonly' if arg.startswith('type=bind,') else arg for arg in mounts]
                 command = ['docker', 'run', '--rm', '--name', task_name,
@@ -215,6 +250,11 @@ def run_phase(config, phase, dry_run=False):
                            '--phase', phase, '--confirm', f'tokenkey-qa-local-{phase}-v1']
                 if dry_run:
                     command.append('--dry-run')
+                if phase == 'cleanup' and config.get('node1_environment'):
+                    command[command.index('--env-file'):command.index('--env-file')] = [
+                        '--env', 'QA_NODE1_RECEIPT_ROOT=/app/node1',
+                        '--env', f"QA_NODE1_ENVIRONMENT={config['node1_environment']}",
+                    ]
                 try:
                     completed = subprocess.run(command, capture_output=True, text=True, timeout=270, check=False)
                     output = completed.stdout
@@ -261,11 +301,14 @@ def install(args):
         return
     bundle_digest = hashlib.sha256(Path(__file__).read_bytes()+digest.encode()).hexdigest()[:16]
     bundle = BASE/bundle_digest
-    config = {'hostname': socket.gethostname(), 'binary': str(bundle/'qa-local-maintenance'), 'sha256': digest, 'phases': phases}
+    environment = manifest.get('environment', 'prod')
+    config = {'hostname': socket.gethostname(), 'binary': str(bundle/'qa-local-maintenance'), 'sha256': digest,
+              'phases': phases, 'node1_root': str(NODE1_ROOT), 'node1_environment': environment}
     BASE.mkdir(parents=True, exist_ok=True, mode=0o755)
     if bundle.exists():
         if (hashlib.sha256((bundle/'qa-local-maintenance').read_bytes()).hexdigest() != digest
                 or (bundle/'local_maintenance_host.py').read_bytes() != Path(__file__).read_bytes()
+                or (bundle/'node1_archive.py').read_bytes() != Path(__file__).with_name('node1_archive.py').read_bytes()
                 or json.loads((bundle/'config.json').read_text()) != config):
             raise ValueError('installed immutable bundle mismatch')
     else:
@@ -275,6 +318,8 @@ def install(args):
             shutil.copy2(args.binary, staged/'qa-local-maintenance')
             (staged/'qa-local-maintenance').chmod(0o755)
             shutil.copy2(__file__, staged/'local_maintenance_host.py')
+            archive_script = Path(__file__).with_name('node1_archive.py')
+            shutil.copy2(archive_script, staged/'node1_archive.py')
             atomic_json(staged/'config.json', config)
             staged.rename(bundle)
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)

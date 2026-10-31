@@ -29,6 +29,17 @@ S3 上传、旧 boundary/maintenance 继续暂停；旧 DROP pause 保持原值�
 24 小时本地保留规则。未来恢复上传需重新核对 owner 和可用源数据，不能补归档已删除的数据。
 历史 capture failure 和归档失败回执保留，不宣称全局 capture hard-health 已恢复。
 
+## node1 小时归档（待单独启用）
+
+`node1_archive.py` 只读取已经封口的 `qa_blobs`/`qa_dlq` 小时目录，把文件复制到 node1
+临时目录，逐文件校验 SHA-256、字节数和文件数后原子发布 `manifest.json` 与
+`receipts/<environment>/<UTC-hour>.json`。目标目录默认保留 365 天的容量规划；本实现不做
+QA PostgreSQL restore，也不删除源数据。`tokenkey-qa-archive.service/.timer` 只由
+reviewed installer 生成，当前 `PHASES` 不包含 archive，因此本次代码不会安装或启用 timer。
+
+本地 cleanup 在配置 `ArchiveReceiptRoot` 后把 node1 receipt 作为硬门禁：缺失、不可达、
+格式错误或校验字段不完整均返回失败并保留源小时；不会为了维持 24 小时数字删除唯一副本。
+
 # QA Operations
 
 **当前运行策略（2026-10-21）：** 用户已暂停向 AWS S3 上传 QA。现网矩阵

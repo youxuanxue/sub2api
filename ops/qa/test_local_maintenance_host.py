@@ -127,7 +127,23 @@ class LocalHostTest(unittest.TestCase):
             with mock.patch.object(local,'HOT_DATA',link):
                 mounts=local.cleanup_mounts()
             self.assertEqual(mounts,['--mount',f'type=bind,src={real}/qa_blobs,dst=/app/data/qa_blobs',
-                                     '--mount',f'type=bind,src={real}/qa_dlq,dst=/app/data/qa_dlq'])
+                                         '--mount',f'type=bind,src={real}/qa_dlq,dst=/app/data/qa_dlq'])
+
+    def test_cleanup_mounts_exposes_node1_as_read_only_receipt_view(self):
+        with tempfile.TemporaryDirectory() as root:
+            data = Path(root).resolve()
+            (data/'qa_blobs').mkdir()
+            (data/'qa_dlq').mkdir()
+            real_hot = data/'formal'/'app'
+            real_hot.mkdir(parents=True)
+            (real_hot/'qa_blobs').mkdir()
+            (real_hot/'qa_dlq').mkdir()
+            with mock.patch.object(local, 'HOT_DATA', real_hot):
+                node1 = data/'node1'
+                (node1/'receipts').mkdir(parents=True)
+                mounts = local.cleanup_mounts(node1)
+            self.assertIn('--mount', mounts)
+            self.assertIn(f'type=bind,src={node1},dst=/app/node1,readonly', mounts)
 
     def test_resolve_postgres_runtime_prefers_tokenkey_postgres_alias_network(self):
         pg={'State':{'Running':True},'Image':'sha256:fixture',
@@ -181,8 +197,9 @@ class LocalHostTest(unittest.TestCase):
         timer=files['tokenkey-qa-provision.timer']
         self.assertIn('Persistent=true',timer)
         self.assertIn('OnBootSec=2min',timer)
-        with self.assertRaises(ValueError):
-            local.unit_files(Path('/immutable/bundle'), 'archive')
+        archive = local.unit_files(Path('/immutable/bundle'), 'archive')
+        self.assertIn('node1_archive.py', archive['tokenkey-qa-archive.service'])
+        self.assertNotIn('archive', local.PHASES)
 
 
 if __name__=='__main__':

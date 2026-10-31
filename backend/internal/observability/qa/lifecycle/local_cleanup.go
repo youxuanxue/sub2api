@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -16,13 +17,67 @@ import (
 
 // LocalCleanupResult records the bounded 24-hour policy independently of S3.
 type LocalCleanupResult struct {
-	DBAnchor          time.Time      `json:"db_anchor_utc"`
-	RetentionBoundary time.Time      `json:"retention_boundary_utc"`
-	ExpiredPartitions int            `json:"expired_partitions"`
-	ExpiredFileHours  int            `json:"expired_file_hours"`
-	SelectedHours     []time.Time    `json:"selected_hours"`
-	Expiries          []ExpiryResult `json:"expiries,omitempty"`
-	DryRun            bool           `json:"dry_run"`
+	DBAnchor            time.Time      `json:"db_anchor_utc"`
+	RetentionBoundary   time.Time      `json:"retention_boundary_utc"`
+	ExpiredPartitions   int            `json:"expired_partitions"`
+	ExpiredFileHours    int            `json:"expired_file_hours"`
+	SelectedHours       []time.Time    `json:"selected_hours"`
+	Expiries            []ExpiryResult `json:"expiries,omitempty"`
+	DryRun              bool           `json:"dry_run"`
+	ArchiveReceiptRoot  string         `json:"archive_receipt_root,omitempty"`
+	ArchiveEnvironment  string         `json:"archive_environment,omitempty"`
+	ReceiptBlockedHours int            `json:"receipt_blocked_hours,omitempty"`
+}
+
+type node1Receipt struct {
+	SchemaVersion  string    `json:"schema_version"`
+	Environment    string    `json:"environment"`
+	WindowStart    time.Time `json:"window_start"`
+	WindowEnd      time.Time `json:"window_end"`
+	OK             bool      `json:"ok"`
+	FileCount      int64     `json:"file_count"`
+	TotalBytes     int64     `json:"total_bytes"`
+	ManifestSHA256 string    `json:"manifest_sha256"`
+}
+
+// hasNode1Receipt is intentionally strict. A JSON file alone is not a receipt:
+// it must identify this environment/hour and carry the archive integrity data.
+func hasNode1Receipt(root, environment string, h time.Time) (bool, error) {
+	if root == "" {
+		return true, nil
+	}
+	if !filepath.IsAbs(root) {
+		return false, errors.New("node1 receipt root must be absolute")
+	}
+	if environment == "" {
+		return false, errors.New("node1 archive environment is required")
+	}
+	path := filepath.Join(root, "receipts", environment, h.UTC().Format("2006/01/02/15")+".json")
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return false, errors.New("node1 receipt is not a regular file")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	var receipt node1Receipt
+	if err := json.Unmarshal(raw, &receipt); err != nil {
+		return false, fmt.Errorf("invalid node1 receipt: %w", err)
+	}
+	start := h.UTC()
+	if receipt.SchemaVersion == "" || !receipt.OK || receipt.Environment != environment ||
+		!receipt.WindowStart.UTC().Equal(start) || !receipt.WindowEnd.UTC().Equal(start.Add(time.Hour)) ||
+		receipt.FileCount < 1 || receipt.TotalBytes < 0 || len(receipt.ManifestSHA256) != 64 {
+		return false, errors.New("node1 receipt failed integrity checks")
+	}
+	return true, nil
 }
 
 // RunLocalCleanup implements the 2026-10-21 explicitly approved local retention
@@ -30,6 +85,8 @@ type LocalCleanupResult struct {
 // All rows in an hour must be at least 24 hours old before its source is removed.
 func RunLocalCleanup(ctx context.Context, conn *sql.Conn, opts Options, dryRun bool) (LocalCleanupResult, error) {
 	result := LocalCleanupResult{DryRun: dryRun}
+	result.ArchiveReceiptRoot = opts.ArchiveReceiptRoot
+	result.ArchiveEnvironment = opts.ArchiveEnvironment
 	anchor, err := DatabaseUTC(ctx, conn)
 	if err != nil {
 		return result, err
@@ -83,6 +140,33 @@ func RunLocalCleanup(ctx context.Context, conn *sql.Conn, opts Options, dryRun b
 	sort.Slice(result.SelectedHours, func(i, j int) bool { return result.SelectedHours[i].Before(result.SelectedHours[j]) })
 	if len(result.SelectedHours) > MaxTransitionDrops {
 		result.SelectedHours = result.SelectedHours[:MaxTransitionDrops]
+	}
+	if opts.ArchiveReceiptRoot != "" {
+		allowed := make([]time.Time, 0, len(result.SelectedHours))
+		var receiptErr error
+		for _, h := range result.SelectedHours {
+			ok, checkErr := hasNode1Receipt(opts.ArchiveReceiptRoot, opts.ArchiveEnvironment, h)
+			if checkErr != nil {
+				receiptErr = errors.Join(receiptErr, fmt.Errorf("%s: %w", h.Format(time.RFC3339), checkErr))
+			}
+			if ok {
+				allowed = append(allowed, h)
+			} else {
+				result.ReceiptBlockedHours++
+			}
+		}
+		result.SelectedHours = allowed
+		if result.ReceiptBlockedHours > 0 {
+			if receiptErr == nil {
+				receiptErr = errors.New("node1 archive receipt missing")
+			}
+			if dryRun {
+				return result, receiptErr
+			}
+			// Do not drop any source while the receipt gate is uncertain. This
+			// includes hours that happen to have a valid receipt in this batch.
+			return result, fmt.Errorf("node1 archive receipt gate blocked cleanup (%d hours): %w", result.ReceiptBlockedHours, receiptErr)
+		}
 	}
 	if dryRun {
 		return result, nil
