@@ -98,7 +98,7 @@ describe('AccountTableFilters', () => {
       'admin.accounts.allPrivacyModes',
       'admin.accounts.allGroups'
     ]) {
-      expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true)
+      expect(wrapper.find(`[aria-label="${label}"]`).isVisible()).toBe(true)
     }
   })
 
