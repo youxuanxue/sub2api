@@ -106,6 +106,7 @@ func RegisterGatewayRoutes(
 			gatewayRoutes.Register(http.MethodDelete, "/images/batches/:id", Excluded("batch_control"), h.BatchImage.DeleteRecord)
 			gatewayRoutes.Register(http.MethodDelete, "/images/batches/:id/outputs", Excluded("batch_control"), h.BatchImage.DeleteOutputs)
 		}
+		registerTKManagedBatchRoutes(gatewayRoutes, h)
 
 		// TK: Grok voice/realtime/search — see gateway_tk_grok_voice_routes.go
 		registerTKGrokVoiceRoutesV1(gatewayRoutes, h)
