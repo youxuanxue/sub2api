@@ -87,6 +87,61 @@ def receipt_path(root: Path, environment: str, hour: dt.datetime) -> Path:
     return root / "receipts" / environment / (hour.strftime(HOUR) + ".json")
 
 
+def _verified_manifest(target: Path, environment: str, hour: dt.datetime) -> tuple[dict, str, int]:
+    manifest_path = target / "manifest.json"
+    if target.is_symlink() or not target.is_dir() or manifest_path.is_symlink() or not manifest_path.is_file():
+        raise ValueError(f"published QA hour is missing a safe manifest: {target}")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError(f"published QA manifest is invalid: {manifest_path}") from exc
+    if (
+        manifest.get("schema_version") != SCHEMA
+        or manifest.get("environment") != environment
+        or manifest.get("window_start") != hour.isoformat()
+        or manifest.get("window_end") != (hour + dt.timedelta(hours=1)).isoformat()
+        or not isinstance(manifest.get("files"), list)
+        or manifest.get("file_count") != len(manifest["files"])
+    ):
+        raise ValueError(f"published QA manifest identity is invalid: {manifest_path}")
+    seen: set[str] = set()
+    total = 0
+    for entry in manifest["files"]:
+        relative = entry.get("path") if isinstance(entry, dict) else None
+        if not isinstance(relative, str) or not relative or relative in seen:
+            raise ValueError(f"published QA manifest path is invalid: {relative!r}")
+        relative_path = Path(relative)
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise ValueError(f"published QA manifest path escapes target: {relative!r}")
+        seen.add(relative)
+        path = target / relative_path
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"published QA file is missing or unsafe: {path}")
+        digest, size = sha256_file(path)
+        if entry.get("bytes") != size or entry.get("sha256") != digest:
+            raise ValueError(f"published QA checksum mismatch: {relative}")
+        total += size
+    if manifest.get("total_bytes") != total:
+        raise ValueError(f"published QA manifest byte count is invalid: {manifest_path}")
+    return manifest, *sha256_file(manifest_path)
+
+
+def _receipt_from_manifest(target: Path, environment: str, hour: dt.datetime) -> dict:
+    manifest, manifest_sha, manifest_size = _verified_manifest(target, environment, hour)
+    return {
+        "schema_version": SCHEMA,
+        "ok": True,
+        "environment": environment,
+        "window_start": hour.isoformat(),
+        "window_end": (hour + dt.timedelta(hours=1)).isoformat(),
+        "file_count": manifest["file_count"],
+        "total_bytes": manifest["total_bytes"],
+        "manifest_sha256": manifest_sha,
+        "manifest_bytes": manifest_size,
+        "completed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+    }
+
+
 def copy_hour(source_root: Path, node1_root: Path, environment: str, hour: dt.datetime) -> dict:
     source_files: list[tuple[str, Path]] = []
     for kind in ("qa_blobs", "qa_dlq"):
@@ -109,10 +164,20 @@ def copy_hour(source_root: Path, node1_root: Path, environment: str, hour: dt.da
         try:
             existing = json.loads(receipt.read_text(encoding="utf-8"))
             if existing.get("schema_version") == SCHEMA and existing.get("ok") is True:
+                _verified_manifest(target, environment, hour)
                 return existing | {"already_completed": True}
         except (OSError, ValueError, json.JSONDecodeError):
             pass
         raise ValueError(f"existing node1 receipt is invalid: {receipt}")
+
+    # A power loss or full filesystem can occur after the immutable hour
+    # directory is published but before its external receipt is atomically
+    # written. Verify that directory and complete the receipt on retry instead
+    # of copying over it or leaving cleanup blocked forever.
+    if target.exists():
+        recovered = _receipt_from_manifest(target, environment, hour)
+        atomic_json(receipt, recovered)
+        return recovered | {"recovered_receipt": True}
 
     node1_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     staging_parent = target.parent

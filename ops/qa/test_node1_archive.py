@@ -45,6 +45,33 @@ class Node1ArchiveTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 archive.copy_hour(source_root, node1_root, 'prod', hour)
 
+    def test_published_hour_without_receipt_recovers_after_interrupted_publish(self):
+        hour = dt.datetime(2026, 10, 31, 10, tzinfo=dt.timezone.utc)
+        with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as node1:
+            source_root, node1_root = Path(source), Path(node1)
+            source_hour = source_root / 'qa_blobs' / hour.strftime(archive.HOUR)
+            source_hour.mkdir(parents=True)
+            (source_hour / 'one.bin').write_bytes(b'fixture')
+            archive.copy_hour(source_root, node1_root, 'prod', hour)
+            receipt = node1_root / 'receipts' / 'prod' / (hour.strftime(archive.HOUR) + '.json')
+            receipt.unlink()
+            recovered = archive.copy_hour(source_root, node1_root, 'prod', hour)
+            self.assertTrue(recovered['recovered_receipt'])
+            self.assertTrue(receipt.is_file())
+
+    def test_existing_receipt_is_rejected_when_published_file_is_tampered(self):
+        hour = dt.datetime(2026, 10, 31, 10, tzinfo=dt.timezone.utc)
+        with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as node1:
+            source_root, node1_root = Path(source), Path(node1)
+            source_hour = source_root / 'qa_blobs' / hour.strftime(archive.HOUR)
+            source_hour.mkdir(parents=True)
+            (source_hour / 'one.bin').write_bytes(b'fixture')
+            archive.copy_hour(source_root, node1_root, 'prod', hour)
+            target = node1_root / 'qa-raw' / 'prod' / hour.strftime(archive.HOUR)
+            (target / 'qa_blobs' / hour.strftime(archive.HOUR) / 'one.bin').write_bytes(b'tampered')
+            with self.assertRaisesRegex(ValueError, 'existing node1 receipt is invalid'):
+                archive.copy_hour(source_root, node1_root, 'prod', hour)
+
     def test_selection_skips_open_hour(self):
         hour = dt.datetime(2026, 10, 31, 10, tzinfo=dt.timezone.utc)
         with tempfile.TemporaryDirectory() as source:
