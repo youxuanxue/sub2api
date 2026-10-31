@@ -2,12 +2,17 @@ package lifecycle
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
@@ -16,13 +21,171 @@ import (
 
 // LocalCleanupResult records the bounded 24-hour policy independently of S3.
 type LocalCleanupResult struct {
-	DBAnchor          time.Time      `json:"db_anchor_utc"`
-	RetentionBoundary time.Time      `json:"retention_boundary_utc"`
-	ExpiredPartitions int            `json:"expired_partitions"`
-	ExpiredFileHours  int            `json:"expired_file_hours"`
-	SelectedHours     []time.Time    `json:"selected_hours"`
-	Expiries          []ExpiryResult `json:"expiries,omitempty"`
-	DryRun            bool           `json:"dry_run"`
+	DBAnchor            time.Time      `json:"db_anchor_utc"`
+	RetentionBoundary   time.Time      `json:"retention_boundary_utc"`
+	ExpiredPartitions   int            `json:"expired_partitions"`
+	ExpiredFileHours    int            `json:"expired_file_hours"`
+	SelectedHours       []time.Time    `json:"selected_hours"`
+	Expiries            []ExpiryResult `json:"expiries,omitempty"`
+	DryRun              bool           `json:"dry_run"`
+	ArchiveReceiptRoot  string         `json:"archive_receipt_root,omitempty"`
+	ArchiveEnvironment  string         `json:"archive_environment,omitempty"`
+	ReceiptBlockedHours int            `json:"receipt_blocked_hours,omitempty"`
+}
+
+type node1Receipt struct {
+	SchemaVersion  string    `json:"schema_version"`
+	Environment    string    `json:"environment"`
+	WindowStart    time.Time `json:"window_start"`
+	WindowEnd      time.Time `json:"window_end"`
+	OK             bool      `json:"ok"`
+	FileCount      int64     `json:"file_count"`
+	TotalBytes     int64     `json:"total_bytes"`
+	ManifestSHA256 string    `json:"manifest_sha256"`
+}
+
+type node1ManifestEntry struct {
+	Path   string `json:"path"`
+	Bytes  int64  `json:"bytes"`
+	SHA256 string `json:"sha256"`
+}
+
+type node1Manifest struct {
+	SchemaVersion string               `json:"schema_version"`
+	Environment   string               `json:"environment"`
+	WindowStart   time.Time            `json:"window_start"`
+	WindowEnd     time.Time            `json:"window_end"`
+	FileCount     int64                `json:"file_count"`
+	TotalBytes    int64                `json:"total_bytes"`
+	Files         []node1ManifestEntry `json:"files"`
+}
+
+// hasNode1Receipt is intentionally strict. A JSON file alone is not a receipt:
+// it must identify this environment/hour and carry the archive integrity data.
+func hasNode1Receipt(root, environment string, h time.Time) (bool, error) {
+	if root == "" {
+		return true, nil
+	}
+	if !filepath.IsAbs(root) {
+		return false, errors.New("node1 receipt root must be absolute")
+	}
+	if environment != "prod" && environment != "cn-prod" {
+		return false, errors.New("node1 archive environment is required")
+	}
+	path := filepath.Join(root, environment, h.UTC().Format("2006/01/02/15")+".json")
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return false, errors.New("node1 receipt is not a regular file")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	var receipt node1Receipt
+	if err := json.Unmarshal(raw, &receipt); err != nil {
+		return false, fmt.Errorf("invalid node1 receipt: %w", err)
+	}
+	start := h.UTC()
+	if receipt.SchemaVersion != "qa-node1-hour-v1" || !receipt.OK || receipt.Environment != environment ||
+		!receipt.WindowStart.UTC().Equal(start) || !receipt.WindowEnd.UTC().Equal(start.Add(time.Hour)) ||
+		receipt.FileCount < 1 || receipt.TotalBytes < 0 || len(receipt.ManifestSHA256) != 64 {
+		return false, errors.New("node1 receipt failed integrity checks")
+	}
+	if err := verifyNode1Manifest(filepath.Dir(root), environment, h, receipt); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func verifyNode1Manifest(node1Root, environment string, h time.Time, receipt node1Receipt) error {
+	target := filepath.Join(node1Root, "qa-raw", environment, h.UTC().Format("2006/01/02/15"))
+	manifestPath := filepath.Join(target, "manifest.json")
+	manifestInfo, err := os.Lstat(manifestPath)
+	if err != nil {
+		return fmt.Errorf("node1 manifest unavailable: %w", err)
+	}
+	if manifestInfo.Mode()&os.ModeSymlink != 0 || !manifestInfo.Mode().IsRegular() {
+		return errors.New("node1 manifest is not a regular file")
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("read node1 manifest: %w", err)
+	}
+	digest := sha256.Sum256(manifestBytes)
+	if hex.EncodeToString(digest[:]) != receipt.ManifestSHA256 {
+		return errors.New("node1 manifest checksum does not match receipt")
+	}
+	var manifest node1Manifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return fmt.Errorf("invalid node1 manifest: %w", err)
+	}
+	start := h.UTC()
+	if manifest.SchemaVersion != "qa-node1-hour-v1" || manifest.Environment != environment ||
+		!manifest.WindowStart.UTC().Equal(start) || !manifest.WindowEnd.UTC().Equal(start.Add(time.Hour)) ||
+		manifest.FileCount != int64(len(manifest.Files)) || manifest.FileCount != receipt.FileCount ||
+		manifest.TotalBytes != receipt.TotalBytes || manifest.TotalBytes < 0 {
+		return errors.New("node1 manifest identity or aggregate counts are invalid")
+	}
+	seen := make(map[string]struct{}, len(manifest.Files))
+	var total int64
+	for _, entry := range manifest.Files {
+		if entry.Path == "" || filepath.IsAbs(entry.Path) || filepath.Clean(entry.Path) != entry.Path ||
+			entry.Path == "." || entry.Path == ".." || len(entry.SHA256) != 64 || entry.Bytes < 0 {
+			return fmt.Errorf("node1 manifest path or digest is invalid: %q", entry.Path)
+		}
+		if _, ok := seen[entry.Path]; ok {
+			return fmt.Errorf("node1 manifest contains duplicate path: %q", entry.Path)
+		}
+		seen[entry.Path] = struct{}{}
+		path := filepath.Join(target, filepath.FromSlash(entry.Path))
+		if path != target && !isWithin(target, path) {
+			return fmt.Errorf("node1 manifest path escapes target: %q", entry.Path)
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("node1 archived file unavailable: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("node1 archived file is not regular: %q", entry.Path)
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("open node1 archived file: %w", err)
+		}
+		hash := sha256.New()
+		bytes, copyErr := io.Copy(hash, file)
+		closeErr := file.Close()
+		if copyErr != nil || closeErr != nil {
+			return fmt.Errorf("read node1 archived file: %q", entry.Path)
+		}
+		if bytes != entry.Bytes || hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
+			return fmt.Errorf("node1 archived file checksum mismatch: %q", entry.Path)
+		}
+		total += bytes
+	}
+	if total != manifest.TotalBytes {
+		return errors.New("node1 manifest total bytes do not match archived files")
+	}
+	return nil
+}
+
+func isWithin(root, path string) bool {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(rootAbs, pathAbs)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // RunLocalCleanup implements the 2026-10-21 explicitly approved local retention
@@ -30,6 +193,8 @@ type LocalCleanupResult struct {
 // All rows in an hour must be at least 24 hours old before its source is removed.
 func RunLocalCleanup(ctx context.Context, conn *sql.Conn, opts Options, dryRun bool) (LocalCleanupResult, error) {
 	result := LocalCleanupResult{DryRun: dryRun}
+	result.ArchiveReceiptRoot = opts.ArchiveReceiptRoot
+	result.ArchiveEnvironment = opts.ArchiveEnvironment
 	anchor, err := DatabaseUTC(ctx, conn)
 	if err != nil {
 		return result, err
@@ -83,6 +248,33 @@ func RunLocalCleanup(ctx context.Context, conn *sql.Conn, opts Options, dryRun b
 	sort.Slice(result.SelectedHours, func(i, j int) bool { return result.SelectedHours[i].Before(result.SelectedHours[j]) })
 	if len(result.SelectedHours) > MaxTransitionDrops {
 		result.SelectedHours = result.SelectedHours[:MaxTransitionDrops]
+	}
+	if opts.ArchiveReceiptRoot != "" {
+		allowed := make([]time.Time, 0, len(result.SelectedHours))
+		var receiptErr error
+		for _, h := range result.SelectedHours {
+			ok, checkErr := hasNode1Receipt(opts.ArchiveReceiptRoot, opts.ArchiveEnvironment, h)
+			if checkErr != nil {
+				receiptErr = errors.Join(receiptErr, fmt.Errorf("%s: %w", h.Format(time.RFC3339), checkErr))
+			}
+			if ok {
+				allowed = append(allowed, h)
+			} else {
+				result.ReceiptBlockedHours++
+			}
+		}
+		result.SelectedHours = allowed
+		if result.ReceiptBlockedHours > 0 {
+			if receiptErr == nil {
+				receiptErr = errors.New("node1 archive receipt missing")
+			}
+			if dryRun {
+				return result, receiptErr
+			}
+			// Do not drop any source while the receipt gate is uncertain. This
+			// includes hours that happen to have a valid receipt in this batch.
+			return result, fmt.Errorf("node1 archive receipt gate blocked cleanup (%d hours): %w", result.ReceiptBlockedHours, receiptErr)
+		}
 	}
 	if dryRun {
 		return result, nil
