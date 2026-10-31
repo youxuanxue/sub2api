@@ -86,6 +86,22 @@ function mountFilters(filters: Record<string, unknown> = {}) {
 }
 
 describe('AccountTableFilters', () => {
+  it('shows every filter in the row without an extra filters toggle', () => {
+    const wrapper = mountFilters()
+
+    expect(wrapper.find('button[aria-controls]').exists()).toBe(false)
+    for (const label of [
+      'admin.accounts.allPlatforms',
+      'admin.accounts.allStatus',
+      'admin.accounts.allProxies',
+      'admin.accounts.allTypes',
+      'admin.accounts.allPrivacyModes',
+      'admin.accounts.allGroups'
+    ]) {
+      expect(wrapper.find(`[aria-label="${label}"]`).isVisible()).toBe(true)
+    }
+  })
+
   it('does not offer the retired Kiro stub or group-only composite platform filters', () => {
     const wrapper = mountFilters()
 

@@ -19,8 +19,6 @@ export default {
       dataExportIncludeProxies: 'Include proxies linked to the exported accounts',
       dataImport: 'Import',
       moreActions: 'More Actions',
-      moreFilters: 'More Filters',
-      moreFiltersActive: 'More Filters ({count} active)',
       dataActions: 'Data',
       toolActions: 'Tools',
       viewColumns: 'Columns',

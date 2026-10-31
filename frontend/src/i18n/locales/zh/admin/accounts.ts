@@ -19,8 +19,6 @@ export default {
       dataExportIncludeProxies: '导出代理（导出账号关联的代理）',
       dataImport: '导入',
       moreActions: '更多操作',
-      moreFilters: '更多筛选',
-      moreFiltersActive: '更多筛选（已选 {count} 项）',
       dataActions: '数据操作',
       toolActions: '工具',
       viewColumns: '列显示',

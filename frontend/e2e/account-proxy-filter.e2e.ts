@@ -40,7 +40,6 @@ for (const width of [1440, 390]) {
     })
     await page.goto('/admin/accounts')
     await expect(page.getByText('proxy-other', { exact: true })).toBeVisible()
-    await page.getByRole('button', { name: /more filters/i }).click()
     const select = page.getByRole('button', { name: 'All Proxies', exact: true })
     await select.click()
     await page.getByRole('option', { name: 'Office proxy', exact: true }).click()
