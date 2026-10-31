@@ -107,12 +107,20 @@ type Config struct {
 	QaArchive               QaArchiveConfig               `mapstructure:"qa_archive"`
 	MediaStorage            MediaStorageConfig            `mapstructure:"media_storage"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
+	ManagedBatch            ManagedBatchConfig            `mapstructure:"managed_batch"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
 	TelemetryArchive        TelemetryArchiveConfig        `mapstructure:"telemetry_archive"`
 	Plugins                 PluginConfig                  `mapstructure:"plugins"`
 
 	// Enforce only API-key spending windows in simple mode.
 	SimpleModeKeyRateLimitEnabled bool `mapstructure:"simple_mode_key_rate_limit_enabled" yaml:"simple_mode_key_rate_limit_enabled"`
+}
+
+// ManagedBatchConfig controls exposure of the managed Batch API. Execution
+// workers and provider selection are wired separately and must not be started
+// merely by setting this flag.
+type ManagedBatchConfig struct {
+	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
 }
 
 // SimpleModeConfig controls startup behavior in simple mode.
@@ -2278,6 +2286,7 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
+	viper.SetDefault("managed_batch.enabled", false)
 	viper.SetDefault("gateway.min_output_tokens", 128)
 	viper.SetDefault("simple_mode.auto_create_default_groups", true)
 	viper.SetDefault("simple_mode_key_rate_limit_enabled", false)

@@ -227,6 +227,7 @@ func ProvideHandlers(
 	geminiWebSessionHandler *GeminiWebSessionHandler,
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
+	managedBatchHandler *ManagedBatchHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
@@ -257,6 +258,7 @@ func ProvideHandlers(
 		GeminiWebSession: geminiWebSessionHandler,
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
+		ManagedBatch:     managedBatchHandler,
 	}
 }
 

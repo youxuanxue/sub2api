@@ -2,6 +2,7 @@ package handler
 
 import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -19,7 +20,17 @@ var TKProviderSet = wire.NewSet(
 	NewGeminiWebSessionHandler,
 	admin.NewTierHandler,
 	ProvideTrialProvisionHandler,
+	ProvideTKManagedBatchHandler,
 )
+
+// ProvideTKManagedBatchHandler supplies the HTTP contract handler while the
+// durable backend seam is being integrated. A nil backend is intentional:
+// routes remain closed even if an operator sets the activation flag before
+// repository, private object storage, queue and billing owners are available.
+func ProvideTKManagedBatchHandler(cfg *config.Config) *ManagedBatchHandler {
+	enabled := cfg != nil && cfg.ManagedBatch.Enabled
+	return NewManagedBatchHandler(nil, enabled)
+}
 
 func ProvideTKAPIKeyHandler(
 	apiKeyService *service.APIKeyService,
