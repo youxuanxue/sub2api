@@ -69,7 +69,10 @@ def _validate_secondary(secondary: dict) -> dict:
         raise BackupError("invalid secondary S3-compatible region")
     endpoint = _validate_endpoint(secondary["endpoint"])
     path = _validate_repo_path(secondary["path"])
-    uri_style = secondary.get("uri_style", "path")
+    # Tencent COS rejects path-style HEAD requests on the formal buckets used
+    # by this migration. Keep host-style as the safe default; callers may still
+    # opt into path-style for a separately validated S3-compatible endpoint.
+    uri_style = secondary.get("uri_style", "host")
     if uri_style not in {"path", "host"}:
         raise BackupError("secondary uri_style must be path or host")
     return {"bucket": bucket, "region": region, "endpoint": endpoint, "path": path, "uri_style": uri_style}
@@ -496,7 +499,7 @@ def main() -> int:
     render.add_argument("--secondary-region")
     render.add_argument("--secondary-endpoint")
     render.add_argument("--secondary-path", default="/prod/postgres")
-    render.add_argument("--secondary-uri-style", choices=("path", "host"), default="path")
+    render.add_argument("--secondary-uri-style", choices=("path", "host"), default="host")
     backup = commands.add_parser("backup")
     backup.add_argument("--type", choices=["auto", "full", "incr"], default="auto")
     commands.add_parser("check", help="verify a WAL archive round trip (switches WAL)")

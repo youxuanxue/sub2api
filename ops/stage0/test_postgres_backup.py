@@ -575,7 +575,7 @@ class PhysicalBackupTests(unittest.TestCase):
         self.assertEqual(config["global"]["repo1-path"], "/prod/postgres")
         self.assertEqual(config["global"]["repo2-type"], "s3")
         self.assertEqual(config["global"]["repo2-s3-endpoint"], "cos.ap-beijing.myqcloud.com")
-        self.assertEqual(config["global"]["repo2-s3-uri-style"], "path")
+        self.assertEqual(config["global"]["repo2-s3-uri-style"], "host")
         self.assertEqual(config["global"].getint("repo2-retention-full"), 7)
         self.assertNotIn("repo2-s3-key=", rendered)
 

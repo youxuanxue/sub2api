@@ -9,7 +9,7 @@ status: draft
 
 ## 配置边界
 
-`ops/stage0/postgres_backup.py config` 默认仍只渲染现有 AWS `repo1`。传入完整的 `--secondary-*` 参数后才增加 `repo2`；凭据永远不由渲染器生成或写入，身份刷新器在受控主机上注入短期凭据。repo1 的桶、路径、区域和保留策略不会被 repo2 覆盖。
+`ops/stage0/postgres_backup.py config` 默认仍只渲染现有 AWS `repo1`。传入完整的 `--secondary-*` 参数后才增加 `repo2`；凭据永远不由渲染器生成或写入，身份刷新器在受控主机上注入短期凭据。repo1 的桶、路径、区域和保留策略不会被 repo2 覆盖。腾讯 COS 正式桶使用 `host` URI style；实测 `path` style 的 HEAD 请求返回 403，因此不能把 path-style 作为 COS 的默认值。
 
 这是配置草案，不会让现有 `backup`/`check` 命令自动写入 repo2。pgBackRest 2.60 的多仓库语义需要按命令区分：`check` 会检查配置中的全部 repository；`backup`、`verify` 和 `restore` 在验收时分别显式使用 `--repo=1`、`--repo=2`；`archive-push` 不使用 `--repo`，会按配置尝试向所有 indexed repository 归档。必须在隔离环境证明两个仓库均收到同一 WAL，并确认任一仓库失败时状态不会被伪报成功。未完成该验证前，线上命令继续只使用默认 repo1；不得仅凭生成出的配置宣称双写已启用。
 
@@ -24,7 +24,7 @@ PYTHONPATH=ops/stage0 python3 ops/stage0/postgres_backup.py config \
   --secondary-region na-siliconvalley \
   --secondary-endpoint cos.na-siliconvalley.myqcloud.com \
   --secondary-path /prod/postgres \
-  --secondary-uri-style path
+  --secondary-uri-style host
 ```
 
 cn-prod 使用相同入口，AWS repo1 保持现网东京仓库，COS repo2 改用北京 COS endpoint 和独立前缀。正式值以云账号实际创建的桶名、地域和密钥策略为准，不能从示例占位符直接执行。
