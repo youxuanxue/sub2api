@@ -2,13 +2,17 @@ package lifecycle
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
@@ -40,6 +44,22 @@ type node1Receipt struct {
 	ManifestSHA256 string    `json:"manifest_sha256"`
 }
 
+type node1ManifestEntry struct {
+	Path   string `json:"path"`
+	Bytes  int64  `json:"bytes"`
+	SHA256 string `json:"sha256"`
+}
+
+type node1Manifest struct {
+	SchemaVersion string               `json:"schema_version"`
+	Environment   string               `json:"environment"`
+	WindowStart   time.Time            `json:"window_start"`
+	WindowEnd     time.Time            `json:"window_end"`
+	FileCount     int64                `json:"file_count"`
+	TotalBytes    int64                `json:"total_bytes"`
+	Files         []node1ManifestEntry `json:"files"`
+}
+
 // hasNode1Receipt is intentionally strict. A JSON file alone is not a receipt:
 // it must identify this environment/hour and carry the archive integrity data.
 func hasNode1Receipt(root, environment string, h time.Time) (bool, error) {
@@ -49,10 +69,10 @@ func hasNode1Receipt(root, environment string, h time.Time) (bool, error) {
 	if !filepath.IsAbs(root) {
 		return false, errors.New("node1 receipt root must be absolute")
 	}
-	if environment == "" {
+	if environment != "prod" && environment != "cn-prod" {
 		return false, errors.New("node1 archive environment is required")
 	}
-	path := filepath.Join(root, "receipts", environment, h.UTC().Format("2006/01/02/15")+".json")
+	path := filepath.Join(root, environment, h.UTC().Format("2006/01/02/15")+".json")
 	info, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -72,12 +92,100 @@ func hasNode1Receipt(root, environment string, h time.Time) (bool, error) {
 		return false, fmt.Errorf("invalid node1 receipt: %w", err)
 	}
 	start := h.UTC()
-	if receipt.SchemaVersion == "" || !receipt.OK || receipt.Environment != environment ||
+	if receipt.SchemaVersion != "qa-node1-hour-v1" || !receipt.OK || receipt.Environment != environment ||
 		!receipt.WindowStart.UTC().Equal(start) || !receipt.WindowEnd.UTC().Equal(start.Add(time.Hour)) ||
 		receipt.FileCount < 1 || receipt.TotalBytes < 0 || len(receipt.ManifestSHA256) != 64 {
 		return false, errors.New("node1 receipt failed integrity checks")
 	}
+	if err := verifyNode1Manifest(filepath.Dir(root), environment, h, receipt); err != nil {
+		return false, err
+	}
 	return true, nil
+}
+
+func verifyNode1Manifest(node1Root, environment string, h time.Time, receipt node1Receipt) error {
+	target := filepath.Join(node1Root, "qa-raw", environment, h.UTC().Format("2006/01/02/15"))
+	manifestPath := filepath.Join(target, "manifest.json")
+	manifestInfo, err := os.Lstat(manifestPath)
+	if err != nil {
+		return fmt.Errorf("node1 manifest unavailable: %w", err)
+	}
+	if manifestInfo.Mode()&os.ModeSymlink != 0 || !manifestInfo.Mode().IsRegular() {
+		return errors.New("node1 manifest is not a regular file")
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("read node1 manifest: %w", err)
+	}
+	digest := sha256.Sum256(manifestBytes)
+	if hex.EncodeToString(digest[:]) != receipt.ManifestSHA256 {
+		return errors.New("node1 manifest checksum does not match receipt")
+	}
+	var manifest node1Manifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return fmt.Errorf("invalid node1 manifest: %w", err)
+	}
+	start := h.UTC()
+	if manifest.SchemaVersion != "qa-node1-hour-v1" || manifest.Environment != environment ||
+		!manifest.WindowStart.UTC().Equal(start) || !manifest.WindowEnd.UTC().Equal(start.Add(time.Hour)) ||
+		manifest.FileCount != int64(len(manifest.Files)) || manifest.FileCount != receipt.FileCount ||
+		manifest.TotalBytes != receipt.TotalBytes || manifest.TotalBytes < 0 {
+		return errors.New("node1 manifest identity or aggregate counts are invalid")
+	}
+	seen := make(map[string]struct{}, len(manifest.Files))
+	var total int64
+	for _, entry := range manifest.Files {
+		if entry.Path == "" || filepath.IsAbs(entry.Path) || filepath.Clean(entry.Path) != entry.Path ||
+			entry.Path == "." || entry.Path == ".." || len(entry.SHA256) != 64 || entry.Bytes < 0 {
+			return fmt.Errorf("node1 manifest path or digest is invalid: %q", entry.Path)
+		}
+		if _, ok := seen[entry.Path]; ok {
+			return fmt.Errorf("node1 manifest contains duplicate path: %q", entry.Path)
+		}
+		seen[entry.Path] = struct{}{}
+		path := filepath.Join(target, filepath.FromSlash(entry.Path))
+		if path != target && !isWithin(target, path) {
+			return fmt.Errorf("node1 manifest path escapes target: %q", entry.Path)
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("node1 archived file unavailable: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("node1 archived file is not regular: %q", entry.Path)
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("open node1 archived file: %w", err)
+		}
+		hash := sha256.New()
+		bytes, copyErr := io.Copy(hash, file)
+		closeErr := file.Close()
+		if copyErr != nil || closeErr != nil {
+			return fmt.Errorf("read node1 archived file: %q", entry.Path)
+		}
+		if bytes != entry.Bytes || hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
+			return fmt.Errorf("node1 archived file checksum mismatch: %q", entry.Path)
+		}
+		total += bytes
+	}
+	if total != manifest.TotalBytes {
+		return errors.New("node1 manifest total bytes do not match archived files")
+	}
+	return nil
+}
+
+func isWithin(root, path string) bool {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(rootAbs, pathAbs)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // RunLocalCleanup implements the 2026-10-21 explicitly approved local retention

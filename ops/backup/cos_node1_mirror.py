@@ -236,6 +236,11 @@ def copy_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             run_rclone(args.source_uri, staging, bwlimit=args.bwlimit,
                        transfers=args.transfers, checkers=args.checkers)
         manifest = build_manifest(staging)
+        if source_path is None and manifest["total_bytes"] != args.expected_bytes:
+            raise MirrorError(
+                "remote COS byte estimate does not match copied snapshot: "
+                f"expected={args.expected_bytes} actual={manifest['total_bytes']}"
+            )
         verify_tree(staging, manifest)
         write_json_atomic(staging / "_manifest.json", manifest)
         receipt_payload = {

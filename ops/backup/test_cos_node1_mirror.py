@@ -85,12 +85,23 @@ class CosNode1MirrorTest(unittest.TestCase):
             mirror.parse_args(["copy", "--namespace", "db", "--snapshot", "snap",
                                "--source-uri", "cos:bucket/path", "--destination", "/tmp/node1"])
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(mirror, "run_rclone") as rclone:
+            def copy_fixture(_source, staging, **_kwargs):
+                Path(staging, "part-000").write_bytes(b"four")
+
+            rclone.side_effect = copy_fixture
             args = mirror.parse_args(["copy", "--namespace", "db", "--snapshot", "snap",
                                       "--source-uri", "cos:bucket/path", "--expected-bytes", "4",
                                       "--destination", tmp, "--bwlimit", "1M"])
             mirror.copy_snapshot(args)
             rclone.assert_called_once()
             self.assertEqual(rclone.call_args.kwargs["bwlimit"], "1M")
+
+            args = mirror.parse_args(["copy", "--namespace", "db", "--snapshot", "mismatch",
+                                      "--source-uri", "cos:bucket/path", "--expected-bytes", "5",
+                                      "--destination", tmp])
+            with self.assertRaisesRegex(mirror.MirrorError, "byte estimate does not match"):
+                mirror.copy_snapshot(args)
+            self.assertFalse((Path(tmp) / "db" / "mismatch").exists())
 
     def test_capacity_floor_rejects_low_free_space(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
