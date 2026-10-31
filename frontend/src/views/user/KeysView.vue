@@ -434,6 +434,14 @@
                 <Icon name="edit" size="sm" />
                 <span class="text-xs">{{ t('common.edit') }}</span>
               </button>
+              <!-- Rotate credential in place -->
+              <button
+                @click="confirmRotate(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-900/20 dark:hover:text-orange-400"
+              >
+                <Icon name="refresh" size="sm" />
+                <span class="text-xs">{{ t('keys.rotate') }}</span>
+              </button>
               <!-- Delete Button -->
               <button
                 @click="confirmDelete(row)"
@@ -1086,6 +1094,18 @@
       @cancel="showDeleteDialog = false"
     />
 
+    <!-- API key rotation confirmation dialog -->
+    <ConfirmDialog
+      :show="showRotateDialog"
+      :title="t('keys.rotate')"
+      :message="t('keys.rotateConfirm')"
+      :confirm-text="t('keys.rotate')"
+      :cancel-text="t('common.cancel')"
+      :danger="true"
+      @confirm="handleRotate"
+      @cancel="showRotateDialog = false"
+    />
+
     <!-- Reset Quota Confirmation Dialog -->
     <ConfirmDialog
       :show="showResetQuotaDialog"
@@ -1483,6 +1503,7 @@ const filterGroupId = ref<string | number>('')
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
+const showRotateDialog = ref(false)
 const showResetQuotaDialog = ref(false)
 const showResetRateLimitDialog = ref(false)
 const showCcsClientSelect = ref(false)
@@ -1928,6 +1949,23 @@ const closeGroupSelector = (event: MouseEvent) => {
 const confirmDelete = (key: ApiKey) => {
   selectedKey.value = key
   showDeleteDialog.value = true
+}
+
+const confirmRotate = (key: ApiKey) => {
+  selectedKey.value = key
+  showRotateDialog.value = true
+}
+
+const handleRotate = async () => {
+  if (!selectedKey.value) return
+  showRotateDialog.value = false
+  try {
+    await keysAPI.rotate(selectedKey.value.id)
+    appStore.showSuccess(t('keys.rotateSuccess'))
+    loadApiKeys()
+  } catch (error: any) {
+    appStore.showError(error?.response?.data?.detail || t('keys.rotateFailed'))
+  }
 }
 
 const handleSubmit = async () => {

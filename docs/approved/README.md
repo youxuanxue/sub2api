@@ -109,6 +109,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 | File | Topic |
 | --- | --- |
+| [`design-api-key-rotation-feedback.md`](design-api-key-rotation-feedback.md) | API Key 原地轮换与工单飞书通知 |
 | [`gateway-failover-policy-ssot.md`](gateway-failover-policy-ssot.md) | Gateway failover decision owner |
 | [`sticky-routing.md`](sticky-routing.md) | Sticky routing and prompt cache（`approved`；US-006 仍为 InTest） |
 | [`gemini-web-channel.md`](gemini-web-channel.md) | Gemini Web Cookie HTTP 通路与直接 Pro 画布 |

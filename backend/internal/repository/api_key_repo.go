@@ -273,6 +273,9 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 	builder := client.APIKey.Update().
 		Where(apikey.IDEQ(key.ID), apikey.DeletedAtIsNil()).
 		SetUpdatedAt(now)
+	if fields.Key {
+		builder.SetKey(key.Key)
+	}
 	if fields.Name {
 		builder.SetName(key.Name)
 	}
