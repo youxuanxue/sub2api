@@ -44,6 +44,13 @@ func (s *OpenAIGatewayService) tkPrepareOpenAIPassthroughRequestBody(
 			}
 			body = nextBody
 		}
+		if fallbackKey := s.deriveResponsesPromptCacheKey(c, account, body); fallbackKey != "" {
+			nextBody, setErr := sjson.SetBytes(body, "prompt_cache_key", fallbackKey)
+			if setErr != nil {
+				return body, reqStream, fmt.Errorf("set passthrough prompt cache key: %w", setErr)
+			}
+			body = nextBody
+		}
 
 		normalizedBody, normalized, err := normalizeOpenAIPassthroughOAuthBody(body, isOpenAIResponsesCompactPath(c))
 		if err != nil {
