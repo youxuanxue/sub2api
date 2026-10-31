@@ -42,7 +42,7 @@ type FeedbackService struct {
 	httpClient  *http.Client
 }
 
-func NewFeedbackService(db *sql.DB, cfgProvider feedbackConfigProvider) *FeedbackService {
+func NewFeedbackService(db *sql.DB, cfgProvider *OpsService) *FeedbackService {
 	return &FeedbackService{db: db, cfgProvider: cfgProvider, httpClient: &http.Client{Timeout: opsFeishuWebhookTimeout}}
 }
 
@@ -137,17 +137,21 @@ func (s *FeedbackService) UpdateStatus(ctx context.Context, id int64, status str
 	return t, err
 }
 
-func (s *FeedbackService) notify(ctx context.Context, t *FeedbackTicket, change string) {
+func (s *FeedbackService) notify(_ context.Context, t *FeedbackTicket, change string) {
 	if s == nil || s.cfgProvider == nil || t == nil {
 		return
 	}
-	cfg, err := s.cfgProvider.GetEmailNotificationConfig(ctx)
+	// Keep notification delivery best-effort and independent from a client
+	// disconnect after the ticket has already been committed.
+	notifyCtx, cancel := context.WithTimeout(context.Background(), opsFeishuWebhookTimeout)
+	defer cancel()
+	cfg, err := s.cfgProvider.GetEmailNotificationConfig(notifyCtx)
 	if err != nil || cfg == nil || !cfg.Feishu.Enabled || strings.TrimSpace(cfg.Feishu.WebhookURL) == "" {
 		return
 	}
 	body := fmt.Sprintf("工单 %s 已%s\n类别：%s\n标题：%s\n用户：%d\n内容：%s", t.TicketNo, change, t.Category, redactFeedback(truncateFeedback(t.Subject, 120)), t.UserID, redactFeedback(truncateFeedback(t.Content, 500)))
 	payload := feishuCardPayload(cfg.Feishu, time.Now, "blue", "TokenKey 工单更新", body)
-	if err := sendFeishuPayload(ctx, s.httpClient, cfg.Feishu, payload); err != nil {
+	if err := sendFeishuPayload(notifyCtx, s.httpClient, cfg.Feishu, payload); err != nil {
 		// Notification is best effort; ticket state remains authoritative.
 		return
 	}

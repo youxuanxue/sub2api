@@ -51,9 +51,12 @@ func TestFeedbackNotifyUsesConfiguredFeishuAndDoesNotExposeContentSecrets(t *tes
 	}))
 	defer server.Close()
 
-	svc := NewFeedbackService(nil, feedbackConfigStub{cfg: &OpsEmailNotificationConfig{
-		Feishu: OpsFeishuAlertConfig{Enabled: true, WebhookURL: server.URL},
-	}})
+	svc := &FeedbackService{
+		cfgProvider: feedbackConfigStub{cfg: &OpsEmailNotificationConfig{
+			Feishu: OpsFeishuAlertConfig{Enabled: true, WebhookURL: server.URL},
+		}},
+		httpClient: &http.Client{Timeout: opsFeishuWebhookTimeout},
+	}
 	svc.notify(context.Background(), &FeedbackTicket{
 		TicketNo: "TK-1", UserID: 7, Category: "api", Subject: "test", Content: "api_key=sk-secret-1234567890",
 	}, "created")
