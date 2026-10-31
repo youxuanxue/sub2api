@@ -60,6 +60,26 @@ func (u *kiroStallUpstream) DoWithTLS(_ *http.Request, _ string, _ int64, _ int,
 	}, nil
 }
 
+type delayedKiroQuotaUpstream struct {
+	calls int
+}
+
+func (u *delayedKiroQuotaUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
+	return nil, io.EOF
+}
+
+func (u *delayedKiroQuotaUpstream) DoWithTLS(_ *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	u.calls++
+	if u.calls == 1 {
+		time.Sleep(1100 * time.Millisecond)
+	}
+	return &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader("quota exhausted on AmazonQ")),
+	}, nil
+}
+
 // stagedKiroBodyReader returns complete EventStream frames, then stalls before
 // the next batch. Models a silent stretch while later tool arguments buffer.
 type stagedKiroBodyReader struct {
@@ -296,6 +316,27 @@ func TestKiroStreaming_FixedBudgetAfterKeepaliveStopsRequest(t *testing.T) {
 	require.False(t, failover.ShouldRetryNextAccount())
 	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_start"))
 	require.NotContains(t, rec.Body.String(), "event: message_stop")
+}
+
+func TestKiroStreaming_QuotaAfterSyntheticKeepaliveStillFailsOver(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	upstream := &delayedKiroQuotaUpstream{}
+	svc := NewKiroGatewayService(upstream, nil, nil)
+	svc.SetGatewayConfig(&config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}})
+	body := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":true}`)
+	_, err := svc.Forward(c.Request.Context(), c, newKiroAccountForTest(), &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5", Stream: true}, time.Now())
+	var quotaErr *KiroEndpointQuotaExhaustedError
+	require.ErrorAs(t, err, &quotaErr)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.SafeToFailoverAfterWrite)
+	require.Contains(t, rec.Body.String(), "event: message_start")
+	require.Contains(t, rec.Body.String(), "event: ping")
+	require.NotContains(t, rec.Body.String(), "event: error")
 }
 
 type kiroCallerCancelUpstream struct{ cancel context.CancelFunc }

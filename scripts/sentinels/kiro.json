@@ -461,7 +461,7 @@
         "commitKiroCacheFingerprints",
         "kiroproto.EstimateOutputTokens",
         "kiroBillingTier(cacheBillingEnabled)",
-        "callErr != nil && !enc.started",
+        "callErr != nil && (!enc.started || isKiroEndpointQuotaExhaustedError(callErr.Error()))",
         "KiroContentFilteredError",
         "KiroPostOutputStreamDisconnectError",
         "classifyKiroPostOutputStreamError",
@@ -628,6 +628,7 @@
         "TestKiroStreaming_HeaderWaitKeepaliveDuringThinkingStall",
         "TestKiroStreaming_FastFailoverPathWritesNoKeepalive",
         "TestKiroStreaming_FirstTokenIncludesThinking",
+        "TestKiroStreaming_QuotaAfterSyntheticKeepaliveStillFailsOver",
         "message_start must precede the first ping"
       ],
       "rationale": "Regression coverage for Kiro thinking-stall keepalive, failover-safe no-write-before-interval, first_token_ms arming on the first client-visible thinking or text event, and message_start-before-ping so Claude Code keeps late-first-token streams."
@@ -710,15 +711,11 @@
         "service.MarkOpsClientContentFiltered(c)",
         "service.KiroInvalidModelError",
         "service.KiroInvalidRequestError",
-        "service.KiroEndpointQuotaExhaustedError",
-        "service.KiroEndpointQuotaExhaustedRetryAfterSeconds()",
-        "service.TkAnnotateBusy429Ops(c, \"rate_limit_error\"",
-        "service.TkClientFacingBusy429Message",
         "ConsumeKiroSessionRecovery",
         "RememberKiroSessionRecovery",
         "IsKiroPostOutputStreamDisconnect"
       ],
-      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. handleKiroContentFilteredError maps Kiro's policy terminal outcome to 400 invalid_request_error and emits the client content-filter outcome without failover. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior. The KiroEndpointQuotaExhaustedError branch returns 429+Retry-After:10 with the shared busy-429 SSOT (ops annotate keeps the legacy quota detail) instead of a generic 502 when all Kiro upstream endpoints hit quota exhaustion."
+      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. handleKiroContentFilteredError maps Kiro's policy terminal outcome to 400 invalid_request_error and emits the client content-filter outcome without failover. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior. Kiro quota exhaustion is deliberately handled by the shared UpstreamFailoverError path so an eligible account can be selected."
     },
     {
       "path": "backend/internal/handler/gateway_handler_kiro_content_filter_test.go",
@@ -780,6 +777,10 @@
         "type KiroInvalidModelError",
         "type KiroInvalidRequestError",
         "type KiroEndpointQuotaExhaustedError",
+        "func (e *KiroEndpointQuotaExhaustedError) Unwrap() error",
+        "GatewayFailureScopeAccount",
+        "KiroEndpointQuotaExhaustedRetryAfterSeconds()",
+        "TkClientFacingBusy429Message",
         "func classifyKiroForwardError",
         "func classifyAndRecordKiroForwardError",
         "MarkOpsClientContentFiltered(c)",

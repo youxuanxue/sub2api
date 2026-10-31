@@ -1278,6 +1278,16 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	var quotaErr *KiroEndpointQuotaExhaustedError
 	require.ErrorAs(t, quota, &quotaErr)
 	require.Equal(t, TkClientFacingBusy429Message, quotaErr.ClientMessage())
+	var quotaFailover *UpstreamFailoverError
+	require.ErrorAs(t, quota, &quotaFailover)
+	require.Equal(t, http.StatusTooManyRequests, quotaFailover.StatusCode)
+	require.True(t, quotaFailover.ShouldRetryNextAccount())
+	require.False(t, quotaFailover.RetryableOnSameAccount)
+	require.Equal(t, GatewayFailureScopeAccount, quotaFailover.Scope)
+	require.Equal(t, http.StatusTooManyRequests, quotaFailover.ClientStatusCode)
+	require.Equal(t, "rate_limit_error", quotaFailover.ClientErrorType)
+	require.Equal(t, TkClientFacingBusy429Message, quotaFailover.ClientMessage)
+	require.Equal(t, "10", quotaFailover.ResponseHeaders.Get("Retry-After"))
 }
 
 func TestClassifyKiroForwardError_AccessDeniedContinuesFailover(t *testing.T) {
