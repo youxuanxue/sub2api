@@ -51,7 +51,7 @@ SecretId、SecretKey、KMS 密钥材料和签名 URL 不进入 Git、`.env`、�
 
 1. 用合成 PostgreSQL 和 S3 兼容测试端点验证 pgBackRest 的 COS endpoint、path-style、签名、bundle/block 和 WAL 行为。
 2. 用只读 COS 凭据做对象清单和 `rclone size`，生成预计下载字节数；node1 工具先跑容量 dry-run，再做小快照 rehearsal。
-3. 在隔离环境验证 `repo1` 与 `repo2` 的 `--repo=all backup/check/verify`，确认一个仓库失败时整体失败且 AWS 链不受影响。
+3. 在隔离环境验证 `check` 对两个仓库的检查、`--repo=1`/`--repo=2` 的独立 backup/verify/restore，以及不带 `--repo` 的 `archive-push` 多仓库行为；确认一个仓库失败时整体失败且 AWS 链不受影响。
 4. 形成真实资源清单和费用上限后，另立生产变更单；先双写观察，再做 COS 恢复验收。
 
 以上步骤均不包含 AWS 删除、COS lifecycle 删除、线上重启或 QA timer 启用。node1 扩盘完成后，才接入 QA 365 天归档和 COS→node1 每日兜底的真实定时任务。

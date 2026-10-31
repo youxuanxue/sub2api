@@ -11,7 +11,7 @@ status: draft
 
 `ops/stage0/postgres_backup.py config` 默认仍只渲染现有 AWS `repo1`。传入完整的 `--secondary-*` 参数后才增加 `repo2`；凭据永远不由渲染器生成或写入，身份刷新器在受控主机上注入短期凭据。repo1 的桶、路径、区域和保留策略不会被 repo2 覆盖。
 
-这是配置草案，不会让现有 `backup`/`check` 命令自动写入 repo2。pgBackRest 的多仓库行为必须在单独变更中显式指定：备份验收阶段使用 `--repo=all backup`、`--repo=all check` 和 `--repo=all verify`，归档命令需确认镜像中的 pgBackRest 版本支持 `--repo=all archive-push`，再通过隔离环境证明两个仓库均收到同一 WAL。未完成该验证前，线上命令继续只使用默认 repo1；不得仅凭生成出的配置宣称双写已启用。
+这是配置草案，不会让现有 `backup`/`check` 命令自动写入 repo2。pgBackRest 2.60 的多仓库语义需要按命令区分：`check` 会检查配置中的全部 repository；`backup`、`verify` 和 `restore` 在验收时分别显式使用 `--repo=1`、`--repo=2`；`archive-push` 不使用 `--repo`，会按配置尝试向所有 indexed repository 归档。必须在隔离环境证明两个仓库均收到同一 WAL，并确认任一仓库失败时状态不会被伪报成功。未完成该验证前，线上命令继续只使用默认 repo1；不得仅凭生成出的配置宣称双写已启用。
 
 示例（只输出配置到 stdout）：
 
@@ -36,7 +36,7 @@ cn-prod 使用相同入口，AWS repo1 保持现网东京仓库，COS repo2 改�
 3. 运行至少一份完整全量、一轮自然增量及连续 WAL；对两个仓库分别执行 `check`/`verify`，并从 COS 恢复最新点和一个历史点到全新隔离目录。验收回执要记录仓库、备份 label、WAL 覆盖起点、校验结果和耗时。
 4. COS 验收未通过时，停用 repo2 写入并保留 AWS repo1；不得删除 COS 上的失败对象或 AWS 链。COS 验收通过后仍至少保留 AWS 只读回退链 30 天，再单独审批退役。
 
-在 pgBackRest 版本、COS 签名和双仓库归档语义未完成合成数据验证前，不得执行 `--repo=all`，不得把 `repo2` 配置复制到线上运行目录，也不得切换默认仓库。
+在 pgBackRest 版本、COS 签名和双仓库归档语义未完成合成数据验证前，不得执行带 `--repo=2` 的生产备份/恢复命令，不得把 `repo2` 配置复制到线上运行目录，也不得切换默认仓库。`archive-push` 的多仓库行为由配置决定，不能伪造 `--repo=all archive-push` 这样的命令。
 
 ## 安全不变量
 
