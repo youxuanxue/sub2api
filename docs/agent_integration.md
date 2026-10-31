@@ -202,6 +202,8 @@ Generated from live Gin route registrations; do not edit this section.
 - `DELETE /api/v1/admin/error-passthrough-rules/:id` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/error-passthrough-rules/:id` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/error-passthrough-rules/:id` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/feedback` from `backend/internal/server/routes/admin.go`
+- `PATCH /api/v1/admin/feedback/:id` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/gemini/oauth/auth-url` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/gemini/oauth/capabilities` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/gemini/oauth/exchange-code` from `backend/internal/server/routes/admin.go`
@@ -566,6 +568,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `PUT /api/v1/edge/gemini-web/accounts/:id/runtime` from `backend/internal/server/routes/gemini_web_routes.go`
 - `GET /api/v1/edge/gemini-web/accounts/:id/session` from `backend/internal/server/routes/gemini_web_routes.go`
 - `GET /api/v1/edge/gemini-web/warm-accounts` from `backend/internal/server/routes/gemini_web_routes.go`
+- `GET /api/v1/feedback` from `backend/internal/server/routes/user.go`
+- `POST /api/v1/feedback` from `backend/internal/server/routes/user.go`
+- `GET /api/v1/feedback/:id` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/groups/available` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/groups/rates` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/keys` from `backend/internal/server/routes/user.go`
@@ -573,6 +578,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `DELETE /api/v1/keys/:id` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/keys/:id` from `backend/internal/server/routes/user.go`
 - `PUT /api/v1/keys/:id` from `backend/internal/server/routes/user.go`
+- `POST /api/v1/keys/:id/rotate` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/me/api-keys/:id/capabilities` from `backend/internal/server/routes/user_tk_routes.go`
 - `GET /api/v1/me/pricing-catalog` from `backend/internal/server/routes/user_tk_routes.go`
 - `GET /api/v1/model-plaza` from `backend/internal/server/routes/model_plaza.go`

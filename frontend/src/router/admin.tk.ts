@@ -136,6 +136,16 @@ export const adminRoutes: RouteRecordRaw[] = [
         }
       },
       {
+        path: 'feedback',
+        name: 'AdminFeedback',
+        component: () => import('@/views/admin/FeedbackView.vue'),
+        meta: {
+          title: 'Feedback Tickets',
+          titleKey: 'feedback.adminTitle',
+          descriptionKey: 'feedback.adminDescription'
+        }
+      },
+      {
         path: 'proxies',
         name: 'AdminProxies',
         component: () => import('@/views/admin/ProxiesView.vue'),

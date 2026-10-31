@@ -177,6 +177,7 @@ export default {
     affiliateRebateRecords: 'Rebate Records',
     affiliateTransferRecords: 'Transfer Records',
     profile: 'Profile',
+    feedback: 'Support tickets',
     users: 'Users',
     groups: 'Groups',
     channels: 'Channels',

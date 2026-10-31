@@ -59,6 +59,10 @@ const messages: Record<string, string> = {
   'keys.status.quota_exhausted': 'Quota exhausted',
   'keys.usage': 'Usage',
   'keys.useKey': 'Use Key',
+  'keys.rotate': 'revoke',
+  'keys.rotateConfirm': 'Continue?',
+  'keys.rotateSuccess': 'API key revoked successfully',
+  'keys.rotateFailed': 'Failed to revoke API key',
 }
 
 vi.mock('@/api', () => ({
@@ -68,6 +72,7 @@ vi.mock('@/api', () => ({
     update: updateKey,
     delete: vi.fn(),
     toggleStatus: vi.fn(),
+    rotate: vi.fn(),
   },
   authAPI: {
     getPublicSettings,
