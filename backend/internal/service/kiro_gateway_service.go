@@ -822,7 +822,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	// surface the error for account failover. Once response content was
 	// committed, SSE has no replay point and must end with an error event.
 	// Non-budget upstream failures keep the existing committed-stream policy.
-	if callErr != nil && !enc.started {
+	if callErr != nil && (!enc.started || isKiroEndpointQuotaExhaustedError(callErr.Error())) {
 		mu.Unlock()
 		return nil, classifyAndRecordKiroForwardError(c, account, callErr, model)
 	}
@@ -834,7 +834,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		mu.Unlock()
 		return nil, classifyKiroPostOutputStreamError("read", callErr)
 	}
-	if callbackErr != nil && !enc.started {
+	if callbackErr != nil && (!enc.started || isKiroEndpointQuotaExhaustedError(callbackErr.Error())) {
 		mu.Unlock()
 		return nil, classifyAndRecordKiroForwardError(c, account, callbackErr, model)
 	}

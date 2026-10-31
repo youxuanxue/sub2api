@@ -461,7 +461,7 @@
         "commitKiroCacheFingerprints",
         "kiroproto.EstimateOutputTokens",
         "kiroBillingTier(cacheBillingEnabled)",
-        "callErr != nil && !enc.started",
+        "callErr != nil && (!enc.started || isKiroEndpointQuotaExhaustedError(callErr.Error()))",
         "KiroContentFilteredError",
         "KiroPostOutputStreamDisconnectError",
         "classifyKiroPostOutputStreamError",
@@ -628,6 +628,7 @@
         "TestKiroStreaming_HeaderWaitKeepaliveDuringThinkingStall",
         "TestKiroStreaming_FastFailoverPathWritesNoKeepalive",
         "TestKiroStreaming_FirstTokenIncludesThinking",
+        "TestKiroStreaming_QuotaAfterSyntheticKeepaliveStillFailsOver",
         "message_start must precede the first ping"
       ],
       "rationale": "Regression coverage for Kiro thinking-stall keepalive, failover-safe no-write-before-interval, first_token_ms arming on the first client-visible thinking or text event, and message_start-before-ping so Claude Code keeps late-first-token streams."
