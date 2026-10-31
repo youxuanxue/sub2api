@@ -360,8 +360,9 @@ const calculateDropdownPosition = () => {
 
   nextTick(() => {
     if (!dropdownRef.value || !triggerRect.value) return
+    const { height: viewportHeight } = getFixedViewport()
     const dropdownHeight = dropdownRef.value.offsetHeight || 240
-    const spaceBelow = window.innerHeight - triggerRect.value.bottom
+    const spaceBelow = viewportHeight - triggerRect.value.bottom
     const spaceAbove = triggerRect.value.top
 
     if (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight) {
