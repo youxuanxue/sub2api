@@ -84,8 +84,12 @@ type OpenAIAccountScheduleRequest struct {
 	RequirePrivacySet       bool
 	PreviousResponseID      string
 	PreviousResponseCanMove bool
-	UseUpstreamTokenCost    bool
-	RequestedModel          string
+	// RequirePreviousResponseAccount makes a native compaction continuation
+	// fail closed when its response owner is unavailable. The normal Responses
+	// path intentionally keeps its historical fallback behavior.
+	RequirePreviousResponseAccount bool
+	UseUpstreamTokenCost           bool
+	RequestedModel                 string
 	// RestrictionModel is the client-facing model id used for channel pricing
 	// allowlists when BillingModelSourceRequested. Empty falls back to
 	// RequestedModel. Keep this distinct from RequestedModel when routing
@@ -2309,6 +2313,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	requirePreviousResponseAccount := IsOpenAINativeCompactionAffinityRequired(ctx) && strings.TrimSpace(previousResponseID) != ""
 	if selected, handled, err := selectCandidateFromContext(ctx, candidateSelectOptions{
 		excluded: excludedIDs, transport: requiredTransport, capability: requiredCapability,
 		imageCapability: requiredImageCapability, video: requiredVideoSupport, compact: requireCompact, acquire: true,
@@ -2357,6 +2362,9 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 			decision.SelectedAccountID = selection.Account.ID
 			decision.SelectedAccountType = selection.Account.Type
 			return selection, decision, nil
+		}
+		if requirePreviousResponseAccount && strings.TrimSpace(previousResponseID) != "" {
+			return nil, decision, fmt.Errorf("%w: %w", ErrNoAvailableAccounts, ErrPreviousResponseAccountUnavailable)
 		}
 		if selection, decision, handled, err := s.tkTrySelectAccountByGuardianParentWhenSchedulerNil(
 			ctx,
@@ -2455,27 +2463,28 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	}
 
 	selection, decision, err := scheduler.Select(ctx, OpenAIAccountScheduleRequest{
-		GroupID:                 groupID,
-		GroupPlatform:           groupPlatform,
-		SessionHash:             sessionHash,
-		StickyAccountID:         stickyAccountID,
-		GuardianParentAccountID: guardianParentAccountID,
-		StickyPreviousAccountID: stickyPreviousAccountID,
-		StickyWeighted:          stickyWeighted,
-		SubscriptionPriority:    subscriptionPriority,
-		PreserveStickyBinding:   preserveGuardianParentBinding,
-		PreviousResponseID:      previousResponseID,
-		PreviousResponseCanMove: previousResponseCanMove,
-		UseUpstreamTokenCost:    useUpstreamTokenCost,
-		RequestedModel:          requestedModel,
-		RestrictionModel:        restrictionModel,
-		RequiredTransport:       requiredTransport,
-		RequiredCapability:      requiredCapability,
-		RequiredImageCapability: requiredImageCapability,
-		RequiredVideoSupport:    requiredVideoSupport,
-		RequireCompact:          requireCompact,
-		RequirePrivacySet:       s.openAIGroupRequiresPrivacySet(ctx, groupID),
-		ExcludedIDs:             excludedIDs,
+		GroupID:                        groupID,
+		GroupPlatform:                  groupPlatform,
+		SessionHash:                    sessionHash,
+		StickyAccountID:                stickyAccountID,
+		GuardianParentAccountID:        guardianParentAccountID,
+		StickyPreviousAccountID:        stickyPreviousAccountID,
+		StickyWeighted:                 stickyWeighted,
+		SubscriptionPriority:           subscriptionPriority,
+		PreserveStickyBinding:          preserveGuardianParentBinding,
+		PreviousResponseID:             previousResponseID,
+		PreviousResponseCanMove:        previousResponseCanMove,
+		RequirePreviousResponseAccount: requirePreviousResponseAccount,
+		UseUpstreamTokenCost:           useUpstreamTokenCost,
+		RequestedModel:                 requestedModel,
+		RestrictionModel:               restrictionModel,
+		RequiredTransport:              requiredTransport,
+		RequiredCapability:             requiredCapability,
+		RequiredImageCapability:        requiredImageCapability,
+		RequiredVideoSupport:           requiredVideoSupport,
+		RequireCompact:                 requireCompact,
+		RequirePrivacySet:              s.openAIGroupRequiresPrivacySet(ctx, groupID),
+		ExcludedIDs:                    excludedIDs,
 	})
 	if err != nil {
 		return nil, decision, err

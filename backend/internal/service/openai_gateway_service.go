@@ -325,6 +325,11 @@ type openAIWSRetryMetrics struct {
 // needs compact support but no compatible account is available.
 var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /responses/compact")
 
+// ErrPreviousResponseAccountUnavailable indicates that a continuation's
+// original account cannot serve it. Native compaction responses are scoped to
+// that account, so callers must fail closed instead of selecting another one.
+var ErrPreviousResponseAccountUnavailable = errors.New("previous response account unavailable")
+
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
 	accountRepo           AccountRepository

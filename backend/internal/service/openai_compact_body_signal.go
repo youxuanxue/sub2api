@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -12,6 +13,27 @@ import (
 // （裸 /responses + stream:true + compaction_trigger），由 handler 在判定后
 // 写入，供上游请求构造时补注协商头。
 const openAINativeCompactionV2Key = "openai_native_compaction_v2"
+
+type openAINativeCompactionAffinityRequiredContextKey struct{}
+
+// WithOpenAINativeCompactionAffinityRequired carries the request-scoped
+// fail-closed affinity requirement through scheduler calls.
+func WithOpenAINativeCompactionAffinityRequired(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, openAINativeCompactionAffinityRequiredContextKey{}, true)
+}
+
+// IsOpenAINativeCompactionAffinityRequired reports whether the current
+// request must keep native compaction continuation on its original account.
+func IsOpenAINativeCompactionAffinityRequired(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	value, _ := ctx.Value(openAINativeCompactionAffinityRequiredContextKey{}).(bool)
+	return value
+}
 
 const openAIRemoteCompactionV2Feature = "remote_compaction_v2"
 
