@@ -29,7 +29,7 @@ func TestHandleUpstreamError_KiroEndpointQuotaExhausted_Uses10sCooldownNotLadder
 	account := newEdgeUS4KiroAccount()
 	body := []byte("quota exhausted on AmazonQ")
 	for i := 0; i < 5; i++ {
-		shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusBadGateway, nil, body)
+		shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, nil, body)
 		require.True(t, shouldDisable, "iteration %d", i)
 	}
 

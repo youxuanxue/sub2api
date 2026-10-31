@@ -120,11 +120,9 @@ func TestTkHandleMessagesNonFailoverForwardError_Matrix(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
 		err := &service.KiroEndpointQuotaExhaustedError{}
-		require.True(t, h.tkHandleMessagesNonFailoverForwardError(c, err))
-		require.Equal(t, http.StatusTooManyRequests, rec.Code)
-		require.Equal(t, "rate_limit_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-		require.Equal(t, service.TkClientFacingBusy429Message, gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
-		require.NotEmpty(t, rec.Header().Get("Retry-After"))
+		require.False(t, h.tkHandleMessagesNonFailoverForwardError(c, err))
+		require.Empty(t, rec.Body.String())
+		require.Equal(t, 200, rec.Code)
 	})
 
 	t.Run("canonical_ua_reject", func(t *testing.T) {

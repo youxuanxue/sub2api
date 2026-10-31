@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -25,7 +24,7 @@ func (h *GatewayHandler) handleKiroContentFilteredError(c *gin.Context, err erro
 
 // tkHandleMessagesNonFailoverForwardError handles Messages-path forward errors that
 // must return immediately without failover (Kiro content-filter / invalid model /
-// invalid request / quota + TK canonical ingress UA reject).
+// invalid request + TK canonical ingress UA reject).
 func (h *GatewayHandler) tkHandleMessagesNonFailoverForwardError(c *gin.Context, err error) bool {
 	if h.handleKiroContentFilteredError(c, err) {
 		return true
@@ -52,14 +51,6 @@ func (h *GatewayHandler) tkHandleMessagesNonFailoverForwardError(c *gin.Context,
 			service.TkAnnotateRequestTooLargeOps(c, status, kiroInvalidRequestErr.Message)
 		}
 		h.errorResponse(c, status, kiroInvalidRequestErr.ClientErrorType(), kiroInvalidRequestErr.ClientMessage())
-		return true
-	}
-
-	var kiroQuotaErr *service.KiroEndpointQuotaExhaustedError
-	if errors.As(err, &kiroQuotaErr) {
-		c.Header("Retry-After", strconv.Itoa(service.KiroEndpointQuotaExhaustedRetryAfterSeconds()))
-		service.TkAnnotateBusy429Ops(c, "rate_limit_error", "Kiro upstream quota exhausted, please retry later")
-		h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_error", service.TkClientFacingBusy429Message)
 		return true
 	}
 
