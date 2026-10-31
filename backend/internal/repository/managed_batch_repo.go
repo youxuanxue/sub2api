@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -20,6 +21,42 @@ type ManagedBatchFile struct {
 	ByteSize                                  int64
 	SHA256                                    *string
 	ExpiresAt                                 *time.Time
+	CreatedAt                                 time.Time
+}
+
+// GetFileForOwner is intentionally owner-scoped. Callers must translate every
+// sql.ErrNoRows (including an owner mismatch) to their public 404 sentinel.
+func (r *ManagedBatchRepository) GetFileForOwner(ctx context.Context, userID, apiKeyID int64, id string) (*ManagedBatchFile, error) {
+	var f ManagedBatchFile
+	var sha sql.NullString
+	var exp sql.NullTime
+	err := r.db.QueryRowContext(ctx, `SELECT id,purpose,filename,storage_ref,byte_size,sha256,status,user_id,COALESCE(api_key_id,0),expires_at,created_at FROM batch_files WHERE id=$1 AND user_id=$2 AND (api_key_id=$3 OR api_key_id IS NULL)`, id, userID, apiKeyID).
+		Scan(&f.ID, &f.Purpose, &f.Filename, &f.StorageRef, &f.ByteSize, &sha, &f.Status, &f.UserID, &f.APIKeyID, &exp, &f.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if sha.Valid {
+		f.SHA256 = &sha.String
+	}
+	if exp.Valid {
+		f.ExpiresAt = &exp.Time
+	}
+	return &f, nil
+}
+
+func (r *ManagedBatchRepository) DeleteFileForOwner(ctx context.Context, userID, apiKeyID int64, id string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM batch_files WHERE id=$1 AND user_id=$2 AND (api_key_id=$3 OR api_key_id IS NULL)`, id, userID, apiKeyID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 type ManagedBatch struct {
@@ -30,6 +67,56 @@ type ManagedBatch struct {
 	LastErrorCode, LastErrorMessage                     *string
 	DeadlineAt, RetryAt                                 *time.Time
 	Version                                             int64
+	CreatedAt                                           time.Time
+	IdempotencyKey, RequestHash                         string
+}
+
+type ManagedBatchSubmission struct {
+	Batch  ManagedBatch
+	Items  []ManagedBatchItem
+	Outbox ManagedBatchOutboxEvent
+}
+
+// CreateBatchSubmission is the single persistence seam used by HTTP submit.
+// Batch, items and the durable outbox handoff are committed atomically.
+func (r *ManagedBatchRepository) CreateBatchSubmission(ctx context.Context, s ManagedBatchSubmission) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	rc, err := json.Marshal(s.Batch.RequestCounts)
+	if err != nil {
+		return err
+	}
+	meta, err := json.Marshal(s.Batch.Metadata)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO batches (id,user_id,api_key_id,input_file_id,endpoint,completion_window,status,request_counts,output_file_id,error_file_id,metadata,last_error_code,last_error_message,deadline_at,retry_at,version,idempotency_key,request_hash) VALUES ($1,$2,NULLIF($3,0),$4,$5,$6,$7,$8::jsonb,NULLIF($9,''),NULLIF($10,''),$11::jsonb,$12,$13,$14,$15,$16,NULLIF($17,''),NULLIF($18,''))`, s.Batch.ID, s.Batch.UserID, s.Batch.APIKeyID, s.Batch.InputFileID, s.Batch.Endpoint, s.Batch.CompletionWindow, s.Batch.Status, rc, managedBatchValueOrEmpty(s.Batch.OutputFileID), managedBatchValueOrEmpty(s.Batch.ErrorFileID), meta, s.Batch.LastErrorCode, s.Batch.LastErrorMessage, s.Batch.DeadlineAt, s.Batch.RetryAt, s.Batch.Version, s.Batch.IdempotencyKey, s.Batch.RequestHash)
+	if err != nil {
+		if s.Batch.IdempotencyKey != "" && strings.Contains(err.Error(), "batches_owner_idempotency_uq") {
+			return ErrManagedBatchIdempotencyConflict
+		}
+		return err
+	}
+	for _, item := range s.Items {
+		raw, marshalErr := json.Marshal(item.Request)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO batch_items (batch_id,custom_id,request,status,attempt_count) VALUES ($1,$2,$3::jsonb,$4,$5)`, s.Batch.ID, item.CustomID, raw, item.Status, item.AttemptCount); err != nil {
+			return err
+		}
+	}
+	payload, err := json.Marshal(s.Outbox.Payload)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO batch_outbox (batch_id,event_type,payload,dedup_key,available_at) VALUES ($1,$2,$3::jsonb,$4,COALESCE($5,NOW())) ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`, s.Outbox.BatchID, s.Outbox.EventType, payload, s.Outbox.DedupKey, s.Outbox.AvailableAt); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type ManagedBatchItem struct {
@@ -51,6 +138,8 @@ type ManagedBatchOutboxEvent struct {
 }
 
 type ManagedBatchRepository struct{ db *sql.DB }
+
+var ErrManagedBatchIdempotencyConflict = errors.New("managed batch idempotency conflict")
 
 func NewManagedBatchRepository(db *sql.DB) *ManagedBatchRepository {
 	return &ManagedBatchRepository{db: db}
@@ -116,6 +205,49 @@ func (r *ManagedBatchRepository) GetBatchForOwner(ctx context.Context, userID, a
 		b.RetryAt = &retry.Time
 	}
 	return &b, nil
+}
+
+func (r *ManagedBatchRepository) ListBatchesForOwner(ctx context.Context, userID, apiKeyID int64, after string, limit int) ([]ManagedBatch, bool, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	args := []any{userID, apiKeyID, limit + 1}
+	where := `user_id=$1 AND (api_key_id=$2 OR api_key_id IS NULL)`
+	if after != "" {
+		where += ` AND created_at < (SELECT created_at FROM batches WHERE id=$3 AND user_id=$1)`
+		args = []any{userID, apiKeyID, after, limit + 1}
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id,user_id,COALESCE(api_key_id,0),input_file_id,endpoint,completion_window,status,request_counts,metadata,version,created_at FROM batches WHERE `+where+` ORDER BY created_at DESC,id DESC LIMIT $`+fmt.Sprint(len(args)), args...)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := make([]ManagedBatch, 0, limit)
+	for rows.Next() {
+		var b ManagedBatch
+		var counts, meta []byte
+		if err := rows.Scan(&b.ID, &b.UserID, &b.APIKeyID, &b.InputFileID, &b.Endpoint, &b.CompletionWindow, &b.Status, &counts, &meta, &b.Version, &b.CreatedAt); err != nil {
+			return nil, false, err
+		}
+		if err := json.Unmarshal(counts, &b.RequestCounts); err != nil {
+			return nil, false, err
+		}
+		if err := json.Unmarshal(meta, &b.Metadata); err != nil {
+			return nil, false, err
+		}
+		out = append(out, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	more := len(out) > limit
+	if more {
+		out = out[:limit]
+	}
+	return out, more, nil
 }
 
 // CompareAndSwapBatchStatus updates a batch only if both owner and version

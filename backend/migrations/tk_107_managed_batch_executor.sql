@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS batches (
     completed_at TIMESTAMPTZ,
     cancelled_at TIMESTAMPTZ
 );
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS request_hash CHAR(64);
+CREATE UNIQUE INDEX IF NOT EXISTS batches_owner_idempotency_uq ON batches (user_id, api_key_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS batches_owner_created_idx ON batches (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS batches_status_retry_idx ON batches (status, retry_at) WHERE retry_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS batches_deadline_idx ON batches (deadline_at);

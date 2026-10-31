@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"database/sql"
+
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
+	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/google/wire"
@@ -19,17 +22,21 @@ var TKProviderSet = wire.NewSet(
 	ProvideTKGatewayHandlerModelList,
 	NewGeminiWebSessionHandler,
 	admin.NewTierHandler,
+	ProvideTKManagedBatchBackend,
 	ProvideTrialProvisionHandler,
 	ProvideTKManagedBatchHandler,
 )
 
-// ProvideTKManagedBatchHandler supplies the HTTP contract handler while the
-// durable backend seam is being integrated. A nil backend is intentional:
-// routes remain closed even if an operator sets the activation flag before
-// repository, private object storage, queue and billing owners are available.
-func ProvideTKManagedBatchHandler(cfg *config.Config) *ManagedBatchHandler {
+// ProvideTKManagedBatchBackend wires the durable repository boundary. Object
+// storage and queue workers are intentionally nil until their reviewed runtime
+// owners are supplied; this keeps enabling the public flag fail-closed.
+func ProvideTKManagedBatchBackend(db *sql.DB) ManagedBatchBackend {
+	return NewManagedBatchRepositoryBackend(repository.NewManagedBatchRepository(db), nil, nil)
+}
+
+func ProvideTKManagedBatchHandler(cfg *config.Config, backend ManagedBatchBackend) *ManagedBatchHandler {
 	enabled := cfg != nil && cfg.ManagedBatch.Enabled
-	return NewManagedBatchHandler(nil, enabled)
+	return NewManagedBatchHandler(backend, enabled)
 }
 
 func ProvideTKAPIKeyHandler(
