@@ -167,6 +167,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { computed, reactive, ref, watch } from 'vue'
+import { getFixedViewport, normalizeFixedRect } from '@/utils/floatingPanel'
 import type {
   LatencyMetric,
   MonitorCoverage,
@@ -422,12 +423,13 @@ function hideTooltip() {
 
 function positionTooltip(event: MouseEvent | FocusEvent) {
   if ('clientX' in event) {
-    floatingTooltip.x = Math.min(window.innerWidth - 12, Math.max(12, event.clientX))
-    floatingTooltip.y = Math.min(window.innerHeight - 12, Math.max(12, event.clientY)) - 12
+    const { width, height, zoom } = getFixedViewport()
+    floatingTooltip.x = Math.min(width - 12, Math.max(12, event.clientX / zoom))
+    floatingTooltip.y = Math.min(height - 12, Math.max(12, event.clientY / zoom)) - 12
     return
   }
   const target = event.target as HTMLElement | null
-  const rect = target?.getBoundingClientRect()
+  const rect = target ? normalizeFixedRect(target.getBoundingClientRect()) : null
   if (!rect) return
   floatingTooltip.x = rect.left + rect.width / 2
   floatingTooltip.y = rect.top - 10

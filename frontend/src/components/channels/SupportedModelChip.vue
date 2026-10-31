@@ -177,6 +177,7 @@ import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import PricingRow from './PricingRow.vue'
 import { formatScaled, resolveIntervalPrices } from '@/utils/pricing'
+import { getFixedViewport, normalizeFixedRect } from '@/utils/floatingPanel'
 import {
   BILLING_MODE_TOKEN,
   BILLING_MODE_PER_REQUEST,
@@ -286,13 +287,12 @@ const popoverStyle = ref<Record<string, string>>({ top: '0px', left: '0px' })
 function updatePosition() {
   const trigger = triggerEl.value
   if (!trigger) return
-  const rect = trigger.getBoundingClientRect()
+  const rect = normalizeFixedRect(trigger.getBoundingClientRect())
   const margin = 8
   const popover = popoverEl.value
-  const popWidth = popover?.offsetWidth ?? 320
-  const popHeight = popover?.offsetHeight ?? 240
-  const vw = window.innerWidth
-  const vh = window.innerHeight
+  const { width: vw, height: vh, zoom } = getFixedViewport()
+  const popWidth = popover ? popover.offsetWidth / zoom : 320
+  const popHeight = popover ? popover.offsetHeight / zoom : 240
 
   let top = rect.bottom + margin
   // Flip upward if it would overflow below.

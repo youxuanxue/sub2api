@@ -125,6 +125,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import { getFixedViewport, normalizeFixedRect, type FixedRect } from '@/utils/floatingPanel'
 
 const { t } = useI18n()
 
@@ -191,7 +192,7 @@ const searchInputRef = ref<HTMLInputElement | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
 const optionsListRef = ref<HTMLElement | null>(null)
 const dropdownPosition = ref<'bottom' | 'top'>('bottom')
-const triggerRect = ref<DOMRect | null>(null)
+const triggerRect = ref<FixedRect | null>(null)
 const dropdownViewportPadding = 8
 const dropdownMinimumWidth = 200
 
@@ -216,7 +217,8 @@ const dropdownStyle = computed(() => {
   if (!triggerRect.value) return {}
 
   const rect = triggerRect.value
-  const viewportRight = Math.max(dropdownViewportPadding, window.innerWidth - dropdownViewportPadding)
+  const { width: viewportWidth, height: viewportHeight } = getFixedViewport()
+  const viewportRight = Math.max(dropdownViewportPadding, viewportWidth - dropdownViewportPadding)
   const left = Math.min(
     Math.max(dropdownViewportPadding, rect.left),
     viewportRight
@@ -233,7 +235,7 @@ const dropdownStyle = computed(() => {
   }
 
   if (dropdownPosition.value === 'top') {
-    style.bottom = `${window.innerHeight - rect.top + 4}px`
+    style.bottom = `${viewportHeight - rect.top + 4}px`
   } else {
     style.top = `${rect.bottom + 4}px`
   }
@@ -348,7 +350,7 @@ const handleOptionMouseEnter = (option: any, index: number) => {
 // Update trigger rect periodically while open to follow scroll/resize
 const updateTriggerRect = () => {
   if (containerRef.value) {
-    triggerRect.value = containerRef.value.getBoundingClientRect()
+    triggerRect.value = normalizeFixedRect(containerRef.value.getBoundingClientRect())
   }
 }
 
@@ -358,8 +360,9 @@ const calculateDropdownPosition = () => {
 
   nextTick(() => {
     if (!dropdownRef.value || !triggerRect.value) return
+    const { height: viewportHeight } = getFixedViewport()
     const dropdownHeight = dropdownRef.value.offsetHeight || 240
-    const spaceBelow = window.innerHeight - triggerRect.value.bottom
+    const spaceBelow = viewportHeight - triggerRect.value.bottom
     const spaceAbove = triggerRect.value.top
 
     if (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight) {

@@ -85,6 +85,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import type { Group } from '@/types'
+import { getFixedViewport, normalizeFixedRect } from '@/utils/floatingPanel'
 
 interface Props {
   groups: Group[] | null | undefined
@@ -121,9 +122,8 @@ const hiddenCount = computed(() => {
 // Popover 位置样式
 const popoverStyle = computed(() => {
   if (!moreButtonRef.value) return {}
-  const rect = moreButtonRef.value.getBoundingClientRect()
-  const viewportHeight = window.innerHeight
-  const viewportWidth = window.innerWidth
+  const rect = normalizeFixedRect(moreButtonRef.value.getBoundingClientRect())
+  const { width: viewportWidth, height: viewportHeight } = getFixedViewport()
 
   let top = rect.bottom + 8
   let left = rect.left
