@@ -287,7 +287,8 @@ def expected_prod_hostname(manifest):
 
 
 def install(args):
-    if socket.gethostname() != expected_prod_hostname(json.loads(args.manifest.read_text())):
+    manifest = json.loads(args.manifest.read_text())
+    if socket.gethostname() != expected_prod_hostname(manifest):
         raise ValueError('expected current prod hostname')
     require_legacy_paused()
     digest = hashlib.sha256(args.binary.read_bytes()).hexdigest()

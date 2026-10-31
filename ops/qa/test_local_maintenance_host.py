@@ -46,6 +46,28 @@ class LocalHostTest(unittest.TestCase):
         self.assertNotEqual(local.expected_prod_hostname({'prod': {'instance_name': 'tokenkey-prod-tokyo-20261017'}}),
                             live['host_watch']['hostname'])
 
+    def test_install_apply_reads_manifest_environment_before_installing_units(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            binary = root/'qa-local-maintenance'
+            binary.write_bytes(b'fixture')
+            manifest = root/'manifest.json'
+            manifest.write_text(json.dumps({'host_watch': {'hostname': 'fixture-host'},
+                                            'environment': 'cn-prod'}))
+            args = type('Args', (), {'manifest': manifest, 'binary': binary,
+                                     'sha256': local.hashlib.sha256(binary.read_bytes()).hexdigest(),
+                                     'apply': True})()
+            with mock.patch.object(local, 'BASE', root/'base'), \
+                 mock.patch.object(local, 'STATE', root/'state'), \
+                 mock.patch.object(local.socket, 'gethostname', return_value='fixture-host'), \
+                 mock.patch.object(local, 'require_legacy_paused'), \
+                 mock.patch.object(local, 'install_units') as install_units:
+                local.install(args)
+            bundle = install_units.call_args.args[0]
+            config = json.loads((bundle/'config.json').read_text())
+            self.assertEqual(config['node1_environment'], 'cn-prod')
+            self.assertEqual(config['phases'], ['provision', 'cleanup'])
+
     def test_active_legacy_owner_blocks_local_work(self):
         with mock.patch.object(local, 'invoke', side_effect=['ActiveState=active\nUnitFileState=enabled\n', 'inactive']):
             with self.assertRaisesRegex(ValueError, 'legacy QA owner'):
