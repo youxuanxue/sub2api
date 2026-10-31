@@ -83,6 +83,7 @@ import type { CSSProperties } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import Icon from '@/components/icons/Icon.vue'
+import { getFixedViewport, normalizeFixedRect } from '@/utils/floatingPanel'
 import { monitorIntlLocale } from '@/features/channel-monitor-v2/monitorFormat'
 
 interface FilterOption {
@@ -123,9 +124,10 @@ const selectionLabel = computed(() => {
 const dropdownStyle = computed<CSSProperties>(() => {
   const trigger = triggerRef.value
   if (!trigger) return {}
-  const rect = trigger.getBoundingClientRect()
+  const rect = normalizeFixedRect(trigger.getBoundingClientRect())
   const padding = 8
-  const viewportRight = Math.max(padding, window.innerWidth - padding)
+  const { width: viewportWidth } = getFixedViewport()
+  const viewportRight = Math.max(padding, viewportWidth - padding)
   const left = Math.min(Math.max(padding, rect.left), viewportRight)
   const availableWidth = Math.max(0, viewportRight - left)
   const preferredMinWidth = Math.max(200, rect.width)
@@ -170,9 +172,10 @@ function positionDropdown() {
   const trigger = triggerRef.value
   const dropdown = dropdownRef.value
   if (!trigger || !dropdown) return
-  const rect = trigger.getBoundingClientRect()
+  const rect = normalizeFixedRect(trigger.getBoundingClientRect())
   const padding = 8
-  const viewportRight = Math.max(padding, window.innerWidth - padding)
+  const { width: viewportWidth } = getFixedViewport()
+  const viewportRight = Math.max(padding, viewportWidth - padding)
   const left = Math.min(Math.max(padding, rect.left), viewportRight)
   const availableWidth = Math.max(0, viewportRight - left)
   const preferredMinWidth = Math.max(200, rect.width)

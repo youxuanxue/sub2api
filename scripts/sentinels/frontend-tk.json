@@ -2833,6 +2833,49 @@
         "pnpm exec playwright test --config playwright.channel-websearch.config.ts"
       ],
       "rationale": "Real channel UI saves and reloads must remain exercised in CI."
+    },
+    {
+      "path": "frontend/src/components/account/AccountGroupsCell.vue",
+      "must_contain": [
+        "normalizeFixedRect(moreButtonRef.value.getBoundingClientRect())"
+      ],
+      "rationale": "Account group overflow popovers must normalize trigger coordinates before positioning a teleported fixed panel under the admin document zoom."
+    },
+    {
+      "path": "frontend/src/components/channels/SupportedModelChip.vue",
+      "must_contain": [
+        "normalizeFixedRect(trigger.getBoundingClientRect())"
+      ],
+      "rationale": "Supported-model pricing tooltips must keep the shared fixed-panel coordinate normalization when upstream merges rewrite the component."
+    },
+    {
+      "path": "frontend/src/components/common/HelpTooltip.vue",
+      "must_contain": [
+        "normalizeFixedRect(el.getBoundingClientRect())"
+      ],
+      "rationale": "Teleported help tooltips must remain aligned with their trigger while the admin shell applies document zoom."
+    },
+    {
+      "path": "frontend/src/components/common/Select.vue",
+      "must_contain": [
+        "normalizeFixedRect(containerRef.value.getBoundingClientRect())",
+        "getFixedViewport()"
+      ],
+      "rationale": "The shared teleported Select must use normalized trigger and viewport coordinates for both placement and flip decisions."
+    },
+    {
+      "path": "frontend/src/features/channel-monitor-v2/FilterMultiSelect.vue",
+      "must_contain": [
+        "normalizeFixedRect(trigger.getBoundingClientRect())"
+      ],
+      "rationale": "Channel-monitor filter menus must use normalized fixed-panel coordinates under the admin shell zoom."
+    },
+    {
+      "path": "frontend/src/features/channel-monitor-v2/RelayPulseMatrix.vue",
+      "must_contain": [
+        "normalizeFixedRect(target.getBoundingClientRect())"
+      ],
+      "rationale": "Relay pulse matrix tooltips must normalize focus-trigger rectangles before rendering the body-teleported fixed tooltip."
     }
   ]
 }

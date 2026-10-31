@@ -73,7 +73,7 @@ import { Icon } from '@/components/icons'
 import type { Account } from '@/types'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 import { accountAuthorizationAction } from '@/utils/accountAuthorization'
-import { anchoredMenuStyle, getAnchoredMenuPosition } from '@/utils/floatingPanel'
+import { anchoredMenuStyle, getAnchoredMenuPosition, getFixedViewport, normalizeFixedRect } from '@/utils/floatingPanel'
 import { supportsAccountQuota } from '@/utils/accountQuota'
 
 const props = defineProps<{
@@ -113,24 +113,26 @@ const cancelPositionFrame = (handle: number) => {
 
 const resolveMenuSize = () => {
   const rect = contentRef.value?.getBoundingClientRect()
+  const { width: viewportWidth, height: viewportHeight, zoom } = getFixedViewport()
   return {
-    width: Math.min(rect?.width || DEFAULT_MENU_WIDTH, Math.max(0, window.innerWidth - 16)),
-    height: Math.min(rect?.height || DEFAULT_MENU_HEIGHT, Math.max(0, window.innerHeight - 16))
+    width: Math.min(rect ? rect.width / zoom : DEFAULT_MENU_WIDTH, Math.max(0, viewportWidth - 16)),
+    height: Math.min(rect ? rect.height / zoom : DEFAULT_MENU_HEIGHT, Math.max(0, viewportHeight - 16))
   }
 }
 
 const resolveTriggerRect = (): Pick<DOMRect, 'top' | 'right' | 'bottom' | 'left' | 'width'> | null => {
   if (props.anchor?.isConnected) {
-    return props.anchor.getBoundingClientRect()
+    return normalizeFixedRect(props.anchor.getBoundingClientRect())
   }
   if (props.position) {
+    const zoom = getFixedViewport().zoom
     const width = props.position.width ?? DEFAULT_MENU_WIDTH
     return {
-      top: props.position.top,
-      left: props.position.left,
-      right: props.position.right ?? props.position.left + width,
-      bottom: props.position.bottom ?? props.position.top,
-      width
+      top: props.position.top / zoom,
+      left: props.position.left / zoom,
+      right: (props.position.right ?? props.position.left + width) / zoom,
+      bottom: (props.position.bottom ?? props.position.top) / zoom,
+      width: width / zoom
     }
   }
   return null
@@ -140,14 +142,15 @@ const updateMenuPosition = () => {
   if (!props.show) return
   const trigger = resolveTriggerRect()
   if (!trigger) return
+  const { width: viewportWidth, height: viewportHeight } = getFixedViewport()
   menuStyle.value = { ...anchoredMenuStyle(
     getAnchoredMenuPosition(
       trigger,
       resolveMenuSize(),
-      window.innerWidth,
-      window.innerHeight
+      viewportWidth,
+      viewportHeight
     )
-  ), maxHeight: `${Math.max(0, window.innerHeight - 16)}px`, maxWidth: `${Math.max(0, window.innerWidth - 16)}px` }
+  ), maxHeight: `${Math.max(0, viewportHeight - 16)}px`, maxWidth: `${Math.max(0, viewportWidth - 16)}px` }
 }
 
 const schedulePositionUpdate = () => {

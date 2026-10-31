@@ -13,6 +13,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 const originalInnerWidth = window.innerWidth
+const originalInnerHeight = window.innerHeight
 let unmountWrapper: (() => void) | undefined
 
 const setViewportWidth = (width: number) => {
@@ -22,16 +23,23 @@ const setViewportWidth = (width: number) => {
   })
 }
 
-const mockTriggerRect = (left: number, width: number) => {
+const setViewportHeight = (height: number) => {
+  Object.defineProperty(window, 'innerHeight', {
+    configurable: true,
+    value: height,
+  })
+}
+
+const mockTriggerRect = (left: number, width: number, top = 20, bottom = 60) => {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
     x: left,
-    y: 20,
-    top: 20,
+    y: top,
+    top,
     right: left + width,
-    bottom: 60,
+    bottom,
     left,
     width,
-    height: 40,
+    height: bottom - top,
     toJSON: () => ({}),
   })
 }
@@ -60,7 +68,9 @@ afterEach(() => {
   unmountWrapper?.()
   unmountWrapper = undefined
   document.body.innerHTML = ''
+  document.documentElement.style.zoom = ''
   setViewportWidth(originalInnerWidth)
+  setViewportHeight(originalInnerHeight)
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
@@ -112,6 +122,33 @@ describe('Select dropdown viewport constraints', () => {
     expect(dropdown?.style.left).toBe('312px')
     expect(dropdown?.style.minWidth).toBe('0px')
     expect(dropdown?.style.maxWidth).toBe('0px')
+  })
+
+  it('keeps a teleported dropdown aligned when the admin shell uses CSS zoom', async () => {
+    document.documentElement.style.zoom = '0.8'
+    setViewportWidth(1280)
+    mockTriggerRect(400, 80)
+
+    const dropdown = await openSelect()
+
+    expect(dropdown).not.toBeNull()
+    expect(dropdown?.style.left).toBe('500px')
+    expect(dropdown?.style.top).toBe('79px')
+  })
+
+  it('uses the normalized viewport when deciding whether to open upward', async () => {
+    document.documentElement.style.zoom = '0.8'
+    setViewportWidth(1280)
+    setViewportHeight(800)
+    // Visual rect 520..560 becomes root CSS rect 650..700. The dropdown fits
+    // below in the normalized 1000px viewport and should stay below the trigger.
+    mockTriggerRect(400, 80, 520, 560)
+
+    const dropdown = await openSelect()
+
+    expect(dropdown).not.toBeNull()
+    expect(dropdown?.style.top).toBe('704px')
+    expect(dropdown?.style.bottom).toBe('')
   })
 })
 

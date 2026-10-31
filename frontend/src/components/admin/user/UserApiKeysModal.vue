@@ -118,6 +118,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import UniversalKeyBadge from '@/components/keys/UniversalKeyBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
+import { getFixedViewport, normalizeFixedRect } from '@/utils/floatingPanel'
 
 const props = defineProps<{ show: boolean; user: AdminUser | null }>()
 const emit = defineEmits(['close'])
@@ -205,8 +206,9 @@ const openGroupSelector = (key: ApiKey) => {
   } else {
     const buttonEl = groupButtonRefs.value.get(key.id)
     if (buttonEl) {
-      const rect = buttonEl.getBoundingClientRect()
-      const spaceBelow = window.innerHeight - rect.bottom
+      const rect = normalizeFixedRect(buttonEl.getBoundingClientRect())
+      const { height: viewportHeight } = getFixedViewport()
+      const spaceBelow = viewportHeight - rect.bottom
       const openUpward = spaceBelow < DROPDOWN_HEIGHT && rect.top > spaceBelow
       dropdownPosition.value = {
         top: openUpward ? rect.top - DROPDOWN_HEIGHT - DROPDOWN_GAP : rect.bottom + DROPDOWN_GAP,

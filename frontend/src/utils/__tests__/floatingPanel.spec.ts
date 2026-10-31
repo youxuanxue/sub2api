@@ -1,9 +1,41 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   anchoredMenuStyle,
+  getFixedViewport,
   getAnchoredMenuPosition,
-  getFloatingPanelPosition
+  getFloatingPanelPosition,
+  normalizeFixedRect
 } from '@/utils/floatingPanel'
+
+afterEach(() => {
+  document.documentElement.style.zoom = ''
+  vi.unstubAllGlobals()
+})
+
+describe('fixed panel coordinate normalization', () => {
+  it('converts visual coordinates back to the root zoom coordinate space', () => {
+    document.documentElement.style.zoom = '0.8'
+    vi.stubGlobal('innerWidth', 1280)
+    vi.stubGlobal('innerHeight', 800)
+
+    expect(normalizeFixedRect({
+      top: 80,
+      right: 560,
+      bottom: 104,
+      left: 500,
+      width: 60,
+      height: 24
+    })).toMatchObject({
+      top: 100,
+      right: 700,
+      bottom: 130,
+      left: 625,
+      width: 75,
+      height: 30
+    })
+    expect(getFixedViewport()).toMatchObject({ width: 1600, height: 1000, zoom: 0.8 })
+  })
+})
 
 describe('getFloatingPanelPosition', () => {
   it('移动端使用视口安全边距，不再从靠左按钮向屏幕外展开', () => {
