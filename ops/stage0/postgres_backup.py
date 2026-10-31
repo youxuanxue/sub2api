@@ -30,19 +30,64 @@ RPO_SECONDS = 900
 BACKUP_INTERVAL_SECONDS = 7200
 FULL_INTERVAL_SECONDS = 7 * 86400
 
+# Repository settings are rendered without credentials.  The host identity
+# refresher is responsible for adding short-lived keys at runtime.  Keeping
+# the secondary repository as data (rather than a second hand-written config)
+# makes the migration reviewable and leaves the single-repository default
+# byte-for-byte compatible.
+_HOST_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\Z")
+_COS_REGION_RE = re.compile(r"[a-z]{2}(?:-[a-z]+)+\Z")
+
 
 class BackupError(RuntimeError):
     pass
 
 
-def configuration(bucket: str, region: str, repo_path: str = "/prod/postgres") -> str:
+def _validate_endpoint(endpoint: str) -> str:
+    if not isinstance(endpoint, str) or not _HOST_RE.fullmatch(endpoint):
+        raise BackupError("invalid S3-compatible endpoint")
+    if "://" in endpoint or "/" in endpoint or "\\" in endpoint:
+        raise BackupError("S3 endpoint must be a host name without a scheme or path")
+    return endpoint
+
+
+def _validate_repo_path(repo_path: str) -> str:
+    if not isinstance(repo_path, str) or not re.fullmatch(r"(?:/[a-z0-9][a-z0-9.-]*)+", repo_path):
+        raise BackupError("invalid repository path")
+    return repo_path
+
+
+def _validate_secondary(secondary: dict) -> dict:
+    required = {"bucket", "region", "endpoint", "path"}
+    if not isinstance(secondary, dict) or set(secondary) - required - {"uri_style"} or not required <= set(secondary):
+        raise BackupError("secondary repository requires bucket, region, endpoint and path")
+    bucket = secondary["bucket"]
+    if not isinstance(bucket, str) or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
+        raise BackupError("invalid secondary S3 bucket")
+    region = secondary["region"]
+    if not isinstance(region, str) or not _COS_REGION_RE.fullmatch(region):
+        raise BackupError("invalid secondary S3-compatible region")
+    endpoint = _validate_endpoint(secondary["endpoint"])
+    path = _validate_repo_path(secondary["path"])
+    uri_style = secondary.get("uri_style", "path")
+    if uri_style not in {"path", "host"}:
+        raise BackupError("secondary uri_style must be path or host")
+    return {"bucket": bucket, "region": region, "endpoint": endpoint, "path": path, "uri_style": uri_style}
+
+
+def configuration(
+    bucket: str,
+    region: str,
+    repo_path: str = "/prod/postgres",
+    *,
+    secondary: dict | None = None,
+) -> str:
     if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
         raise BackupError("invalid S3 bucket")
     if not re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d", region):
         raise BackupError("invalid AWS region")
-    if not re.fullmatch(r"(?:/[a-z0-9][a-z0-9.-]*)+", repo_path):
-        raise BackupError("invalid repository path")
-    return f"""[global]
+    repo_path = _validate_repo_path(repo_path)
+    rendered = f"""[global]
 repo1-type=s3
 repo1-path={repo_path}
 repo1-s3-bucket={bucket}
@@ -66,6 +111,23 @@ pg1-path=/var/lib/postgresql/data
 pg1-socket-path=/var/run/postgresql
 pg1-user=tokenkey
 """
+    if secondary is not None:
+        repo2 = _validate_secondary(secondary)
+        repo2_options = "\n".join([
+            "repo2-type=s3",
+            f"repo2-path={repo2['path']}",
+            f"repo2-s3-bucket={repo2['bucket']}",
+            f"repo2-s3-region={repo2['region']}",
+            f"repo2-s3-endpoint={repo2['endpoint']}",
+            f"repo2-s3-uri-style={repo2['uri_style']}",
+            "repo2-retention-full-type=time",
+            f"repo2-retention-full={RETENTION_DAYS}",
+            "repo2-bundle=y",
+            "repo2-block=y",
+        ])
+        # repo2 options must remain in [global], before the stanza section.
+        rendered = rendered.replace("\n\n[" + STANZA + "]", "\n" + repo2_options + "\n\n[" + STANZA + "]", 1)
+    return rendered
 
 
 def info_entry(raw: str) -> dict:
@@ -429,6 +491,12 @@ def main() -> int:
     )
     render.add_argument("--bucket", required=True)
     render.add_argument("--region", required=True)
+    render.add_argument("--repo-path", default="/prod/postgres")
+    render.add_argument("--secondary-bucket")
+    render.add_argument("--secondary-region")
+    render.add_argument("--secondary-endpoint")
+    render.add_argument("--secondary-path", default="/prod/postgres")
+    render.add_argument("--secondary-uri-style", choices=("path", "host"), default="path")
     backup = commands.add_parser("backup")
     backup.add_argument("--type", choices=["auto", "full", "incr"], default="auto")
     commands.add_parser("check", help="verify a WAL archive round trip (switches WAL)")
@@ -442,7 +510,37 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "config":
-            print(configuration(args.bucket, args.region), end="")
+            secondary_args = (
+                args.secondary_bucket,
+                args.secondary_region,
+                args.secondary_endpoint,
+            )
+            if any(value is not None for value in secondary_args) and not all(
+                value is not None for value in secondary_args
+            ):
+                raise BackupError(
+                    "secondary-bucket, secondary-region and secondary-endpoint are all required"
+                )
+            secondary = (
+                {
+                    "bucket": args.secondary_bucket,
+                    "region": args.secondary_region,
+                    "endpoint": args.secondary_endpoint,
+                    "path": args.secondary_path,
+                    "uri_style": args.secondary_uri_style,
+                }
+                if all(value is not None for value in secondary_args)
+                else None
+            )
+            print(
+                configuration(
+                    args.bucket,
+                    args.region,
+                    args.repo_path,
+                    secondary=secondary,
+                ),
+                end="",
+            )
             return 0
         if args.command == "backup":
             # Existing pgdump/QA owner: exclusive here, shared in pgdump.
