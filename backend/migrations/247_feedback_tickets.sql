@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS feedback_tickets (
     id BIGSERIAL PRIMARY KEY,
     ticket_no VARCHAR(32) NOT NULL UNIQUE,
-    user_id BIGINT NOT NULL REFERENCES users(id),
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     category VARCHAR(32) NOT NULL,
     subject VARCHAR(120) NOT NULL,
     content TEXT NOT NULL,
