@@ -66,19 +66,25 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 		}
 	}
 
-	// 先尝试临时不可调度规则（401除外）
-	// 如果匹配成功，直接返回，不执行后续禁用逻辑
-	// 529 overload 走 handle529 全局冷却，优先于账号级 temp-unsched 规则。
-	if statusCode != 401 && statusCode != 529 {
-		if s.tryTempUnschedulable(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel)) {
-			return true
-		}
-	}
-
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 	if upstreamMsg != "" {
 		upstreamMsg = truncateForLog([]byte(upstreamMsg), 512)
+	}
+
+	// Kiro endpoint quota exhaustion owns a fixed 10-second account cooldown.
+	// Detect it before generic temporary-unschedulable rules so a configured
+	// broad 429 rule cannot replace the Kiro-specific cooldown or prevent the
+	// account-level failover side effect.
+	kiroQuotaExhausted := account.Platform == PlatformKiro && tkIsKiroEndpointQuotaExhausted(upstreamMsg, responseBody)
+
+	// 先尝试临时不可调度规则（401除外）
+	// 如果匹配成功，直接返回，不执行后续禁用逻辑
+	// 529 overload 走 handle529 全局冷却，优先于账号级 temp-unsched 规则。
+	if !kiroQuotaExhausted && statusCode != 401 && statusCode != 529 {
+		if s.tryTempUnschedulable(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel)) {
+			return true
+		}
 	}
 
 	if account.Platform == PlatformAnthropic && tkIsAnthropicUsagePolicyBlock(upstreamMsg, responseBody) {

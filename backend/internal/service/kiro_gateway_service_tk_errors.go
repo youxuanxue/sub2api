@@ -97,6 +97,27 @@ func (e *KiroEndpointQuotaExhaustedError) ClientMessage() string {
 	return TkClientFacingBusy429Message
 }
 
+// Unwrap exposes quota exhaustion as an account-scoped failover signal while
+// preserving the Kiro-specific type for classification and ops handling. Kiro's
+// endpoint loop has already tried every endpoint for this account, so retrying
+// the same account cannot help this request; the next eligible account should
+// be selected instead.
+func (e *KiroEndpointQuotaExhaustedError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return &UpstreamFailoverError{
+		StatusCode:             http.StatusTooManyRequests,
+		ResponseBody:           []byte(e.Error()),
+		ResponseHeaders:        http.Header{"Retry-After": []string{strconv.Itoa(KiroEndpointQuotaExhaustedRetryAfterSeconds())}},
+		RetryableOnSameAccount: false,
+		Scope:                  GatewayFailureScopeAccount,
+		ClientStatusCode:       http.StatusTooManyRequests,
+		ClientErrorType:        "rate_limit_error",
+		ClientMessage:          TkClientFacingBusy429Message,
+	}
+}
+
 func (e *KiroInvalidModelError) Error() string {
 	return fmt.Sprintf("kiro invalid model %q: status=%d", e.Model, e.StatusCode)
 }
