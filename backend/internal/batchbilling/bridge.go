@@ -278,6 +278,9 @@ func (r *Reconciler) ResolveUnknown(ctx context.Context, req SettlementRequest, 
 		}
 		return r.Settlement.Settle(ctx, SettlementRequest{Owner: req.Owner, Ref: req.Ref, Usage: decision.Usage, RequestHash: decision.RequestHash}, holdKey)
 	case OutcomeReleased:
+		if decision.UsageObserved {
+			return SettlementResult{}, fmt.Errorf("%w: observed usage must be settled", ErrUnknownUnresolved)
+		}
 		if r.Holds == nil {
 			return SettlementResult{}, fmt.Errorf("%w: hold owner unavailable", ErrInvalidRequest)
 		}
