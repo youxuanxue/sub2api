@@ -306,12 +306,10 @@ def install(args):
         run_phase({'hostname':socket.gethostname(), 'binary':str(args.binary.resolve()),
                    'sha256':digest, 'phases':phases}, 'cleanup', dry_run=True)
         return
-    bundle_digest = hashlib.sha256(
-        Path(__file__).read_bytes()
-        + ARCHIVE_SCRIPT.read_bytes()
-        + ARCHIVE_POLICY.read_bytes()
-        + digest.encode()
-    ).hexdigest()[:16]
+    bundle_material = [Path(__file__).read_bytes(), digest.encode()]
+    if args.include_node1_archive:
+        bundle_material.extend((ARCHIVE_SCRIPT.read_bytes(), ARCHIVE_POLICY.read_bytes()))
+    bundle_digest = hashlib.sha256(b''.join(bundle_material)).hexdigest()[:16]
     bundle = BASE/bundle_digest
     environment = manifest.get('environment', 'prod')
     node1_root = str(NODE1_ROOT) if args.include_node1_archive else None
@@ -320,11 +318,18 @@ def install(args):
               'phases': phases, 'node1_root': node1_root, 'node1_environment': node1_environment}
     BASE.mkdir(parents=True, exist_ok=True, mode=0o755)
     if bundle.exists():
-        if (hashlib.sha256((bundle/'qa-local-maintenance').read_bytes()).hexdigest() != digest
-                or (bundle/'local_maintenance_host.py').read_bytes() != Path(__file__).read_bytes()
-                or (bundle/'node1_archive.py').read_bytes() != ARCHIVE_SCRIPT.read_bytes()
-                or (bundle/'backup'/'node1_storage_policy.py').read_bytes() != ARCHIVE_POLICY.read_bytes()
-                or json.loads((bundle/'config.json').read_text()) != config):
+        bundle_mismatch = (
+            hashlib.sha256((bundle/'qa-local-maintenance').read_bytes()).hexdigest() != digest
+            or (bundle/'local_maintenance_host.py').read_bytes() != Path(__file__).read_bytes()
+            or (bundle/'node1_archive.py').read_bytes() != ARCHIVE_SCRIPT.read_bytes()
+            or json.loads((bundle/'config.json').read_text()) != config
+        )
+        if args.include_node1_archive:
+            bundle_mismatch = bundle_mismatch or not (
+                (bundle/'backup'/'node1_storage_policy.py').is_file()
+                and (bundle/'backup'/'node1_storage_policy.py').read_bytes() == ARCHIVE_POLICY.read_bytes()
+            )
+        if bundle_mismatch:
             raise ValueError('installed immutable bundle mismatch')
     else:
         with tempfile.TemporaryDirectory(prefix='.stage-', dir=BASE) as scratch:
@@ -334,8 +339,9 @@ def install(args):
             (staged/'qa-local-maintenance').chmod(0o755)
             shutil.copy2(__file__, staged/'local_maintenance_host.py')
             shutil.copy2(ARCHIVE_SCRIPT, staged/'node1_archive.py')
-            (staged/'backup').mkdir()
-            shutil.copy2(ARCHIVE_POLICY, staged/'backup'/'node1_storage_policy.py')
+            if args.include_node1_archive:
+                (staged/'backup').mkdir()
+                shutil.copy2(ARCHIVE_POLICY, staged/'backup'/'node1_storage_policy.py')
             atomic_json(staged/'config.json', config)
             staged.rename(bundle)
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)

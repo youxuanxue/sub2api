@@ -58,6 +58,7 @@ class LocalHostTest(unittest.TestCase):
                                      'sha256': local.hashlib.sha256(binary.read_bytes()).hexdigest(),
                                      'apply': True, 'include_node1_archive': False})()
             with mock.patch.object(local, 'BASE', root/'base'), \
+                 mock.patch.object(local, 'ARCHIVE_POLICY', root/'missing-policy'), \
                  mock.patch.object(local, 'STATE', root/'state'), \
                  mock.patch.object(local.socket, 'gethostname', return_value='fixture-host'), \
                  mock.patch.object(local, 'require_legacy_paused'), \
