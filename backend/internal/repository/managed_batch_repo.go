@@ -73,7 +73,7 @@ func (r *ManagedBatchRepository) ListFilesForOwner(ctx context.Context, userID, 
 	}
 	if after != "" {
 		cursorArg := len(args) + 1
-		where += fmt.Sprintf(` AND created_at < (SELECT created_at FROM batch_files WHERE id=$%d AND user_id=$1 AND api_key_id=$2)`, cursorArg)
+		where += fmt.Sprintf(` AND (created_at,id) < (SELECT created_at,id FROM batch_files WHERE id=$%d AND user_id=$1 AND api_key_id=$2)`, cursorArg)
 		args = append(args, after)
 	}
 	limitArg := len(args) + 1
@@ -308,7 +308,7 @@ func (r *ManagedBatchRepository) ListBatchesForOwner(ctx context.Context, userID
 	args := []any{userID, apiKeyID, limit + 1}
 	where := `user_id=$1 AND api_key_id=$2`
 	if after != "" {
-		where += ` AND created_at < (SELECT created_at FROM batches WHERE id=$3 AND user_id=$1 AND api_key_id=$2)`
+		where += ` AND (created_at,id) < (SELECT created_at,id FROM batches WHERE id=$3 AND user_id=$1 AND api_key_id=$2)`
 		args = []any{userID, apiKeyID, after, limit + 1}
 	}
 	rows, err := r.db.QueryContext(ctx, `SELECT id,user_id,COALESCE(api_key_id,0),input_file_id,endpoint,completion_window,status,request_counts,metadata,in_progress_at,finalizing_at,cancelling_at,completed_at,cancelled_at,expired_at,failed_at,deadline_at,version,created_at FROM batches WHERE `+where+` ORDER BY created_at DESC,id DESC LIMIT $`+fmt.Sprint(len(args)), args...)
@@ -391,7 +391,7 @@ func (r *ManagedBatchRepository) ResetBatchForRetry(ctx context.Context, userID,
 	if _, err = tx.ExecContext(ctx, `UPDATE batch_items SET status='pending',response=NULL,error=NULL,unknown_result=FALSE,next_attempt_at=NULL,lease_owner=NULL,lease_expires_at=NULL,completed_at=NULL,updated_at=NOW() WHERE batch_id=$1 AND status IN ('pending','retry','failed','unknown')`, id); err != nil {
 		return false, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO batch_outbox (batch_id,event_type,payload,dedup_key,available_at) VALUES ($1,'batch.submit',jsonb_build_object('batch_id',$1),$2,NOW()) ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`, id, "batch.retry:"+id+":"+fmt.Sprint(version+1)); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO batch_outbox (batch_id,event_type,payload,dedup_key,available_at) VALUES ($1,'batch.submit',jsonb_build_object('batch_id',$1,'user_id',$2,'api_key_id',$3),$4,NOW()) ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`, id, userID, apiKeyID, "batch.retry:"+id+":"+fmt.Sprint(version+1)); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {

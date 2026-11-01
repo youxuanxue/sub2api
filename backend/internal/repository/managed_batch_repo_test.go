@@ -71,3 +71,43 @@ func TestManagedBatchUpdateProgressPublishesPublicCounts(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestManagedBatchResetRetryRequeuesWithOwnerPayload(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	r := NewManagedBatchRepository(db)
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE batches SET status='validating'")).
+		WithArgs("batch-1", int64(7), int64(9), int64(3), "batch-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE batch_items SET status='pending'")).
+		WithArgs("batch-1").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(regexp.QuoteMeta("jsonb_build_object('batch_id',$1,'user_id',$2,'api_key_id',$3)")).
+		WithArgs("batch-1", int64(7), int64(9), "batch.retry:batch-1:4").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	ok, err := r.ResetBatchForRetry(context.Background(), 7, 9, "batch-1", 3)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestManagedBatchListCursorsUseCreatedAtAndID(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	r := NewManagedBatchRepository(db)
+	mock.ExpectQuery(regexp.QuoteMeta("AND (created_at,id) < (SELECT created_at,id FROM batch_files")).
+		WithArgs(int64(7), int64(9), "file-cursor", 2).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "purpose", "filename", "storage_ref", "byte_size", "sha256", "status", "user_id", "api_key_id", "expires_at", "created_at"}))
+	_, _, err = r.ListFilesForOwner(context.Background(), 7, 9, "", "file-cursor", 1)
+	require.NoError(t, err)
+	mock.ExpectQuery(regexp.QuoteMeta("AND (created_at,id) < (SELECT created_at,id FROM batches")).
+		WithArgs(int64(7), int64(9), "batch-cursor", 2).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "api_key_id", "input_file_id", "endpoint", "completion_window", "status", "request_counts", "metadata", "in_progress_at", "finalizing_at", "cancelling_at", "completed_at", "cancelled_at", "expired_at", "failed_at", "deadline_at", "version", "created_at"}))
+	_, _, err = r.ListBatchesForOwner(context.Background(), 7, 9, "batch-cursor", 1)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

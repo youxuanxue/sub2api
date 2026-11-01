@@ -18,6 +18,15 @@ type managedMemoryQueue struct {
 	acked  map[string]bool
 }
 
+type contextCheckingQueue struct{ *managedMemoryQueue }
+
+func (q *contextCheckingQueue) Requeue(ctx context.Context, id string, delay time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return q.managedMemoryQueue.Requeue(ctx, id, delay)
+}
+
 func newManagedMemoryQueue() *managedMemoryQueue {
 	return &managedMemoryQueue{active: map[string]bool{}, acked: map[string]bool{}}
 }
@@ -75,6 +84,13 @@ type managedProcessor struct {
 	terminal bool
 }
 
+type cancellingManagedProcessor struct{ cancel context.CancelFunc }
+
+func (p *cancellingManagedProcessor) Process(context.Context, ManagedBatchJob) (ManagedBatchProcessResult, error) {
+	p.cancel()
+	return ManagedBatchProcessResult{}, context.Canceled
+}
+
 func (p *managedProcessor) Process(_ context.Context, _ ManagedBatchJob) (ManagedBatchProcessResult, error) {
 	p.calls++
 	return ManagedBatchProcessResult{Terminal: p.terminal}, nil
@@ -88,6 +104,16 @@ func TestManagedBatchWorker_RunOnceAcknowledgesTerminalJob(t *testing.T) {
 	require.NoError(t, w.RunOnce(context.Background()))
 	require.Equal(t, 1, p.calls)
 	require.True(t, q.acked["job"])
+}
+
+func TestManagedBatchWorker_RequeuesAfterProcessorCancellation(t *testing.T) {
+	q := &contextCheckingQueue{managedMemoryQueue: newManagedMemoryQueue()}
+	require.NoError(t, q.Enqueue(context.Background(), ManagedBatchJob{ID: "job", Payload: []byte("x")}))
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &cancellingManagedProcessor{cancel: cancel}
+	w := NewManagedBatchWorker(q, p, ManagedBatchWorkerOptions{ReserveBlockTimeout: time.Millisecond})
+	require.NoError(t, w.RunOnce(ctx))
+	require.Len(t, q.jobs, 1)
 }
 
 type managedMemoryOutbox struct{ events []ManagedBatchOutboxEvent }

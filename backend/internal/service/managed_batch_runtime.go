@@ -126,11 +126,11 @@ func (w *ManagedBatchWorker) RunOnce(ctx context.Context) error {
 	}
 	lease, acquired, err := w.Queue.TryAcquireJobLease(ctx, delivery.Job.ID, w.Options.JobLeaseTTL)
 	if err != nil {
-		_ = w.Queue.Requeue(ctx, delivery.Job.ID, w.Options.RetryDelay)
+		_ = w.Queue.Requeue(context.WithoutCancel(ctx), delivery.Job.ID, w.Options.RetryDelay)
 		return err
 	}
 	if !acquired {
-		return w.Queue.Requeue(ctx, delivery.Job.ID, w.Options.RetryDelay)
+		return w.Queue.Requeue(context.WithoutCancel(ctx), delivery.Job.ID, w.Options.RetryDelay)
 	}
 	defer func() { _ = lease.Release(context.Background()) }()
 
@@ -140,17 +140,18 @@ func (w *ManagedBatchWorker) RunOnce(ctx context.Context) error {
 	result, processErr := w.Processor.Process(ctx, delivery.Job)
 	close(stop)
 	<-done
+	persistCtx := context.WithoutCancel(ctx)
 	if processErr != nil {
-		return w.Queue.Requeue(ctx, delivery.Job.ID, w.Options.RetryDelay)
+		return w.Queue.Requeue(persistCtx, delivery.Job.ID, w.Options.RetryDelay)
 	}
 	if result.Terminal {
-		return w.Queue.Ack(ctx, delivery.Job.ID)
+		return w.Queue.Ack(persistCtx, delivery.Job.ID)
 	}
 	delay := result.RequeueAfter
 	if delay <= 0 {
 		delay = w.Options.RetryDelay
 	}
-	return w.Queue.Requeue(ctx, delivery.Job.ID, delay)
+	return w.Queue.Requeue(persistCtx, delivery.Job.ID, delay)
 }
 
 func (w *ManagedBatchWorker) heartbeat(ctx context.Context, id string, lease ManagedBatchLease, stop <-chan struct{}, done chan<- struct{}) {

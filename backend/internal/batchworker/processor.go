@@ -141,8 +141,21 @@ func (p *Processor) Process(ctx context.Context, job service.ManagedBatchJob) (s
 	}
 	persistCtx := context.WithoutCancel(ctx)
 	if b.DeadlineAt != nil && !time.Now().Before(*b.DeadlineAt) {
-		_, err := p.transition(persistCtx, payload, b, batchcontract.BatchStatusExpired, batchcontract.ErrorExpired, "batch deadline exceeded", nil)
-		return service.ManagedBatchProcessResult{Terminal: true}, err
+		changed, err := p.transition(persistCtx, payload, b, batchcontract.BatchStatusExpired, batchcontract.ErrorExpired, "batch deadline exceeded", nil)
+		if err != nil {
+			return service.ManagedBatchProcessResult{}, err
+		}
+		if changed {
+			return service.ManagedBatchProcessResult{Terminal: true}, nil
+		}
+		fresh, err := p.repo.GetBatchForOwner(persistCtx, payload.UserID, payload.APIKeyID, payload.BatchID)
+		if err != nil {
+			return service.ManagedBatchProcessResult{}, err
+		}
+		if batchcontract.IsBatchTerminal(fresh.Status) {
+			return service.ManagedBatchProcessResult{Terminal: true}, nil
+		}
+		return service.ManagedBatchProcessResult{RequeueAfter: p.cfg.RetryDelay}, nil
 	}
 	if b.Status == batchcontract.BatchStatusValidating {
 		changed, err := p.transition(persistCtx, payload, b, batchcontract.BatchStatusInProgress, "", "", nil)
@@ -152,6 +165,18 @@ func (p *Processor) Process(ctx context.Context, job service.ManagedBatchJob) (s
 		if changed {
 			b.Version++
 			b.Status = batchcontract.BatchStatusInProgress
+		} else {
+			fresh, err := p.repo.GetBatchForOwner(persistCtx, payload.UserID, payload.APIKeyID, payload.BatchID)
+			if err != nil {
+				return service.ManagedBatchProcessResult{}, err
+			}
+			if batchcontract.IsBatchTerminal(fresh.Status) {
+				return service.ManagedBatchProcessResult{Terminal: true}, nil
+			}
+			b = fresh
+			if b.Status != batchcontract.BatchStatusInProgress && b.Status != batchcontract.BatchStatusCancelling && b.Status != batchcontract.BatchStatusFinalizing {
+				return service.ManagedBatchProcessResult{RequeueAfter: p.cfg.RetryDelay}, nil
+			}
 		}
 	}
 	if b.Status == batchcontract.BatchStatusCancelling {
@@ -159,6 +184,12 @@ func (p *Processor) Process(ctx context.Context, job service.ManagedBatchJob) (s
 			return service.ManagedBatchProcessResult{}, err
 		}
 		return p.reconcile(persistCtx, payload, b)
+	}
+	if b.Status == batchcontract.BatchStatusFinalizing {
+		return p.reconcile(persistCtx, payload, b)
+	}
+	if b.Status != batchcontract.BatchStatusInProgress {
+		return service.ManagedBatchProcessResult{RequeueAfter: p.cfg.RetryDelay}, nil
 	}
 	items, err := p.repo.ClaimItems(ctx, payload.BatchID, p.cfg.WorkerID, p.cfg.BatchSize, p.cfg.ItemLeaseTTL)
 	if err != nil {
@@ -367,6 +398,18 @@ func (p *Processor) reconcile(ctx context.Context, payload JobPayload, b *reposi
 			if changed {
 				b.Version++
 				b.Status = batchcontract.BatchStatusFinalizing
+			} else {
+				fresh, err := p.repo.GetBatchForOwner(ctx, payload.UserID, payload.APIKeyID, payload.BatchID)
+				if err != nil {
+					return service.ManagedBatchProcessResult{}, err
+				}
+				if batchcontract.IsBatchTerminal(fresh.Status) {
+					return service.ManagedBatchProcessResult{Terminal: true}, nil
+				}
+				b = fresh
+				if b.Status != batchcontract.BatchStatusFinalizing {
+					return service.ManagedBatchProcessResult{RequeueAfter: p.cfg.RetryDelay}, nil
+				}
 			}
 		}
 		if err := p.cfg.ResultFinalizer.Finalize(ctx, payload.BatchID); err != nil {

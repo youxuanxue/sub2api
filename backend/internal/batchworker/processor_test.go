@@ -26,6 +26,24 @@ type fakeRepo struct {
 	events    []repository.ManagedBatchOutboxEvent
 }
 
+type validatingRaceRepo struct {
+	*fakeRepo
+	loseCAS bool
+}
+
+func (r *validatingRaceRepo) CompareAndSwapBatchStatusWithOutbox(ctx context.Context, userID, apiKeyID int64, id string, version int64, status string, retryAt *time.Time, code, message *string, event *repository.ManagedBatchOutboxEvent) (bool, error) {
+	r.mu.Lock()
+	if r.loseCAS {
+		r.loseCAS = false
+		r.batch.Status = batchcontract.BatchStatusInProgress
+		r.batch.Version++
+		r.mu.Unlock()
+		return false, nil
+	}
+	r.mu.Unlock()
+	return r.fakeRepo.CompareAndSwapBatchStatusWithOutbox(ctx, userID, apiKeyID, id, version, status, retryAt, code, message, event)
+}
+
 func newFakeRepo(status string, deadline *time.Time) *fakeRepo {
 	return &fakeRepo{batch: repository.ManagedBatch{ID: "batch-1", UserID: 7, Endpoint: batchcontract.EndpointResponses, Status: status, Version: 0, DeadlineAt: deadline}, completed: map[int64]string{}}
 }
@@ -223,6 +241,21 @@ func TestProcessorManagedSuccessReconcilesAndEmitsOutbox(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.Terminal)
 	require.Len(t, r.events, 1)
+}
+
+func TestProcessorReloadsBatchAfterValidatingCASConflict(t *testing.T) {
+	base := newFakeRepo(batchcontract.BatchStatusValidating, nil)
+	base.items = []repository.ManagedBatchItem{testItem()}
+	r := &validatingRaceRepo{fakeRepo: base, loseCAS: true}
+	adapter := batchadapter.NewOpenAIAdapter(fakeRunner{run: func(context.Context) (batchadapter.ProviderResponse, error) {
+		return batchadapter.ProviderResponse{StatusCode: 200, Body: []byte(`{"id":"resp-1"}`)}, nil
+	}})
+	p := NewProcessor(Config{Enabled: true, WorkerID: "w1", ResultIndexer: &memoryIndexer{}}, r, map[string]batchadapter.ManagedExecutor{batchadapter.ProviderOpenAI: adapter})
+	result, err := p.Process(context.Background(), service.ManagedBatchJob{Payload: testPayload(t)})
+	require.NoError(t, err)
+	require.True(t, result.Terminal)
+	require.Equal(t, batchcontract.BatchStatusCompleted, r.batch.Status)
+	require.Equal(t, batchcontract.ItemStatusSucceeded, r.completed[11])
 }
 
 func TestProcessorFinalizesResultsBeforeTerminalTransition(t *testing.T) {
