@@ -90,6 +90,10 @@ class LocalHostTest(unittest.TestCase):
             config = json.loads((bundle/'config.json').read_text())
             self.assertEqual(config['node1_environment'], 'cn-prod')
             self.assertEqual(config['phases'], ['provision', 'cleanup', 'archive'])
+            self.assertEqual(
+                (bundle/'backup'/'node1_storage_policy.py').read_bytes(),
+                (Path(__file__).resolve().parents[1] / 'backup' / 'node1_storage_policy.py').read_bytes(),
+            )
 
     def test_active_legacy_owner_blocks_local_work(self):
         with mock.patch.object(local, 'invoke', side_effect=['ActiveState=active\nUnitFileState=enabled\n', 'inactive']):

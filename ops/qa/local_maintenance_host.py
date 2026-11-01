@@ -27,6 +27,8 @@ PHASES = {
     'cleanup': '*-*-* *:02/5:00 UTC',
 }
 ARCHIVE_PHASE = 'archive'
+ARCHIVE_SCRIPT = Path(__file__).with_name('node1_archive.py')
+ARCHIVE_POLICY = Path(__file__).resolve().parents[1] / 'backup' / 'node1_storage_policy.py'
 # Layout-exception hosts may rename the Postgres container; DNS alias
 # tokenkey-postgres on tokenkey_tokenkey-network keeps PGHOST stable.
 POSTGRES_RUNTIME_CANDIDATES = ('tokenkey-postgres', 'tk-archive-standby')
@@ -304,7 +306,12 @@ def install(args):
         run_phase({'hostname':socket.gethostname(), 'binary':str(args.binary.resolve()),
                    'sha256':digest, 'phases':phases}, 'cleanup', dry_run=True)
         return
-    bundle_digest = hashlib.sha256(Path(__file__).read_bytes()+digest.encode()).hexdigest()[:16]
+    bundle_digest = hashlib.sha256(
+        Path(__file__).read_bytes()
+        + ARCHIVE_SCRIPT.read_bytes()
+        + ARCHIVE_POLICY.read_bytes()
+        + digest.encode()
+    ).hexdigest()[:16]
     bundle = BASE/bundle_digest
     environment = manifest.get('environment', 'prod')
     node1_root = str(NODE1_ROOT) if args.include_node1_archive else None
@@ -315,7 +322,8 @@ def install(args):
     if bundle.exists():
         if (hashlib.sha256((bundle/'qa-local-maintenance').read_bytes()).hexdigest() != digest
                 or (bundle/'local_maintenance_host.py').read_bytes() != Path(__file__).read_bytes()
-                or (bundle/'node1_archive.py').read_bytes() != Path(__file__).with_name('node1_archive.py').read_bytes()
+                or (bundle/'node1_archive.py').read_bytes() != ARCHIVE_SCRIPT.read_bytes()
+                or (bundle/'backup'/'node1_storage_policy.py').read_bytes() != ARCHIVE_POLICY.read_bytes()
                 or json.loads((bundle/'config.json').read_text()) != config):
             raise ValueError('installed immutable bundle mismatch')
     else:
@@ -325,8 +333,9 @@ def install(args):
             shutil.copy2(args.binary, staged/'qa-local-maintenance')
             (staged/'qa-local-maintenance').chmod(0o755)
             shutil.copy2(__file__, staged/'local_maintenance_host.py')
-            archive_script = Path(__file__).with_name('node1_archive.py')
-            shutil.copy2(archive_script, staged/'node1_archive.py')
+            shutil.copy2(ARCHIVE_SCRIPT, staged/'node1_archive.py')
+            (staged/'backup').mkdir()
+            shutil.copy2(ARCHIVE_POLICY, staged/'backup'/'node1_storage_policy.py')
             atomic_json(staged/'config.json', config)
             staged.rename(bundle)
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)

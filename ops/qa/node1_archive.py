@@ -18,7 +18,14 @@ import tempfile
 import time
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backup"))
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_POLICY_DIRS = (_SCRIPT_DIR / "backup", _SCRIPT_DIR.parent / "backup")
+for _policy_dir in _POLICY_DIRS:
+    if (_policy_dir / "node1_storage_policy.py").is_file():
+        sys.path.insert(0, str(_policy_dir))
+        break
+else:
+    raise ImportError("node1_storage_policy.py is not bundled")
 from node1_storage_policy import QA_CAP_BYTES, StoragePolicyError, check_write, receipt_bytes
 
 
