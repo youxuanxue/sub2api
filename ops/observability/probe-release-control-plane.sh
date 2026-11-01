@@ -33,8 +33,27 @@ fi
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# `run-probe.sh` executes this script from a temporary remote directory and
+# uploads declared companions beside it. Resolve the shared helper from that
+# directory first, then fall back to the repository path for local execution.
+# Keeping the helper as a companion preserves smoke_lib.sh as the single owner
+# of the human-facing URL mapping in both execution modes.
+PROBE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SMOKE_LIB=""
+for candidate in \
+  "${PROBE_DIR}/smoke_lib.sh" \
+  "${REPO_ROOT}/ops/stage0/smoke_lib.sh"; do
+  if [ -f "$candidate" ]; then
+    SMOKE_LIB="$candidate"
+    break
+  fi
+done
+if [ -z "$SMOKE_LIB" ]; then
+  echo "probe-release-control-plane: smoke_lib.sh companion not found" >&2
+  exit 1
+fi
 # shellcheck source=../stage0/smoke_lib.sh
-source "${REPO_ROOT}/ops/stage0/smoke_lib.sh"
+source "$SMOKE_LIB"
 
 PROD_BASE_URL="${PROD_BASE_URL:-https://api.tokenkey.dev}"
 PROD_SITE_BASE_URL="$(smoke_human_base_url "${PROD_BASE_URL}")"

@@ -292,6 +292,32 @@ class QueueTest(unittest.TestCase):
                          period="2026-W44", published=rotated["published"])
         self.assertEqual([w for w in api.writes if "comments" in str(w)], [])
 
+    def test_intel_republishes_on_changed_lead_not_on_activity(self):
+        """A comment or label moves `updated_at` without changing the lead; in
+        2026-W44 that alone repeated 103 of 677 intel lines. A changed state still
+        publishes, and records written under the old signature are upgraded in
+        place instead of being republished once."""
+        api = FakeGitHub()
+        first = queue.sync_intel(REPO, [candidate()], "example/fork", api, period="2026-W44")
+        api.calls.clear()
+        busy = queue.sync_intel(REPO, [candidate(updated_at="2026-10-22T09:00:00Z")],
+                                "example/fork", api, period="2026-W44",
+                                published=first["published"])
+        self.assertEqual(api.writes, [])
+
+        closed = queue.sync_intel(REPO, [candidate(state="closed")], "example/fork", api,
+                                  period="2026-W44", published=busy["published"])
+        self.assertEqual(closed["commented"], 1)
+        self.assertIn("— closed;", api.comments[-1]["body"])
+
+        legacy = queue.intel_signature(candidate(), queue.INTEL_LEGACY_FIELDS)
+        api = FakeGitHub()
+        upgraded = queue.sync_intel(REPO, [candidate()], "example/fork", api, period="2026-W44",
+                                    published={REPO + "#1": [legacy, "2026-W43"]})
+        self.assertEqual(api.writes, [])
+        self.assertEqual(upgraded["published"][REPO + "#1"],
+                         [queue.intel_signature(candidate()), "2026-W43"])
+
     def test_intel_never_collides_with_the_queue_issue(self):
         """The queue's discovery scan raises on a second match, so an intel Issue
         sharing that marker namespace would break every later run."""

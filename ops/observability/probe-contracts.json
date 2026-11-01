@@ -1,4 +1,13 @@
 {
+  "probe-release-control-plane.sh": {
+    "companions": [
+      "ops/stage0/smoke_lib.sh"
+    ],
+    "verdicts": [
+      "ok",
+      "fail"
+    ]
+  },
   "probe-bad-sessions.sh": {
     "companions": [
       "ops/observability/detect-bad-sessions.py",

@@ -129,7 +129,10 @@ checkboxes: ticking one there would never be seen, because the promotion path is
 judgment in the ledger, which moves the ref into the queue on the next run.
 Deduplication is on the content signature alone and never includes the period --
 including it would republish every still-open lead each week, which is the
-accumulation the rotation exists to prevent.
+accumulation the rotation exists to prevent. The signature covers title, state and merge only:
+`updated_at` moves on every comment or label, and in 2026-W44 it alone repeated
+103 of 677 lines. Records under the older signature (which included it) are
+upgraded in place rather than republished.
 
 The first scan of a source takes the lookback window only. There is no
 full-backlog bootstrap: mirroring every open upstream issue once produced a

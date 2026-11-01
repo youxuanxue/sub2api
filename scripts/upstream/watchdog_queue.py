@@ -134,6 +134,17 @@ def target_context(target, api):
             "trusted": trusted_authors(target, api)}
 
 
+INTEL_FIELDS = ("title", "state", "merged_at")
+# Delivery records written before `updated_at` left the signature, and seeded ones
+# (seed_published copies queue signatures, which still include it).
+INTEL_LEGACY_FIELDS = ("title", "updated_at", "state", "merged_at")
+
+
+def intel_signature(item, fields=INTEL_FIELDS):
+    return hashlib.sha256(json.dumps({k: item.get(k) for k in fields},
+                                     sort_keys=True).encode()).hexdigest()[:16]
+
+
 def sync_intel(repo, items, target, api, platform="upstream", period=None, published=None,
                context=None):
     """Publish keyword leads to a rotating, per-period Issue.
@@ -168,15 +179,20 @@ def sync_intel(repo, items, target, api, platform="upstream", period=None, publi
     fresh = []
     for item in sorted(items, key=lambda item: item["upstream"]):
         ref = item["upstream"]
-        signature = hashlib.sha256(json.dumps({k: item.get(k) for k in
-            ("title", "updated_at", "state", "merged_at")}, sort_keys=True).encode()).hexdigest()[:16]
         # Dedup on content alone, never on the period: including the period would
         # republish every still-open lead each week, which is exactly the
         # accumulation this rotation exists to stop. A lead is published once, in
         # the period it was found; the closed Issue keeps it searchable after that.
-        # A changed signature is new information and does publish again.
+        # A changed title, state or merge is new information and does publish again.
+        # `updated_at` is left out: a new comment or label moves it without changing
+        # the lead, and it caused 103 of 677 lines in 2026-W44 to be repeats.
+        signature = intel_signature(item)
         record = delivered.get(ref)
-        if isinstance(record, (list, tuple)) and record and record[0] == signature:
+        if isinstance(record, (list, tuple)) and record and record[0] in (
+                signature, intel_signature(item, INTEL_LEGACY_FIELDS)):
+            # An unchanged lead under the pre-2026-11 signature is upgraded in place;
+            # without this, the first run after the change would republish them all.
+            delivered[ref] = [signature, *record[1:]]
             continue
         source, number = ref.rsplit("#", 1)
         route = "pull" if item.get("kind") == "pr" else "issues"
