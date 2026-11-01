@@ -125,9 +125,10 @@ def partition_entries(entries):
     return queued, intel
 
 
-# A lost checkpoint loses the intel delivery map, and intel (unlike the queue) does
-# not recover it from comments. Without a window, the first run after a cache
-# eviction republished every open lead: 5181 lines on 2026-11-01.
+# Window for any source whose checkpoint was lost (relay-watch shares it). A lost
+# checkpoint loses the intel delivery map, and intel (unlike the queue) does not
+# recover it from comments. Without a window, the first run after a cache eviction
+# republished every open lead: 5181 lines on 2026-11-01.
 COLD_START_DAYS = 2
 
 

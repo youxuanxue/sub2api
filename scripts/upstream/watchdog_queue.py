@@ -21,8 +21,6 @@ MARKER = "<!-- watchdog-tracking:v1 -->"
 # Discovery prefix, deliberately unterminated: every intel Issue's marker carries
 # a platform and period after it, so matching must be on the prefix.
 INTEL_MARKER = "<!-- watchdog-intel:v1 "
-INTEL_RECORD = re.compile(r"^- \[([^\]]+)\].*?<!-- watchdog-intel-item:(\S+) ([0-9a-f]+) -->$",
-                          re.MULTILINE)
 
 
 def platform_marker(platform):

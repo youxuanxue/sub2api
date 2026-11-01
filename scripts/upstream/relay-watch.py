@@ -99,7 +99,7 @@ def platform_findings(findings, platforms, source_repo=None):
 # A lost checkpoint (Actions cache eviction) only needs to cover the gap since the
 # last daily run; delivery state is recovered from the tracking Issue comments. The
 # former 30-day replay turned one eviction on 2026-11-01 into 3307 findings.
-COLD_START_DAYS = 2
+COLD_START_DAYS = watchdog.COLD_START_DAYS
 
 
 def collect(repo, previous, started, lookback_days=COLD_START_DAYS, api=watchdog.gh):

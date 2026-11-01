@@ -154,9 +154,11 @@ former 30-day replay produced 3307 findings in one run. The upstream watchdog's
 cold start likewise publishes intel only for leads updated in the last 2 days,
 because the intel delivery map lives only in the checkpoint.
 One run lists the target's Issues once and shares that listing across every
-source and platform; each sync updates the shared rows after its own writes. Platform assignments are saved with the cursor, and a source
-cursor advances only after every destination has been published. It tracks scheduling, billing, account/credential and protocol-conversion terms in
-both the issue body and discussion. GitHub review-thread inline comments and
+source and platform; each sync updates the shared rows after its own writes.
+Platform assignments are saved with the cursor, and a source cursor advances only
+after every destination has been published. It tracks scheduling, billing,
+account/credential and protocol-conversion terms in both the issue body and
+discussion. GitHub review-thread inline comments and
 separate GitHub Discussions are not collected. Merge state comes from REST
 `pull_request.merged_at` (PR detail fallback if absent), never from `closed`.
 It does not infer applicability from project popularity or automatically copy a
