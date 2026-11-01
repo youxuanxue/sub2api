@@ -1,4 +1,4 @@
-# COS → node1 每日兜底复制（草案）
+# COS → node1 每日兜底复制
 
 `ops/backup/cos_node1_mirror.py` 是一个只增加数据的、可审计的复制控制器。它用于把已在腾讯 COS 验收完成的数据库备份，按天复制到 node1；QA 原始归档也可使用同一工具，但必须使用独立的 `--namespace qa` 路径。两条路径不会混用，也不会把 QA PostgreSQL 数据库恢复到 node1。
 
@@ -6,7 +6,7 @@
 
 复制流程如下：
 
-1. 先检查 node1 目标文件系统的可用空间，默认至少保留 20% 空闲，并按源大小的 1.25 倍预留空间。远程 COS 必须由操作员提供只读测量得到的 `--expected-bytes`。
+1. 先检查 node1 目标文件系统的可用空间：85% 使用率开始告警，90% 使用率禁止新写入，95% 使用率进入紧急状态。远程 COS 必须由操作员提供只读测量得到的 `--expected-bytes`。
 2. 写入随机命名的 `.staging` 目录；同一 snapshot 已存在时只接受已有且可验证的 receipt，不覆盖它。
 3. 对每个文件计算 SHA-256、字节数和路径，写入 `_manifest.json`，再完整校验 manifest。
 4. 写入 `_receipt.json` 后，以目录原子重命名发布。只有发布后的目录才是可消费的快照。
@@ -37,4 +37,6 @@ python3 ops/backup/cos_node1_mirror.py copy \
 
 省略 `--apply` 时只做容量和参数检查并输出 dry-run 计划；不会写入目标目录。`--apply` 也不启用 timer，且仍然不删除任何来源或目标数据。
 
-该草案不包含 systemd timer、cron、COS bucket 策略或 node1 扩盘命令。上线前仍需由人工完成 node1 数据盘扩容、磁盘/RAID 健康检查、权限与加密评估，然后在低峰先做一次小快照 rehearsal，再由独立验收确认 receipt、容量、带宽和告警行为。AWS 回退链的退役不属于此工具的权限范围。
+数据库备份在 node1 上限为 2 TiB，QA raw 上限为 6 TiB；上限按已验证 receipt 的字节数累计，文件系统空间阈值仍是最终保护。该工具不实现 ext4 project quota，避免引入第二套容易漂移的容量 owner。
+
+本文不包含 systemd timer、cron、COS bucket 策略或 node1 扩盘命令。上线前仍需由人工完成 node1 磁盘/RAID 健康检查、权限与加密评估，然后在低峰先做一次小快照 rehearsal，再由独立验收确认 receipt、容量、带宽和告警行为。AWS 回退链的退役不属于此工具的权限范围。

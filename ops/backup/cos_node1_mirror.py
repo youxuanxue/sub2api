@@ -26,12 +26,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from node1_storage_policy import (
+    DB_CAP_BYTES,
+    QA_CAP_BYTES,
+    StoragePolicyError,
+    check_write,
+    receipt_bytes,
+)
+
 
 SCHEMA_VERSION = 1
 SNAPSHOT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]{0,127}$")
 NAMESPACE_RE = re.compile(r"^(db|qa)$")
 DEFAULT_BWLIMIT = "20M"
-DEFAULT_MIN_FREE_PERCENT = 20.0
+DEFAULT_MIN_FREE_PERCENT = 15.0
 DEFAULT_RESERVE_MULTIPLIER = 1.25
 METADATA = {"_manifest.json", "_receipt.json"}
 
@@ -224,6 +232,15 @@ def copy_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         raise MirrorError("--expected-bytes is required for a remote COS source")
     check = check_capacity(namespace_root, source_bytes, min_free_percent=args.min_free_percent,
                            reserve_multiplier=args.reserve_multiplier)
+    try:
+        policy = check_write(
+            filesystem_root=destination_root,
+            dataset_used_bytes=receipt_bytes(namespace_root, kind=namespace),
+            required_bytes=source_bytes,
+            dataset_cap_bytes=QA_CAP_BYTES if namespace == "qa" else DB_CAP_BYTES,
+        )
+    except StoragePolicyError as exc:
+        raise MirrorError(str(exc)) from exc
     staging = namespace_root / ".staging" / f"{snapshot}.{uuid.uuid4().hex}"
     staging.mkdir(parents=True, exist_ok=False)
     try:
@@ -252,6 +269,7 @@ def copy_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "created_at": utc_now(),
             "manifest": manifest,
             "capacity": check,
+            "storage_policy": policy,
             "copy_policy": {
                 "source_immutable": True,
                 "destination_delete": False,

@@ -16,6 +16,10 @@ from pathlib import Path
 import shutil
 import tempfile
 import time
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backup"))
+from node1_storage_policy import QA_CAP_BYTES, StoragePolicyError, check_write, receipt_bytes
 
 
 HOUR = "%Y/%m/%d/%H"
@@ -178,6 +182,17 @@ def copy_hour(source_root: Path, node1_root: Path, environment: str, hour: dt.da
         recovered = _receipt_from_manifest(target, environment, hour)
         atomic_json(receipt, recovered)
         return recovered | {"recovered_receipt": True}
+
+    required_bytes = sum(path.stat().st_size for _, path in source_files)
+    try:
+        check_write(
+            filesystem_root=node1_root,
+            dataset_used_bytes=receipt_bytes(node1_root / "receipts", kind="qa"),
+            required_bytes=required_bytes,
+            dataset_cap_bytes=QA_CAP_BYTES,
+        )
+    except StoragePolicyError as exc:
+        raise ValueError(str(exc)) from exc
 
     node1_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     staging_parent = target.parent
