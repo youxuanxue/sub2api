@@ -41,6 +41,7 @@ type ManagedBatchFile struct {
 type ManagedBatchBackend interface {
 	CreateFile(context.Context, ManagedBatchOwner, string, string, int64, io.Reader) (ManagedBatchFile, error)
 	GetFile(context.Context, ManagedBatchOwner, string) (ManagedBatchFile, error)
+	ListFiles(context.Context, ManagedBatchOwner, string, string, int) (batchcontract.FileList, error)
 	OpenFile(context.Context, ManagedBatchOwner, string) (io.ReadCloser, *batchcontract.FileObject, error)
 	DeleteFile(context.Context, ManagedBatchOwner, string) error
 	CreateBatch(context.Context, ManagedBatchOwner, batchcontract.BatchSubmitRequest, []batchcontract.RequestLine, string, string) (batchcontract.Batch, error)
@@ -145,6 +146,32 @@ func (h *ManagedBatchHandler) FilesGet(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, got.Object)
+}
+
+func (h *ManagedBatchHandler) FilesList(c *gin.Context) {
+	if !h.available(c) {
+		return
+	}
+	owner, ok := managedBatchOwner(c)
+	if !ok {
+		writeBatchError(c, authBatch())
+		return
+	}
+	limit := 10000
+	if raw := c.Query("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 10000 {
+			writeBatchError(c, badBatch("limit must be between 1 and 10000"))
+			return
+		}
+		limit = n
+	}
+	got, err := h.Backend.ListFiles(c.Request.Context(), owner, c.Query("purpose"), c.Query("after"), limit)
+	if err != nil {
+		writeBatchError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, got)
 }
 
 func (h *ManagedBatchHandler) FilesContent(c *gin.Context) {

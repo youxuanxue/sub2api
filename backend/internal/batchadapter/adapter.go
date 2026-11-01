@@ -31,21 +31,70 @@ type BatchCapability = batchcontract.BatchCapability
 // Account selection is intentionally absent: the runner receives the account
 // identity selected by the normal gateway scheduler in its own context.
 type ManagedRequest struct {
+	// ExecutionContext carries the scheduler-created Plan and account scope.
+	// It is opaque to adapters; the service runner consumes it to re-enter the
+	// normal protocol execution path without re-selecting an account.
+	ExecutionContext context.Context
+	AccountID        int64
+	CustomID         string
+	Endpoint         string
+	Method           string
+	Model            string
+	Body             json.RawMessage
+}
+
+// ExecutionRequest is the provider-neutral input to the normal account
+// scheduler. Keeping it here avoids a dependency from service back into the
+// worker package.
+type ExecutionRequest struct {
+	BatchID   string
+	UserID    int64
+	APIKeyID  int64
+	Provider  string
 	AccountID int64
-	CustomID  string
-	Endpoint  string
-	Method    string
-	Model     string
-	Body      json.RawMessage
+}
+
+// ExecutionBatch and ExecutionItem are the small immutable views needed by a
+// scheduler resolver. They keep the service boundary independent of the SQL
+// repository package (which itself depends on service types).
+type ExecutionBatch struct {
+	ID       string
+	UserID   int64
+	APIKeyID int64
+	Endpoint string
+}
+
+type ExecutionItem struct {
+	ID       int64
+	BatchID  string
+	CustomID string
+}
+
+// ExecutionSelection is returned by the scheduler owner. Release must be
+// called exactly once after the provider attempt finishes.
+type ExecutionSelection struct {
+	Provider  string
+	AccountID int64
+	Context   context.Context
+	Release   func()
 }
 
 // ManagedResponse is the normalized single-request result returned to the
 // Batch indexer. Usage is kept separate so billing can consume the same
 // provider-independent counters as the normal relay path.
 type ManagedResponse struct {
-	Response batchcontract.ItemResponse
-	Usage    Usage
-	Error    *ProviderError
+	Response                      batchcontract.ItemResponse
+	Usage                         Usage
+	Error                         *ProviderError
+	Model                         string
+	UpstreamModel                 string
+	BillingModel                  string
+	ServiceTier                   *string
+	ReasoningEffort               *string
+	RequestedReasoningEffort      *string
+	UpstreamResponseModel         string
+	UpstreamResponseModelConflict bool
+	UpstreamEndpoint              string
 }
 
 // ManagedRunner is implemented by the service layer with the existing
@@ -92,26 +141,37 @@ type NativeBatchStatus struct {
 // the injected runner. Endpoint and body are already validated against the
 // OpenAI-compatible JSONL line.
 type ProviderRequest struct {
-	AccountID int64
-	Endpoint  string
-	Method    string
-	Model     string
-	Body      json.RawMessage
+	ExecutionContext context.Context
+	AccountID        int64
+	Endpoint         string
+	Method           string
+	Model            string
+	Body             json.RawMessage
 }
 
 // ProviderResponse is the small response shape needed to build an OpenAI
 // Batch result line. Raw body remains untouched for result-file fidelity.
 type ProviderResponse struct {
-	StatusCode int
-	RequestID  string
-	Body       json.RawMessage
-	Headers    map[string]string
+	StatusCode                    int
+	RequestID                     string
+	Body                          json.RawMessage
+	Headers                       map[string]string
+	Model                         string
+	UpstreamModel                 string
+	BillingModel                  string
+	ServiceTier                   *string
+	ReasoningEffort               *string
+	RequestedReasoningEffort      *string
+	UpstreamResponseModel         string
+	UpstreamResponseModelConflict bool
+	UpstreamEndpoint              string
 }
 
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens          int `json:"input_tokens"`
+	OutputTokens         int `json:"output_tokens"`
+	TotalTokens          int `json:"total_tokens"`
+	CacheReadInputTokens int `json:"cache_read_input_tokens,omitempty"`
 }
 
 type ErrorClass string
@@ -218,11 +278,26 @@ func (a *ProviderAdapter) Execute(ctx context.Context, request ManagedRequest) (
 	if request.AccountID <= 0 || !a.capability.SupportsEndpoint(request.Endpoint) || request.Method != http.MethodPost || len(request.Body) == 0 {
 		return ManagedResponse{}, ErrInvalidRequest
 	}
-	response, err := a.runner.Run(ctx, ProviderRequest{AccountID: request.AccountID, Endpoint: request.Endpoint, Method: request.Method, Model: request.Model, Body: append([]byte(nil), request.Body...)})
+	executionCtx := request.ExecutionContext
+	if executionCtx == nil {
+		executionCtx = ctx
+	}
+	response, err := a.runner.Run(ctx, ProviderRequest{ExecutionContext: executionCtx, AccountID: request.AccountID, Endpoint: request.Endpoint, Method: request.Method, Model: request.Model, Body: append([]byte(nil), request.Body...)})
 	if err != nil {
 		return ManagedResponse{}, err
 	}
-	result := ManagedResponse{Response: batchcontract.ItemResponse{StatusCode: response.StatusCode, RequestID: response.RequestID, Body: append([]byte(nil), response.Body...)}}
+	result := ManagedResponse{
+		Response:                      batchcontract.ItemResponse{StatusCode: response.StatusCode, RequestID: response.RequestID, Body: append([]byte(nil), response.Body...)},
+		Model:                         response.Model,
+		UpstreamModel:                 response.UpstreamModel,
+		BillingModel:                  response.BillingModel,
+		ServiceTier:                   response.ServiceTier,
+		ReasoningEffort:               response.ReasoningEffort,
+		RequestedReasoningEffort:      response.RequestedReasoningEffort,
+		UpstreamResponseModel:         response.UpstreamResponseModel,
+		UpstreamResponseModelConflict: response.UpstreamResponseModelConflict,
+		UpstreamEndpoint:              response.UpstreamEndpoint,
+	}
 	result.Usage = a.decodeUsage(response.Body)
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		result.Error = classifyHTTPError(response.StatusCode, response.Body)

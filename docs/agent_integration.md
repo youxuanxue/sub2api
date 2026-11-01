@@ -709,6 +709,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `PATCH /v1/custom-voices/:voice_id` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `GET /v1/custom-voices/:voice_id/audio` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `POST /v1/embeddings` from `backend/internal/server/routes/gateway.go`
+- `GET /v1/files` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
 - `POST /v1/files` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
 - `DELETE /v1/files/:file_id` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
 - `GET /v1/files/:file_id` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`

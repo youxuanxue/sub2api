@@ -37,6 +37,9 @@ func (s *managedBatchBackendStub) CreateFile(_ context.Context, _ ManagedBatchOw
 func (s *managedBatchBackendStub) GetFile(context.Context, ManagedBatchOwner, string) (ManagedBatchFile, error) {
 	return s.file, nil
 }
+func (s *managedBatchBackendStub) ListFiles(context.Context, ManagedBatchOwner, string, string, int) (batchcontract.FileList, error) {
+	return batchcontract.FileList{Object: "list"}, nil
+}
 func (s *managedBatchBackendStub) OpenFile(context.Context, ManagedBatchOwner, string) (io.ReadCloser, *batchcontract.FileObject, error) {
 	return io.NopCloser(bytes.NewReader(s.content)), &s.file.Object, nil
 }

@@ -58,3 +58,16 @@ func TestManagedBatchCompleteItemRequiresLeaseOwner(t *testing.T) {
 	require.False(t, ok)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestManagedBatchUpdateProgressPublishesPublicCounts(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	r := NewManagedBatchRepository(db)
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE batches SET request_counts=$1::jsonb")).
+		WithArgs(`{"total":4,"completed":4,"failed":2}`, "batch-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	err = r.UpdateBatchProgress(context.Background(), "batch-1", ManagedBatchProgress{Total: 4, Succeeded: 1, Failed: 1, Cancelled: 1, Unknown: 1})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

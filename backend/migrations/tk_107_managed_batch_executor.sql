@@ -36,9 +36,19 @@ CREATE TABLE IF NOT EXISTS batches (
     version BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    in_progress_at TIMESTAMPTZ,
+    finalizing_at TIMESTAMPTZ,
+    cancelling_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
-    cancelled_at TIMESTAMPTZ
+    cancelled_at TIMESTAMPTZ,
+    expired_at TIMESTAMPTZ,
+    failed_at TIMESTAMPTZ
 );
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS in_progress_at TIMESTAMPTZ;
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS finalizing_at TIMESTAMPTZ;
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS cancelling_at TIMESTAMPTZ;
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS expired_at TIMESTAMPTZ;
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS failed_at TIMESTAMPTZ;
 ALTER TABLE batches ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
 ALTER TABLE batches ADD COLUMN IF NOT EXISTS request_hash CHAR(64);
 CREATE UNIQUE INDEX IF NOT EXISTS batches_owner_idempotency_uq ON batches (user_id, api_key_id, idempotency_key) WHERE idempotency_key IS NOT NULL;

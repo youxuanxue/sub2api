@@ -75,6 +75,18 @@ func (r *fakeRepo) RetryItem(_ context.Context, id int64, worker string, _ time.
 	}
 	return false, nil
 }
+func (r *fakeRepo) CancelPendingItems(_ context.Context, batchID string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	count := 0
+	for i := range r.items {
+		if r.items[i].BatchID == batchID && (r.items[i].Status == batchcontract.ItemStatusPending || r.items[i].Status == "retry") {
+			r.items[i].Status = batchcontract.ItemStatusCancelled
+			count++
+		}
+	}
+	return count, nil
+}
 func (r *fakeRepo) CountBatchItems(context.Context, string) (repository.ManagedBatchProgress, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -122,10 +134,48 @@ func (r fakeRunner) Run(ctx context.Context, _ batchadapter.ProviderRequest) (ba
 	return r.run(ctx)
 }
 
+type fakeResolver struct {
+	key     *service.APIKey
+	account *service.Account
+}
+
+func (r fakeResolver) Resolve(ctx context.Context, _ batchadapter.ExecutionRequest, b batchadapter.ExecutionBatch, item batchadapter.ExecutionItem, _ batchcontract.RequestLine) (batchadapter.ExecutionSelection, error) {
+	return batchadapter.ExecutionSelection{
+		Provider:  batchadapter.ProviderOpenAI,
+		AccountID: r.account.ID,
+		Context: service.WithManagedBatchExecution(ctx, service.ManagedBatchExecution{
+			APIKey: r.key,
+			Selection: &service.AccountSelectionResult{
+				Account: r.account,
+			},
+		}),
+	}, nil
+}
+
+type fakeSettlement struct {
+	inputs []service.ManagedBatchSettlementInput
+	err    error
+}
+
+func (s *fakeSettlement) SettleManagedBatch(_ context.Context, in service.ManagedBatchSettlementInput) error {
+	s.inputs = append(s.inputs, in)
+	return s.err
+}
+
 type memoryIndexer struct {
 	mu    sync.Mutex
 	lines []batchcontract.ResultLine
 	err   error
+}
+
+type memoryFinalizer struct {
+	calls int
+	err   error
+}
+
+func (f *memoryFinalizer) Finalize(context.Context, string) error {
+	f.calls++
+	return f.err
 }
 
 func (i *memoryIndexer) Index(_ context.Context, _ string, line batchcontract.ResultLine) error {
@@ -175,6 +225,91 @@ func TestProcessorManagedSuccessReconcilesAndEmitsOutbox(t *testing.T) {
 	require.Len(t, r.events, 1)
 }
 
+func TestProcessorFinalizesResultsBeforeTerminalTransition(t *testing.T) {
+	r := newFakeRepo(batchcontract.BatchStatusInProgress, nil)
+	r.items = []repository.ManagedBatchItem{testItem()}
+	idx := &memoryIndexer{}
+	finalizer := &memoryFinalizer{}
+	adapter := batchadapter.NewOpenAIAdapter(fakeRunner{run: func(context.Context) (batchadapter.ProviderResponse, error) {
+		return batchadapter.ProviderResponse{StatusCode: 200, Body: []byte(`{"id":"resp-1"}`)}, nil
+	}})
+	p := NewProcessor(Config{Enabled: true, WorkerID: "w1", ResultIndexer: idx, ResultFinalizer: finalizer}, r, map[string]batchadapter.ManagedExecutor{batchadapter.ProviderOpenAI: adapter})
+	result, err := p.Process(context.Background(), service.ManagedBatchJob{ID: "batch-1", Payload: testPayload(t)})
+	require.NoError(t, err)
+	require.True(t, result.Terminal)
+	require.Equal(t, 1, finalizer.calls)
+	require.Equal(t, batchcontract.BatchStatusCompleted, r.batch.Status)
+}
+
+func TestProcessorFinalizerDoesNotRequireLegacyResultIndexer(t *testing.T) {
+	r := newFakeRepo(batchcontract.BatchStatusInProgress, nil)
+	r.items = []repository.ManagedBatchItem{testItem()}
+	finalizer := &memoryFinalizer{}
+	adapter := batchadapter.NewOpenAIAdapter(fakeRunner{run: func(context.Context) (batchadapter.ProviderResponse, error) {
+		return batchadapter.ProviderResponse{StatusCode: 200, Body: []byte(`{"id":"resp-1"}`)}, nil
+	}})
+	p := NewProcessor(Config{Enabled: true, WorkerID: "w1", ResultFinalizer: finalizer}, r, map[string]batchadapter.ManagedExecutor{batchadapter.ProviderOpenAI: adapter})
+	result, err := p.Process(context.Background(), service.ManagedBatchJob{ID: "batch-1", Payload: testPayload(t)})
+	require.NoError(t, err)
+	require.True(t, result.Terminal)
+	require.Equal(t, batchcontract.BatchStatusCompleted, r.batch.Status)
+	require.Equal(t, batchcontract.ItemStatusSucceeded, r.completed[11])
+}
+
+func TestProcessorSettlesSuccessfulItemWithStableItemKey(t *testing.T) {
+	r := newFakeRepo(batchcontract.BatchStatusInProgress, nil)
+	r.items = []repository.ManagedBatchItem{testItem()}
+	settlement := &fakeSettlement{}
+	key := &service.APIKey{ID: 8, UserID: 7}
+	account := &service.Account{ID: 42}
+	adapter := batchadapter.NewOpenAIAdapter(fakeRunner{run: func(context.Context) (batchadapter.ProviderResponse, error) {
+		return batchadapter.ProviderResponse{StatusCode: 200, Body: []byte(`{"id":"resp-1","usage":{"input_tokens":3,"output_tokens":2,"input_tokens_details":{"cached_tokens":1}}}`)}, nil
+	}})
+	p := NewProcessor(Config{Enabled: true, WorkerID: "w1", ResultIndexer: &memoryIndexer{}, Settlement: settlement}, r, map[string]batchadapter.ManagedExecutor{batchadapter.ProviderOpenAI: adapter})
+	p.cfg.Resolver = fakeResolver{key: key, account: account}
+	result, err := p.Process(context.Background(), service.ManagedBatchJob{Payload: testPayload(t)})
+	require.NoError(t, err)
+	require.True(t, result.Terminal)
+	require.Len(t, settlement.inputs, 1)
+	require.Equal(t, "managed-batch:batch-1:item:11", settlement.inputs[0].RequestID)
+	require.Equal(t, 3, settlement.inputs[0].InputTokens)
+	require.Equal(t, 2, settlement.inputs[0].OutputTokens)
+	require.Equal(t, 1, settlement.inputs[0].CacheReadTokens)
+	require.Same(t, key, settlement.inputs[0].APIKey)
+	require.Same(t, account, settlement.inputs[0].Account)
+}
+
+func TestProcessorSettlementFailureRetriesWithoutTerminalSuccess(t *testing.T) {
+	r := newFakeRepo(batchcontract.BatchStatusInProgress, nil)
+	r.items = []repository.ManagedBatchItem{testItem()}
+	settlement := &fakeSettlement{err: errors.New("billing temporarily unavailable")}
+	key := &service.APIKey{ID: 8, UserID: 7}
+	account := &service.Account{ID: 42}
+	adapter := batchadapter.NewOpenAIAdapter(fakeRunner{run: func(context.Context) (batchadapter.ProviderResponse, error) {
+		return batchadapter.ProviderResponse{StatusCode: 200, Body: []byte(`{"usage":{"input_tokens":3,"output_tokens":2}}`)}, nil
+	}})
+	p := NewProcessor(Config{Enabled: true, WorkerID: "w1", ResultIndexer: &memoryIndexer{}, Settlement: settlement}, r, map[string]batchadapter.ManagedExecutor{batchadapter.ProviderOpenAI: adapter})
+	p.cfg.Resolver = fakeResolver{key: key, account: account}
+	result, err := p.Process(context.Background(), service.ManagedBatchJob{Payload: testPayload(t)})
+	require.Error(t, err)
+	require.False(t, result.Terminal)
+	require.Equal(t, 1, r.retried)
+	require.Empty(t, r.completed)
+}
+
+func TestProcessorCancellingBatchCancelsUnstartedItems(t *testing.T) {
+	r := newFakeRepo(batchcontract.BatchStatusCancelling, nil)
+	r.items = []repository.ManagedBatchItem{testItem()}
+	finalizer := &memoryFinalizer{}
+	p := NewProcessor(Config{Enabled: true, WorkerID: "w1", ResultFinalizer: finalizer}, r, nil)
+	result, err := p.Process(context.Background(), service.ManagedBatchJob{ID: "batch-1", Payload: testPayload(t)})
+	require.NoError(t, err)
+	require.True(t, result.Terminal)
+	require.Equal(t, batchcontract.BatchStatusCancelled, r.batch.Status)
+	require.Equal(t, batchcontract.ItemStatusCancelled, r.items[0].Status)
+	require.Equal(t, 1, finalizer.calls)
+}
+
 func TestProcessorRetryableProviderErrorLeavesItemRetryable(t *testing.T) {
 	r := newFakeRepo(batchcontract.BatchStatusInProgress, nil)
 	r.items = []repository.ManagedBatchItem{testItem()}
@@ -208,7 +343,7 @@ func TestProcessorCancellationAfterProviderStartMarksUnknown(t *testing.T) {
 		<-ctx.Done()
 		return batchadapter.ProviderResponse{}, ctx.Err()
 	}})
-	p := NewProcessor(Config{Enabled: true, WorkerID: "w1"}, r, map[string]batchadapter.ManagedExecutor{batchadapter.ProviderOpenAI: adapter})
+	p := NewProcessor(Config{Enabled: true, WorkerID: "w1", ResultIndexer: &memoryIndexer{}}, r, map[string]batchadapter.ManagedExecutor{batchadapter.ProviderOpenAI: adapter})
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { <-started; cancel() }()
 	result, err := p.Process(ctx, service.ManagedBatchJob{Payload: testPayload(t)})

@@ -83,6 +83,10 @@ var ProviderSet = wire.NewSet(
 	ProvideUsageLogRepository,
 	NewUsageBillingRepository,
 	NewBatchImageRepository,
+	NewManagedBatchRepository,
+	ProvideManagedBatchQueue,
+	NewManagedBatchObjectStore,
+	ProvideManagedBatchOutboxCursor,
 	NewGeminiCachedContentRepository,
 	NewIdempotencyRepository,
 	NewUsageCleanupRepository,
@@ -190,6 +194,14 @@ var ProviderSet = wire.NewSet(
 	// TokenKey-only providers — see wire_tk.go.
 	TKProviderSet,
 )
+
+func ProvideManagedBatchQueue(rdb *redis.Client) service.ManagedBatchQueue {
+	return NewManagedBatchQueue(rdb, ManagedBatchQueueOptions{})
+}
+
+func ProvideManagedBatchOutboxCursor(rdb *redis.Client) service.ManagedBatchOutboxCursor {
+	return NewManagedBatchOutboxCursor(rdb, "")
+}
 
 // ProvideEnt 为依赖注入提供 Ent 客户端。
 //

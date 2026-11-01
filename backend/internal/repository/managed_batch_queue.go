@@ -184,6 +184,15 @@ func (q *managedBatchQueue) RecoverStale(ctx context.Context, stale time.Duratio
 	return managedBatchMoveScript.Run(ctx, q.rdb, []string{q.active, q.ready}, time.Now().Add(-stale).UnixMilli(), limit).Int()
 }
 
+// MoveDelayed promotes due retries back to the ready list. It is kept off the
+// base queue interface so alternate implementations can opt in independently.
+func (q *managedBatchQueue) MoveDelayed(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	return managedBatchMoveScript.Run(ctx, q.rdb, []string{q.delayed, q.ready}, time.Now().UnixMilli(), limit).Int()
+}
+
 func (q *managedBatchQueue) TryAcquireJobLease(ctx context.Context, id string, ttl time.Duration) (service.ManagedBatchLease, bool, error) {
 	if id == "" {
 		return nil, false, service.ErrManagedBatchInvalidJob

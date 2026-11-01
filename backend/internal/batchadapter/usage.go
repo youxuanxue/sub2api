@@ -13,6 +13,12 @@ func decodeOpenAIUsage(body []byte) Usage {
 			TotalTokens      int `json:"total_tokens"`
 			InputTokens      int `json:"input_tokens"`
 			OutputTokens     int `json:"output_tokens"`
+			PromptDetails    struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
+			InputDetails struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"input_tokens_details"`
 		} `json:"usage"`
 	}
 	if json.Unmarshal(body, &envelope) != nil {
@@ -28,7 +34,11 @@ func decodeOpenAIUsage(body []byte) Usage {
 	if u.TotalTokens == 0 {
 		u.TotalTokens = u.InputTokens + u.OutputTokens
 	}
-	return Usage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TotalTokens: u.TotalTokens}
+	cached := u.InputDetails.CachedTokens
+	if cached == 0 {
+		cached = u.PromptDetails.CachedTokens
+	}
+	return Usage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TotalTokens: u.TotalTokens, CacheReadInputTokens: cached}
 }
 
 // Antigravity uses the Gemini usageMetadata names on its cloudcode wire. A

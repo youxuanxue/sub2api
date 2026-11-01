@@ -91,6 +91,14 @@ type FileDeleteResponse struct {
 	Deleted bool   `json:"deleted"`
 }
 
+type FileList struct {
+	Object  string       `json:"object"`
+	Data    []FileObject `json:"data"`
+	FirstID *string      `json:"first_id"`
+	LastID  *string      `json:"last_id"`
+	HasMore bool         `json:"has_more"`
+}
+
 type BatchList struct {
 	Object  string  `json:"object"`
 	Data    []Batch `json:"data"`
@@ -172,8 +180,8 @@ type ItemResponse struct {
 type ResultLine struct {
 	ID       string        `json:"id"`
 	CustomID string        `json:"custom_id"`
-	Response *ItemResponse `json:"response"`
-	Error    *BatchError   `json:"error"`
+	Response *ItemResponse `json:"response,omitempty"`
+	Error    *BatchError   `json:"error,omitempty"`
 }
 
 type BatchItem struct {

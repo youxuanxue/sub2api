@@ -27,11 +27,11 @@ var TKProviderSet = wire.NewSet(
 	ProvideTKManagedBatchHandler,
 )
 
-// ProvideTKManagedBatchBackend wires the durable repository boundary. Object
-// storage and queue workers are intentionally nil until their reviewed runtime
-// owners are supplied; this keeps enabling the public flag fail-closed.
-func ProvideTKManagedBatchBackend(db *sql.DB) ManagedBatchBackend {
-	return NewManagedBatchRepositoryBackend(repository.NewManagedBatchRepository(db), nil, nil)
+// ProvideTKManagedBatchBackend wires the durable repository boundary. The
+// object store remains nil until the private COS/S3-compatible bucket is
+// configured; this keeps enabling the public flag fail-closed.
+func ProvideTKManagedBatchBackend(db *sql.DB, store *repository.S3ManagedBatchObjectStore, queue service.ManagedBatchQueue) ManagedBatchBackend {
+	return NewManagedBatchRepositoryBackend(repository.NewManagedBatchRepository(db), store, queue)
 }
 
 func ProvideTKManagedBatchHandler(cfg *config.Config, backend ManagedBatchBackend) *ManagedBatchHandler {

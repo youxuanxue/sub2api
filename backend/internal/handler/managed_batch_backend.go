@@ -35,11 +35,14 @@ type ManagedBatchObjectStore interface {
 type ManagedBatchRepositoryPort interface {
 	CreateFile(context.Context, repository.ManagedBatchFile) error
 	GetFileForOwner(context.Context, int64, int64, string) (*repository.ManagedBatchFile, error)
+	ListFilesForOwner(context.Context, int64, int64, string, string, int) ([]repository.ManagedBatchFile, bool, error)
 	DeleteFileForOwner(context.Context, int64, int64, string) error
-	CreateBatchSubmission(context.Context, repository.ManagedBatchSubmission) error
+	CreateBatchSubmission(context.Context, repository.ManagedBatchSubmission) (*repository.ManagedBatch, error)
 	GetBatchForOwner(context.Context, int64, int64, string) (*repository.ManagedBatch, error)
 	ListBatchesForOwner(context.Context, int64, int64, string, int) ([]repository.ManagedBatch, bool, error)
 	CompareAndSwapBatchStatus(context.Context, int64, int64, string, int64, string, *time.Time, *string, *string) (bool, error)
+	CancelPendingItems(context.Context, string) (int, error)
+	ResetBatchForRetry(context.Context, int64, int64, string, int64) (bool, error)
 	EnqueueOutbox(context.Context, repository.ManagedBatchOutboxEvent) error
 }
 
@@ -99,6 +102,24 @@ func (b *ManagedBatchRepositoryBackend) GetFile(ctx context.Context, owner Manag
 	}
 	return ManagedBatchFile{Object: fileObject(*f), StorageRef: f.StorageRef}, nil
 }
+func (b *ManagedBatchRepositoryBackend) ListFiles(ctx context.Context, owner ManagedBatchOwner, purpose, after string, limit int) (batchcontract.FileList, error) {
+	if err := b.ensure(); err != nil {
+		return batchcontract.FileList{}, err
+	}
+	files, more, err := b.Repo.ListFilesForOwner(ctx, owner.UserID, owner.APIKeyID, purpose, after, limit)
+	if err != nil {
+		return batchcontract.FileList{}, err
+	}
+	out := batchcontract.FileList{Object: "list", HasMore: more}
+	for _, f := range files {
+		out.Data = append(out.Data, fileObject(f))
+	}
+	if len(out.Data) > 0 {
+		out.FirstID = &out.Data[0].ID
+		out.LastID = &out.Data[len(out.Data)-1].ID
+	}
+	return out, nil
+}
 func (b *ManagedBatchRepositoryBackend) OpenFile(ctx context.Context, owner ManagedBatchOwner, id string) (io.ReadCloser, *batchcontract.FileObject, error) {
 	f, err := b.GetFile(ctx, owner, id)
 	if err != nil {
@@ -137,6 +158,9 @@ func (b *ManagedBatchRepositoryBackend) CreateBatch(ctx context.Context, owner M
 	if err := b.ensure(); err != nil {
 		return batchcontract.Batch{}, err
 	}
+	if req.Endpoint != batchcontract.EndpointResponses {
+		return batchcontract.Batch{}, &BatchAPIError{Status: 400, Type: "invalid_request_error", Code: batchcontract.ErrorInvalidEndpoint, Message: "managed Batch currently supports only /v1/responses"}
+	}
 	if err := batchcontract.ValidateRequestLines(lines, req.Endpoint); err != nil {
 		return batchcontract.Batch{}, err
 	}
@@ -150,24 +174,33 @@ func (b *ManagedBatchRepositoryBackend) CreateBatch(ctx context.Context, owner M
 	}
 	items := make([]repository.ManagedBatchItem, 0, len(lines))
 	for _, line := range lines {
-		var request map[string]any
-		if err := json.Unmarshal(line.Body, &request); err != nil {
+		if !json.Valid(line.Body) {
 			return batchcontract.Batch{}, &BatchAPIError{Status: 400, Type: "invalid_request_error", Code: "invalid_request", Message: "invalid request body"}
 		}
-		request["custom_id"] = line.CustomID
-		request["method"] = line.Method
-		request["url"] = line.URL
+		request := map[string]any{
+			"custom_id": line.CustomID,
+			"method":    line.Method,
+			"url":       line.URL,
+			"body":      json.RawMessage(line.Body),
+		}
 		items = append(items, repository.ManagedBatchItem{BatchID: id, CustomID: line.CustomID, Request: request, Status: batchcontract.ItemStatusPending})
 	}
 	mb := repository.ManagedBatch{ID: id, UserID: owner.UserID, APIKeyID: owner.APIKeyID, InputFileID: req.InputFileID, Endpoint: req.Endpoint, CompletionWindow: req.CompletionWindow, Status: batchcontract.BatchStatusValidating, RequestCounts: counts, Metadata: metadata, DeadlineAt: &deadline, Version: 0, IdempotencyKey: strings.TrimSpace(idem), RequestHash: hash, CreatedAt: now}
-	err := b.Repo.CreateBatchSubmission(ctx, repository.ManagedBatchSubmission{Batch: mb, Items: items, Outbox: repository.ManagedBatchOutboxEvent{BatchID: id, EventType: "batch.submit", DedupKey: "batch.submit:" + id, Payload: map[string]any{"batch_id": id}}})
+	persisted, err := b.Repo.CreateBatchSubmission(ctx, repository.ManagedBatchSubmission{Batch: mb, Items: items, Outbox: repository.ManagedBatchOutboxEvent{BatchID: id, EventType: "batch.submit", DedupKey: "batch.submit:" + id, Payload: map[string]any{
+		"batch_id":   id,
+		"user_id":    owner.UserID,
+		"api_key_id": owner.APIKeyID,
+	}}})
 	if err != nil {
 		if errors.Is(err, repository.ErrManagedBatchIdempotencyConflict) {
 			return batchcontract.Batch{}, &BatchAPIError{Status: 409, Type: "invalid_request_error", Code: batchcontract.ErrorIdempotencyConflict, Message: "idempotency key was already used with a different request"}
 		}
 		return batchcontract.Batch{}, err
 	}
-	return publicBatch(mb), nil
+	if persisted == nil {
+		return batchcontract.Batch{}, errors.New("managed batch repository returned no batch")
+	}
+	return publicBatch(*persisted), nil
 }
 
 func (b *ManagedBatchRepositoryBackend) GetBatch(ctx context.Context, owner ManagedBatchOwner, id string) (batchcontract.Batch, error) {
@@ -202,32 +235,62 @@ func (b *ManagedBatchRepositoryBackend) ListBatches(ctx context.Context, owner M
 	return out, nil
 }
 func (b *ManagedBatchRepositoryBackend) CancelBatch(ctx context.Context, owner ManagedBatchOwner, id string) (batchcontract.Batch, error) {
-	return b.transition(ctx, owner, id, batchcontract.BatchStatusCancelling)
-}
-func (b *ManagedBatchRepositoryBackend) RetryBatch(ctx context.Context, owner ManagedBatchOwner, id, _ string) (batchcontract.Batch, error) {
-	return b.transition(ctx, owner, id, batchcontract.BatchStatusValidating)
-}
-func (b *ManagedBatchRepositoryBackend) transition(ctx context.Context, owner ManagedBatchOwner, id, status string) (batchcontract.Batch, error) {
 	if err := b.ensure(); err != nil {
 		return batchcontract.Batch{}, err
 	}
-	mb, err := b.Repo.GetBatchForOwner(ctx, owner.UserID, owner.APIKeyID, id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return batchcontract.Batch{}, ErrManagedBatchNotFound
-	}
+	mb, err := b.loadBatch(ctx, owner, id)
 	if err != nil {
 		return batchcontract.Batch{}, err
 	}
-	ok, err := b.Repo.CompareAndSwapBatchStatus(ctx, owner.UserID, owner.APIKeyID, id, mb.Version, status, nil, nil, nil)
+	if err := batchcontract.TransitionBatch(mb.Status, batchcontract.BatchStatusCancelling); err != nil {
+		return batchcontract.Batch{}, batchConflict(err)
+	}
+	ok, err := b.Repo.CompareAndSwapBatchStatus(ctx, owner.UserID, owner.APIKeyID, id, mb.Version, batchcontract.BatchStatusCancelling, nil, nil, nil)
 	if err != nil {
 		return batchcontract.Batch{}, err
 	}
 	if !ok {
-		return batchcontract.Batch{}, &BatchAPIError{Status: 409, Type: "invalid_request_error", Code: "conflict", Message: "batch changed concurrently"}
+		return batchcontract.Batch{}, batchConflict(errors.New("batch changed concurrently"))
 	}
-	mb.Status = status
+	if _, err := b.Repo.CancelPendingItems(ctx, id); err != nil {
+		return batchcontract.Batch{}, err
+	}
+	mb.Status = batchcontract.BatchStatusCancelling
 	mb.Version++
 	return publicBatch(*mb), nil
+}
+func (b *ManagedBatchRepositoryBackend) RetryBatch(ctx context.Context, owner ManagedBatchOwner, id, _ string) (batchcontract.Batch, error) {
+	if err := b.ensure(); err != nil {
+		return batchcontract.Batch{}, err
+	}
+	mb, err := b.loadBatch(ctx, owner, id)
+	if err != nil {
+		return batchcontract.Batch{}, err
+	}
+	if mb.Status != batchcontract.BatchStatusFailed && mb.Status != batchcontract.BatchStatusExpired {
+		return batchcontract.Batch{}, batchConflict(fmt.Errorf("batch cannot be retried from %q", mb.Status))
+	}
+	ok, err := b.Repo.ResetBatchForRetry(ctx, owner.UserID, owner.APIKeyID, id, mb.Version)
+	if err != nil {
+		return batchcontract.Batch{}, err
+	}
+	if !ok {
+		return batchcontract.Batch{}, batchConflict(errors.New("batch changed concurrently"))
+	}
+	mb.Status = batchcontract.BatchStatusValidating
+	mb.Version++
+	return publicBatch(*mb), nil
+}
+func (b *ManagedBatchRepositoryBackend) loadBatch(ctx context.Context, owner ManagedBatchOwner, id string) (*repository.ManagedBatch, error) {
+	mb, err := b.Repo.GetBatchForOwner(ctx, owner.UserID, owner.APIKeyID, id)
+	if errors.Is(err, sql.ErrNoRows) || errors.Is(err, io.EOF) {
+		return nil, ErrManagedBatchNotFound
+	}
+	return mb, err
+}
+
+func batchConflict(err error) error {
+	return &BatchAPIError{Status: 409, Type: "invalid_request_error", Code: "conflict", Message: err.Error()}
 }
 
 func fileObject(f repository.ManagedBatchFile) batchcontract.FileObject {
@@ -245,6 +308,19 @@ func publicBatch(b repository.ManagedBatch) batchcontract.Batch {
 		}
 	}
 	out := batchcontract.Batch{ID: b.ID, Object: "batch", Endpoint: b.Endpoint, CompletionWindow: b.CompletionWindow, Metadata: m, Status: b.Status, InputFileID: b.InputFileID, OutputFileID: b.OutputFileID, ErrorFileID: b.ErrorFileID, RequestCounts: batchcontract.RequestCounts{Total: intValue(b.RequestCounts["total"]), Completed: intValue(b.RequestCounts["completed"]), Failed: intValue(b.RequestCounts["failed"])}, CreatedAt: b.CreatedAt.Unix()}
+	for _, item := range []struct {
+		value  *time.Time
+		target **int64
+	}{{b.InProgressAt, &out.InProgressAt}, {b.FinalizingAt, &out.FinalizingAt}, {b.CancellingAt, &out.CancellingAt}, {b.CompletedAt, &out.CompletedAt}, {b.CancelledAt, &out.CancelledAt}, {b.ExpiredAt, &out.ExpiredAt}, {b.FailedAt, &out.FailedAt}} {
+		if item.value != nil {
+			v := item.value.Unix()
+			*item.target = &v
+		}
+	}
+	if b.DeadlineAt != nil {
+		expires := b.DeadlineAt.Unix()
+		out.ExpiresAt = &expires
+	}
 	return out
 }
 func intValue(v any) int {

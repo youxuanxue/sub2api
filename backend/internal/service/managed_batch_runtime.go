@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 )
 
@@ -45,6 +46,13 @@ type ManagedBatchQueue interface {
 	Heartbeat(context.Context, string) error
 	RecoverStale(context.Context, time.Duration, int) (int, error)
 	TryAcquireJobLease(context.Context, string, time.Duration) (ManagedBatchLease, bool, error)
+}
+
+// ManagedBatchDelayedMover is optional so existing queue test doubles and
+// alternate queue implementations remain valid. The Redis implementation
+// moves due delayed jobs back to the ready list.
+type ManagedBatchDelayedMover interface {
+	MoveDelayed(context.Context, int) (int, error)
 }
 
 // ManagedBatchProcessor executes one reserved job. Terminal=true acknowledges
@@ -221,4 +229,104 @@ func (p *ManagedBatchOutboxPublisher) PublishOnce(ctx context.Context) (int, err
 		count++
 	}
 	return count, nil
+}
+
+// ManagedBatchRuntime owns the small set of long-running loops required by
+// the managed executor. Construction is side-effect free; Start is a no-op
+// while disabled so DI can remain present in every deployment.
+type ManagedBatchRuntime struct {
+	worker    *ManagedBatchWorker
+	publisher *ManagedBatchOutboxPublisher
+	queue     ManagedBatchQueue
+	enabled   bool
+
+	mu     sync.Mutex
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+func NewManagedBatchRuntime(worker *ManagedBatchWorker, publisher *ManagedBatchOutboxPublisher, queue ManagedBatchQueue, enabled bool) *ManagedBatchRuntime {
+	return &ManagedBatchRuntime{worker: worker, publisher: publisher, queue: queue, enabled: enabled}
+}
+
+func (r *ManagedBatchRuntime) Start() {
+	if r == nil || !r.enabled || r.worker == nil || r.publisher == nil || r.queue == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cancel != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	r.cancel, r.done = cancel, done
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() { defer wg.Done(); r.runWorker(ctx) }()
+	go func() { defer wg.Done(); r.runPublisher(ctx) }()
+	go func() { defer wg.Done(); r.runRecovery(ctx) }()
+	go func() { defer wg.Done(); r.runDelayedMover(ctx) }()
+	go func() { wg.Wait(); close(done) }()
+}
+
+func (r *ManagedBatchRuntime) runWorker(ctx context.Context) {
+	for ctx.Err() == nil {
+		_ = r.worker.RunOnce(ctx)
+		sleepOrDone(ctx, time.Second)
+	}
+}
+
+func (r *ManagedBatchRuntime) runPublisher(ctx context.Context) {
+	for ctx.Err() == nil {
+		_, _ = r.publisher.PublishOnce(ctx)
+		sleepOrDone(ctx, time.Second)
+	}
+}
+
+func (r *ManagedBatchRuntime) runRecovery(ctx context.Context) {
+	interval := r.worker.Options.RecoveryInterval
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	for ctx.Err() == nil {
+		_, _ = r.worker.RecoverStaleOnce(ctx)
+		sleepOrDone(ctx, interval)
+	}
+}
+
+func (r *ManagedBatchRuntime) runDelayedMover(ctx context.Context) {
+	mover, ok := r.queue.(ManagedBatchDelayedMover)
+	if !ok {
+		return
+	}
+	for ctx.Err() == nil {
+		_, _ = mover.MoveDelayed(ctx, 100)
+		sleepOrDone(ctx, time.Second)
+	}
+}
+
+func (r *ManagedBatchRuntime) Stop() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	cancel, done := r.cancel, r.done
+	r.cancel, r.done = nil, nil
+	r.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		<-done
+	}
+}
+
+func (r *ManagedBatchRuntime) Running() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cancel != nil
 }

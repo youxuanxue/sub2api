@@ -9,6 +9,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/batchcontract"
 )
 
+type managedExecutionContextTestKey struct{}
+
 type fakeRunner struct {
 	request  ProviderRequest
 	response ProviderResponse
@@ -57,9 +59,11 @@ func TestValidateRequestChecksOpenAIEndpoints(t *testing.T) {
 }
 
 func TestManagedExecuteForwardsToRunnerAndNormalizesUsage(t *testing.T) {
+	tier := "default"
 	runner := &fakeRunner{response: ProviderResponse{
 		StatusCode: http.StatusOK, RequestID: "req_fixture",
-		Body: []byte(`{"id":"resp_fixture","usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}`),
+		Body:  []byte(`{"id":"resp_fixture","usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10,"prompt_tokens_details":{"cached_tokens":2}}}`),
+		Model: "fixture-model", UpstreamModel: "mapped-model", BillingModel: "priced-model", ServiceTier: &tier,
 	}}
 	adapter := NewOpenAIAdapter(runner)
 	got, err := adapter.Execute(context.Background(), ManagedRequest{AccountID: 42, Endpoint: batchcontract.EndpointChatCompletions, Method: http.MethodPost, Model: "fixture-model", Body: requestLine(batchcontract.EndpointChatCompletions).Body})
@@ -69,8 +73,31 @@ func TestManagedExecuteForwardsToRunnerAndNormalizesUsage(t *testing.T) {
 	if runner.request.AccountID != 42 || runner.request.Endpoint != batchcontract.EndpointChatCompletions || runner.request.Model != "fixture-model" {
 		t.Fatalf("runner request = %+v", runner.request)
 	}
-	if got.Response.StatusCode != http.StatusOK || got.Response.RequestID != "req_fixture" || got.Usage != (Usage{InputTokens: 7, OutputTokens: 3, TotalTokens: 10}) || got.Error != nil {
+	if got.Response.StatusCode != http.StatusOK || got.Response.RequestID != "req_fixture" || got.Usage != (Usage{InputTokens: 7, OutputTokens: 3, TotalTokens: 10, CacheReadInputTokens: 2}) || got.Error != nil {
 		t.Fatalf("managed response = %+v", got)
+	}
+	if got.Model != "fixture-model" || got.UpstreamModel != "mapped-model" || got.BillingModel != "priced-model" || got.ServiceTier == nil || *got.ServiceTier != tier {
+		t.Fatalf("managed billing metadata = %+v", got)
+	}
+}
+
+func TestManagedExecutePreservesSchedulerExecutionContext(t *testing.T) {
+	runner := &fakeRunner{response: ProviderResponse{StatusCode: http.StatusOK, Body: []byte(`{"usage":{}}`)}}
+	adapter := NewOpenAIAdapter(runner)
+	marker := context.WithValue(context.Background(), managedExecutionContextTestKey{}, "scheduler-plan")
+	_, err := adapter.Execute(context.Background(), ManagedRequest{
+		ExecutionContext: marker,
+		AccountID:        42,
+		Endpoint:         batchcontract.EndpointResponses,
+		Method:           http.MethodPost,
+		Model:            "fixture-model",
+		Body:             requestLine(batchcontract.EndpointResponses).Body,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runner.request.ExecutionContext != marker {
+		t.Fatalf("runner lost scheduler execution context")
 	}
 }
 

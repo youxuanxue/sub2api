@@ -14,6 +14,7 @@ func registerTKManagedBatchRoutes(routes terminalRouteRegistrar, h *handler.Hand
 		return
 	}
 	routes.Register(http.MethodPost, "/files", Excluded("batch_file_upload"), h.ManagedBatch.FilesCreate)
+	routes.Register(http.MethodGet, "/files", Excluded("batch_file_list"), h.ManagedBatch.FilesList)
 	routes.Register(http.MethodGet, "/files/:file_id", Excluded("batch_file_read"), h.ManagedBatch.FilesGet)
 	routes.Register(http.MethodGet, "/files/:file_id/content", Excluded("batch_file_content"), h.ManagedBatch.FilesContent)
 	routes.Register(http.MethodDelete, "/files/:file_id", Excluded("batch_file_delete"), h.ManagedBatch.FilesDelete)

@@ -118,3 +118,10 @@ func TestManagedBatchOutboxPublisher_ReplaysAfterCursorAndDeduplicates(t *testin
 	require.Equal(t, int64(2), c.id)
 	require.Len(t, q.jobs, 1)
 }
+
+func TestManagedBatchRuntimeDisabledDoesNotStartLoops(t *testing.T) {
+	runtime := NewManagedBatchRuntime(nil, nil, nil, false)
+	runtime.Start()
+	require.False(t, runtime.Running())
+	runtime.Stop()
+}
