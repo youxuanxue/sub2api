@@ -109,6 +109,20 @@ class CosNode1MirrorTest(unittest.TestCase):
             with self.assertRaisesRegex(mirror.MirrorError, "below 20.0% floor"):
                 mirror.check_capacity(Path(tmp), 1, min_free_percent=20, reserve_multiplier=1.25)
 
+    def test_default_capacity_floor_matches_ninety_percent_block(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+                mirror.shutil, "disk_usage", return_value=shutil_usage(100, 15, 85)):
+            result = mirror.parse_args([
+                "copy", "--namespace", "db", "--snapshot", "snap",
+                "--source", tmp, "--destination", tmp,
+            ])
+            self.assertEqual(result.min_free_percent, 10.0)
+            capacity = mirror.check_capacity(
+                Path(tmp), 1, min_free_percent=result.min_free_percent,
+                reserve_multiplier=result.reserve_multiplier,
+            )
+            self.assertEqual(capacity["free_percent"], 85.0)
+
 
 def shutil_usage(total: int, used: int, free: int):
     import collections

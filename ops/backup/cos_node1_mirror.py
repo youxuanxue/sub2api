@@ -39,7 +39,10 @@ SCHEMA_VERSION = 1
 SNAPSHOT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]{0,127}$")
 NAMESPACE_RE = re.compile(r"^(db|qa)$")
 DEFAULT_BWLIMIT = "20M"
-DEFAULT_MIN_FREE_PERCENT = 15.0
+# The shared policy emits the 85% warning and blocks projected writes at 90%.
+# Keep the legacy capacity preflight at the same 10% free-space floor so it
+# does not turn the warning threshold into an earlier write block.
+DEFAULT_MIN_FREE_PERCENT = 10.0
 DEFAULT_RESERVE_MULTIPLIER = 1.25
 METADATA = {"_manifest.json", "_receipt.json"}
 
