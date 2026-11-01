@@ -87,3 +87,30 @@ class TencentPgBackrestTests(TestCase):
 
         self.assertIn(("--repo=1", "--type=full", "backup"), calls)
         self.assertNotIn(("--repo=2", "--type=full", "backup"), calls)
+
+    def test_check_validates_all_configured_repositories_with_one_command(self):
+        info = {
+            "name": "tokenkey",
+            "status": {"code": 0},
+            "backup": [],
+        }
+        calls = []
+
+        def fake_backrest(*args, **kwargs):
+            calls.append(args)
+            if args[-1] == "info":
+                return json.dumps([info])
+            if args == ("check",):
+                return ""
+            raise AssertionError(args)
+
+        with patch.object(runner, "exclusive", return_value=_Lock()), \
+             patch.object(runner, "repo2_enabled", return_value=True), \
+             patch.object(runner, "backrest", side_effect=fake_backrest), \
+             patch.object(runner, "run", return_value='{"last_archived_wal": "wal", "last_archived_time": null, "failed_count": 0}'), \
+             patch.object(runner, "atomic_json"):
+            runner.cmd_check()
+
+        self.assertIn(("check",), calls)
+        self.assertNotIn(("--repo=1", "check"), calls)
+        self.assertNotIn(("--repo=2", "check"), calls)

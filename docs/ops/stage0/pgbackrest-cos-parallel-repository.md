@@ -11,7 +11,7 @@ status: draft
 
 `ops/stage0/postgres_backup.py config` 默认仍只渲染现有 AWS `repo1`。传入完整的 `--secondary-*` 参数后才增加 `repo2`；凭据永远不由渲染器生成或写入，身份刷新器在受控主机上注入短期凭据。repo1 的桶、路径、区域和保留策略不会被 repo2 覆盖。腾讯 COS 正式桶使用 `host` URI style；实测 `path` style 的 HEAD 请求返回 403，因此不能把 path-style 作为 COS 的默认值。
 
-这是配置草案，不会让现有 `backup`/`check` 命令自动写入 repo2。现网 pgBackRest 2.58 不接受 `--repo=all`，因此双仓库 `backup` 和 `check` 必须分别执行 `--repo=1`、`--repo=2` 并分别核对回执；`archive-push` 不使用 `--repo`，会按配置尝试向所有 indexed repository 归档。必须在隔离环境证明两个仓库均收到同一 WAL，并确认任一仓库失败时状态不会被伪报成功。未完成该验证前，线上命令继续只使用默认 repo1；不得仅凭生成出的配置宣称双写已启用。
+这是配置草案，不会让现有 `backup`/`check` 命令自动写入 repo2。现网 pgBackRest 2.58 的 `backup` 支持显式 `--repo=1`、`--repo=2`，而 `check` 与 `stanza-create` 不接受 `--repo`：前者一次校验所有已配置仓库并触发一次共享 WAL 归档，后者一次为所有已配置仓库创建 stanza。`info` 支持按 `--repo=1`、`--repo=2` 分别核对回执；`archive-push` 不使用 `--repo`，会按配置尝试向所有 indexed repository 归档。必须在隔离环境证明两个仓库均收到同一 WAL，并确认任一仓库失败时状态不会被伪报成功。未完成该验证前，线上命令继续只使用默认 repo1；不得仅凭生成出的配置宣称双写已启用。
 
 prod 运行时身份刷新器从 root-only `/etc/tokenkey/cos-backup.env` 读取精确的 `tencent_SecretId` 与 `tencent_SecretKey` 两行；文件不存在时继续渲染 AWS-only 配置，文件存在且权限/内容校验通过时才渲染 COS repo2。凭据只进入 `/run` 的临时 pgBackRest 配置，不写入仓库、回执或日志。
 
@@ -35,10 +35,10 @@ cn-prod 使用相同入口，AWS repo1 保持现网东京仓库，COS repo2 改�
 
 1. 先在合成数据和 COS 兼容测试存储上验证 pgBackRest 版本、S3 签名、path-style、WAL 归档和并行仓库行为。
 2. 生产变更时把 repo2 配置放入临时配置文件，执行 `stanza-create`、`check` 和一次只读 `info`；确认 repo1 仍可读后，再按维护窗口启用双写。不得先删除、改名或缩短 AWS 留存。
-3. 运行至少一份完整全量、一轮自然增量及连续 WAL；对两个仓库分别执行 `check`/`verify`，并从 COS 恢复最新点和一个历史点到全新隔离目录。验收回执要记录仓库、备份 label、WAL 覆盖起点、校验结果和耗时。
+3. 运行至少一份完整全量、一轮自然增量及连续 WAL；执行一次覆盖全部仓库的 `check`，再按 repo 分别执行 `info`/`verify`，并从 COS 恢复最新点和一个历史点到全新隔离目录。验收回执要记录仓库、备份 label、WAL 覆盖起点、校验结果和耗时。
 4. COS 验收未通过时，停用 repo2 写入并保留 AWS repo1；不得删除 COS 上的失败对象或 AWS 链。COS 验收通过后仍至少保留 AWS 只读回退链 30 天，再单独审批退役。
 
-在 pgBackRest 版本、COS 签名和双仓库归档语义未完成合成数据验证前，不得执行带 `--repo=2` 的生产备份/恢复命令，不得把 `repo2` 配置复制到线上运行目录，也不得切换默认仓库。`archive-push` 的多仓库行为由配置决定，不能伪造 `--repo=all` 这样的命令。
+在 pgBackRest 版本、COS 签名和双仓库归档语义未完成合成数据验证前，不得执行带 `--repo=2` 的生产备份/恢复命令，不得把 `repo2` 配置复制到线上运行目录，也不得切换默认仓库。`archive-push` 的多仓库行为由配置决定，不能伪造 `--repo=all` 这样的命令；`check`/`stanza-create` 则按 2.58 的语义一次覆盖全部仓库。
 
 ## 安全不变量
 

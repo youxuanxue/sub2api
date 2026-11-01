@@ -128,8 +128,10 @@ def cmd_check():
     try:
         started = time.time()
         repos = repository_numbers()
-        for repo in repos:
-            backrest(f"--repo={repo}", "check", timeout=120)
+        # pgBackRest 2.58 does not accept --repo for the check command.  A
+        # single check validates every configured repository and deliberately
+        # forces one WAL archive round-trip through the shared archive_command.
+        backrest("check", timeout=120)
         sql = (
             "SELECT json_build_object("
             "'last_archived_wal', last_archived_wal, "
