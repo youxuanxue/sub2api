@@ -36,6 +36,8 @@ S3 上传、旧 boundary/maintenance 继续暂停；旧 DROP pause 保持原值�
 `receipts/<environment>/<UTC-hour>.json`。目标目录默认保留 365 天的容量规划；本实现不做
 QA PostgreSQL restore，也不删除源数据。`tokenkey-qa-archive.service/.timer` 只由
 reviewed installer 生成，当前 `PHASES` 不包含 archive，因此本次代码不会安装或启用 timer。
+安装器只有显式传入 `--include-node1-archive --apply` 才会把 archive 加入 bundle，并同时
+把 node1 receipt 根目录接入 cleanup；普通 `--apply` 继续只安装本地 provision/cleanup。
 
 本地 cleanup 在配置 `ArchiveReceiptRoot` 后把 node1 receipt 作为硬门禁：缺失、不可达、
 格式错误或校验字段不完整均返回失败并保留源小时；不会为了维持 24 小时数字删除唯一副本。

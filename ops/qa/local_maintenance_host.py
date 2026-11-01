@@ -139,6 +139,8 @@ def require_legacy_paused():
 def unit_files(bundle, phase, environment='prod'):
     if phase not in PHASES and phase != ARCHIVE_PHASE:
         raise ValueError('unknown local phase')
+    if environment not in ('prod', 'cn-prod'):
+        raise ValueError('unknown QA archive environment')
     name = 'tokenkey-qa-'+phase
     if phase == 'archive':
         return {
@@ -295,6 +297,8 @@ def install(args):
     if digest != args.sha256:
         raise ValueError('artifact digest mismatch')
     phases = list(PHASES)
+    if args.include_node1_archive:
+        phases.append(ARCHIVE_PHASE)
     print(json.dumps({'hostname': socket.gethostname(), 'phases': phases, 'sha256': digest, 'apply': args.apply}))
     if not args.apply:
         run_phase({'hostname':socket.gethostname(), 'binary':str(args.binary.resolve()),
@@ -303,8 +307,10 @@ def install(args):
     bundle_digest = hashlib.sha256(Path(__file__).read_bytes()+digest.encode()).hexdigest()[:16]
     bundle = BASE/bundle_digest
     environment = manifest.get('environment', 'prod')
+    node1_root = str(NODE1_ROOT) if args.include_node1_archive else None
+    node1_environment = environment if args.include_node1_archive else None
     config = {'hostname': socket.gethostname(), 'binary': str(bundle/'qa-local-maintenance'), 'sha256': digest,
-              'phases': phases, 'node1_root': str(NODE1_ROOT), 'node1_environment': environment}
+              'phases': phases, 'node1_root': node1_root, 'node1_environment': node1_environment}
     BASE.mkdir(parents=True, exist_ok=True, mode=0o755)
     if bundle.exists():
         if (hashlib.sha256((bundle/'qa-local-maintenance').read_bytes()).hexdigest() != digest
@@ -326,13 +332,13 @@ def install(args):
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
     with open(STATE/'install.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        install_units(bundle, phases)
+        install_units(bundle, phases, environment)
 
 
-def install_units(bundle, phases):
+def install_units(bundle, phases, environment='prod'):
     backup = Path('/var/backups/tokenkey-qa-local')/dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     backup.mkdir(parents=True, mode=0o700)
-    files = {name: content for phase in phases for name, content in unit_files(bundle, phase).items()}
+    files = {name: content for phase in phases for name, content in unit_files(bundle, phase, environment).items()}
     # Validate staged files before changing the active units.
     for name, content in files.items():
         (backup/name).write_text(content)
@@ -395,6 +401,8 @@ def main():
     setup.add_argument('--sha256', required=True)
     setup.add_argument('--manifest', type=Path, required=True)
     setup.add_argument('--apply', action='store_true')
+    setup.add_argument('--include-node1-archive', action='store_true',
+                       help='explicitly install the disabled-by-default node1 archive timer')
     run = commands.add_parser('run')
     run.add_argument('--config', type=Path, required=True)
     run.add_argument('--phase', choices=PHASES, required=True)

@@ -56,7 +56,30 @@ class LocalHostTest(unittest.TestCase):
                                             'environment': 'cn-prod'}))
             args = type('Args', (), {'manifest': manifest, 'binary': binary,
                                      'sha256': local.hashlib.sha256(binary.read_bytes()).hexdigest(),
-                                     'apply': True})()
+                                     'apply': True, 'include_node1_archive': False})()
+            with mock.patch.object(local, 'BASE', root/'base'), \
+                 mock.patch.object(local, 'STATE', root/'state'), \
+                 mock.patch.object(local.socket, 'gethostname', return_value='fixture-host'), \
+                 mock.patch.object(local, 'require_legacy_paused'), \
+                 mock.patch.object(local, 'install_units') as install_units:
+                local.install(args)
+            bundle = install_units.call_args.args[0]
+            config = json.loads((bundle/'config.json').read_text())
+            self.assertIsNone(config['node1_environment'])
+            self.assertIsNone(config['node1_root'])
+            self.assertEqual(config['phases'], ['provision', 'cleanup'])
+
+    def test_install_archive_requires_explicit_opt_in(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            binary = root/'qa-local-maintenance'
+            binary.write_bytes(b'fixture')
+            manifest = root/'manifest.json'
+            manifest.write_text(json.dumps({'host_watch': {'hostname': 'fixture-host'},
+                                            'environment': 'cn-prod'}))
+            args = type('Args', (), {'manifest': manifest, 'binary': binary,
+                                     'sha256': local.hashlib.sha256(binary.read_bytes()).hexdigest(),
+                                     'apply': True, 'include_node1_archive': True})()
             with mock.patch.object(local, 'BASE', root/'base'), \
                  mock.patch.object(local, 'STATE', root/'state'), \
                  mock.patch.object(local.socket, 'gethostname', return_value='fixture-host'), \
@@ -66,7 +89,7 @@ class LocalHostTest(unittest.TestCase):
             bundle = install_units.call_args.args[0]
             config = json.loads((bundle/'config.json').read_text())
             self.assertEqual(config['node1_environment'], 'cn-prod')
-            self.assertEqual(config['phases'], ['provision', 'cleanup'])
+            self.assertEqual(config['phases'], ['provision', 'cleanup', 'archive'])
 
     def test_active_legacy_owner_blocks_local_work(self):
         with mock.patch.object(local, 'invoke', side_effect=['ActiveState=active\nUnitFileState=enabled\n', 'inactive']):
@@ -222,6 +245,15 @@ class LocalHostTest(unittest.TestCase):
         archive = local.unit_files(Path('/immutable/bundle'), 'archive')
         self.assertIn('node1_archive.py', archive['tokenkey-qa-archive.service'])
         self.assertNotIn('archive', local.PHASES)
+
+    def test_node1_archive_requires_explicit_opt_in_and_environment(self):
+        files = local.unit_files(Path('/immutable/bundle'), local.ARCHIVE_PHASE, 'cn-prod')
+        service = files['tokenkey-qa-archive.service']
+        self.assertIn('--environment cn-prod', service)
+        self.assertIn('Nice=19', service)
+        self.assertIn('IOSchedulingClass=idle', service)
+        with self.assertRaises(ValueError):
+            local.unit_files(Path('/immutable/bundle'), local.ARCHIVE_PHASE, 'unknown')
 
 
 if __name__=='__main__':

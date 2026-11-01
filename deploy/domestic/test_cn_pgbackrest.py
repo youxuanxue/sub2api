@@ -11,8 +11,11 @@ gate able to see them.
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
+import tempfile
 import unittest
+from unittest import mock
 
 
 _HERE = pathlib.Path(__file__).resolve().parent
@@ -31,6 +34,29 @@ installer = _load("install_cn_postgres_backup", "install_cn_postgres_backup.py")
 
 
 class CnBackupRunnerTest(unittest.TestCase):
+    def test_repo2_backup_is_explicit_and_receipt_is_per_repository(self) -> None:
+        before = {
+            1: {"name": "tokenkey", "backup": []},
+            2: {"name": "tokenkey", "backup": []},
+        }
+        after = {
+            1: {"name": "tokenkey", "backup": [{"label": "one", "type": "full"}]},
+            2: {"name": "tokenkey", "backup": [{"label": "two", "type": "full"}]},
+        }
+        with tempfile.TemporaryDirectory() as root, \
+                mock.patch.object(runner, "STATE", pathlib.Path(root)), \
+                mock.patch.object(runner, "repo2_enabled", return_value=True), \
+                mock.patch.object(runner, "repo_info", side_effect=[before[1], before[2], after[1], after[2]]), \
+                mock.patch.object(runner, "backrest") as backrest:
+            runner.cmd_backup()
+            receipt = json.loads((pathlib.Path(root) / "backup.json").read_text())
+        self.assertEqual([call.args[:3] for call in backrest.call_args_list], [
+            ("--repo=1", "--type=full", "backup"),
+            ("--repo=2", "--type=full", "backup"),
+        ])
+        self.assertTrue(receipt["cos_repo2"])
+        self.assertEqual({item["repo"] for item in receipt["repositories"]}, {1, 2})
+
     def test_receipt_paths_match_what_the_verdict_reads(self) -> None:
         # host_https_watch.physical_backup_fact accepts health.json or
         # archive_check.json under this directory; writing anywhere else means a
@@ -77,6 +103,10 @@ class CnBackupRunnerTest(unittest.TestCase):
                 sys.argv = saved
         self.assertIn("usage", stderr.getvalue())
 
+    def test_repo2_disabled_keeps_single_repository(self) -> None:
+        with mock.patch.object(runner, "repo2_enabled", return_value=False):
+            self.assertEqual(runner.repository_numbers(), (1,))
+
 
 class CnBackupInstallerTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -119,6 +149,12 @@ class CnBackupInstallerTest(unittest.TestCase):
             if name.endswith(".service"):
                 with self.subTest(name):
                     self.assertIn("tokenkey-cn-backup-identity.service", body)
+
+    def test_plan_includes_identity_refresh_source(self) -> None:
+        plan = installer.plan()
+        self.assertEqual(plan["identity"]["dst"], "/opt/tokenkey/cn-backup-identity.py")
+        self.assertEqual(plan["identity"]["src"], str(_HERE / "cn_backup_identity.py"))
+        self.assertEqual(plan["target"]["dst"], "/opt/tokenkey/prod-target.json")
 
     def test_apply_requires_root(self) -> None:
         import os

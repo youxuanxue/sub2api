@@ -36,12 +36,12 @@
 
 | 项目 | prod → 美西 | cn-prod → 北京 | 验收要求 |
 |---|---|---|---|
-| bucket | `待创建/填写` | `待创建/填写` | 私有、独立 bucket |
-| region / endpoint | `待填写` | `待填写` | 与腾讯控制台实际地域一致 |
+| bucket | `tokenkey-prod-backup-usw-1320330536`（已创建） | `tokenkey-cnprod-backup-bj-1320330536`（已创建） | 私有、独立 bucket；cn-prod 已完成合成 PUT/HEAD，生产前缀为空 |
+| region / endpoint | `na-siliconvalley` / `cos.na-siliconvalley.myqcloud.com` | `ap-beijing` / `cos.ap-beijing.myqcloud.com` | 已按桶实际地域核对 |
 | pgBackRest prefix | `prod/postgres` | `cn-prod/postgres` | 不复用 AWS prefix，不混 timeline |
 | 备份账号 | `待填写` | `待填写` | 仅 list/get/put/abort 等最小权限 |
 | 恢复账号 | `待填写` | `待填写` | 只读 |
-| KMS / 加密策略 | `待填写` | `待填写` | 密钥 owner、轮换和恢复权限明确 |
+| KMS / 加密策略 | 当前双写使用 SSE-S3 AES256；KMS CMK 待建立/验收 | 当前 SSE-S3 AES256；KMS CMK 待建立/验收 | KMS 完成前不得退役 AWS 或宣称迁移最终验收通过 |
 | node1 兜底目录 | `db-backup/prod/` | `db-backup/cn-prod/` | 独立 namespace、manifest、receipt |
 | 告警接收方 | `待填写` | `待填写` | COS 写入失败、WAL 延迟、容量不足 |
 

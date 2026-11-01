@@ -29,7 +29,7 @@ PYTHONPATH=ops/stage0 python3 ops/stage0/postgres_backup.py config \
   --secondary-uri-style host
 ```
 
-cn-prod 使用相同入口，AWS repo1 保持现网东京仓库，COS repo2 改用北京 COS endpoint 和独立前缀。正式值以云账号实际创建的桶名、地域和密钥策略为准，不能从示例占位符直接执行。
+cn-prod 使用 `deploy/domestic/cn_backup_identity.py` 与 `deploy/domestic/cn_pgbackrest.py`，AWS repo1 保持现网东京仓库，COS repo2 使用北京 endpoint `cos.ap-beijing.myqcloud.com` 和独立前缀 `/cn-prod/postgres`。已创建的正式桶为 `tokenkey-cnprod-backup-bj-1320330536`（私有 ACL、AES256；KMS 尚未启用，需单独验收后才可纳入正式加密基线），不得再创建同义桶。cn-prod 身份刷新器从同仓 `deploy/domestic/prod-target.json`（安装到 `/opt/tokenkey/prod-target.json`）读取 SSM instance/region，repo2 只有在 root-only `/etc/tokenkey/cos-backup.env` 同时存在 `tencent_SecretId` 与 `tencent_SecretKey` 时才启用；在正式上线前仍保持 AWS-only，不能把“桶已存在”当作 repo2 已启用。
 
 ## 上线顺序与硬门禁
 
