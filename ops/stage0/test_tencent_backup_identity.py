@@ -61,6 +61,26 @@ class BackupIdentityTest(unittest.TestCase):
             with self.assertRaises(KeyError):
                 identity.read_credentials(path, os.getuid())
 
+    def test_cos_credentials_require_root_only_exact_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'cos-backup.env'
+            path.write_text('tencent_SecretId=synthetic-id\n'
+                            'tencent_SecretKey=synthetic-secret\n')
+            path.chmod(0o600)
+            values = identity.read_cos_credentials(path, os.getuid())
+            self.assertEqual(values, {'key': 'synthetic-id', 'secret': 'synthetic-secret'})
+            path.chmod(0o644)
+            with self.assertRaises(ValueError):
+                identity.read_cos_credentials(path, os.getuid())
+            path.chmod(0o600)
+            path.write_text('tencent_SecretId=synthetic-id\n')
+            with self.assertRaises(ValueError):
+                identity.read_cos_credentials(path, os.getuid())
+            path.write_text('tencent_SecretId=synthetic-id\n'
+                            'tencent_SecretKey=synthetic secret\n')
+            with self.assertRaises(ValueError):
+                identity.read_cos_credentials(path, os.getuid())
+
     def test_repository_separation_and_atomic_rotation(self):
         values = {'aws_access_key_id': 'synthetic-id',
                   'aws_secret_access_key': 'synthetic-secret', 'aws_session_token': 'synthetic-token'}
@@ -70,6 +90,12 @@ class BackupIdentityTest(unittest.TestCase):
         self.assertNotIn('repo1-path=/prod/postgres\n', new)
         self.assertIn('repo1-path=/' + identity.CANDIDATE_PREFIX + '/postgres\n', new)
         self.assertIn('repo1-s3-key-type=shared\n', old)
+        cos = {'key': 'cos-id', 'secret': 'cos-secret'}
+        dual = identity.render_config(values, cos_credentials=cos)
+        self.assertIn('repo2-s3-bucket=' + identity.COS_BUCKET + '\n', dual)
+        self.assertIn('repo2-s3-uri-style=host\n', dual)
+        self.assertIn('repo2-s3-key=cos-id\n', dual)
+        self.assertIn('repo2-s3-key-secret=cos-secret\n', dual)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'pgbackrest.conf'
             path.write_text('old-session')

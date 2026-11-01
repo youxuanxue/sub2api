@@ -79,6 +79,11 @@ CANDIDATE_PREFIX = 'candidates/tencent-usw-20261022'
 CREDENTIALS = Path('/root/.aws/credentials')
 SOURCE_CONFIG = Path('/run/tokenkey-recovery/config/pgbackrest.conf')
 CANDIDATE_CONFIG = Path('/run/tokenkey-backup-candidate/config/pgbackrest.conf')
+COS_CREDENTIALS = Path('/etc/tokenkey/cos-backup.env')
+COS_BUCKET = 'tokenkey-prod-backup-usw-1320330536'
+COS_REGION = 'na-siliconvalley'
+COS_ENDPOINT = 'cos.na-siliconvalley.myqcloud.com'
+COS_PATH = '/prod/postgres'
 
 
 def require_target():
@@ -127,6 +132,31 @@ def read_credentials(path=CREDENTIALS, uid=0):
     return result
 
 
+def read_cos_credentials(path=COS_CREDENTIALS, uid=0):
+    """Read the optional root-only COS credentials without exposing their values."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd) as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != uid
+                or stat.S_IMODE(info.st_mode) not in (0o400, 0o600)
+                or not 0 < info.st_size <= 4096):
+            raise ValueError('unsafe COS credential file')
+        values = {}
+        for raw in stream:
+            line = raw.strip()
+            if not line or line.startswith('#'):
+                continue
+            key, sep, value = line.partition('=')
+            if not sep or key not in ('tencent_SecretId', 'tencent_SecretKey'):
+                raise ValueError('invalid COS credential file')
+            if not value or any(ch.isspace() for ch in value) or value[0] in "'\"":
+                raise ValueError('invalid COS credential value')
+            values[key] = value
+    if set(values) != {'tencent_SecretId', 'tencent_SecretKey'}:
+        raise ValueError('incomplete COS credential file')
+    return {'key': values['tencent_SecretId'], 'secret': values['tencent_SecretKey']}
+
+
 def caller_identity(credentials, opener=urllib.request.urlopen):
     region, service = SSM_REGION, 'sts'
     host = 'sts.' + region + '.amazonaws.com'
@@ -162,12 +192,27 @@ def validate_identity(identity):
         raise ValueError('unexpected SSM runtime identity')
 
 
-def render_config(credentials, candidate=False):
-    result = configuration(BUCKET, 'us-east-1')
+def render_config(credentials, candidate=False, cos_credentials=None):
+    secondary = None
+    if cos_credentials is not None:
+        secondary = {
+            'bucket': COS_BUCKET,
+            'region': COS_REGION,
+            'endpoint': COS_ENDPOINT,
+            'path': COS_PATH,
+            'uri_style': 'host',
+        }
+    result = configuration(BUCKET, 'us-east-1', secondary=secondary)
     result = result.replace('repo1-s3-key-type=auto',
         'repo1-s3-key-type=shared\nrepo1-s3-key=' + credentials['aws_access_key_id']
         + '\nrepo1-s3-key-secret=' + credentials['aws_secret_access_key']
         + '\nrepo1-s3-token=' + credentials['aws_session_token'])
+    if cos_credentials is not None:
+        result = result.replace(
+            'repo2-s3-uri-style=host',
+            'repo2-s3-uri-style=host\nrepo2-s3-key-type=shared\n'
+            'repo2-s3-key=' + cos_credentials['key'] + '\n'
+            'repo2-s3-key-secret=' + cos_credentials['secret'])
     if candidate:
         result = result.replace('repo1-path=/' + SOURCE_PREFIX,
                                 'repo1-path=/' + CANDIDATE_PREFIX + '/postgres')
@@ -204,14 +249,20 @@ def refresh():
             raise ValueError('runtime directory is not tmpfs')
     credentials = read_credentials()
     validate_identity(caller_identity(credentials))
+    cos_credentials = None
+    cos_enabled = False
+    if COS_CREDENTIALS.exists():
+        cos_credentials = read_cos_credentials()
+        cos_enabled = True
     for path, candidate in ((SOURCE_CONFIG, False), (CANDIDATE_CONFIG, True)):
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
         os.chmod(path.parent.parent, 0o711)
         os.chmod(path.parent, 0o755)
-        atomic_private(path, render_config(credentials, candidate))
+        atomic_private(path, render_config(credentials, candidate, cos_credentials))
     return {'status': 'refreshed', 'at': dt.datetime.now(dt.timezone.utc).isoformat(),
             'identity': USER_ID, 'source_repository': 'read-only',
-            'candidate_prefix': CANDIDATE_PREFIX, 'cutover_authorized': False}
+            'candidate_prefix': CANDIDATE_PREFIX, 'cos_repo2': 'enabled' if cos_enabled else 'disabled',
+            'cutover_authorized': False}
 
 
 def main():

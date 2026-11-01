@@ -161,6 +161,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
 | [`qa-redaction-identified-formats-only.md`](qa-redaction-identified-formats-only.md) | QA 脱敏已识别格式边界与性能优化 |
 | [`design-prod-physical-backup.md`](design-prod-physical-backup.md) | 每周全量、两小时块增量、WAL 连续归档及隔离验收 |
+| [`design-tencent-cos-backup-node1-qa.md`](design-tencent-cos-backup-node1-qa.md) | 腾讯 COS 数据库备份迁移、AWS 回退与 node1 QA/备份兜底 |
 | [`cn-prod-logical-backup.md`](cn-prod-logical-backup.md) | 逻辑 dump 已停；文首引用块说明为何保留 pgBackRest 监控，文末步骤不再执行 |
 | [`design-fleet-pgdump-restore-canary.md`](design-fleet-pgdump-restore-canary.md) | Fleet pgdump restore canary |
 | [`hetzner-cloud-full-migration.md`](hetzner-cloud-full-migration.md) | 舰队不变量锁（Hetzner 期选址为历史；执行 SSOT：`deploy/hetzner/README.md`） |
