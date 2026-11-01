@@ -56,8 +56,8 @@ class TencentPgBackrestTests(TestCase):
         self.assertIn(("--repo=2", "--type=incr", "backup"), calls)
         self.assertTrue(captured["cos_repo2"])
         self.assertEqual(captured["repositories"], [
-            {"repo": 1, "label": "new", "status": "ok"},
-            {"repo": 2, "label": "new", "status": "ok"},
+            {"repo": 1, "label": "new", "kind": "incr", "status": "ok"},
+            {"repo": 2, "label": "new", "kind": "incr", "status": "ok"},
         ])
 
     def test_single_repository_backup_keeps_repo_one_command(self):
@@ -87,6 +87,40 @@ class TencentPgBackrestTests(TestCase):
 
         self.assertIn(("--repo=1", "--type=full", "backup"), calls)
         self.assertNotIn(("--repo=2", "--type=full", "backup"), calls)
+
+    def test_new_repository_gets_full_before_existing_repo_incr(self):
+        repo_infos = {
+            1: {"name": "tokenkey", "status": {"code": 0},
+                "backup": [{"label": "old", "type": "full", "timestamp": {"stop": 1}}]},
+            2: {"name": "tokenkey", "status": {"code": 0}, "backup": []},
+        }
+        calls = []
+        backed_up = set()
+
+        def fake_backrest(*args, **kwargs):
+            calls.append(args)
+            if args[-1] == "info":
+                repo = int(args[0].split("=", 1)[1])
+                backups = list(repo_infos[repo]["backup"])
+                if repo in backed_up:
+                    backups.append({"label": f"new-{repo}",
+                                    "type": "incr" if repo == 1 else "full",
+                                    "timestamp": {"stop": 2}})
+                return json.dumps([dict(repo_infos[repo], backup=backups)])
+            if "backup" in args:
+                backed_up.add(int(args[0].split("=", 1)[1]))
+                return ""
+            raise AssertionError(args)
+
+        with patch.object(runner, "exclusive", return_value=_Lock()), \
+             patch.object(runner, "repo2_enabled", return_value=True), \
+             patch.object(runner, "backrest", side_effect=fake_backrest), \
+             patch.object(runner, "atomic_json"), \
+             patch.object(runner.time, "time", return_value=100):
+            runner.cmd_backup()
+
+        self.assertIn(("--repo=1", "--type=incr", "backup"), calls)
+        self.assertIn(("--repo=2", "--type=full", "backup"), calls)
 
     def test_check_validates_all_configured_repositories_with_one_command(self):
         info = {

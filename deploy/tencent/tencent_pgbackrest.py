@@ -82,7 +82,11 @@ def cmd_backup():
     try:
         repos = repository_numbers()
         before = {repo: repo_info(repo) for repo in repos}
-        kind = backup_kind(before[1].get("backup") or [], time.time())
+        now = time.time()
+        kinds = {
+            repo: backup_kind(before[repo].get("backup") or [], now)
+            for repo in repos
+        }
         previous = {
             repo: {b["label"] for b in (info.get("backup") or [])}
             for repo, info in before.items()
@@ -92,20 +96,20 @@ def cmd_backup():
         # Run each repository explicitly; archive-push still fans out to all
         # configured repositories from the shared archive_command.
         for repo in repos:
-            backrest(f"--repo={repo}", f"--type={kind}", "backup", timeout=3600)
+            backrest(f"--repo={repo}", f"--type={kinds[repo]}", "backup", timeout=3600)
         after = {repo: repo_info(repo) for repo in repos}
         fresh_by_repo = {}
         for repo in repos:
             fresh = [b for b in (after[repo].get("backup") or [])
                      if b["label"] not in previous[repo]]
-            if len(fresh) != 1 or fresh[0]["type"] != kind:
+            if len(fresh) != 1 or fresh[0]["type"] != kinds[repo]:
                 raise Err(f"completed backup missing from repository {repo} info")
             fresh_by_repo[repo] = fresh[0]
         primary_fresh = fresh_by_repo[1]
         receipt = {
             "schema_version": 1,
             "status": "ok",
-            "kind": kind,
+            "kind": kinds[1],
             "label": primary_fresh["label"],
             "completed_at": time.time(),
             "duration_seconds": round(time.time() - started, 3),
@@ -113,7 +117,8 @@ def cmd_backup():
             "cos_repo": COS_REPO if 2 in repos else None,
             "cos_repo2": 2 in repos,
             "repositories": [
-                {"repo": repo, "label": fresh_by_repo[repo]["label"], "status": "ok"}
+                {"repo": repo, "label": fresh_by_repo[repo]["label"],
+                 "kind": kinds[repo], "status": "ok"}
                 for repo in repos
             ],
             "host_role": "tencent-usw-prod",
