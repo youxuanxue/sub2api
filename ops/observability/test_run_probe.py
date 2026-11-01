@@ -638,6 +638,13 @@ class RunProbePollingTest(unittest.TestCase):
         self.assertIn("/tmp/probe_openai_upstream_model.sh", params)
         self.assertIn("/tmp/probe_grok_upstream_model.sh", params)
 
+    def test_release_control_plane_probe_uploads_smoke_helper(self) -> None:
+        self.probe = pathlib.Path(__file__).resolve().parent / "probe-release-control-plane.sh"
+        proc = self._run_scenario("terminal-failure")
+        self.assertEqual(proc.returncode, 3)
+        params = self.aws_params_log.read_text(encoding="utf-8")
+        self.assertIn("/tmp/smoke_lib.sh", params)
+
     def test_upstream_account_probe_imports_delivered_resolver(self) -> None:
         self.probe = pathlib.Path(__file__).resolve().parents[1] / "stage0" / "probe_account_upstream_models.sh"
         proc = self._run_scenario("terminal-failure")
