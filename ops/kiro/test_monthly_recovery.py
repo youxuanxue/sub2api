@@ -91,3 +91,25 @@ def test_summary_marks_schedulable_restore_failure() -> None:
     )
     assert result["verdict"] == "partial_failure"
     assert result["failures"][0]["account_id"] == 1
+
+
+def test_dry_run_does_not_require_app_or_admin_key_and_caps_workers() -> None:
+    original_container = MODULE._container
+    original_load_ids = MODULE._load_ids
+    calls = []
+    MODULE._container = lambda name: calls.append(name) or "postgres"
+    MODULE._load_ids = lambda _postgres: [9]
+    try:
+        result = MODULE.run(
+            mode="dry-run",
+            model="claude-sonnet-4.5",
+            timeout=60,
+            max_workers=100,
+            force=False,
+        )
+    finally:
+        MODULE._container = original_container
+        MODULE._load_ids = original_load_ids
+    assert calls == ["tk_require_postgres_container"]
+    assert result["verdict"] == "dry_run"
+    assert result["max_workers"] == MODULE.MAX_WORKERS_CAP

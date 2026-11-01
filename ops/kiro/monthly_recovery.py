@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 
 DEFAULT_MODEL = "claude-sonnet-4.5"
 APPLY_GUARD = "yes-kiro-monthly-recovery"
+MAX_WORKERS_CAP = 8
 BEIJING = ZoneInfo("Asia/Shanghai")
 
 
@@ -337,6 +338,21 @@ def run(*, mode: str, model: str, timeout: int, max_workers: int, force: bool) -
             marker.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
         return result
 
+    effective_workers = min(max(1, max_workers), MAX_WORKERS_CAP)
+    if not apply:
+        results = [{"account_id": account_id, "model": model, "verdict": "dry_run"} for account_id in ids]
+        summary = summarize_results(results)
+        summary.update(
+            {
+                "month": month,
+                "target": os.environ.get("TARGET_NAME", "unknown"),
+                "max_workers": effective_workers,
+                "started_at": started_at,
+                "target_at": target_at,
+            }
+        )
+        return summary
+
     app = _container("tk_resolve_app_container")
     admin_key = _psql(postgres, "SELECT value FROM settings WHERE key='admin_api_key' LIMIT 1;")
     if not admin_key:
@@ -345,7 +361,7 @@ def run(*, mode: str, model: str, timeout: int, max_workers: int, force: bool) -
     def worker(account_id: int) -> dict[str, Any]:
         return _recover_and_probe(account_id, app, admin_key, model, timeout, apply)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=effective_workers) as executor:
         results = list(executor.map(worker, ids))
     results.sort(key=lambda value: int(value["account_id"]))
     summary = summarize_results(results)
@@ -353,7 +369,7 @@ def run(*, mode: str, model: str, timeout: int, max_workers: int, force: bool) -
         {
             "month": month,
             "target": os.environ.get("TARGET_NAME", "unknown"),
-            "max_workers": max_workers,
+            "max_workers": effective_workers,
             "started_at": started_at,
             "target_at": target_at,
         }
