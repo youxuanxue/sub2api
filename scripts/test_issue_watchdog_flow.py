@@ -7,6 +7,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
@@ -222,9 +223,10 @@ class WatchdogFlowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             work, checkpoint = Path(tmp) / "work", Path(tmp) / "state.json"
             summary_path = Path(tmp) / "summary.md"
+            # Recent: a cold start only publishes intel inside the cold-start window.
             row = {"number": 7001, "title": "Billing drift", "body": "计费 usage",
                    "state": "open", "html_url": "https://example.invalid/7001",
-                   "updated_at": "2026-10-20T00:00:00Z"}
+                   "updated_at": datetime.now(timezone.utc).isoformat()}
             api = FakeGitHub()
 
             def fake(*args, **kwargs):
@@ -248,6 +250,44 @@ class WatchdogFlowTest(unittest.TestCase):
             # Delivery state for both carriers survives in the checkpoint.
             state = json.loads(checkpoint.read_text())
             self.assertIn("intel_published", state)
+
+    def test_cold_start_publishes_only_recent_intel_and_lists_target_once(self):
+        """On 2026-11-01 an evicted cache made the first run republish every open lead
+        (5181 lines). A cold start may only publish leads from the cold-start window,
+        and queue + intel share one listing of the target's Issues."""
+        source = mod.SOURCES["upstream"]
+        now = datetime.now(timezone.utc)
+        rows = [{"number": n, "title": "Billing drift", "body": "计费 usage", "state": "open",
+                 "html_url": f"https://example.invalid/{n}", "updated_at": when.isoformat()}
+                for n, when in ((7101, now - timedelta(hours=3)), (7102, now - timedelta(days=40)))]
+        with tempfile.TemporaryDirectory() as tmp:
+            work, checkpoint = Path(tmp) / "work", Path(tmp) / "state.json"
+            api = FakeGitHub()
+            listings = []
+
+            def fake(*args, **kwargs):
+                if args[:1] == ("api",) and "--paginate" in args and "/issues?" in args[-1]:
+                    if args[-1].startswith(f"repos/{source['repo']}/"):
+                        return [rows]
+                    listings.append(args[-1])
+                return api(*args, **kwargs)
+
+            mod.scan(source, work, checkpoint, target_repo="example/fork", api=fake, period="2026-W44")
+            intel = "".join(c["body"] for c in api.comments)
+            self.assertIn(f"{source['repo']}#7101", intel)
+            self.assertNotIn(f"{source['repo']}#7102", intel)
+            self.assertEqual(len(listings), 1)
+
+            # With a checkpoint the window no longer applies: the cursor owns it,
+            # and an old lead first seen now is still published.
+            api.comments.clear()
+            listings.clear()
+            state = json.loads(checkpoint.read_text())
+            state["intel_published"] = {}
+            checkpoint.write_text(json.dumps(state))
+            mod.scan(source, work, checkpoint, target_repo="example/fork", api=fake, period="2026-W44")
+            self.assertIn(f"{source['repo']}#7102", "".join(c["body"] for c in api.comments))
+            self.assertEqual(len(listings), 1)
 
     def test_seeding_marks_existing_refs_delivered_without_publishing(self):
         """The first run after the intel split would otherwise republish everything
