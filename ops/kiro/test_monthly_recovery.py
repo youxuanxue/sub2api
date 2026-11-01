@@ -113,3 +113,56 @@ def test_dry_run_does_not_require_app_or_admin_key_and_caps_workers() -> None:
     assert calls == ["tk_require_postgres_container"]
     assert result["verdict"] == "dry_run"
     assert result["max_workers"] == MODULE.MAX_WORKERS_CAP
+
+
+def test_apply_success_recovers_then_restores_schedulable() -> None:
+    original_admin_post = MODULE._admin_post
+    original_probe_one = MODULE._probe_one
+    calls = []
+    MODULE._admin_post = lambda app, key, path, body: calls.append((path, body)) or (True, "")
+    MODULE._probe_one = lambda account_id, model, timeout: {
+        "account_id": account_id,
+        "model": model,
+        "verdict": "servable",
+        "http_status": 200,
+        "catalog_has_model": True,
+        "error": None,
+    }
+    try:
+        result = MODULE._recover_and_probe(7, "app", "key", "m", 60, True)
+    finally:
+        MODULE._admin_post = original_admin_post
+        MODULE._probe_one = original_probe_one
+    assert result["verdict"] == "servable"
+    assert result["enabled"] is True
+    assert calls == [
+        ("/accounts/7/recover-state", {}),
+        ("/accounts/7/schedulable", {"schedulable": True}),
+    ]
+
+
+def test_apply_probe_failure_disables_schedulable() -> None:
+    original_admin_post = MODULE._admin_post
+    original_probe_one = MODULE._probe_one
+    calls = []
+    MODULE._admin_post = lambda app, key, path, body: calls.append((path, body)) or (True, "")
+    MODULE._probe_one = lambda account_id, model, timeout: {
+        "account_id": account_id,
+        "model": model,
+        "verdict": "upstream_rejected",
+        "http_status": 403,
+        "catalog_has_model": False,
+        "error": "HTTP 403",
+        "failure_class": "oauth",
+    }
+    try:
+        result = MODULE._recover_and_probe(8, "app", "key", "m", 60, True)
+    finally:
+        MODULE._admin_post = original_admin_post
+        MODULE._probe_one = original_probe_one
+    assert result["verdict"] == "upstream_rejected"
+    assert result["disabled"] is True
+    assert calls == [
+        ("/accounts/8/recover-state", {}),
+        ("/accounts/8/schedulable", {"schedulable": False}),
+    ]
