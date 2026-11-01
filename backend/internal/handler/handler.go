@@ -82,6 +82,10 @@ type Handlers struct {
 	GeminiWebSession *GeminiWebSessionHandler
 	AsyncImage       *AsyncImageHandler
 	BatchImage       *BatchImageHandler
+	// ManagedBatch remains nil until the Gate 2 wiring supplies repository,
+	// object-store, queue and billing owners.  Routes are consequently closed
+	// by default and cannot accidentally expose a partial executor.
+	ManagedBatch *ManagedBatchHandler
 }
 
 // BuildInfo contains build-time information

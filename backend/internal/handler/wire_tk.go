@@ -1,8 +1,12 @@
 package handler
 
 import (
+	"database/sql"
+
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
+	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/google/wire"
@@ -18,8 +22,22 @@ var TKProviderSet = wire.NewSet(
 	ProvideTKGatewayHandlerModelList,
 	NewGeminiWebSessionHandler,
 	admin.NewTierHandler,
+	ProvideTKManagedBatchBackend,
 	ProvideTrialProvisionHandler,
+	ProvideTKManagedBatchHandler,
 )
+
+// ProvideTKManagedBatchBackend wires the durable repository boundary. The
+// object store remains nil until the private COS/S3-compatible bucket is
+// configured; this keeps enabling the public flag fail-closed.
+func ProvideTKManagedBatchBackend(db *sql.DB, store *repository.S3ManagedBatchObjectStore, queue service.ManagedBatchQueue) ManagedBatchBackend {
+	return NewManagedBatchRepositoryBackend(repository.NewManagedBatchRepository(db), store, queue)
+}
+
+func ProvideTKManagedBatchHandler(cfg *config.Config, backend ManagedBatchBackend) *ManagedBatchHandler {
+	enabled := cfg != nil && cfg.ManagedBatch.Enabled
+	return NewManagedBatchHandler(backend, enabled)
+}
 
 func ProvideTKAPIKeyHandler(
 	apiKeyService *service.APIKeyService,

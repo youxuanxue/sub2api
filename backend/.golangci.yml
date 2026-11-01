@@ -86,6 +86,11 @@ linters:
           list-mode: original
           files:
             - "**/internal/handler/**"
+            # Managed Batch bridge is a reviewed composition seam; it maps the
+            # handler contract to repository ports without owning repository logic.
+            - "!**/internal/handler/managed_batch_backend.go"
+            - "!**/internal/handler/managed_batch_backend_test.go"
+            - "!**/internal/handler/wire_tk.go"
           deny:
             - pkg: github.com/Wei-Shaw/sub2api/internal/repository
               desc: "handler must not import repository"

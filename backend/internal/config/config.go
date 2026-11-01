@@ -107,12 +107,35 @@ type Config struct {
 	QaArchive               QaArchiveConfig               `mapstructure:"qa_archive"`
 	MediaStorage            MediaStorageConfig            `mapstructure:"media_storage"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
+	ManagedBatch            ManagedBatchConfig            `mapstructure:"managed_batch"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
 	TelemetryArchive        TelemetryArchiveConfig        `mapstructure:"telemetry_archive"`
 	Plugins                 PluginConfig                  `mapstructure:"plugins"`
 
 	// Enforce only API-key spending windows in simple mode.
 	SimpleModeKeyRateLimitEnabled bool `mapstructure:"simple_mode_key_rate_limit_enabled" yaml:"simple_mode_key_rate_limit_enabled"`
+}
+
+// ManagedBatchConfig controls exposure of the managed Batch API. Execution
+// workers and provider selection are wired separately and must not be started
+// merely by setting this flag.
+type ManagedBatchConfig struct {
+	Enabled bool                      `mapstructure:"enabled" yaml:"enabled"`
+	Storage ManagedBatchStorageConfig `mapstructure:"storage" yaml:"storage"`
+}
+
+// ManagedBatchStorageConfig configures the private S3-compatible bucket used
+// for Batch input and result JSONL. Tencent COS is the production target;
+// endpoint/credentials keep the adapter usable with S3-compatible test stores.
+type ManagedBatchStorageConfig struct {
+	Driver          string `mapstructure:"driver" yaml:"driver"`
+	Endpoint        string `mapstructure:"endpoint" yaml:"endpoint"`
+	Region          string `mapstructure:"region" yaml:"region"`
+	Bucket          string `mapstructure:"bucket" yaml:"bucket"`
+	AccessKeyID     string `mapstructure:"access_key_id" yaml:"access_key_id"`
+	SecretAccessKey string `mapstructure:"secret_access_key" yaml:"secret_access_key"`
+	Prefix          string `mapstructure:"prefix" yaml:"prefix"`
+	ForcePathStyle  bool   `mapstructure:"force_path_style" yaml:"force_path_style"`
 }
 
 // SimpleModeConfig controls startup behavior in simple mode.
@@ -2278,6 +2301,15 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
+	viper.SetDefault("managed_batch.enabled", false)
+	viper.SetDefault("managed_batch.storage.driver", "")
+	viper.SetDefault("managed_batch.storage.endpoint", "")
+	viper.SetDefault("managed_batch.storage.region", "")
+	viper.SetDefault("managed_batch.storage.bucket", "")
+	viper.SetDefault("managed_batch.storage.access_key_id", "")
+	viper.SetDefault("managed_batch.storage.secret_access_key", "")
+	viper.SetDefault("managed_batch.storage.prefix", "managed-batch/")
+	viper.SetDefault("managed_batch.storage.force_path_style", false)
 	viper.SetDefault("gateway.min_output_tokens", 128)
 	viper.SetDefault("simple_mode.auto_create_default_groups", true)
 	viper.SetDefault("simple_mode_key_rate_limit_enabled", false)

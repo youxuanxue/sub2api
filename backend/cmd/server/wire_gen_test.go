@@ -101,6 +101,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		service.NewGeminiCachedContentService(nil, nil, cfg),
 		nil, // batchImageCleanup
 		nil, // batchImageWorker
+		nil, // managedBatchRuntime
 		pricingSvc,
 		emailQueueSvc,
 		billingCacheSvc,

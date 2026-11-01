@@ -227,6 +227,7 @@ func ProvideHandlers(
 	geminiWebSessionHandler *GeminiWebSessionHandler,
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
+	managedBatchHandler *ManagedBatchHandler,
 	feedbackHandler *FeedbackHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
@@ -259,6 +260,7 @@ func ProvideHandlers(
 		GeminiWebSession: geminiWebSessionHandler,
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
+		ManagedBatch:     managedBatchHandler,
 	}
 }
 

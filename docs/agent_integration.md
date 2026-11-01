@@ -699,6 +699,11 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /v1/alpha/search` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/audio/speech` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/audio/transcriptions` from `backend/internal/server/routes/gateway.go`
+- `GET /v1/batches` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
+- `POST /v1/batches` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
+- `GET /v1/batches/:batch_id` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
+- `POST /v1/batches/:batch_id/cancel` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
+- `POST /v1/batches/:batch_id/retry` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
 - `POST /v1/chat/completions` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/contents/generations/tasks` from `backend/internal/server/routes/gateway.go`
 - `DELETE /v1/contents/generations/tasks/:task_id` from `backend/internal/server/routes/gateway.go`
@@ -710,6 +715,11 @@ Generated from live Gin route registrations; do not edit this section.
 - `PATCH /v1/custom-voices/:voice_id` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `GET /v1/custom-voices/:voice_id/audio` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `POST /v1/embeddings` from `backend/internal/server/routes/gateway.go`
+- `GET /v1/files` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
+- `POST /v1/files` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
+- `DELETE /v1/files/:file_id` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
+- `GET /v1/files/:file_id` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
+- `GET /v1/files/:file_id/content` from `backend/internal/server/routes/gateway_tk_managed_batch_routes.go`
 - `GET /v1/images/batches` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/images/batches` from `backend/internal/server/routes/gateway.go`
 - `DELETE /v1/images/batches/:id` from `backend/internal/server/routes/gateway.go`
