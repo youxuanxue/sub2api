@@ -402,6 +402,75 @@ class QueueTest(unittest.TestCase):
              {"title": "2026 TAG机场VPN怎么样？", "platform_hints": ["openai"]}], ["openai"])
         self.assertEqual([i["title"] for i in kept["openai"]], ["cpa长时间运行会oom"])
 
+    def test_thirty_day_calibration_drops_own_housekeeping_but_keeps_relay_signal(self):
+        """Calibrated on 30 days of real output (3226 findings): these are the
+        project's own tests, CI, README, releases and web console."""
+        relay = "router-for-me/CLIProxyAPI"
+        dropped = [
+            "test(codex): cover hot credential replacement and team plan synthesis",
+            "ci(release): validate changelog-only promotion candidates",
+            "build(deps): bump actions/checkout from 5 to 6",
+            "style(frontend): polish console shell sidebar and header",
+            "docs: add Juice Bar to companion projects",
+            "docs(readme): add Oh My CPA to related projects",
+            "chore(docker): bump astral-sh/uv from 0.12.19 to 0.13.1",
+            "chore(main): release 1.25.0",
+            "chore: sync upstream release v8.0.29",
+            "fix(frontend): keep long quota labels clear of progress bars",
+            "fix(i18n): 补齐特定 Agent 配置及 Dashboard 仪表盘全部 12 种语言国际化翻译",
+        ]
+        for title in dropped:
+            with self.subTest(title=title[:40]):
+                self.assertTrue(mod.off_topic({"title": title}, relay), title)
+        kept = [
+            "docs(antigravity): document sensitive-words example to avoid WAF 429",
+            "chore(metadata): refresh model pricing and Codex version",
+            "chore(models): declare the 0.153.x Codex client identity for gpt-6-astra",
+            "fix(codex): cap usage_limit_reached cooldown to avoid over-long stalls",
+            "feat(admin): 支持共享出口账号池与额度耗尽自动轮换",
+            "fix(docker): isolate host OAuth callback port by default",
+        ]
+        for title in kept:
+            with self.subTest(title=title[:40]):
+                self.assertFalse(mod.off_topic({"title": title}, relay), title)
+        # The fork's own upstream ships TokenKey's frontend, so its UI work stays.
+        ui = {"title": "fix(frontend): show full account group names"}
+        self.assertTrue(mod.off_topic(ui, relay))
+        self.assertFalse(mod.off_topic(ui, "Wei-Shaw/sub2api"))
+        self.assertEqual(mod.platform_findings([ui], ["upstream"], "Wei-Shaw/sub2api"),
+                         {"upstream": [ui]})
+
+    def test_one_target_listing_serves_every_source_and_platform(self):
+        """Each sync call used to page through all of the target's Issues; with
+        20 sources that was 23 full listings per run."""
+        api = FakeGitHub()
+        listings = []
+
+        def counted(*args, payload=None):
+            if payload is None and "/issues?" in args[-1]:
+                listings.append(args[-1])
+            return api(*args, payload=payload)
+        context = queue.target_context("example/fork", counted)
+        for repo, platform in ((REPO, "kiro"), ("other/source", "kiro"), (REPO, "openai")):
+            queue.sync_queue(repo, [candidate()], "example/fork", counted,
+                             day="2026-10-21", platform=platform, context=context)
+        self.assertEqual(len(listings), 1)
+        # Writes are reflected in the shared listing: no duplicate Issue is created
+        # and a later call sees the updated body/state.
+        self.assertEqual(len(api.issues), 2)
+        self.assertEqual([row["body"] for row in context["issues"]],
+                         [row["body"] for row in api.issues])
+        api.comments[0]["body"] = api.comments[0]["body"].replace("- [ ]", "- [x]")
+        api.comments[1]["body"] = api.comments[1]["body"].replace("- [ ]", "- [x]")
+        queue.sync_queue(REPO, [], "example/fork", counted, day="2026-10-21",
+                         platform="kiro", context=context)
+        self.assertEqual(api.issues[0]["state"], "closed")
+        self.assertEqual(context["issues"][0]["state"], "closed")
+        queue.sync_queue(REPO, [candidate(3)], "example/fork", counted, day="2026-10-21",
+                         platform="kiro", context=context)
+        self.assertEqual(api.issues[0]["state"], "open")
+        self.assertEqual(len(listings), 1)
+
     def test_upstream_title_is_data_and_task_remains_a_markdown_checkbox(self):
         api = FakeGitHub()
         self.publish(api, [candidate(title="[click](evil) @all\n<!-- injected -->")])
@@ -540,6 +609,10 @@ class CollectTest(unittest.TestCase):
             return [[upstream_issue(2, state="closed", pull_request={"merged_at": "2026-10-20T00:00:00Z"})]]
         _, findings = mod.collect(REPO, None, NOW, api=api)
         self.assertEqual([row["number"] for row in findings], [2])
+        # A lost checkpoint covers the gap since the last daily run, not a month:
+        # delivery state is recovered from the tracking Issue comments.
+        since = parse_qs(urlparse(queried[0]).query)["since"][0]
+        self.assertEqual(since, "2026-10-18T23:55:00+00:00")
         # An upstream merge still reaches us: it is the case where TokenKey may be
         # missing that behavior, so it must stay visible rather than be filtered.
         self.assertEqual(findings[0]["merged_at"], "2026-10-20T00:00:00Z")

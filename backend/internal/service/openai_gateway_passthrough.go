@@ -297,6 +297,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		if buildErr != nil {
 			return nil, buildErr
 		}
+		logOpenAIResponsesCacheIdentity(ctx, account, upstreamReq, body, strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String()))
 
 		upstreamStart := time.Now()
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)

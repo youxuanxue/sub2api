@@ -299,6 +299,29 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	response.Success(c, dto.APIKeyFromService(key).Localized(c.GetHeader("Accept-Language")))
 }
 
+// Rotate replaces the current user's API key value in place.
+// POST /api/v1/keys/:id/rotate
+func (h *APIKeyHandler) Rotate(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid key ID")
+		return
+	}
+
+	executeUserIdempotentJSON(c, "user.api_keys.rotate", map[string]any{"id": keyID}, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		key, _, err := h.apiKeyService.Rotate(ctx, keyID, subject.UserID)
+		if err != nil {
+			return nil, err
+		}
+		return dto.APIKeyFromService(key).Localized(c.GetHeader("Accept-Language")), nil
+	})
+}
+
 // Delete handles deleting an API key
 // DELETE /api/v1/api-keys/:id
 func (h *APIKeyHandler) Delete(c *gin.Context) {

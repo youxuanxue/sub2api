@@ -93,6 +93,29 @@ func TestWire_ContentPartCarriesAnnotationsLogprobs(t *testing.T) {
 	require.Contains(t, part, "logprobs")
 }
 
+func TestWire_MessageItemContentPreservesOutputMetadataAndRefusal(t *testing.T) {
+	m := marshalEvent(t, ResponsesStreamEvent{
+		Type: "response.output_item.done",
+		Item: &ResponsesOutput{Type: "message", ID: "msg_1", Role: "assistant", Content: []ResponsesContentPart{
+			{Type: "output_text", Text: "answer", Annotations: []any{"citation"}, Logprobs: []any{"token"}},
+			{Type: "refusal", Refusal: "cannot comply"},
+		}},
+	})
+	item, ok := m["item"].(map[string]any)
+	require.True(t, ok, "message item must be an object")
+	content, ok := item["content"].([]any)
+	require.True(t, ok, "message content must be an array")
+	textPart, ok := content[0].(map[string]any)
+	require.True(t, ok, "output text part must be an object")
+	require.Equal(t, "answer", textPart["text"])
+	require.Equal(t, []any{"citation"}, textPart["annotations"])
+	require.Equal(t, []any{"token"}, textPart["logprobs"])
+	refusal, ok := content[1].(map[string]any)
+	require.True(t, ok, "refusal part must be an object")
+	require.Equal(t, "refusal", refusal["type"])
+	require.Equal(t, "cannot comply", refusal["refusal"])
+}
+
 // TestWire_ArgumentsDonePresentEvenEmpty guards arguments presence on done.
 func TestWire_ArgumentsDonePresentEvenEmpty(t *testing.T) {
 	m := marshalEvent(t, ResponsesStreamEvent{

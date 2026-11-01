@@ -1,16 +1,21 @@
 package openai
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/redissession"
+	"github.com/redis/go-redis/v9"
 )
 
 // OpenAI OAuth Constants (from CRS project - Codex CLI client)
@@ -47,36 +52,106 @@ type OAuthSession struct {
 	ProxyURL     string    `json:"proxy_url,omitempty"`
 	RedirectURI  string    `json:"redirect_uri"`
 	CreatedAt    time.Time `json:"created_at"`
+
+	consumed bool
 }
 
-// SessionStore manages OAuth sessions in memory
+// SessionStore manages OAuth sessions in memory and, when configured, Redis.
+// The local map remains a deliberate fallback for a single process when Redis
+// is unavailable while a Redis-backed deployment keeps callbacks shareable
+// across instances.
 type SessionStore struct {
-	mu       sync.RWMutex
-	sessions map[string]*OAuthSession
-	stopOnce sync.Once
-	stopCh   chan struct{}
+	mu        sync.RWMutex
+	sessions  map[string]*OAuthSession
+	localOnly map[string]struct{}
+	stopOnce  sync.Once
+	stopCh    chan struct{}
+	remote    *redissession.Store
+}
+
+type oauthSessionDTO struct {
+	State        string    `json:"state"`
+	CodeVerifier string    `json:"code_verifier"`
+	ClientID     string    `json:"client_id,omitempty"`
+	ProxyURL     string    `json:"proxy_url,omitempty"`
+	RedirectURI  string    `json:"redirect_uri"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // NewSessionStore creates a new session store
 func NewSessionStore() *SessionStore {
 	store := &SessionStore{
-		sessions: make(map[string]*OAuthSession),
-		stopCh:   make(chan struct{}),
+		sessions:  make(map[string]*OAuthSession),
+		localOnly: make(map[string]struct{}),
+		stopCh:    make(chan struct{}),
 	}
 	// Start cleanup goroutine
 	go store.cleanup()
 	return store
 }
 
+// NewRedisSessionStore creates an OpenAI OAuth session store backed by Redis.
+// A nil client intentionally behaves like the local single-instance store.
+func NewRedisSessionStore(rdb *redis.Client) *SessionStore {
+	store := NewSessionStore()
+	if rdb != nil {
+		store.remote = redissession.New(rdb, "oauth:session:openai", SessionTTL)
+	}
+	return store
+}
+
 // Set stores a session
 func (s *SessionStore) Set(sessionID string, session *OAuthSession) {
+	if s == nil || session == nil {
+		return
+	}
+	var remoteErr error
+	if s.remote != nil {
+		remoteErr = s.remote.Set(context.Background(), sessionID, oauthSessionDTO{
+			State: session.State, CodeVerifier: session.CodeVerifier,
+			ClientID: session.ClientID, ProxyURL: session.ProxyURL,
+			RedirectURI: session.RedirectURI, CreatedAt: session.CreatedAt,
+		})
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessions[sessionID] = session
+	if remoteErr != nil {
+		s.localOnly[sessionID] = struct{}{}
+		slog.Warn("openai oauth session Redis write failed; using process-local fallback", "error", remoteErr)
+	} else {
+		delete(s.localOnly, sessionID)
+	}
 }
 
 // Get retrieves a session
 func (s *SessionStore) Get(sessionID string) (*OAuthSession, bool) {
+	if s == nil {
+		return nil, false
+	}
+	if s.isLocalOnly(sessionID) {
+		return s.getMemory(sessionID)
+	}
+	if s.remote != nil {
+		var dto oauthSessionDTO
+		ok, err := s.remote.Get(context.Background(), sessionID, &dto)
+		if err != nil || !ok || time.Since(dto.CreatedAt) > SessionTTL {
+			return nil, false
+		}
+		session := &OAuthSession{
+			State: dto.State, CodeVerifier: dto.CodeVerifier,
+			ClientID: dto.ClientID, ProxyURL: dto.ProxyURL,
+			RedirectURI: dto.RedirectURI, CreatedAt: dto.CreatedAt,
+		}
+		s.mu.Lock()
+		s.sessions[sessionID] = session
+		s.mu.Unlock()
+		return session, true
+	}
+	return s.getMemory(sessionID)
+}
+
+func (s *SessionStore) getMemory(sessionID string) (*OAuthSession, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	session, ok := s.sessions[sessionID]
@@ -92,9 +167,53 @@ func (s *SessionStore) Get(sessionID string) (*OAuthSession, bool) {
 
 // Delete removes a session
 func (s *SessionStore) Delete(sessionID string) {
+	if s == nil {
+		return
+	}
+	if s.remote != nil {
+		_ = s.remote.Delete(context.Background(), sessionID)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, sessionID)
+	delete(s.localOnly, sessionID)
+}
+
+// TryConsumeSession atomically claims a session for one callback. Redis-backed
+// stores use a shared marker, while local-only sessions use the process mutex.
+func (s *SessionStore) TryConsumeSession(sessionID string) bool {
+	if s == nil {
+		return false
+	}
+	if s.isLocalOnly(sessionID) {
+		return s.tryConsumeMemory(sessionID)
+	}
+	if s.remote != nil {
+		ok, err := s.remote.TryConsume(context.Background(), sessionID)
+		return err == nil && ok
+	}
+	return s.tryConsumeMemory(sessionID)
+}
+
+func (s *SessionStore) isLocalOnly(sessionID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.localOnly[sessionID]
+	return ok
+}
+
+func (s *SessionStore) tryConsumeMemory(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[sessionID]
+	if !ok || time.Since(session.CreatedAt) > SessionTTL {
+		return false
+	}
+	if session.consumed {
+		return false
+	}
+	session.consumed = true
+	return true
 }
 
 // Stop stops the cleanup goroutine
@@ -117,6 +236,7 @@ func (s *SessionStore) cleanup() {
 			for id, session := range s.sessions {
 				if time.Since(session.CreatedAt) > SessionTTL {
 					delete(s.sessions, id)
+					delete(s.localOnly, id)
 				}
 			}
 			s.mu.Unlock()

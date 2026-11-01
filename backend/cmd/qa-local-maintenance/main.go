@@ -88,7 +88,13 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		receipt["provision"] = result
 	} else {
 		var result lifecycle.LocalCleanupResult
-		result, err = lifecycle.RunLocalCleanup(ctx, conn, lifecycle.Options{BlobRoot: "/app/data", DLQRoot: "/app/data"}, *dryRun)
+		result, err = lifecycle.RunLocalCleanup(ctx, conn, lifecycle.Options{
+			BlobRoot: "/app/data", DLQRoot: "/app/data",
+			// The host mounts the node1 receipt view read-only. Missing receipts
+			// are a hard gate; this keeps the 24h policy from deleting the only copy.
+			ArchiveReceiptRoot: os.Getenv("QA_NODE1_RECEIPT_ROOT"),
+			ArchiveEnvironment: os.Getenv("QA_NODE1_ENVIRONMENT"),
+		}, *dryRun)
 		receipt["cleanup"] = result
 		receipt["deletion_authorized"] = !*dryRun
 	}

@@ -1435,11 +1435,12 @@ func extractTextFromContent(content any) string {
 	}
 }
 
-// extractSystemMessagesFromInput scans input for role=="system" and mirrors
-// their text into reqBody["instructions"]. By default it maps those items to
-// developer so Responses JSON mode can still see JSON instructions in input.
-// When omitPromoted is true, text-only items are removed after their content is
-// losslessly promoted; mixed or malformed content is retained as developer.
+// extractSystemMessagesFromInput mirrors only leading role=="system" items
+// into reqBody["instructions"]. A system item appended after conversation
+// history is kept in place as developer so every tool loop does not rewrite the
+// cached prefix from byte zero. When omitPromoted is true, text-only leading
+// items are removed after their content is losslessly promoted; mixed or
+// malformed content is retained as developer.
 func extractSystemMessagesFromInput(reqBody map[string]any, omitPromoted bool) bool {
 	input, ok := reqBody["input"].([]any)
 	if !ok || len(input) == 0 {
@@ -1449,10 +1450,19 @@ func extractSystemMessagesFromInput(reqBody map[string]any, omitPromoted bool) b
 	var systemTexts []string
 	filteredInput := make([]any, 0, len(input))
 	modified := false
+	leadingSystem := true
 	for _, item := range input {
 		m, ok := item.(map[string]any)
-		if !ok || m["role"] != "system" {
+		role, _ := m["role"].(string)
+		if !ok || role != "system" {
+			leadingSystem = false
 			filteredInput = append(filteredInput, item)
+			continue
+		}
+		if !leadingSystem {
+			m["role"] = "developer"
+			filteredInput = append(filteredInput, item)
+			modified = true
 			continue
 		}
 

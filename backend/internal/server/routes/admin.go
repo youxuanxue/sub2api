@@ -112,6 +112,9 @@ func RegisterAdminRoutes(
 
 		// API Key 管理
 		registerAdminAPIKeyRoutes(admin, h)
+		adminFeedback := admin.Group("/feedback")
+		adminFeedback.GET("", h.Feedback.AdminList)
+		adminFeedback.PATCH("/:id", h.Feedback.AdminUpdate)
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)

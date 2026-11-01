@@ -162,6 +162,15 @@ export async function toggleStatus(id: number, status: 'active' | 'inactive'): P
   return update(id, { status })
 }
 
+/** Replace the credential value while keeping the existing API key record. */
+export async function rotate(id: number): Promise<ApiKey> {
+  const requestID = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const { data } = await apiClient.post<ApiKey>(`/keys/${id}/rotate`, undefined, {
+    headers: { 'Idempotency-Key': `api-key-rotate-${id}-${requestID}` }
+  })
+  return data
+}
+
 export const keysAPI = {
   list,
   getById,
@@ -169,7 +178,8 @@ export const keysAPI = {
   update,
   bulkUpdate,
   delete: deleteKey,
-  toggleStatus
+  toggleStatus,
+  rotate
 }
 
 export default keysAPI

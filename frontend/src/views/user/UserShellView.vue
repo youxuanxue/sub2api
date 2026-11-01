@@ -31,6 +31,7 @@ const cachedUserViews = [
   'UserUsageView',
   'UserKeysView',
   'UserProfileView',
+  'UserFeedbackView',
   'UserStudioView',
   'KeyUsageView',
 ]

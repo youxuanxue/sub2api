@@ -82,7 +82,15 @@ func RegisterUserRoutes(
 			keys.GET("/:id", h.APIKey.GetByID)
 			keys.POST("", h.APIKey.Create)
 			keys.PUT("/:id", h.APIKey.Update)
+			keys.POST("/:id/rotate", h.APIKey.Rotate)
 			keys.DELETE("/:id", h.APIKey.Delete)
+		}
+
+		feedback := authenticated.Group("/feedback")
+		{
+			feedback.POST("", h.Feedback.Create)
+			feedback.GET("", h.Feedback.List)
+			feedback.GET("/:id", h.Feedback.Get)
 		}
 
 		// 用户可用分组（非管理员接口）

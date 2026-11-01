@@ -66,6 +66,8 @@ const (
 // 若编辑 Key 时无条件整行回写，并发累计的配额与限流计数就会被旧快照覆盖。
 // 因此调用方必须显式声明要改的列。
 type APIKeyUpdateFields struct {
+	// Key replaces the credential value while preserving the API key record.
+	Key       bool
 	Name      bool
 	Status    bool
 	Quota     bool
@@ -463,13 +465,41 @@ func (s *APIKeyService) GenerateKey() (string, error) {
 	}
 
 	// 转换为十六进制字符串并添加前缀
-	prefix := s.cfg.Default.APIKeyPrefix
+	prefix := ""
+	if s != nil && s.cfg != nil {
+		prefix = s.cfg.Default.APIKeyPrefix
+	}
 	if prefix == "" {
 		prefix = "sk-"
 	}
 
 	key := prefix + hex.EncodeToString(bytes)
 	return key, nil
+}
+
+// Rotate replaces an API key's credential in place. All policy and usage
+// fields remain attached to the same record, so callers keep the same key ID
+// and name while the previous credential becomes invalid immediately.
+func (s *APIKeyService) Rotate(ctx context.Context, id int64, userID int64) (*APIKey, string, error) {
+	apiKey, err := s.apiKeyRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, "", fmt.Errorf("get api key: %w", err)
+	}
+	if apiKey.UserID != userID {
+		return nil, "", ErrInsufficientPerms
+	}
+	oldKey := apiKey.Key
+	newKey, err := s.GenerateKey()
+	if err != nil {
+		return nil, "", err
+	}
+	if err := s.apiKeyRepo.Update(ctx, &APIKey{ID: apiKey.ID, Key: newKey}, APIKeyUpdateFields{Key: true}); err != nil {
+		return nil, "", fmt.Errorf("rotate api key: %w", err)
+	}
+	apiKey.Key = newKey
+	s.InvalidateAuthCacheByKey(ctx, oldKey)
+	s.InvalidateAuthCacheByKey(ctx, newKey)
+	return apiKey, oldKey, nil
 }
 
 // ValidateCustomKey 验证自定义API Key格式

@@ -138,6 +138,18 @@ const userShellChildren: RouteRecordRaw[] = [
     },
   },
   {
+    path: 'feedback',
+    name: 'Feedback',
+    component: () => import('@/views/user/FeedbackView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Feedback',
+      titleKey: 'feedback.title',
+      descriptionKey: 'feedback.description',
+    },
+  },
+  {
     path: 'subscriptions',
     name: 'Subscriptions',
     component: () => import('@/views/user/SubscriptionsView.vue'),

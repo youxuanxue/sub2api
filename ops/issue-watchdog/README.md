@@ -76,7 +76,13 @@ Relay findings also pass an off-topic gate: what a relay repository does for
 ITSELF is not news about relaying. Calibrated against one hand-labelled day of
 output (33 findings), the patterns dropped 5 of the 9 off-topic items and none of
 the 24 worth reading -- desktop UI of their own app, ads, their design RFCs, their
-own CI failures, and `dashboard`/`payment` scoped changes.
+own CI failures, and `dashboard`/`payment` scoped changes. A second calibration on
+30 days of output (3307 findings) added test/CI/build/style commits, README and
+community-list docs, release and dependency-bump chores, and the relay's own web
+console (`frontend`/`i18n`/`desktop` scopes), dropping 169. Scoped docs and chores
+that touch models or pricing stay. The console rule does not apply to
+Wei-Shaw/sub2api, whose frontend is TokenKey's. Dropped URLs are kept under
+`off_topic` in each report so a wrong drop can be audited.
 
 `feat(...)` product work is deliberately NOT dropped. On that day no new feature
 mattered to us, so excluding features would have scored zero false positives too
@@ -139,11 +145,20 @@ metadata; complete external comment bodies are not copied into the fork.
 
 `scripts/upstream/relay-watch.py` reads all pages of recently updated issues and
 PRs, plus issue/PR conversation comments (including edited comments). On first
-run, cache loss or platform assignment changes it backfills all open Issues/PRs
-and the last 30 days of updates (including closed Issues and merged PRs); `--lookback-days` allows a larger
-read-only audit. Platform assignments are saved with the cursor, and a source
-cursor advances only after every destination has been published. It tracks scheduling, billing, account/credential and protocol-conversion terms in
-both the issue body and discussion. GitHub review-thread inline comments and
+run, cache loss or platform assignment changes it reads the last 2 days of
+updates (including closed Issues and merged PRs): queue delivery state is
+recovered from the tracking Issue comments, so the gap since the last daily run is
+all a cold start needs. `--lookback-days` allows a larger read-only audit.
+Cache loss is not hypothetical: on 2026-11-01 both workflows started cold, and the
+former 30-day replay produced 3307 findings in one run. The upstream watchdog's
+cold start likewise publishes intel only for leads updated in the last 2 days,
+because the intel delivery map lives only in the checkpoint.
+One run lists the target's Issues once and shares that listing across every
+source and platform; each sync updates the shared rows after its own writes.
+Platform assignments are saved with the cursor, and a source cursor advances only
+after every destination has been published. It tracks scheduling, billing,
+account/credential and protocol-conversion terms in both the issue body and
+discussion. GitHub review-thread inline comments and
 separate GitHub Discussions are not collected. Merge state comes from REST
 `pull_request.merged_at` (PR detail fallback if absent), never from `closed`.
 It does not infer applicability from project popularity or automatically copy a

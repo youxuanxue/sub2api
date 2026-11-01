@@ -1,0 +1,133 @@
+name: Ops Kiro Monthly Recovery
+
+# GitHub Actions cron is minute-granular.  23:59 UTC on the last possible day
+# lets the job wait until 00:00:05 UTC = 08:00:05 Asia/Shanghai on day 1.
+on:
+  schedule:
+    - cron: '59 23 28-31 * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'dry-run lists targets; apply mutates account state and probes upstream'
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+      force:
+        description: 'Re-run even when this Beijing month already has a success marker'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ops-kiro-monthly-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '59 23 28-31 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [prod, cn-prod]
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-2' }}
+      MODE: ${{ github.event_name == 'schedule' && 'apply' || inputs.mode || 'dry-run' }}
+      FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force || 'false' }}
+      MODEL: claude-sonnet-4.5
+      REQUEST_TIMEOUT_SECONDS: '60'
+      MAX_WORKERS: '4'
+      RUN_NOW: 'true'
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Wait for Beijing 08:00:05 on scheduled run
+        if: github.event_name == 'schedule'
+        run: |
+          set -euo pipefail
+          TARGET_DATE="$(TZ=Asia/Shanghai date -d '+1 minute' +%F)"
+          if [ "$(TZ=Asia/Shanghai date -d "$TARGET_DATE" +%d)" != "01" ]; then
+            echo "scheduled outside the first Beijing day; target_date=$TARGET_DATE"
+            echo 'RUN_NOW=false' >> "$GITHUB_ENV"
+            exit 0
+          fi
+          TARGET_EPOCH="$(date -u -d "$TARGET_DATE 00:00:05" +%s)"
+          NOW="$(date -u +%s)"
+          DELTA=$((TARGET_EPOCH - NOW))
+          if [ "$DELTA" -gt 0 ]; then
+            echo "waiting ${DELTA}s for Beijing 08:00:05 target_date=$TARGET_DATE"
+            sleep "$DELTA"
+          else
+            echo "runner started after target; proceeding immediately target_date=$TARGET_DATE"
+          fi
+
+      - name: Check AWS OIDC configuration
+        if: env.RUN_NOW == 'true'
+        run: |
+          set -euo pipefail
+          test -n "${OIDC_ROLE_ARN:-}" || { echo '::error::AWS_OIDC_ROLE_ARN is empty'; exit 1; }
+
+      - name: Configure AWS credentials via OIDC
+        if: env.RUN_NOW == 'true'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run Kiro recovery and probes through SSM
+        id: run
+        if: env.RUN_NOW == 'true'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          APPLY_ENV=''
+          if [ "$MODE" = 'apply' ]; then
+            APPLY_ENV='--env APPLY=yes-kiro-monthly-recovery'
+          fi
+          bash ops/observability/run-probe.sh \
+            --target "$TARGET" \
+            --script ops/kiro/monthly-recovery.sh \
+            --with ops/kiro/monthly_recovery.py \
+            --with ops/stage0/probe_kiro_upstream_models.sh \
+            --with ops/kiro/probe_runtime_gateway.py \
+            --with backend/internal/pkg/kiro/constants.go \
+            --with deploy/aws/stage0/tk_canonical_kiro_cli.json \
+            --env TARGET_NAME="$TARGET" \
+            --env MODE="$MODE" \
+            --env MODEL="$MODEL" \
+            --env FORCE="$FORCE" \
+            --env REQUEST_TIMEOUT_SECONDS="$REQUEST_TIMEOUT_SECONDS" \
+            --env MAX_WORKERS="$MAX_WORKERS" \
+            $APPLY_ENV \
+            --comment "monthly Kiro recovery target=$TARGET mode=$MODE" \
+            --timeout-seconds 1200 > "artifacts/${TARGET}.json"
+          python3 - "artifacts/${TARGET}.json" "$TARGET" <<'PY'
+          import json, sys
+          path, target = sys.argv[1:]
+          data = json.load(open(path, encoding='utf-8'))
+          print(f"target={target} verdict={data.get('verdict')} total={data.get('total', 0)} counts={data.get('counts', {})}")
+          if data.get('verdict') == 'partial_failure':
+              print('::warning::some Kiro accounts remain unschedulable after live verification')
+              raise SystemExit(1)
+          PY
+
+      - name: Upload recovery evidence
+        if: always() && env.RUN_NOW == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: kiro-monthly-recovery-${{ matrix.target }}-${{ github.run_id }}
+          path: artifacts/${{ matrix.target }}.json
+          if-no-files-found: warn
+          retention-days: 14

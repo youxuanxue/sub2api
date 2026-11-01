@@ -788,7 +788,10 @@
         "跟踪队列",
         "def seed_published(",
         "seed-published",
-        "source_repo=source[\"repo\"]"
+        "source_repo=source[\"repo\"]",
+        "COLD_START_DAYS = 2",
+        "intel = recent(intel, intel_since)",
+        "context = queue.target_context(target_repo, api)"
       ],
       "rationale": "Preserve incremental recovery and idempotent Issue projection as one owner. The tracking queue is partitioned by WHO judged an entry, never by `impact`: keyword hits are unverified leads and must not enter the queue, while an entry with no known status fails closed INTO the queue so a classifier change cannot hide work."
     },
@@ -810,7 +813,10 @@
         "INTEL_MARKER = \"<!-- watchdog-intel:v1 \"",
         "Dedup on content alone, never on the period",
         "def topics_for(",
-        "NOISY_FOR_CLIENT_TRACKER"
+        "NOISY_FOR_CLIENT_TRACKER",
+        "def target_context(",
+        "context[\"issues\"].append(issue)",
+        "issue.update(changes)"
       ],
       "rationale": "One aggregate per platform preserves scoped decisions, bounds daily comments and replays without duplicate writes. The deletion condition is `resolved`, never `retired`: `manual` is rebuilt from the live comments on every run, so a human-checked line IS the only durable carrier of that tick -- deleting it discards the verdict and the task returns next round. `retired = resolved | manual` still gates the pending set and the re-offer skip, which is what keeps an upstream closure or merge from ever retiring a task."
     },
@@ -834,7 +840,9 @@
         "test_intel_rotates_per_period_without_republishing_or_retiring",
         "test_intel_never_collides_with_the_queue_issue",
         "test_topic_gate_narrows_only_for_the_client_tracker",
-        "test_off_topic_findings_are_dropped_without_losing_relay_signal"
+        "test_off_topic_findings_are_dropped_without_losing_relay_signal",
+        "test_thirty_day_calibration_drops_own_housekeeping_but_keeps_relay_signal",
+        "test_one_target_listing_serves_every_source_and_platform"
       ],
       "rationale": "Aggregate lifecycle, append-only discovery, local resolution and idempotent replay must survive upstream refactors."
     },
@@ -847,7 +855,10 @@
         "merged_at",
         "temporary.replace(checkpoint)",
         "OFF_TOPIC = re.compile(",
-        "def off_topic("
+        "def off_topic(",
+        "COLD_START_DAYS = watchdog.COLD_START_DAYS",
+        "context = watchdog.queue.target_context(args.sync_repo, watchdog.gh)",
+        "RELAY_UI = re.compile("
       ],
       "rationale": "Relay monitoring must retain discussion changes and true merge evidence, committing cursors only after publication."
     },
@@ -884,7 +895,8 @@
         "test_queue_holds_judged_work_only_and_keyword_leads_become_intel",
         "test_scan_threads_intel_period_and_reports_both_counts",
         "test_seeding_marks_existing_refs_delivered_without_publishing",
-        "test_scan_passes_its_source_to_the_topic_gate"
+        "test_scan_passes_its_source_to_the_topic_gate",
+        "test_cold_start_publishes_only_recent_intel_and_lists_target_once"
       ],
       "rationale": "The normal scripts unittest gate exercises no-change, operator decisions, cursor replay and stale evidence."
     },

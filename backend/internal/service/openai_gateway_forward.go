@@ -508,6 +508,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if codexModified {
 			markDecodedModified()
 		}
+		if fallbackKey := s.deriveResponsesPromptCacheKey(c, account, originalBody); fallbackKey != "" {
+			decoded["prompt_cache_key"] = fallbackKey
+			promptCacheKey = fallbackKey
+			markDecodedModified()
+		}
 	}
 
 	if !SupportsVerbosity(upstreamModel) && gjson.GetBytes(body, "text.verbosity").Exists() {
@@ -1392,6 +1397,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	if err := s.tkApplyOpenAIForwardUpstreamHeaders(ctx, c, req, account, body, promptCacheKey, isCodexCLI); err != nil {
 		return nil, err
 	}
+	logOpenAIResponsesCacheIdentity(ctx, account, req, body, promptCacheKey)
 
 	// Codex ChatGPT upstream rejects Content-Type with charset parameters
 	// (Wei-Shaw/sub2api#963). Always pin a strict JSON media type after the

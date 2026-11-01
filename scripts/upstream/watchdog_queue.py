@@ -21,8 +21,6 @@ MARKER = "<!-- watchdog-tracking:v1 -->"
 # Discovery prefix, deliberately unterminated: every intel Issue's marker carries
 # a platform and period after it, so matching must be on the prefix.
 INTEL_MARKER = "<!-- watchdog-intel:v1 "
-INTEL_RECORD = re.compile(r"^- \[([^\]]+)\].*?<!-- watchdog-intel-item:(\S+) ([0-9a-f]+) -->$",
-                          re.MULTILINE)
 
 
 def platform_marker(platform):
@@ -122,7 +120,22 @@ def trusted_authors(target, api):
     return trusted
 
 
-def sync_intel(repo, items, target, api, platform="upstream", period=None, published=None):
+def target_context(target, api):
+    """Read the target's Issue list and trust policy once for a whole run.
+
+    Every sync call used to page through all of the target's Issues (~30 pages at
+    3000 Issues) to find one tracking Issue, and relay-watch makes 23 such calls a
+    day. Callers share this context instead; each sync updates the shared rows in
+    place after its own writes, so later calls never act on a stale body or state.
+    """
+    pages = api("api", "--paginate", "--slurp",
+                f"repos/{target}/issues?{urlencode({'state': 'all', 'per_page': 100})}")
+    return {"issues": [row for page in pages for row in page],
+            "trusted": trusted_authors(target, api)}
+
+
+def sync_intel(repo, items, target, api, platform="upstream", period=None, published=None,
+               context=None):
     """Publish keyword leads to a rotating, per-period Issue.
 
     Leads are not tasks: the classifier states it has not verified them, so they
@@ -141,10 +154,9 @@ def sync_intel(repo, items, target, api, platform="upstream", period=None, publi
     period = period or intel_period()
     marker = intel_marker(platform, period)
     config = PLATFORMS[platform]
-    pages = api("api", "--paginate", "--slurp",
-                f"repos/{target}/issues?{urlencode({'state': 'all', 'per_page': 100})}")
-    trusted = trusted_authors(target, api)
-    rows = [row for page in pages for row in page
+    context = context or target_context(target, api)
+    trusted = context["trusted"]
+    rows = [row for row in context["issues"]
             if "pull_request" not in row and INTEL_MARKER in (row.get("body") or "") and trusted(row)]
     current = [row for row in rows if marker in (row.get("body") or "")]
     if len(current) > 1:
@@ -186,6 +198,7 @@ def sync_intel(repo, items, target, api, platform="upstream", period=None, publi
                 "确认要做的请在 ops/issue-watchdog 账本登记判断，下一轮它会进入跟踪队列。\n"
                 f"下一周期开启时本单自动关闭（不删除），历史可检索。"),
             "labels": [config["label"]]})
+        context["issues"].append(issue)
         created = 1
     endpoint = f"repos/{target}/issues/{issue['number']}"
     commented = 0
@@ -207,13 +220,14 @@ def sync_intel(repo, items, target, api, platform="upstream", period=None, publi
         if row["number"] != issue["number"] and row.get("state") == "open":
             api("api", "--method", "PATCH", f"repos/{target}/issues/{row['number']}",
                 payload={"state": "closed", "state_reason": "completed"})
+            row["state"] = "closed"
             closed += 1
     return {"created": created, "commented": commented, "leads": len(items),
             "closed": closed, "published": delivered}
 
 
 def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstream",
-               published=None):
+               published=None, context=None):
     """Publish relevant findings immediately, regardless of risk/manual judgment.
 
     A checked task is an explicit TokenKey resolution. Ledger resolutions also
@@ -227,10 +241,9 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
     # The hidden platform marker owns identity. Labels are presentation metadata
     # and may be removed by an operator; filtering by them would create a second
     # aggregate Issue after that harmless edit.
-    pages = api("api", "--paginate", "--slurp",
-                f"repos/{target}/issues?{urlencode({'state': 'all', 'per_page': 100})}")
-    trusted = trusted_authors(target, api)
-    matches = [row for page in pages for row in page
+    context = context or target_context(target, api)
+    trusted = context["trusted"]
+    matches = [row for row in context["issues"]
                if "pull_request" not in row and (marker in (row.get("body") or "") or
                     (platform == "upstream" and MARKER in (row.get("body") or ""))) and trusted(row)]
     if len(matches) > 1:
@@ -255,6 +268,7 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
             "body": marker + "\n" + managed_body("", f"每日追加新增及更新评论；{platform} 来源共用此 Issue。\n"
                 "修复后勾选对应任务或更新修复账本；已完成条目不再进入待处理集合。\n"
                 "上游关闭或 PR 合并不代表 TokenKey 已解决。"), "labels": [config["label"]]})
+        context["issues"].append(issue)
         created = 1
     endpoint = f"repos/{target}/issues/{issue['number']}"
     comments = [row for page in api("api", "--paginate", "--slurp", endpoint + "/comments?per_page=100") for row in page]
@@ -359,6 +373,7 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
         changes["state"] = state
     if changes:
         api("api", "--method", "PATCH", endpoint, payload=changes)
+        issue.update(changes)
     # Hand the delivery state back so the caller can persist it in the checkpoint.
     # Retired refs stay in the map: forgetting them would re-publish on the next run.
     delivered = {ref: [signature, status, updated]

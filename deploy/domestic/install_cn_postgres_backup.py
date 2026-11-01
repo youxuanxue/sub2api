@@ -21,6 +21,10 @@ from pathlib import Path
 
 RUNNER_SRC = Path(__file__).resolve().parent / "cn_pgbackrest.py"
 RUNNER_DST = Path("/opt/tokenkey/cn-pgbackrest.py")
+IDENTITY_SRC = Path(__file__).resolve().parent / "cn_backup_identity.py"
+IDENTITY_DST = Path("/opt/tokenkey/cn-backup-identity.py")
+TARGET_SRC = Path(__file__).resolve().parent / "prod-target.json"
+TARGET_DST = Path("/opt/tokenkey/prod-target.json")
 UNIT_DIR = Path("/etc/systemd/system")
 STATE = Path("/var/lib/tokenkey/postgres-backup")
 LEGACY_RUNNER = Path("/opt/tokenkey/cn-backup-run.py")
@@ -90,6 +94,12 @@ def plan() -> dict:
             "action": "unchanged" if current == body else ("update" if current else "create"),
         })
     return {
+        "identity": {"src": str(IDENTITY_SRC), "dst": str(IDENTITY_DST),
+                     "action": "unchanged" if IDENTITY_DST.is_file()
+                     and IDENTITY_DST.read_text() == IDENTITY_SRC.read_text() else "install"},
+        "target": {"src": str(TARGET_SRC), "dst": str(TARGET_DST),
+                   "action": "unchanged" if TARGET_DST.is_file()
+                   and TARGET_DST.read_text() == TARGET_SRC.read_text() else "install"},
         "runner": {"src": str(RUNNER_SRC), "dst": str(RUNNER_DST),
                    "action": "unchanged" if RUNNER_DST.is_file()
                    and RUNNER_DST.read_text() == RUNNER_SRC.read_text() else "install"},
@@ -101,10 +111,15 @@ def plan() -> dict:
 def apply() -> dict:
     if os.geteuid() != 0:
         raise InstallError("apply requires root")
-    if not RUNNER_SRC.is_file():
-        raise InstallError(f"runner source missing: {RUNNER_SRC}")
+    for source in (IDENTITY_SRC, TARGET_SRC, RUNNER_SRC):
+        if not source.is_file():
+            raise InstallError(f"source missing: {source}")
 
     RUNNER_DST.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(IDENTITY_SRC, IDENTITY_DST)
+    IDENTITY_DST.chmod(0o700)
+    shutil.copyfile(TARGET_SRC, TARGET_DST)
+    TARGET_DST.chmod(0o600)
     shutil.copyfile(RUNNER_SRC, RUNNER_DST)
     RUNNER_DST.chmod(0o700)
 

@@ -125,18 +125,36 @@ def partition_entries(entries):
     return queued, intel
 
 
+# Window for any source whose checkpoint was lost (relay-watch shares it). A lost
+# checkpoint loses the intel delivery map, and intel (unlike the queue) does not
+# recover it from comments. Without a window, the first run after a cache eviction
+# republished every open lead: 5181 lines on 2026-11-01.
+COLD_START_DAYS = 2
+
+
+def recent(items, since):
+    """Items updated at or after `since`; an unknown timestamp stays in."""
+    def updated(item):
+        value = item.get("updated_at")
+        return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else since
+    return [item for item in items if updated(item) >= since]
+
+
 def sync_issues(source, report, target_repo, api=gh, entries=(), published=None,
-                intel_published=None, period=None):
+                intel_published=None, period=None, intel_since=None):
     queued, intel = partition_entries(entries)
+    if intel_since is not None:
+        intel = recent(intel, intel_since)
+    context = queue.target_context(target_repo, api)
     outcome = queue.sync_queue(source["repo"], queued, target_repo, api,
                                resolved=resolved_refs(), platform="upstream",
-                               published=published)
+                               published=published, context=context)
     # Leads get their own rotating Issue: the report artifact expires in days, so an
     # artifact-only lead gets exactly one chance to be seen and then vanishes with no
     # record it existed. Published separately so a lead never lands in the queue.
     intel_outcome = queue.sync_intel(source["repo"], intel, target_repo, api,
                                      platform="upstream", period=period,
-                                     published=intel_published)
+                                     published=intel_published, context=context)
     report["intel"] = {"period": period or queue.intel_period(),
                        "leads": len(intel), "issue": intel_outcome}
     return {**outcome, "queued": len(queued), "intel": len(intel),
@@ -207,7 +225,9 @@ def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh, perio
         outcome = sync_issues(source, report, target_repo, api, triage["issues"],
                               published=(previous or {}).get("published", {}),
                               intel_published=(previous or {}).get("intel_published", {}),
-                              period=period or None)
+                              period=period or None,
+                              intel_since=None if previous else
+                              datetime.fromisoformat(started) - timedelta(days=COLD_START_DAYS))
         # Carry delivery state forward so a deleted line or a replaced Issue cannot
         # make the next run re-publish what was already delivered.
         if "published" in outcome:

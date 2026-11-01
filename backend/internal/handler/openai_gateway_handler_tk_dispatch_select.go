@@ -42,6 +42,11 @@ func tkOpenAIDispatchSelectionAllowsFallback(err error) bool {
 	if err == nil {
 		return false
 	}
+	// Native compaction response ids are account scoped. A mapped model retry
+	// must not move that continuation to another account.
+	if errors.Is(err, service.ErrPreviousResponseAccountUnavailable) {
+		return false
+	}
 	// Compact-only exhaustion must not fall back to a non-compact GPT account.
 	if errors.Is(err, service.ErrNoAvailableCompactAccounts) {
 		return false

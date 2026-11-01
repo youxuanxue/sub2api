@@ -350,6 +350,11 @@ type ResponsesContentPart struct {
 	Text                  string          `json:"text,omitempty"`
 	Refusal               string          `json:"refusal,omitempty"`   // type=refusal
 	ImageURL              string          `json:"image_url,omitempty"` // data URI for input_image
+	// Annotations and logprobs are returned on output_text parts by the
+	// Responses API. Keep them through the output item/completed projection so
+	// strict clients see the same content shape in every terminal event.
+	Annotations []any `json:"annotations,omitempty"`
+	Logprobs    []any `json:"logprobs,omitempty"`
 
 	// input_file fields.
 	Filename string `json:"filename,omitempty"`

@@ -1748,7 +1748,8 @@ func TestExtractSystemMessagesFromInput(t *testing.T) {
 		third, ok := input[2].(map[string]any)
 		require.True(t, ok)
 		require.Equal(t, "assistant", third["role"])
-		require.Equal(t, "Sys prompt.", reqBody["instructions"])
+		_, hasInstructions := reqBody["instructions"]
+		require.False(t, hasInstructions, "mid-history system reminders must not rewrite instructions")
 	})
 
 	t.Run("existing instructions prepended", func(t *testing.T) {

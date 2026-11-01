@@ -99,6 +99,11 @@ type Options struct {
 	HoursAhead int
 	BlobRoot   string
 	DLQRoot    string
+	// ArchiveReceiptRoot is the local, read-only view of node1 receipts. When
+	// set, a source hour is never dropped until its verified receipt exists.
+	// An unavailable or malformed receipt is a hard safety failure.
+	ArchiveReceiptRoot string
+	ArchiveEnvironment string
 
 	provisionLockRetryBackoff []time.Duration
 	provisionRetrySleep       func(context.Context, time.Duration) error

@@ -556,6 +556,65 @@ class PhysicalBackupTests(unittest.TestCase):
         with self.assertRaises(backup.BackupError):
             backup.configuration("tokenkey-backups", "us-east-1", "/x\nrepo1-type=posix")
 
+    def test_config_can_render_cos_repo2_without_changing_aws_repo1(self):
+        rendered = backup.configuration(
+            "tokenkey-backups",
+            "us-east-1",
+            secondary={
+                "bucket": "tokenkey-prod-cos-123456789012",
+                "region": "ap-beijing",
+                "endpoint": "cos.ap-beijing.myqcloud.com",
+                "path": "/prod/postgres",
+            },
+        )
+        import configparser
+
+        config = configparser.ConfigParser()
+        config.read_string(rendered)
+        self.assertEqual(config["global"]["repo1-s3-endpoint"], "s3.us-east-1.amazonaws.com")
+        self.assertEqual(config["global"]["repo1-path"], "/prod/postgres")
+        self.assertEqual(config["global"]["repo2-type"], "s3")
+        self.assertEqual(config["global"]["repo2-s3-endpoint"], "cos.ap-beijing.myqcloud.com")
+        self.assertEqual(config["global"]["repo2-s3-uri-style"], "host")
+        self.assertEqual(config["global"].getint("repo2-retention-full"), 7)
+        self.assertNotIn("repo2-s3-key=", rendered)
+
+    def test_config_rejects_unsafe_or_partial_cos_repo2(self):
+        valid = {
+            "bucket": "tokenkey-prod-cos-123456789012",
+            "region": "ap-beijing",
+            "endpoint": "cos.ap-beijing.myqcloud.com",
+            "path": "/prod/postgres",
+        }
+        for key, value in (
+            ("endpoint", "https://cos.ap-beijing.myqcloud.com"),
+            ("endpoint", "cos.ap-beijing.myqcloud.com/evil"),
+            ("path", "/prod/postgres\nrepo1-type=posix"),
+            ("region", "us-east-1"),
+        ):
+            candidate = dict(valid, **{key: value})
+            with self.assertRaises(backup.BackupError):
+                backup.configuration("tokenkey-backups", "us-east-1", secondary=candidate)
+
+    def test_repo2_config_is_dry_run_only_and_backup_stays_repo1_by_default(self):
+        """Adding repo2 to rendered config must not silently change live calls."""
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            fresh = {
+                "label": "20261018-120000F",
+                "type": "full",
+                "timestamp": {"stop": 10},
+            }
+            with patch.object(
+                backup,
+                "backrest",
+                side_effect=[entry([]), "", entry([fresh])],
+            ) as command:
+                backup.take_backup(state, "full")
+            for call in command.call_args_list:
+                self.assertNotIn("--repo=all", call.args)
+                self.assertNotIn("--repo=2", call.args)
+
     def test_bundle_architecture_comes_from_target_not_constant(self):
         root = Path(__file__).resolve().parents[2]
         live = json.loads(

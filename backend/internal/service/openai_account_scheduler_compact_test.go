@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -196,6 +197,82 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_NativeCompactionAllowsF
 			require.NotNil(t, selection)
 			require.Equal(t, int64(71013), selection.Account.ID)
 		})
+	}
+}
+
+func TestOpenAIGatewayService_NativeCompactionContinuationFailsClosedOnOwnerUnavailable(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	groupID := int64(91009)
+	now := time.Now().Format(time.RFC3339)
+	owner := Account{
+		ID: 71090, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1,
+		Extra: map[string]any{
+			"openai_apikey_responses_websockets_v2_enabled": true,
+			"codex_5h_used_percent":                         100.0,
+			"codex_usage_updated_at":                        now,
+		},
+	}
+	fallback := Account{
+		ID: 71091, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1,
+		Extra: map[string]any{"openai_apikey_responses_websockets_v2_enabled": true},
+	}
+	cache := &stubGatewayCache{}
+	store := NewOpenAIWSStateStore(cache)
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: []Account{owner, fallback}},
+		cache:              cache,
+		cfg:                &config.Config{},
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		openaiWSStateStore: store,
+	}
+	require.NoError(t, store.BindResponseAccount(context.Background(), groupID, "resp_compact_owner", owner.ID, time.Hour))
+
+	ctx := WithOpenAINativeCompactionAffinityRequired(context.Background())
+	selection, _, err := svc.SelectAccountWithSchedulerForCapability(
+		ctx, &groupID, "resp_compact_owner", "", "gpt-5.6-sol", nil,
+		OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityResponses, false, false, true,
+	)
+	require.ErrorIs(t, err, ErrPreviousResponseAccountUnavailable)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.Nil(t, selection, "native compaction must not move continuation to fallback account")
+}
+
+func TestOpenAIGatewayService_NormalContinuationMayFallbackWhenOwnerUnavailable(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	groupID := int64(91010)
+	now := time.Now().Format(time.RFC3339)
+	owner := Account{
+		ID: 71092, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1,
+		Extra: map[string]any{"openai_apikey_responses_websockets_v2_enabled": true, "codex_5h_used_percent": 100.0, "codex_usage_updated_at": now},
+	}
+	fallback := Account{
+		ID: 71093, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1,
+		Extra: map[string]any{"openai_apikey_responses_websockets_v2_enabled": true},
+	}
+	cache := &stubGatewayCache{}
+	store := NewOpenAIWSStateStore(cache)
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: []Account{owner, fallback}},
+		cache:              cache,
+		cfg:                &config.Config{},
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		openaiWSStateStore: store,
+	}
+	require.NoError(t, store.BindResponseAccount(context.Background(), groupID, "resp_normal_owner", owner.ID, time.Hour))
+
+	selection, _, err := svc.SelectAccountWithSchedulerForCapability(
+		context.Background(), &groupID, "resp_normal_owner", "", "gpt-5.6-sol", nil,
+		OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityResponses, false, false, true,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, fallback.ID, selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
 	}
 }
 

@@ -62,6 +62,12 @@ func TestTkOpenAIDispatchSelectionFallbackModel(t *testing.T) {
 			err:     service.ErrNoAvailableCompactAccounts,
 		},
 		{
+			name:    "native compaction owner exhaustion does not fall back",
+			mapped:  "gpt-5.6-sol",
+			primary: "claude-opus-4-8",
+			err:     fmt.Errorf("%w: %w", service.ErrNoAvailableAccounts, service.ErrPreviousResponseAccountUnavailable),
+		},
+		{
 			name:    "unrelated scheduler error does not fall back",
 			mapped:  "gpt-5.6-sol",
 			primary: "claude-opus-4-8",
