@@ -154,6 +154,34 @@ def wal_continuity(entry: dict) -> dict:
     return {"min": low, "max": high, "timeline": low[:8]}
 
 
+def validate_verification(output: str) -> None:
+    """Exit zero alone is not proof; pgBackRest reports findings in its text.
+
+    Same judgment as ops/stage0/postgres_backup.py:validate_verification, which
+    was written against pgBackRest 2.58's habit of reporting at INFO level: a
+    repository with invalid checksums can still exit zero, so the per-backup
+    "status: valid" lines and the zeroed finding counters are what matter.
+    """
+    if (not re.search(r"backup: .*status: valid", output)
+            or re.search(r"\b(?:WARN|ERROR):", output)
+            or re.search(r"status: (?!ok|valid)\w+", output)
+            or re.search(r"(?:missing|checksum invalid|size invalid|other): [1-9]", output)):
+        raise AcceptanceError("repository verification did not prove valid contents")
+
+
+def verify_repository(container: str, repo: int, timeout: int) -> dict:
+    """Recompute checksums and sizes for every object. Writes no pgdata."""
+    output = run(["sudo", "nice", "-n", "19", "ionice", "-c3",
+                  "docker", "exec", "--user", "postgres", container,
+                  "pgbackrest", f"--stanza={STANZA}", f"--repo={repo}",
+                  "--output=text", "--verbose", "verify"], timeout=timeout)
+    validate_verification(output)
+    # --verbose prints each backup twice (per-backup check, then the summary),
+    # so count distinct labels: a plain match count reported 38 for 19 backups.
+    valid = set(re.findall(r"backup: (\S+?), status: valid", output))
+    return {"backups_valid": len(valid), "findings": "none"}
+
+
 class Sandbox:
     """A throwaway restore target that never touches production paths."""
 
@@ -279,6 +307,13 @@ def main() -> int:
     parser.add_argument("--host-role", default="")
     parser.add_argument("--apply", action="store_true",
                         help="without this, resolve and report only; restore nothing")
+    parser.add_argument("--verify-only", action="store_true",
+                        help="verify repository contents without restoring. Writes "
+                             "repository_verification.json ONLY -- restore acceptance "
+                             "stays unproven, and host_https_watch keeps reporting "
+                             "restore_acceptance_missing_or_stale. Use where a restore "
+                             "cannot fit, never as a substitute for one.")
+    parser.add_argument("--verify-timeout", type=int, default=3000)
     args = parser.parse_args()
 
     container = live_container()
@@ -294,7 +329,30 @@ def main() -> int:
         "wal": wal, "live_schema": live_schema, "primary_max_connections": primary_connections,
     }
     if not args.apply:
-        print(json.dumps({"status": "planned", **plan}, indent=2, sort_keys=True))
+        print(json.dumps({"status": "planned", "verify_only": args.verify_only, **plan},
+                         indent=2, sort_keys=True))
+        return 0
+
+    if args.verify_only:
+        # Deliberately writes one receipt, not two. restore_acceptance.json must
+        # keep reflecting whether a database actually came back out; claiming it
+        # from a checksum pass would hide exactly the risk it exists to surface.
+        started = time.time()
+        verified = verify_repository(container, args.repo, args.verify_timeout)
+        completed = time.time()
+        receipt = {
+            "schema_version": 1, "status": "ok", "repo": args.repo, "stanza": STANZA,
+            "host_role": args.host_role or None,
+            "started_at": started, "completed_at": completed,
+            "duration_seconds": round(completed - started, 3),
+            "method": "verify_only",
+            "restore_acceptance": "not attempted: see restore_acceptance.json",
+            "wal": wal, "backup_count": len(entry.get("backup") or []),
+            "full_count": sum(1 for b in (entry.get("backup") or []) if b["type"] == "full"),
+            **verified,
+        }
+        atomic_json(STATE / "repository_verification.json", receipt)
+        print(json.dumps(receipt, indent=2, sort_keys=True))
         return 0
 
     before = sorted(run(["docker", "ps", "--format", "{{.Names}}"]).split())

@@ -68,3 +68,37 @@ prod 的配置目录是 `/run/tokenkey-backup-candidate/config`。prod 库约 21
 | 账务对差值 | 26（与线上一致） | 26（与线上一致） |
 
 全程线上容器集合不变、归档 `failed_count` 不增长、网关 HTTP 308。
+
+## verify-only 模式（磁盘放不下完整恢复时）
+
+```bash
+sudo python3 ops/backup/cos_restore_acceptance.py --repo 2 \
+  --config /run/tokenkey-backup-candidate/config \
+  --host-role tencent-usw-prod --verify-only --apply
+```
+
+它重算仓库里**每个对象**的 checksum 与 size，不写 pgdata，磁盘需求约 0。
+
+**它只写 `repository_verification.json`，不写 `restore_acceptance.json`。**
+这是刻意的：从 checksum 通过推断「数据库能起来」正好掩盖了这份回执存在的意义。
+`host_https_watch` 会继续报 `restore_acceptance_missing_or_stale`，
+设计阶段 3 对该主机仍未完成。
+
+注意 pgBackRest 的退出码不足以判定 —— 2.58 把发现项打在 INFO 级别，
+checksum 有问题仍可能 exit 0。判据是每份备份的 `status: valid`
+和归零的 `missing / checksum invalid / size invalid / other` 计数。
+
+### prod 首次 verify 结果（2026-11-02）
+
+| | |
+|---|---|
+| 备份 | 19 份全部 `status: valid`（1 全量 + 18 增量） |
+| 发现项 | `missing: 0, checksum invalid: 0, size invalid: 0, other: 0` |
+| WAL | `...3335` → `...3719`，单一 timeline `00000002` |
+| 耗时 | 288 秒 |
+
+全程线上无影响：容器集合不变、归档 `failed_count` 保持 0、网关 308、
+业务量 566 → 564。
+
+prod 的恢复验收（`restore_acceptance.json`）**仍未完成** ——
+库 21 GB，根卷仅 28 G 可用，恢复后只剩 6 G，不足以安全落盘。

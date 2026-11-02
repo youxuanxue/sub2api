@@ -91,6 +91,67 @@ class SelfCheckRegistryTest(unittest.TestCase):
             self.assertIn("json_build_object", sql)
 
 
+class VerifyOnlyTest(unittest.TestCase):
+    """verify proves objects are intact; it never proves a database starts."""
+
+    # Real pgBackRest 2.58 output from prod's COS repo2 on 2026-11-02.
+    PROD_OUTPUT = """
+  backup: 20261101-012705F, status: valid, total files checked: 7461, total valid files: 7461
+    missing: 0, checksum invalid: 0, size invalid: 0, other: 0
+  backup: 20261101-012705F_20261102-123127I, status: valid, total files checked: 7467, total valid files: 7467
+    missing: 0, checksum invalid: 0, size invalid: 0, other: 0
+"""
+
+    def test_real_prod_output_is_accepted(self) -> None:
+        acceptance.validate_verification(self.PROD_OUTPUT)
+
+    def test_exit_zero_is_not_enough(self) -> None:
+        # pgBackRest 2.58 reports findings at INFO level, so a repository with
+        # invalid checksums can still exit zero. The counters are the signal.
+        for broken in (
+            self.PROD_OUTPUT.replace("checksum invalid: 0", "checksum invalid: 3"),
+            self.PROD_OUTPUT.replace("missing: 0", "missing: 1"),
+            self.PROD_OUTPUT.replace("size invalid: 0", "size invalid: 2"),
+            self.PROD_OUTPUT.replace("other: 0", "other: 5"),
+            self.PROD_OUTPUT.replace("status: valid", "status: invalid"),
+            self.PROD_OUTPUT + "\nERROR: [028]: unable to read\n",
+            "",
+        ):
+            with self.subTest(broken=broken[:40]):
+                with self.assertRaises(acceptance.AcceptanceError):
+                    acceptance.validate_verification(broken)
+
+    def test_verify_only_writes_one_receipt_not_two(self) -> None:
+        # Claiming restore acceptance from a checksum pass would hide exactly
+        # the risk the receipt exists to surface.
+        source = (HERE / "cos_restore_acceptance.py").read_text()
+        verify_block = source[source.index("if args.verify_only:"):source.index("before = sorted(")]
+        self.assertIn('STATE / "repository_verification.json"', verify_block)
+        self.assertNotIn('STATE / "restore_acceptance.json"', verify_block,
+                         "verify-only must not claim restore acceptance")
+        self.assertIn('"method": "verify_only"', verify_block)
+
+    def test_verify_runs_read_only_and_throttled(self) -> None:
+        with mock.patch.object(acceptance, "run", return_value=self.PROD_OUTPUT) as runner:
+            result = acceptance.verify_repository("live", 2, 60)
+        argv = runner.call_args.args[0]
+        self.assertIn("verify", argv)
+        self.assertIn("--repo=2", argv)
+        self.assertIn("19", argv)      # nice
+        self.assertIn("-c3", argv)     # ionice idle
+        self.assertNotIn("restore", argv, "verify must not restore")
+        self.assertEqual(result["backups_valid"], 2)
+
+    def test_duplicate_verbose_lines_are_counted_once(self) -> None:
+        # pgBackRest --verbose prints each backup twice (per-backup check, then
+        # the summary). Counting raw matches reported 38 valid backups for the
+        # 19 that prod actually holds.
+        doubled = self.PROD_OUTPUT + self.PROD_OUTPUT
+        with mock.patch.object(acceptance, "run", return_value=doubled):
+            result = acceptance.verify_repository("live", 2, 60)
+        self.assertEqual(result["backups_valid"], 2, "distinct labels, not line matches")
+
+
 class WalContinuityTest(unittest.TestCase):
     def test_single_timeline_range_is_returned(self) -> None:
         result = acceptance.wal_continuity(
