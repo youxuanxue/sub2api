@@ -17,19 +17,21 @@ acceptance = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
 spec.loader.exec_module(acceptance)
 
-# Live cn-prod at the time of the first successful acceptance run.
+# Live cn-prod at the time of the first successful acceptance run. accounts and
+# api_keys are soft-delete filtered (140 rows / 137 live, 112 / 110), which is
+# what DATA_SQL returns.
 LIVE = {
-    "accounts": 140, "api_keys": 112,
-    "usage_logs": 511564, "billing_dedup": 511538,
-    "cost_sum": "9136.407815", "actual_cost_sum": "3344.203268",
-    "db_size_bytes": 1687355392,
+    "accounts": 137, "api_keys": 110,
+    "usage_logs": 515715, "billing_dedup": 515689,
+    "cost_sum": "9232.404804", "actual_cost_sum": "3374.483810",
+    "db_size_bytes": 1704564415,
 }
 # The oldest full, restored from COS: strictly behind live, same billing drift.
 HISTORICAL = {
-    "accounts": 138, "api_keys": 112,
+    "accounts": 135, "api_keys": 110,
     "usage_logs": 507683, "billing_dedup": 507657,
     "cost_sum": "9045.662212", "actual_cost_sum": "3315.381977",
-    "db_size_bytes": 1678770176,
+    "db_size_bytes": 1678743231,
 }
 
 
@@ -58,6 +60,35 @@ class CompareTest(unittest.TestCase):
     def test_missing_aggregate_is_a_failure_not_a_pass(self) -> None:
         absent = {k: v for k, v in HISTORICAL.items() if k != "cost_sum"}
         self.assertTrue(any("cost_sum" in p for p in acceptance.compare(absent, LIVE)))
+
+
+class SoftDeleteTest(unittest.TestCase):
+    def test_soft_delete_tables_are_filtered(self) -> None:
+        # Soft-delete does not reset status, and a row deleted AFTER the
+        # recovery point still reads as live in the restored copy. Counting
+        # ghosts would drift the comparison for a reason that has nothing to do
+        # with the backup. cn-prod carries 3 such accounts and 2 api_keys.
+        for table in ("accounts", "api_keys"):
+            with self.subTest(table=table):
+                self.assertRegex(
+                    acceptance.DATA_SQL,
+                    rf"FROM {table} WHERE deleted_at IS NULL",
+                    f"{table} is a soft-delete table and must be filtered")
+
+    def test_tables_without_soft_delete_are_not_filtered(self) -> None:
+        # usage_logs has no deleted_at column; adding a filter would error.
+        self.assertIn("FROM usage_logs)", acceptance.DATA_SQL)
+
+
+class SelfCheckRegistryTest(unittest.TestCase):
+    def test_every_sql_generator_is_enumerated_or_exempt(self) -> None:
+        # ops-sql-coverage requires forced classification so a new generator
+        # cannot ship without reaching the real-Postgres execution gate.
+        labels = {label for label, _ in acceptance.iter_self_check_sql()}
+        self.assertEqual(labels, {"SCHEMA_SQL", "DATA_SQL"})
+        self.assertIn("live_sql", acceptance.SELF_CHECK_EXEMPT)
+        for _, sql in acceptance.iter_self_check_sql():
+            self.assertIn("json_build_object", sql)
 
 
 class WalContinuityTest(unittest.TestCase):

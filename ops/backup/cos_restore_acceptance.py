@@ -56,10 +56,16 @@ CONTAINER_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
 # Verified against the live schema rather than guessed: `usage_logs` carries the
 # cost columns and `usage_billing_dedup` mirrors it row for row, so their row
 # delta is a strong signal that a restored copy is internally consistent.
+# accounts and api_keys are soft-delete tables: `deleted_at IS NULL` is what Ent
+# adds automatically and hand-written SQL must add itself. It matters here
+# beyond tidiness -- a row soft-deleted AFTER the recovery point still reads as
+# live in the restored copy, so counting ghosts would make the "restored must
+# not exceed live" comparison drift for a reason that has nothing to do with
+# the backup. cn-prod carries 3 such accounts and 2 api_keys today.
 DATA_SQL = """
 SELECT json_build_object(
-  'accounts',(SELECT count(*) FROM accounts),
-  'api_keys',(SELECT count(*) FROM api_keys),
+  'accounts',(SELECT count(*) FROM accounts WHERE deleted_at IS NULL),
+  'api_keys',(SELECT count(*) FROM api_keys WHERE deleted_at IS NULL),
   'usage_logs',(SELECT count(*) FROM usage_logs),
   'billing_dedup',(SELECT count(*) FROM usage_billing_dedup),
   'cost_sum',(SELECT round(COALESCE(sum(total_cost),0),6)::text FROM usage_logs),
@@ -73,6 +79,19 @@ SELECT json_build_object(
   'pkeys',(SELECT count(*) FROM pg_constraint WHERE contype='p'),
   'sequences',(SELECT count(*) FROM information_schema.sequences WHERE sequence_schema='public')
 )"""
+
+
+# ops-sql-coverage: every *_SQL / *_sql symbol must be enumerated or exempted,
+# so the execution gate runs it against a real Postgres rather than trusting a
+# substring assertion.
+SELF_CHECK_EXEMPT: dict[str, str] = {
+    "live_sql": "runner: executes a caller-supplied statement in a container, builds no SQL",
+}
+
+
+def iter_self_check_sql() -> list[tuple[str, str]]:
+    """(label, rendered_sql) for the ops-sql-coverage real-Postgres self-check."""
+    return [("SCHEMA_SQL", SCHEMA_SQL), ("DATA_SQL", DATA_SQL)]
 
 
 class AcceptanceError(RuntimeError):
