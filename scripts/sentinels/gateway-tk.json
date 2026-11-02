@@ -122,7 +122,8 @@
         "self.assertIn('tokenkey-disk-metrics', prod['jobs'])",
         "self.assertNotIn('tokenkey-disk-metrics', prod['paused_jobs'])",
         "def test_bootstrapping_repository_is_advisory_not_a_fault(",
-        "def test_bootstrap_reason_without_its_evidence_stays_a_fault("
+        "def test_bootstrap_reason_without_its_evidence_stays_a_fault(",
+        "def test_check_command_failure_is_a_hard_fault_not_an_advisory("
       ],
       "rationale": "Keep executable coverage, body validation, alert/recovery and retry regressions in the existing host watch test owner. Prod disk-metrics stays an active watched job. Bootstrap advisory and its evidence-forgery guard stay executable."
     },
@@ -18462,9 +18463,12 @@
         "return \"bootstrapping\"",
         "BOOTSTRAP_REASON = \"repository_bootstrapping\"",
         "ok = all(states[repo] != \"failed\" for repo in repos) and failed == 0",
-        "if ok and bootstrapping:"
+        "if ok and bootstrapping:",
+        "CHECK_FAILED_REASON = \"check_command_failed\"",
+        "def check_failure_detail(message: str, limit: int = 400) -> str:",
+        "except Err as exc:"
       ],
-      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo >= 2` keeps the primary recovery chain out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command."
+      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo >= 2` keeps the primary recovery chain out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command. A check that raises still writes a degraded receipt carrying the pgBackRest error code and HINTs: a MISSING receipt is indistinguishable from a dead timer to the 900s freshness gate, which is strictly worse than a degraded one."
     },
     {
       "path": "deploy/tencent/test_tencent_pgbackrest.py",
@@ -18472,7 +18476,8 @@
         "def test_new_repository_without_backups_is_bootstrapping_not_failed(",
         "def test_repository_with_backups_reporting_invalid_still_fails(",
         "def test_primary_repository_never_gets_the_bootstrap_exemption(",
-        "def test_bootstrap_does_not_excuse_wal_archive_failures("
+        "def test_bootstrap_does_not_excuse_wal_archive_failures(",
+        "def test_check_failure_still_writes_a_diagnosable_receipt("
       ],
       "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches repo1, and a failing archive_command is never excused."
     },
@@ -18484,9 +18489,12 @@
         "return \"bootstrapping\"",
         "BOOTSTRAP_REASON = \"repository_bootstrapping\"",
         "ok = all(states[repo] != \"failed\" for repo in repos) and failed == 0",
-        "if ok and bootstrapping:"
+        "if ok and bootstrapping:",
+        "CHECK_FAILED_REASON = \"check_command_failed\"",
+        "def check_failure_detail(message: str, limit: int = 400) -> str:",
+        "except Err as exc:"
       ],
-      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo >= 2` keeps the primary recovery chain out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command."
+      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo >= 2` keeps the primary recovery chain out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command. A check that raises still writes a degraded receipt carrying the pgBackRest error code and HINTs: a MISSING receipt is indistinguishable from a dead timer to the 900s freshness gate, which is strictly worse than a degraded one."
     },
     {
       "path": "deploy/domestic/test_cn_pgbackrest.py",
@@ -18494,9 +18502,33 @@
         "def test_new_repository_without_backups_is_bootstrapping_not_failed(",
         "def test_repository_with_backups_reporting_invalid_still_fails(",
         "def test_primary_repository_never_gets_the_bootstrap_exemption(",
-        "def test_bootstrap_does_not_excuse_wal_archive_failures("
+        "def test_bootstrap_does_not_excuse_wal_archive_failures(",
+        "def test_check_failure_still_writes_a_diagnosable_receipt("
       ],
       "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches repo1, and a failing archive_command is never excused."
+    },
+    {
+      "path": "deploy/domestic/cn_backup_identity.py",
+      "must_contain": [
+        "def prepare_repo2(contents: str) -> None:",
+        "STAGING = CONFIG.with_name(\".pgbackrest-staging.conf\")",
+        "_staged(container, \"stanza-create\", timeout=300)",
+        "_staged(container, \"check\", timeout=180)",
+        "_staged(container, \"--repo=1\", \"--output=json\", \"info\", timeout=120)",
+        "if cos is not None and not repo2_live():",
+        "except RepositoryBusy as busy:"
+      ],
+      "rationale": "archive_command is `archive-push %p` with no --repo, so pgBackRest fans WAL to EVERY configured repository. repo2 must therefore be created and verified through a staged --config BEFORE it reaches the live config; otherwise archiving depends on a stanza-less repository and stalls until archive-timeout (observed on cn-prod 2026-11-02: WAL stalled, backup failed [082], repo1 healthy throughout). Order is load-bearing: stanza-create, then check, then a read-only repo1 info -- the rollout order the approved COS parallel-repository design already mandates. RepositoryBusy keeps a [050] lock collision with the 2-hourly backup a deferral rather than a stuck enablement."
+    },
+    {
+      "path": "deploy/domestic/test_cn_backup_identity.py",
+      "must_contain": [
+        "def test_staging_is_verified_in_order_before_live_config_is_written(",
+        "def test_failure_leaves_live_config_untouched_and_cleans_staging(",
+        "def test_lock_collision_defers_instead_of_failing(",
+        "def test_steady_state_does_not_rerun_the_preflight("
+      ],
+      "rationale": "Keep the enablement-order guarantees executable: staged verification precedes the live write, a failure leaves the live config AWS-only, a lock collision defers, and steady state does not re-run the preflight."
     }
   ]
 }

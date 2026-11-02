@@ -236,6 +236,27 @@ class PhysicalBackupWatchTest(unittest.TestCase):
             self.assertFalse(fact['healthy'])
             self.assertEqual(fact['severity'], 'error')
 
+    def test_check_command_failure_is_a_hard_fault_not_an_advisory(self):
+        # The producer writes this receipt when `pgbackrest check` itself blew
+        # up. It must NOT reach the advisory band that bootstrapping uses: a
+        # broken check is actionable now, and the detail has to survive so the
+        # operator sees why without opening a shell.
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            path = pathlib.Path(root) / 'health.json'
+            path.write_text(json.dumps({
+                'status': 'degraded',
+                'observed_at': 990,
+                'reasons': ['check_command_failed'],
+                'check_command_failed': {
+                    'detail': "ERROR: [055] | HINT: has a stanza-create been performed?",
+                },
+            }))
+            fact = watch.physical_backup_fact(path, 1000)
+            self.assertFalse(fact['healthy'])
+            self.assertEqual(fact['severity'], 'error')
+            self.assertIn('check_command_failed', fact['reason'])
+
     def test_tencent_archive_check_receipt_is_accepted_without_health_json(self):
         import tempfile
         with tempfile.TemporaryDirectory() as root:
