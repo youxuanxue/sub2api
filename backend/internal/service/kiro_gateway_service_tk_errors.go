@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 	"github.com/gin-gonic/gin"
@@ -25,8 +26,77 @@ var (
 )
 
 const (
-	kiroContentFilteredClientText = "Request was blocked by upstream content filtering"
+	kiroContentFilteredClientText          = "Request was blocked by upstream content filtering"
+	kiroModelTemporarilyRestrictedCooldown = 15 * time.Minute
+	kiroModelTemporarilyRestrictedReason   = "kiro_model_temporarily_restricted"
 )
+
+// KiroModelTemporarilyRestrictedError is raised when Kiro returns a terminal
+// policy stopReason whose refusal explanation indicates that the Kiro account's
+// access to the requested model has been temporarily restricted (for example,
+// "Your access to this model has been temporarily restricted due to excessive content refusals.").
+// Unlike a caller-induced content filter, this is an account-scoped model
+// restriction that cools down the (account, model) pair and fails over to
+// another eligible account.
+type KiroModelTemporarilyRestrictedError struct {
+	Model       string
+	Explanation string
+}
+
+func (e *KiroModelTemporarilyRestrictedError) Error() string {
+	if e == nil {
+		return "kiro model access temporarily restricted"
+	}
+	msg := strings.TrimSpace(e.Explanation)
+	if msg == "" {
+		msg = "Your access to this model has been temporarily restricted due to excessive content refusals."
+	}
+	if m := strings.TrimSpace(e.Model); m != "" {
+		return fmt.Sprintf("kiro model %s temporarily restricted: %s", m, msg)
+	}
+	return fmt.Sprintf("kiro model temporarily restricted: %s", msg)
+}
+
+func (e *KiroModelTemporarilyRestrictedError) ClientMessage() string {
+	return TkClientFacingBusy429Message
+}
+
+func (e *KiroModelTemporarilyRestrictedError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return &UpstreamFailoverError{
+		StatusCode:               http.StatusTooManyRequests,
+		ResponseBody:             []byte(e.Error()),
+		RetryableOnSameAccount:   false,
+		SafeToFailoverAfterWrite: true,
+		Scope:                    GatewayFailureScopeAccount,
+		ClientStatusCode:         http.StatusTooManyRequests,
+		ClientErrorType:          "rate_limit_error",
+		ClientMessage:            TkClientFacingBusy429Message,
+	}
+}
+
+func isKiroModelTemporarilyRestricted(meta kiroproto.KiroStopMetadata) (string, bool) {
+	if meta.StopDetails == nil || meta.StopDetails.Refusal == nil {
+		return "", false
+	}
+	explanation := strings.TrimSpace(meta.StopDetails.Refusal.Explanation)
+	if isKiroModelTemporarilyRestrictedText(explanation) {
+		return explanation, true
+	}
+	return "", false
+}
+
+func isKiroModelTemporarilyRestrictedText(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if lower == "" {
+		return false
+	}
+	return strings.Contains(lower, "access to this model has been temporarily restricted") ||
+		strings.Contains(lower, "temporarily restricted due to excessive content refusals") ||
+		(strings.Contains(lower, "kiro model ") && strings.Contains(lower, "temporarily restricted"))
+}
 
 // KiroContentFilteredError represents Kiro's successful HTTP transport with a
 // policy terminal outcome and no assistant output. Retrying another account
@@ -235,6 +305,14 @@ func classifyAndRecordKiroForwardError(c *gin.Context, account *Account, err err
 func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObservation, error) {
 	if err == nil {
 		return nil, nil
+	}
+	var modelRestrictedErr *KiroModelTemporarilyRestrictedError
+	if errors.As(err, &modelRestrictedErr) {
+		return &kiroForwardErrorObservation{
+			Kind:   "response_error",
+			Reason: kiroModelTemporarilyRestrictedReason,
+			Status: http.StatusTooManyRequests,
+		}, modelRestrictedErr
 	}
 	var contentFilteredErr *KiroContentFilteredError
 	if errors.As(err, &contentFilteredErr) {

@@ -29,7 +29,7 @@ func nonPlaceholderThinking(text string) string {
 	if isKiroReasoningPlaceholder(text) {
 		return ""
 	}
-	return text
+	return redactKiroSelfIDText(text)
 }
 
 // ClientVisibleThinkingDelta reports one reasoning frame that may be streamed
@@ -40,7 +40,7 @@ func ClientVisibleThinkingDelta(text string) string {
 	if isKiroReasoningPlaceholder(text) {
 		return ""
 	}
-	return text
+	return redactKiroSelfIDText(text)
 }
 
 // ExtractTaglessThinking splits reasoning from a trailing short answer segment

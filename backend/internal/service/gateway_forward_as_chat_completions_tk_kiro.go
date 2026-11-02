@@ -93,7 +93,12 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 		if s.rateLimitService != nil {
 			var failoverErr *UpstreamFailoverError
 			if errors.As(err, &failoverErr) && failoverErr.Scope != GatewayFailureScopeRequest {
-				s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode, failoverErr.ResponseHeaders, failoverErr.ResponseBody)
+				var restrictedErr *KiroModelTemporarilyRestrictedError
+				if errors.As(err, &restrictedErr) && strings.TrimSpace(restrictedErr.Model) != "" {
+					s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode, failoverErr.ResponseHeaders, failoverErr.ResponseBody, restrictedErr.Model)
+				} else {
+					s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode, failoverErr.ResponseHeaders, failoverErr.ResponseBody)
+				}
 			}
 		}
 		return nil, err

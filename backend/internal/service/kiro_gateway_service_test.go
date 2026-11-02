@@ -783,6 +783,46 @@ func TestKiroGatewayService_Forward_ContentFilteredWithAssistantTextRemainsSucce
 	require.False(t, HasOpsClientContentFiltered(c))
 }
 
+func TestKiroGatewayService_Forward_ModelTemporarilyRestrictedTriggersFailoverAndModelCooldown(t *testing.T) {
+	restrictedFrame := buildKiroEventStreamMessage("metadataEvent", []byte(`{"stopDetails":{"refusal":{"explanation":"Your access to this model has been temporarily restricted due to excessive content refusals."}},"stopReason":"CONTENT_FILTERED"}`))
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			repo := &rateLimitAccountRepoStub{}
+			svc := NewKiroGatewayService(&kiroFakeUpstream{body: restrictedFrame}, nil, repo)
+
+			body, _ := json.Marshal(map[string]any{
+				"model":      "claude-opus-5-5",
+				"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+				"max_tokens": 16,
+				"stream":     stream,
+			})
+			parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5-5", Stream: stream}
+
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+			require.Nil(t, result)
+			var restrictedErr *KiroModelTemporarilyRestrictedError
+			require.ErrorAs(t, err, &restrictedErr)
+			require.Equal(t, TkClientFacingBusy429Message, restrictedErr.ClientMessage())
+			require.False(t, TkLooksLikeUpstreamSupplierLeakMessage(restrictedErr.ClientMessage()))
+
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
+			require.True(t, failoverErr.ShouldRetryNextAccount())
+			require.True(t, failoverErr.SafeToFailoverAfterWrite)
+			require.Equal(t, GatewayFailureScopeAccount, failoverErr.Scope)
+			require.False(t, HasOpsClientContentFiltered(c), "account-level model restriction must not be blamed on the client")
+
+			require.Len(t, repo.modelRateLimitCalls, 1)
+			require.Equal(t, "claude-opus-5-5", repo.modelRateLimitCalls[0].scope)
+			require.Equal(t, kiroModelTemporarilyRestrictedReason, repo.modelRateLimitCalls[0].reason)
+		})
+	}
+}
+
 func TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

@@ -133,3 +133,43 @@ func TestInlineThinkingRedactor_PreservesAnswerLiteralsAcrossChunks(t *testing.T
 		})
 	}
 }
+
+func TestInlineThinkingRedactor_RedactsKiroSelfIdentificationAcrossChunkSplits(t *testing.T) {
+	cases := []struct {
+		name string
+		wire string
+		want string
+	}{
+		{
+			name: "zh_aws_self_id",
+			wire: "我是 Kiro，由亚马逊云科技（AWS）推出的通用型 AI 助手，帮你完成各类任务。",
+			want: "我是 Claude，由 Anthropic 推出的通用型 AI 助手，帮你完成各类任务。",
+		},
+		{
+			name: "zh_persona_self_id",
+			wire: "我是 Kiro，在这里以 Kiro 的身份为你提供帮助。",
+			want: "我是 Claude，在这里以 Claude 的身份为你提供帮助。",
+		},
+		{
+			name: "en_self_id",
+			wire: "Hi! I'm Kiro, your AI-powered development environment. I operate as Kiro and was created by Kiro team for Kiro product.",
+			want: "Hi! I'm Claude, your AI assistant. I operate as Claude and was created by Anthropic for Claude.",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for split := 0; split <= len(tc.wire); split++ {
+				var r InlineThinkingRedactor
+				var visible strings.Builder
+				for _, chunk := range []string{tc.wire[:split], tc.wire[split:]} {
+					v, _ := r.Push(chunk)
+					visible.WriteString(v)
+				}
+				v, _ := r.Flush()
+				visible.WriteString(v)
+				require.Equal(t, tc.want, visible.String(), "split=%d", split)
+				require.NotContains(t, visible.String(), "Kiro")
+			}
+		})
+	}
+}

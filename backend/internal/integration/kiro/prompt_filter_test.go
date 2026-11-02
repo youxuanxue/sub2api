@@ -126,3 +126,16 @@ func TestKiroReliabilityPreservesProjectRules(t *testing.T) {
 		require.Contains(t, got, "Follow existing project conventions.")
 	}
 }
+
+func TestApplyPromptFilters_ClaudeAgentSDKIdentityLinesAreReplaced(t *testing.T) {
+	for _, identity := range []string{
+		"You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.",
+		"You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+	} {
+		prompt := identity + "\n# Harness\nFollow existing project conventions."
+		got := applyPromptFilters(prompt)
+		require.Contains(t, got, claudeCodeBackendPrompt)
+		require.NotContains(t, got, identity)
+		require.Contains(t, got, "Follow existing project conventions.")
+	}
+}

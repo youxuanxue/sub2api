@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
@@ -110,6 +111,11 @@ func (s *GatewayService) tkHandleKiroForwardUpstreamError(ctx context.Context, a
 	}
 	var failoverErr *UpstreamFailoverError
 	if errors.As(err, &failoverErr) {
+		var restrictedErr *KiroModelTemporarilyRestrictedError
+		if errors.As(err, &restrictedErr) && strings.TrimSpace(restrictedErr.Model) != "" {
+			s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode, failoverErr.ResponseHeaders, failoverErr.ResponseBody, restrictedErr.Model)
+			return
+		}
 		s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode, failoverErr.ResponseHeaders, failoverErr.ResponseBody)
 	}
 }

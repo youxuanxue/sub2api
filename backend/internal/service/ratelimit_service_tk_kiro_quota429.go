@@ -31,6 +31,46 @@ func tkIsKiroEndpointQuotaExhausted(upstreamMsg string, responseBody []byte) boo
 	return strings.Contains(haystack, strings.ToLower(tkKiroEndpointQuotaExhaustedClient))
 }
 
+func tkIsKiroModelTemporarilyRestricted(upstreamMsg string, responseBody []byte) bool {
+	return isKiroModelTemporarilyRestrictedText(strings.TrimSpace(upstreamMsg) + "\n" + strings.TrimSpace(string(responseBody)))
+}
+
+func (s *RateLimitService) tkMaybeHandleKiroModelTemporarilyRestricted(
+	ctx context.Context,
+	account *Account,
+	upstreamMsg string,
+	responseBody []byte,
+	requestedModel string,
+) (handled bool, shouldDisable bool) {
+	if s == nil || account == nil || account.Platform != PlatformKiro || !tkIsKiroModelTemporarilyRestricted(upstreamMsg, responseBody) {
+		return false, false
+	}
+	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
+	if modelKey == "" {
+		return true, false
+	}
+	now := time.Now()
+	resetAt := now.Add(kiroModelTemporarilyRestrictedCooldown)
+	setAccountModelRateLimitSnapshot(account, modelKey, resetAt, kiroModelTemporarilyRestrictedReason, now)
+	if s.accountRepo == nil {
+		return true, false
+	}
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelKey, resetAt, kiroModelTemporarilyRestrictedReason); err != nil {
+		slog.Warn("kiro_model_temporarily_restricted_rate_limit_failed",
+			"account_id", account.ID,
+			"model", modelKey,
+			"error", err,
+		)
+	} else {
+		slog.Info("kiro_model_temporarily_restricted_cooldown",
+			"account_id", account.ID,
+			"model", modelKey,
+			"reset_at", resetAt.UTC().Format(time.RFC3339),
+		)
+	}
+	return true, false
+}
+
 func (s *RateLimitService) tkMaybeHandleKiroEndpointQuotaExhausted(
 	ctx context.Context,
 	account *Account,

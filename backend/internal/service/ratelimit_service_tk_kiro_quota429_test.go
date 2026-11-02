@@ -38,3 +38,19 @@ func TestHandleUpstreamError_KiroEndpointQuotaExhausted_Uses10sCooldownNotLadder
 	require.Empty(t, counter.incrementIDs, "must not advance anthropic_upstream_error 3/3 ladder")
 	require.Contains(t, repo.lastTempReason, tkKiroEndpointQuotaExhaustedReason)
 }
+
+func TestHandleUpstreamError_KiroModelTemporarilyRestricted_CoolsOnlyRequestedModel(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+
+	account := newEdgeUS4KiroAccount()
+	body := []byte("kiro model claude-opus-5-5 temporarily restricted: Your access to this model has been temporarily restricted due to excessive content refusals.")
+	shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, nil, body, "claude-opus-5-5")
+	require.False(t, shouldDisable, "model-scoped restriction must keep the account active for other models")
+	require.Equal(t, 0, repo.tempCalls)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, account.ID, repo.modelRateLimitCalls[0].accountID)
+	require.Equal(t, "claude-opus-5-5", repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, kiroModelTemporarilyRestrictedReason, repo.modelRateLimitCalls[0].reason)
+}

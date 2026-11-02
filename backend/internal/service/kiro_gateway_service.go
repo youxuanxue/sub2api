@@ -474,6 +474,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		toolUses       []kiroproto.KiroToolUse
 		callbackErr    error
 		stopReason     string
+		stopMetadata   kiroproto.KiroStopMetadata
 		redactor       kiroproto.InlineThinkingRedactor
 	)
 
@@ -507,6 +508,9 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		OnStopReason: func(reason string) {
 			stopReason = reason
 		},
+		OnStopMetadata: func(metadata kiroproto.KiroStopMetadata) {
+			stopMetadata = metadata
+		},
 		// Kiro upstream reports no token usage; OnComplete(in,out) is always (0,0).
 		// We estimate token usage locally below instead of trusting these values.
 		OnCredits: func(credits float64) {
@@ -524,6 +528,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 			toolUses = nil
 			callbackErr = nil
 			stopReason = ""
+			stopMetadata = kiroproto.KiroStopMetadata{}
 			redactor = kiroproto.InlineThinkingRedactor{}
 			return true
 		},
@@ -548,6 +553,13 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	// Reasoning alone still cannot make an empty response a successful turn.
 	if textBuf == "" && len(toolUses) == 0 {
 		if isKiroPolicyStopReason(stopReason) {
+			if explanation, restricted := isKiroModelTemporarilyRestricted(stopMetadata); restricted {
+				s.coolDownTemporarilyRestrictedKiroModel(ctx, account, model)
+				return nil, classifyAndRecordKiroForwardError(c, account, &KiroModelTemporarilyRestrictedError{
+					Model:       model,
+					Explanation: explanation,
+				}, model)
+			}
 			return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)
 		}
 		return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
@@ -722,6 +734,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		toolUses            []kiroproto.KiroToolUse
 		callbackErr         error
 		stopReason          string
+		stopMetadata        kiroproto.KiroStopMetadata
 		redactor            kiroproto.InlineThinkingRedactor
 		callOutputCommitted bool
 	)
@@ -776,6 +789,11 @@ func (s *KiroGatewayService) forwardStreaming(
 			defer mu.Unlock()
 			stopReason = reason
 		},
+		OnStopMetadata: func(metadata kiroproto.KiroStopMetadata) {
+			mu.Lock()
+			defer mu.Unlock()
+			stopMetadata = metadata
+		},
 		// Kiro upstream reports no token usage; OnComplete(in,out) is always (0,0).
 		// We estimate token usage locally below instead of trusting these values.
 		OnCredits: func(credits float64) {
@@ -799,6 +817,7 @@ func (s *KiroGatewayService) forwardStreaming(
 			toolUses = nil
 			callbackErr = nil
 			stopReason = ""
+			stopMetadata = kiroproto.KiroStopMetadata{}
 			redactor = kiroproto.InlineThinkingRedactor{}
 			firstTokMs = nil
 			return true
@@ -856,8 +875,16 @@ func (s *KiroGatewayService) forwardStreaming(
 	}
 
 	if textBuf == "" && len(toolUses) == 0 {
+		stopMeta := stopMetadata
 		mu.Unlock()
 		if isKiroPolicyStopReason(stopReason) {
+			if explanation, restricted := isKiroModelTemporarilyRestricted(stopMeta); restricted {
+				s.coolDownTemporarilyRestrictedKiroModel(ctx, account, model)
+				return nil, classifyAndRecordKiroForwardError(c, account, &KiroModelTemporarilyRestrictedError{
+					Model:       model,
+					Explanation: explanation,
+				}, model)
+			}
 			return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)
 		}
 		return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
@@ -959,4 +986,27 @@ func logKiroCredits(account *kiroproto.Account, model string, credits float64) {
 		"model", model,
 		"credits", credits,
 	)
+}
+
+func (s *KiroGatewayService) coolDownTemporarilyRestrictedKiroModel(ctx context.Context, account *Account, model string) {
+	if s == nil || account == nil {
+		return
+	}
+	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, model)
+	if modelKey == "" {
+		return
+	}
+	now := time.Now()
+	resetAt := now.Add(kiroModelTemporarilyRestrictedCooldown)
+	setAccountModelRateLimitSnapshot(account, modelKey, resetAt, kiroModelTemporarilyRestrictedReason, now)
+	if s.accountRepo == nil || account.ID <= 0 {
+		return
+	}
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelKey, resetAt, kiroModelTemporarilyRestrictedReason); err != nil {
+		slog.Warn("kiro_model_temporarily_restricted_set_model_rate_limit_failed",
+			"account_id", account.ID,
+			"model", modelKey,
+			"error", err,
+		)
+	}
 }
