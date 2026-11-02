@@ -148,3 +148,88 @@ class TencentPgBackrestTests(TestCase):
         self.assertIn(("check",), calls)
         self.assertNotIn(("--repo=1", "check"), calls)
         self.assertNotIn(("--repo=2", "check"), calls)
+
+    def _run_check(self, repo_infos, failed_count=0):
+        """Drive cmd_check against per-repository info, returning the receipt."""
+        written = {}
+
+        def fake_backrest(*args, **kwargs):
+            if args[-1] == "info":
+                repo = int(args[0].split("=", 1)[1])
+                return json.dumps([repo_infos[repo]])
+            if args == ("check",):
+                return ""
+            raise AssertionError(args)
+
+        archiver = ('{"last_archived_wal": "wal", "last_archived_time": null,'
+                    f' "failed_count": {failed_count}}}')
+        with patch.object(runner, "exclusive", return_value=_Lock()), \
+             patch.object(runner, "repo2_enabled", return_value=True), \
+             patch.object(runner, "backrest", side_effect=fake_backrest), \
+             patch.object(runner, "run", return_value=archiver), \
+             patch.object(runner, "atomic_json",
+                          side_effect=lambda path, value: written.update(value)):
+            try:
+                runner.cmd_check()
+            except SystemExit as exit_code:
+                return written, exit_code.code
+        return written, 0
+
+    def test_new_repository_without_backups_is_bootstrapping_not_failed(self):
+        # The window this covers: credentials land, the config grows a repo2,
+        # and the next check runs before the first full can exist. pgBackRest
+        # necessarily reports code 2 there, and exiting non-zero for up to two
+        # hours made a guaranteed state look like an outage.
+        receipt, code = self._run_check({
+            1: {"name": "tokenkey", "status": {"code": 0},
+                "backup": [{"label": "old", "type": "full", "timestamp": {"stop": 1}}]},
+            2: {"name": "tokenkey", "status": {"code": 2, "message": "no valid backups"},
+                "backup": []},
+        })
+
+        self.assertEqual(code, 0)
+        self.assertEqual(receipt["status"], "degraded")
+        self.assertEqual(receipt["reasons"], ["repository_bootstrapping"])
+        self.assertEqual(receipt["repository_bootstrapping"]["repositories"], [2])
+        self.assertEqual(receipt["repository_bootstrapping"]["status"], "ok")
+        self.assertEqual(
+            receipt["repositories"],
+            [{"repo": 1, "status": "ok"}, {"repo": 2, "status": "bootstrapping"}],
+        )
+
+    def test_repository_with_backups_reporting_invalid_still_fails(self):
+        # Code 2 with backups present is a repository that LOST its chain, which
+        # is the opposite of a bootstrap and must stay a failure.
+        receipt, code = self._run_check({
+            1: {"name": "tokenkey", "status": {"code": 0}, "backup": []},
+            2: {"name": "tokenkey", "status": {"code": 2, "message": "no valid backups"},
+                "backup": [{"label": "gone", "type": "full", "timestamp": {"stop": 1}}]},
+        })
+
+        self.assertEqual(code, 2)
+        self.assertEqual(receipt["status"], "degraded")
+        self.assertNotIn("reasons", receipt)
+        self.assertEqual(receipt["repositories"][1], {"repo": 2, "status": "failed"})
+
+    def test_primary_repository_never_gets_the_bootstrap_exemption(self):
+        # repo1 is the primary recovery chain. "No valid backups" there is a
+        # disaster, never an initialisation.
+        receipt, code = self._run_check({
+            1: {"name": "tokenkey", "status": {"code": 2, "message": "no valid backups"},
+                "backup": []},
+            2: {"name": "tokenkey", "status": {"code": 0}, "backup": []},
+        })
+
+        self.assertEqual(code, 2)
+        self.assertNotIn("reasons", receipt)
+        self.assertEqual(receipt["repositories"][0], {"repo": 1, "status": "failed"})
+
+    def test_bootstrap_does_not_excuse_wal_archive_failures(self):
+        receipt, code = self._run_check({
+            1: {"name": "tokenkey", "status": {"code": 0}, "backup": []},
+            2: {"name": "tokenkey", "status": {"code": 2}, "backup": []},
+        }, failed_count=3)
+
+        self.assertEqual(code, 2)
+        self.assertEqual(receipt["status"], "degraded")
+        self.assertNotIn("reasons", receipt)

@@ -103,6 +103,37 @@ def repo_info(repo: int) -> dict:
         raise Err(f"unexpected repository {repo} info")
     return values[0]
 
+# pgBackRest reports code 2 "no valid backups" for a repository that is
+# configured but has never received a backup.  That is the NORMAL initial state
+# of a newly added repository, not a fault: the stanza is created by the first
+# `backup --repo=N` (never by stanza-create here), and backup runs every 2 hours
+# while check runs every 5 minutes.  Treating code 2 as a failure made every
+# check between "credentials land" and "first full completes" exit non-zero --
+# a window that is structurally guaranteed and up to 2 hours wide here, because
+# this host refreshes its identity every 15 minutes rather than every minute.
+#
+# The exemption is deliberately narrow:
+#   - only for repositories with index >= 2.  repo1 is the primary recovery
+#     chain; "no valid backups" there is a disaster, never a bootstrap.
+#   - only when that repository's backup list is EMPTY.  Code 2 with backups
+#     present means a repository that once had them and now reports invalid,
+#     which stays a failure.
+#
+# repository_state must stay behaviourally identical to the copy in
+# deploy/tencent/tencent_pgbackrest.py: the two receipts share one consumer
+# contract (see this file's module docstring). The logic is duplicated rather
+# than imported because the host installs a single file with no repository tree
+# beside it -- the same reason _container() inlines its fallback.
+BOOTSTRAP_REASON = "repository_bootstrapping"
+
+def repository_state(repo: int, info: dict) -> str:
+    code = (info.get("status") or {}).get("code")
+    if code == 0:
+        return "ok"
+    if repo >= 2 and code == 2 and not (info.get("backup") or []):
+        return "bootstrapping"
+    return "failed"
+
 def atomic_json(path: Path, value: dict):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o750)
     tmp = path.with_suffix(".tmp")
@@ -192,15 +223,18 @@ def cmd_check():
             "psql", "-U", "tokenkey", "-d", "tokenkey", "-XAtc", sql,
         ]))
         infos = {repo: repo_info(repo) for repo in repos}
-        status_codes = [((info.get("status") or {}).get("code"))
-                        for info in infos.values()]
+        states = {repo: repository_state(repo, infos[repo]) for repo in repos}
         failed = int(arch.get("failed_count") or 0)
-        ok = all(code == 0 for code in status_codes) and failed == 0
+        bootstrapping = [repo for repo in repos if states[repo] == "bootstrapping"]
+        # WAL archiving is judged separately: bootstrap excuses an uninitialised
+        # repository, never a failing archive_command.
+        ok = all(states[repo] != "failed" for repo in repos) and failed == 0
+        completed = time.time()
         receipt = {
             "schema_version": 1,
-            "status": "ok" if ok else "degraded",
+            "status": "ok" if ok and not bootstrapping else "degraded",
             "started_at": started,
-            "completed_at": time.time(),
+            "completed_at": completed,
             "archiver": arch,
             "stanza_status": {str(repo): infos[repo].get("status") for repo in repos},
             "live_repo": LIVE_REPO,
@@ -209,12 +243,19 @@ def cmd_check():
             "host_role": HOST_ROLE,
             "backup_count": len(infos[1].get("backup") or []),
             "repositories": [
-                {"repo": repo,
-                 "status": "ok" if (infos[repo].get("status") or {}).get("code") == 0
-                 else "failed"}
-                for repo in repos
+                {"repo": repo, "status": states[repo]} for repo in repos
             ],
         }
+        if ok and bootstrapping:
+            # host_https_watch.physical_backup_fact downgrades a degraded receipt
+            # to a warning only when every reason has a matching evidence object
+            # that is itself ok and completed; see its `evidence` mapping.
+            receipt["reasons"] = [BOOTSTRAP_REASON]
+            receipt[BOOTSTRAP_REASON] = {
+                "status": "ok",
+                "completed_at": completed,
+                "repositories": bootstrapping,
+            }
         atomic_json(STATE / "archive_check.json", receipt)
         print(json.dumps(receipt))
         if not ok:

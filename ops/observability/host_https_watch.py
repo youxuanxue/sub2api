@@ -131,6 +131,11 @@ def physical_backup_fact(path: Path, now: float) -> dict:
     evidence = {
         "repository_verification_missing_or_stale": "repository_verification",
         "restore_acceptance_missing_or_stale": "restore_acceptance",
+        # A newly configured pgBackRest repository reports "no valid backups"
+        # until its first full completes. The producer (deploy/*/\*pgbackrest.py)
+        # only emits this reason for a non-primary repository with an empty
+        # backup list, so repo1 losing its chain still reports as a fault.
+        "repository_bootstrapping": "repository_bootstrapping",
     }
     candidates = [path]
     if path.name == "health.json":
@@ -157,8 +162,16 @@ def physical_backup_fact(path: Path, now: float) -> dict:
                         or type(completed) not in (int, float) or not 0 < completed <= now):
                     advisory = False
             if advisory:
-                return {"healthy": True, "severity": "warning",
-                        "reason": "备份与 WAL 检查正常；恢复/仓库验证已过期，请安排按需验证：" + ", ".join(reasons)}
+                # Bootstrap and stale-verification are both advisory but mean
+                # opposite things to the operator: one resolves itself at the
+                # next backup, the other needs a verification scheduled.
+                if reasons == ["repository_bootstrapping"]:
+                    repos = (receipt.get("repository_bootstrapping") or {}).get("repositories") or []
+                    detail = ", ".join(f"repo{repo}" for repo in repos) or "新仓库"
+                    note = f"备份与 WAL 检查正常；{detail} 正在初始化，首个全量完成后自动恢复"
+                else:
+                    note = "备份与 WAL 检查正常；恢复/仓库验证已过期，请安排按需验证：" + ", ".join(reasons)
+                return {"healthy": True, "severity": "warning", "reason": note}
             healthy = receipt.get("status") == "ok" and not reasons
             return {"healthy": healthy, "severity": "info" if healthy else "error",
                     "reason": ", ".join(reasons) or receipt.get("status", "invalid receipt")}

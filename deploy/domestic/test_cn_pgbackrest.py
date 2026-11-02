@@ -107,6 +107,91 @@ class CnBackupRunnerTest(unittest.TestCase):
         with mock.patch.object(runner, "repo2_enabled", return_value=False):
             self.assertEqual(runner.repository_numbers(), (1,))
 
+    def _run_check(self, repo_infos: dict, failed_count: int = 0) -> tuple[dict, int]:
+        """Drive cmd_check against per-repository info, returning the receipt."""
+        written: dict = {}
+
+        def fake_backrest(*args, **kwargs):
+            if args[-1] == "info":
+                repo = int(args[0].split("=", 1)[1])
+                return json.dumps([repo_infos[repo]])
+            if args == ("check",):
+                return ""
+            raise AssertionError(args)
+
+        archiver = ('{"last_archived_wal": "wal", "last_archived_time": null,'
+                    f' "failed_count": {failed_count}}}')
+        code = 0
+        with tempfile.TemporaryDirectory() as root, \
+                mock.patch.object(runner, "STATE", pathlib.Path(root)), \
+                mock.patch.object(runner, "repo2_enabled", return_value=True), \
+                mock.patch.object(runner, "_container", return_value="tokenkey-postgres"), \
+                mock.patch.object(runner, "backrest", side_effect=fake_backrest), \
+                mock.patch.object(runner, "run", return_value=archiver):
+            try:
+                runner.cmd_check()
+            except SystemExit as exit_code:
+                code = exit_code.code
+            written = json.loads((pathlib.Path(root) / "archive_check.json").read_text())
+        return written, code
+
+    def test_new_repository_without_backups_is_bootstrapping_not_failed(self) -> None:
+        # cn-prod refreshes its identity every 15 minutes and backs up every two
+        # hours, so the gap between "repo2 appears in the config" and "repo2 has
+        # a full" is the widest of the two hosts. Exiting non-zero across it
+        # turned a guaranteed initialisation state into a red workflow.
+        receipt, code = self._run_check({
+            1: {"name": "tokenkey", "status": {"code": 0},
+                "backup": [{"label": "old", "type": "full", "timestamp": {"stop": 1}}]},
+            2: {"name": "tokenkey", "status": {"code": 2, "message": "no valid backups"},
+                "backup": []},
+        })
+
+        self.assertEqual(code, 0)
+        self.assertEqual(receipt["status"], "degraded")
+        self.assertEqual(receipt["reasons"], ["repository_bootstrapping"])
+        self.assertEqual(receipt["repository_bootstrapping"]["repositories"], [2])
+        self.assertEqual(receipt["repository_bootstrapping"]["status"], "ok")
+        self.assertEqual(
+            receipt["repositories"],
+            [{"repo": 1, "status": "ok"}, {"repo": 2, "status": "bootstrapping"}],
+        )
+
+    def test_repository_with_backups_reporting_invalid_still_fails(self) -> None:
+        # Code 2 with backups present is a repository that LOST its chain, which
+        # is the opposite of a bootstrap and must stay a failure.
+        receipt, code = self._run_check({
+            1: {"name": "tokenkey", "status": {"code": 0}, "backup": []},
+            2: {"name": "tokenkey", "status": {"code": 2, "message": "no valid backups"},
+                "backup": [{"label": "gone", "type": "full", "timestamp": {"stop": 1}}]},
+        })
+
+        self.assertEqual(code, 2)
+        self.assertEqual(receipt["status"], "degraded")
+        self.assertNotIn("reasons", receipt)
+        self.assertEqual(receipt["repositories"][1], {"repo": 2, "status": "failed"})
+
+    def test_primary_repository_never_gets_the_bootstrap_exemption(self) -> None:
+        receipt, code = self._run_check({
+            1: {"name": "tokenkey", "status": {"code": 2, "message": "no valid backups"},
+                "backup": []},
+            2: {"name": "tokenkey", "status": {"code": 0}, "backup": []},
+        })
+
+        self.assertEqual(code, 2)
+        self.assertNotIn("reasons", receipt)
+        self.assertEqual(receipt["repositories"][0], {"repo": 1, "status": "failed"})
+
+    def test_bootstrap_does_not_excuse_wal_archive_failures(self) -> None:
+        receipt, code = self._run_check({
+            1: {"name": "tokenkey", "status": {"code": 0}, "backup": []},
+            2: {"name": "tokenkey", "status": {"code": 2}, "backup": []},
+        }, failed_count=3)
+
+        self.assertEqual(code, 2)
+        self.assertEqual(receipt["status"], "degraded")
+        self.assertNotIn("reasons", receipt)
+
 
 class CnBackupInstallerTest(unittest.TestCase):
     def setUp(self) -> None:

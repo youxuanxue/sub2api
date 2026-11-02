@@ -71,7 +71,15 @@ jobs:
           import json, sys
           verdict = json.load(open("cn-backup-verdict.json"))
           print(f"::notice::cn-prod physical backup: {verdict['status']} — {verdict['summary']}")
-          if verdict["status"] != "ok":
+          # "warning" is the advisory band the receipt owner reserves for states
+          # that resolve on their own -- a newly added repository waiting for its
+          # first full, or an expired on-demand verification. Both still need to
+          # be visible, so they annotate rather than pass silently. Anything else
+          # non-ok (missing, stale, a failing repository, WAL archive failures)
+          # keeps failing the run.
+          if verdict["status"] == "warning":
+              print(f"::warning::cn-prod physical backup advisory: {verdict['summary']}")
+          elif verdict["status"] != "ok":
               print(f"::error::cn-prod physical backup unhealthy: {verdict['summary']}")
               sys.exit(1)
           PY

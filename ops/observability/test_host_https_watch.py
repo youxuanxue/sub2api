@@ -201,6 +201,41 @@ class PhysicalBackupWatchTest(unittest.TestCase):
             self.assertEqual(len(sent), 1)
             self.assertIn('WAL continuity gap', sent[0])
 
+    def test_bootstrapping_repository_is_advisory_not_a_fault(self):
+        # A newly configured repo2 reports "no valid backups" until its first
+        # full lands. That is a guaranteed initialisation state, so it annotates
+        # rather than paging -- but it is still degraded, never silently ok.
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            path = pathlib.Path(root) / 'health.json'
+            path.write_text(json.dumps({
+                'status': 'degraded',
+                'observed_at': 990,
+                'reasons': ['repository_bootstrapping'],
+                'repository_bootstrapping': {
+                    'status': 'ok', 'completed_at': 990, 'repositories': [2],
+                },
+            }))
+            fact = watch.physical_backup_fact(path, 1000)
+            self.assertTrue(fact['healthy'])
+            self.assertEqual(fact['severity'], 'warning')
+            self.assertIn('repo2', fact['reason'])
+            self.assertIn('初始化', fact['reason'])
+
+    def test_bootstrap_reason_without_its_evidence_stays_a_fault(self):
+        # The advisory band must not be reachable by naming a reason alone.
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            path = pathlib.Path(root) / 'health.json'
+            path.write_text(json.dumps({
+                'status': 'degraded',
+                'observed_at': 990,
+                'reasons': ['repository_bootstrapping'],
+            }))
+            fact = watch.physical_backup_fact(path, 1000)
+            self.assertFalse(fact['healthy'])
+            self.assertEqual(fact['severity'], 'error')
+
     def test_tencent_archive_check_receipt_is_accepted_without_health_json(self):
         import tempfile
         with tempfile.TemporaryDirectory() as root:
