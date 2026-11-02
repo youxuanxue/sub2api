@@ -217,6 +217,36 @@ class Repo2EnablementPreflightTest(unittest.TestCase):
         prepare.assert_not_called()
         self.assertEqual(result["cos_repo2"], "enabled")
 
+    def test_identity_is_reread_after_the_preflight(self) -> None:
+        # The SSM agent rotates /root/.aws/credentials on its own ~25-minute
+        # schedule and the preflight can burn ~11 minutes, so the config
+        # rendered beforehand may carry a superseded session token. Installing
+        # it would put repo1 on a stale token until the next refresh.
+        rotated = dict(self.AWS, aws_session_token="ROTATEDTOKEN")
+        with contextlib.ExitStack() as stack:
+            config = self._arena(stack)
+            reads = stack.enter_context(mock.patch.object(
+                identity, "read_aws_credentials", side_effect=[self.AWS, rotated]))
+            stack.enter_context(mock.patch.object(identity, "prepare_repo2"))
+            stack.enter_context(mock.patch.object(identity, "load_target", return_value={
+                "instance_name": "tokenkey-cn-prod", "ssm_instance_id": "mi-x", "ssm_region": "eu-west-2"}))
+            stack.enter_context(mock.patch.object(identity.os, "geteuid", return_value=0))
+            stack.enter_context(mock.patch.object(identity.socket, "gethostname", return_value="tokenkey-cn-prod"))
+            stack.enter_context(mock.patch.object(identity.subprocess, "check_output", return_value="tmpfs\n"))
+            validate = stack.enter_context(mock.patch.object(identity, "validate_identity"))
+            stack.enter_context(mock.patch.object(identity, "caller_identity", return_value={}))
+            stack.enter_context(mock.patch.object(identity, "read_cos_credentials", return_value=self.COS))
+            stack.enter_context(mock.patch.object(identity, "COS_CREDENTIALS", self._present(config)))
+            stack.enter_context(mock.patch.object(identity.os, "chown"))
+            stack.enter_context(mock.patch.object(identity.os, "fchown"))
+            identity.refresh()
+            live = config.read_text()
+
+        self.assertEqual(reads.call_count, 2, "identity must be re-read after the preflight")
+        self.assertEqual(validate.call_count, 2, "the rotated identity must be re-validated")
+        self.assertIn("repo1-s3-token=ROTATEDTOKEN", live)
+        self.assertNotIn("repo1-s3-token=AWSTOKEN", live)
+
     def test_no_cos_credentials_keeps_the_previous_behaviour(self) -> None:
         with contextlib.ExitStack() as stack:
             config = self._arena(stack)

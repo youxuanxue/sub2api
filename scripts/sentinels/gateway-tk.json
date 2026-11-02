@@ -18516,9 +18516,10 @@
         "_staged(container, \"check\", timeout=180)",
         "_staged(container, \"--repo=1\", \"--output=json\", \"info\", timeout=120)",
         "if cos is not None and not repo2_live():",
-        "except RepositoryBusy as busy:"
+        "except RepositoryBusy as busy:",
+        "        aws = read_aws_credentials()\n        validate_identity(caller_identity(aws, target[\"ssm_region\"]), target)\n        atomic_private(render_config(aws, cos))"
       ],
-      "rationale": "archive_command is `archive-push %p` with no --repo, so pgBackRest fans WAL to EVERY configured repository. repo2 must therefore be created and verified through a staged --config BEFORE it reaches the live config; otherwise archiving depends on a stanza-less repository and stalls until archive-timeout (observed on cn-prod 2026-11-02: WAL stalled, backup failed [082], repo1 healthy throughout). Order is load-bearing: stanza-create, then check, then a read-only repo1 info -- the rollout order the approved COS parallel-repository design already mandates. RepositoryBusy keeps a [050] lock collision with the 2-hourly backup a deferral rather than a stuck enablement."
+      "rationale": "archive_command is `archive-push %p` with no --repo, so pgBackRest fans WAL to EVERY configured repository. repo2 must therefore be created and verified through a staged --config BEFORE it reaches the live config; otherwise archiving depends on a stanza-less repository and stalls until archive-timeout (observed on cn-prod 2026-11-02: WAL stalled, backup failed [082], repo1 healthy throughout). Order is load-bearing: stanza-create, then check, then a read-only repo1 info -- the rollout order the approved COS parallel-repository design already mandates. RepositoryBusy keeps a [050] lock collision with the 2-hourly backup a deferral rather than a stuck enablement. repo1's identity is re-read and re-validated AFTER the preflight: the SSM agent rotates credentials on its own ~25-minute schedule while the preflight can take ~11 minutes, so installing the pre-rendered config would leave the primary chain on a superseded session token."
     },
     {
       "path": "deploy/domestic/test_cn_backup_identity.py",
@@ -18526,7 +18527,8 @@
         "def test_staging_is_verified_in_order_before_live_config_is_written(",
         "def test_failure_leaves_live_config_untouched_and_cleans_staging(",
         "def test_lock_collision_defers_instead_of_failing(",
-        "def test_steady_state_does_not_rerun_the_preflight("
+        "def test_steady_state_does_not_rerun_the_preflight(",
+        "def test_identity_is_reread_after_the_preflight("
       ],
       "rationale": "Keep the enablement-order guarantees executable: staged verification precedes the live write, a failure leaves the live config AWS-only, a lock collision defers, and steady state does not re-run the preflight."
     }

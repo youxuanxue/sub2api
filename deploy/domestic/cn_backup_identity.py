@@ -311,7 +311,16 @@ def refresh() -> dict[str, object]:
             return {"status": "deferred", "source_repository": "read-only",
                     "cos_repo2": "pending", "reason": f"repository busy: {busy}",
                     "credentials_withheld": True, "cutover_authorized": False}
-        atomic_private(contents)
+        # Re-read repo1's identity instead of installing the config rendered
+        # before the preflight. The SSM agent rotates /root/.aws/credentials on
+        # its own schedule (it logs "next credential rotation will be in ~25
+        # minutes"), and the preflight can burn up to ~11 minutes, so the
+        # pre-rendered session token may already be superseded. Writing it would
+        # leave repo1 on a stale token until the next refresh -- defeating the
+        # very ordering this unit exists to guarantee.
+        aws = read_aws_credentials()
+        validate_identity(caller_identity(aws, target["ssm_region"]), target)
+        atomic_private(render_config(aws, cos))
         return {"status": "refreshed", "source_repository": "read-only",
                 "cos_repo2": "enabled", "repo2_prepared": True,
                 "credentials_withheld": True, "cutover_authorized": False}
