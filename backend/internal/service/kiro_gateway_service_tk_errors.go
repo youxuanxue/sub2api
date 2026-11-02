@@ -58,7 +58,7 @@ func (e *KiroModelTemporarilyRestrictedError) Error() string {
 }
 
 func (e *KiroModelTemporarilyRestrictedError) ClientMessage() string {
-	return TkClientFacingBusy429Message
+	return KiroContentFilteredClientMessage()
 }
 
 func (e *KiroModelTemporarilyRestrictedError) Unwrap() error {
@@ -71,9 +71,10 @@ func (e *KiroModelTemporarilyRestrictedError) Unwrap() error {
 		RetryableOnSameAccount:   false,
 		SafeToFailoverAfterWrite: true,
 		Scope:                    GatewayFailureScopeAccount,
-		ClientStatusCode:         http.StatusTooManyRequests,
-		ClientErrorType:          "rate_limit_error",
-		ClientMessage:            TkClientFacingBusy429Message,
+		Reason:                   kiroModelTemporarilyRestrictedReason,
+		ClientStatusCode:         http.StatusBadRequest,
+		ClientErrorType:          "invalid_request_error",
+		ClientMessage:            KiroContentFilteredClientMessage(),
 	}
 }
 
@@ -308,11 +309,7 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 	}
 	var modelRestrictedErr *KiroModelTemporarilyRestrictedError
 	if errors.As(err, &modelRestrictedErr) {
-		return &kiroForwardErrorObservation{
-			Kind:   "response_error",
-			Reason: kiroModelTemporarilyRestrictedReason,
-			Status: http.StatusTooManyRequests,
-		}, modelRestrictedErr
+		return nil, modelRestrictedErr
 	}
 	var contentFilteredErr *KiroContentFilteredError
 	if errors.As(err, &contentFilteredErr) {

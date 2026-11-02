@@ -39,11 +39,16 @@ func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *serv
 		return
 	}
 	message := service.GatewayFailoverClientMessage(statusCode)
+	errType := "server_error"
 	if lastErr != nil && lastErr.ClientStatusCode > 0 {
 		statusCode = lastErr.ClientStatusCode
 		if lastErr.ClientMessage != "" {
 			message = lastErr.ClientMessage
 		}
+		if statusCode == http.StatusBadRequest && message == service.KiroContentFilteredClientMessage() {
+			service.MarkOpsClientContentFiltered(c)
+			errType = "content_filter_error"
+		}
 	}
-	h.chatCompletionsErrorResponse(c, statusCode, "server_error", message)
+	h.chatCompletionsErrorResponse(c, statusCode, errType, message)
 }
