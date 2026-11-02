@@ -32,6 +32,13 @@ func tkWriteAnthropicPassthrough400(c *gin.Context, body []byte) {
 		tkWriteAnthropicError(c, http.StatusBadRequest, "invalid_request_error", message)
 		return
 	}
+	if TkLooksLikeUpstreamProductLeakMessage(message) || TkLooksLikeUpstreamProductLeakMessage(string(body)) {
+		if errType == "" || errType == "<nil>" {
+			errType = "invalid_request_error"
+		}
+		tkWriteAnthropicError(c, http.StatusBadRequest, errType, message)
+		return
+	}
 	tkWriteAnthropicErrorResponse(c, http.StatusBadRequest, errType, message, body)
 }
 

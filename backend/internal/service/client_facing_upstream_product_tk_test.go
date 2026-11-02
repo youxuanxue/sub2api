@@ -55,4 +55,6 @@ func TestTkSanitizeUpstreamProductWireMessage_VolcAgentPlanSubscriptionExpired(t
 
 	require.True(t, TkLooksLikeUpstreamProductLeakMessage("Coding Plan quota exhausted"))
 	require.True(t, TkLooksLikeUpstreamProductLeakMessage("see https://ark.cn-beijing.volces.com/api/plan/v3"))
+	require.True(t, TkLooksLikeUpstreamProductLeakMessage("see https://help.aliyun.com/zh/model-studio/"))
+	require.True(t, TkLooksLikeUpstreamProductLeakMessage("see https://qianfan.baidubce.com/v2/coding"))
 }
