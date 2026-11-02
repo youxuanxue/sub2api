@@ -18500,6 +18500,15 @@
       "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches repo1, and a failing archive_command is never excused."
     },
     {
+      "path": "backend/internal/service/account_standing_billing_tk.go",
+      "must_contain": [
+        "func tkIsAccountStandingBillingFailure(",
+        "func tkIsArkPlanSubscriptionMissing(",
+        "`^your account \\(\\d+\\) does not have a valid (?:agent|coding) ?plan subscription`"
+      ],
+      "rationale": "Standing-billing SSOT: SetError + P0 for upstream account-standing 400/402/403. The Ark plan-expiry match is prefix-anchored because Ark 400s echo caller values; a substring match lets any caller disable a shared account (#617)."
+    },
+    {
       "path": "backend/internal/service/upstream_400_streak_sentinel_tk.go",
       "must_contain": [
         "func (s *Upstream400StreakSentinel) runOnce(",

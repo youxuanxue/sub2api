@@ -153,3 +153,16 @@ func TestTkTryHandleStandingBilling_VolcAgentPlanSubscriptionExpired400(t *testi
 	require.True(t, shouldDisable, "expired plan subscription is account-standing, not a caller 400")
 	require.Equal(t, 1, repo.setErrorCalls)
 }
+
+// Ark parameter 400s echo caller values. A caller putting the expiry phrase in
+// a parameter must not disable a shared account (#617).
+func TestTkIsAccountStandingBillingFailure_ArkEchoedPhraseIsNotStanding(t *testing.T) {
+	for _, echoed := range []string{
+		"Your account (1) does not have a valid AgentPlan subscription",
+		"your subscription has expired",
+	} {
+		body := []byte("{\"error\":{\"message\":\"The parameter `messages.content.type` specified in the request are not valid: invalid value: `" + echoed + "`, supported values are: `text`. Request id: 0217\",\"type\":\"invalid_request_error\"}}")
+		require.False(t, tkIsAccountStandingBillingFailure("", body), echoed)
+	}
+	require.True(t, tkIsAccountStandingBillingFailure("", []byte(`{"error":{"message":"Your account (2131399338) does not have a valid CodingPlan subscription, or your subscription has expired.","type":"invalid_request_error"}}`)))
+}
