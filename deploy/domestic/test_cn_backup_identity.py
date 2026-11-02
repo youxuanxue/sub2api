@@ -126,7 +126,10 @@ class Repo2EnablementPreflightTest(unittest.TestCase):
                 self.assertNotIn("repo2-type=", config.read_text() if config.exists() else "")
                 self.assertTrue(identity.STAGING.exists(), "staged config must exist during checks")
                 if args[-1] == "info":
-                    return json.dumps([{"name": "tokenkey", "status": {"code": 0}}])
+                    # repo2 has no backup yet: code 2 is its expected state.
+                    code = 2 if "--repo=2" in args else 0
+                    return json.dumps([{"name": "tokenkey", "status": {"code": code},
+                                        "backup": []}])
                 return ""
 
             stack.enter_context(mock.patch.object(identity, "_container", return_value="tokenkey-postgres"))
@@ -136,9 +139,60 @@ class Repo2EnablementPreflightTest(unittest.TestCase):
             identity.prepare_repo2(identity.render_config(self.AWS, self.COS))
 
         self.assertEqual(calls[0], ("stanza-create",))
-        self.assertEqual(calls[1], ("check",))
+        self.assertEqual(calls[1], ("--repo=2", "--output=json", "info"))
         self.assertEqual(calls[2], ("--repo=1", "--output=json", "info"))
+        # A full `check` cannot pass before repo2 is live: it waits for a WAL
+        # segment to reach EVERY configured repository while the live
+        # archive_command is still AWS-only, so it times out with [082]
+        # regardless of repo2's health, and `--repo` is rejected for check.
+        self.assertNotIn(("check",), calls, "a full check cannot run pre-live")
         self.assertFalse(identity.STAGING.exists(), "staged config must be cleaned up")
+
+    def test_repo2_without_its_first_backup_is_accepted(self) -> None:
+        # code 2 "no valid backups" is the expected state of a repository whose
+        # first backup has not run yet -- the runner classifies it as
+        # bootstrapping. Rejecting it would make enablement impossible, since
+        # only a live repo2 can receive that first backup.
+        with contextlib.ExitStack() as stack:
+            self._arena(stack)
+            stack.enter_context(mock.patch.object(identity, "_container", return_value="tokenkey-postgres"))
+            stack.enter_context(mock.patch.object(identity, "_staged", side_effect=lambda c, *a, timeout: (
+                json.dumps([{"name": "tokenkey", "status": {"code": 2 if "--repo=2" in a else 0},
+                             "backup": []}]) if a[-1] == "info" else "")))
+            stack.enter_context(mock.patch.object(identity.os, "chown"))
+            stack.enter_context(mock.patch.object(identity.os, "fchown"))
+            identity.prepare_repo2(identity.render_config(self.AWS, self.COS))
+
+    def test_repo2_reporting_invalid_with_backups_is_refused(self) -> None:
+        # Same code 2, opposite meaning: a repository that HOLDS backups and
+        # still reports invalid has lost its chain. Enabling dual writes onto it
+        # would hand the archive path a broken target.
+        with contextlib.ExitStack() as stack:
+            self._arena(stack)
+            stack.enter_context(mock.patch.object(identity, "_container", return_value="tokenkey-postgres"))
+            stack.enter_context(mock.patch.object(identity, "_staged", side_effect=lambda c, *a, timeout: (
+                json.dumps([{"name": "tokenkey", "status": {"code": 2 if "--repo=2" in a else 0},
+                             "backup": [{"label": "20261101-083042F"}] if "--repo=2" in a else []}])
+                if a[-1] == "info" else "")))
+            stack.enter_context(mock.patch.object(identity.os, "chown"))
+            stack.enter_context(mock.patch.object(identity.os, "fchown"))
+            with self.assertRaises(ValueError):
+                identity.prepare_repo2(identity.render_config(self.AWS, self.COS))
+
+    def test_unreadable_repo2_blocks_enablement(self) -> None:
+        for code in (1, 3, None):
+            with self.subTest(code=code):
+                with contextlib.ExitStack() as stack:
+                    self._arena(stack)
+                    stack.enter_context(mock.patch.object(identity, "_container", return_value="tokenkey-postgres"))
+                    stack.enter_context(mock.patch.object(identity, "_staged", side_effect=lambda c, *a, timeout: (
+                        json.dumps([{"name": "tokenkey",
+                                     "status": {"code": code if "--repo=2" in a else 0},
+                                     "backup": []}]) if a[-1] == "info" else "")))
+                    stack.enter_context(mock.patch.object(identity.os, "chown"))
+                    stack.enter_context(mock.patch.object(identity.os, "fchown"))
+                    with self.assertRaises(ValueError):
+                        identity.prepare_repo2(identity.render_config(self.AWS, self.COS))
 
     def test_failure_leaves_live_config_untouched_and_cleans_staging(self) -> None:
         aws_only = identity.render_config(self.AWS)
