@@ -57,6 +57,12 @@ var tkAccountStandingBillingMarkers = append([]string{
 	"预扣费额度",
 	"额度不足",
 	"credit balance",
+	// Volc Ark Agent/Coding Plan: expired or missing plan subscription arrives
+	// as HTTP 400 invalid_request_error ("does not have a valid AgentPlan
+	// subscription, or your subscription has expired"). Renewal needs a human.
+	"valid agentplan subscription",
+	"valid codingplan subscription",
+	"your subscription has expired",
 }, tkAccountStandingBilling429SafeMarkers...)
 
 func tkIsAccountStandingBillingMessage(msg string) bool {

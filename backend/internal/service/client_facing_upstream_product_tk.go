@@ -27,7 +27,14 @@ var tkUpstreamProductLeakNeedles = []string{
 	"tokenplan",
 	"ali token plan",
 	"ali-token-plan",
-	"volcengine.com/docs",
+	// Volc Ark spells the product without a space in subscription errors
+	// ("valid AgentPlan subscription"), and links its console, not docs.
+	"agentplan",
+	"coding plan",
+	"coding-plan",
+	"codingplan",
+	"volcengine.com",
+	"volces.com",
 }
 
 // TkLooksLikeUpstreamProductLeakMessage reports whether msg would expose

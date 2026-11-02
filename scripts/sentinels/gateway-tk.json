@@ -17381,7 +17381,8 @@
         "func TkLooksLikeUpstreamProductLeakMessage(",
         "\"agent plan\"",
         "\"token plan\"",
-        "\"volcengine.com/docs\""
+        "\"agentplan\"",
+        "\"volcengine.com\""
       ],
       "rationale": "SSOT for public error copy that would expose upstream plan/product branding (Agent Plan, Token Plan, vendor docs). Wire bodies must never name supply SKUs; ops keeps internal detail."
     },

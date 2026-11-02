@@ -136,3 +136,20 @@ func TestClassifyIncident_StandingBillingUsesArrearsP0Card(t *testing.T) {
 	require.Contains(t, cls.advice, "额度")
 	require.Contains(t, cls.advice, "充值")
 }
+
+func TestTkTryHandleStandingBilling_VolcAgentPlanSubscriptionExpired400(t *testing.T) {
+	svc, repo, _, _ := newBridgePenaltyTestService()
+	account := &Account{
+		ID:          201,
+		Name:        "volcengine-agent-plan",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: 45,
+	}
+	body := []byte(`{"error":{"message":"Your account (2131399903) does not have a valid AgentPlan subscription, or your subscription has expired. Please visit https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement?OpenModelVisible=false&tab=CodingPlan to review your subscription status.","type":"invalid_request_error"}}`)
+
+	shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusBadRequest, http.Header{}, body)
+
+	require.True(t, shouldDisable, "expired plan subscription is account-standing, not a caller 400")
+	require.Equal(t, 1, repo.setErrorCalls)
+}
