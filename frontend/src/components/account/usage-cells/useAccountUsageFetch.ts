@@ -23,14 +23,19 @@ import { PLATFORM_GEMINI, PLATFORM_KIRO, PLATFORM_OPENAI } from '@/constants/gat
 
 // Module-level cache shared across all usage cell instances
 const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
+// Tracks the latest manualRefreshToken already handled per account so virtualized
+// rows that mount or recycle after an explicit page refresh still refresh once.
+const _handledManualRefreshToken = new Map<number, number>()
 export const USAGE_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 export function clearAccountUsageCache(accountId?: number) {
   if (accountId === undefined) {
     _usageCache.clear()
+    _handledManualRefreshToken.clear()
     return
   }
   _usageCache.delete(accountId)
+  _handledManualRefreshToken.delete(accountId)
 }
 
 const desktopViewportQuery = '(min-width: 768px)'
@@ -71,6 +76,13 @@ export function useAccountUsageFetch(
     const nextTime = Date.parse(next?.updated_at ?? '')
     if (props.account.platform === PLATFORM_OPENAI && Number.isFinite(currentTime) &&
         (!Number.isFinite(nextTime) || nextTime < currentTime)) return false
+    if (
+      props.account.platform === PLATFORM_KIRO &&
+      usageInfo.value?.source === 'active' &&
+      next?.source !== 'active'
+    ) {
+      return false
+    }
     usageInfo.value = next
     return true
   }
@@ -84,7 +96,10 @@ export function useAccountUsageFetch(
         activeQueryLoading.value = false
         error.value = null
       }
-      if ((!previous || id !== previous[0]) && props.account.platform === PLATFORM_OPENAI) {
+      if (
+        (!previous || id !== previous[0]) &&
+        (props.account.platform === PLATFORM_OPENAI || props.account.platform === PLATFORM_KIRO)
+      ) {
         const cached = _usageCache.get(id)
         if (cached && Date.now() - cached.ts < USAGE_CACHE_TTL) adoptUsage(cached.data)
       }
@@ -224,6 +239,34 @@ export function useAccountUsageFetch(
     }
   }
 
+  const runManualRefreshIfNeeded = (token: number) => {
+    if (!token || token <= 0) return
+    if (!canFetchUsage.value) return
+    const accountId = props.account.id
+    if ((_handledManualRefreshToken.get(accountId) ?? 0) >= token) return
+    _handledManualRefreshToken.set(accountId, token)
+
+    // Kiro: explicit 刷新 pulls live credits once (#1031). Must run before the
+    // batch-passive early return (kiro is batch-capable but not batch-only on refresh).
+    if (props.account.platform === PLATFORM_KIRO) {
+      _usageCache.delete(accountId)
+      loadActiveUsage().catch((e) => {
+        console.error('Failed to refresh kiro usage after manual refresh:', e)
+      })
+      return
+    }
+
+    // AccountsView already refreshes Anthropic/OpenAI/Kiro passive usage through the
+    // batch endpoint before bumping this token; do not reintroduce per-row fan-out.
+    if (props.usageOverride !== undefined && isBatchPassiveCapable(props.account)) return
+
+    const source = accountUsesPassiveUsageOnMount(props.account) ? 'passive' : undefined
+    _usageCache.delete(accountId)
+    loadUsage({ source, bypassCache: true }).catch((e) => {
+      console.error('Failed to refresh usage after manual refresh:', e)
+    })
+  }
+
   onMounted(() => {
     if (typeof window !== 'undefined') {
       desktopViewportMediaQuery = window.matchMedia(desktopViewportQuery)
@@ -236,6 +279,11 @@ export function useAccountUsageFetch(
       } else {
         desktopViewportMediaQuery.addListener(desktopViewportListener)
       }
+    }
+
+    if ((props.manualRefreshToken ?? 0) > 0) {
+      runManualRefreshIfNeeded(props.manualRefreshToken ?? 0)
+      return
     }
 
     if (!shouldAutoLoadUsageOnMount.value) return
@@ -262,30 +310,11 @@ export function useAccountUsageFetch(
   }
 
   watch(
-    () => props.manualRefreshToken,
-    (nextToken, prevToken) => {
-      if (nextToken === prevToken) return
-      if (!canFetchUsage.value) return
-
-      // Kiro: explicit 刷新 pulls live credits once (#1031). Must run before the
-      // batch-passive early return (kiro is batch-capable but not batch-only on refresh).
-      if (props.account.platform === PLATFORM_KIRO) {
-        _usageCache.delete(props.account.id)
-        loadActiveUsage().catch((e) => {
-          console.error('Failed to refresh kiro usage after manual refresh:', e)
-        })
-        return
-      }
-
-      // AccountsView already refreshes Anthropic/OpenAI/Kiro passive usage through the
-      // batch endpoint before bumping this token; do not reintroduce per-row fan-out.
-      if (props.usageOverride !== undefined && isBatchPassiveCapable(props.account)) return
-
-      const source = accountUsesPassiveUsageOnMount(props.account) ? 'passive' : undefined
-      _usageCache.delete(props.account.id)
-      loadUsage({ source, bypassCache: true }).catch((e) => {
-        console.error('Failed to refresh usage after manual refresh:', e)
-      })
+    () => [props.account.id, props.manualRefreshToken] as const,
+    ([, nextToken], prev) => {
+      if (!nextToken || nextToken <= 0) return
+      if (prev && nextToken === prev[1] && props.account.id === prev[0]) return
+      runManualRefreshIfNeeded(nextToken)
     }
   )
 
