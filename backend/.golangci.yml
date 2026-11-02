@@ -74,6 +74,9 @@ linters:
             # TK: per-node upstream low-balance sentinel uses the same redis
             # leader-lock pattern as the reconciler above.
             - "!**/internal/service/upstream_balance_sentinel_tk.go"
+            # TK: upstream-400 streak advisory sentinel uses the same redis
+            # leader-lock so one replica alerts per tick fleet-wide.
+            - "!**/internal/service/upstream_400_streak_sentinel_tk.go"
             - "!**/internal/service/wire.go"
           deny:
             - pkg: github.com/Wei-Shaw/sub2api/internal/repository

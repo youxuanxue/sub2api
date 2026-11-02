@@ -11,4 +11,5 @@ var TKProviderSet = wire.NewSet(
 	NewRateLimitExpiryRepository,
 	NewTierCache,
 	NewSignupBonusIPCounter,
+	NewUpstream400StreakRepository,
 )

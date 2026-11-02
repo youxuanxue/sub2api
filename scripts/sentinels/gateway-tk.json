@@ -18498,6 +18498,16 @@
         "def test_bootstrap_does_not_excuse_wal_archive_failures("
       ],
       "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches repo1, and a failing archive_command is never excused."
+    },
+    {
+      "path": "backend/internal/service/upstream_400_streak_sentinel_tk.go",
+      "must_contain": [
+        "func (s *Upstream400StreakSentinel) runOnce(",
+        "upstream400StreakMinCount = 20",
+        "upstream400StreakMinSpan  = 10 * time.Minute",
+        "本卡不改变账号状态"
+      ],
+      "rationale": "Advisory backstop for upstream 400s that the standing-billing SSOT phrase list misses (prod 2026-11-02 Volc AgentPlan expiry: ~8.5k identical 400s, 0 alerts). Alert-only by design: 400 must never auto-penalise an account (#617)."
     }
   ]
 }

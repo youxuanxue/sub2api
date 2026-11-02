@@ -36,6 +36,7 @@ var TKProviderSet = wire.NewSet(
 	ProvideTKAnthropicSaturation,
 	ProvideTKOpenAISaturation,
 	ProvideTKAccountIncidentNotifier,
+	ProvideUpstream400StreakSentinel,
 	ProvideTKPricingMissingNotifier,
 	ProvideTKKiroCacheBilling,
 )

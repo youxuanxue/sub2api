@@ -60,6 +60,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // holdReconciler
 		nil, // accountIncidentNotifier
 		nil, // pricingMissingNotifier
+		nil, // upstream400Streak
 		service.TKAuthServiceColdStartReady{},
 		service.TKGatewayPricingAvailabilityReady{},
 		service.TKPricingOverlayRuntimeReady{},
