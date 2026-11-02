@@ -42,6 +42,8 @@ func (h *GatewayHandler) tkHandleFailoverClientStatus(
 		}
 		service.TkAnnotateBusy429Ops(c, errType, detail)
 		message = service.TkClientFacingBusy429Message
+	} else if failoverErr.ClientStatusCode == http.StatusBadRequest && message == service.KiroContentFilteredClientMessage() {
+		service.MarkOpsClientContentFiltered(c)
 	} else {
 		service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
 	}

@@ -805,16 +805,20 @@ func TestKiroGatewayService_Forward_ModelTemporarilyRestrictedTriggersFailoverAn
 			require.Nil(t, result)
 			var restrictedErr *KiroModelTemporarilyRestrictedError
 			require.ErrorAs(t, err, &restrictedErr)
-			require.Equal(t, TkClientFacingBusy429Message, restrictedErr.ClientMessage())
+			require.Equal(t, KiroContentFilteredClientMessage(), restrictedErr.ClientMessage())
 			require.False(t, TkLooksLikeUpstreamSupplierLeakMessage(restrictedErr.ClientMessage()))
 
 			var failoverErr *UpstreamFailoverError
 			require.ErrorAs(t, err, &failoverErr)
 			require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
+			require.Equal(t, http.StatusBadRequest, failoverErr.ClientStatusCode)
+			require.Equal(t, "invalid_request_error", failoverErr.ClientErrorType)
+			require.Equal(t, KiroContentFilteredClientMessage(), failoverErr.ClientMessage)
 			require.True(t, failoverErr.ShouldRetryNextAccount())
 			require.True(t, failoverErr.SafeToFailoverAfterWrite)
 			require.Equal(t, GatewayFailureScopeAccount, failoverErr.Scope)
-			require.False(t, HasOpsClientContentFiltered(c), "account-level model restriction must not be blamed on the client")
+			_, recorded := c.Get(OpsUpstreamErrorsKey)
+			require.False(t, recorded, "model-restricted failover must not pollute OpsUpstreamErrors with a provider 429")
 
 			require.Len(t, repo.modelRateLimitCalls, 1)
 			require.Equal(t, "claude-opus-5-5", repo.modelRateLimitCalls[0].scope)
