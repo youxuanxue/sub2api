@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/tidwall/gjson"
 )
 
 // TK: account-standing billing / prepaid quota exhaustion — single matcher +
@@ -57,13 +60,23 @@ var tkAccountStandingBillingMarkers = append([]string{
 	"预扣费额度",
 	"额度不足",
 	"credit balance",
-	// Volc Ark Agent/Coding Plan: expired or missing plan subscription arrives
-	// as HTTP 400 invalid_request_error ("does not have a valid AgentPlan
-	// subscription, or your subscription has expired"). Renewal needs a human.
-	"valid agentplan subscription",
-	"valid codingplan subscription",
-	"your subscription has expired",
 }, tkAccountStandingBilling429SafeMarkers...)
+
+// tkArkPlanSubscriptionMissingRe matches Volc Ark's expired / missing Agent or
+// Coding Plan subscription (prod 2026-11-02: HTTP 400 invalid_request_error
+// "Your account (2131399903) does not have a valid AgentPlan subscription, or
+// your subscription has expired."). Renewal needs a human.
+//
+// Anchored at the start of error.message on purpose. Ark 400s echo caller
+// values ("invalid value: `<anything>`"), so a substring match on the body
+// would let any caller disable a shared account by sending the phrase as a
+// parameter value (the #617 pool-drain). Echoes never sit at the start.
+var tkArkPlanSubscriptionMissingRe = regexp.MustCompile(`^your account \(\d+\) does not have a valid (?:agent|coding) ?plan subscription`)
+
+func tkIsArkPlanSubscriptionMissing(responseBody []byte) bool {
+	msg := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.message").String()))
+	return msg != "" && tkArkPlanSubscriptionMissingRe.MatchString(msg)
+}
 
 func tkIsAccountStandingBillingMessage(msg string) bool {
 	if msg == "" {
@@ -81,6 +94,9 @@ func tkIsAccountStandingBillingFailure(upstreamMsg string, responseBody []byte) 
 	haystack := strings.ToLower(strings.TrimSpace(upstreamMsg) + " " + string(responseBody))
 	if haystack == "" {
 		return false
+	}
+	if tkIsArkPlanSubscriptionMissing(responseBody) {
+		return true
 	}
 	if tkIsRecoverableUsageWindowMessage(haystack) {
 		return false
