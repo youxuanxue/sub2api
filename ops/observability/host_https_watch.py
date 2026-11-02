@@ -132,9 +132,9 @@ def physical_backup_fact(path: Path, now: float) -> dict:
         "repository_verification_missing_or_stale": "repository_verification",
         "restore_acceptance_missing_or_stale": "restore_acceptance",
         # A newly configured pgBackRest repository reports "no valid backups"
-        # until its first full completes. The producer (deploy/*/\*pgbackrest.py)
-        # only emits this reason for a non-primary repository with an empty
-        # backup list, so repo1 losing its chain still reports as a fault.
+        # until its first full completes. The check runners only emit this
+        # reason for a non-primary repository with an empty backup list, so
+        # repo1 losing its chain still reports as a fault.
         "repository_bootstrapping": "repository_bootstrapping",
     }
     candidates = [path]
