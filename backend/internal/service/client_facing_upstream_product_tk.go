@@ -35,6 +35,11 @@ var tkUpstreamProductLeakNeedles = []string{
 	"codingplan",
 	"volcengine.com",
 	"volces.com",
+	"dashscope.aliyuncs.com",
+	"help.aliyun.com",
+	"bailian.console.aliyun.com",
+	"qianfan.baidubce.com",
+	"cloud.baidu.com",
 }
 
 // TkLooksLikeUpstreamProductLeakMessage reports whether msg would expose
