@@ -853,6 +853,57 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('admin.accounts.usageWindow.kiroCredits|12|2099-03-07T12:00:00Z')
   })
 
+  it('Kiro 虚拟滚动后新挂载的行在已有 manualRefreshToken > 0 时自动拉一次 active usage 并复用缓存', async () => {
+    getUsage.mockResolvedValue({
+      source: 'active',
+      updated_at: '2026-11-02T12:00:00Z',
+      kiro_usage: {
+        current: 500,
+        limit: 10000,
+        percent: 5,
+        next_reset_date: '2099-03-07T12:00:00Z',
+        subscription_title: 'Kiro Power'
+      }
+    })
+
+    const mountScrolledRow = () =>
+      mount(AccountUsageCell, {
+        props: {
+          account: makeAccount({
+            id: 2317,
+            platform: 'kiro',
+            type: 'oauth',
+            extra: {}
+          }),
+          usageOverride: null,
+          manualRefreshToken: 2
+        },
+        global: {
+          stubs: {
+            UsageProgressBar: {
+              props: ['label', 'utilization', 'resetsAt', 'color'],
+              template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ resetsAt }}</div>'
+            },
+            AccountQuotaInfo: true
+          }
+        }
+      })
+
+    const firstMount = mountScrolledRow()
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(1)
+    expect(getUsage).toHaveBeenCalledWith(2317, 'active', true)
+    expect(firstMount.text()).toContain('admin.accounts.usageWindow.kiroCredits|5|2099-03-07T12:00:00Z')
+    firstMount.unmount()
+
+    // Scrolling away and back with the same manualRefreshToken reuses the cached active result
+    // without firing a second upstream probe.
+    const secondMount = mountScrolledRow()
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(1)
+    expect(secondMount.text()).toContain('admin.accounts.usageWindow.kiroCredits|5|2099-03-07T12:00:00Z')
+  })
+
   it('Kiro active 查询优先使用注入 loader，并展示被动快照采样日期', async () => {
     const activeUsage: AccountUsageInfo = {
       source: 'active',
