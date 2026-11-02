@@ -93,9 +93,13 @@
         "if role == \"cn-prod\":",
         "targets[\"cn-prod\"] = domestic[\"public_origin\"].rstrip(\"/\") + \"/health\"",
         "if not healthy and state[\"failures\"] >= 2:",
-        "result = tick(targets, previous, int(time.time()), probe_health, send, config.get(\"node\", os.uname().nodename))"
+        "result = tick(targets, previous, int(time.time()), probe_health, send, config.get(\"node\", os.uname().nodename))",
+        "\"repository_bootstrapping\": \"repository_bootstrapping\",",
+        "advisory = receipt.get(\"status\") == \"degraded\" and bool(reasons)",
+        "if reasons == [\"repository_bootstrapping\"]:",
+        "healthy = receipt.get(\"status\") == \"ok\" and not reasons"
       ],
-      "rationale": "Prod and domestic health probes retain two-failure alerting and observer attribution."
+      "rationale": "Prod and domestic health probes retain two-failure alerting and observer attribution. physical_backup_fact keeps its advisory band gated on per-reason evidence: a bootstrapping non-primary repository is a warning, while a degraded receipt without evidence stays a fault."
     },
     {
       "path": "ops/observability/install-host-https-watch.sh",
@@ -116,9 +120,11 @@
         "def test_two_failures_then_recovery_and_cooldown(",
         "def test_delivery_failure_keeps_previous_state_for_retry(",
         "self.assertIn('tokenkey-disk-metrics', prod['jobs'])",
-        "self.assertNotIn('tokenkey-disk-metrics', prod['paused_jobs'])"
+        "self.assertNotIn('tokenkey-disk-metrics', prod['paused_jobs'])",
+        "def test_bootstrapping_repository_is_advisory_not_a_fault(",
+        "def test_bootstrap_reason_without_its_evidence_stays_a_fault("
       ],
-      "rationale": "Keep executable coverage, body validation, alert/recovery and retry regressions in the existing host watch test owner. Prod disk-metrics stays an active watched job."
+      "rationale": "Keep executable coverage, body validation, alert/recovery and retry regressions in the existing host watch test owner. Prod disk-metrics stays an active watched job. Bootstrap advisory and its evidence-forgery guard stay executable."
     },
     {
       "path": "deploy/aws/stage0/tokenkey-pgdump.sh",
@@ -18447,6 +18453,50 @@
         "TestResolveContextPricingSchedule_ParityWithBilling"
       ],
       "rationale": "Preserve independent 5m and 1h display quotes and verify aggregate-only settlement uses 1h for base and higher context tiers."
+    },
+    {
+      "path": "deploy/tencent/tencent_pgbackrest.py",
+      "must_contain": [
+        "def repository_state(repo: int, info: dict) -> str:",
+        "if repo >= 2 and code == 2 and not (info.get(\"backup\") or []):",
+        "return \"bootstrapping\"",
+        "BOOTSTRAP_REASON = \"repository_bootstrapping\"",
+        "ok = all(states[repo] != \"failed\" for repo in repos) and failed == 0",
+        "if ok and bootstrapping:"
+      ],
+      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo >= 2` keeps the primary recovery chain out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command."
+    },
+    {
+      "path": "deploy/tencent/test_tencent_pgbackrest.py",
+      "must_contain": [
+        "def test_new_repository_without_backups_is_bootstrapping_not_failed(",
+        "def test_repository_with_backups_reporting_invalid_still_fails(",
+        "def test_primary_repository_never_gets_the_bootstrap_exemption(",
+        "def test_bootstrap_does_not_excuse_wal_archive_failures("
+      ],
+      "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches repo1, and a failing archive_command is never excused."
+    },
+    {
+      "path": "deploy/domestic/cn_pgbackrest.py",
+      "must_contain": [
+        "def repository_state(repo: int, info: dict) -> str:",
+        "if repo >= 2 and code == 2 and not (info.get(\"backup\") or []):",
+        "return \"bootstrapping\"",
+        "BOOTSTRAP_REASON = \"repository_bootstrapping\"",
+        "ok = all(states[repo] != \"failed\" for repo in repos) and failed == 0",
+        "if ok and bootstrapping:"
+      ],
+      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo >= 2` keeps the primary recovery chain out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command."
+    },
+    {
+      "path": "deploy/domestic/test_cn_pgbackrest.py",
+      "must_contain": [
+        "def test_new_repository_without_backups_is_bootstrapping_not_failed(",
+        "def test_repository_with_backups_reporting_invalid_still_fails(",
+        "def test_primary_repository_never_gets_the_bootstrap_exemption(",
+        "def test_bootstrap_does_not_excuse_wal_archive_failures("
+      ],
+      "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches repo1, and a failing archive_command is never excused."
     }
   ]
 }
