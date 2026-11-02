@@ -434,6 +434,10 @@ func provideCleanup(
 				tkHooks.stopPricingMissingNotifier()
 				return nil
 			}},
+			{"Upstream400StreakSentinel", func() error {
+				tkHooks.stopUpstream400StreakSentinel()
+				return nil
+			}},
 			{"UserPlatformQuotaUsageFlusher", func() error {
 				if quotaFlusher != nil {
 					quotaFlusher.Stop()

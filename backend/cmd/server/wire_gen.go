@@ -415,6 +415,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	anthropicConfigReconciler := service.ProvideAnthropicConfigReconciler(accountRepository, userRepository, tierService, accountTierService, tlsFingerprintProfileService, settingService, configConfig, redisClient)
 	holdReconcilerService := service.ProvideHoldReconcilerService(usageBillingRepository, opsRepository)
 	tkPricingMissingNotifier := service.ProvideTKPricingMissingNotifier(gatewayService, openAIGatewayService, geminiMessagesCompatService, antigravityGatewayService, kiroGatewayService, pricingCatalogService, billingService, settingService, opsService, configConfig)
+	upstream400StreakReader := repository.NewUpstream400StreakRepository(db)
+	upstream400StreakSentinel := service.ProvideUpstream400StreakSentinel(upstream400StreakReader, accountRepository, tkAccountIncidentNotifier, opsService, opsRepository, redisClient)
 	signupBonusIPCounter := repository.NewSignupBonusIPCounter(redisClient)
 	tkAuthServiceColdStartReady := service.ProvideTKAuthServiceColdStart(authService, apiKeyService, settingService, signupBonusIPCounter)
 	tkGatewayPricingAvailabilityReady := service.ProvideTKGatewayPricingAvailability(gatewayService, pricingAvailabilityService)
@@ -431,7 +433,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	tkGroupUnsupportedModelCacheReady := service.ProvideTKGroupUnsupportedModelCache(gatewayService, openAIGatewayService, channelService)
 	cacheFingerprintStore := repository.NewKiroCacheFingerprintStore(redisClient)
 	tkKiroCacheBillingReady := service.ProvideTKKiroCacheBilling(kiroGatewayService, cacheFingerprintStore, settingService)
-	mainTkCleanupHooks := provideTKCleanupHooks(schedulerRateLimitReaper, anthropicConfigReconciler, holdReconcilerService, tkAccountIncidentNotifier, tkPricingMissingNotifier, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkPricingOverlayRuntimeReady, tkAccountModelMappingRuntimeServingReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkOpenAISaturationReady, tkGatewayHandlerModelListReady, tkUniversalModelsProviderReady, tkGroupUnsupportedModelCacheReady, protocolRoutingSSOTReady, tkKiroCacheBillingReady)
+	mainTkCleanupHooks := provideTKCleanupHooks(schedulerRateLimitReaper, anthropicConfigReconciler, holdReconcilerService, tkAccountIncidentNotifier, tkPricingMissingNotifier, upstream400StreakSentinel, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkPricingOverlayRuntimeReady, tkAccountModelMappingRuntimeServingReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkOpenAISaturationReady, tkGatewayHandlerModelListReady, tkUniversalModelsProviderReady, tkGroupUnsupportedModelCacheReady, protocolRoutingSSOTReady, tkKiroCacheBillingReady)
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
 	telemetryArchiveHealth := service.ProvideTelemetryArchiveHealth(shadow, opsRepository)
 	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, claudeCodeVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, geminiCachedContentService, batchImageCleanupService, batchImageWorkerRuntime, managedBatchRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, terminalOutcomeRecorder, mainTkCleanupHooks, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, openCodeGoUsageService, auditLogService, openAIQuotaAutoResetService, promptService, shadow, telemetryArchiveHealth)
@@ -811,6 +813,10 @@ func provideCleanup(
 			}},
 			{"PricingMissingNotifier", func() error {
 				tkHooks.stopPricingMissingNotifier()
+				return nil
+			}},
+			{"Upstream400StreakSentinel", func() error {
+				tkHooks.stopUpstream400StreakSentinel()
 				return nil
 			}},
 			{"UserPlatformQuotaUsageFlusher", func() error {

@@ -12,7 +12,7 @@ import (
 
 func TestProvideTKCleanupHooks_StopNilSafe(t *testing.T) {
 	hooks := provideTKCleanupHooks(
-		nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil,
 		service.TKAuthServiceColdStartReady{},
 		service.TKGatewayPricingAvailabilityReady{},
 		service.TKPricingOverlayRuntimeReady{},
@@ -32,5 +32,6 @@ func TestProvideTKCleanupHooks_StopNilSafe(t *testing.T) {
 		hooks.stopHoldReconciler()
 		hooks.stopAccountIncidentNotifier()
 		hooks.stopPricingMissingNotifier()
+		hooks.stopUpstream400StreakSentinel()
 	})
 }

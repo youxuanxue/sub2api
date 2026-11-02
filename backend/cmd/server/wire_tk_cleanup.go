@@ -15,6 +15,7 @@ type tkCleanupHooks struct {
 	holdReconciler            *service.HoldReconcilerService
 	accountIncidentNotifier   *service.TKAccountIncidentNotifier
 	pricingMissingNotifier    *service.TKPricingMissingNotifier
+	upstream400Streak         *service.Upstream400StreakSentinel
 }
 
 func provideTKCleanupHooks(
@@ -23,6 +24,7 @@ func provideTKCleanupHooks(
 	holdReconciler *service.HoldReconcilerService,
 	accountIncidentNotifier *service.TKAccountIncidentNotifier,
 	pricingMissingNotifier *service.TKPricingMissingNotifier,
+	upstream400Streak *service.Upstream400StreakSentinel,
 	_ service.TKAuthServiceColdStartReady,
 	_ service.TKGatewayPricingAvailabilityReady,
 	_ service.TKPricingOverlayRuntimeReady,
@@ -42,6 +44,7 @@ func provideTKCleanupHooks(
 		holdReconciler:            holdReconciler,
 		accountIncidentNotifier:   accountIncidentNotifier,
 		pricingMissingNotifier:    pricingMissingNotifier,
+		upstream400Streak:         upstream400Streak,
 	}
 }
 
@@ -72,5 +75,11 @@ func (h tkCleanupHooks) stopAccountIncidentNotifier() {
 func (h tkCleanupHooks) stopPricingMissingNotifier() {
 	if h.pricingMissingNotifier != nil {
 		h.pricingMissingNotifier.Stop()
+	}
+}
+
+func (h tkCleanupHooks) stopUpstream400StreakSentinel() {
+	if h.upstream400Streak != nil {
+		h.upstream400Streak.Stop()
 	}
 }
