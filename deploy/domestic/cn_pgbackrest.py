@@ -134,6 +134,21 @@ def repository_state(repo: int, info: dict) -> str:
         return "bootstrapping"
     return "failed"
 
+CHECK_FAILED_REASON = "check_command_failed"
+
+def check_failure_detail(message: str, limit: int = 400) -> str:
+    """Keep the ERROR/HINT lines that identify the fault; drop the rest.
+
+    pgBackRest echoes its full command line (hundreds of characters, with
+    credentials already <redacted>) before the real error, so the useful part
+    sits at the end. Keeping the ERROR code plus HINTs is what makes a receipt
+    actionable -- e.g. "[055] ... HINT: has a stanza-create been performed?"
+    named the exact cause of the 2026-11-02 cn-prod archive stall.
+    """
+    lines = [line.strip() for line in message.splitlines() if line.strip()]
+    keep = [line for line in lines if "ERROR" in line or "HINT" in line] or lines[-1:]
+    return " | ".join(keep)[:limit]
+
 def atomic_json(path: Path, value: dict):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o750)
     tmp = path.with_suffix(".tmp")
@@ -211,7 +226,28 @@ def cmd_check():
         repos = repository_numbers()
         # pgBackRest 2.58 check validates all configured repositories in one
         # invocation and triggers one shared WAL archive round-trip.
-        backrest("check", timeout=120)
+        #
+        # A raised Err here used to escape to main() and exit before any receipt
+        # was written, which reads as "missing" to the freshness gate -- strictly
+        # worse than "degraded", because a missing receipt is indistinguishable
+        # from a dead timer. Record the failure, then fail.
+        try:
+            backrest("check", timeout=120)
+        except Err as exc:
+            atomic_json(STATE / "archive_check.json", {
+                "schema_version": 1,
+                "status": "degraded",
+                "started_at": started,
+                "completed_at": time.time(),
+                "reasons": [CHECK_FAILED_REASON],
+                CHECK_FAILED_REASON: {"detail": check_failure_detail(str(exc))},
+                "live_repo": LIVE_REPO,
+                "cos_repo": COS_REPO if 2 in repos else None,
+                "cos_repo2": 2 in repos,
+                "host_role": HOST_ROLE,
+                "repositories": [{"repo": repo, "status": "unknown"} for repo in repos],
+            })
+            raise
         sql = (
             "SELECT json_build_object("
             "'last_archived_wal', last_archived_wal, "

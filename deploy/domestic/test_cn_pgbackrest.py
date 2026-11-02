@@ -192,6 +192,51 @@ class CnBackupRunnerTest(unittest.TestCase):
         self.assertEqual(receipt["status"], "degraded")
         self.assertNotIn("reasons", receipt)
 
+    def test_check_failure_still_writes_a_diagnosable_receipt(self) -> None:
+        # A missing receipt is indistinguishable from a dead timer to the
+        # freshness gate, so an exploding check must leave evidence behind.
+        # This is the exact shape of the real 2026-11-02 cn-prod failure, where
+        # repo2 had no stanza and the old code exited before writing anything.
+        error = (
+            "docker exit 55: P00 INFO: check command begin 2.58.0: --repo2-s3-key=<redacted>\n"
+            "P00  ERROR: [055]: unable to load info file "
+            "'/cn-prod/postgres/archive/tokenkey/archive.info'\n"
+            "      HINT: has a stanza-create been performed?"
+        )
+
+        def fake_backrest(*args, **kwargs):
+            if args == ("check",):
+                raise runner.Err(error)
+            raise AssertionError(args)
+
+        with tempfile.TemporaryDirectory() as root, \
+                mock.patch.object(runner, "STATE", pathlib.Path(root)), \
+                mock.patch.object(runner, "repo2_enabled", return_value=True), \
+                mock.patch.object(runner, "_container", return_value="tokenkey-postgres"), \
+                mock.patch.object(runner, "backrest", side_effect=fake_backrest):
+            with self.assertRaises(runner.Err):
+                runner.cmd_check()
+            receipt = json.loads((pathlib.Path(root) / "archive_check.json").read_text())
+
+        self.assertEqual(receipt["status"], "degraded")
+        self.assertEqual(receipt["reasons"], ["check_command_failed"])
+        detail = receipt["check_command_failed"]["detail"]
+        self.assertIn("[055]", detail)
+        self.assertIn("stanza-create", detail)
+        self.assertNotIn("--repo2-s3-key", detail)
+        self.assertTrue(receipt["cos_repo2"])
+
+    def test_check_failure_detail_drops_the_command_line_noise(self) -> None:
+        detail = runner.check_failure_detail(
+            "INFO: check command begin --repo1-s3-key=x --repo2-s3-key-secret=y\n"
+            "ERROR: [082]: WAL segment 000000010000001600000032 was not archived\n"
+            "HINT: check the archive_command to ensure that all options are correct."
+        )
+        self.assertIn("[082]", detail)
+        self.assertIn("HINT", detail)
+        self.assertNotIn("s3-key", detail)
+        self.assertLessEqual(len(detail), 400)
+
 
 class CnBackupInstallerTest(unittest.TestCase):
     def setUp(self) -> None:
