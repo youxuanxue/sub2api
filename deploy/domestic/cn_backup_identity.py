@@ -168,13 +168,23 @@ def render_config(aws: dict[str, str], cos: dict[str, str] | None = None) -> str
     return "\n".join(lines)
 
 
-def atomic_private(contents: str) -> None:
-    if CONFIG.is_symlink() or CONFIG.parent.is_symlink():
+def atomic_private(contents: str, destination: Path | None = None) -> None:
+    """Write a 0600 postgres-owned config atomically inside the mounted dir.
+
+    ``destination`` is parameterised so the repo2 enablement preflight can stage
+    a sibling file in the same bind-mounted directory (the container sees the
+    whole directory, so a sibling is reachable via `pgbackrest --config`) without
+    touching the live pgbackrest.conf that archive_command depends on. It
+    resolves CONFIG at call time rather than as a default argument, so the live
+    path stays overridable.
+    """
+    destination = CONFIG if destination is None else destination
+    if destination.is_symlink() or destination.parent.is_symlink():
         raise ValueError("symlink configuration refused")
-    CONFIG.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
-    os.chmod(CONFIG.parent.parent, 0o711)
-    os.chmod(CONFIG.parent, 0o755)
-    fd, temporary = tempfile.mkstemp(prefix=".cfg-", dir=CONFIG.parent)
+    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+    os.chmod(destination.parent.parent, 0o711)
+    os.chmod(destination.parent, 0o755)
+    fd, temporary = tempfile.mkstemp(prefix=".cfg-", dir=destination.parent)
     try:
         with os.fdopen(fd, "w") as stream:
             os.fchmod(stream.fileno(), 0o600)
@@ -182,12 +192,100 @@ def atomic_private(contents: str) -> None:
             stream.write(contents)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, CONFIG)
-        os.chmod(CONFIG, 0o600)
-        os.chown(CONFIG, 70, 70)
+        os.replace(temporary, destination)
+        os.chmod(destination, 0o600)
+        os.chown(destination, 70, 70)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+# Staged config lives beside the live one: the container bind-mounts the whole
+# directory, so `pgbackrest --config` can reach a sibling while archive_command
+# keeps using pgbackrest.conf.
+STAGING = CONFIG.with_name(".pgbackrest-staging.conf")
+STAGING_IN_CONTAINER = "/etc/pgbackrest/" + STAGING.name
+POSTGRES_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
+
+
+def _container() -> str:
+    """Resolve the single running database container, failing closed.
+
+    Mirrors deploy/domestic/cn_pgbackrest.py:_container(): a literal target dies
+    with "No such container" on the Tencent USW layout, which renamed exactly
+    this container, while still looking like a healthy probe.
+    """
+    running = [name for name in POSTGRES_CANDIDATES if subprocess.run(
+        ["docker", "inspect", "-f", "{{.State.Running}}", name],
+        capture_output=True, text=True, check=False).stdout.strip() == "true"]
+    if len(running) != 1:
+        raise ValueError(f"postgres container unresolved (candidates: {', '.join(POSTGRES_CANDIDATES)})")
+    return running[0]
+
+
+def repo2_live() -> bool:
+    """True when the live config already carries repo2 (steady state)."""
+    try:
+        return any(line.startswith("repo2-type=")
+                   for line in CONFIG.read_text(encoding="utf-8").splitlines())
+    except OSError:
+        return False
+
+
+class RepositoryBusy(RuntimeError):
+    """stanza-create lost the lock race with a running backup; retry later."""
+
+
+def _staged(container: str, *args: str, timeout: int) -> str:
+    result = subprocess.run(
+        ["docker", "exec", "--user", "postgres", container, "pgbackrest",
+         f"--config={STAGING_IN_CONTAINER}", "--stanza=tokenkey", *args],
+        capture_output=True, text=True, check=False, timeout=timeout + 15)
+    if result.returncode:
+        output = (result.stderr or result.stdout or "")[-2000:]
+        # [050] is a lock held by the 2-hourly backup, not a repo2 problem.
+        # Treating it as failure would turn a timing collision into a stuck
+        # enablement; the next 15-minute refresh retries cleanly.
+        if "[050]" in output:
+            raise RepositoryBusy(" ".join(args))
+        raise ValueError(f"staged pgbackrest {' '.join(args)} failed: {output}")
+    return result.stdout
+
+
+def prepare_repo2(contents: str) -> None:
+    """Create and verify repo2 BEFORE it reaches the live configuration.
+
+    Why this exists: archive_command is `pgbackrest --stanza=tokenkey
+    archive-push %p` with no --repo, so pgBackRest fans WAL out to EVERY
+    configured repository. The moment repo2 lands in the live config, archiving
+    depends on it -- and a brand-new repository has no stanza, so every push
+    fails until archive-timeout expires. On 2026-11-02 that stalled cn-prod WAL
+    archiving for ~3 minutes and failed the 14:30 backup ([082] WAL segment not
+    archived), with repo1 itself perfectly healthy.
+
+    So the repo2 config is staged beside the live one and exercised through
+    --config first, exactly as the approved rollout order requires
+    (docs/ops/stage0/pgbackrest-cos-parallel-repository.md step 2: "put the repo2
+    configuration in a temporary config file, run stanza-create, check and a
+    read-only info; confirm repo1 is still readable, THEN enable dual writes").
+    Any failure leaves the live config AWS-only, so the archive path never
+    depends on an unverified repository.
+    """
+    container = _container()
+    atomic_private(contents, STAGING)
+    try:
+        # Order is load-bearing: create the stanza, prove both repositories
+        # accept a WAL round-trip, then prove the primary chain still reads.
+        _staged(container, "stanza-create", timeout=300)
+        _staged(container, "check", timeout=180)
+        primary = json.loads(_staged(container, "--repo=1", "--output=json", "info", timeout=120))
+        if len(primary) != 1 or primary[0].get("name") != "tokenkey":
+            raise ValueError("staged repo1 info did not describe the tokenkey stanza")
+        if (primary[0].get("status") or {}).get("code") != 0:
+            raise ValueError("staged repo1 info reported a degraded primary chain")
+    finally:
+        if STAGING.exists():
+            STAGING.unlink()
 
 
 def refresh() -> dict[str, object]:
@@ -199,7 +297,34 @@ def refresh() -> dict[str, object]:
     aws = read_aws_credentials()
     validate_identity(caller_identity(aws, target["ssm_region"]), target)
     cos = read_cos_credentials() if COS_CREDENTIALS.exists() else None
-    atomic_private(render_config(aws, cos))
+    contents = render_config(aws, cos)
+    # Only the enablement transition needs the preflight. In steady state (repo2
+    # already live, or no COS credentials at all) this is a plain render, so the
+    # 15-minute timer costs nothing extra.
+    if cos is not None and not repo2_live():
+        try:
+            prepare_repo2(contents)
+        except RepositoryBusy as busy:
+            # Deliberately not an error: the live config stays AWS-only and the
+            # next refresh retries. Reporting it as failure would page someone
+            # for a lock collision that resolves itself.
+            return {"status": "deferred", "source_repository": "read-only",
+                    "cos_repo2": "pending", "reason": f"repository busy: {busy}",
+                    "credentials_withheld": True, "cutover_authorized": False}
+        # Re-read repo1's identity instead of installing the config rendered
+        # before the preflight. The SSM agent rotates /root/.aws/credentials on
+        # its own schedule (it logs "next credential rotation will be in ~25
+        # minutes"), and the preflight can burn up to ~11 minutes, so the
+        # pre-rendered session token may already be superseded. Writing it would
+        # leave repo1 on a stale token until the next refresh -- defeating the
+        # very ordering this unit exists to guarantee.
+        aws = read_aws_credentials()
+        validate_identity(caller_identity(aws, target["ssm_region"]), target)
+        atomic_private(render_config(aws, cos))
+        return {"status": "refreshed", "source_repository": "read-only",
+                "cos_repo2": "enabled", "repo2_prepared": True,
+                "credentials_withheld": True, "cutover_authorized": False}
+    atomic_private(contents)
     return {"status": "refreshed", "source_repository": "read-only",
             "cos_repo2": "enabled" if cos is not None else "disabled",
             "credentials_withheld": True, "cutover_authorized": False}

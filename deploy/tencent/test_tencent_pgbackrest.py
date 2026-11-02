@@ -233,3 +233,46 @@ class TencentPgBackrestTests(TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(receipt["status"], "degraded")
         self.assertNotIn("reasons", receipt)
+
+    def test_check_failure_still_writes_a_diagnosable_receipt(self):
+        # A missing receipt is indistinguishable from a dead timer to the
+        # freshness gate, so an exploding check must leave evidence behind.
+        # This is the shape of the real 2026-11-02 cn-prod failure.
+        written = {}
+        error = (
+            "docker exit 55: P00 INFO: check command begin 2.58.0: --repo1-s3-key=<redacted>\n"
+            "P00  ERROR: [055]: unable to load info file "
+            "'/prod/postgres/archive/tokenkey/archive.info'\n"
+            "      HINT: has a stanza-create been performed?"
+        )
+
+        def fake_backrest(*args, **kwargs):
+            if args == ("check",):
+                raise runner.Err(error)
+            raise AssertionError(args)
+
+        with patch.object(runner, "exclusive", return_value=_Lock()), \
+             patch.object(runner, "repo2_enabled", return_value=True), \
+             patch.object(runner, "backrest", side_effect=fake_backrest), \
+             patch.object(runner, "atomic_json",
+                          side_effect=lambda path, value: written.update(value)):
+            with self.assertRaises(runner.Err):
+                runner.cmd_check()
+
+        self.assertEqual(written["status"], "degraded")
+        self.assertEqual(written["reasons"], ["check_command_failed"])
+        detail = written["check_command_failed"]["detail"]
+        self.assertIn("[055]", detail)
+        self.assertIn("stanza-create", detail)
+        self.assertNotIn("--repo1-s3-key", detail)
+        self.assertTrue(written["cos_repo2"])
+        self.assertEqual([r["status"] for r in written["repositories"]], ["unknown", "unknown"])
+
+    def test_check_failure_receipt_is_not_advisory(self):
+        # check_command_failed must NOT be in host_https_watch's evidence map:
+        # a broken check is a hard fault, unlike a bootstrapping repository.
+        import pathlib as _p
+        source = (_p.Path(runner.__file__).resolve().parents[2]
+                  / "ops" / "observability" / "host_https_watch.py").read_text()
+        self.assertIn('"repository_bootstrapping": "repository_bootstrapping",', source)
+        self.assertNotIn('"check_command_failed":', source)
