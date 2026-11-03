@@ -37,8 +37,13 @@ type LocalCleanupResult struct {
 }
 
 type node1Receipt struct {
-	SchemaVersion  string    `json:"schema_version"`
-	Environment    string    `json:"environment"`
+	SchemaVersion string `json:"schema_version"`
+	Environment   string `json:"environment"`
+	// Set when the hour was streamed to node1 over SSH rather than copied into
+	// a locally mounted directory. The payload then lives only on node1, so
+	// there is nothing here to re-hash.
+	Transport      string    `json:"transport"`
+	RemoteDir      string    `json:"remote_dir"`
 	WindowStart    time.Time `json:"window_start"`
 	WindowEnd      time.Time `json:"window_end"`
 	OK             bool      `json:"ok"`
@@ -99,6 +104,19 @@ func hasNode1Receipt(root, environment string, h time.Time) (bool, error) {
 		!receipt.WindowStart.UTC().Equal(start) || !receipt.WindowEnd.UTC().Equal(start.Add(time.Hour)) ||
 		receipt.FileCount < 1 || receipt.TotalBytes < 0 || len(receipt.ManifestSHA256) != 64 {
 		return false, errors.New("node1 receipt failed integrity checks")
+	}
+	if receipt.Transport == "ssh-tar" {
+		// The payload is on node1, not here: verifyNode1Manifest would re-hash
+		// files this host does not have, so it failed for every hour and the
+		// gate blocked the entire archive. The push itself is what verifies a
+		// streamed hour -- it compares the manifest digest, file count and
+		// byte count reported by node1 against the local manifest before
+		// writing this receipt, and each archive run re-reads node1's manifest
+		// digest before trusting an existing receipt.
+		if receipt.RemoteDir == "" {
+			return false, errors.New("streamed node1 receipt has no remote_dir")
+		}
+		return true, nil
 	}
 	if err := verifyNode1Manifest(filepath.Dir(root), environment, h, receipt); err != nil {
 		return false, err

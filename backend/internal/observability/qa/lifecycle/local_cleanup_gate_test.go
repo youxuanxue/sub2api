@@ -126,3 +126,88 @@ func sliceBetween(t *testing.T, source, from, to string) string {
 	}
 	return source[start : start+end]
 }
+
+// A streamed hour lives only on node1, so re-hashing it here is impossible.
+// verifyNode1Manifest walks every file in the manifest and recomputes its
+// sha256; against a remote push the local qa-raw tree is empty, so the gate
+// failed for every hour and blocked the whole archive. On prod the local tree
+// held 0 manifests while node1 held 23 hours.
+func TestStreamedHourIsAcceptedWithoutLocalPayload(t *testing.T) {
+	root := t.TempDir()
+	receiptRoot := filepath.Join(root, "receipts")
+	hour := time.Date(2026, 11, 2, 13, 0, 0, 0, time.UTC)
+	path := filepath.Join(receiptRoot, "prod", hour.Format("2006/01/02/15")+".json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	receipt := `{"schema_version":"qa-node1-hour-v1","environment":"prod",` +
+		`"window_start":"2026-11-02T13:00:00Z","window_end":"2026-11-02T14:00:00Z",` +
+		`"ok":true,"file_count":8450,"total_bytes":540580477,` +
+		`"transport":"ssh-tar",` +
+		`"remote_dir":"/storage/tokenkey-archive/qa-raw/prod/2026/11/02/13",` +
+		`"manifest_sha256":"` + strings.Repeat("d", 64) + `"}`
+	if err := os.WriteFile(path, []byte(receipt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately no local qa-raw tree: that is the live shape.
+	ok, err := hasNode1Receipt(receiptRoot, "prod", hour)
+	if err != nil {
+		t.Fatalf("a streamed hour must not need a local payload: %v", err)
+	}
+	if !ok {
+		t.Fatal("a verified streamed receipt must authorise deletion")
+	}
+}
+
+// Without remote_dir there is no record of where the hour went, so the receipt
+// is not evidence of anything.
+func TestStreamedReceiptWithoutRemoteDirBlocks(t *testing.T) {
+	root := t.TempDir()
+	receiptRoot := filepath.Join(root, "receipts")
+	hour := time.Date(2026, 11, 2, 14, 0, 0, 0, time.UTC)
+	path := filepath.Join(receiptRoot, "prod", hour.Format("2006/01/02/15")+".json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	receipt := `{"schema_version":"qa-node1-hour-v1","environment":"prod",` +
+		`"window_start":"2026-11-02T14:00:00Z","window_end":"2026-11-02T15:00:00Z",` +
+		`"ok":true,"file_count":1,"total_bytes":1,"transport":"ssh-tar",` +
+		`"manifest_sha256":"` + strings.Repeat("e", 64) + `"}`
+	if err := os.WriteFile(path, []byte(receipt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := hasNode1Receipt(receiptRoot, "prod", hour)
+	if ok {
+		t.Fatal("a streamed receipt with no remote_dir must not authorise deletion")
+	}
+	if err == nil {
+		t.Fatal("the missing remote_dir must be reported")
+	}
+}
+
+// A local-copy receipt still has its payload here, so it is still re-hashed.
+// Accepting one on the strength of the receipt alone would undo the check that
+// caught the hours that never reached node1.
+func TestLocalCopyHourStillRequiresItsPayload(t *testing.T) {
+	root := t.TempDir()
+	receiptRoot := filepath.Join(root, "receipts")
+	hour := time.Date(2026, 11, 2, 6, 0, 0, 0, time.UTC)
+	path := filepath.Join(receiptRoot, "prod", hour.Format("2006/01/02/15")+".json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	receipt := `{"schema_version":"qa-node1-hour-v1","environment":"prod",` +
+		`"window_start":"2026-11-02T06:00:00Z","window_end":"2026-11-02T07:00:00Z",` +
+		`"ok":true,"file_count":13210,"total_bytes":444973653,"tier":"hot_ssd",` +
+		`"manifest_sha256":"` + strings.Repeat("f", 64) + `"}`
+	if err := os.WriteFile(path, []byte(receipt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := hasNode1Receipt(receiptRoot, "prod", hour)
+	if ok {
+		t.Fatal("a local-copy receipt with no payload must not authorise deletion")
+	}
+	if err == nil {
+		t.Fatal("the absent local manifest must be reported")
+	}
+}
