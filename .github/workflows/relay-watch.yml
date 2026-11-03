@@ -33,7 +33,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Verify discovery, queue durability and retry behavior
-        run: python3 -m unittest scripts.test_relay_watch scripts.test_issue_watchdog_flow scripts.test_issue_triage_generate scripts.test_cc_issue_triage_generate scripts.test_issue_watchdog_jsonl scripts.test_issue_ledger -v
+        run: python3 -m unittest scripts.test_relay_watch scripts.test_issue_watchdog_flow scripts.test_issue_triage_generate scripts.test_cc_issue_triage_generate scripts.test_issue_watchdog_jsonl scripts.test_issue_ledger scripts.upstream.watchdog_queue_test -v
 
   scan:
     if: github.event_name != 'pull_request'

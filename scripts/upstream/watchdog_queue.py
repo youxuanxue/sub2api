@@ -46,6 +46,39 @@ def intel_period(when=None):
 
 RECORD = re.compile(r"^- \[([ xX])\] (.*?) <!-- watchdog-item:([^ ]+) ([0-9a-f]+) (pending|fixed) ([^ ]+) -->$", re.MULTILINE)
 COMMENT_LIMIT = 55000
+# GitHub cross-references owner/repo#n and raw issue/PR URLs in public comments,
+# including inside HTML comments. U+200B is ignored by browser address bars on paste.
+_XREF_BREAK = "\u200b"
+
+
+def render_public_ref(ref, kind=None):
+    """Markdown link plus comment token that do not form a GitHub autolink.
+
+    Visible label is ``owner/repo issues/n`` or ``owner/repo pull/n``. The href
+    hides U+200B before the number so the raw comment has no contiguous
+    ``https://github.com/<owner>/<repo>/issues/<n>`` (or ``/pull/<n>``) URL.
+    The token is ``owner/repo/issues/n`` or ``owner/repo/pull/n``. Historical
+    comments still store ``owner/repo#n``; ``canonical_ref`` accepts both and
+    RECORD is unchanged.
+    """
+    source, number = ref.rsplit("#", 1)
+    route = "pull" if kind == "pr" else "issues"
+    label = f"{source} {route}/{number}"
+    href = f"https://github.com/{source}/{route}/{_XREF_BREAK}{number}"
+    return f"[{label}]({href})", f"{source}/{route}/{number}"
+
+
+def canonical_ref(token):
+    """Map a watchdog-item token back to ``owner/repo#n``.
+
+    New comments store ``owner/repo/issues/n`` or ``owner/repo/pull/n``.
+    Historical comments store ``owner/repo#n`` and are returned unchanged.
+    """
+    match = re.fullmatch(r"(.+)/(issues|pull)/(\d+)", token or "")
+    if match:
+        return f"{match.group(1)}#{match.group(3)}"
+    return token
+
 
 TOPICS = {
     "scheduling": r"gateway|schedul|routing|route|failover|load.?balanc|concurren|capacity|saturation|retry|retries|timeout|网关|调度|路由|故障转移|负载均衡|并发|重试|超时",
@@ -194,13 +227,12 @@ def sync_intel(repo, items, target, api, platform="upstream", period=None, publi
             # without this, the first run after the change would republish them all.
             delivered[ref] = [signature, *record[1:]]
             continue
-        source, number = ref.rsplit("#", 1)
-        route = "pull" if item.get("kind") == "pr" else "issues"
         state = "merged" if item.get("merged_at") else item.get("state", "open")
-        fresh.append(f"- [{ref}](https://github.com/{source}/{route}/{number}) "
+        link, token = render_public_ref(ref, item.get("kind"))
+        fresh.append(f"- {link} "
                      f"{safe_title(item.get('title'))} — {state}; "
                      f"{item.get('updated_at') or 'unknown'} "
-                     f"<!-- watchdog-intel-item:{ref} {signature} -->")
+                     f"<!-- watchdog-intel-item:{token} {signature} -->")
         delivered[ref] = [signature, period]
 
     created = 0
@@ -313,6 +345,7 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
         latest[ref] = (signature, status, " ", updated)
     for comment in owned:
         for checked, text, ref, signature, status, updated in RECORD.findall(comment.get("body") or ""):
+            ref = canonical_ref(ref)
             latest[ref] = (signature, status, checked, updated)
             if checked.lower() == "x" and status == "pending":
                 manual.add(ref)
@@ -328,7 +361,7 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
     # carrier of the tick -- `manual` is rebuilt from live comments on every run,
     # so deleting the line discards the verdict and the task returns next round.
     for comment in owned:
-        body = RECORD.sub(lambda m: "" if m[3] in resolved else m[0], comment.get("body") or "")
+        body = RECORD.sub(lambda m: "" if canonical_ref(m[3]) in resolved else m[0], comment.get("body") or "")
         body = re.sub(r"\n{3,}", "\n\n", body).rstrip() + "\n"
         if body != comment.get("body"):
             api("api", "--method", "PATCH", f"repos/{target}/issues/comments/{comment['id']}", payload={"body": body})
@@ -351,13 +384,11 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
                     datetime.fromisoformat(updated.replace("Z", "+00:00")) <
                     datetime.fromisoformat(old[3].replace("Z", "+00:00"))):
                 continue
-        source, number = ref.rsplit("#", 1)
-        route = "pull" if item.get("kind") == "pr" else "issues"
         state = "merged" if item.get("merged_at") else item.get("state", "open")
-        additions.append(f"- [ ] "
-                         f"[{ref}](https://github.com/{source}/{route}/{number}) "
+        link, token = render_public_ref(ref, item.get("kind"))
+        additions.append(f"- [ ] {link} "
                          f"{safe_title(item.get('title'))} — {state}; {item.get('updated_at') or 'unknown'} "
-                         f"<!-- watchdog-item:{ref} {signature} pending {updated} -->")
+                         f"<!-- watchdog-item:{token} {signature} pending {updated} -->")
         latest[ref] = (signature, "pending", " ", updated)
     today = [c for c in owned if f"<!-- watchdog-day:{day}:" in c["body"]]
     commented = 0

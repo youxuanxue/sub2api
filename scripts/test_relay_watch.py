@@ -34,8 +34,8 @@ class QueueTest(unittest.TestCase):
         self.publish(api, [candidate()], repo="other/source")
         self.assertEqual(len(api.issues), 1)
         self.assertEqual(len(api.comments), 2)
-        self.assertIn("example/relay#1", api.comments[0]["body"])
-        self.assertIn("other/source#1", api.comments[1]["body"])
+        self.assertIn("example/relay issues/1", api.comments[0]["body"])
+        self.assertIn("other/source issues/1", api.comments[1]["body"])
         self.assertIn("当前待处理：2", api.issues[0]["body"])
         api.calls.clear()
         self.publish(api, [candidate()])
@@ -117,8 +117,8 @@ class QueueTest(unittest.TestCase):
         queue.sync_queue(REPO, [candidate(), candidate(2)], "example/fork", api, day="2026-10-22")
         self.assertEqual(len(api.comments), 2)
         self.assertEqual(api.comments[0]["body"], first)
-        self.assertNotIn("/issues/1)", api.comments[1]["body"])
-        self.assertIn("/issues/2)", api.comments[1]["body"])
+        self.assertNotIn("example/relay issues/1", api.comments[1]["body"])
+        self.assertIn("example/relay issues/2", api.comments[1]["body"])
 
     def test_stale_overlapping_scan_cannot_republish_old_discussion_state(self):
         api = FakeGitHub()
@@ -136,7 +136,7 @@ class QueueTest(unittest.TestCase):
         self.publish(api, [], resolved={REPO + "#1"})
         # A settled task leaves the queue instead of staying as a struck-through
         # line; the audit trail lives in the ledger and in git.
-        self.assertNotIn(REPO + "#1", api.comments[0]["body"])
+        self.assertNotIn("example/relay issues/1", api.comments[0]["body"])
         self.assertNotIn("- [x]", api.comments[0]["body"])
         self.assertEqual(api.issues[0]["state"], "closed")
         api.calls.clear()
@@ -177,14 +177,14 @@ class QueueTest(unittest.TestCase):
         # KEPT: `manual` is rebuilt from live comments every run, so that line is
         # the only durable carrier of the tick.
         api.comments[0]["body"] = api.comments[0]["body"].replace(
-            "- [ ] [example/relay#1]", "- [x] [example/relay#1]")
+            "- [ ] [example/relay issues/1]", "- [x] [example/relay issues/1]")
         self.publish(api, [])
         body = api.comments[0]["body"]
-        self.assertIn("- [x] [example/relay#1]", body)
+        self.assertIn("- [x] [example/relay issues/1]", body)
 
         # The upstream-merged PR stays in the queue: nobody on our side judged it.
-        self.assertIn("example/relay#2", body)
-        self.assertIn("example/relay#3", body)
+        self.assertIn("example/relay pull/2", body)
+        self.assertIn("example/relay issues/3", body)
         self.assertIn("当前待处理：2", api.issues[0]["body"])
 
         # Re-offering a ticked ref must not resurrect it, even a round later and
@@ -198,7 +198,7 @@ class QueueTest(unittest.TestCase):
 
         # A recorded fix judgment deletes its line instead: git holds that trail.
         self.publish(api, [], resolved={REPO + "#3"})
-        self.assertNotIn("example/relay#3", api.comments[0]["body"])
+        self.assertNotIn("example/relay issues/3", api.comments[0]["body"])
         api.calls.clear()
         self.publish(api, [upstream_done], resolved={REPO + "#3"})
         self.assertEqual(api.writes, [])
@@ -215,7 +215,7 @@ class QueueTest(unittest.TestCase):
 
         # A line vanishes from the comment body for a reason other than retirement.
         api.comments[0]["body"] = api.comments[0]["body"].replace(
-            "- [ ] [example/relay#1]", "")
+            "- [ ] [example/relay issues/1]", "")
         api.calls.clear()
         self.publish(api, [candidate()], published=delivered)
         self.assertEqual(api.writes, [])
@@ -239,7 +239,7 @@ class QueueTest(unittest.TestCase):
         ticked = FakeGitHub()
         self.publish(ticked, [candidate()],
                      published={REPO + "#1": ["deadbeef", "pending", "2026-10-01T00:00:00Z", "x"]})
-        self.assertIn("- [ ] [example/relay#1]", "".join(c["body"] for c in ticked.comments))
+        self.assertIn("- [ ] [example/relay issues/1]", "".join(c["body"] for c in ticked.comments))
         self.assertIn("当前待处理：1", ticked.issues[0]["body"])
         self.assertEqual(seed[REPO + "#1"][1], "pending")
 
@@ -261,7 +261,7 @@ class QueueTest(unittest.TestCase):
         self.assertEqual((first["created"], first["leads"], first["closed"]), (1, 2, 0))
         intel = api.issues[0]
         body = "".join(c["body"] for c in api.comments)
-        self.assertIn("example/relay#1", body)
+        self.assertIn("example/relay issues/1", body)
         # A lead is a bullet, not a task: a checkbox here would invite a tick that
         # the promotion path (a judgment in the git ledger) would never see.
         self.assertNotIn("- [ ]", body)
@@ -283,8 +283,8 @@ class QueueTest(unittest.TestCase):
                               if row["number"] == intel["number"])["state"], "closed")
         fresh_body = "".join(c["body"] for c in api.comments
                              if c["issue_number"] != intel["number"])
-        self.assertIn("example/relay#3", fresh_body)
-        self.assertNotIn("example/relay#1", fresh_body)
+        self.assertIn("example/relay issues/3", fresh_body)
+        self.assertNotIn("example/relay issues/1", fresh_body)
 
         # Rotation must not resurrect an earlier period's leads into the new Issue.
         api.calls.clear()
@@ -504,7 +504,7 @@ class QueueTest(unittest.TestCase):
         self.assertNotIn("<!-- injected -->", body)
         self.assertNotIn("@all", body)
         self.assertIn("\\[click\\](evil)", body)
-        self.assertIn("\n- [ ] [example/relay#1]", body)
+        self.assertIn("\n- [ ] [example/relay issues/1]", body)
         api.calls.clear()
         self.publish(api, [candidate(title="[click](evil) @all\n<!-- injected -->")])
         self.assertEqual(api.writes, [])

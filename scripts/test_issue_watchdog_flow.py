@@ -153,11 +153,11 @@ class WatchdogFlowTest(unittest.TestCase):
         with patch.object(mod, "resolved_refs", return_value=set()):
             mod.sync_issues(source, report, "example/fork", api, entries=[item])
         self.assertEqual(len(api.issues), 1)
-        self.assertIn(item["upstream"], api.comments[0]["body"])
+        self.assertIn(item["upstream"].replace("#", " issues/"), api.comments[0]["body"])
         with patch.object(mod, "resolved_refs", return_value={item["upstream"]}):
             mod.sync_issues(source, report, "example/fork", api, entries=[item])
         # Settled work leaves the queue; it is not kept as a struck-through line.
-        self.assertNotIn(item["upstream"], api.comments[0]["body"])
+        self.assertNotIn(item["upstream"].replace("#", " issues/"), api.comments[0]["body"])
         self.assertEqual(api.issues[0]["state"], "closed")
 
     def test_queue_holds_judged_work_only_and_keyword_leads_become_intel(self):
@@ -203,13 +203,15 @@ class WatchdogFlowTest(unittest.TestCase):
         intel_body = "".join(c["body"] for c in api.comments
                              if c["issue_number"] == intel_issue["number"])
         for number in (3, 4, 7):
-            self.assertIn(f"{source['repo']}#{number}", queued_body)
-            self.assertNotIn(f"{source['repo']}#{number}", intel_body)
+            label = f"{source['repo']} issues/{number}"
+            self.assertIn(label, queued_body)
+            self.assertNotIn(label, intel_body)
         for number in (1, 2):
-            self.assertIn(f"{source['repo']}#{number}", intel_body)
-            self.assertNotIn(f"{source['repo']}#{number}", queued_body)
+            label = f"{source['repo']} issues/{number}"
+            self.assertIn(label, intel_body)
+            self.assertNotIn(label, queued_body)
         for number in (5, 6):
-            self.assertNotIn(f"{source['repo']}#{number}", queued_body + intel_body)
+            self.assertNotIn(f"{source['repo']} issues/{number}", queued_body + intel_body)
         self.assertIn("当前待处理：3", queue_issue["body"])
         # A lead is a bullet, never a checkbox: ticking it must not look actionable.
         self.assertNotIn("- [ ]", intel_body)
@@ -274,8 +276,8 @@ class WatchdogFlowTest(unittest.TestCase):
 
             mod.scan(source, work, checkpoint, target_repo="example/fork", api=fake, period="2026-W44")
             intel = "".join(c["body"] for c in api.comments)
-            self.assertIn(f"{source['repo']}#7101", intel)
-            self.assertNotIn(f"{source['repo']}#7102", intel)
+            self.assertIn(f"{source['repo']} issues/7101", intel)
+            self.assertNotIn(f"{source['repo']} issues/7102", intel)
             self.assertEqual(len(listings), 1)
 
             # With a checkpoint the window no longer applies: the cursor owns it,
@@ -286,7 +288,7 @@ class WatchdogFlowTest(unittest.TestCase):
             state["intel_published"] = {}
             checkpoint.write_text(json.dumps(state))
             mod.scan(source, work, checkpoint, target_repo="example/fork", api=fake, period="2026-W44")
-            self.assertIn(f"{source['repo']}#7102", "".join(c["body"] for c in api.comments))
+            self.assertIn(f"{source['repo']} issues/7102", "".join(c["body"] for c in api.comments))
             self.assertEqual(len(listings), 1)
 
     def test_seeding_marks_existing_refs_delivered_without_publishing(self):
