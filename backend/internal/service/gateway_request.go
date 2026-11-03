@@ -1230,6 +1230,47 @@ func stripAnthropicBodyFieldUnlessBeta(body []byte, field, anthropicBetaHeader s
 	return b, true
 }
 
+// anthropicTopLevelSpeed 读取出站/入站 JSON 顶层 speed，并按计费侧的规则
+// 归一成小写（trim + lower）。字段缺失或非字符串时返回空串。
+func anthropicTopLevelSpeed(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	speed := gjson.GetBytes(body, "speed")
+	if speed.Type != gjson.String {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(speed.String()))
+}
+
+// stripAnthropicTopLevelFastSpeed 删除顶层 speed，且仅当其值归一后是 "fast"。
+// 其他 speed 值、嵌套字段里的 speed、非字符串 speed 都保持原样。
+func stripAnthropicTopLevelFastSpeed(body []byte) ([]byte, bool) {
+	if anthropicTopLevelSpeed(body) != "fast" {
+		return body, false
+	}
+	next, err := sjson.DeleteBytes(body, "speed")
+	if err != nil {
+		logger.LegacyPrintf("service.gateway",
+			"[AnthropicFastSpeed] sjson.DeleteBytes(speed) failed: %v (body len=%d)", err, len(body))
+		return body, false
+	}
+	return next, true
+}
+
+// applyAnthropicFastSpeedPolicy 在 fast beta 策略为 filter 或 block 时，
+// 从出站 body 去掉顶层 speed=fast。pass / 未命中策略时原样返回。
+func applyAnthropicFastSpeedPolicy(body []byte, strip bool) []byte {
+	if !strip {
+		return body
+	}
+	next, ok := stripAnthropicTopLevelFastSpeed(body)
+	if !ok {
+		return body
+	}
+	return next
+}
+
 // anthropicBetaTokensContains 检测逗号分隔的 anthropic-beta header 是否含指定 token。
 // 宋体空格宽容；区分大小写（Anthropic beta token 始终是小写）。
 func anthropicBetaTokensContains(header, token string) bool {

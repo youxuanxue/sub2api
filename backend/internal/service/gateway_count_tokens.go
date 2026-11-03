@@ -440,6 +440,7 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 	token string,
 ) (*http.Request, error) {
 	body = stripDeferredToolCacheControl(body)
+	body = s.applyUpstreamAnthropicFastSpeed(ctx, c, account, gjson.GetBytes(body, "model").String(), body)
 	targetURL := claudeAPICountTokensURL
 	baseURL := anthropicMessagesAPIKeyBaseURL(account)
 	if baseURL != "" {
@@ -491,6 +492,7 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
 	account.ApplyHeaderOverrides(req.Header)
 	filterSonnet55ToolsetBetaHeader(req.Header, body, gjson.GetBytes(body, "model").String())
+	rememberAnthropicOutboundBody(c, body)
 
 	return req, nil
 }
@@ -498,6 +500,8 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 // buildCountTokensRequest 构建 count_tokens 上游请求
 func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token, tokenType, modelID string, mimicClaudeCode bool) (*http.Request, []byte, error) {
 	body = stripDeferredToolCacheControl(body)
+	betaPolicy := s.upstreamBetaPolicy(ctx, c, account, modelID)
+	body = applyAnthropicFastSpeedPolicy(body, betaPolicy.stripAnthropicFastSpeed)
 	// 确定目标 URL
 	targetURL := claudeAPICountTokensURL
 	messagesBaseURL := account.GetBaseURL()
@@ -564,7 +568,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 
 	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
 	// 顺序约束同 buildUpstreamRequest。
-	ctEffectiveDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
+	ctEffectiveDropSet := mergeDropSets(betaPolicy.filterSet)
 	finalBetaHeader, finalBetaShouldSet := s.computeFinalCountTokensAnthropicBeta(
 		tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctEffectiveDropSet,
 	)
@@ -647,6 +651,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		logClaudeMimicDebug(req, body, account, tokenType, mimicClaudeCode)
 	}
 
+	rememberAnthropicOutboundBody(c, body)
 	return req, body, nil
 }
 

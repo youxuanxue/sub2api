@@ -121,6 +121,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicOAuthPassthrough(
 	if err != nil {
 		return nil, nil, err
 	}
+	body = s.applyUpstreamAnthropicFastSpeed(ctx, c, account, "", body)
 
 	clientBeta := ""
 	if c != nil && c.Request != nil {
@@ -148,6 +149,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicOAuthPassthrough(
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
+	rememberAnthropicOutboundBody(c, body)
 
 	return req, body, nil
 }
@@ -163,6 +165,7 @@ func (s *GatewayService) buildCountTokensRequestAnthropicOAuthPassthrough(
 	if err != nil {
 		return nil, err
 	}
+	body = s.applyUpstreamAnthropicFastSpeed(ctx, c, account, "", body)
 
 	clientBeta := ""
 	if c != nil && c.Request != nil {
@@ -189,6 +192,7 @@ func (s *GatewayService) buildCountTokensRequestAnthropicOAuthPassthrough(
 	if req.Header.Get("anthropic-version") == "" {
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
+	rememberAnthropicOutboundBody(c, body)
 
 	return req, nil
 }

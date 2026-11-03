@@ -80,6 +80,9 @@ func (s *GatewayService) forwardBedrock(
 	if c != nil && c.Request != nil {
 		betaHeader = c.GetHeader("anthropic-beta")
 	}
+	// 与直连 / count_tokens 同一条 fast beta 策略。模型用客户端原 ID，和 Forward 缓存一致。
+	// header 的 block 短路仍留在 resolveBedrockBetaTokensForRequest，这里不另写拒绝。
+	body = s.applyUpstreamAnthropicFastSpeed(ctx, c, account, reqModel, body)
 
 	// 准备请求体（注入 anthropic_version/anthropic_beta，移除 Bedrock 不支持的字段，清理 cache_control）
 	betaTokens, err := s.resolveBedrockBetaTokensForRequest(ctx, account, betaHeader, body, mappedModel)
@@ -91,6 +94,7 @@ func (s *GatewayService) forwardBedrock(
 	if err != nil {
 		return nil, fmt.Errorf("prepare bedrock request body: %w", err)
 	}
+	rememberAnthropicOutboundBody(c, bedrockBody)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

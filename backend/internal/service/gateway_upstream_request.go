@@ -66,7 +66,12 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		return nil, nil, err
 	}
 	body = stripDeferredToolCacheControl(body)
+	// fast beta 的 filter/block 同时作用于 header（下方 drop set）和顶层 speed。
+	// 必须在 Vertex 早退、sanitize 与 CCH 之前改 body，返回值才是真正发出去的字节。
+	betaPolicy := s.upstreamBetaPolicy(ctx, c, account, modelID)
+	body = applyAnthropicFastSpeedPolicy(body, betaPolicy.stripAnthropicFastSpeed)
 	if account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
+		// 计费记下的是 Vertex builder 里的 vertexBody，不是这里改写前的副本。
 		req, err := s.buildUpstreamRequestAnthropicVertex(ctx, c, account, body, token, modelID, reqStream)
 		return req, body, err
 	}
@@ -154,8 +159,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	//      被 Anthropic 判 third-party）
 	//   4) NewRequest（body 至此最终敲定）
 	//   5) 透传白名单 / fingerprint / mimic header / 写入 finalBeta
-	policyFilterSet := s.getBetaPolicyFilterSet(ctx, c, account, modelID)
-	effectiveDropSet := mergeDropSets(policyFilterSet, betaSelfHealDropTokens(ctx)...)
+	effectiveDropSet := mergeDropSets(betaPolicy.filterSet, betaSelfHealDropTokens(ctx)...)
 	finalBetaHeader, finalBetaShouldSet := s.computeFinalAnthropicBeta(
 		tokenType, mimicClaudeCode, modelID, clientHeaders, body, effectiveDropSet,
 	)
@@ -284,6 +288,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		s.tkMaybeLogOAuthMimicEgressFingerprint(ctx, ingressUA, req, body, mimicClaudeCode)
 	}
 
+	rememberAnthropicOutboundBody(c, body)
 	return req, body, nil
 }
 
@@ -422,6 +427,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	}
 
 	tkEnsureClaudeCodeSessionHeader(req.Header, vertexBody, c)
+	rememberAnthropicOutboundBody(c, vertexBody)
 
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD_VERTEX_ANTHROPIC", req.Header, vertexBody, map[string]string{
 		"url":        req.URL.String(),
@@ -758,8 +764,9 @@ func (e *BetaBlockedError) Error() string { return e.Message }
 
 // betaPolicyResult holds the evaluated result of beta policy rules for a single request.
 type betaPolicyResult struct {
-	blockErr  *BetaBlockedError   // non-nil if a block rule matched
-	filterSet map[string]struct{} // tokens to filter (may be nil)
+	blockErr                *BetaBlockedError   // non-nil if a block rule matched
+	filterSet               map[string]struct{} // tokens to filter (may be nil)
+	stripAnthropicFastSpeed bool                // fast-mode token 的有效动作是 filter 或 block
 }
 
 // evaluateBetaPolicy loads settings once and evaluates all rules against the given request.
@@ -779,6 +786,12 @@ func (s *GatewayService) evaluateBetaPolicy(ctx context.Context, betaHeader stri
 			continue
 		}
 		effectiveAction, effectiveErrMsg := resolveRuleAction(rule, model)
+		if rule.BetaToken == claude.BetaFastMode &&
+			(effectiveAction == BetaPolicyActionFilter || effectiveAction == BetaPolicyActionBlock) {
+			// 与 header 同一条规则：filter 会摘掉 token，block 会拒绝带 token 的请求。
+			// 两种情况下出站 body 都不能再带顶层 speed=fast，否则等于绕过策略。
+			result.stripAnthropicFastSpeed = true
+		}
 		switch effectiveAction {
 		case BetaPolicyActionBlock:
 			if result.blockErr == nil && betaHeader != "" && containsBetaToken(betaHeader, rule.BetaToken) {
@@ -819,6 +832,61 @@ func mergeDropSets(policySet map[string]struct{}, extra ...string) map[string]st
 
 // betaPolicyFilterSetKey is the gin.Context key for caching the policy filter set within a request.
 const betaPolicyFilterSetKey = "betaPolicyFilterSet"
+
+// anthropicFastSpeedStripKey 缓存「fast-mode token 的有效动作是 filter 或 block」。
+// Forward 与 header filter 用同一次 evaluateBetaPolicy 写入，避免映射前后模型不一致。
+const anthropicFastSpeedStripKey = "anthropicFastSpeedStrip"
+
+// anthropicOutboundBodyKey 保存本次实际出站的 Anthropic JSON。
+// 计费必须读它，而不是入站解析时冻结的 parsed.Speed。
+const anthropicOutboundBodyKey = "anthropicOutboundBody"
+
+// upstreamBetaPolicy 复用请求内已经算好的 beta 策略；没有缓存时现场计算一次。
+// 调用方用同一份结果同时过滤 header token 和顶层 speed，避免两次读取出现分歧。
+func (s *GatewayService) upstreamBetaPolicy(ctx context.Context, c *gin.Context, account *Account, model string) betaPolicyResult {
+	if c != nil {
+		stripVal, hasStrip := c.Get(anthropicFastSpeedStripKey)
+		filterVal, hasFilter := c.Get(betaPolicyFilterSetKey)
+		if hasStrip && hasFilter {
+			strip, _ := stripVal.(bool)
+			filter, _ := filterVal.(map[string]struct{})
+			return betaPolicyResult{filterSet: filter, stripAnthropicFastSpeed: strip}
+		}
+	}
+	result := betaPolicyResult{}
+	if s != nil {
+		result = s.evaluateBetaPolicy(ctx, "", account, model)
+	}
+	if c == nil {
+		return result
+	}
+	if v, ok := c.Get(betaPolicyFilterSetKey); ok {
+		if fs, ok := v.(map[string]struct{}); ok {
+			result.filterSet = fs
+			if _, filtered := fs[claude.BetaFastMode]; filtered {
+				result.stripAnthropicFastSpeed = true
+			}
+		}
+	}
+	if v, ok := c.Get(anthropicFastSpeedStripKey); ok {
+		if strip, ok := v.(bool); ok {
+			result.stripAnthropicFastSpeed = strip
+		}
+	}
+	return result
+}
+
+// applyUpstreamAnthropicFastSpeed 用同一次 beta 策略判断删除顶层 speed=fast。
+// 直连、Bedrock、count_tokens 和透传都走这里，不再各写一套条件。
+func (s *GatewayService) applyUpstreamAnthropicFastSpeed(ctx context.Context, c *gin.Context, account *Account, model string, body []byte) []byte {
+	if s == nil {
+		return body
+	}
+	if model == "" {
+		model = gjson.GetBytes(body, "model").String()
+	}
+	return applyAnthropicFastSpeedPolicy(body, s.upstreamBetaPolicy(ctx, c, account, model).stripAnthropicFastSpeed)
+}
 
 // getBetaPolicyFilterSet returns the beta policy filter set, using the gin context cache if available.
 // In the /v1/messages path, Forward() evaluates the policy first and caches the result;

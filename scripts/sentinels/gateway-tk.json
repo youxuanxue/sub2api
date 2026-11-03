@@ -4716,7 +4716,7 @@
         "tkEnsureClaudeCodeSessionHeader(req.Header, body, c)",
         "tkEnsureClaudeCodeSessionHeader(req.Header, vertexBody, c)",
         "func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool, userAgent ...string)",
-        "mergeDropSets(policyFilterSet, betaSelfHealDropTokens(ctx)...)"
+        "mergeDropSets(betaPolicy.filterSet, betaSelfHealDropTokens(ctx)...)"
       ],
       "rationale": "Request-builder anchors split from the old gateway_service.go aggregate: session header sync must survive both Anthropic and Vertex builders, Claude Code mimic headers must remain centralized, and beta self-heal drop tokens must feed final beta computation.",
       "code_only": true
