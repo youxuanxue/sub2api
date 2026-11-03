@@ -30,6 +30,11 @@ ARCHIVE_PHASE = 'archive'
 ARCHIVE_SCRIPT = Path(__file__).with_name('node1_archive.py')
 ARCHIVE_POLICY = Path(__file__).resolve().parents[1] / 'backup' / 'node1_storage_policy.py'
 ARCHIVE_TRANSPORT = Path(__file__).with_name('node1_remote.py')
+# node1 is reached through a jump host on port 22: the cloud security group
+# allows only 22/443/8080.
+DEFAULT_REMOTE_JUMP = 'root@180.76.181.161'
+DEFAULT_REMOTE_KEY = Path('/etc/tokenkey/node1-archive.key')
+DEFAULT_REMOTE_ROOT = '/storage/tokenkey-archive'
 # Layout-exception hosts may rename the Postgres container; DNS alias
 # tokenkey-postgres on tokenkey_tokenkey-network keeps PGHOST stable.
 POSTGRES_RUNTIME_CANDIDATES = ('tokenkey-postgres', 'tk-archive-standby')
@@ -353,12 +358,19 @@ def install(args):
 
     node1_root = str(NODE1_ROOT) if args.include_node1_archive else None
     node1_environment = environment if args.include_node1_archive else None
+    # Read through getattr so a caller that predates these options -- a
+    # deployment script, or a test building a minimal Args stub -- keeps
+    # installing the local-copy archive instead of raising AttributeError.
+    target = getattr(args, 'node1_remote_target', '')
     remote = None
-    if args.include_node1_archive and args.node1_remote_target:
-        if not Path(args.node1_remote_key).is_file():
-            raise ValueError('node1 ssh key is missing: ' + args.node1_remote_key)
-        remote = {'target': args.node1_remote_target, 'jump': args.node1_remote_jump,
-                  'key': args.node1_remote_key, 'root': args.node1_remote_root}
+    if getattr(args, 'include_node1_archive', False) and target:
+        key = getattr(args, 'node1_remote_key', str(DEFAULT_REMOTE_KEY))
+        if not Path(key).is_file():
+            raise ValueError('node1 ssh key is missing: ' + key)
+        remote = {'target': target,
+                  'jump': getattr(args, 'node1_remote_jump', DEFAULT_REMOTE_JUMP),
+                  'key': key,
+                  'root': getattr(args, 'node1_remote_root', DEFAULT_REMOTE_ROOT)}
     config = {'hostname': socket.gethostname(), 'binary': str(bundle/'qa-local-maintenance'), 'sha256': digest,
               'phases': phases, 'node1_root': node1_root, 'node1_environment': node1_environment,
               'node1_remote': remote}
@@ -473,10 +485,10 @@ def main():
     # archive needs these.
     setup.add_argument('--node1-remote-target', default='',
                        help='node1 ssh destination, e.g. root@10.10.2.11')
-    setup.add_argument('--node1-remote-jump', default='root@180.76.181.161',
+    setup.add_argument('--node1-remote-jump', default=DEFAULT_REMOTE_JUMP,
                        help='jump host; the cloud security group allows only 22/443/8080')
-    setup.add_argument('--node1-remote-key', default='/etc/tokenkey/node1-archive.key')
-    setup.add_argument('--node1-remote-root', default='/storage/tokenkey-archive')
+    setup.add_argument('--node1-remote-key', default=str(DEFAULT_REMOTE_KEY))
+    setup.add_argument('--node1-remote-root', default=DEFAULT_REMOTE_ROOT)
     setup.add_argument('--node1-environment', choices=('prod', 'cn-prod'), default='',
                        help='node1 namespace for this host; required when the '
                             'manifest does not declare one')

@@ -631,3 +631,29 @@ class BundleCompletenessTest(unittest.TestCase):
         checked = " ".join(ast.unparse(node.value) for node in assignments)
         self.assertIn("node1_remote.py", checked,
                       "an existing bundle without the transport must count as a mismatch")
+
+
+class BackwardCompatibilityTest(unittest.TestCase):
+    """Callers that predate the remote options must keep working."""
+
+    def test_install_tolerates_an_args_without_the_new_options(self) -> None:
+        # The existing suite builds a minimal Args stub; reading the new
+        # options as attributes broke test_install_archive_requires_explicit
+        # _opt_in with AttributeError in CI, which my own tests never ran.
+        import ast
+        source = (HERE / "local_maintenance_host.py").read_text()
+        install = next(node for node in ast.walk(ast.parse(source))
+                       if isinstance(node, ast.FunctionDef) and node.name == "install")
+        body = ast.unparse(install)
+        for option in ("node1_remote_target", "node1_remote_jump",
+                       "node1_remote_key", "node1_remote_root"):
+            with self.subTest(option=option):
+                self.assertNotIn(f"args.{option}", body,
+                                 f"{option} must be read via getattr with a default")
+
+    def test_defaults_are_named_once(self) -> None:
+        # argparse and install() both need them; two literals would drift.
+        host = _load("local_maintenance_host")
+        self.assertEqual(host.DEFAULT_REMOTE_JUMP, "root@180.76.181.161")
+        self.assertEqual(str(host.DEFAULT_REMOTE_KEY), "/etc/tokenkey/node1-archive.key")
+        self.assertEqual(host.DEFAULT_REMOTE_ROOT, "/storage/tokenkey-archive")
