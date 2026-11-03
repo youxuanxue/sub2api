@@ -31,6 +31,9 @@ type LocalCleanupResult struct {
 	ArchiveReceiptRoot  string         `json:"archive_receipt_root,omitempty"`
 	ArchiveEnvironment  string         `json:"archive_environment,omitempty"`
 	ReceiptBlockedHours int            `json:"receipt_blocked_hours,omitempty"`
+	// Why each hour was held back, so an operator can tell "not archived yet"
+	// from "a receipt claims an archive that is not on node1".
+	ReceiptBlockedReasons []string `json:"receipt_blocked_reasons,omitempty"`
 }
 
 type node1Receipt struct {
@@ -265,15 +268,24 @@ func RunLocalCleanup(ctx context.Context, conn *sql.Conn, opts Options, dryRun b
 		}
 		result.SelectedHours = allowed
 		if result.ReceiptBlockedHours > 0 {
-			if receiptErr == nil {
-				receiptErr = errors.New("node1 archive receipt missing")
+			// Holding an hour back IS the gate working: the copy it would have
+			// deleted is not provably on node1. Report it as a result, not an
+			// error -- returning an error made the systemd unit exit non-zero,
+			// which the host job watcher alerted on as a service failure. The
+			// real failures (database unreachable, partition detach refused)
+			// still propagate below.
+			if receiptErr != nil {
+				result.ReceiptBlockedReasons = append(result.ReceiptBlockedReasons,
+					receiptErr.Error())
+			} else {
+				result.ReceiptBlockedReasons = append(result.ReceiptBlockedReasons,
+					"node1 archive receipt missing")
 			}
-			if dryRun {
-				return result, receiptErr
-			}
-			// Do not drop any source while the receipt gate is uncertain. This
-			// includes hours that happen to have a valid receipt in this batch.
-			return result, fmt.Errorf("node1 archive receipt gate blocked cleanup (%d hours): %w", result.ReceiptBlockedHours, receiptErr)
+			// Do not drop any source while the gate is uncertain -- including
+			// hours whose own receipt verified, because a batch that is partly
+			// unprovable says the archive is not keeping up.
+			result.SelectedHours = nil
+			return result, nil
 		}
 	}
 	if dryRun {
