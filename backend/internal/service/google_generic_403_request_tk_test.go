@@ -13,6 +13,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func withGoogleGeneric403Request(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if googleGeneric403RequestFrom(ctx) != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, googleGeneric403RequestKey{}, &googleGeneric403Request{
+		accounts: make(map[int64]struct{}),
+	})
+}
+
 func geminiGenericPermissionDeniedBody() []byte {
 	// classifyForbiddenType 的 default。分支不依赖这句文案。
 	return []byte(`{"error":{"code":403,"message":"PERMISSION_DENIED","status":"PERMISSION_DENIED"}}`)

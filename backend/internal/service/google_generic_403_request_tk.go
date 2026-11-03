@@ -52,18 +52,6 @@ func bindGoogleGeneric403Request(c *gin.Context, ctx context.Context) context.Co
 	return ctx
 }
 
-func withGoogleGeneric403Request(ctx context.Context) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if googleGeneric403RequestFrom(ctx) != nil {
-		return ctx
-	}
-	return context.WithValue(ctx, googleGeneric403RequestKey{}, &googleGeneric403Request{
-		accounts: make(map[int64]struct{}),
-	})
-}
-
 func googleGeneric403RequestFrom(ctx context.Context) *googleGeneric403Request {
 	if ctx == nil {
 		return nil
