@@ -709,5 +709,14 @@ class CollectTest(unittest.TestCase):
                 self.assertEqual(json.loads(checkpoint.read_text())["cursor"], NOW.isoformat())
 
 
+def load_tests(loader, tests, pattern):
+    # CI already runs this module. Pull in the xref tests without widening the
+    # workflow file list, which would force the full local gate set.
+    from scripts.upstream import watchdog_queue_test
+
+    tests.addTests(loader.loadTestsFromModule(watchdog_queue_test))
+    return tests
+
+
 if __name__ == "__main__":
     unittest.main()
