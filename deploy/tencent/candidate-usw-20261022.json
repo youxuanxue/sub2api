@@ -50,7 +50,8 @@
     },
     "local_qa_jobs": [
       "tokenkey-qa-provision",
-      "tokenkey-qa-cleanup"
+      "tokenkey-qa-cleanup",
+      "tokenkey-qa-archive"
     ]
   }
 }
