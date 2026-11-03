@@ -30,7 +30,12 @@ class CoveragePlanTest(unittest.TestCase):
                 for domain in self.watch['domains']:
                     self.assertIn('https://' + domain + '/health', targets.values())
         cn = self.config('cn-prod', self.domestic['instance_name'])
-        self.assertEqual(cn['jobs'], ['tokenkey-disk-metrics'])
+        # cn-prod runs the same local QA jobs as prod, carried by its own
+        # domestic config rather than a single hardcoded entry that predated
+        # tokenkey-qa-archive.
+        self.assertEqual(set(cn['jobs']),
+                         {'tokenkey-disk-metrics', 'tokenkey-qa-provision',
+                          'tokenkey-qa-cleanup', 'tokenkey-qa-archive'})
 
     def test_refuses_wrong_host_and_retains_prod_monitor_peer(self):
         with self.assertRaisesRegex(ValueError, 'host identity'):
@@ -39,6 +44,11 @@ class CoveragePlanTest(unittest.TestCase):
         # 2026-10-17 prod-only: no live edge peer → watch cn-prod.
         self.assertEqual(prod['targets'], {'cn-prod': self.domestic['public_origin'].rstrip('/') + '/health'})
         self.assertIn('tokenkey-qa-maintenance', prod['jobs'])
+        # The archive push (tar stream to node1) must be monitored on both
+        # hosts; it went unmonitored in production until 2026-11-03.
+        self.assertIn('tokenkey-qa-archive', prod['jobs'])
+        self.assertIn('tokenkey-qa-archive',
+                      self.config('cn-prod', self.domestic['instance_name'])['jobs'])
         # Retired Tokyo identity is not an accepted prod watch host.
         with self.assertRaisesRegex(ValueError, 'host identity'):
             self.config('prod', 'tokenkey-prod-tokyo-20261017')
@@ -446,3 +456,51 @@ class HostJobWatchTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QaArchiveCoverageTest(unittest.TestCase):
+    """The archive push (tar stream to node1) went unmonitored in production
+    until 2026-11-03: prod's qa-cleanup paged every 5 minutes for a correct
+    gate decision while the archive itself, which was re-pushing the hours
+    the gate was waiting on, had no alert path at all on either host.
+    """
+
+    def setUp(self):
+        root = pathlib.Path(__file__).resolve().parents[2]
+        self.prod_matrix = json.loads((root / 'deploy/tencent/candidate-usw-20261022.json').read_text())
+        self.domestic = json.loads((root / 'deploy/domestic/prod-target.json').read_text())
+
+    def test_archive_is_registered_with_a_cadence_matching_its_timer(self):
+        # ops/qa/local_maintenance_host.py schedules the archive every 4
+        # hours; max age must tolerate at least one missed run without
+        # alerting on the next, and max runtime must not be tighter than the
+        # unit's own TimeoutStartSec=1800.
+        self.assertIn('tokenkey-qa-archive', watch.JOB_LIMITS)
+        max_age, max_runtime = watch.JOB_LIMITS['tokenkey-qa-archive']
+        self.assertGreaterEqual(max_age, 2 * 4 * 3600)
+        self.assertGreaterEqual(max_runtime, 1800)
+
+    def test_both_hosts_configure_the_archive_job(self):
+        prod_jobs = watch.build_config('prod', self.prod_matrix['host_watch']['hostname'],
+                                       self.prod_matrix, self.domestic)['jobs']
+        cn_jobs = watch.build_config('cn-prod', self.domestic['instance_name'],
+                                     self.prod_matrix, self.domestic)['jobs']
+        self.assertIn('tokenkey-qa-archive', prod_jobs)
+        self.assertIn('tokenkey-qa-archive', cn_jobs)
+
+    def test_cn_prod_jobs_come_from_its_own_config_not_a_hardcoded_list(self):
+        # Hardcoding cn-prod to exactly one job meant adding a second job
+        # anywhere required a code change here instead of a config edit.
+        source = (pathlib.Path(__file__).resolve().parent / 'host_https_watch.py').read_text()
+        build = source[source.index('def build_config'):source.index('\ndef ', source.index('def build_config') + 1)]
+        self.assertIn('domestic.get("local_qa_jobs"', build)
+
+    def test_unknown_job_in_domestic_config_is_rejected_by_main(self):
+        # build_config itself does not validate against JOB_LIMITS -- main()
+        # does, right before probing. Exercise that same check so a typo in
+        # local_qa_jobs is caught rather than silently probed as "unhealthy:
+        # unit not found" forever.
+        bad = dict(self.domestic, local_qa_jobs=['tokenkey-not-a-real-job'])
+        config = watch.build_config('cn-prod', bad['instance_name'], self.prod_matrix, bad)
+        jobs = config['jobs']
+        self.assertTrue(any(name not in watch.JOB_LIMITS for name in jobs))

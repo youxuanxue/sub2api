@@ -42,9 +42,13 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict) ->
         # never stand in for the independent cn-prod public_origin endpoint.
         targets["prod:cn-domain"] = "https://" + domestic["fallback_domain"] + "/health"
         targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
-    jobs = ["tokenkey-disk-metrics"] if role == "cn-prod" else [
-        "tokenkey-pgdump", "tokenkey-disk-metrics", "tokenkey-ghcr-prune-daily"]
-    if role == "prod":
+    if role == "cn-prod":
+        # cn-prod runs the same local QA jobs as prod (provision/cleanup/
+        # archive); it just has its own host, so its own config carries the
+        # list rather than hardcoding one job that predates qa-archive.
+        jobs = ["tokenkey-disk-metrics"] + list(domestic.get("local_qa_jobs", []))
+    else:
+        jobs = ["tokenkey-pgdump", "tokenkey-disk-metrics", "tokenkey-ghcr-prune-daily"]
         jobs += ["tokenkey-qa-maintenance", "tokenkey-qa-boundary"]
         jobs += watch.get("local_qa_jobs", [])
     paused = dict(watch.get("paused_jobs", {})) if role == "prod" else {}
@@ -96,6 +100,11 @@ JOB_LIMITS = {
     "tokenkey-qa-boundary": (2 * 3600, 40 * 60 + 60),
     "tokenkey-qa-provision": (2 * 3600, 960),
     "tokenkey-qa-cleanup": (20 * 60, 960),
+    # Archive runs every 4 hours (ops/qa/local_maintenance_host.py SCHEDULE);
+    # max age allows one missed run before alerting. A full first push of a
+    # multi-GiB hour took 18.6 minutes on prod 2026-11-03; the unit's own
+    # TimeoutStartSec=1800 caps a stuck run, so normal execution tracks that.
+    "tokenkey-qa-archive": (9 * 3600, 1800),
 }
 
 
