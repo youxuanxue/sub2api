@@ -1,7 +1,7 @@
 ---
 title: 腾讯 COS 数据库备份与 node1 QA 归档
 status: approved
-approved_by: "feng（本次会话同意三项迁移决策，并将 QA node1 保留期改为 365 天）"
+approved_by: "feng（本次会话同意三项迁移决策，并将 QA node1 保留期改为 365 天；2026-11-02 同意 prod 阶段 3 以 verify-only 结束，记为明确例外）"
 approved_at: 2026-10-31
 authors: [agent]
 risk: high
@@ -76,6 +76,54 @@ risk: high
 4. **QA 验收**：完成至少两轮 4 小时复制，manifest/hash、源文件计数、目标字节数和失败重试均通过；确认 cleanup 只删除已有 node1 receipt 的小时；不把“文件复制成功”描述成 QA 数据库恢复成功。
 5. **切换**：将 prod/cn-prod 主备份配置切到各自 COS，保留 AWS 只读回退和最近回执；观察一个完整备份周期。node1 每日 COS 兜底必须先有一轮成功回执。
 6. **AWS 退役**：先停 AWS 写入身份和 timer，确认 COS 与 node1 连续健康；AWS bucket/object/KMS/角色删除另立收尾单，列出精确对象范围、保留截止时间和最终恢复验证，不由普通切换自动执行。
+
+## 阶段 3 执行记录与 prod 例外（2026-11-02）
+
+阶段 3 要求「从 COS 恢复最新点和历史点」。实际执行分成了两种结果。
+
+**cn-prod：完整验收通过。** 从北京 COS 的 repo2 恢复了最旧全量
+（`20261102-202410F`）和最新点（`...203119I`），两点都走完恢复流程并可查询：
+schema 与线上一致（409 表 / 96 外键 / 281 主键 / 86 序列），行数与金额均落后线上
+但不超过，`usage_logs` 与 `usage_billing_dedup` 的行数差在两点和线上都是 26。
+恢复 80.3s / 75.3s，重放启动约 2.4s。两份回执齐备。
+
+**prod：只做了 verify，恢复验收未完成 —— 这是一条明确的例外，不是通过。**
+
+| | 数值 |
+|---|---|
+| 库大小 | 21 GB |
+| 根卷可用 | 28 GB（恢复后剩 6 GB，约 95% 使用率） |
+| 演练卷可用 | 42 GB，但与生产库本体和 docker root **同在一个 LUKS loop 文件上** |
+| 主机 | 腾讯 Lighthouse，无云 CLI，挂盘需控制台操作 |
+
+两个卷都没有安全余量：根卷写满会影响整机（含网关），演练卷写满会直接打挂生产库。
+`formal/` 7.5G 一度被误判为历史目录，实为活跃生产目录（三个容器挂载，`sub2api`
+正在写日志），不可清理。可安全回收的空间合计约 1.4 GB，远不足 20.6 GB。
+
+因此 prod 执行的是 `--verify-only`：19 份备份全部 `status: valid`，
+`missing / checksum invalid / size invalid / other` 全为 0，WAL `...3335` → `...3719`
+单一 timeline，耗时 288 秒。只写 `repository_verification.json`。
+
+**这两者证明的东西不同**：verify 证明对象完整未损坏，完整恢复证明数据库真的能起来
+并查询。cn-prod 的完整验收说明 COS 恢复**方法**可行，但不替代 prod 自己那条链
+（美西地域、独立 bucket、timeline 2、19 份备份）的恢复证明。
+
+**该例外的后果，以及一个必须知道的事实**：prod 与 cn-prod 的 Tencent runner 写的是
+`archive_check.json`，它**不产生** `restore_acceptance_missing_or_stale`
+—— 那两个 reason 属于 Stage0 的 `health.json` 路径（Tokyo 时期 EC2 基线）。
+所以 prod 的恢复验收缺口**当前没有任何门禁报警**，`archive_check.json` 读作
+`status: ok`。这个缺口只存在于本记录中。
+
+**解除该例外的条件**（任一）：
+
+1. 给 prod 挂一块 ≥30 GB 临时盘（控制台操作），跑
+   `ops/backup/cos_restore_acceptance.py --repo 2 --apply` 的完整验收，完成后卸载；
+2. 扩容根卷或演练卷，使恢复后余量不低于 15 GB；
+3. 在独立主机上拉取 prod 的 COS 链做恢复验收。
+
+在上述任一完成前，**不得按阶段 6 退役 AWS 的 prod 写入身份** ——
+阶段 6 要求「确认 COS 与 node1 连续健康」，而 prod 的 COS 链尚未被证明可恢复，
+AWS repo1 仍是 prod 唯一经过恢复验证的链。
 
 ## 当前阻塞输入
 
