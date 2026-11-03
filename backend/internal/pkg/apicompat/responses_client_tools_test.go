@@ -2,6 +2,7 @@ package apicompat
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -714,4 +715,109 @@ func TestResponsesClientToolStreamRestorer_RestoresAllTerminalEvents(t *testing.
 			require.False(t, gjson.GetBytes(restored[0], "response.output.0.arguments").Exists())
 		})
 	}
+}
+
+func TestAdaptResponsesClientTools_AppendsFormatDefinitionWithoutRepeating(t *testing.T) {
+	definition := "start: /.+/ *** End Patch"
+	req := map[string]any{
+		"tools": []any{map[string]any{
+			"type":        "custom",
+			"name":        "apply_patch",
+			"description": "Apply a patch",
+			"format":      map[string]any{"type": "grammar", "syntax": "lark", "definition": definition},
+		}},
+	}
+
+	mapping, changed, err := AdaptResponsesClientTools(req)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.True(t, mapping.CustomTools["apply_patch"])
+
+	tool := requireResponsesClientToolValue[map[string]any](t, requireResponsesClientToolValue[[]any](t, req["tools"])[0])
+	require.Equal(t, "function", tool["type"])
+	require.NotContains(t, tool, "format")
+	require.JSONEq(t, customToolInputSchema, string(requireResponsesClientToolValue[json.RawMessage](t, tool["parameters"])))
+	description := requireResponsesClientToolValue[string](t, tool["description"])
+	require.Equal(t, "Apply a patch\n\n"+definition, description)
+	require.Equal(t, 1, strings.Count(description, definition))
+
+	// format 仍在、description 已含 definition 时不能再追加一次。
+	again := map[string]any{
+		"tools": []any{map[string]any{
+			"type":        "custom",
+			"name":        "apply_patch",
+			"description": description,
+			"format":      map[string]any{"type": "grammar", "definition": definition},
+		}},
+	}
+	_, _, err = AdaptResponsesClientTools(again)
+	require.NoError(t, err)
+	againTool := requireResponsesClientToolValue[map[string]any](t, requireResponsesClientToolValue[[]any](t, again["tools"])[0])
+	require.Equal(t, description, againTool["description"])
+	require.Equal(t, 1, strings.Count(requireResponsesClientToolValue[string](t, againTool["description"]), definition))
+
+	plain := map[string]any{
+		"tools": []any{map[string]any{
+			"type": "custom", "name": "apply_patch", "description": "Apply a patch",
+		}},
+	}
+	_, _, err = AdaptResponsesClientTools(plain)
+	require.NoError(t, err)
+	plainTool := requireResponsesClientToolValue[map[string]any](t, requireResponsesClientToolValue[[]any](t, plain["tools"])[0])
+	require.Equal(t, "Apply a patch", plainTool["description"])
+
+	follow := map[string]any{"input": []any{map[string]any{"type": "message", "role": "user", "content": "next"}}}
+	_, _, err = AdaptResponsesClientToolsWithInheritedMapping(follow, mapping, requireResponsesClientToolValue[[]any](t, req["tools"]))
+	require.NoError(t, err)
+	followTool := requireResponsesClientToolValue[map[string]any](t, requireResponsesClientToolValue[[]any](t, follow["tools"])[0])
+	require.Equal(t, description, followTool["description"])
+	require.Equal(t, 1, strings.Count(requireResponsesClientToolValue[string](t, followTool["description"]), definition))
+
+	restorer := NewResponsesClientToolStreamRestorer(mapping)
+	added := restorer.Restore(ResponsesStreamEvent{
+		Type: "response.output_item.added", SequenceNumber: 7, OutputIndex: 0,
+		Item: &ResponsesOutput{Type: "function_call", ID: "i1", CallID: "c1", Name: "apply_patch", Status: "in_progress"},
+	})
+	require.Len(t, added, 1)
+	require.Equal(t, "custom_tool_call", added[0].Item.Type)
+	done := restorer.Restore(ResponsesStreamEvent{
+		Type: "response.function_call_arguments.done", SequenceNumber: 8, ItemID: "i1", CallID: "c1", Name: "apply_patch",
+		Arguments: `{"input":"*** Begin Patch"}`,
+	})
+	require.Equal(t, "response.custom_tool_call_input.done", done[len(done)-1].Type)
+	require.Equal(t, "*** Begin Patch", done[len(done)-1].Input)
+}
+
+func TestAdaptResponsesClientTools_FunctionToolIsNotCustomAndEmptyRestorerIsNoop(t *testing.T) {
+	req := map[string]any{
+		"tools": []any{map[string]any{
+			"type":        "function",
+			"name":        "get_weather",
+			"description": "Get weather",
+			"parameters":  map[string]any{"type": "object", "properties": map[string]any{"city": map[string]any{"type": "string"}}},
+		}},
+	}
+	mapping, changed, err := AdaptResponsesClientTools(req)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Empty(t, mapping.CustomTools)
+	tool := requireResponsesClientToolValue[map[string]any](t, requireResponsesClientToolValue[[]any](t, req["tools"])[0])
+	require.Equal(t, "function", tool["type"])
+	require.Equal(t, "Get weather", tool["description"])
+
+	payload := []byte(`{"output":[{"type":"function_call","name":"get_weather","arguments":"{\"city\":\"Tokyo\"}"}]}`)
+	restored, payloadChanged, err := RestoreResponsesClientToolPayload(payload, ResponsesClientToolMapping{})
+	require.NoError(t, err)
+	require.False(t, payloadChanged)
+	require.Equal(t, string(payload), string(restored))
+
+	event := ResponsesStreamEvent{
+		Type: "response.output_item.added", SequenceNumber: 3, OutputIndex: 0,
+		Item: &ResponsesOutput{Type: "function_call", ID: "i1", CallID: "c1", Name: "get_weather", Arguments: `{"city":"Tokyo"}`},
+	}
+	var restorer *ResponsesClientToolStreamRestorer
+	out := restorer.Restore(event)
+	require.Len(t, out, 1)
+	require.Equal(t, event, out[0])
+	require.Equal(t, "function_call", out[0].Item.Type)
 }

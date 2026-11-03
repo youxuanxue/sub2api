@@ -70,7 +70,8 @@ func (a *antigravityChatStreamAdapter) emitResponseEvent(event *apicompat.Respon
 }
 
 type antigravityResponsesStreamAdapter struct {
-	anthropicState *apicompat.AnthropicEventToResponsesState
+	anthropicState     *apicompat.AnthropicEventToResponsesState
+	clientToolRestorer *apicompat.ResponsesClientToolStreamRestorer
 }
 
 func newAntigravityResponsesStreamAdapter(model string) *antigravityResponsesStreamAdapter {
@@ -96,8 +97,14 @@ func (a *antigravityResponsesStreamAdapter) WriteError(writer *antigravityClient
 }
 
 func (a *antigravityResponsesStreamAdapter) emitResponseEvent(event apicompat.ResponsesStreamEvent, writer *antigravityClientWriter) {
-	if data, err := apicompat.ResponsesEventToSSE(event); err == nil {
-		writer.Write([]byte(data))
+	events := []apicompat.ResponsesStreamEvent{event}
+	if a.clientToolRestorer != nil {
+		events = a.clientToolRestorer.Restore(event)
+	}
+	for _, evt := range events {
+		if data, err := apicompat.ResponsesEventToSSE(evt); err == nil {
+			writer.Write([]byte(data))
+		}
 	}
 }
 
@@ -553,13 +560,19 @@ func (s *AntigravityGatewayService) handleResponsesStreamingFromAntigravity(
 	resp *http.Response,
 	startTime time.Time,
 	originalModel string,
+	clientToolMapping apicompat.ResponsesClientToolMapping,
 ) (*antigravityStreamResult, error) {
+	adapter := newAntigravityResponsesStreamAdapter(originalModel)
+	// No client tools: leave the restorer nil so the stream bytes stay unchanged.
+	if hasResponsesClientToolMapping(clientToolMapping) {
+		adapter.clientToolRestorer = apicompat.NewResponsesClientToolStreamRestorer(clientToolMapping)
+	}
 	return s.handleAntigravityCompatStream(
 		c,
 		resp,
 		startTime,
 		originalModel,
-		newAntigravityResponsesStreamAdapter(originalModel),
+		adapter,
 		"antigravity responses stream",
 	)
 }

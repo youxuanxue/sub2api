@@ -97,6 +97,10 @@ func AdaptResponsesClientTools(req map[string]any) (ResponsesClientToolMapping, 
 				continue
 			}
 			copy := copyClientTool(tool)
+			// Function-only upstreams drop format. Keep the lark grammar in the
+			// description so the model still sees the Codex patch language, and
+			// do not append it again when a WS continuation re-lowers the tool.
+			appendCustomToolFormatDefinition(copy)
 			copy["type"] = "function"
 			copy["parameters"] = json.RawMessage(customToolInputSchema)
 			delete(copy, "format")
@@ -214,6 +218,33 @@ func copyClientTool(tool map[string]any) map[string]any {
 		copy[key] = value
 	}
 	return copy
+}
+
+// appendCustomToolFormatDefinition copies format.definition onto description.
+// A continuation that already carries the grammar — because this function
+// appended it on a previous lowering — must stay unchanged.
+func appendCustomToolFormatDefinition(tool map[string]any) {
+	definition := strings.TrimSpace(customToolFormatDefinition(tool["format"]))
+	if definition == "" {
+		return
+	}
+	description := strings.TrimSpace(stringValue(tool["description"]))
+	if description == definition || strings.HasSuffix(description, definition) {
+		return
+	}
+	if description == "" {
+		tool["description"] = definition
+		return
+	}
+	tool["description"] = description + "\n\n" + definition
+}
+
+func customToolFormatDefinition(format any) string {
+	fields, ok := format.(map[string]any)
+	if !ok {
+		return ""
+	}
+	return stringValue(fields["definition"])
 }
 
 func rewriteClientToolHistory(value any, adapter *ResponsesClientToolMapping) (bool, error) {
