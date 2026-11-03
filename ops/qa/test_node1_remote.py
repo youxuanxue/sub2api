@@ -499,3 +499,57 @@ class ArchiveTimerWiringTest(unittest.TestCase):
         source = (HERE / "local_maintenance_host.py").read_text()
         self.assertIn("node1 ssh key is missing", source,
                       "installing a push timer without its key would fail every run")
+
+
+class ArchiveEnvironmentTest(unittest.TestCase):
+    """Which node1 namespace a host writes to must never be a silent default."""
+
+    def setUp(self) -> None:
+        self.host = _load("local_maintenance_host")
+
+    def _args(self, **kwargs):
+        defaults = {"node1_environment": "", "include_node1_archive": False}
+        return type("Args", (), defaults | kwargs)()
+
+    def test_enabling_without_an_environment_is_refused(self) -> None:
+        # cn-prod's manifest has no `environment` key. Defaulting to 'prod'
+        # would push its QA into prod's node1 directory, mixing two hosts.
+        with self.assertRaises(ValueError) as caught:
+            self.host.resolve_environment({}, self._args(include_node1_archive=True))
+        self.assertIn("--node1-environment", str(caught.exception))
+
+    def test_an_explicit_flag_is_used(self) -> None:
+        chosen = self.host.resolve_environment(
+            {}, self._args(include_node1_archive=True, node1_environment="cn-prod"))
+        self.assertEqual(chosen, "cn-prod")
+
+    def test_a_flag_contradicting_the_manifest_is_refused(self) -> None:
+        with self.assertRaises(ValueError) as caught:
+            self.host.resolve_environment(
+                {"environment": "prod"},
+                self._args(include_node1_archive=True, node1_environment="cn-prod"))
+        self.assertIn("manifest declares environment", str(caught.exception))
+
+    def test_a_declared_manifest_environment_is_honoured(self) -> None:
+        chosen = self.host.resolve_environment(
+            {"environment": "cn-prod"}, self._args(include_node1_archive=True))
+        self.assertEqual(chosen, "cn-prod")
+
+    def test_unknown_values_are_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            self.host.resolve_environment({"environment": "staging"},
+                                          self._args(include_node1_archive=True))
+
+    def test_without_the_archive_the_old_default_still_applies(self) -> None:
+        # Hosts that never enable the archive must keep installing as before.
+        self.assertEqual(self.host.resolve_environment({}, self._args()), "prod")
+
+    def test_the_guard_runs_before_plan_mode_returns(self) -> None:
+        # Resolved after `if not args.apply: return`, a bad environment would
+        # print a plan that could never be applied -- which is exactly what
+        # the first live plan run did.
+        source = (HERE / "local_maintenance_host.py").read_text()
+        body = source[source.index("def install(args):"):]
+        self.assertLess(body.index("resolve_environment(manifest, args)"),
+                        body.index("if not args.apply:"),
+                        "the environment must be resolved before the plan return")

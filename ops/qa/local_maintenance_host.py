@@ -302,6 +302,23 @@ def expected_prod_hostname(manifest):
     return manifest['prod']['instance_name']
 
 
+def resolve_environment(manifest, args):
+    """Which node1 namespace this host writes to. Never a silent default."""
+    declared = manifest.get('environment')
+    chosen = getattr(args, 'node1_environment', '') or declared or 'prod'
+    if declared and getattr(args, 'node1_environment', '') and declared != args.node1_environment:
+        raise ValueError(
+            f'manifest declares environment {declared!r}, '
+            f'refusing {args.node1_environment!r}')
+    if getattr(args, 'include_node1_archive', False) and not declared \
+            and not getattr(args, 'node1_environment', ''):
+        raise ValueError(
+            'manifest has no environment; pass --node1-environment prod|cn-prod explicitly')
+    if chosen not in ('prod', 'cn-prod'):
+        raise ValueError(f'unknown QA archive environment: {chosen!r}')
+    return chosen
+
+
 def install(args):
     manifest = json.loads(args.manifest.read_text())
     if socket.gethostname() != expected_prod_hostname(manifest):
@@ -313,7 +330,15 @@ def install(args):
     phases = list(PHASES)
     if args.include_node1_archive:
         phases.append(ARCHIVE_PHASE)
-    print(json.dumps({'hostname': socket.gethostname(), 'phases': phases, 'sha256': digest, 'apply': args.apply}))
+    # The archive environment decides which node1 namespace the payload lands
+    # in, and cn-prod's manifest carries no `environment` key -- defaulting to
+    # 'prod' there would mix two hosts' QA into one directory. Resolve it
+    # before the plan-mode return so a bad value is reported by `install`
+    # without --apply, rather than printing a plan that cannot be applied.
+    environment = resolve_environment(manifest, args)
+    print(json.dumps({'hostname': socket.gethostname(), 'phases': phases,
+                      'environment': environment if args.include_node1_archive else None,
+                      'sha256': digest, 'apply': args.apply}))
     if not args.apply:
         run_phase({'hostname':socket.gethostname(), 'binary':str(args.binary.resolve()),
                    'sha256':digest, 'phases':phases}, 'cleanup', dry_run=True)
@@ -323,7 +348,7 @@ def install(args):
         bundle_material.extend((ARCHIVE_SCRIPT.read_bytes(), ARCHIVE_POLICY.read_bytes()))
     bundle_digest = hashlib.sha256(b''.join(bundle_material)).hexdigest()[:16]
     bundle = BASE/bundle_digest
-    environment = manifest.get('environment', 'prod')
+
     node1_root = str(NODE1_ROOT) if args.include_node1_archive else None
     node1_environment = environment if args.include_node1_archive else None
     remote = None
@@ -447,6 +472,9 @@ def main():
                        help='jump host; the cloud security group allows only 22/443/8080')
     setup.add_argument('--node1-remote-key', default='/etc/tokenkey/node1-archive.key')
     setup.add_argument('--node1-remote-root', default='/storage/tokenkey-archive')
+    setup.add_argument('--node1-environment', choices=('prod', 'cn-prod'), default='',
+                       help='node1 namespace for this host; required when the '
+                            'manifest does not declare one')
     run = commands.add_parser('run')
     run.add_argument('--config', type=Path, required=True)
     run.add_argument('--phase', choices=PHASES, required=True)
