@@ -138,20 +138,32 @@ def require_legacy_paused():
             raise ValueError('legacy QA owner must remain paused: '+job)
 
 
-def unit_files(bundle, phase, environment='prod'):
+def unit_files(bundle, phase, environment='prod', remote=None):
     if phase not in PHASES and phase != ARCHIVE_PHASE:
         raise ValueError('unknown local phase')
     if environment not in ('prod', 'cn-prod'):
         raise ValueError('unknown QA archive environment')
     name = 'tokenkey-qa-'+phase
     if phase == 'archive':
+        # Without the remote settings the archive writes into NODE1_ROOT on the
+        # local disk, which on both hosts is the same volume as the live
+        # database -- neither an off-host copy nor somewhere QA can grow. The
+        # payload therefore goes to node1 over SSH whenever a target is
+        # configured; NODE1_ROOT stays the receipt root either way, because the
+        # cleanup gate reads receipts locally.
+        push = ''
+        if remote:
+            push = (f" --remote-target {remote['target']}"
+                    f" --remote-jump {remote['jump']}"
+                    f" --remote-key {remote['key']}"
+                    f" --remote-root {remote['root']}")
         return {
             name+'.service': f'''[Unit]
 Description=TokenKey QA node1 hourly archive
 After=network-online.target
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 {bundle}/node1_archive.py run --source-root {HOT_DATA} --node1-root {NODE1_ROOT} --environment {environment}
+ExecStart=/usr/bin/python3 {bundle}/node1_archive.py run --source-root {HOT_DATA} --node1-root {NODE1_ROOT} --environment {environment}{push}
 TimeoutStartSec=1800
 UMask=0077
 Nice=19
@@ -314,8 +326,15 @@ def install(args):
     environment = manifest.get('environment', 'prod')
     node1_root = str(NODE1_ROOT) if args.include_node1_archive else None
     node1_environment = environment if args.include_node1_archive else None
+    remote = None
+    if args.include_node1_archive and args.node1_remote_target:
+        if not Path(args.node1_remote_key).is_file():
+            raise ValueError('node1 ssh key is missing: ' + args.node1_remote_key)
+        remote = {'target': args.node1_remote_target, 'jump': args.node1_remote_jump,
+                  'key': args.node1_remote_key, 'root': args.node1_remote_root}
     config = {'hostname': socket.gethostname(), 'binary': str(bundle/'qa-local-maintenance'), 'sha256': digest,
-              'phases': phases, 'node1_root': node1_root, 'node1_environment': node1_environment}
+              'phases': phases, 'node1_root': node1_root, 'node1_environment': node1_environment,
+              'node1_remote': remote}
     BASE.mkdir(parents=True, exist_ok=True, mode=0o755)
     if bundle.exists():
         bundle_mismatch = (
@@ -353,7 +372,8 @@ def install(args):
 def install_units(bundle, phases, environment='prod'):
     backup = Path('/var/backups/tokenkey-qa-local')/dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     backup.mkdir(parents=True, mode=0o700)
-    files = {name: content for phase in phases for name, content in unit_files(bundle, phase, environment).items()}
+    files = {name: content for phase in phases
+             for name, content in unit_files(bundle, phase, environment, remote).items()}
     # Validate staged files before changing the active units.
     for name, content in files.items():
         (backup/name).write_text(content)
@@ -418,6 +438,15 @@ def main():
     setup.add_argument('--apply', action='store_true')
     setup.add_argument('--include-node1-archive', action='store_true',
                        help='explicitly install the disabled-by-default node1 archive timer')
+    # Without a target the timer copies into NODE1_ROOT on the local disk,
+    # which is the live database's own volume on both hosts. A real off-host
+    # archive needs these.
+    setup.add_argument('--node1-remote-target', default='',
+                       help='node1 ssh destination, e.g. root@10.10.2.11')
+    setup.add_argument('--node1-remote-jump', default='root@180.76.181.161',
+                       help='jump host; the cloud security group allows only 22/443/8080')
+    setup.add_argument('--node1-remote-key', default='/etc/tokenkey/node1-archive.key')
+    setup.add_argument('--node1-remote-root', default='/storage/tokenkey-archive')
     run = commands.add_parser('run')
     run.add_argument('--config', type=Path, required=True)
     run.add_argument('--phase', choices=PHASES, required=True)

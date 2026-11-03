@@ -418,3 +418,84 @@ class PushHourTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArchiveTimerWiringTest(unittest.TestCase):
+    """The timer must actually push off-host, or enabling it is a liability."""
+
+    def setUp(self) -> None:
+        self.host = _load("local_maintenance_host")
+        self.remote = {"target": "root@10.10.2.11", "jump": "root@180.76.181.161",
+                       "key": "/etc/tokenkey/node1-archive.key",
+                       "root": "/storage/tokenkey-archive"}
+
+    def _exec_start(self, units: dict) -> str:
+        service = units["tokenkey-qa-archive.service"]
+        return next(l for l in service.splitlines() if l.startswith("ExecStart="))
+
+    def test_remote_settings_reach_the_exec_line(self) -> None:
+        exec_start = self._exec_start(
+            self.host.unit_files("/b", "archive", "cn-prod", self.remote))
+        self.assertIn("--remote-target root@10.10.2.11", exec_start)
+        self.assertIn("--remote-jump root@180.76.181.161", exec_start)
+        self.assertIn("--remote-key /etc/tokenkey/node1-archive.key", exec_start)
+        self.assertIn("--remote-root /storage/tokenkey-archive", exec_start)
+        self.assertIn("--environment cn-prod", exec_start)
+
+    def test_without_remote_the_archive_stays_local(self) -> None:
+        # This is the state that must never be enabled in production: the
+        # payload would land on /var/lib/tokenkey, the live database's own
+        # volume, which is neither off-host nor somewhere QA can grow.
+        exec_start = self._exec_start(self.host.unit_files("/b", "archive", "prod"))
+        self.assertNotIn("--remote-target", exec_start)
+        self.assertIn("--node1-root /var/lib/tokenkey/qa-node1", exec_start)
+
+    def test_receipt_root_stays_local_in_remote_mode(self) -> None:
+        # The cleanup gate reads receipts from disk. Pointing --node1-root at
+        # the remote path would make log retention depend on the network.
+        exec_start = self._exec_start(
+            self.host.unit_files("/b", "archive", "prod", self.remote))
+        self.assertIn("--node1-root /var/lib/tokenkey/qa-node1", exec_start)
+
+    def test_timer_runs_every_four_hours_off_peak(self) -> None:
+        units = self.host.unit_files("/b", "archive", "prod", self.remote)
+        calendar = next(l for l in units["tokenkey-qa-archive.timer"].splitlines()
+                        if l.startswith("OnCalendar="))
+        self.assertEqual(calendar, "OnCalendar=*-*-* 01/4:00:00 UTC")
+
+    def test_archive_service_yields_to_the_live_workload(self) -> None:
+        service = self.host.unit_files("/b", "archive", "prod", self.remote)["tokenkey-qa-archive.service"]
+        self.assertIn("Nice=19", service)
+        self.assertIn("IOSchedulingClass=idle", service)
+        self.assertIn("UMask=0077", service)
+
+    def test_unknown_environment_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            self.host.unit_files("/b", "archive", "staging", self.remote)
+
+    def test_install_passes_remote_through_to_unit_files(self) -> None:
+        # Asserting on unit_files alone leaves a gap: install() could simply
+        # stop forwarding `remote` and every other test here would still pass,
+        # while the deployed timer silently wrote to the local disk. Pin the
+        # call site in the source.
+        import re
+        source = (HERE / "local_maintenance_host.py").read_text()
+        # Match the call site, not the `def` line -- the signature carries
+        # `remote=None` and would satisfy a naive substring check forever.
+        calls = [l for l in source.splitlines()
+                 if "unit_files(bundle, phase" in l and not l.lstrip().startswith("def ")]
+        self.assertEqual(len(calls), 1, f"expected one call site, found {calls}")
+        self.assertRegex(
+            calls[0], r"unit_files\(bundle,\s*phase,\s*environment,\s*remote\)",
+            "install() must forward the remote settings to unit_files")
+
+    def test_install_records_the_remote_in_config(self) -> None:
+        # config.json is what an operator reads on the host to see whether the
+        # timer pushes off-host or writes locally.
+        source = (HERE / "local_maintenance_host.py").read_text()
+        self.assertIn("'node1_remote': remote", source)
+
+    def test_install_refuses_a_missing_key(self) -> None:
+        source = (HERE / "local_maintenance_host.py").read_text()
+        self.assertIn("node1 ssh key is missing", source,
+                      "installing a push timer without its key would fail every run")
