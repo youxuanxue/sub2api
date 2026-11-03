@@ -666,6 +666,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	if err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
+	if filteredBody, ferr := filterEmptyPartsFromGeminiRequest(geminiReq); ferr == nil {
+		geminiReq = filteredBody
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
