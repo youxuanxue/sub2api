@@ -26,7 +26,18 @@ for _policy_dir in _POLICY_DIRS:
         break
 else:
     raise ImportError("node1_storage_policy.py is not bundled")
-from node1_storage_policy import QA_CAP_BYTES, StoragePolicyError, check_write, receipt_bytes
+from node1_storage_policy import (
+    BLOCK_USED_PERCENT,
+    EMERGENCY_USED_PERCENT,
+    QA_CAP_BYTES,
+    StoragePolicyError,
+    WARN_USED_PERCENT,
+    check_write,
+    receipt_bytes,
+)
+
+sys.path.insert(0, str(_SCRIPT_DIR))
+import node1_remote
 
 
 HOUR = "%Y/%m/%d/%H"
@@ -153,7 +164,118 @@ def _receipt_from_manifest(target: Path, environment: str, hour: dt.datetime) ->
     }
 
 
-def copy_hour(source_root: Path, node1_root: Path, environment: str, hour: dt.datetime) -> dict:
+def push_hour(source_root: Path, receipt_root: Path, environment: str,
+              hour: dt.datetime, remote: dict) -> dict:
+    """Archive one hour to a remote node1 over SSH instead of a mounted path.
+
+    Identical guarantees to copy_hour: a manifest with a per-file sha256, a
+    staging directory, capacity checked before any bytes move, and a receipt
+    written only after the archive is verifiably complete. Two things differ.
+
+    First, capacity is measured ON NODE1. The local policy reads the local
+    filesystem, which here is the production disk and says nothing about the
+    archive volume.
+
+    Second, completeness is confirmed by the remote side recomputing the
+    manifest digest. A truncated or reordered stream yields a different digest,
+    so a receipt is never written on the strength of an exit code alone.
+
+    The receipt stays local on purpose: the production cleanup gate reads it to
+    decide whether an hour may be deleted, and routing that read over the
+    network would tie log retention to node1 being reachable.
+    """
+    source_files = _hour_sources(source_root, hour)
+    receipt = receipt_path(receipt_root, environment, hour)
+    remote_dir = f"{remote['remote_root'].rstrip('/')}/qa-raw/{environment}/{hour.strftime(HOUR)}"
+
+    if receipt.exists():
+        try:
+            existing = json.loads(receipt.read_text(encoding="utf-8"))
+            if existing.get("schema_version") == SCHEMA and existing.get("ok") is True:
+                return existing | {"already_completed": True}
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        raise ValueError(f"existing node1 receipt is invalid: {receipt}")
+
+    required_bytes = sum(path.stat().st_size for _, path in source_files)
+    capacity = node1_remote.remote_capacity(
+        remote["key"], remote["jump"], remote["target"], remote["remote_root"])
+    try:
+        check_remote_write(required_bytes=required_bytes,
+                           total_bytes=capacity["total_bytes"],
+                           free_bytes=capacity["free_bytes"],
+                           dataset_used_bytes=capacity["qa_used_bytes"],
+                           dataset_cap_bytes=QA_CAP_BYTES)
+    except StoragePolicyError as exc:
+        raise ValueError(str(exc)) from exc
+
+    staging = Path(tempfile.mkdtemp(prefix=f".push-{hour.strftime('%Y%m%d%H')}-",
+                                    dir=receipt_root))
+    try:
+        manifest, manifest_sha, manifest_size, total = _stage_hour(staging, source_files,
+                                                                   environment, hour)
+        summary = node1_remote.push_directory(
+            staging, key=remote["key"], jump=remote["jump"], target=remote["target"],
+            remote_dir=remote_dir, rate_kbps=remote["rate_kbps"],
+            timeout=remote["timeout"])
+        # The digest is the proof. Byte and file counts are compared too so a
+        # stream that somehow matched the manifest but dropped payload files
+        # cannot be mistaken for a complete hour.
+        if summary.get("manifest_sha256") != manifest_sha:
+            raise ValueError(
+                f"node1 manifest digest mismatch: local={manifest_sha} "
+                f"remote={summary.get('manifest_sha256')}")
+        if int(summary.get("file_count", -1)) != manifest["file_count"]:
+            raise ValueError(f"node1 file count mismatch: local={manifest['file_count']} "
+                             f"remote={summary.get('file_count')}")
+        if int(summary.get("total_bytes", -1)) != total:
+            raise ValueError(f"node1 byte count mismatch: local={total} "
+                             f"remote={summary.get('total_bytes')}")
+        result = {"schema_version": SCHEMA, "ok": True, "environment": environment,
+                  "window_start": hour.isoformat(),
+                  "window_end": (hour + dt.timedelta(hours=1)).isoformat(),
+                  "file_count": manifest["file_count"], "total_bytes": total,
+                  "manifest_sha256": manifest_sha, "manifest_bytes": manifest_size,
+                  "transport": "ssh-tar", "remote_dir": remote_dir,
+                  "remote_already_present": bool(summary.get("already_present")),
+                  "completed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+        atomic_json(receipt, result)
+        return result
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def check_remote_write(*, required_bytes: int, total_bytes: int, free_bytes: int,
+                       dataset_used_bytes: int, dataset_cap_bytes: int) -> dict:
+    """Same thresholds as the local policy, against node1's reported space."""
+    if min(required_bytes, total_bytes, free_bytes, dataset_used_bytes, dataset_cap_bytes) < 0:
+        raise StoragePolicyError("storage sizes cannot be negative")
+    if total_bytes <= 0:
+        raise StoragePolicyError("node1 reports zero capacity")
+    projected_dataset = dataset_used_bytes + required_bytes
+    if projected_dataset > dataset_cap_bytes:
+        raise StoragePolicyError(
+            f"dataset cap exceeded: projected={projected_dataset} cap={dataset_cap_bytes}")
+    projected_used_percent = (total_bytes - (free_bytes - required_bytes)) * 100.0 / total_bytes
+    if projected_used_percent >= EMERGENCY_USED_PERCENT:
+        raise StoragePolicyError(
+            f"node1 emergency threshold reached at {projected_used_percent:.1f}% used")
+    if projected_used_percent >= BLOCK_USED_PERCENT:
+        raise StoragePolicyError(
+            f"node1 write blocked at {projected_used_percent:.1f}% used")
+    return {"projected_used_percent": projected_used_percent,
+            "warn": projected_used_percent >= WARN_USED_PERCENT}
+
+
+def _hour_sources(source_root: Path, hour: dt.datetime) -> list[tuple[str, Path]]:
+    """Every regular file under one sealed hour, with its path relative to root.
+
+    A sealed hour is not flat: capture shards it into 256 hex subdirectories
+    (00..ff) with the blobs one level below, so one cn-prod hour holds 4,967
+    files across 256 shards. Directories are therefore expected structure, not
+    a hazard; only symlinks and non-regular entries (devices, sockets, fifos)
+    are refused, which is what the original check was protecting against.
+    """
     source_files: list[tuple[str, Path]] = []
     for kind in ("qa_blobs", "qa_dlq"):
         base = source_root / kind / hour.strftime(HOUR)
@@ -162,12 +284,48 @@ def copy_hour(source_root: Path, node1_root: Path, environment: str, hour: dt.da
         if base.is_symlink() or not base.is_dir():
             raise ValueError(f"hour directory is not a real directory: {base}")
         for path in sorted(base.rglob("*")):
-            if path.is_symlink() or (path.exists() and not path.is_file()):
-                raise ValueError(f"unsafe QA source entry: {path}")
-            if path.is_file():
-                source_files.append((str(path.relative_to(source_root)), path))
+            if path.is_symlink():
+                raise ValueError(f"unsafe QA source entry (symlink): {path}")
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                raise ValueError(f"unsafe QA source entry (not a regular file): {path}")
+            source_files.append((str(path.relative_to(source_root)), path))
     if not source_files:
         raise ValueError(f"hour has no QA files: {hour.isoformat()}")
+    return source_files
+
+
+def _stage_hour(staging: Path, source_files: list[tuple[str, Path]],
+                environment: str, hour: dt.datetime) -> tuple[dict, str, int, int]:
+    """Copy sources into staging with checksums and write the manifest."""
+    entries = []
+    total = 0
+    for relative, source in source_files:
+        destination = staging / relative
+        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        digest, size = sha256_file(source)
+        shutil.copyfile(source, destination)
+        copied_digest, copied_size = sha256_file(destination)
+        if (digest, size) != (copied_digest, copied_size):
+            raise IOError(f"checksum mismatch after copy: {relative}")
+        os.chmod(destination, 0o600)
+        entries.append({"path": relative, "bytes": size, "sha256": digest})
+        total += size
+    manifest = {"schema_version": SCHEMA, "environment": environment,
+                "window_start": hour.isoformat(),
+                "window_end": (hour + dt.timedelta(hours=1)).isoformat(),
+                "file_count": len(entries), "total_bytes": total, "files": entries}
+    manifest_path = staging / "manifest.json"
+    manifest_path.write_bytes(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode() + b"\n")
+    os.chmod(manifest_path, 0o600)
+    manifest_sha, manifest_size = sha256_file(manifest_path)
+    return manifest, manifest_sha, manifest_size, total
+
+
+def copy_hour(source_root: Path, node1_root: Path, environment: str, hour: dt.datetime) -> dict:
+    source_files = _hour_sources(source_root, hour)
 
     target = node1_root / "qa-raw" / environment / hour.strftime(HOUR)
     receipt = receipt_path(node1_root, environment, hour)
@@ -251,11 +409,28 @@ def run(args: argparse.Namespace) -> int:
     if args.before:
         before = dt.datetime.fromisoformat(args.before.replace("Z", "+00:00"))
     selected = hours_to_copy(source, hour_start(before))
+
+    # node1_root is the receipt root in both modes. In remote mode the payload
+    # goes to node1 over SSH while receipts stay local, because the cleanup
+    # gate reads them and must not depend on node1 being reachable.
+    remote = None
+    if args.remote_target:
+        remote = {"key": Path(args.remote_key), "jump": args.remote_jump,
+                  "target": args.remote_target, "remote_root": args.remote_root,
+                  "rate_kbps": args.rate_kbps, "timeout": args.push_timeout}
+        if not remote["key"].is_file():
+            raise ValueError(f"node1 ssh key is missing: {remote['key']}")
+
     result = {"schema_version": SCHEMA, "ok": True, "environment": args.environment,
+              "transport": "ssh-tar" if remote else "local-copy",
               "selected_hours": [h.isoformat() for h in selected], "completed": [], "failed": []}
     for hour in selected:
         try:
-            result["completed"].append(copy_hour(source, node1, args.environment, hour))
+            if remote:
+                result["completed"].append(
+                    push_hour(source, node1, args.environment, hour, remote))
+            else:
+                result["completed"].append(copy_hour(source, node1, args.environment, hour))
         except Exception as exc:
             result["failed"].append({"window_start": hour.isoformat(), "error": str(exc)})
     result["ok"] = not result["failed"]
@@ -271,6 +446,16 @@ def main() -> int:
     parser.add_argument("--node1-root", required=True)
     parser.add_argument("--environment", choices=("prod", "cn-prod"), required=True)
     parser.add_argument("--before")
+    parser.add_argument("--remote-target", default="",
+                        help="node1 ssh destination, e.g. root@10.10.2.11. Without it "
+                             "the archive is a local copy into --node1-root.")
+    parser.add_argument("--remote-jump", default=node1_remote.DEFAULT_JUMP,
+                        help="jump host; the cloud security group only allows 22/443/8080")
+    parser.add_argument("--remote-key", default=str(node1_remote.DEFAULT_KEY))
+    parser.add_argument("--remote-root", default=node1_remote.DEFAULT_REMOTE_ROOT)
+    parser.add_argument("--rate-kbps", type=int, default=node1_remote.DEFAULT_RATE_KBPS,
+                        help="stream rate cap in KiB/s; 0 disables (needs pv installed)")
+    parser.add_argument("--push-timeout", type=int, default=1800)
     return run(parser.parse_args())
 
 
