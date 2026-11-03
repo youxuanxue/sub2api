@@ -110,7 +110,12 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	}
 	// Capacity shedding describes this request, not account health. Keep the
 	// account schedulable while the request-local retry budget handles recovery.
+	// A parseable Retry-After cools only this account+model pair; it does not
+	// sleep the request or bench the account's other models.
 	if account != nil && account.Platform == PlatformOpenAI && !account.IsTempUnschedulableEnabled() && isOpenAIRequestScopedCapacityShed("", responseBody) {
+		if s != nil {
+			s.tkApplyOpenAICapacityRetryAfterModelCooldown(ctx, account, statusCode, headers, responseBody, "", canonicalModel...)
+		}
 		return false
 	}
 	stateCtx, cancel := openAIAccountStateContext(ctx)
@@ -167,6 +172,12 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if s.rateLimitService != nil && statusCode != http.StatusUnauthorized && len(canonicalModel) > 0 && strings.TrimSpace(canonicalModel[0]) != "" &&
 		s.rateLimitService.HandleTempUnschedulable(stateCtx, account, statusCode, responseBody, canonicalModel[0]) {
 		return true
+	}
+	// 529 with Retry-After is model pressure. The matched temp-unsched rule
+	// above already wrote its own model cooldown; otherwise record the capped
+	// account+model window and skip handle529's account-wide overload.
+	if statusCode == 529 && s.tkApplyOpenAICapacityRetryAfterModelCooldown(stateCtx, account, statusCode, headers, responseBody, "", canonicalModel...) {
+		return false
 	}
 	// Upstream access-state (workspace deactivated / account unavailable) is a
 	// last-resort permanent disable. Custom temp-unsched rules must win first so
