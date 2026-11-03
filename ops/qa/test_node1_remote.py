@@ -881,3 +881,74 @@ class ReceiptReadabilityTest(unittest.TestCase):
             self.archive.ensure_readable_tree(receipts)
             self.assertEqual(secret.stat().st_mode & 0o777, 0o600,
                              "only receipts are widened, never other files")
+
+
+class ManifestProbeRetryTest(unittest.TestCase):
+    """A jump-host reset must not turn a good hour into a failed one.
+
+    cn-prod's archive reported 23 completed / 1 failed on 2026-11-03 solely
+    because one manifest probe hit "kex_exchange_identification: read:
+    Connection reset by peer". That also made the whole unit exit 2, so the
+    newly-added qa-archive monitor immediately flagged it as failed.
+    """
+
+    def setUp(self) -> None:
+        self.remote = _load("node1_remote")
+
+    def _results(self, *sequence):
+        made = []
+        for code, out in sequence:
+            made.append(type("R", (), {"stdout": out, "stderr": "", "returncode": code})())
+        return made
+
+    def test_a_transient_reset_is_retried_and_succeeds(self) -> None:
+        digest = "a" * 64
+        attempts = self._results((255, ""), (0, digest + "\n"))
+        with mock.patch.object(self.remote.subprocess, "run", side_effect=attempts), \
+             mock.patch.object(self.remote.time, "sleep"):
+            self.assertEqual(
+                self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d"), digest)
+
+    def test_a_persistent_failure_still_raises_after_retries(self) -> None:
+        attempts = self._results((255, ""), (255, ""), (255, ""))
+        with mock.patch.object(self.remote.subprocess, "run", side_effect=attempts), \
+             mock.patch.object(self.remote.time, "sleep"):
+            with self.assertRaises(self.remote.RemoteError) as caught:
+                self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d")
+        self.assertIn("after 3 attempts", str(caught.exception))
+
+    def test_a_first_attempt_success_makes_no_further_calls(self) -> None:
+        digest = "b" * 64
+        calls = []
+
+        def once(*args, **kwargs):
+            calls.append(1)
+            return type("R", (), {"stdout": digest + "\n", "stderr": "", "returncode": 0})()
+
+        with mock.patch.object(self.remote.subprocess, "run", side_effect=once), \
+             mock.patch.object(self.remote.time, "sleep"):
+            self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d")
+        self.assertEqual(len(calls), 1, "a healthy probe must not retry")
+
+    def test_retries_back_off_rather_than_hammering(self) -> None:
+        slept = []
+        attempts = self._results((255, ""), (255, ""), (0, "c" * 64 + "\n"))
+        with mock.patch.object(self.remote.subprocess, "run", side_effect=attempts), \
+             mock.patch.object(self.remote.time, "sleep", side_effect=slept.append):
+            self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d")
+        self.assertEqual(slept, [2, 4], "backoff must grow between attempts")
+
+    def test_an_absent_manifest_is_not_retried_as_a_failure(self) -> None:
+        # ABSENT is a successful answer meaning "node1 does not have it", not
+        # a transport error; retrying it would triple every re-push decision.
+        calls = []
+
+        def absent(*args, **kwargs):
+            calls.append(1)
+            return type("R", (), {"stdout": "ABSENT\n", "stderr": "", "returncode": 0})()
+
+        with mock.patch.object(self.remote.subprocess, "run", side_effect=absent), \
+             mock.patch.object(self.remote.time, "sleep"):
+            self.assertEqual(
+                self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d"), "")
+        self.assertEqual(len(calls), 1)

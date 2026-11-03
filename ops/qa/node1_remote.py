@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import shlex
 import subprocess
+import time
 from pathlib import Path
 
 # Both production hosts reach node1 through a jump host on the WireGuard
@@ -153,10 +154,22 @@ def remote_manifest_digest(key: Path, jump: str, target: str, remote_dir: str) -
         f'fi\n'
     )
     command = ssh_command(key, jump, target) + ["sh", "-s"]
-    result = subprocess.run(command, input=script, capture_output=True,
-                            text=True, check=False, timeout=120)
+    # The jump host resets a connection now and then. A probe that gives up on
+    # the first reset turns a transient handshake failure into a failed hour:
+    # cn-prod reported 23 completed and 1 failed on 2026-11-03 purely because
+    # of "kex_exchange_identification: read: Connection reset by peer", which
+    # also made the whole unit exit non-zero. Retry before deciding.
+    attempts = 3
+    result = None
+    for attempt in range(attempts):
+        result = subprocess.run(command, input=script, capture_output=True,
+                                text=True, check=False, timeout=120)
+        if result.returncode == 0:
+            break
+        if attempt + 1 < attempts:
+            time.sleep(2 * (attempt + 1))
     if result.returncode != 0:
-        raise RemoteError(f"node1 manifest probe failed: "
+        raise RemoteError(f"node1 manifest probe failed after {attempts} attempts: "
                           f"{(result.stderr or result.stdout).strip()[:300]}")
     answer = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
     if answer == "ABSENT":
