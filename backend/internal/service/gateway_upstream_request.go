@@ -888,21 +888,6 @@ func (s *GatewayService) applyUpstreamAnthropicFastSpeed(ctx context.Context, c 
 	return applyAnthropicFastSpeedPolicy(body, s.upstreamBetaPolicy(ctx, c, account, model).stripAnthropicFastSpeed)
 }
 
-// getBetaPolicyFilterSet returns the beta policy filter set, using the gin context cache if available.
-// In the /v1/messages path, Forward() evaluates the policy first and caches the result;
-// buildUpstreamRequest reuses it (zero extra DB calls). In the count_tokens path, this
-// evaluates on demand (one DB call).
-func (s *GatewayService) getBetaPolicyFilterSet(ctx context.Context, c *gin.Context, account *Account, model string) map[string]struct{} {
-	if c != nil {
-		if v, ok := c.Get(betaPolicyFilterSetKey); ok {
-			if fs, ok := v.(map[string]struct{}); ok {
-				return fs
-			}
-		}
-	}
-	return s.evaluateBetaPolicy(ctx, "", account, model).filterSet
-}
-
 // betaPolicyScopeMatches checks whether a rule's scope matches the current account type.
 func betaPolicyScopeMatches(scope string, isOAuth bool, isBedrock bool) bool {
 	switch scope {
