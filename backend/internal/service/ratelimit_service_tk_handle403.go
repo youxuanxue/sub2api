@@ -43,6 +43,9 @@ func (s *RateLimitService) tkHandleNonOpenAI403(
 		s.recordAnthropicStubSaturation(ctx, account.ID, http.StatusForbidden, "permission_failover")
 		return true
 	}
+	if handled, allowFailover := s.tryGoogleGeneric403RequestScope(ctx, account, responseBody); handled {
+		return allowFailover
+	}
 	// 非 Antigravity 平台：保持原有行为
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
