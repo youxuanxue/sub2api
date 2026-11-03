@@ -473,6 +473,31 @@ class ArchiveTimerWiringTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.host.unit_files("/b", "archive", "staging", self.remote)
 
+    def test_install_units_actually_runs_with_remote(self) -> None:
+        # Source-level assertions missed a NameError: `remote` was built in
+        # install() but referenced inside install_units(), which has its own
+        # scope. The installer failed on the live host at the moment it tried
+        # to write units. Execute the path instead of reading it.
+        host = _load("local_maintenance_host")
+        import inspect
+        signature = inspect.signature(host.install_units)
+        self.assertIn("remote", signature.parameters,
+                      "install_units must accept remote, not close over it")
+        captured = {}
+
+        def fake_unit_files(bundle, phase, environment="prod", remote=None):
+            captured[phase] = remote
+            return {f"tokenkey-qa-{phase}.service": "x", f"tokenkey-qa-{phase}.timer": "y"}
+
+        with mock.patch.object(host, "unit_files", side_effect=fake_unit_files), \
+             mock.patch.object(host.Path, "mkdir", lambda *a, **k: None), \
+             self.assertRaises(Exception):
+            # Writing real units needs root; the call must at least get past
+            # the dict comprehension that previously raised NameError.
+            host.install_units("/b", ["archive"], "cn-prod", self.remote)
+        self.assertEqual(captured.get("archive"), self.remote,
+                         "remote must reach unit_files through install_units")
+
     def test_install_passes_remote_through_to_unit_files(self) -> None:
         # Asserting on unit_files alone leaves a gap: install() could simply
         # stop forwarding `remote` and every other test here would still pass,
@@ -553,3 +578,56 @@ class ArchiveEnvironmentTest(unittest.TestCase):
         self.assertLess(body.index("resolve_environment(manifest, args)"),
                         body.index("if not args.apply:"),
                         "the environment must be resolved before the plan return")
+
+
+class BundleCompletenessTest(unittest.TestCase):
+    """A bundle missing a module fails at the first timer run, not at install."""
+
+    def setUp(self) -> None:
+        self.host = _load("local_maintenance_host")
+        self.source = (HERE / "local_maintenance_host.py").read_text()
+
+    def test_every_module_archive_imports_is_bundled(self) -> None:
+        # node1_archive imports node1_remote at module scope. The first live
+        # install shipped without it and the service died with
+        # ModuleNotFoundError: No module named 'node1_remote'.
+        import ast
+        archive_source = (HERE / "node1_archive.py").read_text()
+        imported = set()
+        for node in ast.walk(ast.parse(archive_source)):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+        local_imports = {name for name in imported if (HERE / f"{name}.py").is_file()}
+        self.assertIn("node1_remote", local_imports,
+                      "fixture assumption: archive imports the transport")
+        for name in local_imports:
+            with self.subTest(module=name):
+                self.assertIn(f"staged/'{name}.py'", self.source,
+                              f"{name}.py must be copied into the bundle")
+
+    def test_transport_is_part_of_the_bundle_digest(self) -> None:
+        # Otherwise editing the transport alone would reuse a stale bundle.
+        self.assertIn("ARCHIVE_TRANSPORT.read_bytes()", self.source)
+        material = self.source[self.source.index("bundle_material = "):
+                               self.source.index("bundle_digest = ")]
+        self.assertIn("ARCHIVE_TRANSPORT", material,
+                      "the transport must contribute to the bundle digest")
+
+    def test_a_stale_bundle_missing_the_transport_is_rebuilt(self) -> None:
+        # Otherwise a bundle built before the transport existed is reused, and
+        # the timer keeps failing with ModuleNotFoundError. Parse the
+        # assignments rather than slicing source text, which matched the string
+        # elsewhere in the file and passed even with the check deleted.
+        import ast
+        assignments = [
+            node for node in ast.walk(ast.parse(self.source))
+            if isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "bundle_mismatch"
+                    for t in node.targets)
+        ]
+        self.assertTrue(assignments, "expected bundle_mismatch assignments")
+        checked = " ".join(ast.unparse(node.value) for node in assignments)
+        self.assertIn("node1_remote.py", checked,
+                      "an existing bundle without the transport must count as a mismatch")

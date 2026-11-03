@@ -29,6 +29,7 @@ PHASES = {
 ARCHIVE_PHASE = 'archive'
 ARCHIVE_SCRIPT = Path(__file__).with_name('node1_archive.py')
 ARCHIVE_POLICY = Path(__file__).resolve().parents[1] / 'backup' / 'node1_storage_policy.py'
+ARCHIVE_TRANSPORT = Path(__file__).with_name('node1_remote.py')
 # Layout-exception hosts may rename the Postgres container; DNS alias
 # tokenkey-postgres on tokenkey_tokenkey-network keeps PGHOST stable.
 POSTGRES_RUNTIME_CANDIDATES = ('tokenkey-postgres', 'tk-archive-standby')
@@ -345,7 +346,8 @@ def install(args):
         return
     bundle_material = [Path(__file__).read_bytes(), digest.encode()]
     if args.include_node1_archive:
-        bundle_material.extend((ARCHIVE_SCRIPT.read_bytes(), ARCHIVE_POLICY.read_bytes()))
+        bundle_material.extend((ARCHIVE_SCRIPT.read_bytes(), ARCHIVE_POLICY.read_bytes(),
+                                ARCHIVE_TRANSPORT.read_bytes()))
     bundle_digest = hashlib.sha256(b''.join(bundle_material)).hexdigest()[:16]
     bundle = BASE/bundle_digest
 
@@ -372,6 +374,8 @@ def install(args):
             bundle_mismatch = bundle_mismatch or not (
                 (bundle/'backup'/'node1_storage_policy.py').is_file()
                 and (bundle/'backup'/'node1_storage_policy.py').read_bytes() == ARCHIVE_POLICY.read_bytes()
+                and (bundle/'node1_remote.py').is_file()
+                and (bundle/'node1_remote.py').read_bytes() == ARCHIVE_TRANSPORT.read_bytes()
             )
         if bundle_mismatch:
             raise ValueError('installed immutable bundle mismatch')
@@ -383,6 +387,7 @@ def install(args):
             (staged/'qa-local-maintenance').chmod(0o755)
             shutil.copy2(__file__, staged/'local_maintenance_host.py')
             shutil.copy2(ARCHIVE_SCRIPT, staged/'node1_archive.py')
+            shutil.copy2(ARCHIVE_TRANSPORT, staged/'node1_remote.py')
             if args.include_node1_archive:
                 (staged/'backup').mkdir()
                 shutil.copy2(ARCHIVE_POLICY, staged/'backup'/'node1_storage_policy.py')
@@ -391,10 +396,10 @@ def install(args):
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
     with open(STATE/'install.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        install_units(bundle, phases, environment)
+        install_units(bundle, phases, environment, remote)
 
 
-def install_units(bundle, phases, environment='prod'):
+def install_units(bundle, phases, environment='prod', remote=None):
     backup = Path('/var/backups/tokenkey-qa-local')/dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     backup.mkdir(parents=True, mode=0o700)
     files = {name: content for phase in phases
