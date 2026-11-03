@@ -1316,6 +1316,11 @@ var openAIStreamErrorStatusPaths = []string{
 }
 
 func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
+	// Explicit billing codes win over nested status and message text. A 429
+	// rate_limit_exceeded whose prose mentions these words must stay 429.
+	if openAIStreamExplicitCreditExhausted(payload) {
+		return http.StatusPaymentRequired
+	}
 	if isOpenAIContextWindowError(message, payload) {
 		return http.StatusBadRequest
 	}
@@ -1358,7 +1363,7 @@ func openAIStreamFailureStatus(payload []byte, message string) int {
 	}
 	semanticStatus := openAIStreamFailedEventSemanticStatus(payload, message)
 	switch semanticStatus {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, 529:
+	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusTooManyRequests, 529:
 		return semanticStatus
 	case http.StatusServiceUnavailable:
 		if isOpenAIUpstreamCapacityShedEvent(payload) {
@@ -1495,6 +1500,10 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 		}
 		s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, "stream_capacity")
 		return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)
+	case http.StatusPaymentRequired:
+		// Prepaid credit death is not a 429 window. API-key accounts are
+		// unschedulable; OAuth and setup-token windows are left alone.
+		return statusCode, s.applyOpenAIStreamCreditExhaustedSideEffects(c, account, payload)
 	case http.StatusForbidden:
 		if !openAIStream403AccountFailure(payload, message) {
 			return statusCode, false
@@ -1641,6 +1650,10 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverErrorWithModel(
 		},
 	})
 	retryableOnSameAccount := openAIStreamFailedEventRetryableOnSameAccount(account, payload, message)
+	if openAIStreamExplicitCreditExhausted(payload) {
+		// The same prepaid-dead credential cannot serve a retry of this request.
+		retryableOnSameAccount = false
+	}
 	// 流终止事件承载在 HTTP 200 内，外层响应头描述的是成功流状态，而不是语义上的
 	// 429 事件。仅在配额分类时忽略这些头；故障转移错误仍保留它们，使 Retry-After
 	// 和请求 ID 能继续传递给后续处理。
@@ -1657,6 +1670,10 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverErrorWithModel(
 	if shouldDisable && statusCode == http.StatusServiceUnavailable {
 		// An explicit operator rule has cooled this model; retrying the same
 		// account would immediately reuse the supply that the rule excluded.
+		failoverErr.RetryableOnSameAccount = false
+		failoverErr.RequestScopedTransient = false
+	}
+	if openAIStreamExplicitCreditExhausted(payload) {
 		failoverErr.RetryableOnSameAccount = false
 		failoverErr.RequestScopedTransient = false
 	}
