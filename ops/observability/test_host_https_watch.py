@@ -504,3 +504,33 @@ class QaArchiveCoverageTest(unittest.TestCase):
         config = watch.build_config('cn-prod', bad['instance_name'], self.prod_matrix, bad)
         jobs = config['jobs']
         self.assertTrue(any(name not in watch.JOB_LIMITS for name in jobs))
+
+
+class CnProdPostgresCoverageTest(unittest.TestCase):
+    """cn-prod's own pgBackRest backup/archive-check/recovery ran unmonitored
+    even with archive_check.json present, because the auto-discovery in
+    main() gated on node == "prod" only. Found 2026-11-03.
+    """
+
+    def test_cn_prod_units_carry_their_own_cn_prefixed_names(self):
+        # The units really are named tokenkey-cn-postgres-backup on cn-prod,
+        # confirmed live 2026-11-03 -- not tokenkey-postgres-backup, which
+        # would silently probe a unit that does not exist there.
+        self.assertIn('tokenkey-cn-postgres-backup', watch.JOB_LIMITS)
+        self.assertIn('tokenkey-cn-postgres-archive-check', watch.JOB_LIMITS)
+
+    def test_recovery_evidence_file_is_shared_not_duplicated(self):
+        # tokenkey-postgres-recovery reads a local file, not a systemd unit,
+        # so cn-prod uses the same job name as prod rather than a cn- copy
+        # that would need its own JOB_LIMITS entry for no reason.
+        self.assertNotIn('tokenkey-cn-postgres-recovery', watch.JOB_LIMITS)
+
+    def test_auto_discovery_covers_cn_prod_when_archive_check_exists(self):
+        source = (pathlib.Path(__file__).resolve().parent / 'host_https_watch.py').read_text()
+        main_body = source[source.index('def main('):]
+        self.assertIn('node_role == "cn-prod"', main_body)
+        self.assertIn('tokenkey-cn-postgres-backup', main_body)
+        self.assertIn('tokenkey-postgres-recovery', main_body)
+        # And it must still be gated on the evidence file existing, not
+        # unconditional for every host.
+        self.assertIn('archive_check.json', main_body)

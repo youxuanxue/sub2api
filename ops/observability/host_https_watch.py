@@ -94,6 +94,13 @@ JOB_LIMITS = {
     "tokenkey-postgres-backup": (3 * 3600, 3670),
     "tokenkey-postgres-archive-check": (15 * 60, 300),
     "tokenkey-postgres-recovery": (15 * 60, 300),
+    # cn-prod's own units carry a cn- infix (tokenkey-cn-postgres-backup, not
+    # tokenkey-postgres-backup) because both hosts' unit namespaces coexist on
+    # anyone inspecting cn-prod directly. tokenkey-postgres-recovery has no
+    # such unit on either host -- probe_job reads a local evidence file
+    # instead -- so the same name is shared rather than duplicated.
+    "tokenkey-cn-postgres-backup": (3 * 3600, 3670),
+    "tokenkey-cn-postgres-archive-check": (15 * 60, 300),
     "tokenkey-disk-metrics": (15 * 60, 60),
     "tokenkey-ghcr-prune-daily": (30 * 3600, 15 * 60),
     "tokenkey-qa-maintenance": (2 * 3600, 40 * 60 + 60),
@@ -245,12 +252,19 @@ def main() -> None:
     config = json.loads(args.config.read_text())
     targets = config["targets"]
     jobs = list(config.get("jobs", []))
-    # Stage0 installer writes enabled.json; Tencent cutover activates via archive_check.json.
+    # Stage0 installer writes enabled.json; Tencent cutover activates via
+    # archive_check.json. This used to gate on node == "prod" only, so
+    # cn-prod's own pgBackRest backup/archive-check/recovery ran unmonitored
+    # even though archive_check.json existed there too -- found 2026-11-03.
     backup_state = Path("/var/lib/tokenkey/postgres-backup")
-    if config.get("node") == "prod" and (
-            (backup_state / "enabled.json").exists()
-            or (backup_state / "archive_check.json").exists()):
-        jobs += ["tokenkey-postgres-backup", "tokenkey-postgres-archive-check", "tokenkey-postgres-recovery"]
+    if (backup_state / "enabled.json").exists() or (backup_state / "archive_check.json").exists():
+        node_role = config.get("node")
+        if node_role == "prod":
+            jobs += ["tokenkey-postgres-backup", "tokenkey-postgres-archive-check",
+                     "tokenkey-postgres-recovery"]
+        elif node_role == "cn-prod":
+            jobs += ["tokenkey-cn-postgres-backup", "tokenkey-cn-postgres-archive-check",
+                     "tokenkey-postgres-recovery"]
     paused = config.get("paused_jobs", {})
     if not isinstance(jobs, list) or any(name not in JOB_LIMITS for name in jobs):
         raise ValueError("unknown host job")
