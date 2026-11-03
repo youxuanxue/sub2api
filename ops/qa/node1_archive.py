@@ -188,14 +188,31 @@ def push_hour(source_root: Path, receipt_root: Path, environment: str,
     receipt = receipt_path(receipt_root, environment, hour)
     remote_dir = f"{remote['remote_root'].rstrip('/')}/qa-raw/{environment}/{hour.strftime(HOUR)}"
 
+    repush_reason = ""
     if receipt.exists():
         try:
             existing = json.loads(receipt.read_text(encoding="utf-8"))
-            if existing.get("schema_version") == SCHEMA and existing.get("ok") is True:
-                return existing | {"already_completed": True}
+            valid = (existing.get("schema_version") == SCHEMA
+                     and existing.get("ok") is True)
         except (OSError, ValueError, json.JSONDecodeError):
-            pass
-        raise ValueError(f"existing node1 receipt is invalid: {receipt}")
+            existing, valid = None, False
+        if not valid:
+            raise ValueError(f"existing node1 receipt is invalid: {receipt}")
+        # A receipt is a local claim; node1 holding the manifest is the
+        # evidence. An earlier local-copy run wrote valid-looking receipts for
+        # hours that never reached node1, which made this path skip them as
+        # done while the cleanup gate blocked them forever. Read the digest
+        # back and re-push when it does not match.
+        remote_digest = node1_remote.remote_manifest_digest(
+            remote["key"], remote["jump"], remote["target"], remote_dir)
+        if remote_digest and remote_digest == existing.get("manifest_sha256"):
+            return existing | {"already_completed": True}
+        reason = ("node1 holds no manifest for this hour" if not remote_digest
+                  else "node1 manifest digest does not match the local receipt")
+        # Re-push below. The receipt is rewritten only after the new push
+        # verifies, so a failure here leaves the gate blocking exactly as it
+        # did before.
+        repush_reason = reason
 
     required_bytes = sum(path.stat().st_size for _, path in source_files)
     capacity = node1_remote.remote_capacity(
@@ -239,6 +256,8 @@ def push_hour(source_root: Path, receipt_root: Path, environment: str,
                   "transport": "ssh-tar", "remote_dir": remote_dir,
                   "remote_already_present": bool(summary.get("already_present")),
                   "completed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+        if repush_reason:
+            result["repushed_because"] = repush_reason
         atomic_json(receipt, result)
         return result
     finally:
