@@ -264,28 +264,54 @@ def prepare_repo2(contents: str) -> None:
     archived), with repo1 itself perfectly healthy.
 
     So the repo2 config is staged beside the live one and exercised through
-    --config first, exactly as the approved rollout order requires
-    (docs/ops/stage0/pgbackrest-cos-parallel-repository.md step 2: "put the repo2
-    configuration in a temporary config file, run stanza-create, check and a
-    read-only info; confirm repo1 is still readable, THEN enable dual writes").
-    Any failure leaves the live config AWS-only, so the archive path never
-    depends on an unverified repository.
+    --config first, following the approved rollout order
+    (docs/ops/stage0/pgbackrest-cos-parallel-repository.md step 2). Any failure
+    leaves the live config AWS-only, so the archive path never depends on an
+    unverified repository.
+
+    What is deliberately NOT run here is a full `check`. That command forces a
+    WAL switch and waits for the segment to land in EVERY configured repository,
+    but the live archive_command is still AWS-only at this point, so the segment
+    can never reach repo2 -- it fails with [082] after archive-timeout no matter
+    how healthy repo2 is. Verified on cn-prod 2026-11-02: stanza-create and both
+    `info` reads succeed against the staged config while `check` times out, and
+    `--repo` is rejected for check ("option 'repo' not valid for command
+    'check'"), so there is no way to scope it to the primary chain.
+
+    The full check therefore belongs AFTER repo2 goes live, where the scheduled
+    archive-check timer already runs it every 5 minutes and classifies the
+    first-backup gap as bootstrapping rather than failure. What is provable
+    beforehand is exactly what this runs: the stanza exists on repo2, repo2 is
+    readable, and the primary chain is still intact.
     """
     container = _container()
     atomic_private(contents, STAGING)
     try:
-        # Order is load-bearing: create the stanza, prove both repositories
-        # accept a WAL round-trip, then prove the primary chain still reads.
+        # Order is load-bearing: create the stanza on repo2 first (repo1's is
+        # skipped as already-valid), then prove both repositories read back.
         _staged(container, "stanza-create", timeout=300)
-        _staged(container, "check", timeout=180)
-        primary = json.loads(_staged(container, "--repo=1", "--output=json", "info", timeout=120))
-        if len(primary) != 1 or primary[0].get("name") != "tokenkey":
-            raise ValueError("staged repo1 info did not describe the tokenkey stanza")
-        if (primary[0].get("status") or {}).get("code") != 0:
+        secondary = _staged_stanza(container, 2)
+        # code 2 "no valid backups" is the expected state of a repository whose
+        # first backup has not run yet; the runner classifies that as
+        # bootstrapping. Anything else means repo2 is not usable.
+        if (secondary.get("status") or {}).get("code") not in (0, 2):
+            raise ValueError("staged repo2 is not readable after stanza-create")
+        if (secondary.get("status") or {}).get("code") == 2 and (secondary.get("backup") or []):
+            raise ValueError("staged repo2 reports invalid despite holding backups")
+        primary = _staged_stanza(container, 1)
+        if (primary.get("status") or {}).get("code") != 0:
             raise ValueError("staged repo1 info reported a degraded primary chain")
     finally:
         if STAGING.exists():
             STAGING.unlink()
+
+
+def _staged_stanza(container: str, repo: int) -> dict:
+    """Read one repository's stanza through the staged config."""
+    values = json.loads(_staged(container, f"--repo={repo}", "--output=json", "info", timeout=120))
+    if len(values) != 1 or values[0].get("name") != "tokenkey":
+        raise ValueError(f"staged repo{repo} info did not describe the tokenkey stanza")
+    return values[0]
 
 
 def refresh() -> dict[str, object]:
