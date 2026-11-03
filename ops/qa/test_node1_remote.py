@@ -810,3 +810,74 @@ class RemoteManifestDigestTest(unittest.TestCase):
         for mutating in ("rm ", "mv ", "tar -x", "mkdir", "touch", ">>", "> "):
             with self.subTest(op=mutating):
                 self.assertNotIn(mutating, script)
+
+
+class ReceiptReadabilityTest(unittest.TestCase):
+    """The gate runs as uid 1000 in a container; a 0600 root receipt is invisible.
+
+    On prod the gate reported "permission denied" for every hour it checked --
+    all 44 receipts were mode 600 owned by root, written by the root archive
+    process, while the cleanup container runs --user 1000:1000 with the tree
+    mounted read-only. The gate had never actually read a receipt; it was
+    blocking on the manifest check alone.
+    """
+
+    def setUp(self) -> None:
+        self.archive = _load("node1_archive")
+
+    def test_a_new_receipt_is_group_and_other_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            target = pathlib.Path(root) / "prod" / "2026" / "11" / "02" / "07.json"
+            self.archive.atomic_json(target, {"ok": True})
+            mode = target.stat().st_mode & 0o777
+            self.assertTrue(mode & 0o044, f"receipt mode {oct(mode)} is unreadable to the gate")
+
+    def test_receipt_directories_are_traversable(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            target = pathlib.Path(root) / "prod" / "2026" / "11" / "02" / "07.json"
+            self.archive.atomic_json(target, {"ok": True})
+            for parent in (target.parent, target.parent.parent):
+                mode = parent.stat().st_mode & 0o777
+                self.assertTrue(mode & 0o055,
+                                f"{parent} mode {oct(mode)} blocks traversal")
+
+    def test_existing_unreadable_receipts_are_repaired(self) -> None:
+        # The 44 receipts already on disk were written before this fix.
+        with tempfile.TemporaryDirectory() as root:
+            receipts = pathlib.Path(root) / "receipts"
+            old = receipts / "prod" / "2026" / "11" / "02" / "07.json"
+            old.parent.mkdir(parents=True)
+            old.write_text('{"ok": true}')
+            old.chmod(0o600)
+            old.parent.chmod(0o700)
+            self.archive.ensure_readable_tree(receipts)
+            self.assertTrue(old.stat().st_mode & 0o044,
+                            "an existing receipt must be made readable")
+            self.assertTrue(old.parent.stat().st_mode & 0o055,
+                            "an existing directory must be made traversable")
+
+    def test_the_repair_runs_at_the_end_of_every_archive_run(self) -> None:
+        # Calling ensure_readable_tree in a test proves the function works, not
+        # that anything invokes it. Without this, deleting the call from main()
+        # left the suite green while the 44 existing receipts stayed invisible.
+        import ast
+        source = (HERE / "node1_archive.py").read_text()
+        # main() only parses arguments; run() holds the archive flow.
+        run = next(node for node in ast.walk(ast.parse(source))
+                   if isinstance(node, ast.FunctionDef) and node.name == "run")
+        body = ast.unparse(run)
+        self.assertIn("ensure_readable_tree", body,
+                      "run() must repair receipt permissions after each archive pass")
+        self.assertLess(body.index("atomic_json(node1"), body.index("ensure_readable_tree"),
+                        "repair must follow the last receipt write")
+
+    def test_repair_leaves_non_json_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            receipts = pathlib.Path(root) / "receipts"
+            receipts.mkdir()
+            secret = receipts / "key.pem"
+            secret.write_text("x")
+            secret.chmod(0o600)
+            self.archive.ensure_readable_tree(receipts)
+            self.assertEqual(secret.stat().st_mode & 0o777, 0o600,
+                             "only receipts are widened, never other files")

@@ -45,7 +45,18 @@ SCHEMA = "qa-node1-hour-v1"
 
 
 def atomic_json(path: Path, value: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    """Write one receipt atomically, readable by the cleanup container.
+
+    The receipt exists so the cleanup phase can decide whether an hour may be
+    deleted, and that phase runs as --user 1000:1000 inside a container with
+    this tree bind-mounted read-only. mkstemp defaults to 0600 owned by the
+    root process that writes it, so every receipt was unreadable to the only
+    reader that matters: the gate reported "permission denied" for each hour
+    and fell back to blocking on the manifest check. Receipts carry no secret
+    -- an hour window, a file count and a digest -- so they are world-readable
+    and the parent directories traversable.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
     fd, name = tempfile.mkstemp(prefix="." + path.name + ".", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -53,6 +64,7 @@ def atomic_json(path: Path, value: dict) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
+        os.chmod(name, 0o644)
         os.replace(name, path)
         directory = os.open(path.parent, os.O_DIRECTORY)
         try:
@@ -103,6 +115,35 @@ def hours_to_copy(source_root: Path, before: dt.datetime) -> list[dt.datetime]:
                 if value + dt.timedelta(hours=1) <= before:
                     found.add(value)
     return sorted(found)
+
+
+def ensure_readable_tree(root: Path) -> None:
+    """Make the receipt tree traversable and its receipts readable.
+
+    The cleanup container runs as --user 1000:1000 with this tree mounted
+    read-only, so a root-owned 0700 directory or 0600 receipt is invisible to
+    the gate that must read it -- it reported "permission denied" for every
+    hour. Receipts hold an hour window, a file count and a digest; nothing
+    secret.
+    """
+    if not root.is_dir():
+        return
+    for current, directories, files in os.walk(root):
+        here = Path(current)
+        try:
+            if (here.stat().st_mode & 0o055) != 0o055:
+                here.chmod(here.stat().st_mode | 0o055)
+        except OSError:
+            continue
+        for name in files:
+            if not name.endswith(".json"):
+                continue
+            target = here / name
+            try:
+                if (target.stat().st_mode & 0o044) != 0o044:
+                    target.chmod(target.stat().st_mode | 0o044)
+            except OSError:
+                continue
 
 
 def receipt_path(root: Path, environment: str, hour: dt.datetime) -> Path:
@@ -454,6 +495,9 @@ def run(args: argparse.Namespace) -> int:
             result["failed"].append({"window_start": hour.isoformat(), "error": str(exc)})
     result["ok"] = not result["failed"]
     atomic_json(node1 / "receipts" / args.environment / "last-run.json", result)
+    # Receipts written by earlier runs (and by this one) must be readable by
+    # the cleanup container; a root-owned 0600 file leaves the gate blind.
+    ensure_readable_tree(node1 / "receipts")
     print(json.dumps(result, sort_keys=True))
     return 0 if result["ok"] else 2
 
