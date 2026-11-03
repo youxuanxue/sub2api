@@ -105,6 +105,12 @@ JOB_LIMITS = {
     # multi-GiB hour took 18.6 minutes on prod 2026-11-03; the unit's own
     # TimeoutStartSec=1800 caps a stuck run, so normal execution tracks that.
     "tokenkey-qa-archive": (9 * 3600, 1800),
+    # Runs on node1 itself (ops/backup/install_node1_db_mirror.py SCHEDULE is
+    # the same 4-hour cadence), monitored by node1_alert.py rather than this
+    # watcher -- node1 is not one of the two hosts this script runs on. Kept
+    # in the same limits table so both alert paths agree on what "healthy"
+    # means for a job name, instead of drifting into two definitions.
+    "tokenkey-node1-db-mirror": (9 * 3600, 5400),
 }
 
 
