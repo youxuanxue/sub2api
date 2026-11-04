@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +39,7 @@ func TestAntigravityMalformedFunctionCallNonStreaming(t *testing.T) {
 					// Claude Messages native non-stream path (not just Chat/Responses compat).
 					_, err = svc.handleClaudeStreamToNonStreaming(c, resp, time.Now(), "test-model")
 				default:
-					_, err = svc.handleResponsesNonStreamingFromAntigravity(c, resp, time.Now(), "test-model")
+					_, err = svc.handleResponsesNonStreamingFromAntigravity(c, resp, time.Now(), "test-model", apicompat.ResponsesClientToolMapping{})
 				}
 				require.Equal(t, tc.status, recorder.Code)
 				if tc.status == http.StatusBadGateway {

@@ -18582,6 +18582,36 @@
       "rationale": "Advisory backstop for upstream 400s that the standing-billing SSOT phrase list misses (prod 2026-11-02 Volc AgentPlan expiry: ~8.5k identical 400s, 0 alerts). Alert-only by design: 400 must never auto-penalise an account (#617)."
     },
     {
+      "path": "backend/internal/service/antigravity_gateway_compat.go",
+      "must_contain": [
+        "adaptedBody, clientToolMapping, err := adaptResponsesClientToolsForAnthropic(body)",
+        "originalBody stays the client bytes for billing",
+        "if !hasResponsesClientToolMapping(clientToolMapping) {"
+      ],
+      "rationale": "Antigravity Responses lowers custom/freeform tools through the existing adapter, keeps the client body for billing, and skips restore when there is no client-tool mapping."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat_stream.go",
+      "must_contain": [
+        "adapter.clientToolRestorer = apicompat.NewResponsesClientToolStreamRestorer(clientToolMapping)"
+      ],
+      "rationale": "Streaming Antigravity Responses restores custom_tool_call only when the request carried client tools."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/responses_client_tools.go",
+      "must_contain": [
+        "func appendCustomToolFormatDefinition(tool map[string]any) {"
+      ],
+      "rationale": "Custom tool grammar is copied into the function description once, including on a continuation that already carries it."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat_test.go",
+      "must_contain": [
+        "func TestAntigravityResponsesCustomToolKeepsInputSchemaAndRestoresCustomToolCall("
+      ],
+      "rationale": "The Antigravity Responses custom-tool round trip must keep the input schema and restore custom_tool_call."
+    },
+    {
       "path": "backend/internal/pkg/antigravity/payload_sanitize_tk.go",
       "must_contain": [
         "func DropEmptyGeminiParts(payload map[string]any) bool {",

@@ -538,7 +538,7 @@ func TestAntigravityCompatEmptyStreamTriggersFailover(t *testing.T) {
 		{
 			name: "responses",
 			run: func(svc *AntigravityGatewayService, c *gin.Context, resp *http.Response) (*antigravityStreamResult, error) {
-				return svc.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro-high")
+				return svc.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro-high", apicompat.ResponsesClientToolMapping{})
 			},
 		},
 	}
@@ -581,7 +581,7 @@ func TestAntigravityCompatUsageOnlyStreamTriggersFailover(t *testing.T) {
 		{
 			name: "responses",
 			run: func(svc *AntigravityGatewayService, c *gin.Context, resp *http.Response) (*antigravityStreamResult, error) {
-				return svc.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro-high")
+				return svc.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro-high", apicompat.ResponsesClientToolMapping{})
 			},
 		},
 	}
@@ -772,7 +772,7 @@ func TestAntigravityCompatStreamErrorCommitsSingleTerminalFrame(t *testing.T) {
 		},
 	}
 
-	result, err := svc.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro-high")
+	result, err := svc.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro-high", apicompat.ResponsesClientToolMapping{})
 
 	require.Error(t, err)
 	require.Nil(t, result)
@@ -792,7 +792,7 @@ func TestAntigravityCompatKeepaliveAfterFirstEvent(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		_, err := svc.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro-high")
+		_, err := svc.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro-high", apicompat.ResponsesClientToolMapping{})
 		done <- err
 	}()
 	_, err := io.WriteString(
@@ -1288,4 +1288,98 @@ func TestAntigravityChatImageModelStreamEmptyFailsClosedWithoutBilling(t *testin
 	require.Equal(t, 0, result.ImageCount)
 	// Headers may already be committed; billing must still see ImageCount=0.
 	require.Contains(t, recorder.Body.String(), "data: [DONE]")
+}
+
+func TestAntigravityResponsesCustomToolKeepsInputSchemaAndRestoresCustomToolCall(t *testing.T) {
+	definition := "start: /.+/ *** End Patch"
+	body := []byte(`{
+		"model":"claude-sonnet-4-6",
+		"input":"apply the patch",
+		"stream":true,
+		"tools":[{
+			"type":"custom",
+			"name":"apply_patch",
+			"description":"Apply a patch",
+			"format":{"type":"grammar","syntax":"lark","definition":"start: /.+/ *** End Patch"}
+		}]
+	}`)
+	args := `{"input":"*** Begin Patch"}`
+	recorder, upstreamBody := antigravityCompatResponsesExchange(t, body, antigravityCompatFunctionCallSSE("apply_patch", args))
+
+	decl := gjson.GetBytes(upstreamBody, `request.tools.0.functionDeclarations.#(name=="apply_patch")`)
+	require.True(t, decl.Exists())
+	require.Equal(t, "string", decl.Get("parameters.properties.input.type").String())
+	require.NotEqual(t, "{}", decl.Get("parameters.properties").Raw)
+	require.Equal(t, 1, strings.Count(decl.Get("description").String(), definition))
+	require.Contains(t, decl.Get("description").String(), "Apply a patch")
+	require.NotContains(t, string(upstreamBody), `"properties":{}`)
+
+	client := recorder.Body.String()
+	require.Contains(t, client, `"type":"custom_tool_call"`)
+	require.Contains(t, client, "response.custom_tool_call_input.done")
+	require.Contains(t, client, "*** Begin Patch")
+	require.NotContains(t, client, `"type":"function_call"`)
+}
+
+func TestAntigravityResponsesFunctionToolStaysFunctionAndNoToolsAreNotRestored(t *testing.T) {
+	functionBody := []byte(`{
+		"model":"claude-sonnet-4-6",
+		"input":"weather",
+		"stream":true,
+		"tools":[{
+			"type":"function",
+			"name":"get_weather",
+			"description":"Get weather",
+			"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}
+		}]
+	}`)
+	recorder, upstreamBody := antigravityCompatResponsesExchange(
+		t,
+		functionBody,
+		antigravityCompatFunctionCallSSE("get_weather", `{"city":"Tokyo"}`),
+	)
+	decl := gjson.GetBytes(upstreamBody, `request.tools.0.functionDeclarations.#(name=="get_weather")`)
+	require.True(t, decl.Exists())
+	require.Equal(t, "string", decl.Get("parameters.properties.city.type").String())
+	require.False(t, decl.Get("parameters.properties.input").Exists())
+	require.Equal(t, "Get weather", decl.Get("description").String())
+	require.Contains(t, recorder.Body.String(), `"type":"function_call"`)
+	require.Contains(t, recorder.Body.String(), "get_weather")
+	require.NotContains(t, recorder.Body.String(), "custom_tool_call")
+
+	noToolBody := []byte(`{"model":"claude-sonnet-4-6","input":"weather","stream":true}`)
+	noToolRecorder, _ := antigravityCompatResponsesExchange(
+		t,
+		noToolBody,
+		antigravityCompatFunctionCallSSE("get_weather", `{"city":"Tokyo"}`),
+	)
+	noToolClient := noToolRecorder.Body.String()
+	require.Contains(t, noToolClient, `"type":"function_call"`)
+	require.Contains(t, noToolClient, "get_weather")
+	require.NotContains(t, noToolClient, "custom_tool_call")
+	require.NotContains(t, noToolClient, "response.custom_tool_call_input")
+}
+
+func antigravityCompatFunctionCallSSE(name, argsJSON string) string {
+	return `data: {"response":{"responseId":"resp_8489","candidates":[{"content":{"parts":[{"functionCall":{"id":"call_8489","name":"` + name + `","args":` + argsJSON + `}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":3}}}` + "\n\n"
+}
+
+func antigravityCompatResponsesExchange(t *testing.T, body []byte, upstreamSSE string) (*httptest.ResponseRecorder, []byte) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+			"X-Request-Id": []string{"request-8489"},
+		},
+		Body: io.NopCloser(strings.NewReader(upstreamSSE)),
+	}}}
+	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/responses", body)
+	result, err := svc.ForwardAsResponses(context.Background(), c, newAntigravityCompatAccount(AccountTypeOAuth), body, nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.requestBodies, 1)
+	return recorder, upstream.requestBodies[0]
 }
