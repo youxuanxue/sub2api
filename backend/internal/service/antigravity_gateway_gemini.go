@@ -42,6 +42,7 @@ func WithForwardGeminiSession(groupID int64, sessionHash string) ForwardGeminiOp
 }
 
 func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte, isStickySession bool, options ...ForwardGeminiOption) (*ForwardResult, error) {
+	ctx = bindGoogleGeneric403Request(c, ctx)
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)
 	startTime := time.Now()
@@ -356,9 +357,14 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		// Always record upstream context for Ops error logs, even when we will failover.
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 
+		// A second distinct generic 403 in this request is request-scoped.
+		// The status matrix still classifies 403 as failover-eligible; this
+		// request flag stops the switch and falls through to the original body.
+		stopRequest403 := resp.StatusCode == http.StatusForbidden && googleGeneric403StopsFailover(ctx)
+
 		// Configuration and model capability failures use shared bounded failover.
 		googleSemantic := antigravityGatewayFailureSemantic(resp.StatusCode, unwrappedForOps)
-		if googleSemantic != gatewayFailureSemanticUnclassified && classifyGatewayFailover(gatewayFailoverObservation{
+		if !stopRequest403 && googleSemantic != gatewayFailureSemanticUnclassified && classifyGatewayFailover(gatewayFailoverObservation{
 			Profile: gatewayFailoverProfileGoogle, Semantic: googleSemantic, StatusCode: resp.StatusCode,
 		}).RetryNextAccount {
 			log.Printf("%s status=%d google_account_fault failover=true upstream_message=%q account=%d", prefix, resp.StatusCode, upstreamMsg, account.ID)
@@ -380,7 +386,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			}, gatewayFailoverProfileGoogle, googleSemantic)
 		}
 
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
+		if !stopRequest403 && s.shouldFailoverUpstreamError(resp.StatusCode) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
 				ProxyName:          opsUpstreamProxyName(account),
@@ -505,7 +511,7 @@ handleSuccess:
 	}, nil
 }
 
-// cleanGeminiRequest 清理 Gemini 请求体：脏字段、坏 inlineData、tools/response schema。
+// cleanGeminiRequest 清理 Gemini 请求体：脏字段、坏 inlineData、空 part、tools/response schema。
 // 不删除 generationConfig.responseModalities（出图必需）。
 func cleanGeminiRequest(body []byte) ([]byte, error) {
 	var payload map[string]any
@@ -566,54 +572,17 @@ func cleanGeminiRequest(body []byte) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-// filterEmptyPartsFromGeminiRequest 过滤掉 parts 为空的消息
-// Gemini API 不接受空 parts，需要在请求前过滤
+// filterEmptyPartsFromGeminiRequest 去掉真空 part 对象（{}）。
+// systemInstruction / system_instruction 因此没有 part 则整段省略；
+// contents 里因此没有 part 的消息整条丢弃。带真实字段的 part 保留。
+// 这是请求级修正：调用方不换号、不 SetError。
 func filterEmptyPartsFromGeminiRequest(body []byte) ([]byte, error) {
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, err
 	}
-
-	contents, ok := payload["contents"].([]any)
-	if !ok || len(contents) == 0 {
+	if !antigravity.DropEmptyGeminiParts(payload) {
 		return body, nil
 	}
-
-	filtered := make([]any, 0, len(contents))
-	modified := false
-
-	for _, c := range contents {
-		contentMap, ok := c.(map[string]any)
-		if !ok {
-			filtered = append(filtered, c)
-			continue
-		}
-
-		parts, hasParts := contentMap["parts"]
-		if !hasParts {
-			filtered = append(filtered, c)
-			continue
-		}
-
-		partsSlice, ok := parts.([]any)
-		if !ok {
-			filtered = append(filtered, c)
-			continue
-		}
-
-		// 跳过 parts 为空数组的消息
-		if len(partsSlice) == 0 {
-			modified = true
-			continue
-		}
-
-		filtered = append(filtered, c)
-	}
-
-	if !modified {
-		return body, nil
-	}
-
-	payload["contents"] = filtered
 	return json.Marshal(payload)
 }
