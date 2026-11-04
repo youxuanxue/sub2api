@@ -4676,7 +4676,8 @@
         "headers.Get(\"X-Claude-Code-Session-Id\")",
         "req.IsClaudeCodeUA || key.Source == StickyKeySourceClientClaudeCodeSessionID",
         "//  1. headers[\"session_id\"] / headers[\"conversation_id\"] / headers[\"X-Claude-Code-Session-Id\"] / headers[\"X-Session-Id\"]",
-        "headers.Get(\"x-session-affinity\")"
+        "headers.Get(\"x-session-affinity\")",
+        "req.ReadSessionAffinity && headers != nil"
       ],
       "rationale": "Claude Code session header must participate in sticky derivation before X-Session-Id and must not trigger synthetic metadata.user_id injection (which would collide with ingress-only sibling routing). Small upstream-shape file compiles cleanly if reverted."
     },
@@ -4689,7 +4690,9 @@
         "TestSessionAffinity_MetadataUserIDKeepsBody",
         "TestSessionAffinity_HeaderAlone",
         "TestSessionAffinity_BeforePromptCacheKey",
-        "TestStickyKey_SessionIDPrecedesSessionAffinity"
+        "TestStickyKey_SessionIDPrecedesSessionAffinity",
+        "TestSessionAffinity_OpenAICallersKeepPromptCacheKey",
+        "TestSessionAffinity_ApplyStickyHelpersScopeHeader"
       ],
       "rationale": "Focused regressions for header precedence and inject suppression when sticky key originates from X-Claude-Code-Session-Id."
     },

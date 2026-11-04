@@ -138,6 +138,10 @@ type StickyInjectionRequest struct {
 	IsClaudeCodeUA bool // true = real Claude Code client; suppresses metadata.user_id rewrite
 	Strategy       StickyStrategy
 	Headers        http.Header // case-insensitive accessor
+	// ReadSessionAffinity opts Anthropic Messages and Kiro into the
+	// x-session-affinity header. OpenAI / NewAPI callers leave it false so
+	// their body prompt_cache_key keeps priority.
+	ReadSessionAffinity bool
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +153,7 @@ type StickyInjectionRequest struct {
 //
 //  1. headers["session_id"] / headers["conversation_id"] / headers["X-Claude-Code-Session-Id"] / headers["X-Session-Id"]
 //  2. body.metadata.user_id (parsed; prefer the inner session_id when present)
-//  3. header x-session-affinity (read only; never written into metadata.user_id)
+//  3. header x-session-affinity (only when ReadSessionAffinity; never written into metadata.user_id)
 //  4. body.prompt_cache_key
 //  5. (only if Strategy.AllowsDerivation) hash(api_key_id || system_first_2k || tools_signature)
 //
@@ -171,7 +175,7 @@ func DeriveStickyKey(req StickyInjectionRequest, body []byte) StickyKey {
 			return StickyKey{Value: uid, Source: StickyKeySourceClientMetadataUserID}
 		}
 	}
-	if headers := req.Headers; headers != nil {
+	if headers := req.Headers; req.ReadSessionAffinity && headers != nil {
 		if v := strings.TrimSpace(headers.Get("x-session-affinity")); v != "" {
 			return StickyKey{Value: v, Source: StickyKeySourceClientSessionAffinity}
 		}

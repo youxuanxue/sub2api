@@ -20,8 +20,9 @@ func kiroResolvedConversationSessionID(c *gin.Context, parsed *ParsedRequest, bo
 	// Passthrough reads client keys only. The group's sticky mode is not a
 	// reason to invent a new conversation for a client that already named one.
 	key := DeriveStickyKey(StickyInjectionRequest{
-		Strategy: StickyStrategy{GlobalEnabled: true, Mode: StickyModePassthrough},
-		Headers:  headers,
+		Strategy:            StickyStrategy{GlobalEnabled: true, Mode: StickyModePassthrough},
+		Headers:             headers,
+		ReadSessionAffinity: true,
 	}, body)
 	if v := strings.TrimSpace(key.Value); v != "" {
 		return v

@@ -3,9 +3,12 @@
 package service
 
 import (
+	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -261,7 +264,7 @@ func TestSessionAffinity_MetadataUserIDKeepsBody(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("x-session-affinity", "affinity-1")
 	req := StickyInjectionRequest{
-		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-5", Strategy: newAutoStrategy(), Headers: headers,
+		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-5", Strategy: newAutoStrategy(), Headers: headers, ReadSessionAffinity: true,
 	}
 	k := DeriveStickyKey(req, body)
 	require.Equal(t, "user-keep", k.Value)
@@ -279,7 +282,7 @@ func TestSessionAffinity_HeaderAlone(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("x-session-affinity", "affinity-only")
 	req := StickyInjectionRequest{
-		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-5", Strategy: newAutoStrategy(), Headers: headers,
+		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-5", Strategy: newAutoStrategy(), Headers: headers, ReadSessionAffinity: true,
 	}
 	k := DeriveStickyKey(req, body)
 	require.Equal(t, "affinity-only", k.Value)
@@ -297,11 +300,27 @@ func TestSessionAffinity_BeforePromptCacheKey(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("x-session-affinity", "affinity-only")
 	req := StickyInjectionRequest{
-		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-5", Strategy: newAutoStrategy(), Headers: headers,
+		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-5", Strategy: newAutoStrategy(), Headers: headers, ReadSessionAffinity: true,
 	}
 	k := DeriveStickyKey(req, body)
 	require.Equal(t, "affinity-only", k.Value)
 	require.Equal(t, StickyKeySourceClientSessionAffinity, k.Source)
+}
+
+func TestSessionAffinity_OpenAICallersKeepPromptCacheKey(t *testing.T) {
+	body := []byte(`{"prompt_cache_key":"cache-key"}`)
+	headers := http.Header{}
+	headers.Set("x-session-affinity", "affinity-only")
+	req := StickyInjectionRequest{
+		APIKeyID: 1, UpstreamModel: "gpt-5", AccountKind: StickyAccountOpenAIAPIKey, Strategy: newAutoStrategy(), Headers: headers,
+	}
+	k := DeriveStickyKey(req, body)
+	require.Equal(t, "cache-key", k.Value)
+	require.Equal(t, StickyKeySourceClientPromptCacheKey, k.Source)
+
+	k = DeriveStickyKey(req, []byte(`{"input":"hi"}`))
+	require.NotEqual(t, "affinity-only", k.Value)
+	require.NotEqual(t, StickyKeySourceClientSessionAffinity, k.Source)
 }
 
 func TestStickyKey_SessionIDPrecedesSessionAffinity(t *testing.T) {
@@ -310,7 +329,7 @@ func TestStickyKey_SessionIDPrecedesSessionAffinity(t *testing.T) {
 	headers.Set("session_id", "header-sess")
 	headers.Set("x-session-affinity", "affinity-1")
 	req := StickyInjectionRequest{
-		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-5", Strategy: newAutoStrategy(), Headers: headers,
+		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-5", Strategy: newAutoStrategy(), Headers: headers, ReadSessionAffinity: true,
 	}
 	k := DeriveStickyKey(req, body)
 	require.Equal(t, "header-sess", k.Value)
@@ -337,4 +356,25 @@ func TestUS201_InjectXSessionIDHeader(t *testing.T) {
 	ok3 := InjectXSessionIDHeader(headers3, StickyKey{Value: "tk_x"}, newOffStrategy())
 	require.False(t, ok3)
 	require.Equal(t, "", headers3.Get("X-Session-Id"))
+}
+
+func TestSessionAffinity_ApplyStickyHelpersScopeHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	newCtx := func() *gin.Context {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		c.Request.Header.Set("x-session-affinity", "affinity-only")
+		return c
+	}
+	apiKeyAccount := &Account{Type: AccountTypeAPIKey}
+
+	openAIBody, openAIKey, err := applyStickyToOpenAIResponsesBody(context.Background(), newCtx(), nil, apiKeyAccount, []byte(`{"input":"hi"}`), "gpt-5")
+	require.NoError(t, err)
+	require.NotEqual(t, "affinity-only", openAIKey)
+	require.NotEqual(t, "affinity-only", gjson.GetBytes(openAIBody, "prompt_cache_key").String())
+
+	anthropicBody, anthropicKey, err := applyStickyToAnthropicMessagesBody(context.Background(), newCtx(), nil, apiKeyAccount, []byte(`{"messages":[]}`), "claude-sonnet-4-5", false)
+	require.NoError(t, err)
+	require.Equal(t, "affinity-only", anthropicKey)
+	require.False(t, gjson.GetBytes(anthropicBody, "metadata.user_id").Exists())
 }
