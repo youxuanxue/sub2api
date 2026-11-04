@@ -1558,6 +1558,123 @@
         "tokenkey_status": "unresolved_in_tokenkey",
         "rationale": "2026-10-30离线普通replay/recompact均复现：A产生state、A不可调度时soft sticky退化选B，hard owner对照拒绝B。invalid_encrypted_content还可删除compaction整项后重试，存在静默丢历史风险。prod24h native_compaction_v2=0，未证明线上已触发。state租户隔离硬归属与禁止剥离方案见 docs/approved/openai-compaction-owner-and-cache-diagnostics.md，draft未实施。"
       }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8479",
+      "severity": "normal",
+      "summary": "OpenAI capacity errors (server_is_overloaded / 529) that carry Retry-After (HTTP header or error.headers.retry-after) now cool only the account+model pair for min(Retry-After, 3m). The request never sleeps the upstream delay, the account stays schedulable for other models, and an explicit temp-unsched model rule keeps its own window instead of stacking a second one.",
+      "tokenkey_pr": "youxuanxue/sub2api#3035",
+      "fixed_by": [
+        "backend/internal/service/openai_capacity_retry_after_tk.go",
+        "backend/internal/service/openai_gateway_passthrough.go",
+        "backend/internal/service/openai_account_runtime_block_fastpath.go",
+        "backend/internal/service/openai_capacity_retry_after_tk_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_capacity_retry_after_tk.go:const openAICapacityRetryAfterModelCooldownCap = 3 * time.Minute",
+        "backend/internal/service/openai_gateway_passthrough.go:s.tkApplyOpenAICapacityRetryAfterModelCooldown(ctx, account, statusCode, headers, payload, message, canonicalModel...)",
+        "backend/internal/service/openai_capacity_retry_after_tk_test.go:func TestOpenAICapacityRetryAfter_CoolsAccountModelWithoutSleeping("
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Reproduced as unit regressions: a 309s Retry-After on server_is_overloaded writes one account+model cooldown capped at 3m, no SetOverloaded/TempUnschedulable, sibling model stays schedulable; 529 with Retry-After skips the account-wide handle529."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8478",
+      "severity": "normal",
+      "summary": "Stream-terminal credit exhaustion is recognised only from the error object's code/type (credit_balance_exhausted / insufficient_quota), never from message prose. Before any client output it fails over without same-account retry; after output it only updates the account. Only API-key accounts are disabled; OAuth and setup-token keep their subscription windows.",
+      "tokenkey_pr": "youxuanxue/sub2api#3037",
+      "fixed_by": [
+        "backend/internal/service/openai_stream_credit_exhausted_tk.go",
+        "backend/internal/service/openai_gateway_passthrough.go",
+        "backend/internal/service/openai_gateway_passthrough_tk_failover.go",
+        "backend/internal/service/openai_stream_credit_exhausted_tk_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_stream_credit_exhausted_tk.go:func openAIStreamExplicitCreditExhausted(payload []byte) bool {",
+        "backend/internal/service/openai_stream_credit_exhausted_tk.go:account.Type != AccountTypeAPIKey",
+        "backend/internal/service/openai_gateway_passthrough.go:return statusCode, s.applyOpenAIStreamCreditExhaustedSideEffects(c, account, payload)",
+        "backend/internal/service/openai_stream_credit_exhausted_tk_test.go:func TestOpenAIStreamCreditExhausted_OAuthAndSetupTokenDoNotSetError("
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "TokenKey-owned implementation of the same intent: explicit code/type only, a 429 rate_limit_exceeded whose prose mentions credits stays 429, API-key-only disable, written body not replayed. Covered by unit regressions in the fix PR."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8488",
+      "severity": "normal",
+      "summary": "Both parts are covered. (1) Fast filter/block now strips top-level speed=fast from every outbound builder (direct, Vertex, Bedrock, count_tokens, API-key and OAuth passthrough) and billing reads the recorded outbound body, so a filtered request is not charged as Fast. (2) The 'Usage credits are required for fast mode' 429 is request-owned: it short-circuits on the first hop without account-wide penalty, via the pre-existing request-owned 429 handler.",
+      "tokenkey_pr": "youxuanxue/sub2api#3040",
+      "fixed_by": [
+        "backend/internal/service/gateway_upstream_request.go",
+        "backend/internal/service/gateway_forward.go",
+        "backend/internal/service/gateway_anthropic_fast_speed_test.go",
+        "backend/internal/service/gateway_service_tk_request_owned_429.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_upstream_request.go:body = applyAnthropicFastSpeedPolicy(body, betaPolicy.stripAnthropicFastSpeed)",
+        "backend/internal/service/gateway_forward.go:func syncAnthropicFastBillingSnapshot(c *gin.Context, outboundBody []byte) {",
+        "backend/internal/service/gateway_anthropic_fast_speed_test.go:func TestAnthropicFastSpeedPolicy_FilterAndBlockStripOutboundAndBilling(t *testing.T) {",
+        "backend/internal/service/gateway_service_tk_request_owned_429.go:\"usage credits are required\","
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Body opt-in no longer bypasses Fast filter/block, and billing derives the tier from the accepted wire body. The credits-required 429 matches the request-owned marker already shipped and tested (TestTkHandleAnthropicRequestOwned429_KnownPhraseShortCircuitsFirstHop)."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8489",
+      "severity": "normal",
+      "summary": "Antigravity /v1/responses lowers Codex custom/freeform tools to function tools with a string input schema (grammar copied into the description once) before ResponsesToAnthropicRequest, and restores custom_tool_call on both streaming and non-streaming return paths.",
+      "tokenkey_pr": "youxuanxue/sub2api#3039",
+      "fixed_by": [
+        "backend/internal/service/antigravity_gateway_compat.go",
+        "backend/internal/service/antigravity_gateway_compat_stream.go",
+        "backend/internal/pkg/apicompat/responses_client_tools.go",
+        "backend/internal/service/antigravity_gateway_compat_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/antigravity_gateway_compat.go:adaptedBody, clientToolMapping, err := adaptResponsesClientToolsForAnthropic(body)",
+        "backend/internal/pkg/apicompat/responses_client_tools.go:func appendCustomToolFormatDefinition(tool map[string]any) {",
+        "backend/internal/service/antigravity_gateway_compat_test.go:func TestAntigravityResponsesCustomToolKeepsInputSchemaAndRestoresCustomToolCall("
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Round trip covered by a stream:true Antigravity regression that checks the lowered input schema upstream and custom_tool_call restored to the client."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8442",
+      "severity": "high",
+      "summary": "Generic Gemini/Antigravity 403s are request-scoped: the first distinct account may fail over without SetError, a second distinct account stops rotation and returns the upstream 403 to the client, and neither account is disabled. Account-owned 403s (project denied, consumer suspended, IAM service-account, insufficient scope, SERVICE_DISABLED, cached content) and calls without a gateway request keep the permanent path.",
+      "tokenkey_pr": "youxuanxue/sub2api#3036",
+      "fixed_by": [
+        "backend/internal/service/google_generic_403_request_tk.go",
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_handle403.go",
+        "backend/internal/service/google_generic_403_request_tk_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/google_generic_403_request_tk.go:func (s *RateLimitService) tryGoogleGeneric403RequestScope(",
+        "backend/internal/service/ratelimit_service_tk_handle403.go:if handled, allowFailover := s.tryGoogleGeneric403RequestScope(ctx, account, responseBody); handled {",
+        "backend/internal/service/google_generic_403_request_tk_test.go:func TestRateLimitService_HandleUpstreamError_GeminiGeneric403SameRequestTwoAccountsNoSetErrorSecondStopsFailover("
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "One bad request can no longer disable the whole Gemini group: two-strike per request with zero SetError, verified for Gemini and Antigravity; account-owned 403 bodies and unmarked background calls still SetError."
+      }
     }
   ]
 }

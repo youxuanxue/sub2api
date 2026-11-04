@@ -115,7 +115,10 @@
         "TestClaudeToKiro_ToolChoiceNamedResolvesSanitizedName",
         "TestClaudeToKiro_DefaultThinkingBudgetIsMedium",
         "TestClaudeToKiro_ClientBudgetAndEffortAreHonored",
-        "TestClaudeToKiro_HistoryThinkingIsNotForwarded"
+        "TestClaudeToKiro_HistoryThinkingIsNotForwarded",
+        "TestConversationID_SyntheticAnchorsShareResolvedSession",
+        "TestConversationID_EmptySessionSyntheticAnchorDiffers",
+        "TestConversationID_StableUserTextIgnoresSessionID"
       ],
       "rationale": "Client thinking.display=omitted must not propagate to Kiro upstream wire; prod mirror QA depends on summarized upstream reasoning. AMRF max_tokens below 1024 must be omitted while preserving the native inferenceConfig limit and thinking controls. All Claude 4.5 models must omit additionalModelRequestFields (current upstream 400 REQUEST_BODY_INVALID for Haiku/Sonnet/Opus 4.5), while Claude 4.6+ including Haiku 5.5 accepts AMRF for native reasoning. Missing budget_tokens and effort default to max_thinking_length 16000 and medium; explicit client values win. Thinking and redacted_thinking blocks from history must not be written into the next Kiro turn."
     },
@@ -144,7 +147,10 @@
         "applyKiroToolNameRewrites(payload)",
         "canonicalKiroToolUseID(id)",
         "withoutKiroReadPages(name, input)",
-        "kiroToolInputFromValue(block[\"input\"])"
+        "kiroToolInputFromValue(block[\"input\"])",
+        "syntheticConversationID(sessionID)",
+        "buildConversationID(modelID, systemPrompt, firstClaudeConversationAnchor(req.Messages), req.ConversationSessionID)",
+        "buildConversationID(modelID, systemPrompt, firstOpenAIConversationAnchor(nonSystemMessages), req.ConversationSessionID)"
       ],
       "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Only the exact Claude Code identity line is replaced; project rules and unknown templates must survive. Haiku must not emit additionalModelRequestFields even when thinking is requested. parseBase64Image must decode then sniff MIME against bytes so MIME≠bytes / corrupt payloads fail closed before Bedrock. Keep nonempty in-conversation system context in order and truncate tool descriptions at UTF-8 boundaries. Kiro request-compat owners live in this vendored file and must survive re-vendoring: over-long tool names are rewritten in prompt text to match the 64-char tool spec, tool_use ids are canonicalized so a tool_use and its tool_result stay paired, Claude Read.pages is stripped (Kiro 400s on it), and invalid tool JSON is dropped rather than forwarded as an empty object."
     },
@@ -565,7 +571,8 @@
         "TestKiroGatewayService_Forward_OversizedPayloadRejectedBeforeUpstream",
         "require.True(t, invalidRequestErr.ContextOverflow)",
         "require.Contains(t, invalidRequestErr.ClientMessage(), \"prompt is too long\")",
-        "TestKiroGatewayService_Forward_ModelTemporarilyRestrictedTriggersFailoverAndModelCooldown"
+        "TestKiroGatewayService_Forward_ModelTemporarilyRestrictedTriggersFailoverAndModelCooldown",
+        "TestKiroConversationID_UsesResolvedSessionHeaders"
       ],
       "rationale": "Wire regression coverage for normal tool calls, client-owned tool names, stop reasons, content filtering, incomplete streams, retry integrity and thinking side channels. Image format must be request-owned (no pool burn) while provider failures that only echo image text still failover. Quota-exhausted ClientMessage must assert the shared busy-429 SSOT. Local payload-overflow coverage is anchored on its outcome, not just the test name: ContextOverflow must stay set and the public copy must stay the actionable prompt-is-too-long text. An upstream merge that reverts the classification to a bare 413 request_too_large keeps this test compiling and passing on the old assertions, which is exactly how Claude Code regressed to rendering the model as unavailable (#2941)."
     },
@@ -1347,7 +1354,8 @@
       "path": "backend/internal/service/kiro_gateway_service.go",
       "must_contain": [
         "fileToolChunking := account.IsKiroFileToolChunkingEnabled()",
-        "kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, fileToolChunking)"
+        "kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, fileToolChunking)",
+        "req.ConversationSessionID = kiroResolvedConversationSessionID(c, parsed, requestBody)"
       ],
       "rationale": "The selected account owns the chunking opt-in; keep the Forward-to-translator binding so an upstream merge cannot silently disable the policy."
     },

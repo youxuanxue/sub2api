@@ -111,6 +111,7 @@ const (
 	StickyKeySourceClientClaudeCodeSessionID = "client_claude_code_session_id"
 	StickyKeySourceClientXSessionID          = "client_x_session_id"
 	StickyKeySourceClientMetadataUserID      = "client_metadata_user_id"
+	StickyKeySourceClientSessionAffinity     = "client_session_affinity"
 	StickyKeySourceClientPromptCacheKey      = "client_prompt_cache_key"
 	StickyKeySourceDerivedContentHash        = "derived_content_hash"
 	StickyKeySourceNone                      = ""
@@ -137,6 +138,10 @@ type StickyInjectionRequest struct {
 	IsClaudeCodeUA bool // true = real Claude Code client; suppresses metadata.user_id rewrite
 	Strategy       StickyStrategy
 	Headers        http.Header // case-insensitive accessor
+	// ReadSessionAffinity opts Anthropic Messages and Kiro into the
+	// x-session-affinity header. OpenAI / NewAPI callers leave it false so
+	// their body prompt_cache_key keeps priority.
+	ReadSessionAffinity bool
 }
 
 // ---------------------------------------------------------------------------
@@ -148,8 +153,9 @@ type StickyInjectionRequest struct {
 //
 //  1. headers["session_id"] / headers["conversation_id"] / headers["X-Claude-Code-Session-Id"] / headers["X-Session-Id"]
 //  2. body.metadata.user_id (parsed; prefer the inner session_id when present)
-//  3. body.prompt_cache_key
-//  4. (only if Strategy.AllowsDerivation) hash(api_key_id || system_first_2k || tools_signature)
+//  3. header x-session-affinity (only when ReadSessionAffinity; never written into metadata.user_id)
+//  4. body.prompt_cache_key
+//  5. (only if Strategy.AllowsDerivation) hash(api_key_id || system_first_2k || tools_signature)
 //
 // An empty StickyKey.Value means "no sticky" (caller should not inject).
 func DeriveStickyKey(req StickyInjectionRequest, body []byte) StickyKey {
@@ -168,6 +174,13 @@ func DeriveStickyKey(req StickyInjectionRequest, body []byte) StickyKey {
 			}
 			return StickyKey{Value: uid, Source: StickyKeySourceClientMetadataUserID}
 		}
+	}
+	if headers := req.Headers; req.ReadSessionAffinity && headers != nil {
+		if v := strings.TrimSpace(headers.Get("x-session-affinity")); v != "" {
+			return StickyKey{Value: v, Source: StickyKeySourceClientSessionAffinity}
+		}
+	}
+	if len(body) > 0 {
 		if v := strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String()); v != "" {
 			return StickyKey{Value: v, Source: StickyKeySourceClientPromptCacheKey}
 		}
@@ -369,6 +382,10 @@ func InjectAnthropicMessagesBody(body []byte, key StickyKey, req StickyInjection
 		return body, false, nil
 	}
 	if req.IsClaudeCodeUA || key.Source == StickyKeySourceClientClaudeCodeSessionID {
+		return body, false, nil
+	}
+	// x-session-affinity is a sticky read. Do not copy it into metadata.user_id.
+	if key.Source == StickyKeySourceClientSessionAffinity {
 		return body, false, nil
 	}
 	if existing := gjson.GetBytes(body, "metadata.user_id"); existing.Exists() && strings.TrimSpace(existing.String()) != "" {

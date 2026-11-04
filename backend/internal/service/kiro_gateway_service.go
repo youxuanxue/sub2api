@@ -288,6 +288,7 @@ func (s *KiroGatewayService) Forward(
 	if err := json.Unmarshal(requestBody, &req); err != nil {
 		return nil, fmt.Errorf("kiro forward: parse request body: %w", err)
 	}
+	req.ConversationSessionID = kiroResolvedConversationSessionID(c, parsed, requestBody)
 
 	thinking := req.Thinking != nil &&
 		(req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive")
