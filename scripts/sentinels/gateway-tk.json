@@ -18756,6 +18756,44 @@
         "func TestNonStreamingProcessor_ContentFilterStopReason("
       ],
       "rationale": "Keep Antigravity streaming and non-streaming coverage that content-policy finish reasons become refusal unless a tool call already won."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "functionResponse[\"parts\"] = images"
+      ],
+      "must_not_contain": [
+        "parts = append(parts, toolImageParts...)"
+      ],
+      "rationale": "Claude tool_result images belong inside the owning functionResponse.parts. Restoring a sibling append in this upstream hotspot mis-attributes images whenever one turn has multiple tools."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/request_transformer.go",
+      "must_contain": [
+        "functionResponse.Parts = inlineParts"
+      ],
+      "must_not_contain": [
+        "parts = append(parts, extractToolResultInlineParts(block.Content)...)"
+      ],
+      "rationale": "Antigravity Claude conversion must nest each tool_result inlineData in that functionResponse. A merge that appends the images beside the response again still compiles."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_tool_result_image_test.go",
+      "must_contain": [
+        "func TestConvertClaudeMessages_ToolResultImagesEnterOwningFunctionResponse(",
+        "func TestConvertClaudeMessages_ToolResultWithoutImageOmitsParts(",
+        "func TestAntigravityToolResultImagesEnterOwningFunctionResponse(",
+        "func TestAntigravityToolResultWithoutImageOmitsParts("
+      ],
+      "rationale": "Keep single-tool, multi-tool, imageless tool_result, and plain-text ownership coverage for both Claude-to-Gemini converters."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/request_transformer_test.go",
+      "must_contain": [
+        "func TestTransformClaudeToGemini_ToolResultImagesReachUpstream(",
+        "userParts[0].FunctionResponse.Parts[0].InlineData"
+      ],
+      "rationale": "The Antigravity transform regression must keep tool_result images inside functionResponse.Parts instead of sibling parts."
     }
   ]
 }
