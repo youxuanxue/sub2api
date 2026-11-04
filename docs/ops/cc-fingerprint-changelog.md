@@ -23,6 +23,7 @@ re-document it per patch — note "A/B unchanged" in the row instead.
 
 | cc version | date (UTC) | type | note |
 |---|---|---|---|
+| 2.1.318 | 2026-11-04 | pure UA | 2.1.316 → 2.1.318；本机 `claude --version` 升级到 2.1.318 后静态验证，再跑 `check-cc-version-sync.py --write`。TLS、beta、Stainless、system 配置未改，本次未采集 wire / Haiku A/B 证据。关联 #3041。 |
 | 2.1.314 | 2026-10-30 | pure UA | 2.1.312 → 2.1.314；`claude update` 后本机 `claude --version` 静态验证与 `check-cc-version-sync.py --write`。TLS、beta、Stainless、system 配置未改，本次未采集 wire / Haiku A/B 证据。关联 #2984。 |
 | 2.1.316 | 2026-10-31 | pure UA | 2.1.314 → 2.1.316；本机 `claude --version` 升级后静态验证与 `check-cc-version-sync.py --write`。TLS、beta、Stainless、system 配置未改，本次未采集 wire / Haiku A/B 证据。关联 #2996。 |
 | 2.1.310 | 2026-10-25 | pure UA | Local `claude --version` → 2.1.310（npm-global 与 native 两份安装均已升级）。静态版本路径：`capture-cc-fingerprint.sh check` + `check-cc-version-sync.py --write`。Stainless/TLS/beta 未改，本次未采集 wire 证据。Closes #2871. |
