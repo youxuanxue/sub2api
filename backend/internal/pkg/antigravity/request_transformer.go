@@ -603,16 +603,17 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 			// 解析 content
 			resultContent := parseToolResultContent(block.Content, block.IsError)
 
-			parts = append(parts, GeminiPart{
-				FunctionResponse: &GeminiFunctionResponse{
-					Name: funcName,
-					Response: map[string]any{
-						"result": resultContent,
-					},
-					ID: block.ToolUseID,
+			functionResponse := &GeminiFunctionResponse{
+				Name: funcName,
+				Response: map[string]any{
+					"result": resultContent,
 				},
-			})
-			parts = append(parts, extractToolResultInlineParts(block.Content)...)
+				ID: block.ToolUseID,
+			}
+			if inlineParts := extractToolResultInlineParts(block.Content); len(inlineParts) > 0 {
+				functionResponse.Parts = inlineParts
+			}
+			parts = append(parts, GeminiPart{FunctionResponse: functionResponse})
 		}
 	}
 

@@ -522,12 +522,14 @@ func (p *StreamingProcessor) emitFinish(finishReason string) []byte {
 		}
 	}
 
-	// 确定 stop_reason
+	// 确定 stop_reason。已发出 tool_use 时优先于内容策略 refusal。
 	stopReason := "end_turn"
 	if p.usedTool {
 		stopReason = "tool_use"
 	} else if finishReason == "MAX_TOKENS" {
 		stopReason = "max_tokens"
+	} else if GeminiContentFilterFinishReason(finishReason) {
+		stopReason = "refusal"
 	}
 
 	usage := ClaudeUsage{

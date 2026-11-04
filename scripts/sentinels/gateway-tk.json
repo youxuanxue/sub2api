@@ -4675,7 +4675,9 @@
         "StickyKeySourceClientClaudeCodeSessionID = \"client_claude_code_session_id\"",
         "headers.Get(\"X-Claude-Code-Session-Id\")",
         "req.IsClaudeCodeUA || key.Source == StickyKeySourceClientClaudeCodeSessionID",
-        "//  1. headers[\"session_id\"] / headers[\"conversation_id\"] / headers[\"X-Claude-Code-Session-Id\"] / headers[\"X-Session-Id\"]"
+        "//  1. headers[\"session_id\"] / headers[\"conversation_id\"] / headers[\"X-Claude-Code-Session-Id\"] / headers[\"X-Session-Id\"]",
+        "headers.Get(\"x-session-affinity\")",
+        "req.ReadSessionAffinity && headers != nil"
       ],
       "rationale": "Claude Code session header must participate in sticky derivation before X-Session-Id and must not trigger synthetic metadata.user_id injection (which would collide with ingress-only sibling routing). Small upstream-shape file compiles cleanly if reverted."
     },
@@ -4684,7 +4686,13 @@
       "must_contain": [
         "TestUS201_DeriveReadsClaudeCodeSessionIDHeader",
         "TestUS201_DeriveClaudeCodeSessionIDPrecedesXSessionIDHeader",
-        "TestUS201_InjectAnthropicMessages_SkipsClaudeCodeSessionHeaderKey"
+        "TestUS201_InjectAnthropicMessages_SkipsClaudeCodeSessionHeaderKey",
+        "TestSessionAffinity_MetadataUserIDKeepsBody",
+        "TestSessionAffinity_HeaderAlone",
+        "TestSessionAffinity_BeforePromptCacheKey",
+        "TestStickyKey_SessionIDPrecedesSessionAffinity",
+        "TestSessionAffinity_OpenAICallersKeepPromptCacheKey",
+        "TestSessionAffinity_ApplyStickyHelpersScopeHeader"
       ],
       "rationale": "Focused regressions for header precedence and inject suppression when sticky key originates from X-Claude-Code-Session-Id."
     },
@@ -18695,6 +18703,97 @@
         "func TestRateLimitService_HandleUpstreamError_GeminiGeneric403WithoutRequestMarkStillSetError("
       ],
       "rationale": "Keep the two-strike, account-owned IAM/suspension, and unmarked-request permanent-disable regressions."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_cn_providers.go",
+      "must_contain": [
+        "cooldown, enabled := s.get429FallbackCooldown(ctx, account)"
+      ],
+      "rationale": "Kimi exact concurrency-limit 403 must take its duration from the existing 429 short cooldown, not the 10-minute OpenAI 403 default."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_cn_fixes_test.go",
+      "must_contain": [
+        "func TestHandle403_KimiConcurrencyLimit403NilSettingUsesShortCooldown(",
+        "func TestHandle403_KimiConcurrencyLimit403UsesConfigured429Cooldown(",
+        "func TestHandle403_KimiConcurrencyLimit403DisabledCooldownSkipsTemp(",
+        "func TestHandle403_KimiConcurrencyLimit403QuotaExhaustedStaysLongCooldown("
+      ],
+      "rationale": "Keep the nil-setting 5-second cooldown, configured 12-second cooldown, disabled skip, and quota-exhausted long-cooldown regressions for the Kimi concurrency 403."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "case antigravity.GeminiContentFilterFinishReason(normalized):\n\t\treturn \"refusal\""
+      ],
+      "rationale": "Gemini content-policy finish reasons map to Claude stop_reason refusal in the shared Messages, Chat, and Responses mapper."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/stream_transformer.go",
+      "must_contain": [
+        "else if GeminiContentFilterFinishReason(finishReason) {\n\t\tstopReason = \"refusal\""
+      ],
+      "rationale": "Antigravity streaming writes Claude stop_reason refusal for a content-policy finish reason when no tool call was emitted."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/response_transformer.go",
+      "must_contain": [
+        "else if GeminiContentFilterFinishReason(finishReason) {\n\t\tstopReason = \"refusal\""
+      ],
+      "rationale": "Antigravity non-streaming writes Claude stop_reason refusal for a content-policy finish reason when no tool call was emitted."
+    },
+    {
+      "path": "backend/internal/service/gemini_finish_reason_stop_reason_test.go",
+      "must_contain": [
+        "func TestMapGeminiFinishReasonToClaudeStopReason("
+      ],
+      "rationale": "Keep the Gemini finishReason to Claude stop_reason table, including content-policy refusal and non-policy end_turn."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/finish_reason_stop_reason_test.go",
+      "must_contain": [
+        "func TestStreamingProcessor_ContentFilterStopReason(",
+        "func TestNonStreamingProcessor_ContentFilterStopReason("
+      ],
+      "rationale": "Keep Antigravity streaming and non-streaming coverage that content-policy finish reasons become refusal unless a tool call already won."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "functionResponse[\"parts\"] = images"
+      ],
+      "must_not_contain": [
+        "parts = append(parts, toolImageParts...)"
+      ],
+      "rationale": "Claude tool_result images belong inside the owning functionResponse.parts. Restoring a sibling append in this upstream hotspot mis-attributes images whenever one turn has multiple tools."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/request_transformer.go",
+      "must_contain": [
+        "functionResponse.Parts = inlineParts"
+      ],
+      "must_not_contain": [
+        "parts = append(parts, extractToolResultInlineParts(block.Content)...)"
+      ],
+      "rationale": "Antigravity Claude conversion must nest each tool_result inlineData in that functionResponse. A merge that appends the images beside the response again still compiles."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_tool_result_image_test.go",
+      "must_contain": [
+        "func TestConvertClaudeMessages_ToolResultImagesEnterOwningFunctionResponse(",
+        "func TestConvertClaudeMessages_ToolResultWithoutImageOmitsParts(",
+        "func TestAntigravityToolResultImagesEnterOwningFunctionResponse(",
+        "func TestAntigravityToolResultWithoutImageOmitsParts("
+      ],
+      "rationale": "Keep single-tool, multi-tool, imageless tool_result, and plain-text ownership coverage for both Claude-to-Gemini converters."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/request_transformer_test.go",
+      "must_contain": [
+        "func TestTransformClaudeToGemini_ToolResultImagesReachUpstream(",
+        "userParts[0].FunctionResponse.Parts[0].InlineData"
+      ],
+      "rationale": "The Antigravity transform regression must keep tool_result images inside functionResponse.Parts instead of sibling parts."
     }
   ]
 }
