@@ -97,9 +97,15 @@
         "\"repository_bootstrapping\": \"repository_bootstrapping\",",
         "advisory = receipt.get(\"status\") == \"degraded\" and bool(reasons)",
         "if reasons == [\"repository_bootstrapping\"]:",
-        "healthy = receipt.get(\"status\") == \"ok\" and not reasons"
+        "healthy = receipt.get(\"status\") == \"ok\" and not reasons",
+        "jobs = [\"tokenkey-disk-metrics\"] + list(domestic.get(\"local_qa_jobs\", []))",
+        "elif node_role == \"cn-prod\":",
+        "\"tokenkey-cn-postgres-backup\": (3 * 3600, 3670),",
+        "\"tokenkey-cn-postgres-archive-check\": (15 * 60, 300),",
+        "\"tokenkey-qa-archive\": (9 * 3600, 1800),",
+        "\"tokenkey-node1-db-mirror\": (9 * 3600, 5400),"
       ],
-      "rationale": "Prod and domestic health probes retain two-failure alerting and observer attribution. physical_backup_fact keeps its advisory band gated on per-reason evidence: a bootstrapping non-primary repository is a warning, while a degraded receipt without evidence stays a fault."
+      "rationale": "Prod and domestic health probes retain two-failure alerting and observer attribution. physical_backup_fact keeps its advisory band gated on per-reason evidence: a bootstrapping non-primary repository is a warning, while a degraded receipt without evidence stays a fault. Coverage anchors added 2026-11-03 after three live blind spots: (1) cn-prod's job list must come from domestic local_qa_jobs, not a hardcoded single entry that predated tokenkey-qa-archive; (2) the pgBackRest auto-discovery must branch on cn-prod as well as prod — gating on node == \"prod\" alone left cn-prod's own backup/archive-check/recovery unwatched while archive_check.json existed there; (3) the cn- prefixed unit names and the qa-archive / node1-db-mirror limits are the only registration these jobs have, and node1_alert.py reads the same table so both alert paths share one definition of healthy. Deleting any of them returns a running backup path to silence."
     },
     {
       "path": "ops/observability/install-host-https-watch.sh",
@@ -124,9 +130,14 @@
         "def test_bootstrapping_repository_is_advisory_not_a_fault(",
         "def test_bootstrap_reason_without_its_evidence_stays_a_fault(",
         "def test_check_command_failure_is_a_hard_fault_not_an_advisory(",
-        "def test_wal_archive_failing_is_a_hard_fault_with_its_reason_visible("
+        "def test_wal_archive_failing_is_a_hard_fault_with_its_reason_visible(",
+        "def test_archive_is_registered_with_a_cadence_matching_its_timer(",
+        "def test_both_hosts_configure_the_archive_job(",
+        "def test_cn_prod_jobs_come_from_its_own_config_not_a_hardcoded_list(",
+        "def test_cn_prod_units_carry_their_own_cn_prefixed_names(",
+        "def test_auto_discovery_covers_cn_prod_when_archive_check_exists("
       ],
-      "rationale": "Keep executable coverage, body validation, alert/recovery and retry regressions in the existing host watch test owner. Prod disk-metrics stays an active watched job. Bootstrap advisory and its evidence-forgery guard stay executable."
+      "rationale": "Keep executable coverage, body validation, alert/recovery and retry regressions in the existing host watch test owner. Prod disk-metrics stays an active watched job. Bootstrap advisory and its evidence-forgery guard stay executable. The 2026-11-03 coverage cases are what make the blind spots regressions rather than opinions: qa-archive registered on both hosts with a cadence tolerating one missed run, cn-prod's job list sourced from its own config, and the pgBackRest auto-discovery reaching cn-prod while still gated on the evidence file."
     },
     {
       "path": "deploy/aws/stage0/tokenkey-pgdump.sh",

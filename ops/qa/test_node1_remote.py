@@ -11,6 +11,7 @@ import json
 import pathlib
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -401,19 +402,89 @@ class PushHourTest(unittest.TestCase):
         self.assertIn("emergency", str(caught.exception))
         self.assertEqual(pushed, [], "no stream may start once capacity is refused")
 
-    def test_an_existing_valid_receipt_short_circuits(self) -> None:
+    def test_a_receipt_matching_node1_short_circuits(self) -> None:
+        import contextlib
+        digest = "b" * 64
+        with contextlib.ExitStack() as stack:
+            source, receipts = self._arena(stack)
+            archive.atomic_json(archive.receipt_path(receipts, "prod", HOUR),
+                                {"schema_version": archive.SCHEMA, "ok": True,
+                                 "file_count": 2, "total_bytes": 9,
+                                 "manifest_sha256": digest})
+            pushed = []
+            stack.enter_context(mock.patch.object(
+                archive.node1_remote, "remote_manifest_digest", return_value=digest))
+            stack.enter_context(mock.patch.object(archive.node1_remote, "push_directory",
+                                                  side_effect=lambda *a, **k: pushed.append(1)))
+            result = archive.push_hour(source, receipts, "prod", HOUR, self._remote())
+        self.assertTrue(result["already_completed"])
+        self.assertEqual(pushed, [], "an hour node1 really holds must not be re-pushed")
+
+    def test_a_receipt_without_node1_data_is_repushed(self) -> None:
+        # The live failure: prod 07:00 and 08:00 carried receipts written by an
+        # earlier local-copy run while node1 held nothing, so cleanup blocked
+        # them forever and this path skipped them as done.
         import contextlib
         with contextlib.ExitStack() as stack:
             source, receipts = self._arena(stack)
             archive.atomic_json(archive.receipt_path(receipts, "prod", HOUR),
                                 {"schema_version": archive.SCHEMA, "ok": True,
-                                 "file_count": 2, "total_bytes": 9})
+                                 "file_count": 2, "total_bytes": 9,
+                                 "manifest_sha256": "c" * 64})
+            stack.enter_context(mock.patch.object(
+                archive.node1_remote, "remote_manifest_digest", return_value=""))
+            stack.enter_context(mock.patch.object(
+                archive.node1_remote, "remote_capacity",
+                return_value={"total_bytes": 10 << 40, "free_bytes": 9 << 40,
+                              "qa_used_bytes": 0}))
             pushed = []
+
+            def fake_push(staging, **kwargs):
+                pushed.append(staging)
+                manifest = json.loads((staging / "manifest.json").read_text())
+                return {"manifest_sha256": archive.sha256_file(staging / "manifest.json")[0],
+                        "file_count": manifest["file_count"],
+                        "total_bytes": sum(e["bytes"] for e in manifest["files"]),
+                        "already_present": False}
+
             stack.enter_context(mock.patch.object(archive.node1_remote, "push_directory",
-                                                  side_effect=lambda *a, **k: pushed.append(1)))
+                                                  side_effect=fake_push))
             result = archive.push_hour(source, receipts, "prod", HOUR, self._remote())
-        self.assertTrue(result["already_completed"])
-        self.assertEqual(pushed, [], "an archived hour must not be re-pushed")
+        self.assertEqual(len(pushed), 1, "an hour node1 lacks must be re-pushed")
+        self.assertNotIn("already_completed", result)
+        self.assertEqual(result["repushed_because"],
+                         "node1 holds no manifest for this hour")
+
+    def test_a_digest_mismatch_is_repushed(self) -> None:
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            source, receipts = self._arena(stack)
+            archive.atomic_json(archive.receipt_path(receipts, "prod", HOUR),
+                                {"schema_version": archive.SCHEMA, "ok": True,
+                                 "file_count": 2, "total_bytes": 9,
+                                 "manifest_sha256": "c" * 64})
+            stack.enter_context(mock.patch.object(
+                archive.node1_remote, "remote_manifest_digest", return_value="d" * 64))
+            stack.enter_context(mock.patch.object(
+                archive.node1_remote, "remote_capacity",
+                return_value={"total_bytes": 10 << 40, "free_bytes": 9 << 40,
+                              "qa_used_bytes": 0}))
+            pushed = []
+
+            def fake_push(staging, **kwargs):
+                pushed.append(staging)
+                manifest = json.loads((staging / "manifest.json").read_text())
+                return {"manifest_sha256": archive.sha256_file(staging / "manifest.json")[0],
+                        "file_count": manifest["file_count"],
+                        "total_bytes": sum(e["bytes"] for e in manifest["files"]),
+                        "already_present": False}
+
+            stack.enter_context(mock.patch.object(archive.node1_remote, "push_directory",
+                                                  side_effect=fake_push))
+            result = archive.push_hour(source, receipts, "prod", HOUR, self._remote())
+        self.assertEqual(len(pushed), 1)
+        self.assertEqual(result["repushed_because"],
+                         "node1 manifest digest does not match the local receipt")
 
 
 if __name__ == "__main__":
@@ -657,3 +728,227 @@ class BackwardCompatibilityTest(unittest.TestCase):
         self.assertEqual(host.DEFAULT_REMOTE_JUMP, "root@180.76.181.161")
         self.assertEqual(str(host.DEFAULT_REMOTE_KEY), "/etc/tokenkey/node1-archive.key")
         self.assertEqual(host.DEFAULT_REMOTE_ROOT, "/storage/tokenkey-archive")
+
+
+class ReceiptIsNotEvidenceTest(unittest.TestCase):
+    """A local receipt claims an archive; node1 holding it is the proof.
+
+    On 2026-11-02 an earlier local-copy run wrote valid receipts for prod
+    07:00 and 08:00 with correct file counts and manifest digests, but the
+    payload never reached node1. The cleanup gate then blocked those hours
+    forever while this path skipped them as already done -- 12,468 files stuck
+    with one copy and a recurring page. 31 of 44 prod receipts share that
+    provenance.
+    """
+
+    def setUp(self) -> None:
+        self.archive = _load("node1_archive")
+        self.source = (HERE / "node1_archive.py").read_text()
+
+    def test_remote_path_verifies_node1_before_skipping(self) -> None:
+        push = self.source[self.source.index("def push_hour"):]
+        push = push[:push.index("\ndef ", 1)]
+        self.assertIn("remote_manifest_digest", push,
+                      "push_hour must read the digest back from node1 before "
+                      "trusting a local receipt")
+        skip = push[push.index("if receipt.exists():"):push.index("required_bytes")]
+        self.assertIn("remote_digest and remote_digest == existing.get", skip,
+                      "the skip must require a digest match, not just a receipt")
+
+    def test_a_mismatched_digest_triggers_a_repush(self) -> None:
+        push = self.source[self.source.index("def push_hour"):]
+        push = push[:push.index("\ndef ", 1)]
+        self.assertIn("node1 holds no manifest for this hour", push)
+        self.assertIn("node1 manifest digest does not match the local receipt", push)
+        self.assertIn("repushed_because", push,
+                      "the published receipt must record why it was re-pushed")
+
+    def test_an_unparseable_receipt_still_fails_loudly(self) -> None:
+        push = self.source[self.source.index("def push_hour"):]
+        push = push[:push.index("\ndef ", 1)]
+        self.assertIn("existing node1 receipt is invalid", push)
+
+
+class RemoteManifestDigestTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.remote = _load("node1_remote")
+
+    def _run(self, stdout: str, returncode: int = 0):
+        completed = type("R", (), {"stdout": stdout, "stderr": "", "returncode": returncode})()
+        return mock.patch.object(self.remote.subprocess, "run", return_value=completed)
+
+    def test_absent_manifest_reports_empty(self) -> None:
+        with self._run("ABSENT\n"):
+            digest = self.remote.remote_manifest_digest(
+                Path("/k"), "j", "t", "/storage/tokenkey-archive/qa-raw/prod/2026/11/02/07")
+        self.assertEqual(digest, "")
+
+    def test_a_present_manifest_returns_its_digest(self) -> None:
+        expected = "a" * 64
+        with self._run(expected + "\n"):
+            self.assertEqual(
+                self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d"), expected)
+
+    def test_garbage_output_is_refused(self) -> None:
+        # Treating unparseable output as "absent" would trigger an endless
+        # re-push; treating it as a match would skip a missing hour.
+        for bad in ("not-a-digest", "a" * 63, "z" * 64, ""):
+            with self.subTest(out=bad), self._run(bad + "\n"):
+                with self.assertRaises(self.remote.RemoteError):
+                    self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d")
+
+    def test_a_failed_probe_raises(self) -> None:
+        with self._run("", returncode=255):
+            with self.assertRaises(self.remote.RemoteError):
+                self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d")
+
+    def test_the_probe_only_reads(self) -> None:
+        source = (HERE / "node1_remote.py").read_text()
+        probe = source[source.index("def remote_manifest_digest"):]
+        probe = probe[:probe.index("\ndef ", 1)]
+        script = probe[probe.index("script = ("):probe.index("command = ")]
+        for mutating in ("rm ", "mv ", "tar -x", "mkdir", "touch", ">>", "> "):
+            with self.subTest(op=mutating):
+                self.assertNotIn(mutating, script)
+
+
+class ReceiptReadabilityTest(unittest.TestCase):
+    """The gate runs as uid 1000 in a container; a 0600 root receipt is invisible.
+
+    On prod the gate reported "permission denied" for every hour it checked --
+    all 44 receipts were mode 600 owned by root, written by the root archive
+    process, while the cleanup container runs --user 1000:1000 with the tree
+    mounted read-only. The gate had never actually read a receipt; it was
+    blocking on the manifest check alone.
+    """
+
+    def setUp(self) -> None:
+        self.archive = _load("node1_archive")
+
+    def test_a_new_receipt_is_group_and_other_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            target = pathlib.Path(root) / "prod" / "2026" / "11" / "02" / "07.json"
+            self.archive.atomic_json(target, {"ok": True})
+            mode = target.stat().st_mode & 0o777
+            self.assertTrue(mode & 0o044, f"receipt mode {oct(mode)} is unreadable to the gate")
+
+    def test_receipt_directories_are_traversable(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            target = pathlib.Path(root) / "prod" / "2026" / "11" / "02" / "07.json"
+            self.archive.atomic_json(target, {"ok": True})
+            for parent in (target.parent, target.parent.parent):
+                mode = parent.stat().st_mode & 0o777
+                self.assertTrue(mode & 0o055,
+                                f"{parent} mode {oct(mode)} blocks traversal")
+
+    def test_existing_unreadable_receipts_are_repaired(self) -> None:
+        # The 44 receipts already on disk were written before this fix.
+        with tempfile.TemporaryDirectory() as root:
+            receipts = pathlib.Path(root) / "receipts"
+            old = receipts / "prod" / "2026" / "11" / "02" / "07.json"
+            old.parent.mkdir(parents=True)
+            old.write_text('{"ok": true}')
+            old.chmod(0o600)
+            old.parent.chmod(0o700)
+            self.archive.ensure_readable_tree(receipts)
+            self.assertTrue(old.stat().st_mode & 0o044,
+                            "an existing receipt must be made readable")
+            self.assertTrue(old.parent.stat().st_mode & 0o055,
+                            "an existing directory must be made traversable")
+
+    def test_the_repair_runs_at_the_end_of_every_archive_run(self) -> None:
+        # Calling ensure_readable_tree in a test proves the function works, not
+        # that anything invokes it. Without this, deleting the call from main()
+        # left the suite green while the 44 existing receipts stayed invisible.
+        import ast
+        source = (HERE / "node1_archive.py").read_text()
+        # main() only parses arguments; run() holds the archive flow.
+        run = next(node for node in ast.walk(ast.parse(source))
+                   if isinstance(node, ast.FunctionDef) and node.name == "run")
+        body = ast.unparse(run)
+        self.assertIn("ensure_readable_tree", body,
+                      "run() must repair receipt permissions after each archive pass")
+        self.assertLess(body.index("atomic_json(node1"), body.index("ensure_readable_tree"),
+                        "repair must follow the last receipt write")
+
+    def test_repair_leaves_non_json_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            receipts = pathlib.Path(root) / "receipts"
+            receipts.mkdir()
+            secret = receipts / "key.pem"
+            secret.write_text("x")
+            secret.chmod(0o600)
+            self.archive.ensure_readable_tree(receipts)
+            self.assertEqual(secret.stat().st_mode & 0o777, 0o600,
+                             "only receipts are widened, never other files")
+
+
+class ManifestProbeRetryTest(unittest.TestCase):
+    """A jump-host reset must not turn a good hour into a failed one.
+
+    cn-prod's archive reported 23 completed / 1 failed on 2026-11-03 solely
+    because one manifest probe hit "kex_exchange_identification: read:
+    Connection reset by peer". That also made the whole unit exit 2, so the
+    newly-added qa-archive monitor immediately flagged it as failed.
+    """
+
+    def setUp(self) -> None:
+        self.remote = _load("node1_remote")
+
+    def _results(self, *sequence):
+        made = []
+        for code, out in sequence:
+            made.append(type("R", (), {"stdout": out, "stderr": "", "returncode": code})())
+        return made
+
+    def test_a_transient_reset_is_retried_and_succeeds(self) -> None:
+        digest = "a" * 64
+        attempts = self._results((255, ""), (0, digest + "\n"))
+        with mock.patch.object(self.remote.subprocess, "run", side_effect=attempts), \
+             mock.patch.object(self.remote.time, "sleep"):
+            self.assertEqual(
+                self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d"), digest)
+
+    def test_a_persistent_failure_still_raises_after_retries(self) -> None:
+        attempts = self._results((255, ""), (255, ""), (255, ""))
+        with mock.patch.object(self.remote.subprocess, "run", side_effect=attempts), \
+             mock.patch.object(self.remote.time, "sleep"):
+            with self.assertRaises(self.remote.RemoteError) as caught:
+                self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d")
+        self.assertIn("after 3 attempts", str(caught.exception))
+
+    def test_a_first_attempt_success_makes_no_further_calls(self) -> None:
+        digest = "b" * 64
+        calls = []
+
+        def once(*args, **kwargs):
+            calls.append(1)
+            return type("R", (), {"stdout": digest + "\n", "stderr": "", "returncode": 0})()
+
+        with mock.patch.object(self.remote.subprocess, "run", side_effect=once), \
+             mock.patch.object(self.remote.time, "sleep"):
+            self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d")
+        self.assertEqual(len(calls), 1, "a healthy probe must not retry")
+
+    def test_retries_back_off_rather_than_hammering(self) -> None:
+        slept = []
+        attempts = self._results((255, ""), (255, ""), (0, "c" * 64 + "\n"))
+        with mock.patch.object(self.remote.subprocess, "run", side_effect=attempts), \
+             mock.patch.object(self.remote.time, "sleep", side_effect=slept.append):
+            self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d")
+        self.assertEqual(slept, [2, 4], "backoff must grow between attempts")
+
+    def test_an_absent_manifest_is_not_retried_as_a_failure(self) -> None:
+        # ABSENT is a successful answer meaning "node1 does not have it", not
+        # a transport error; retrying it would triple every re-push decision.
+        calls = []
+
+        def absent(*args, **kwargs):
+            calls.append(1)
+            return type("R", (), {"stdout": "ABSENT\n", "stderr": "", "returncode": 0})()
+
+        with mock.patch.object(self.remote.subprocess, "run", side_effect=absent), \
+             mock.patch.object(self.remote.time, "sleep"):
+            self.assertEqual(
+                self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d"), "")
+        self.assertEqual(len(calls), 1)
