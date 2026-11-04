@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -60,14 +59,28 @@ func TestMigrationTK108RefreshesKiroCLITLSProfile(t *testing.T) {
 	}
 }
 
+func canonicalKiroProfilePath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		candidate := filepath.Join(dir, "deploy", "aws", "stage0", "tk_canonical_kiro_cli.json")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("tk_canonical_kiro_cli.json not found from the test working directory")
+		}
+		dir = parent
+	}
+}
+
 func loadCanonicalKiroProfile(t *testing.T) map[string]any {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	path := filepath.Join(filepath.Dir(file), "..", "..", "deploy", "aws", "stage0", "tk_canonical_kiro_cli.json")
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(canonicalKiroProfilePath(t))
 	if err != nil {
 		t.Fatal(err)
 	}
