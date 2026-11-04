@@ -363,16 +363,18 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// rebuilds through buildUpstreamRequest. Neither path strips before the
 	// first send, and a second failure is not retried.
 	var resp *http.Response
+retryLoop:
 	for attempt := 0; ; attempt++ {
 		if attempt > 0 {
-			if account.Platform == PlatformGrok {
+			switch account.Platform {
+			case PlatformGrok:
 				upstreamCtxRetry, releaseRetry := detachUpstreamContext(ctx)
 				upstreamReq, err = buildGrokResponsesRequestForAccount(upstreamCtxRetry, c, account, grokTargetURL, responsesBody, token, grokCacheIdentity)
 				releaseRetry()
 				if err != nil {
 					return nil, fmt.Errorf("build grok retry request: %w", err)
 				}
-			} else if account.Platform == PlatformOpenAI {
+			case PlatformOpenAI:
 				upstreamCtxRetry, releaseRetry := detachUpstreamContext(ctx)
 				upstreamReq, err = s.buildUpstreamRequest(upstreamCtxRetry, c, account, responsesBody, token, isStream, promptCacheKey, false)
 				releaseRetry()
@@ -380,8 +382,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 					return nil, fmt.Errorf("build openai invalid encrypted_content retry request: %w", err)
 				}
 				tkApplyAnthropicMessagesUpstreamHeaders(c, account, upstreamReq, promptCacheKey, apiKeyID, compatTurnState)
-			} else {
-				break
+			default:
+				break retryLoop
 			}
 		}
 		setAnthropicStreamModel(c, originalModel)
