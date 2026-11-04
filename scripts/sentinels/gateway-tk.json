@@ -18569,6 +18569,44 @@
         "本卡不改变账号状态"
       ],
       "rationale": "Advisory backstop for upstream 400s that the standing-billing SSOT phrase list misses (prod 2026-11-02 Volc AgentPlan expiry: ~8.5k identical 400s, 0 alerts). Alert-only by design: 400 must never auto-penalise an account (#617)."
+    },
+    {
+      "path": "backend/internal/service/google_generic_403_request_tk.go",
+      "must_contain": [
+        "func (s *RateLimitService) tryGoogleGeneric403RequestScope(",
+        "case strings.Contains(lower, \"iam.gserviceaccount.com\"):"
+      ],
+      "rationale": "Gemini/Antigravity generic 403 is request-scoped: the first distinct account may fail over without SetError, the second stops rotation, and account-owned faults including IAM stay on the permanent path."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "if handled, allowFailover := s.tryGoogleGeneric403RequestScope(ctx, account, responseBody); handled {"
+      ],
+      "rationale": "Antigravity 403 must consult the request-scoped generic-403 tracker before the historical permanent disable."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_handle403.go",
+      "must_contain": [
+        "if handled, allowFailover := s.tryGoogleGeneric403RequestScope(ctx, account, responseBody); handled {"
+      ],
+      "rationale": "Non-OpenAI Gemini 403 must use the same request-scoped tracker as Antigravity."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "ctx = bindGoogleGeneric403Request(c, ctx)"
+      ],
+      "rationale": "Messages compat must install the two-strike tracker before the first Gemini account is used."
+    },
+    {
+      "path": "backend/internal/service/google_generic_403_request_tk_test.go",
+      "must_contain": [
+        "func TestRateLimitService_HandleUpstreamError_GeminiGeneric403SameRequestTwoAccountsNoSetErrorSecondStopsFailover(",
+        "func TestRateLimitService_HandleUpstreamError_GeminiAccountOwned403WithRequestMarkStillSetError(",
+        "func TestRateLimitService_HandleUpstreamError_GeminiGeneric403WithoutRequestMarkStillSetError("
+      ],
+      "rationale": "Keep the two-strike, account-owned IAM/suspension, and unmarked-request permanent-disable regressions."
     }
   ]
 }
