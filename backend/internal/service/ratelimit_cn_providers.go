@@ -93,7 +93,13 @@ func (s *RateLimitService) handleCNProviderConcurrencyLimit403(
 	ctx context.Context,
 	account *Account,
 ) {
-	until := time.Now().Add(time.Duration(openAI403CooldownMinutesDefault) * time.Minute)
+	// 精确并发文案是可恢复的瞬时限制，时长复用 429 短冷却。
+	// 禁用或时长非正时不写停调、不 SetError，由 handle403 继续换号。
+	cooldown, enabled := s.get429FallbackCooldown(ctx, account)
+	if !enabled || cooldown <= 0 {
+		return
+	}
+	until := time.Now().Add(cooldown)
 	s.setCNProviderTempUnschedulable(ctx, account, until,
 		cnConcurrencyLimitReasonPrefix, cnConcurrencyLimitReasonPrefix+": "+kimiConcurrentRequestLimitMessage,
 		"cn_provider_concurrency_limited")
