@@ -18712,6 +18712,42 @@
         "func TestHandle403_KimiConcurrencyLimit403QuotaExhaustedStaysLongCooldown("
       ],
       "rationale": "Keep the nil-setting 5-second cooldown, configured 12-second cooldown, disabled skip, and quota-exhausted long-cooldown regressions for the Kimi concurrency 403."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "case antigravity.GeminiContentFilterFinishReason(normalized):\n\t\treturn \"refusal\""
+      ],
+      "rationale": "Gemini content-policy finish reasons map to Claude stop_reason refusal in the shared Messages, Chat, and Responses mapper."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/stream_transformer.go",
+      "must_contain": [
+        "else if GeminiContentFilterFinishReason(finishReason) {\n\t\tstopReason = \"refusal\""
+      ],
+      "rationale": "Antigravity streaming writes Claude stop_reason refusal for a content-policy finish reason when no tool call was emitted."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/response_transformer.go",
+      "must_contain": [
+        "else if GeminiContentFilterFinishReason(finishReason) {\n\t\tstopReason = \"refusal\""
+      ],
+      "rationale": "Antigravity non-streaming writes Claude stop_reason refusal for a content-policy finish reason when no tool call was emitted."
+    },
+    {
+      "path": "backend/internal/service/gemini_finish_reason_stop_reason_test.go",
+      "must_contain": [
+        "func TestMapGeminiFinishReasonToClaudeStopReason("
+      ],
+      "rationale": "Keep the Gemini finishReason to Claude stop_reason table, including content-policy refusal and non-policy end_turn."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/finish_reason_stop_reason_test.go",
+      "must_contain": [
+        "func TestStreamingProcessor_ContentFilterStopReason(",
+        "func TestNonStreamingProcessor_ContentFilterStopReason("
+      ],
+      "rationale": "Keep Antigravity streaming and non-streaming coverage that content-policy finish reasons become refusal unless a tool call already won."
     }
   ]
 }
