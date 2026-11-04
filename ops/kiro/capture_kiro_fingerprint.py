@@ -343,7 +343,7 @@ def committed_http_identity(path: Path = KIRO_HTTP_OWNER_GO) -> dict[str, str] |
         fields[symbol] = matches[0]
     base = (
         f"aws-sdk-rust/{fields['kiroCLISDKVersion']} ua/2.1"
-        f" api/codewhispererruntime/{fields['kiroCLIAPIVersion']}"
+        f" api/codewhispererstreaming/{fields['kiroCLIAPIVersion']}"
         f" os/macos lang/rust/{fields['kiroCLIRustVersion']}"
     )
     return {

@@ -7,15 +7,16 @@ package kiro
 const DefaultKiroAccountPriority = 10
 
 // DefaultKiroCLIVersion is the sole Kiro client release owner. The HTTP identity
-// below is captured from the installed kiro-cli binary; do not infer any segment
-// from release metadata alone.
-const DefaultKiroCLIVersion = "2.37.0"
+// below is the User-Agent observed on
+// AmazonCodeWhispererStreamingService.GenerateAssistantResponse from logged-in
+// kiro-cli 3.0.0; do not infer any segment from release metadata alone.
+const DefaultKiroCLIVersion = "3.0.0"
 
 const (
-	kiroCLISDKVersion    = "1.3.10"
-	kiroCLIAPIVersion    = "0.1.10231"
+	kiroCLISDKVersion    = "1.6.0"
+	kiroCLIAPIVersion    = "0.1.19636"
 	kiroCLIRustVersion   = "1.94.1"
-	kiroCLIUserAgentBase = "aws-sdk-rust/" + kiroCLISDKVersion + " ua/2.1 api/codewhispererruntime/" + kiroCLIAPIVersion + " os/macos lang/rust/" + kiroCLIRustVersion
+	kiroCLIUserAgentBase = "aws-sdk-rust/" + kiroCLISDKVersion + " ua/2.1 api/codewhispererstreaming/" + kiroCLIAPIVersion + " os/macos lang/rust/" + kiroCLIRustVersion
 	KiroCLIUserAgent     = kiroCLIUserAgentBase + " md/appVersion-" + DefaultKiroCLIVersion + " app/AmazonQ-For-CLI"
 	KiroCLIAmzUserAgent  = kiroCLIUserAgentBase + " m/F app/AmazonQ-For-CLI"
 )
