@@ -36,6 +36,30 @@ func (m *mockTempUnscheduler) TempUnscheduleRetryableError(_ context.Context, ac
 	m.calls = append(m.calls, tempUnscheduleCall{accountID: accountID, failoverErr: failoverErr})
 }
 
+func TestSameAccountRetryDelayIgnoresCapacityRetryAfterBody(t *testing.T) {
+	body := []byte(`{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"overloaded","headers":{"retry-after":"309"}}}}`)
+	err := &service.UpstreamFailoverError{
+		StatusCode:             http.StatusServiceUnavailable,
+		ResponseBody:           body,
+		RetryableOnSameAccount: true,
+		RequestScopedTransient: true,
+	}
+	var slept []time.Duration
+	fs := newFailoverState(3, false, func(_ context.Context, delay time.Duration) bool {
+		slept = append(slept, delay)
+		return true
+	})
+	fs.SameAccountRetryCount[7] = 9
+
+	start := time.Now()
+	action := fs.HandleFailoverError(context.Background(), &mockTempUnscheduler{}, 7, "openai", 20, err)
+	elapsed := time.Since(start)
+
+	require.Equal(t, FailoverContinue, action)
+	require.Equal(t, []time.Duration{maxRequestScopedRetryDelay}, slept)
+	require.Less(t, elapsed, 200*time.Millisecond, "the request path must not sleep the 309s Retry-After")
+}
+
 func TestSameAccountRetryDelayFor(t *testing.T) {
 	capacityErr := &service.UpstreamFailoverError{RequestScopedTransient: true}
 

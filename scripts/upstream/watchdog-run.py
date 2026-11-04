@@ -181,6 +181,7 @@ def seed_published(source, checkpoint, target_repo, issue_number, api=gh, period
     for comment in comments:
         for _checked, _text, ref, signature, status, updated in queue.RECORD.findall(
                 comment.get("body") or ""):
+            ref = queue.canonical_ref(ref)
             delivered[ref] = [signature, status, updated]
             intel[ref] = [signature, period]
     previous = engine.load_json(checkpoint) if checkpoint.exists() else {}

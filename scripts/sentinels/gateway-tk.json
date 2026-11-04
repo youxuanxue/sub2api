@@ -823,7 +823,7 @@
         "def trusted_authors(",
         "watchdog-tracking:v1",
         "watchdog-day:",
-        "RECORD.sub(lambda m: \"\" if m[3] in resolved else m[0]",
+        "RECORD.sub(lambda m: \"\" if canonical_ref(m[3]) in resolved else m[0]",
         "retired = resolved | manual",
         "Never seed a checkbox",
         "published=None",
@@ -8276,7 +8276,7 @@
     {
       "path": "backend/internal/service/openai_gateway_passthrough.go",
       "must_contain": [
-        "return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)",
+        "if s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...) {",
         "if shouldDisable && statusCode == http.StatusServiceUnavailable {",
         "failoverErr.RetryableOnSameAccount = false",
         "failoverErr.RequestScopedTransient = false"
@@ -9441,7 +9441,7 @@
       "must_contain": [
         "case http.StatusServiceUnavailable:",
         "s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, \"stream_capacity\")",
-        "return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)"
+        "if s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...) {"
       ],
       "rationale": "Stream terminal ServiceUnavailable (response.failed overloaded) must feed the same maybeRecordOpenAICapacitySaturation SSOT as HTTP 503 before the optional model-scoped stream-capacity rule. Failover may be blocked once client output is committed, but the selected account still soft-deprioritizes for the next request."
     },
@@ -18590,11 +18590,57 @@
       "rationale": "Outbound Gemini cleanup drops only part objects with no fields. A thoughtSignature or any other real field keeps the part."
     },
     {
+      "path": "backend/internal/service/openai_stream_credit_exhausted_tk.go",
+      "must_contain": [
+        "func openAIStreamExplicitCreditExhausted(payload []byte) bool {",
+        "account.Type != AccountTypeAPIKey"
+      ],
+      "rationale": "Stream credit exhaustion matches only error-object code/type, and only API-key accounts are permanently disabled."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "return statusCode, s.applyOpenAIStreamCreditExhaustedSideEffects(c, account, payload)"
+      ],
+      "rationale": "HTTP 200 SSE payment-required must take its own side-effect path and must not fall through into the 403 account-disable case."
+    },
+    {
+      "path": "backend/internal/service/openai_stream_credit_exhausted_tk_test.go",
+      "must_contain": [
+        "func TestOpenAIStreamCreditExhausted_OAuthAndSetupTokenDoNotSetError(",
+        "func TestOpenAIStreamCreditExhausted_WrittenBodyUpdatesAccountWithoutReplay("
+      ],
+      "rationale": "OAuth and setup-token still fail over without SetError, and a body already written to the client is not replayed."
+    },
+    {
+      "path": "backend/internal/service/google_generic_403_request_tk.go",
+      "must_contain": [
+        "func (s *RateLimitService) tryGoogleGeneric403RequestScope(",
+        "case strings.Contains(lower, \"iam.gserviceaccount.com\"):"
+      ],
+      "rationale": "Gemini/Antigravity generic 403 is request-scoped: the first distinct account may fail over without SetError, the second stops rotation, and account-owned faults including IAM stay on the permanent path."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "if handled, allowFailover := s.tryGoogleGeneric403RequestScope(ctx, account, responseBody); handled {"
+      ],
+      "rationale": "Antigravity 403 must consult the request-scoped generic-403 tracker before the historical permanent disable."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_handle403.go",
+      "must_contain": [
+        "if handled, allowFailover := s.tryGoogleGeneric403RequestScope(ctx, account, responseBody); handled {"
+      ],
+      "rationale": "Non-OpenAI Gemini 403 must use the same request-scoped tracker as Antigravity."
+    },
+    {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
-        "filterEmptyPartsFromGeminiRequest(geminiReq)"
+        "filterEmptyPartsFromGeminiRequest(geminiReq)",
+        "ctx = bindGoogleGeneric403Request(c, ctx)"
       ],
-      "rationale": "Messages compat must strip empty Gemini parts before the request leaves TokenKey."
+      "rationale": "Messages compat must strip empty Gemini parts before the request leaves TokenKey, and must install the two-strike generic-403 tracker before the first Gemini account is used."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_gemini.go",
@@ -18610,6 +18656,15 @@
         "func TestGeminiOutbound_KeepsRealFieldsThatLookEmpty("
       ],
       "rationale": "Empty systemInstruction parts are removed, and thoughtSignature-only parts stay."
+    },
+    {
+      "path": "backend/internal/service/google_generic_403_request_tk_test.go",
+      "must_contain": [
+        "func TestRateLimitService_HandleUpstreamError_GeminiGeneric403SameRequestTwoAccountsNoSetErrorSecondStopsFailover(",
+        "func TestRateLimitService_HandleUpstreamError_GeminiAccountOwned403WithRequestMarkStillSetError(",
+        "func TestRateLimitService_HandleUpstreamError_GeminiGeneric403WithoutRequestMarkStillSetError("
+      ],
+      "rationale": "Keep the two-strike, account-owned IAM/suspension, and unmarked-request permanent-disable regressions."
     }
   ]
 }

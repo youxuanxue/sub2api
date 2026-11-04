@@ -46,6 +46,34 @@ func TestPrepareOpenAIWSHTTPBridgeBodyStripsWSFields(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestPrepareOpenAIWSHTTPBridgeBodyStripsReplayedOAuthInputMetadata(t *testing.T) {
+	const field = "internal_chat_message_metadata_passthrough"
+	// The second item is upstream output spliced into input by bridge replay.
+	payload := []byte(`{"type":"response.create","model":"gpt-5.4","previous_response_id":"resp_prev","input":[{"role":"user","type":"message","content":[{"type":"input_text","text":"hello","internal_chat_message_metadata_passthrough":{"keep":true}}],"internal_chat_message_metadata_passthrough":{"content_token_count":3}},{"role":"assistant","type":"message","content":[{"type":"output_text","text":"from-other-credential"}],"internal_chat_message_metadata_passthrough":{"content_token_count":9}}]}`)
+	oauth := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	body, err := prepareOpenAIWSHTTPBridgeBody(oauth, payload)
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(body, "input.0."+field).Exists())
+	require.False(t, gjson.GetBytes(body, "input.1."+field).Exists())
+	require.Equal(t, "user", gjson.GetBytes(body, "input.0.role").String())
+	require.Equal(t, "message", gjson.GetBytes(body, "input.0.type").String())
+	require.Equal(t, "hello", gjson.GetBytes(body, "input.0.content.0.text").String())
+	require.True(t, gjson.GetBytes(body, "input.0.content.0."+field+".keep").Bool())
+	require.Equal(t, "assistant", gjson.GetBytes(body, "input.1.role").String())
+	require.Equal(t, "message", gjson.GetBytes(body, "input.1.type").String())
+	require.Equal(t, "output_text", gjson.GetBytes(body, "input.1.content.0.type").String())
+	require.Equal(t, "from-other-credential", gjson.GetBytes(body, "input.1.content.0.text").String())
+
+	apiKeyBody, err := prepareOpenAIWSHTTPBridgeBody(&Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, payload)
+	require.NoError(t, err)
+	require.Equal(t, float64(3), gjson.GetBytes(apiKeyBody, "input.0."+field+".content_token_count").Float())
+	require.Equal(t, float64(9), gjson.GetBytes(apiKeyBody, "input.1."+field+".content_token_count").Float())
+	require.Equal(t, "user", gjson.GetBytes(apiKeyBody, "input.0.role").String())
+	require.Equal(t, "message", gjson.GetBytes(apiKeyBody, "input.1.type").String())
+	require.Equal(t, "from-other-credential", gjson.GetBytes(apiKeyBody, "input.1.content.0.text").String())
+}
+
 func TestPrepareOpenAIWSHTTPBridgeBodyStripsNoneReasoningForCompatibleEndpoint(t *testing.T) {
 	payload := []byte(`{"type":"response.create","model":"company-coding-model","reasoning":{"effort":"none"},"input":"hi"}`)
 	compatible := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{

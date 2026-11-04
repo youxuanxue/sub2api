@@ -171,6 +171,7 @@ func (s *AntigravityGatewayService) forwardAntigravityCompat(
 	account *Account,
 	request antigravityCompatRequest,
 ) (*ForwardResult, error) {
+	ctx = bindGoogleGeneric403Request(c, ctx)
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)
 	call, err := s.prepareAntigravityCompatCall(ctx, c, account, request)
@@ -477,6 +478,9 @@ func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
 		false,
 	)
 	message := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractAntigravityErrorMessage(body)))
+	if resp.StatusCode == http.StatusForbidden && googleGeneric403StopsFailover(ctx) {
+		return s.writeAntigravityUpstream403(c, account, resp.StatusCode, resp.Header.Get("x-request-id"), body)
+	}
 	googleSemantic := antigravityGatewayFailureSemantic(resp.StatusCode, body)
 	shouldFailover := s.shouldFailoverUpstreamError(resp.StatusCode)
 	if googleSemantic != gatewayFailureSemanticUnclassified {

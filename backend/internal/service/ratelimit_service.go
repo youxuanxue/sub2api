@@ -925,9 +925,11 @@ func buildForbiddenErrorMessage(prefix string, upstreamMsg string, responseBody 
 	return prefix + fallback
 }
 
-// handle403 处理 403 Forbidden 错误
-// Antigravity 平台区分 validation/violation/generic 三种类型，均 SetError 永久禁用；
-// 其他平台保持原有 SetError 行为。
+// handle403 处理 403 Forbidden 错误。
+// Antigravity validation 临时冷却，violation 永久禁用。
+// Gemini / Antigravity 的 generic 403 只在网关请求 context 上做两次判定：
+// 第一次不改账号状态并继续换号，第二个不同账号再 403 时两个都不 SetError 并停止换号。
+// 没有该标记的调用保持永久禁用。
 func (s *RateLimitService) handle403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
 	if account.Platform == PlatformAntigravity {
 		return s.handleAntigravity403(ctx, account, upstreamMsg, responseBody)
@@ -1046,7 +1048,8 @@ func isCloudflareBotBlockResponse(body []byte) bool {
 
 // handleAntigravity403 处理 Antigravity 平台的 403 错误。
 // validation 是 Google 的可恢复账号验证挑战，按 CLIProxyAPI 的凭证冷却
-// 语义临时停调；violation 和 generic 403 仍永久禁用。
+// 语义临时停调；violation 永久禁用。generic 在网关请求 context 上两次判定，
+// 没有该标记时仍永久禁用。
 func (s *RateLimitService) handleAntigravity403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
 	fbType := classifyForbiddenType(string(responseBody))
 
@@ -1082,7 +1085,9 @@ func (s *RateLimitService) handleAntigravity403(ctx context.Context, account *Ac
 		return true
 
 	default:
-		// 通用 403: 保持原有行为
+		if handled, allowFailover := s.tryGoogleGeneric403RequestScope(ctx, account, responseBody); handled {
+			return allowFailover
+		}
 		msg := buildForbiddenErrorMessage(
 			"Access forbidden (403):",
 			upstreamMsg,
