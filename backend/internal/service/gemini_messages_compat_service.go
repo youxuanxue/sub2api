@@ -3698,11 +3698,14 @@ func computeGeminiTextDelta(seen, incoming string) (delta, newSeen string) {
 }
 
 func mapGeminiFinishReasonToClaudeStopReason(finishReason string) string {
-	switch strings.ToUpper(strings.TrimSpace(finishReason)) {
-	case "MAX_TOKENS":
+	normalized := strings.ToUpper(strings.TrimSpace(finishReason))
+	switch {
+	case normalized == "MAX_TOKENS":
 		return "max_tokens"
-	case "STOP":
+	case normalized == "STOP":
 		return "end_turn"
+	case antigravity.GeminiContentFilterFinishReason(normalized):
+		return "refusal"
 	default:
 		return "end_turn"
 	}
