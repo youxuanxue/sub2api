@@ -2,7 +2,13 @@
 
 package kiro
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+)
 
 func TestKiroCLIIdentityMatchesObservedCapture(t *testing.T) {
 	const wantUA = "aws-sdk-rust/1.6.0 ua/2.1 api/codewhispererstreaming/0.1.19636 os/macos lang/rust/1.94.1 md/appVersion-3.0.0 app/AmazonQ-For-CLI"
@@ -12,5 +18,30 @@ func TestKiroCLIIdentityMatchesObservedCapture(t *testing.T) {
 	}
 	if KiroCLIAmzUserAgent != wantAmzUA {
 		t.Fatalf("unexpected Kiro CLI x-amz-user-agent:\n got: %s\nwant: %s", KiroCLIAmzUserAgent, wantAmzUA)
+	}
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	path := filepath.Join(filepath.Dir(file), "..", "..", "..", "..", "deploy", "aws", "stage0", "tk_canonical_kiro_cli.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var profile struct {
+		Observed struct {
+			UserAgent     string `json:"user_agent"`
+			XAmzUserAgent string `json:"x_amz_user_agent"`
+		} `json:"observed"`
+	}
+	if err := json.Unmarshal(raw, &profile); err != nil {
+		t.Fatal(err)
+	}
+	if profile.Observed.UserAgent != KiroCLIUserAgent {
+		t.Fatalf("canonical profile user_agent drifted from Go owner:\n got: %s\nwant: %s", profile.Observed.UserAgent, KiroCLIUserAgent)
+	}
+	if profile.Observed.XAmzUserAgent != KiroCLIAmzUserAgent {
+		t.Fatalf("canonical profile x_amz_user_agent drifted from Go owner:\n got: %s\nwant: %s", profile.Observed.XAmzUserAgent, KiroCLIAmzUserAgent)
 	}
 }

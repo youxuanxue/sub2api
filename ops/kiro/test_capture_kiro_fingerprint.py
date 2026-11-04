@@ -286,6 +286,51 @@ class BundleAndProfileTests(unittest.TestCase):
         self.assertEqual(eng.compute_bundle_exit_code(bundle, None), eng.EXIT_COMPLETE)
         self.assertTrue(eng.build_canonical_profile(bundle))
 
+    def test_committed_profile_and_migration_follow_the_go_owner(self):
+        profile = eng.load_committed_profile()
+        owner = eng.committed_http_identity()
+        self.assertEqual(profile["observed"]["user_agent"], owner["KiroCLIUserAgent"])
+        self.assertEqual(profile["observed"]["x_amz_user_agent"], owner["KiroCLIAmzUserAgent"])
+        self.assertIn("api/codewhispererstreaming/", owner["KiroCLIUserAgent"])
+        sql = (
+            eng.REPO_ROOT / "backend/migrations/tk_108_kiro_cli_tls_profile_refresh.sql"
+        ).read_text(encoding="utf-8")
+        digest = eng.runtime_profile_digest(profile)
+        self.assertIn(digest, sql)
+        self.assertNotIn(
+            "97340b4d2b32bb1ec8cb4d116794be8a69fa57dc525eeb1e7be724d9fec9deaa",
+            sql,
+        )
+        for field, value in eng.runtime_profile_projection(profile).items():
+            if isinstance(value, list):
+                self.assertIn(json.dumps(value, separators=(",", ":")), sql, field)
+
+    def test_committed_owner_reads_api_family_from_the_go_expression(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "constants.go"
+            path.write_text(
+                "\n".join((
+                    'const DefaultKiroCLIVersion = "9.9.9"',
+                    "const (",
+                    '\tkiroCLISDKVersion    = "8.8.8"',
+                    '\tkiroCLIAPIVersion    = "0.0.1"',
+                    '\tkiroCLIRustVersion   = "1.0.0"',
+                    '\tkiroCLIUserAgentBase = "aws-sdk-rust/" + kiroCLISDKVersion + " ua/2.1 api/otherfamily/" + kiroCLIAPIVersion + " os/macos lang/rust/" + kiroCLIRustVersion',
+                    '\tKiroCLIUserAgent     = kiroCLIUserAgentBase + " md/appVersion-" + DefaultKiroCLIVersion + " app/AmazonQ-For-CLI"',
+                    '\tKiroCLIAmzUserAgent  = kiroCLIUserAgentBase + " m/X app/AmazonQ-For-CLI"',
+                    ")",
+                    "",
+                )),
+                encoding="utf-8",
+            )
+            owner = eng.committed_http_identity(path)
+        self.assertEqual(
+            owner["KiroCLIUserAgent"],
+            "aws-sdk-rust/8.8.8 ua/2.1 api/otherfamily/0.0.1 os/macos lang/rust/1.0.0 md/appVersion-9.9.9 app/AmazonQ-For-CLI",
+        )
+        self.assertNotIn("codewhispererstreaming", owner["KiroCLIUserAgent"])
+        self.assertTrue(owner["KiroCLIAmzUserAgent"].endswith(" m/X app/AmazonQ-For-CLI"))
+
     def test_committed_owner_rejects_ambiguous_or_commented_declarations(self):
         """a commented-out or duplicated decl must not be read as the owner."""
         owner = eng.committed_http_identity()
