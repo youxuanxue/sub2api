@@ -341,16 +341,39 @@ def committed_http_identity(path: Path = KIRO_HTTP_OWNER_GO) -> dict[str, str] |
         if len(matches) != 1:
             return None
         fields[symbol] = matches[0]
-    base = (
-        f"aws-sdk-rust/{fields['kiroCLISDKVersion']} ua/2.1"
-        f" api/codewhispererruntime/{fields['kiroCLIAPIVersion']}"
-        f" os/macos lang/rust/{fields['kiroCLIRustVersion']}"
-    )
+    symbols = dict(fields)
+    for name in ("kiroCLIUserAgentBase", "KiroCLIUserAgent", "KiroCLIAmzUserAgent"):
+        value = _go_concat_value(text, name, symbols)
+        if value is None:
+            return None
+        symbols[name] = value
     return {
         **fields,
-        "KiroCLIUserAgent": f"{base} md/appVersion-{fields['DefaultKiroCLIVersion']} app/AmazonQ-For-CLI",
-        "KiroCLIAmzUserAgent": f"{base} m/F app/AmazonQ-For-CLI",
+        "KiroCLIUserAgent": symbols["KiroCLIUserAgent"],
+        "KiroCLIAmzUserAgent": symbols["KiroCLIAmzUserAgent"],
     }
+
+
+def _go_concat_value(text: str, name: str, symbols: dict[str, str]) -> str | None:
+    """Evaluate one single-line Go string concatenation from the HTTP owner.
+
+    The owner builds the wire headers from literals plus the version symbols.
+    Reading that expression keeps the API family and header suffixes from
+    becoming a second hand-maintained copy.
+    """
+    match = re.search(rf"(?m)^[ \t]*{name}\s*=\s*(.+?)\s*$", text)
+    if not match:
+        return None
+    parts: list[str] = []
+    for part in match.group(1).split("+"):
+        token = part.strip()
+        if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
+            parts.append(token[1:-1])
+            continue
+        if token not in symbols:
+            return None
+        parts.append(symbols[token])
+    return "".join(parts)
 
 
 def observed_http_identity(bundle: dict[str, Any]) -> dict[str, str] | None:
