@@ -23,7 +23,17 @@ GO_MOD_VERSION := $(shell awk '/^go /{print $$2; exit}' go.mod)
 GOTOOLCHAIN ?= go$(GO_MOD_VERSION)
 export GOTOOLCHAIN
 
-GOLANGCI_LINT ?= golangci-lint
+# Resolve the linter by path, not by bare name. `go install` drops the binary in
+# GOBIN (else GOPATH/bin), which is not on PATH for a plain login shell on macOS.
+# With a bare name, ensure-golangci-lint installed it and the very next recipe
+# line still died with "make: golangci-lint: No such file or directory" — the
+# auto-install was dead code. Prefer whatever is already on PATH so an explicit
+# override still wins; otherwise use the go-install location.
+GOLANGCI_LINT_BINDIR := $(shell go env GOBIN)
+ifeq ($(strip $(GOLANGCI_LINT_BINDIR)),)
+GOLANGCI_LINT_BINDIR := $(shell go env GOPATH)/bin
+endif
+GOLANGCI_LINT ?= $(shell command -v golangci-lint 2>/dev/null || echo $(GOLANGCI_LINT_BINDIR)/golangci-lint)
 GOLANGCI_LINT_VERSION ?= v2.14.0
 GOLANGCI_LINT_CONCURRENCY ?= 4
 GOLANGCI_LINT_FAST_ARGS ?= --concurrency=$(GOLANGCI_LINT_CONCURRENCY)
@@ -44,8 +54,13 @@ verify-toolchain:
 .PHONY: ensure-golangci-lint
 ensure-golangci-lint: verify-toolchain
 	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { \
-		echo "golangci-lint not found; installing $(GOLANGCI_LINT_VERSION)..."; \
+		echo "golangci-lint not found at $(GOLANGCI_LINT); installing $(GOLANGCI_LINT_VERSION)..."; \
 		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
+	}
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { \
+		echo "golangci-lint still not executable at $(GOLANGCI_LINT) after install"; \
+		echo "  GOBIN=$$(go env GOBIN) GOPATH=$$(go env GOPATH)"; \
+		exit 1; \
 	}
 
 build:
