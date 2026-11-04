@@ -6,5 +6,10 @@
   "public_origin": "https://154.8.214.179",
   "fallback_domain": "api-cn.tokenkey.dev",
   "ssm_region": "eu-west-2",
-  "ssm_instance_id": "mi-06568963b4b3c3239"
+  "ssm_instance_id": "mi-06568963b4b3c3239",
+  "local_qa_jobs": [
+    "tokenkey-qa-provision",
+    "tokenkey-qa-cleanup",
+    "tokenkey-qa-archive"
+  ]
 }

@@ -194,6 +194,34 @@ def verify_tree(root: Path, manifest: dict[str, Any]) -> None:
         raise MirrorError("manifest aggregate counts do not match files")
 
 
+def require_s3_args(args: argparse.Namespace) -> None:
+    """All four S3 coordinates or none; a missing one would reach boto3 as None."""
+    missing = [name for name in ("s3_prefix", "s3_endpoint", "s3_region")
+               if not getattr(args, name, None)]
+    if missing:
+        raise MirrorError("--s3-bucket requires " +
+                          ", ".join("--" + m.replace("_", "-") for m in missing))
+
+
+def run_s3_fetch(args: argparse.Namespace, staging: Path) -> dict[str, Any]:
+    """Pull the snapshot straight from COS over the S3 API.
+
+    Preferred over rclone because neither host has rclone installed, while
+    node1 already carries boto3, and because node1 pulling measured 2.9 MiB/s
+    against 0.8 MiB/s for the host pushing over the jump host -- and the pull
+    costs the production host nothing at all.
+    """
+    import cos_s3_fetch
+
+    try:
+        return cos_s3_fetch.fetch_prefix(
+            bucket=args.s3_bucket, prefix=args.s3_prefix,
+            endpoint=args.s3_endpoint, region=args.s3_region,
+            staging=staging, workers=args.transfers)
+    except cos_s3_fetch.FetchError as exc:
+        raise MirrorError(str(exc)) from exc
+
+
 def run_rclone(source: str, staging: Path, *, bwlimit: str, transfers: int, checkers: int) -> None:
     command = [
         "rclone", "copy", source, str(staging), "--immutable", "--checksum",
@@ -226,11 +254,26 @@ def copy_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     source_path = Path(args.source).expanduser().resolve() if args.source else None
     if source_path is not None and not source_path.is_dir():
         raise MirrorError(f"local source is not a directory: {source_path}")
-    source_bytes = (
-        sum(path.stat().st_size for _, path in iter_files(source_path))
-        if source_path
-        else args.expected_bytes
-    )
+    survey: dict[str, Any] | None = None
+    if source_path is not None:
+        source_bytes = sum(path.stat().st_size for _, path in iter_files(source_path))
+    elif getattr(args, "s3_bucket", None):
+        # The S3 path can price the prefix before copying, so the operator does
+        # not have to supply a byte count that would go stale between runs.
+        require_s3_args(args)
+        import cos_s3_fetch
+        try:
+            survey = cos_s3_fetch.survey(bucket=args.s3_bucket, prefix=args.s3_prefix,
+                                         endpoint=args.s3_endpoint, region=args.s3_region)
+        except cos_s3_fetch.FetchError as exc:
+            raise MirrorError(str(exc)) from exc
+        source_bytes = survey["total_bytes"]
+        if args.expected_bytes is not None and args.expected_bytes != source_bytes:
+            raise MirrorError(
+                f"COS prefix holds {source_bytes} bytes, --expected-bytes said "
+                f"{args.expected_bytes}")
+    else:
+        source_bytes = args.expected_bytes
     if source_bytes is None:
         raise MirrorError("--expected-bytes is required for a remote COS source")
     check = check_capacity(namespace_root, source_bytes, min_free_percent=args.min_free_percent,
@@ -252,14 +295,16 @@ def copy_snapshot(args: argparse.Namespace) -> dict[str, Any]:
                 target = safe_join(staging, relative)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_file, target)
+        elif getattr(args, "s3_bucket", None):
+            run_s3_fetch(args, staging)
         else:
             run_rclone(args.source_uri, staging, bwlimit=args.bwlimit,
                        transfers=args.transfers, checkers=args.checkers)
         manifest = build_manifest(staging)
-        if source_path is None and manifest["total_bytes"] != args.expected_bytes:
+        if source_path is None and manifest["total_bytes"] != source_bytes:
             raise MirrorError(
                 "remote COS byte estimate does not match copied snapshot: "
-                f"expected={args.expected_bytes} actual={manifest['total_bytes']}"
+                f"expected={source_bytes} actual={manifest['total_bytes']}"
             )
         verify_tree(staging, manifest)
         write_json_atomic(staging / "_manifest.json", manifest)
@@ -268,7 +313,7 @@ def copy_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "status": "verified",
             "namespace": namespace,
             "snapshot": snapshot,
-            "source": args.source or args.source_uri,
+            "source": describe_source(args),
             "created_at": utc_now(),
             "manifest": manifest,
             "capacity": check,
@@ -292,16 +337,44 @@ def copy_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         raise
 
 
+def describe_source(args: argparse.Namespace) -> str:
+    """Human-readable source for the receipt and the plan.
+
+    An S3 fetch left this as None, so a published snapshot carried no record of
+    which bucket and prefix it came from -- the one thing an operator needs
+    when deciding whether a third copy is the right one to restore from.
+    """
+    if args.source:
+        return str(args.source)
+    if getattr(args, "s3_bucket", None):
+        return f"s3://{args.s3_bucket}/{args.s3_prefix} ({args.s3_endpoint})"
+    return str(args.source_uri or "")
+
+
 def plan_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     """Perform read-only validation used by the default CLI mode."""
     namespace = validate_namespace(args.namespace)
     snapshot = validate_snapshot(args.snapshot)
     destination_root = Path(args.destination).expanduser().resolve()
     source_path = Path(args.source).expanduser().resolve() if args.source else None
+    objects = None
     if source_path is not None:
         if not source_path.is_dir():
             raise MirrorError(f"local source is not a directory: {source_path}")
         required = sum(path.stat().st_size for _, path in iter_files(source_path))
+    elif getattr(args, "s3_bucket", None):
+        # Price the prefix here as well, so a plan reports the same figure the
+        # copy will reserve. Without this, plan demanded --expected-bytes for a
+        # command that --apply ran happily.
+        require_s3_args(args)
+        import cos_s3_fetch
+        try:
+            found = cos_s3_fetch.survey(bucket=args.s3_bucket, prefix=args.s3_prefix,
+                                        endpoint=args.s3_endpoint, region=args.s3_region)
+        except cos_s3_fetch.FetchError as exc:
+            raise MirrorError(str(exc)) from exc
+        required = found["total_bytes"]
+        objects = found["object_count"]
     else:
         required = args.expected_bytes
     if required is None:
@@ -314,8 +387,9 @@ def plan_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         "namespace": namespace,
         "snapshot": snapshot,
         "destination": str(destination_root / namespace / snapshot),
-        "source": args.source or args.source_uri,
+        "source": describe_source(args),
         "expected_bytes": required,
+        "object_count": objects,
         "capacity": capacity,
         "would_delete": False,
         "would_start_timer": False,
@@ -346,6 +420,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     source = copy.add_mutually_exclusive_group(required=True)
     source.add_argument("--source", help="local immutable snapshot directory (test/rehearsal path)")
     source.add_argument("--source-uri", help="rclone remote URI for COS")
+    source.add_argument("--s3-bucket",
+                        help="COS bucket; selects the dependency-free S3 path "
+                             "instead of rclone")
+    # The remaining S3 coordinates qualify --s3-bucket rather than competing
+    # with it, so they must sit outside the mutually exclusive source group --
+    # inside it, argparse rejects "--s3-bucket X --s3-prefix Y" outright.
+    copy.add_argument("--s3-prefix", help="object prefix inside the bucket")
+    copy.add_argument("--s3-endpoint", help="e.g. cos.na-siliconvalley.myqcloud.com")
+    copy.add_argument("--s3-region", help="e.g. na-siliconvalley")
     copy.add_argument("--expected-bytes", type=int,
                       help="expected source bytes for remote COS capacity reservation")
     copy.add_argument("--destination", required=True, help="node1 archive root")
