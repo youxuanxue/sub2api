@@ -45,14 +45,9 @@ func TestAccount_IsOpenAIAinzyRelay(t *testing.T) {
 func TestOpenAIAinzyRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	t.Parallel()
 	mapping := openAIAinzyRelayAccountModelMappingFloor(context.Background(), nil, nil)
-	require.Len(t, mapping, 9)
+	require.Len(t, mapping, 4)
 	for _, model := range []string{
-		"codex-auto-review",
-		"gpt-5-codex",
-		"gpt-5.2",
-		"gpt-5.2-pro",
 		"gpt-5.3",
-		"gpt-5.3-codex",
 		"gpt-5.4",
 		"gpt-5.4-mini",
 		"gpt-5.5",
@@ -61,19 +56,26 @@ func TestOpenAIAinzyRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	}
 	require.NotContains(t, mapping, "gpt-5-pro")
 	require.NotContains(t, mapping, "gpt-5.3-codex-spark")
-}
-
-func TestOpenAICanonicalFloorUsesServableOpenAIAllowlist(t *testing.T) {
-	t.Parallel()
-	mapping := openAICanonicalAccountModelMappingFloor(context.Background(), nil, nil)
-	require.Len(t, mapping, 10)
+	// 2026-07 SSOT audit directives #2/#5: retired/non-selectable ids dropped
+	// from the ainzy floor (openai_deprecated_model_tk.go hard-rejects them
+	// regardless of which floor lists them).
 	for _, model := range []string{
 		"codex-auto-review",
 		"gpt-5-codex",
 		"gpt-5.2",
 		"gpt-5.2-pro",
-		"gpt-5.3",
 		"gpt-5.3-codex",
+	} {
+		require.NotContains(t, mapping, model)
+	}
+}
+
+func TestOpenAICanonicalFloorUsesServableOpenAIAllowlist(t *testing.T) {
+	t.Parallel()
+	mapping := openAICanonicalAccountModelMappingFloor(context.Background(), nil, nil)
+	require.Len(t, mapping, 5)
+	for _, model := range []string{
+		"gpt-5.3",
 		"gpt-5.3-codex-spark",
 		"gpt-5.4",
 		"gpt-5.4-mini",
@@ -86,6 +88,17 @@ func TestOpenAICanonicalFloorUsesServableOpenAIAllowlist(t *testing.T) {
 	require.NotContains(t, mapping, "gpt-5.5-pro")
 	require.NotContains(t, mapping, "gpt-5.6-sol")
 	require.NotContains(t, mapping, "gpt-image-1")
+	// 2026-07 SSOT audit directives #2/#5: retired/non-selectable ids dropped
+	// from the canonical floor.
+	for _, model := range []string{
+		"codex-auto-review",
+		"gpt-5-codex",
+		"gpt-5.2",
+		"gpt-5.2-pro",
+		"gpt-5.3-codex",
+	} {
+		require.NotContains(t, mapping, model)
+	}
 }
 
 func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {
@@ -94,15 +107,17 @@ func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {
 	require.NoError(t, err)
 	ainzy, ok := doc.Platforms[accountModelMappingPlatformOpenAIAinzyRelay]
 	require.True(t, ok)
-	require.Len(t, ainzy, 9)
-	require.Contains(t, ainzy, "gpt-5.2")
+	require.Len(t, ainzy, 4)
+	require.Contains(t, ainzy, "gpt-5.4")
+	require.NotContains(t, ainzy, "gpt-5.2")
 	require.NotContains(t, ainzy, "gpt-5-pro")
 	require.NotContains(t, ainzy, "gpt-5.3-codex-spark")
 	canonical, ok := doc.Platforms[PlatformOpenAI]
 	require.True(t, ok)
-	require.Len(t, canonical, 10)
-	require.Contains(t, canonical, "gpt-5.2")
+	require.Len(t, canonical, 5)
+	require.Contains(t, canonical, "gpt-5.4")
 	require.Contains(t, canonical, "gpt-5.3-codex-spark")
+	require.NotContains(t, canonical, "gpt-5.2")
 	require.NotContains(t, canonical, "gpt-5-pro")
 }
 
@@ -116,6 +131,6 @@ func TestAccountModelMappingForAccount_AinzyUsesCuratedFloor(t *testing.T) {
 		},
 	}, nil, nil, nil)
 	require.True(t, ok)
-	require.Len(t, mapping, 9)
+	require.Len(t, mapping, 4)
 	require.Contains(t, mapping, "gpt-5.4-mini")
 }

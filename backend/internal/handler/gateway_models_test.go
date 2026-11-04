@@ -158,12 +158,14 @@ func TestGatewayModels_UniversalKeyListsEntitledGroupUnion(t *testing.T) {
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	ids := modelIDsForTest(got.Data)
-	require.Contains(t, ids, "gpt-5.2", "universal OpenAI group fallback must use OpenAI SSOT")
+	require.Contains(t, ids, "gpt-5.4", "universal OpenAI group fallback must use OpenAI SSOT")
 	require.Contains(t, ids, "gpt-5.3-codex-spark", "universal OpenAI group fallback must include SSOT delta-gate 200 model")
 	require.Contains(t, ids, "gpt-5.4-mini", "universal OpenAI group fallback must include current OpenAI SSOT")
 	require.Contains(t, ids, "gemini-2.5-flash", "universal Gemini group fallback must use Gemini SSOT")
 	require.NotContains(t, ids, "gpt-5-pro", "SSOT delta-gate 403 model must not leak into universal list")
 	require.NotContains(t, ids, "gpt-5.6-sol", "non-allowlisted OpenAI model must not leak into universal list")
+	// 2026-07 SSOT audit directives #2/#5: retired OpenAI model must not leak.
+	require.NotContains(t, ids, "gpt-5.2", "retired OpenAI model must not leak into universal list")
 	require.NotContains(t, ids, "leaked-global-model", "universal list must not scan the global schedulable pool")
 }
 
@@ -606,7 +608,9 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.5", "gpt-5.2", "codex-auto-review", "gpt-5.4"}, modelIDsForTest(got.Data))
+	// gpt-5.2 and codex-auto-review are retired (2026-07 SSOT audit directives
+	// #2/#5) and now filtered out alongside gpt-image-2/legacy-gpt-2024.
+	require.Equal(t, []string{"gpt-5.5", "gpt-5.4"}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_OpenAICustomModelsListKeepsOpenAIResponseShapeForDefaultFallback(t *testing.T) {

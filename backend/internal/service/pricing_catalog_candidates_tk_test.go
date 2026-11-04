@@ -41,11 +41,13 @@ func TestServableClientFacingIDs_InvariantAndAdvertisedDead(t *testing.T) {
 	for _, id := range allow {
 		allowSet[id] = true
 	}
-	dead := []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-image-1", "gpt-image-1.5", "gpt-image-2"}
+	// 2026-07 SSOT audit directives #2/#5: codex-auto-review is retired to the
+	// hard-rejection path (openai_deprecated_model_tk.go) and dropped from the
+	// allowlist, so it is now advertised_dead like the other dead ids.
+	dead := []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-image-1", "gpt-image-1.5", "gpt-image-2", "codex-auto-review"}
 	for _, d := range dead {
 		require.False(t, allowSet[d], "precondition: %s must be advertised_dead (priced but NOT in allowlist)", d)
 	}
-	require.True(t, allowSet["codex-auto-review"], "codex-auto-review returned live 200 and must be in the allowlist")
 	require.True(t, allowSet["gpt-5.3-codex-spark"], "SSOT delta gate 200 model must remain allowlisted")
 	require.False(t, allowSet["gpt-5-pro"], "SSOT delta gate 403 model must not remain allowlisted")
 	// Price EVERYTHING (allowlist + dead ids) so the ONLY thing that can keep a
@@ -63,7 +65,6 @@ func TestServableClientFacingIDs_InvariantAndAdvertisedDead(t *testing.T) {
 	for _, d := range dead {
 		require.False(t, gotSet[d], "advertised_dead %s must not reach the /v1/models fallback", d)
 	}
-	require.True(t, gotSet["codex-auto-review"], "servable codex-auto-review must remain visible")
 }
 
 // TestServableClientFacingIDs_DropsVisibleButUnpriced pins the other half of the

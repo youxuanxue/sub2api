@@ -43,6 +43,11 @@ func openAICompatErrorPlatformLabel(groupPlatform string) string {
 // invalid_request_error (kept out of upstream_error_rate). Otherwise the original
 // empty-pool errors are preserved verbatim (429 fast-fail / platform label).
 //
+// Checked FIRST, ahead of the model-unsupported stats: a retired/non-selectable
+// id (openai_deprecated_model_tk.go) must surface ErrDeprecatedOpenAIModel's
+// clear migration message, not the generic "unsupported model" 400 or an
+// empty-pool 429.
+//
 // Prod 2026-06-13: a client requesting unservable newapi names (deepseek-chat,
 // qwen-max — the matched pools only mapped deepseek-v4-* / qwen3.7-*) produced
 // empty-pool 429s (account_id=null) that read as a capacity signal and fired ops
@@ -74,6 +79,9 @@ func tkOpenAICompatChannelPricingRestrictionError(requestedModel string) error {
 }
 
 func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactBlocked bool, accounts []Account, excludedIDs map[int64]struct{}, eval *openAICompatNoCandidateEval) error {
+	if err := tkDeprecatedOpenAISelectionFailure(requestedModel); err != nil {
+		return err
+	}
 	if requestedModel != "" {
 		var stats selectionFailureStats
 		if eval != nil && eval.svc != nil && eval.ctx != nil {

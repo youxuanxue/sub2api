@@ -109,14 +109,19 @@ var supportedAnthropicCatalogModels = map[string]struct{}{
 }
 
 // supportedOpenAICatalogModels — gpt IDs confirmed servable.
+//
+// 2026-07 SSOT audit directives #2/#5: codex-auto-review, gpt-5-codex,
+// gpt-5.2, gpt-5.2-pro, gpt-5.3-codex are retired/non-selectable
+// (openai_deprecated_model_tk.go hard-rejects them at account-selection
+// time) and were removed from this allowlist. A routine
+// refresh-servable-allowlist.py run could re-splice them back in if the
+// upstream endpoint still returns 200 for a retired id — that would only
+// re-add them to the /pricing display, NOT make them selectable again (the
+// deprecation gate is independent of this allowlist). Cross-check this list
+// against tkDeprecatedOpenAIModels after every refresh.
 var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:begin openai
-	"codex-auto-review":   {},
-	"gpt-5-codex":         {},
-	"gpt-5.2":             {},
-	"gpt-5.2-pro":         {},
 	"gpt-5.3":             {},
-	"gpt-5.3-codex":       {},
 	"gpt-5.3-codex-spark": {},
 	"gpt-5.4":             {},
 	"gpt-5.4-mini":        {},
@@ -128,16 +133,16 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 // model_mapping floor for prod account 76 (api.ainzy.net/v1). Mirrors the
 // operator-applied 2026-07-09 runtime mapping so deploys do not re-narrow the
 // account back to the stale 5-model floor.
+//
+// 2026-07 SSOT audit directives #2/#5: codex-auto-review, gpt-5-codex,
+// gpt-5.2, gpt-5.2-pro, gpt-5.3-codex removed — same retired/non-selectable
+// set as supportedOpenAICatalogModels above (openai_deprecated_model_tk.go
+// hard-rejects them regardless of which floor lists them).
 var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
-	"codex-auto-review": {},
-	"gpt-5-codex":       {},
-	"gpt-5.2":           {},
-	"gpt-5.2-pro":       {},
-	"gpt-5.3":           {},
-	"gpt-5.3-codex":     {},
-	"gpt-5.4":           {},
-	"gpt-5.4-mini":      {},
-	"gpt-5.5":           {},
+	"gpt-5.3":      {},
+	"gpt-5.4":      {},
+	"gpt-5.4-mini": {},
+	"gpt-5.5":      {},
 }
 
 // supportedGeminiCatalogModels — gemini/Vertex IDs confirmed servable through

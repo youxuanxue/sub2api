@@ -219,6 +219,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if resolved, ok := service.TkResolveOpenAIBareModelAlias(reqModel); ok {
+		reqModel = resolved
+		body = service.ReplaceModelInBody(body, resolved)
+	}
 
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
@@ -782,6 +786,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if resolved, ok := service.TkResolveOpenAIBareModelAlias(reqModel); ok {
+		reqModel = resolved
+		body = service.ReplaceModelInBody(body, resolved)
+	}
 	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
 	reqStream := gjson.GetBytes(body, "stream").Bool()
@@ -1353,6 +1361,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if reqModel == "" {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
 		return
+	}
+	if resolved, ok := service.TkResolveOpenAIBareModelAlias(reqModel); ok {
+		reqModel = resolved
+		firstMessage = service.ReplaceModelInBody(firstMessage, resolved)
 	}
 	previousResponseID := strings.TrimSpace(gjson.GetBytes(firstMessage, "previous_response_id").String())
 	previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)

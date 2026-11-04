@@ -72,6 +72,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if resolved, ok := service.TkResolveOpenAIBareModelAlias(reqModel); ok {
+		reqModel = resolved
+		body = service.ReplaceModelInBody(body, resolved)
+	}
 	routingModel := service.CanonicalizeOpenAICompatRoutingModel(reqModel)
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {

@@ -30,7 +30,7 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 
 	t.Run("no_available_accounts_sentinel_returns_429_with_retry_after", func(t *testing.T) {
 		c, w := newCtx(t)
-		status, errType, msg := tkSelectFailureStatusMessage(c, service.ErrNoAvailableAccounts, "gpt-5.2")
+		status, errType, msg := tkSelectFailureStatusMessage(c, service.ErrNoAvailableAccounts, "gpt-5.4")
 
 		require.Equal(t, http.StatusTooManyRequests, status)
 		assert.Equal(t, "api_error", errType)
@@ -40,12 +40,46 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 
 	t.Run("channel_pricing_restriction_returns_400", func(t *testing.T) {
 		c, w := newCtx(t)
-		wrapped := fmt.Errorf("%w: gpt-5.2 (channel pricing restriction)", service.ErrUnsupportedModel)
-		status, errType, msg := tkSelectFailureStatusMessage(c, wrapped, "gpt-5.2")
+		wrapped := fmt.Errorf("%w: gpt-5.4 (channel pricing restriction)", service.ErrUnsupportedModel)
+		status, errType, msg := tkSelectFailureStatusMessage(c, wrapped, "gpt-5.4")
 
 		require.Equal(t, http.StatusBadRequest, status)
 		assert.Equal(t, service.TkUnsupportedModelErrType, errType)
-		assert.Equal(t, service.TkUnsupportedModelMessage("gpt-5.2"), msg)
+		assert.Equal(t, service.TkUnsupportedModelMessage("gpt-5.4"), msg)
+		assert.Empty(t, w.Header().Get("Retry-After"))
+	})
+
+	t.Run("deprecated_openai_model_returns_400_without_retry_after", func(t *testing.T) {
+		c, w := newCtx(t)
+		wrapped := fmt.Errorf("%w: gpt-5.2 (suggest %q)", service.ErrDeprecatedOpenAIModel, "gpt-5.5")
+		status, errType, msg := tkSelectFailureStatusMessage(c, wrapped, "gpt-5.2")
+
+		require.Equal(t, http.StatusBadRequest, status)
+		assert.Equal(t, service.TkDeprecatedOpenAIErrorType, errType)
+		assert.Contains(t, msg, "gpt-5.2")
+		assert.Contains(t, msg, "retired")
+		assert.Empty(t, w.Header().Get("Retry-After"))
+	})
+
+	t.Run("deprecated_openai_never_selectable_model_returns_400", func(t *testing.T) {
+		c, w := newCtx(t)
+		wrapped := fmt.Errorf("%w: codex-auto-review (not directly selectable)", service.ErrDeprecatedOpenAIModel)
+		status, errType, msg := tkSelectFailureStatusMessage(c, wrapped, "codex-auto-review")
+
+		require.Equal(t, http.StatusBadRequest, status)
+		assert.Equal(t, service.TkDeprecatedOpenAIErrorType, errType)
+		assert.Contains(t, msg, "codex-auto-review")
+		assert.Contains(t, msg, "not directly selectable")
+		assert.Empty(t, w.Header().Get("Retry-After"))
+	})
+
+	t.Run("no_available_accounts_with_deprecated_openai_model_returns_400", func(t *testing.T) {
+		c, w := newCtx(t)
+		status, errType, msg := tkSelectFailureStatusMessage(c, service.ErrNoAvailableAccounts, "gpt-5-codex")
+
+		require.Equal(t, http.StatusBadRequest, status)
+		assert.Equal(t, service.TkDeprecatedOpenAIErrorType, errType)
+		assert.Contains(t, msg, "gpt-5-codex")
 		assert.Empty(t, w.Header().Get("Retry-After"))
 	})
 
@@ -100,7 +134,7 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 
 	t.Run("no_available_compact_accounts_returns_429", func(t *testing.T) {
 		c, _ := newCtx(t)
-		status, _, _ := tkSelectFailureStatusMessage(c, service.ErrNoAvailableCompactAccounts, "gpt-5.2")
+		status, _, _ := tkSelectFailureStatusMessage(c, service.ErrNoAvailableCompactAccounts, "gpt-5.4")
 
 		require.Equal(t, http.StatusTooManyRequests, status)
 	})
@@ -109,14 +143,14 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 		// Relay-hop case: the upstream TokenKey edge serialized the sentinel into a
 		// plain message; the substring classifier must still catch it.
 		c, _ := newCtx(t)
-		status, _, _ := tkSelectFailureStatusMessage(c, errors.New("scheduler: no available openai accounts in group 7"), "gpt-5.2")
+		status, _, _ := tkSelectFailureStatusMessage(c, errors.New("scheduler: no available openai accounts in group 7"), "gpt-5.4")
 
 		require.Equal(t, http.StatusTooManyRequests, status)
 	})
 
 	t.Run("other_scheduler_errors_stay_503_without_retry_after", func(t *testing.T) {
 		c, w := newCtx(t)
-		status, errType, msg := tkSelectFailureStatusMessage(c, errors.New("pq: connection refused"), "gpt-5.2")
+		status, errType, msg := tkSelectFailureStatusMessage(c, errors.New("pq: connection refused"), "gpt-5.4")
 
 		require.Equal(t, http.StatusServiceUnavailable, status)
 		assert.Equal(t, "api_error", errType)

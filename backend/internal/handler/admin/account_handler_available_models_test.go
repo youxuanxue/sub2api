@@ -223,8 +223,7 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
 	ids := modelIDSet(resp.Data)
-	require.True(t, ids["codex-auto-review"], "servable probe result should be visible in OpenAI admin defaults")
-	for _, want := range []string{"gpt-5-codex", "gpt-5.2", "gpt-5.2-pro", "gpt-5.3", "gpt-5.3-codex", "gpt-5.4-mini", "gpt-5.5"} {
+	for _, want := range []string{"gpt-5.3", "gpt-5.4-mini", "gpt-5.5"} {
 		require.True(t, ids[want], "servable OpenAI probe result %s should appear in OpenAI admin defaults", want)
 	}
 	require.True(t, ids["gpt-5.3-codex-spark"], "SSOT delta gate 200 model should appear in OpenAI admin defaults")
@@ -232,6 +231,8 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 		"gpt-5", "gpt-5-chat", "gpt-5-chat-latest", "gpt-5-mini", "gpt-5-nano",
 		"gpt-5-pro", "gpt-5-search-api", "gpt-5.1", "gpt-5.1-chat-latest", "gpt-5.4-pro",
 		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-image-1", "gpt-image-1.5", "gpt-image-2",
+		// 2026-07 SSOT audit directives #2/#5: retired/non-selectable ids.
+		"codex-auto-review", "gpt-5-codex", "gpt-5.2", "gpt-5.2-pro", "gpt-5.3-codex",
 	} {
 		require.False(t, ids[hidden], "non-live-proven OpenAI model %s must not appear in OpenAI admin defaults", hidden)
 	}
@@ -265,8 +266,7 @@ func TestAccountHandlerGetAvailableModels_OpenAINoMappingDropsAdvertisedDead(t *
 	require.NotEmpty(t, resp.Data)
 	ids := modelIDSet(resp.Data)
 	require.True(t, ids["gpt-5.4"], "servable OpenAI default should remain visible")
-	require.True(t, ids["codex-auto-review"], "codex-auto-review had a live 200 and should remain visible")
-	for _, want := range []string{"gpt-5-codex", "gpt-5.2", "gpt-5.2-pro", "gpt-5.3", "gpt-5.3-codex", "gpt-5.4-mini", "gpt-5.5"} {
+	for _, want := range []string{"gpt-5.3", "gpt-5.4-mini", "gpt-5.5"} {
 		require.True(t, ids[want], "servable OpenAI probe result %s should appear in OpenAI admin defaults", want)
 	}
 	require.True(t, ids["gpt-5.3-codex-spark"], "SSOT delta gate 200 model should appear in OpenAI admin defaults")
@@ -274,6 +274,8 @@ func TestAccountHandlerGetAvailableModels_OpenAINoMappingDropsAdvertisedDead(t *
 		"gpt-5", "gpt-5-chat", "gpt-5-chat-latest", "gpt-5-mini", "gpt-5-nano",
 		"gpt-5-pro", "gpt-5-search-api", "gpt-5.1", "gpt-5.1-chat-latest", "gpt-5.4-pro",
 		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-image-1", "gpt-image-1.5", "gpt-image-2",
+		// 2026-07 SSOT audit directives #2/#5: retired/non-selectable ids.
+		"codex-auto-review", "gpt-5-codex", "gpt-5.2", "gpt-5.2-pro", "gpt-5.3-codex",
 	} {
 		require.False(t, ids[hidden], "non-live-proven OpenAI model %s must not appear in OpenAI admin defaults", hidden)
 	}

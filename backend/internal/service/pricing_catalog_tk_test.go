@@ -402,9 +402,12 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"openai", "gpt-5.6-luna", false},
 		{"openai", "gpt-5.6", false},
 		{"openai", "gpt-5.6-chat-latest", false},
-		{"openai", "codex-auto-review", true},
+		// 2026-07 SSOT audit directives #2/#5: retired/non-selectable ids
+		// dropped from supportedOpenAICatalogModels (openai_deprecated_model_tk.go
+		// hard-rejects them independently of catalog display).
+		{"openai", "codex-auto-review", false},
 		{"openai", "gpt-5", false},
-		{"openai", "gpt-5-codex", true},
+		{"openai", "gpt-5-codex", false},
 		{"openai", "gpt-5-chat", false},
 		{"openai", "gpt-5-chat-latest", false},
 		{"openai", "gpt-5-mini", false},
@@ -413,10 +416,10 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"openai", "gpt-5-search-api", false},
 		{"openai", "gpt-5.1", false},
 		{"openai", "gpt-5.1-chat-latest", false},
-		{"openai", "gpt-5.2", true},
-		{"openai", "gpt-5.2-pro", true},
+		{"openai", "gpt-5.2", false},
+		{"openai", "gpt-5.2-pro", false},
 		{"openai", "gpt-5.3", true},
-		{"openai", "gpt-5.3-codex", true},
+		{"openai", "gpt-5.3-codex", false},
 		{"openai", "gpt-5.3-codex-spark", true},
 		{"openai", "gpt-5.4-pro", false},
 		{"openai", "gpt-image-2", false}, // not servable on a probeable path
