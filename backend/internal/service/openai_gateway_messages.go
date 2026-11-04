@@ -355,20 +355,35 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	// Grok may reject encrypted reasoning replayed under a different OAuth
-	// account/cache identity. Match forwardGrokResponses: one strip+retry before
-	// treating the 400 as a hard failure / failover trigger.
+	// One same-account strip+retry before a 400 becomes a hard failure.
+	// Grok matches forwardGrokResponses: explicit decrypt errors, or any 400
+	// while reasoning.encrypted_content is still present. OpenAI matches the
+	// /v1/responses predicate only (invalid_encrypted_content, or
+	// thinking_signature_invalid with the three verification phrases) and
+	// rebuilds through buildUpstreamRequest. Neither path strips before the
+	// first send, and a second failure is not retried.
 	var resp *http.Response
+retryLoop:
 	for attempt := 0; ; attempt++ {
 		if attempt > 0 {
-			if account.Platform != PlatformGrok {
-				break
-			}
-			upstreamCtxRetry, releaseRetry := detachUpstreamContext(ctx)
-			upstreamReq, err = buildGrokResponsesRequestForAccount(upstreamCtxRetry, c, account, grokTargetURL, responsesBody, token, grokCacheIdentity)
-			releaseRetry()
-			if err != nil {
-				return nil, fmt.Errorf("build grok retry request: %w", err)
+			switch account.Platform {
+			case PlatformGrok:
+				upstreamCtxRetry, releaseRetry := detachUpstreamContext(ctx)
+				upstreamReq, err = buildGrokResponsesRequestForAccount(upstreamCtxRetry, c, account, grokTargetURL, responsesBody, token, grokCacheIdentity)
+				releaseRetry()
+				if err != nil {
+					return nil, fmt.Errorf("build grok retry request: %w", err)
+				}
+			case PlatformOpenAI:
+				upstreamCtxRetry, releaseRetry := detachUpstreamContext(ctx)
+				upstreamReq, err = s.buildUpstreamRequest(upstreamCtxRetry, c, account, responsesBody, token, isStream, promptCacheKey, false)
+				releaseRetry()
+				if err != nil {
+					return nil, fmt.Errorf("build openai invalid encrypted_content retry request: %w", err)
+				}
+				tkApplyAnthropicMessagesUpstreamHeaders(c, account, upstreamReq, promptCacheKey, apiKeyID, compatTurnState)
+			default:
+				break retryLoop
 			}
 		}
 		setAnthropicStreamModel(c, originalModel)
@@ -378,34 +393,63 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		if err != nil {
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 		}
-		if account.Platform != PlatformGrok || attempt > 0 || resp.StatusCode != http.StatusBadRequest {
+		if attempt > 0 || resp.StatusCode != http.StatusBadRequest {
+			break
+		}
+		if account.Platform == PlatformGrok {
+			respBody := s.readUpstreamErrorBody(resp)
+			if resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			// Prefer explicit decrypt errors; also strip once on any 400 when the
+			// outbound body still carries reasoning.encrypted_content (account
+			// switch often returns opaque "Upstream error: 400").
+			shouldStrip := isGrokInvalidEncryptedContentResponse(resp.StatusCode, respBody) ||
+				requestHasGrokEncryptedReasoning(responsesBody)
+			if !shouldStrip {
+				resp.Body = io.NopCloser(bytes.NewReader(respBody))
+				break
+			}
+			retryBody, changed, trimErr := trimGrokInvalidEncryptedContentRetryBody(responsesBody)
+			if trimErr != nil {
+				return nil, fmt.Errorf("prepare Grok invalid encrypted_content retry: %w", trimErr)
+			}
+			if !changed {
+				resp.Body = io.NopCloser(bytes.NewReader(respBody))
+				break
+			}
+			responsesBody = retryBody
+			logger.L().Info("openai messages: retrying after stripping invalid Grok encrypted_content",
+				zap.Int64("account_id", account.ID),
+				zap.Bool("cache_identity_present", strings.TrimSpace(grokCacheIdentity) != ""),
+				zap.String("upstream_error_preview", truncateOpenAIWSLogValue(string(respBody), 240)),
+			)
+			continue
+		}
+		if account.Platform != PlatformOpenAI {
 			break
 		}
 		respBody := s.readUpstreamErrorBody(resp)
 		if resp.Body != nil {
 			_ = resp.Body.Close()
 		}
-		// Prefer explicit decrypt errors; also strip once on any 400 when the
-		// outbound body still carries reasoning.encrypted_content (account
-		// switch often returns opaque "Upstream error: 400").
-		shouldStrip := isGrokInvalidEncryptedContentResponse(resp.StatusCode, respBody) ||
-			requestHasGrokEncryptedReasoning(responsesBody)
-		if !shouldStrip {
+		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
+		upstreamCode := extractUpstreamErrorCode(respBody)
+		if !openAIInvalidEncryptedContentError(upstreamCode, upstreamMsg) {
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 			break
 		}
 		retryBody, changed, trimErr := trimGrokInvalidEncryptedContentRetryBody(responsesBody)
 		if trimErr != nil {
-			return nil, fmt.Errorf("prepare Grok invalid encrypted_content retry: %w", trimErr)
+			return nil, fmt.Errorf("prepare OpenAI invalid encrypted_content retry: %w", trimErr)
 		}
 		if !changed {
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 			break
 		}
 		responsesBody = retryBody
-		logger.L().Info("openai messages: retrying after stripping invalid Grok encrypted_content",
+		logger.L().Info("openai messages: retrying after stripping invalid OpenAI encrypted_content",
 			zap.Int64("account_id", account.ID),
-			zap.Bool("cache_identity_present", strings.TrimSpace(grokCacheIdentity) != ""),
 			zap.String("upstream_error_preview", truncateOpenAIWSLogValue(string(respBody), 240)),
 		)
 	}
