@@ -503,3 +503,109 @@ func TestForwardAsAnthropic_ResponsesSupportedAccountStillUsesResponsesEndpoint(
 	require.Empty(t, upstream.lastReq.Header.Get("OpenAI-Beta"))
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "content.0.text").String())
 }
+
+func TestForwardAsAnthropic_OpenAIInvalidEncryptedContentRetriesOnce(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","max_tokens":16,"stream":false,"messages":[{"role":"user","content":"hello"},{"role":"assistant","content":[{"type":"thinking","thinking":"keep this summary","signature":"stale-cipher"},{"type":"text","text":"ok"}]},{"role":"user","content":"continue"}]}`)
+	completed := strings.Join([]string{
+		`data: {"type":"response.completed","response":{"id":"resp_recovered","object":"response","model":"gpt-5.4","status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	newResponse := func(status int, payload string) *http.Response {
+		contentType := "application/json"
+		if status == http.StatusOK {
+			contentType = "text/event-stream"
+		}
+		return &http.Response{
+			StatusCode: status,
+			Header:     http.Header{"Content-Type": []string{contentType}, "x-request-id": []string{"rid_enc"}},
+			Body:       io.NopCloser(strings.NewReader(payload)),
+		}
+	}
+	cases := []struct {
+		name      string
+		firstBody string
+		retry     bool
+	}{
+		{
+			name:      "invalid_encrypted_content",
+			firstBody: `{"error":{"code":"invalid_encrypted_content","type":"invalid_request_error","message":"bad encrypted content"}}`,
+			retry:     true,
+		},
+		{
+			name:      "unrelated 400",
+			firstBody: `{"error":{"code":"invalid_request_error","message":"bad request"}}`,
+			retry:     false,
+		},
+		{
+			name:      "thinking_signature_invalid missing phrases",
+			firstBody: `{"error":{"code":"thinking_signature_invalid","message":"Could not decrypt the provided encrypted_content."}}`,
+			retry:     false,
+		},
+		{
+			name:      "thinking_signature_invalid with phrases",
+			firstBody: `{"error":{"code":"thinking_signature_invalid","message":"The encrypted content abc could not be verified. Reason: Encrypted content could not be decrypted or parsed."}}`,
+			retry:     true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			responses := []*http.Response{newResponse(http.StatusBadRequest, tc.firstBody)}
+			if tc.retry {
+				responses = append(responses, newResponse(http.StatusOK, completed))
+			}
+			inner := &httpUpstreamRecorder{responses: responses}
+			upstream := &accountCapturingUpstream{httpUpstreamRecorder: inner}
+			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+			account := rawChatCompletionsTestAccount()
+			account.Extra = map[string]any{
+				openai_compat.ExtraKeyResponsesMode:      string(openai_compat.ResponsesSupportModeAuto),
+				openai_compat.ExtraKeyResponsesSupported: true,
+			}
+
+			result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
+			if tc.retry {
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				require.Len(t, inner.bodies, 2)
+				require.Len(t, upstream.accountIDs, 2)
+				require.Equal(t, account.ID, upstream.accountIDs[0])
+				require.Equal(t, account.ID, upstream.accountIDs[1])
+				require.Equal(t, "stale-cipher", gjson.GetBytes(inner.bodies[0], `input.#(type=="reasoning").encrypted_content`).String())
+				require.Equal(t, "keep this summary", gjson.GetBytes(inner.bodies[0], `input.#(type=="reasoning").summary.0.text`).String())
+				require.False(t, gjson.GetBytes(inner.bodies[1], `input.#(type=="reasoning").encrypted_content`).Exists())
+				require.Equal(t, "keep this summary", gjson.GetBytes(inner.bodies[1], `input.#(type=="reasoning").summary.0.text`).String())
+				require.Equal(t, "Bearer sk-test", inner.requests[0].Header.Get("Authorization"))
+				require.Equal(t, "Bearer sk-test", inner.requests[1].Header.Get("Authorization"))
+				require.True(t, strings.HasSuffix(inner.requests[0].URL.Path, "/responses"))
+				require.True(t, strings.HasSuffix(inner.requests[1].URL.Path, "/responses"))
+				return
+			}
+			require.Error(t, err)
+			require.Nil(t, result)
+			require.Len(t, inner.bodies, 1)
+			require.Len(t, upstream.accountIDs, 1)
+			require.Equal(t, account.ID, upstream.accountIDs[0])
+			require.Equal(t, "stale-cipher", gjson.GetBytes(inner.bodies[0], `input.#(type=="reasoning").encrypted_content`).String())
+			require.Equal(t, "keep this summary", gjson.GetBytes(inner.bodies[0], `input.#(type=="reasoning").summary.0.text`).String())
+		})
+	}
+}
+
+type accountCapturingUpstream struct {
+	*httpUpstreamRecorder
+	accountIDs []int64
+}
+
+func (u *accountCapturingUpstream) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
+	u.accountIDs = append(u.accountIDs, accountID)
+	return u.httpUpstreamRecorder.Do(req, proxyURL, accountID, accountConcurrency)
+}

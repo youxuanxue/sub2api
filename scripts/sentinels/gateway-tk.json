@@ -18695,6 +18695,20 @@
         "func TestRateLimitService_HandleUpstreamError_GeminiGeneric403WithoutRequestMarkStillSetError("
       ],
       "rationale": "Keep the two-strike, account-owned IAM/suspension, and unmarked-request permanent-disable regressions."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages.go",
+      "must_contain": [
+        "s.buildUpstreamRequest(upstreamCtxRetry, c, account, responsesBody, token, isStream, promptCacheKey, false)"
+      ],
+      "rationale": "Messages ForwardAsAnthropic retries an OpenAI account once after invalid_encrypted_content by rebuilding the same upstream request with encrypted_content stripped."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_chat_fallback_test.go",
+      "must_contain": [
+        "func TestForwardAsAnthropic_OpenAIInvalidEncryptedContentRetriesOnce(t *testing.T)"
+      ],
+      "rationale": "The Messages OpenAI encrypted_content retry is covered by a real ForwardAsAnthropic send: one same-account retry that keeps summary, and unrelated 400s that are not retried."
     }
   ]
 }

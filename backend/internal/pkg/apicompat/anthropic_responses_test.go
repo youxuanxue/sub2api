@@ -193,6 +193,9 @@ func TestAnthropicToResponses_ThinkingSignatureBecomesReasoning(t *testing.T) {
 	require.GreaterOrEqual(t, len(items), 4)
 	assert.Equal(t, "reasoning", items[1].Type)
 	assert.Equal(t, "enc-rs-1", items[1].EncryptedContent)
+	require.Len(t, items[1].Summary, 1)
+	assert.Equal(t, "summary_text", items[1].Summary[0].Type)
+	assert.Equal(t, "plan", items[1].Summary[0].Text)
 	assert.Equal(t, "assistant", items[2].Role)
 	assert.Equal(t, "function_call", items[3].Type)
 }

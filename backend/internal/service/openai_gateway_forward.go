@@ -1073,11 +1073,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			respBody = s.redactAgentIdentitySensitiveBody(ctx, account, respBody)
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
-			invalidEncryptedContentError := upstreamCode == "invalid_encrypted_content" ||
-				(upstreamCode == "thinking_signature_invalid" &&
-					strings.Contains(upstreamMsg, "The encrypted content") &&
-					strings.Contains(upstreamMsg, "could not be verified") &&
-					strings.Contains(upstreamMsg, "could not be decrypted or parsed"))
+			invalidEncryptedContentError := openAIInvalidEncryptedContentError(upstreamCode, upstreamMsg)
 			if !httpInvalidEncryptedContentRetryTried && resp.StatusCode == http.StatusBadRequest && invalidEncryptedContentError {
 				decoded, decodeErr := ensureReqBody()
 				if decodeErr != nil {
@@ -1305,6 +1301,19 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 		return forwardResult, nil
 	}
+}
+
+// openAIInvalidEncryptedContentError reports the OpenAI Responses rejection
+// recovered by stripping reasoning encrypted_content once on the same account.
+// invalid_encrypted_content matches on code alone. thinking_signature_invalid
+// matches only when the message contains all three phrases; other decrypt
+// wording does not.
+func openAIInvalidEncryptedContentError(upstreamCode, upstreamMsg string) bool {
+	return upstreamCode == "invalid_encrypted_content" ||
+		(upstreamCode == "thinking_signature_invalid" &&
+			strings.Contains(upstreamMsg, "The encrypted content") &&
+			strings.Contains(upstreamMsg, "could not be verified") &&
+			strings.Contains(upstreamMsg, "could not be decrypted or parsed"))
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
