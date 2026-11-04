@@ -18582,6 +18582,14 @@
       "rationale": "Advisory backstop for upstream 400s that the standing-billing SSOT phrase list misses (prod 2026-11-02 Volc AgentPlan expiry: ~8.5k identical 400s, 0 alerts). Alert-only by design: 400 must never auto-penalise an account (#617)."
     },
     {
+      "path": "backend/internal/pkg/antigravity/payload_sanitize_tk.go",
+      "must_contain": [
+        "func DropEmptyGeminiParts(payload map[string]any) bool {",
+        "return len(part) > 0"
+      ],
+      "rationale": "Outbound Gemini cleanup drops only part objects with no fields. A thoughtSignature or any other real field keeps the part."
+    },
+    {
       "path": "backend/internal/service/openai_stream_credit_exhausted_tk.go",
       "must_contain": [
         "func openAIStreamExplicitCreditExhausted(payload []byte) bool {",
@@ -18629,9 +18637,25 @@
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
+        "filterEmptyPartsFromGeminiRequest(geminiReq)",
         "ctx = bindGoogleGeneric403Request(c, ctx)"
       ],
-      "rationale": "Messages compat must install the two-strike tracker before the first Gemini account is used."
+      "rationale": "Messages compat must strip empty Gemini parts before the request leaves TokenKey, and must install the two-strike generic-403 tracker before the first Gemini account is used."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "if !antigravity.DropEmptyGeminiParts(payload) {"
+      ],
+      "rationale": "Antigravity native Gemini requests share the same empty-part cleaner as messages compat."
+    },
+    {
+      "path": "backend/internal/service/gemini_empty_parts_tk_test.go",
+      "must_contain": [
+        "func TestGeminiOutbound_DropsEmptySystemInstructionParts(",
+        "func TestGeminiOutbound_KeepsRealFieldsThatLookEmpty("
+      ],
+      "rationale": "Empty systemInstruction parts are removed, and thoughtSignature-only parts stay."
     },
     {
       "path": "backend/internal/service/google_generic_403_request_tk_test.go",

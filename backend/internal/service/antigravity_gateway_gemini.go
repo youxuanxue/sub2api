@@ -511,7 +511,7 @@ handleSuccess:
 	}, nil
 }
 
-// cleanGeminiRequest 清理 Gemini 请求体：脏字段、坏 inlineData、tools/response schema。
+// cleanGeminiRequest 清理 Gemini 请求体：脏字段、坏 inlineData、空 part、tools/response schema。
 // 不删除 generationConfig.responseModalities（出图必需）。
 func cleanGeminiRequest(body []byte) ([]byte, error) {
 	var payload map[string]any
@@ -572,54 +572,17 @@ func cleanGeminiRequest(body []byte) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-// filterEmptyPartsFromGeminiRequest 过滤掉 parts 为空的消息
-// Gemini API 不接受空 parts，需要在请求前过滤
+// filterEmptyPartsFromGeminiRequest 去掉真空 part 对象（{}）。
+// systemInstruction / system_instruction 因此没有 part 则整段省略；
+// contents 里因此没有 part 的消息整条丢弃。带真实字段的 part 保留。
+// 这是请求级修正：调用方不换号、不 SetError。
 func filterEmptyPartsFromGeminiRequest(body []byte) ([]byte, error) {
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, err
 	}
-
-	contents, ok := payload["contents"].([]any)
-	if !ok || len(contents) == 0 {
+	if !antigravity.DropEmptyGeminiParts(payload) {
 		return body, nil
 	}
-
-	filtered := make([]any, 0, len(contents))
-	modified := false
-
-	for _, c := range contents {
-		contentMap, ok := c.(map[string]any)
-		if !ok {
-			filtered = append(filtered, c)
-			continue
-		}
-
-		parts, hasParts := contentMap["parts"]
-		if !hasParts {
-			filtered = append(filtered, c)
-			continue
-		}
-
-		partsSlice, ok := parts.([]any)
-		if !ok {
-			filtered = append(filtered, c)
-			continue
-		}
-
-		// 跳过 parts 为空数组的消息
-		if len(partsSlice) == 0 {
-			modified = true
-			continue
-		}
-
-		filtered = append(filtered, c)
-	}
-
-	if !modified {
-		return body, nil
-	}
-
-	payload["contents"] = filtered
 	return json.Marshal(payload)
 }
