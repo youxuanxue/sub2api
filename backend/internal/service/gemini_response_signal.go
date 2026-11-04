@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -203,15 +205,10 @@ func isGeminiEmptyResponseObject(item gjson.Result) bool {
 	return candidates.IsArray() && len(candidates.Array()) == 0 && !item.Get("promptFeedback").Exists()
 }
 
-// isGeminiContentFilterFinishReason 的集合与 gemini-cli 遥测的 CONTENT_FILTER 归类一致，并纳入同语义的图片枚举。
+// isGeminiContentFilterFinishReason 委托 antigravity.GeminiContentFilterFinishReason。
+// 枚举集合只维护在那一处。
 func isGeminiContentFilterFinishReason(reason string) bool {
-	switch reason {
-	case "SAFETY", "RECITATION", "LANGUAGE", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII",
-		"IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION":
-		return true
-	default:
-		return false
-	}
+	return antigravity.GeminiContentFilterFinishReason(reason)
 }
 
 // geminiFinishReasonText 是 finishMessage 缺失时的兜底描述；列出的枚举沿用 gemini-cli 的
