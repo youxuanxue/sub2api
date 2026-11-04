@@ -254,6 +254,12 @@ func prepareOpenAIWSHTTPBridgeBody(account *Account, payload []byte) ([]byte, er
 	delete(body, "generate")
 	delete(body, "previous_response_id")
 	deleteOpenAIResponsesNoneReasoningEffortFromObject(account, body)
+	// Ingress strips this field before the bridge stitches upstream output
+	// back into input. OAuth must strip again or the next ChatGPT account
+	// rejects the replayed credential metadata (CLIProxyAPI#7146).
+	if account.IsOpenAIOAuthLike() {
+		normalizeOpenAIOAuthResponsesCompatibilityFields(body)
+	}
 	body["stream"] = true
 	return json.Marshal(body)
 }

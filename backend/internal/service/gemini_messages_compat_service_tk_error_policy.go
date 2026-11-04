@@ -68,6 +68,14 @@ func (s *GeminiMessagesCompatService) tkApplyGeminiErrorPolicy(
 		if policy == ErrorPolicyMatched {
 			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
+		if resp != nil && resp.StatusCode == http.StatusForbidden && googleGeneric403StopsFailover(ctx) {
+			switch clientWrite {
+			case geminiErrorPolicyClientClaude:
+				return s.writeGoogleGeneric403Passthrough(c, account, resp.StatusCode, upstreamRequestID, respBody), true
+			default:
+				return s.writeGeminiNativeUpstreamError(c, account, resp, respBody, upstreamRequestID, isOAuth), true
+			}
+		}
 		evBody := respBody
 		if clientWrite == geminiErrorPolicyClientNative {
 			evBody = unwrapIfNeeded(isOAuth, respBody)

@@ -1499,7 +1499,13 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 			ctx = c.Request.Context()
 		}
 		s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, "stream_capacity")
-		return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)
+		// An explicit model rule already cooled this model. Do not stack a
+		// second window from Retry-After on top of it.
+		if s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...) {
+			return statusCode, true
+		}
+		s.tkApplyOpenAICapacityRetryAfterModelCooldown(ctx, account, statusCode, headers, payload, message, canonicalModel...)
+		return statusCode, false
 	case http.StatusPaymentRequired:
 		// Prepaid credit death is not a 429 window. API-key accounts are
 		// unschedulable; OAuth and setup-token windows are left alone.
