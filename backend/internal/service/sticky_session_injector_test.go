@@ -255,6 +255,69 @@ func TestUS201_PassthroughDoesNotDerive(t *testing.T) {
 	require.Equal(t, StickyKeySourceNone, k.Source)
 }
 
+func TestSessionAffinity_MetadataUserIDKeepsBody(t *testing.T) {
+	body := []byte(`{"metadata":{"user_id":"user-keep"},"messages":[]}`)
+	original := string(body)
+	headers := http.Header{}
+	headers.Set("x-session-affinity", "affinity-1")
+	req := StickyInjectionRequest{
+		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-5", Strategy: newAutoStrategy(), Headers: headers,
+	}
+	k := DeriveStickyKey(req, body)
+	require.Equal(t, "user-keep", k.Value)
+	require.Equal(t, StickyKeySourceClientMetadataUserID, k.Source)
+
+	out, mutated, err := InjectAnthropicMessagesBody(body, k, req)
+	require.NoError(t, err)
+	require.False(t, mutated)
+	require.Equal(t, original, string(body))
+	require.Equal(t, "user-keep", gjson.GetBytes(out, "metadata.user_id").String())
+}
+
+func TestSessionAffinity_HeaderAlone(t *testing.T) {
+	body := []byte(`{"messages":[]}`)
+	headers := http.Header{}
+	headers.Set("x-session-affinity", "affinity-only")
+	req := StickyInjectionRequest{
+		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-5", Strategy: newAutoStrategy(), Headers: headers,
+	}
+	k := DeriveStickyKey(req, body)
+	require.Equal(t, "affinity-only", k.Value)
+	require.Equal(t, StickyKeySourceClientSessionAffinity, k.Source)
+
+	out, mutated, err := InjectAnthropicMessagesBody(body, k, req)
+	require.NoError(t, err)
+	require.False(t, mutated)
+	require.False(t, gjson.GetBytes(out, "metadata.user_id").Exists())
+	require.False(t, gjson.GetBytes(body, "metadata.user_id").Exists())
+}
+
+func TestSessionAffinity_BeforePromptCacheKey(t *testing.T) {
+	body := []byte(`{"prompt_cache_key":"cache-key"}`)
+	headers := http.Header{}
+	headers.Set("x-session-affinity", "affinity-only")
+	req := StickyInjectionRequest{
+		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-5", Strategy: newAutoStrategy(), Headers: headers,
+	}
+	k := DeriveStickyKey(req, body)
+	require.Equal(t, "affinity-only", k.Value)
+	require.Equal(t, StickyKeySourceClientSessionAffinity, k.Source)
+}
+
+func TestStickyKey_SessionIDPrecedesSessionAffinity(t *testing.T) {
+	body := []byte(`{"metadata":{"user_id":"user-keep"},"prompt_cache_key":"cache-key"}`)
+	headers := http.Header{}
+	headers.Set("session_id", "header-sess")
+	headers.Set("x-session-affinity", "affinity-1")
+	req := StickyInjectionRequest{
+		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-5", Strategy: newAutoStrategy(), Headers: headers,
+	}
+	k := DeriveStickyKey(req, body)
+	require.Equal(t, "header-sess", k.Value)
+	require.Equal(t, StickyKeySourceClientSessionID, k.Source)
+	require.Equal(t, "user-keep", gjson.GetBytes(body, "metadata.user_id").String())
+}
+
 // US-201 X-Session-Id header injection (NewAPI / GLM path).
 func TestUS201_InjectXSessionIDHeader(t *testing.T) {
 	headers := http.Header{}

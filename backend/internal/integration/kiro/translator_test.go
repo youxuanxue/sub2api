@@ -443,3 +443,117 @@ func TestKiroSupportsAdditionalModelRequestFields(t *testing.T) {
 		}
 	}
 }
+
+func TestConversationID_SyntheticAnchorsShareResolvedSession(t *testing.T) {
+	anchors := []string{"", ".", "begin conversation", "please analyze the attached image."}
+	var claudeID, openaiID string
+	for i, anchor := range anchors {
+		claude := ClaudeToKiro(&ClaudeRequest{
+			Model:                 "claude-sonnet-4-5",
+			Messages:              []ClaudeMessage{{Role: "user", Content: anchor}},
+			ConversationSessionID: "sess-a",
+		}, false)
+		openai := OpenAIToKiro(&OpenAIRequest{
+			Model:                 "gpt-4o",
+			Messages:              []OpenAIMessage{{Role: "user", Content: anchor}},
+			ConversationSessionID: "sess-a",
+		}, false)
+		if claude == nil || openai == nil {
+			t.Fatal("translation returned nil payload")
+		}
+		if i == 0 {
+			claudeID = claude.ConversationState.ConversationID
+			openaiID = openai.ConversationState.ConversationID
+			if claudeID == "" || openaiID == "" {
+				t.Fatal("expected a conversation id")
+			}
+		}
+		if claude.ConversationState.ConversationID != claudeID {
+			t.Fatalf("claude anchor %q id = %s, want %s", anchor, claude.ConversationState.ConversationID, claudeID)
+		}
+		if openai.ConversationState.ConversationID != openaiID {
+			t.Fatalf("openai anchor %q id = %s, want %s", anchor, openai.ConversationState.ConversationID, openaiID)
+		}
+	}
+
+	other := ClaudeToKiro(&ClaudeRequest{
+		Model:                 "claude-sonnet-4-5",
+		Messages:              []ClaudeMessage{{Role: "user", Content: "."}},
+		ConversationSessionID: "sess-b",
+	}, false)
+	if other.ConversationState.ConversationID == claudeID {
+		t.Fatalf("different session id reused conversation id %s", claudeID)
+	}
+	otherOpenAI := OpenAIToKiro(&OpenAIRequest{
+		Model:                 "gpt-4o",
+		Messages:              []OpenAIMessage{{Role: "user", Content: "begin conversation"}},
+		ConversationSessionID: "sess-b",
+	}, false)
+	if otherOpenAI.ConversationState.ConversationID == openaiID {
+		t.Fatalf("different session id reused conversation id %s", openaiID)
+	}
+}
+
+func TestConversationID_EmptySessionSyntheticAnchorDiffers(t *testing.T) {
+	first := ClaudeToKiro(&ClaudeRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []ClaudeMessage{{Role: "user", Content: "."}},
+	}, false)
+	second := ClaudeToKiro(&ClaudeRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []ClaudeMessage{{Role: "user", Content: "."}},
+	}, false)
+	if first.ConversationState.ConversationID == second.ConversationState.ConversationID {
+		t.Fatalf("empty session synthetic anchors collided on %s", first.ConversationState.ConversationID)
+	}
+	openAIFirst := OpenAIToKiro(&OpenAIRequest{
+		Model:    "gpt-4o",
+		Messages: []OpenAIMessage{{Role: "user", Content: "begin conversation"}},
+	}, false)
+	openAISecond := OpenAIToKiro(&OpenAIRequest{
+		Model:    "gpt-4o",
+		Messages: []OpenAIMessage{{Role: "user", Content: "begin conversation"}},
+	}, false)
+	if openAIFirst.ConversationState.ConversationID == openAISecond.ConversationState.ConversationID {
+		t.Fatalf("empty session synthetic anchors collided on %s", openAIFirst.ConversationState.ConversationID)
+	}
+}
+
+func TestConversationID_StableUserTextIgnoresSessionID(t *testing.T) {
+	const text = "Review the attached patch and summarize the risk."
+	withA := ClaudeToKiro(&ClaudeRequest{
+		Model:                 "claude-sonnet-4-5",
+		Messages:              []ClaudeMessage{{Role: "user", Content: text}},
+		ConversationSessionID: "sess-a",
+	}, false)
+	withB := ClaudeToKiro(&ClaudeRequest{
+		Model:                 "claude-sonnet-4-5",
+		Messages:              []ClaudeMessage{{Role: "user", Content: text}},
+		ConversationSessionID: "sess-b",
+	}, false)
+	without := ClaudeToKiro(&ClaudeRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []ClaudeMessage{{Role: "user", Content: text}},
+	}, false)
+	if withA.ConversationState.ConversationID != withB.ConversationState.ConversationID ||
+		withA.ConversationState.ConversationID != without.ConversationState.ConversationID {
+		t.Fatalf("stable user text changed with session id: %s %s %s",
+			withA.ConversationState.ConversationID,
+			withB.ConversationState.ConversationID,
+			without.ConversationState.ConversationID)
+	}
+	openA := OpenAIToKiro(&OpenAIRequest{
+		Model:                 "gpt-4o",
+		Messages:              []OpenAIMessage{{Role: "user", Content: text}},
+		ConversationSessionID: "sess-a",
+	}, false)
+	openB := OpenAIToKiro(&OpenAIRequest{
+		Model:                 "gpt-4o",
+		Messages:              []OpenAIMessage{{Role: "user", Content: text}},
+		ConversationSessionID: "sess-z",
+	}, false)
+	if openA.ConversationState.ConversationID != openB.ConversationState.ConversationID {
+		t.Fatalf("stable openai user text changed with session id: %s %s",
+			openA.ConversationState.ConversationID, openB.ConversationState.ConversationID)
+	}
+}

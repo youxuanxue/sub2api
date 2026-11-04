@@ -1500,3 +1500,32 @@ func TestClassifyKiroImageValidationDoesNotMaskProviderFailure(t *testing.T) {
 		require.NotErrorAs(t, err, &invalid, message)
 	}
 }
+
+func TestKiroConversationID_UsesResolvedSessionHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	newCtx := func(header, value string) *gin.Context {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+		if header != "" {
+			c.Request.Header.Set(header, value)
+		}
+		return c
+	}
+
+	body := []byte(`{"metadata":{"user_id":"user-keep"},"prompt_cache_key":"cache-key"}`)
+	withSession := newCtx("session_id", "header-sess")
+	withSession.Request.Header.Set("x-session-affinity", "affinity-1")
+	require.Equal(t, "header-sess", kiroResolvedConversationSessionID(withSession, &ParsedRequest{
+		ExplicitStickyKey: StickyKey{Value: "stored-sticky", Source: StickyKeySourceClientSessionID},
+		MetadataUserID:    "user-keep",
+	}, body))
+
+	affinityOnly := newCtx("x-session-affinity", "affinity-only")
+	require.Equal(t, "affinity-only", kiroResolvedConversationSessionID(affinityOnly, nil, []byte(`{"prompt_cache_key":"cache-key"}`)))
+
+	require.Equal(t, "user-keep", kiroResolvedConversationSessionID(nil, nil, body))
+	require.Equal(t, "stored-sticky", kiroResolvedConversationSessionID(nil, &ParsedRequest{
+		ExplicitStickyKey: StickyKey{Value: "stored-sticky", Source: StickyKeySourceClientSessionID},
+	}, nil))
+	require.Empty(t, kiroResolvedConversationSessionID(nil, nil, []byte(`{"messages":[{"role":"user","content":"."}]}`)))
+}
