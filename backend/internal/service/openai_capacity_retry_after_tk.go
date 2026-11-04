@@ -12,11 +12,12 @@ import (
 
 // openAICapacityRetryAfterModelCooldownCap bounds how long one upstream
 // capacity Retry-After may keep a single account+model pair out of selection.
-// 3 minutes is shorter than the account-wide 529 ladder ceiling (10 minutes);
-// there is no smaller existing capacity-cooldown cap to reuse. The in-request
-// same-account retry budget stays on maxRequestScopedRetryDelay and must not
-// sleep for the upstream delay.
-const openAICapacityRetryAfterModelCooldownCap = 3 * time.Minute
+// server_is_overloaded Retry-After (often 301-330s) is advice for this request,
+// not an account quota window. 60s avoids an immediate rehit without parking a
+// small pool for the whole hint. Quota 429 cooldowns stay on their own owner.
+// The in-request same-account retry budget stays on maxRequestScopedRetryDelay
+// and must not sleep for the upstream delay.
+const openAICapacityRetryAfterModelCooldownCap = 60 * time.Second
 
 const openAICapacityRetryAfterModelCooldownReason = "openai_capacity_retry_after"
 
