@@ -57,7 +57,9 @@ func openAIStreamFailedClientResponse(payload []byte, message string, default5xx
 
 func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool {
 	semantic := gatewayFailureSemanticTransientFault
-	if isOpenAIResponseProtectionUnavailable(message, payload) || isOpenAISafetySessionBlockFault(message, payload) {
+	if openAIStreamExplicitCreditExhausted(payload) {
+		semantic = gatewayFailureSemanticAccountFault
+	} else if isOpenAIResponseProtectionUnavailable(message, payload) || isOpenAISafetySessionBlockFault(message, payload) {
 		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError(message, payload) {
 		semantic = gatewayFailureSemanticSharedFault
@@ -65,7 +67,9 @@ func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool 
 		semantic = gatewayFailureSemanticAccountFault
 	} else {
 		semanticStatus := openAIStreamFailureStatus(payload, message)
-		if semanticStatus == http.StatusForbidden {
+		if semanticStatus == http.StatusPaymentRequired {
+			semantic = gatewayFailureSemanticAccountFault
+		} else if semanticStatus == http.StatusForbidden {
 			if openAIStream403AccountFailure(payload, message) {
 				semantic = gatewayFailureSemanticAccountFault
 			} else {
@@ -107,7 +111,9 @@ func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool 
 
 func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
 	semantic := gatewayFailureSemanticSharedFault
-	if isOpenAIResponseProtectionUnavailable(message, payload) || isOpenAISafetySessionBlockFault(message, payload) {
+	if openAIStreamExplicitCreditExhausted(payload) {
+		semantic = gatewayFailureSemanticAccountFault
+	} else if isOpenAIResponseProtectionUnavailable(message, payload) || isOpenAISafetySessionBlockFault(message, payload) {
 		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError(message, payload) {
 		semantic = gatewayFailureSemanticSharedFault
@@ -115,6 +121,8 @@ func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
 		semantic = gatewayFailureSemanticAccountFault
 	} else {
 		switch openAIStreamFailedEventSemanticStatus(payload, message) {
+		case http.StatusPaymentRequired:
+			semantic = gatewayFailureSemanticAccountFault
 		case http.StatusForbidden:
 			if openAIStream403AccountFailure(payload, message) {
 				semantic = gatewayFailureSemanticAccountFault
