@@ -2,7 +2,7 @@ package handler
 
 import (
 	"fmt"
-	"net/http"
+	"github.com/gin-gonic/gin"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -12,6 +12,7 @@ import (
 // registry row. Empty model_mapping otherwise treats unknown ids as schedulable
 // and surfaces 503, which SandBase protocol-error-model rejects.
 func openAIImagesUnknownModelNotFound(
+	c *gin.Context,
 	gateway *service.OpenAIGatewayService,
 	apiKey *service.APIKey,
 	model string,
@@ -20,7 +21,7 @@ func openAIImagesUnknownModelNotFound(
 	errType string,
 	message string,
 ) (int, string, string) {
-	if status == http.StatusNotFound {
+	if status == service.TkUnsupportedModelStatus {
 		return status, errType, message
 	}
 	if gateway == nil || !service.IsGPTImageGenerationModel(model) {
@@ -33,5 +34,5 @@ func openAIImagesUnknownModelNotFound(
 	if !gateway.TkImageModelUnpriced(model, group, size) || !gateway.TkImageModelRegistryMissing(model) {
 		return status, errType, message
 	}
-	return http.StatusNotFound, "invalid_request_error", fmt.Sprintf("The model '%s' does not exist", model)
+	return service.TkUnsupportedModelSelectionResponseWithMessage(c, fmt.Sprintf("The model '%s' does not exist", model))
 }

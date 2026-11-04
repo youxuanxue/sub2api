@@ -235,13 +235,9 @@ func OpenAIErrorWriter(c *gin.Context, status int, message string) {
 	} else {
 		message = public
 	}
-	c.JSON(status, gin.H{
-		"error": gin.H{
-			"message": message,
-			"type":    "invalid_request_error",
-			"code":    "model_not_found",
-		},
-	})
+	// TK: unsupported-model SSOT owns the OpenAI model_not_found envelope.
+	body := service.TkUnsupportedModelErrorWithMessage(service.TkErrorWireOpenAI, message).Body()
+	c.JSON(status, body)
 }
 
 // RequireGroupAssignment 检查 API Key 是否已分配到分组，

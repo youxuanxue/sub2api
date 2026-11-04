@@ -51,8 +51,8 @@ func tkNoAvailableAccounts(c *gin.Context) int {
 // account in the pool serves this model NAME (e.g. a legacy/typo'd id like
 // "deepseek-chat" or "qwen-max" when the matched newapi pool only maps
 // "deepseek-v4-pro" / "qwen3.7-*"). That is a CLIENT error, not capacity, so it
-// gets 400 invalid_request_error (parity with the anthropic path's
-// tkWriteUnsupportedModelIfApplicable). Surfacing it as 400 keeps it client-owned
+// gets the unsupported-model SSOT 404 (docs/approved/unsupported-model-404-ssot.md;
+// parity with tkWriteUnsupportedModelIfApplicable). It stays client-owned
 // (phase=request, out of upstream_error_rate) instead of an empty-pool 429 that
 // reads as a capacity signal and fires ops alerts (prod 2026-06-13: a client
 // hammering unservable deepseek/qwen names produced 8× empty-pool 429). Checked
@@ -96,7 +96,9 @@ func tkSelectFailureStatusMessage(c *gin.Context, err error, reqModel string) (i
 		// Own this to the client in ops regardless of the response envelope
 		// (/responses carries the type in `code`, not `type`).
 		markOpsClientRequestRejected(c)
-		return http.StatusBadRequest, service.TkUnsupportedModelErrType, service.TkUnsupportedModelMessage(reqModel)
+		// Unsupported-model SSOT (404 + per-wire shape): service owner marks c
+		// so the caller's writer renders the official envelope.
+		return service.TkUnsupportedModelSelectionResponse(c, reqModel)
 	}
 	if errors.Is(err, service.ErrUnsupportedInputModality) {
 		// Same client-owned 400 shape as unsupported model: never Retry-After /

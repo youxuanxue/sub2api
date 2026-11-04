@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Canonical account-model gateway probe — also used by edge native oauth smoke.
 # For modelops, this separates TokenKey local model_mapping/floor rejection
-# (gateway_rejected, often "Unsupported model") from upstream account capability
+# (gateway_rejected, often 404 "Unsupported model"; legacy 400) from upstream account capability
 # rejection (upstream_rejected; exact text is platform-specific).
 # Batch Kiro Claude matrix: ops/stage0/probe_kiro_claude_models.sh (see tokenkey-account-model-probe skill).
 # Embedding models: use ENDPOINT=embeddings (/v1/embeddings), not chat — chat probes can 401 and mark accounts error.

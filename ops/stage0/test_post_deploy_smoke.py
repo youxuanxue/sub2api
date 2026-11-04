@@ -197,6 +197,25 @@ class PostDeploySmokeTest(unittest.TestCase):
         self.assertIn("local candidate admission/runtime pool unavailable", proc.stderr)
         self.assertIn("gemini section soft-skipped", proc.stdout)
 
+    def test_gemini_local_unsupported_model_404_soft_degrades(self) -> None:
+        proc, _ = self._run(
+            "full",
+            gemini_body={"type": "error", "error": {"type": "not_found_error", "message": "Unsupported model: gemini-3.8-flash"}},
+            gemini_http=404,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
+        self.assertIn("local candidate admission/runtime pool unavailable", proc.stderr)
+        self.assertIn("gemini section soft-skipped", proc.stdout)
+
+    def test_gemini_other_404_remains_hard_failure(self) -> None:
+        proc, _ = self._run(
+            "full",
+            gemini_body={"error": {"message": "page not found"}},
+            gemini_http=404,
+        )
+        self.assertNotEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
+        self.assertIn("smoke key/route broken", proc.stderr)
+
     def test_gemini_schema_error_remains_hard_failure(self) -> None:
         proc, _ = self._run(
             "full",

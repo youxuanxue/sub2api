@@ -1447,11 +1447,46 @@ func TestClassifyOpsUniversalUnsupportedModelIsClientRequest(t *testing.T) {
 	for _, errType := range []string{"invalid_request_error", "api_error"} {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonUnsupportedModel)
-		phase, limited, owner, source := classifyOpsErrorLog(c, errType, "Unsupported model: bad-model", "unsupported_model", http.StatusBadRequest)
+		phase, limited, owner, source := classifyOpsErrorLog(c, errType, "Unsupported model: bad-model", "model_not_found", http.StatusNotFound)
 		require.Equal(t, "request", phase)
 		require.True(t, limited)
 		require.Equal(t, "client", owner)
 		require.Equal(t, "client_request", source)
+	}
+}
+
+// Unsupported-model SSOT 404 stays client-owned P3 for every inbound wire,
+// exactly like the legacy 400 (docs/approved/unsupported-model-404-ssot.md).
+func TestClassifyOpsUnsupportedModel404IsClientRequestOnEveryWire(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		path string
+		wire service.TkErrorWire
+	}{
+		{"/v1/chat/completions", service.TkErrorWireOpenAI},
+		{"/v1/responses", service.TkErrorWireOpenAI},
+		{"/v1/messages", service.TkErrorWireAnthropic},
+		{"/v1beta/models/x:generateContent", service.TkErrorWireGemini},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, tc.path, nil)
+			markOpsClientRequestRejected(c)
+			service.TkWriteUnsupportedModel(c, tc.wire, "bad-model")
+			require.Equal(t, http.StatusNotFound, w.Code)
+			parsed := parseOpsErrorResponse(w.Body.Bytes())
+			// Mirrors the ops logger: Google bodies take the locally registered type.
+			if localType, code := service.OpsLocalErrorType(c); localType != "" && (parsed.ErrorType == "" || parsed.ErrorType == "api_error") {
+				parsed.ErrorType, parsed.Code = localType, code
+			}
+			errType := normalizeOpsErrorType(parsed.ErrorType, parsed.Code)
+			phase, _, owner, source := classifyOpsErrorLog(c, errType, parsed.Message, parsed.Code, w.Code)
+			require.Equal(t, "request", phase)
+			require.Equal(t, "client", owner)
+			require.Equal(t, "client_request", source)
+			require.Equal(t, "P3", classifyOpsSeverity(errType, w.Code))
+		})
 	}
 }
 

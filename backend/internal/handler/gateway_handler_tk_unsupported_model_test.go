@@ -21,14 +21,16 @@ func TestTkWriteUnsupportedAnthropicModelAtIngress(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
 	require.True(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, "gpt", false, nil))
-	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Equal(t, http.StatusNotFound, w.Code)
 	assert.Empty(t, w.Header().Get("Retry-After"))
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
 	errObj, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, service.TkUnsupportedModelErrType, errObj["type"])
+	// Official Anthropic 404 shape (docs/approved/unsupported-model-404-ssot.md).
+	assert.Equal(t, "error", payload["type"])
+	assert.Equal(t, service.TkUnsupportedModelAnthropicErrType, errObj["type"])
 	assert.Equal(t, service.TkUnsupportedModelMessage("gpt"), errObj["message"])
 }
 
@@ -63,10 +65,10 @@ func TestTkWriteUnsupportedAnthropicModelAtIngress_RejectsTokenseaListedButUnser
 	gin.SetMode(gin.TestMode)
 	h := &GatewayHandler{}
 	// qwen3.7-max is listed on tokensea GET /v1/models but raw chat 400; it is
-	// also outside CloudWise prefixes, so Anthropic ingress must 400 it.
+	// also outside CloudWise prefixes, so Anthropic ingress must reject it (404 SSOT).
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	require.True(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, "qwen3.7-max", false, nil))
-	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Equal(t, http.StatusNotFound, w.Code)
 }

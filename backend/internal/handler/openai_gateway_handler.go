@@ -1693,6 +1693,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 // anthropicErrorResponse writes an error in Anthropic Messages API format.
 func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int, errType, message string) {
+	errType, _ = service.TkUnsupportedModelWireFields(c, service.TkErrorWireAnthropic, status, errType, "")
 	c.JSON(status, gin.H{
 		"type": "error",
 		"error": gin.H{
@@ -1705,6 +1706,7 @@ func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int
 // anthropicStreamingAwareError handles errors that may occur during streaming,
 // using Anthropic SSE error format.
 func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	errType, _ = service.TkUnsupportedModelWireFields(c, service.TkErrorWireAnthropic, status, errType, "")
 	if streamStarted {
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
@@ -3685,6 +3687,7 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 	statusCode := failoverErr.StatusCode
 	responseBody := failoverErr.ResponseBody
 	if (statusCode == http.StatusBadRequest && service.IsOpenAICompatibleModelNotFound400(responseBody) ||
+		service.TkIsGatewayUnsupportedModel404(statusCode, responseBody) ||
 		service.IsUpstreamModelRetiredError(statusCode, responseBody)) && !streamStarted {
 		upstreamMsg := service.SanitizeUpstreamErrorMessage(service.ExtractUpstreamErrorMessage(responseBody))
 		service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
@@ -3841,6 +3844,7 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
 	countTowardsSLA bool,
 ) {
 	message = tkSanitizeBusy429WireMessage(c, status, errType, message)
+	errType, code = service.TkUnsupportedModelWireFields(c, service.TkErrorWireOpenAI, status, errType, code)
 	// body-signal compact 心跳可能已把响应头提交为 200：先停心跳（建立
 	// happens-before，接管 ResponseWriter），并升级为流内错误处理。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
@@ -3882,7 +3886,7 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
 	}
 
 	// Normal case: return JSON response with proper status code
-	if code == "" {
+	if code == "" || code == service.TkUnsupportedModelCode {
 		h.errorResponse(c, status, errType, message)
 		return
 	}
@@ -4050,9 +4054,14 @@ func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType
 	// 提交的 SSE 流交错，必须降级为 response.failed 终止事件（#3887）。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
 		service.MarkOpsStreamError(c, errType, message, status)
-		if writeResponsesFailedSSE(c, errType, "", message) {
+		_, code := service.TkUnsupportedModelWireFields(c, service.TkErrorWireOpenAI, status, errType, "")
+		if writeResponsesFailedSSE(c, errType, code, message) {
 			return
 		}
+	}
+	if body, ok := service.TkUnsupportedModelWireBody(c, service.TkErrorWireOpenAI, status, message); ok {
+		c.JSON(status, body)
+		return
 	}
 	c.JSON(status, gin.H{
 		"error": gin.H{
