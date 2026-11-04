@@ -741,22 +741,24 @@ func TestTransformClaudeToGemini_ToolResultImagesReachUpstream(t *testing.T) {
 	require.Len(t, req.Request.Contents, 2)
 
 	userParts := req.Request.Contents[1].Parts
-	require.Len(t, userParts, 4)
+	require.Len(t, userParts, 2)
 
 	require.NotNil(t, userParts[0].FunctionResponse)
+	require.Nil(t, userParts[0].InlineData)
 	require.Equal(t, "read_image", userParts[0].FunctionResponse.Name)
 	require.Equal(t, "toolu_img_1", userParts[0].FunctionResponse.ID)
 	require.Equal(t, "loaded colors.png", userParts[0].FunctionResponse.Response["result"])
+	require.Len(t, userParts[0].FunctionResponse.Parts, 1)
+	require.NotNil(t, userParts[0].FunctionResponse.Parts[0].InlineData)
+	require.Equal(t, "image/png", userParts[0].FunctionResponse.Parts[0].InlineData.MimeType)
+	require.Equal(t, "aGVsbG8=", userParts[0].FunctionResponse.Parts[0].InlineData.Data)
 
-	require.NotNil(t, userParts[1].InlineData)
-	require.Equal(t, "image/png", userParts[1].InlineData.MimeType)
-	require.Equal(t, "aGVsbG8=", userParts[1].InlineData.Data)
-
-	require.NotNil(t, userParts[2].FunctionResponse)
-	require.Equal(t, "read_image", userParts[2].FunctionResponse.Name)
-	require.Equal(t, "Command executed successfully.", userParts[2].FunctionResponse.Response["result"])
-
-	require.NotNil(t, userParts[3].InlineData)
-	require.Equal(t, "image/jpeg", userParts[3].InlineData.MimeType)
-	require.Equal(t, "d29ybGQ=", userParts[3].InlineData.Data)
+	require.NotNil(t, userParts[1].FunctionResponse)
+	require.Nil(t, userParts[1].InlineData)
+	require.Equal(t, "read_image", userParts[1].FunctionResponse.Name)
+	require.Equal(t, "Command executed successfully.", userParts[1].FunctionResponse.Response["result"])
+	require.Len(t, userParts[1].FunctionResponse.Parts, 1)
+	require.NotNil(t, userParts[1].FunctionResponse.Parts[0].InlineData)
+	require.Equal(t, "image/jpeg", userParts[1].FunctionResponse.Parts[0].InlineData.MimeType)
+	require.Equal(t, "d29ybGQ=", userParts[1].FunctionResponse.Parts[0].InlineData.Data)
 }

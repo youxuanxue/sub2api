@@ -58,6 +58,7 @@ type GeminiFunctionResponse struct {
 	Name     string         `json:"name"`
 	Response map[string]any `json:"response"`
 	ID       string         `json:"id,omitempty"`
+	Parts    []GeminiPart   `json:"parts,omitempty"`
 }
 
 // GeminiGenerationConfig Gemini 生成配置
