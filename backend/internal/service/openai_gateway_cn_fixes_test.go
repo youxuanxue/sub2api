@@ -340,3 +340,95 @@ func TestHandle403_CNProviderNearMatchRetainsNormalPermanentErrorPolicy(t *testi
 	require.Equal(t, 1, repo.setErrorCalls, "non-exact 403 must retain existing permission/auth protection")
 	require.Equal(t, 0, repo.tempCalls)
 }
+
+func kimiConcurrencyLimit403Body(t *testing.T) []byte {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{
+		"error": map[string]any{"message": kimiConcurrentRequestLimitMessage},
+	})
+	require.NoError(t, err)
+	return body
+}
+
+func TestHandle403_KimiConcurrencyLimit403NilSettingUsesShortCooldown(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{ID: 410, Platform: PlatformKimi, Type: AccountTypeAPIKey}
+
+	now := time.Now()
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(), account, http.StatusForbidden, http.Header{},
+		kimiConcurrencyLimit403Body(t),
+	)
+
+	require.True(t, shouldDisable, "exact concurrency 403 must still fail over")
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 0, repo.rateLimitedCalls)
+	require.Equal(t, 1, repo.tempCalls)
+	require.Contains(t, repo.lastTempReason, cnConcurrencyLimitReasonPrefix)
+	require.WithinDuration(t, now.Add(5*time.Second), repo.lastTempUntil, 2*time.Second)
+}
+
+func TestHandle403_KimiConcurrencyLimit403UsesConfigured429Cooldown(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	settingRepo := newMockSettingRepo()
+	data, err := json.Marshal(RateLimit429CooldownSettings{Enabled: true, CooldownSeconds: 12})
+	require.NoError(t, err)
+	settingRepo.data[SettingKeyRateLimit429CooldownSettings] = string(data)
+
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetSettingService(NewSettingService(settingRepo, &config.Config{}))
+	account := &Account{ID: 411, Platform: PlatformKimi, Type: AccountTypeAPIKey}
+
+	now := time.Now()
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(), account, http.StatusForbidden, http.Header{},
+		kimiConcurrencyLimit403Body(t),
+	)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 0, repo.rateLimitedCalls)
+	require.Equal(t, 1, repo.tempCalls)
+	require.Contains(t, repo.lastTempReason, cnConcurrencyLimitReasonPrefix)
+	require.WithinDuration(t, now.Add(12*time.Second), repo.lastTempUntil, 2*time.Second)
+}
+
+func TestHandle403_KimiConcurrencyLimit403DisabledCooldownSkipsTemp(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	settingRepo := newMockSettingRepo()
+	data, err := json.Marshal(RateLimit429CooldownSettings{Enabled: false, CooldownSeconds: 12})
+	require.NoError(t, err)
+	settingRepo.data[SettingKeyRateLimit429CooldownSettings] = string(data)
+
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetSettingService(NewSettingService(settingRepo, &config.Config{}))
+	account := &Account{ID: 412, Platform: PlatformKimi, Type: AccountTypeAPIKey}
+
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(), account, http.StatusForbidden, http.Header{},
+		kimiConcurrencyLimit403Body(t),
+	)
+
+	require.True(t, shouldDisable, "disabled short cooldown must still fail over")
+	require.Equal(t, 0, repo.tempCalls)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 0, repo.rateLimitedCalls)
+}
+
+func TestHandle403_KimiConcurrencyLimit403QuotaExhaustedStaysLongCooldown(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := newCNQuotaExhaustedTestAccount(0)
+
+	now := time.Now()
+	shouldDisable := runKimi403(service, account, kimiWeeklyQuotaExhaustedBody)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 0, repo.rateLimitedCalls)
+	require.Equal(t, 1, repo.tempCalls)
+	require.Contains(t, repo.lastTempReason, cnQuotaExhaustedReasonPrefix)
+	require.NotContains(t, repo.lastTempReason, cnConcurrencyLimitReasonPrefix)
+	require.WithinDuration(t, now.Add(time.Duration(openAI403CooldownMinutesDefault)*time.Minute), repo.lastTempUntil, 2*time.Second)
+}

@@ -213,6 +213,11 @@ type ClaudeRequest struct {
 	// Kiro normalization does not merge the newly separated summary blocks back
 	// into one current message.
 	preserveUserTurnBoundaries bool
+	// ConversationSessionID is the session the gateway already resolved from
+	// sticky headers or the sticky key. Synthetic conversation anchors hash it
+	// so one session keeps one conversationId. Empty stays a fresh UUID.
+	// Clients cannot set it through JSON.
+	ConversationSessionID string `json:"-"`
 }
 
 type ClaudeOutputConfig struct {
@@ -401,7 +406,7 @@ func ClaudeToKiroWithFileToolGuidance(req *ClaudeRequest, thinking, enabled bool
 	payload.ConversationState.ChatTriggerType = "MANUAL"
 	payload.ConversationState.AgentTaskType = "vibe"
 	payload.ConversationState.AgentContinuationId = uuid.New().String()
-	payload.ConversationState.ConversationID = buildConversationID(modelID, systemPrompt, firstClaudeConversationAnchor(req.Messages))
+	payload.ConversationState.ConversationID = buildConversationID(modelID, systemPrompt, firstClaudeConversationAnchor(req.Messages), req.ConversationSessionID)
 	payload.ConversationState.CurrentMessage.UserInputMessage = KiroUserInputMessage{
 		Content: finalContent,
 		ModelID: modelID,
@@ -1286,6 +1291,10 @@ type OpenAIRequest struct {
 	TopP        float64         `json:"top_p,omitempty"`
 	Stream      bool            `json:"stream,omitempty"`
 	Tools       []OpenAITool    `json:"tools,omitempty"`
+	// ConversationSessionID is the session the gateway already resolved.
+	// Synthetic anchors hash it; a stable first user text does not. Empty
+	// stays a fresh UUID. Clients cannot set it through JSON.
+	ConversationSessionID string `json:"-"`
 }
 
 type OpenAIMessage struct {
@@ -1506,7 +1515,7 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 	payload := &KiroPayload{}
 	payload.ToolNameMap = toolNameMap
 	payload.ConversationState.ChatTriggerType = "MANUAL"
-	payload.ConversationState.ConversationID = buildConversationID(modelID, systemPrompt, firstOpenAIConversationAnchor(nonSystemMessages))
+	payload.ConversationState.ConversationID = buildConversationID(modelID, systemPrompt, firstOpenAIConversationAnchor(nonSystemMessages), req.ConversationSessionID)
 	payload.ConversationState.CurrentMessage.UserInputMessage = KiroUserInputMessage{
 		Content: finalContent,
 		ModelID: modelID,
@@ -2216,13 +2225,24 @@ func firstOpenAIConversationAnchor(messages []OpenAIMessage) string {
 	return ""
 }
 
-func buildConversationID(modelID, systemPrompt, anchor string) string {
+func buildConversationID(modelID, systemPrompt, anchor, sessionID string) string {
 	anchor = strings.TrimSpace(anchor)
 	if isSyntheticConversationAnchor(anchor) {
-		return uuid.New().String()
+		return syntheticConversationID(sessionID)
 	}
 	seed := strings.Join([]string{modelID, strings.TrimSpace(systemPrompt), anchor}, "\n")
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(seed)).String()
+}
+
+// syntheticConversationID hashes the already-resolved session id. The same
+// session keeps one Kiro conversation across placeholder anchors. An empty
+// session stays random so anonymous requests do not share an id.
+func syntheticConversationID(sessionID string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return uuid.New().String()
+	}
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(sessionID)).String()
 }
 
 func isSyntheticConversationAnchor(anchor string) bool {

@@ -276,11 +276,14 @@ func (p *NonStreamingProcessor) buildResponse(geminiResp *GeminiResponse, respon
 		}
 	}
 
+	// 已发出 tool_use 时优先于内容策略 refusal。
 	stopReason := "end_turn"
 	if p.hasToolCall {
 		stopReason = "tool_use"
 	} else if finishReason == "MAX_TOKENS" {
 		stopReason = "max_tokens"
+	} else if GeminiContentFilterFinishReason(finishReason) {
+		stopReason = "refusal"
 	}
 
 	// 注意：Gemini 的 promptTokenCount 包含 cachedContentTokenCount，
