@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import shlex
 import subprocess
+import time
 from pathlib import Path
 
 # Both production hosts reach node1 through a jump host on the WireGuard
@@ -131,6 +132,51 @@ printf '{{"total_bytes":%s,"free_bytes":%s,"qa_used_bytes":%s}}\\n' "$total" "$f
         return json.loads(result.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError) as exc:
         raise RemoteError(f"node1 capacity probe returned no JSON: {result.stdout[-300:]}") from exc
+
+
+def remote_manifest_digest(key: Path, jump: str, target: str, remote_dir: str) -> str:
+    """The sha256 of one published hour's manifest on node1, or "" if absent.
+
+    A local receipt alone is not evidence that the payload reached node1. An
+    earlier local-copy run wrote receipts for 2026-11-02 07:00 and 08:00 that
+    passed every local check while node1 held nothing for those hours, so the
+    cleanup gate blocked them forever and the archive skipped them as already
+    done. Reading the digest back is what distinguishes a real archive from a
+    receipt that merely claims one.
+    """
+    script = (
+        f'set -eu\n'
+        f'd={shlex.quote(remote_dir)}\n'
+        f'if [ -f "$d/manifest.json" ]; then\n'
+        f'  sha256sum "$d/manifest.json" | cut -d" " -f1\n'
+        f'else\n'
+        f'  echo ABSENT\n'
+        f'fi\n'
+    )
+    command = ssh_command(key, jump, target) + ["sh", "-s"]
+    # The jump host resets a connection now and then. A probe that gives up on
+    # the first reset turns a transient handshake failure into a failed hour:
+    # cn-prod reported 23 completed and 1 failed on 2026-11-03 purely because
+    # of "kex_exchange_identification: read: Connection reset by peer", which
+    # also made the whole unit exit non-zero. Retry before deciding.
+    attempts = 3
+    result = None
+    for attempt in range(attempts):
+        result = subprocess.run(command, input=script, capture_output=True,
+                                text=True, check=False, timeout=120)
+        if result.returncode == 0:
+            break
+        if attempt + 1 < attempts:
+            time.sleep(2 * (attempt + 1))
+    if result.returncode != 0:
+        raise RemoteError(f"node1 manifest probe failed after {attempts} attempts: "
+                          f"{(result.stderr or result.stdout).strip()[:300]}")
+    answer = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+    if answer == "ABSENT":
+        return ""
+    if len(answer) != 64 or not all(c in "0123456789abcdef" for c in answer):
+        raise RemoteError(f"node1 returned an unusable manifest digest: {answer[:80]!r}")
+    return answer
 
 
 def push_directory(staging: Path, *, key: Path, jump: str, target: str,
