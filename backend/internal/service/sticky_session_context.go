@@ -127,6 +127,7 @@ func applyStickyToAnthropicMessagesBody(
 	isClaudeCodeUA bool,
 ) ([]byte, string, error) {
 	stickyReq := buildStickyInjectionRequestFromGin(ctx, c, settingService, upstreamModel, anthropicStickyAccountKind(account), isClaudeCodeUA)
+	stickyReq.ReadSessionAffinity = true
 	if !stickyReq.Strategy.AllowsInjection() {
 		return body, "", nil
 	}
