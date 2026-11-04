@@ -823,7 +823,7 @@
         "def trusted_authors(",
         "watchdog-tracking:v1",
         "watchdog-day:",
-        "RECORD.sub(lambda m: \"\" if m[3] in resolved else m[0]",
+        "RECORD.sub(lambda m: \"\" if canonical_ref(m[3]) in resolved else m[0]",
         "retired = resolved | manual",
         "Never seed a checkbox",
         "published=None",
