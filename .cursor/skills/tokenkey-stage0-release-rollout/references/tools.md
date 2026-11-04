@@ -11,7 +11,7 @@
 | VERSION/tag 三态决策（tag-only / bump-and-tag / skip-bump-skip-tag） | 机械 | `scripts/release-decide-version.sh [--emit-suggested-bump]`（被上行脚本消费；单独跑仅用于诊断） |
 | 打 tag（含 skip-ci / VERSION 一致 / HEAD==origin/main 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z`（被上行脚本调用；**git 侧必须带 `v`**） |
 | **prod deploy / replay / smoke-only / warm dispatch** | 机械 | `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy\|replay\|smoke-only\|warm --tag X.Y.Z\|vX.Y.Z`（入口剥 `v`；不要手写 `gh workflow run deploy-stage0.yml` / `warm-image-stage0.yml`） |
-| **cn-prod pull / sync-controls / prepare（SSM Hybrid）** | 机械 | `bash deploy/domestic/deploy_via_ssm.sh pull\|sync-controls\|prepare --tag X.Y.Z\|vX.Y.Z …`（身份读 `deploy/domestic/prod-target.json`；默认 S3 校验归档，pull 必传完整 `--revision`；`--transport ghcr` 显式备用；**不要**开 SSH 或 scp 离线 tar） |
+| **cn-prod pull / sync-controls / prepare（SSM Hybrid）** | 机械 | `bash deploy/domestic/deploy_via_ssm.sh pull\|sync-controls\|prepare --tag X.Y.Z\|vX.Y.Z …`（身份读 `deploy/domestic/prod-target.json`；默认 S3 校验归档，pull 必传完整 `--revision`。主机 local tag 与预下载回执的 image id 一致时 pull 跳过 S3，本机不需要 boto3；镜像不在或回执对不上才渲染 S3。`--transport ghcr` 显式备用；**不要**开 SSH 或 scp 离线 tar） |
 | **cn-prod 候选实测 / promote** | 机械 + 判断 | `deploy_via_ssm.sh candidate-smoke` 然后 `promote`。切流仍调用已同步的 `bluegreen.py`；公网入口固定为 `deploy/domestic/prod-target.json` 的 `public_origin`。`api.galaxywaveai.com`、北京网卡地址和 `api-cn.tokenkey.dev` 都会被拒绝。该域名与静态 IP 共用一条上游，切流一起生效。细则见 `deploy/domestic/README.md` |
 | release.yml 恢复 dispatch（skip-ci 误伤等） | 机械 | `gh workflow run release.yml -f tag=vX.Y.Z -f simple_release=false`（**git tag 形态，带 `v`**）+ `gh run watch --exit-status` |
 | watch workflow run | 机械 | `gh run watch --exit-status` |

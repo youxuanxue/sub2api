@@ -55,7 +55,9 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
   把 `/usr/bin/bash` truncate 成 0 字节，服务未断但主机 bash-shebang 告警 job 全挂约 9 小时。
   preflight 门禁 `cn-prod remote file transfer` 守这条。
   Release 成功后，等待对应 release run 触发的 `distribute-cn-image.yml` 成功（私有 S3 + SSM 预下载）；
-  不以 Release 构建绿灯代替分发绿灯。重复 pull 复用已验镜像，初始化权限与保留期见国内 README。
+  不以 Release 构建绿灯代替分发绿灯。`pull` 先核对主机上的
+  `tokenkey-domestic/tokenkey:TAG-SHORT`；预下载回执记下的 image id 一致就跳过 S3，本机不需要 boto3。
+  该 tag 不在主机上、或回执对不上时才渲染 S3。初始化权限与保留期见国内 README。
   `--transport ghcr` 为显式备用路径，S3 缺失/失败不自动降级。
   **禁止**默认走运维机 `crane`/`docker save` + 开放 cn-prod SSH 22；运维机搬运离线 tar 仅恢复；CI 校验归档经私有 S3 + SSM 分发是默认路径。
   `promote --public-url` 必须等于 `deploy/domestic/prod-target.json` 的 `public_origin`。这是当前公网验收入口，不是北京网卡地址，也不是 `api.galaxywaveai.com` 或 `api-cn.tokenkey.dev`。`post_release.py` 在切流前拒绝域名和其他公网 IP。
