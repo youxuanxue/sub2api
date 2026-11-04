@@ -133,3 +133,80 @@ These checks validate the repaired wire shape; they are not deployed gateway smo
 After release, use an isolated administrator probe to verify the outgoing request
 and actual reasoning/tool output, then rerun the customer's capability matrix.
 HTTP 200 alone is insufficient evidence. Rollback uses the normal release path.
+
+## 2026-11-04 request-field parity (cn-prod kimi-k3 benchmark)
+
+The 2026-11-04 cn-prod benchmark (`/v1/chat/completions`, model `kimi-k3`,
+Volc Agent Plan supply) used the supplier baseline rule that inputs, outputs
+and behavior must match the Moonshot official API. Several fields returned
+HTTP 200 while the supplier ignored or reinterpreted them. Scope is unchanged:
+only the Volc Agent Plan endpoint plus the Kimi K3 family. Owner:
+`service/volc_kimi_chat_request_limits_tk.go`, called first from
+`normalizeVolcKimiChatRequest`. All rejects use the existing
+`newOpenAIInvalidParameterError` (`invalid_parameter` + `param`) and stop
+before relay. Valid values are forwarded byte-for-byte.
+
+Sources: Moonshot Chat API (<https://platform.kimi.ai/docs/api/chat>) and
+Model Parameter Reference (<https://platform.kimi.ai/docs/api/models-overview.md>),
+read 2026-11-04.
+
+- `reasoning_effort` `none` (also `off` / `disabled`, top-level or nested
+  `reasoning.effort`) now means `thinking.type=disabled` and strips the effort
+  field. Moonshot's K3 enum is `low|high|max` with no off value, so Moonshot
+  itself has no `none`. This supplier has a real off-switch (2026-10-15
+  evidence above), and this doc already says closing thinking must not
+  silently become low effort. The previous `none`→`low` mapping ran with
+  reasoning on, which was the observed bug. `none` combined with an explicit
+  enabled switch returns 400 on `reasoning_effort`. `minimal` stays `low`.
+  Other suppliers keep the historical `none`→`low` mapping.
+- `temperature` outside `[0, 2]`, `top_p` outside `[0, 1]`, or a non-number
+  returns 400 on that field. Moonshot documents K3 `temperature` as fixed at
+  `1.0` and `top_p` at `0.95` ("passing any other value returns an error").
+  This change rejects only values outside the OpenAI-compatible range. It
+  does not yet enforce Moonshot's fixed values, because in-range values
+  currently succeed on this supplier and tightening would break working
+  clients. That needs a separate decision.
+- `n` other than `1` returns 400 on `n`. Moonshot fixes K3 `n` at `1`; the
+  supplier returned one choice for `n=2`.
+- `logprobs=true` or `top_logprobs>0` returns 400 on that field. Moonshot
+  documents `logprobs` and `top_logprobs` (0 to 20). The supplier returned
+  200 with no logprobs, so the gateway cannot deliver them. `logprobs=false`
+  and `top_logprobs=0` still pass.
+- `max_tokens` / `max_completion_tokens` must be a positive integer. Volc
+  treats `0` as unset and answered normally. Moonshot documents no minimum,
+  but zero output tokens is not a usable limit, and `-1` was already an
+  upstream 400. Converters emit these fields only when positive, so this
+  checks client input only.
+- Client-visible error messages drop a trailing supplier trace id of the form
+  `Request id: <16+ alphanumerics>` (for example
+  `... Request id: 021793796431474c...`). The strip runs inside the shared
+  `TkSanitizeUpstreamProductWireMessage` choke point, so every writer that
+  already calls it is covered. Ops keeps the original message because
+  `setOpsUpstreamError` records it before the client writer runs. Other
+  relays' parenthesized `(request id: ...)` envelopes are not touched.
+
+### Known limitation: `stop` in thinking mode (no gateway change)
+
+With thinking on, `stop:["5"]` and the prompt "Count from 1 to 10, separated by
+commas" returned empty `content` with `finish_reason=stop`. The stop sequence
+matched inside `reasoning_content`. Moonshot documents `stop` as "max 5
+strings, each at most 32 bytes; matched text is not output" and does not say
+whether it applies to reasoning. The gateway forwards `stop` unchanged and
+the match happens during supplier decoding, so the gateway cannot change it.
+Rejected options: removing `stop` and truncating the answer locally (changes
+streaming and token accounting, and fakes supplier behavior), and turning
+thinking off when `stop` is present (silently changes the request). Behavior
+is unchanged. Clients that need answer-only stop sequences should send
+`thinking.type=disabled` or pick stop strings that do not appear in
+reasoning. Evidence still needed: a direct Volc Agent Plan replay of the same
+body with `thinking.type=enabled` and with `disabled`, to confirm
+supplier-side matching and whether Volc documents an answer-only stop
+option.
+
+Tests: `TestVolcKimiRequestLimitsRejectUndeliverableFields`,
+`TestVolcKimiReasoningEffortNoneDisablesThinking`,
+`TestVolcKimiRequestLimitsForwardReturnsLocal400` (no relay on reject),
+`TestVolcKimiUpstream400HidesSupplierRequestID` (wire hides the id, ops keeps
+it), and `TestTkSanitizeUpstreamProductWireMessageStripsSupplierRequestID`.
+`TestVolcKimiFallbackReasoningWireAndUsage` now expects `none` to reach the
+wire as `thinking.type=disabled`.

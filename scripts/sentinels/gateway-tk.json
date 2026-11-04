@@ -3184,6 +3184,7 @@
         "normalizeVolcKimiThinking(shaped)",
         "normalizeVolcKimiReasoningEffort(shaped, selected)",
         "normalizeVolcKimiAllowedTools(shaped)",
+        "validateVolcKimiRequestLimits(body)",
         "normalizeChatToolConstraints(shaped)",
         "func rejectUnreachableVolcKimiVideoURLs(",
         "video_url is not reachable; provide a video URL this service can access"
@@ -3199,6 +3200,29 @@
         "NormalizeMoonshotThinking(model, body)"
       ],
       "rationale": "The selected supplier, not the public Kimi model name alone, chooses thinking normalization."
+    },
+    {
+      "path": "backend/internal/service/volc_kimi_chat_request_limits_tk.go",
+      "must_contain": [
+        "func validateVolcKimiRequestLimits(",
+        "volcKimiNumberInRange(body, \"temperature\", 0, 2)",
+        "volcKimiNumberInRange(body, \"top_p\", 0, 1)",
+        "kimi-k3 supports only n=1",
+        "func applyVolcKimiEffortOff(",
+        "sjson.SetBytes(shaped, \"thinking.type\", \"disabled\")"
+      ],
+      "rationale": "Volc Agent Plan kimi-k3 must return field-level 400s for sampling, n, logprobs and max token values the supplier silently ignores, and reasoning_effort none must close thinking instead of becoming low effort."
+    },
+    {
+      "path": "backend/internal/service/volc_kimi_chat_request_limits_tk_test.go",
+      "must_contain": [
+        "func TestVolcKimiRequestLimitsRejectUndeliverableFields(",
+        "func TestVolcKimiReasoningEffortNoneDisablesThinking(",
+        "func TestVolcKimiRequestLimitsForwardReturnsLocal400(",
+        "func TestVolcKimiUpstream400HidesSupplierRequestID(",
+        "func TestTkSanitizeUpstreamProductWireMessageStripsSupplierRequestID("
+      ],
+      "rationale": "Protect the 2026-11-04 kimi-k3 request-field parity and supplier request-id wire hygiene."
     },
     {
       "path": "backend/internal/service/volc_kimi_chat_constraints_tk_test.go",
@@ -17399,6 +17423,7 @@
       "must_contain": [
         "TkClientFacingUnsupportedMessage = \"The requested model is not supported.\"",
         "func TkSanitizeUpstreamProductWireMessage(",
+        "message = tkStripSupplierRequestIDSuffix(message)",
         "func TkLooksLikeUpstreamProductLeakMessage(",
         "\"agent plan\"",
         "\"token plan\"",
