@@ -112,10 +112,6 @@ func (s *AntigravityGatewayService) ForwardAsResponses(
 		return nil, err
 	}
 
-	var request apicompat.ResponsesRequest
-	if json.Unmarshal(body, &request) != nil {
-		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
-	}
 	// Lower Codex custom/freeform tools before ResponsesToAnthropicRequest.
 	// That conversion otherwise emits an empty object schema and the model has
 	// nowhere to put the patch. originalBody stays the client bytes for billing
@@ -124,6 +120,7 @@ func (s *AntigravityGatewayService) ForwardAsResponses(
 	if err != nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
+	var request apicompat.ResponsesRequest
 	if json.Unmarshal(adaptedBody, &request) != nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 	}
