@@ -1,4 +1,5 @@
 -- Migration: tk_108_kiro_cli_tls_profile_refresh
+-- high-risk-anchor: logged-in kiro-cli 3.0.0 wire capture
 --
 -- Project the kiro-cli 3.0.0 rustls ClientHello onto the existing
 -- tk_canonical_kiro_cli row. Captured 2026-11-04 from three logged-in
