@@ -3192,6 +3192,30 @@
       "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire."
     },
     {
+      "path": "backend/internal/service/volc_kimi_usage_estimate_tk.go",
+      "must_contain": [
+        "func requiresVolcKimiUsageEstimate(",
+        "isNewAPIVolcEngineAgentPlanAccount(account) && resolveMoonshotThinkingFamily(model) == moonshotThinkingK3",
+        "func estimateVolcKimiUsage(",
+        "if hasBillableGrokChatUsage(usage) || usage.ImageOutputTokens > 0 {",
+        "tokenestimate.Count(",
+        "VolcKimiEstimatedBillingTier = \"volc-kimi-estimated\"",
+        "volcKimiUsageEstimatedKind   = \"volc_kimi_usage_estimated\""
+      ],
+      "rationale": "Volc Agent Plan kimi-k3 non-billable 200 usage (all zero or no stream usage chunk) is billed from the shared cl100k tokenestimate owner; real upstream usage always wins. See docs/approved/volc-kimi-chat-compatibility.md 2026-11-04."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "stashVolcKimiEstimateRequestBody(c, account, upstreamModel, upstreamBody)",
+        "applyVolcKimiBufferedUsageEstimate(c, account, upstreamModel, requestID, usage, respBody)",
+        "newVolcKimiStreamUsageEstimator(c, account, upstreamModel, originalModel, requestID)",
+        "volcKimiEstimate.UsageLineBeforeDone(&usage)",
+        "volcKimiEstimate.Finalize(&usage)"
+      ],
+      "rationale": "Raw Chat buffered and stream readers must keep the Volc kimi-k3 usage estimate wiring; dropping it silently bills $0 again."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk.go",
       "must_contain": [
         "isNewAPIVolcEngineAgentPlanAccount(account)",
