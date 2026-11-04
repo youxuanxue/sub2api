@@ -29,11 +29,16 @@ export GOTOOLCHAIN
 # line still died with "make: golangci-lint: No such file or directory" — the
 # auto-install was dead code. Prefer whatever is already on PATH so an explicit
 # override still wins; otherwise use the go-install location.
+# `origin`, not `?=`: `?=` defines a recursively expanded variable, so the
+# lookup below would re-run on every $(GOLANGCI_LINT) reference. An override
+# from the command line or environment still wins, and resolution happens once.
+ifeq ($(origin GOLANGCI_LINT),undefined)
 GOLANGCI_LINT_BINDIR := $(shell go env GOBIN)
 ifeq ($(strip $(GOLANGCI_LINT_BINDIR)),)
 GOLANGCI_LINT_BINDIR := $(shell go env GOPATH)/bin
 endif
-GOLANGCI_LINT ?= $(shell command -v golangci-lint 2>/dev/null || echo $(GOLANGCI_LINT_BINDIR)/golangci-lint)
+GOLANGCI_LINT := $(shell command -v golangci-lint 2>/dev/null || echo $(GOLANGCI_LINT_BINDIR)/golangci-lint)
+endif
 GOLANGCI_LINT_VERSION ?= v2.14.0
 GOLANGCI_LINT_CONCURRENCY ?= 4
 GOLANGCI_LINT_FAST_ARGS ?= --concurrency=$(GOLANGCI_LINT_CONCURRENCY)
