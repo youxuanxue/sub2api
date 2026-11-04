@@ -63,7 +63,7 @@ func TestGatewayHandleErrorResponse_NoRuleKeepsDefault(t *testing.T) {
 	assert.Equal(t, "Upstream request failed", errField["message"])
 }
 
-func TestGatewayHandleErrorResponse_Anthropic404ModelNotFoundReturns400Unsupported(t *testing.T) {
+func TestGatewayHandleErrorResponse_Anthropic404ModelNotFoundReturns404Unsupported(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -79,13 +79,14 @@ func TestGatewayHandleErrorResponse_Anthropic404ModelNotFoundReturns400Unsupport
 
 	_, err := svc.handleErrorResponse(context.Background(), resp, c, account, "opus")
 	require.Error(t, err)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	assert.Equal(t, "error", payload["type"])
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "invalid_request_error", errField["type"])
+	assert.Equal(t, "not_found_error", errField["type"])
 	assert.Equal(t, "Unsupported model: opus", errField["message"])
 }
 

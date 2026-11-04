@@ -438,8 +438,12 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 			model = extractAnthropicNotFoundModel(body, upstreamMsg)
 		}
 		if model != "" {
-			s.tkModelNotFoundRecordUpstream404(account.Platform, model)
-			writeAnthropicError(c, http.StatusBadRequest, TkUnsupportedModelErrType, TkUnsupportedModelMessage(model))
+			// A nested TokenKey 404 is group-scoped; never learn it platform-wide.
+			if !TkIsGatewayUnsupportedModel404(resp.StatusCode, body) {
+				s.tkModelNotFoundRecordUpstream404(account.Platform, model)
+			}
+			// TK: unsupported-model SSOT (404 not_found_error) — gateway_service_tk_unsupported_model.go.
+			tkWriteAnthropicUnsupportedModel(c, model)
 			return nil, fmt.Errorf("upstream error: %d unsupported model=%s", resp.StatusCode, model)
 		}
 	}

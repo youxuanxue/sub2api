@@ -262,24 +262,11 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 	return false
 }
 
+// writeUniversalRoutingUnsupportedModelError delegates status and wire shape to
+// the unsupported-model SSOT (404; docs/approved/unsupported-model-404-ssot.md).
 func writeUniversalRoutingUnsupportedModelError(c *gin.Context, shape service.UniversalShape, model string) {
-	const status = http.StatusBadRequest
-	message := service.TkUnsupportedModelMessage(model)
 	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonUnsupportedModel)
-	switch shape {
-	case service.ShapeGemini:
-		GoogleErrorWriter(c, status, message)
-	case service.ShapeAnthropicMessages, service.ShapeAnthropicCountTokens:
-		c.JSON(status, gin.H{"type": "error", "error": gin.H{
-			"type": "invalid_request_error", "message": message,
-		}})
-	default:
-		c.JSON(status, gin.H{"error": gin.H{
-			"message": message,
-			"type":    "invalid_request_error",
-			"code":    "unsupported_model",
-		}})
-	}
+	service.TkWriteUnsupportedModel(c, service.TkErrorWireForShape(shape), model)
 }
 
 func writeUniversalRoutingUnsupportedRequestError(c *gin.Context, shape service.UniversalShape, model string) {

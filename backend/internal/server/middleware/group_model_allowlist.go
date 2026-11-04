@@ -84,7 +84,7 @@ func GroupModelAllowlist() gin.HandlerFunc {
 
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
 		MarkIngressRejected(c, IngressRejectModelNotAllowed)
-		groupModelAllowlistErrorWriter(c)(c, http.StatusNotFound, fmt.Sprintf("Model %q is not available for this group", blocked))
+		groupModelAllowlistErrorWriter(c)(c, service.TkUnsupportedModelStatus, fmt.Sprintf("Model %q is not available for this group", blocked))
 		c.Abort()
 	}
 }

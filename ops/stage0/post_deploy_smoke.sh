@@ -260,13 +260,15 @@ fi  # end messages suite
 #
 # Failure semantics (2026-05-06 v1.7.19 false-positive postmortem):
 #   200 → schema cleanup verified end-to-end against real Google upstream.
-#   400 with a local "Unsupported model: ..." error → SOFT WARN. The request
+#   404 (or legacy 400) with a local "Unsupported model: ..." error → SOFT WARN.
+#         Unsupported-model SSOT is 404 (docs/approved/unsupported-model-404-ssot.md);
+#         400 stays accepted while a pre-SSOT binary may still answer. The request
 #         was admitted by the gateway but no eligible runtime candidate was
 #         available (for example account cooldown or an empty platform pool).
 #         Runtime capacity must not block a release.
 #   other 400 → HARD FAIL. The bug we are guarding (PR #121) has regressed;
 #         the deploy must be rolled back / investigated.
-#   401, 403, 404 → HARD FAIL. The configured smoke key/route is broken.
+#   401, 403, other 404 → HARD FAIL. The configured smoke key/route is broken.
 #   503 / 502 / 500 / "no available accounts" / 429 → SOFT WARN, exit 0.
 #         These are upstream / scheduling resource issues that could not
 #         possibly indicate a schema cleanup regression (a broken cleanup
@@ -360,6 +362,11 @@ if smoke_suite_runs gemini; then
     else
       echo "tk_post_deploy_smoke: /v1/messages (gemini, with tools) shape type=${gemini_type} role=${gemini_role} content=${gemini_content_count}"
     fi
+  elif [[ "${gemini_http}" == "404" && "${gemini_err_msg}" == Unsupported\ model:* ]]; then
+    # Unsupported-model SSOT 404: same runtime-capacity verdict as the legacy 400 below.
+    echo "::warning::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP 404 — local candidate admission/runtime pool unavailable (${gemini_err_msg}); release gate soft-skipped." >&2
+    jq . "$tmpdir/gemini-msg.json" >&2 2>/dev/null || cat "$tmpdir/gemini-msg.json" >&2
+    echo "tk_post_deploy_smoke: gemini section soft-skipped (local unsupported-model admission reflects runtime capacity)"
   elif [[ "${gemini_http}" == "400" ]]; then
     # TokenKey can reject a request locally with 400 when the model is listed
     # in the catalog but no eligible account/candidate is currently usable.

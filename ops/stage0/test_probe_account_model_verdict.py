@@ -217,6 +217,25 @@ class ProbeAccountModelVerdictTest(unittest.TestCase):
         )
         self.assertEqual(verdict, "wrong_account")
 
+    def test_local_unsupported_model_stays_gateway_rejected_for_400_and_404(self):
+        bodies = {
+            "400": '{"error":{"type":"invalid_request_error","code":"unsupported_model","message":"Unsupported model: x"}}',
+            "404": '{"error":{"message":"Unsupported model: x","type":"invalid_request_error","param":null,"code":"model_not_found"}}',
+        }
+        for code, body in bodies.items():
+            with self.subTest(code=code):
+                self.assertEqual(classify_probe_verdict(endpoint="chat", http_code=code, body_text=body,
+                                                        target_account_id=1, usage_row=None, curl_err=""),
+                                 "gateway_rejected")
+        anthropic = '{"type":"error","error":{"type":"not_found_error","message":"Unsupported model: x"}}'
+        self.assertEqual(classify_probe_verdict(endpoint="messages", http_code="404", body_text=anthropic,
+                                                target_account_id=1, usage_row=None, curl_err=""),
+                         "gateway_rejected")
+        upstream = '{"error":{"code":"model_not_found","message":"The model `x` does not exist or you do not have access to it."}}'
+        self.assertEqual(classify_probe_verdict(endpoint="chat", http_code="404", body_text=upstream,
+                                                target_account_id=1, usage_row=None, curl_err=""),
+                         "upstream_rejected")
+
 
 if __name__ == "__main__":
     unittest.main()

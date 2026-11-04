@@ -32,7 +32,7 @@ import (
 //
 // The err→(status,type,msg) mapping itself is covered by TestTkSelectFailureStatusMessage;
 // these tests assert each endpoint's error ENVELOPE carries the mapped values for
-// both the unsupported-model (400, no Retry-After) and genuine empty-pool (429 +
+// both the unsupported-model (404 SSOT, no Retry-After) and genuine empty-pool (429 +
 // Retry-After) cases — the exact two-line sequence the fix introduced per handler.
 func TestCompatHandlersUnservableModelEnvelope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -53,6 +53,7 @@ func TestCompatHandlersUnservableModelEnvelope(t *testing.T) {
 
 	type responsesBody struct {
 		Error struct {
+			Type    string `json:"type"`
 			Code    string `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
@@ -60,20 +61,22 @@ func TestCompatHandlersUnservableModelEnvelope(t *testing.T) {
 	type ccBody struct {
 		Error struct {
 			Type    string `json:"type"`
+			Code    string `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
 	}
 
-	t.Run("responses unsupported model -> 400 invalid_request_error, no Retry-After", func(t *testing.T) {
+	t.Run("responses unsupported model -> 404 model_not_found, no Retry-After", func(t *testing.T) {
 		c, w := newCtx("/v1/responses")
 		status, errType, msg := tkSelectFailureStatusMessage(c, unsupported, "gpt")
 		h.responsesErrorResponse(c, status, errType, msg)
 
-		require.Equal(t, http.StatusBadRequest, w.Code)
+		require.Equal(t, http.StatusNotFound, w.Code)
 		assert.Empty(t, w.Header().Get("Retry-After"), "a request that can never succeed must NOT carry a retry hint")
 		var body responsesBody
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-		assert.Equal(t, service.TkUnsupportedModelErrType, body.Error.Code)
+		assert.Equal(t, service.TkUnsupportedModelErrType, body.Error.Type)
+		assert.Equal(t, service.TkUnsupportedModelCode, body.Error.Code)
 		assert.Equal(t, service.TkUnsupportedModelMessage("gpt"), body.Error.Message)
 	})
 
@@ -90,16 +93,17 @@ func TestCompatHandlersUnservableModelEnvelope(t *testing.T) {
 		assert.Equal(t, service.TkClientFacingBusy429Message, body.Error.Message)
 	})
 
-	t.Run("chat/completions unsupported model -> 400 invalid_request_error, no Retry-After", func(t *testing.T) {
+	t.Run("chat/completions unsupported model -> 404 model_not_found, no Retry-After", func(t *testing.T) {
 		c, w := newCtx("/v1/chat/completions")
 		status, errType, msg := tkSelectFailureStatusMessage(c, unsupported, "gpt")
 		h.chatCompletionsErrorResponse(c, status, errType, msg)
 
-		require.Equal(t, http.StatusBadRequest, w.Code)
+		require.Equal(t, http.StatusNotFound, w.Code)
 		assert.Empty(t, w.Header().Get("Retry-After"))
 		var body ccBody
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 		assert.Equal(t, service.TkUnsupportedModelErrType, body.Error.Type)
+		assert.Equal(t, service.TkUnsupportedModelCode, body.Error.Code)
 		assert.Equal(t, service.TkUnsupportedModelMessage("gpt"), body.Error.Message)
 	})
 
@@ -117,7 +121,7 @@ func TestCompatHandlersUnservableModelEnvelope(t *testing.T) {
 }
 
 // TestCompatHandlersUnservableModelOpsClassification verifies the SECOND cascade
-// row (ops attribution): an unservable-model 400 on these two endpoints must log as
+// row (ops attribution): an unservable-model 404 on these two endpoints must log as
 // a CLIENT-owned request error (phase=request, error_owner=client, error_source=
 // client_request) — NOT a routing-capacity event (the
 // 429's mislabel) and NOT a gateway-internal error. Otherwise a client fault keeps
@@ -149,24 +153,24 @@ func TestCompatHandlersUnservableModelOpsClassification(t *testing.T) {
 		return
 	}
 
-	t.Run("chat/completions 400 -> request/client", func(t *testing.T) {
+	t.Run("chat/completions 404 -> request/client", func(t *testing.T) {
 		phase, owner, source, status := classify(t, "/v1/chat/completions", func(c *gin.Context) {
 			s, ty, m := tkSelectFailureStatusMessage(c, unsupported, "gpt")
 			h.chatCompletionsErrorResponse(c, s, ty, m)
 		})
-		require.Equal(t, http.StatusBadRequest, status)
+		require.Equal(t, http.StatusNotFound, status)
 		assert.Equal(t, "request", phase)
 		assert.Equal(t, "client", owner)
 		assert.Equal(t, "client_request", source)
 	})
 
-	t.Run("responses 400 -> request/client (type carried in code field)", func(t *testing.T) {
+	t.Run("responses 404 -> request/client", func(t *testing.T) {
 		phase, owner, source, status := classify(t, "/v1/responses", func(c *gin.Context) {
 			s, ty, m := tkSelectFailureStatusMessage(c, unsupported, "gpt")
 			h.responsesErrorResponse(c, s, ty, m)
 		})
-		require.Equal(t, http.StatusBadRequest, status)
-		assert.Equal(t, "request", phase, "responses envelope carries type in `code`; ops parser must recover it")
+		require.Equal(t, http.StatusNotFound, status)
+		assert.Equal(t, "request", phase, "unsupported-model 404 is client-owned on every envelope")
 		assert.Equal(t, "client", owner)
 		assert.Equal(t, "client_request", source)
 	})
