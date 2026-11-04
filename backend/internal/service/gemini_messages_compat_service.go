@@ -3845,7 +3845,6 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 		case []any:
 			// 如果只有一个 block，不过滤空白（让上游 API 报错）
 			singleBlock := len(content) == 1
-			var toolImageParts []any
 
 			for _, block := range content {
 				bm, ok := block.(map[string]any)
@@ -3900,15 +3899,18 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 					if text == "" && len(images) > 0 {
 						text = "[image attached below]"
 					}
-					parts = append(parts, map[string]any{
-						"functionResponse": map[string]any{
-							"name": name,
-							"response": map[string]any{
-								"content": text,
-							},
+					functionResponse := map[string]any{
+						"name": name,
+						"response": map[string]any{
+							"content": text,
 						},
+					}
+					if len(images) > 0 {
+						functionResponse["parts"] = images
+					}
+					parts = append(parts, map[string]any{
+						"functionResponse": functionResponse,
 					})
-					toolImageParts = append(toolImageParts, images...)
 				case "image":
 					if src, ok := bm["source"].(map[string]any); ok {
 						if srcType, _ := src["type"].(string); srcType == "base64" {
@@ -3931,7 +3933,6 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 					}
 				}
 			}
-			parts = append(parts, toolImageParts...)
 		default:
 			// ignore
 		}
