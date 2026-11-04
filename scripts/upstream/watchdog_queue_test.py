@@ -12,7 +12,8 @@ SPEC = importlib.util.spec_from_file_location(
 queue = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(queue)
 
-# owner/repo#n, and a github issue/PR URL whose number is not interrupted.
+# owner/repo#n, and a github.com issue/PR URL. redirect.github.com is a
+# different host and is deliberately not matched by XREF_URL.
 XREF_REF = re.compile(r"[\w.-]+/[\w.-]+#\d+")
 XREF_URL = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/(?:issues|pull)/\d+")
 REPO = "Wei-Shaw/sub2api"
@@ -32,9 +33,10 @@ class WatchdogQueueXrefTest(unittest.TestCase):
         body = api.comments[0]["body"]
         self.assertIsNone(XREF_REF.search(body), body)
         self.assertIsNone(XREF_URL.search(body), body)
-        pasted = body.replace("\u200b", "")
-        self.assertIn(f"https://github.com/{REPO}/issues/3023", pasted)
-        self.assertIn(f"https://github.com/{REPO}/pull/88", pasted)
+        # The href a reader clicks must still reach the real issue/PR page.
+        self.assertIn(f"https://redirect.github.com/{REPO}/issues/3023", body)
+        self.assertIn(f"https://redirect.github.com/{REPO}/pull/88", body)
+        self.assertNotIn("\u200b", body)
         self.assertEqual(
             [queue.canonical_ref(row[2]) for row in queue.RECORD.findall(body)],
             [f"{REPO}#3023", f"{REPO}#88"])
@@ -49,7 +51,7 @@ class WatchdogQueueXrefTest(unittest.TestCase):
         queue.sync_queue(REPO, [item], "example/fork", api, day="2026-11-03")
         body = api.comments[0]["body"]
         legacy = body.replace(
-            f"[{REPO} issues/3023](https://github.com/{REPO}/issues/\u200b3023)",
+            f"[{REPO} issues/3023](https://redirect.github.com/{REPO}/issues/3023)",
             f"[{ref}](https://github.com/{REPO}/issues/3023)")
         legacy = legacy.replace(f"watchdog-item:{REPO}/issues/3023", f"watchdog-item:{ref}")
         self.assertIn(f"watchdog-item:{ref} ", legacy)

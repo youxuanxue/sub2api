@@ -46,25 +46,28 @@ def intel_period(when=None):
 
 RECORD = re.compile(r"^- \[([ xX])\] (.*?) <!-- watchdog-item:([^ ]+) ([0-9a-f]+) (pending|fixed) ([^ ]+) -->$", re.MULTILINE)
 COMMENT_LIMIT = 55000
-# GitHub cross-references owner/repo#n and raw issue/PR URLs in public comments,
-# including inside HTML comments. U+200B is ignored by browser address bars on paste.
-_XREF_BREAK = "\u200b"
+# GitHub cross-references owner/repo#n and github.com issue/PR URLs in public
+# comments, including inside HTML comments. redirect.github.com is GitHub's own
+# 301 host to the same page and is not scanned for references; Dependabot and
+# Renovate use it for exactly this. The link still resolves on click.
+_XREF_SAFE_HOST = "redirect.github.com"
 
 
 def render_public_ref(ref, kind=None):
     """Markdown link plus comment token that do not form a GitHub autolink.
 
     Visible label is ``owner/repo issues/n`` or ``owner/repo pull/n``. The href
-    hides U+200B before the number so the raw comment has no contiguous
-    ``https://github.com/<owner>/<repo>/issues/<n>`` (or ``/pull/<n>``) URL.
-    The token is ``owner/repo/issues/n`` or ``owner/repo/pull/n``. Historical
-    comments still store ``owner/repo#n``; ``canonical_ref`` accepts both and
-    RECORD is unchanged.
+    goes through ``redirect.github.com``, so the raw comment carries no
+    ``github.com/<owner>/<repo>/issues/<n>`` (or ``/pull/<n>``) URL to scan,
+    and clicking it lands on the real page. The token is
+    ``owner/repo/issues/n`` or ``owner/repo/pull/n``. Historical comments still
+    store ``owner/repo#n``; ``canonical_ref`` accepts both and RECORD is
+    unchanged.
     """
     source, number = ref.rsplit("#", 1)
     route = "pull" if kind == "pr" else "issues"
     label = f"{source} {route}/{number}"
-    href = f"https://github.com/{source}/{route}/{_XREF_BREAK}{number}"
+    href = f"https://{_XREF_SAFE_HOST}/{source}/{route}/{number}"
     return f"[{label}]({href})", f"{source}/{route}/{number}"
 
 
