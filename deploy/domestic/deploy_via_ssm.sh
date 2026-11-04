@@ -7,8 +7,8 @@
 # Usage:
 #   bash deploy/domestic/deploy_via_ssm.sh pull --tag 1.8.306|v1.8.306 --revision FULL_SHA
 #     S3 pull first inspects tokenkey-domestic/tokenkey:TAG-SHORT on the host.
-#     A matching revision skips URL rendering, so boto3 is unnecessary.
-#     boto3 is required only when that local tag is absent.
+#     Skip URL rendering when that tag's warm receipt records the same image id.
+#     boto3 is required when the tag or that receipt is missing.
 #   bash deploy/domestic/deploy_via_ssm.sh sync-controls
 #   bash deploy/domestic/deploy_via_ssm.sh prepare --tag 1.8.306 --revision FULL_SHA \
 #        --image tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf
@@ -279,27 +279,53 @@ case "${ACTION}" in
         exit 1
       fi
       # CI prewarm may already have loaded this local tag. Ask the host before
-      # rendering an S3 URL, so an operator machine without boto3 can continue
-      # when the image is present. A mismatch refuses to replace the tag.
+      # rendering an S3 URL, so an operator machine without boto3 can continue.
+      # Skip only when the warm receipt records this same image id. Labels alone
+      # are not content identity. A label mismatch refuses to replace the tag.
       SHORT="$(printf '%s' "${REVISION}" | cut -c1-9)"
       LOCAL_TAG="tokenkey-domestic/tokenkey:${TAG}-${SHORT}"
       PROBE="$(python3 - "${LOCAL_TAG}" "${TAG}" "${REVISION}" <<'PY'
 import json, sys
 local, tag, revision = sys.argv[1:4]
-fmt = "{{.Id}}|{{.Architecture}}|{{.Os}}|{{index .Config.Labels \"org.opencontainers.image.version\"}}|{{index .Config.Labels \"org.opencontainers.image.revision\"}}"
+receipt = f"/var/lib/tokenkey/image-distribution/{tag}-{revision}.json"
+fmt = '{{.Id}}|{{.Architecture}}|{{.Os}}|{{index .Config.Labels "org.opencontainers.image.version"}}|{{index .Config.Labels "org.opencontainers.image.revision"}}'
 print(f"""set -euo pipefail
 LOCAL={json.dumps(local)}
 EXPECT_TAG={json.dumps(tag)}
 EXPECT_REV={json.dumps(revision)}
-if ! LINE=$(docker image inspect "$LOCAL" --format {json.dumps(fmt)} 2>/dev/null); then
+RECEIPT={json.dumps(receipt)}
+FMT={json.dumps(fmt)}
+if ! LINE=$(docker image inspect "$LOCAL" --format "$FMT" 2>/dev/null); then
   printf '%s\\n' '{{"cached":false,"reason":"absent"}}'
   exit 0
 fi
-python3 -c 'import json,sys
-image_id, arch, os_name, version, revision = sys.argv[1].split("|", 4)
-match = arch == "amd64" and os_name == "linux" and version == sys.argv[3] and revision == sys.argv[4]
-reason = "match" if match else "identity_mismatch"
-print(json.dumps({{"cached": match, "reason": reason, "tag": version, "revision": revision, "architecture": arch, "image_id": image_id, "local_tag": sys.argv[2]}}))' "$LINE" "$LOCAL" "$EXPECT_TAG" "$EXPECT_REV"
+export LINE LOCAL EXPECT_TAG EXPECT_REV RECEIPT
+python3 - <<'TOKENKEY_PROBE'
+import json, os
+from pathlib import Path
+image_id, arch, os_name, version, revision = os.environ["LINE"].split("|", 4)
+local = os.environ["LOCAL"]
+expect_tag = os.environ["EXPECT_TAG"]
+expect_rev = os.environ["EXPECT_REV"]
+base = {{"tag": version, "revision": revision, "architecture": arch, "image_id": image_id, "local_tag": local}}
+if not (arch == "amd64" and os_name == "linux" and version == expect_tag and revision == expect_rev):
+    print(json.dumps({{"cached": False, "reason": "identity_mismatch", **base}}))
+    raise SystemExit(0)
+try:
+    saved = json.loads(Path(os.environ["RECEIPT"]).read_text())
+except (OSError, json.JSONDecodeError):
+    print(json.dumps({{"cached": False, "reason": "unverified"}}))
+    raise SystemExit(0)
+if (
+    saved.get("image_id") == image_id
+    and saved.get("tag") == expect_tag
+    and saved.get("revision") == expect_rev
+    and saved.get("local_tag") == local
+):
+    print(json.dumps({{"cached": True, "reason": "match", **base}}))
+else:
+    print(json.dumps({{"cached": False, "reason": "unverified"}}))
+TOKENKEY_PROBE
 """)
 PY
 )"
@@ -309,6 +335,7 @@ PY
       DECISION="$(printf '%s\n' "${PROBE_JSON}" | python3 -c '
 import json, sys
 raw = sys.stdin.read().strip()
+tag, revision, local = sys.argv[1:4]
 if not raw:
     print("invalid")
     raise SystemExit(0)
@@ -317,13 +344,23 @@ try:
 except json.JSONDecodeError:
     print("invalid")
     raise SystemExit(0)
-if data.get("cached") is True:
+image_id = str(data.get("image_id") or "")
+if (
+    data.get("cached") is True
+    and data.get("reason") == "match"
+    and data.get("tag") == tag
+    and data.get("revision") == revision
+    and data.get("local_tag") == local
+    and image_id.startswith("sha256:")
+):
     print("hit")
+elif data.get("cached") is True:
+    print("invalid")
 elif data.get("reason") == "identity_mismatch":
     print("mismatch")
 else:
     print("miss")
-')"
+' "${TAG}" "${REVISION}" "${LOCAL_TAG}")"
       case "${DECISION}" in
         hit)
           printf '%s\n' "${PROBE_JSON}" | python3 -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read()), indent=2))'

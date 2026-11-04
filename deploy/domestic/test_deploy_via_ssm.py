@@ -378,29 +378,83 @@ class DeployViaSsmTest(unittest.TestCase):
         remote = json.loads(self.ssm_parameters.read_text())["commands"][0]
         self.assertIn("echo verified-after-miss", remote)
 
+    def test_s3_pull_renders_when_warm_receipt_is_unverified(self) -> None:
+        self.stdout_fixture.write_text(json.dumps({"cached": False, "reason": "unverified"}))
+        renderer = self.repo / "deploy/domestic/image_distribution.py"
+        renderer.write_text("import sys\nprint('set -eu; echo verified-after-unverified')\n")
+        proc = self._run("pull", "--transport", "s3", "--tag", "1.8.306", "--revision", "b" * 40)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        remote = json.loads(self.ssm_parameters.read_text())["commands"][0]
+        self.assertIn("echo verified-after-unverified", remote)
+
+    def test_s3_pull_rejects_cached_flag_without_recorded_image(self) -> None:
+        self.stdout_fixture.write_text(json.dumps({"cached": True, "reason": "match"}))
+        renderer = self.repo / "deploy/domestic/image_distribution.py"
+        renderer.write_text("import sys\nraise SystemExit('S3 render must not run')\n")
+        proc = self._run("pull", "--transport", "s3", "--tag", "1.8.306", "--revision", "a" * 40)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("unreadable", proc.stderr)
+        self.assertNotIn("S3 render must not run", proc.stderr + proc.stdout)
+
     def test_host_image_probe_classifies_docker_inspect(self) -> None:
         revision = "c" * 40
-        self.stdout_fixture.write_text(json.dumps({"cached": True, "reason": "match", "tag": "1.8.306", "revision": revision, "architecture": "amd64", "image_id": "sha256:x", "local_tag": "tokenkey-domestic/tokenkey:1.8.306-ccccccccc"}))
+        local_tag = "tokenkey-domestic/tokenkey:1.8.306-ccccccccc"
+        self.stdout_fixture.write_text(json.dumps({"cached": True, "reason": "match", "tag": "1.8.306", "revision": revision, "architecture": "amd64", "image_id": "sha256:x", "local_tag": local_tag}))
         proc = self._run("pull", "--transport", "s3", "--tag", "1.8.306", "--revision", revision)
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         remote = json.loads(self.ssm_parameters.read_text())["commands"][0]
+        receipt_dir = pathlib.Path(self._tmp.name) / "image-distribution"
+        receipt_dir.mkdir()
+        remote = remote.replace("/var/lib/tokenkey/image-distribution/", f"{receipt_dir}/")
         docker = self.fakebin / "docker"
         docker.write_text(textwrap.dedent("""\
             #!/usr/bin/env bash
-            if [[ "$*" == *image\\ inspect* ]]; then
+            printf '%s\\n' "$*" > "${TEST_DOCKER_ARGS}"
+            if [[ "$*" == *image\\ inspect* && "$*" == *'index .Config.Labels "org.opencontainers.image.version"'* ]]; then
               echo "${TEST_INSPECT:-sha256:abc|amd64|linux|1.8.306|""" + revision + """}"
               exit 0
             fi
             exit 1
             """))
         docker.chmod(0o755)
-        env = {**os.environ, "PATH": f"{self.fakebin}:{os.environ.get('PATH', '')}"}
+        args_file = pathlib.Path(self._tmp.name) / "docker-args"
+        env = {
+            **os.environ,
+            "PATH": f"{self.fakebin}:{os.environ.get('PATH', '')}",
+            "TEST_DOCKER_ARGS": str(args_file),
+        }
+        (receipt_dir / f"1.8.306-{revision}.json").write_text(json.dumps({
+            "tag": "1.8.306",
+            "revision": revision,
+            "image_id": "sha256:abc",
+            "local_tag": local_tag,
+        }))
         matched = subprocess.run(
             [shutil.which("dash") or "/bin/sh", "-c", remote],
             env=env, capture_output=True, text=True, check=False,
         )
-        self.assertEqual(matched.returncode, 0, msg=matched.stderr)
+        self.assertEqual(matched.returncode, 0, msg=matched.stderr + matched.stdout)
         self.assertTrue(json.loads(matched.stdout)["cached"])
+        self.assertIn('index .Config.Labels "org.opencontainers.image.version"', args_file.read_text())
+        (receipt_dir / f"1.8.306-{revision}.json").write_text(json.dumps({
+            "tag": "1.8.306",
+            "revision": revision,
+            "image_id": "sha256:other",
+            "local_tag": local_tag,
+        }))
+        drifted = subprocess.run(
+            [shutil.which("dash") or "/bin/sh", "-c", remote],
+            env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(drifted.returncode, 0, msg=drifted.stderr)
+        self.assertEqual(json.loads(drifted.stdout)["reason"], "unverified")
+        (receipt_dir / f"1.8.306-{revision}.json").unlink()
+        missing = subprocess.run(
+            [shutil.which("dash") or "/bin/sh", "-c", remote],
+            env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(missing.returncode, 0, msg=missing.stderr)
+        self.assertEqual(json.loads(missing.stdout)["reason"], "unverified")
         docker.write_text("#!/usr/bin/env bash\nexit 1\n")
         docker.chmod(0o755)
         absent = subprocess.run(
