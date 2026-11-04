@@ -314,6 +314,112 @@ class DeployViaSsmTest(unittest.TestCase):
         remote = json.loads(self.ssm_parameters.read_text())["commands"][0]
         self.assertIn("echo verified-override", remote)
 
+    def test_s3_pull_skips_render_when_host_tag_matches(self) -> None:
+        revision = "a" * 40
+        self.stdout_fixture.write_text(
+            json.dumps(
+                {
+                    "cached": True,
+                    "reason": "match",
+                    "tag": "1.8.306",
+                    "revision": revision,
+                    "architecture": "amd64",
+                    "image_id": "sha256:already",
+                    "local_tag": "tokenkey-domestic/tokenkey:1.8.306-aaaaaaaaa",
+                }
+            )
+        )
+        renderer = self.repo / "deploy/domestic/image_distribution.py"
+        renderer.write_text("import sys\nraise SystemExit('S3 render must not run')\n")
+        no_boto = self.repo / "py-no-boto"
+        no_boto.mkdir()
+        (no_boto / "python3").write_text(
+            "#!/usr/bin/env bash\n"
+            'if [[ "${1:-}" == "-c" && "${2:-}" == "import boto3" ]]; then exit 1; fi\n'
+            f'exec "{shutil.which("python3")}" "$@"\n'
+        )
+        (no_boto / "python3").chmod(0o755)
+        env = {
+            **os.environ,
+            "PATH": f"{no_boto}:{self.fakebin}:{os.environ.get('PATH', '')}",
+        }
+        env.pop("CN_PROD_PYTHON3", None)
+        proc = subprocess.run(
+            ["bash", "deploy/domestic/deploy_via_ssm.sh", "pull", "--transport", "s3",
+             "--tag", "1.8.306", "--revision", revision],
+            cwd=self.repo, env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        receipt = json.loads(proc.stdout)
+        self.assertTrue(receipt["cached"])
+        self.assertEqual(receipt["local_tag"], "tokenkey-domestic/tokenkey:1.8.306-aaaaaaaaa")
+        self.assertIn("skipped S3", proc.stderr)
+        remote = json.loads(self.ssm_parameters.read_text())["commands"][0]
+        self.assertIn("docker image inspect", remote)
+        self.assertNotIn("S3 render", remote)
+
+    def test_s3_pull_refuses_mismatched_host_tag(self) -> None:
+        self.stdout_fixture.write_text(
+            json.dumps({"cached": False, "reason": "identity_mismatch", "local_tag": "tokenkey-domestic/tokenkey:1.8.306-aaaaaaaaa"})
+        )
+        renderer = self.repo / "deploy/domestic/image_distribution.py"
+        renderer.write_text("import sys\nraise SystemExit('S3 render must not run')\n")
+        proc = self._run("pull", "--transport", "s3", "--tag", "1.8.306", "--revision", "a" * 40)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("refusing to replace", proc.stderr)
+        self.assertNotIn("S3 render must not run", proc.stderr + proc.stdout)
+
+    def test_s3_pull_renders_when_host_tag_is_absent(self) -> None:
+        self.stdout_fixture.write_text(json.dumps({"cached": False, "reason": "absent"}))
+        renderer = self.repo / "deploy/domestic/image_distribution.py"
+        renderer.write_text("import sys\nprint('set -eu; echo verified-after-miss')\n")
+        proc = self._run("pull", "--transport", "s3", "--tag", "1.8.306", "--revision", "b" * 40)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        remote = json.loads(self.ssm_parameters.read_text())["commands"][0]
+        self.assertIn("echo verified-after-miss", remote)
+
+    def test_host_image_probe_classifies_docker_inspect(self) -> None:
+        revision = "c" * 40
+        self.stdout_fixture.write_text(json.dumps({"cached": True, "reason": "match", "tag": "1.8.306", "revision": revision, "architecture": "amd64", "image_id": "sha256:x", "local_tag": "tokenkey-domestic/tokenkey:1.8.306-ccccccccc"}))
+        proc = self._run("pull", "--transport", "s3", "--tag", "1.8.306", "--revision", revision)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        remote = json.loads(self.ssm_parameters.read_text())["commands"][0]
+        docker = self.fakebin / "docker"
+        docker.write_text(textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "$*" == *image\\ inspect* ]]; then
+              echo "${TEST_INSPECT:-sha256:abc|amd64|linux|1.8.306|""" + revision + """}"
+              exit 0
+            fi
+            exit 1
+            """))
+        docker.chmod(0o755)
+        env = {**os.environ, "PATH": f"{self.fakebin}:{os.environ.get('PATH', '')}"}
+        matched = subprocess.run(
+            [shutil.which("dash") or "/bin/sh", "-c", remote],
+            env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(matched.returncode, 0, msg=matched.stderr)
+        self.assertTrue(json.loads(matched.stdout)["cached"])
+        docker.write_text("#!/usr/bin/env bash\nexit 1\n")
+        docker.chmod(0o755)
+        absent = subprocess.run(
+            [shutil.which("dash") or "/bin/sh", "-c", remote],
+            env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(absent.returncode, 0, msg=absent.stderr)
+        self.assertEqual(json.loads(absent.stdout)["reason"], "absent")
+        docker.write_text("#!/usr/bin/env bash\necho 'sha256:abc|arm64|linux|1.8.306|" + revision + "'\n")
+        docker.chmod(0o755)
+        mismatch = subprocess.run(
+            [shutil.which("dash") or "/bin/sh", "-c", remote],
+            env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(mismatch.returncode, 0, msg=mismatch.stderr)
+        body = json.loads(mismatch.stdout)
+        self.assertFalse(body["cached"])
+        self.assertEqual(body["reason"], "identity_mismatch")
+
     def test_pull_strips_v_and_sends_ssm(self) -> None:
         proc = self._run("pull", "--tag", "v1.8.306")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)

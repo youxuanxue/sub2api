@@ -6,6 +6,9 @@
 #
 # Usage:
 #   bash deploy/domestic/deploy_via_ssm.sh pull --tag 1.8.306|v1.8.306 --revision FULL_SHA
+#     S3 pull first inspects tokenkey-domestic/tokenkey:TAG-SHORT on the host.
+#     A matching revision skips URL rendering, so boto3 is unnecessary.
+#     boto3 is required only when that local tag is absent.
 #   bash deploy/domestic/deploy_via_ssm.sh sync-controls
 #   bash deploy/domestic/deploy_via_ssm.sh prepare --tag 1.8.306 --revision FULL_SHA \
 #        --image tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf
@@ -275,6 +278,67 @@ case "${ACTION}" in
         echo "deploy_via_ssm pull: S3 requires --revision FULL_SHA" >&2
         exit 1
       fi
+      # CI prewarm may already have loaded this local tag. Ask the host before
+      # rendering an S3 URL, so an operator machine without boto3 can continue
+      # when the image is present. A mismatch refuses to replace the tag.
+      SHORT="$(printf '%s' "${REVISION}" | cut -c1-9)"
+      LOCAL_TAG="tokenkey-domestic/tokenkey:${TAG}-${SHORT}"
+      PROBE="$(python3 - "${LOCAL_TAG}" "${TAG}" "${REVISION}" <<'PY'
+import json, sys
+local, tag, revision = sys.argv[1:4]
+fmt = "{{.Id}}|{{.Architecture}}|{{.Os}}|{{index .Config.Labels \"org.opencontainers.image.version\"}}|{{index .Config.Labels \"org.opencontainers.image.revision\"}}"
+print(f"""set -euo pipefail
+LOCAL={json.dumps(local)}
+EXPECT_TAG={json.dumps(tag)}
+EXPECT_REV={json.dumps(revision)}
+if ! LINE=$(docker image inspect "$LOCAL" --format {json.dumps(fmt)} 2>/dev/null); then
+  printf '%s\\n' '{{"cached":false,"reason":"absent"}}'
+  exit 0
+fi
+python3 -c 'import json,sys
+image_id, arch, os_name, version, revision = sys.argv[1].split("|", 4)
+match = arch == "amd64" and os_name == "linux" and version == sys.argv[3] and revision == sys.argv[4]
+reason = "match" if match else "identity_mismatch"
+print(json.dumps({{"cached": match, "reason": reason, "tag": version, "revision": revision, "architecture": arch, "image_id": image_id, "local_tag": sys.argv[2]}}))' "$LINE" "$LOCAL" "$EXPECT_TAG" "$EXPECT_REV"
+""")
+PY
+)"
+      if ! PROBE_JSON="$(run_ssm "${COMMENT_PREFIX} image-present ${TAG}" "${PROBE}")"; then
+        exit 1
+      fi
+      DECISION="$(printf '%s\n' "${PROBE_JSON}" | python3 -c '
+import json, sys
+raw = sys.stdin.read().strip()
+if not raw:
+    print("invalid")
+    raise SystemExit(0)
+try:
+    data = json.loads(raw)
+except json.JSONDecodeError:
+    print("invalid")
+    raise SystemExit(0)
+if data.get("cached") is True:
+    print("hit")
+elif data.get("reason") == "identity_mismatch":
+    print("mismatch")
+else:
+    print("miss")
+')"
+      case "${DECISION}" in
+        hit)
+          printf '%s\n' "${PROBE_JSON}" | python3 -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read()), indent=2))'
+          echo "deploy_via_ssm pull: host already has ${LOCAL_TAG}; skipped S3" >&2
+          exit 0
+          ;;
+        mismatch)
+          echo "deploy_via_ssm pull: ${LOCAL_TAG} exists but its version, revision, or architecture does not match ${TAG} ${REVISION}; refusing to replace it" >&2
+          exit 1
+          ;;
+        invalid)
+          echo "deploy_via_ssm pull: host image probe returned unreadable output" >&2
+          exit 1
+          ;;
+      esac
       if [[ "${CN_PROD_SSM_DRY_RUN:-}" == "1" ]]; then
         echo "deploy_via_ssm pull: S3 dry-run refuses to print signed URLs; use unit tests" >&2
         exit 1
