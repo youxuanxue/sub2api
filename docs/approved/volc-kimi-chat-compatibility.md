@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -133,3 +133,91 @@ These checks validate the repaired wire shape; they are not deployed gateway smo
 After release, use an isolated administrator probe to verify the outgoing request
 and actual reasoning/tool output, then rerun the customer's capability matrix.
 HTTP 200 alone is insufficient evidence. Rollback uses the normal release path.
+
+## 2026-11-04: zero upstream usage is billed from a local estimate
+
+### Evidence
+
+A cn-prod kimi-k3 benchmark (2026-11-04 12:34–12:58 UTC) returned HTTP 200 with
+correct content and `usage` all zero, and the request was billed $0. QA captured
+upstream responses for two non-stream requests showing `finish_reason=stop`,
+correct content and `prompt_tokens=completion_tokens=total_tokens=0` with zero
+cached and reasoning detail. A control request on the same account pool in the
+same minute reported normal usage. Two streaming captures end with `[DONE]` and
+carry no usage object at all, even though the gateway forces
+`stream_options.include_usage=true`.
+
+The thinking parameters are not the cause. Over 24 hours of kimi-k3 traffic,
+4 Agent Plan accounts returned zero usage on 100% of requests (156–334 requests
+each), 3 more on 96–99%, 30 more on 5–95%, and 78 on under 5%. The fully-zero
+accounts started zeroing at 2026-11-03 about 13:55 UTC. All of them have the same
+channel type, base URL and credential layout. On those same accounts,
+deepseek-v4.1-flash, deepseek-v4-flash and doubao-seed-2.1-lite showed 0.0% zero
+usage. The fault is on the Volc side, specific to kimi-k3, and varies per
+account. Fleet-wide, 12–29% of kimi-k3 usage rows per hour had zero tokens and
+zero cost. Offline gateway tests (direct and universal candidate routes,
+stream and non-stream, every thinking/effort shape) keep real upstream usage
+intact, so the gateway was recording what upstream sent.
+
+### Behavior
+
+Scope: the selected account is a Volc Agent Plan endpoint (existing supplier
+recognition) and the upstream model is in the kimi-k3 family. Grok and every
+other supplier are unchanged.
+
+- Real upstream usage always wins. The estimate applies only when every
+  aggregate billable bucket (input, output, cache read, cache creation) is zero
+  and the response delivered output. An empty answer keeps the existing
+  silent-refusal handling and is not estimated.
+- Non-stream: billed usage and the client body's `usage` are both replaced by
+  the estimate (`prompt_tokens`, `completion_tokens`, `total_tokens`); detail
+  objects are dropped because the estimate has no cache or reasoning split.
+  There is no failover. Failover would add latency, spend a second account's
+  Plan quota, and could land on another zero-usage account.
+- Stream: a zero-valued usage-only chunk is patched in place. A stream that
+  reaches `[DONE]` without billable usage gets one usage-only chunk
+  (`choices: []`, OpenAI include_usage shape) written before `[DONE]`, so the
+  client usage matches the bill. A stream that ends without `[DONE]` still bills
+  the estimate but gets no added chunk. Delivered content is never withheld or
+  failed.
+- Marking: `usage_logs.billing_tier = volc-kimi-estimated` (an existing column,
+  same convention as `kiro-estimated` / `gemini-web-estimated`), an ops upstream
+  event with kind `volc_kimi_usage_estimated` and the account id, and a
+  structured warn log with the estimated counts.
+
+### Estimate owner and accuracy
+
+Owner: `service/volc_kimi_usage_estimate_tk.go`. Counting uses the shared
+`pkg/tokenestimate` (cl100k_base), which is also the counter behind the Kiro and
+Gemini Web estimates. Input counts message text and text parts, assistant
+reasoning and tool calls, tool results and tool declarations from the final
+outbound body. Output counts delivered `reasoning_content`, `content` and tool
+call names and arguments. No multiplier is applied.
+
+Accuracy: on random 3–9 letter words, cl100k counts 3.45 tokens per word,
+against the 3.42 observed from real Kimi usage in the benchmark, so it is
+within about 1%. For ordinary English, cl100k counts about 1.1 tokens per word,
+and for Chinese about 1.2 tokens per character. Kimi's own tokenizer is not
+public, so the error on ordinary text is not measured. The estimate leaves out
+chat template overhead, image and video input, and cache hits, so it errs low
+for multimodal prompts and on cache-hit pricing.
+
+### Validation
+
+`TestVolcKimiNonStreamZeroUsageBillsEstimate`,
+`TestVolcKimiStreamWithoutUsageChunkBillsEstimate`,
+`TestVolcKimiStreamZeroUsageChunkIsPatched`,
+`TestVolcKimiRealUsageIsNeverEstimated`,
+`TestVolcKimiEstimateScopedToVolcAgentPlanKimiK3`,
+`TestVolcKimiEstimatedUsageLogTier` and
+`TestVolcKimiEstimatedUsageIsBilledAndTagged` cover the estimate, client usage
+consistency, real-usage passthrough, supplier/model scope and usage_logs
+tagging. `TestVolcKimiThinkingShapesKeepUpstreamUsage` pins real-usage
+passthrough for every thinking/effort shape on the direct and candidate routes.
+Existing Grok missing-usage tests must still pass.
+
+Follow-ups, not in this change: temporarily cooling kimi-k3 on accounts that
+persistently return zero usage. A bounded model-scoped cooldown already exists
+(`SetModelRateLimit`), but a trigger threshold needs a reviewed policy. Also
+report the affected accounts to the supplier.
+
