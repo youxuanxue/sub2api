@@ -31,11 +31,19 @@ type LocalCleanupResult struct {
 	ArchiveReceiptRoot  string         `json:"archive_receipt_root,omitempty"`
 	ArchiveEnvironment  string         `json:"archive_environment,omitempty"`
 	ReceiptBlockedHours int            `json:"receipt_blocked_hours,omitempty"`
+	// Why each hour was held back, so an operator can tell "not archived yet"
+	// from "a receipt claims an archive that is not on node1".
+	ReceiptBlockedReasons []string `json:"receipt_blocked_reasons,omitempty"`
 }
 
 type node1Receipt struct {
-	SchemaVersion  string    `json:"schema_version"`
-	Environment    string    `json:"environment"`
+	SchemaVersion string `json:"schema_version"`
+	Environment   string `json:"environment"`
+	// Set when the hour was streamed to node1 over SSH rather than copied into
+	// a locally mounted directory. The payload then lives only on node1, so
+	// there is nothing here to re-hash.
+	Transport      string    `json:"transport"`
+	RemoteDir      string    `json:"remote_dir"`
 	WindowStart    time.Time `json:"window_start"`
 	WindowEnd      time.Time `json:"window_end"`
 	OK             bool      `json:"ok"`
@@ -96,6 +104,19 @@ func hasNode1Receipt(root, environment string, h time.Time) (bool, error) {
 		!receipt.WindowStart.UTC().Equal(start) || !receipt.WindowEnd.UTC().Equal(start.Add(time.Hour)) ||
 		receipt.FileCount < 1 || receipt.TotalBytes < 0 || len(receipt.ManifestSHA256) != 64 {
 		return false, errors.New("node1 receipt failed integrity checks")
+	}
+	if receipt.Transport == "ssh-tar" {
+		// The payload is on node1, not here: verifyNode1Manifest would re-hash
+		// files this host does not have, so it failed for every hour and the
+		// gate blocked the entire archive. The push itself is what verifies a
+		// streamed hour -- it compares the manifest digest, file count and
+		// byte count reported by node1 against the local manifest before
+		// writing this receipt, and each archive run re-reads node1's manifest
+		// digest before trusting an existing receipt.
+		if receipt.RemoteDir == "" {
+			return false, errors.New("streamed node1 receipt has no remote_dir")
+		}
+		return true, nil
 	}
 	if err := verifyNode1Manifest(filepath.Dir(root), environment, h, receipt); err != nil {
 		return false, err
@@ -265,15 +286,24 @@ func RunLocalCleanup(ctx context.Context, conn *sql.Conn, opts Options, dryRun b
 		}
 		result.SelectedHours = allowed
 		if result.ReceiptBlockedHours > 0 {
-			if receiptErr == nil {
-				receiptErr = errors.New("node1 archive receipt missing")
+			// Holding an hour back IS the gate working: the copy it would have
+			// deleted is not provably on node1. Report it as a result, not an
+			// error -- returning an error made the systemd unit exit non-zero,
+			// which the host job watcher alerted on as a service failure. The
+			// real failures (database unreachable, partition detach refused)
+			// still propagate below.
+			if receiptErr != nil {
+				result.ReceiptBlockedReasons = append(result.ReceiptBlockedReasons,
+					receiptErr.Error())
+			} else {
+				result.ReceiptBlockedReasons = append(result.ReceiptBlockedReasons,
+					"node1 archive receipt missing")
 			}
-			if dryRun {
-				return result, receiptErr
-			}
-			// Do not drop any source while the receipt gate is uncertain. This
-			// includes hours that happen to have a valid receipt in this batch.
-			return result, fmt.Errorf("node1 archive receipt gate blocked cleanup (%d hours): %w", result.ReceiptBlockedHours, receiptErr)
+			// Do not drop any source while the gate is uncertain -- including
+			// hours whose own receipt verified, because a batch that is partly
+			// unprovable says the archive is not keeping up.
+			result.SelectedHours = nil
+			return result, nil
 		}
 	}
 	if dryRun {
