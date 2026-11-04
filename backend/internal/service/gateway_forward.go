@@ -121,14 +121,16 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			return nil, err
 		}
 	}
-	// Anthropic Fast is requested with speed=fast rather than OpenAI's
-	// service_tier. Attach it at this shared boundary so passthrough, OAuth and
-	// partial-stream results all use the same billing and usage-log path.
+	// Anthropic Fast 用顶层 speed=fast，而不是 OpenAI 的 service_tier。
+	// defer 在函数返回时执行，此时出站 body 已经按 beta 策略改写完毕；
+	// 必须读记录下来的最终出站 JSON，不能再用入站 parsed.Speed。
 	defer func() {
-		if result != nil {
-			if tier := anthropicSpeedServiceTier(account, parsed.Speed, anthropicSpeedModel(parsed, result)); tier != nil {
-				result.ServiceTier = tier
-			}
+		if result == nil {
+			return
+		}
+		body := anthropicBillingOutboundBody(c, parsed)
+		if tier := anthropicSpeedServiceTierFromOutboundBody(account, body, anthropicSpeedModel(parsed, result)); tier != nil {
+			result.ServiceTier = tier
 		}
 	}()
 	beginUpstreamResponseModelObservation(c)
@@ -168,6 +170,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			filterSet = map[string]struct{}{}
 		}
 		c.Set(betaPolicyFilterSetKey, filterSet)
+		c.Set(anthropicFastSpeedStripKey, policy.stripAnthropicFastSpeed)
 	}
 
 	body := parsed.Body.Bytes()
@@ -995,6 +998,49 @@ func anthropicSpeedModel(parsed *ParsedRequest, result *ForwardResult) string {
 		return ""
 	}
 	return parsed.Model
+}
+
+// anthropicBillingOutboundBody 返回计费应读取的出站 body。
+// buildUpstreamRequest 会把最终字节记到 context；还没出站时退回入站 body。
+func anthropicBillingOutboundBody(c *gin.Context, parsed *ParsedRequest) []byte {
+	if c != nil {
+		if v, ok := c.Get(anthropicOutboundBodyKey); ok {
+			if body, ok := v.([]byte); ok && len(body) > 0 {
+				return body
+			}
+		}
+	}
+	if parsed != nil && parsed.Body != nil {
+		return parsed.Body.Bytes()
+	}
+	return nil
+}
+
+// rememberAnthropicOutboundBody 记下真正发出去的 JSON，并让响应侧的 fast 预估
+// 与之一致。预估发生在 Forward 返回之前，不能留着入站 speed=fast。
+func rememberAnthropicOutboundBody(c *gin.Context, body []byte) {
+	if c == nil || len(body) == 0 {
+		return
+	}
+	c.Set(anthropicOutboundBodyKey, body)
+	syncAnthropicFastBillingSnapshot(c, body)
+}
+
+// syncAnthropicFastBillingSnapshot 在出站不再是 fast 时清掉 handler 提前绑定的 fast 预扣档。
+// 出站仍是 fast 时不动已有档位，避免新造一档计费。
+func syncAnthropicFastBillingSnapshot(c *gin.Context, outboundBody []byte) {
+	snap, ok := responseUsageCostBillingFromContext(c)
+	if !ok || anthropicTopLevelSpeed(outboundBody) == "fast" || snap.ServiceTier != "fast" {
+		return
+	}
+	snap.ServiceTier = ""
+	c.Set(responseUsageCostBillingKey, snap)
+}
+
+// anthropicSpeedServiceTierFromOutboundBody 用最终出站 body 的顶层 speed 决定档位。
+// 调用点必须在 body 过滤之后；入站 parsed.Speed 不能再作为计费输入。
+func anthropicSpeedServiceTierFromOutboundBody(account *Account, outboundBody []byte, model string) *string {
+	return anthropicSpeedServiceTier(account, anthropicTopLevelSpeed(outboundBody), model)
 }
 
 // anthropicSpeedServiceTier 把 Anthropic 的 speed=fast 归一成可计费的 "fast" tier。
