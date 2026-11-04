@@ -18695,6 +18695,23 @@
         "func TestRateLimitService_HandleUpstreamError_GeminiGeneric403WithoutRequestMarkStillSetError("
       ],
       "rationale": "Keep the two-strike, account-owned IAM/suspension, and unmarked-request permanent-disable regressions."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_cn_providers.go",
+      "must_contain": [
+        "cooldown, enabled := s.get429FallbackCooldown(ctx, account)"
+      ],
+      "rationale": "Kimi exact concurrency-limit 403 must take its duration from the existing 429 short cooldown, not the 10-minute OpenAI 403 default."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_cn_fixes_test.go",
+      "must_contain": [
+        "func TestHandle403_KimiConcurrencyLimit403NilSettingUsesShortCooldown(",
+        "func TestHandle403_KimiConcurrencyLimit403UsesConfigured429Cooldown(",
+        "func TestHandle403_KimiConcurrencyLimit403DisabledCooldownSkipsTemp(",
+        "func TestHandle403_KimiConcurrencyLimit403QuotaExhaustedStaysLongCooldown("
+      ],
+      "rationale": "Keep the nil-setting 5-second cooldown, configured 12-second cooldown, disabled skip, and quota-exhausted long-cooldown regressions for the Kimi concurrency 403."
     }
   ]
 }
