@@ -27,6 +27,7 @@ func (s *GeminiMessagesCompatService) ForwardAsResponses(
 	account *Account,
 	body []byte,
 ) (*ForwardResult, error) {
+	ctx = bindGoogleGeneric403Request(c, ctx)
 	startTime := time.Now()
 	beginGeminiImageOutputObservation(c)
 
@@ -230,6 +231,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, respBody)
+		if resp.StatusCode == http.StatusForbidden && googleGeneric403StopsFailover(ctx) {
+			return nil, s.writeGoogleGeneric403Passthrough(c, account, resp.StatusCode, requestID, evBody)
+		}
 
 		if s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
 			upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(evBody)))

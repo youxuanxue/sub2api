@@ -42,6 +42,7 @@ func WithForwardGeminiSession(groupID int64, sessionHash string) ForwardGeminiOp
 }
 
 func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte, isStickySession bool, options ...ForwardGeminiOption) (*ForwardResult, error) {
+	ctx = bindGoogleGeneric403Request(c, ctx)
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)
 	startTime := time.Now()
@@ -356,9 +357,14 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		// Always record upstream context for Ops error logs, even when we will failover.
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 
+		// A second distinct generic 403 in this request is request-scoped.
+		// The status matrix still classifies 403 as failover-eligible; this
+		// request flag stops the switch and falls through to the original body.
+		stopRequest403 := resp.StatusCode == http.StatusForbidden && googleGeneric403StopsFailover(ctx)
+
 		// Configuration and model capability failures use shared bounded failover.
 		googleSemantic := antigravityGatewayFailureSemantic(resp.StatusCode, unwrappedForOps)
-		if googleSemantic != gatewayFailureSemanticUnclassified && classifyGatewayFailover(gatewayFailoverObservation{
+		if !stopRequest403 && googleSemantic != gatewayFailureSemanticUnclassified && classifyGatewayFailover(gatewayFailoverObservation{
 			Profile: gatewayFailoverProfileGoogle, Semantic: googleSemantic, StatusCode: resp.StatusCode,
 		}).RetryNextAccount {
 			log.Printf("%s status=%d google_account_fault failover=true upstream_message=%q account=%d", prefix, resp.StatusCode, upstreamMsg, account.ID)
@@ -380,7 +386,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			}, gatewayFailoverProfileGoogle, googleSemantic)
 		}
 
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
+		if !stopRequest403 && s.shouldFailoverUpstreamError(resp.StatusCode) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
 				ProxyName:          opsUpstreamProxyName(account),
