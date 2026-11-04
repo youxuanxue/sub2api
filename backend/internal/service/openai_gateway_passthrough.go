@@ -1494,7 +1494,13 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 			ctx = c.Request.Context()
 		}
 		s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, "stream_capacity")
-		return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)
+		// An explicit model rule already cooled this model. Do not stack a
+		// second window from Retry-After on top of it.
+		if s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...) {
+			return statusCode, true
+		}
+		s.tkApplyOpenAICapacityRetryAfterModelCooldown(ctx, account, statusCode, headers, payload, message, canonicalModel...)
+		return statusCode, false
 	case http.StatusForbidden:
 		if !openAIStream403AccountFailure(payload, message) {
 			return statusCode, false

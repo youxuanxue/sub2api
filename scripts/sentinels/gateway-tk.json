@@ -8276,7 +8276,7 @@
     {
       "path": "backend/internal/service/openai_gateway_passthrough.go",
       "must_contain": [
-        "return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)",
+        "if s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...) {",
         "if shouldDisable && statusCode == http.StatusServiceUnavailable {",
         "failoverErr.RetryableOnSameAccount = false",
         "failoverErr.RequestScopedTransient = false"
@@ -9441,7 +9441,7 @@
       "must_contain": [
         "case http.StatusServiceUnavailable:",
         "s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, \"stream_capacity\")",
-        "return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)"
+        "if s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...) {"
       ],
       "rationale": "Stream terminal ServiceUnavailable (response.failed overloaded) must feed the same maybeRecordOpenAICapacitySaturation SSOT as HTTP 503 before the optional model-scoped stream-capacity rule. Failover may be blocked once client output is committed, but the selected account still soft-deprioritizes for the next request."
     },
