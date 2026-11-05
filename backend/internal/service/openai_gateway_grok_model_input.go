@@ -69,6 +69,19 @@ func sanitizeGrokResponsesModelInput(body []byte) ([]byte, error) {
 		pendingOutputImages = pendingOutputImages[:0]
 
 		switch itemType {
+		case "agent_message":
+			// Codex multi_agent_v2 agent_message is not a Grok ModelInput variant.
+			// Keep input_text/text and encrypted_content plaintext in order as one user message.
+			text := grokAgentMessageText(item["content"])
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
+			filtered = append(filtered, map[string]any{
+				"type":    "message",
+				"role":    "user",
+				"content": text,
+			})
+			continue
 		case "text", "input_text", "output_text":
 			text := strings.TrimSpace(grokStringValue(item["text"]))
 			if text == "" {
@@ -159,6 +172,41 @@ func sanitizeGrokResponsesModelInput(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("set Grok Responses model input: %w", err)
 	}
 	return updated, nil
+}
+
+// grokAgentMessageText concatenates agent_message plaintext in part order.
+// content may be a string, an object array, or an already-decoded []any.
+// Images are not body text, and encrypted_content is copied as plaintext.
+func grokAgentMessageText(content any) string {
+	writePart := func(b *strings.Builder, part map[string]any) {
+		switch strings.ToLower(strings.TrimSpace(grokStringValue(part["type"]))) {
+		case "input_text", "text":
+			b.WriteString(grokStringValue(part["text"]))
+		case "encrypted_content":
+			b.WriteString(grokStringValue(part["encrypted_content"]))
+		}
+	}
+
+	var b strings.Builder
+	switch value := content.(type) {
+	case string:
+		return value
+	case []map[string]any:
+		for _, part := range value {
+			writePart(&b, part)
+		}
+	case []any:
+		for _, raw := range value {
+			part, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			writePart(&b, part)
+		}
+	default:
+		return ""
+	}
+	return b.String()
 }
 
 type grokToolOutputImage struct {
