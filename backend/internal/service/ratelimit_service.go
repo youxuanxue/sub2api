@@ -2015,6 +2015,9 @@ func findAnthropicNotFoundModel(text string) string {
 func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Account, headers http.Header) {
 	status := headers.Get("anthropic-ratelimit-unified-5h-status")
 	if status == "" {
+		// Ultra setup-token 没有 5h 窗口，成功响应只带 7 日头。仍采样 7d，
+		// 不写 5h 窗口，也不清限流或 session_window_utilization。
+		s.samplePassiveUsageFromHeaders(ctx, account, headers)
 		return
 	}
 
