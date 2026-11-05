@@ -2151,6 +2151,15 @@ for _host_script in ./deploy/aws/stage0/tokenkey-*.sh; do
     _host_syntax_ok=false
   fi
 done
+# TK proxy-egress host installers (deploy/tencent/*.sh) are run by hand on hosts.
+for _host_script in ./deploy/tencent/*.sh; do
+  [ -e "${_host_script}" ] || continue
+  if ! bash -n "${_host_script}"; then
+    echo "  FAIL: ${_host_script} has bash syntax errors"
+    errors=$((errors + 1))
+    _host_syntax_ok=false
+  fi
+done
 if [[ "${_host_syntax_ok}" == "true" ]]; then
   echo "  ok: standalone tokenkey-*.sh host scripts parse"
 fi

@@ -5,10 +5,10 @@
 
 ## 不变式
 
-- **每一台**生产 SOCKS 出口机（现网：美西 `usw-eval1..4`、北京 `cn-ip1..5`）必须安装并启用：
+- **每一台**生产 SOCKS 出口机（现网：美西 `usw-eval1..4`、北京腾讯 `cn-ip1..4`、北京阿里云 `cn-ip5..8`）必须安装并启用：
   - `tokenkey-disk-metrics.timer`（盘/内存）
   - `tokenkey-proxy-watch.timer`（`tokenkey-proxy` + `:1080`）
-- **新机 / 换机 / 重装**后，在装完 GOST/`tokenkey-proxy` 之后立刻跑本安装器；未装齐不算交付。
+- **新机 / 换机 / 重装**后，在装完 GOST/`tokenkey-proxy` 之后立刻跑本安装器；未装齐不算交付。北京 `cn-ip*` 用 [`install-cn-socks-proxy.sh`](install-cn-socks-proxy.sh) 一次装完 GOST、防火墙、BBR 和本告警，并自动跑 `--verify`。
 - 交付前必须跑 `install-proxy-host-alerts.sh --verify`（无写操作；缺 timer / 脚本 / 0600 凭据即失败）。
 - 活绑定以 prod / cn-prod `proxies` 为准；本目录不复制 IP 表。
 - 凭据只在主机 `/opt/tokenkey/host-alerts.env`（0600）；**不进 git**。
