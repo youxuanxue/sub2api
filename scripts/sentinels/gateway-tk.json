@@ -18808,6 +18808,55 @@
         "func TestForwardAsAnthropic_OpenAIInvalidEncryptedContentRetriesOnce(t *testing.T)"
       ],
       "rationale": "The Messages OpenAI encrypted_content retry is covered by a real ForwardAsAnthropic send: one same-account retry that keeps summary, and unrelated 400s that are not retried."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/stream_transformer.go",
+      "must_contain": [
+        "p.malformedFunctionCall = true",
+        "if !p.malformedFunctionCall && finishReason != \"\" {",
+        "return StreamTerminalMissing"
+      ],
+      "must_not_contain": [
+        "emitFinish(\"\")"
+      ],
+      "rationale": "Antigravity streams must not synthesize end_turn when finishReason is missing or MALFORMED_FUNCTION_CALL. Finish() no longer emits an empty stop."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_streaming.go",
+      "must_contain": [
+        "return nil, antigravityMissingTerminalFailover(fault)"
+      ],
+      "rationale": "Claude Antigravity streams failover a missing or malformed terminal only before visible output or keepalive is committed."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat_stream.go",
+      "must_contain": [
+        "return nil, antigravityMissingTerminalFailover(fault)"
+      ],
+      "rationale": "Chat and Responses Antigravity streams use the same uncommitted missing-terminal failover as the Claude stream."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/stream_terminal_fault_test.go",
+      "must_contain": [
+        "func TestStreamingProcessor_TerminalFault("
+      ],
+      "rationale": "Keep the processor regression that missing and malformed terminals do not emit end_turn, while STOP, tool_use, MAX_TOKENS, and content-filter refusal still do."
+    },
+    {
+      "path": "backend/internal/service/antigravity_stream_terminal_fault_test.go",
+      "must_contain": [
+        "func TestAntigravityStreamTerminal_UncommittedFailover(",
+        "func TestAntigravityStreamTerminal_VisibleOutputSSEError(",
+        "func TestAntigravityStreamTerminal_StopStillCompletes("
+      ],
+      "rationale": "Keep Claude, Chat, and Responses coverage for uncommitted failover, committed SSE errors, and real STOP completion."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat_test.go",
+      "must_contain": [
+        "func TestAntigravityCompatKeepaliveAfterFirstEvent("
+      ],
+      "rationale": "A keepalive after the first text event must still ping, and closing that partial stream without finishReason must return missing_finish_reason instead of a successful completion."
     }
   ]
 }

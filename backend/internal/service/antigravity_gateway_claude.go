@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -466,16 +467,24 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	var clientDisconnect bool
+	var streamErr error
 	if claudeReq.Stream {
 		// 客户端要求流式，直接透传转换
 		streamRes, err := s.handleClaudeStreamingResponse(c, resp, startTime, originalModel)
 		if err != nil {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_error error=%v", prefix, err)
-			return nil, err
+			var terminal *antigravityStreamTerminalError
+			if streamRes == nil || !errors.As(err, &terminal) {
+				return nil, err
+			}
+			// 已写出正文后的 SSE error 仍带回已观察到的 usage，供调用方计费。
+			streamErr = err
 		}
-		usage = streamRes.usage
-		firstTokenMs = streamRes.firstTokenMs
-		clientDisconnect = streamRes.clientDisconnect
+		if streamRes != nil {
+			usage = streamRes.usage
+			firstTokenMs = streamRes.firstTokenMs
+			clientDisconnect = streamRes.clientDisconnect
+		}
 	} else {
 		// 客户端要求非流式，收集流式响应后转换返回
 		streamRes, err := s.handleClaudeStreamToNonStreaming(c, resp, startTime, originalModel)
@@ -485,6 +494,9 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		}
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
+	}
+	if usage == nil {
+		usage = &ClaudeUsage{}
 	}
 
 	return &ForwardResult{
@@ -499,7 +511,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
 		ClientDisconnect:              clientDisconnect,
-	}, nil
+	}, streamErr
 }
 
 func isSignatureRelatedError(respBody []byte) bool {
