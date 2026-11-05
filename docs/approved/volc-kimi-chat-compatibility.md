@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -99,7 +99,10 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   Beijing; the same unnamed InvalidParameter was reproduced with
   `https://example.com/tiny.mp4`) is rejected locally before relay:
   `invalid_parameter`, param `messages.content`, asking for a video URL this
-  service can access. Inline `data:` payloads, supplier schemes such as
+  service can access. A string `video_url` (Moonshot documents it as
+  equivalent to `video_url.url`) is rewritten to `{"url": ...}`; Volc returned
+  400 "expected an object" for the string form (cn-prod 2026-11-05 user 2).
+  Inline `data:` payloads, supplier schemes such as
   `ms://`, and URLs the preflight can read are still forwarded. Do not strip
   video parts. A body that exceeds the context window is not truncated.
 
@@ -252,3 +255,34 @@ persistently return zero usage. A bounded model-scoped cooldown already exists
 (`SetModelRateLimit`), but a trigger threshold needs a reviewed policy. Also
 report the affected accounts to the supplier.
 
+## 2026-11-05: tool_choice errors, string video_url, prediction shape
+
+Customer user 2 capability matrix on cn-prod 1.8.346, then direct controls on
+Volc Agent Plan account 116 (`max_tokens=16`, stream off). Sources: Moonshot
+Chat API (<https://platform.kimi.ai/docs/api/chat>), read 2026-11-05.
+
+- `tool_choice` outside `none|auto|required|named function` (for example
+  `"default"`) stays HTTP 400. Moonshot and OpenAI list the same enum, and Volc
+  returns 400 "supported values are: auto, none, required" with or without
+  tools. Only the error changes: `parseChatToolConstraint`
+  (`openai_chat_constraints_tk.go`, shared with Ali Token Plan) returns a
+  field-level `invalid_parameter` with `param=tool_choice` (or
+  `function_call`) naming the allowed values, and the Chat writers emit it
+  through `writeChatProviderRequestError`. The Responses fallback keeps its own
+  error shape.
+- A string `video_url` is rewritten to `{"url": ...}` (see the 2026-10-23
+  bullet). Direct control: the same URL as a string is 400 "expected an
+  object"; as an object it is 200 with the video tokenized (7172 prompt tokens).
+- `prediction` must match Moonshot: an object, `type` exactly `content`,
+  `content` a string or an array of text parts. Otherwise a field-level 400 on
+  `prediction`, `prediction.type` or `prediction.content`. Volc returned 200
+  with identical prompt tokens for valid, bogus-type, missing-type, string and
+  numeric-content shapes, so it ignores the field. Valid predictions are still
+  forwarded: predicted output changes latency, not the answer. Impact before
+  release: of 32,592 captured kimi requests (2026-11-04 03:00 to 2026-11-05
+  16:00 Asia/Shanghai) only 44 carried `prediction`, all from user 2's
+  capability tests; 6 had a non-`content` type and become 400.
+
+Tests: `TestChatToolConstraints_InvalidModeIsFieldLevel`,
+`TestVolcKimiInboundMessageShapes` (string video_url),
+`TestVolcKimiRequestLimitsRejectUndeliverableFields` (prediction shapes).

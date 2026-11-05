@@ -39,6 +39,13 @@ func TestVolcKimiRequestLimitsRejectUndeliverableFields(t *testing.T) {
 		{`"max_tokens":-1`, "max_tokens"},
 		{`"max_tokens":1.5`, "max_tokens"},
 		{`"max_completion_tokens":0`, "max_completion_tokens"},
+		// 2026-11-05 direct control: Volc returned 200 for every prediction shape.
+		{`"prediction":"OK"`, "prediction"},
+		{`"prediction":{"type":"bogus","content":"OK"}`, "prediction.type"},
+		{`"prediction":{"content":"OK"}`, "prediction.type"},
+		{`"prediction":{"type":"content","content":123}`, "prediction.content"},
+		{`"prediction":{"type":"content"}`, "prediction.content"},
+		{`"prediction":{"type":"content","content":[{"type":"image_url","image_url":{"url":"x"}}]}`, "prediction.content"},
 	} {
 		t.Run(tc.field, func(t *testing.T) {
 			body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}],` + tc.field + `}`)
@@ -54,6 +61,8 @@ func TestVolcKimiRequestLimitsRejectUndeliverableFields(t *testing.T) {
 		`"top_p":0`, `"top_p":1`, `"top_p":0.95`, `"temperature":0`, `"temperature":1`, `"temperature":2`,
 		`"n":1`, `"logprobs":false`, `"top_logprobs":0`, `"max_tokens":1`, `"max_completion_tokens":131072`,
 		`"top_p":null`, `"temperature":null`, `"n":null`, `"logprobs":null`, `"max_tokens":null`,
+		`"prediction":{"type":"content","content":"OK"}`,
+		`"prediction":{"type":"content","content":[{"type":"text","text":"OK"}]}`, `"prediction":null`,
 	} {
 		t.Run("ok/"+field, func(t *testing.T) {
 			body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}],` + field + `}`)

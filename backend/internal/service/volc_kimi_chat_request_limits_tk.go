@@ -49,7 +49,37 @@ func validateVolcKimiRequestLimits(body []byte) error {
 			}
 		}
 	}
-	return nil
+	return validateVolcKimiPrediction(gjson.GetBytes(body, "prediction"))
+}
+
+// validateVolcKimiPrediction enforces Moonshot's prediction shape: an object
+// with type "content" and string or text-part content. Volc returned 200 for
+// every shape and ignores the field (cn-prod direct control, 2026-11-05), so
+// only the shape is checked; valid predictions are forwarded unchanged.
+func validateVolcKimiPrediction(prediction gjson.Result) error {
+	if !volcKimiFieldSet(prediction) {
+		return nil
+	}
+	if !prediction.IsObject() {
+		return newOpenAIInvalidParameterError("prediction", "prediction must be an object")
+	}
+	if prediction.Get("type").Type != gjson.String || prediction.Get("type").String() != "content" {
+		return newOpenAIInvalidParameterError("prediction.type", "prediction.type must be content")
+	}
+	content := prediction.Get("content")
+	switch {
+	case content.Type == gjson.String:
+		return nil
+	case content.IsArray():
+		for _, part := range content.Array() {
+			if part.Get("type").String() != "text" || part.Get("text").Type != gjson.String {
+				return newOpenAIInvalidParameterError("prediction.content", "prediction.content parts must be text")
+			}
+		}
+		return nil
+	default:
+		return newOpenAIInvalidParameterError("prediction.content", "prediction.content must be a string or an array of text parts")
+	}
 }
 
 func volcKimiFieldSet(value gjson.Result) bool {
