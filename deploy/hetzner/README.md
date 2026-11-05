@@ -35,12 +35,12 @@ SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。**20
 
 | 角色 | 实例 | 公网 IP | 放行来源 |
 |---|---|---|---|
-| `cn-ip1` | `lhins-a3h0vmh0`（`tokenkey-cn-proxy-canary-20261022`） | `120.53.25.245` | 美西 prod `43.162.83.233`、cn-prod 公网 `154.8.214.179`、cn-prod 私网 `10.2.4.11`。UCloud `106.75.29.139` 已于 2026-10-27 退役；防火墙上若仍有这条源地址，没有主机在用，改规则时再删，不要顺手改掉北京地址 |
+| `cn-ip1` | `lhins-a3h0vmh0`（`tokenkey-cn-proxy-canary-20261022`） | `120.53.25.245` | 美西 prod `43.162.83.233`、cn-prod 公网 `154.8.214.179`（iptables `TK_CN_PROXY`）。UCloud `106.75.29.139` 已于 2026-10-27 退役；防火墙上若仍有这条源地址，没有主机在用，改规则时再删，不要顺手改掉北京地址 |
 | `cn-ip2` | `lhins-lqhqjbke`（`tokenkey-cn-proxy-02-20261022`） | `140.143.236.199` | 同上 |
 | `cn-ip3` | `lhins-bg2vs1uo`（`tokenkey-cn-proxy-03-20261022`） | `49.233.210.77` | 同上 |
 | `cn-ip4` | `lhins-0ds0p3c2`（`tokenkey-cn-proxy-04-20261022`） | `140.143.229.164` | 同上 |
 
-北京应用拨 SOCKS 的源地址是私网 `10.2.4.11`，不是公网 `154.8.214.179`。四台都要同时放行这两个地址。按上表重做防火墙时少了私网地址，国内出口会变成 502。
+2026-11-06 现网核对：`cn-ip1..4` 的 iptables `TK_CN_PROXY` 只放行 `43.162.83.233`、`154.8.214.179` 和 `106.75.29.139`，没有私网 `10.2.4.11`。cn-prod 实际从公网 `154.8.214.179` 拨入，每台累计十几 GB 流量都记在这条规则上，`ss` 也只看到这两个公网来源。以前写的"北京应用从私网 `10.2.4.11` 拨 SOCKS"与现网不符。真正的强约束是：放行名单里必须有 `154.8.214.179`，漏了国内出口会 502。
 
 `cn-ip5`（`192.144.148.117` / `lhins-leojyzyi`）已于 2026-10-22 退还并销毁。账号已迁走。cn-prod 应用在 `154.8.214.179`（`lhins-6qmb3fd6`），与 `cn-ip1..4` 同于 **2026-11-22** 到期，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。UCloud `uhost-1wgyn7gu2f6a` / EIP `106.75.29.139` / 数据盘 / `uvnet-1w9lkxuadj3m` 已于 2026-10-27 销毁，SSM `mi-0efdf781205cff512` 已注销。`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前不要把这条解析改到北京。
 
@@ -48,7 +48,7 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
 #### 国内出口 `cn-ip5..8`（阿里云北京轻量 SWAS，公网 SOCKS，2026-11-06 起）
 
-腾讯北京锐驰配额上限 5 台，已被 `cn-ip1..4` 与 cn-prod 主机占满，所以扩容放在阿里云。阿里云主账号是 `1598035194530033`，API 走 RAM 用户 `xuejiao`。套餐 `swas.s.c2m1s30b1.linux`：2C1G、30 GB ESSD、200 Mbps 峰值，包月 40 元/台，自动续费，首期到期 **2026-12-06**。系统 Ubuntu 24.04。
+腾讯北京锐驰配额上限 5 台，已被 `cn-ip1..4` 与 cn-prod 主机占满，所以扩容放在阿里云。阿里云主账号 `1598035194530033`。套餐 `swas.s.c2m1s30b1.linux`：2C1G、30 GB ESSD、200 Mbps 峰值，包月 40 元/台，自动续费，首期到期 **2026-12-06**。系统 Ubuntu 24.04。
 
 | 角色 | cn-prod 代理名 | 实例 ID | 公网 IP | 私网 IP |
 |---|---|---|---|---|
@@ -59,9 +59,7 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
 这里的 `cn-ip5` 是新机。上文已销毁的腾讯 `cn-ip5`（`192.144.148.117`）是另一台，名字重复使用了。
 
-配置照抄 `cn-ip4`：GOST v3.3.0（sha256 `1d8f971e…3e08`），配置在 `/etc/tokenkey-proxy/gost.json`；`tokenkey-proxy` 与 `tokenkey-proxy-firewall` 两个 unit 原样复制，iptables `TK_CN_PROXY` 只放行 1080 端口的美西 prod、cn-prod 公网和已退役的 UCloud 地址。每台 SOCKS 密码独立，只存在主机和 cn-prod `proxies` 表里。阿里云实例防火墙额外开了 TCP 1080/8080 全网，和腾讯 `cn-ip1..4` 的宽松规则保持一致。阿里云和 cn-prod 不在同一内网，cn-prod 从公网 `154.8.214.179` 拨入，不需要放行私网地址。
-
-BBR（`ensure-tokenkey-bbr.sh`）和主机告警（`install-proxy-host-alerts.sh --verify`）都已装好并验收。远程执行走阿里云「云助手」SWAS `RunCommand`，不走 TAT 或 SSM。
+装机入口是 [`deploy/tencent/install-cn-socks-proxy.sh`](../tencent/install-cn-socks-proxy.sh)。它负责安装 GOST、写入 `tokenkey-proxy` 和 `tokenkey-proxy-firewall` 两个 unit、配置 BBR，最后装主机告警并跑 `--verify` 验收；GOST 版本、校验和与 1080 端口的放行来源都写在这个脚本里。生成的 iptables 规则和 `cn-ip1..4` 现网逐字一致。每台 SOCKS 密码独立，只存在主机和 cn-prod `proxies` 表里。阿里云实例防火墙额外开了 TCP 1080/8080 全网，和腾讯 `cn-ip1..4` 的宽松规则保持一致。远程执行走阿里云「云助手」SWAS `RunCommand`，不走 TAT 或 SSM。
 
 #### 代理主机告警（强制）
 

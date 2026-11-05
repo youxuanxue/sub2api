@@ -2143,7 +2143,7 @@ fi # preflight gate
 if _preflight_selected 'standalone host script syntax (tokenkey-*.sh)'; then
 echo "=== sub2api: standalone host script syntax (tokenkey-*.sh) ==="
 _host_syntax_ok=true
-for _host_script in ./deploy/aws/stage0/tokenkey-*.sh; do
+for _host_script in ./deploy/aws/stage0/tokenkey-*.sh ./deploy/tencent/*.sh; do
   [ -e "${_host_script}" ] || continue
   if ! bash -n "${_host_script}"; then
     echo "  FAIL: ${_host_script} has bash syntax errors"
