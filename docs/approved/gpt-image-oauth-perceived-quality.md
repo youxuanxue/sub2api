@@ -101,6 +101,26 @@ OAuth、`image_size=2K`、`/v1/images/edits`，排除未落 effort 的历史行�
 后续降档须另做固定输入、重复采样的对照验证。部署后检查 dispatch 的 `effort_source=auto`
 对应 `reasoning_effort=medium`，并观察文字正确率、失败率与延迟。
 
+## 2026-11-05：默认不发 reasoning.effort
+
+2026-11-04 起，ChatGPT Codex 后端把 Responses 外层的 `reasoning.effort` 当作图片工具的
+`complexity`。`gpt-image-2-codex` 不接受任何 complexity，流在
+`image_generation_call.generating` 之后返回 `error` 与 `response.failed`：
+`image_generation_user_error` / `invalid_value`，
+"Complexity 'medium' is not supported for this image model."。
+
+2026-11-05 在美西 prod 用两个 OAuth 账号直连上游实测：`none` / `low` / `medium` / `high` /
+`xhigh` 都返回上述错误，`minimal` 返回 400；去掉 effort、只保留 `reasoning.summary=auto`
+时正常出图。上游回报的工具模型始终是 `gpt-image-2-codex`，请求里的 `tools[].model`
+（含 `gpt-image-2.5-*`、`gpt-image-2.6-*` 和不存在的名字）都不改变实际模型。
+开源侧 PBJ-2/clauderipple 0.12.27 采用同样修法（去掉图片请求的 reasoning）。
+
+修订：自动档改为空，`buildOpenAIImagesResponsesRequestWithMainModel` 不写
+`reasoning.effort`，dispatch 日志 `reasoning_effort` 为空，`usage_logs.reasoning_effort`
+不再落值。`SUB2API_IMAGES_REASONING_EFFORT` 显式设置时仍原样发送，只用于上游恢复后的对照验证；
+现网不要设置。上节"默认 `medium`"与"不把默认 effort 降到 `none`"的结论被本节取代。
+Native Images（`/backend-api/codex/images/*`）请求体本来就没有 effort，不受影响。
+
 ## Owners
 
 | 关注点 | Owner |

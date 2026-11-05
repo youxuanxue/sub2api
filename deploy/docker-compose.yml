@@ -167,7 +167,7 @@ services:
       - SUB2API_IMAGES_MAIN_MODEL=${SUB2API_IMAGES_MAIN_MODEL:-gpt-5.6-terra}
       # Empty uses code default fallbacks (gpt-6-sol → gpt-5.6-luna → gpt-6-luna).
       - SUB2API_IMAGES_MAIN_MODEL_FALLBACKS=${SUB2API_IMAGES_MAIN_MODEL_FALLBACKS:-}
-      # Empty keeps the auto effort (medium; only a short ASCII "label" → high). Set none|minimal|low|medium|high|xhigh to pin. max and x-high normalize to xhigh.
+      # Empty (recommended) omits reasoning.effort: since 2026-11-04 upstream treats it as image complexity and gpt-image-2-codex rejects every value. Set none|minimal|low|medium|high|xhigh only for A/B checks. max and x-high normalize to xhigh.
       - SUB2API_IMAGES_REASONING_EFFORT=${SUB2API_IMAGES_REASONING_EFFORT:-}
       - SUB2API_IMAGES_PROMPT_SCAFFOLD=${SUB2API_IMAGES_PROMPT_SCAFFOLD:-on}
       - GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT=${GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT:-0}

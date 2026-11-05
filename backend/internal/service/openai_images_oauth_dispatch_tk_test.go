@@ -62,7 +62,7 @@ func TestOpenAIImagesOAuthDispatchFacts_RecordsEffortMainModelAndScaffold(t *tes
 
 	plain := &OpenAIImagesRequest{Model: "gpt-image-2", Prompt: "a ceramic mug", InputFidelity: "high"}
 	facts := openAIImagesOAuthDispatchFactsFor(plain, "gpt-image-2", "")
-	require.Equal(t, "medium", facts.ReasoningEffort)
+	require.Equal(t, "", facts.ReasoningEffort)
 	require.Equal(t, "auto", facts.EffortSource)
 	require.Equal(t, openAIImagesResponsesMainModel, facts.MainModel)
 	require.NotContains(t, facts.MainModelFallbacks, openAIImagesResponsesMainModel)
@@ -74,7 +74,7 @@ func TestOpenAIImagesOAuthDispatchFacts_RecordsEffortMainModelAndScaffold(t *tes
 
 	quoted := &OpenAIImagesRequest{Model: "gpt-image-2", Prompt: `cup text "NOVA"`}
 	quotedFacts := openAIImagesOAuthDispatchFactsFor(quoted, "gpt-image-2", "")
-	require.Equal(t, "medium", quotedFacts.ReasoningEffort)
+	require.Equal(t, "", quotedFacts.ReasoningEffort)
 	require.Equal(t, "auto", quotedFacts.EffortSource)
 	require.False(t, quotedFacts.InputFidelityOmitted)
 
@@ -97,7 +97,7 @@ func TestOpenAIImagesOAuthDispatchFacts_RecordsEffortMainModelAndScaffold(t *tes
 	require.False(t, overridden.ScaffoldOn)
 }
 
-func TestForwardOpenAIImagesOAuth_PersistsDispatchEffortWithoutCodexFidelity(t *testing.T) {
+func TestForwardOpenAIImagesOAuth_OmitsDefaultEffortWithoutCodexFidelity(t *testing.T) {
 	t.Setenv(openAIImagesReasoningEffortEnv, "")
 	t.Setenv(openAIImagesPromptScaffoldEnv, "")
 	t.Setenv("SUB2API_IMAGES_MAIN_MODEL", "")
@@ -113,15 +113,14 @@ func TestForwardOpenAIImagesOAuth_PersistsDispatchEffortWithoutCodexFidelity(t *
 	result, err := svc.ForwardImages(withOpenAIImagesForceResponses(context.Background()), c, directImagesTestAccount(), body, parsed, "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.NotNil(t, result.ReasoningEffort)
-	require.Equal(t, "medium", *result.ReasoningEffort)
+	require.Nil(t, result.ReasoningEffort)
 	require.False(t, gjson.GetBytes(upstream.lastBody, "tools.0.input_fidelity").Exists())
-	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning.effort").Exists())
 	require.Equal(t, openAIImagesResponsesMainModel, gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Contains(t, gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String(), "Primary request:")
 }
 
-func TestForwardOpenAIImagesOAuth_QuotedLabelKeepsMediumAndVerbatimScaffold(t *testing.T) {
+func TestForwardOpenAIImagesOAuth_QuotedLabelOmitsEffortAndKeepsVerbatimScaffold(t *testing.T) {
 	t.Setenv(openAIImagesReasoningEffortEnv, "")
 	t.Setenv(openAIImagesPromptScaffoldEnv, "")
 	t.Setenv("SUB2API_IMAGES_MAIN_MODEL", "")
@@ -135,9 +134,8 @@ func TestForwardOpenAIImagesOAuth_QuotedLabelKeepsMediumAndVerbatimScaffold(t *t
 
 	result, err := svc.ForwardImages(withOpenAIImagesForceResponses(context.Background()), c, directImagesTestAccount(), body, parsed, "")
 	require.NoError(t, err)
-	require.NotNil(t, result.ReasoningEffort)
-	require.Equal(t, "medium", *result.ReasoningEffort)
-	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.Nil(t, result.ReasoningEffort)
+	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning.effort").Exists())
 	require.Contains(t, gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String(), "Text (verbatim):")
 }
 

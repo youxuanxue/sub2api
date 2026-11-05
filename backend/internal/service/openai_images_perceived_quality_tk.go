@@ -27,10 +27,14 @@ import (
 // passthrough driver forwards to the image tool. This does not change pixel
 // count; upstream may still soft-size near 1K. No upscaler.
 const (
-	openAIImagesReasoningEffortEnv      = "SUB2API_IMAGES_REASONING_EFFORT"
-	openAIImagesPromptScaffoldEnv       = "SUB2API_IMAGES_PROMPT_SCAFFOLD"
-	openAIImagesDefaultReasoningEffort  = "medium"
-	openAIImagesVerbatimReasoningEffort = openAIImagesDefaultReasoningEffort
+	openAIImagesReasoningEffortEnv = "SUB2API_IMAGES_REASONING_EFFORT"
+	openAIImagesPromptScaffoldEnv  = "SUB2API_IMAGES_PROMPT_SCAFFOLD"
+	// Empty means reasoning.effort is omitted. Since 2026-11-04 the Codex
+	// backend reads the outer effort as the image tool's "complexity" and
+	// gpt-image-2-codex rejects every value ("Complexity 'medium' is not
+	// supported for this image model"), failing the stream after
+	// image_generation_call.generating. The env override stays opt-in.
+	openAIImagesDefaultReasoningEffort = ""
 
 	openAIImagesPerceivedQualityPrimary = "Primary request:"
 )
@@ -39,12 +43,8 @@ func openAIImagesReasoningEffortForPrompt(prompt string) string {
 	if effort, ok := openAIImagesExplicitReasoningEffort(); ok {
 		return effort
 	}
-	// Quoted labels use the same medium effort as other prompts. Production
-	// traffic showed higher latency without a stable quality gain from high;
-	// exact text remains a prompt-scaffold instruction, not an effort upgrade.
-	if openAIImagesPromptHasShortASCIIQuotedLabel(prompt) {
-		return openAIImagesVerbatimReasoningEffort
-	}
+	// Quoted labels get no effort upgrade either: exact text remains a
+	// prompt-scaffold instruction (see applyOpenAIImagesPerceivedQualityPrompt).
 	return openAIImagesDefaultReasoningEffort
 }
 

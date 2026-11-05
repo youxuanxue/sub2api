@@ -266,7 +266,8 @@ def call_upstream(size, output_format, background, quality, prompt="a small ging
     }
     payload = {
         "model": MAIN_MODEL, "instructions": "", "stream": True,
-        "reasoning": {"effort": "medium", "summary": "auto"},
+        # No reasoning.effort: upstream rejects it as image "complexity" (2026-11-04).
+        "reasoning": {"summary": "auto"},
         "parallel_tool_calls": True, "include": ["reasoning.encrypted_content"], "store": False,
         "tool_choice": {"type": "image_generation"}, "tools": [tool],
         "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": prompt}]}],
