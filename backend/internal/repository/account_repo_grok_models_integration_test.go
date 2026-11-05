@@ -340,11 +340,12 @@ func grokCatalogBackendPID(t *testing.T, q grokCatalogSQL) int {
 func mustCreateGrokCatalogAccount(t *testing.T, client *dbent.Client, name string) *service.Account {
 	t.Helper()
 	return mustCreateAccount(t, client, &service.Account{
-		Name:        name,
-		Platform:    service.PlatformGrok,
-		Type:        service.AccountTypeOAuth,
-		Extra:       map[string]any{"unrelated": "keep"},
-		Credentials: map[string]any{"access_token": "token-keep"},
+		Name:     name,
+		Platform: service.PlatformGrok,
+		Type:     service.AccountTypeOAuth,
+		Extra:    map[string]any{"unrelated": "keep"},
+		// TK: governed Grok accounts need an explicit protocol endpoint identity.
+		Credentials: map[string]any{"access_token": "token-keep", "base_url": "https://api.example.test/v1"},
 	})
 }
 

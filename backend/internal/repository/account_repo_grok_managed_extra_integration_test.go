@@ -53,7 +53,7 @@ func TestGrokManagedExtraSurvivesOrdinaryUpdate(t *testing.T) {
 		{
 			name:        "oauth old form",
 			accountType: service.AccountTypeOAuth,
-			credentials: map[string]any{"access_token": "token-keep"},
+			credentials: map[string]any{"access_token": "token-keep", "base_url": "https://api.example.test/v1"},
 			storedExtra: map[string]any{
 				"unrelated":                           "keep",
 				"grok_observed_models":                freshModels,
@@ -87,7 +87,7 @@ func TestGrokManagedExtraSurvivesOrdinaryUpdate(t *testing.T) {
 		{
 			name:        "injection when absent",
 			accountType: service.AccountTypeOAuth,
-			credentials: map[string]any{"access_token": "token-keep"},
+			credentials: map[string]any{"access_token": "token-keep", "base_url": "https://api.example.test/v1"},
 			storedExtra: map[string]any{"unrelated": "keep"},
 			updateExtra: map[string]any{
 				"unrelated":                           "keep",
@@ -99,7 +99,7 @@ func TestGrokManagedExtraSurvivesOrdinaryUpdate(t *testing.T) {
 		{
 			name:        "failed attempt",
 			accountType: service.AccountTypeAPIKey,
-			credentials: map[string]any{"api_key": "sk-keep"},
+			credentials: map[string]any{"api_key": "sk-keep", "base_url": "https://api.example.test/v1"},
 			storedExtra: map[string]any{
 				"unrelated":                           "keep",
 				"grok_observed_models":                failedModels,
