@@ -22,7 +22,7 @@ import (
 // never populate the platform-wide not-found cache.
 func nestedUnsupportedModel404Body(t *testing.T, wire TkErrorWire, model string) []byte {
 	t.Helper()
-	body, err := json.Marshal(TkUnsupportedModelErrorFor(wire, model).Body())
+	body, err := json.Marshal(tkUnsupportedModelErrorFor(wire, model).Body())
 	require.NoError(t, err)
 	return body
 }

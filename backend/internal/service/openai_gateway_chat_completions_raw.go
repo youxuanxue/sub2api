@@ -357,6 +357,29 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	var terminal openAIRawStreamTerminalState
 	volcKimiEstimate := newVolcKimiStreamUsageEstimator(c, account, upstreamModel, originalModel, requestID)
 
+	// injectUsageOnlyChunkCost prices the current usage for a usage-only chunk,
+	// injects usage.cost and stashes the precomputed settlement so client cost
+	// and billed cost come from one computation.
+	injectUsageOnlyChunkCost := func(line string) string {
+		preview := &OpenAIForwardResult{
+			Usage:                         usage,
+			Model:                         originalModel,
+			BillingModel:                  billingModel,
+			UpstreamModel:                 upstreamModel,
+			UpstreamResponseModel:         observedUpstreamResponseModel(c),
+			UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+			UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
+			Stream:                        true,
+			ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+			ReasoningEffort:               reasoningEffort,
+		}
+		if cost := s.previewOpenAIClientUsageCost(c.Request.Context(), c, account, preview); cost != nil {
+			line = InjectUsageCostSSEDataLine(line, cost.TotalCost)
+			stashPrecomputedResponseUsageCost(c, cost)
+		}
+		return line
+	}
+
 	writeLine := func(line string) {
 		if clientDisconnected {
 			return
@@ -422,30 +445,14 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
 			trimmedPayload := strings.TrimSpace(payload)
 			if trimmedPayload == "[DONE]" {
+				// An estimated usage chunk is a usage-only chunk too: it gets the
+				// same client usage.cost and precomputed settlement.
 				if usageLine := volcKimiEstimate.UsageLineBeforeDone(&usage); usageLine != "" {
-					writeLine(usageLine)
+					writeLine(injectUsageOnlyChunkCost(usageLine))
 					writeLine("")
 				}
 			} else if isOpenAIChatUsageOnlyStreamChunk(trimmedPayload) {
-				line = volcKimiEstimate.PatchUsageOnlyLine(line, &usage)
-			}
-			if trimmedPayload != "[DONE]" && isOpenAIChatUsageOnlyStreamChunk(trimmedPayload) {
-				preview := &OpenAIForwardResult{
-					Usage:                         usage,
-					Model:                         originalModel,
-					BillingModel:                  billingModel,
-					UpstreamModel:                 upstreamModel,
-					UpstreamResponseModel:         observedUpstreamResponseModel(c),
-					UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
-					UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
-					Stream:                        true,
-					ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
-					ReasoningEffort:               reasoningEffort,
-				}
-				if cost := s.previewOpenAIClientUsageCost(c.Request.Context(), c, account, preview); cost != nil {
-					line = InjectUsageCostSSEDataLine(line, cost.TotalCost)
-					stashPrecomputedResponseUsageCost(c, cost)
-				}
+				line = injectUsageOnlyChunkCost(volcKimiEstimate.PatchUsageOnlyLine(line, &usage))
 			}
 		}
 		writeLine(line)

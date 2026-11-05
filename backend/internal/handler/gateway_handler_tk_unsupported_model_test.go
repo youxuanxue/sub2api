@@ -30,7 +30,7 @@ func TestTkWriteUnsupportedAnthropicModelAtIngress(t *testing.T) {
 	require.True(t, ok)
 	// Official Anthropic 404 shape (docs/approved/unsupported-model-404-ssot.md).
 	assert.Equal(t, "error", payload["type"])
-	assert.Equal(t, service.TkUnsupportedModelAnthropicErrType, errObj["type"])
+	assert.Equal(t, "not_found_error", errObj["type"])
 	assert.Equal(t, service.TkUnsupportedModelMessage("gpt"), errObj["message"])
 }
 

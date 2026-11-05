@@ -22,13 +22,13 @@ One owner defines the status and every wire shape. Emit sites never hardcode 400
 
 | Symbol | Role |
 | --- | --- |
-| `TkUnsupportedModelStatus` (`404`), `TkUnsupportedModelErrType`, `TkUnsupportedModelCode`, `TkUnsupportedModelAnthropicErrType` | Status and per-wire type/code |
+| `TkUnsupportedModelStatus` (`404`), `TkUnsupportedModelErrType`, `TkUnsupportedModelCode` (Anthropic/Gemini type is internal) | Status and per-wire type/code |
 | `TkUnsupportedModelMessage(model)` | Client copy, unchanged: `Unsupported model: X` |
-| `TkUnsupportedModelErrorFor` / `...WithMessage` → `.Body()` | Official envelope for `TkErrorWireOpenAI` / `Anthropic` / `Gemini` |
+| `TkUnsupportedModelErrorWithMessage` → `.Body()` | Official envelope for `TkErrorWireOpenAI` / `Anthropic` / `Gemini` |
 | `TkWriteUnsupportedModel(c, wire, model)` | Direct write (middleware, universal routing) |
 | `TkUnsupportedModelSelectionResponse(c, model)` / `...WithMessage` | `(status, type, message)` tuple for handler writers; marks the request |
 | `TkUnsupportedModelWireBody` / `TkUnsupportedModelWireFields` | Shared handler writers render the owner shape for marked requests (JSON and SSE) |
-| `TkErrorWireForPath` / `ForRequest` / `ForShape` | Inbound path → wire, same split as the group model allowlist |
+| `TkErrorWireForPath` / `ForRequest` / `ForShape` | Inbound path → wire; the only copy of this split (the group model allowlist writer maps its result) |
 | `TkIsGatewayUnsupportedModel404(status, body)` | Recognizes this 404 coming back from a nested TokenKey upstream |
 | `tkWriteAnthropicUnsupportedModel` | Service-layer Anthropic emit (upstream 404 translation, negative cache) |
 

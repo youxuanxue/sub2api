@@ -18864,7 +18864,7 @@
       "must_contain": [
         "TkUnsupportedModelStatus = http.StatusNotFound",
         "TkUnsupportedModelCode             = \"model_not_found\"",
-        "TkUnsupportedModelAnthropicErrType = \"not_found_error\"",
+        "tkUnsupportedModelAnthropicErrType = \"not_found_error\"",
         "func TkWriteUnsupportedModel(",
         "func TkUnsupportedModelSelectionResponse(",
         "func TkUnsupportedModelWireBody(",

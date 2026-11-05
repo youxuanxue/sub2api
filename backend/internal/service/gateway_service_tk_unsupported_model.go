@@ -28,7 +28,7 @@ const (
 	// writers translate it through TkUnsupportedModelWireFields.
 	TkUnsupportedModelErrType          = "invalid_request_error"
 	TkUnsupportedModelCode             = "model_not_found"
-	TkUnsupportedModelAnthropicErrType = "not_found_error"
+	tkUnsupportedModelAnthropicErrType = "not_found_error"
 )
 
 // TkErrorWire names the inbound protocol envelope an error is rendered in.
@@ -54,9 +54,9 @@ type TkUnsupportedModelError struct {
 	Message string
 }
 
-// TkUnsupportedModelErrorFor resolves the response for model on wire with the
+// tkUnsupportedModelErrorFor resolves the response for model on wire with the
 // standard TkUnsupportedModelMessage copy.
-func TkUnsupportedModelErrorFor(wire TkErrorWire, model string) TkUnsupportedModelError {
+func tkUnsupportedModelErrorFor(wire TkErrorWire, model string) TkUnsupportedModelError {
 	return TkUnsupportedModelErrorWithMessage(wire, TkUnsupportedModelMessage(model))
 }
 
@@ -70,7 +70,7 @@ func TkUnsupportedModelErrorWithMessage(wire TkErrorWire, message string) TkUnsu
 func tkUnsupportedModelFieldsForWire(wire TkErrorWire) (errType, code string) {
 	switch wire {
 	case TkErrorWireAnthropic, TkErrorWireGemini:
-		return TkUnsupportedModelAnthropicErrType, ""
+		return tkUnsupportedModelAnthropicErrType, ""
 	default:
 		return TkUnsupportedModelErrType, TkUnsupportedModelCode
 	}
@@ -101,9 +101,9 @@ func (e TkUnsupportedModelError) Body() gin.H {
 	}
 }
 
-// TkErrorWireForPath picks the envelope from the inbound path, using the same
-// split as the group model allowlist: Gemini native under /v1beta, Anthropic
-// for any /messages route, OpenAI otherwise.
+// TkErrorWireForPath picks the envelope from the inbound path: Gemini native
+// under /v1beta, Anthropic for any /messages route, OpenAI otherwise. It is the
+// only copy of this split; the group model allowlist writer maps its result.
 func TkErrorWireForPath(path string) TkErrorWire {
 	switch {
 	case strings.HasPrefix(path, "/v1beta") || strings.HasPrefix(path, "/antigravity/v1beta"):
@@ -137,7 +137,7 @@ func TkWriteUnsupportedModel(c *gin.Context, wire TkErrorWire, model string) {
 	if c == nil {
 		return
 	}
-	e := TkUnsupportedModelErrorFor(wire, model)
+	e := tkUnsupportedModelErrorFor(wire, model)
 	TkMarkUnsupportedModelResponse(c)
 	c.JSON(e.Status, e.Body())
 }
@@ -363,7 +363,7 @@ func TkErrorWireForShape(shape UniversalShape) TkErrorWire {
 // through tkWriteAnthropicErrorResponse so a committed SSE heartbeat still
 // gets a well-formed error event.
 func tkWriteAnthropicUnsupportedModel(c *gin.Context, model string) {
-	e := TkUnsupportedModelErrorFor(TkErrorWireAnthropic, model)
+	e := tkUnsupportedModelErrorFor(TkErrorWireAnthropic, model)
 	TkMarkUnsupportedModelResponse(c)
 	tkWriteAnthropicError(c, e.Status, e.Type, e.Message)
 }

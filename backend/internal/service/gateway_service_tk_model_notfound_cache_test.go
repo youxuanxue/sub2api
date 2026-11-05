@@ -70,7 +70,7 @@ func TestTkModelNotFoundShortCircuit_Hit(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, http.StatusNotFound, w.Code)
 	body := w.Body.String()
-	require.Contains(t, body, TkUnsupportedModelAnthropicErrType)
+	require.Contains(t, body, tkUnsupportedModelAnthropicErrType)
 	require.Contains(t, body, TkUnsupportedModelMessage("claude-haiku-4-6"))
 }
 

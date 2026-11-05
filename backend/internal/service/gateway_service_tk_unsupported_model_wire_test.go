@@ -66,7 +66,7 @@ func TestTkErrorWireForPath(t *testing.T) {
 
 func TestTkIsGatewayUnsupportedModel404(t *testing.T) {
 	for _, wire := range []TkErrorWire{TkErrorWireOpenAI, TkErrorWireAnthropic, TkErrorWireGemini} {
-		body, err := json.Marshal(TkUnsupportedModelErrorFor(wire, "m").Body())
+		body, err := json.Marshal(tkUnsupportedModelErrorFor(wire, "m").Body())
 		require.NoError(t, err)
 		require.True(t, TkIsGatewayUnsupportedModel404(http.StatusNotFound, body), wire)
 		require.False(t, TkIsGatewayUnsupportedModel404(http.StatusBadRequest, body), wire)

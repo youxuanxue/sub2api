@@ -177,6 +177,73 @@ func TestVolcKimiEstimatedUsageLogTier(t *testing.T) {
 	require.Nil(t, openAIUsageLogBillingTier(&OpenAIForwardResult{}))
 }
 
+// Client-visible usage.cost, the precomputed settlement and the usage_logs
+// cost must come from one computation on every estimate shape — including the
+// usage chunk the gateway inserts when the upstream stream carried none.
+func TestVolcKimiEstimatedUsageCostMatchesBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cases := []struct {
+		name    string
+		stream  bool
+		payload string
+	}{
+		{"non-stream zero usage", false, volcKimiZeroUsageNonStream},
+		{"stream without usage chunk", true, volcKimiNoUsageStream},
+		{"stream with zero usage chunk", true, volcKimiZeroUsageChunkStream},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+			contentType := "application/json"
+			if tc.stream {
+				contentType = "text/event-stream"
+			}
+			svc.httpUpstream = &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": {contentType}},
+				Body:       io.NopCloser(strings.NewReader(tc.payload)),
+			}}
+			if svc.cfg == nil {
+				svc.cfg = rawChatCompletionsTestConfig()
+			}
+			apiKey := openAIRecordUsageAPIKeyWithGroup(svc, 637, false)
+			apiKey.User = &User{ID: 61, Balance: 100}
+			apiKey.GroupID = &apiKey.Group.ID
+			apiKey.Group.Platform = PlatformOpenAI
+			account := volcAgentPlanKimiAccountForTest()
+			flag := "false"
+			if tc.stream {
+				flag = "true"
+			}
+			body := []byte(strings.Replace(volcKimiEstimateRequest, "%s", flag, 1))
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+			c.Set("api_key", apiKey)
+			BindResponseUsageCostBillingWithTier(c, time.Now(), ChannelUsageFields{}, "")
+
+			result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+			require.NoError(t, err)
+			require.Equal(t, VolcKimiEstimatedBillingTier, result.BillingTier)
+			require.NotNil(t, result.PrecomputedCost, "estimated usage must be priced before billing")
+
+			wireUsage := gjson.GetBytes(rec.Body.Bytes(), "usage")
+			if tc.stream {
+				wireUsage = lastSSEUsage(t, rec.Body.String())
+			}
+			require.True(t, wireUsage.Get("cost").Exists(), "client usage must carry usage.cost: %s", rec.Body.String())
+			require.Positive(t, wireUsage.Get("cost").Float())
+			require.InDelta(t, result.PrecomputedCost.TotalCost, wireUsage.Get("cost").Float(), 1e-12)
+
+			result.RequestID = "volc-kimi-estimate-cost"
+			require.NoError(t, svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: result, APIKey: apiKey, User: apiKey.User, Account: account}))
+			require.NotNil(t, usageRepo.lastLog)
+			require.InDelta(t, wireUsage.Get("cost").Float(), usageRepo.lastLog.TotalCost, 1e-12)
+		})
+	}
+}
+
 func TestVolcKimiEstimatedUsageIsBilledAndTagged(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
