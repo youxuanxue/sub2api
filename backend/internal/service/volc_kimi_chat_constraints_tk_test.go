@@ -252,6 +252,15 @@ func TestVolcKimiInboundMessageShapes(t *testing.T) {
 	require.Equal(t, "video_url", gjson.GetBytes(array, "messages.0.content.0.type").String())
 	require.Equal(t, "https://example.com/a.webm", gjson.GetBytes(array, "messages.0.content.0.video_url.url").String())
 
+	stringVideo, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"hi"},{"type":"video_url","video_url":"https://example.com/a.mp4"}]}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "https://example.com/a.mp4", gjson.GetBytes(stringVideo, "messages.0.content.1.video_url.url").String())
+	require.Equal(t, "hi", gjson.GetBytes(stringVideo, "messages.0.content.0.text").String())
+
+	singleStringVideo, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":{"type":"video_url","video_url":"ms://file-1"}}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "ms://file-1", gjson.GetBytes(singleStringVideo, "messages.0.content.0.video_url.url").String())
+
 	orphan, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":"hi"},{"role":"tool","tool_call_id":"call_1","content":"result"}]}`))
 	require.NoError(t, err)
 	require.Equal(t, "user", gjson.GetBytes(orphan, "messages.1.role").String())

@@ -3214,7 +3214,8 @@
         "validateVolcKimiRequestLimits(body)",
         "normalizeChatToolConstraints(shaped)",
         "func rejectUnreachableVolcKimiVideoURLs(",
-        "video_url is not reachable; provide a video URL this service can access"
+        "video_url is not reachable; provide a video URL this service can access",
+        "func wrapVolcKimiStringVideoURLs("
       ],
       "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire."
     },
@@ -3243,7 +3244,9 @@
         "volcKimiNumberInRange(body, \"top_p\", 0, 1)",
         "kimi-k3 supports only n=1",
         "func applyVolcKimiEffortOff(",
-        "sjson.SetBytes(shaped, \"thinking.type\", \"disabled\")"
+        "sjson.SetBytes(shaped, \"thinking.type\", \"disabled\")",
+        "func validateVolcKimiPrediction(",
+        "prediction.type must be content"
       ],
       "rationale": "Volc Agent Plan kimi-k3 must return field-level 400s for sampling, n, logprobs and max token values the supplier silently ignores, and reasoning_effort none must close thinking instead of becoming low effort."
     },
@@ -16753,7 +16756,9 @@
         "body = clampVolcPlanChatSamplingBounds(body)",
         "volcPlanKimiK3MaxTokensMax",
         "func normalizeChatToolConstraints(",
-        "delete(root, \"functions\")"
+        "delete(root, \"functions\")",
+        "must be one of: none, auto, required, or a named function",
+        "func writeChatProviderRequestError("
       ],
       "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; Volc Agent Plan sampling clamp + kimi-k3 max_tokens ceiling stay wired. See docs/approved/chat-plan-parameter-compatibility.md."
     },
@@ -16767,14 +16772,16 @@
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
       "must_contain": [
-        "normalizeChatProviderRequest(account, targetURL, upstreamBody)"
+        "normalizeChatProviderRequest(account, targetURL, upstreamBody)",
+        "writeChatProviderRequestError(c, err)"
       ],
       "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
       "must_contain": [
-        "normalizeBridgeChatProviderRequest(account, in, body)"
+        "normalizeBridgeChatProviderRequest(account, in, body)",
+        "writeChatProviderRequestError(c, err)"
       ],
       "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
     },
@@ -16782,6 +16789,7 @@
       "path": "backend/internal/service/openai_gateway_bridge_responses_fallback.go",
       "must_contain": [
         "normalizeBridgeChatProviderRequest(account, in, chatBody)",
+        "writeChatProviderRequestError(c, err)",
         "reasoningEffort = extractOpenAIReasoningEffortFromBody(chatBody, upstreamModel)"
       ],
       "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
@@ -16805,7 +16813,8 @@
         "func TestChatProviderConstraints_VolcPlanSamplingBounds(",
         "func TestChatProviderConstraints_ForwardRawAndAliAdaptor(",
         "func TestChatProviderConstraints_InvalidSelectionDoesNotSend(",
-        "func TestChatProviderConstraints_ResponsesFallback("
+        "func TestChatProviderConstraints_ResponsesFallback(",
+        "func TestChatToolConstraints_InvalidModeIsFieldLevel("
       ],
       "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; Volc sampling/kimi-k3 max_tokens regressions stay wired. See docs/approved/chat-plan-parameter-compatibility.md."
     },

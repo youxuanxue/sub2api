@@ -11,6 +11,7 @@ import (
 	newapitypes "github.com/QuantumNous/new-api/types"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -149,10 +150,16 @@ type chatToolConstraint struct {
 	name           string
 }
 
+// parseChatToolConstraint returns field-level errors so clients see which
+// selector was invalid and its allowed values (Volc names the same enum).
 func parseChatToolConstraint(raw json.RawMessage, legacy bool) (chatToolConstraint, error) {
 	var constraint chatToolConstraint
 	if len(raw) == 0 || string(raw) == "null" {
 		return constraint, nil
+	}
+	param := "tool_choice"
+	if legacy {
+		param = "function_call"
 	}
 	var mode string
 	if json.Unmarshal(raw, &mode) == nil {
@@ -163,7 +170,7 @@ func parseChatToolConstraint(raw json.RawMessage, legacy bool) (chatToolConstrai
 			constraint.required = true
 		case "auto":
 		default:
-			return constraint, errors.New("invalid tool selection mode")
+			return constraint, newOpenAIInvalidParameterError(param, param+" must be one of: none, auto, required, or a named function")
 		}
 		return constraint, nil
 	}
@@ -175,19 +182,30 @@ func parseChatToolConstraint(raw json.RawMessage, legacy bool) (chatToolConstrai
 		} `json:"function"`
 	}
 	if json.Unmarshal(raw, &choice) != nil {
-		return constraint, errors.New("invalid tool selection object")
+		return constraint, newOpenAIInvalidParameterError(param, "invalid tool selection object")
 	}
 	constraint.name = choice.Name
 	if !legacy {
 		constraint.name = choice.Function.Name
 		if choice.Type != "function" {
-			return constraint, errors.New("tool selection must name a function")
+			return constraint, newOpenAIInvalidParameterError(param, "tool selection must name a function")
 		}
 	}
 	if strings.TrimSpace(constraint.name) == "" {
-		return constraint, errors.New("tool selection requires a function name")
+		return constraint, newOpenAIInvalidParameterError(param, "tool selection requires a function name")
 	}
 	return constraint, nil
+}
+
+// writeChatProviderRequestError writes a field-level 400 when the provider
+// normalizer returned one. It reports false so the caller writes its own shape.
+func writeChatProviderRequestError(c *gin.Context, err error) bool {
+	var inv *OpenAIInvalidParameterError
+	if c == nil || !errors.As(err, &inv) {
+		return false
+	}
+	writeOpenAIInvalidParameterError(c, inv)
+	return true
 }
 
 func normalizeChatToolConstraints(body []byte) ([]byte, error) {
@@ -206,7 +224,7 @@ func normalizeChatToolConstraints(body []byte) ([]byte, error) {
 	if (modern.none && (legacy.name != "" || legacy.required)) ||
 		(legacy.none && (modern.name != "" || modern.required)) ||
 		(modern.name != "" && legacy.name != "" && modern.name != legacy.name) {
-		return nil, errors.New("conflicting tool_choice and function_call constraints")
+		return nil, newOpenAIInvalidParameterError("tool_choice", "conflicting tool_choice and function_call constraints")
 	}
 	if modern.none || legacy.none {
 		delete(root, "tools")
@@ -230,7 +248,7 @@ func normalizeChatToolConstraints(body []byte) ([]byte, error) {
 	for _, key := range []string{"tools", "functions"} {
 		var definitions []json.RawMessage
 		if raw, exists := root[key]; exists && json.Unmarshal(raw, &definitions) != nil {
-			return nil, errors.New("tool definitions must be an array")
+			return nil, newOpenAIInvalidParameterError(key, key+" must be an array")
 		}
 		selected := make([]json.RawMessage, 0, 1)
 		for _, definition := range definitions {
@@ -248,7 +266,11 @@ func normalizeChatToolConstraints(body []byte) ([]byte, error) {
 		}
 		required := (key == "tools" && modern.name != "") || (key == "functions" && legacy.name != "")
 		if len(selected) > 1 || (required && len(selected) != 1) {
-			return nil, errors.New("selected function must have exactly one definition")
+			param := "tool_choice"
+			if key == "functions" {
+				param = "function_call"
+			}
+			return nil, newOpenAIInvalidParameterError(param, "selected function must have exactly one definition")
 		}
 		if len(selected) == 0 {
 			delete(root, key)

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,6 +46,10 @@ func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 	}
 	shaped, err = normalizeChatToolConstraints(shaped)
 	if err != nil {
+		var inv *OpenAIInvalidParameterError
+		if errors.As(err, &inv) {
+			return nil, err
+		}
 		return nil, newOpenAIInvalidParameterError("tool_choice", err.Error())
 	}
 	return sjson.SetBytes(shaped, "tool_choice", "required")
@@ -58,7 +63,8 @@ func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 //   - a tool message whose tool_call_id is absent from assistant tool_calls
 //     becomes a user message, keeping its content;
 //   - function tools with an empty name are removed. If none remain, tool_choice
-//     is removed with them.
+//     is removed with them;
+//   - a string video_url becomes {"url": ...} (2026-11-05).
 //
 // Matched tool results, string content, and content-part arrays are unchanged.
 // Video parts are not stripped. Reachability is a separate preflight:
@@ -103,6 +109,32 @@ func normalizeVolcKimiMessageContents(body []byte) ([]byte, error) {
 		}
 		if err != nil {
 			return nil, err
+		}
+	}
+	return wrapVolcKimiStringVideoURLs(shaped)
+}
+
+// wrapVolcKimiStringVideoURLs rewrites a string video_url part to the object
+// form. Moonshot documents the string as equivalent to video_url.url; Volc
+// rejects it ("expected an object", cn-prod 2026-11-05).
+func wrapVolcKimiStringVideoURLs(body []byte) ([]byte, error) {
+	shaped := body
+	var err error
+	for i, msg := range gjson.GetBytes(body, "messages").Array() {
+		content := msg.Get("content")
+		if !content.IsArray() {
+			continue
+		}
+		for j, part := range content.Array() {
+			video := part.Get("video_url")
+			if video.Type != gjson.String {
+				continue
+			}
+			path := fmt.Sprintf("messages.%d.content.%d.video_url", i, j)
+			shaped, err = sjson.SetBytes(shaped, path, map[string]string{"url": video.String()})
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	return shaped, nil

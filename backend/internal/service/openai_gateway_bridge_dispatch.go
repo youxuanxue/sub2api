@@ -98,7 +98,9 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	body = applyNVIDIABuildChatTokenLimit(account, body)
 	body, err = normalizeBridgeChatProviderRequest(account, in, body)
 	if err != nil {
-		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		if !writeChatProviderRequestError(c, err) {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		}
 		return nil, err
 	}
 	body = applyNewAPIAnthropicThinkingTemperature(account, gjson.GetBytes(body, "model").String(), body)

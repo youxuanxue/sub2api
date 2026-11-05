@@ -409,6 +409,8 @@ func TestChatProviderConstraints_InvalidSelectionDoesNotSend(t *testing.T) {
 			require.Error(t, err)
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 			require.Equal(t, "invalid_request_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+			require.Equal(t, "invalid_parameter", gjson.GetBytes(rec.Body.Bytes(), "error.code").String())
+			require.Equal(t, "tool_choice", gjson.GetBytes(rec.Body.Bytes(), "error.param").String())
 			require.NotContains(t, rec.Body.String(), "secret")
 			require.Empty(t, transport.requests)
 		})
@@ -465,4 +467,35 @@ func TestChatProviderConstraints_ResponsesFallback(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Volc Agent Plan names the same enum for tool_choice="default" (cn-prod direct
+// control, 2026-11-05); the gateway must say which field and which values.
+func TestChatToolConstraints_InvalidModeIsFieldLevel(t *testing.T) {
+	for _, tc := range []struct{ body, param, message string }{
+		{`{"tool_choice":"default"}`, "tool_choice", "tool_choice must be one of: none, auto, required, or a named function"},
+		{`{"tool_choice":"bogus"}`, "tool_choice", "tool_choice must be one of: none, auto, required, or a named function"},
+		{`{"function_call":"bogus"}`, "function_call", "function_call must be one of: none, auto, required, or a named function"},
+		{`{"tool_choice":{"type":"function"}}`, "tool_choice", "tool selection requires a function name"},
+		{`{"tool_choice":5}`, "tool_choice", "invalid tool selection object"},
+	} {
+		t.Run(tc.body, func(t *testing.T) {
+			_, err := normalizeChatToolConstraints([]byte(tc.body))
+			var inv *OpenAIInvalidParameterError
+			require.ErrorAs(t, err, &inv)
+			require.Equal(t, tc.param, inv.Param)
+			require.Equal(t, tc.message, inv.Message)
+
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			require.True(t, writeChatProviderRequestError(c, err))
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			require.Equal(t, tc.param, gjson.GetBytes(rec.Body.Bytes(), "error.param").String())
+			require.Equal(t, "invalid_parameter", gjson.GetBytes(rec.Body.Bytes(), "error.code").String())
+		})
+	}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	require.False(t, writeChatProviderRequestError(c, fmt.Errorf("plain")))
 }
