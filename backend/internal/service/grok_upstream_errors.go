@@ -175,6 +175,7 @@ func grokContentPolicyMessage(value string) bool {
 		"input violates content policy",
 		"input violates policy",
 		"violates usage guidelines",
+		"i'm sorry, i can't help with that request",
 	} {
 		if strings.Contains(lower, phrase) {
 			return true
