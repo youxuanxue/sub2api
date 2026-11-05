@@ -228,3 +228,6 @@ ssm-params.json
 stderr.txt
 stdout.txt
 tokenkey-competitor-research/
+
+# Local preflight Python env (see docs/preflight-debt.md)
+.venv-preflight/

@@ -4,6 +4,20 @@ Gaps a gate has *detected* but that are not fixed yet, plus interception a gate 
 currently express. One entry per gap. Close the entry in the PR that fixes the
 underlying problem — this file is not a changelog.
 
+## Python toolchain is implicit
+
+Preflight's Python gates assume what CI provides (`actions/setup-python` `'3.12'` plus
+PyYAML), but nothing pinned it locally. On 2026-11-04/05 three agent runs hit it:
+system Python 3.9.6 failed six unrelated checks on 3.10+ syntax (`zip(strict=)`,
+`X | None`, `hashlib.file_digest`, `enterContext`, `extractall(filter=)`), and Homebrew
+3.14/3.15 without PyYAML failed 18 checks. Only a uv-managed 3.12 with PyYAML passed.
+
+Partial fix: `scripts/preflight.sh` now fails fast with one actionable line when
+`python3` is older than 3.12 or lacks PyYAML. Still open: preflight does not select or
+provision the interpreter itself (no pinned `.python-version` / uv project, no
+dependency list). Close this entry when preflight resolves a pinned 3.12 environment
+on its own.
+
 ## Known limits of the column-writer gate
 
 Not debt to pay down, but the boundaries of what that gate can decide. Recorded so the
