@@ -513,13 +513,15 @@ func TestVolcKimiFallbackReasoningWireAndUsage(t *testing.T) {
 					require.Equal(t, "/api/plan/v3/chat/completions", upstream.lastReq.URL.Path)
 					require.Equal(t, "kimi-k3", gjson.GetBytes(upstream.lastBody, "model").String())
 					want := effort
-					if effort == "none" {
-						want = "low"
-					}
 					if effort == "medium" {
 						want = "high"
 					}
-					if want == "" {
+					if effort == "none" {
+						// Volc honors thinking.type=disabled; none must not become low effort.
+						require.Equal(t, "disabled", gjson.GetBytes(upstream.lastBody, "thinking.type").String())
+						require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning_effort").Exists())
+						require.Nil(t, result.ReasoningEffort)
+					} else if want == "" {
 						require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning_effort").Exists())
 						require.False(t, gjson.GetBytes(upstream.lastBody, "thinking").Exists())
 						require.Nil(t, result.ReasoningEffort)

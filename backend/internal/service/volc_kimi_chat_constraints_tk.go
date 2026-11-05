@@ -20,6 +20,9 @@ import (
 // thinking/tool contract while presenting a Moonshot-compatible public surface
 // for kimi-k3. See docs/approved/volc-kimi-chat-compatibility.md.
 func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
+	if err := validateVolcKimiRequestLimits(body); err != nil {
+		return nil, err
+	}
 	shaped, err := normalizeVolcKimiInboundMessages(body)
 	if err != nil {
 		return nil, err
@@ -424,6 +427,9 @@ func normalizeVolcKimiReasoningEffort(body []byte, thinkingMode string) ([]byte,
 		return body, nil
 	}
 	effort := strings.TrimSpace(gjson.GetBytes(body, "reasoning_effort").String())
+	if volcKimiEffortDisablesThinking(effort) {
+		return applyVolcKimiEffortOff(body, thinkingMode)
+	}
 	mapped := mapMoonshotK3ReasoningEffort(effort)
 	if mapped == "" {
 		return body, newOpenAIInvalidParameterError(

@@ -106,8 +106,8 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	// protocol checkers accept them; known-but-unpriced models stay 400.
 	if h.gatewayService.TkImageModelUnpriced(requestModel, apiKey.Group, parsed.Size) {
 		if service.IsGPTImageGenerationModel(requestModel) && h.gatewayService.TkImageModelRegistryMissing(requestModel) {
-			h.errorResponse(c, http.StatusNotFound, "invalid_request_error",
-				fmt.Sprintf("The model '%s' does not exist", requestModel))
+			status, errType, msg := service.TkUnsupportedModelSelectionResponseWithMessage(c, fmt.Sprintf("The model '%s' does not exist", requestModel))
+			h.errorResponse(c, status, errType, msg)
 			return
 		}
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", service.TkUnpricedMediaModelMessage(requestModel, "image"))
@@ -224,7 +224,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			)
 			if len(failedAccountIDs) == 0 {
 				status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, err)
-				status, errType, msg = openAIImagesUnknownModelNotFound(h.gatewayService, apiKey, clientRequestModel, parsed.Size, status, errType, msg)
+				status, errType, msg = openAIImagesUnknownModelNotFound(c, h.gatewayService, apiKey, clientRequestModel, parsed.Size, status, errType, msg)
 				h.handleStreamingAwareError(c, status, errType, msg, streamStarted)
 				return
 			}
@@ -237,7 +237,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		}
 		if selection == nil || selection.Account == nil {
 			status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, nil)
-			status, errType, msg = openAIImagesUnknownModelNotFound(h.gatewayService, apiKey, clientRequestModel, parsed.Size, status, errType, msg)
+			status, errType, msg = openAIImagesUnknownModelNotFound(c, h.gatewayService, apiKey, clientRequestModel, parsed.Size, status, errType, msg)
 			h.handleStreamingAwareError(c, status, errType, msg, streamStarted)
 			return
 		}

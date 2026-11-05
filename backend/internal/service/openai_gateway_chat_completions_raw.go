@@ -227,6 +227,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 	// the outbound request (for example GLM xhigh is forwarded as max).
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(upstreamBody, upstreamModel, billingModel, originalModel)
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, upstreamBody, upstreamModel)
+	stashVolcKimiEstimateRequestBody(c, account, upstreamModel, upstreamBody)
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA, grokCacheIdentity)
 	if err != nil {
 		return nil, err
@@ -354,6 +355,30 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var terminal openAIRawStreamTerminalState
+	volcKimiEstimate := newVolcKimiStreamUsageEstimator(c, account, upstreamModel, originalModel, requestID)
+
+	// injectUsageOnlyChunkCost prices the current usage for a usage-only chunk,
+	// injects usage.cost and stashes the precomputed settlement so client cost
+	// and billed cost come from one computation.
+	injectUsageOnlyChunkCost := func(line string) string {
+		preview := &OpenAIForwardResult{
+			Usage:                         usage,
+			Model:                         originalModel,
+			BillingModel:                  billingModel,
+			UpstreamModel:                 upstreamModel,
+			UpstreamResponseModel:         observedUpstreamResponseModel(c),
+			UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+			UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
+			Stream:                        true,
+			ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+			ReasoningEffort:               reasoningEffort,
+		}
+		if cost := s.previewOpenAIClientUsageCost(c.Request.Context(), c, account, preview); cost != nil {
+			line = InjectUsageCostSSEDataLine(line, cost.TotalCost)
+			stashPrecomputedResponseUsageCost(c, cost)
+		}
+		return line
+	}
 
 	writeLine := func(line string) {
 		if clientDisconnected {
@@ -405,6 +430,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				if u := extractCCStreamUsage(payload); u != nil {
 					usage = *u
 				}
+				volcKimiEstimate.Observe(payload)
 				if firstTokenMs == nil && !usageOnlyChunk {
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
@@ -418,23 +444,15 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		line = s.replaceModelInSSELine(line, upstreamModel, originalModel)
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
 			trimmedPayload := strings.TrimSpace(payload)
-			if trimmedPayload != "[DONE]" && isOpenAIChatUsageOnlyStreamChunk(trimmedPayload) {
-				preview := &OpenAIForwardResult{
-					Usage:                         usage,
-					Model:                         originalModel,
-					BillingModel:                  billingModel,
-					UpstreamModel:                 upstreamModel,
-					UpstreamResponseModel:         observedUpstreamResponseModel(c),
-					UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
-					UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
-					Stream:                        true,
-					ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
-					ReasoningEffort:               reasoningEffort,
+			if trimmedPayload == "[DONE]" {
+				// An estimated usage chunk is a usage-only chunk too: it gets the
+				// same client usage.cost and precomputed settlement.
+				if usageLine := volcKimiEstimate.UsageLineBeforeDone(&usage); usageLine != "" {
+					writeLine(injectUsageOnlyChunkCost(usageLine))
+					writeLine("")
 				}
-				if cost := s.previewOpenAIClientUsageCost(c.Request.Context(), c, account, preview); cost != nil {
-					line = InjectUsageCostSSEDataLine(line, cost.TotalCost)
-					stashPrecomputedResponseUsageCost(c, cost)
-				}
+			} else if isOpenAIChatUsageOnlyStreamChunk(trimmedPayload) {
+				line = injectUsageOnlyChunkCost(volcKimiEstimate.PatchUsageOnlyLine(line, &usage))
 			}
 		}
 		writeLine(line)
@@ -449,8 +467,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		}
 	}
 
+	volcKimiEstimate.Finalize(&usage)
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
+			BillingTier:                   volcKimiEstimate.BillingTier(),
 			RequestID:                     requestID,
 			UpstreamHeaders:               resp.Header,
 			Usage:                         usage,
@@ -544,6 +564,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	return &OpenAIForwardResult{
 		RequestID:                     requestID,
 		Usage:                         usage,
+		BillingTier:                   volcKimiEstimate.BillingTier(),
 		Model:                         originalModel,
 		BillingModel:                  billingModel,
 		UpstreamModel:                 upstreamModel,
@@ -640,6 +661,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		upstreamRequestID := firstNonEmpty(requestID, resp.Header.Get("xai-request-id"))
 		return nil, newGrokMissingUsageFailoverError(c, account, upstreamRequestID)
 	}
+	usage, respBody, volcKimiEstimated := applyVolcKimiBufferedUsageEstimate(c, account, upstreamModel, requestID, usage, respBody)
 	respBody = applyOllamaCloudRawChatCompletionsResponse(account, respBody)
 	respBody = applyGrokRawChatCompletionsUsage(account, respBody)
 	respBody = s.replaceModelInResponseBody(respBody, upstreamModel, originalModel)
@@ -658,6 +680,9 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
 		Stream:                        false,
 		Duration:                      time.Since(startTime),
+	}
+	if volcKimiEstimated {
+		result.BillingTier = VolcKimiEstimatedBillingTier
 	}
 	if cost := s.previewOpenAIClientUsageCost(c.Request.Context(), c, account, result); cost != nil {
 		respBody = InjectUsageCostJSON(respBody, cost.TotalCost)

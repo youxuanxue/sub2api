@@ -1481,6 +1481,9 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 			return
 		}
 	}
+	if h.tkHandleFailoverUnsupportedModel(c, statusCode, responseBody, streamStarted) {
+		return
+	}
 
 	// 先检查透传规则
 	if h.errorPassthroughService != nil && len(responseBody) > 0 {
@@ -1560,6 +1563,9 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 
 func (h *GatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, status int, errType, code, message string, streamStarted bool) {
 	message = tkSanitizeBusy429WireMessage(c, status, errType, message)
+	if streamStarted {
+		errType, code = service.TkUnsupportedModelWireFields(c, service.TkErrorWireForRequest(c), status, errType, code)
+	}
 	if streamStarted {
 		// 响应状态码已固化为 200（ping/部分数据已 flush），错误只能就地以 SSE 帧回传。
 		// 标记本次流内错误，供 ops_error_logger 补记——否则该中间件按 status>=400 采集，
@@ -1694,6 +1700,10 @@ func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, mess
 
 func (h *GatewayHandler) errorResponseWithCode(c *gin.Context, status int, errType, code, message string) {
 	message = tkSanitizeBusy429WireMessage(c, status, errType, message)
+	if body, ok := service.TkUnsupportedModelWireBody(c, service.TkErrorWireForRequest(c), status, message); ok {
+		c.JSON(status, body)
+		return
+	}
 	errorObject := gin.H{"type": errType, "message": message}
 	if code != "" {
 		errorObject["code"] = code

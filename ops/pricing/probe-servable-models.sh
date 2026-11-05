@@ -98,7 +98,7 @@
 #   200                                   -> servable
 #   400/404 + retired/not-found/invalid   -> unsupported (deprecated gate / upstream reject)
 #   400 "not supported when using Codex"  -> unsupported (this account does not serve it)
-#   400 "Unsupported model: X"             -> usually inconclusive here: TokenKey may have
+#   404/400 "Unsupported model: X"         -> inconclusive (checked first): TokenKey may have
 #                                            rejected before account selection because the
 #                                            prod allowlist/model_mapping floor lacks X. Use
 #                                            ops/stage0/probe_account_model.sh on a specific
@@ -221,7 +221,11 @@ verdict() { # $1=code $2=bodyfile -> echoes verdict
 	case "$code" in
 	200) echo "servable" ;;
 	400 | 404)
-		if grep -qiE 'retired|sunset|not_found|does not exist|invalid model|unknown model|model_not_found|not supported when using|removed from this|not a valid' "$f"; then
+		# TokenKey local unsupported-model (SSOT 404 / legacy 400) carries
+		# code=model_not_found: keep it inconclusive (local floor, not upstream).
+		if grep -qE '"message" *: *"Unsupported model' "$f"; then
+			echo "inconclusive"
+		elif grep -qiE 'retired|sunset|not_found|does not exist|invalid model|unknown model|model_not_found|not supported when using|removed from this|not a valid' "$f"; then
 			echo "unsupported"
 		else
 			echo "inconclusive"
@@ -401,7 +405,7 @@ main() {
 		# OpenAI catalog probing must use the native OpenAI source pool. Do not
 		# bind this to account 76 / api.ainzy.net/v1: that relay has its own
 		# openai_ainzy_relay floor and must not overwrite native OpenAI.
-		# A 400 "Unsupported model: X" can mean prod mapping floor rejected the id
+		# A 404 (legacy 400) "Unsupported model: X" can mean prod mapping floor rejected the id
 		# before upstream; do not treat it as raw upstream proof.
 		probe_bind_source "$PROBE_OPENAI_SOURCE_GROUP_ID" "$PROBE_OPENAI_SOURCE_GROUP"
 		if tk_probe_catalog_key openai openai "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then

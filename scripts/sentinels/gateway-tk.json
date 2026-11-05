@@ -3211,11 +3211,36 @@
         "normalizeVolcKimiThinking(shaped)",
         "normalizeVolcKimiReasoningEffort(shaped, selected)",
         "normalizeVolcKimiAllowedTools(shaped)",
+        "validateVolcKimiRequestLimits(body)",
         "normalizeChatToolConstraints(shaped)",
         "func rejectUnreachableVolcKimiVideoURLs(",
         "video_url is not reachable; provide a video URL this service can access"
       ],
       "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire."
+    },
+    {
+      "path": "backend/internal/service/volc_kimi_usage_estimate_tk.go",
+      "must_contain": [
+        "func requiresVolcKimiUsageEstimate(",
+        "isNewAPIVolcEngineAgentPlanAccount(account) && resolveMoonshotThinkingFamily(model) == moonshotThinkingK3",
+        "func estimateVolcKimiUsage(",
+        "if hasBillableGrokChatUsage(usage) || usage.ImageOutputTokens > 0 {",
+        "tokenestimate.Count(",
+        "VolcKimiEstimatedBillingTier = \"volc-kimi-estimated\"",
+        "volcKimiUsageEstimatedKind   = \"volc_kimi_usage_estimated\""
+      ],
+      "rationale": "Volc Agent Plan kimi-k3 non-billable 200 usage (all zero or no stream usage chunk) is billed from the shared cl100k tokenestimate owner; real upstream usage always wins. See docs/approved/volc-kimi-chat-compatibility.md 2026-11-04."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "stashVolcKimiEstimateRequestBody(c, account, upstreamModel, upstreamBody)",
+        "applyVolcKimiBufferedUsageEstimate(c, account, upstreamModel, requestID, usage, respBody)",
+        "newVolcKimiStreamUsageEstimator(c, account, upstreamModel, originalModel, requestID)",
+        "volcKimiEstimate.UsageLineBeforeDone(&usage)",
+        "volcKimiEstimate.Finalize(&usage)"
+      ],
+      "rationale": "Raw Chat buffered and stream readers must keep the Volc kimi-k3 usage estimate wiring; dropping it silently bills $0 again."
     },
     {
       "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk.go",
@@ -3226,6 +3251,29 @@
         "NormalizeMoonshotThinking(model, body)"
       ],
       "rationale": "The selected supplier, not the public Kimi model name alone, chooses thinking normalization."
+    },
+    {
+      "path": "backend/internal/service/volc_kimi_chat_request_limits_tk.go",
+      "must_contain": [
+        "func validateVolcKimiRequestLimits(",
+        "volcKimiNumberInRange(body, \"temperature\", 0, 2)",
+        "volcKimiNumberInRange(body, \"top_p\", 0, 1)",
+        "kimi-k3 supports only n=1",
+        "func applyVolcKimiEffortOff(",
+        "sjson.SetBytes(shaped, \"thinking.type\", \"disabled\")"
+      ],
+      "rationale": "Volc Agent Plan kimi-k3 must return field-level 400s for sampling, n, logprobs and max token values the supplier silently ignores, and reasoning_effort none must close thinking instead of becoming low effort."
+    },
+    {
+      "path": "backend/internal/service/volc_kimi_chat_request_limits_tk_test.go",
+      "must_contain": [
+        "func TestVolcKimiRequestLimitsRejectUndeliverableFields(",
+        "func TestVolcKimiReasoningEffortNoneDisablesThinking(",
+        "func TestVolcKimiRequestLimitsForwardReturnsLocal400(",
+        "func TestVolcKimiUpstream400HidesSupplierRequestID(",
+        "func TestTkSanitizeUpstreamProductWireMessageStripsSupplierRequestID("
+      ],
+      "rationale": "Protect the 2026-11-04 kimi-k3 request-field parity and supplier request-id wire hygiene."
     },
     {
       "path": "backend/internal/service/volc_kimi_chat_constraints_tk_test.go",
@@ -3632,7 +3680,7 @@
       "must_contain": [
         "TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody",
         "TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement",
-        "TestMaybeResolveUniversal_UnsupportedModelIs400"
+        "TestMaybeResolveUniversal_UnsupportedModelIs404"
       ],
       "rationale": "Middleware regressions for pre-billing parsing and capacity errors."
     },
@@ -7278,7 +7326,7 @@
         "func openAIImagesUnknownModelNotFound(",
         "gateway.TkImageModelUnpriced(model, group, size)",
         "gateway.TkImageModelRegistryMissing(model)",
-        "http.StatusNotFound, \"invalid_request_error\"",
+        "service.TkUnsupportedModelSelectionResponseWithMessage(c,",
         "The model '%s' does not exist"
       ],
       "rationale": "Owner that upgrades Images selection capacity failures to OpenAI-shaped 404 when the requested gpt-image-* id has no pricing registry row (group image prices can make Unpriced=false while the id is still unknown). Dropping this companion reverts SandBase protocol-error-model to 503."
@@ -7864,9 +7912,10 @@
         "http.StatusTooManyRequests",
         "Retry-After",
         "errors.Is(err, service.ErrUnsupportedModel)",
-        "http.StatusBadRequest"
+        "http.StatusBadRequest",
+        "service.TkUnsupportedModelSelectionResponse(c, reqModel)"
       ],
-      "rationale": "Empty-pool fast-fail returns 429+Retry-After (not 503) so Caddy passive-health on the single Stage0 upstream does not conflate an empty scheduling pool with a backend outage and stall all traffic incl. the dashboard. An upstream merge re-introducing 503 at the account-select call sites regresses the prod flood-containment fix (PR #572 / IP 58.213.121.60 1540 RPM incident). tkSelectFailureStatusMessage (PR #723) extends the same semantics to the openai/newapi compat first-selection failure branches: the no-available error family (classified by isOpsNoAvailableAccountError, the same predicate ops capacity-limited marking uses) maps to 429, while genuine scheduler faults (DB outage, context errors) keep 503. The ErrUnsupportedModel→400 (StatusBadRequest) branch (prod 2026-06-13) splits 'no account serves this model NAME' out of the 429 capacity family into a client invalid_request_error, so an unservable model id (e.g. deepseek-chat/qwen-max against a pool mapping only deepseek-v4-*/qwen3.7-*) stops masquerading as a capacity signal that fires ops alerts; it is checked FIRST because ErrUnsupportedModel's message omits 'no available accounts'."
+      "rationale": "Empty-pool fast-fail returns 429+Retry-After (not 503) so Caddy passive-health on the single Stage0 upstream does not conflate an empty scheduling pool with a backend outage and stall all traffic incl. the dashboard. An upstream merge re-introducing 503 at the account-select call sites regresses the prod flood-containment fix (PR #572 / IP 58.213.121.60 1540 RPM incident). tkSelectFailureStatusMessage (PR #723) extends the same semantics to the openai/newapi compat first-selection failure branches: the no-available error family (classified by isOpsNoAvailableAccountError, the same predicate ops capacity-limited marking uses) maps to 429, while genuine scheduler faults (DB outage, context errors) keep 503. The ErrUnsupportedModel branch (now the unsupported-model SSOT 404, docs/approved/unsupported-model-404-ssot.md; StatusBadRequest remains pinned for deprecated/unsupported-request/modality branches) (prod 2026-06-13) splits 'no account serves this model NAME' out of the 429 capacity family into a client invalid_request_error, so an unservable model id (e.g. deepseek-chat/qwen-max against a pool mapping only deepseek-v4-*/qwen3.7-*) stops masquerading as a capacity signal that fires ops alerts; it is checked FIRST because ErrUnsupportedModel's message omits 'no available accounts'."
     },
     {
       "path": "backend/internal/handler/openai_compat_selection_failure_tk.go",
@@ -7877,7 +7926,7 @@
         "classifyOpenAICompatibleNoAccountErrorFromGin(c, diag, apiKey, routingModel, displayModel)",
         "tkSelectFailureStatusMessage(c, err, displayModel)"
       ],
-      "rationale": "SSOT for first-attempt openai/newapi/grok compat account-selection HTTP semantics: unsupported model name -> 400 invalid_request_error; persistent group mapping gap -> 404 model_not_found via classifyOpenAICompatibleNoAccountErrorFromGin (group platform, not hard-coded PlatformOpenAI); genuine empty pool -> 429+Retry-After via tkSelectFailureStatusMessage. Fixes prod embeddings 503 misclassification (user16/newapi/text-embedding-3-small) and prevents per-route drift across chat/responses/messages/count_tokens/images/embeddings/video. Regression: openai_compat_selection_failure_tk_test.go."
+      "rationale": "SSOT for first-attempt openai/newapi/grok compat account-selection HTTP semantics: unsupported model name -> unsupported-model SSOT 404; persistent group mapping gap -> 404 model_not_found via classifyOpenAICompatibleNoAccountErrorFromGin (group platform, not hard-coded PlatformOpenAI); genuine empty pool -> 429+Retry-After via tkSelectFailureStatusMessage. Fixes prod embeddings 503 misclassification (user16/newapi/text-embedding-3-small) and prevents per-route drift across chat/responses/messages/count_tokens/images/embeddings/video. Regression: openai_compat_selection_failure_tk_test.go."
     },
     {
       "path": "backend/internal/handler/ops_error_logger.go",
@@ -7960,7 +8009,7 @@
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, nil)",
         "routingModel := service.CanonicalizeOpenAICompatRoutingModel(reqModel)"
       ],
-      "rationale": "/v1/chat/completions first-selection failure (len(failedAccountIDs)==0) must route through openAICompatFirstAttemptSelectionFailure (SSOT) so empty openai/newapi pool fast-fails 429, mapping gaps return 404, and unsupported model names return 400 — not 503 (PR #723, #575 parity; prod 2026-06-11: 480 empty-pool 503s in 2min). Account selection must use CanonicalizeOpenAICompatRoutingModel(routingModel) so gpt5.4-mini alias spellings hit the same restriction/negative-cache keys as gpt-5.4-mini (prod 2026-07 user16/key172). Reverting either hook compiles clean but re-exposes misclassification or alias drift."
+      "rationale": "/v1/chat/completions first-selection failure (len(failedAccountIDs)==0) must route through openAICompatFirstAttemptSelectionFailure (SSOT) so empty openai/newapi pool fast-fails 429, mapping gaps return 404, and unsupported model names return the SSOT 404 — not 503 (PR #723, #575 parity; prod 2026-06-11: 480 empty-pool 503s in 2min). Account selection must use CanonicalizeOpenAICompatRoutingModel(routingModel) so gpt5.4-mini alias spellings hit the same restriction/negative-cache keys as gpt-5.4-mini (prod 2026-07 user16/key172). Reverting either hook compiles clean but re-exposes misclassification or alias drift."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
@@ -7973,7 +8022,7 @@
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, nil)",
         "h.anthropicStreamingAwareError(c, status, errType, msg, streamStarted)"
       ],
-      "rationale": "OpenAI-gateway /v1/responses + openai_messages first-selection failure branches must route through openAICompatFirstAttemptSelectionFailure (429 on empty pool, 404 on mapping gap, 400 on unsupported model, 503 on real scheduler faults). Empty compact pool (ErrNoAvailableCompactAccounts) keeps compact_not_supported via tkRespondCompactNotSupported in openai_gateway_handler_tk_dispatch_select.go but joins the 429 no-available family (PR #723, #575 parity). The two call sites pin distinct error writers (handleStreamingAwareError vs anthropicStreamingAwareError)."
+      "rationale": "OpenAI-gateway /v1/responses + openai_messages first-selection failure branches must route through openAICompatFirstAttemptSelectionFailure (429 on empty pool, 404 on mapping gap, SSOT 404 on unsupported model, 503 on real scheduler faults). Empty compact pool (ErrNoAvailableCompactAccounts) keeps compact_not_supported via tkRespondCompactNotSupported in openai_gateway_handler_tk_dispatch_select.go but joins the 429 no-available family (PR #723, #575 parity). The two call sites pin distinct error writers (handleStreamingAwareError vs anthropicStreamingAwareError)."
     },
     {
       "path": "backend/internal/handler/openai_images.go",
@@ -7981,7 +8030,7 @@
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, err)",
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, nil)",
         "TkImageModelUnpriced(requestModel, apiKey.Group, parsed.Size)",
-        "openAIImagesUnknownModelNotFound(h.gatewayService, apiKey, clientRequestModel, parsed.Size, status, errType, msg)",
+        "openAIImagesUnknownModelNotFound(c, h.gatewayService, apiKey, clientRequestModel, parsed.Size, status, errType, msg)",
         "TkImageModelRegistryMissing(requestModel)",
         "fidelityErr.ClientMessage()"
       ],
@@ -7999,7 +8048,7 @@
         "ErrUnsupportedModel",
         "func collectOpenAICompatSelectionFailureStats"
       ],
-      "rationale": "openAICompatNoCandidateError is the SHARED single exit for ALL THREE OpenAI-compat pool-emptied points (prod 2026-06-13 / 2026-07): selectByLoadBalance len(filtered)==0, selectAccountForModelWithExclusions selectBestAccount→nil, AND selectAccountWithLoadAwareness Layer-2 len(candidates)==0 (LoadBatchEnabled prod default). When EVERY schedulable account was rejected purely because it does not serve the requested model NAME (account model_mapping OR per-account upstream channel restriction), it returns service.ErrUnsupportedModel (→ HTTP 400 invalid_request_error via tkSelectFailureStatusMessage) instead of an empty-pool 429 that reads as a capacity signal and fires ops alerts. tkOpenAICompatChannelPricingRestrictionError applies the same client-owned contract to group-level channel pricing allowlist rejects (prod 2026-07: Qwen-group direct key hammering gpt-5.4-mini). collectOpenAICompatSelectionFailureStatsForRequest counts passthrough accounts blocked only by isUpstreamModelRestrictedByChannel as model_unsupported; a model-supporting-but-filtered account stays Unschedulable so it SUPPRESSES the 400 (genuine capacity → keep 429)."
+      "rationale": "openAICompatNoCandidateError is the SHARED single exit for ALL THREE OpenAI-compat pool-emptied points (prod 2026-06-13 / 2026-07): selectByLoadBalance len(filtered)==0, selectAccountForModelWithExclusions selectBestAccount→nil, AND selectAccountWithLoadAwareness Layer-2 len(candidates)==0 (LoadBatchEnabled prod default). When EVERY schedulable account was rejected purely because it does not serve the requested model NAME (account model_mapping OR per-account upstream channel restriction), it returns service.ErrUnsupportedModel (→ unsupported-model SSOT HTTP 404 via tkSelectFailureStatusMessage) instead of an empty-pool 429 that reads as a capacity signal and fires ops alerts. tkOpenAICompatChannelPricingRestrictionError applies the same client-owned contract to group-level channel pricing allowlist rejects (prod 2026-07: Qwen-group direct key hammering gpt-5.4-mini). collectOpenAICompatSelectionFailureStatsForRequest counts passthrough accounts blocked only by isUpstreamModelRestrictedByChannel as model_unsupported; a model-supporting-but-filtered account stays Unschedulable so it SUPPRESSES the 400 (genuine capacity → keep 429)."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler.go",
@@ -8009,31 +8058,31 @@
         "tkGroupUnsupportedModelShortCircuit",
         "RestrictionModel"
       ],
-      "rationale": "The candidate-filter-empty branch (len(filtered)==0) in selectByLoadBalance must route through openAICompatNoCandidateError (TK companion) so a pool emptied purely by unservable model NAME surfaces ErrUnsupportedModel→400, not empty-pool 429 (prod 2026-06-13). Channel pricing allowlist rejects must use modelForChannelRestriction() (RestrictionModel / client id) so BillingModelSourceRequested still matches billing-family allowlists after routing remaps wire ids (gpt-5.4 → gpt-5.5). Reverting either hook compiles clean but re-buries client-owned failures inside the 429 capacity family."
+      "rationale": "The candidate-filter-empty branch (len(filtered)==0) in selectByLoadBalance must route through openAICompatNoCandidateError (TK companion) so a pool emptied purely by unservable model NAME surfaces ErrUnsupportedModel→404 (unsupported-model SSOT), not empty-pool 429 (prod 2026-06-13). Channel pricing allowlist rejects must use modelForChannelRestriction() (RestrictionModel / client id) so BillingModelSourceRequested still matches billing-family allowlists after routing remaps wire ids (gpt-5.4 → gpt-5.5). Reverting either hook compiles clean but re-buries client-owned failures inside the 429 capacity family."
     },
     {
-      "rationale": "selectAccountForModelWithExclusions AND selectAccountWithLoadAwareness (LoadBatch Layer-2 len(candidates)==0, prod default) must route pool-emptied-by-unservable-model exits through openAICompatNoCandidateError, canonicalize model spellings at selection entry, and surface ErrUnsupportedModel→400 on every OpenAI-compat surface — not just scheduler selectByLoadBalance (prod 2026-07: Qwen direct key gpt5.4-mini still hit routing/platform 429 when LoadBatch path returned bare ErrNoAvailableAccounts). Reverting either hook compiles clean but re-buries unservable-model as empty-pool 429.",
+      "rationale": "selectAccountForModelWithExclusions AND selectAccountWithLoadAwareness (LoadBatch Layer-2 len(candidates)==0, prod default) must route pool-emptied-by-unservable-model exits through openAICompatNoCandidateError, canonicalize model spellings at selection entry, and surface ErrUnsupportedModel→404 (unsupported-model SSOT) on every OpenAI-compat surface — not just scheduler selectByLoadBalance (prod 2026-07: Qwen direct key gpt5.4-mini still hit routing/platform 429 when LoadBatch path returned bare ErrNoAvailableAccounts). Reverting either hook compiles clean but re-buries unservable-model as empty-pool 429.",
       "path": "backend/internal/service/gateway_scheduling.go",
       "must_contain": [
         "tkOpenAICompatChannelPricingRestrictionError(requestedModel)"
       ]
     },
     {
-      "rationale": "selectAccountForModelWithExclusions AND selectAccountWithLoadAwareness (LoadBatch Layer-2 len(candidates)==0, prod default) must route pool-emptied-by-unservable-model exits through openAICompatNoCandidateError, canonicalize model spellings at selection entry, and surface ErrUnsupportedModel→400 on every OpenAI-compat surface — not just scheduler selectByLoadBalance (prod 2026-07: Qwen direct key gpt5.4-mini still hit routing/platform 429 when LoadBatch path returned bare ErrNoAvailableAccounts). Reverting either hook compiles clean but re-buries unservable-model as empty-pool 429.",
+      "rationale": "selectAccountForModelWithExclusions AND selectAccountWithLoadAwareness (LoadBatch Layer-2 len(candidates)==0, prod default) must route pool-emptied-by-unservable-model exits through openAICompatNoCandidateError, canonicalize model spellings at selection entry, and surface ErrUnsupportedModel→404 (unsupported-model SSOT) on every OpenAI-compat surface — not just scheduler selectByLoadBalance (prod 2026-07: Qwen direct key gpt5.4-mini still hit routing/platform 429 when LoadBatch path returned bare ErrNoAvailableAccounts). Reverting either hook compiles clean but re-buries unservable-model as empty-pool 429.",
       "path": "backend/internal/service/openai_account_scheduler.go",
       "must_contain": [
         "openAICompatNoCandidateEval"
       ]
     },
     {
-      "rationale": "selectAccountForModelWithExclusions AND selectAccountWithLoadAwareness (LoadBatch Layer-2 len(candidates)==0, prod default) must route pool-emptied-by-unservable-model exits through openAICompatNoCandidateError, canonicalize model spellings at selection entry, and surface ErrUnsupportedModel→400 on every OpenAI-compat surface — not just scheduler selectByLoadBalance (prod 2026-07: Qwen direct key gpt5.4-mini still hit routing/platform 429 when LoadBatch path returned bare ErrNoAvailableAccounts). Reverting either hook compiles clean but re-buries unservable-model as empty-pool 429.",
+      "rationale": "selectAccountForModelWithExclusions AND selectAccountWithLoadAwareness (LoadBatch Layer-2 len(candidates)==0, prod default) must route pool-emptied-by-unservable-model exits through openAICompatNoCandidateError, canonicalize model spellings at selection entry, and surface ErrUnsupportedModel→404 (unsupported-model SSOT) on every OpenAI-compat surface — not just scheduler selectByLoadBalance (prod 2026-07: Qwen direct key gpt5.4-mini still hit routing/platform 429 when LoadBatch path returned bare ErrNoAvailableAccounts). Reverting either hook compiles clean but re-buries unservable-model as empty-pool 429.",
       "path": "backend/internal/service/gateway_service_tk_channel_pricing_restriction.go",
       "must_contain": [
         "CanonicalizeOpenAICompatRoutingModel(requestedModel)"
       ]
     },
     {
-      "rationale": "selectAccountForModelWithExclusions AND selectAccountWithLoadAwareness (LoadBatch Layer-2 len(candidates)==0, prod default) must route pool-emptied-by-unservable-model exits through openAICompatNoCandidateError, canonicalize model spellings at selection entry, and surface ErrUnsupportedModel→400 on every OpenAI-compat surface — not just scheduler selectByLoadBalance (prod 2026-07: Qwen direct key gpt5.4-mini still hit routing/platform 429 when LoadBatch path returned bare ErrNoAvailableAccounts). Reverting either hook compiles clean but re-buries unservable-model as empty-pool 429.",
+      "rationale": "selectAccountForModelWithExclusions AND selectAccountWithLoadAwareness (LoadBatch Layer-2 len(candidates)==0, prod default) must route pool-emptied-by-unservable-model exits through openAICompatNoCandidateError, canonicalize model spellings at selection entry, and surface ErrUnsupportedModel→404 (unsupported-model SSOT) on every OpenAI-compat surface — not just scheduler selectByLoadBalance (prod 2026-07: Qwen direct key gpt5.4-mini still hit routing/platform 429 when LoadBatch path returned bare ErrNoAvailableAccounts). Reverting either hook compiles clean but re-buries unservable-model as empty-pool 429.",
       "path": "backend/internal/service/openai_gateway_scheduling.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) selectAccountWithLoadAwareness"
@@ -8049,9 +8098,9 @@
     {
       "path": "backend/internal/handler/no_available_accounts_tk_test.go",
       "must_contain": [
-        "channel_pricing_restriction_returns_400"
+        "channel_pricing_restriction_returns_404"
       ],
-      "rationale": "Regression guard: channel pricing restriction and pure unsupported-model selection failures must map to HTTP 400 invalid_request_error via tkSelectFailureStatusMessage, not empty-pool 429 + Retry-After."
+      "rationale": "Regression guard: channel pricing restriction and pure unsupported-model selection failures must map to the unsupported-model SSOT 404 via tkSelectFailureStatusMessage, not empty-pool 429 + Retry-After."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler_tk_errors_test.go",
@@ -8380,7 +8429,7 @@
       "must_contain": [
         "tkWrapSelectionFailure(platform, requestedModel, stats)"
       ],
-      "rationale": "Unsupported-model classification (prod 2026-06-06, user_id=16 sent the bare name 'opus'): both terminal 'selected == nil' branches in SelectAccountWithLoadAwareness route through tkWrapSelectionFailure, which returns service.ErrUnsupportedModel (handler -> HTTP 400 invalid_request_error) when selection failed PURELY because no account serves the requested model name (model_unsupported>0, model_rate_limited==0, unschedulable==0), and the original ErrNoAvailableAccounts (429) otherwise. An upstream merge that rewrites these return points back to the bare 'return nil, ErrNoAvailableAccounts' / fmt.Errorf shape silently reverts the fix: unsupported model names again surface as a misleading rate_limit_error/429 (the new gateway_service_tk_unsupported_model.go would still compile, just unused). This sentinel pins the call sites."
+      "rationale": "Unsupported-model classification (prod 2026-06-06, user_id=16 sent the bare name 'opus'): both terminal 'selected == nil' branches in SelectAccountWithLoadAwareness route through tkWrapSelectionFailure, which returns service.ErrUnsupportedModel (handler -> unsupported-model SSOT HTTP 404) when selection failed PURELY because no account serves the requested model name (model_unsupported>0, model_rate_limited==0, unschedulable==0), and the original ErrNoAvailableAccounts (429) otherwise. An upstream merge that rewrites these return points back to the bare 'return nil, ErrNoAvailableAccounts' / fmt.Errorf shape silently reverts the fix: unsupported model names again surface as a misleading rate_limit_error/429 (the new gateway_service_tk_unsupported_model.go would still compile, just unused). This sentinel pins the call sites."
     },
     {
       "path": "backend/internal/handler/gateway_handler.go",
@@ -8487,9 +8536,9 @@
     {
       "path": "backend/internal/service/gateway_upstream_response.go",
       "must_contain": [
-        "writeAnthropicError(c, http.StatusBadRequest, TkUnsupportedModelErrType, TkUnsupportedModelMessage(model))"
+        "tkWriteAnthropicUnsupportedModel(c, model)"
       ],
-      "rationale": "Paired with the ratelimit skip (shouldDisable=false, no failover wrap) this turns one bad-model request into one immediate 400 with zero failover/cooldown/pool-drain. An upstream merge that drops this case-404 branch re-buries the bad model name as a 502; this sentinel pins the branch."
+      "rationale": "Paired with the ratelimit skip (shouldDisable=false, no failover wrap) this turns one bad-model request into one immediate 404 not_found_error (unsupported-model SSOT) with zero failover/cooldown/pool-drain. An upstream merge that drops this case-404 branch re-buries the bad model name as a 502; this sentinel pins the branch."
     },
     {
       "rationale": "Paired with the ratelimit skip (shouldDisable=false, no failover wrap) this turns one bad-model request into one immediate 400 with zero failover/cooldown/pool-drain. An upstream merge that drops this case-404 branch re-buries the bad model name as a 502; this sentinel pins the branch.",
@@ -17426,6 +17475,7 @@
       "must_contain": [
         "TkClientFacingUnsupportedMessage = \"The requested model is not supported.\"",
         "func TkSanitizeUpstreamProductWireMessage(",
+        "message = tkStripSupplierRequestIDSuffix(message)",
         "func TkLooksLikeUpstreamProductLeakMessage(",
         "\"agent plan\"",
         "\"token plan\"",
@@ -18835,6 +18885,98 @@
         "func TestForwardAsAnthropic_OpenAIInvalidEncryptedContentRetriesOnce(t *testing.T)"
       ],
       "rationale": "The Messages OpenAI encrypted_content retry is covered by a real ForwardAsAnthropic send: one same-account retry that keeps summary, and unrelated 400s that are not retried."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_unsupported_model.go",
+      "must_contain": [
+        "TkUnsupportedModelStatus = http.StatusNotFound",
+        "TkUnsupportedModelCode             = \"model_not_found\"",
+        "tkUnsupportedModelAnthropicErrType = \"not_found_error\"",
+        "func TkWriteUnsupportedModel(",
+        "func TkUnsupportedModelSelectionResponse(",
+        "func TkUnsupportedModelWireBody(",
+        "func TkUnsupportedModelWireFields(",
+        "func TkIsGatewayUnsupportedModel404(",
+        "googleapi.HTTPStatusToGoogleStatus(e.Status)",
+        "SetOpsLocalErrorType(c, TkUnsupportedModelErrType, TkUnsupportedModelCode)"
+      ],
+      "rationale": "Unsupported-model SSOT owner (docs/approved/unsupported-model-404-ssot.md): one status (404) and the official per-wire envelopes (OpenAI model_not_found, Anthropic not_found_error, Gemini NOT_FOUND). Emit sites call TkWriteUnsupportedModel / TkUnsupportedModelSelectionResponse; shared writers render via TkUnsupportedModelWireBody/WireFields. TkIsGatewayUnsupportedModel404 lets nested-TokenKey 404s fail over without penalty or negative-cache population. Reintroducing a hardcoded 400 at any site fails the contract test."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_unsupported_model_contract_test.go",
+      "must_contain": [
+        "func TestUnsupportedModelSSOT_NoEmitSiteBypassesOwner(",
+        "\"../handler\"",
+        "\"../server/middleware\"",
+        "StatusBadRequest.*Unsupported model"
+      ],
+      "rationale": "Contract test for the unsupported-model SSOT: scans service/handler/middleware production code and fails when any file other than the owner composes TkUnsupportedModelMessage/ErrType or hardcodes the model_not_found/unsupported_model wire codes or a 400 for this case."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_unsupported_model_wire_test.go",
+      "must_contain": [
+        "func TestTkWriteUnsupportedModel_OfficialShapePerWire(",
+        "\"status\":\"NOT_FOUND\"",
+        "\"type\":\"not_found_error\"",
+        "\"code\":\"model_not_found\""
+      ],
+      "rationale": "Pins the official 404 wire shapes per inbound protocol for the unsupported-model SSOT."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_unsupported_model_nested_test.go",
+      "must_contain": [
+        "func TestNestedGatewayUnsupportedModel404_NoModelCooldown(",
+        "func TestNestedGatewayUnsupportedModel404_AnthropicFailsOverWithoutCache(",
+        "func TestNestedGatewayUnsupportedModel404_OpenAICompatAccountFault("
+      ],
+      "rationale": "A nested TokenKey answering the SSOT 404 must keep the legacy-400 posture: capability failover to a sibling, no (account, model) cooldown, no SetError, no platform-wide not-found cache entry."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_model_not_found.go",
+      "must_contain": [
+        "if TkIsGatewayUnsupportedModel404(statusCode, responseBody) {",
+        "nested_gateway_unsupported_model_skip_penalty"
+      ],
+      "rationale": "Nested TokenKey unsupported-model 404 is group configuration on the stub's gateway, not account health: HandleUpstreamModelNotFound must not cool it."
+    },
+    {
+      "path": "backend/internal/service/model_not_found_error.go",
+      "must_contain": [
+        "if TkIsGatewayUnsupportedModel404(statusCode, body) {"
+      ],
+      "rationale": "isModelCapabilityFailure keeps nested-TokenKey unsupported-model failover after the 400→404 SSOT change (legacy 400 path unchanged)."
+    },
+    {
+      "path": "backend/internal/service/gateway_upstream_response.go",
+      "must_contain": [
+        "if !TkIsGatewayUnsupportedModel404(resp.StatusCode, body) {"
+      ],
+      "rationale": "Anthropic not-found negative cache is platform-wide; a nested TokenKey group-scoped 404 must never populate it."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_unsupported_model.go",
+      "must_contain": [
+        "func (h *GatewayHandler) tkHandleFailoverUnsupportedModel(",
+        "service.TkIsGatewayUnsupportedModel404(statusCode, responseBody)"
+      ],
+      "rationale": "Failover exhausted on nested-TokenKey unsupported-model 404s answers the SSOT 404 instead of a generic 502."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "h.tkHandleFailoverUnsupportedModel(c, statusCode, responseBody, streamStarted)",
+        "service.TkUnsupportedModelWireBody(c, service.TkErrorWireForRequest(c), status, message)"
+      ],
+      "rationale": "GatewayHandler writers render the unsupported-model SSOT envelope for the inbound wire; failover exhaustion routes nested 404s through the owner."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "service.TkUnsupportedModelWireBody(c, service.TkErrorWireOpenAI, status, message)",
+        "service.TkUnsupportedModelWireFields(c, service.TkErrorWireAnthropic, status, errType, \"\")",
+        "service.TkIsGatewayUnsupportedModel404(statusCode, responseBody)"
+      ],
+      "rationale": "OpenAIGatewayHandler writers (OpenAI + Anthropic envelopes) render the unsupported-model SSOT shape; nested-TokenKey 404 passes through as a client error, not 502."
     },
     {
       "path": "backend/internal/pkg/antigravity/stream_transformer.go",

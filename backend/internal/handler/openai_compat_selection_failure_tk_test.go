@@ -44,7 +44,7 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 		_, _ = w.WriteString(fmt.Sprintf(`{"error":{"type":%q,"message":%q}}`, errType, msg))
 	}
 
-	t.Run("unsupported model -> 400 invalid_request_error", func(t *testing.T) {
+	t.Run("unsupported model -> 404 model_not_found", func(t *testing.T) {
 		c, w := newCtx(t)
 		groupID := int64(18)
 		apiKey := &service.APIKey{
@@ -56,7 +56,7 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, nil, apiKey, "deepseek-chat", "deepseek-chat", err)
 		writeJSON(t, w, status, errType, msg)
 
-		require.Equal(t, http.StatusBadRequest, w.Code)
+		require.Equal(t, http.StatusNotFound, w.Code)
 		assert.Empty(t, w.Header().Get("Retry-After"))
 		var body errorBody
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))

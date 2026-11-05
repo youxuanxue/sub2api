@@ -38,12 +38,12 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 		assert.Equal(t, service.TkClientFacingBusy429Message, msg)
 	})
 
-	t.Run("channel_pricing_restriction_returns_400", func(t *testing.T) {
+	t.Run("channel_pricing_restriction_returns_404", func(t *testing.T) {
 		c, w := newCtx(t)
 		wrapped := fmt.Errorf("%w: gpt-5.2 (channel pricing restriction)", service.ErrUnsupportedModel)
 		status, errType, msg := tkSelectFailureStatusMessage(c, wrapped, "gpt-5.2")
 
-		require.Equal(t, http.StatusBadRequest, status)
+		require.Equal(t, http.StatusNotFound, status)
 		assert.Equal(t, service.TkUnsupportedModelErrType, errType)
 		assert.Equal(t, service.TkUnsupportedModelMessage("gpt-5.2"), msg)
 		assert.Empty(t, w.Header().Get("Retry-After"))
@@ -71,16 +71,16 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 		assert.Empty(t, w.Header().Get("Retry-After"))
 	})
 
-	t.Run("unsupported_model_returns_400_invalid_request", func(t *testing.T) {
+	t.Run("unsupported_model_returns_404_model_not_found", func(t *testing.T) {
 		// The scheduler determined no account in the pool serves this model NAME
 		// (e.g. a client sending "deepseek-chat" to a pool mapping only
-		// "deepseek-v4-*"). That is a client error → 400 invalid_request_error, NOT
+		// "deepseek-v4-*"). That is a client error → unsupported-model SSOT 404, NOT
 		// an empty-pool 429, so it never reads as a capacity signal / fires alerts.
 		c, w := newCtx(t)
 		wrapped := fmt.Errorf("%w: deepseek-chat (total=1 eligible=0 ...)", service.ErrUnsupportedModel)
 		status, errType, msg := tkSelectFailureStatusMessage(c, wrapped, "deepseek-chat")
 
-		require.Equal(t, http.StatusBadRequest, status)
+		require.Equal(t, http.StatusNotFound, status)
 		assert.Equal(t, service.TkUnsupportedModelErrType, errType)
 		assert.Equal(t, service.TkUnsupportedModelMessage("deepseek-chat"), msg)
 		// Must NOT carry the 429 capacity backoff hint.
@@ -99,12 +99,12 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 		assert.NotContains(t, msg, "busy")
 	})
 
-	t.Run("load_batch_cross_vendor_gpt_returns_400", func(t *testing.T) {
+	t.Run("load_batch_cross_vendor_gpt_returns_404", func(t *testing.T) {
 		c, w := newCtx(t)
 		err := service.TkSelectionNoAvailableAccountsError("gpt")
 		status, errType, msg := tkSelectFailureStatusMessage(c, err, "gpt")
 
-		require.Equal(t, http.StatusBadRequest, status)
+		require.Equal(t, http.StatusNotFound, status)
 		assert.Equal(t, service.TkUnsupportedModelErrType, errType)
 		assert.Equal(t, service.TkUnsupportedModelMessage("gpt"), msg)
 		assert.Empty(t, w.Header().Get("Retry-After"))

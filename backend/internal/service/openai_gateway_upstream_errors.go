@@ -310,6 +310,7 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 		semantic = gatewayFailureSemanticAccountFault
 	} else if s != nil && s.accountRepo != nil && account != nil && account.IsOpenAICompatible() &&
 		((statusCode == http.StatusBadRequest && isOpenAICompatibleModelNotFound400(upstreamBody)) ||
+			TkIsGatewayUnsupportedModel404(statusCode, upstreamBody) ||
 			isUpstreamModelRetiredError(statusCode, upstreamBody, upstreamMsg)) {
 		semantic = gatewayFailureSemanticAccountFault
 	} else if isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) {

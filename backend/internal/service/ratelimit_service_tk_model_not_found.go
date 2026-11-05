@@ -37,6 +37,15 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	if !account.ShouldHandleErrorCode(statusCode) {
 		return false
 	}
+	// A nested TokenKey answering the unsupported-model SSOT 404 describes that
+	// gateway's group configuration, not this account's health: never cool or
+	// fail over on it (same posture the legacy 400 had).
+	if TkIsGatewayUnsupportedModel404(statusCode, responseBody) {
+		slog.Info("nested_gateway_unsupported_model_skip_penalty",
+			"account_id", account.ID,
+			"requested_model", strings.TrimSpace(requestedModel))
+		return false
+	}
 	var cooldown time.Duration
 	var reason string
 	switch {

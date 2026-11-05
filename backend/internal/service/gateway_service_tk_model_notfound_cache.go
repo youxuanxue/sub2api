@@ -3,7 +3,6 @@ package service
 import (
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strings"
 	"time"
 
@@ -18,7 +17,8 @@ import (
 // Problem (prod 2026-06-17): a client repeatedly requests a non-existent
 // Anthropic model name (e.g. the typo "claude-haiku-4-6"). Each request is
 // forwarded all the way to api.anthropic.com, which returns 404
-// not_found_error, which TokenKey translates to a 400 "Unsupported model: X".
+// not_found_error, which TokenKey translates to the unsupported-model SSOT 404
+// (gateway_service_tk_unsupported_model.go).
 // The model catalog is GLOBAL per platform, so once the upstream has confirmed
 // a name does not exist, re-forwarding the same name is a wasted upstream
 // round-trip (and an abuse-detection fingerprint surface) for an answer we
@@ -29,7 +29,7 @@ import (
 // available accounts" 429s — this was prod P0 2026-06-06 and was deliberately
 // removed (handle404 skips the penalty). This cache NEVER touches account
 // schedulability and NEVER triggers failover; on a hit it only short-circuits
-// the forward with the SAME 400 contract the upstream 404 would have produced.
+// the forward with the SAME 404 contract the upstream 404 would have produced.
 //
 // Why a SHORT TTL and not a static allowlist: the key is client-controlled and
 // a name that 404s today may be a real model Anthropic ships tomorrow. A 60s
@@ -126,7 +126,7 @@ func (cstore *tkModelNotFoundNegativeCache) put(platform, model string) {
 }
 
 // tkModelNotFoundShortCircuit is the pre-forward gate (read side). On a cache
-// hit it writes the SAME 400 "Unsupported model: X" contract the upstream 404
+// hit it writes the SAME unsupported-model 404 contract the upstream 404
 // would have produced and returns (true, err) so Forward() returns early
 // WITHOUT contacting the upstream. The error is a plain error — NOT an
 // *UpstreamFailoverError (so it never triggers failover) and the written body
@@ -142,13 +142,8 @@ func (s *GatewayService) tkModelNotFoundShortCircuit(c *gin.Context, account *Ac
 	if !s.tkModelNotFoundCache.get(account.Platform, mappedModel) {
 		return false, nil
 	}
-	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-		"type": "error",
-		"error": gin.H{
-			"type":    TkUnsupportedModelErrType,
-			"message": TkUnsupportedModelMessage(mappedModel),
-		},
-	})
+	tkWriteAnthropicUnsupportedModel(c, mappedModel)
+	c.Abort()
 	return true, fmt.Errorf("model not found (negative-cache short-circuit): %s", mappedModel)
 }
 

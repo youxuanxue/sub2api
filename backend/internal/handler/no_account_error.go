@@ -134,7 +134,7 @@ func classifyNoAccountError(
 			message = fmt.Sprintf("Model %q targets GPT-5.5, which retired from Codex with ChatGPT sign-in on October 14, 2026. Select an available replacement such as GPT-6.1 Sol or GPT-6 Luna, or configure an API-key upstream that supports GPT-5.5.", displayModel)
 		}
 		return noAccountErrorClassification{
-			Status:        http.StatusNotFound,
+			Status:        service.TkUnsupportedModelStatus, // TK: unsupported-model SSOT
 			ErrType:       "model_not_found",
 			Message:       message,
 			ModelNotFound: true,
@@ -161,6 +161,8 @@ func classifyNoAccountErrorFromGin(
 	classification := classifyNoAccountError(ctx, diag, apiKey, routingModel, displayModel, platform)
 	if classification.ModelNotFound {
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+		// TK: writers render the official per-wire 404 shape (unsupported-model SSOT).
+		service.TkMarkUnsupportedModelResponse(c)
 	}
 	return classification
 }

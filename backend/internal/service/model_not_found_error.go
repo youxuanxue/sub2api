@@ -52,6 +52,11 @@ func isModelCapabilityFailureMessage(message string) bool {
 }
 
 func isModelCapabilityFailure(statusCode int, body []byte) bool {
+	// TK: a nested TokenKey now answers unsupported model with 404 (SSOT
+	// gateway_service_tk_unsupported_model.go); keep the legacy-400 failover.
+	if TkIsGatewayUnsupportedModel404(statusCode, body) {
+		return true
+	}
 	if statusCode != http.StatusBadRequest {
 		return false
 	}
