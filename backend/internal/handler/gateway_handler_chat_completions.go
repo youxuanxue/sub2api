@@ -326,6 +326,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
 				ReqLog:             reqLog,
 				LogFailedEvent:     "gateway.cc.record_usage_failed",
+				ForwardErr:         err,
 			})
 		}
 

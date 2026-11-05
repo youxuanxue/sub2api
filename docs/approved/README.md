@@ -115,6 +115,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`gemini-web-channel.md`](gemini-web-channel.md) | Gemini Web Cookie HTTP 通路与直接 Pro 画布 |
 | [`client-closed-499-ssot.md`](client-closed-499-ssot.md) | Client-closed 499 classification owners (ingress predicate, constant, ops phase) |
 | [`unsupported-model-404-ssot.md`](unsupported-model-404-ssot.md) | Unsupported/unknown model → 404 with official per-protocol shape (owner, classification, nested-gateway consumers) |
+| [`usage-estimate-fallback-ssot.md`](usage-estimate-fallback-ssot.md) | Zero-usage local estimate fallback: one owner for all platforms and text models, native estimators, choke points |
 | [`upstream-model-retirement.md`](upstream-model-retirement.md) | Upstream model retirement evidence, failover and SLA attribution |
 | [`openai-compat-first-selection-failure.md`](openai-compat-first-selection-failure.md) | OpenAI-compatible first-selection failure contract |
 | [`gpt-image-aspect-ratio-soft-control.md`](gpt-image-aspect-ratio-soft-control.md) | GPT Image `aspect_ratio` soft marker, floor identity |

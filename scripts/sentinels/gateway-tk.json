@@ -3219,28 +3219,11 @@
       "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire."
     },
     {
-      "path": "backend/internal/service/volc_kimi_usage_estimate_tk.go",
-      "must_contain": [
-        "func requiresVolcKimiUsageEstimate(",
-        "isNewAPIVolcEngineAgentPlanAccount(account) && resolveMoonshotThinkingFamily(model) == moonshotThinkingK3",
-        "func estimateVolcKimiUsage(",
-        "if hasBillableGrokChatUsage(usage) || usage.ImageOutputTokens > 0 {",
-        "tokenestimate.Count(",
-        "VolcKimiEstimatedBillingTier = \"volc-kimi-estimated\"",
-        "volcKimiUsageEstimatedKind   = \"volc_kimi_usage_estimated\""
-      ],
-      "rationale": "Volc Agent Plan kimi-k3 non-billable 200 usage (all zero or no stream usage chunk) is billed from the shared cl100k tokenestimate owner; real upstream usage always wins. See docs/approved/volc-kimi-chat-compatibility.md 2026-11-04."
-    },
-    {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
       "must_contain": [
-        "stashVolcKimiEstimateRequestBody(c, account, upstreamModel, upstreamBody)",
-        "applyVolcKimiBufferedUsageEstimate(c, account, upstreamModel, requestID, usage, respBody)",
-        "newVolcKimiStreamUsageEstimator(c, account, upstreamModel, originalModel, requestID)",
-        "volcKimiEstimate.UsageLineBeforeDone(&usage)",
-        "volcKimiEstimate.Finalize(&usage)"
+        "StashUsageEstimateUpstreamBody(c, upstreamBody)"
       ],
-      "rationale": "Raw Chat buffered and stream readers must keep the Volc kimi-k3 usage estimate wiring; dropping it silently bills $0 again."
+      "rationale": "Raw Chat (newapi raw, Volc Agent Plan, Grok, OpenAI-compatible) must hand its final provider-normalized outbound body to the zero-usage estimate owner so input is counted from what the upstream saw. See docs/approved/usage-estimate-fallback-ssot.md."
     },
     {
       "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk.go",
@@ -19022,11 +19005,124 @@
       "rationale": "Keep Claude, Chat, and Responses coverage for uncommitted failover, committed SSE errors, and real STOP completion."
     },
     {
-      "path": "backend/internal/service/antigravity_gateway_compat_test.go",
+      "path": "backend/internal/service/usage_estimate_fallback_tk.go",
       "must_contain": [
-        "func TestAntigravityCompatKeepaliveAfterFirstEvent("
+        "UsageEstimatedBillingTier = \"usage-estimated\"",
+        "usageEstimatedOpsKind     = \"usage_estimated\"",
+        "func (s *GatewayService) ApplyUsageEstimateFallback(",
+        "func (s *OpenAIGatewayService) ApplyOpenAIUsageEstimateFallback(",
+        "forwardErr != nil || result.ClientDisconnect",
+        "case account.Platform == PlatformKiro:",
+        "case isGeminiWebAccount(account):",
+        "if capture == nil || !capture.deliveredSuccess() || len(GetOpsStreamErrors(c)) > 0 {",
+        "tokenestimate.Count(",
+        "func openAIUsageLogBillingTier(",
+        "result.PrecomputedCost = s.previewClaudeClientUsageCost(ctx, c, account, result.Usage, result.Model, result.UpstreamModel)",
+        "result.PrecomputedCost = s.previewOpenAIClientUsageCost(ctx, c, account, result)",
+        "defer releaseUsageEstimateCapture(c)",
+        "func releaseUsageEstimateCapture(c *gin.Context) {"
       ],
-      "rationale": "A keepalive after the first text event must still ping, and closing that partial stream without finishReason must return missing_finish_reason instead of a successful completion."
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Single owner: real usage wins, empty output/errors/media/native estimators (Kiro, Gemini Web) are never estimated, one ops event + log per estimate, and only this owner's tier is persisted on the OpenAI RecordUsage path. The estimate is priced once: the same CostBreakdown becomes PrecomputedCost and the client usage.cost (R-001 parity). Both hooks release held client bytes at the choke point (defer releaseUsageEstimateCapture), so inline usage submission under the sync overflow policy never delays delivery."
+    },
+    {
+      "path": "backend/internal/service/usage_estimate_capture_tk.go",
+      "must_contain": [
+        "func WithUsageEstimateCapture(",
+        "return isOpenAIChatUsageOnlyStreamChunk(payload)",
+        "return gjson.Get(payload, \"type\").String() == \"message_delta\"",
+        "func (w *usageEstimateCaptureWriter) Size() int {",
+        "func usageEstimatePatchJSON("
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Capture writer is the delivered-output source and client-usage writer. Streams pass content through and hold only terminal usage frames; Size/Written count held bytes so failover-after-write guards keep their meaning."
+    },
+    {
+      "path": "backend/internal/service/usage_estimate_text_tk.go",
+      "must_contain": [
+        "func usageEstimateRequestText(",
+        "func usageEstimateDeliveredOutputText(",
+        "func usageEstimateChatOutputText(",
+        "func usageEstimateResponsesStreamText(",
+        "func usageEstimateMessagesStreamText(",
+        "func usageEstimateGeminiOutputText("
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Thin per-protocol text adapters (OpenAI chat, OpenAI responses, Anthropic messages, Gemini)."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway.go",
+      "must_contain": [
+        "endpointNorm := service.WithUsageEstimateCapture(handler.InboundEndpointMiddleware())"
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Every gateway route chain runs endpointNorm innermost after ops/QA capture; wrapping it installs the capture writer on all text inference routes. Dropping it silently disables the estimate everywhere."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "h.gatewayService.ApplyUsageEstimateFallback(requestCtx, c, account, result, attemptParsedReq.Body.Bytes(), err)"
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Claude /v1/messages billing choke point (Anthropic OAuth/API key, Bedrock, Vertex, Antigravity, Kiro native skip)."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_usage.go",
+      "must_contain": [
+        "h.gatewayService.ApplyUsageEstimateFallback(in.C.Request.Context(), in.C, in.Account, in.Result, in.Body, in.ForwardErr)"
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Claude-gateway chat/completions and responses billing choke point."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_responses.go",
+      "must_contain": [
+        "ForwardErr:         err,"
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Errored forwards with partial results are never estimated."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_chat_completions.go",
+      "must_contain": [
+        "ForwardErr:         err,"
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Errored forwards with partial results are never estimated."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_messages_gemini.go",
+      "must_contain": [
+        "h.gatewayService.ApplyUsageEstimateFallback(requestCtx, c, account, result, body, err)"
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Gemini-platform /v1/messages billing choke point."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler.go",
+      "must_contain": [
+        "h.gatewayService.ApplyUsageEstimateFallback(requestCtx, c, account, result, body, err)"
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Gemini native /v1beta generateContent billing choke point (Gemini, Antigravity, Vertex)."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_forward_usage.go",
+      "must_contain": [
+        "h.gatewayService.ApplyOpenAIUsageEstimateFallback(in.C.Request.Context(), in.C, in.Account, res, in.Body, in.ForwardErr)"
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). OpenAI-compatible chat/responses/messages billing choke point (OpenAI/Codex, newapi bridge and raw, Volc, Grok stream, OpenRouter)."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "ForwardErr:         err,"
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Errored forwards with partial results are never estimated."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "ForwardErr:         err,"
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Errored forwards with partial results are never estimated (responses and messages)."
+    },
+    {
+      "path": "backend/internal/service/usage_estimate_fallback_contract_tk_test.go",
+      "must_contain": [
+        "func TestUsageEstimateSSOT_NoBillingPathBypassesOwner("
+      ],
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Contract test: every RecordUsage submission site is a declared choke point calling the owner or a declared non-text site."
     }
   ]
 }

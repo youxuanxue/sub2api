@@ -236,62 +236,16 @@ zero cost. Offline gateway tests (direct and universal candidate routes,
 stream and non-stream, every thinking/effort shape) keep real upstream usage
 intact, so the gateway was recording what upstream sent.
 
-### Behavior
+### Behavior (moved)
 
-Scope: the selected account is a Volc Agent Plan endpoint (existing supplier
-recognition) and the upstream model is in the kimi-k3 family. Grok and every
-other supplier are unchanged.
-
-- Real upstream usage always wins. The estimate applies only when every
-  aggregate billable bucket (input, output, cache read, cache creation) is zero
-  and the response delivered output. An empty answer keeps the existing
-  silent-refusal handling and is not estimated.
-- Non-stream: billed usage and the client body's `usage` are both replaced by
-  the estimate (`prompt_tokens`, `completion_tokens`, `total_tokens`); detail
-  objects are dropped because the estimate has no cache or reasoning split.
-  There is no failover. Failover would add latency, spend a second account's
-  Plan quota, and could land on another zero-usage account.
-- Stream: a zero-valued usage-only chunk is patched in place. A stream that
-  reaches `[DONE]` without billable usage gets one usage-only chunk
-  (`choices: []`, OpenAI include_usage shape) written before `[DONE]`, so the
-  client usage matches the bill. A stream that ends without `[DONE]` still bills
-  the estimate but gets no added chunk. Delivered content is never withheld or
-  failed.
-- Marking: `usage_logs.billing_tier = volc-kimi-estimated` (an existing column,
-  same convention as `kiro-estimated` / `gemini-web-estimated`), an ops upstream
-  event with kind `volc_kimi_usage_estimated` and the account id, and a
-  structured warn log with the estimated counts.
-
-### Estimate owner and accuracy
-
-Owner: `service/volc_kimi_usage_estimate_tk.go`. Counting uses the shared
-`pkg/tokenestimate` (cl100k_base), which is also the counter behind the Kiro and
-Gemini Web estimates. Input counts message text and text parts, assistant
-reasoning and tool calls, tool results and tool declarations from the final
-outbound body. Output counts delivered `reasoning_content`, `content` and tool
-call names and arguments. No multiplier is applied.
-
-Accuracy: on random 3–9 letter words, cl100k counts 3.45 tokens per word,
-against the 3.42 observed from real Kimi usage in the benchmark, so it is
-within about 1%. For ordinary English, cl100k counts about 1.1 tokens per word,
-and for Chinese about 1.2 tokens per character. Kimi's own tokenizer is not
-public, so the error on ordinary text is not measured. The estimate leaves out
-chat template overhead, image and video input, and cache hits, so it errs low
-for multimodal prompts and on cache-hit pricing.
-
-### Validation
-
-`TestVolcKimiNonStreamZeroUsageBillsEstimate`,
-`TestVolcKimiStreamWithoutUsageChunkBillsEstimate`,
-`TestVolcKimiStreamZeroUsageChunkIsPatched`,
-`TestVolcKimiRealUsageIsNeverEstimated`,
-`TestVolcKimiEstimateScopedToVolcAgentPlanKimiK3`,
-`TestVolcKimiEstimatedUsageLogTier` and
-`TestVolcKimiEstimatedUsageIsBilledAndTagged` cover the estimate, client usage
-consistency, real-usage passthrough, supplier/model scope and usage_logs
-tagging. `TestVolcKimiThinkingShapesKeepUpstreamUsage` pins real-usage
-passthrough for every thinking/effort shape on the direct and candidate routes.
-Existing Grok missing-usage tests must still pass.
+The estimate is no longer Volc-specific. Product decision 2026-11-05 made it one
+gateway-wide owner for every platform and text model. Behavior, owners, the
+`usage-estimated` billing tier, the `usage_estimated` ops event, accuracy and
+tests now live in
+[`usage-estimate-fallback-ssot.md`](usage-estimate-fallback-ssot.md). The Volc
+raw Chat path only stashes its final outbound body for the owner. The
+unreleased `volc-kimi-estimated` tier and `volc_kimi_usage_estimated` event
+were never written in production and were retired with this move.
 
 Follow-ups, not in this change: temporarily cooling kimi-k3 on accounts that
 persistently return zero usage. A bounded model-scoped cooldown already exists

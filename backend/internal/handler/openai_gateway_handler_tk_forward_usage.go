@@ -29,12 +29,16 @@ type tkHTTPForwardUsageSubmitInput struct {
 	ChannelMapping     service.ChannelMappingResult
 	LogComponent       string
 	LogFailedEventName string
+	// ForwardErr is the forward error returned with a partial result; the
+	// zero-usage estimate owner never estimates an errored forward.
+	ForwardErr error
 }
 
 func (h *OpenAIGatewayHandler) tkSubmitHTTPForwardUsage(res *service.OpenAIForwardResult, in tkHTTPForwardUsageSubmitInput) {
 	if res == nil {
 		return
 	}
+	h.gatewayService.ApplyOpenAIUsageEstimateFallback(in.C.Request.Context(), in.C, in.Account, res, in.Body, in.ForwardErr)
 	stampOpenAIRequestedReasoningEffortFromBody(res, in.C, in.Body)
 	in.APIKey, in.Subscription = snapshotCandidateBilling(in.C.Request.Context(), in.APIKey, in.Subscription)
 	in.ChannelMapping = service.CandidateChannelMapping(in.C.Request.Context(), in.ChannelMapping)
