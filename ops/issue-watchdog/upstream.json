@@ -1678,6 +1678,7 @@
     },
     {
       "upstream": "Wei-Shaw/sub2api#8513",
+      "tokenkey_pr": "youxuanxue/sub2api#3054",
       "status": "fixed_in_tokenkey",
       "summary": "Native Responses WebSocket ingress rate limits on turn>1 before any downstream write now fail over with a current-turn payload rebuilt by buildOpenAIWSCurrentTurnRetryPayload. Turn 1 still replays the first message. An unsafe or empty rebuild closes the connection instead of replaying the first message.",
       "fixed_by": [
