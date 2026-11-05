@@ -36,12 +36,24 @@ type StreamingProcessor struct {
 	usageMapHook      UsageMapHook
 
 	// 累计 usage
-	inputTokens       int
-	outputTokens      int
-	cacheReadTokens   int
-	imageOutputTokens int
-	hasContent        bool
+	inputTokens           int
+	outputTokens          int
+	cacheReadTokens       int
+	imageOutputTokens     int
+	hasContent            bool
+	visibleOutput         bool
+	malformedFunctionCall bool
 }
+
+// StreamTerminalFault 说明已开始的流为什么不能按正常轮次结束。
+// None 表示没有 message_start，或已经用真实 finishReason 结束。
+type StreamTerminalFault int
+
+const (
+	StreamTerminalNone StreamTerminalFault = iota
+	StreamTerminalMissing
+	StreamTerminalMalformed
+)
 
 // NewStreamingProcessor 创建流式响应处理器
 func NewStreamingProcessor(originalModel string) *StreamingProcessor {
@@ -140,8 +152,10 @@ func (p *StreamingProcessor) ProcessLine(line string) []byte {
 					log.Printf("[Antigravity] Malformed content: %s", string(b))
 				}
 			}
+			p.malformedFunctionCall = true
 		}
-		if finishReason != "" {
+		// 空 finishReason 与 MALFORMED_FUNCTION_CALL 都不是真实终态，禁止在这里合成 end_turn。
+		if !p.malformedFunctionCall && finishReason != "" {
 			_, _ = result.Write(p.emitFinish(finishReason))
 		}
 	}
@@ -149,9 +163,10 @@ func (p *StreamingProcessor) ProcessLine(line string) []byte {
 	return result.Bytes()
 }
 
-// Finish 结束处理，返回最终事件和用量。
-// 若整个流未收到任何可解析的上游数据（messageStartSent == false），
-// 则不补发任何结束事件，防止客户端收到没有 message_start 的残缺流。
+// Finish 返回已观察到的用量。
+// 没有 message_start 时不补结束事件。已有 message_start 但没有真实终态
+// finishReason（空、缺失或 MALFORMED_FUNCTION_CALL）时也不合成 stop_reason=end_turn。
+// 真实 STOP / tool_use / MAX_TOKENS / 内容过滤已在 ProcessLine 里结束。
 func (p *StreamingProcessor) Finish() ([]byte, *ClaudeUsage) {
 	usage := &ClaudeUsage{
 		InputTokens:          p.inputTokens,
@@ -159,17 +174,18 @@ func (p *StreamingProcessor) Finish() ([]byte, *ClaudeUsage) {
 		CacheReadInputTokens: p.cacheReadTokens,
 		ImageOutputTokens:    p.imageOutputTokens,
 	}
+	return nil, usage
+}
 
-	if !p.messageStartSent {
-		return nil, usage
+// TerminalFault 报告缺终态或畸形函数调用。调用方据此决定换号还是 SSE error。
+func (p *StreamingProcessor) TerminalFault() StreamTerminalFault {
+	if !p.messageStartSent || p.messageStopSent {
+		return StreamTerminalNone
 	}
-
-	var result bytes.Buffer
-	if !p.messageStopSent {
-		_, _ = result.Write(p.emitFinish(""))
+	if p.malformedFunctionCall {
+		return StreamTerminalMalformed
 	}
-
-	return result.Bytes(), usage
+	return StreamTerminalMissing
 }
 
 // MessageStartSent 报告流中是否已发出过 message_start 事件（即是否收到过有效的上游数据）
@@ -177,9 +193,19 @@ func (p *StreamingProcessor) MessageStartSent() bool {
 	return p.messageStartSent
 }
 
+// MessageStopSent 报告是否已经用真实 finishReason 结束本轮。
+func (p *StreamingProcessor) MessageStopSent() bool {
+	return p.messageStopSent
+}
+
 // HasContent reports whether any substantive text, thinking, or tool calls were emitted.
 func (p *StreamingProcessor) HasContent() bool {
 	return p.hasContent
+}
+
+// HasVisibleOutput 报告是否已生成正文或 tool_use。thinking 不算成功输出。
+func (p *StreamingProcessor) HasVisibleOutput() bool {
+	return p.visibleOutput
 }
 
 // emitMessageStart 发送 message_start 事件
@@ -329,6 +355,8 @@ func (p *StreamingProcessor) processText(text, signature string) []byte {
 		}
 		return nil
 	}
+	p.hasContent = true
+	p.visibleOutput = true
 
 	// 处理之前的 trailingSignature
 	if p.trailingSignature != "" {
@@ -359,7 +387,6 @@ func (p *StreamingProcessor) processText(text, signature string) []byte {
 		}))
 	}
 
-	p.hasContent = true
 	_, _ = result.Write(p.emitDelta("text_delta", map[string]any{
 		"text": text,
 	}))
@@ -373,6 +400,7 @@ func (p *StreamingProcessor) processFunctionCall(fc *GeminiFunctionCall, signatu
 
 	p.usedTool = true
 	p.hasContent = true
+	p.visibleOutput = true
 
 	toolID := fc.ID
 	if toolID == "" {
