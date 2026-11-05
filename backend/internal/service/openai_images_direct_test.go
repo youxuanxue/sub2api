@@ -74,7 +74,7 @@ func TestCodexDirectImagesDropsLegacyTkImageContract(t *testing.T) {
 }
 
 func TestCodexOAuthImagesNativeRouting(t *testing.T) {
-	for _, model := range []string{"gpt-image-1.5", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-2026-09-08", "gpt-image-2.5-sunburst-2026-09-08"} {
+	for _, model := range []string{"gpt-image-1.5", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-2026-09-08", "gpt-image-2.5-sunburst-2026-09-08", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
 		t.Run(model, func(t *testing.T) {
 			require.True(t, codexDirectImagesModelFamilies(model))
 			require.True(t, usesCodexDirectImages(model))
@@ -143,7 +143,7 @@ func TestCodexOAuthImagesMappingBeforeRouting(t *testing.T) {
 }
 
 func TestUsesCodexDirectImagesEnabledForNativeImageFamilies(t *testing.T) {
-	for _, model := range []string{"gpt-image-1.5", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
+	for _, model := range []string{"gpt-image-1.5", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
 		require.True(t, usesCodexDirectImages(model), model)
 		require.True(t, codexDirectImagesModelFamilies(model), model)
 	}

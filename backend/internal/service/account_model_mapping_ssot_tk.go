@@ -522,11 +522,13 @@ func openAICanonicalAccountModelMappingFloor(ctx context.Context, pricing *Prici
 	return out
 }
 
-// Marketing / shorthand aliases for GPT Image 2.5. Canonical Studio ids are
-// flare/sunburst; clients should request gpt-image-2.5 (not image-2.5 — the
+// Marketing / shorthand aliases for GPT Image 2.5 / 2.6. Canonical ids are
+// flare/sunburst (OpenAI publishes no bare 2.6 id); clients should request
+// gpt-image-2.5 / gpt-image-2.6 (not image-2.5 — the
 // /v1/images ingress only accepts gpt-image-* names).
 var tkOpenAIImageCompatibilityAliases = map[string]string{
 	"gpt-image-2.5": "gpt-image-2.5-flare",
+	"gpt-image-2.6": "gpt-image-2.6-flare",
 }
 
 // Public text aliases on the native OpenAI floor (not shared with relay image
@@ -606,6 +608,7 @@ var tkImageCompatibilityAliases = map[string]string{
 	"nano-pro":        "gemini-3-pro-image",
 	"nano-banana-pro": "gemini-3-pro-image",
 	"gpt-image-2.5":   "gpt-image-2.5-flare",
+	"gpt-image-2.6":   "gpt-image-2.6-flare",
 }
 
 // tokenseaRelaySharedExtraSSOTIDs are public CatalogPolicy models already

@@ -19123,6 +19123,31 @@
         "func TestUsageEstimateSSOT_NoBillingPathBypassesOwner("
       ],
       "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Contract test: every RecordUsage submission site is a declared choke point calling the owner or a declared non-text site."
+    },
+    {
+      "path": "backend/internal/service/openai_images_direct.go",
+      "must_contain": [
+        "\"gpt-image-2.5-flare\", \"gpt-image-2.5-sunburst\",",
+        "\"gpt-image-2.6-flare\", \"gpt-image-2.6-sunburst\":"
+      ],
+      "rationale": "OAuth GPT Image 2.5 / 2.6 must stay on the native Codex Images direct list (codexDirectImagesModelFamilies). An upstream merge that rewrites this switch compiles and falls these models back to the Responses image tool path, which upstream fails on reasoning effort and serves at a different quota bucket."
+    },
+    {
+      "path": "backend/internal/service/pricing_service.go",
+      "must_contain": [
+        "for _, imageModel := range []string{\"gpt-image-2.5-flare\", \"gpt-image-2.5-sunburst\", \"gpt-image-2.6-flare\", \"gpt-image-2.6-sunburst\"} {",
+        "return openAIGPTImage25FallbackPricing"
+      ],
+      "rationale": "GPT Image 2.5 / 2.6 missing-price fallback: when the remote price mirror lags, these models must bill at the official 2.5/2.6 rates ($5/$1.25 text, $8/$2/$30 image per 1M), never at the older gpt-image-2 rates that the generic image fallback below would pick."
+    },
+    {
+      "path": "backend/internal/service/tk_pricing_overlay.json",
+      "must_contain": [
+        "\"gpt-image-2.6\": \"gpt-image-2.6-flare\"",
+        "\"gpt-image-2.6-flare\": {",
+        "\"gpt-image-2.6-sunburst\": {"
+      ],
+      "rationale": "GPT Image 2.6 official pricing rows and the bare gpt-image-2.6 alias (OpenAI publishes no bare 2.6 id). Approved in docs/approved/gpt-image-native-cutover.md 2026-11-05 section."
     }
   ]
 }
