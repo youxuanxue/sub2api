@@ -2395,7 +2395,7 @@
     {
       "path": "backend/internal/service/candidate_chat_attempt_tk.go",
       "must_contain": [
-        "candidateChatMaxAttempts = 3",
+        "candidateChatMaxAttempts = 5",
         "candidateChatReplayable",
         "r.continuationAccountID > 0",
         "a.abortBeforeOutput(errCandidateChatFirstOutput)",
@@ -16441,8 +16441,8 @@
         "TestNewAPIChatFirstOutputTimeoutResolver",
         "TestNewAPIChatFirstOutputPromotionAlignsWithOpenAIStrategy",
         "non-stream must not use ResponseHeaderTimeout",
-        "non-stream default is 3×600s",
-        "stream default is 3×120s",
+        "non-stream deadline is attempts×600s",
+        "stream deadline is attempts×120s",
         "TestNewAPIChatHighEffortFirstOutputOverride",
         "large_body_forces_newapi_high_latency",
         "high_effort_forces_newapi_high_latency"

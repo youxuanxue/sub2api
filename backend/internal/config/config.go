@@ -1208,7 +1208,7 @@ type GatewayConfig struct {
 	StreamFirstOutputHighEffortTimeoutSeconds int `mapstructure:"stream_first_output_high_effort_timeout_seconds"`
 	// Bounds a replayable NewAPI Chat *streaming* attempt until useful first output
 	// (not total stream duration). Seconds; zero inherits StreamFirstOutputTimeoutSeconds.
-	// Cap is 60. At most three attempts share 3x this per-attempt budget.
+	// Cap is 60. At most five attempts share 5x this per-attempt budget.
 	NewAPIChatFirstOutputTimeout int `mapstructure:"newapi_chat_first_output_timeout"`
 	// Same, for high/xhigh/max reasoning effort on NewAPI Chat streaming. Zero
 	// inherits the stream high-effort SSOT (600s), which is the long-thinking
@@ -1222,7 +1222,7 @@ type GatewayConfig struct {
 	NewAPIChatHighEffortFirstOutputTimeout int `mapstructure:"newapi_chat_high_effort_first_output_timeout"`
 	// Bounds a replayable NewAPI Chat *non-streaming* attempt until a complete
 	// useful JSON body. Seconds; zero uses the default 600. Cap is 900.
-	// At most three attempts share 3x this per-attempt budget.
+	// At most five attempts share 5x this per-attempt budget.
 	NewAPIChatNonstreamFirstOutputTimeout int `mapstructure:"newapi_chat_nonstream_first_output_timeout"`
 	// GrokResponseHeaderTimeout bounds the pre-first-byte wait for xAI/Grok.
 	// Zero inherits stream_first_output_timeout_seconds (SSOT); explicit >0
