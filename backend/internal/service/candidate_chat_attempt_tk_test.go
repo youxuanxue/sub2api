@@ -230,7 +230,7 @@ func TestCandidateChatStreamVersusNonstreamBudgets(t *testing.T) {
 	bodyNonStream := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"stream":false}`)
 	bodyStream := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"stream":true}`)
 
-	// Zero config → stream 120s × 3 = 6m deadline; non-stream 600s × 3 = 30m deadline.
+	// Zero config → stream 120s × attempts and non-stream 600s × attempts.
 	// Explicit ResponseHeaderTimeout must NOT bleed into either budget.
 	cfg := &config.Config{}
 	cfg.Gateway.ResponseHeaderTimeout = 600
@@ -244,8 +244,9 @@ func TestCandidateChatStreamVersusNonstreamBudgets(t *testing.T) {
 	_, finishNS, errNS := r.candidateOpenAI.beginCandidateChatAttempt(ctxNS, cNS, &a, bodyNonStream)
 	require.NoError(t, errNS)
 	require.NotNil(t, finishNS)
-	require.True(t, stateNS.chatDeadline.After(time.Now().Add(29*time.Minute)), "non-stream default is 3×600s")
-	require.True(t, stateNS.chatDeadline.Before(time.Now().Add(31*time.Minute)), "non-stream must not use ResponseHeaderTimeout")
+	nonstreamBudget := defaultNewAPIChatNonstreamFirstOutput * candidateChatMaxAttempts
+	require.True(t, stateNS.chatDeadline.After(time.Now().Add(nonstreamBudget-time.Minute)), "non-stream deadline is attempts×600s")
+	require.True(t, stateNS.chatDeadline.Before(time.Now().Add(nonstreamBudget+time.Minute)), "non-stream must not use ResponseHeaderTimeout")
 	_, _ = finishNS(nil, nil)
 
 	ctxS, stateS := prepareGlobalCandidate(t, r, key)
@@ -256,8 +257,9 @@ func TestCandidateChatStreamVersusNonstreamBudgets(t *testing.T) {
 	_, finishS, errS := r.candidateOpenAI.beginCandidateChatAttempt(ctxS, cS, &a, bodyStream)
 	require.NoError(t, errS)
 	require.NotNil(t, finishS)
-	require.True(t, stateS.chatDeadline.Before(time.Now().Add(370*time.Second)), "stream default is 3×120s")
-	require.True(t, stateS.chatDeadline.After(time.Now().Add(350*time.Second)), "stream deadline should be near 360s")
+	streamBudget := defaultStreamFirstOutputTimeout * candidateChatMaxAttempts
+	require.True(t, stateS.chatDeadline.Before(time.Now().Add(streamBudget+10*time.Second)), "stream deadline is attempts×120s")
+	require.True(t, stateS.chatDeadline.After(time.Now().Add(streamBudget-10*time.Second)), "stream deadline should stay near the shared attempt budget")
 	_, _ = finishS(nil, nil)
 }
 

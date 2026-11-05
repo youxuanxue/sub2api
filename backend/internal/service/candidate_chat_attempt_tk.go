@@ -14,7 +14,10 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-const candidateChatMaxAttempts = 3
+// Five upstream tries for one replayable Chat request: the first attempt plus
+// four account switches. The shared deadline is this many times the per-attempt
+// first-output timeout.
+const candidateChatMaxAttempts = 5
 const candidateChatPendingLimit = 64 * 1024
 
 var errCandidateChatFirstOutput = errors.New("upstream did not produce output within the attempt budget")
