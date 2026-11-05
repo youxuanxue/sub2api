@@ -281,6 +281,7 @@ func (h *GatewayHandler) tkMessagesGeminiPlatform(
 		// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
+		h.gatewayService.ApplyUsageEstimateFallback(requestCtx, c, account, result, body, err)
 		requestPayloadHash := service.HashUsageRequestPayload(body)
 		inboundEndpoint := GetInboundEndpoint(c)
 		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)

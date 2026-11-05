@@ -390,6 +390,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				ChannelMapping:     channelMapping,
 				LogComponent:       "handler.openai_gateway.chat_completions",
 				LogFailedEventName: "openai_chat_completions.record_usage_failed",
+				ForwardErr:         err,
 			})
 		}
 		if err != nil {

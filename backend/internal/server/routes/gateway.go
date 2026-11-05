@@ -29,7 +29,7 @@ func RegisterGatewayRoutes(
 	clientRequestID := middleware.ClientRequestID()
 	trajectoryID := middleware.TrajectoryID()
 	opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
-	endpointNorm := handler.InboundEndpointMiddleware()
+	endpointNorm := service.WithUsageEstimateCapture(handler.InboundEndpointMiddleware())
 	qaCapture := gin.HandlerFunc(func(c *gin.Context) { c.Next() })
 	if h != nil && h.QACapture != nil {
 		qaCapture = h.QACapture.Middleware()

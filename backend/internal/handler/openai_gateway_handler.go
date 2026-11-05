@@ -947,6 +947,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				ChannelMapping:     channelMapping,
 				LogComponent:       "handler.openai_gateway.responses",
 				LogFailedEventName: "openai.record_usage_failed",
+				ForwardErr:         err,
 			})
 		}
 		if err != nil {
@@ -1580,6 +1581,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				ChannelMapping:     channelMappingMsg,
 				LogComponent:       "handler.openai_gateway.messages",
 				LogFailedEventName: "openai_messages.record_usage_failed",
+				ForwardErr:         err,
 			})
 		}
 		if err != nil {
