@@ -1651,6 +1651,33 @@
       "rationale": "WS ingress parseClientPayload scopes credential identity once before HTTP-bridge turns; re-applying in openai_ws_http_bridge.go double-hashes session/thread UUIDs on later turns."
     },
     {
+      "path": "backend/internal/service/openai_ws_forwarder.go",
+      "must_contain": [
+        "func openAIWSNativeIngressRateLimitFailoverError(",
+        "return newOpenAIWSCurrentTurnFailoverError(cause, nil)",
+        "func openAIWSIngressRelayResultError("
+      ],
+      "rationale": "Later native Responses WS turns must fail over with a current-turn payload. An unsafe rebuild stays a current-turn error with an empty payload so the handler closes instead of replaying the first packet. Unwrapping that wrapper would drop the rebuilt payload."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder_ingress.go",
+      "must_contain": [
+        "result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier, currentImageInputSize, currentRequestedReasoningEffort, currentAccountIdentitySource, currentTurnReplayInput, currentTurnReplayInputExists)",
+        "finalErr := openAIWSIngressRelayResultError(relayErr)"
+      ],
+      "rationale": "The native ingress 429 path must pass the current turn's replay input into the failover builder and must not unwrap a current-turn failover error back into a first-packet replay."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_native_ingress_ratelimit_failover_test.go",
+      "must_contain": [
+        "func TestOpenAIWSNativeIngressRateLimit_LaterTurnRetriesCurrentTurnNotFirstPacket(",
+        "func TestOpenAIWSNativeIngressRateLimit_UnsafeRebuildDoesNotReplayFirstPacket(",
+        "func TestOpenAIWSNativeIngressRateLimit_FirstTurnKeepsFirstPacketFailover(",
+        "func TestOpenAIWSIngressRelayResultError_UnwrapsIngressTurnAndKeepsCurrentTurn("
+      ],
+      "rationale": "Keep later-turn current-payload replay, unsafe-rebuild close, first-turn first-packet replay, and unwrap-preserves-current-turn coverage."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_messages_tk.go",
       "must_contain": [
         "generateSessionUUID(isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), promptCacheKey))"
@@ -18950,6 +18977,55 @@
         "service.TkIsGatewayUnsupportedModel404(statusCode, responseBody)"
       ],
       "rationale": "OpenAIGatewayHandler writers (OpenAI + Anthropic envelopes) render the unsupported-model SSOT shape; nested-TokenKey 404 passes through as a client error, not 502."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/stream_transformer.go",
+      "must_contain": [
+        "p.malformedFunctionCall = true",
+        "if !p.malformedFunctionCall && finishReason != \"\" {",
+        "return StreamTerminalMissing"
+      ],
+      "must_not_contain": [
+        "emitFinish(\"\")"
+      ],
+      "rationale": "Antigravity streams must not synthesize end_turn when finishReason is missing or MALFORMED_FUNCTION_CALL. Finish() no longer emits an empty stop."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_streaming.go",
+      "must_contain": [
+        "return nil, antigravityMissingTerminalFailover(fault)"
+      ],
+      "rationale": "Claude Antigravity streams failover a missing or malformed terminal only before visible output or keepalive is committed."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat_stream.go",
+      "must_contain": [
+        "return nil, antigravityMissingTerminalFailover(fault)"
+      ],
+      "rationale": "Chat and Responses Antigravity streams use the same uncommitted missing-terminal failover as the Claude stream."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/stream_terminal_fault_test.go",
+      "must_contain": [
+        "func TestStreamingProcessor_TerminalFault("
+      ],
+      "rationale": "Keep the processor regression that missing and malformed terminals do not emit end_turn, while STOP, tool_use, MAX_TOKENS, and content-filter refusal still do."
+    },
+    {
+      "path": "backend/internal/service/antigravity_stream_terminal_fault_test.go",
+      "must_contain": [
+        "func TestAntigravityStreamTerminal_UncommittedFailover(",
+        "func TestAntigravityStreamTerminal_VisibleOutputSSEError(",
+        "func TestAntigravityStreamTerminal_StopStillCompletes("
+      ],
+      "rationale": "Keep Claude, Chat, and Responses coverage for uncommitted failover, committed SSE errors, and real STOP completion."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat_test.go",
+      "must_contain": [
+        "func TestAntigravityCompatKeepaliveAfterFirstEvent("
+      ],
+      "rationale": "A keepalive after the first text event must still ping, and closing that partial stream without finishReason must return missing_finish_reason instead of a successful completion."
     }
   ]
 }
