@@ -1005,7 +1005,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	var rejectedFieldRetryState *openAIResponsesRejectedFieldRetryState
-	sendAndRelay := func(turn int, lease *openAIWSConnLease, payload []byte, payloadBytes int, originalModel string, imageBillingModel string, imageSizeTier string, imageInputSize string, requestedReasoningEffort *string) (*OpenAIForwardResult, error) {
+	sendAndRelay := func(turn int, lease *openAIWSConnLease, payload []byte, payloadBytes int, originalModel string, imageBillingModel string, imageSizeTier string, imageInputSize string, requestedReasoningEffort *string, accountIdentitySource []byte, replayInput []json.RawMessage, replayInputExists bool) (*OpenAIForwardResult, error) {
 		responseModelObserver := &upstreamResponseModelObserver{}
 		if lease == nil {
 			return nil, errors.New("upstream websocket lease is nil")
@@ -1190,7 +1190,15 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				}
 				if !wroteDownstream && isOpenAIWSRateLimitError(errCodeRaw, errTypeRaw, errMsgRaw) {
 					lease.MarkBroken()
-					return nil, s.newOpenAIWSRateLimitFailoverError(account, lease.HandshakeHeaders(), upstreamMessage, errMsgRaw)
+					// 后续轮尚未写出下游：换号重放当前轮。重建不安全则失败关闭，禁止退回首包。
+					return nil, openAIWSNativeIngressRateLimitFailoverError(
+						turn,
+						s.newOpenAIWSRateLimitFailoverError(account, lease.HandshakeHeaders(), upstreamMessage, errMsgRaw),
+						accountIdentitySource,
+						replayInput,
+						replayInputExists,
+						originalModel,
+					)
 				}
 			}
 			isTokenEvent := isOpenAIWSTokenEvent(eventType)
@@ -1321,6 +1329,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	currentPayload := firstPayload.payloadRaw
+	currentAccountIdentitySource := firstPayload.accountIdentitySourceRaw
 	// Admission hooks must see client model candidates before upstream mapping.
 	currentClientPayload := firstPayload.rawForHash
 	currentOriginalModel := firstPayload.originalModel
@@ -1717,7 +1726,14 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		if sessionLease == nil {
 			acquiredLease, acquireErr := acquireTurnLease(turn, preferredConnID, forcePreferredConn, turnRetry > 0)
 			if acquireErr != nil {
-				return fmt.Errorf("acquire upstream websocket: %w", acquireErr)
+				return fmt.Errorf("acquire upstream websocket: %w", openAIWSNativeIngressRateLimitFailoverError(
+					turn,
+					acquireErr,
+					currentAccountIdentitySource,
+					currentTurnReplayInput,
+					currentTurnReplayInputExists,
+					currentOriginalModel,
+				))
 			}
 			sessionLease = acquiredLease
 			sessionConnID = strings.TrimSpace(sessionLease.ConnID())
@@ -1825,7 +1841,14 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 
 				acquiredLease, acquireErr := acquireTurnLease(turn, preferredConnID, forcePreferredConn, false)
 				if acquireErr != nil {
-					return fmt.Errorf("acquire upstream websocket after preflight ping fail: %w", acquireErr)
+					return fmt.Errorf("acquire upstream websocket after preflight ping fail: %w", openAIWSNativeIngressRateLimitFailoverError(
+						turn,
+						acquireErr,
+						currentAccountIdentitySource,
+						currentTurnReplayInput,
+						currentTurnReplayInputExists,
+						currentOriginalModel,
+					))
 				}
 				sessionLease = acquiredLease
 				sessionConnID = strings.TrimSpace(sessionLease.ConnID())
@@ -1857,7 +1880,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			)
 		}
 
-		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier, currentImageInputSize, currentRequestedReasoningEffort)
+		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier, currentImageInputSize, currentRequestedReasoningEffort, currentAccountIdentitySource, currentTurnReplayInput, currentTurnReplayInputExists)
 		if relayErr != nil {
 			lastTurnClean = false
 			if isOpenAIWSSessionPreempted(ctx) {
@@ -1877,10 +1900,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if retryIngressTurn(relayErr, turn, connID) {
 				continue
 			}
-			finalErr := relayErr
-			if unwrapped := errors.Unwrap(relayErr); unwrapped != nil {
-				finalErr = unwrapped
-			}
+			finalErr := openAIWSIngressRelayResultError(relayErr)
 			if hooks != nil && hooks.AfterTurn != nil {
 				hooks.AfterTurn(turn, nil, finalErr)
 			}
@@ -2021,6 +2041,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 		}
 		currentPayload = nextPayload.payloadRaw
+		currentAccountIdentitySource = nextPayload.accountIdentitySourceRaw
 		currentClientPayload = nextPayload.rawForHash
 		currentOriginalModel = nextPayload.originalModel
 		currentImageBillingModel = nextPayload.imageBillingModel

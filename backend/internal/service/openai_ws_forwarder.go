@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"strings"
 	"time"
 
@@ -130,6 +132,56 @@ func OpenAIWSCurrentTurnRetryPayload(err error) ([]byte, bool) {
 		return nil, false
 	}
 	return append([]byte(nil), retryErr.retryPayload...), true
+}
+
+// openAIWSNativeIngressRateLimitFailoverError chooses the error for a native
+// Responses websocket ingress rate limit that has not been written downstream.
+// Turn 1 keeps the plain failover error so the handler replays the connection's
+// first message. Later turns rebuild the current turn with the same payload
+// builder as the HTTP bridge. An unsafe or empty rebuild still returns a
+// current-turn error with no payload: OpenAIWSCurrentTurnRetryPayload reports
+// (empty, true), and the handler closes instead of replaying the first message.
+func openAIWSNativeIngressRateLimitFailoverError(
+	turn int,
+	cause error,
+	accountIdentitySource []byte,
+	fullInput []json.RawMessage,
+	fullInputExists bool,
+	originalModel string,
+) error {
+	if turn <= 1 || cause == nil {
+		return cause
+	}
+	var failoverErr *UpstreamFailoverError
+	if !errors.As(cause, &failoverErr) || failoverErr == nil || failoverErr.StatusCode != http.StatusTooManyRequests {
+		return cause
+	}
+	retryPayload, retrySafe, err := buildOpenAIWSCurrentTurnRetryPayload(
+		accountIdentitySource,
+		fullInput,
+		fullInputExists,
+		originalModel,
+	)
+	if err != nil || !retrySafe || len(retryPayload) == 0 {
+		return newOpenAIWSCurrentTurnFailoverError(cause, nil)
+	}
+	return newOpenAIWSCurrentTurnFailoverError(cause, retryPayload)
+}
+
+// openAIWSIngressRelayResultError unwraps ingress turn errors for the handler
+// while keeping a current-turn failover wrapper intact. Unwrapping that wrapper
+// would drop the rebuilt payload and replay the connection's first message.
+func openAIWSIngressRelayResultError(relayErr error) error {
+	if relayErr == nil {
+		return nil
+	}
+	if _, currentTurn := OpenAIWSCurrentTurnRetryPayload(relayErr); currentTurn {
+		return relayErr
+	}
+	if unwrapped := errors.Unwrap(relayErr); unwrapped != nil {
+		return unwrapped
+	}
+	return relayErr
 }
 
 func (e *openAIWSIngressTurnError) Error() string {
