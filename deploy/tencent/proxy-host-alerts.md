@@ -5,7 +5,7 @@
 
 ## 不变式
 
-- **每一台**生产 SOCKS 出口机（现网：美西 `usw-eval1..4`、北京 `cn-ip1..5`）必须安装并启用：
+- **每一台**生产 SOCKS 出口机（现网：美西 `usw-eval1..4`、北京腾讯 `cn-ip1..4`、北京阿里云 `cn-ip5..8`）必须安装并启用：
   - `tokenkey-disk-metrics.timer`（盘/内存）
   - `tokenkey-proxy-watch.timer`（`tokenkey-proxy` + `:1080`）
 - **新机 / 换机 / 重装**后，在装完 GOST/`tokenkey-proxy` 之后立刻跑本安装器；未装齐不算交付。

@@ -46,6 +46,23 @@ SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。**20
 
 UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
+#### 国内出口 `cn-ip5..8`（阿里云北京轻量 SWAS，公网 SOCKS，2026-11-06 起）
+
+腾讯北京锐驰配额上限 5 台，已被 `cn-ip1..4` 与 cn-prod 主机占满，所以扩容放在阿里云。阿里云主账号是 `1598035194530033`，API 走 RAM 用户 `xuejiao`。套餐 `swas.s.c2m1s30b1.linux`：2C1G、30 GB ESSD、200 Mbps 峰值，包月 40 元/台，自动续费，首期到期 **2026-12-06**。系统 Ubuntu 24.04。
+
+| 角色 | cn-prod 代理名 | 实例 ID | 公网 IP | 私网 IP |
+|---|---|---|---|---|
+| `cn-ip5` | `ip5`（id 6） | `8e8fc5390cad43719d9daa7dcdf99321` | `47.94.148.90` | `172.24.15.8` |
+| `cn-ip6` | `ip6`（id 7） | `23c73fc6c4604e229adfed3ec7fd93dd` | `47.95.11.119` | `172.24.15.9` |
+| `cn-ip7` | `ip7`（id 8） | `c96d3742937f4003963df40c8c28a94a` | `47.95.14.76` | `172.24.15.10` |
+| `cn-ip8` | `ip8`（id 9） | `e7c1865981ba47519aa86f495fb04e82` | `39.106.196.249` | `172.24.15.11` |
+
+这里的 `cn-ip5` 是新机。上文已销毁的腾讯 `cn-ip5`（`192.144.148.117`）是另一台，名字重复使用了。
+
+配置照抄 `cn-ip4`：GOST v3.3.0（sha256 `1d8f971e…3e08`），配置在 `/etc/tokenkey-proxy/gost.json`；`tokenkey-proxy` 与 `tokenkey-proxy-firewall` 两个 unit 原样复制，iptables `TK_CN_PROXY` 只放行 1080 端口的美西 prod、cn-prod 公网和已退役的 UCloud 地址。每台 SOCKS 密码独立，只存在主机和 cn-prod `proxies` 表里。阿里云实例防火墙额外开了 TCP 1080/8080 全网，和腾讯 `cn-ip1..4` 的宽松规则保持一致。阿里云和 cn-prod 不在同一内网，cn-prod 从公网 `154.8.214.179` 拨入，不需要放行私网地址。
+
+BBR（`ensure-tokenkey-bbr.sh`）和主机告警（`install-proxy-host-alerts.sh --verify`）都已装好并验收。远程执行走阿里云「云助手」SWAS `RunCommand`，不走 TAT 或 SSM。
+
 #### 代理主机告警（强制）
 
 每台 SOCKS 出口机（`usw-eval*` 与 `cn-ip*`）**新机/换机/重装后必须**安装 `tokenkey-disk-metrics.timer` + `tokenkey-proxy-watch.timer`，并以 `install-proxy-host-alerts.sh --verify` 验收。  
