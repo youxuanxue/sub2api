@@ -30,6 +30,35 @@ func TestSanitizeGrokResponsesModelInputNormalizesReplayHistory(t *testing.T) {
 	require.Equal(t, "completed", gjson.GetBytes(patched, "input.3.status").String())
 }
 
+func TestSanitizeGrokResponsesModelInputCollapsesAgentMessage(t *testing.T) {
+	body := []byte(`{"input":[
+		{"type":"agent_message","id":"amsg_1","author":"/root","recipient":"/root/alpha_task","content":[
+			{"type":"input_text","text":"Message Type: NEW_TASK\nTask name: /root/alpha_task\nSender: /root\nPayload:\n"},
+			{"type":"encrypted_content","encrypted_content":"Reply with the single word: ALPHA"}
+		]}
+	]}`)
+
+	patched, err := sanitizeGrokResponsesModelInput(body)
+	require.NoError(t, err)
+	require.Len(t, gjson.GetBytes(patched, "input").Array(), 1)
+	require.Equal(t, "message", gjson.GetBytes(patched, "input.0.type").String())
+	require.Equal(t, "user", gjson.GetBytes(patched, "input.0.role").String())
+	require.Equal(t, "Message Type: NEW_TASK\nTask name: /root/alpha_task\nSender: /root\nPayload:\nReply with the single word: ALPHA", gjson.GetBytes(patched, "input.0.content").String())
+	require.False(t, gjson.GetBytes(patched, "input.0.author").Exists())
+	require.False(t, gjson.GetBytes(patched, "input.0.recipient").Exists())
+	require.False(t, gjson.GetBytes(patched, "input.0.id").Exists())
+}
+
+func TestSanitizeGrokResponsesModelInputDropsAgentMessageWithoutText(t *testing.T) {
+	body := []byte(`{"input":[
+		{"type":"agent_message","author":"/root","recipient":"/root/a","content":[{"type":"input_image","image_url":"data:image/png;base64,AA=="}]}
+	]}`)
+
+	patched, err := sanitizeGrokResponsesModelInput(body)
+	require.NoError(t, err)
+	require.Equal(t, "[]", gjson.GetBytes(patched, "input").Raw)
+}
+
 func TestSanitizeGrokResponsesModelInputStripsOnlyNonPairCallIDs(t *testing.T) {
 	body := []byte(`{"input":[
 		{"type":"message","role":"user","call_id":"remove_message","content":"continue"},
