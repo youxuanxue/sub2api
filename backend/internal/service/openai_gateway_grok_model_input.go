@@ -181,9 +181,9 @@ func grokAgentMessageText(content any) string {
 	writePart := func(b *strings.Builder, part map[string]any) {
 		switch strings.ToLower(strings.TrimSpace(grokStringValue(part["type"]))) {
 		case "input_text", "text":
-			b.WriteString(grokStringValue(part["text"]))
+			_, _ = b.WriteString(grokStringValue(part["text"]))
 		case "encrypted_content":
-			b.WriteString(grokStringValue(part["encrypted_content"]))
+			_, _ = b.WriteString(grokStringValue(part["encrypted_content"]))
 		}
 	}
 
