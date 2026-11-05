@@ -77,6 +77,12 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable_image_generated 2026-09-17 (us4 gpt-34) for flare + sunburst.
 	"gpt-image-2.5-flare":    {},
 	"gpt-image-2.5-sunburst": {},
+	// GPT Image 2.6: prod OpenAI OAuth native Codex Images returned images for
+	// flare + sunburst on 2026-11-05. The backend does not report a model and
+	// its output matches gpt-image-2 (complexity/svg/gif are not honored); the
+	// product decision is to list 2.6 at official API pricing anyway.
+	"gpt-image-2.6-flare":    {},
+	"gpt-image-2.6-sunburst": {},
 	// servable-allowlist:end openai
 }
 

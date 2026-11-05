@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "d1105f30c6b1c8229299c306c4b1af4a50b385fdec45e3f35e6cad53995acf70",
+  "floor_sha256": "f65ada1260e09aeb871e0690b921036b82f6e1336871880adc51425fee6371b9",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -227,7 +227,10 @@
         "gpt-image-2": "gpt-image-2",
         "gpt-image-2.5": "gpt-image-2.5-flare",
         "gpt-image-2.5-flare": "gpt-image-2.5-flare",
-        "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst"
+        "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst",
+        "gpt-image-2.6": "gpt-image-2.6-flare",
+        "gpt-image-2.6-flare": "gpt-image-2.6-flare",
+        "gpt-image-2.6-sunburst": "gpt-image-2.6-sunburst"
       },
       "openai_ainzy_relay": {
         "gpt-5.5": "gpt-5.5",

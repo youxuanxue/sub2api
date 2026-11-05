@@ -314,6 +314,18 @@
       "model": "gpt-image-2.5-sunburst",
       "reason": "OpenAI OAuth Codex image_generation tool verified servable; retain for image reprobe.",
       "probe_family": "openai_image"
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-image-2.6-flare",
+      "reason": "OpenAI OAuth native Codex Images returned images (model not reported upstream); retain for image reprobe.",
+      "probe_family": "openai_image"
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-image-2.6-sunburst",
+      "reason": "OpenAI OAuth native Codex Images returned images (model not reported upstream); retain for image reprobe.",
+      "probe_family": "openai_image"
     }
   ]
 }
