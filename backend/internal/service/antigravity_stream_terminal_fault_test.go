@@ -30,7 +30,7 @@ func TestAntigravityStreamTerminal_UncommittedFailover(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, caller := range agyStreamTerminalCallers() {
 				t.Run(caller.name, func(t *testing.T) {
-					result, err, body := caller.run(t, tc.body)
+					result, body, err := caller.run(t, tc.body)
 					require.Nil(t, result)
 					var failover *UpstreamFailoverError
 					require.ErrorAs(t, err, &failover)
@@ -64,7 +64,7 @@ func TestAntigravityStreamTerminal_VisibleOutputSSEError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, caller := range agyStreamTerminalCallers() {
 				t.Run(caller.name, func(t *testing.T) {
-					result, err, body := caller.run(t, tc.body)
+					result, body, err := caller.run(t, tc.body)
 					require.NotNil(t, result)
 					require.NotNil(t, result.usage)
 					require.Equal(t, 5, result.usage.InputTokens)
@@ -101,7 +101,7 @@ func TestAntigravityStreamTerminal_StopStillCompletes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, caller := range agyStreamTerminalCallers() {
 				t.Run(caller.name, func(t *testing.T) {
-					result, err, body := caller.run(t, tc.body)
+					result, body, err := caller.run(t, tc.body)
 					require.NoError(t, err)
 					require.NotNil(t, result)
 					require.Contains(t, body, tc.want)
@@ -189,42 +189,42 @@ func TestAntigravityStreamTerminal_CompatUsageSurvivesError(t *testing.T) {
 
 type agyStreamTerminalCaller struct {
 	name string
-	run  func(t *testing.T, body string) (*antigravityStreamResult, error, string)
+	run  func(t *testing.T, body string) (*antigravityStreamResult, string, error)
 }
 
 func agyStreamTerminalCallers() []agyStreamTerminalCaller {
 	return []agyStreamTerminalCaller{
 		{
 			name: "claude",
-			run: func(t *testing.T, body string) (*antigravityStreamResult, error, string) {
+			run: func(t *testing.T, body string) (*antigravityStreamResult, string, error) {
 				t.Helper()
 				svc := newAntigravityTestService(&config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}})
 				c, recorder := newAntigravityCompatContext(http.MethodPost, "/", nil)
 				resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}
 				result, err := svc.handleClaudeStreamingResponse(c, resp, time.Now(), "claude-sonnet-4-5")
-				return result, err, recorder.Body.String()
+				return result, recorder.Body.String(), err
 			},
 		},
 		{
 			name: "chat",
-			run: func(t *testing.T, body string) (*antigravityStreamResult, error, string) {
+			run: func(t *testing.T, body string) (*antigravityStreamResult, string, error) {
 				t.Helper()
 				svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, nil)
 				c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/chat/completions", nil)
 				resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body))}
 				result, err := svc.handleChatCompletionsStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro", true)
-				return result, err, recorder.Body.String()
+				return result, recorder.Body.String(), err
 			},
 		},
 		{
 			name: "responses",
-			run: func(t *testing.T, body string) (*antigravityStreamResult, error, string) {
+			run: func(t *testing.T, body string) (*antigravityStreamResult, string, error) {
 				t.Helper()
 				svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, nil)
 				c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/responses", nil)
 				resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body))}
 				result, err := svc.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro", apicompat.ResponsesClientToolMapping{})
-				return result, err, recorder.Body.String()
+				return result, recorder.Body.String(), err
 			},
 		},
 	}
