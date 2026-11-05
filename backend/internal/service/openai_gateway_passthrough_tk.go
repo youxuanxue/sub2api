@@ -14,7 +14,7 @@ import (
 // tkPrepareOpenAIPassthroughRequestBody applies TokenKey-specific request-body
 // normalization before upstream forwarding (Codex OAuth, API-key sticky, tool
 // alias). Returns updated body and stream flag; writes client response and
-// returns error on hard reject (e.g. missing Codex instructions).
+// returns error when body rewriting fails.
 func (s *OpenAIGatewayService) tkPrepareOpenAIPassthroughRequestBody(
 	ctx context.Context,
 	c *gin.Context,
@@ -25,18 +25,6 @@ func (s *OpenAIGatewayService) tkPrepareOpenAIPassthroughRequestBody(
 	reqStream bool,
 ) ([]byte, bool, error) {
 	if account != nil && account.UsesOpenAICodexProtocol() {
-		if rejectReason := detectOpenAIPassthroughInstructionsRejectReason(reqModel, body); rejectReason != "" {
-			rejectMsg := "OpenAI codex passthrough requires a non-empty instructions field"
-			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
-			logOpenAIPassthroughInstructionsRejected(ctx, c, account, reqModel, rejectReason, body)
-			c.JSON(http.StatusForbidden, gin.H{
-				"error": gin.H{
-					"type":    "forbidden_error",
-					"message": rejectMsg,
-				},
-			})
-			return body, reqStream, fmt.Errorf("openai passthrough rejected before upstream: %s", rejectReason)
-		}
 		if isOpenAICodexModel(reqModel) && !gjson.GetBytes(body, "instructions").Exists() {
 			nextBody, setErr := sjson.SetBytes(body, "instructions", defaultCodexSynthInstructions(reqModel))
 			if setErr != nil {
@@ -59,7 +47,12 @@ func (s *OpenAIGatewayService) tkPrepareOpenAIPassthroughRequestBody(
 		if normalized {
 			body = normalizedBody
 		}
-		reqStream = gjson.GetBytes(body, "stream").Bool()
+		// 上游 ChatGPT internal API 要求 stream=true，但下游响应形态遵循客户端原始
+		// stream 标志：stream=false 时由非流式分支把上游 SSE 聚合为 JSON（#7978）。
+		// compact 请求始终为非流式。
+		if isOpenAIResponsesCompactPath(c) {
+			reqStream = false
+		}
 		if !isOpenAIResponsesCompactPath(c) {
 			body, _, err = applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
 			if err != nil {
@@ -105,7 +98,12 @@ func (s *OpenAIGatewayService) tkPrepareOpenAIPassthroughRequestBody(
 		body = injectedBody
 	}
 	if account != nil && account.IsOpenAI() {
-		normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesCompatibilityBody(body, account, isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || isOpenAIResponsesLiteWebSocketPayload(body), isOpenAIResponsesCompactPath(c))
+		responsesLite := isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || isOpenAIResponsesLiteWebSocketPayload(body)
+		normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesCompatibilityBodyWithOptions(body, account, openAIResponsesCompatibilityOptions{
+			Config:        s.cfg,
+			ResponsesLite: responsesLite,
+			Compact:       isOpenAIResponsesCompactPath(c),
+		})
 		if normalizeErr != nil {
 			return body, reqStream, fmt.Errorf("normalize passthrough Responses compatibility: %w", normalizeErr)
 		}

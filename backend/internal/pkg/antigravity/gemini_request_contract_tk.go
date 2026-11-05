@@ -54,7 +54,7 @@ func NormalizeGeminiSystemIdentity(payload map[string]any) bool {
 			if !ok {
 				continue
 			}
-			normalized := neutralizeClaudeIdentity(stripClaudeAttribution(text))
+			normalized := NeutralizeSystemIdentity(text)
 			if normalized != text {
 				part["text"] = normalized
 				modified = true

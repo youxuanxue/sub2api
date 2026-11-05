@@ -311,6 +311,7 @@ const (
 	SettingKeyEmailVerifyEnabled                  = "email_verify_enabled"                    // 是否开启邮件验证
 	SettingKeyRegistrationEmailSuffixWhitelist    = "registration_email_suffix_whitelist"     // 注册邮箱后缀白名单（JSON 数组）
 	SettingKeyRegistrationEmailDomainQuotaEnabled = "registration_email_domain_quota_enabled" // 白名单非空时是否放行非白名单域名限量注册
+	SettingKeyRegistrationEmailBlacklist          = "registration_email_blacklist"            // 注册邮箱精确黑名单（JSON 数组，按收件箱身份匹配；不进 SystemSettings，由专用接口读写）
 	SettingKeyPromoCodeEnabled                    = "promo_code_enabled"                      // 是否启用优惠码功能
 	SettingKeyPasswordResetEnabled                = "password_reset_enabled"                  // 是否启用忘记密码功能（需要先开启邮件验证）
 	SettingKeyFrontendURL                         = "frontend_url"                            // 前端基础URL，用于生成邮件中的重置密码链接

@@ -3280,8 +3280,8 @@
       "must_contain": [
         "func WithRequestBodyLimit(",
         "func NormalizeLenientJSONRequestBodyForRequest(",
-        "return NormalizeLenientJSONRequestBodyForRequest(req, body, maxNormalizedBytes)",
-        "decodeContentEncodedBodyPrefix(encoding, raw, maxDecompressedBodySize+1)"
+        "maxNormalizedBytes = requestBodyLimitForRequest(req, maxNormalizedBytes)",
+        "decodeContentEncodedBodyWithBudget(ctx, encoding, raw, maxDecompressedBodySize+1)"
       ],
       "rationale": "Gateway normalization shares the configured route limit; full decompression must detect oversize instead of silently accepting a truncated prefix."
     },
@@ -11520,7 +11520,7 @@
     {
       "path": "backend/internal/service/api_key_auth_cache_impl.go",
       "must_contain": [
-        "apiKeyAuthSnapshotVersion = 25",
+        "apiKeyAuthSnapshotVersion = 26",
         "apiKey.Group.StickyRoutingMode",
         "apiKey.Group.MessagesCompactionEnabled",
         "apiKey.Group.MessagesCompactionInputTokensThreshold",
@@ -14573,7 +14573,7 @@
     {
       "path": "backend/internal/service/openai_gateway_passthrough_tk.go",
       "must_contain": [
-        "normalizeOpenAIResponsesCompatibilityBody(body, account, isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || isOpenAIResponsesLiteWebSocketPayload(body), isOpenAIResponsesCompactPath(c))"
+        "normalizeOpenAIResponsesCompatibilityBodyWithOptions(body, account, openAIResponsesCompatibilityOptions{"
       ],
       "rationale": "Raw HTTP passthrough must consume the shared Codex compatibility policy."
     },
@@ -14614,7 +14614,7 @@
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
-        "!signatureRetried && attempt < geminiMaxRetries",
+        "if !signatureRetried && action != \"countTokens\" {",
         "s.tkRepairGeminiNativeSignature(c, account, resp, body)",
         "signatureRetried = true",
         "body = tkNormalizeGeminiFunctionResponseImages(body)"
@@ -15329,8 +15329,8 @@
     {
       "path": "backend/internal/service/admin_group.go",
       "must_contain": [
-        "ModelRouting:                           domain.NormalizeGroupModelRouting(input.ModelRoutingEnabled, input.ModelRouting),",
-        "ModelRoutingEnabled:                    input.ModelRoutingEnabled,"
+        "ModelRouting:                    domain.NormalizeGroupModelRouting(input.ModelRoutingEnabled, input.ModelRouting),",
+        "ModelRoutingEnabled:             input.ModelRoutingEnabled,"
       ],
       "rationale": "CreateGroup historically omitted ModelRoutingEnabled on the persisted Group (always defaulted false). Pin both Normalize + Enabled assignment so an upstream rewrite of the CreateGroup literal cannot drop Enabled again."
     },
@@ -17766,7 +17766,7 @@
     {
       "path": "backend/internal/service/account_usage_service.go",
       "must_contain": [
-        "s.openAIQuotaService.QueryUsage(ctx, account.ID)",
+        "s.openAIQuotaService.QueryUsage(WithScopedAdminAccountOperation(ctx, \"accounts.usage.read\"), account.ID)",
         "buildOpenAIQuotaSnapshotUpdates(account, usage, time.Now())",
         "progress.UtilizationUnknown = true"
       ],
@@ -18271,7 +18271,7 @@
     {
       "path": "backend/internal/service/antigravity_gateway_service.go",
       "must_contain": [
-        "modified := antigravity.NormalizeGeminiSystemIdentity(request)"
+        "systemChanged := antigravity.NormalizeGeminiSystemIdentity(request)"
       ],
       "rationale": "Existing Antigravity identity must not bypass SDK identity cleanup on native and converted Gemini requests."
     },
@@ -18281,7 +18281,7 @@
         "func NormalizeGeminiResponseSchema(",
         "cleanJSONSchema(object, false)",
         "func NormalizeGeminiSystemIdentity(",
-        "neutralizeClaudeIdentity(stripClaudeAttribution(text))"
+        "normalized := NeutralizeSystemIdentity(text)"
       ],
       "rationale": "Response schemas do not inherit tool placeholders; system cleanup reuses the narrow identity owner."
     },

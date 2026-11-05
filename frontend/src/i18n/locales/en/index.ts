@@ -1,4 +1,6 @@
 import historicalBilling from './historicalBilling'
+import adminAccessKeys from './adminAccessKeys'
+import mcp from './mcp'
 import landing from './landing'
 import common from './common'
 import dashboard from './dashboard'
@@ -23,6 +25,8 @@ export default {
   videoUnderstanding: {
     hint: 'kimi-k3 video understanding: prefer /v1/chat/completions + video_url (base64 is the stable path; HTTPS only if the serving supply can fetch it). /v1/responses + input_video also works. Offshore public URLs are often rejected. This is not “Moonshot requires Responses”. Key verification still sends a text ping only.',
   },
+  adminAccessKeys,
+  mcp,
   ...landing,
   ...common,
   ...dashboard,

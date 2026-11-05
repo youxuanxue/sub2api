@@ -198,6 +198,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`upstream-merge-20260930.md`](upstream-merge-20260930.md) | 隔离上游合并与 TokenKey 不变量裁决；不授权主线合并或部署 |
 | [`upstream-merge-2026-10-06.md`](upstream-merge-2026-10-06.md) | 隔离上游合并、241 迁移与 TokenKey CHECK/404 裁决；不授权主线合并或部署 |
 | [`upstream-merge-2026-10-22-migrations.md`](upstream-merge-2026-10-22-migrations.md) | 2026-10-22 上游迁移已随 #2796 合入（`shipped`） |
+| [`upstream-merge-2026-11-05-migrations.md`](upstream-merge-2026-11-05-migrations.md) | 2026-11-05 上游迁移 247–249 待人工审批（`pending`） |
 
 ## 已归档的 QA 设计
 

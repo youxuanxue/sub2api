@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -434,6 +435,16 @@ func (s *AccountUsageService) GetUsageForAccount(ctx context.Context, account *A
 // Anthropic OAuth/SetupToken 统一走 passive 链路，其他账号复用现有主动查询逻辑。
 // 单个账号失败不会中断整批请求，错误会按账号返回。
 func (s *AccountUsageService) GetUsageBatch(ctx context.Context, accountIDs []int64, force bool) (map[int64]*UsageInfo, map[int64]string, error) {
+	if adminaccess.RestrictedFromContext(ctx) != nil {
+		if len(accountIDs) > 100 {
+			return nil, nil, fmt.Errorf("账户数量超过限制")
+		}
+		for _, id := range accountIDs {
+			if id <= 0 {
+				return nil, nil, fmt.Errorf("账户 ID 无效")
+			}
+		}
+	}
 	uniqueIDs := make([]int64, 0, len(accountIDs))
 	seen := make(map[int64]struct{}, len(accountIDs))
 	for _, accountID := range accountIDs {
@@ -466,6 +477,13 @@ func (s *AccountUsageService) GetUsageBatch(ctx context.Context, accountIDs []in
 		accountsByID[account.ID] = account
 	}
 
+	if adminaccess.RestrictedFromContext(ctx) != nil {
+		for _, id := range uniqueIDs {
+			if err := scopedAccountAccess(ctx, s.accountRepo, accountsByID[id], "accounts.usage.read", true); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
 	var mu sync.Mutex
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(6)
@@ -506,6 +524,9 @@ func (s *AccountUsageService) GetUsageBatch(ctx context.Context, accountIDs []in
 }
 
 func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *Account, forceProbe bool) (*UsageInfo, error) {
+	if err := scopedAccountAccess(ctx, s.accountRepo, account, "accounts.usage.read", true); err != nil {
+		return nil, err
+	}
 	if account == nil {
 		return nil, fmt.Errorf("get account failed: nil account")
 	}
@@ -714,6 +735,9 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 }
 
 func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, account *Account) (*UsageInfo, error) {
+	if err := scopedAccountAccess(ctx, s.accountRepo, account, "accounts.usage.read", false); err != nil {
+		return nil, err
+	}
 	if account == nil {
 		return nil, fmt.Errorf("get account failed: nil account")
 	}
@@ -1010,7 +1034,7 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	}
 	// Read the quota endpoint; generating a model response can itself be gated,
 	// rate limited, or omit the headers needed to refresh an exhausted account.
-	usage, err := s.openAIQuotaService.QueryUsage(ctx, account.ID)
+	usage, err := s.openAIQuotaService.QueryUsage(WithScopedAdminAccountOperation(ctx, "accounts.usage.read"), account.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1020,14 +1044,30 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	}
 	// Persist before returning, so a passive list reload cannot restore the old
 	// percentage immediately after an explicit successful query.
+	if err := s.persistOpenAICodexProbeSnapshotContext(ctx, account, updates); err != nil {
+		return nil, err
+	}
+	return updates, nil
+}
+
+// persistOpenAICodexProbeSnapshotContext is TK's synchronous form of upstream's
+// async helper: re-check the scoped admin key, write the snapshot, and notify
+// automatic reset only for unrestricted callers (upstream 194d69e63).
+func (s *AccountUsageService) persistOpenAICodexProbeSnapshotContext(ctx context.Context, account *Account, updates map[string]any) error {
+	if err := scopedAccountIDAccess(ctx, s.accountRepo, account.ID, "accounts.usage.read", true); err != nil {
+		return err
+	}
 	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
-		return nil, fmt.Errorf("persist OpenAI quota snapshot: %w", err)
+		return fmt.Errorf("persist OpenAI quota snapshot: %w", err)
+	}
+	if adminaccess.RestrictedFromContext(ctx) != nil {
+		return nil
 	}
 	notifyOpenAIAutoReset(account.ID)
 	if account.IsShadow() && account.ParentAccountID != nil {
 		notifyOpenAIAutoReset(*account.ParentAccountID)
 	}
-	return updates, nil
+	return nil
 }
 
 func extractOpenAICodexProbeUpdates(resp *http.Response) (map[string]any, error) {
@@ -1174,7 +1214,7 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 		}
 
 		// 使用独立 context，避免调用方 cancel 导致所有共享 flight 的请求失败
-		fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		fetchCtx, fetchCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer fetchCancel()
 
 		fetchResult, err := s.antigravityQuotaFetcher.FetchQuota(fetchCtx, account, "")
@@ -1349,6 +1389,9 @@ func (s *AccountUsageService) addWindowStats(ctx context.Context, account *Accou
 
 // GetTodayStats 获取账号今日统计
 func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64) (*WindowStats, error) {
+	if err := scopedAccountIDAccess(ctx, s.accountRepo, accountID, "accounts.stats.read", false); err != nil {
+		return nil, err
+	}
 	stats, err := s.usageLogRepo.GetAccountTodayStats(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get today stats failed: %w", err)
@@ -1365,6 +1408,16 @@ func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64
 
 // GetTodayStatsBatch 批量获取账号今日统计，优先走批量 SQL，失败时回退单账号查询。
 func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*WindowStats, error) {
+	if adminaccess.RestrictedFromContext(ctx) != nil {
+		if len(accountIDs) > 100 {
+			return nil, fmt.Errorf("账户数量超过限制")
+		}
+		for _, id := range accountIDs {
+			if err := scopedAccountIDAccess(ctx, s.accountRepo, id, "accounts.stats.read", false); err != nil {
+				return nil, err
+			}
+		}
+	}
 	uniqueIDs := make([]int64, 0, len(accountIDs))
 	seen := make(map[int64]struct{}, len(accountIDs))
 	for _, accountID := range accountIDs {
@@ -1592,6 +1645,9 @@ func codexWindowStatsStart(progress *UsageProgress, fallbackWindow time.Duration
 }
 
 func (s *AccountUsageService) GetAccountUsageStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (*usagestats.AccountUsageStatsResponse, error) {
+	if err := scopedAccountIDAccess(ctx, s.accountRepo, accountID, "accounts.stats.read", false); err != nil {
+		return nil, err
+	}
 	stats, err := s.usageLogRepo.GetAccountUsageStats(ctx, accountID, startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("get account usage stats failed: %w", err)
@@ -1651,6 +1707,10 @@ func parseTime(s string) (time.Time, error) {
 }
 
 func (s *AccountUsageService) tryClearRecoverableAccountError(ctx context.Context, account *Account) {
+	// 额度读取不能隐式恢复账户状态或调度。
+	if adminaccess.RestrictedFromContext(ctx) != nil {
+		return
+	}
 	if account == nil || account.Status != StatusError {
 		return
 	}

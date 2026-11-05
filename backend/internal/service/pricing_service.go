@@ -1411,6 +1411,9 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 	}
 
 	// New upstream spellings resolve only prices present in the registry.
+	if openai.IsGPT61TerraModelSpelling(model) {
+		return s.pricingData["gpt-6.1-terra"]
+	}
 	if openai.IsGPT6SolFamilyModelSpelling(model) {
 		return s.pricingData[normalizeKnownOpenAICodexModel(model)]
 	}

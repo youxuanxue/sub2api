@@ -187,7 +187,9 @@ func parseGatewayRequestCurrentBody(parsed *ParsedRequest, protocol string) erro
 		return DescribeInvalidJSON(bodyBytes)
 	}
 
-	// 只在当前函数内零拷贝读取 JSON 字段；ReplaceBody 后必须重新进入本函数刷新派生状态。
+	// Zero-copy JSON reads stay local to parsing. Persisted scalar strings must
+	// own their storage: an unescaped gjson string otherwise retains the complete
+	// request buffer when copied into queued billing work. Raw ranges stay zero-copy.
 	jsonStr := *(*string)(unsafe.Pointer(&bodyBytes))
 	clearGatewayRequestDerivedState(parsed)
 	parsed.protocol = protocol
@@ -197,7 +199,7 @@ func parseGatewayRequestCurrentBody(parsed *ParsedRequest, protocol string) erro
 		if modelResult.Type != gjson.String {
 			return fmt.Errorf("invalid model field type")
 		}
-		parsed.Model = modelResult.String()
+		parsed.Model = strings.Clone(modelResult.String())
 	}
 
 	streamResult := gjson.Get(jsonStr, "stream")
@@ -208,13 +210,13 @@ func parseGatewayRequestCurrentBody(parsed *ParsedRequest, protocol string) erro
 		parsed.Stream = streamResult.Bool()
 	}
 
-	parsed.MetadataUserID = gjson.Get(jsonStr, "metadata.user_id").String()
+	parsed.MetadataUserID = strings.Clone(gjson.Get(jsonStr, "metadata.user_id").String())
 
 	parsed.ThinkingEnabled = gatewayRequestThinkingEnabled(bodyBytes, protocol)
 
-	parsed.OutputEffort = strings.TrimSpace(gjson.Get(jsonStr, "output_config.effort").String())
+	parsed.OutputEffort = strings.Clone(strings.TrimSpace(gjson.Get(jsonStr, "output_config.effort").String()))
 	if protocol == domain.PlatformAnthropic {
-		parsed.Speed = strings.ToLower(strings.TrimSpace(gjson.Get(jsonStr, "speed").String()))
+		parsed.Speed = strings.Clone(strings.ToLower(strings.TrimSpace(gjson.Get(jsonStr, "speed").String())))
 	}
 
 	maxTokensResult := gjson.Get(jsonStr, "max_tokens")

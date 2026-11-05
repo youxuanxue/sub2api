@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -191,4 +192,15 @@ func TestGeminiWebAdminTestUsesWorkerReferenceAndSupportedPayload(t *testing.T) 
 			})
 		}
 	}
+}
+
+func TestGeminiDefaultTestModel(t *testing.T) {
+	t.Parallel()
+
+	googleOne := &Account{Platform: PlatformGemini, Type: AccountTypeOAuth, Credentials: map[string]any{"oauth_type": "google_one"}}
+	require.Equal(t, geminicli.GoogleOneModels[0].ID, geminiDefaultTestModel(googleOne))
+	require.Contains(t, googleOne.GetModelMapping(), geminiDefaultTestModel(googleOne))
+
+	apiKey := &Account{Platform: PlatformGemini, Type: AccountTypeAPIKey}
+	require.Equal(t, geminicli.DefaultTestModel, geminiDefaultTestModel(apiKey))
 }

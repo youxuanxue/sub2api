@@ -50,7 +50,7 @@ describe('useModelWhitelist', () => {
   it('openai 模型列表透传后端 GPT-5.4/GPT-6 官方快照', async () => {
     const models = await loadApiModels('openai', [
       'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-2026-03-05', 'codex-auto-review',
-      'gpt-5.6', 'gpt-6', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'
+      'gpt-5.6', 'gpt-6', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna'
     ])
 
     expect(models).toContain('gpt-5.4')
@@ -61,6 +61,7 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-6')
     expect(models).toContain('gpt-6-astra')
     expect(models).toContain('gpt-6.1-sol')
+    expect(models).toContain('gpt-6.1-terra')
     expect(models).toContain('gpt-6-sol')
     expect(models).toContain('gpt-6-luna')
   })
@@ -75,6 +76,7 @@ describe('useModelWhitelist', () => {
 
   it('keeps GPT-6 and Astra mapping presets', () => {
     expect(getPresetMappingsByPlatform('openai')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'GPT-6.1 Terra', from: 'gpt-6.1-terra', to: 'gpt-6.1-terra' }),
       expect.objectContaining({ from: 'gpt-6', to: 'gpt-6' }),
       expect.objectContaining({ from: 'gpt-6-astra', to: 'gpt-6-astra' })
     ]))
@@ -192,6 +194,21 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gemini-3.1-flash-image')
     expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.0-flash'))
     expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
+  })
+
+  // Upstream asserts its static Gemini list drops retired 2.x / Antigravity tier aliases.
+  // TK derives the gemini list from the backend, so the equivalent contract is that the
+  // frontend adds nothing beyond the backend set.
+  it('gemini 模型列表不含已停用的 2.x 模型与 Antigravity 档位别名', async () => {
+    const models = await loadApiModels('gemini', ['gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-3.8-flash'])
+
+    for (const model of ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-image', 'gemini-3-pro-preview']) {
+      expect(models).not.toContain(model)
+    }
+    for (const model of ['gemini-3.1-pro', 'gemini-3.1-pro-high', 'gemini-3.1-pro-low']) {
+      expect(models).not.toContain(model)
+    }
+    expect(models).toContain('gemini-3.8-flash')
   })
 
   it('antigravity 模型列表透传后端排序（新 Gemini 图片模型靠前）', async () => {

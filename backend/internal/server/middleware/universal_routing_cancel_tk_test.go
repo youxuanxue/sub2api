@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -44,18 +44,19 @@ func TestMaybeResolveUniversal_CancellationOwnership(t *testing.T) {
 					logs, restore := captureMiddlewareStructuredLog(t)
 					defer restore()
 					c, w := newTestCtx(http.MethodPost, endpoint.path, endpoint.body)
-					if tc.requestErr != nil {
-						ctx, cancel := context.WithCancel(c.Request.Context())
-						if errors.Is(tc.requestErr, context.DeadlineExceeded) {
-							cancel()
-							ctx, cancel = context.WithDeadline(c.Request.Context(), time.Now().Add(-time.Second))
-						}
-						cancel()
-						c.Request = c.Request.WithContext(ctx)
+					// The request context ends while the resolver is loading, not
+					// before ingress: body decoding now stops on an already-ended
+					// request context (httputil body budget), which would bypass the
+					// resolver error classification this test owns.
+					requestCtx := &lateErrContext{Context: c.Request.Context(), done: make(chan struct{})}
+					c.Request = c.Request.WithContext(requestCtx)
+					fail := func() error {
+						requestCtx.end(tc.requestErr)
+						return tc.err
 					}
-					resolver := service.NewUniversalRoutingResolver(&stubSpanLister{err: tc.err})
+					resolver := service.NewUniversalRoutingResolver(&lateErrSpanLister{fail: fail})
 					if candidateScheduling {
-						users := &stubUserRepo{getByID: func(context.Context, int64) (*service.User, error) { return nil, tc.err }}
+						users := &stubUserRepo{getByID: func(context.Context, int64) (*service.User, error) { return nil, fail() }}
 						api := service.NewAPIKeyService(nil, users, nil, nil, nil, nil, &config.Config{})
 						service.ProvideTKUniversalModelsProvider(api, &service.GatewayService{}, nil, &service.OpenAIGatewayService{}, service.NewProtocolRouter())
 						resolver = api.UniversalResolver()
@@ -87,4 +88,39 @@ func TestMaybeResolveUniversal_CancellationOwnership(t *testing.T) {
 			}
 		}
 	}
+}
+
+// lateErrContext reports err only after end is called, so a test can make the
+// inbound request context finish in the middle of a resolver call.
+type lateErrContext struct {
+	context.Context
+	mu   sync.Mutex
+	err  error
+	done chan struct{}
+}
+
+func (c *lateErrContext) end(err error) {
+	if err == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.err == nil {
+		c.err = err
+		close(c.done)
+	}
+}
+
+func (c *lateErrContext) Done() <-chan struct{} { return c.done }
+
+func (c *lateErrContext) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
+}
+
+type lateErrSpanLister struct{ fail func() error }
+
+func (l *lateErrSpanLister) GetAvailableGroups(context.Context, int64) ([]service.Group, error) {
+	return nil, l.fail()
 }
