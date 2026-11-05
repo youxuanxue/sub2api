@@ -224,7 +224,7 @@ func normalizeChatToolConstraints(body []byte) ([]byte, error) {
 	if (modern.none && (legacy.name != "" || legacy.required)) ||
 		(legacy.none && (modern.name != "" || modern.required)) ||
 		(modern.name != "" && legacy.name != "" && modern.name != legacy.name) {
-		return nil, errors.New("conflicting tool_choice and function_call constraints")
+		return nil, newOpenAIInvalidParameterError("tool_choice", "conflicting tool_choice and function_call constraints")
 	}
 	if modern.none || legacy.none {
 		delete(root, "tools")
@@ -248,7 +248,7 @@ func normalizeChatToolConstraints(body []byte) ([]byte, error) {
 	for _, key := range []string{"tools", "functions"} {
 		var definitions []json.RawMessage
 		if raw, exists := root[key]; exists && json.Unmarshal(raw, &definitions) != nil {
-			return nil, errors.New("tool definitions must be an array")
+			return nil, newOpenAIInvalidParameterError(key, key+" must be an array")
 		}
 		selected := make([]json.RawMessage, 0, 1)
 		for _, definition := range definitions {
@@ -266,7 +266,11 @@ func normalizeChatToolConstraints(body []byte) ([]byte, error) {
 		}
 		required := (key == "tools" && modern.name != "") || (key == "functions" && legacy.name != "")
 		if len(selected) > 1 || (required && len(selected) != 1) {
-			return nil, errors.New("selected function must have exactly one definition")
+			param := "tool_choice"
+			if key == "functions" {
+				param = "function_call"
+			}
+			return nil, newOpenAIInvalidParameterError(param, "selected function must have exactly one definition")
 		}
 		if len(selected) == 0 {
 			delete(root, key)

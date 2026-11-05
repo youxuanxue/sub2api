@@ -1,7 +1,7 @@
 ---
 title: Plan Chat 工具与角色兼容
 status: approved
-approved_by: "user (2026-10-13 conversation: 请实现修复方案，指定函数仅提供该函数、none 移除 tools、阿里 developer 改 system、显式 json_object; 先把 max_tokens + max_completion_tokens 并存 → 400 修复); user (2026-10-19 conversation: 客户反馈 temperature/max_tokens 上游 400，请排查、定位、解决 — Volc Agent Plan sampling/max_tokens clamp)"
+approved_by: "user (2026-10-13 conversation: 请实现修复方案，指定函数仅提供该函数、none 移除 tools、阿里 developer 改 system、显式 json_object; 先把 max_tokens + max_completion_tokens 并存 → 400 修复); user (2026-10-19 conversation: 客户反馈 temperature/max_tokens 上游 400，请排查、定位、解决 — Volc Agent Plan sampling/max_tokens clamp); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变。)"
 approved_at: 2026-10-19
 risk: high
 ---
@@ -24,7 +24,11 @@ Ali Token Plan 和 VolcEngine Agent Plan 的部分 Chat 供应路径接受工具
 - auto/required/未指定选择：不缩减工具列表。此修复不保证模型必定调用工具，
   不保证 parallel_tool_calls=false 的调用数量，也不裁剪供应响应来伪造通过。
 - 指定名称必须在对应工具列表中恰好定义一次；冲突选择、非法选择或缺少指定
-  定义返回现有 invalid_request_error / 400，不进行供应请求，不包含客户正文。
+  定义返回 invalid_request_error / 400，不进行供应请求，不包含客户正文。
+  自 2026-11-05 起为字段级错误：`code=invalid_parameter`，`param` 为
+  `tool_choice` / `function_call` / `tools` / `functions`，非法模式的消息列出
+  合法值 `none, auto, required, or a named function`（与火山 Agent Plan 的同一
+  枚举一致，见 `volc-kimi-chat-compatibility.md` 2026-11-05 节）。
 - Ali Token Plan 的 developer 转为 system，保留消息顺序、内容和扩展字段；
   火山和其他支持 developer 的供应目的地不因模型名称相同而被改写。
 - 输出长度：当存在正数 `max_completion_tokens` 时，写入 `max_tokens` 并删除
@@ -77,8 +81,10 @@ candidate/Plan 继续裁决账号与协议。
 - `TestChatProviderConstraints_ForwardRawAndAliAdaptor`：真实 Ali adaptor 对本地
   HTTP 供应端、火山 raw 发送；直连/万能 key × 流式/非流式，验证出站与客户端
   工具结果、角色、双 token 字段归一、用量以及显式 json_object/strict schema 无降级。
-- `TestChatProviderConstraints_InvalidSelectionDoesNotSend`：raw/bridge 返回现有
-  400 错误结构，零上游调用，错误不带客户正文。
+- `TestChatProviderConstraints_InvalidSelectionDoesNotSend`：raw/bridge 返回字段级
+  400（`param=tool_choice`），零上游调用，错误不带客户正文。
+- `TestChatToolConstraints_InvalidModeIsFieldLevel`：非法模式、缺函数名、非对象
+  选择均为字段级错误，`writeChatProviderRequestError` 写出 `param`。
 - `TestChatProviderConstraints_ResponsesFallback`：raw/bridge 协议转换后仍过滤
   指定工具或移除所有工具，流式与非流式正确转换响应、保留原始请求。
 

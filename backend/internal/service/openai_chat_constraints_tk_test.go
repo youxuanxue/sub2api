@@ -409,6 +409,8 @@ func TestChatProviderConstraints_InvalidSelectionDoesNotSend(t *testing.T) {
 			require.Error(t, err)
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 			require.Equal(t, "invalid_request_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+			require.Equal(t, "invalid_parameter", gjson.GetBytes(rec.Body.Bytes(), "error.code").String())
+			require.Equal(t, "tool_choice", gjson.GetBytes(rec.Body.Bytes(), "error.param").String())
 			require.NotContains(t, rec.Body.String(), "secret")
 			require.Empty(t, transport.requests)
 		})
