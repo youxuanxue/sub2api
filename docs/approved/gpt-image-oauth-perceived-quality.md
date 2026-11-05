@@ -103,6 +103,8 @@ OAuth、`image_size=2K`、`/v1/images/edits`，排除未落 effort 的历史行�
 
 ## 2026-11-05：默认不发 reasoning.effort
 
+用户在核实美西 prod 直连上游证据后授权修复并开 PR（2026-11-05 对话）。
+
 2026-11-04 起，ChatGPT Codex 后端把 Responses 外层的 `reasoning.effort` 当作图片工具的
 `complexity`。`gpt-image-2-codex` 不接受任何 complexity，流在
 `image_generation_call.generating` 之后返回 `error` 与 `response.failed`：
