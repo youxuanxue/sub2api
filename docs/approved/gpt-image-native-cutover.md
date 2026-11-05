@@ -52,3 +52,12 @@ format/size、stream、`n>1`、usage/billing、影子账号和 404/405 fallback 
 生产发布后执行 immediate 与 delayed smoke，观察原生成功率、完成延迟、格式/尺寸和回退
 计数。出现原生错误率或客户质量回归时，将 `usesCodexDirectImages` 恢复为旧的
 Responses 默认值并重新发布；Responses 路径保留作为即时代码级回退。
+
+## 2026-11-05：上架 gpt-image-2.6-flare / gpt-image-2.6-sunburst
+
+用户在对话中决定上架 2.6 并按官方 API 定价同步（2026-11-05：“上架 2.6”“定价按照官方 openai apikey 中 2.6 的定价同步”）。
+
+- 范围：仅 OpenAI OAuth / Setup-Token 原生 Codex Images 路径；第三方中转 scope 不加。官方没有裸 `gpt-image-2.6` ID，简写别名指向 flare。
+- 定价：与官方页一致，$5 / $1.25 文本输入、$8 / $2 图片输入、$30 图片输出（每 1M tokens），与 2.5 相同。
+- 已知差异：同日 prod 直连实测，两个 OAuth 账号对 2.6 名字都返回 200 出图，但上游不报模型，quality、尺寸、output_tokens 分布与 `gpt-image-2` 一致；`complexity` 被忽略，`output_format=svg` 返回 PNG，`gif` 返回 400。上架时接受这一差异。SVG / GIF 转换另行决策。
+- 回滚：从目录 floor、直连名单和默认模型列表移除两个 ID，重新生成 bundle 并走 activation。
