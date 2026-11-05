@@ -1677,6 +1677,27 @@
       }
     },
     {
+      "upstream": "Wei-Shaw/sub2api#8513",
+      "tokenkey_pr": "youxuanxue/sub2api#3054",
+      "status": "fixed_in_tokenkey",
+      "summary": "Native Responses WebSocket ingress rate limits on turn>1 before any downstream write now fail over with a current-turn payload rebuilt by buildOpenAIWSCurrentTurnRetryPayload. Turn 1 still replays the first message. An unsafe or empty rebuild closes the connection instead of replaying the first message.",
+      "fixed_by": [
+        "backend/internal/service/openai_ws_forwarder.go",
+        "backend/internal/service/openai_ws_forwarder_ingress.go",
+        "backend/internal/service/openai_ws_native_ingress_ratelimit_failover_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_ws_forwarder.go:func openAIWSNativeIngressRateLimitFailoverError(",
+        "backend/internal/service/openai_ws_forwarder.go:return newOpenAIWSCurrentTurnFailoverError(cause, nil)",
+        "backend/internal/service/openai_ws_forwarder_ingress.go:openAIWSNativeIngressRateLimitFailoverError("
+      ],
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Later native ingress turns that hit a 429 before downstream output return openAIWSCurrentTurnFailoverError. The replacement account receives the rebuilt current turn, not the connection's first packet. Unsafe rebuilds carry an empty current-turn payload so the handler closes. Turn 1 remains a plain UpstreamFailoverError."
+      }
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#8505",
       "tokenkey_pr": "youxuanxue/sub2api#3055",
       "status": "fixed_in_tokenkey",
