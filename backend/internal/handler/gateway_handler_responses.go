@@ -355,6 +355,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
 				ReqLog:             reqLog,
 				LogFailedEvent:     "gateway.responses.record_usage_failed",
+				ForwardErr:         err,
 			})
 		}
 

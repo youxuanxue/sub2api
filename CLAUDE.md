@@ -125,6 +125,7 @@ submodule then parent. CI must `submodules: recursive`.
 | Account usage UI / NewAPI windows | [`claude-hard-rules.md`](docs/global/claude-hard-rules.md#account-usage-ssot-detail) |
 | Studio Image / Video / BakeOff | [`agent-reference.md`](docs/global/agent-reference.md#studio-ssot-studio-image--video--bakeoff) |
 | Client-closed 499 | [`docs/approved/client-closed-499-ssot.md`](docs/approved/client-closed-499-ssot.md) — owner `client_closed_request_tk.go` |
+| Zero-usage estimate fallback | [`docs/approved/usage-estimate-fallback-ssot.md`](docs/approved/usage-estimate-fallback-ssot.md) — owner `usage_estimate_fallback_tk.go` |
 | Unsupported model 404 | [`docs/approved/unsupported-model-404-ssot.md`](docs/approved/unsupported-model-404-ssot.md) — owner `gateway_service_tk_unsupported_model.go` |
 | Trajectory capture / raw archive | [`docs/approved/qa-raw-only.md`](docs/approved/qa-raw-only.md) |
 | Skills | `.cursor/skills/*/SKILL.md`; `.claude/skills` → symlink; index [`AGENTS.md`](AGENTS.md) |

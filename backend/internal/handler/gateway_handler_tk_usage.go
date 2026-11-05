@@ -71,12 +71,16 @@ type tkClaudeGatewayForwardUsageInput struct {
 	ChannelUsageFields service.ChannelUsageFields
 	ReqLog             *zap.Logger
 	LogFailedEvent     string
+	// ForwardErr is the forward error returned with a partial result; the
+	// zero-usage estimate owner never estimates an errored forward.
+	ForwardErr error
 }
 
 func (h *GatewayHandler) tkSubmitClaudeGatewayForwardUsage(in tkClaudeGatewayForwardUsageInput) {
 	if in.Result == nil {
 		return
 	}
+	h.gatewayService.ApplyUsageEstimateFallback(in.C.Request.Context(), in.C, in.Account, in.Result, in.Body, in.ForwardErr)
 	in.APIKey, in.Subscription = snapshotCandidateBilling(in.C.Request.Context(), in.APIKey, in.Subscription)
 	userAgent := in.C.GetHeader("User-Agent")
 	clientIP := ip.GetClientIP(in.C)

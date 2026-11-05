@@ -872,6 +872,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		)
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
+		h.gatewayService.ApplyUsageEstimateFallback(requestCtx, c, account, result, body, err)
 		requestPayloadHash := service.HashUsageRequestPayload(body)
 		inboundEndpoint := GetInboundEndpoint(c)
 		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
