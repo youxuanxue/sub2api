@@ -428,10 +428,7 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatResponse(
 		}
 	}
 
-	imageCount := 0
-	if err == nil {
-		imageCount = resolveGeminiImageCount(c, call.request.originalModel, call.billingModel)
-	}
+	imageCount := resolveGeminiImageCount(c, call.request.originalModel, call.billingModel)
 
 	return &ForwardResult{
 		RequestID:                     requestID,
