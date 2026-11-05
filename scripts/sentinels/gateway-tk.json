@@ -19004,11 +19004,6 @@
       "rationale": "Keep Claude, Chat, and Responses coverage for uncommitted failover, committed SSE errors, and real STOP completion."
     },
     {
-      "path": "backend/internal/service/antigravity_gateway_compat_test.go",
-      "must_contain": [
-        "func TestAntigravityCompatKeepaliveAfterFirstEvent("
-      ],
-      "rationale": "A keepalive after the first text event must still ping, and closing that partial stream without finishReason must return missing_finish_reason instead of a successful completion.",
       "path": "backend/internal/service/usage_estimate_fallback_tk.go",
       "must_contain": [
         "UsageEstimatedBillingTier = \"usage-estimated\"",
@@ -19022,9 +19017,11 @@
         "tokenestimate.Count(",
         "func openAIUsageLogBillingTier(",
         "result.PrecomputedCost = s.previewClaudeClientUsageCost(ctx, c, account, result.Usage, result.Model, result.UpstreamModel)",
-        "result.PrecomputedCost = s.previewOpenAIClientUsageCost(ctx, c, account, result)"
+        "result.PrecomputedCost = s.previewOpenAIClientUsageCost(ctx, c, account, result)",
+        "defer releaseUsageEstimateCapture(c)",
+        "func releaseUsageEstimateCapture(c *gin.Context) {"
       ],
-      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Single owner: real usage wins, empty output/errors/media/native estimators (Kiro, Gemini Web) are never estimated, one ops event + log per estimate, and only this owner's tier is persisted on the OpenAI RecordUsage path. The estimate is priced once: the same CostBreakdown becomes PrecomputedCost and the client usage.cost (R-001 parity)."
+      "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Single owner: real usage wins, empty output/errors/media/native estimators (Kiro, Gemini Web) are never estimated, one ops event + log per estimate, and only this owner's tier is persisted on the OpenAI RecordUsage path. The estimate is priced once: the same CostBreakdown becomes PrecomputedCost and the client usage.cost (R-001 parity). Both hooks release held client bytes at the choke point (defer releaseUsageEstimateCapture), so inline usage submission under the sync overflow policy never delays delivery."
     },
     {
       "path": "backend/internal/service/usage_estimate_capture_tk.go",

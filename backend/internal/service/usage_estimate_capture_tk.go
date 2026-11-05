@@ -400,8 +400,13 @@ func (w *usageEstimateCaptureWriter) applyEstimate(est usageEstimateTokens, cost
 }
 
 // release writes held bytes, with the estimate patched into the client usage
-// when one was applied. It runs once, when the handler returns.
+// when one was applied. It runs once: at the billing choke point (after the
+// estimate decision, before usage submission), or when the handler returns for
+// paths that never reach a choke point.
 func (w *usageEstimateCaptureWriter) release() error {
+	if w == nil {
+		return nil
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.released {

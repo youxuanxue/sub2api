@@ -91,6 +91,7 @@ func openAIUsageHasBillableTokens(u OpenAIUsage) bool {
 // forward path stashed it. The estimate is priced once here: the same
 // CostBreakdown becomes PrecomputedCost and the client usage.cost.
 func (s *GatewayService) ApplyUsageEstimateFallback(ctx context.Context, c *gin.Context, account *Account, result *ForwardResult, inboundBody []byte, forwardErr error) bool {
+	defer releaseUsageEstimateCapture(c)
 	if result == nil || forwardErr != nil || result.ClientDisconnect || result.ImageCount > 0 || result.AudioUsage != nil || claudeUsageHasBillableTokens(result.Usage) {
 		return false
 	}
@@ -105,6 +106,7 @@ func (s *GatewayService) ApplyUsageEstimateFallback(ctx context.Context, c *gin.
 // ApplyOpenAIUsageEstimateFallback is the same hook for the OpenAI-compatible
 // result type (OpenAI/Codex, newapi bridge and raw, Grok, OpenRouter, Volc).
 func (s *OpenAIGatewayService) ApplyOpenAIUsageEstimateFallback(ctx context.Context, c *gin.Context, account *Account, result *OpenAIForwardResult, inboundBody []byte, forwardErr error) bool {
+	defer releaseUsageEstimateCapture(c)
 	if result == nil || forwardErr != nil || result.ClientDisconnect || result.ImageCount > 0 || result.VideoCount > 0 || result.AudioUsage != nil || openAIUsageHasBillableTokens(result.Usage) {
 		return false
 	}
@@ -116,9 +118,19 @@ func (s *OpenAIGatewayService) ApplyOpenAIUsageEstimateFallback(ctx context.Cont
 	})
 }
 
+// releaseUsageEstimateCapture writes held client bytes at the billing choke
+// point, whatever the estimate decision: the response is final once the
+// forward returned, and nothing after this point (usage submission may run
+// inline when the record pool overflows under the default "sync" policy) may
+// delay delivery.
+func releaseUsageEstimateCapture(c *gin.Context) {
+	_ = usageEstimateCaptureFromContext(c).release()
+}
+
 // applyUsageEstimate decides, then lets the caller stamp and price its result
 // type, then hands the billed numbers and cost to the client usage writer.
 func applyUsageEstimate(c *gin.Context, account *Account, model, upstreamModel, requestID string, stream bool, inboundBody []byte, stamp func(usageEstimateTokens) *CostBreakdown) bool {
+	capture := usageEstimateCaptureFromContext(c)
 	est, ok := decideUsageEstimate(c, account, model, upstreamModel, requestID, stream, inboundBody)
 	if !ok {
 		return false
@@ -129,7 +141,7 @@ func applyUsageEstimate(c *gin.Context, account *Account, model, upstreamModel, 
 		t := cost.TotalCost
 		total = &t
 	}
-	usageEstimateCaptureFromContext(c).applyEstimate(est, total)
+	capture.applyEstimate(est, total)
 	return true
 }
 

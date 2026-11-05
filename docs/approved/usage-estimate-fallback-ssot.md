@@ -31,6 +31,16 @@ records evidence and fills client usage. Protocol code only extracts text.
    (`grok_missing_usage`). The owner only sees Grok results that reach a
    billing choke point, which is the stream case where failover is no longer
    possible.
+7. The Grok failover guard keeps its own, stricter predicate
+   (`hasBillableGrokChatUsage`: aggregate input/output/cache buckets only).
+   Detail-only image tokens do not prove a Grok response can be settled, so it
+   still fails over; the estimate owner treats any non-zero bucket, image
+   included, as real usage and never overrides it.
+8. Held client bytes leave at the billing choke point, whether or not an
+   estimate applies: both hooks release the capture writer before returning.
+   Work after the choke point (usage submission runs inline when the record
+   pool overflows under the default `sync` policy) never delays delivery.
+   Paths that never reach a choke point are released when the handler returns.
 
 Estimate: input = cl100k count of the prompt text the upstream received (final
 outbound body when a path stashed it, else the ops upstream wire body, else the
@@ -178,7 +188,8 @@ protocol and stream mode on both result types (billed, tagged, client usage
 equals billed, one event), chat stream ordering and in-place patch, real usage
 wins per bucket, empty output not estimated, errored/in-band-error/disconnect/
 media/native-estimator skips, non-text routes not captured, held bytes count as
-written, content streams before usage, flushed JSON released, persistence on
+written, content streams before usage, flushed JSON released, held body
+released at the choke point (estimated and real-usage cases), persistence on
 both RecordUsage paths, tier does not change price, client usage.cost equals
-billed cost, and the Volc raw Chat path end to end. Existing Kiro, Gemini Web and Grok missing-usage tests are
-unchanged.
+billed cost, and the Volc raw Chat path end to end. Existing Kiro, Gemini Web
+and Grok missing-usage tests are unchanged.

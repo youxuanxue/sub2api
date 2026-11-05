@@ -234,6 +234,56 @@ func TestUsageEstimateZeroUsageBillsTagsAndFillsClientUsage(t *testing.T) {
 	}
 }
 
+// The billing choke point is the last moment the response can change. Held
+// client bytes must leave there, so later work in the handler (usage
+// submission runs inline when the record pool overflows under the default
+// "sync" policy) never delays delivery — estimated or not.
+func TestUsageEstimateChokePointReleasesHeldBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const realUsageBody = `{"choices":[{"message":{"content":"` + estimateAnswer + `"}}],"usage":{"prompt_tokens":7,"completion_tokens":5}}`
+	cases := []struct {
+		name, response string
+		wantBilled     bool
+	}{
+		{"zero usage is estimated", zeroUsageCases[0].response, true},
+		{"real usage is kept", realUsageBody, false},
+	}
+	require.Equal(t, "/v1/chat/completions", zeroUsageCases[0].path)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := gin.New()
+			r.Use(WithUsageEstimateCapture(func(c *gin.Context) { c.Next() }))
+			rec := httptest.NewRecorder()
+			var visibleAfterChokePoint string
+			var billed bool
+			r.POST("/v1/chat/completions", func(c *gin.Context) {
+				body, _ := io.ReadAll(c.Request.Body)
+				c.Writer.Header().Set("Content-Type", "application/json")
+				c.Writer.WriteHeader(http.StatusOK)
+				_, _ = c.Writer.WriteString(tc.response)
+				require.Empty(t, rec.Body.String(), "non-stream body is held until the choke point")
+				result := &OpenAIForwardResult{Model: "m", RequestID: "up-1"}
+				if !strings.Contains(tc.response, `"prompt_tokens":7`) {
+					result.Usage = OpenAIUsage{}
+				} else {
+					result.Usage = OpenAIUsage{InputTokens: 7, OutputTokens: 5}
+				}
+				billed = (&OpenAIGatewayService{}).ApplyOpenAIUsageEstimateFallback(context.Background(), c, estimateTestAccount(), result, body, nil)
+				visibleAfterChokePoint = rec.Body.String()
+			})
+			r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(zeroUsageCases[0].request)))
+			require.Equal(t, tc.wantBilled, billed)
+			require.Contains(t, visibleAfterChokePoint, estimateAnswer, "body must reach the client when the choke point returns")
+			require.Equal(t, visibleAfterChokePoint, rec.Body.String(), "nothing is written after release")
+			if tc.wantBilled {
+				require.Greater(t, gjson.Get(visibleAfterChokePoint, "usage.prompt_tokens").Int(), int64(0), "released body carries the estimate")
+			} else {
+				require.EqualValues(t, 7, gjson.Get(visibleAfterChokePoint, "usage.prompt_tokens").Int(), "real usage passes through untouched")
+			}
+		})
+	}
+}
+
 func TestUsageEstimateChatStreamOrder(t *testing.T) {
 	run := runEstimateCase(t, zeroUsageCases[1], estimateTestAccount(), true, nil, nil)
 	require.Less(t, strings.Index(run.body, `"usage"`), strings.LastIndex(run.body, "[DONE]"), "usage chunk precedes [DONE]")
