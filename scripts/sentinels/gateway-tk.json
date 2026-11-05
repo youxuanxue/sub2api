@@ -1967,6 +1967,20 @@
       "rationale": "Native Chat-to-Messages execution must retain cache breakpoints and tool controls."
     },
     {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": [
+        "applyStickyToAnthropicMessagesBody(ctx, c, s.settingService, account, anthropicBody, mappedModel, false)"
+      ],
+      "rationale": "Anthropic platform API-key Chat Completions must reuse the Messages sticky injector after Kiro and Bedrock return. OAuth mimicry stays on its own path."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_sticky_test.go",
+      "must_contain": [
+        "TestForwardAsChatCompletions_AnthropicAPIKeySticky"
+      ],
+      "rationale": "Regression: API-key Chat Completions inject a derived session when the client omits metadata.user_id, keep a client-supplied id, and invent nothing when sticky routing is off."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
       "must_contain": [
         "apicompat.ChatCompletionsToAnthropicRequest(&ccReq)"
