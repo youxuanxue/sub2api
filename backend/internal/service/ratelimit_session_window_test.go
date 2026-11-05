@@ -465,3 +465,49 @@ func TestUpdateSessionWindow_NoStatusHeader(t *testing.T) {
 		t.Errorf("expected no calls when status header absent, got %d", len(repo.sessionWindowCalls))
 	}
 }
+
+func TestUpdateSessionWindow_Samples7dWithout5hStatus(t *testing.T) {
+	// Ultra setup-token 成功响应没有 5h status，只带 7 日额度头。
+	// 必须写入 7d utilization/reset，且不能因此初始化 5h 窗口或清掉已有限流。
+	resetUnix := time.Now().Add(6 * 24 * time.Hour).Unix()
+	rateLimitUntil := time.Now().Add(2 * time.Hour)
+
+	repo := &sessionWindowMockRepo{}
+	svc := newRateLimitServiceForTest(repo)
+
+	account := &Account{
+		ID:               101,
+		RateLimitResetAt: &rateLimitUntil,
+	}
+	if !account.IsRateLimited() {
+		t.Fatal("fixture must stay rate limited so a mistaken ClearRateLimit is observable")
+	}
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-7d-utilization", "0.42")
+	headers.Set("anthropic-ratelimit-unified-7d-reset", fmt.Sprintf("%d", resetUnix))
+
+	svc.UpdateSessionWindow(context.Background(), account, headers)
+
+	if len(repo.sessionWindowCalls) != 0 {
+		t.Errorf("expected no UpdateSessionWindow when 5h status absent, got %d", len(repo.sessionWindowCalls))
+	}
+	if len(repo.clearRateLimitIDs) != 0 {
+		t.Errorf("missing 5h status must not clear rate limit, got %v", repo.clearRateLimitIDs)
+	}
+	if len(repo.updateExtraCalls) != 1 {
+		t.Fatalf("expected 1 UpdateExtra call, got %d", len(repo.updateExtraCalls))
+	}
+	updates := repo.updateExtraCalls[0].Updates
+	if repo.updateExtraCalls[0].ID != 101 {
+		t.Errorf("expected UpdateExtra account ID 101, got %d", repo.updateExtraCalls[0].ID)
+	}
+	if val, ok := updates["passive_usage_7d_utilization"].(float64); !ok || val != 0.42 {
+		t.Errorf("expected passive_usage_7d_utilization=0.42, got %v", updates["passive_usage_7d_utilization"])
+	}
+	if val, ok := updates["passive_usage_7d_reset"].(int64); !ok || val != resetUnix {
+		t.Errorf("expected passive_usage_7d_reset=%d, got %v", resetUnix, updates["passive_usage_7d_reset"])
+	}
+	if _, ok := updates["session_window_utilization"]; ok {
+		t.Errorf("missing 5h status must not write session_window_utilization, got %v", updates["session_window_utilization"])
+	}
+}
