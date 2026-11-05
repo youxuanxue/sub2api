@@ -78,6 +78,7 @@ var codexModelMap = map[string]string{
 	"gpt-5.3-chat-latest": "gpt-5.3-codex-spark",
 	"gpt-6-sol":           "gpt-6-sol",
 	"gpt-6-luna":          "gpt-6-luna",
+	"gpt-6.1-terra":       "gpt-6.1-terra",
 	"gpt-6.1-sol":         "gpt-6.1-sol",
 	"gpt-6.1":             "gpt-6.1-sol",
 }
@@ -86,6 +87,7 @@ var codexVersionModelPrefixes = []struct {
 	prefix string
 	target string
 }{
+	{prefix: "gpt-6.1-terra", target: "gpt-6.1-terra"},
 	{prefix: "gpt-6.1-sol", target: "gpt-6.1-sol"},
 	{prefix: "gpt-6.1", target: "gpt-6.1-sol"},
 	{prefix: "gpt-6-sol", target: "gpt-6-sol"},
@@ -730,6 +732,9 @@ func remapOpenAICodexWireModel(modelID string) string {
 	modelID = strings.TrimSpace(modelID)
 	if modelID == "" {
 		return ""
+	}
+	if openai.IsGPT61TerraModelSpelling(modelID) {
+		return "gpt-6.1-terra"
 	}
 	if openai.IsGPT61SolModelSpelling(modelID) {
 		return "gpt-6.1-sol"

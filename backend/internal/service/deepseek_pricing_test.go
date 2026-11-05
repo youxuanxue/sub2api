@@ -316,3 +316,53 @@ func TestDeepseekPricingFileMatchesOfficialRates(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Upstream 5db2d6956 intent, adapted to the TK pricing registry:
+// deepseek-flash shares legacy flash rates, and deepseek-v4-pro keeps Pro
+// rates across the originally planned 2026-09-14 cutoff.
+// ---------------------------------------------------------------------------
+
+func TestCalculateCostUnified_DeepseekFlashAndLegacyFlashShareNewRates(t *testing.T) {
+	bs := newTestBillingService()
+	resolver := NewModelPricingResolver(nil, bs)
+
+	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 1000}
+	offPeakTotal := tkCNYPerMTokToUSDPerToken(1000*1+500*4+1000*0.02) * tkOfficialListBaseTaxMultiplier()
+
+	// 2026-09-14（周一）12:00 UTC 低谷，峰谷倍率不影响断言。
+	for _, model := range []string{"deepseek-flash", "deepseek-v4-flash"} {
+		cost, err := bs.CalculateCostUnified(CostInput{
+			Ctx: context.Background(), Model: model, Tokens: tokens,
+			RateMultiplier: 1.0, Resolver: resolver,
+			PricingAt: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC),
+		})
+		require.NoError(t, err)
+		require.InDelta(t, offPeakTotal, cost.TotalCost, 1e-10, "model %s must use flash rates", model)
+	}
+}
+
+func TestCalculateCostUnified_DeepseekProRetainsRatesAfterSeptember14(t *testing.T) {
+	bs := newTestBillingService()
+	resolver := NewModelPricingResolver(nil, bs)
+
+	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 1000}
+	proTotal := tkCNYPerMTokToUSDPerToken(1000*4.5+500*13.5+1000*0.15) * tkOfficialListBaseTaxMultiplier()
+
+	for _, tc := range []struct {
+		model string
+		at    time.Time
+	}{
+		{"deepseek-v4-pro", time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)},
+		{"deepseek-v4-pro", time.Date(2026, 9, 14, 4, 0, 0, 0, time.UTC)},
+		{"deepseek-v4-pro-0813", time.Date(2026, 9, 14, 4, 0, 0, 0, time.UTC)},
+	} {
+		cost, err := bs.CalculateCostUnified(CostInput{
+			Ctx: context.Background(), Model: tc.model, Tokens: tokens,
+			RateMultiplier: 1.0, Resolver: resolver,
+			PricingAt: tc.at,
+		})
+		require.NoError(t, err)
+		require.InDelta(t, proTotal, cost.TotalCost, 1e-10, "%s must keep Pro rates at %s", tc.model, tc.at)
+	}
+}

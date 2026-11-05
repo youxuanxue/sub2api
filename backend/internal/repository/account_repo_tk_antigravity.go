@@ -8,6 +8,9 @@ import (
 )
 
 func (r *accountRepository) ClearAntigravityQuotaScopes(ctx context.Context, id int64) error {
+	if scoped := r.accountTransactionScope(ctx); scoped != r {
+		return scoped.ClearAntigravityQuotaScopes(ctx, id)
+	}
 	client := clientFromContext(ctx, r.client)
 	result, err := client.ExecContext(
 		ctx,

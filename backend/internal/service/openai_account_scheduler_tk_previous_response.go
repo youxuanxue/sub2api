@@ -38,7 +38,7 @@ func (s *defaultOpenAIAccountScheduler) tkTrySelectByPreviousResponseID(
 		return nil, decision, true, err
 	}
 	if selection != nil && selection.Account != nil {
-		compatible, _ := s.isAccountRequestCompatibleReason(ctx, selection.Account, req)
+		compatible, _ := s.isAccountRequestCompatibleReason(withOpenAIImageSizeStickyAccount(ctx, selection.Account.ID), selection.Account, req)
 		if !compatible ||
 			!s.isAccountTransportCompatible(selection.Account, req.RequiredTransport) ||
 			!s.service.openAIAccountMatchesSchedulingGroup(ctx, selection.Account, req.GroupID, req.schedulePlatform()) {

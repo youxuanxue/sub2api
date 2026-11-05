@@ -51,6 +51,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
+		if handleRequestBodyReadError(c, err) {
+			return
+		}
 		writeReadRequestBodyError(c, err, h.errorResponse)
 		return
 	}
@@ -188,7 +191,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	defer inflightDone()
 
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
-	requestCtx := service.WithOpenAIImagesEndpoint(service.WithOpenAIImageGenerationIntent(c.Request.Context()))
+	requestCtx := service.WithOpenAIImageSizeRouting(service.WithOpenAIImagesEndpoint(service.WithOpenAIImageGenerationIntent(c.Request.Context())), parsed.Size)
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -223,6 +226,11 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				)...,
 			)
 			if len(failedAccountIDs) == 0 {
+				if tier, unsupported := h.gatewayService.OpenAIImageSizeTierUnsupported(c.Request.Context(), apiKey.GroupID, routingModel, parsed.Size, "", parsed.RequiredCapabilityForModel(channelMapping.MappedModel)); unsupported {
+					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+					h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", service.OpenAIImageSizeTierUnsupportedMessage(parsed.Size, tier), streamStarted)
+					return
+				}
 				status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, err)
 				status, errType, msg = openAIImagesUnknownModelNotFound(c, h.gatewayService, apiKey, clientRequestModel, parsed.Size, status, errType, msg)
 				h.handleStreamingAwareError(c, status, errType, msg, streamStarted)

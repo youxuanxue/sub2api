@@ -567,6 +567,7 @@ func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
 		service.ServableClientFacingIDs(context.Background(), service.PlatformGemini, nil, nil),
 		modelIDsForTest(got.Data),
 		"Gemini group fallback must mirror the Gemini servable SSOT")
+	require.NotContains(t, modelIDsForTest(got.Data), "claude-sonnet-4-6")
 }
 
 func TestGatewayModels_Grok45AdvertisesReasoningEffortForGrokBuild(t *testing.T) {

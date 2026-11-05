@@ -185,13 +185,15 @@ type ResponsesEventToAnthropicState struct {
 	MessageStartSent bool
 	MessageStopSent  bool
 
-	ContentBlockIndex   int
-	ContentBlockOpen    bool
-	CurrentBlockType    string // "text" | "thinking" | "tool_use"
-	CurrentToolName     string
-	CurrentToolArgs     string
-	CurrentToolHadDelta bool
-	HasToolCall         bool
+	ContentBlockIndex         int
+	ContentBlockOpen          bool
+	CurrentBlockType          string // "text" | "thinking" | "tool_use"
+	CurrentToolName           string
+	CurrentToolArgs           string
+	CurrentToolHadDelta       bool
+	currentToolArgsBuffer     *strings.Builder
+	currentToolArgsValidation *streamStringBytes
+	HasToolCall               bool
 	// EmittedAnyContentBlock protects Anthropic SSE clients from streams that
 	// terminate without at least one content block.
 	EmittedAnyContentBlock bool
@@ -481,6 +483,8 @@ func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 		state.CurrentToolName = evt.Item.Name
 		state.CurrentToolArgs = ""
 		state.EmittedAnyContentBlock = true
+		state.currentToolArgsBuffer = nil
+		state.currentToolArgsValidation = nil
 		state.CurrentToolHadDelta = false
 		state.HasToolCall = true
 
@@ -611,8 +615,9 @@ func resToAnthHandleFuncArgsDelta(evt *ResponsesStreamEvent, state *ResponsesEve
 	}
 
 	if state.CurrentBlockType == "tool_use" && state.CurrentToolName == "Read" {
-		state.CurrentToolArgs += evt.Delta
-		if state.CurrentToolHadDelta || !json.Valid([]byte(state.CurrentToolArgs)) {
+		previousArgs := state.CurrentToolArgs
+		state.CurrentToolArgs = appendStreamString(&state.currentToolArgsBuffer, state.CurrentToolArgs, evt.Delta)
+		if state.CurrentToolHadDelta || !json.Valid(appendStreamStringBytes(&state.currentToolArgsValidation, previousArgs, state.CurrentToolArgs, evt.Delta)) {
 			return nil
 		}
 
@@ -988,6 +993,8 @@ func closeCurrentBlock(state *ResponsesEventToAnthropicState) []AnthropicStreamE
 	// longer the live thinking block).
 	state.CurrentToolName = ""
 	state.CurrentToolArgs = ""
+	state.currentToolArgsBuffer = nil
+	state.currentToolArgsValidation = nil
 	state.CurrentToolHadDelta = false
 	events = append(events, AnthropicStreamEvent{
 		Type:  "content_block_stop",

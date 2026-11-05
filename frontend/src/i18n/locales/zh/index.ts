@@ -1,4 +1,6 @@
 import historicalBilling from './historicalBilling'
+import adminAccessKeys from './adminAccessKeys'
+import mcp from './mcp'
 import landing from './landing'
 import common from './common'
 import dashboard from './dashboard'
@@ -23,6 +25,8 @@ export default {
   videoUnderstanding: {
     hint: 'kimi-k3 视频理解：优先 /v1/chat/completions + video_url（base64 最稳，或供应侧能拉取的 HTTPS）。/v1/responses + input_video 同样可用。境外公网 URL 常被拒绝；这不是「官方必须走 Responses」。密钥自检仍只发文本 ping。',
   },
+  adminAccessKeys,
+  mcp,
   ...landing,
   ...common,
   ...dashboard,

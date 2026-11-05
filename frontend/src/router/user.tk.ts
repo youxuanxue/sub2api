@@ -222,6 +222,18 @@ const userShellChildren: RouteRecordRaw[] = [
     },
   },
   {
+    path: 'settings/mcp',
+    name: 'MCP',
+    component: () => import('@/views/user/MCPView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'MCP Connection',
+      titleKey: 'mcp.title',
+      descriptionKey: 'mcp.description',
+    },
+  },
+  {
     path: 'models',
     name: 'ModelMarketplace',
     component: () => import('@/views/CatalogHubView.vue'),

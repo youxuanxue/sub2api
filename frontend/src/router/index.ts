@@ -202,6 +202,19 @@ const routes: RouteRecordRaw[] = [
 
   // ==================== User Routes (TK: nested user tree lives in ./user.tk.ts) ====================
   ...userRoutes,
+  // Upstream MCP OAuth consent: standalone auth page (like /login). The MCP
+  // connection page itself lives in ./user.tk.ts under the persistent UserShellView.
+  {
+    path: '/oauth/mcp/authorize',
+    name: 'MCPOAuthAuthorize',
+    component: () => import('@/views/auth/MCPOAuthAuthorizeView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Authorize MCP Application',
+      titleKey: 'mcp.consentTitle'
+    }
+  },
   {
     path: '/payment/result',
     name: 'PaymentResult',

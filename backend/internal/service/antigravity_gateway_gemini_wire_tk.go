@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // Antigravity defaults an omitted imageSize to 1K upstream, while TokenKey's
@@ -120,6 +123,10 @@ func (s *AntigravityGatewayService) buildMessagesForwardUpstreamBody(
 				return nil, err
 			}
 		}
+		claudeBody, err := neutralizeAntigravityClaudeSystemBlocks(claudeBody)
+		if err != nil {
+			return nil, err
+		}
 		return s.buildAntigravityCompatGeminiBody(ctx, claudeBody, claudeReq, projectID, mappedModel)
 	}
 	return antigravity.TransformClaudeToGeminiWithOptions(claudeReq, projectID, mappedModel, transformOpts)
@@ -133,4 +140,37 @@ func antigravitySchemaErrorMessage(err error, fallback string) string {
 		return schemaErr.Error()
 	}
 	return fallback
+}
+
+// neutralizeAntigravityClaudeSystemBlocks applies the per-block identity cleanup
+// that TransformClaudeToGemini performs. The gemini-* converter joins system
+// blocks into one part, so a stale identity in a later block would otherwise no
+// longer sit at the start of a block and survive the wire-level cleanup.
+func neutralizeAntigravityClaudeSystemBlocks(claudeBody []byte) ([]byte, error) {
+	system := gjson.GetBytes(claudeBody, "system")
+	if system.Type == gjson.String {
+		if neutral := antigravity.NeutralizeSystemIdentity(system.String()); neutral != system.String() {
+			return sjson.SetBytes(claudeBody, "system", neutral)
+		}
+		return claudeBody, nil
+	}
+	if !system.IsArray() {
+		return claudeBody, nil
+	}
+	var err error
+	for index, block := range system.Array() {
+		text := block.Get("text")
+		if block.Get("type").String() != "text" || text.Type != gjson.String {
+			continue
+		}
+		neutral := antigravity.NeutralizeSystemIdentity(text.String())
+		if neutral == text.String() {
+			continue
+		}
+		claudeBody, err = sjson.SetBytes(claudeBody, fmt.Sprintf("system.%d.text", index), neutral)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return claudeBody, nil
 }

@@ -51,6 +51,15 @@ func (r schedulerTestOpenAIAccountRepo) ListSchedulableByGroupID(ctx context.Con
 	return append([]Account(nil), r.accounts...), nil
 }
 
+// ListModelAvailabilityCandidates implements the optional
+// modelAvailabilityCandidateLister capability used by the image size-tier veto.
+func (r schedulerTestOpenAIAccountRepo) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, _ []string, _ bool) ([]Account, error) {
+	if groupID == nil {
+		return append([]Account(nil), r.accounts...), nil
+	}
+	return r.ListSchedulableByGroupID(ctx, *groupID)
+}
+
 func (r schedulerTestOpenAIAccountRepo) ListSchedulableByPlatform(ctx context.Context, platform string) ([]Account, error) {
 	var result []Account
 	for _, acc := range r.accounts {

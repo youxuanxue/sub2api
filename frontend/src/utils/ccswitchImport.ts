@@ -1,7 +1,7 @@
 import type { GroupPlatform } from '@/types'
 import { PLATFORM_GEMINI } from '@/constants/gatewayPlatforms'
 
-export const OPENAI_CC_SWITCH_CODEX_MODEL = 'gpt-5.5'
+export const OPENAI_CC_SWITCH_CODEX_MODEL = 'gpt-5.6-sol'
 export const GROK_CC_SWITCH_MODEL = 'grok-4.5'
 
 /** CC Switch `app` parameter — matches farion1231/cc-switch AppType variants TokenKey supports. */

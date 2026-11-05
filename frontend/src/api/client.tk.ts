@@ -22,6 +22,8 @@ export interface ApiErrorFields {
   data?: unknown
   offline?: boolean
   url?: string
+  /** Parsed Retry-After header (seconds) on 429 responses (upstream e47abd8f9). */
+  retry_after_seconds?: number
 }
 
 export class ApiError extends Error {
@@ -33,6 +35,7 @@ export class ApiError extends Error {
   data?: unknown
   offline?: boolean
   url?: string
+  retry_after_seconds?: number
 
   constructor(fields: ApiErrorFields) {
     super(fields.message ?? 'API error')

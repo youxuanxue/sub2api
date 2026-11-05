@@ -34,7 +34,7 @@ const (
 	openaiPlatformAPIURL            = "https://api.openai.com/v1/responses"
 	openaiPlatformAPIInputTokensURL = "https://api.openai.com/v1/responses/input_tokens"
 	openaiStickySessionTTL          = time.Hour // 粘性会话TTL
-	// 与真实 Codex TUI 的 User-Agent 结构对齐：
+	// 与真实 Codex CLI 的 User-Agent 结构对齐：
 	// {originator}/{version} ({OS} {OS_version}; {arch}) {terminal}
 	// 缺少 OS/架构/终端后缀的形态易被上游指纹识别为非官方客户端。
 	// 该后缀是 UA 形态的唯一定义处，buildCodexCLIUserAgent 按运行时版本号复用它。
@@ -187,14 +187,18 @@ type OpenAIForwardResult struct {
 	bridgeTTFTShadowOnly bool
 	ClientDisconnect     bool
 	ImageCount           int
-	ImageSize            string
-	ImageInputSize       string
-	ImageOutputSize      string
-	ImageOutputSizes     []string
-	ImageSizeSource      string
-	ImageSizeBreakdown   map[string]int
-	VideoCount           int
-	VideoResolution      string
+	// ImageEndpoint 标记请求来自专用图片端点；分组 image_count_billing 开关
+	// 只对这类请求生效，混合 Responses/Chat/WS 请求仍按 token 计费。
+	ImageEndpoint      bool
+	ImageSize          string
+	ImageInputSize     string
+	ImageOutputSize    string
+	ImageOutputSizes   []string
+	ImageSizeSource    string
+	ImageSizeBreakdown map[string]int
+	VideoCount         int
+	VideoResolution    string
+	// VideoDurationSeconds 是提交时请求的生成时长（xAI 按输出秒数计费），已归一化到 1-15 秒。
 	VideoDurationSeconds int
 	protocolRouteFacts   RouteFacts
 	VideoGenerateAudio   *bool
@@ -392,8 +396,8 @@ type OpenAIGatewayService struct {
 	responseHeaderFilter                *responseheaders.CompiledHeaderFilter
 	codexSnapshotThrottle               *accountWriteThrottle
 	openAIModelsCache                   openAIModelsCache
-	openaiCompatSessionResponses        sync.Map
-	openaiCompatAnthropicDigestSessions sync.Map
+	openaiCompatSessionResponses        sessionMemoryCache
+	openaiCompatAnthropicDigestSessions sessionMemoryCache
 	tkPricingMissingNotifier            PricingMissingNotifier
 	tkPricingCatalog                    *PricingCatalogService
 	tkGroupUnsupportedCache             *tkGroupUnsupportedModelNegativeCache
@@ -662,10 +666,15 @@ func (s *OpenAIGatewayService) billingDeps() *billingDeps {
 	}
 }
 
-// CloseOpenAIWSPool 关闭 OpenAI WebSocket 连接池的后台 worker 和空闲连接。
+// CloseOpenAIWSPool 关闭 OpenAI WebSocket 连接池、后台 worker 和会话缓存清理 timer。
 // 应在应用优雅关闭时调用。
 func (s *OpenAIGatewayService) CloseOpenAIWSPool() {
-	if s != nil && s.openaiWSPool != nil {
+	if s == nil {
+		return
+	}
+	s.openaiCompatSessionResponses.Close()
+	s.openaiCompatAnthropicDigestSessions.Close()
+	if s.openaiWSPool != nil {
 		s.openaiWSPool.Close()
 	}
 }

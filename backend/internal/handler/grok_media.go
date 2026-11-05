@@ -94,6 +94,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	if endpoint.RequiresRequestBody() {
 		body, err = pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 		if err != nil {
+			if handleRequestBodyReadError(c, err) {
+				return
+			}
 			writeReadRequestBodyError(c, err, h.errorResponse)
 			return
 		}
@@ -782,6 +785,7 @@ func recordGrokMediaUsage(
 	}
 	billingAPIKey, billingSubscription := snapshotCandidateBilling(c.Request.Context(), apiKey, subscription)
 	gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
+	requestPayloadHash := service.HashUsageRequestPayload(payloadForHash)
 	h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result:             result,
@@ -793,7 +797,7 @@ func recordGrokMediaUsage(
 			UpstreamEndpoint:   upstreamEndpoint,
 			UserAgent:          userAgent,
 			IPAddress:          clientIP,
-			RequestPayloadHash: service.HashUsageRequestPayload(payloadForHash),
+			RequestPayloadHash: requestPayloadHash,
 			APIKeyService:      h.apiKeyService,
 			QuotaPlatform:      quotaPlatform,
 			SessionID:          sessionID,

@@ -103,9 +103,12 @@ func TestHandleUpstreamError_KimiConcurrencyLimit403StillUsesConcurrencyPath(t *
 
 	require.True(t, shouldDisable)
 	require.Equal(t, 0, repo.setErrorCalls)
+	// TK owner (#3047): the dedicated concurrency path writes a short
+	// temp-unschedulable cooldown (429 fallback duration), not SetRateLimited.
 	require.Equal(t, 0, repo.rateLimitedCalls, "concurrency-limit message must keep its dedicated path")
 	require.Equal(t, 1, repo.tempCalls)
 	require.Contains(t, repo.lastTempReason, cnConcurrencyLimitReasonPrefix)
+	require.WithinDuration(t, time.Now().Add(5*time.Second), repo.lastTempUntil, time.Second)
 }
 
 func TestHandleUpstreamError_KimiGeneric403StillEscalates(t *testing.T) {

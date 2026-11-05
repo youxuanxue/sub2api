@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -205,6 +205,9 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 
 	body, err := readGrokVoiceGatewayBody(c)
 	if err != nil {
+		if handleRequestBodyReadError(c, err) {
+			return
+		}
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -389,7 +392,7 @@ func readGrokVoiceGatewayBody(c *gin.Context) ([]byte, error) {
 		}
 		return nil, errors.New("request body is required")
 	}
-	return io.ReadAll(c.Request.Body)
+	return pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 }
 
 // extractGrokTTSInputText pulls the primary spoken text from a TTS JSON body.

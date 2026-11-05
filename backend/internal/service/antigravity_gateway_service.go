@@ -762,33 +762,42 @@ func injectIdentityPatchToGeminiRequest(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("解析 Gemini 请求失败: %w", err)
 	}
 
-	modified := antigravity.NormalizeGeminiSystemIdentity(request)
+	// TokenKey: SDK metadata cleanup + system_instruction alias normalization.
+	systemChanged := antigravity.NormalizeGeminiSystemIdentity(request)
 	// Normalize the SDK alias before prepending the identity, preserving its rules.
 	if _, canonical := request["systemInstruction"]; !canonical {
 		if instruction, exists := request["system_instruction"]; exists {
 			request["systemInstruction"] = instruction
 			delete(request, "system_instruction")
-			modified = true
+			systemChanged = true
 		}
 	}
 
+	identityFound := false
 	// 检查现有 systemInstruction 是否已包含身份提示词
 	if sysInst, ok := request["systemInstruction"].(map[string]any); ok {
 		if parts, ok := sysInst["parts"].([]any); ok {
 			for _, part := range parts {
 				if partMap, ok := part.(map[string]any); ok {
 					if text, ok := partMap["text"].(string); ok {
-						if strings.Contains(text, "You are Antigravity") {
-							// Preserve metadata cleanup even when the identity already exists.
-							if modified {
-								return json.Marshal(request)
-							}
-							return body, nil
+						neutral := antigravity.NeutralizeSystemIdentity(text)
+						if neutral != text {
+							partMap["text"] = neutral
+							systemChanged = true
+						}
+						if strings.Contains(neutral, "You are Antigravity") {
+							identityFound = true
 						}
 					}
 				}
 			}
 		}
+	}
+	if identityFound {
+		if systemChanged {
+			return json.Marshal(request)
+		}
+		return body, nil
 	}
 
 	// 获取默认身份提示词

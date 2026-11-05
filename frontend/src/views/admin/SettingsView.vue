@@ -45,6 +45,7 @@
 
         <!-- Tab Panels -->
         <div v-show="activeTab === 'security'" class="space-y-6">
+          <AdminAccessKeysSettings />
           <SecurityPanel />
         </div>
 
@@ -56,6 +57,9 @@
 
         <div v-show="activeTab === 'users'" class="space-y-6">
           <UsersPanel />
+          <div class="card p-6">
+            <RegistrationEmailBlacklistEditor />
+          </div>
         </div>
 
         <div v-show="activeTab === 'general'" class="space-y-6">
@@ -178,6 +182,11 @@ import AgreementPanel from "./settings/AgreementPanel.vue";
 import FeaturesPanel from "./settings/FeaturesPanel.vue";
 import PaymentPanel from "./settings/PaymentPanel.vue";
 import EmailPanel from "./settings/EmailPanel.vue";
+
+// Upstream admin access keys (scoped) and exact registration email blacklist;
+// both are self-loading, so they mount beside the TK panels without shared state.
+import AdminAccessKeysSettings from "@/components/admin/settings/AdminAccessKeysSettings.vue";
+import RegistrationEmailBlacklistEditor from "@/components/admin/settings/RegistrationEmailBlacklistEditor.vue";
 
 const { t, locale } = useI18n();
 const appStore = useAppStore();

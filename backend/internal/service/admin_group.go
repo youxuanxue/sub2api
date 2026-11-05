@@ -524,6 +524,8 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 
 	allowImageGeneration := input.AllowImageGeneration || defaultAllowImageGenerationForPlatform(platform)
 	allowBatchImageGeneration := input.AllowBatchImageGeneration && allowImageGeneration && platform == PlatformGemini
+	imageCountBilling := input.ImageCountBilling && allowImageGeneration &&
+		(platform == PlatformComposite || platform == PlatformOpenAI)
 
 	// 如果指定了复制账号的源分组，先获取账号 ID 列表
 	var accountIDsToCopy []int64
@@ -568,62 +570,65 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		return nil, err
 	}
 	group := &Group{
-		Name:                                   input.Name,
-		I18n:                                   i18n,
-		Description:                            input.Description,
-		Platform:                               platform,
-		RateMultiplier:                         input.RateMultiplier,
-		IsExclusive:                            input.IsExclusive,
-		Status:                                 StatusActive,
-		SubscriptionType:                       subscriptionType,
-		DailyLimitUSD:                          dailyLimit,
-		WeeklyLimitUSD:                         weeklyLimit,
-		MonthlyLimitUSD:                        monthlyLimit,
-		LongContextPricingEnabled:              input.LongContextPricingEnabled,
-		ModelPricing:                           modelPricing,
-		AllowImageGeneration:                   allowImageGeneration,
-		AllowBatchImageGeneration:              allowBatchImageGeneration,
-		ImageRateIndependent:                   input.ImageRateIndependent,
-		ImageRateMultiplier:                    imageRateMultiplier,
-		BatchImageDiscountMultiplier:           batchImageDiscountMultiplier,
-		BatchImageHoldMultiplier:               batchImageHoldMultiplier,
-		VideoRateIndependent:                   input.VideoRateIndependent,
-		VideoRateMultiplier:                    videoRateMultiplier,
-		PeakRateEnabled:                        peakRateEnabled,
-		PeakStart:                              peakStart,
-		PeakEnd:                                peakEnd,
-		PeakRateMultiplier:                     peakRateMultiplier,
-		ProfitControlEnabled:                   profitControlEnabled,
-		ProfitMinMargin:                        profitMinMargin,
-		ProfitSafetyBuffer:                     profitSafetyBuffer,
-		ImagePrice1K:                           imagePrice1K,
-		ImagePrice2K:                           imagePrice2K,
-		ImagePrice4K:                           imagePrice4K,
-		VideoPrice480P:                         videoPrice480P,
-		VideoPrice720P:                         videoPrice720P,
-		VideoPrice1080P:                        videoPrice1080P,
-		VideoModelPrices:                       NormalizeVideoModelPrices(input.VideoModelPrices),
-		WebSearchPricePerCall:                  webSearchPricePerCall,
-		SearchPricePer1k:                       searchPricePer1k,
-		AudioRealtimePricePerMin:               audioRealtimePricePerMin,
-		AudioTTSPricePerMillionChars:           audioTTSPricePerMillionChars,
-		AudioSTTPricePerHour:                   audioSTTPricePerHour,
-		ClaudeCodeOnly:                         input.ClaudeCodeOnly,
-		FallbackGroupID:                        input.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest:        fallbackOnInvalidRequest,
-		ModelRouting:                           domain.NormalizeGroupModelRouting(input.ModelRoutingEnabled, input.ModelRouting),
-		ModelRoutingEnabled:                    input.ModelRoutingEnabled,
-		MCPXMLInject:                           mcpXMLInject,
-		SupportedModelScopes:                   input.SupportedModelScopes,
-		AllowMessagesDispatch:                  input.AllowMessagesDispatch,
-		AllowLive:                              input.AllowLive,
-		RequireOAuthOnly:                       input.RequireOAuthOnly,
-		RequirePrivacySet:                      input.RequirePrivacySet,
-		DefaultMappedModel:                     input.DefaultMappedModel,
-		MessagesDispatchModelConfig:            normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
-		StickyRoutingMode:                      strings.TrimSpace(input.StickyRoutingMode),
-		ModelsListConfig:                       normalizeGroupModelsListConfig(input.ModelsListConfig),
-		ModelAllowlist:                         modelAllowlist,
+		Name:                            input.Name,
+		I18n:                            i18n,
+		Description:                     input.Description,
+		Platform:                        platform,
+		RateMultiplier:                  input.RateMultiplier,
+		IsExclusive:                     input.IsExclusive,
+		Status:                          StatusActive,
+		SubscriptionType:                subscriptionType,
+		DailyLimitUSD:                   dailyLimit,
+		WeeklyLimitUSD:                  weeklyLimit,
+		MonthlyLimitUSD:                 monthlyLimit,
+		LongContextPricingEnabled:       input.LongContextPricingEnabled,
+		ModelPricing:                    modelPricing,
+		AllowImageGeneration:            allowImageGeneration,
+		AllowBatchImageGeneration:       allowBatchImageGeneration,
+		ImageCountBilling:               imageCountBilling,
+		ImageRateIndependent:            input.ImageRateIndependent,
+		ImageRateMultiplier:             imageRateMultiplier,
+		BatchImageDiscountMultiplier:    batchImageDiscountMultiplier,
+		BatchImageHoldMultiplier:        batchImageHoldMultiplier,
+		VideoRateIndependent:            input.VideoRateIndependent,
+		VideoRateMultiplier:             videoRateMultiplier,
+		PeakRateEnabled:                 peakRateEnabled,
+		PeakStart:                       peakStart,
+		PeakEnd:                         peakEnd,
+		PeakRateMultiplier:              peakRateMultiplier,
+		ProfitControlEnabled:            profitControlEnabled,
+		ProfitMinMargin:                 profitMinMargin,
+		ProfitSafetyBuffer:              profitSafetyBuffer,
+		ImagePrice1K:                    imagePrice1K,
+		ImagePrice2K:                    imagePrice2K,
+		ImagePrice4K:                    imagePrice4K,
+		VideoPrice480P:                  videoPrice480P,
+		VideoPrice720P:                  videoPrice720P,
+		VideoPrice1080P:                 videoPrice1080P,
+		VideoModelPrices:                NormalizeVideoModelPrices(input.VideoModelPrices),
+		WebSearchPricePerCall:           webSearchPricePerCall,
+		SearchPricePer1k:                searchPricePer1k,
+		AudioRealtimePricePerMin:        audioRealtimePricePerMin,
+		AudioTTSPricePerMillionChars:    audioTTSPricePerMillionChars,
+		AudioSTTPricePerHour:            audioSTTPricePerHour,
+		ClaudeCodeOnly:                  input.ClaudeCodeOnly,
+		FallbackGroupID:                 input.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest: fallbackOnInvalidRequest,
+		ModelRouting:                    domain.NormalizeGroupModelRouting(input.ModelRoutingEnabled, input.ModelRouting),
+		ModelRoutingEnabled:             input.ModelRoutingEnabled,
+		MCPXMLInject:                    mcpXMLInject,
+		SupportedModelScopes:            input.SupportedModelScopes,
+		AllowMessagesDispatch:           input.AllowMessagesDispatch,
+		AllowLive:                       input.AllowLive,
+		RequireOAuthOnly:                input.RequireOAuthOnly,
+		RequirePrivacySet:               input.RequirePrivacySet,
+		DefaultMappedModel:              input.DefaultMappedModel,
+		MessagesDispatchModelConfig:     normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
+		StickyRoutingMode:               strings.TrimSpace(input.StickyRoutingMode),
+		ModelsListConfig:                normalizeGroupModelsListConfig(input.ModelsListConfig),
+		ModelAllowlist:                  modelAllowlist,
+		// 固定账号 manifest 配置：账号绑定发生在分组创建之后，创建路径禁止开启，
+		// 成员关系无从校验（前端创建对话框也不展示）。
 		CodexModelsManifestConfig:              normalizeCodexModelsManifestConfig(platform, input.CodexModelsManifestConfig),
 		ForceOpenAIFast:                        input.ForceOpenAIFast,
 		FreeOpenAIFast:                         input.FreeOpenAIFast,
@@ -843,6 +848,12 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if !group.AllowImageGeneration || group.Platform != PlatformGemini {
 		group.AllowBatchImageGeneration = false
+	}
+	if input.ImageCountBilling != nil {
+		group.ImageCountBilling = *input.ImageCountBilling
+	}
+	if !group.AllowImageGeneration || (group.Platform != PlatformComposite && group.Platform != PlatformOpenAI) {
+		group.ImageCountBilling = false
 	}
 	if input.ImageRateIndependent != nil {
 		group.ImageRateIndependent = *input.ImageRateIndependent

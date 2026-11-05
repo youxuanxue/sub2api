@@ -7,6 +7,9 @@ Do not hand-edit this file; run `python3 scripts/export_agent_contract.py`.
 
 Generated from live Gin route registrations; do not edit this section.
 
+- `GET /.well-known/oauth-authorization-server` from `backend/internal/server/routes/mcp.go`
+- `GET /.well-known/oauth-protected-resource` from `backend/internal/server/routes/mcp.go`
+- `GET /.well-known/oauth-protected-resource/api/v1/mcp` from `backend/internal/server/routes/mcp.go`
 - `POST /alpha/search` from `backend/internal/server/routes/gateway.go`
 - `GET /antigravity/models` from `backend/internal/server/routes/gateway.go`
 - `POST /antigravity/v1/messages` from `backend/internal/server/routes/gateway.go`
@@ -393,6 +396,12 @@ Generated from live Gin route registrations; do not edit this section.
 - `DELETE /api/v1/admin/settings/admin-api-key` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/settings/admin-api-key` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/settings/admin-api-key/regenerate` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/settings/admin-api-keys` from `backend/internal/server/routes/custom_admin_keys.go`
+- `POST /api/v1/admin/settings/admin-api-keys` from `backend/internal/server/routes/custom_admin_keys.go`
+- `DELETE /api/v1/admin/settings/admin-api-keys/:id` from `backend/internal/server/routes/custom_admin_keys.go`
+- `PUT /api/v1/admin/settings/admin-api-keys/:id` from `backend/internal/server/routes/custom_admin_keys.go`
+- `DELETE /api/v1/admin/settings/admin-api-keys/:id/record` from `backend/internal/server/routes/custom_admin_keys.go`
+- `POST /api/v1/admin/settings/admin-api-keys/:id/rotate` from `backend/internal/server/routes/custom_admin_keys.go`
 - `GET /api/v1/admin/settings/beta-policy` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/settings/beta-policy` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/settings/email-template-preview` from `backend/internal/server/routes/admin.go`
@@ -410,6 +419,8 @@ Generated from live Gin route registrations; do not edit this section.
 - `PUT /api/v1/admin/settings/rate-limit-429-cooldown` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/settings/rectifier` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/settings/rectifier` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/settings/registration-email-blacklist` from `backend/internal/server/routes/admin.go`
+- `PUT /api/v1/admin/settings/registration-email-blacklist` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/settings/send-test-email` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/settings/stream-timeout` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/settings/stream-timeout` from `backend/internal/server/routes/admin.go`
@@ -491,7 +502,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /api/v1/admin/users/:id/subscriptions` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/users/:id/usage` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/users/batch-concurrency` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/users/batch-disable` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/users/batch-limits` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/users/blacklist-matches` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/users/invite-trial` from `backend/internal/server/routes/admin_tk_invite_trial_routes.go`
 - `GET /api/v1/admin/users/trial-presets` from `backend/internal/server/routes/admin_tk_invite_trial_routes.go`
 - `PUT /api/v1/admin/users/trial-presets` from `backend/internal/server/routes/admin_tk_invite_trial_routes.go`
@@ -579,6 +592,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /api/v1/keys/:id` from `backend/internal/server/routes/user.go`
 - `PUT /api/v1/keys/:id` from `backend/internal/server/routes/user.go`
 - `POST /api/v1/keys/:id/rotate` from `backend/internal/server/routes/user.go`
+- `POST /api/v1/mcp/oauth/register` from `backend/internal/server/routes/mcp.go`
+- `POST /api/v1/mcp/oauth/revoke` from `backend/internal/server/routes/mcp.go`
+- `POST /api/v1/mcp/oauth/token` from `backend/internal/server/routes/mcp.go`
 - `GET /api/v1/me/api-keys/:id/capabilities` from `backend/internal/server/routes/user_tk_routes.go`
 - `GET /api/v1/me/pricing-catalog` from `backend/internal/server/routes/user_tk_routes.go`
 - `GET /api/v1/model-plaza` from `backend/internal/server/routes/model_plaza.go`
@@ -631,6 +647,11 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/user/aff/transfer` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/user/api-keys/:id/usage/daily` from `backend/internal/server/routes/user.go`
 - `POST /api/v1/user/auth-identities/bind/start` from `backend/internal/server/routes/user.go`
+- `GET /api/v1/user/mcp/authorize` from `backend/internal/server/routes/user.go`
+- `POST /api/v1/user/mcp/authorize` from `backend/internal/server/routes/user.go`
+- `GET /api/v1/user/mcp/config` from `backend/internal/server/routes/user.go`
+- `GET /api/v1/user/mcp/grants` from `backend/internal/server/routes/user.go`
+- `DELETE /api/v1/user/mcp/grants/:id` from `backend/internal/server/routes/user.go`
 - `DELETE /api/v1/user/notify-email` from `backend/internal/server/routes/user.go`
 - `POST /api/v1/user/notify-email/send-code` from `backend/internal/server/routes/user.go`
 - `PUT /api/v1/user/notify-email/toggle` from `backend/internal/server/routes/user.go`

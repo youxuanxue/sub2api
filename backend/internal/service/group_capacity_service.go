@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
 // GroupCapacitySummary holds aggregated capacity for a single group.
@@ -77,7 +80,43 @@ type groupCapacityGroupRef struct {
 	rpmLimit int
 }
 
+// scopedAdminCapacityGroups scopes restricted admin keys in the database before
+// any aggregation (upstream 194d69e63): it never lists all active groups.
+// ok=false means the caller is unrestricted.
+func (s *GroupCapacityService) scopedAdminCapacityGroups(ctx context.Context) ([]groupCapacityGroupRef, bool, error) {
+	if adminaccess.RestrictedFromContext(ctx) == nil {
+		return nil, false, nil
+	}
+	repo, ok := s.groupRepo.(interface {
+		ListScopedAdminCapacityGroupIDs(context.Context) ([]int64, error)
+	})
+	if !ok {
+		return nil, true, infraerrors.ServiceUnavailable("SCOPED_GROUP_CAPACITY_UNAVAILABLE", "受限分组容量服务不可用")
+	}
+	ids, err := repo.ListScopedAdminCapacityGroupIDs(ctx)
+	if err != nil {
+		return nil, true, err
+	}
+	// TK: keep the group RPM gate (#303) for the scoped IDs only.
+	var rpmLimits map[int64]int
+	if lister, ok := s.groupRepo.(interface {
+		ListGroupCapacityRPMLimits(context.Context, []int64) (map[int64]int, error)
+	}); ok && len(ids) > 0 {
+		if rpmLimits, err = lister.ListGroupCapacityRPMLimits(ctx, ids); err != nil {
+			return nil, true, err
+		}
+	}
+	refs := make([]groupCapacityGroupRef, 0, len(ids))
+	for _, id := range ids {
+		refs = append(refs, groupCapacityGroupRef{id: id, rpmLimit: rpmLimits[id]})
+	}
+	return refs, true, nil
+}
+
 func (s *GroupCapacityService) listActiveCapacityGroups(ctx context.Context) ([]groupCapacityGroupRef, error) {
+	if refs, restricted, err := s.scopedAdminCapacityGroups(ctx); restricted || err != nil {
+		return refs, err
+	}
 	groups, err := s.groupRepo.ListActive(ctx)
 	if err != nil {
 		return nil, err

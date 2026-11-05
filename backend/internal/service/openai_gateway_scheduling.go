@@ -437,7 +437,7 @@ func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *A
 // the reason only for server-side no-account diagnostics; the admission behavior
 // remains unchanged.
 func openAICompatibleAccountEligibilityFailureReason(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) string {
-	if reason := openAICompatEligibilityReason(ctx, account, platform, requestedModel, requireCompact, requiredCapability); reason != "" {
+	if reason := openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx, account, platform, requestedModel, requireCompact, requiredCapability); reason != "" {
 		return reason
 	}
 	// 分组利润控制：legacy 引擎的粘性/候选循环与 DB recheck 共用
@@ -465,7 +465,13 @@ func isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx context.Context
 // openAICompatibleAccountEligibilityFailureReasonBeforeProfit is the MH name for
 // TK's openAICompatEligibilityReason (pre-profit gates only).
 func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) string {
-	return openAICompatEligibilityReason(ctx, account, platform, requestedModel, requireCompact, requiredCapability)
+	if reason := openAICompatEligibilityReason(ctx, account, platform, requestedModel, requireCompact, requiredCapability); reason != "" {
+		return reason
+	}
+	if vetoed, reason := openAIImageSizeVetoReason(ctx, account); vetoed {
+		return reason
+	}
+	return ""
 }
 
 type openAIQuotaAutoPauseDecision struct {
@@ -768,6 +774,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	if _, excluded := excludedIDs[accountID]; excluded {
 		return nil
 	}
+	ctx = withOpenAIImageSizeStickyAccount(ctx, accountID)
 
 	account, err := s.getSchedulableAccount(ctx, accountID)
 	if err != nil || account == nil {
@@ -966,6 +973,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			stickyAccountID = accountID
 		}
 	}
+	ctx = withOpenAIImageSizeStickyAccount(ctx, stickyAccountID)
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
 		account, stickyHit, err := s.selectAccountForModelWithExclusionsStickyHit(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability, preferLowUpstreamRate, false)
 		if err != nil {

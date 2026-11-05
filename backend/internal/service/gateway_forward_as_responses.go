@@ -423,6 +423,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		maxLineSize = s.cfg.Gateway.MaxLineSize
 	}
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+	scanner.Split(newBoundedSSESplit(s.cfg, maxLineSize, nil))
 
 	// TK: SSE event accumulation + terminal failure contract live in
 	// gateway_forward_as_tk_buffered_stream.go / gateway_anthropic_buffered_error_tk.go.
