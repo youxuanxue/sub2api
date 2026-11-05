@@ -401,14 +401,18 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatResponse(
 		c.Header("x-request-id", requestID)
 	}
 	streamResult, err := s.consumeAntigravityCompatSuccess(c, call, resp)
-	if err != nil {
+	var terminal *antigravityStreamTerminalError
+	if err != nil && (streamResult == nil || !errors.As(err, &terminal)) {
+		return nil, err
+	}
+	if streamResult == nil {
 		return nil, err
 	}
 	if streamResult.usage == nil {
 		streamResult.usage = &ClaudeUsage{}
 	}
 
-	if call.request.clientStream {
+	if err == nil && call.request.clientStream {
 		if requireErr := requireGeminiImageModelStreamOutput(call.request.originalModel, c); requireErr != nil {
 			setOpsUpstreamError(c, http.StatusBadGateway, requireErr.Error(), "empty_image_stream")
 			return &ForwardResult{
@@ -424,7 +428,10 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatResponse(
 		}
 	}
 
-	imageCount := resolveGeminiImageCount(c, call.request.originalModel, call.billingModel)
+	imageCount := 0
+	if err == nil {
+		imageCount = resolveGeminiImageCount(c, call.request.originalModel, call.billingModel)
+	}
 
 	return &ForwardResult{
 		RequestID:                     requestID,
@@ -440,7 +447,7 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatResponse(
 		ReasoningEffort:               call.request.reasoningEffort,
 		ClientDisconnect:              streamResult.clientDisconnect,
 		ImageCount:                    imageCount,
-	}, nil
+	}, err
 }
 
 func (s *AntigravityGatewayService) consumeAntigravityCompatSuccess(

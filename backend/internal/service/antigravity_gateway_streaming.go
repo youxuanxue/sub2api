@@ -1035,6 +1035,49 @@ func (s *AntigravityGatewayService) handleClaudeStreamToNonStreaming(c *gin.Cont
 	return streamRes, nil
 }
 
+// antigravityClaudeStreamCommit 在出现真实终态或正文/tool_use 之前，先扣住 message_start 与 thinking。
+// 这样缺终态的 thinking-only 流还没有向客户端提交，调用方可以换号。
+type antigravityClaudeStreamCommit struct {
+	writer         *antigravityClientWriter
+	held           []byte
+	visibleWritten bool
+	keepaliveSent  bool
+}
+
+func (c *antigravityClaudeStreamCommit) accept(p *antigravity.StreamingProcessor, events []byte, onWrite func()) {
+	if c == nil || len(events) == 0 {
+		return
+	}
+	if p.MessageStopSent() || p.HasVisibleOutput() {
+		if p.HasVisibleOutput() {
+			c.visibleWritten = true
+		}
+		c.flush(events, onWrite)
+		return
+	}
+	c.held = append(c.held, events...)
+}
+
+func (c *antigravityClaudeStreamCommit) flush(extra []byte, onWrite func()) {
+	wrote := false
+	if len(c.held) > 0 {
+		c.writer.Write(c.held)
+		c.held = nil
+		wrote = true
+	}
+	if len(extra) > 0 {
+		c.writer.Write(extra)
+		wrote = true
+	}
+	if wrote && onWrite != nil {
+		onWrite()
+	}
+}
+
+func (c *antigravityClaudeStreamCommit) committedToClient() bool {
+	return c != nil && (c.visibleWritten || c.keepaliveSent)
+}
+
 // handleClaudeStreamingResponse 处理 Claude 流式响应（Gemini SSE → Claude SSE 转换）
 func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (*antigravityStreamResult, error) {
 	c.Header("Content-Type", "text/event-stream")
@@ -1135,6 +1178,13 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 	lastDataAt := time.Now()
 
 	cw := newAntigravityClientWriter(c.Writer, flusher, "antigravity claude")
+	commit := &antigravityClaudeStreamCommit{writer: cw}
+	noteWritten := func() {
+		if firstTokenMs == nil {
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
+		}
+	}
 
 	// 仅发送一次错误事件，避免多次写入导致协议混乱
 	errorEventSent := false
@@ -1157,11 +1207,23 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 		select {
 		case ev, ok := <-events:
 			if !ok {
-				// 上游完成，发送结束事件
 				finalEvents, agUsage := processor.Finish()
-				if len(finalEvents) > 0 {
-					cw.Write(finalEvents)
-				} else if !processor.MessageStartSent() && !cw.Disconnected() {
+				usage := convertUsage(agUsage)
+				if cw.Disconnected() {
+					return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, nil
+				}
+				if fault := processor.TerminalFault(); fault != antigravity.StreamTerminalNone {
+					if commit.committedToClient() {
+						commit.flush(nil, noteWritten)
+						reason := antigravityTerminalErrorReason(fault)
+						sendErrorEvent(reason)
+						MarkResponseCommitted(c)
+						return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, &antigravityStreamTerminalError{reason: reason}
+					}
+					return nil, antigravityMissingTerminalFailover(fault)
+				}
+				commit.flush(finalEvents, noteWritten)
+				if !processor.MessageStartSent() {
 					// 整个流未收到任何可解析的上游数据（全部 SSE 行均无法被 JSON 解析），
 					// 触发 failover 在同账号重试，避免向客户端发出缺少 message_start 的残缺流
 					logger.LegacyPrintf("service.antigravity_gateway", "[antigravity-Claude-Stream] empty stream response (no valid events parsed), triggering failover")
@@ -1171,7 +1233,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 						RetryableOnSameAccount: true,
 					}
 				}
-				return &antigravityStreamResult{usage: convertUsage(agUsage), firstTokenMs: firstTokenMs, clientDisconnect: cw.Disconnected()}, nil
+				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: false}, nil
 			}
 			if ev.err != nil {
 				if disconnect, handled := handleStreamReadError(ev.err, cw.Disconnected(), "antigravity claude"); handled {
@@ -1191,13 +1253,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 
 			// 处理 SSE 行，转换为 Claude 格式
 			claudeEvents := processor.ProcessLine(strings.TrimRight(ev.line, "\r\n"))
-			if len(claudeEvents) > 0 {
-				if firstTokenMs == nil {
-					ms := int(time.Since(startTime).Milliseconds())
-					firstTokenMs = &ms
-				}
-				cw.Write(claudeEvents)
-			}
+			commit.accept(processor, claudeEvents, noteWritten)
 
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))
@@ -1225,6 +1281,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 				logger.LegacyPrintf("service.antigravity_gateway", "Client disconnected during keepalive ping (antigravity claude), continuing to drain upstream for billing")
 				continue
 			}
+			commit.keepaliveSent = true
 		}
 	}
 }
