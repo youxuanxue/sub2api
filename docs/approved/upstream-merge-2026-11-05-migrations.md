@@ -1,16 +1,18 @@
 ---
 title: Upstream Merge 2026-11-05 Migration Approval Anchor
-status: pending
-approved_by: pending
+status: shipped
+approved_by: "用户（本会话：已合并 #3068。）"
+approved_at: 2026-11-05
 authors: [tk-upstream-agent]
 created: 2026-11-05
+related_prs: [3068]
+related_commits: [f0a07fd8f76b357720dc2c86dede6d45423354ca]
 ---
 
 # Upstream Merge 2026-11-05: Migration Approval Anchor
 
-本锚点等待人工审批。审批对象是 `upstream/main@25608d216` 并入
-`merge/upstream-2026-11-05` 时带入的迁移。人工批准合并对应 PR 即为审批；
-合入后状态改为 `shipped` 并补 `related_prs` / `related_commits`。
+`upstream/main@25608d216` 带入的迁移已随 #3068 合入 `main`
+（merge commit `f0a07fd8f`）。用户合并该 PR 即为审批。
 
 ## Migrations
 
