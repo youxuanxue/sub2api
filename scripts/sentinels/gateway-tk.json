@@ -1651,6 +1651,33 @@
       "rationale": "WS ingress parseClientPayload scopes credential identity once before HTTP-bridge turns; re-applying in openai_ws_http_bridge.go double-hashes session/thread UUIDs on later turns."
     },
     {
+      "path": "backend/internal/service/openai_ws_forwarder.go",
+      "must_contain": [
+        "func openAIWSNativeIngressRateLimitFailoverError(",
+        "return newOpenAIWSCurrentTurnFailoverError(cause, nil)",
+        "func openAIWSIngressRelayResultError("
+      ],
+      "rationale": "Later native Responses WS turns must fail over with a current-turn payload. An unsafe rebuild stays a current-turn error with an empty payload so the handler closes instead of replaying the first packet. Unwrapping that wrapper would drop the rebuilt payload."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder_ingress.go",
+      "must_contain": [
+        "result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier, currentImageInputSize, currentRequestedReasoningEffort, currentAccountIdentitySource, currentTurnReplayInput, currentTurnReplayInputExists)",
+        "finalErr := openAIWSIngressRelayResultError(relayErr)"
+      ],
+      "rationale": "The native ingress 429 path must pass the current turn's replay input into the failover builder and must not unwrap a current-turn failover error back into a first-packet replay."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_native_ingress_ratelimit_failover_test.go",
+      "must_contain": [
+        "func TestOpenAIWSNativeIngressRateLimit_LaterTurnRetriesCurrentTurnNotFirstPacket(",
+        "func TestOpenAIWSNativeIngressRateLimit_UnsafeRebuildDoesNotReplayFirstPacket(",
+        "func TestOpenAIWSNativeIngressRateLimit_FirstTurnKeepsFirstPacketFailover(",
+        "func TestOpenAIWSIngressRelayResultError_UnwrapsIngressTurnAndKeepsCurrentTurn("
+      ],
+      "rationale": "Keep later-turn current-payload replay, unsafe-rebuild close, first-turn first-packet replay, and unwrap-preserves-current-turn coverage."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_messages_tk.go",
       "must_contain": [
         "generateSessionUUID(isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), promptCacheKey))"
