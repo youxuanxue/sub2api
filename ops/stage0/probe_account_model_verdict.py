@@ -181,6 +181,17 @@ def embedding_response_valid(body_text: str) -> bool:
     )
 
 
+def gateway_unsupported_model_message(body_text: str) -> bool:
+    """True for TokenKey's local 'Unsupported model: X' rejection body."""
+    try:
+        data = json.loads(body_text)
+    except json.JSONDecodeError:
+        return False
+    error = data.get("error") if isinstance(data, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    return isinstance(message, str) and message.strip().lower().startswith("unsupported model")
+
+
 def classify_probe_verdict(
     *,
     endpoint: str,
@@ -235,6 +246,11 @@ def classify_probe_verdict(
     if status in (401, 403):
         return "upstream_rejected"
     if status == 429 and "no available accounts" in low:
+        return "gateway_rejected"
+    # TokenKey's own unsupported-model rejection (SSOT 404, legacy 400 during
+    # rollout) carries code=model_not_found; check it before upstream markers so
+    # a local floor miss never reads as upstream capability.
+    if status in (400, 404) and gateway_unsupported_model_message(body_text):
         return "gateway_rejected"
     if status in (400, 404) and any(
         token in low

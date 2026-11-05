@@ -141,6 +141,27 @@ class SoftDegradeOrExitTest(unittest.TestCase):
         self.assertIn("MARKER=softskip", out)
         self.assertIn("local unsupported-model admission", out)
 
+    def test_full_chat_404_unsupported_model_soft_skips(self) -> None:
+        rc, out = self._run(
+            "full",
+            "404",
+            {"error": {"message": "Unsupported model: claude-sonnet-4-6", "type": "invalid_request_error", "code": "model_not_found"}},
+            label="/v1/chat/completions",
+        )
+        self.assertEqual(rc, 0, out)
+        self.assertIn("MARKER=softskip", out)
+        self.assertIn("local unsupported-model admission", out)
+
+    def test_full_messages_404_unsupported_model_hard_fails(self) -> None:
+        rc, out = self._run(
+            "full",
+            "404",
+            {"type": "error", "error": {"type": "not_found_error", "message": "Unsupported model: claude-sonnet-4-6"}},
+            label="/v1/messages",
+        )
+        self.assertEqual(rc, 1, out)
+        self.assertNotIn("MARKER=continue", out)
+
     def test_full_messages_400_unsupported_model_hard_fails(self) -> None:
         rc, out = self._run(
             "full",

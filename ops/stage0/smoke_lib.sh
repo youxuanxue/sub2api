@@ -171,6 +171,8 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
             return 1
             ;;
           *"Unsupported model:"*)
+            # Matched by message, so both the SSOT 404 and a legacy 400 (older
+            # binary during rollout) reach here with the same verdict.
             # ErrUnsupportedModel is emitted by local candidate admission when
             # the selected group has no currently eligible account for the
             # requested model.  A global /v1/models listing can still include

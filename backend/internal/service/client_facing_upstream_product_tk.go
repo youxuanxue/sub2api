@@ -1,6 +1,7 @@
 package service
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -67,6 +68,7 @@ func TkIsClientFacingUnsupportedMessage(msg string) bool {
 // Call at response choke points so upstream passthrough / ClientMessage /
 // NewAPIRelayError / our own fmt.Errorf cannot ship supply SKU names on the wire.
 func TkSanitizeUpstreamProductWireMessage(message string) (string, bool) {
+	message = tkStripSupplierRequestIDSuffix(message)
 	if TkIsClientFacingUnsupportedMessage(message) {
 		return TkClientFacingUnsupportedMessage, false
 	}
@@ -90,4 +92,18 @@ func TkAnnotateUpstreamProductOps(c *gin.Context, errType string, status int, in
 		errType = "invalid_request_error"
 	}
 	MarkOpsStreamError(c, errType, detail, status)
+}
+
+// Volc Ark (Agent Plan) appends its own trace id to every error message, e.g.
+// "... must be positive. Request id: 021793796431474c...". The id names the
+// supplier's request, not ours. Ops keeps the original message (recorded
+// before any client writer runs); the wire copy drops only this exact trailing
+// form. Other relays' "(request id: ...)" envelopes are left unchanged.
+var tkSupplierRequestIDSuffix = regexp.MustCompile(`\s*Request id: [0-9A-Za-z]{16,}\s*$`)
+
+func tkStripSupplierRequestIDSuffix(message string) string {
+	if !strings.Contains(message, "Request id: ") {
+		return message
+	}
+	return tkSupplierRequestIDSuffix.ReplaceAllString(message, "")
 }

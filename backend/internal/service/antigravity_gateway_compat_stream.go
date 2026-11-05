@@ -175,15 +175,31 @@ func (s *antigravityCompatStreamSession) finish() (*antigravityStreamResult, err
 	finalEvents, usage := s.processor.Finish()
 	mergeAntigravityCompatUsage(s.usage, usage)
 	s.consumeClaudeEvents(finalEvents)
-	if !s.hasMeaningfulData() && !s.writer.Disconnected() {
+	if s.writer.Disconnected() {
+		return s.result(true), nil
+	}
+	if fault := s.processor.TerminalFault(); fault != antigravity.StreamTerminalNone {
+		// 正文 / tool_use 已写出，或 keepalive 已提交响应：SSE error，不 Finalize 成 [DONE]。
+		// thinking-only 仍可换号。
+		if s.meaningfulData || s.preContentKeepaliveSent {
+			s.flushPending()
+			reason := antigravityTerminalErrorReason(fault)
+			s.adapter.WriteError(s.writer, reason)
+			return s.result(false), &antigravityStreamTerminalError{reason: reason}
+		}
+		s.pendingEvents = nil
+		return nil, antigravityMissingTerminalFailover(fault)
+	}
+	if !s.hasMeaningfulData() {
 		if s.preContentKeepaliveSent {
 			s.adapter.WriteError(s.writer, "empty_stream")
 			return s.result(false), errors.New("empty Antigravity compatibility stream after keepalive")
 		}
 		return nil, antigravityCompatEmptyStreamError()
 	}
+	s.flushPending()
 	s.adapter.Finalize(s.writer)
-	return s.result(s.writer.Disconnected()), nil
+	return s.result(false), nil
 }
 
 func (s *antigravityCompatStreamSession) collectResult(clientDisconnect bool) *antigravityStreamResult {
@@ -242,8 +258,17 @@ func (s *antigravityCompatStreamSession) emitOrBuffer(event apicompat.AnthropicS
 	}
 
 	s.meaningfulData = true
-	ms := int(time.Since(s.startTime).Milliseconds())
-	s.firstTokenMs = &ms
+	s.flushPending()
+}
+
+func (s *antigravityCompatStreamSession) flushPending() {
+	if len(s.pendingEvents) == 0 {
+		return
+	}
+	if s.firstTokenMs == nil {
+		ms := int(time.Since(s.startTime).Milliseconds())
+		s.firstTokenMs = &ms
+	}
 	for i := range s.pendingEvents {
 		s.adapter.Emit(&s.pendingEvents[i], s.writer)
 	}
@@ -254,18 +279,17 @@ func isMeaningfulAntigravityCompatEvent(event *apicompat.AnthropicStreamEvent) b
 	if event == nil {
 		return false
 	}
+	// thinking 不提交为成功输出：缺终态时仍可换号。正文和 tool_use 会立刻写出。
 	if event.ContentBlock != nil {
 		block := event.ContentBlock
 		return block.Type == "tool_use" ||
 			block.Text != "" ||
-			block.Thinking != "" ||
 			block.Source != nil
 	}
 	if event.Delta != nil {
 		delta := event.Delta
 		return delta.Text != "" ||
-			delta.PartialJSON != "" ||
-			delta.Thinking != ""
+			delta.PartialJSON != ""
 	}
 	return false
 }
@@ -366,10 +390,10 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveIn
 				return preContentTimeout()
 			}
 			if !open {
-				if !session.hasMeaningfulData() && !writer.Disconnected() {
+				if !session.hasMeaningfulData() && !writer.Disconnected() && session.processor.TerminalFault() == antigravity.StreamTerminalNone {
 					return handleAntigravityCompatEmptyStream(c, session)
 				}
-				return session.finish()
+				return finishAntigravityCompatStream(c, session)
 			}
 			if event.err != nil {
 				return s.handleAntigravityCompatReadError(c, session, event.err, maxLineSize, prefix)
@@ -527,6 +551,52 @@ func writeAntigravityCompatStreamError(
 ) {
 	adapter.WriteError(writer, reason)
 	MarkResponseCommitted(c)
+}
+
+func finishAntigravityCompatStream(c *gin.Context, session *antigravityCompatStreamSession) (*antigravityStreamResult, error) {
+	result, err := session.finish()
+	var terminal *antigravityStreamTerminalError
+	if errors.As(err, &terminal) {
+		MarkResponseCommitted(c)
+	}
+	return result, err
+}
+
+// antigravityStreamTerminalError 表示流已向客户端写出不完整结果，不能再按成功轮次结束。
+// 已观察到的 usage 留在 antigravityStreamResult 里继续计费。
+type antigravityStreamTerminalError struct {
+	reason string
+}
+
+func (e *antigravityStreamTerminalError) Error() string {
+	if e == nil || e.reason == "" {
+		return "antigravity stream ended without a terminal finish"
+	}
+	return "antigravity stream ended without a terminal finish: " + e.reason
+}
+
+func antigravityTerminalErrorReason(fault antigravity.StreamTerminalFault) string {
+	if fault == antigravity.StreamTerminalMalformed {
+		return "malformed_function_call"
+	}
+	return "missing_finish_reason"
+}
+
+func antigravityMissingTerminalFailover(fault antigravity.StreamTerminalFault) error {
+	if fault == antigravity.StreamTerminalMalformed {
+		logger.LegacyPrintf("service.antigravity_gateway", "Antigravity stream MALFORMED_FUNCTION_CALL before client output, triggering failover")
+		return &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ResponseBody:           []byte(`{"error":"upstream returned MALFORMED_FUNCTION_CALL"}`),
+			RetryableOnSameAccount: true,
+		}
+	}
+	logger.LegacyPrintf("service.antigravity_gateway", "Antigravity stream ended without finishReason before client output, triggering failover")
+	return &UpstreamFailoverError{
+		StatusCode:             http.StatusBadGateway,
+		ResponseBody:           []byte(`{"error":"empty stream response from upstream"}`),
+		RetryableOnSameAccount: true,
+	}
 }
 
 func antigravityCompatEmptyStreamError() error {

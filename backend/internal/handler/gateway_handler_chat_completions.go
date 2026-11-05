@@ -369,6 +369,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 // chatCompletionsErrorResponse writes an error in OpenAI Chat Completions format.
 func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int, errType, message string) {
 	message = tkSanitizeBusy429WireMessage(c, status, errType, message)
+	if body, ok := service.TkUnsupportedModelWireBody(c, service.TkErrorWireOpenAI, status, message); ok {
+		c.JSON(status, body)
+		return
+	}
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"type":    errType,

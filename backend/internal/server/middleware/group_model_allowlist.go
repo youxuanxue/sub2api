@@ -84,7 +84,7 @@ func GroupModelAllowlist() gin.HandlerFunc {
 
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
 		MarkIngressRejected(c, IngressRejectModelNotAllowed)
-		groupModelAllowlistErrorWriter(c)(c, http.StatusNotFound, fmt.Sprintf("Model %q is not available for this group", blocked))
+		groupModelAllowlistErrorWriter(c)(c, service.TkUnsupportedModelStatus, fmt.Sprintf("Model %q is not available for this group", blocked))
 		c.Abort()
 	}
 }
@@ -149,15 +149,14 @@ func groupModelAllowlistModelFromParams(c *gin.Context) string {
 // Gemini 原生（/v1beta、/antigravity/v1beta）用 Google 格式；
 // Messages 入口（含根路径别名与 /antigravity/v1）用 Anthropic 格式；
 // 其余（OpenAI 兼容入口）用 OpenAI 格式。
+//
+// The path → envelope split is owned by service.TkErrorWireForRequest
+// (unsupported-model SSOT); this only maps the wire to its writer.
 func groupModelAllowlistErrorWriter(c *gin.Context) GatewayErrorWriter {
-	path := ""
-	if c.Request != nil && c.Request.URL != nil {
-		path = c.Request.URL.Path
-	}
-	switch {
-	case strings.HasPrefix(path, "/v1beta") || strings.HasPrefix(path, "/antigravity/v1beta"):
+	switch service.TkErrorWireForRequest(c) {
+	case service.TkErrorWireGemini:
 		return GoogleErrorWriter
-	case strings.Contains(path, "/messages"):
+	case service.TkErrorWireAnthropic:
 		return AnthropicErrorWriter
 	default:
 		return OpenAIErrorWriter

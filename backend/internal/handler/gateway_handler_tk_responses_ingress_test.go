@@ -157,8 +157,8 @@ func TestGatewayResponsesIngressPlatformGuards(t *testing.T) {
 		wantStatus                                                           int
 		wantMessage                                                          string
 	}{
-		{name: "anthropic_rejects_gemini", groupPlatform: service.PlatformAnthropic, model: "gemini-3.8-flash", wantStatus: http.StatusBadRequest, wantMessage: service.TkUnsupportedModelMessage("gemini-3.8-flash")},
-		{name: "antigravity_unknown_model", groupPlatform: service.PlatformAntigravity, model: "gemini-does-not-exist", wantStatus: http.StatusBadRequest, wantMessage: service.TkUnsupportedModelMessage("gemini-does-not-exist")},
+		{name: "anthropic_rejects_gemini", groupPlatform: service.PlatformAnthropic, model: "gemini-3.8-flash", wantStatus: http.StatusNotFound, wantMessage: service.TkUnsupportedModelMessage("gemini-3.8-flash")},
+		{name: "antigravity_unknown_model", groupPlatform: service.PlatformAntigravity, model: "gemini-does-not-exist", wantStatus: http.StatusNotFound, wantMessage: service.TkUnsupportedModelMessage("gemini-does-not-exist")},
 		{name: "antigravity_body_guard", groupPlatform: service.PlatformAntigravity, guardPlatform: service.PlatformAntigravity, wantStatus: http.StatusRequestEntityTooLarge, wantMessage: "pre-flight limit"},
 		{name: "anthropic_body_guard", groupPlatform: service.PlatformAnthropic, guardPlatform: service.PlatformAnthropic, wantStatus: http.StatusRequestEntityTooLarge, wantMessage: "pre-flight limit"},
 		{name: "antigravity_ignores_anthropic_guard", groupPlatform: service.PlatformAntigravity, guardPlatform: service.PlatformAnthropic, wantStatus: http.StatusOK},
@@ -198,6 +198,10 @@ func TestGatewayResponsesIngressPlatformGuards(t *testing.T) {
 				require.Equal(t, wantStatus, rec.Code, rec.Body.String())
 				if tc.wantStatus != http.StatusOK {
 					require.Contains(t, rec.Body.String(), tc.wantMessage)
+					if wantStatus == http.StatusNotFound {
+						// /v1/responses ingress renders the OpenAI 404 shape.
+						require.Contains(t, rec.Body.String(), `"code":"model_not_found"`)
+					}
 					require.Nil(t, upstream.request)
 					require.Empty(t, usage.logs)
 					return

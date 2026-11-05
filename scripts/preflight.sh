@@ -121,6 +121,21 @@ set -u
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Python toolchain contract: CI runs these checks on Python 3.12 (actions/setup-python
+# '3.12') with PyYAML. Older interpreters fail several unrelated checks on 3.10+
+# syntax, and a 3.12+ without PyYAML fails every YAML-reading gate. Fail fast with
+# one actionable line instead of a dozen misleading section failures.
+# See docs/preflight-debt.md "Python toolchain is implicit".
+if ! python3 -c 'import sys, yaml; sys.exit(0 if sys.version_info >= (3, 12) else 1)' >/dev/null 2>&1; then
+    _tk_py_ver="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo missing)"
+    _tk_py_yaml="$(python3 -c 'import yaml' >/dev/null 2>&1 && echo yes || echo no)"
+    echo "preflight: FAIL python3 must be >= 3.12 with PyYAML (found python3=${_tk_py_ver}, PyYAML=${_tk_py_yaml})." >&2
+    echo "  Fix: put a Python 3.12 that has PyYAML first on PATH, e.g." >&2
+    echo "    uv python install 3.12 && uv venv -p 3.12 .venv-preflight && uv pip install -p .venv-preflight pyyaml" >&2
+    echo "    PATH=\"\$PWD/.venv-preflight/bin:\$PATH\" ./scripts/preflight.sh" >&2
+    exit 1
+fi
+
 if [ "${PREFLIGHT_RAW_OUTPUT:-}" != "1" ]; then
     exec python3 ./scripts/preflight/report.py "$@"
 fi

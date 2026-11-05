@@ -17,7 +17,7 @@ func TestOpenAIImagesUnknownModelNotFound_UpgradesCapacityTo404(t *testing.T) {
 	// BillingService.pricingService is unexported; use OpenAIGatewayService helper
 	// with a nil gateway so the fail-open path is explicit, then a real one.
 	status, errType, msg := openAIImagesUnknownModelNotFound(
-		nil, nil, "gpt-image-does-not-exist", "",
+		nil, nil, nil, "gpt-image-does-not-exist", "",
 		http.StatusServiceUnavailable, "api_error", "No available accounts",
 	)
 	require.Equal(t, http.StatusServiceUnavailable, status)
@@ -29,7 +29,7 @@ func TestOpenAIImagesUnknownModelNotFound_UpgradesCapacityTo404(t *testing.T) {
 
 	// Already-404 stays untouched.
 	status, errType, msg = openAIImagesUnknownModelNotFound(
-		&service.OpenAIGatewayService{}, nil, "gpt-image-does-not-exist", "",
+		nil, &service.OpenAIGatewayService{}, nil, "gpt-image-does-not-exist", "",
 		http.StatusNotFound, "model_not_found", "Model \"gpt-image-does-not-exist\" is not supported",
 	)
 	require.Equal(t, http.StatusNotFound, status)
@@ -37,7 +37,7 @@ func TestOpenAIImagesUnknownModelNotFound_UpgradesCapacityTo404(t *testing.T) {
 
 	// Non gpt-image models are not rewritten.
 	status, errType, msg = openAIImagesUnknownModelNotFound(
-		&service.OpenAIGatewayService{}, nil, "gpt-5.4", "",
+		nil, &service.OpenAIGatewayService{}, nil, "gpt-5.4", "",
 		http.StatusServiceUnavailable, "api_error", "No available accounts",
 	)
 	require.Equal(t, http.StatusServiceUnavailable, status)

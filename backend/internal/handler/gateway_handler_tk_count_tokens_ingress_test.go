@@ -29,13 +29,13 @@ func TestGatewayCountTokensIngressPlatformGuards(t *testing.T) {
 	}{
 		{name: "antigravity_direct", groupPlatform: service.PlatformAntigravity, wantStatus: http.StatusOK},
 		{name: "universal_antigravity_backing_group", groupPlatform: service.PlatformAntigravity, routingMode: service.RoutingModeUniversal, wantStatus: http.StatusOK},
-		{name: "anthropic_rejects_gemini", groupPlatform: service.PlatformAnthropic, wantStatus: http.StatusBadRequest, wantMessage: service.TkUnsupportedModelMessage("gemini-3.8-flash")},
-		{name: "antigravity_unknown_model", groupPlatform: service.PlatformAntigravity, model: "gemini-does-not-exist", wantStatus: http.StatusBadRequest, wantMessage: service.TkUnsupportedModelMessage("gemini-does-not-exist")},
+		{name: "anthropic_rejects_gemini", groupPlatform: service.PlatformAnthropic, wantStatus: http.StatusNotFound, wantMessage: service.TkUnsupportedModelMessage("gemini-3.8-flash")},
+		{name: "antigravity_unknown_model", groupPlatform: service.PlatformAntigravity, model: "gemini-does-not-exist", wantStatus: http.StatusNotFound, wantMessage: service.TkUnsupportedModelMessage("gemini-does-not-exist")},
 		{name: "antigravity_body_guard", groupPlatform: service.PlatformAntigravity, guardPlatform: service.PlatformAntigravity, wantStatus: http.StatusRequestEntityTooLarge, wantMessage: "pre-flight limit"},
 		{name: "anthropic_body_guard", groupPlatform: service.PlatformAnthropic, model: "claude-sonnet-4-6", guardPlatform: service.PlatformAnthropic, wantStatus: http.StatusRequestEntityTooLarge, wantMessage: "pre-flight limit"},
 		{name: "antigravity_ignores_anthropic_guard", groupPlatform: service.PlatformAntigravity, guardPlatform: service.PlatformAnthropic, wantStatus: http.StatusOK},
 		{name: "resolved_antigravity_body_guard", groupPlatform: service.PlatformComposite, resolvedPlatform: service.PlatformAntigravity, guardPlatform: service.PlatformAntigravity, wantStatus: http.StatusRequestEntityTooLarge, wantMessage: "pre-flight limit"},
-		{name: "resolved_anthropic_rejects_gemini", groupPlatform: service.PlatformComposite, resolvedPlatform: service.PlatformAnthropic, wantStatus: http.StatusBadRequest, wantMessage: service.TkUnsupportedModelMessage("gemini-3.8-flash")},
+		{name: "resolved_anthropic_rejects_gemini", groupPlatform: service.PlatformComposite, resolvedPlatform: service.PlatformAnthropic, wantStatus: http.StatusNotFound, wantMessage: service.TkUnsupportedModelMessage("gemini-3.8-flash")},
 		{name: "forced_antigravity_overrides_anthropic", groupPlatform: service.PlatformAnthropic, resolvedPlatform: service.PlatformAnthropic, forcedPlatform: service.PlatformAntigravity, guardPlatform: service.PlatformAnthropic, wantStatus: http.StatusOK},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -67,6 +67,9 @@ func TestGatewayCountTokensIngressPlatformGuards(t *testing.T) {
 			require.Empty(t, usage.logs)
 			if tc.wantStatus != http.StatusOK {
 				require.Contains(t, rec.Body.String(), tc.wantMessage)
+				if tc.wantStatus == http.StatusNotFound {
+					require.JSONEq(t, fmt.Sprintf(`{"type":"error","error":{"type":"not_found_error","message":%q}}`, tc.wantMessage), rec.Body.String())
+				}
 				require.Zero(t, c.GetInt64(opsAccountIDKey))
 				return
 			}
