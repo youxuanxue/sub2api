@@ -106,7 +106,7 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 				accounts := []service.Account{}
 				credentials := []string{"bad", "good"}
 				if strings.HasSuffix(scenario, "exhausted") {
-					credentials = []string{"bad", "good", "third", "fourth"}
+					credentials = []string{"bad", "good", "third", "fourth", "fifth", "sixth"}
 				}
 				for i, credential := range credentials {
 					a := service.Account{ID: int64(115 + i), Name: credential, Platform: service.PlatformNewAPI, ChannelType: 1, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Priority: i + 1, Concurrency: 10, GroupIDs: []int64{10}, Credentials: map[string]any{"api_key": credential, "base_url": upstream.URL, "model_mapping": map[string]any{"gpt-5.4": "gpt-5.4"}}}
@@ -179,7 +179,7 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 				if strings.HasPrefix(scenario, "overloaded") || scenario == "exhausted" {
 					evidence := availabilityRepo.get(service.PlatformNewAPI, "gpt-5.4")
 					if strings.HasSuffix(scenario, "exhausted") {
-						require.Equal(t, 3, evidence.SampleTotal24h, "every failed executor must be observed before failover returns")
+						require.Equal(t, 5, evidence.SampleTotal24h, "every failed executor must be observed before failover returns")
 						require.Zero(t, evidence.SampleOK24h)
 					} else {
 						require.Equal(t, 2, evidence.SampleTotal24h, "one failed and one successful attempt; billing must not count again")
@@ -192,8 +192,8 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 					actualHits := append([]string(nil), hits...)
 					actualReleased := append([]int64(nil), released...)
 					mu.Unlock()
-					require.Equal(t, []string{"Bearer bad", "Bearer good", "Bearer third"}, actualHits)
-					require.ElementsMatch(t, []int64{115, 116, 117}, actualReleased)
+					require.Equal(t, []string{"Bearer bad", "Bearer good", "Bearer third", "Bearer fourth", "Bearer fifth"}, actualHits)
+					require.ElementsMatch(t, []int64{115, 116, 117, 118, 119}, actualReleased)
 					select {
 					case row := <-usage.created:
 						t.Fatalf("failed attempts billed account %d", row.AccountID)
