@@ -408,6 +408,38 @@ func TestAPIKeyService_GetByKey_IgnoresLegacyAuthCacheSnapshotWithoutMessagesDis
 	require.Equal(t, "gpt-5.4-nano", apiKey.Group.MessagesDispatchModelConfig.OpusMappedModel)
 }
 
+func TestAPIKeyService_GetByKey_InvalidUTF8ReturnsNotFoundWithoutLookup(t *testing.T) {
+	var repoCalls atomic.Int32
+	var cacheCalls atomic.Int32
+	cache := &authCacheStub{}
+	repo := &authRepoStub{
+		getByKeyForAuth: func(ctx context.Context, key string) (*APIKey, error) {
+			repoCalls.Add(1)
+			return nil, errors.New("repo must not be queried for invalid utf-8 keys")
+		},
+	}
+	cfg := &config.Config{
+		APIKeyAuth: config.APIKeyAuthCacheConfig{
+			L1Size:             100,
+			L1TTLSeconds:       60,
+			L2TTLSeconds:       60,
+			NegativeTTLSeconds: 30,
+		},
+	}
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, cache, cfg)
+	cache.getAuthCache = func(ctx context.Context, key string) (*APIKeyAuthCacheEntry, error) {
+		cacheCalls.Add(1)
+		return nil, redis.Nil
+	}
+
+	// 0xff 不是合法 UTF-8；空字符串仍是合法 UTF-8，不走这条分支。
+	_, err := svc.GetByKey(context.Background(), "bad\xffkey")
+	require.ErrorIs(t, err, ErrAPIKeyNotFound)
+	require.Equal(t, ErrAPIKeyNotFound, err)
+	require.Zero(t, repoCalls.Load())
+	require.Zero(t, cacheCalls.Load())
+}
+
 func TestAPIKeyService_GetByKey_NegativeCache(t *testing.T) {
 	cache := &authCacheStub{}
 	repo := &authRepoStub{
