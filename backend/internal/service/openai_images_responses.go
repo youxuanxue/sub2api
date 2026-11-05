@@ -399,15 +399,17 @@ func buildOpenAIImagesResponsesRequestWithMainModel(parsed *OpenAIImagesRequest,
 		mainModel = openAIImagesResponsesMainModelValue()
 	}
 
-	req := []byte(`{"instructions":"","stream":true,"reasoning":{"effort":"medium","summary":"auto"},"parallel_tool_calls":true,"include":["reasoning.encrypted_content"],"model":"","store":false,"tool_choice":{"type":"image_generation"}}`)
+	req := []byte(`{"instructions":"","stream":true,"reasoning":{"summary":"auto"},"parallel_tool_calls":true,"include":["reasoning.encrypted_content"],"model":"","store":false,"tool_choice":{"type":"image_generation"}}`)
 	req, _ = sjson.SetBytes(req, "model", mainModel)
-	req, _ = sjson.SetBytes(req, "reasoning.effort", reasoningEffort)
+	if reasoningEffort != "" {
+		req, _ = sjson.SetBytes(req, "reasoning.effort", reasoningEffort)
+	}
 	// Match codex2api: leave instructions empty so the driver is not told to
 	// rewrite the user prompt. Velmo's labeled-spec preamble belongs in
 	// instructions and would fight that, so the cues live on input_text
-	// (applyOpenAIImagesPerceivedQualityPrompt). reasoning.effort defaults
-	// to medium for all prompts, including short quoted labels. Explicit
-	// environment overrides still take precedence.
+	// (applyOpenAIImagesPerceivedQualityPrompt). reasoning.effort is omitted
+	// by default because upstream rejects it as image "complexity" (see
+	// openAIImagesDefaultReasoningEffort); an explicit env override still sends it.
 
 	input := []byte(`[{"type":"message","role":"user","content":[{"type":"input_text","text":""}]}]`)
 	input, _ = sjson.SetBytes(input, "0.content.0.text", prompt)

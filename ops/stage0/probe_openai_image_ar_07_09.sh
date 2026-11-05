@@ -163,7 +163,7 @@ def postprocess(raw, size, fmt, background="opaque"):
         raise RuntimeError(obj.get("error") or proc.stderr[:200].decode("utf-8","replace"))
     return base64.b64decode(obj["b64"]), obj["container"], obj["dimensions"], obj
 
-def call_responses(prompt, tool_extra=None, images=None, reasoning_effort="medium", size=None, output_format=None, background=None, quality="medium", action="generate"):
+def call_responses(prompt, tool_extra=None, images=None, reasoning_effort="", size=None, output_format=None, background=None, quality="medium", action="generate"):
     tool={"type":"image_generation","action":action,"model":IMAGE_MODEL,"quality":quality}
     if size:
         w,h=map(int,size.lower().split("x"))
@@ -176,7 +176,7 @@ def call_responses(prompt, tool_extra=None, images=None, reasoning_effort="mediu
         content.append({"type":"input_image","image_url":url})
     payload={
         "model":MAIN_MODEL,"instructions":"","stream":True,
-        "reasoning":{"effort":reasoning_effort,"summary":"auto"},
+        "reasoning":{"effort":reasoning_effort,"summary":"auto"} if reasoning_effort else {"summary":"auto"},
         "parallel_tool_calls":True,"include":["reasoning.encrypted_content"],"store":False,
         "tool_choice":{"type":"image_generation"},"tools":[tool],
         "input":[{"type":"message","role":"user","content":content}],
@@ -278,11 +278,13 @@ else:
 results["case_07"]=entry7
 
 # --- case 09: quality high/max format+size (matrix row) + thought-intensity output_tokens ---
-r_base=call_responses("a small ginger cat", size="1024x1024", output_format="jpeg", background="opaque", quality="medium", reasoning_effort="medium")
+r_base=call_responses("a small ginger cat", size="1024x1024", output_format="jpeg", background="opaque", quality="medium")
 time.sleep(1)
-r_high=call_responses("a small ginger cat, highly detailed fur", size="1024x1024", output_format="jpeg", background="opaque", quality="high", reasoning_effort="medium")
+r_high=call_responses("a small ginger cat, highly detailed fur", size="1024x1024", output_format="jpeg", background="opaque", quality="high")
 time.sleep(1)
-# Thought intensity: same image request but higher reasoning effort (product currently pins medium).
+# Thought intensity: same request with explicit effort. Since 2026-11-04 upstream
+# rejects any effort on image requests ("Complexity ... not supported"), so this
+# case is expected to report no image until that changes.
 r_think=call_responses("a small ginger cat, highly detailed fur", size="1024x1024", output_format="jpeg", background="opaque", quality="high", reasoning_effort="high")
 
 def finalize(r, label):
@@ -312,7 +314,7 @@ results["case_09"]={
         "delta":None if delta is None else round(delta,4),
         "pass":think_pass,
         "rule":"output_tokens must rise >10% vs baseline",
-        "note":"TK image Responses currently defaults reasoning.effort=medium; this probe also tries effort=high for evidence",
+        "note":"TK image Responses omits reasoning.effort (upstream rejects it as image complexity since 2026-11-04); effort=high is kept as a regression canary",
         "high_effort_row":ft,
     },
     "pass": fb["pass"] and fh["pass"],  # matrix row 09 = format/size; thought is separate special judgment

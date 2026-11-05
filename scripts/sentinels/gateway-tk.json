@@ -7222,20 +7222,21 @@
       "must_contain": [
         "func openAIImagesReasoningEffortForPrompt(prompt string) string",
         "func applyOpenAIImagesPerceivedQualityPrompt(prompt string, edit bool) string",
-        "openAIImagesDefaultReasoningEffort",
-        "openAIImagesVerbatimReasoningEffort",
+        "openAIImagesDefaultReasoningEffort = \"\"",
         "SUB2API_IMAGES_REASONING_EFFORT"
       ],
-      "rationale": "OAuth gpt-image perceived-quality owner: reasoning.effort defaults to medium for all prompts, including short ASCII quoted labels; explicit environment overrides take precedence. The labeled-spec prompt scaffold must not claim resolution, and edits keep the input image framing. Dropping the file is compile-clean only if the call site below is also dropped; this anchor keeps the policy from disappearing in an upstream merge."
+      "rationale": "OAuth gpt-image perceived-quality owner: reasoning.effort is omitted by default for all prompts, because since 2026-11-04 the Codex backend reads it as image complexity and gpt-image-2-codex rejects every value; explicit environment overrides still take precedence. The labeled-spec prompt scaffold must not claim resolution, and edits keep the input image framing. Dropping the file is compile-clean only if the call site below is also dropped; this anchor keeps the policy from disappearing in an upstream merge."
     },
     {
       "path": "backend/internal/service/openai_images_responses.go",
       "must_contain": [
         "reasoningEffort := openAIImagesReasoningEffortForPrompt(prompt)",
         "prompt = applyOpenAIImagesPerceivedQualityPrompt(prompt, parsed.IsEdits())",
-        "req, _ = sjson.SetBytes(req, \"reasoning.effort\", reasoningEffort)"
+        "req, _ = sjson.SetBytes(req, \"reasoning.effort\", reasoningEffort)",
+        "\"reasoning\":{\"summary\":\"auto\"}",
+        "if reasoningEffort != \"\" {"
       ],
-      "rationale": "Responses OAuth image builder must apply the perceived-quality scaffold before style/AR and set reasoning.effort from that owner. instructions stay empty (codex2api). Removing the calls compiles if the helpers remain, but every OAuth image would silently lose the scaffold and the shared effort policy. tools[].quality stays forwarded so a soft upstream remap remains observable."
+      "rationale": "Responses OAuth image builder must apply the perceived-quality scaffold before style/AR and set reasoning.effort from that owner only when it is non-empty (the default omits it; upstream rejects effort as image complexity since 2026-11-04). instructions stay empty (codex2api). Removing the calls compiles if the helpers remain, but every OAuth image would silently lose the scaffold and the shared effort policy. tools[].quality stays forwarded so a soft upstream remap remains observable."
     },
     {
       "path": "backend/internal/service/openai_images_responses.go",
@@ -7249,11 +7250,11 @@
     {
       "path": "backend/internal/service/openai_images_oauth_dispatch_tk_test.go",
       "must_contain": [
-        "func TestForwardOpenAIImagesOAuth_QuotedLabelKeepsMediumAndVerbatimScaffold(",
-        "require.Equal(t, \"medium\", *result.ReasoningEffort)",
-        "require.Equal(t, \"medium\", gjson.GetBytes(upstream.lastBody, \"reasoning.effort\").String())"
+        "func TestForwardOpenAIImagesOAuth_QuotedLabelOmitsEffortAndKeepsVerbatimScaffold(",
+        "require.Nil(t, result.ReasoningEffort)",
+        "require.False(t, gjson.GetBytes(upstream.lastBody, \"reasoning.effort\").Exists())"
       ],
-      "rationale": "Regression guard for withdrawing automatic high effort on quoted image prompts: validate the sent effort and usage attribution while retaining Text (verbatim). The request-builder call-site and policy owner above must keep this behavior through upstream merges."
+      "rationale": "Regression guard for the omitted image effort: quoted prompts send no reasoning.effort and record none in usage, while retaining Text (verbatim). The request-builder call-site and policy owner above must keep this behavior through upstream merges."
     },
     {
       "path": "backend/internal/service/openai_images_oauth_dispatch_tk.go",

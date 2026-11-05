@@ -984,7 +984,7 @@ func TestOpenAIGatewayServiceForwardImages_OAuthPassesNAndReturnsAllImages(t *te
 	oauthPrompt := gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String()
 	assertOpenAIImagesPerceivedQualityPrompt(t, oauthPrompt, "draw a cat", false)
 	require.True(t, strings.HasSuffix(oauthPrompt, "marker AR=1:1"))
-	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning.effort").Exists())
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "gpt-image-1", gjson.Get(rec.Body.String(), "model").String())
@@ -2034,7 +2034,7 @@ func TestOpenAIGatewayServiceForwardImages_OAuthEditsMultipartUsesResponsesAPI(t
 	require.True(t, strings.HasPrefix(gjson.GetBytes(upstream.lastBody, "tools.0.input_image_mask.image_url").String(), "data:image/png;base64,"))
 	editPrompt := gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String()
 	assertOpenAIImagesPerceivedQualityPrompt(t, editPrompt, "replace background with aurora", true)
-	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning.effort").Exists())
 	outB64 := gjson.Get(rec.Body.String(), "data.0.b64_json").String()
 	require.NotEmpty(t, outB64)
 	require.NotEqual(t, editedPNG, outB64) // coerced to webp
@@ -2211,7 +2211,7 @@ func TestBuildOpenAIImagesResponsesRequest_UsesEmptyInstructionsLikeCodex2API(t 
 	body, err := buildOpenAIImagesResponsesRequest(parsed, "gpt-image-2")
 	require.NoError(t, err)
 	require.Equal(t, "", gjson.GetBytes(body, "instructions").String())
-	require.Equal(t, "medium", gjson.GetBytes(body, "reasoning.effort").String())
+	require.False(t, gjson.GetBytes(body, "reasoning.effort").Exists())
 	quotedText := gjson.GetBytes(body, "input.0.content.0.text").String()
 	require.Contains(t, quotedText, prompt)
 	assertOpenAIImagesPerceivedQualityPrompt(t, quotedText, prompt, false)

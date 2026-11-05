@@ -132,7 +132,9 @@ data = {
     "model": main_model,
     "instructions": "",
     "stream": True,
-    "reasoning": {"effort": "medium", "summary": "auto"},
+    # No reasoning.effort: since 2026-11-04 upstream reads it as the image
+    # tool "complexity" and gpt-image-2-codex rejects every value.
+    "reasoning": {"summary": "auto"},
     "parallel_tool_calls": True,
     "include": ["reasoning.encrypted_content"],
     "store": False,
@@ -222,6 +224,7 @@ def absorb_call_meta(src):
         global revised_prompt
         revised_prompt = src.get("revised_prompt")
 
+stream_error = {}
 try:
     with open(body_file, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -236,6 +239,10 @@ try:
                     etype = obj.get("type", "")
                     if etype:
                         events.append(etype)
+                    if etype in ("error", "response.failed") and not stream_error:
+                        err_obj = obj.get("error") or (obj.get("response") or {}).get("error") or {}
+                        if isinstance(err_obj, dict):
+                            stream_error = {k: str(err_obj.get(k, ""))[:300] for k in ("type", "code", "message", "param") if err_obj.get(k)}
                     # Check for image_generation_call in output_item
                     item = obj.get("item", {})
                     if item.get("type") == "image_generation_call":
@@ -355,6 +362,7 @@ result = {
         "tool_usage": tool_usage,
     },
     "events_streamed": events[:15],
+    "stream_error": stream_error,
 }
 
 if not image_data and raw_lines:
