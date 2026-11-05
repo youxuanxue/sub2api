@@ -1678,6 +1678,7 @@
     },
     {
       "upstream": "Wei-Shaw/sub2api#8505",
+      "tokenkey_pr": "youxuanxue/sub2api#3055",
       "status": "fixed_in_tokenkey",
       "summary": "Antigravity streams that end without a real finishReason, including MALFORMED_FUNCTION_CALL, no longer synthesize stop_reason=end_turn or a successful [DONE]. If message_start was seen but no text or tool_use was committed, callers return an UpstreamFailoverError so another account can be tried; thinking-only is not a successful completion. After text, tool_use, or a response-committing keepalive, the caller writes an SSE error and still returns the observed usage. Real STOP stays end_turn, an emitted tool call stays tool_use, MAX_TOKENS stays max_tokens, and content-filter reasons stay refusal.",
       "fixed_by": [
