@@ -151,6 +151,25 @@ class HTTPLaneTests(unittest.TestCase):
         self.assertEqual(protocol.observed["targets"], ["AmazonCodeWhispererService.GenerateCompletions"])
         self.assertEqual(protocol.observed["body_keys"], ["fileContext", "maxResults"])
 
+    def test_streaming_non_2xx_protocol_excludes_management_success(self):
+        streaming = json.loads(json.dumps(HTTP))
+        streaming["host"] = "runtime.us-east-1.kiro.dev"
+        streaming["success"] = False
+        streaming["status_code"] = 403
+        management = json.loads(json.dumps(HTTP))
+        management["host"] = "management.us-east-1.kiro.dev"
+        management["headers"]["user-agent"] = "control-plane"
+        management["headers"]["x-amz-target"] = "AmazonKiroControlPlane.GetProfile"
+        lane = eng.EvidenceLane(
+            "http",
+            {"successful_count": 1, "records": [streaming, management]},
+            "real-cli-mitm-http",
+            True,
+        )
+        protocol = eng.build_protocol_lane(lane)
+        self.assertEqual(protocol.observed["operations"], ["POST runtime.us-east-1.kiro.dev/"])
+        self.assertEqual(protocol.observed["targets"], ["AmazonCodeWhispererService.GenerateCompletions"])
+
 
 class AuthLaneTests(unittest.TestCase):
     def test_combines_matching_whoami_and_cache_metadata(self):
@@ -237,6 +256,30 @@ class BundleAndProfileTests(unittest.TestCase):
         records.append(management)
         self.assertEqual(eng.observed_http_identity(bundle)["KiroCLIUserAgent"], OWNER_USER_AGENT)
         self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_COMPLETE)
+        profile = eng.build_canonical_profile(bundle)
+        self.assertEqual(profile["observed"]["user_agent"], OWNER_USER_AGENT)
+        self.assertEqual(
+            profile["observed"]["protocol"]["operations"],
+            ["POST runtime.us-east-1.kiro.dev/"],
+        )
+        self.assertNotIn("management.us-east-1.kiro.dev", json.dumps(profile["observed"]["protocol"]))
+
+    def test_emit_profile_refuses_nonuniform_streaming_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle = complete_bundle(root)
+            records = bundle["evidence_lanes"]["http"]["observed"]["records"]
+            first = records[0]
+            first["host"] = "runtime.us-east-1.kiro.dev"
+            second = json.loads(json.dumps(first))
+            second["headers"]["user-agent"] = OWNER_USER_AGENT + "-other"
+            records.append(second)
+            bundle_path = root / "bundle.json"
+            bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+            out = root / "profile.json"
+            rc = eng.cmd_emit_profile(type("Args", (), {"bundle": bundle_path, "out": out})())
+            self.assertEqual(rc, eng.EXIT_INVALID)
+            self.assertFalse(out.exists())
 
     def test_non_version_user_agent_segment_drift_is_detected(self):
         with tempfile.TemporaryDirectory() as tmp:
