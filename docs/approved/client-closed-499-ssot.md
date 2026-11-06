@@ -1,7 +1,7 @@
 ---
 title: Client-Closed 499 SSOT（客户端断开分类单一事实源）
 status: approved
-approved_by: "user (2026-09-15 conversation: 复审 #2179 后确认 499 分类未达全仓库 SSOT，批准在 #2179 分支上直接追加收敛修复)"
+approved_by: "user (2026-09-15 conversation: 复审 #2179 后确认 499 分类未达全仓库 SSOT，批准在 #2179 分支上直接追加收敛修复); user (2026-11-06 conversation: 安排独立的 Agent 专家，去核实、解决客户端断开时丢计费)"
 approved_at: 2026-09-15
 created: 2026-09-15
 authors: [claude]
@@ -31,6 +31,7 @@ middleware、handler、ops 分类器各有一套平行判定，语义不一致�
 | ops 日志归类 | `handler/ops_error_logger.go` → `classifyOpsErrorLog`：`status==499 || (clientClosedRequest && !upstreamError)` → `phase=request` | 单一汇聚点 |
 | Forward 期 499 终结 | `handler/client_closed_request_tk.go` → `markClientClosedForwardRequest` | failoverClientGone 与直接 Forward fallback 复用 |
 | upstream 维度取消 | `handler/ops_error_logger_tk_client_canceled.go` → `tkUpstreamClientCanceled` | 独立维度（issue #625），语义上与 ingress 谓词不同：需排除终态上游 HTTP 状态 |
+| Gemini 非流式断开计费 | `service/gemini_nonstream_detach_tk.go` → `tkGeminiNonStreamUpstreamContext` / `tkGeminiCallerGoneBeforeRetry` / `tkGeminiMarkClientGoneAfterNonStream` | 非流式上游 attempt 经共享 `detachUpstreamContext`（transport 有界 drain）脱钩；调用方离开后不再同号重试；完成但未送达时标记 499，usage 照常结算。只认 `Canceled`，deadline 不算 499 |
 
 ## 谓词语义（优先级，不得分叉）
 

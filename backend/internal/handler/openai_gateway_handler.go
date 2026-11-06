@@ -2964,7 +2964,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			if lastFailoverErr != nil {
 				closeOpenAIWSFailoverExhausted(c, wsConn, lastFailoverErr)
 			} else {
-				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "no available account")
+				tkCloseOpenAIWSNoAvailableAccount(c, wsConn, err)
 			}
 			return
 		}
@@ -2972,7 +2972,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			if lastFailoverErr != nil {
 				closeOpenAIWSFailoverExhausted(c, wsConn, lastFailoverErr)
 			} else {
-				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "no available account")
+				tkCloseOpenAIWSNoAvailableAccount(c, wsConn, nil)
 			}
 			return
 		}
@@ -2996,7 +2996,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				reqLog.Debug("openai.websocket_account_slot_profit_vetoed", zap.Int64("account_id", account.ID), zap.String("reason", reason))
 				if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
 					reqLog.Warn("openai.websocket_profit_veto_attempts_exhausted", zap.Int("profit_veto_count", profitVetoCount))
-					closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "no available account")
+					tkCloseOpenAIWSNoAvailableAccount(c, wsConn, nil)
 					return
 				}
 				continue
@@ -3033,7 +3033,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				reqLog.Debug("openai.websocket_account_slot_profit_vetoed", zap.Int64("account_id", account.ID), zap.String("reason", reason))
 				if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
 					reqLog.Warn("openai.websocket_profit_veto_attempts_exhausted", zap.Int("profit_veto_count", profitVetoCount))
-					closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "no available account")
+					tkCloseOpenAIWSNoAvailableAccount(c, wsConn, nil)
 					return
 				}
 				continue
@@ -4210,6 +4210,8 @@ func closeOpenAIWSFailoverExhausted(c *gin.Context, conn *coderws.Conn, failover
 	}
 
 	service.MarkOpsStreamFailure(c, errorType, errorCode, message, intendedStatus)
+	// TK: terminal Responses error frame before close (openai_gateway_handler_tk_ws_terminal_error.go).
+	tkWriteOpenAIWSTerminalError(c, conn, tkOpenAIWSFailoverTerminalError(failoverErr, intendedStatus, errorType, message, time.Now()))
 	closeOpenAIClientWS(conn, closeStatus, message)
 }
 
