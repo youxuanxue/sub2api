@@ -9,8 +9,8 @@ const DefaultKiroAccountPriority = 10
 // DefaultKiroCLIVersion is the sole Kiro client release owner. The HTTP identity
 // below is the User-Agent observed on
 // AmazonCodeWhispererStreamingService.GenerateAssistantResponse from logged-in
-// kiro-cli 3.0.0; do not infer any segment from release metadata alone.
-const DefaultKiroCLIVersion = "3.0.0"
+// kiro-cli 3.1.0; do not infer any segment from release metadata alone.
+const DefaultKiroCLIVersion = "3.1.0"
 
 const (
 	kiroCLISDKVersion    = "1.6.0"

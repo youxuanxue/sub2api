@@ -120,7 +120,7 @@
         "ja3_hash": "cc68bcc987450c19dd325448729608ae"
       }
     ],
-    "user_agent": "aws-sdk-rust/1.6.0 ua/2.1 api/codewhispererstreaming/0.1.19636 os/macos lang/rust/1.94.1 md/appVersion-3.0.0 app/AmazonQ-For-CLI",
+    "user_agent": "aws-sdk-rust/1.6.0 ua/2.1 api/codewhispererstreaming/0.1.19636 os/macos lang/rust/1.94.1 md/appVersion-3.1.0 app/AmazonQ-For-CLI",
     "x_amz_user_agent": "aws-sdk-rust/1.6.0 ua/2.1 api/codewhispererstreaming/0.1.19636 os/macos lang/rust/1.94.1 m/F app/AmazonQ-For-CLI",
     "protocol": {
       "operations": [
