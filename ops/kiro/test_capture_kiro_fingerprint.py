@@ -219,6 +219,25 @@ class BundleAndProfileTests(unittest.TestCase):
         drift = eng.http_identity_drift(bundle)
         self.assertEqual([d[0] for d in drift], ["KiroCLIUserAgent"])
 
+    def test_management_plane_success_does_not_replace_streaming_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle, committed = self._bundle_and_committed(tmp)
+        records = bundle["evidence_lanes"]["http"]["observed"]["records"]
+        for record in records:
+            record["host"] = "runtime.us-east-1.kiro.dev"
+            record["status_code"] = 403
+            record["success"] = False
+        management = json.loads(json.dumps(records[0]))
+        management["host"] = "management.us-east-1.kiro.dev"
+        management["status_code"] = 200
+        management["success"] = True
+        management["headers"]["user-agent"] = OWNER_USER_AGENT.replace(
+            "api/codewhispererstreaming/", "api/kirocontrolplanebearer/")
+        management["headers"]["x-amz-user-agent"] = OWNER_AMZ_USER_AGENT.replace("m/F", "m/F,C")
+        records.append(management)
+        self.assertEqual(eng.observed_http_identity(bundle)["KiroCLIUserAgent"], OWNER_USER_AGENT)
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_COMPLETE)
+
     def test_non_version_user_agent_segment_drift_is_detected(self):
         with tempfile.TemporaryDirectory() as tmp:
             bundle, committed = self._bundle_and_committed(tmp)

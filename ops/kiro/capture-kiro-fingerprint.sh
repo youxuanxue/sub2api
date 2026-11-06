@@ -26,7 +26,7 @@ Usage:
   capture-kiro-fingerprint.sh emit-profile --bundle PATH [--out PATH]
   capture-kiro-fingerprint.sh version
 
-capture launches mitmdump, runs the real `kiro-cli translate` operation at least
+capture launches mitmdump, runs the real `kiro-cli chat --no-interactive --v2` at least
 three times, and emits one ignored evidence bundle. The collector source-redacts
 credentials, profile ARNs, user content, raw bodies, response bodies, and TLS
 key-share bytes.
@@ -123,9 +123,9 @@ with open(sys.argv[1], "w", encoding="utf-8") as handle:
 
   local proxy="http://127.0.0.1:$MITM_PORT" attempt
   for ((attempt = 1; attempt <= SAMPLES; attempt++)); do
-    if ! printf '%s\n' 'list files' | env \
+    if ! env \
       HTTP_PROXY="$proxy" HTTPS_PROXY="$proxy" http_proxy="$proxy" https_proxy="$proxy" \
-      SSL_CERT_FILE="$MITM_CA" "$KIRO_CLI" translate >/dev/null; then
+      SSL_CERT_FILE="$MITM_CA" "$KIRO_CLI" chat --no-interactive --v2 'Reply with the single word pong' >/dev/null; then
       printf 'error: real kiro-cli request %d failed\n' "$attempt" >&2
       exit 2
     fi
