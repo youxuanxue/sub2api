@@ -402,12 +402,13 @@ def identity_http_records(records: list[Any]) -> list[dict[str, Any]]:
 
 
 def observed_http_identity(bundle: dict[str, Any]) -> dict[str, str] | None:
-    """The two complete wire UA headers all successful samples agree on.
+    """The two complete wire UA headers the identity records agree on.
 
-    The harness runs the real CLI at least three times, so headers that differ
-    between samples (mid-capture upgrade, two binaries on PATH) are unusable
-    evidence rather than an aligned observation -- the anthropic engine enforces
-    the same cross-record invariant.
+    Identity records are GenerateAssistantResponse on runtime.us-east-1.kiro.dev
+    when that host was observed, including a non-2xx such as a suspended
+    account. Otherwise they are the successful responses. Headers that differ
+    between those records are unusable evidence rather than an aligned
+    observation.
     """
     lanes = _lanes(bundle)
     http = lanes.get("http")

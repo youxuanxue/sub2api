@@ -121,13 +121,20 @@ with open(sys.argv[1], "w", encoding="utf-8") as handle:
     handle.write("\n")
 ' "$whoami_file"
 
-  local proxy="http://127.0.0.1:$MITM_PORT" attempt
+  local proxy="http://127.0.0.1:$MITM_PORT" attempt before after
   for ((attempt = 1; attempt <= SAMPLES; attempt++)); do
+    before=$(wc -c <"$http_log" | tr -d ' ')
+    # A suspended account returns non-zero after the streaming request is on
+    # the wire. Keep that evidence. Fail only when the CLI exits before any
+    # new proxied request is logged.
     if ! env \
       HTTP_PROXY="$proxy" HTTPS_PROXY="$proxy" http_proxy="$proxy" https_proxy="$proxy" \
       SSL_CERT_FILE="$MITM_CA" "$KIRO_CLI" chat --no-interactive --v2 'Reply with the single word pong' >/dev/null; then
-      printf 'error: real kiro-cli request %d failed\n' "$attempt" >&2
-      exit 2
+      after=$(wc -c <"$http_log" | tr -d ' ')
+      if [[ "$after" -le "$before" ]]; then
+        printf 'error: real kiro-cli request %d failed\n' "$attempt" >&2
+        exit 2
+      fi
     fi
   done
   cleanup

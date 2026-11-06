@@ -31,7 +31,7 @@ real kiro-cli
 
 ## 工具
 
-- `capture-kiro-fingerprint.sh`：运行真实 `kiro-cli translate` 至少三次。
+- `capture-kiro-fingerprint.sh`：运行真实 `kiro-cli chat --no-interactive --v2` 至少三次。
 - `mitm_kiro_http_logger.py`：从源头只保留允许的 TLS/HTTP/协议字段；丢弃凭证、
   profile ARN、用户内容、完整 body 和 key-share bytes。
 - `capture_kiro_fingerprint.py`：机械分类 auth cohort、验证四条 evidence lanes、
