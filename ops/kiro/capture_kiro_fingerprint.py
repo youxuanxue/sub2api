@@ -178,17 +178,36 @@ def build_http_lane(path: Path | None) -> EvidenceLane:
     return EvidenceLane("http", {"record_count": len(records), "successful_count": len(successful), "records": records}, "real-cli-mitm-http", True)
 
 
+def _protocol_observed(records: list[dict[str, Any]], *, success_only_operations: bool) -> dict[str, Any]:
+    operation_records = [record for record in records if record.get("success") is True] if success_only_operations else records
+    return {
+        "operations": sorted({
+            f"{record['method']} {record['host']}{record['path']}"
+            for record in operation_records
+            if record.get("method") and record.get("host") and record.get("path")
+        }),
+        "targets": sorted({(record.get("headers") or {}).get("x-amz-target", "") for record in records if (record.get("headers") or {}).get("x-amz-target")}),
+        "content_types": sorted({(record.get("headers") or {}).get("content-type", "") for record in records if (record.get("headers") or {}).get("content-type")}),
+        "origins": sorted({record.get("origin", "") for record in records if record.get("origin")}),
+        "body_keys": sorted({key for record in records for key in record.get("body_keys", [])}),
+    }
+
+
 def build_protocol_lane(http_lane: EvidenceLane) -> EvidenceLane:
     if http_lane.source == NOT_OBSERVED or not http_lane.observed.get("successful_count"):
         return EvidenceLane("protocol", {}, NOT_OBSERVED, True)
     records = http_lane.observed["records"]
-    observed = {
-        "operations": sorted({f"{record['method']} {record['host']}{record['path']}" for record in records if record.get("success") is True}),
-        "targets": sorted({record.get("headers", {}).get("x-amz-target", "") for record in records if record.get("headers", {}).get("x-amz-target")}),
-        "content_types": sorted({record.get("headers", {}).get("content-type", "") for record in records if record.get("headers", {}).get("content-type")}),
-        "origins": sorted({record.get("origin", "") for record in records if record.get("origin")}),
-        "body_keys": sorted({key for record in records for key in record.get("body_keys", [])}),
-    }
+    streaming = [
+        record for record in identity_http_records(records)
+        if isinstance(record, dict) and record.get("host") == STREAMING_HTTP_HOST
+    ]
+    # A 2xx on the management plane must not become the protocol of a bundle
+    # that also observed GenerateAssistantResponse, even when that call is a
+    # non-2xx. Without a streaming record, keep the success-only contract.
+    if streaming:
+        observed = _protocol_observed(streaming, success_only_operations=False)
+    else:
+        observed = _protocol_observed(records, success_only_operations=True)
     return EvidenceLane("protocol", observed, "real-cli-mitm-http", True)
 
 
@@ -265,6 +284,8 @@ def build_canonical_profile(bundle: dict[str, Any]) -> dict[str, Any]:
     if not selected:
         raise ValueError("complete real CLI evidence is required")
     headers = selected[0].get("headers", {})
+    streaming = [record for record in selected if record.get("host") == STREAMING_HTTP_HOST]
+    protocol = _protocol_observed(streaming, success_only_operations=False) if streaming else lanes["protocol"]["observed"]
     profile = {
         "name": KIRO_PROFILE_NAME,
         "description": "TokenKey canonical Kiro CLI TLS profile captured from real kiro-cli traffic; rustls permutes the observed extension set for each ClientHello.",
@@ -276,7 +297,7 @@ def build_canonical_profile(bundle: dict[str, Any]) -> dict[str, Any]:
             "samples": tls["samples"],
             "user_agent": headers.get("user-agent", ""),
             "x_amz_user_agent": headers.get("x-amz-user-agent", ""),
-            "protocol": lanes["protocol"]["observed"],
+            "protocol": protocol,
             "auth_cohort": lanes["auth"]["observed"]["cohort"],
         },
     }
@@ -565,6 +586,8 @@ def cmd_emit_profile(args: argparse.Namespace) -> int:
         bundle = _load(args.bundle)
         if compute_bundle_exit_code(bundle, None) != EXIT_COMPLETE:
             raise ValueError("bundle evidence is incomplete or invalid")
+        if observed_http_identity(bundle) is None:
+            raise ValueError("HTTP identity is missing or not uniform")
         profile = build_canonical_profile(bundle)
         out = args.out or KIRO_TLS_PROFILE_JSON
         out.parent.mkdir(parents=True, exist_ok=True)
