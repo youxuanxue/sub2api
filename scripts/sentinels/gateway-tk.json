@@ -1967,18 +1967,34 @@
       "rationale": "Native Chat-to-Messages execution must retain cache breakpoints and tool controls."
     },
     {
+      "path": "backend/internal/service/gateway_forward_compat_sticky_tk.go",
+      "must_contain": [
+        "func tkApplyAnthropicAPIKeyCompatSticky(",
+        "applyStickyToAnthropicMessagesBody(ctx, c, settingService, account, anthropicBody, mappedModel, false)"
+      ],
+      "rationale": "Chat Completions and Responses converted to Anthropic Messages must reuse the Messages sticky injector for Anthropic platform API-key accounts, restoring a client metadata.user_id first. OAuth mimicry stays on its own path."
+    },
+    {
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
       "must_contain": [
-        "applyStickyToAnthropicMessagesBody(ctx, c, s.settingService, account, anthropicBody, mappedModel, false)"
+        "tkApplyAnthropicAPIKeyCompatSticky(ctx, c, s.settingService, account, body, anthropicBody, mappedModel)"
       ],
-      "rationale": "Anthropic platform API-key Chat Completions must reuse the Messages sticky injector after Kiro and Bedrock return. OAuth mimicry stays on its own path."
+      "rationale": "Chat Completions call site: runs after the Kiro and Bedrock early returns, before the access token."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses.go",
+      "must_contain": [
+        "tkApplyAnthropicAPIKeyCompatSticky(ctx, c, s.settingService, account, body, anthropicBody, mappedModel)"
+      ],
+      "rationale": "Responses call site: session-requiring Anthropic upstreams reject a converted body without metadata.user_id."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_sticky_test.go",
       "must_contain": [
-        "TestForwardAsChatCompletions_AnthropicAPIKeySticky"
+        "TestForwardAsChatCompletions_AnthropicAPIKeySticky",
+        "TestForwardAsResponses_AnthropicAPIKeySticky"
       ],
-      "rationale": "Regression: API-key Chat Completions inject a derived session when the client omits metadata.user_id, keep a client-supplied id, and invent nothing when sticky routing is off."
+      "rationale": "Regression: API-key Chat Completions and Responses inject a derived session when the client omits metadata.user_id, keep a client-supplied id, and invent nothing when sticky routing is off."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",

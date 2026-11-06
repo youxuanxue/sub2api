@@ -20,7 +20,7 @@ import (
 )
 
 // anthropicChatStickyUpstream records the Anthropic /v1/messages body that
-// ForwardAsChatCompletions actually puts on the wire.
+// ForwardAsChatCompletions / ForwardAsResponses actually put on the wire.
 type anthropicChatStickyUpstream struct {
 	body []byte
 }
@@ -54,10 +54,26 @@ func (u *anthropicChatStickyUpstream) DoWithTLS(req *http.Request, _ string, _ i
 
 func forwardAnthropicAPIKeyChat(t *testing.T, clientBody []byte, mode group.StickyRoutingMode) []byte {
 	t.Helper()
+	return forwardAnthropicAPIKeyCompat(t, "/v1/chat/completions", clientBody, mode, func(svc *GatewayService, c *gin.Context, account *Account) error {
+		_, err := svc.ForwardAsChatCompletions(context.Background(), c, account, clientBody, nil)
+		return err
+	})
+}
+
+func forwardAnthropicAPIKeyResponses(t *testing.T, clientBody []byte, mode group.StickyRoutingMode) []byte {
+	t.Helper()
+	return forwardAnthropicAPIKeyCompat(t, "/v1/responses", clientBody, mode, func(svc *GatewayService, c *gin.Context, account *Account) error {
+		_, err := svc.ForwardAsResponses(context.Background(), c, account, clientBody, nil)
+		return err
+	})
+}
+
+func forwardAnthropicAPIKeyCompat(t *testing.T, path string, clientBody []byte, mode group.StickyRoutingMode, forward func(*GatewayService, *gin.Context, *Account) error) []byte {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(clientBody))
+	c.Request = httptest.NewRequest(http.MethodPost, path, bytes.NewReader(clientBody))
 	c.Request.Header.Set("Content-Type", "application/json")
 	// API key id + group mode are what resolveStickyStrategyFromGin / DeriveStickyKey read.
 	c.Set("api_key", &APIKey{
@@ -87,7 +103,7 @@ func forwardAnthropicAPIKeyChat(t *testing.T, clientBody []byte, mode group.Stic
 			"base_url": "https://cloudwise.example/api",
 		},
 	}
-	_, err := svc.ForwardAsChatCompletions(context.Background(), c, account, clientBody, nil)
+	err := forward(svc, c, account)
 	require.NotEmpty(t, upstream.body, "upstream request body was not sent: %v", err)
 	return upstream.body
 }
@@ -112,6 +128,29 @@ func TestForwardAsChatCompletions_AnthropicAPIKeySticky(t *testing.T) {
 
 	t.Run("keeps client metadata user id", func(t *testing.T) {
 		got := forwardAnthropicAPIKeyChat(t, kept, group.StickyRoutingModeAuto)
+		require.Equal(t, clientUserID, gjson.GetBytes(got, "metadata.user_id").String(), "body=%s", got)
+	})
+}
+
+func TestForwardAsResponses_AnthropicAPIKeySticky(t *testing.T) {
+	const clientUserID = "client-session-keep"
+	omitted := []byte(`{"model":"claude-sonnet-4-5","instructions":"sticky-system","input":"hi","max_output_tokens":32,"stream":false}`)
+	kept := []byte(`{"model":"claude-sonnet-4-5","instructions":"sticky-system","input":"hi","max_output_tokens":32,"stream":false,"metadata":{"user_id":"client-session-keep"}}`)
+
+	t.Run("injects when client omits metadata user id", func(t *testing.T) {
+		got := forwardAnthropicAPIKeyResponses(t, omitted, group.StickyRoutingModeAuto)
+		uid := gjson.GetBytes(got, "metadata.user_id").String()
+		require.Truef(t, strings.HasPrefix(uid, StickyDerivedKeyPrefix) && len(uid) > len(StickyDerivedKeyPrefix),
+			"upstream metadata.user_id = %q", uid)
+	})
+
+	t.Run("strategy off does not invent a session", func(t *testing.T) {
+		got := forwardAnthropicAPIKeyResponses(t, omitted, group.StickyRoutingModeOff)
+		require.False(t, gjson.GetBytes(got, "metadata.user_id").Exists(), "strategy off must not write metadata.user_id, body=%s", got)
+	})
+
+	t.Run("keeps client metadata user id", func(t *testing.T) {
+		got := forwardAnthropicAPIKeyResponses(t, kept, group.StickyRoutingModeAuto)
 		require.Equal(t, clientUserID, gjson.GetBytes(got, "metadata.user_id").String(), "body=%s", got)
 	})
 }

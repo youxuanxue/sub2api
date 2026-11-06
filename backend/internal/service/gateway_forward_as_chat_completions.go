@@ -18,7 +18,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
 )
 
@@ -150,25 +149,8 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		)
 	}
 
-	// Anthropic API Key 的 Chat Completions 不经过 /v1/messages pre-send guard。
-	// isClaudeCode 固定 false：这条链路不是 Claude Code 客户端。
-	// ChatCompletionsRequest 没有 metadata 字段，转换会丢掉客户端已有的 user_id；
-	// 先补回再交给粘性注入，后者在字段已存在时不会改写。
-	if account.Platform == PlatformAnthropic && account.Type == AccountTypeAPIKey && !shouldMimicClaudeCode {
-		if clientUID := gjson.GetBytes(body, "metadata.user_id"); clientUID.Type == gjson.String {
-			if uid := strings.TrimSpace(clientUID.String()); uid != "" && strings.TrimSpace(gjson.GetBytes(anthropicBody, "metadata.user_id").String()) == "" {
-				patched, patchErr := sjson.SetBytes(anthropicBody, "metadata.user_id", uid)
-				if patchErr != nil {
-					return nil, patchErr
-				}
-				anthropicBody = patched
-			}
-		}
-		stickyBody, _, err := applyStickyToAnthropicMessagesBody(ctx, c, s.settingService, account, anthropicBody, mappedModel, false)
-		if err != nil {
-			return nil, err
-		}
-		anthropicBody = stickyBody
+	if anthropicBody, err = tkApplyAnthropicAPIKeyCompatSticky(ctx, c, s.settingService, account, body, anthropicBody, mappedModel); err != nil {
+		return nil, err
 	}
 
 	// 8. Get access token
