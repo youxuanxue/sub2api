@@ -1308,6 +1308,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		}
 		applyOpsLatencyFieldsFromContext(c, entry)
 		applyOpsUpstreamFieldsFromContext(c, entry)
+		tkAttributeOpsUpstreamAccount(entry)
 		applyOpsInternalErrorDetailFromContext(c, entry)
 		if parsed.StreamFailure {
 			if message := strings.TrimSpace(parsed.Message); message != "" {
