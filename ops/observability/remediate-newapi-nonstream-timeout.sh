@@ -22,7 +22,7 @@
 #       Both stream keys are deliberately NOT in first_output_timeout_ssot.py's
 #       generated tables (see its module docstring) so they may differ per
 #       deployment — cn-prod can run short budgets to make pre-output replay
-#       actually engage while prod keeps 0. Bound 0..60 mirrors config.go's
+#       actually engage while prod keeps 0. Bound 0..600 mirrors config.go's
 #       validation for the same keys.
 #
 # Safe path (default):
@@ -39,7 +39,7 @@
 #
 # Optional:
 #   WANT_TIMEOUT=<seconds>  (nonstream 1..NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX;
-#                            stream / stream-high-effort 0..60.
+#                            stream / stream-high-effort 0..600.
 #                            Default from SSOT / 0 for the stream modes)
 set -euo pipefail
 
@@ -59,7 +59,7 @@ case "$MODE" in
     WANT_TIMEOUT="${WANT_TIMEOUT:-0}"
     # 0 keeps the inherit-stream-SSOT behavior, so it must stay reachable here.
     WANT_MIN=0
-    WANT_MAX=60
+    WANT_MAX=600
     EXPECT_APPLY=yes-newapi-stream-timeout
     ;;
   stream-high-effort)
@@ -67,7 +67,7 @@ case "$MODE" in
     WANT_TIMEOUT="${WANT_TIMEOUT:-0}"
     # 0 keeps the inherit-high-effort-SSOT behavior.
     WANT_MIN=0
-    WANT_MAX=60
+    WANT_MAX=600
     EXPECT_APPLY=yes-newapi-stream-high-effort-timeout
     ;;
   *)

@@ -85,10 +85,8 @@ class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
         for mode, bad in (
             ("nonstream", "901"),
             ("nonstream", "0"),  # nonstream has no inherit semantics
-            ("stream", "61"),
-            ("stream", "120"),  # the old stream SSOT value is out of this key's range
-            ("stream-high-effort", "61"),
-            ("stream-high-effort", "600"),  # the inherited high-effort SSOT is out of range
+            ("stream", "601"),
+            ("stream-high-effort", "601"),
         ):
             with self.subTest(mode=mode, want=bad):
                 proc = self._reject(bad, mode)
@@ -98,8 +96,11 @@ class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
         for mode, good in (
             ("nonstream", "600"),
             ("stream", "12"),
+            ("stream", "120"),
             ("stream", "0"),
             ("stream-high-effort", "30"),
+            ("stream-high-effort", "120"),
+            ("stream-high-effort", "600"),
             ("stream-high-effort", "0"),
         ):
             with self.subTest(mode=mode, want=good):

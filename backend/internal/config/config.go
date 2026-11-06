@@ -1208,7 +1208,8 @@ type GatewayConfig struct {
 	StreamFirstOutputHighEffortTimeoutSeconds int `mapstructure:"stream_first_output_high_effort_timeout_seconds"`
 	// Bounds a replayable NewAPI Chat *streaming* attempt until useful first output
 	// (not total stream duration). Seconds; zero inherits StreamFirstOutputTimeoutSeconds.
-	// Cap is 60. At most five attempts share 5x this per-attempt budget.
+	// Cap is 600, like the universal stream key. At most five attempts share
+	// 5x this per-attempt budget.
 	NewAPIChatFirstOutputTimeout int `mapstructure:"newapi_chat_first_output_timeout"`
 	// Same, for high/xhigh/max reasoning effort on NewAPI Chat streaming. Zero
 	// inherits the stream high-effort SSOT (600s), which is the long-thinking
@@ -1216,7 +1217,7 @@ type GatewayConfig struct {
 	// measured on cn-prod do not actually think before the first token (TTFT P50
 	// 6909ms vs 4219ms for standard effort, while post-first-token generation is
 	// *shorter*: 5617ms vs 11919ms), so 600s there only disables pre-output
-	// replay on the slowest third of streaming traffic. Cap is 60, like the
+	// replay on the slowest third of streaming traffic. Cap is 600, like the
 	// standard-effort key. Deliberately absent from
 	// ops/stage0/first_output_timeout_ssot.py: it may differ per deployment.
 	NewAPIChatHighEffortFirstOutputTimeout int `mapstructure:"newapi_chat_high_effort_first_output_timeout"`
@@ -3840,11 +3841,11 @@ func (c *Config) Validate() error {
 	if c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds < 0 || c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds > 600 {
 		return fmt.Errorf("gateway.stream_first_output_high_effort_timeout_seconds must be between 0-600 seconds")
 	}
-	if c.Gateway.NewAPIChatFirstOutputTimeout < 0 || c.Gateway.NewAPIChatFirstOutputTimeout > 60 {
-		return fmt.Errorf("gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)")
+	if c.Gateway.NewAPIChatFirstOutputTimeout < 0 || c.Gateway.NewAPIChatFirstOutputTimeout > 600 {
+		return fmt.Errorf("gateway.newapi_chat_first_output_timeout must be between 0-600 seconds (streaming first-output override)")
 	}
-	if c.Gateway.NewAPIChatHighEffortFirstOutputTimeout < 0 || c.Gateway.NewAPIChatHighEffortFirstOutputTimeout > 60 {
-		return fmt.Errorf("gateway.newapi_chat_high_effort_first_output_timeout must be between 0-60 seconds (streaming high-effort first-output override)")
+	if c.Gateway.NewAPIChatHighEffortFirstOutputTimeout < 0 || c.Gateway.NewAPIChatHighEffortFirstOutputTimeout > 600 {
+		return fmt.Errorf("gateway.newapi_chat_high_effort_first_output_timeout must be between 0-600 seconds (streaming high-effort first-output override)")
 	}
 	if c.Gateway.NewAPIChatNonstreamFirstOutputTimeout < 0 || c.Gateway.NewAPIChatNonstreamFirstOutputTimeout > 900 {
 		return fmt.Errorf("gateway.newapi_chat_nonstream_first_output_timeout must be between 0-900 seconds")

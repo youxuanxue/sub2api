@@ -267,10 +267,10 @@ gateway:
   openai_high_effort_first_output_timeout_seconds: 600
   newapi_chat_nonstream_first_output_timeout: 600
   # first-output-timeout-ssot:end
-  # Replayable NewAPI Chat streaming override (seconds, 0=inherit stream SSOT, max 60).
+  # Replayable NewAPI Chat streaming override (seconds, 0=inherit stream SSOT, max 600).
   newapi_chat_first_output_timeout: 0
   # Same for high/xhigh/max reasoning effort (seconds, 0=inherit the stream
-  # high-effort SSOT above, max 60). The 600s high-effort budget is sized for
+  # high-effort SSOT above, max 600). The 600s high-effort budget is sized for
   # long-thinking claude-opus / gpt-6 families; domestic NewAPI models measured
   # on cn-prod do not stall before the first token, so they can use a short
   # budget here without losing pre-output replay.

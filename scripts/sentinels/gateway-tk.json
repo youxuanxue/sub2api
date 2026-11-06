@@ -16421,11 +16421,11 @@
         "first-output-timeout-ssot:end",
         "gateway.stream_first_output_timeout_seconds must be between 0-600 seconds",
         "gateway.newapi_chat_nonstream_first_output_timeout must be between 0-900 seconds",
-        "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)",
+        "gateway.newapi_chat_first_output_timeout must be between 0-600 seconds (streaming first-output override)",
         "viper.SetDefault(\"gateway.grok_response_header_timeout\", 0)",
         "gateway.grok_response_header_timeout must be between 0-60 seconds",
         "gateway.newapi_chat_high_effort_first_output_timeout",
-        "c.Gateway.NewAPIChatHighEffortFirstOutputTimeout > 60"
+        "c.Gateway.NewAPIChatHighEffortFirstOutputTimeout > 600"
       ],
       "rationale": "First-output viper defaults (including NewAPI nonstream) are generated from ops/stage0/first_output_timeout_ssot.py via scripts/checks/first-output-timeout-ssot.py --apply. Markers pin the generate region; edit SSOT then --apply, never hand-edit seconds here."
     },
