@@ -16,7 +16,7 @@ import (
 // same model_rate_limits store as openai_capacity_retry_after_tk.go so every
 // instance's candidate filter (IsSchedulableForModelWithContext) skips it.
 const (
-	// Default when the 429 carries no Retry-After and no reset-after hint.
+	// Default when the 429 carries no Retry-After.
 	// Long enough to span several request waves at hundreds of req/min, short
 	// enough that a fully cooled pool recovers within one client retry.
 	openAIOAuth429PressureModelCooldownDefault = 30 * time.Second
