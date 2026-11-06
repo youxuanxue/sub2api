@@ -19232,9 +19232,10 @@
       "path": "backend/internal/handler/ops_error_logger_tk_upstream_account.go",
       "must_contain": [
         "func tkAttributeOpsUpstreamAccount(entry *service.OpsInsertErrorLogInput, streamFailure bool) {",
+        "if entry == nil || streamFailure {",
         "if event.AccountID > 0 {"
       ],
-      "rationale": "Companion owner for failure-path ops account attribution. Mirrors logOpsRecoveredUpstream, which already attributes recovered rows to the last event's account; account-less last events keep the selected account."
+      "rationale": "Companion owner for failure-path ops account attribution. Mirrors logOpsRecoveredUpstream, which already attributes recovered rows to the last event's account; account-less last events keep the selected account. Stream failures keep the final account because the row's upstream status/message are rewritten from the terminal SSE error that account streamed (#3076 R-001); dropping the streamFailure guard would pair one account's message with another account's id."
     }
   ]
 }
