@@ -708,10 +708,27 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	// Create Claude Code style payload (same for all account types)
-	payload, err := createTestPayload(testModelID)
-	if err != nil {
-		return s.sendErrorAndEnd(c, "Failed to create test payload")
+	// API Key 探测用标准 Messages 请求，避免被上游按 Claude Code 身份扣额度。
+	// OAuth（含 setup-token）继续走 Claude Code payload 与客户端头。
+	var payload map[string]any
+	if account.Type == AccountTypeAPIKey {
+		payload = map[string]any{
+			"model": testModelID,
+			"messages": []map[string]any{
+				{
+					"role":    "user",
+					"content": "hi",
+				},
+			},
+			"max_tokens": 1024,
+			"stream":     true,
+		}
+	} else {
+		var err error
+		payload, err = createTestPayload(testModelID)
+		if err != nil {
+			return s.sendErrorAndEnd(c, "Failed to create test payload")
+		}
 	}
 	payloadBytes, _ := json.Marshal(payload)
 
@@ -723,23 +740,18 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		return s.sendErrorAndEnd(c, "Failed to create request")
 	}
 
-	// Set common headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	// Apply Claude Code client headers
-	for key, value := range claude.DefaultHeaders() {
-		req.Header.Set(key, value)
-	}
-
-	// Set authentication header
 	if account.IsOAuth() {
+		for key, value := range claude.DefaultHeaders() {
+			req.Header.Set(key, value)
+		}
 		req.Header.Set("anthropic-beta", claude.DefaultBetaHeader)
 		req.Header.Set("Authorization", "Bearer "+authToken)
 	} else {
-		req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
-		// Ollama Cloud Anthropic 兼容端点按实际 base_url 强制 Bearer，
-		// 其余保持 extra/default 行为。
+		// API Key 不套 Claude Code 头，也不主动发 anthropic-beta。
+		// 账号 HeaderOverrides 若写了 anthropic-beta，由下方 ApplyHeaderOverrides 带上。
 		setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetBaseURL())
 	}
 
