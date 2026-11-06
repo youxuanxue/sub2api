@@ -261,8 +261,10 @@ def build_canonical_profile(bundle: dict[str, Any]) -> dict[str, Any]:
     lanes = _lanes(bundle)
     tls = lanes["tls"]["observed"]
     http_records = lanes["http"]["observed"]["records"]
-    successful = [record for record in http_records if record.get("success") is True]
-    headers = successful[0].get("headers", {})
+    selected = identity_http_records(http_records)
+    if not selected:
+        raise ValueError("complete real CLI evidence is required")
+    headers = selected[0].get("headers", {})
     profile = {
         "name": KIRO_PROFILE_NAME,
         "description": "TokenKey canonical Kiro CLI TLS profile captured from real kiro-cli traffic; rustls permutes the observed extension set for each ClientHello.",
@@ -376,13 +378,37 @@ def _go_concat_value(text: str, name: str, symbols: dict[str, str]) -> str | Non
     return "".join(parts)
 
 
-def observed_http_identity(bundle: dict[str, Any]) -> dict[str, str] | None:
-    """The two complete wire UA headers all successful samples agree on.
+# GenerateAssistantResponse is the identity TokenKey forges. A 2xx on another
+# host (management control plane) must not replace it, including when the
+# streaming call itself is a non-2xx such as a suspended account.
+STREAMING_HTTP_HOST = "runtime.us-east-1.kiro.dev"
 
-    The harness runs the real CLI at least three times, so headers that differ
-    between samples (mid-capture upgrade, two binaries on PATH) are unusable
-    evidence rather than an aligned observation -- the anthropic engine enforces
-    the same cross-record invariant.
+
+def identity_http_records(records: list[Any]) -> list[dict[str, Any]]:
+    streaming = []
+    for record in records:
+        if not isinstance(record, dict) or record.get("host") != STREAMING_HTTP_HOST:
+            continue
+        headers = record.get("headers") or {}
+        if headers.get("user-agent") and headers.get("x-amz-user-agent"):
+            streaming.append(record)
+    if streaming:
+        return streaming
+    return [
+        record
+        for record in records
+        if isinstance(record, dict) and record.get("success") is True and isinstance(record.get("status_code"), int)
+    ]
+
+
+def observed_http_identity(bundle: dict[str, Any]) -> dict[str, str] | None:
+    """The two complete wire UA headers the identity records agree on.
+
+    Identity records are GenerateAssistantResponse on runtime.us-east-1.kiro.dev
+    when that host was observed, including a non-2xx such as a suspended
+    account. Otherwise they are the successful responses. Headers that differ
+    between those records are unusable evidence rather than an aligned
+    observation.
     """
     lanes = _lanes(bundle)
     http = lanes.get("http")
@@ -391,16 +417,12 @@ def observed_http_identity(bundle: dict[str, Any]) -> dict[str, str] | None:
     records = (http.get("observed") or {}).get("records")
     if not isinstance(records, list):
         return None
-    successful = [
-        r
-        for r in records
-        if isinstance(r, dict) and r.get("success") is True and isinstance(r.get("status_code"), int)
-    ]
-    if not successful:
+    selected = identity_http_records(records)
+    if not selected:
         return None
     observed: dict[str, str] = {}
     for symbol, header in (("KiroCLIUserAgent", "user-agent"), ("KiroCLIAmzUserAgent", "x-amz-user-agent")):
-        values = {str((r.get("headers") or {}).get(header) or "") for r in successful}
+        values = {str((r.get("headers") or {}).get(header) or "") for r in selected}
         if len(values) != 1:
             return None
         value = values.pop()
