@@ -19236,6 +19236,33 @@
         "if event.AccountID > 0 {"
       ],
       "rationale": "Companion owner for failure-path ops account attribution. Mirrors logOpsRecoveredUpstream, which already attributes recovered rows to the last event's account; account-less last events keep the selected account. Stream failures keep the final account because the row's upstream status/message are rewritten from the terminal SSE error that account streamed (#3076 R-001); dropping the streamFailure guard would pair one account's message with another account's id."
+    },
+    {
+      "path": "backend/internal/service/openai_oauth_429_pressure_cooldown_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) tkApplyOpenAIOAuth429PressureModelCooldown(",
+        "s.rateLimitService.accountRepo.SetModelRateLimit(stateCtx, account.ID, model, resetAt, openAIOAuth429PressureModelCooldownReason)",
+        "openAIOAuth429PressureModelCooldownCap = openAICapacityRetryAfterModelCooldownCap",
+        "func (s *OpenAIGatewayService) tkOpenAIOAuth429AccountAttemptBudget() int {"
+      ],
+      "rationale": "OpenAI OAuth 'Rate limit exceeded' account-pressure 429 persists a short (default 30s, clamp 5-60s) account+model cooldown in model_rate_limits so every instance's candidate filter skips the throttled credential; the in-memory 5s block alone is dropped by isOpenAIAccountRequestRuntimeBlocked when no persisted cooldown exists. Storm (>= openAIOAuth429StormThreshold per window) cuts the OAuth 429 account-switch budget to one switch. The >=100% usage long cooldown, 503 overload and API-key accounts are untouched."
+    },
+    {
+      "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
+      "must_contain": [
+        "s.tkApplyOpenAIOAuth429PressureModelCooldown(stateCtx, account, statusCode, headers, responseBody, canonicalModel...)",
+        "return failedSwitches >= s.tkOpenAIOAuth429AccountAttemptBudget()"
+      ],
+      "rationale": "Upstream-shaped hooks for openai_oauth_429_pressure_cooldown_tk.go. Dropping either compiles clean but restores the 2026-11-05 incident shape: throttled OAuth accounts re-picked with no persisted cooldown and ~3 upstream 429s per client request during a pool-wide storm."
+    },
+    {
+      "path": "backend/internal/service/openai_oauth_429_pressure_cooldown_tk_test.go",
+      "must_contain": [
+        "TestOpenAIOAuth429PressureModelCooldown_Duration",
+        "TestOpenAIOAuth429PressureModelCooldown_SchedulerSkipsOnlyThatModel",
+        "TestShouldStopOpenAIOAuth429Failover_StormCutsBudget"
+      ],
+      "rationale": "Focused regressions for the OAuth 429 pressure cooldown duration, model-scoped scheduler skip, and storm failover budget."
     }
   ]
 }
