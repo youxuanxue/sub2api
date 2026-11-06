@@ -167,7 +167,7 @@ func appendOpenAICapacityRetryAfterWireAliases(account *Account, keys []string, 
 			continue
 		}
 		reason, _ := entry["reason"].(string)
-		if reason != openAICapacityRetryAfterModelCooldownReason {
+		if !openAIModelCooldownReasonMatchesWireAliases(reason) {
 			continue
 		}
 		storedWire := CanonicalizeOpenAICompatRoutingModel(stored)

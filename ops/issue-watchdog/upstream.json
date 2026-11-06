@@ -1538,10 +1538,19 @@
     {
       "upstream": "Wei-Shaw/sub2api#8412",
       "judgment": {
-        "impact": "medium",
-        "tokenkey_status": "partially_mitigated",
-        "rationale": "2026-10-30用户明确批准未知TTL按1h收费。本分支实现：已知5m/1h按各自价，max(total-已知明细和,0)按解析后的1h价；完全无明细也按1h。非TTL模型保留标准cache-write价，原始usage不改、不追溯历史。近7天prod未见部分TTL差额；6条total-only适用新的未来结算规则。待PR合并及部署，未宣称线上生效。"
-      }
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-06: #2992 (580a45abf) on main; unknown-TTL remainder and total-only usage billed at 1h per user-approved policy (docs/approved/cache-creation-unknown-ttl-billing.md)."
+      },
+      "summary": "Unknown-TTL cache_creation remainder (total minus 5m/1h breakdown) billed at 1h price.",
+      "tokenkey_pr": "youxuanxue/sub2api#2992",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/billing_service.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/billing_service.go:func (s *BillingService) computeCacheCreationCost("
+      ]
     },
     {
       "upstream": "Wei-Shaw/sub2api#8414",
@@ -1571,7 +1580,7 @@
         "backend/internal/service/openai_capacity_retry_after_tk_test.go"
       ],
       "fixed_if_all_present": [
-        "backend/internal/service/openai_capacity_retry_after_tk.go:const openAICapacityRetryAfterModelCooldownCap = 3 * time.Minute",
+        "backend/internal/service/openai_capacity_retry_after_tk.go:const openAICapacityRetryAfterModelCooldownCap = 60 * time.Second",
         "backend/internal/service/openai_gateway_passthrough.go:s.tkApplyOpenAICapacityRetryAfterModelCooldown(ctx, account, statusCode, headers, payload, message, canonicalModel...)",
         "backend/internal/service/openai_capacity_retry_after_tk_test.go:func TestOpenAICapacityRetryAfter_CoolsAccountModelWithoutSleeping("
       ],
@@ -1721,6 +1730,142 @@
         "impact": "fixed",
         "tokenkey_status": "fixed_in_tokenkey",
         "rationale": "A missing or MALFORMED_FUNCTION_CALL finish no longer closes the Antigravity stream as end_turn; callers failover before client output and write an SSE error after it."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8472",
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "size/quality are forwarded on native and Responses image paths; ~1.57MP output is ChatGPT OAuth subscription upstream cap, not a gateway drop."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8480",
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "Simple-mode group bypass (scheduler_snapshot_service isRunModeSimple). TK prod/cn-prod run RUN_MODE=standard (deploy/hetzner/render-prod-bootstrap.sh); no runtime exposure."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8481",
+      "summary": "Streaming server_is_overloaded applies configured model-level temp-unschedulable rules.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_passthrough.go",
+        "backend/internal/service/openai_stream_capacity_rule_tk.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_stream_capacity_rule_tk.go:func (s *OpenAIGatewayService) tkHandleOpenAIStreamCapacityRule(",
+        "backend/internal/service/openai_gateway_passthrough.go:s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-06 code check: stream capacity errors route through tkHandleOpenAIStreamCapacityRule (#2120) before the generic path."
+      },
+      "tokenkey_pr": "youxuanxue/sub2api#2120"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8502",
+      "summary": "CN provider concurrency-limit 403 uses the short 429 cooldown without SetError; newapi bridge never penalizes 403.",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_cn_providers.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ratelimit_cn_providers.go:func (s *RateLimitService) handleCNProviderConcurrencyLimit403(",
+        "backend/internal/service/ratelimit_cn_providers.go:func isCNProviderConcurrencyLimit403(account *Account, upstreamMsg string) bool"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-06 code check: concurrency 403 → short cooldown + failover, pool cannot drain; bridge penalty only on 401/402/429."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8519",
+      "summary": "Cyber session block re-hashes only at recorded prefix lengths; history length alone never blocks other sessions.",
+      "fixed_by": [
+        "backend/internal/service/openai_cyber_session_block.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_cyber_session_block.go:keys := cyberSessionTranscriptKeysAt(apiKeyID, body, lengths)"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-06 code check: #3074 removed transcript_lookup_limit_exceeded branch; blocks scoped per API key + recorded prefix lengths."
+      },
+      "tokenkey_pr": "youxuanxue/sub2api#3074"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8524",
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "Discussion of OpenAI risk-control policy with no actionable error signature; TK-side mitigation tracked via OAuth 429 persisted cooldown fix."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8535",
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "OpenAI-side 503 overloaded capacity; TK already switches accounts and applies model-scoped retry-after cooldown (openai_capacity_retry_after_tk.go). Prod 2026-11-05/06: most 503 recovered to 200."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8536",
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "TK Antigravity usage cell renders per-model quota bars (AntigravityUsageCell.vue), no 5h/7d labels; duplicated display does not exist in TK."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8546",
+      "summary": "Non-stream Responses→Chat keeps reasoning_content by falling back to content[].reasoning_text when summary is empty.",
+      "fixed_by": [
+        "backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go:func extractResponsesOutputReasoningText(item *ResponsesOutput) string",
+        "backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go:p.Type == \"reasoning_text\""
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-06 code check: shared extractor used by both chat and messages conversions."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8547",
+      "summary": "Non-stream Responses→Messages keeps thinking blocks via the same reasoning_text fallback.",
+      "fixed_by": [
+        "backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go",
+        "backend/internal/pkg/apicompat/responses_to_anthropic.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go:func extractResponsesOutputReasoningText(item *ResponsesOutput) string",
+        "backend/internal/pkg/apicompat/responses_to_anthropic.go:extractResponsesOutputReasoningText("
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-06 code check: same owner as #8546."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8550",
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "Proposal about OpenAI 'Device limit reached' policy with no reproducible error code in TK prod; nothing to match on in gateway."
       }
     }
   ]

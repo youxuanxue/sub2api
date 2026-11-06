@@ -165,6 +165,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	}
 	if statusCode == http.StatusTooManyRequests {
 		s.noteOpenAIOAuth429ForScheduling(stateCtx, account, headers, responseBody, canonicalModel...)
+		s.tkApplyOpenAIOAuth429PressureModelCooldown(stateCtx, account, statusCode, headers, responseBody, canonicalModel...)
 	}
 	// Isolate a custom temporary-unschedulable match to the known upstream
 	// model before entering the generic account error path. This keeps the
@@ -733,7 +734,7 @@ func (s *OpenAIGatewayService) ShouldStopOpenAIOAuth429Failover(account *Account
 		return false
 	}
 	// Each OpenAI OAuth candidate has already consumed its full same-account
-	// retry window before reaching this switch point. A global storm is useful
-	// telemetry, but must not prevent trying the bounded next-account budget.
-	return failedSwitches >= openAIOAuth429MaxAccountAttempts
+	// retry window before reaching this switch point. TK: a global storm cuts
+	// the budget to one switch (openai_oauth_429_pressure_cooldown_tk.go).
+	return failedSwitches >= s.tkOpenAIOAuth429AccountAttemptBudget()
 }
