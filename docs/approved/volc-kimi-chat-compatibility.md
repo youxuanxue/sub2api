@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -291,7 +291,7 @@ Tests: `TestChatToolConstraints_InvalidModeIsFieldLevel`,
 
 Evidence: cn-prod (Tencent Beijing, 1.8.350), 24 hours to 2026-11-06. User 2
 received 921 final 400s with the unnamed Volc `InvalidParameter` (`param:""`)
-on `/v1/chat/completions` kimi-k3, spread over about 100 Agent Plan accounts,
+on `/v1/chat/completions` kimi-k3, spread over about 180 Agent Plan accounts,
 with one attempt each. QA captures were compared for 800 failing and 800
 successful requests from the same user and window, using key/type summaries only.
 153 of 433 fully captured failures, and 317 of 367 failures whose captured
