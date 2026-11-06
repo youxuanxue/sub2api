@@ -50,11 +50,20 @@ func TestTkAttributeOpsUpstreamAccount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			id := selected
 			entry := &service.OpsInsertErrorLogInput{AccountID: &id, UpstreamErrors: tt.events}
-			tkAttributeOpsUpstreamAccount(entry)
+			tkAttributeOpsUpstreamAccount(entry, false)
 			require.Equal(t, *tt.want, *entry.AccountID)
 		})
 	}
-	require.NotPanics(t, func() { tkAttributeOpsUpstreamAccount(nil) })
+	require.NotPanics(t, func() { tkAttributeOpsUpstreamAccount(nil, false) })
+
+	t.Run("stream failure keeps the streaming account", func(t *testing.T) {
+		id := selected
+		entry := &service.OpsInsertErrorLogInput{AccountID: &id, UpstreamErrors: []*service.OpsUpstreamErrorEvent{
+			{AccountID: 351, UpstreamStatusCode: http.StatusTooManyRequests},
+		}}
+		tkAttributeOpsUpstreamAccount(entry, true)
+		require.Equal(t, selected, *entry.AccountID)
+	})
 }
 
 // Prod 2026-11-06 shape: a quota 429 on earlier hops, then the client

@@ -19224,17 +19224,18 @@
     {
       "path": "backend/internal/handler/ops_error_logger.go",
       "must_contain": [
-        "\t\tapplyOpsUpstreamFieldsFromContext(c, entry)\n\t\ttkAttributeOpsUpstreamAccount(entry)"
+        "\t\tapplyOpsUpstreamFieldsFromContext(c, entry)\n\t\ttkAttributeOpsUpstreamAccount(entry, parsed.StreamFailure)"
       ],
       "rationale": "Failure-path hook that re-attributes ops_error_logs.account_id to the account that produced the recorded upstream error (last upstream_errors event with an account), not the last selected account. Prod 2026-11-06: 170/507 499 rows in 7d named an account that never failed while upstream_status_code carried another account's quota 429, so per-account triage blamed healthy accounts. A one-line call in an upstream-owned file; a merge that drops it compiles cleanly and silently reverts attribution."
     },
     {
       "path": "backend/internal/handler/ops_error_logger_tk_upstream_account.go",
       "must_contain": [
-        "func tkAttributeOpsUpstreamAccount(entry *service.OpsInsertErrorLogInput) {",
+        "func tkAttributeOpsUpstreamAccount(entry *service.OpsInsertErrorLogInput, streamFailure bool) {",
+        "if entry == nil || streamFailure {",
         "if event.AccountID > 0 {"
       ],
-      "rationale": "Companion owner for failure-path ops account attribution. Mirrors logOpsRecoveredUpstream, which already attributes recovered rows to the last event's account; account-less last events keep the selected account."
+      "rationale": "Companion owner for failure-path ops account attribution. Mirrors logOpsRecoveredUpstream, which already attributes recovered rows to the last event's account; account-less last events keep the selected account. Stream failures keep the final account because the row's upstream status/message are rewritten from the terminal SSE error that account streamed (#3076 R-001); dropping the streamFailure guard would pair one account's message with another account's id."
     }
   ]
 }

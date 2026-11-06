@@ -17,8 +17,12 @@ import "github.com/Wei-Shaw/sub2api/internal/service"
 // the last event's account; this makes the failure path consistent. Only
 // events that carry an account move the attribution; account-less chains keep
 // the selected account.
-func tkAttributeOpsUpstreamAccount(entry *service.OpsInsertErrorLogInput) {
-	if entry == nil {
+//
+// streamFailure: the row's upstream status/message are then overwritten from
+// the terminal SSE error the final account itself streamed, so that account is
+// already the right owner even when an earlier hop left an event behind.
+func tkAttributeOpsUpstreamAccount(entry *service.OpsInsertErrorLogInput, streamFailure bool) {
+	if entry == nil || streamFailure {
 		return
 	}
 	for i := len(entry.UpstreamErrors) - 1; i >= 0; i-- {
