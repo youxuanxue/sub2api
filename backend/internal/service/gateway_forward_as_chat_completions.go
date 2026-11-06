@@ -149,6 +149,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		)
 	}
 
+	if anthropicBody, err = tkApplyAnthropicAPIKeyCompatSticky(ctx, c, s.settingService, account, body, anthropicBody, mappedModel); err != nil {
+		return nil, err
+	}
+
 	// 8. Get access token
 	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
