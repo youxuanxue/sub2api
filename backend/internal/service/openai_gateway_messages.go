@@ -388,7 +388,7 @@ retryLoop:
 		}
 		setAnthropicStreamModel(c, originalModel)
 		hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, clientStream)
-		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		resp, err = s.doOpenAIUpstreamWithAccountTLS(upstreamReq, proxyURL, account)
 		hwka.stop()
 		if err != nil {
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)

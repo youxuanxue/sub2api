@@ -2572,6 +2572,10 @@ func (a *Account) IsTLSFingerprintEnabled() bool {
 	if a.isAntigravityOAuth() {
 		return a.isAntigravityTLSFingerprintEnabled()
 	}
+	// OpenAI OAuth/SetupToken：按账号 opt-in，按名解析 tk_canonical_codex_cli（与 Codex UA 成套）
+	if a.IsOpenAIOAuthLike() {
+		return a.isOpenAIOAuthTLSFingerprintEnabled()
+	}
 	// 仅支持 Anthropic OAuth/SetupToken 账号
 	if !a.IsAnthropicOAuthOrSetupToken() {
 		return false

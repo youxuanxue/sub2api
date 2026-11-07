@@ -139,6 +139,11 @@ func (d *coderOpenAIWSClientDialer) Dial(
 		}
 		opts.HTTPClient = proxyClient
 	}
+	if tlsClient, ok, err := d.tkOpenAIWSTLSHTTPClient(ctx, proxyURL); err != nil {
+		return nil, 0, nil, err
+	} else if ok {
+		opts.HTTPClient = tlsClient
+	}
 
 	conn, resp, err := coderws.Dial(ctx, targetURL, opts)
 	if err != nil {
