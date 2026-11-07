@@ -1529,6 +1529,7 @@ func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *u
 		if err := enableHTTP2KeepAlive(transport, upstreamProtocolModeLongStreamH2); err != nil {
 			return nil, err
 		}
+		applyTLSProfileHTTP2Settings(transport, profile)
 	} else {
 		// Keep profiles that advertise only HTTP/1.1 from inheriting any
 		// automatic HTTP/2 behavior when this function is reused.
