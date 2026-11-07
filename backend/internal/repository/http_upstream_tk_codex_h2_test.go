@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCodexCLIProfileTransportKeepsHTTP2AndCodexSettings(t *testing.T) {
 	t.Parallel()
-	codex := &tlsfingerprint.Profile{Name: tkCanonicalCodexCLITLSProfileName, ALPNProtocols: []string{"h2", "http/1.1"}}
+	codex := &tlsfingerprint.Profile{Name: service.CanonicalCodexCLITLSProfileName, ALPNProtocols: []string{"h2", "http/1.1"}}
 	for _, proxy := range []string{"", "http://u:p@127.0.0.1:3128", "socks5://127.0.0.1:1080"} {
 		var pu *url.URL
 		if proxy != "" {

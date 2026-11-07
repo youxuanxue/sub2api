@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 // Codex CLI (hyper 1.x / h2 0.4) HTTP/2 preface captured from real codex 0.167.0
@@ -18,7 +19,6 @@ import (
 // MAX_HEADER_LIST_SIZE). Pseudo-header order stays Go's a,m,p,s (codex: m,s,a,p);
 // net/http exposes no knob for it.
 const (
-	tkCanonicalCodexCLITLSProfileName  = "tk_canonical_codex_cli"
 	codexH2InitialStreamWindow         = 2097152
 	codexH2ConnectionWindow            = 5177345
 	codexH2MaxFrameSize                = 16384
@@ -29,7 +29,7 @@ const (
 // TLS identity the profile mimics. Only the Codex CLI profile is tuned today;
 // other profiles keep Go defaults.
 func applyTLSProfileHTTP2Settings(transport *http.Transport, profile *tlsfingerprint.Profile) {
-	if transport == nil || profile == nil || profile.Name != tkCanonicalCodexCLITLSProfileName {
+	if transport == nil || profile == nil || profile.Name != service.CanonicalCodexCLITLSProfileName {
 		return
 	}
 	if transport.HTTP2 == nil {
