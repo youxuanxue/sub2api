@@ -104,6 +104,51 @@ func TestBuildBlob_UpstreamDivergent(t *testing.T) {
 		"upstream_body must go through the same thinking-signature preservation")
 }
 
+func TestBuildBlob_IdentityFieldsAlwaysPresent(t *testing.T) {
+	svc := &Service{bodyMaxBytes: 256 * 1024}
+	input := CaptureInput{
+		RequestID:       "req-identity-1",
+		InboundEndpoint: "/v1/chat/completions",
+		StatusCode:      200,
+		CreatedAt:       time.Date(2026, 11, 4, 5, 0, 0, 0, time.UTC),
+		UserID:          16,
+		APIKeyID:        255,
+		APIKeyName:      "psychology-eval",
+		RequestedModel:  "gpt-6.1-sol",
+		UpstreamModel:   "gpt-6.1-sol",
+		RequestBody:     []byte(`{"model":"gpt-6.1-sol"}`),
+		ResponseBody:    []byte(`{"object":"chat.completion"}`),
+	}
+	compressed, _, _, _, err := svc.buildBlob(input)
+	require.NoError(t, err)
+	payload := decodeBlobPayload(t, compressed)
+
+	require.Equal(t, float64(16), payload["user_id"])
+	require.Equal(t, float64(255), payload["api_key_id"])
+	require.Equal(t, "psychology-eval", payload["api_key_name"])
+	require.Equal(t, "gpt-6.1-sol", payload["requested_model"])
+	require.Equal(t, "gpt-6.1-sol", payload["upstream_model"])
+	_, hasSecret := payload["key"]
+	require.False(t, hasSecret, "blob must not carry the raw API key")
+
+	empty := CaptureInput{
+		RequestID:    "req-identity-0",
+		StatusCode:   200,
+		CreatedAt:    time.Date(2026, 11, 4, 5, 0, 0, 0, time.UTC),
+		RequestBody:  []byte(`{"model":"m"}`),
+		ResponseBody: []byte(`{}`),
+	}
+	compressed, _, _, _, err = svc.buildBlob(empty)
+	require.NoError(t, err)
+	payload = decodeBlobPayload(t, compressed)
+	for _, key := range []string{"user_id", "api_key_id", "api_key_name", "requested_model", "upstream_model"} {
+		_, ok := payload[key]
+		require.Truef(t, ok, "identity key %s must be present even when empty", key)
+	}
+	require.Equal(t, "", payload["api_key_name"])
+	require.Equal(t, "", payload["upstream_model"])
+}
+
 func TestBuildBlob_NoUpstreamBody_KeysAbsent(t *testing.T) {
 	svc := &Service{bodyMaxBytes: 256 * 1024}
 	input := CaptureInput{
