@@ -840,12 +840,20 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
 	}
 
+	// TK: non-stream attempts outlive a client disconnect (bounded transport
+	// drain) so usage Google already billed is still recorded.
+	nonStreamCtx, releaseNonStreamCtx := tkGeminiNonStreamUpstreamContext(ctx, req.Stream)
+	defer releaseNonStreamCtx()
+
 	var resp *http.Response
 	signatureRetryStage := 0
 	maxAttempts := s.geminiMaxAttemptsPerAccount()
 	// 签名降级重发不占用同号重试次数：每进入一个降级阶段，循环上限随之顺延一次。
 	for attempt := 1; attempt <= maxAttempts+signatureRetryStage; attempt++ {
-		doCtx := ctx
+		if err := tkGeminiCallerGoneBeforeRetry(callerCtx, attempt); err != nil {
+			return nil, err
+		}
+		doCtx := nonStreamCtx
 		if req.Stream {
 			doCtx = streamAttemptCtx
 		}
@@ -1188,6 +1196,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	if usage == nil {
 		usage = &ClaudeUsage{}
 	}
+	tkGeminiMarkClientGoneAfterNonStream(c, callerCtx, req.Stream)
 
 	// 图片生成计费
 	imageInputSize := s.extractImageInputSize(body)
@@ -1420,12 +1429,19 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
 	}
 
+	// TK: see Forward; countTokens keeps the caller context.
+	nonStreamCtx, releaseNonStreamCtx := tkGeminiNonStreamUpstreamContext(ctx, stream || action == "countTokens")
+	defer releaseNonStreamCtx()
+
 	var resp *http.Response
 	signatureRetried := false
 	signatureRetryStage := 0
 	maxAttempts := s.geminiMaxAttemptsPerAccount()
 	for attempt := 1; attempt <= maxAttempts+signatureRetryStage; attempt++ {
-		doCtx := ctx
+		if err := tkGeminiCallerGoneBeforeRetry(callerCtx, attempt); err != nil {
+			return nil, err
+		}
+		doCtx := nonStreamCtx
 		if stream {
 			doCtx = streamAttemptCtx
 		}
@@ -1745,6 +1761,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	if usage == nil {
 		usage = &ClaudeUsage{}
 	}
+	tkGeminiMarkClientGoneAfterNonStream(c, callerCtx, stream)
 
 	// 图片生成计费
 	imageInputSize := s.extractImageInputSize(originalNativeBody)

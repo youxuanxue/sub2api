@@ -24,6 +24,7 @@ import (
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type grokCredentialHandlerRepo struct {
@@ -806,7 +807,10 @@ func TestResponsesWebSocketCredentialFailoverLoop(t *testing.T) {
 		writeFirst(t, conn)
 
 		readCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_, _, err := conn.Read(readCtx)
+		_, frame, err := conn.Read(readCtx)
+		require.NoError(t, err)
+		require.Equal(t, "error", gjson.GetBytes(frame, "type").String(), "terminal error frame precedes close")
+		_, _, err = conn.Read(readCtx)
 		cancel()
 		var closeErr coderws.CloseError
 		require.ErrorAs(t, err, &closeErr)

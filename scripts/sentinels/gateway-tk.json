@@ -8648,6 +8648,51 @@
       "rationale": "Regression coverage for the client-closed-499-ssot predicate precedence: deadline beats wrapped cancellation and postgres text, canceled request context is caller-owned, deadline request context and statement timeout stay platform-owned. Keep these cases so the precedence cannot silently reorder."
     },
     {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_ws_terminal_error.go",
+      "must_contain": [
+        "func tkWriteOpenAIWSTerminalError(c *gin.Context, conn *coderws.Conn, frame tkOpenAIWSTerminalError)",
+        "c.Set(tkOpenAIWSTerminalErrorTurnKey, turn)",
+        "frame.ErrType = \"usage_limit_reached\"",
+        "frame.Code = \"server_error\"",
+        "func tkCloseOpenAIWSNoAvailableAccount(c *gin.Context, conn *coderws.Conn, err error)"
+      ],
+      "rationale": "Responses WebSocket terminal error frame owner. Failover exhaustion and no-available-account closes must send one wrapped {type:error,status,error} frame per turn before the 1013/1011 close, otherwise Codex CLI treats the bare close as a network drop and reconnects/replays the turn (429 amplification family, #3088). usage_limit_reached only when upstream said so; 5xx uses server_error + retry-after (server_is_overloaded is fatal in Codex)."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "tkWriteOpenAIWSTerminalError(c, conn, tkOpenAIWSFailoverTerminalError(failoverErr, intendedStatus, errorType, message, time.Now()))",
+        "tkCloseOpenAIWSNoAvailableAccount(c, wsConn, err)"
+      ],
+      "rationale": "Upstream-file hooks for the WS terminal error frame. An upstream merge that rewrites closeOpenAIWSFailoverExhausted or the WS selection-failure close must keep the TK frame-before-close hook."
+    },
+    {
+      "path": "backend/internal/service/gemini_nonstream_detach_tk.go",
+      "must_contain": [
+        "func tkGeminiNonStreamUpstreamContext(ctx context.Context, skip bool) (context.Context, context.CancelFunc)",
+        "return detachUpstreamContext(ctx)",
+        "func tkGeminiCallerGoneBeforeRetry(callerCtx context.Context, attempt int) error",
+        "MarkOpsClientClosedRequest(c)"
+      ],
+      "rationale": "Gemini non-stream billing-on-disconnect owner (Wei-Shaw/sub2api#7200 equivalent). Non-stream Forward/ForwardNative/ForwardAsChatCompletions/ForwardAsResponses must detach the upstream attempt through the shared bounded drain (detachUpstreamContext), stop same-account retries once the caller is gone, and mark client-closed-499 after a completed-but-undelivered response so usage still settles."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "tkGeminiNonStreamUpstreamContext(ctx, req.Stream)",
+        "tkGeminiNonStreamUpstreamContext(ctx, stream || action == \"countTokens\")",
+        "tkGeminiMarkClientGoneAfterNonStream(c, callerCtx, stream)"
+      ],
+      "rationale": "Upstream-file hooks: Gemini Forward and ForwardNative non-stream attempts must use the detached context; reverting to the caller ctx loses usage Google already billed when the client disconnects."
+    },
+    {
+      "path": "backend/internal/service/gemini_nonstream_detach_tk_test.go",
+      "must_contain": [
+        "TestGeminiNonStreamClientDisconnectStillBills"
+      ],
+      "rationale": "Regression: cancel the client mid-generation against a real httptest upstream for native/messages/chat/responses and assert upstream not cancelled, usage returned, 499 marker set."
+    },
+    {
       "path": "backend/internal/handler/gateway_handler_error_fallback_test.go",
       "must_contain": [
         "TestGatewayEnsureForwardErrorResponse_ClientCanceledWrites499WithoutBody",

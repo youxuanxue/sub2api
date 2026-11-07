@@ -117,9 +117,16 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 		useUpstreamStream,
 	)
 
+	// TK: non-stream attempts outlive a client disconnect (gemini_nonstream_detach_tk.go).
+	upstreamCtx, releaseUpstreamCtx := tkGeminiNonStreamUpstreamContext(ctx, clientStream)
+	defer releaseUpstreamCtx()
+
 	var resp *http.Response
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
-		upstreamReq, idHeader, err := buildReq(ctx)
+		if err := tkGeminiCallerGoneBeforeRetry(ctx, attempt); err != nil {
+			return nil, err
+		}
+		upstreamReq, idHeader, err := buildReq(upstreamCtx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
@@ -304,6 +311,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 	if usage == nil {
 		usage = &ClaudeUsage{}
 	}
+	tkGeminiMarkClientGoneAfterNonStream(c, ctx, clientStream)
 
 	imageCount := resolveGeminiImageCount(c, originalModel, mappedModel)
 	imageInputSize := s.extractImageInputSize(claudeBody)
