@@ -400,3 +400,46 @@ func TestVolcKimiHTTPVideoProbe(t *testing.T) {
 	srv.Close()
 	require.Error(t, probeVolcKimiHTTPVideo(ctx, client, srv.URL+"/ok.mp4"))
 }
+
+// cn-prod 2026-11-06: Volc returned an unnamed InvalidParameter for any
+// {"type":"text","text":""} part (system, user, assistant, tool). Direct
+// controls showed whitespace text and content "" are accepted.
+func TestVolcKimiDropsEmptyTextParts(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		path string
+		want string
+	}{
+		{"system empty first", `{"messages":[{"role":"system","content":[{"type":"text","text":""},{"type":"text","text":"rules"}]},{"role":"user","content":"hi"}]}`, "messages.0.content", `[{"type":"text","text":"rules"}]`},
+		{"system empty last", `{"messages":[{"role":"system","content":[{"type":"text","text":"rules"},{"type":"text","text":""}]}]}`, "messages.0.content", `[{"type":"text","text":"rules"}]`},
+		{"only empty part", `{"messages":[{"role":"system","content":[{"type":"text","text":""}]},{"role":"user","content":"hi"}]}`, "messages.0.content", `""`},
+		{"user keeps image", `{"messages":[{"role":"user","content":[{"type":"text","text":""},{"type":"image_url","image_url":{"url":"data:image/png;base64,AA=="}}]}]}`, "messages.0.content", `[{"type":"image_url","image_url":{"url":"data:image/png;base64,AA=="}}]`},
+		{"tool result", `{"messages":[{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"f","arguments":"{}"}}]},{"role":"tool","tool_call_id":"c1","content":[{"type":"text","text":""},{"type":"text","text":"r"}]}]}`, "messages.1.content", `[{"type":"text","text":"r"}]`},
+		{"whitespace kept", `{"messages":[{"role":"user","content":[{"type":"text","text":" "},{"type":"text","text":"hi"}]}]}`, "messages.0.content", `[{"type":"text","text":" "},{"type":"text","text":"hi"}]`},
+		{"string content untouched", `{"messages":[{"role":"user","content":""}]}`, "messages.0.content", `""`},
+		{"single object part wrapped then dropped", `{"messages":[{"role":"system","content":{"type":"text","text":""}},{"role":"user","content":"hi"}]}`, "messages.0.content", `""`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := normalizeVolcKimiChatRequest([]byte(tc.in))
+			require.NoError(t, err)
+			require.JSONEq(t, tc.want, gjson.GetBytes(out, tc.path).Raw)
+		})
+	}
+
+	// Body without empty parts is returned byte-for-byte.
+	clean := []byte(`{"messages":[{"role":"system","content":[{"type":"text","text":"a"}]},{"role":"user","content":"hi"}]}`)
+	out, err := normalizeVolcKimiChatRequest(clean)
+	require.NoError(t, err)
+	require.Equal(t, string(clean), string(out))
+
+	// Selected-account routing applies it; other suppliers keep the part.
+	body := []byte(`{"model":"kimi-k3","messages":[{"role":"system","content":[{"type":"text","text":""},{"type":"text","text":"rules"}]},{"role":"user","content":"hi"}]}`)
+	volc, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3", body)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, gjson.GetBytes(volc, "messages.0.content.#").Int())
+	other, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", body)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, gjson.GetBytes(other, "messages.0.content.#").Int())
+}

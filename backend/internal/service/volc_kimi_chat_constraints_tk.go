@@ -64,7 +64,8 @@ func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 //     becomes a user message, keeping its content;
 //   - function tools with an empty name are removed. If none remain, tool_choice
 //     is removed with them;
-//   - a string video_url becomes {"url": ...} (2026-11-05).
+//   - a string video_url becomes {"url": ...} (2026-11-05);
+//   - a text part with text "" is dropped (2026-11-06).
 //
 // Matched tool results, string content, and content-part arrays are unchanged.
 // Video parts are not stripped. Reachability is a separate preflight:
@@ -111,7 +112,54 @@ func normalizeVolcKimiMessageContents(body []byte) ([]byte, error) {
 			return nil, err
 		}
 	}
+	shaped, err = dropVolcKimiEmptyTextParts(shaped)
+	if err != nil {
+		return nil, err
+	}
 	return wrapVolcKimiStringVideoURLs(shaped)
+}
+
+// dropVolcKimiEmptyTextParts removes content parts of type text whose text is
+// exactly "". Volc rejects any such part, in any role, with an unnamed
+// InvalidParameter (cn-prod 2026-11-06). An empty part adds no input, so
+// dropping it keeps the meaning. If no parts remain, the content becomes "",
+// which Volc accepts. Whitespace-only text is accepted upstream and is kept.
+func dropVolcKimiEmptyTextParts(body []byte) ([]byte, error) {
+	shaped := body
+	var err error
+	for i, msg := range gjson.GetBytes(body, "messages").Array() {
+		content := msg.Get("content")
+		if !content.IsArray() {
+			continue
+		}
+		parts := content.Array()
+		kept := make([]json.RawMessage, 0, len(parts))
+		for _, part := range parts {
+			text := part.Get("text")
+			if strings.EqualFold(strings.TrimSpace(part.Get("type").String()), "text") &&
+				text.Type == gjson.String && text.Str == "" {
+				continue
+			}
+			kept = append(kept, json.RawMessage(part.Raw))
+		}
+		if len(kept) == len(parts) {
+			continue
+		}
+		path := fmt.Sprintf("messages.%d.content", i)
+		if len(kept) == 0 {
+			shaped, err = sjson.SetBytes(shaped, path, "")
+		} else {
+			encoded, marshalErr := json.Marshal(kept)
+			if marshalErr != nil {
+				return nil, marshalErr
+			}
+			shaped, err = sjson.SetRawBytes(shaped, path, encoded)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return shaped, nil
 }
 
 // wrapVolcKimiStringVideoURLs rewrites a string video_url part to the object
