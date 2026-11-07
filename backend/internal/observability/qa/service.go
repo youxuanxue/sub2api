@@ -700,19 +700,11 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 		requestPayload["upstream_divergent"] = true
 	}
 
-	// 顶层身份给下游清洗用。qa_records 里本来就有这些列，报文以前没带，
-	// 归档侧只拿到 json.zst 时无法按 user / key / 路由模型物理剔除。
-	// 键始终写出，空字符串表示当时没有，而不是字段缺失。
 	payload := map[string]any{
-		"request_id":      input.RequestID,
-		"trajectory_id":   strings.TrimSpace(input.TrajectoryID),
-		"captured_at":     input.CreatedAt.Format(time.RFC3339),
-		"user_id":         input.UserID,
-		"api_key_id":      input.APIKeyID,
-		"api_key_name":    strings.TrimSpace(input.APIKeyName),
-		"requested_model": strings.TrimSpace(input.RequestedModel),
-		"upstream_model":  strings.TrimSpace(input.UpstreamModel),
-		"request":         requestPayload,
+		"request_id":    input.RequestID,
+		"trajectory_id": strings.TrimSpace(input.TrajectoryID),
+		"captured_at":   input.CreatedAt.Format(time.RFC3339),
+		"request":       requestPayload,
 		"response": map[string]any{
 			"status_code": input.StatusCode,
 			"headers":     input.ResponseHeaders,
@@ -738,6 +730,13 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 			resp["encrypted_reasoning"] = input.EncryptedReasoningJSON
 		}
 	}
+	// 顶层身份给下游清洗用。qa_records 里本来就有这些列，报文以前没带。
+	// 键始终写出，空字符串表示当时没有，而不是字段缺失。密钥本身不写。
+	payload["user_id"] = input.UserID
+	payload["api_key_id"] = input.APIKeyID
+	payload["api_key_name"] = strings.TrimSpace(input.APIKeyName)
+	payload["requested_model"] = strings.TrimSpace(input.RequestedModel)
+	payload["upstream_model"] = strings.TrimSpace(input.UpstreamModel)
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return nil, "", "", nil, err

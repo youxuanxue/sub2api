@@ -8,13 +8,12 @@ type RawSSEChunk struct {
 }
 
 type CaptureInput struct {
-	RequestID    string
-	TrajectoryID string
-	UserID       int64
-	GroupID      *int64
-	APIKeyID     int64
-	// APIKeyName 是钥匙名称，不是密钥本身。落盘给下游按名称核对 255 / grj。
-	APIKeyName       string
+	RequestID        string
+	TrajectoryID     string
+	UserID           int64
+	GroupID          *int64
+	APIKeyID         int64
+	APIKeyName       string // 钥匙名称，不是密钥本身。落盘只给下游按名称核对。
 	AccountID        *int64
 	Platform         string
 	Provider         string
