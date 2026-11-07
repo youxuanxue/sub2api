@@ -333,7 +333,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	gatewayHandler := handler.ProvideGatewayHandler(gatewayService, openAIGatewayService, geminiMessagesCompatService, antigravityGatewayService, userService, concurrencyService, billingCacheService, usageService, apiKeyService, usageRecordWorkerPool, errorPassthroughService, contentModerationService, userMessageQueueService, configConfig, settingService, coordinator, protocolRoutingSSOTReady, geminiCachedContentService)
 	videoTaskCache := repository.NewVideoTaskCache(redisClient)
 	mediaStore := repository.NewMediaStore(configConfig)
-	openAIGatewayHandler := handler.ProvideProtocolRoutedOpenAIGatewayHandler(openAIGatewayService, pluginManager, gatewayService, geminiMessagesCompatService, antigravityGatewayService, concurrencyService, billingCacheService, apiKeyService, usageRecordWorkerPool, errorPassthroughService, contentModerationService, opsService, grokQuotaService, configConfig, coordinator, videoTaskCache, mediaStore, protocolRoutingSSOTReady, compositeRouteResolver)
+	openAIGatewayHandler := handler.ProvideProtocolRoutedOpenAIGatewayHandler(openAIGatewayService, pluginManager, gatewayService, geminiMessagesCompatService, antigravityGatewayService, concurrencyService, billingCacheService, apiKeyService, usageRecordWorkerPool, errorPassthroughService, contentModerationService, opsService, grokQuotaService, configConfig, coordinator, videoTaskCache, mediaStore, protocolRoutingSSOTReady, compositeRouteResolver, tlsFingerprintProfileService)
 	handlerSettingHandler := handler.ProvideSettingHandler(settingService, buildInfo, notificationEmailService)
 	totpHandler := handler.NewTotpHandler(totpService)
 	passkeyRepository := repository.NewPasskeyRepository(db)

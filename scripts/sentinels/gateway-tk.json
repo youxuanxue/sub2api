@@ -8834,7 +8834,7 @@
       "path": "backend/internal/service/openai_gateway_forward.go",
       "must_contain": [
         "hwka := s.beginHeaderWaitKeepalive(c, reqStream)",
-        "s.httpUpstream.Do(upstreamReq",
+        "s.doOpenAIUpstreamWithAccountTLS(upstreamReq",
         "hwka.stop()"
       ],
       "rationale": "Header-wait SSE keepalive injection on the OpenAI/Codex passthrough streaming forward (forwardOpenAIPassthrough, around s.httpUpstream.Do). Same Wei-Shaw/sub2api#2121 idle-drop fix as the Anthropic Forward path, same failover-safe delayed-first-ping (the handler's failover gate compares c.Writer.Size() before/after forward). stop() must run the instant Do() returns. Catches an upstream merge that copies the old Do() shape back over the injection."
@@ -19311,6 +19311,80 @@
         "TestShouldStopOpenAIOAuth429Failover_StormCutsBudget"
       ],
       "rationale": "Focused regressions for the OAuth 429 pressure cooldown duration, model-scoped scheduler skip, and storm failover budget."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "if a.IsOpenAIOAuthLike() {",
+        "return a.isOpenAIOAuthTLSFingerprintEnabled()"
+      ],
+      "rationale": "OpenAI OAuth/SetupToken TLS fingerprint gate (opt-in via extra.enable_tls_fingerprint). Must precede the Anthropic-only branch; dropping it silently returns OpenAI OAuth egress to Go crypto/tls (L4 ≠ Codex UA)."
+    },
+    {
+      "path": "backend/internal/service/tls_fingerprint_profile_service.go",
+      "must_contain": [
+        "if account.IsOpenAIOAuthLike() {",
+        "return s.GetProfileByName(CanonicalCodexCLITLSProfileName)"
+      ],
+      "rationale": "OpenAI OAuth resolves tk_canonical_codex_cli by name; without it an opted-in account falls through to the Node.js/Claude Code default ClientHello, a worse mismatch than crypto/tls."
+    },
+    {
+      "path": "backend/internal/service/openai_plugin_transport.go",
+      "must_contain": [
+        "return s.doOpenAIUpstreamWithAccountTLS(request, proxyURL, account)"
+      ],
+      "rationale": "Shared OpenAI upstream chokepoint (passthrough, chat-completions, images, count_tokens, WS HTTP bridge…) carries the account's Codex TLS profile; nil profile delegates to Do."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
+        "s.doOpenAIUpstreamWithAccountTLS(upstreamReq, proxyURL, account)"
+      ],
+      "rationale": "Main Responses HTTP forward must use the same Codex TLS identity as the shared chokepoint."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_pool.go",
+      "must_contain": [
+        "p.clientDialer.Dial(p.withTLSProfile(ctx, req.Account), req.WSURL, headers, req.ProxyURL)"
+      ],
+      "rationale": "Codex Responses WebSocket pool dials carry the account TLS profile (ALPN stripped, HTTP/1.1 upgrade) like real codex tokio-tungstenite."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+      "must_contain": [
+        "dialer.Dial(withOpenAIWSTLSProfile(dialCtx, s.resolveOpenAITLSProfile(account)), wsURL, headers, proxyURL)"
+      ],
+      "rationale": "WS v2 passthrough dial shares the Codex TLS identity with the pool path."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_client.go",
+      "must_contain": [
+        "d.tkOpenAIWSTLSHTTPClient(ctx, proxyURL)"
+      ],
+      "rationale": "coder/websocket dialer swaps in the uTLS HTTP/1.1 client when a profile is attached; proxy routing mirrors the HTTP fingerprint transport."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream.go",
+      "must_contain": [
+        "applyTLSProfileHTTP2Settings(transport, profile)"
+      ],
+      "rationale": "Aligns HTTP/2 SETTINGS/WINDOW_UPDATE with real codex (hyper/h2) for tk_canonical_codex_cli; other profiles keep Go defaults."
+    },
+    {
+      "path": "backend/internal/handler/wire_protocol_ssot_tk.go",
+      "must_contain": [
+        "gatewayService.SetTLSFingerprintProfileService(tlsFPProfileService)"
+      ],
+      "rationale": "Setter DI keeps upstream NewOpenAIGatewayService signature; without it resolveOpenAITLSProfile always returns nil."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_tk_tls_fingerprint.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) resolveOpenAITLSProfile(account *Account) *tlsfingerprint.Profile {",
+        "!account.IsOpenAIOAuthLike()",
+        "func (s *OpenAIGatewayService) doOpenAIUpstreamWithAccountTLS("
+      ],
+      "rationale": "Single OpenAI-gateway owner for outbound TLS identity: only opted-in OpenAI OAuth/SetupToken accounts get a uTLS profile; all others keep the exact historical httpUpstream.Do call."
     }
   ]
 }

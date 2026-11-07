@@ -36,13 +36,17 @@ func TestNonKiroTLSGateUnchanged(t *testing.T) {
 	if apiKey.IsTLSFingerprintEnabled() {
 		t.Fatal("anthropic apikey account must stay disabled")
 	}
-	openai := &Account{
+	openai := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	if openai.IsTLSFingerprintEnabled() {
+		t.Fatal("openai oauth account must stay disabled unless explicitly opted in")
+	}
+	openaiAPIKey := &Account{
 		Platform: PlatformOpenAI,
-		Type:     AccountTypeOAuth,
+		Type:     AccountTypeAPIKey,
 		Extra:    map[string]any{"enable_tls_fingerprint": true},
 	}
-	if openai.IsTLSFingerprintEnabled() {
-		t.Fatal("openai account must stay disabled even with the extra flag set")
+	if openaiAPIKey.IsTLSFingerprintEnabled() {
+		t.Fatal("openai apikey account must stay disabled even with the extra flag set")
 	}
 }
 

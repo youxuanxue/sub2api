@@ -29,7 +29,11 @@ func ProvideProtocolRoutedOpenAIGatewayHandler(
 	mediaStore service.MediaStore,
 	protocolRoutingReady service.ProtocolRoutingSSOTReady,
 	compositeResolver *service.CompositeRouteResolver,
+	tlsFPProfileService *service.TLSFingerprintProfileService,
 ) *OpenAIGatewayHandler {
+	// OpenAI OAuth opt-in Codex CLI TLS identity (tk_canonical_codex_cli); setter
+	// keeps upstream NewOpenAIGatewayService untouched.
+	gatewayService.SetTLSFingerprintProfileService(tlsFPProfileService)
 	h := ProvideOpenAIGatewayHandler(
 		gatewayService,
 		pluginManager,

@@ -216,6 +216,10 @@ func (s *TLSFingerprintProfileService) ResolveTLSProfile(account *Account) *tlsf
 	if account.isAntigravityOAuth() {
 		return s.GetProfileByName(CanonicalAntigravityCLITLSProfileName)
 	}
+	// OpenAI OAuth：按名解析 Codex CLI 模板；未播种时 nil → 普通 TLS，禁止落到 Node.js 默认指纹。
+	if account.IsOpenAIOAuthLike() {
+		return s.GetProfileByName(CanonicalCodexCLITLSProfileName)
+	}
 	// TLS 启用但无绑定 profile → 空 Profile → dialer 使用内置默认值
 	return &tlsfingerprint.Profile{Name: "Built-in Default (Node.js 24.x)"}
 }
