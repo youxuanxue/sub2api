@@ -13,6 +13,7 @@ type CaptureInput struct {
 	UserID           int64
 	GroupID          *int64
 	APIKeyID         int64
+	APIKeyName       string // 钥匙名称，不是密钥本身。落盘只给下游按名称核对。
 	AccountID        *int64
 	Platform         string
 	Provider         string
