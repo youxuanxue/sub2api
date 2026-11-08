@@ -284,6 +284,7 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	req, observation := observeUpstreamRequest(req, entry, accountID)
 	resp, err := doUpstreamRequest(client, req, s.upstreamDrainTimeout())
 	if err != nil {
+		s.recordOpenAIHTTP2Failure(upstreamProfile, entry.protocolMode, entry.proxyKey, err)
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())
 		observation.failure("response_headers", nil, 0, err)
@@ -576,9 +577,10 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 	}
 	settings := s.resolvePoolSettings(isolation, accountConcurrency)
 	settings = s.applyProfilePoolSettings(settings, upstreamProfile)
+	protocolMode := s.resolveTLSFingerprintProtocolMode(upstreamProfile, proxyKey, parsedProxy)
 	// TLS 指纹客户端使用独立的缓存键，加 "tls:" 前缀
-	cacheKey := "tls:" + buildCacheKey(isolation, proxyKey, accountID, upstreamProtocolModeDefault)
-	poolKey := buildPoolKey(settings, upstreamProtocolModeDefault) + ":tls"
+	cacheKey := "tls:" + buildCacheKey(isolation, proxyKey, accountID, protocolMode)
+	poolKey := buildPoolKey(settings, protocolMode) + tlsFingerprintPoolKeySuffix(profile)
 
 	now := time.Now()
 	nowUnix := now.UnixNano()
@@ -629,7 +631,7 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 
 	// 创建带 TLS 指纹的 Transport
 	slog.Debug("tls_fingerprint_creating_new_client", "account_id", accountID, "proxy_host", upstreamProxyHostForLog(proxyKey))
-	transport, err := buildUpstreamTransportWithTLSFingerprint(settings, parsedProxy, profile)
+	transport, err := buildUpstreamTransportWithTLSFingerprintMode(settings, parsedProxy, profile, protocolMode)
 	if err != nil {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("build TLS fingerprint transport: %w", err)
@@ -644,6 +646,9 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 		client:   client,
 		proxyKey: proxyKey,
 		poolKey:  poolKey,
+	}
+	if isOpenAITLSProtocolMode(protocolMode) {
+		entry.protocolMode = protocolMode
 	}
 	atomic.StoreInt64(&entry.lastUsed, nowUnix)
 	if markInFlight {
@@ -1466,6 +1471,8 @@ func enableHTTP2KeepAlive(transport *http.Transport, protocolMode string) error 
 //   - settings: 连接池配置
 //   - proxyURL: 代理 URL（nil 表示直连）
 //   - profile: TLS 指纹配置
+//   - protocolMode: OpenAI 模式（openai_h2/openai_h1/openai_h1_fallback）遵循
+//     gateway.openai_http2；其余值保持历史 long_stream_h2 行为
 //
 // 返回:
 //   - *http.Transport: 配置好的 Transport 实例
@@ -1476,6 +1483,15 @@ func enableHTTP2KeepAlive(transport *http.Transport, protocolMode string) error 
 //   - http/https: HTTP 代理，使用 HTTPProxyDialer（CONNECT 隧道 + utls 握手）
 //   - socks5: SOCKS5 代理，使用 SOCKS5ProxyDialer（SOCKS5 隧道 + utls 握手）
 func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *url.URL, profile *tlsfingerprint.Profile) (*http.Transport, error) {
+	return buildUpstreamTransportWithTLSFingerprintMode(settings, proxyURL, profile, upstreamProtocolModeDefault)
+}
+
+func buildUpstreamTransportWithTLSFingerprintMode(settings poolSettings, proxyURL *url.URL, profile *tlsfingerprint.Profile, protocolMode string) (*http.Transport, error) {
+	openAIMode := isOpenAITLSProtocolMode(protocolMode)
+	if isOpenAITLSHTTP1Mode(protocolMode) {
+		// HTTP/1.1-only transport: the ClientHello must not offer h2.
+		profile = profile.WithHTTP1OnlyALPN()
+	}
 	transport := &http.Transport{
 		MaxIdleConns:          settings.maxIdleConns,
 		MaxIdleConnsPerHost:   settings.maxIdleConnsPerHost,
@@ -1503,6 +1519,9 @@ func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *u
 		case "https":
 			// The fingerprint dialer emits a plaintext CONNECT preface and cannot
 			// establish TLS to an HTTPS proxy. Keep proxy routing via net/http.
+			if openAIMode {
+				return buildUpstreamTransport(settings, proxyURL, protocolMode)
+			}
 			return buildUpstreamTransport(settings, proxyURL, upstreamProtocolModeDefault)
 		case "http":
 			// HTTP/HTTPS 代理：使用 HTTPProxyDialer（CONNECT 隧道）
@@ -1527,8 +1546,12 @@ func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *u
 	// utls.ConnectionState, and without a stdlib-shaped ConnectionState net/http
 	// never sees ALPN=h2 even when ForceAttemptHTTP2 is set.
 	if profileSupportsHTTP2(profile) {
+		h2Mode := upstreamProtocolModeLongStreamH2
+		if openAIMode {
+			h2Mode = upstreamProtocolModeOpenAIH2
+		}
 		transport.ForceAttemptHTTP2 = true
-		if err := enableHTTP2KeepAlive(transport, upstreamProtocolModeLongStreamH2); err != nil {
+		if err := enableHTTP2KeepAlive(transport, h2Mode); err != nil {
 			return nil, err
 		}
 		applyTLSProfileHTTP2Settings(transport, profile)
