@@ -167,7 +167,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 | `HCLOUD_TOKEN` | **已退役**；勿再用于 TokenKey prod 供给 |
 | `HCLOUD_S3_Access_Key` / `HCLOUD_S3_Secret_Key` | 本机受保护的对象存储凭据；不输出、不入库 |
 | `QA_*` | QA 独立迁移契约；不得因网关迁完而直接切换默认值 |
-| `QA_LIVE_ARCHIVE_*`（脚本内部常量） | 现行 QA raw 坐标由 `ops/stage0/qa-runtime-environment.sh` 统一持有；prod 蓝绿发布缺失或偏离这些坐标、意外配置静态凭据时直接失败。AWS IAM/raw 策略检查兼容保留 `--legacy-aws` 参数 |
+| `QA_ARCHIVE_*` | QA S3 归档 2026-11-08 退役；prod 蓝绿发布不再注入或校验这些键，compose 也不再传入容器（网关缺省关闭归档）。node1 副本由主机定时器 `tokenkey-qa-archive` 负责 |
 
 媒体默认 AWS 坐标清理：`ops/stage0/retire_dormant_media_storage.py` 默认 plan；
 通过 `run-probe --script ops/stage0/retire_dormant_media_storage_remote.sh`

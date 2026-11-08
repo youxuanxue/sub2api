@@ -202,9 +202,10 @@ python3 ops/qa/prod_phase2_live_health.py --legacy-aws --json
 bash ops/observability/probe-release-control-plane.sh
 ```
 
-上述检查从独立、停止的 maintenance pin 读取存储坐标并对照
-`ops/stage0/qa-runtime-environment.sh` 的现行 AWS 契约；pin 缺失、坐标漂移、意外配置静态凭据或
-容器网络无法取得 IMDSv2 角色身份时失败。只报告可用性，不输出 token、凭据路径或密钥。
+QA S3 归档已于 2026-11-08 退役（`ops/qa/deploy_rollout.yaml`）：本地数据保留 24h，
+主机定时器 `tokenkey-qa-archive`（`ops/qa/node1_archive.py`）每 4h 复制到 node1。
+原坐标 owner 已删除，上述检查报告 `archive_provider: retired`，只校验停止的 maintenance pin，
+不再检查 S3 坐标、静态凭据或 IMDSv2 角色身份。只报告可用性，不输出 token、凭据路径或密钥。
 存储检查不执行上传或恢复；归档成功与恢复校验由维护回执和数据库记录证明。
 仍须只读核对主机验收回执及 capture ledger 与批准基线。
 新增 failure、过时快照、捕获积压、缺少 seal 或归档/恢复失败按 raw-only 契约处理，不能清除旧警告

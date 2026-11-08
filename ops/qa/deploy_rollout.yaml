@@ -7,18 +7,23 @@ schema_version: 1
 
 prod:
   component_release:
-    runtime_contract: raw_archive_v1
+    # QA S3 retired 2026-11-08: a gateway release plans no QA component step.
+    # The planner still accepts raw_archive_v1 for rollback targets <= 1.8.353.
+    runtime_contract: gateway_only_v1
     repository_state: ready
     observed_live_state: not_deployed
     planner: ops/stage0/prod_release_plan.py
     verified_state: /var/lib/tokenkey/qa-release/verified.json
   QA_ARCHIVE_ENABLED:
-    deploy_inject_default: true
+    # Retired: deploy scripts never inject QA_ARCHIVE_*; absent key = gateway default off.
+    # Local 24h + node1 copy every 4h (host timer tokenkey-qa-archive, ops/qa/node1_archive.py);
+    # COS holds database backups only. Design: docs/approved/design-tencent-cos-backup-node1-qa.md
+    state: retired
+    retired_on: "2026-11-08"
+    decided_by: user
+    deploy_inject_default: false
     policy_target: prod.archive.enabled
-    target_deploy_inject_default: true
-    enable_after: docs/approved/design-prod-qa-24h-s3-lifecycle.md
-    repository_closeout_state: production_recloseout_verified
-    observed_live_state: production_recloseout_verified
+    target_deploy_inject_default: false
   tokenkey_qa_maintenance_timer:
     repository_closeout_state: single_owner_ready
     observed_live_state: single_owner_not_activated
@@ -38,11 +43,10 @@ prod:
       - host_receipt
       - database_heartbeat
       - archive_control_rows
-    live_archive_provider: aws_s3
+    # QA S3 retired 2026-11-08; node1 copies are owned by host timer tokenkey-qa-archive.
     # Operator upload pause (not capture): current prod host_watch.paused_jobs in
     # deploy/tencent/candidate-usw-20261022.json; ordinary releases must preserve timers.
-    # This metadata describes capability, not permission to resume uploads.
-    live_archive_coordinates_owner: ops/stage0/qa-runtime-environment.sh
+    live_archive_provider: none
     legacy_aws_iam_check: explicit --legacy-aws
   tokenkey_qa_boundary:
     repository_closeout_state: pre_activation_fixed_age_transition

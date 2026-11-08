@@ -25,6 +25,17 @@ import qa_phase2_health as health  # noqa: E402
 import verify_raw_archive_iam_contract as iam_contract  # noqa: E402
 
 
+# Pre-retirement S3 coordinates; the owner file was deleted when QA S3 retired
+# (2026-11-08). Tests that exercise the legacy S3 checks patch them back in.
+_LEGACY_S3_COORDINATES = {
+    "QA_ARCHIVE_STORAGE_DRIVER": "s3",
+    "QA_ARCHIVE_STORAGE_REGION": "us-east-1",
+    "QA_ARCHIVE_STORAGE_BUCKET": "legacy-qa-raw-archive",
+    "QA_ARCHIVE_STORAGE_ENDPOINT": "https://s3.us-east-1.amazonaws.com",
+    "QA_ARCHIVE_STORAGE_PREFIX": "raw/v1",
+}
+
+
 def _load_runtime_case():
     spec = importlib.util.spec_from_file_location(
         "qa_phase2_runtime_case",
@@ -41,7 +52,7 @@ def _fresh_snapshot() -> tuple[dict, dt.datetime]:
     snapshot, _ = _load_runtime_case()._healthy_snapshot()
     snapshot["storage"] = {
         "status": "ok", "runtime_contract": "independent-v1", "runtime_stopped": True,
-        "environment": {"QA_ARCHIVE_ENABLED": "true", **live_health.live_archive_coordinates()},
+        "environment": {"QA_ARCHIVE_ENABLED": "true", **_LEGACY_S3_COORDINATES},
         "credentials_file_present": False, "instance_role_available": True,
     }
     snapshot.setdefault("qa_records", {"partition_owner": "partitioned", "hourly_cutover_active": False})
@@ -81,6 +92,28 @@ def _pause_boundary(snapshot):
 
 
 class ProdPhase2LiveHealthTest(unittest.TestCase):
+    def setUp(self) -> None:
+        patcher = mock.patch.object(live_health, "live_archive_coordinates",
+                                    return_value=dict(_LEGACY_S3_COORDINATES))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_retired_s3_owner_reports_retired_and_keeps_pin_checks(self) -> None:
+        self.assertFalse(live_health.LIVE_ARCHIVE_OWNER.exists())
+        with mock.patch.object(live_health, "live_archive_coordinates", return_value=None):
+            snapshot, now = _fresh_snapshot()
+            storage = snapshot["storage"]
+            storage["environment"] = {}
+            storage["instance_role_available"] = False
+            result = live_health.evaluate_storage(storage)
+            self.assertEqual(result, {"ok": True, "failures": [], "deferred_until_resume": [],
+                                      "archive_provider": "retired"})
+            storage["runtime_stopped"] = False
+            self.assertEqual(live_health.evaluate_storage(storage)["failures"], ["qa_runtime_pin_invalid"])
+            self.assertFalse(live_health.evaluate_storage(None)["ok"])
+        self.assertIsNone(live_health.live_archive_coordinates.__wrapped__()
+                          if hasattr(live_health.live_archive_coordinates, "__wrapped__") else None)
+
     def _healthy_probe_text(self) -> str:
         # Mirrors the live pause owner: maintenance and boundary both paused.
         snapshot, _ = _fresh_snapshot()
@@ -403,7 +436,7 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         env = {
             "PATH": os.environ["PATH"], "QA_MAINTENANCE_IMAGE": "example:1.0.0",
             "QA_MAINTENANCE_TAG": "1.0.0", "POSTGRES_PASSWORD": "synthetic-password",
-            "QA_RUNTIME_NETWORK": "synthetic-data", **live_health.live_archive_coordinates(),
+            "QA_RUNTIME_NETWORK": "synthetic-data", **_LEGACY_S3_COORDINATES,
             "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE": "/run/secrets/tokenkey-qa/raw.json",
         }
         command = ["docker", "compose", "--env-file", os.devnull, "-f",
@@ -411,12 +444,12 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         result = subprocess.run(command, env=env, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         resolved = json.loads(result.stdout)["services"]["runtime"]["environment"]
-        for key, value in live_health.live_archive_coordinates().items():
+        for key, value in _LEGACY_S3_COORDINATES.items():
             self.assertEqual(resolved[key], value)
         native = subprocess.run(command, env={k: v for k, v in env.items() if k != "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE"}, text=True, capture_output=True)
         self.assertEqual(native.returncode, 0, native.stderr)
         self.assertEqual(json.loads(native.stdout)["services"]["runtime"]["environment"]["QA_ARCHIVE_STORAGE_CREDENTIALS_FILE"], "")
-        for key in live_health.live_archive_coordinates():
+        for key in _LEGACY_S3_COORDINATES:
             with self.subTest(missing=key):
                 missing = {name: value for name, value in env.items() if name != key}
                 failed = subprocess.run(command, env=missing, text=True, capture_output=True)

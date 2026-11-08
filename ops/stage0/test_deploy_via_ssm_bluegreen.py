@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -764,7 +765,7 @@ validate_prepared_receipt blue green
                 self.assertEqual(delivered["TELEMETRY_ARCHIVE_BUCKET"], bucket)
                 self.assertEqual(delivered["TELEMETRY_ARCHIVE_REGION"], region)
                 functions = "\n".join(_extract_shell_function(remote, name) for name in
-                                      ("env_default", "env_apply_if_supplied", "ensure_profile_environment"))
+                                      ("env_default", "ensure_profile_environment"))
                 for existing in (False, True):
                     with tempfile.TemporaryDirectory() as tmp:
                         env_file = pathlib.Path(tmp) / ".env"
@@ -774,12 +775,9 @@ validate_prepared_receipt blue green
 {functions}
 ENV_FILE={shlex.quote(str(env_file))}
 DEPLOY_PROFILE=prod
-QA_RUNTIME_KEYS=(QA_ARCHIVE_ENABLED)
 TELEMETRY_ARCHIVE_BUCKET={shlex.quote(delivered['TELEMETRY_ARCHIVE_BUCKET'])}
 TELEMETRY_ARCHIVE_REGION={shlex.quote(delivered['TELEMETRY_ARCHIVE_REGION'])}
 log() {{ :; }}
-assert_qa_provider_unchanged() {{ :; }}
-assert_live_qa_archive_coordinates() {{ :; }}
 env_get() {{ sed -n "s/^$1=//p" "$ENV_FILE"; }}
 env_set() {{ printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"; }}
 ensure_profile_environment
@@ -798,72 +796,116 @@ ensure_profile_environment
         self.assertIsNone(params)
         self.assertIsNone(remote)
 
-    def test_raw_coordinates_can_only_change_through_migration(self) -> None:
-        proc, _, remote = _render()
+    def test_env_without_qa_keys_deploys_without_qa_archive(self) -> None:
+        # 1.8.353: a rebuilt prod .env without QA_* keys must not re-inject
+        # QA_ARCHIVE_ENABLED=true and then die demanding retired S3 coordinates.
+        proc, params, remote = _render()
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        guard = _extract_shell_function(remote, "assert_qa_provider_unchanged")
-        keys = ["QA_ARCHIVE_STORAGE_ENDPOINT", "QA_ARCHIVE_STORAGE_BUCKET", "QA_ARCHIVE_STORAGE_PREFIX",
-                "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE"]
-        for key in keys:
-            for incoming, success in [("original", True), ("redirected", False)]:
-                with self.subTest(key=key, incoming=incoming):
-                    script = f"""set -euo pipefail
-{guard}
+        assert params is not None and remote is not None
+        self.assertNotIn("QA_ARCHIVE_", _launch_command(params["commands"]))
+        for service in ("tokenkey-blue", "tokenkey-green"):
+            block = _bluegreen_service_block(remote, service)
+            self.assertNotIn("QA_ARCHIVE_", block, msg=service)
+            self.assertEqual(block.count("- QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}"), 1, msg=service)
+            self.assertEqual(block.count("- QA_CAPTURE_BODY_MAX_BYTES=${QA_CAPTURE_BODY_MAX_BYTES:-}"), 1, msg=service)
+        for retired in ("assert_live_qa_archive_coordinates", "assert_qa_provider_unchanged",
+                        "QA_LIVE_ARCHIVE_", "QA_RUNTIME_KEYS", "env_default QA_ARCHIVE_ENABLED"):
+            self.assertNotIn(retired, remote)
+        functions = "\n".join(_extract_shell_function(remote, name) for name in
+                              ("env_default", "ensure_profile_environment"))
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = pathlib.Path(tmp) / ".env"
+            env_file.write_text("API_DOMAIN=api.example.test\nTOKENKEY_IMAGE=ghcr.io/youxuanxue/sub2api:1.8.352\n")
+            script = f"""set -euo pipefail
+{functions}
+ENV_FILE={shlex.quote(str(env_file))}
 DEPLOY_PROFILE=prod
-QA_RUNTIME_KEYS=({key})
-{key}_SET=true
-{key}={incoming}
-env_get() {{ printf original; }}
-die() {{ echo "$*" >&2; exit 42; }}
-assert_qa_provider_unchanged
-printf accepted
+log() {{ :; }}
+die() {{ echo "die:$*" >&2; exit 42; }}
+env_get() {{ sed -n "s/^$1=//p" "$ENV_FILE"; }}
+env_set() {{ printf '%s=%s\\n' "$1" "$2" >> "$ENV_FILE"; }}
+ensure_profile_environment
 """
-                    result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
-                    self.assertEqual(result.returncode, 0 if success else 42)
-                    self.assertEqual(result.stdout, "accepted" if success else "")
-                    if not success:
-                        self.assertIn("separate migration", result.stderr)
+            result = subprocess.run(["bash"], input=script, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            final = env_file.read_text()
+            self.assertNotIn("QA_", final)
+            self.assertIn("SERVER_FRONTEND_URL=https://api.example.test", final)
 
-    def test_live_qa_coordinates_are_aws_and_complete(self) -> None:
+    @unittest.skipUnless(
+        shutil.which("docker") and subprocess.run(["docker", "compose", "version"], capture_output=True).returncode == 0,
+        "Docker Compose CLI required",
+    )
+    def test_stale_qa_archive_keys_in_dotenv_do_not_reach_the_container(self) -> None:
+        # Compose has no env_file: .env only feeds ${...} interpolation, so a key the
+        # service no longer lists cannot enter the container environment.
         proc, _, remote = _render()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         assert remote is not None
-        guard = _extract_shell_function(remote, "assert_live_qa_archive_coordinates")
-        owner = (_SCRIPT.parent / "qa-runtime-environment.sh").read_text()
-        script = f"""set -euo pipefail
-{owner}
-{guard}
-DEPLOY_PROFILE=prod
-HYBRID_PROD=true
-env_get() {{
-  case "$1" in
-    QA_ARCHIVE_ENABLED) printf true ;;
-    QA_ARCHIVE_STORAGE_CREDENTIALS_FILE) printf %s "" ;;
-    *) key="${{1/QA_ARCHIVE_/QA_LIVE_ARCHIVE_}}"; printf '%s' "${{!key}}" ;;
-  esac
-}}
-die() {{ echo "$*" >&2; exit 42; }}
-assert_live_qa_archive_coordinates
-printf accepted
-"""
-        result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "accepted")
+        writer = _extract_shell_function(remote, "write_bluegreen_compose")
+        compose = writer.split("<<'YAML'\n", 1)[1].split("\nYAML\n", 1)[0]
+        self.assertNotIn("env_file", compose)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "compose.yml").write_text(compose)
+            (root / ".env").write_text(
+                "TOKENKEY_IMAGE_BLUE=example:1\nTOKENKEY_IMAGE_GREEN=example:1\n"
+                "POSTGRES_PASSWORD=p\nJWT_SECRET=j\nTOTP_ENCRYPTION_KEY=t\n"
+                "QA_ARCHIVE_ENABLED=true\nQA_ARCHIVE_STORAGE_DRIVER=s3\nQA_ARCHIVE_STORAGE_BUCKET=stale\n"
+                "QA_CAPTURE_ENABLED=true\n"
+            )
+            result = subprocess.run(
+                ["docker", "compose", "--project-name", "tokenkey", "--env-file", str(root / ".env"),
+                 "-f", str(root / "compose.yml"), "config", "--format", "json"],
+                text=True, capture_output=True,
+                env={k: v for k, v in os.environ.items() if not k.startswith(("QA_", "TOKENKEY_"))},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            services = json.loads(result.stdout)["services"]
+            for name in ("tokenkey-blue", "tokenkey-green"):
+                environment = services[name]["environment"]
+                self.assertFalse([key for key in environment if key.startswith("QA_ARCHIVE_")], msg=name)
+                self.assertEqual(environment["QA_CAPTURE_ENABLED"], "true", msg=name)
 
-        for key, value in {
-            "QA_ARCHIVE_STORAGE_REGION": "fsn1",
-            "QA_ARCHIVE_STORAGE_BUCKET": "legacy-aws-raw",
-            "QA_ARCHIVE_STORAGE_ENDPOINT": "",
-            "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE": "/run/secrets/tokenkey-qa/raw.json",
-        }.items():
-            with self.subTest(key=key):
-                bad_script = script.replace(
-                    '  case "$1" in',
-                    f'  case "$1" in\n    {key}) printf %s {shlex.quote(value)} ;;',
-                )
-                failed = subprocess.run(["bash"], input=bad_script, text=True, capture_output=True)
-                self.assertEqual(failed.returncode, 42)
-                self.assertIn("live QA archive", failed.stderr)
+    def test_missing_api_domain_fails_before_any_cutover(self) -> None:
+        # 1.8.353: API_DOMAIN was only read by observe_routed_health, after the
+        # route switch. The pre-cutover guard must stop every traffic-moving stage.
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        assert remote is not None
+        functions = "\n".join(_extract_shell_function(remote, name) for name in
+                              ("assert_post_cutover_environment", "run_bluegreen_stage"))
+        for stage in ("deploy", "prepare", "promote"):
+            for dotenv, ok in (("TOKENKEY_IMAGE=x\n", False), ("API_DOMAIN=api.example.test\n", True)):
+                with self.subTest(stage=stage, ok=ok), tempfile.TemporaryDirectory() as tmp:
+                    env_file = pathlib.Path(tmp) / ".env"
+                    env_file.write_text(dotenv)
+                    script = f"""set -euo pipefail
+{functions}
+ENV_FILE={shlex.quote(str(env_file))}
+PREPARED_FILE={shlex.quote(str(pathlib.Path(tmp) / "absent"))}
+STAGE={stage}
+LEGACY_MIGRATED=0
+log() {{ :; }}
+die() {{ echo "die:$*" >&2; exit 42; }}
+env_get() {{ sed -n "s/^$1=//p" "$ENV_FILE"; }}
+prepare_live_paths() {{ :; }}
+backup_env() {{ :; }}
+read_active_color() {{ printf blue; }}
+ensure_profile_environment() {{ :; }}
+ensure_legacy_cutover() {{ :; }}
+deploy_target_color() {{ echo moved-or-prepared; }}
+promote_prepared_color() {{ echo moved-or-prepared; }}
+run_bluegreen_stage
+"""
+                    result = subprocess.run(["bash"], input=script, capture_output=True, text=True)
+                    if ok:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("moved-or-prepared", result.stdout)
+                    else:
+                        self.assertEqual(result.returncode, 42)
+                        self.assertNotIn("moved-or-prepared", result.stdout)
+                        self.assertIn("API_DOMAIN is required before cutover", result.stderr)
 
     def test_remote_script_parses(self) -> None:
         proc, params, remote = _render()
@@ -891,13 +933,7 @@ printf accepted
         self.assertIn("/tmp/tokenkey-bluegreen-deploy.sh", joined)
         self.assertIn("TAG='1.8.99'", joined)
         self.assertIn("DEPLOY_PROFILE='prod'", joined)
-        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET=''", joined)
-        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET_SET=false", joined)
-        self.assertIn("QA_ARCHIVE_ENABLED='true'", joined)
-        self.assertIn("QA_ARCHIVE_STORAGE_DRIVER='s3'", joined)
-        self.assertIn("QA_ARCHIVE_STORAGE_REGION='us-east-1'", joined)
-        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
-        self.assertNotIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-qa-raw-fsn1-dd2ca9019b22'", joined)
+        self.assertNotIn("QA_ARCHIVE_", joined)
         self.assertIn("TELEMETRY_ARCHIVE_ENABLED=''", joined)
         self.assertIn("TELEMETRY_ARCHIVE_BUCKET=''", joined)
         self.assertIn("TELEMETRY_ARCHIVE_REGION=''", joined)
@@ -907,7 +943,7 @@ printf accepted
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_ENABLED='false'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS='8'", joined)
         self.assertIn('env_set GATEWAY_IMAGE_CONCURRENCY_ENABLED', remote)
-        self.assertIn("assert_live_qa_archive_coordinates", remote)
+        self.assertIn("assert_post_cutover_environment", remote)
 
         self.assertIn("docker-compose.bluegreen.yml", remote)
         self.assertIn("active-color", remote)
@@ -940,7 +976,7 @@ printf accepted
         )
         self.assertNotIn("env_set SUB2API_IMAGES_REASONING_EFFORT", remote)
         self.assertNotIn("env_set SUB2API_IMAGES_PROMPT_SCAFFOLD", remote)
-        self.assertEqual(remote.count("QA_ARCHIVE_ENABLED="), 2)
+        self.assertNotIn("QA_ARCHIVE_", remote)
         self.assertEqual(remote.count("- TELEMETRY_ARCHIVE_ENABLED="), 2)
         self.assertIn("env_default TELEMETRY_ARCHIVE_ENABLED false", remote)
         self.assertIn('TOKENKEY_BLUEGREEN_HEALTH_TRIES:-60', remote)
@@ -1364,14 +1400,12 @@ finish_pending_drain
 
     def test_values_are_env_overridable(self) -> None:
         proc, params, _ = _render(env_extra={
-            "QA_ARCHIVE_STORAGE_BUCKET": "custom-qa",
             "MEDIA_STORAGE_BUCKET": "custom-media",
             "GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS": "16",
         })
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert params is not None
         joined = "\n".join(params["commands"])
-        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='custom-qa'", joined)
         self.assertIn("MEDIA_STORAGE_BUCKET='custom-media'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS='16'", joined)
 

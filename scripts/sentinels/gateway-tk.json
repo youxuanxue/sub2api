@@ -16982,35 +16982,30 @@
       "rationale": "Single Kiro request budget owner: latch deadline once, restrict relay inheritance, preserve caller cancel and stop account retries at exhaustion."
     },
     {
-      "path": "ops/stage0/qa-runtime-environment.sh",
-      "must_contain": [
-        "QA_LIVE_ARCHIVE_STORAGE_DRIVER=\"s3\"",
-        "QA_LIVE_ARCHIVE_STORAGE_REGION=\"us-east-1\"",
-        "QA_LIVE_ARCHIVE_STORAGE_BUCKET=\"tokenkey-prod-qa-raw-archive-682751977094\"",
-        "QA_LIVE_ARCHIVE_STORAGE_ENDPOINT=\"https://s3.us-east-1.amazonaws.com\"",
-        "QA_LIVE_ARCHIVE_STORAGE_PREFIX=\"raw/v1\""
-      ],
-      "rationale": "Live QA raw storage coordinates are owned here and shared with the delivered deployment script and health evaluator. Ordinary releases must not silently change the explicitly approved AWS raw coordinates."
-    },
-    {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
       "must_contain": [
-        "assert_live_qa_archive_coordinates() {",
-        "  assert_live_qa_archive_coordinates",
-        "live QA archive requires EC2 instance-role authentication",
-        "DELIVER_QA_ARCHIVE_REGION=\"${QA_ARCHIVE_STORAGE_REGION:-${QA_LIVE_ARCHIVE_STORAGE_REGION}}\"",
         "env_default TELEMETRY_ARCHIVE_BUCKET \"${TELEMETRY_ARCHIVE_BUCKET:-}\"",
         "DELIVER_TELEMETRY_BUCKET=\"${TELEMETRY_ARCHIVE_BUCKET:-}\"",
         "append_layout_exception_caddy() {",
         "profiles: [\"caddy-adopt\"]",
         "container_name: tokenkey-caddy",
         "name: tk-cutover-prod",
-        "docker start tokenkey-caddy"
+        "docker start tokenkey-caddy",
+        "assert_post_cutover_environment() {",
+        "API_DOMAIN is required before cutover",
+        "      - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}"
       ],
       "must_not_contain": [
-        "tokenkey-prod-qa-raw-archive-682751977094"
+        "tokenkey-prod-qa-raw-archive-682751977094",
+        "assert_live_qa_archive_coordinates",
+        "assert_qa_provider_unchanged",
+        "QA_LIVE_ARCHIVE_STORAGE_DRIVER",
+        "QA_RUNTIME_KEYS",
+        "env_default QA_ARCHIVE_ENABLED",
+        "- QA_ARCHIVE_ENABLED=",
+        "qa-runtime-environment.sh"
       ],
-      "rationale": "Prod deploys validate existing raw coordinates and EC2 role authentication before preparing a gateway; missing settings fail instead of changing buckets. Disabled telemetry also has no implicit AWS storage destination. Layout-exception caddy is recorded on the blue/green compose with the 100m x 5 log cap and is started by name when the Stage0 compose file is absent."
+      "rationale": "QA S3 was retired on 2026-11-08: prod deploys never inject QA_ARCHIVE_ENABLED, demand S3 coordinates, or pass QA_ARCHIVE_* into either color (absent key = gateway default off); QA_CAPTURE_* stays. .env keys read after cutover (API_DOMAIN) are checked before any route switch. Disabled telemetry has no implicit AWS storage destination. Layout-exception caddy is recorded on the blue/green compose with the 100m x 5 log cap and is started by name when the Stage0 compose file is absent."
     },
     {
       "path": "deploy/aws/stage0/qa-runtime-compose.yml",
@@ -17046,7 +17041,6 @@
       "path": "ops/qa/prod_phase2_live_health.py",
       "must_contain": [
         "def live_archive_coordinates()",
-        "ops/stage0/qa-runtime-environment.sh",
         "storage = evaluate_storage(snapshot.get(\"storage\"), maintenance_paused=",
         "deferred.append(\"qa_archive_instance_role_unavailable\")",
         "\"qa_runtime_storage_unavailable\"",
@@ -17054,17 +17048,21 @@
         "maintenance_paused=bool(maintenance_pause_reason)",
         "get(\"host_watch\", {}).get(\"paused_jobs\", {}).get(\"tokenkey-qa-maintenance\", \"\")",
         "def _defer_paused_instance_role(",
-        "iam.get(\"applicable\", True)"
+        "iam.get(\"applicable\", True)",
+        "if not owner.is_file():",
+        "\"archive_provider\": \"retired\""
       ],
-      "rationale": "Live QA health validates the maintenance pin against the shared AWS contract and fails on missing evidence. While uploads are paused, missing statements on the retired instance role are deferred; any other IAM failure still exits."
+      "rationale": "Live QA health validates the stopped maintenance pin and fails on missing evidence. With the QA S3 coordinate owner retired it reports archive_provider=retired instead of failing; while uploads are paused, missing statements on the retired instance role are deferred; any other IAM failure still exits."
     },
     {
       "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
       "must_contain": [
-        "def test_live_qa_coordinates_are_aws_and_complete(",
+        "def test_env_without_qa_keys_deploys_without_qa_archive(",
+        "def test_stale_qa_archive_keys_in_dotenv_do_not_reach_the_container(",
+        "def test_missing_api_domain_fails_before_any_cutover(",
         "test_telemetry_defaults_are_empty_and_explicit_storage_survives"
       ],
-      "rationale": "Deployment preserves live QA coordinates and explicitly configured storage settings."
+      "rationale": "A .env without QA keys deploys with no QA_ARCHIVE_* in either color, stale QA_ARCHIVE_* keys cannot reach the container, a missing API_DOMAIN fails before cutover, and explicitly configured storage settings survive."
     },
     {
       "path": "ops/qa/test_prod_phase2_live_health.py",
@@ -17078,7 +17076,8 @@
         "def test_pause_rejects_resumed_or_unknown_systemd_states(",
         "def test_paused_uploads_defer_only_the_write_identity_check(",
         "def test_paused_upload_defers_only_retired_instance_role_sids(",
-        "def test_paused_upload_still_reports_other_iam_drift("
+        "def test_paused_upload_still_reports_other_iam_drift(",
+        "def test_retired_s3_owner_reports_retired_and_keeps_pin_checks("
       ],
       "rationale": "Behavior tests prevent false healthy output when independent pin or instance-role evidence is absent, secrets leaking through probe output, and missing storage coordinates."
     },
