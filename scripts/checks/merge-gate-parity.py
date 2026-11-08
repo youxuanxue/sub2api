@@ -15,7 +15,7 @@ machinery itself — this guard makes the drift fail closed:
      update; scripts/checks/* are covered by rule 1 since that dir also holds
      merge-topology helpers like skip-ci-marker.py that are NOT gate sentinels).
   3. The one merge-gate check that is a go test, not a script
-     (QA raw archive contract), must appear in both files.
+     (QA local lifecycle contract), must appear in both files.
 
 Exit 0 = in sync; 1 = drift; 2 = environment failure.
 

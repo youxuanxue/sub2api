@@ -99,6 +99,7 @@
     "terminal event registry": "base",
     "engine facade registry": "base",
     "QA lifecycle SSOT": "qa",
+    "QA local lifecycle contract": "qa",
     "frontend release asset contract": "frontend",
     "storefront SEO alignment": "frontend",
     "admin persistent-shell layout": "frontend",
@@ -213,7 +214,8 @@
     "pricing_serving": "pricing/serving approved-doc precedence",
     "merge_conflict": "merge conflict markers",
     "ssm_parse": "SSM host command script parse",
-    "archive_rehearsal": "nonprod archive/restore rehearsal"
+    "archive_rehearsal": "nonprod archive/restore rehearsal",
+    "qa_local_lifecycle": "QA local lifecycle contract"
   },
   "input_sets": {
     "base": [],

@@ -403,6 +403,11 @@ export PREFLIGHT_BASE="${template_base:-origin/main}"
 # section positions below. Spawn guards mirror each section's prerequisite
 # checks; a missing prerequisite leaves the job unspawned and the section
 # falls back to its serial FAIL/skip path.
+_qa_local_lifecycle_gate_run() {
+    # QA S3 retired 2026-11-08; archive/ keeps only the qa_archive_shards control
+    # rows the local 24h cleanup writes. Mirrors upstream-merge-pr-shape Check 10.
+    cd backend && go test -tags=unit ./internal/config ./internal/observability/qa/archive ./internal/observability/qa/lifecycle ./internal/observability/qa ./cmd/qa-local-maintenance
+}
 _protocol_routing_gate_run() {
     python3 ./scripts/checks/test_protocol_routing_ssot.py >/dev/null &&
         python3 ./scripts/checks/protocol-routing-ssot.py --quiet
@@ -415,6 +420,9 @@ _merge_conflict_gate_run() {
     python3 ./scripts/checks/test_merge_conflict_markers.py >/dev/null &&
         python3 ./scripts/checks/merge-conflict-markers.py --quiet
 }
+if [ "$_preflight_skip_go_contracts" -ne 1 ] && [ "$_preflight_skip_slow_ops" -ne 1 ] && command -v go >/dev/null 2>&1; then
+    _bg_spawn qa_local_lifecycle _qa_local_lifecycle_gate_run
+fi
 if command -v python3 >/dev/null 2>&1; then
     _archive_rehearsal_spawn_if_needed
     _bg_spawn anthropic_unittest \
@@ -1950,6 +1958,29 @@ elif ! python3 ./scripts/checks/qa-lifecycle-ssot.py; then
     errors=$((errors + 1))
 else
     echo "  ok: one approved QA lifecycle owner; retired conflicts remain absent"
+fi
+
+fi # preflight gate
+if _preflight_selected 'QA local lifecycle contract'; then
+echo "=== sub2api: QA local lifecycle contract ==="
+if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
+    echo "  skip: unchanged Go preflight surface"
+elif [ "$_preflight_skip_slow_ops" -eq 1 ]; then
+    echo "  skip: unchanged CI surface; required preflight gate not needed"
+elif ! command -v go >/dev/null 2>&1; then
+    echo "  FAIL: go not on PATH (required to run QA local lifecycle contract tests)"
+    errors=$((errors + 1))
+elif ! _bg_spawned qa_local_lifecycle; then
+    echo "  FAIL: QA local lifecycle gate background job was not spawned (internal preflight bug)"
+    errors=$((errors + 1))
+else
+    _bg_join qa_local_lifecycle
+    if [ "$_bg_rc" -ne 0 ]; then
+        tail -40 "$_preflight_bg_dir/qa_local_lifecycle.out" | sed 's/^/    /'
+        errors=$((errors + 1))
+    else
+        echo "  ok: QA archive control, lifecycle and qa-local-maintenance tests pass"
+    fi
 fi
 
 # ---- sub2api: frontend release asset contract -------------------------------
