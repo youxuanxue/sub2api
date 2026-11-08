@@ -103,7 +103,10 @@
         "\"tokenkey-cn-postgres-backup\": (3 * 3600, 3670),",
         "\"tokenkey-cn-postgres-archive-check\": (15 * 60, 300),",
         "\"tokenkey-qa-archive\": (9 * 3600, 1800),",
-        "\"tokenkey-node1-db-mirror\": (9 * 3600, 5400),"
+        "\"tokenkey-node1-db-mirror\": (9 * 3600, 5400),",
+        "def qa_cleanup_backlog_fact(path: Path, now: float) -> dict | None:",
+        "cleanup.get(\"oldest_receipt_blocked_hour_utc\")",
+        "if name == \"tokenkey-qa-cleanup\" and fact[\"healthy\"] and not expected_paused:"
       ],
       "rationale": "Prod and domestic health probes retain two-failure alerting and observer attribution. physical_backup_fact keeps its advisory band gated on per-reason evidence: a bootstrapping non-primary repository is a warning, while a degraded receipt without evidence stays a fault. Coverage anchors added 2026-11-03 after three live blind spots: (1) cn-prod's job list must come from domestic local_qa_jobs, not a hardcoded single entry that predated tokenkey-qa-archive; (2) the pgBackRest auto-discovery must branch on cn-prod as well as prod — gating on node == \"prod\" alone left cn-prod's own backup/archive-check/recovery unwatched while archive_check.json existed there; (3) the cn- prefixed unit names and the qa-archive / node1-db-mirror limits are the only registration these jobs have, and node1_alert.py reads the same table so both alert paths share one definition of healthy. Deleting any of them returns a running backup path to silence."
     },
@@ -135,7 +138,9 @@
         "def test_both_hosts_configure_the_archive_job(",
         "def test_cn_prod_jobs_come_from_its_own_config_not_a_hardcoded_list(",
         "def test_cn_prod_units_carry_their_own_cn_prefixed_names(",
-        "def test_auto_discovery_covers_cn_prod_when_archive_check_exists("
+        "def test_auto_discovery_covers_cn_prod_when_archive_check_exists(",
+        "def test_old_blocked_hour_is_unhealthy(",
+        "def test_receipt_path_matches_the_host_runner("
       ],
       "rationale": "Keep executable coverage, body validation, alert/recovery and retry regressions in the existing host watch test owner. Prod disk-metrics stays an active watched job. Bootstrap advisory and its evidence-forgery guard stay executable. The 2026-11-03 coverage cases are what make the blind spots regressions rather than opinions: qa-archive registered on both hosts with a cadence tolerating one missed run, cn-prod's job list sourced from its own config, and the pgBackRest auto-discovery reaching cn-prod while still gated on the evidence file."
     },
@@ -19385,6 +19390,30 @@
         "func (s *OpenAIGatewayService) doOpenAIUpstreamWithAccountTLS("
       ],
       "rationale": "Single OpenAI-gateway owner for outbound TLS identity: only opted-in OpenAI OAuth/SetupToken accounts get a uTLS profile; all others keep the exact historical httpUpstream.Do call."
+    },
+    {
+      "path": "backend/internal/observability/qa/lifecycle/local_cleanup.go",
+      "must_contain": [
+        "func gateHoursOnNode1Receipts(root, environment string, hours []time.Time) receiptGate {",
+        "gate := gateHoursOnNode1Receipts(opts.ArchiveReceiptRoot, opts.ArchiveEnvironment, result.SelectedHours)",
+        "result.SelectedHours = gate.Allowed",
+        "json:\"oldest_receipt_blocked_hour_utc,omitempty\""
+      ],
+      "must_not_contain": [
+        "result.SelectedHours = nil"
+      ],
+      "rationale": "QA local cleanup gates each hour on its own node1 receipt (only provably archived hours are dropped; MaxTransitionDrops truncates after the gate) and exposes the oldest blocked hour for host_https_watch. The 2026-11-08 all-or-nothing gate blocked 62 archived hours on prod."
+    },
+    {
+      "path": "backend/internal/observability/qa/lifecycle/local_cleanup_gate_test.go",
+      "must_contain": [
+        "func TestGateReclaimsVerifiedHoursAndHoldsOnlyMissingOnes(",
+        "func TestGateReportsUntrustedReceiptWithoutBlockingNeighbours(",
+        "func TestDropBoundAppliesAfterReceiptGate(",
+        "func TestUnreadableReceiptBlocks(",
+        "func TestReceiptWithoutNode1ManifestBlocks("
+      ],
+      "rationale": "Keep the per-hour receipt gate, its deletion-safety cases and the drop-bound ordering under test."
     }
   ]
 }
