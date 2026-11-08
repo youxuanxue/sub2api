@@ -19387,7 +19387,8 @@
       "must_contain": [
         "func (s *OpenAIGatewayService) resolveOpenAITLSProfile(account *Account) *tlsfingerprint.Profile {",
         "!account.IsOpenAIOAuthLike()",
-        "func (s *OpenAIGatewayService) doOpenAIUpstreamWithAccountTLS("
+        "func (s *OpenAIGatewayService) doOpenAIUpstreamWithAccountTLS(",
+        "withOpenAITLSHTTP2Windows(profile, account)"
       ],
       "rationale": "Single OpenAI-gateway owner for outbound TLS identity: only opted-in OpenAI OAuth/SetupToken accounts get a uTLS profile; all others keep the exact historical httpUpstream.Do call."
     },
@@ -19419,7 +19420,13 @@
       "path": "backend/internal/repository/http_upstream.go",
       "must_contain": [
         "recordUpstreamTLSIdentity(resp, entry, accountID, proxyURL, nil)",
-        "recordUpstreamTLSIdentity(resp, entry, accountID, proxyURL, profile)"
+        "recordUpstreamTLSIdentity(resp, entry, accountID, proxyURL, profile)",
+        "protocolMode := s.resolveTLSFingerprintProtocolMode(upstreamProfile, proxyKey, parsedProxy)",
+        "cacheKey := \"tls:\" + buildCacheKey(isolation, proxyKey, accountID, protocolMode)",
+        "transport, err := buildUpstreamTransportWithTLSFingerprintMode(settings, parsedProxy, profile, protocolMode)",
+        "s.recordOpenAIHTTP2Failure(upstreamProfile, entry.protocolMode, entry.proxyKey, err)",
+        "h2Mode = upstreamProtocolModeOpenAIH2",
+        "profile = profile.WithHTTP1OnlyALPN()"
       ],
       "rationale": "Prod evidence of the TLS identity actually used per account (uTLS profile vs crypto/tls, HTTP proto, ALPN) for HTTPS and WSS. Owner: backend/internal/service/upstream_tls_identity_tk.go. Info-level audit.tls_identity events are rate-limited per identity key and persisted to ops_system_logs by the audit.* rule in OpsSystemLogSink. Dropping any hook silently removes the only non-Debug signal that a fingerprint profile is in use."
     },
@@ -19444,6 +19451,41 @@
         "case resp.TLS == nil:"
       ],
       "rationale": "Prod evidence of the TLS identity actually used per account (uTLS profile vs crypto/tls, HTTP proto, ALPN) for HTTPS and WSS. Owner: backend/internal/service/upstream_tls_identity_tk.go. Info-level audit.tls_identity events are rate-limited per identity key and persisted to ops_system_logs by the audit.* rule in OpsSystemLogSink. Dropping any hook silently removes the only non-Debug signal that a fingerprint profile is in use."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream_tk_codex_h2.go",
+      "must_contain": [
+        "func (s *httpUpstreamService) resolveTLSFingerprintProtocolMode(upstreamProfile service.HTTPUpstreamProfile, proxyKey string, parsedProxy *url.URL) string {",
+        "return s.resolveProtocolMode(upstreamProfile, proxyKey, parsedProxy)",
+        "if !profile.UsesGoDefaultHTTP2Windows() {",
+        "func tlsFingerprintPoolKeySuffix(profile *tlsfingerprint.Profile) string {"
+      ],
+      "rationale": "OpenAI TLS-fingerprint transport follows gateway.openai_http2 (openai_h2 15s/15s ping, H1 fallback with http/1.1-only ALPN) and supports per-account Go-default HTTP/2 windows."
+    },
+    {
+      "path": "backend/internal/pkg/tlsfingerprint/profile_tk.go",
+      "must_contain": [
+        "HTTP2WindowsGoDefault = \"go_default\"",
+        "func (p *Profile) WithHTTP1OnlyALPN() *Profile {"
+      ],
+      "rationale": "Per-request HTTP/2 window policy and the HTTP/1.1-only ALPN derivation for the OpenAI fingerprint transport."
+    },
+    {
+      "path": "backend/internal/service/account_tk_openai_tls.go",
+      "must_contain": [
+        "func (a *Account) openAIOAuthTLSFingerprintH2Windows() string {",
+        "a.Extra[\"tls_fingerprint_h2_windows\"]"
+      ]
+    },
+    {
+      "path": "backend/internal/repository/http_upstream_tk_openai_tls_policy_test.go",
+      "must_contain": [
+        "func TestOpenAITLSFingerprintH2UsesOpenAIPingAndCodexWindows(",
+        "func TestOpenAITLSFingerprintH1FallbackOffersOnlyHTTP1(",
+        "func TestNonOpenAITLSFingerprintTransportsUnchanged(",
+        "func TestDoWithTLSRecordsOpenAIHTTP2FailureForHTTPProxy("
+      ],
+      "rationale": "Keep the OpenAI HTTP/2 policy, H1 fallback ALPN, and non-OpenAI invariance under test."
     }
   ]
 }

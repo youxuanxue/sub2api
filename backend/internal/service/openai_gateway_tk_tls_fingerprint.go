@@ -34,7 +34,18 @@ func (s *OpenAIGatewayService) resolveOpenAITLSProfile(account *Account) *tlsfin
 // behavior change).
 func (s *OpenAIGatewayService) doOpenAIUpstreamWithAccountTLS(req *http.Request, proxyURL string, account *Account) (*http.Response, error) {
 	if profile := s.resolveOpenAITLSProfile(account); profile != nil {
-		return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, profile)
+		return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, withOpenAITLSHTTP2Windows(profile, account))
 	}
 	return s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+}
+
+// withOpenAITLSHTTP2Windows returns a profile copy carrying the account's
+// HTTP/2 window policy; the repository keys and builds the transport from it.
+func withOpenAITLSHTTP2Windows(profile *tlsfingerprint.Profile, account *Account) *tlsfingerprint.Profile {
+	if profile == nil {
+		return nil
+	}
+	out := *profile
+	out.HTTP2Windows = account.openAIOAuthTLSFingerprintH2Windows()
+	return &out
 }

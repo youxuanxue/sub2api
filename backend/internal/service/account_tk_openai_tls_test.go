@@ -123,3 +123,45 @@ func TestOpenAIWSTLSHTTPClientSelection(t *testing.T) {
 	pool.tlsProfileFor = func(*Account) *tlsfingerprint.Profile { return codexCLIProfileRow().ToTLSProfile() }
 	require.NotNil(t, openAIWSTLSProfileFromContext(pool.withTLSProfile(context.Background(), &Account{})))
 }
+
+// The Codex window policy defaults to the captured CLI windows; only an exact
+// "go_default" opts out, and every unknown value keeps the default.
+func TestOpenAIOAuthTLSFingerprintH2WindowsAccessor(t *testing.T) {
+	cases := map[string]struct {
+		extra map[string]any
+		want  string
+	}{
+		"missing extra": {nil, tlsfingerprint.HTTP2WindowsProfile},
+		"unset":         {map[string]any{"enable_tls_fingerprint": true}, tlsfingerprint.HTTP2WindowsProfile},
+		"go_default":    {map[string]any{"tls_fingerprint_h2_windows": "go_default"}, tlsfingerprint.HTTP2WindowsGoDefault},
+		"case and pad":  {map[string]any{"tls_fingerprint_h2_windows": " GO_DEFAULT "}, tlsfingerprint.HTTP2WindowsGoDefault},
+		"unknown":       {map[string]any{"tls_fingerprint_h2_windows": "huge"}, tlsfingerprint.HTTP2WindowsProfile},
+		"wrong type":    {map[string]any{"tls_fingerprint_h2_windows": true}, tlsfingerprint.HTTP2WindowsProfile},
+	}
+	for name, tc := range cases {
+		a := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: tc.extra}
+		if got := a.openAIOAuthTLSFingerprintH2Windows(); got != tc.want {
+			t.Fatalf("%s: got %q want %q", name, got, tc.want)
+		}
+	}
+}
+
+// The window policy rides on a per-request copy: the shared cached profile is
+// never mutated, and the ClientHello fields are carried over unchanged.
+func TestWithOpenAITLSHTTP2WindowsCopiesProfile(t *testing.T) {
+	shared := &tlsfingerprint.Profile{Name: CanonicalCodexCLITLSProfileName, ALPNProtocols: []string{"h2", "http/1.1"}, CipherSuites: []uint16{4865}}
+	a := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{"tls_fingerprint_h2_windows": "go_default"}}
+	got := withOpenAITLSHTTP2Windows(shared, a)
+	if got == shared {
+		t.Fatal("must return a copy")
+	}
+	if got.HTTP2Windows != tlsfingerprint.HTTP2WindowsGoDefault || shared.HTTP2Windows != "" {
+		t.Fatalf("copy=%q shared=%q", got.HTTP2Windows, shared.HTTP2Windows)
+	}
+	if got.Name != shared.Name || len(got.CipherSuites) != 1 || got.ALPNProtocols[0] != "h2" {
+		t.Fatal("ClientHello fields must be carried over")
+	}
+	if withOpenAITLSHTTP2Windows(nil, a) != nil {
+		t.Fatal("nil profile stays nil (plain TLS path)")
+	}
+}

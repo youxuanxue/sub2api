@@ -26,6 +26,7 @@ type upstreamObservation struct {
 	mode      string
 	host      string
 	proxied   bool
+	entry     *upstreamClientEntry
 	mu        sync.Mutex
 	reused    bool
 	idle      time.Duration
@@ -34,7 +35,7 @@ type upstreamObservation struct {
 
 func observeUpstreamRequest(req *http.Request, entry *upstreamClientEntry, accountID int64) (*http.Request, *upstreamObservation) {
 	o := &upstreamObservation{ctx: req.Context(), started: time.Now(), accountID: accountID,
-		mode: entry.protocolMode, host: req.URL.Hostname(), proxied: entry.proxyKey != directProxyKey}
+		mode: entry.protocolMode, host: req.URL.Hostname(), proxied: entry.proxyKey != directProxyKey, entry: entry}
 	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
 		o.mu.Lock()
 		defer o.mu.Unlock()
@@ -84,6 +85,11 @@ func (o *upstreamObservation) failure(stage string, resp *http.Response, bytesRe
 		zap.String("failure_stage", stage), zap.String("failure_kind", kind),
 		zap.Int64("body_bytes_read", bytesRead), zap.Int64("elapsed_ms", time.Since(o.started).Milliseconds()),
 		zap.String("http2_stream_id", streamID), zap.String("http2_error_code", code),
+	}
+	if o.entry != nil {
+		// Requests sharing this client (and usually its single h2 connection);
+		// evidence for connection-window stalls on multiplexed pools.
+		fields = append(fields, zap.Int64("client_in_flight", atomic.LoadInt64(&o.entry.inFlight)))
 	}
 	o.mu.Lock()
 	fields = append(fields, zap.Bool("connection_reused", o.reused),

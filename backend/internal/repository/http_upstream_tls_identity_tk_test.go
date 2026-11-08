@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"crypto/tls"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"io"
 	"net"
 	"net/http"
@@ -53,7 +54,9 @@ func TestDoWithTLSRecordsCodexProfileOverHTTP2(t *testing.T) {
 	srv := newTLSIdentityTestServer(t)
 	core, logs := observer.New(zap.InfoLevel)
 	const accountID = int64(910001)
-	s, ok := NewHTTPUpstream(nil).(*httpUpstreamService)
+	// prod enables gateway.openai_http2; with it off the OpenAI fingerprint
+	// transport is HTTP/1.1 only.
+	s, ok := NewHTTPUpstream(&config.Config{Gateway: config.GatewayConfig{OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{Enabled: true}}}).(*httpUpstreamService)
 	require.True(t, ok)
 	profile := &tlsfingerprint.Profile{Name: service.CanonicalCodexCLITLSProfileName, ALPNProtocols: []string{"h2", "http/1.1"}}
 
