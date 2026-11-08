@@ -627,6 +627,10 @@ services:
     container_name: tokenkey-blue
     pull_policy: always
     restart: unless-stopped
+    # 8GB host died when this process reached ~6GiB RSS with no cgroup cap.
+    # Keep the hard cap below the 16GB host, and below the cgroup so Go GCs first.
+    mem_limit: 8g
+    memswap_limit: 8g
     logging: *tokenkey-logging
     stop_grace_period: 180s
     ulimits:
@@ -642,6 +646,7 @@ services:
       # HOST_RUNTIME_ENVIRONMENT
       - SKIP_DATA_CHOWN=1
       - AUTO_SETUP=true
+      - GOMEMLIMIT=6GiB
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
       - SERVER_MODE=${SERVER_MODE:-release}
@@ -725,6 +730,10 @@ services:
     container_name: tokenkey-green
     pull_policy: always
     restart: unless-stopped
+    # 8GB host died when this process reached ~6GiB RSS with no cgroup cap.
+    # Keep the hard cap below the 16GB host, and below the cgroup so Go GCs first.
+    mem_limit: 8g
+    memswap_limit: 8g
     logging: *tokenkey-logging
     stop_grace_period: 180s
     ulimits:
@@ -740,6 +749,7 @@ services:
       # HOST_RUNTIME_ENVIRONMENT
       - SKIP_DATA_CHOWN=1
       - AUTO_SETUP=true
+      - GOMEMLIMIT=6GiB
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
       - SERVER_MODE=${SERVER_MODE:-release}
