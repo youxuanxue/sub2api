@@ -59,18 +59,6 @@ func main() {
 	logger.InitBootstrap()
 	defer logger.Sync()
 
-	if qaSingleOwnerActivationRequested(os.Args[1:]) {
-		if err := runQASingleOwnerActivationCommand(
-			context.Background(),
-			os.Args[1:],
-			os.Stdout,
-			defaultQASingleOwnerActivationDeps(),
-		); err != nil {
-			log.Fatalf("QA single-owner activation failed: %v", err)
-		}
-		return
-	}
-
 	if partitionMaintenanceRequested(os.Args[1:]) {
 		if err := runPartitionMaintenanceCommand(
 			context.Background(),
@@ -79,30 +67,6 @@ func main() {
 			defaultPartitionMaintenanceDeps(),
 		); err != nil {
 			log.Fatalf("Partition maintenance failed: %v", err)
-		}
-		return
-	}
-
-	if qaBoundaryRequested(os.Args[1:]) {
-		if err := runQABoundaryCommand(
-			context.Background(),
-			os.Args[1:],
-			os.Stdout,
-			defaultQABoundaryDeps(),
-		); err != nil {
-			log.Fatalf("QA boundary maintenance failed: %v", err)
-		}
-		return
-	}
-
-	if qaMaintenanceRequested(os.Args[1:]) {
-		if err := runQAMaintenanceCommand(
-			context.Background(),
-			os.Args[1:],
-			os.Stdout,
-			defaultQAMaintenanceDeps(),
-		); err != nil {
-			log.Fatalf("QA maintenance failed: %v", err)
 		}
 		return
 	}

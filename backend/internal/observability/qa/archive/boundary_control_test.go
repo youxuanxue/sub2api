@@ -37,7 +37,7 @@ func TestPersistBoundaryTerminalGapMarksCommittedShardWithUncoveredSourceFailed(
 		WillReturnRows(sqlmock.NewRows([]string{"id", "state", "verification_error_code", "restore_verified_at"}).
 			AddRow(int64(42), StateCommitted, nil, window.End))
 	mock.ExpectQuery("SELECT EXISTS").
-		WithArgs(window.Start, window.End, int64(42)).
+		WithArgs(window.Start, window.End).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec("UPDATE qa_archive_shards SET").
 		WithArgs(StateFailed, IntegritySourceUnavailableAfterRetention, int64(42)).
