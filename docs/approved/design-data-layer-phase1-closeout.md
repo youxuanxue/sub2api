@@ -3,6 +3,7 @@ title: Data-layer 第一阶段收尾
 status: approved
 approved_by: "xuejiao (phase 1 items 1/2/3 approval, 2026-08-03)"
 approved_at: 2026-08-03
+revised_at: 2026-11-08
 authors: [agent]
 related_prs: [1653]
 ---
@@ -71,7 +72,15 @@ api_key_id)` 普通查询索引。旧的 `billing_usage_entries.usage_log_id` �
 切换由显式 operator CLI 执行，要求精确确认串、数据库时钟派生上界、已验证 CHECK、锁等待
 上限和前后行数校验。它不随应用启动自动执行。
 
-## Telemetry S3
+## Telemetry S3（已退役）
+
+> **已退役：2026-11-08 用户决定保持关闭并删除代码。** prod 与 cn-prod 一直保持关闭；`backend/internal/telemetryarchive/`、
+> `telemetry_archive.*` 配置、`TELEMETRY_ARCHIVE_*` 部署 env、`telemetry_archive_shadow`
+> 心跳行写入，以及每日诊断与 retention 激活里的 telemetry 门禁均已删除。
+> `ops_job_heartbeats` 是共享表，未删表；历史 `telemetry_archive_shadow` 行（如有）不再被读取。
+> 归档桶 `tokenkey-prod-archive` 与 `prod/ops-archive` 不受影响；`prod/raw-telemetry/`
+> 前缀的生命周期规则和 IAM 写权限仍在 `deploy/aws/cloudformation/stage0-archive.yaml`，
+> 待单独的基础设施变更处理。以下内容仅作历史记录，不再是现行契约。
 
 应用在 PostgreSQL 写成功后，把 usage、ops error、ops system 三类事件放入一个有界内存
 队列。后台按批次生成 gzip JSONL 并直接 `PutObject` 到专用 archive prefix：
@@ -133,7 +142,7 @@ retention；本阶段不把 S3 变成账务 source of truth。
 - 分区维护回滚：关闭新维护逻辑不改变已创建的空分区；不得删除分区。
 - archive 回滚：停止 export/promote；staging/promoted 对象保留并可幂等重跑，不改变 retention 配置。
 - usage 切换前回滚：删除未使用的预验证 CHECK；切换后不自动改回普通表，需独立审批。
-- telemetry 回滚：关闭 feature flag；PostgreSQL 写路径不变。
+- telemetry 回滚：已退役（2026-11-08 用户决定保持关闭并删除代码），无 feature flag 可切换。
 - 任意生产 schema、release、drop 都必须经过 preflight、人工合并批准和 Stage0 rollout。
 
 ## 验收
@@ -144,7 +153,6 @@ retention；本阶段不把 S3 变成账务 source of truth。
   `post_legacy_cold` export。
 - promote checksum 或随机 restore 不一致时 archive health 必须失败，但不改变 30 天 retention 资格。
 - usage 切换脚本拒绝未验证约束、错误上界、活跃锁和行数漂移。
-- telemetry 未配置时零行为变化；队列满或 S3 失败不影响 PostgreSQL 成功。
-- telemetry 默认值在 Go、Compose、env 示例和设计表中完全一致；启用后没有新鲜零损失心跳则
-  protection gate 不得为 green。
+- telemetry 验收项已退役（2026-11-08 用户决定保持关闭并删除代码）；代码、env 与门禁中不得重新出现
+  `telemetry_archive` / `TELEMETRY_ARCHIVE_*`，由 sentinel `must_not_contain` 守护。
 - RDS 相关文件、资源和 branch 无改动。

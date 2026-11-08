@@ -41,7 +41,6 @@ class DomesticBluegreenTest(unittest.TestCase):
         values = self._pool_env()
         values.update({
             'QA_CAPTURE_ENABLED': 'true',
-            'TELEMETRY_ARCHIVE_ENABLED': 'false',
             'SECURITY_PROXY_PROBE_PRESET': 'domestic',
         })
         values.update(overrides)
@@ -187,7 +186,6 @@ class DomesticBluegreenTest(unittest.TestCase):
         app = actual['services']['tokenkey-blue']
         self.assertEqual(app['environment']['JWT_SECRET'], 'literal$${value}')
         self.assertEqual(app['environment']['QA_CAPTURE_ENABLED'], 'true')
-        self.assertEqual(app['environment']['TELEMETRY_ARCHIVE_ENABLED'], 'false')
         self.assertEqual(app['environment']['GOMEMLIMIT'], '1GiB')
         self.assertEqual(app['volumes'], service['volumes'])
         self.assertEqual(app['image'], 'sha256:new')
@@ -290,7 +288,6 @@ class DomesticBluegreenTest(unittest.TestCase):
 
     def test_candidate_enables_capture_without_s3_upload(self):
         current = fixture()
-        current['Config']['Env'].append('TELEMETRY_ARCHIVE_ENABLED=true')
         service = {
             'volumes': [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}],
             'environment': self._compose_env(),
@@ -298,17 +295,12 @@ class DomesticBluegreenTest(unittest.TestCase):
         app = bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-blue')[
             'services']['tokenkey-blue']
         self.assertEqual(app['environment']['QA_CAPTURE_ENABLED'], 'true')
-        self.assertEqual(app['environment']['TELEMETRY_ARCHIVE_ENABLED'], 'false')
 
     def test_candidate_rejects_capture_off_archive_upload_and_s3(self):
         volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
         with self.assertRaisesRegex(ValueError, 'QA capture must stay enabled'):
             bg.candidate_compose(
                 {'volumes': volumes, 'environment': self._compose_env(QA_CAPTURE_ENABLED='false')},
-                fixture(), 'sha256:new', 'tokenkey-blue')
-        with self.assertRaisesRegex(ValueError, 'telemetry archive must stay disabled'):
-            bg.candidate_compose(
-                {'volumes': volumes, 'environment': self._compose_env(TELEMETRY_ARCHIVE_ENABLED='true')},
                 fixture(), 'sha256:new', 'tokenkey-blue')
         for extra, message in (
             ('QA_ARCHIVE_ENABLED=true', 'QA archive upload must stay disabled'),

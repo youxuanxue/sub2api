@@ -3,6 +3,7 @@ title: 第一阶段生产启用门禁修复
 status: approved
 approved_by: "xuejiao (conversation approval, 2026-08-04)"
 approved_at: 2026-08-04
+revised_at: 2026-11-08
 authors: [agent]
 created: 2026-08-04
 risk: high
@@ -46,7 +47,9 @@ probe-data-layer-safety.sh 默认使用 APP_CONTAINER=auto：
 5. 零个或多个候选处于 running 时返回 unknown，不按固定顺序猜测。
 6. 显式 APP_CONTAINER 也必须验证为 running；否则返回 unknown。
 
-探针只读取最终选中容器的 TELEMETRY_ARCHIVE_ENABLED。解析失败不得影响应用容器，也不得猜测 telemetry 状态。
+~~探针只读取最终选中容器的 TELEMETRY_ARCHIVE_ENABLED。~~ 已退役：2026-11-08 用户决定保持关闭并删除代码。
+probe-data-layer-safety.sh 不再读取应用容器 env，也不再输出 TELEMETRYSTATS；上面的活跃容器
+解析规则仍由 `ops/lib/resolve-app-container.sh` 拥有，供其他探针使用。
 
 ### 快照目标
 
