@@ -30,37 +30,6 @@ class BackupIdentityTest(unittest.TestCase):
                          [(bucket + '/' + identity.SOURCE_PREFIX + '/*',
                            ['s3:GetObject', 's3:GetObjectVersion'])])
 
-    def test_only_expected_managed_instance_is_accepted(self):
-        expected = {'Account': identity.ACCOUNT, 'UserId': identity.USER_ID,
-                    'Arn': 'arn:aws:sts::' + identity.ACCOUNT + ':assumed-role/'
-                           + identity.ROLE + '/' + identity.INSTANCE}
-        identity.validate_identity(expected)
-        for key in expected:
-            with self.subTest(key=key), self.assertRaises(ValueError):
-                identity.validate_identity({**expected, key: 'another-host'})
-
-    def test_private_file_and_temporary_credentials_are_required(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'credentials'
-            path.write_text('[default]\naws_access_key_id=synthetic-id\n'
-                            'aws_secret_access_key=synthetic-secret\naws_session_token=synthetic-token\n')
-            path.chmod(0o600)
-            values = identity.read_credentials(path, os.getuid())
-            self.assertEqual(values['aws_session_token'], 'synthetic-token')
-            path.chmod(0o644)
-            with self.assertRaises(ValueError):
-                identity.read_credentials(path, os.getuid())
-            path.chmod(0o600)
-            with self.assertRaises(ValueError):
-                identity.read_credentials(path, os.getuid() + 1)
-            link = path.with_name('link')
-            link.symlink_to(path)
-            with self.assertRaises(OSError):
-                identity.read_credentials(link, os.getuid())
-            path.write_text('[default]\naws_access_key_id=id\naws_secret_access_key=secret\n')
-            with self.assertRaises(KeyError):
-                identity.read_credentials(path, os.getuid())
-
     def test_cos_credentials_require_root_only_exact_fields(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'cos-backup.env'
@@ -81,24 +50,35 @@ class BackupIdentityTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 identity.read_cos_credentials(path, os.getuid())
 
-    def test_repository_separation_and_atomic_rotation(self):
-        values = {'aws_access_key_id': 'synthetic-id',
-                  'aws_secret_access_key': 'synthetic-secret', 'aws_session_token': 'synthetic-token'}
-        old = identity.render_config(values)
-        new = identity.render_config(values, candidate=True)
-        self.assertIn('repo1-path=/prod/postgres\n', old)
-        self.assertNotIn('repo1-path=/prod/postgres\n', new)
-        self.assertIn('repo1-path=/' + identity.CANDIDATE_PREFIX + '/postgres\n', new)
-        self.assertIn('repo1-s3-key-type=shared\n', old)
+    def test_rendered_config_is_cos_only_with_no_aws(self):
+        # 2026-11-08: AWS repo1 retired. The rendered config must carry no repo1
+        # option, no AWS endpoint and no STS token, and COS stays at repo2.
         cos = {'key': 'cos-id', 'secret': 'cos-secret'}
-        dual = identity.render_config(values, cos_credentials=cos)
-        self.assertIn('repo2-s3-bucket=' + identity.COS_BUCKET + '\n', dual)
-        self.assertIn('repo2-s3-uri-style=host\n', dual)
-        self.assertIn('repo2-s3-key=cos-id\n', dual)
-        self.assertIn('repo2-s3-key-secret=cos-secret\n', dual)
+        config = identity.render_config(cos)
+        self.assertNotIn('repo1-', config)
+        self.assertNotIn('amazonaws.com', config)
+        self.assertNotIn('s3-token', config)
+        self.assertNotIn(identity.BUCKET, config)
+        self.assertNotIn(identity.CANDIDATE_PREFIX, config)
+        self.assertIn('repo2-type=s3\n', config)
+        self.assertIn('repo2-path=' + identity.COS_PATH + '\n', config)
+        self.assertIn('repo2-s3-bucket=' + identity.COS_BUCKET + '\n', config)
+        self.assertIn('repo2-s3-endpoint=' + identity.COS_ENDPOINT + '\n', config)
+        self.assertIn('repo2-s3-uri-style=host\n', config)
+        self.assertIn('repo2-s3-key=cos-id\n', config)
+        self.assertIn('repo2-s3-key-secret=cos-secret\n', config)
+
+    def test_module_no_longer_reads_aws_session_or_calls_sts(self):
+        body = Path(identity.__file__).read_text()
+        for needle in ('/root/.aws', 'GetCallerIdentity', 'aws_session_token', 'repo1-s3-token'):
+            self.assertNotIn(needle, body)
+
+    def test_atomic_rotation_keeps_old_file_on_failure(self):
+        old = identity.render_config({'key': 'a', 'secret': 'b'})
+        new = identity.render_config({'key': 'c', 'secret': 'd'})
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'pgbackrest.conf'
-            path.write_text('old-session')
+            path.write_text('previous')
             with patch.object(identity.os, 'fchown'):
                 identity.atomic_private(path, old)
                 self.assertEqual(path.read_text(), old)
@@ -109,13 +89,48 @@ class BackupIdentityTest(unittest.TestCase):
                 self.assertEqual(path.read_text(), old)
                 self.assertEqual(list(Path(directory).glob('.identity-*')), [])
 
-    def test_authentication_failure_keeps_current_configuration(self):
+    def _refresh_arena(self, stack, directory):
+        source = Path(directory) / 'recovery' / 'config' / 'pgbackrest.conf'
+        candidate = Path(directory) / 'candidate' / 'config' / 'pgbackrest.conf'
+        stack.enter_context(patch.object(identity, 'SOURCE_CONFIG', source))
+        stack.enter_context(patch.object(identity, 'CANDIDATE_CONFIG', candidate))
+        stack.enter_context(patch.object(identity.os, 'geteuid', return_value=0))
+        stack.enter_context(patch.object(identity.socket, 'gethostname', return_value=identity.HOST))
+        stack.enter_context(patch.object(identity.subprocess, 'check_output', return_value='tmpfs\n'))
+        stack.enter_context(patch.object(identity.os, 'fchown'))
+        # macOS temp dirs live under the /var -> /private/var symlink; the
+        # symlink guard itself is exercised by atomic_private's own check.
+        stack.enter_context(patch.object(identity.Path, 'is_symlink', return_value=False))
+        return source, candidate
+
+    def test_refresh_writes_cos_only_config_to_both_runtime_paths(self):
+        with tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
+            source, candidate = self._refresh_arena(stack, directory)
+            stack.enter_context(patch.object(
+                identity, 'read_cos_credentials', return_value={'key': 'cos-id', 'secret': 'cos-secret'}))
+            result = identity.refresh()
+            for path in (source, candidate):
+                body = path.read_text()
+                self.assertNotIn('repo1-', body)
+                self.assertIn('repo2-s3-key=cos-id\n', body)
+        self.assertEqual(result['aws_repo1'], 'retired')
+        self.assertNotIn('cos-secret', json.dumps(result))
+
+    def test_missing_cos_credentials_fail_without_aws_fallback(self):
+        with tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
+            source, candidate = self._refresh_arena(stack, directory)
+            candidate.parent.mkdir(parents=True)
+            candidate.write_text('previous')
+            stack.enter_context(patch.object(
+                identity, 'read_cos_credentials', side_effect=FileNotFoundError('absent')))
+            with self.assertRaises(FileNotFoundError):
+                identity.refresh()
+            self.assertEqual(candidate.read_text(), 'previous')
+            self.assertFalse(source.exists())
+
+    def test_wrong_host_keeps_current_configuration(self):
         with patch.object(identity.os, 'geteuid', return_value=0), \
-             patch.object(identity.socket, 'gethostname', return_value=identity.HOST), \
-             patch.object(identity.Path, 'is_symlink', return_value=False), \
-             patch.object(identity.subprocess, 'check_output', return_value='tmpfs\n'), \
-             patch.object(identity, 'read_credentials', return_value={}), \
-             patch.object(identity, 'caller_identity', return_value={'UserId': 'wrong'}), \
+             patch.object(identity.socket, 'gethostname', return_value='another-host'), \
              patch.object(identity, 'atomic_private') as write:
             with self.assertRaises(ValueError):
                 identity.refresh()
@@ -167,8 +182,7 @@ class BackupIdentityTest(unittest.TestCase):
 
     def test_missing_matrix_refuses_every_action(self):
         with patch.object(identity, '_TARGET', None):
-            for action in (identity.policy, identity.refresh,
-                           lambda: identity.validate_identity({})):
+            for action in (identity.policy, identity.refresh):
                 with self.subTest(action=action), self.assertRaises(ValueError):
                     action()
 

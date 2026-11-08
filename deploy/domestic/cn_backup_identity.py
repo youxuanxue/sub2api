@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""Refresh cn-prod pgBackRest identity without exposing credentials.
+"""Render cn-prod's COS-only pgBackRest runtime config without exposing credentials.
 
-The AWS Hybrid identity remains repo1.  A root-only COS credential file is an
-explicit opt-in for repo2; credentials are written only to the tmpfs runtime
-configuration and never to receipts or stdout.
+2026-11-08 user decision: stop writing AWS repo1 (Tokyo); Beijing COS, kept at
+index repo2, is the only repository
+(docs/approved/design-tencent-cos-backup-node1-qa.md). This no longer reads the
+SSM Agent's AWS session, calls STS, or renders any repo1/AWS option. The
+root-only COS credential is required: without it the refresh fails and the
+current config stays in place, never falling back to AWS.
+
+The repo2 staging preflight (stanza-create through a sibling config before
+going live) was removed with repo1: it protected an AWS-only live
+archive_command from a stanza-less COS repository. COS has been live with a
+valid stanza since 2026-11-02, so removing repo1 only shrinks the archive-push
+fan-out and needs no staging (verified with pgBackRest 2.58, see the design).
 """
 from __future__ import annotations
 
-import configparser
-import datetime as dt
-import hashlib
-import hmac
 import json
 import os
 from pathlib import Path
@@ -18,18 +23,12 @@ import socket
 import stat
 import subprocess
 import tempfile
-import urllib.request
-import xml.etree.ElementTree as ET
 
-EXPECTED_ACCOUNT = "682751977094"
-ROLE_ID = "AROAZ55ZQM2DC6BZQWQ4B"
 TARGET_NAME = "prod-target.json"
 TARGET_CANDIDATES = (
     Path("/opt/tokenkey") / TARGET_NAME,
     Path(__file__).resolve().parent / TARGET_NAME,
 )
-AWS_BUCKET = "tokenkey-cn-prod-physical-backup-682751977094-ap-northeast-1"
-AWS_REGION = "ap-northeast-1"
 CONFIG = Path("/run/tokenkey-cn-prod-backup/config/pgbackrest.conf")
 COS_CREDENTIALS = Path("/etc/tokenkey/cos-backup.env")
 COS_BUCKET = "tokenkey-cnprod-backup-bj-1320330536"
@@ -53,24 +52,6 @@ def load_target(candidates: tuple[Path, ...] = TARGET_CANDIDATES) -> dict[str, s
             raise ValueError("invalid cn-prod target manifest")
         return target
     raise ValueError("cn-prod target manifest not found")
-
-
-def read_aws_credentials(path: Path = Path("/root/.aws/credentials")) -> dict[str, str]:
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    with os.fdopen(fd) as stream:
-        info = os.fstat(stream.fileno())
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
-                or stat.S_IMODE(info.st_mode) not in (0o400, 0o600)
-                or not 0 < info.st_size <= 16384):
-            raise ValueError("unsafe AWS credential file")
-        parser = configparser.ConfigParser(interpolation=None)
-        parser.read_string(stream.read())
-    values = parser["default"]
-    result = {key: values[key] for key in
-              ("aws_access_key_id", "aws_secret_access_key", "aws_session_token")}
-    if any(not value or any(ch.isspace() for ch in value) for value in result.values()):
-        raise ValueError("invalid AWS credential fields")
-    return result
 
 
 def read_cos_credentials(path: Path = COS_CREDENTIALS, uid: int = 0) -> dict[str, str]:
@@ -98,86 +79,28 @@ def read_cos_credentials(path: Path = COS_CREDENTIALS, uid: int = 0) -> dict[str
     return {"key": values["tencent_SecretId"], "secret": values["tencent_SecretKey"]}
 
 
-def caller_identity(credentials: dict[str, str], ssm_region: str) -> dict[str, str]:
-    service = "sts"
-    host = f"sts.{ssm_region}.amazonaws.com"
-    body = b"Action=GetCallerIdentity&Version=2011-06-15"
-    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    day = stamp[:8]
-    headers = {
-        "content-type": "application/x-www-form-urlencoded; charset=utf-8",
-        "host": host,
-        "x-amz-date": stamp,
-        "x-amz-security-token": credentials["aws_session_token"],
-    }
-    signed = ";".join(sorted(headers))
-    canonical = ("POST\n/\n\n"
-                 + "".join(key + ":" + headers[key] + "\n" for key in sorted(headers))
-                 + "\n" + signed + "\n" + hashlib.sha256(body).hexdigest())
-    scope = "/".join((day, ssm_region, service, "aws4_request"))
-    message = ("AWS4-HMAC-SHA256\n" + stamp + "\n" + scope + "\n"
-               + hashlib.sha256(canonical.encode()).hexdigest())
-    key = ("AWS4" + credentials["aws_secret_access_key"]).encode()
-    for part in (day, ssm_region, service, "aws4_request"):
-        key = hmac.new(key, part.encode(), hashlib.sha256).digest()
-    headers["Authorization"] = (
-        "AWS4-HMAC-SHA256 Credential=" + credentials["aws_access_key_id"] + "/" + scope
-        + ", SignedHeaders=" + signed + ", Signature="
-        + hmac.new(key, message.encode(), hashlib.sha256).hexdigest())
-    request = urllib.request.Request("https://" + host + "/", data=body, headers=headers)
-    with urllib.request.urlopen(request, timeout=20) as response:
-        root = ET.fromstring(response.read())
-    return {node.tag.split("}")[-1]: node.text for node in root.iter()
-            if node.tag.split("}")[-1] in ("Arn", "UserId", "Account")}
-
-
-def validate_identity(identity: dict[str, str], target: dict[str, str]) -> None:
-    # UserId binds both the role id and managed-instance session.  Do not bind
-    # the human-readable role name, which may change without changing scope.
-    expected_user = ROLE_ID + ":" + target["ssm_instance_id"]
-    if identity.get("Account") != EXPECTED_ACCOUNT or identity.get("UserId") != expected_user:
-        raise ValueError("unexpected SSM runtime identity")
-
-
-def render_config(aws: dict[str, str], cos: dict[str, str] | None = None) -> str:
+def render_config(cos: dict[str, str]) -> str:
+    """COS-only config at index repo2; nothing for repo1 or any AWS endpoint."""
     lines = [
         "[global]",
-        "repo1-type=s3", "repo1-path=/cn-prod/postgres",
-        f"repo1-s3-bucket={AWS_BUCKET}", f"repo1-s3-region={AWS_REGION}",
-        f"repo1-s3-endpoint=s3.{AWS_REGION}.amazonaws.com",
-        "repo1-s3-key-type=shared", f"repo1-s3-key={aws['aws_access_key_id']}",
-        f"repo1-s3-key-secret={aws['aws_secret_access_key']}",
-        f"repo1-s3-token={aws['aws_session_token']}",
-        "repo1-retention-full-type=time", "repo1-retention-full=7",
-        "repo1-bundle=y", "repo1-block=y", "compress-type=zst", "process-max=2",
+        "repo2-type=s3", f"repo2-path={COS_PATH}",
+        f"repo2-s3-bucket={COS_BUCKET}", f"repo2-s3-region={COS_REGION}",
+        f"repo2-s3-endpoint={COS_ENDPOINT}", "repo2-s3-uri-style=host",
+        "repo2-s3-key-type=shared", f"repo2-s3-key={cos['key']}",
+        f"repo2-s3-key-secret={cos['secret']}",
+        "repo2-retention-full-type=time", "repo2-retention-full=7",
+        "repo2-bundle=y", "repo2-block=y",
+        "compress-type=zst", "process-max=2",
         "start-fast=y", "archive-async=n", "archive-timeout=120",
         "log-level-console=info", "log-level-file=off",
+        "", "[tokenkey]", "pg1-path=/var/lib/postgresql/data",
+        "pg1-socket-path=/var/run/postgresql", "pg1-user=tokenkey", "",
     ]
-    if cos is not None:
-        lines.extend([
-            "repo2-type=s3", f"repo2-path={COS_PATH}",
-            f"repo2-s3-bucket={COS_BUCKET}", f"repo2-s3-region={COS_REGION}",
-            f"repo2-s3-endpoint={COS_ENDPOINT}", "repo2-s3-uri-style=host",
-            "repo2-s3-key-type=shared", f"repo2-s3-key={cos['key']}",
-            f"repo2-s3-key-secret={cos['secret']}",
-            "repo2-retention-full-type=time", "repo2-retention-full=7",
-            "repo2-bundle=y", "repo2-block=y",
-        ])
-    lines.extend(["", "[tokenkey]", "pg1-path=/var/lib/postgresql/data",
-                  "pg1-socket-path=/var/run/postgresql", "pg1-user=tokenkey", ""])
     return "\n".join(lines)
 
 
 def atomic_private(contents: str, destination: Path | None = None) -> None:
-    """Write a 0600 postgres-owned config atomically inside the mounted dir.
-
-    ``destination`` is parameterised so the repo2 enablement preflight can stage
-    a sibling file in the same bind-mounted directory (the container sees the
-    whole directory, so a sibling is reachable via `pgbackrest --config`) without
-    touching the live pgbackrest.conf that archive_command depends on. It
-    resolves CONFIG at call time rather than as a default argument, so the live
-    path stays overridable.
-    """
+    """Write a 0600 postgres-owned config atomically inside the mounted dir."""
     destination = CONFIG if destination is None else destination
     if destination.is_symlink() or destination.parent.is_symlink():
         raise ValueError("symlink configuration refused")
@@ -200,159 +123,14 @@ def atomic_private(contents: str, destination: Path | None = None) -> None:
             os.unlink(temporary)
 
 
-# Staged config lives beside the live one: the container bind-mounts the whole
-# directory, so `pgbackrest --config` can reach a sibling while archive_command
-# keeps using pgbackrest.conf.
-STAGING = CONFIG.with_name(".pgbackrest-staging.conf")
-STAGING_IN_CONTAINER = "/etc/pgbackrest/" + STAGING.name
-POSTGRES_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
-
-
-def _container() -> str:
-    """Resolve the single running database container, failing closed.
-
-    Mirrors deploy/domestic/cn_pgbackrest.py:_container(): a literal target dies
-    with "No such container" on the Tencent USW layout, which renamed exactly
-    this container, while still looking like a healthy probe.
-    """
-    running = [name for name in POSTGRES_CANDIDATES if subprocess.run(
-        ["docker", "inspect", "-f", "{{.State.Running}}", name],
-        capture_output=True, text=True, check=False).stdout.strip() == "true"]
-    if len(running) != 1:
-        raise ValueError(f"postgres container unresolved (candidates: {', '.join(POSTGRES_CANDIDATES)})")
-    return running[0]
-
-
-def repo2_live() -> bool:
-    """True when the live config already carries repo2 (steady state)."""
-    try:
-        return any(line.startswith("repo2-type=")
-                   for line in CONFIG.read_text(encoding="utf-8").splitlines())
-    except OSError:
-        return False
-
-
-class RepositoryBusy(RuntimeError):
-    """stanza-create lost the lock race with a running backup; retry later."""
-
-
-def _staged(container: str, *args: str, timeout: int) -> str:
-    result = subprocess.run(
-        ["docker", "exec", "--user", "postgres", container, "pgbackrest",
-         f"--config={STAGING_IN_CONTAINER}", "--stanza=tokenkey", *args],
-        capture_output=True, text=True, check=False, timeout=timeout + 15)
-    if result.returncode:
-        output = (result.stderr or result.stdout or "")[-2000:]
-        # [050] is a lock held by the 2-hourly backup, not a repo2 problem.
-        # Treating it as failure would turn a timing collision into a stuck
-        # enablement; the next 15-minute refresh retries cleanly.
-        if "[050]" in output:
-            raise RepositoryBusy(" ".join(args))
-        raise ValueError(f"staged pgbackrest {' '.join(args)} failed: {output}")
-    return result.stdout
-
-
-def prepare_repo2(contents: str) -> None:
-    """Create and verify repo2 BEFORE it reaches the live configuration.
-
-    Why this exists: archive_command is `pgbackrest --stanza=tokenkey
-    archive-push %p` with no --repo, so pgBackRest fans WAL out to EVERY
-    configured repository. The moment repo2 lands in the live config, archiving
-    depends on it -- and a brand-new repository has no stanza, so every push
-    fails until archive-timeout expires. On 2026-11-02 that stalled cn-prod WAL
-    archiving for ~3 minutes and failed the 14:30 backup ([082] WAL segment not
-    archived), with repo1 itself perfectly healthy.
-
-    So the repo2 config is staged beside the live one and exercised through
-    --config first, following the approved rollout order
-    (docs/ops/stage0/pgbackrest-cos-parallel-repository.md step 2). Any failure
-    leaves the live config AWS-only, so the archive path never depends on an
-    unverified repository.
-
-    What is deliberately NOT run here is a full `check`. That command forces a
-    WAL switch and waits for the segment to land in EVERY configured repository,
-    but the live archive_command is still AWS-only at this point, so the segment
-    can never reach repo2 -- it fails with [082] after archive-timeout no matter
-    how healthy repo2 is. Verified on cn-prod 2026-11-02: stanza-create and both
-    `info` reads succeed against the staged config while `check` times out, and
-    `--repo` is rejected for check ("option 'repo' not valid for command
-    'check'"), so there is no way to scope it to the primary chain.
-
-    The full check therefore belongs AFTER repo2 goes live, where the scheduled
-    archive-check timer already runs it every 5 minutes and classifies the
-    first-backup gap as bootstrapping rather than failure. What is provable
-    beforehand is exactly what this runs: the stanza exists on repo2, repo2 is
-    readable, and the primary chain is still intact.
-    """
-    container = _container()
-    atomic_private(contents, STAGING)
-    try:
-        # Order is load-bearing: create the stanza on repo2 first (repo1's is
-        # skipped as already-valid), then prove both repositories read back.
-        _staged(container, "stanza-create", timeout=300)
-        secondary = _staged_stanza(container, 2)
-        # code 2 "no valid backups" is the expected state of a repository whose
-        # first backup has not run yet; the runner classifies that as
-        # bootstrapping. Anything else means repo2 is not usable.
-        if (secondary.get("status") or {}).get("code") not in (0, 2):
-            raise ValueError("staged repo2 is not readable after stanza-create")
-        if (secondary.get("status") or {}).get("code") == 2 and (secondary.get("backup") or []):
-            raise ValueError("staged repo2 reports invalid despite holding backups")
-        primary = _staged_stanza(container, 1)
-        if (primary.get("status") or {}).get("code") != 0:
-            raise ValueError("staged repo1 info reported a degraded primary chain")
-    finally:
-        if STAGING.exists():
-            STAGING.unlink()
-
-
-def _staged_stanza(container: str, repo: int) -> dict:
-    """Read one repository's stanza through the staged config."""
-    values = json.loads(_staged(container, f"--repo={repo}", "--output=json", "info", timeout=120))
-    if len(values) != 1 or values[0].get("name") != "tokenkey":
-        raise ValueError(f"staged repo{repo} info did not describe the tokenkey stanza")
-    return values[0]
-
-
 def refresh() -> dict[str, object]:
     target = load_target()
     if os.geteuid() != 0 or socket.gethostname() != target["instance_name"]:
         raise ValueError("wrong target host or user")
     if subprocess.check_output(["findmnt", "-n", "-o", "FSTYPE", "--target", "/run"], text=True).strip() != "tmpfs":
         raise ValueError("runtime directory is not tmpfs")
-    aws = read_aws_credentials()
-    validate_identity(caller_identity(aws, target["ssm_region"]), target)
-    cos = read_cos_credentials() if COS_CREDENTIALS.exists() else None
-    contents = render_config(aws, cos)
-    # Only the enablement transition needs the preflight. In steady state (repo2
-    # already live, or no COS credentials at all) this is a plain render, so the
-    # 15-minute timer costs nothing extra.
-    if cos is not None and not repo2_live():
-        try:
-            prepare_repo2(contents)
-        except RepositoryBusy as busy:
-            # Deliberately not an error: the live config stays AWS-only and the
-            # next refresh retries. Reporting it as failure would page someone
-            # for a lock collision that resolves itself.
-            return {"status": "deferred", "source_repository": "read-only",
-                    "cos_repo2": "pending", "reason": f"repository busy: {busy}",
-                    "credentials_withheld": True, "cutover_authorized": False}
-        # Re-read repo1's identity instead of installing the config rendered
-        # before the preflight. The SSM agent rotates /root/.aws/credentials on
-        # its own schedule (it logs "next credential rotation will be in ~25
-        # minutes"), and the preflight can burn up to ~11 minutes, so the
-        # pre-rendered session token may already be superseded. Writing it would
-        # leave repo1 on a stale token until the next refresh -- defeating the
-        # very ordering this unit exists to guarantee.
-        aws = read_aws_credentials()
-        validate_identity(caller_identity(aws, target["ssm_region"]), target)
-        atomic_private(render_config(aws, cos))
-        return {"status": "refreshed", "source_repository": "read-only",
-                "cos_repo2": "enabled", "repo2_prepared": True,
-                "credentials_withheld": True, "cutover_authorized": False}
-    atomic_private(contents)
-    return {"status": "refreshed", "source_repository": "read-only",
-            "cos_repo2": "enabled" if cos is not None else "disabled",
+    atomic_private(render_config(read_cos_credentials()))
+    return {"status": "refreshed", "repositories": ["cos-repo2"], "aws_repo1": "retired",
             "credentials_withheld": True, "cutover_authorized": False}
 
 

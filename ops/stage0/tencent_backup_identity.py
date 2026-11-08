@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Prepare one Tencent host's backup identity; never changes IAM or a database.
+"""Render prod's COS-only pgBackRest runtime config; never changes IAM or a database.
 
-`policy` emits the narrowly scoped policy for review/simulation. `refresh` on the
-explicit target copies SSM Agent's temporary identity into tmpfs pgBackRest
-configuration after verifying STS identity. No credentials enter output.
+2026-11-08 user decision: stop writing AWS repo1, COS (repo2) is the only
+repository (docs/approved/design-tencent-cos-backup-node1-qa.md). `refresh`
+therefore no longer reads the SSM Agent's AWS session, calls STS or renders any
+repo1/AWS option: it copies the root-only COS credential into the tmpfs
+candidate config, which tokenkey-pgbackrest-publish-conf mounts into the
+database container. No credentials enter output.
 
-Host identity (SSM instance, hostname, Hybrid role name, SSM region) comes from
-the Tencent prod matrix, never from constants here. Lookup order:
+`policy` still prints the retired AWS policy so the IAM role / bucket cleanup
+(a separate infra step) has an exact record of what the role was allowed to do.
+
+Host identity (hostname, SSM instance) comes from the Tencent prod matrix:
   1. $TK_TENCENT_PROD_MATRIX (explicit path; host installs set this)
   2. candidate-usw-20261022.json next to this file (host installs may ship it)
   3. deploy/tencent/candidate-usw-20261022.json in a repo checkout
@@ -15,10 +20,7 @@ No readable, complete matrix -> every action fails closed.
 from __future__ import annotations
 
 import argparse
-import configparser
 import datetime as dt
-import hashlib
-import hmac
 import json
 import os
 from pathlib import Path
@@ -26,10 +28,8 @@ import socket
 import stat
 import subprocess
 import tempfile
-import urllib.request
-import xml.etree.ElementTree as ET
 
-from postgres_backup import configuration
+from postgres_backup import cos_configuration
 
 MATRIX_NAME = 'candidate-usw-20261022.json'
 
@@ -73,10 +73,15 @@ INSTANCE = _TARGET and _TARGET['expected_ssm_instance_id']
 HOST = _TARGET and _TARGET['hostname']
 SSM_REGION = _TARGET and _TARGET['ssm_region']
 USER_ID = _TARGET and ROLE_ID + ':' + INSTANCE
+# Retired AWS repo1 (no longer written; objects kept for separate cleanup).
 BUCKET = 'tokenkey-prod-physical-backup-682751977094-us-east-1'
 SOURCE_PREFIX = 'prod/postgres'
 CANDIDATE_PREFIX = 'candidates/tencent-usw-20261022'
-CREDENTIALS = Path('/root/.aws/credentials')
+# Both tmpfs configs get the same COS-only contents. CANDIDATE_CONFIG is what
+# tokenkey-pgbackrest-publish-conf copies into the live container mount;
+# SOURCE_CONFIG is what ops/stage0/archive_standby_rehearsal.py mounts when it
+# recreates the standby. Rewriting SOURCE_CONFIG also replaces the expired AWS
+# session token it used to hold.
 SOURCE_CONFIG = Path('/run/tokenkey-recovery/config/pgbackrest.conf')
 CANDIDATE_CONFIG = Path('/run/tokenkey-backup-candidate/config/pgbackrest.conf')
 COS_CREDENTIALS = Path('/etc/tokenkey/cos-backup.env')
@@ -114,24 +119,6 @@ def policy():
     ]}
 
 
-def read_credentials(path=CREDENTIALS, uid=0):
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    with os.fdopen(fd) as stream:
-        info = os.fstat(stream.fileno())
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != uid
-                or stat.S_IMODE(info.st_mode) not in (0o400, 0o600)
-                or not 0 < info.st_size <= 16384):
-            raise ValueError('unsafe credential file')
-        parser = configparser.ConfigParser(interpolation=None)
-        parser.read_string(stream.read())
-    values = parser['default']
-    result = {key: values[key] for key in
-              ('aws_access_key_id', 'aws_secret_access_key', 'aws_session_token')}
-    if any(not v or any(ch.isspace() for ch in v) for v in result.values()):
-        raise ValueError('invalid temporary credential fields')
-    return result
-
-
 def read_cos_credentials(path=COS_CREDENTIALS, uid=0):
     """Read the optional root-only COS credentials without exposing their values."""
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
@@ -157,66 +144,20 @@ def read_cos_credentials(path=COS_CREDENTIALS, uid=0):
     return {'key': values['tencent_SecretId'], 'secret': values['tencent_SecretKey']}
 
 
-def caller_identity(credentials, opener=urllib.request.urlopen):
-    region, service = SSM_REGION, 'sts'
-    host = 'sts.' + region + '.amazonaws.com'
-    body = b'Action=GetCallerIdentity&Version=2011-06-15'
-    stamp = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    day = stamp[:8]
-    headers = {'content-type': 'application/x-www-form-urlencoded; charset=utf-8',
-               'host': host, 'x-amz-date': stamp,
-               'x-amz-security-token': credentials['aws_session_token']}
-    signed = ';'.join(sorted(headers))
-    canonical = ('POST\n/\n\n' + ''.join(k + ':' + headers[k] + '\n' for k in sorted(headers))
-                 + '\n' + signed + '\n' + hashlib.sha256(body).hexdigest())
-    scope = day + '/' + region + '/' + service + '/aws4_request'
-    message = ('AWS4-HMAC-SHA256\n' + stamp + '\n' + scope + '\n'
-               + hashlib.sha256(canonical.encode()).hexdigest())
-    key = ('AWS4' + credentials['aws_secret_access_key']).encode()
-    for part in (day, region, service, 'aws4_request'):
-        key = hmac.new(key, part.encode(), hashlib.sha256).digest()
-    headers['Authorization'] = ('AWS4-HMAC-SHA256 Credential=' + credentials['aws_access_key_id']
-        + '/' + scope + ', SignedHeaders=' + signed + ', Signature='
-        + hmac.new(key, message.encode(), hashlib.sha256).hexdigest())
-    request = urllib.request.Request('https://' + host + '/', data=body, headers=headers)
-    with opener(request, timeout=15) as response:
-        root = ET.fromstring(response.read())
-    return {node.tag.split('}')[-1]: node.text for node in root.iter()
-            if node.tag.split('}')[-1] in ('Arn', 'UserId', 'Account')}
-
-
-def validate_identity(identity):
-    require_target()
-    if identity != {'Account': ACCOUNT, 'UserId': USER_ID,
-                    'Arn': 'arn:aws:sts::' + ACCOUNT + ':assumed-role/' + ROLE + '/' + INSTANCE}:
-        raise ValueError('unexpected SSM runtime identity')
-
-
-def render_config(credentials, candidate=False, cos_credentials=None):
-    secondary = None
-    if cos_credentials is not None:
-        secondary = {
-            'bucket': COS_BUCKET,
-            'region': COS_REGION,
-            'endpoint': COS_ENDPOINT,
-            'path': COS_PATH,
-            'uri_style': 'host',
-        }
-    result = configuration(BUCKET, 'us-east-1', secondary=secondary)
-    result = result.replace('repo1-s3-key-type=auto',
-        'repo1-s3-key-type=shared\nrepo1-s3-key=' + credentials['aws_access_key_id']
-        + '\nrepo1-s3-key-secret=' + credentials['aws_secret_access_key']
-        + '\nrepo1-s3-token=' + credentials['aws_session_token'])
-    if cos_credentials is not None:
-        result = result.replace(
-            'repo2-s3-uri-style=host',
-            'repo2-s3-uri-style=host\nrepo2-s3-key-type=shared\n'
-            'repo2-s3-key=' + cos_credentials['key'] + '\n'
-            'repo2-s3-key-secret=' + cos_credentials['secret'])
-    if candidate:
-        result = result.replace('repo1-path=/' + SOURCE_PREFIX,
-                                'repo1-path=/' + CANDIDATE_PREFIX + '/postgres')
-    return result
+def render_config(cos_credentials):
+    """COS-only config: repo2 options plus credentials, nothing for repo1/AWS."""
+    result = cos_configuration({
+        'bucket': COS_BUCKET,
+        'region': COS_REGION,
+        'endpoint': COS_ENDPOINT,
+        'path': COS_PATH,
+        'uri_style': 'host',
+    })
+    return result.replace(
+        'repo2-s3-uri-style=host',
+        'repo2-s3-uri-style=host\nrepo2-s3-key-type=shared\n'
+        'repo2-s3-key=' + cos_credentials['key'] + '\n'
+        'repo2-s3-key-secret=' + cos_credentials['secret'], 1)
 
 
 def atomic_private(path, contents, uid=70):
@@ -244,24 +185,19 @@ def refresh():
         # /run is tmpfs; do not fall back to disk or follow a host symlink.
         if any(p.is_symlink() for p in (parent, *parent.parents)):
             raise ValueError('unsafe runtime path')
-        fs = subprocess.check_output(['findmnt', '-n', '-o', 'FSTYPE', '--target', '/run'], text=True).strip()
-        if fs != 'tmpfs':
-            raise ValueError('runtime directory is not tmpfs')
-    credentials = read_credentials()
-    validate_identity(caller_identity(credentials))
-    cos_credentials = None
-    cos_enabled = False
-    if COS_CREDENTIALS.exists():
-        cos_credentials = read_cos_credentials()
-        cos_enabled = True
-    for path, candidate in ((SOURCE_CONFIG, False), (CANDIDATE_CONFIG, True)):
+    fs = subprocess.check_output(['findmnt', '-n', '-o', 'FSTYPE', '--target', '/run'], text=True).strip()
+    if fs != 'tmpfs':
+        raise ValueError('runtime directory is not tmpfs')
+    # COS is the only repository now: a missing credential file is a hard
+    # failure that keeps the current config, never a fallback to AWS.
+    contents = render_config(read_cos_credentials())
+    for path in (SOURCE_CONFIG, CANDIDATE_CONFIG):
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
         os.chmod(path.parent.parent, 0o711)
         os.chmod(path.parent, 0o755)
-        atomic_private(path, render_config(credentials, candidate, cos_credentials))
+        atomic_private(path, contents)
     return {'status': 'refreshed', 'at': dt.datetime.now(dt.timezone.utc).isoformat(),
-            'identity': USER_ID, 'source_repository': 'read-only',
-            'candidate_prefix': CANDIDATE_PREFIX, 'cos_repo2': 'enabled' if cos_enabled else 'disabled',
+            'repositories': ['cos-repo2'], 'aws_repo1': 'retired',
             'cutover_authorized': False}
 
 

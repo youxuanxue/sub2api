@@ -157,7 +157,8 @@ def physical_backup_fact(path: Path, now: float) -> dict:
         # A newly configured pgBackRest repository reports "no valid backups"
         # until its first full completes. The check runners only emit this
         # reason for a non-primary repository with an empty backup list, so
-        # repo1 losing its chain still reports as a fault.
+        # the primary chain (COS repo2, the only repository since 2026-11-08)
+        # losing its backups still reports as a fault.
         "repository_bootstrapping": "repository_bootstrapping",
     }
     candidates = [path]

@@ -69,15 +69,16 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
 活舰队矩阵：[`deploy/tencent/candidate-usw-20261022.json`](../tencent/candidate-usw-20261022.json)（`deployable=true`；`resolve_prod_ssm_target.py --target auto` → 本机）。
 
-### 活物理备份前缀（切流后）
+### 活物理备份仓库（2026-11-08 起 COS 唯一）
+
+2026-11-08 用户决定停写 AWS repo1，COS 为唯一 repository（[设计](../../docs/approved/design-tencent-cos-backup-node1-qa.md#2026-11-08-决定停写-aws-repo1cos-为唯一-repository)）。
 
 | 项 | 值 |
 |---|---|
-| 活仓库 | `s3://tokenkey-prod-physical-backup-682751977094-us-east-1/candidates/tencent-usw-20261022/postgres`（timeline 2） |
-| 历史只读 | 同桶 `prod/postgres`（Tokyo timeline 1；腾讯身份仅 Get） |
-| 身份续期 | `tokenkey-backup-identity.timer` → `/run/tokenkey-backup-candidate/` |
+| 活仓库 | pgBackRest `repo2`：COS `tokenkey-prod-backup-usw-1320330536`（`cos.na-siliconvalley.myqcloud.com`）`/prod/postgres` |
+| 配置渲染 | `tokenkey-backup-identity.timer` → `ops/stage0/tencent_backup_identity.py`，只读 root-only `/etc/tokenkey/cos-backup.env`，写 `/run/tokenkey-backup-candidate/` 与 `/run/tokenkey-recovery/`；不再读 AWS 会话、不调 STS |
 | 备份/检查 | `tokenkey-postgres-backup.timer`（偶数小时 :30 UTC）+ `tokenkey-postgres-archive-check.timer`（5min） |
-| 升格策略 | **不**把活链写回 `prod/postgres`（避免与冻结东京链混写）；候选前缀即现网活备份 SSOT，直至另行批准迁移路径 |
+| 已停写（保留待清理） | AWS `s3://tokenkey-prod-physical-backup-682751977094-us-east-1/candidates/tencent-usw-20261022/postgres`（timeline 2）与同桶 Tokyo 历史 `prod/postgres` |
 
 ### 日本出口代理（已关停 · 2026-10-23 删除）
 
