@@ -17,6 +17,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 - 数据机用普通 ext4，不用加密卷，两站一致。这是用户决策（2026-11-08）：这些数据暂时不需要加密卷。
 - 不换托管数据库，不加连接池中间件，不加只读副本，不自动故障转移，这次不加第二台网关。
 - 两站仍是两套独立的库，互不连接。
+- 数据库参数在数据机首次启动时一并改好（见「数据库参数」）。现在的应用机不改参数，也不为改参数重启。
 
 ## 审批点
 
@@ -60,7 +61,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 ### 完成定义
 
-每一站都满足：应用机上的网关被杀死或应用机重启之后，数据机上的 Postgres 仍接受连接，已提交的账还在，Redis 里的会话和在途扣费还在。新主库自己产出过一份成功的全量备份，归档在推进。
+每一站都满足：应用机上的网关被杀死或应用机重启之后，数据机上的 Postgres 仍接受连接，已提交的账还在，Redis 里的会话和在途扣费还在。应用机断电后重新起来的网关能正常启动，不会被旧连接留下的锁卡住。新主库自己产出过一份成功的全量备份，归档在推进。
 
 验证不拿现网重启。先在数据机上核对结构：Postgres 和 Redis 不挂载应用机的任何目录，不依赖应用机上的任何服务。再在蓝绿发布中观察：旧色被停止时，数据机上的连接数和归档都不中断。整机重启的实证要放到另行批准的维护窗口里做。
 
@@ -95,18 +96,104 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 - **数据机**：与应用机同地域、同账号、同私网。不跨云。数据目录 `/var/lib/tokenkey`，普通 ext4。磁盘按当时的库体积、WAL 和一份恢复余量定。
 - **容器**：`tokenkey-postgres`、`tokenkey-redis`。Postgres 大版本与当站现役一致，因为物理恢复要求同一大版本。
-- **内存**：Postgres 和 Redis 各设容器内存上限。
-- **Redis**：AOF everysec，设 `maxmemory` 并用 `noeviction`。prod 现网是 `allkeys-lru`，内存满时会淘汰在途扣费 key；数据机统一用 cn-prod 的 `noeviction`，宁可写失败也不丢账。设 `requirepass`，两站都在切流时生成新密码，只存数据机和应用机的 `.env`。prod 现网没有密码；cn-prod 的现有密码不再沿用。
+- **内存**：Postgres 和 Redis 各设容器内存上限，数值见「数据机配置」。
+- **参数**：Postgres 和 Redis 用仓库里同一份 compose 启动，参数全部写成命令行 `-c`。只有和内存相关的值按站不同，从数据机 `.env` 读。
+- **Redis**：AOF everysec，设 `maxmemory` 并用 `noeviction`。prod 现网是 `allkeys-lru`，内存满时会淘汰在途扣费 key；数据机统一用 cn-prod 的 `noeviction`，宁可写失败也不丢账。设 `requirepass`。cn-prod 沿用现有密码；prod 现网没有密码，切流时新生成一个，只存数据机和应用机的 `.env`。
 - **防火墙**：云防火墙不开公网入站；主机 iptables 只放行本站应用机私网地址访问 5432 和 6379。
 - **运维**：数据机注册自己的 SSM Hybrid。pgBackRest 的备份、归档检查、身份续期三个 timer 和主机磁盘、内存告警装到数据机，再从应用机卸下。
 - **网关**：`DATABASE_HOST`、`REDIS_HOST`、`REDIS_PASSWORD` 从 `.env` 读，切流时填数据机私网地址。
+
+## 数据库参数
+
+### 现状
+
+两站的 Postgres 基本还是安装默认值。仓库里已有调优文件 `deploy/aws/stage0/docker-compose.prod-pg.yml`（`shared_buffers` 1GB、`jit` off 等），但两站都没用上：prod 的 PG 容器启动命令只有 `postgres`，参数散落在数据目录的 `postgresql.conf` 和 `postgresql.auto.conf` 里；cn-prod 只用命令行 `-c` 设了归档相关的四项。
+
+2026-11-08 只读实测（prod 的统计从 11-08 15:04 重启后开始，约 6.4 小时；cn-prod 从 10-22 开始，约 17 天）：
+
+| 指标 | prod | cn-prod | 说明 |
+|---|---|---|---|
+| 缓存命中率 | 92.9% | 99.2% | prod 13:03 刚重启，缓存还是冷的 |
+| 临时文件 | 247 个 / 844 MB | 15,420 个 / 80 GB | `work_mem` 4MB 太小，排序和哈希落盘 |
+| 被迫触发的 checkpoint | 82 次定时、10 次被迫（11%） | 4,739 次定时、287 次被迫（6%） | `max_wal_size` 1GB 偏小 |
+| WAL 速率 | 约 180 MB/小时 | 约 100 MB/小时 | 全页写占比高，`wal_compression` 关着 |
+| `wal_buffers_full` | 125,855 | 9,502,555 | `shared_buffers` 128MB，`wal_buffers` 跟着只有 4MB |
+| 实际连接数 | 8 | 6 | 远低于 `max_connections` |
+| 服务器时区 | `Asia/Tokyo`（东京遗留） | `Asia/Shanghai` | 网关在连接串里自带 `TimeZone`，不受影响；只影响 psql、运维脚本和日志 |
+| PG 容器 | 内存上限 4G，用了 2.7G；`/dev/shm` 64MB | 无内存上限，用了 256MB；`/dev/shm` 64MB | 并行查询的共享内存放在 `/dev/shm` |
+
+### 建议值
+
+数据机首次启动（以备用库身份启动）时就用这些值，提升之后不再改。以 prod 16 GB、cn-prod 8 GB 为例，内存相关的值按内存比例给。
+
+| 参数 | 现值 | 建议 | 理由 |
+|---|---|---|---|
+| `shared_buffers` | 128MB | 内存 25%：prod 4GB，cn-prod 2GB | 现值是安装默认；`wal_buffers` 会随之自动升到 16MB |
+| `effective_cache_size` | 4GB | 内存 75%：prod 12GB，cn-prod 6GB | 让优化器知道有多少页缓存 |
+| `work_mem` | 4MB | 16MB | 两站都有大量临时文件。200 条连接各用一份时是 3.2GB；一条复杂查询可能用好几份，所以不再往上加 |
+| `maintenance_work_mem` | 64MB | prod 512MB，cn-prod 256MB | 加快 vacuum 和建索引 |
+| `max_connections` | 200 / 100 | 两站都 200 | cn-prod 一台网关在蓝绿重叠时就占 80，再加运维连接已经贴近 100。备用库的这一项不能小于主库，200 两站都满足 |
+| `jit` | on | off | 网关都是短查询，JIT 编译只增加延迟。仓库调优文件已经是 off |
+| `max_parallel_workers` / `max_parallel_workers_per_gather` | 8 / 2 | 2 / 1 | 沿用仓库调优文件的值，避免一条报表查询占满 CPU |
+| `random_page_cost` | 4 | 1.1 | 两站都是 SSD 云盘 |
+| `effective_io_concurrency` | 16 | 200 | 同上 |
+| `max_wal_size` / `min_wal_size` | 1GB / 80MB | 4GB / 1GB | 减少被迫 checkpoint |
+| `checkpoint_timeout` | 5min | 15min | 减少全页写。崩溃恢复时间会变长，按当前 WAL 速率仍在一两分钟内 |
+| `wal_compression` | off | `lz4` | 镜像已编译 lz4。WAL 和备份仓库的归档量都会下降 |
+| `tcp_keepalives_idle` / `interval` / `count` | 系统默认（约 2 小时） | 30s / 10s / 3 | **拆库后新出现的问题。** 应用机断电时，库端看不到连接断开，死连接会占着会话级 advisory lock（迁移锁、`scheduler_outbox_cleanup` 锁、QA 维护锁）。按系统默认要约 2 小时才释放，而网关启动时等迁移锁最多 10 分钟，到时就会启动失败。改后约 1 分钟释放 |
+| `client_connection_check_interval` | 0 | 10s | 客户端断开后，正在执行的长查询也能尽快停下 |
+| `idle_in_transaction_session_timeout` | 0 | 10min | 防止开着事务不提交的会话长期持锁、挡住 vacuum。会话级 advisory lock 不在事务里，不受影响 |
+| `shared_preload_libraries` | 空 | `pg_stat_statements` | 镜像自带。用来找出产生临时文件和全表扫描的查询，后续调优要靠它 |
+| `track_io_timing` | off | on | 开销很小，配合上一项 |
+| `log_lock_waits` / `log_temp_files` / `log_min_duration_statement` | off / -1 / -1 | on / 16MB / 1s | 锁等待、大临时文件和慢查询进日志 |
+| `timezone` / `log_timezone` | Tokyo / Shanghai | 两站都 `UTC` | 和网关、分区边界一致。改之前确认运维脚本里没有依赖服务器时区的日期计算 |
+| 容器 `shm_size` | 64MB | 1GB | 64MB 下并行哈希可能报共享内存不足 |
+| 容器内存上限 | 4G / 无 | prod 13G，cn-prod 6G | 见「数据机配置」 |
+
+不改的：`wal_level`、`archive_mode`、`archive_command`、`archive_timeout`、`synchronous_commit`、`full_page_writes`、autovacuum 各项、`statement_timeout`、`lock_timeout`。两站的死元组比例都很低，autovacuum 不需要调；全局 `statement_timeout` 会误伤迁移和清理任务。
+
+### 怎么落地
+
+1. 把仓库调优文件扩成数据机用的 Postgres 启动定义，上表每一项都写成 `-c`，内存相关的值走 `.env` 变量，沿用该文件已有的变量名。两站共用这一份。
+2. pgBackRest 恢复会把旧库的 `postgresql.conf` 和 `postgresql.auto.conf` 一起带过来。命令行 `-c` 的优先级高于这两个文件，所以新值直接生效。提升之后用 `ALTER SYSTEM RESET` 清掉 `postgresql.auto.conf` 里的旧值（prod 有 `max_connections`、归档、`restore_command`），只留一个参数来源。
+3. 提升之后执行 `CREATE EXTENSION pg_stat_statements`。
+4. 网关侧的连接池在 `.env` 里显式写出：prod `DATABASE_MAX_OPEN_CONNS=50`、`DATABASE_MAX_IDLE_CONNS=10`，cn-prod 保持 40 / 10。prod 现役 `tokenkey-blue` 是手工 `docker run` 起的，按代码默认 256 运行，切流时由模板创建新色就会改正。
+
+### 不在这次做
+
+- **cn-prod 的 `usage_logs` 没有分区**（1.1 GB，869 次全表扫描读了 1.07 亿行），prod 是按日分区的。分区切换有自己的工具 `ops/migration/usage_logs_daily_partition.py` 和维护窗口，与换机器无关。拆库完成后单独做，两站的表结构才算一致。
+- **prod 的 `usage_billing_dedup` 有 8.4 GB**，是最大的一张表（2026-04-20 起 1,817 万行，保留 400 天）。它决定 prod 的磁盘增长，但清理策略不是参数问题，这次不动。
+
+## 数据机配置
+
+### 建议
+
+| | prod | cn-prod |
+|---|---|---|
+| CPU | 4 vCPU | 2 vCPU |
+| 内存 | 16 GB | 8 GB |
+| 磁盘 | SSD 云盘，至少 200 GB | SSD 云盘，至少 100 GB |
+| 位置 | 腾讯美西 `na-siliconvalley`，与应用机同一私网 | 腾讯北京，与应用机同一私网 |
+| PG 容器内存上限 | 13 GB | 6 GB |
+| Redis | `maxmemory` 512MB，容器上限 1GB | 同左 |
+
+数据优先放在独立的云硬盘上，不放系统盘。这样重装系统不会带走数据，磁盘也能单独扩容和打快照。所选套餐不支持挂独立云硬盘时，才放系统盘。具体套餐和月价在申请预算时按当时报价给出。
+
+### 依据
+
+- **CPU**：实测 PG 容器 CPU 占用 prod 1.5%、cn-prod 1%，prod 整机负载 0.6（4 核）。CPU 不是瓶颈。prod 给 4 核，是为 pgBackRest 压缩、autovacuum 和偶发报表查询留余量；cn-prod 2 核足够。
+- **内存**：prod 库 22 GB，现在 PG 用了 2.7 GB，整机有 12 GB 页缓存，命中率靠这部分维持。16 GB 能把 4 GB `shared_buffers` 和约 8 GB 页缓存都留给库。cn-prod 库 2.9 GB，8 GB 内存能让全库和未来一年的热数据都留在内存里。4 GB 是下限，但留给 vacuum、备份和 Redis 的余量太小。
+- **磁盘**（按近期增长估算，保留期按代码默认值）：
+  - prod：`usage_logs` 近一周满日每天 60–205 MB、按日分区；`usage_billing_dedup` 每天约 40 MB；两者都保留 400 天，最早的分区要到 2027 年才开始被清理。合计约 4.5 GB/月，一年后约 80 GB。再加 4 GB WAL、切流演练时在数据机上另恢复一份（约 22 GB）、pgBackRest 本地暂存和余量，200 GB 是下限。
+  - cn-prod：`usage_logs` 每天约 45 MB，`ops_system_logs` 保留 30 天、总量封顶约 1 GB。合计约 1.7 GB/月，一年后约 25 GB。100 GB 留足余量。
+- **两站一致**：配置形状相同，只有大小不同。参数按内存比例给，同一份启动定义两站都能用。
 
 ## 切流前的代码改动
 
 都走正常发布。默认值保持现状，所以发布后行为不变。
 
 1. prod 部署模板把两个 Host 改成 `${DATABASE_HOST:-tokenkey-postgres}` 这类写法，`ops/stage0/test_deploy_via_ssm_bluegreen.py` 同步改。
-2. cn-prod 在 `compose.override.yml` 声明两个 Host，取值来自 `.env`，默认值为现值；`bluegreen.py` 把它们列入要传播的键，否则候选色会继承旧值。漏列时 `test_pool_env_probe.py` 会失败。cn-prod 的候选色从现役容器继承密钥，所以 `REDIS_PASSWORD` 也要能从 `.env` 覆盖，否则新密码到不了新色；密码本身不进 override 文件。
+2. cn-prod 在 `compose.override.yml` 声明两个 Host，取值来自 `.env`，默认值为现值；`bluegreen.py` 把它们列入要传播的键，否则候选色会继承旧值。漏列时 `test_pool_env_probe.py` 会失败。cn-prod 的 Redis 密码不变，候选色照旧从现役容器继承，不进 override。
 3. prod 现网 Caddyfile 补上和 cn-prod 相同的健康检查和 `lb_try_duration 30s` / `lb_try_interval 1s`。这是停写窗口第 2 步的前提：没有它，Caddy 指向未启动的新色时请求会立刻失败。蓝绿渲染（`render_caddy_with_upstream`）只改上游地址那一行，所以补上的参数会保留到后续发布；改动同时入仓。`caddy validate` 后 `caddy reload`，用户无感。
 4. `deploy/tencent/tencent_pgbackrest.py` 和 `deploy/domestic/cn_pgbackrest.py` 支持在数据机上运行，容器名和主机角色按新布局。
 5. 需要直连库或 Redis 的运维探针和技能改成在数据机上执行。grep 命中约 80 个文件（含测试和文档）用本机 `docker exec` 找库，先出清单，再按清单逐个改。入口统一走 `ops/lib/resolve-app-container.sh`。Redis 设了密码之后，这些入口一并带上密码。
@@ -126,12 +213,12 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 cn-prod 注意：据 `deploy/hetzner/README.md` 2026-11-06 的记录，腾讯北京锐驰配额 5 台已被 `cn-ip1..4` 和 cn-prod 主机占满。开机前在控制台复核；仍然占满就先提配额，或者选不占这项配额的套餐。
 
-磁盘按实测库体积起算：prod 22 GB，cn-prod 2.9 GB，再加 WAL 和一份恢复余量。
+规格按「数据机配置」。
 
 ### 3. 备用库与 Redis 副本（用户无感）
 
-- **Postgres**：用当站 pgBackRest 恢复到数据机，作为备用库从仓库持续回放 WAL。备用库不归档。应用继续写旧库。
-- **Redis**：数据机上的 Redis 经私网转发做旧 Redis 的副本，cn-prod 用旧密码配 `masterauth`，数据机自己用新密码。两站 Redis 都只用了约 10MB，全量同步的 fork 开销可以忽略。
+- **Postgres**：用当站 pgBackRest 恢复到数据机，作为备用库从仓库持续回放 WAL。备用库不归档。备用库第一次启动就用「数据库参数」里的新值。应用继续写旧库。
+- **Redis**：数据机上的 Redis 经私网转发做旧 Redis 的副本，cn-prod 用现有密码配 `masterauth` 和 `requirepass`。两站 Redis 都只用了约 10MB，全量同步的 fork 开销可以忽略。
 - **放弃**：删掉备用库和副本即可，现网不变。
 
 ### 4. 演练（用户无感）
@@ -147,13 +234,14 @@ cn-prod 注意：据 `deploy/hetzner/README.md` 2026-11-06 的记录，腾讯北
 在批准的低谷时段执行：
 
 1. 确认备用库回放延迟和 Redis 复制偏移都接近零。停掉应用机上其他写库方（见基线表）。
-2. 预先创建新色容器但不启动，`.env` 已写好数据机地址和新的 Redis 密码。Caddy 上游改指新色。新色还没启动，新请求在 Caddy 里重试排队，最长等 `lb_try_duration`。旧色只处理在途请求，排空有上限，超过上限的长流被切断。
+2. 预先创建新色容器但不启动，`.env` 已写好数据机地址（prod 同时写入新的 Redis 密码）。Caddy 上游改指新色。新色还没启动，新请求在 Caddy 里重试排队，最长等 `lb_try_duration`。旧色只处理在途请求，排空有上限，超过上限的长流被切断。
 3. 停止旧色。在旧库上查 `pg_stat_activity`、在旧 Redis 上查 `CLIENT LIST`，除了复制连接和本次操作的连接，必须一个都没有。有就先找出是谁，不往下走。
 4. 旧库执行 `pg_switch_wal()`，等 `pg_stat_archiver` 显示这一段已归档，备用库回放到这一段。
 5. Redis 副本偏移等于主库偏移后，执行 `REPLICAOF NO ONE`。
 6. 提升备用库，立刻停止旧库和旧 Redis。**这一步不可回头。** 在这之前放弃：Caddy 指回旧色并启动旧色，即可回到原状。
 7. 启动新色。就绪后 Caddy 里排队的请求开始放行。
 8. 发一笔真实请求，确认用量和扣费落在新库。确认新主库开始往同一仓库归档（新的 timeline）。在数据机上启用备份 timer，应用机上的备份 timer 保持停用。
+9. 清掉 `postgresql.auto.conf` 里的旧值，创建 `pg_stat_statements`，用 `SHOW` 逐项核对「数据库参数」表。
 
 从第 2 步到第 7 步要在 `lb_try_duration` 内完成。演练估算超过这个上限时，停写审批要写明超出的部分会返回 502，或者先申请临时调大上限。窗口结束的标志是新库接受写入并且归档在推进，不是容器启动成功。
 
@@ -179,7 +267,7 @@ prod 应用机的 Docker 数据目录和 `.env` 也在 LUKS 卷上。11-08 新�
 两站都拆完之前，不部署第二台网关。拆完之后要在某站加副本，先满足下面三条，缺一条就不加：
 
 - 现网 `RUN_MODE` 不是 `simple`。`simple` 会跳过清理锁，每台网关都会做清理。
-- 网关台数 × 每色连接上限 × 2（蓝绿重叠），再加上备份和运维连接，放得进 `max_connections`。prod 现役按代码默认 256 运行，单色已经超过 200；走模板后是 50，两台网关加蓝绿重叠正好占满 200。cn-prod 是 40 和 100，单台网关在蓝绿重叠时已经用掉 80。加副本前必须先把每色上限调低。Redis 连接池一并收小。
+- 网关台数 × 每色连接上限 × 2（蓝绿重叠），再加上备份和运维连接，放得进 `max_connections`。拆库后两站的 `max_connections` 都是 200，每色上限 prod 50、cn-prod 40。prod 两台网关加蓝绿重叠正好占满 200，cn-prod 是 160。加副本前必须先把每色上限调低。Redis 连接池一并收小。
 - `model_pricing.json` 和插件目录确认是每台机器自己的缓存，不是要在副本之间互相覆盖的事实来源。
 
 账号调度和用量已经在同一个库里，多台网关共用这份状态。上游配额才是容量上限。
@@ -191,4 +279,6 @@ prod 应用机的 Docker 数据目录和 `.env` 也在 LUKS 卷上。11-08 新�
 - 私网放行写错会把库暴露出去，或者切断应用。开机后按第 2 步测端口。
 - 旧库被重新启动成可写主库会造成双写。提升之后保持停止。
 - 去掉加密卷后，拿到数据机的磁盘快照就能读到库。这是已接受的取舍。
+- 应用机断电后，库端死连接会占着会话级 advisory lock，新网关可能等不到迁移锁。靠 `tcp_keepalives_*` 约 1 分钟释放；切流后要在蓝绿发布中实测一次。
+- 新参数让 `shared_buffers` 变大，切流后头几个小时缓存是冷的，查询会比平时慢。
 - cn-prod 锐驰配额可能已满，开机会被卡住。
