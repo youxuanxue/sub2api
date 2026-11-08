@@ -271,9 +271,6 @@ func RunLocalCleanup(ctx context.Context, conn *sql.Conn, opts Options, dryRun b
 		result.SelectedHours = append(result.SelectedHours, h)
 	}
 	sort.Slice(result.SelectedHours, func(i, j int) bool { return result.SelectedHours[i].Before(result.SelectedHours[j]) })
-	if len(result.SelectedHours) > MaxTransitionDrops {
-		result.SelectedHours = result.SelectedHours[:MaxTransitionDrops]
-	}
 	if opts.ArchiveReceiptRoot != "" {
 		gate := gateHoursOnNode1Receipts(opts.ArchiveReceiptRoot, opts.ArchiveEnvironment, result.SelectedHours)
 		result.SelectedHours = gate.Allowed
@@ -295,6 +292,12 @@ func RunLocalCleanup(ctx context.Context, conn *sql.Conn, opts Options, dryRun b
 					"node1 archive receipt missing")
 			}
 		}
+	}
+	// Bound drops per run after the receipt gate, not before: truncating first
+	// let a run of unarchived oldest hours fill every slot, so newer hours that
+	// node1 already holds were never reclaimed.
+	if len(result.SelectedHours) > MaxTransitionDrops {
+		result.SelectedHours = result.SelectedHours[:MaxTransitionDrops]
 	}
 	if dryRun {
 		return result, nil

@@ -292,3 +292,18 @@ func TestOldestBlockedHourIsInTheResult(t *testing.T) {
 		t.Fatal("LocalCleanupResult must expose oldest_receipt_blocked_hour_utc for the host watcher")
 	}
 }
+
+// The per-run drop bound applies after the receipt gate. Truncating first
+// meant MaxTransitionDrops unarchived oldest hours took every slot and newer
+// archived hours were never reclaimed.
+func TestDropBoundAppliesAfterReceiptGate(t *testing.T) {
+	source := readSource(t)
+	gateAt := strings.Index(source, "gateHoursOnNode1Receipts(opts.ArchiveReceiptRoot")
+	boundAt := strings.Index(source, "result.SelectedHours[:MaxTransitionDrops]")
+	if gateAt < 0 || boundAt < 0 {
+		t.Fatal("expected both the receipt gate and the drop bound in RunLocalCleanup")
+	}
+	if boundAt < gateAt {
+		t.Fatal("MaxTransitionDrops must truncate the receipt-allowed hours, not the raw candidates")
+	}
+}
