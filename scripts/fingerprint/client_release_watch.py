@@ -272,7 +272,10 @@ PLATFORM_PLAYBOOKS: dict[str, dict[str, Any]] = {
             "bash ops/openai/capture-codex-fingerprint.sh check env",
             "bash ops/openai/capture-codex-fingerprint.sh check",
             "bash ops/openai/capture-codex-fingerprint.sh emit-edits",
+            "bash ops/openai/capture-codex-fingerprint.sh tls-capture --samples 3",
+            "bash ops/openai/capture-codex-fingerprint.sh tls-check --bundle <bundle>",
         ],
+        "note": "tls-check verdict: version_only needs no migration; tls_drift with a changed runtime digest needs a new forward migration plus a changelog row.",
     },
     "codex-vscode": {
         "skill": "tokenkey-codex-fingerprint-alignment",

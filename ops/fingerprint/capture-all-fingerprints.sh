@@ -15,6 +15,8 @@ SKIP_CC=0
 SKIP_KIRO=0
 SKIP_ANTIGRAVITY=0
 SKIP_CODEX=0
+SKIP_CODEX_TLS=0
+CODEX_TLS_ARGS=()
 CC_ARGS=()
 KIRO_ARGS=()
 ANTIGRAVITY_ARGS=()
@@ -33,10 +35,14 @@ Runs each platform's evidence engine and prints a combined status table:
   --antigravity-arg --proxy-port --antigravity-arg 8080
                                     route Antigravity through its MITM collector
   --codex-arg ARG                  forward an argument to Codex `check`
+  --codex-tls-arg ARG              forward an argument to Codex `tls-capture`
+  --skip-codex-tls                 skip the Codex TLS lane (coverage incomplete)
 
 Claude Code needs its cc0 stack; Kiro needs a logged-in real kiro-cli plus
 mitmdump and its CA; Antigravity needs its real client routed through mitmproxy;
-Codex reads the installed CLI binary. Explicit skips make coverage incomplete.
+Codex reads the installed CLI binary, and its TLS lane runs the real codex
+against a local capture endpoint (openssl only; no login, nothing leaves the
+machine). Explicit skips make coverage incomplete.
 
 Exit: 0 all required evidence aligned, 1 drift, 2 invalid/error, 3 incomplete.
 EOF
@@ -48,6 +54,8 @@ while [[ $# -gt 0 ]]; do
     --skip-kiro) SKIP_KIRO=1; shift ;;
     --skip-antigravity) SKIP_ANTIGRAVITY=1; shift ;;
     --skip-codex) SKIP_CODEX=1; shift ;;
+    --skip-codex-tls) SKIP_CODEX_TLS=1; shift ;;
+    --codex-tls-arg) CODEX_TLS_ARGS+=("$2"); shift 2 ;;
     --cc-arg) CC_ARGS+=("$2"); shift 2 ;;
     --kiro-arg) KIRO_ARGS+=("$2"); shift 2 ;;
     --antigravity-arg) ANTIGRAVITY_ARGS+=("$2"); shift 2 ;;
@@ -61,6 +69,7 @@ CC_STATUS="skipped"
 KIRO_STATUS="skipped"
 ANTIGRAVITY_STATUS="skipped"
 CODEX_STATUS="skipped"
+CODEX_TLS_STATUS="skipped"
 
 record_status() {
   case "$1" in
@@ -95,12 +104,19 @@ if [[ "$SKIP_CODEX" == "0" ]]; then
   CODEX_STATUS="$(record_status "$?")"
 fi
 
+if [[ "$SKIP_CODEX" == "0" && "$SKIP_CODEX_TLS" == "0" ]]; then
+  echo "############ Codex CLI TLS (openai, local capture) ############"
+  bash "$CODEX" tls-capture ${CODEX_TLS_ARGS[@]+"${CODEX_TLS_ARGS[@]}"}
+  CODEX_TLS_STATUS="$(record_status "$?")"
+fi
+
 echo ""
 echo "================ combined fingerprint drift report ================"
 printf "  %-14s %s\n" "claude-code" "$CC_STATUS"
 printf "  %-14s %s\n" "kiro-cli" "$KIRO_STATUS"
 printf "  %-14s %s\n" "antigravity" "$ANTIGRAVITY_STATUS"
 printf "  %-14s %s\n" "codex" "$CODEX_STATUS"
+printf "  %-14s %s\n" "codex-tls" "$CODEX_TLS_STATUS"
 echo "==================================================================="
 echo ""
 echo "================ identity evidence coverage ======================"
@@ -113,7 +129,7 @@ echo "==================================================================="
 has_drift=0
 has_error=0
 has_incomplete=0
-for st in "$CC_STATUS" "$KIRO_STATUS" "$ANTIGRAVITY_STATUS" "$CODEX_STATUS"; do
+for st in "$CC_STATUS" "$KIRO_STATUS" "$ANTIGRAVITY_STATUS" "$CODEX_STATUS" "$CODEX_TLS_STATUS"; do
   case "$st" in
     drift) has_drift=1 ;;
     error) has_error=1 ;;
@@ -136,6 +152,8 @@ case "$overall" in
     echo "→ drift detected. Refresh only from the drifted platform's real evidence."
     echo "  Kiro changes come from capture-kiro-fingerprint.sh and update"
     echo "  tk_canonical_kiro_cli.json plus the single CLI runtime owner."
+    echo "  Codex TLS drift follows its tls-check verdict: version_only needs no"
+    echo "  migration; a runtime digest change needs a new forward migration."
     ;;
   2)
     echo "→ an evidence engine failed. Fix its environment and re-run; do not update"
