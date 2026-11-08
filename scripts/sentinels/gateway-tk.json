@@ -11895,7 +11895,7 @@
         "qa_archive_segments",
         "qa_archive_gap_decision_receipts"
       ],
-      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. archive/ keeps only the qa_archive_shards control rows local cleanup writes; tk_110 dropped the S3 segment and gap-receipt tables."
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. archive/ keeps only the qa_archive_shards control rows local cleanup writes; the S3 segment and gap-receipt tables are no longer read and are dropped by a follow-up migration once hosts run the new qa-local-maintenance."
     },
     {
       "path": "backend/internal/observability/qa/lifecycle/control_adapter.go",

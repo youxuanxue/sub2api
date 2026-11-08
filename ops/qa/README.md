@@ -56,7 +56,8 @@ reviewed installer 生成，当前 `PHASES` 不包含 archive，因此本次代�
 已删除（仓库内不再有执行入口）：网关 `--qa-maintenance` / `--qa-boundary` / single-owner 子命令、
 `backend/cmd/qa-archive` 恢复 CLI、`deploy/aws/stage0/tokenkey-qa-maintenance.sh` 等 raw 宿主脚本、
 `stage0-qa-raw-archive.yaml` CloudFormation 模板、Phase 2 live health 与 raw archive IAM 巡检。
-数据库中 S3 段与 gap 回执表由 `tk_110_drop_qa_archive_s3_tables.sql` 删除；`qa_archive_shards`
+数据库中 S3 段与 gap 回执表已无代码读写，由后续迁移删除（须先把主机上的 `qa-local-maintenance`
+换成不再 JOIN 段表的构建）；`qa_archive_shards`
 保留，本地 cleanup 用 generation 0 行记录 `source_dropped_at` / `hot_files_cleaned_at`。
 其中 2026-10 以前的 `s3_prefix` 指向已过期对象，仅为历史控制记录。
 

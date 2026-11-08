@@ -9,7 +9,7 @@ risk: high
 
 # QA raw-only
 
-> **已被取代（2026-11-08）。QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 每 4h。** 现行 QA 契约见 [腾讯 COS 数据库备份与 node1 QA 归档](design-tencent-cos-backup-node1-qa.md#node1-qa) 与 [QA 运维入口](../../ops/qa/README.md)。下文 raw S3 归档、maintenance、boundary、single-owner、`qa-archive` 恢复 CLI 与 IAM 校验均已从仓库删除，仅作历史记录；删除契约（退役 Bundle、导出 API 与 UI）仍然有效。S3 段与 gap 回执表由迁移 `tk_110_drop_qa_archive_s3_tables.sql` 删除，`qa_archive_shards` 保留给本地 cleanup 记录 DROP 回执。
+> **已被取代（2026-11-08）。QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 每 4h。** 现行 QA 契约见 [腾讯 COS 数据库备份与 node1 QA 归档](design-tencent-cos-backup-node1-qa.md#node1-qa) 与 [QA 运维入口](../../ops/qa/README.md)。下文 raw S3 归档、maintenance、boundary、single-owner、`qa-archive` 恢复 CLI 与 IAM 校验均已从仓库删除，仅作历史记录；删除契约（退役 Bundle、导出 API 与 UI）仍然有效。S3 段与 gap 回执表已无代码读写，待主机换上新 `qa-local-maintenance` 后由后续迁移删除；`qa_archive_shards` 保留给本地 cleanup 记录 DROP 回执。
 
 > **现状（2026-10-23，2026-10-28 确认仍有效）**：raw-only 契约仍有效；归档目标已由 Hetzner 改回 AWS S3（见下文「存储和迁移」后续段落），**上传当前暂停**（`host_watch.paused_jobs`）。标题中的 Hetzner 迁移为历史。下文 Hetzner 切换步骤是当时的操作记录。现网按文首这段和 2026-10-16 之后的段落读：目标曾回到 AWS S3，上传暂停，本地 24h 清理独立运行。
 
