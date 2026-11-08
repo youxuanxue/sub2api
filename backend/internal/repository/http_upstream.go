@@ -231,6 +231,7 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 		return nil, err
 	}
 	s.observeResponseBody(resp, observation, entry, profile)
+	recordUpstreamTLSIdentity(resp, entry, accountID, proxyURL, nil)
 
 	// 包装响应体，在关闭时自动减少计数并更新时间戳
 	// 这确保了流式响应（如 SSE）在完全读取前不会被淘汰
@@ -290,6 +291,7 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	}
 
 	s.observeResponseBody(resp, observation, entry, upstreamProfile)
+	recordUpstreamTLSIdentity(resp, entry, accountID, proxyURL, profile)
 	resp.Body = wrapTrackedBody(resp.Body, func() {
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())

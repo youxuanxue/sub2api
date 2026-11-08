@@ -34,6 +34,14 @@ class PinReadersLiveRepoTest(unittest.TestCase):
         self.assertEqual(set(registry_ids), set(crw.PIN_READERS))
         self.assertEqual(crw.COMPANION_OF, {"codex-vscode": "codex"})
 
+    def test_codex_playbook_includes_tls_capture_and_check(self) -> None:
+        commands = crw.PLATFORM_PLAYBOOKS["codex"]["first_commands"]
+        self.assertTrue(any(" tls-capture" in cmd for cmd in commands))
+        self.assertTrue(any(" tls-check --bundle" in cmd for cmd in commands))
+        script = (REPO_ROOT / "ops/openai/capture-codex-fingerprint.sh").read_text(encoding="utf-8")
+        for sub in ("tls-capture)", "tls-check)", "tls-emit-profile)"):
+            self.assertIn(sub, script)
+
     def test_live_pins_are_present(self) -> None:
         self.assertRegex(crw.read_pinned_claude_code(), r"^\d+\.\d+\.\d+")
         self.assertRegex(crw.read_pinned_codex(), r"^\d+\.\d+\.\d+")

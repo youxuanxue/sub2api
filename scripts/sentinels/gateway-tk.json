@@ -19357,7 +19357,7 @@
     {
       "path": "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
       "must_contain": [
-        "dialer.Dial(withOpenAIWSTLSProfile(dialCtx, s.resolveOpenAITLSProfile(account)), wsURL, headers, proxyURL)"
+        "dialer.Dial(withOpenAIWSDialIdentity(dialCtx, account, s.resolveOpenAITLSProfile(account)), wsURL, headers, proxyURL)"
       ],
       "rationale": "WS v2 passthrough dial shares the Codex TLS identity with the pool path."
     },
@@ -19414,6 +19414,36 @@
         "func TestReceiptWithoutNode1ManifestBlocks("
       ],
       "rationale": "Keep the per-hour receipt gate, its deletion-safety cases and the drop-bound ordering under test."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream.go",
+      "must_contain": [
+        "recordUpstreamTLSIdentity(resp, entry, accountID, proxyURL, nil)",
+        "recordUpstreamTLSIdentity(resp, entry, accountID, proxyURL, profile)"
+      ],
+      "rationale": "Prod evidence of the TLS identity actually used per account (uTLS profile vs crypto/tls, HTTP proto, ALPN) for HTTPS and WSS. Owner: backend/internal/service/upstream_tls_identity_tk.go. Info-level audit.tls_identity events are rate-limited per identity key and persisted to ops_system_logs by the audit.* rule in OpsSystemLogSink. Dropping any hook silently removes the only non-Debug signal that a fingerprint profile is in use."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_client.go",
+      "must_contain": [
+        "tkRecordOpenAIWSTLSIdentity(ctx, proxyURL, opts.HTTPClient, resp)"
+      ],
+      "rationale": "Prod evidence of the TLS identity actually used per account (uTLS profile vs crypto/tls, HTTP proto, ALPN) for HTTPS and WSS. Owner: backend/internal/service/upstream_tls_identity_tk.go. Info-level audit.tls_identity events are rate-limited per identity key and persisted to ops_system_logs by the audit.* rule in OpsSystemLogSink. Dropping any hook silently removes the only non-Debug signal that a fingerprint profile is in use."
+    },
+    {
+      "path": "backend/internal/service/ops_system_log_sink.go",
+      "must_contain": [
+        "strings.Contains(component, \"audit\")"
+      ],
+      "rationale": "Prod evidence of the TLS identity actually used per account (uTLS profile vs crypto/tls, HTTP proto, ALPN) for HTTPS and WSS. Owner: backend/internal/service/upstream_tls_identity_tk.go. Info-level audit.tls_identity events are rate-limited per identity key and persisted to ops_system_logs by the audit.* rule in OpsSystemLogSink. Dropping any hook silently removes the only non-Debug signal that a fingerprint profile is in use."
+    },
+    {
+      "path": "backend/internal/service/upstream_tls_identity_tk.go",
+      "must_contain": [
+        "UpstreamTLSIdentityComponent = \"audit.tls_identity\"",
+        "case resp.TLS == nil:"
+      ],
+      "rationale": "Prod evidence of the TLS identity actually used per account (uTLS profile vs crypto/tls, HTTP proto, ALPN) for HTTPS and WSS. Owner: backend/internal/service/upstream_tls_identity_tk.go. Info-level audit.tls_identity events are rate-limited per identity key and persisted to ops_system_logs by the audit.* rule in OpsSystemLogSink. Dropping any hook silently removes the only non-Debug signal that a fingerprint profile is in use."
     }
   ]
 }
