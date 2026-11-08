@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""Run the host scripts against real kernel flock locks, without a database."""
+"""Run pgdump against the real QA lifecycle host lock, without a database.
+
+The S3-era tokenkey-qa-maintenance / tokenkey-qa-boundary runners were retired
+with QA S3 (2026-11-08). pgdump still shares qa-lifecycle/host.lock with the
+local QA provision/cleanup jobs, so the lock contract stays tested here.
+"""
 from __future__ import annotations
 
 import fcntl
 import fnmatch
 import gzip
-import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "ops/qa"))
-import test_qa_maintenance_phase2_runtime as runner_fixture  # noqa: E402
 
 
 class HostLockTests(unittest.TestCase):
@@ -25,8 +26,15 @@ class HostLockTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        self.env, self.receipt, self.docker_log, _, _ = runner_fixture.QAPhase2RunnerTest()._sandbox(self.root)
-        self.env = {**os.environ, **self.env}
+        (self.root / "bin").mkdir()
+        lifecycle = self.root / "qa-lifecycle"
+        lifecycle.mkdir()
+        self.docker_log = self.root / "docker.log"
+        self.env = {
+            **os.environ,
+            "QA_LIFECYCLE_LOCK_FILE": str(lifecycle / "host.lock"),
+            "TEST_DOCKER_LOG": str(self.docker_log),
+        }
         self.env["PATH"] = str(self.root / "bin") + os.pathsep + os.environ["PATH"]
         self.lock = Path(self.env["QA_LIFECYCLE_LOCK_FILE"])
         self.attempt = self.root / "lock-attempt"
@@ -48,7 +56,7 @@ class HostLockTests(unittest.TestCase):
     def blocked_run(self, script, *, shared, immediate=False):
         with self.lock.open("w") as lease:
             fcntl.flock(lease, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
-            process = subprocess.Popen(["bash", str(script), "--trigger=timer"] if "qa-" in script.name else ["bash", str(script)],
+            process = subprocess.Popen(["bash", str(script)],
                                        env={**self.env, "TEST_LOCK_IMMEDIATE": "1" if immediate else "0"},
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
@@ -70,42 +78,6 @@ class HostLockTests(unittest.TestCase):
                 if process.poll() is None:
                     process.kill()
                     process.communicate()
-
-    def test_archive_waits_for_backup_and_preserves_success_receipt(self):
-        self.blocked_run(ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh", shared=True)
-        receipt = json.loads(self.receipt.read_text())
-        self.assertEqual(receipt["runner_exit_code"], 0)
-        self.assertEqual(receipt["normal"]["state"], "committed")
-
-    def test_archive_lock_timeout_records_failure_without_container_work(self):
-        self.blocked_run(ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh", shared=True, immediate=True)
-        receipt = json.loads(self.receipt.read_text())
-        self.assertEqual(receipt["runner_exit_code"], 75)
-        self.assertEqual(receipt["error_code"], "lifecycle_lock_busy")
-
-    def boundary(self):
-        self.env.update({
-            "QA_BOUNDARY_RUNTIME_DIR": self.env["QA_MAINTENANCE_RUNTIME_DIR"],
-            "QA_BOUNDARY_RESOLVER": self.env["QA_MAINTENANCE_RESOLVER"],
-            "QA_BOUNDARY_HOST_DATA_ROOT": self.env["QA_MAINTENANCE_HOST_DATA_ROOT"],
-            "QA_BOUNDARY_RECEIPT": str(self.receipt),
-        })
-        child = json.loads(self.env["TEST_CHILD_JSON"])
-        child.update(receipt_version=1, job_name="qa-boundary", boundary={"provision": {"ranges_covered": 72}})
-        self.env["TEST_CHILD_JSON"] = json.dumps(child)
-        return ROOT / "deploy/aws/stage0/tokenkey-qa-boundary.sh"
-
-    def test_boundary_waits_for_backup_before_starting_child(self):
-        self.blocked_run(self.boundary(), shared=True)
-        receipt = json.loads(self.receipt.read_text())
-        self.assertEqual(receipt["runner_exit_code"], 0)
-        self.assertEqual(receipt["boundary"]["provision"]["ranges_covered"], 72)
-
-    def test_boundary_lock_timeout_records_failure_without_container_work(self):
-        self.blocked_run(self.boundary(), shared=True, immediate=True)
-        receipt = json.loads(self.receipt.read_text())
-        self.assertEqual(receipt["runner_exit_code"], 75)
-        self.assertEqual(receipt["error_code"], "lifecycle_lock_busy")
 
     def dump_script(self):
         dumps = self.root / "pgdump"

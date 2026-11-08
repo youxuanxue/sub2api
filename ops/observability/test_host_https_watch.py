@@ -43,7 +43,11 @@ class CoveragePlanTest(unittest.TestCase):
         prod = self.config('prod', self.watch['hostname'])
         # 2026-10-17 prod-only: no live edge peer → watch cn-prod.
         self.assertEqual(prod['targets'], {'cn-prod': self.domestic['public_origin'].rstrip('/') + '/health'})
-        self.assertIn('tokenkey-qa-maintenance', prod['jobs'])
+        # QA S3 retired 2026-11-08: the S3 maintenance/boundary units are gone.
+        for retired in ('tokenkey-qa-maintenance', 'tokenkey-qa-boundary'):
+            self.assertNotIn(retired, prod['jobs'])
+            self.assertNotIn(retired, prod['paused_jobs'])
+            self.assertNotIn(retired, watch.JOB_LIMITS)
         # The archive push (tar stream to node1) must be monitored on both
         # hosts; it went unmonitored in production until 2026-11-03.
         self.assertIn('tokenkey-qa-archive', prod['jobs'])
@@ -58,10 +62,6 @@ class CoveragePlanTest(unittest.TestCase):
         self.assertIn(self.prod_matrix['target']['api_domain'], self.watch['domains'])
         cn = self.config('cn-prod', self.domestic['instance_name'])
         self.assertEqual(cn['targets']['prod'], 'https://' + self.prod_matrix['target']['api_domain'] + '/health')
-        # Phase2 live health reads the same pause owner.
-        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
-        from ops.qa.prod_phase2_live_health import load_maintenance_pause_reason
-        self.assertEqual(load_maintenance_pause_reason(), self.watch['paused_jobs']['tokenkey-qa-maintenance'])
 
     def test_prod_pause_does_not_silence_other_observers_or_jobs(self):
         prod = self.config('prod', self.watch['hostname'])
@@ -69,8 +69,6 @@ class CoveragePlanTest(unittest.TestCase):
         self.assertEqual(
             set(prod['paused_jobs']),
             {
-                'tokenkey-qa-maintenance',
-                'tokenkey-qa-boundary',
                 'tokenkey-pgdump',
                 'tokenkey-ghcr-prune-daily',
             },
@@ -79,9 +77,9 @@ class CoveragePlanTest(unittest.TestCase):
         self.assertNotIn('tokenkey-disk-metrics', prod['paused_jobs'])
         self.assertEqual(self.config('cn-prod', self.domestic['instance_name'])['paused_jobs'], {})
         self.assertIn('tokenkey-pgdump', prod['jobs'])
-        # Held-disabled boundary must stay monitored as expected-paused so
-        # accidental re-enable still alerts; healthy when disabled+inactive.
-        boundary_limit = watch.JOB_LIMITS['tokenkey-qa-boundary']
+        # A held-disabled job stays monitored as expected-paused so accidental
+        # re-enable still alerts; healthy when disabled+inactive.
+        boundary_limit = watch.JOB_LIMITS['tokenkey-pgdump']
         inactive = {'ActiveState': 'inactive', 'Result': 'success'}
         disabled = {'ActiveState': 'inactive', 'UnitFileState': 'disabled'}
         self.assertTrue(
@@ -124,7 +122,7 @@ class CoveragePlanTest(unittest.TestCase):
     def test_pause_checks_disabled_state_and_alerts_on_accidental_resume(self):
         inactive = {'ActiveState': 'inactive', 'Result': 'exit-code'}
         disabled = {'ActiveState': 'inactive', 'UnitFileState': 'disabled'}
-        limit = watch.JOB_LIMITS['tokenkey-qa-maintenance']
+        limit = watch.JOB_LIMITS['tokenkey-pgdump']
         self.assertTrue(watch.job_fact(inactive, disabled, 1000, limit, expected_paused=True)['healthy'])
         self.assertFalse(watch.job_fact(inactive, disabled, 1000, limit)['healthy'])
         for service, timer in ((inactive, {**disabled, 'UnitFileState': 'enabled'}),
@@ -135,8 +133,8 @@ class CoveragePlanTest(unittest.TestCase):
                 self.assertFalse(fact['healthy'])
                 sent = []
                 probe = lambda name: fact
-                state = watch.tick_jobs(['tokenkey-qa-maintenance'], {}, 1000, probe, sent.append)
-                watch.tick_jobs(['tokenkey-qa-maintenance'], state, 1120, probe, sent.append)
+                state = watch.tick_jobs(['tokenkey-pgdump'], {}, 1000, probe, sent.append)
+                watch.tick_jobs(['tokenkey-pgdump'], state, 1120, probe, sent.append)
                 self.assertEqual(len(sent), 1)
                 self.assertIn('unexpectedly enabled or running', sent[0])
 

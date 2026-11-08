@@ -298,16 +298,18 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertNotIn("BlockDeviceMappings[0]", snapshot_block)
         self.assertNotIn("describe-snapshots", snapshot_block)
 
-    def test_qa_phase2_live_health_probe_is_wired_for_prod(self) -> None:
+    def test_retired_qa_s3_checks_are_not_wired(self) -> None:
+        # QA S3 retired 2026-11-08: no Phase 2 live health or raw-archive IAM audit.
         text = workflow_text()
-        self.assertIn("probe-qa-phase2-live-health.sh", text)
-        self.assertIn("prod_phase2_live_health.py --from-probe-stdin", text)
-        self.assertIn("--legacy-aws --json", text)
-        self.assertIn("jq -e . >/dev/null", text)
-        self.assertNotIn("qa_phase2_live_health_eval_failed\"}}')", text)
-        self.assertIn("qa-phase2-live-health|$TARGET_ID", text)
-        self.assertIn("qa-raw-archive-iam|$TARGET_ID", text)
-        self.assertLess(text.index("SAFETY_VERDICT="), text.index("PHASE2_PROBE="))
+        for retired in (
+            "probe-qa-phase2-live-health.sh",
+            "prod_phase2_live_health.py",
+            "qa-phase2-live-health|",
+            "qa-raw-archive-iam|",
+            "QA_RAW_ARCHIVE_STACK",
+            "QA_ARCHIVE",
+        ):
+            self.assertNotIn(retired, text)
 
     def test_matrix_covers_usw_and_beijing_with_separate_applicability(self) -> None:
         text = workflow_text()
@@ -339,19 +341,18 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertEqual(prod["domain"], "api.tokenkey.dev")
         self.assertEqual(prod["layout"], "usw")
         self.assertEqual(prod["public_health"], "true")
-        self.assertEqual(prod["qa_archive"], "true")
+        self.assertNotIn("qa_archive", prod)
         self.assertEqual(prod["region"], "us-east-1")
         self.assertEqual(prod["stack"], "tokenkey-prod-stage0")
         self.assertEqual(beijing["probe_target"], "cn-prod")
         self.assertEqual(beijing["layout"], "domestic")
         self.assertEqual(beijing["public_health"], "false")
-        self.assertEqual(beijing["qa_archive"], "false")
+        self.assertNotIn("qa_archive", beijing)
         self.assertEqual(beijing["region"], "eu-west-2")
         self.assertEqual(beijing["domain"], "")
         self.assertIn("api-cn.tokenkey.dev is not that host", text)
         self.assertNotIn("https://api-cn.tokenkey.dev", text)
-        self.assertIn('if [ "$QA_ARCHIVE" = "true" ]; then', text)
-        self.assertIn("qa-raw-archive-iam|$TARGET_ID|not-applicable", text)
+        self.assertIn('if [ "$TARGET_KIND" = "prod" ]; then\n            SAFETY_OUT=', text)
         self.assertIn("external-health|$TARGET_ID|on-host", text)
         self.assertIn('RUNTIME_RESOURCE_LAYOUT=$RUNTIME_LAYOUT', text)
         self.assertIn('--target "$PROBE_TARGET"', text)
@@ -546,29 +547,8 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn('diagnose_result not in ("cancelled", "skipped")', text)
 
         text = workflow_text()
-        self.assertIn("qa-raw-archive-iam|$TARGET_ID|paused", text)
         self.assertIn("error-clustering|$TARGET_ID|retired", text)
         self.assertNotIn("error_clustering_binary_check", text)
-        self.assertNotIn(".iam_contract.applicable // true", text)
-        line = next(item for item in text.splitlines() if "PHASE2_IAM_APPLICABLE=" in item)
-        start = line.index("jq -r '") + len("jq -r '")
-        expr = line[start:line.index("'", start)]
-        cases = (
-            ('{"iam_contract":{"applicable":false}}', "false"),
-            ('{"iam_contract":{"applicable":true}}', "true"),
-            ('{"iam_contract":{}}', "true"),
-        )
-        for payload, expected in cases:
-            with self.subTest(payload=payload):
-                proc = subprocess.run(
-                    ["jq", "-r", expr],
-                    input=payload,
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                )
-                self.assertEqual(proc.returncode, 0, proc.stderr)
-                self.assertEqual(proc.stdout.strip(), expected)
 
     def test_aggregate_finds_single_artifact_flat_target_report(self) -> None:
         """download-artifact flattens when artifacts.length===1; rglob must find it.

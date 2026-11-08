@@ -146,7 +146,6 @@ jobs:
       PROBE_TARGET: ${{ matrix.probe_target }}
       RUNTIME_LAYOUT: ${{ matrix.layout }}
       PUBLIC_HEALTH: ${{ matrix.public_health }}
-      QA_ARCHIVE: ${{ matrix.qa_archive }}
     steps:
       - uses: actions/checkout@v6
 
@@ -165,8 +164,7 @@ jobs:
             --arg probe_target "$PROBE_TARGET" \
             --arg layout "$RUNTIME_LAYOUT" \
             --arg public_health "$PUBLIC_HEALTH" \
-            --arg qa_archive "$QA_ARCHIVE" \
-            '{target_id:$target_id,target_kind:$target_kind,platform:$platform,region:$region,stack:$stack,domain:$domain,ssm_prefix:$ssm_prefix,probe_target:$probe_target,layout:$layout,public_health:$public_health,qa_archive:$qa_archive}' \
+            '{target_id:$target_id,target_kind:$target_kind,platform:$platform,region:$region,stack:$stack,domain:$domain,ssm_prefix:$ssm_prefix,probe_target:$probe_target,layout:$layout,public_health:$public_health}' \
             > "prod-ops-targets/$TARGET_ID/target.json"
           : > "prod-ops-targets/$TARGET_ID/findings.jsonl"
           : > "prod-ops-targets/$TARGET_ID/stdout.txt"
@@ -236,7 +234,6 @@ jobs:
         if: steps.precheck.outputs.skip == 'false'
         env:
           AWS_REGION: ${{ matrix.region }}
-          QA_RAW_ARCHIVE_STACK: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
           # schedule: Monday UTC only; workflow_dispatch: explicit input (default false).
           GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -368,7 +365,7 @@ jobs:
               *) add_finding "data_layer_capacity" "skip" "info" "Data-layer capacity inconclusive ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
             esac
 
-            if [ "$QA_ARCHIVE" = "true" ]; then
+            if [ "$TARGET_KIND" = "prod" ]; then
             SAFETY_OUT="$(bash ops/observability/run-probe.sh --target "$PROBE_TARGET" --script ops/observability/probe-data-layer-safety.sh --with ops/observability/data-layer-partition-coverage.sql --with ops/lib/resolve-app-container.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
             # Live prod is Hybrid mi-* (no EBS); the EC2 snapshot branch only applies
             # if an EC2 prod is ever rebuilt.
@@ -394,49 +391,6 @@ jobs:
             else
               add_finding "data_layer_safety" "skip" "info" "Data-layer archive gate does not apply to $TARGET_ID" "The shared archive ledger is US West evidence. Beijing backup freshness is the physical receipt on that host." "data-layer-safety|$TARGET_ID|not-applicable"
             fi
-          fi
-
-          if [ "$QA_ARCHIVE" = "true" ]; then
-            PHASE2_PROBE="$(bash ops/observability/run-probe.sh --target "$PROBE_TARGET" --script ops/observability/probe-qa-phase2-live-health.sh --with ops/lib/resolve-app-container.sh --comment "daily qa phase2 live health" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — probe failure becomes explicit finding
-            # Live health reads the prod pause policy and keeps boundary/storage checks.
-            # The legacy-named flag also audits the current AWS archive IAM contract.
-            PHASE2_VERDICT="$(printf '%s' "$PHASE2_PROBE" | python3 ops/qa/prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json 2>>"$STDERR" || true)"
-            if [ -z "$PHASE2_VERDICT" ] || ! printf '%s' "$PHASE2_VERDICT" | jq -e . >/dev/null 2>&1; then
-              PHASE2_VERDICT='{"health":{"status":"failed","reasons":["qa_phase2_live_health_eval_failed"]},"iam_contract":{"ok":false,"status":"unknown","failures":["evaluator output invalid or empty"]}}'
-            fi
-            printf 'qa_phase2_live_health: %s\n' "$PHASE2_VERDICT" >> "$STDOUT"
-            PHASE2_STATUS="$(printf '%s' "$PHASE2_VERDICT" | jq -r '.health.status // "failed"')"
-            PHASE2_REASONS="$(printf '%s' "$PHASE2_VERDICT" | jq -r '[.health.reasons[]?] | join("; ")')"
-            PHASE2_IAM_OK="$(printf '%s' "$PHASE2_VERDICT" | jq -r '.iam_contract.ok // false')"
-            # jq // treats false as empty, so applicable:false must not use //.
-            PHASE2_IAM_APPLICABLE="$(printf '%s' "$PHASE2_VERDICT" | jq -r 'if (.iam_contract.applicable == false) then "false" else "true" end')"
-            case "$PHASE2_STATUS" in
-              healthy)
-                add_finding "qa_phase2_live_health" "ok" "info" "QA Phase 2 live maintenance health passed ($TARGET_ID)" "QA pause/running policy and boundary/storage facts are verified." "qa-phase2-live-health|$TARGET_ID"
-                ;;
-              degraded)
-                add_finding "qa_phase2_live_health" "warning" "warning" "QA Phase 2 live maintenance health degraded ($TARGET_ID)" "$PHASE2_REASONS" "qa-phase2-live-health|$TARGET_ID"
-                ;;
-              *)
-                add_finding "qa_phase2_live_health" "issue_candidate" "error" "QA Phase 2 live maintenance health failed ($TARGET_ID)" "$PHASE2_REASONS" "qa-phase2-live-health|$TARGET_ID"
-                ;;
-            esac
-            if [ "$PHASE2_IAM_APPLICABLE" = "false" ]; then
-              PHASE2_IAM_DEFERRED="$(printf '%s' "$PHASE2_VERDICT" | jq -r '[.iam_contract.deferred_until_resume[]?] | join("; ")')"
-              add_finding "qa_raw_archive_iam_contract" "skip" "info" "QA raw archive IAM check deferred while S3 upload is paused ($TARGET_ID)" "Maintenance pause holds uploads. The retired instance-role statements are not the Tencent caller and stay deferred until resume: ${PHASE2_IAM_DEFERRED}" "qa-raw-archive-iam|$TARGET_ID|paused"
-            elif [ "$PHASE2_IAM_OK" != "true" ]; then
-              PHASE2_IAM_FAIL="$(printf '%s' "$PHASE2_VERDICT" | jq -r '[.iam_contract.failures[]?] | join("; ")')"
-              add_finding "qa_raw_archive_iam_contract" "issue_candidate" "error" "QA raw archive IAM contract drift ($TARGET_ID)" "$PHASE2_IAM_FAIL" "qa-raw-archive-iam|$TARGET_ID"
-            else
-              add_finding "qa_raw_archive_iam_contract" "ok" "info" "QA raw archive IAM contract matches repository ($TARGET_ID)" "Live bucket policy matches suffix-scoped app role contract." "qa-raw-archive-iam|$TARGET_ID"
-            fi
-            while IFS= read -r PHASE2_WARNING; do
-              [ -n "$PHASE2_WARNING" ] || continue
-              add_finding "qa_phase2_live_health" "warning" "warning" "QA Phase 2 live probe warning ($TARGET_ID)" "$PHASE2_WARNING" "qa-phase2-live-warning|$TARGET_ID|$PHASE2_WARNING"
-            done < <(printf '%s' "$PHASE2_VERDICT" | jq -r '.warnings[]?')
-          else
-            add_finding "qa_phase2_live_health" "skip" "info" "QA raw archive maintenance does not apply to $TARGET_ID" "S3 upload stays paused, and this host is not the archive caller." "qa-phase2-live-health|$TARGET_ID|not-applicable"
-            add_finding "qa_raw_archive_iam_contract" "skip" "info" "QA raw archive IAM does not apply to $TARGET_ID" "The retired Tokyo instance-role statements are not added back. This host does not upload the raw archive." "qa-raw-archive-iam|$TARGET_ID|not-applicable"
           fi
 
           if [ -n "$INSTANCE_ID" ] && [ "$INSTANCE_ID" != "None" ]; then

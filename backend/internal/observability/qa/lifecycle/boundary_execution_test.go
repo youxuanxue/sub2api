@@ -73,7 +73,7 @@ type missingArchiveControl struct {
 	recordedID    int64
 }
 
-func TestDropTransitionExpiredHourRejectsNonHourlyPartitionBeforeDrop(t *testing.T) {
+func TestDropFixedAgeHourRejectsNonHourlyPartitionBeforeDrop(t *testing.T) {
 	db, _, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestDropTransitionExpiredHourRejectsNonHourlyPartitionBeforeDrop(t *testing
 	}
 }
 
-func TestDropTransitionExpiredHourPersistsTerminalGapBeforeDrop(t *testing.T) {
+func TestDropFixedAgeHourPersistsTerminalGapBeforeDrop(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestDropTransitionExpiredHourPersistsTerminalGapBeforeDrop(t *testing.T) {
 	}
 }
 
-func TestDropTransitionExpiredHourRejectsMissingDurableGapIdentity(t *testing.T) {
+func TestDropFixedAgeHourRejectsMissingDurableGapIdentity(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func TestDropTransitionExpiredHourRejectsMissingDurableGapIdentity(t *testing.T)
 	}
 }
 
-func TestDropTransitionExpiredHourPreservesUnknownCommitClassification(t *testing.T) {
+func TestDropFixedAgeHourPreservesUnknownCommitClassification(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
