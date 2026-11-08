@@ -67,7 +67,7 @@ class TestQAPhaseOps(unittest.TestCase):
             rollout["raw_archive_recovery"]["observed_iam_state"],
             "applied",
         )
-        self.assertEqual(rollout["component_release"]["runtime_contract"], "raw_archive_v1")
+        self.assertEqual(rollout["component_release"]["runtime_contract"], "gateway_only_v1")
         self.assertNotIn("user_export", rollout)
 
     def test_maintenance_is_the_only_target_lifecycle_owner(self) -> None:

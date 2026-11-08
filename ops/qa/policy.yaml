@@ -4,14 +4,15 @@ prod:
   capture_enabled: true
   maintenance_schedule_utc: "*:15"
 
-  # Current authorized policy while uploads are paused; old archive owner below
-  # retains its verified-archive contract and remains disabled in paused_jobs.
+  # QA S3 archive retired 2026-11-08 (user decision). Local data stays 24h; host
+  # timer tokenkey-qa-archive (ops/qa/node1_archive.py) copies to node1 every 4h.
+  # COS holds database backups only. Design: docs/approved/design-tencent-cos-backup-node1-qa.md
   local_lifecycle:
     provision_owner: tokenkey-qa-provision
     cleanup_owner: tokenkey-qa-cleanup
     retention_hours: 24
     delete_unarchived: true
-    archive_uploads: paused
+    archive_uploads: retired
 
   lifecycle:
     owner: tokenkey-qa-maintenance
@@ -23,7 +24,7 @@ prod:
     provision_lock_retry_backoff_ms: [250, 500, 1000, 2000, 4000, 8000]
 
   archive:
-    enabled: true
+    enabled: false
     scope: all_users_all_api_keys
     shard_minutes: 60
     seal_delay_minutes: 15

@@ -112,7 +112,7 @@ REQUIRED = {
     ),
     "ops/qa/README.md": ("tokenkey-qa-maintenance", "raw"),
     "ops/qa/policy.yaml": ("raw_user_access: false",),
-    "ops/stage0/deploy_via_ssm_bluegreen.sh": ("assert_qa_provider_unchanged",),
+    "ops/stage0/deploy_via_ssm_bluegreen.sh": ("assert_post_cutover_environment",),
 }
 
 FORBIDDEN_TEXT = {
@@ -158,8 +158,22 @@ FORBIDDEN_TEXT = {
         "enabled_after_finalize",
         "owns_export_orphans",
         "finalize_legacy_monthly_policy",
+        "live_archive_coordinates_owner",
     ),
+    # QA S3 retired 2026-11-08: deploys must not inject or demand S3 coordinates.
+    "ops/stage0/deploy_via_ssm_bluegreen.sh": (
+        "assert_live_qa_archive_coordinates",
+        "assert_qa_provider_unchanged",
+        "QA_LIVE_ARCHIVE_STORAGE_",
+        "QA_RUNTIME_KEYS",
+        "env_default QA_ARCHIVE_ENABLED",
+        "- QA_ARCHIVE_",
+        "qa-runtime-environment.sh",
+    ),
+    "ops/stage0/deploy_via_ssm.sh": ("QA_ARCHIVE_ENABLED:-true", "qa_archive_cmds"),
 }
+
+RETIRED_QA_S3_OWNER = "ops/stage0/qa-runtime-environment.sh"  # script-ref-allow-missing: retired QA S3 owner
 
 FORBIDDEN_TREE_TEXT = {
     "backend/internal/observability/qa/lifecycle": (
@@ -228,6 +242,8 @@ def scan(root: Path) -> list[str]:
     for rel in RETIRED:
         if (root / rel).exists():
             failures.append(f"retired QA owner still exists: {rel}")
+    if (root / RETIRED_QA_S3_OWNER).exists():
+        failures.append(f"retired QA S3 coordinate owner still exists: {RETIRED_QA_S3_OWNER}")
     for rel, needles in REQUIRED.items():
         path = root / rel
         if not path.is_file():
@@ -323,7 +339,7 @@ def scan(root: Path) -> list[str]:
             "cleanup_owner": "tokenkey-qa-cleanup",
             "retention_hours": 24,
             "delete_unarchived": True,
-            "archive_uploads": "paused",
+            "archive_uploads": "retired",
         }:
             failures.append("independent local retention policy drift")
         lifecycle = policy["prod"]["lifecycle"]
@@ -346,6 +362,8 @@ def scan(root: Path) -> list[str]:
             or "user_qa" in policy["prod"]
         ):
             failures.append("raw archive must remain operations-only")
+        if policy["prod"]["archive"]["enabled"] is not False:
+            failures.append("QA S3 archive is retired; policy archive.enabled must stay false")
     except (KeyError, TypeError, yaml.YAMLError) as exc:
         failures.append(f"QA policy invalid: {exc}")
 
@@ -382,9 +400,17 @@ def scan(root: Path) -> list[str]:
             failures.append("repository partition owner drift")
         if (
             "user_export" in rollout
-            or rollout["component_release"]["runtime_contract"] != "raw_archive_v1"
+            or rollout["component_release"]["runtime_contract"] != "gateway_only_v1"
         ):
             failures.append("raw-only release contract drift")
+        archive_gate = rollout["QA_ARCHIVE_ENABLED"]
+        if (
+            archive_gate.get("state") != "retired"
+            or archive_gate.get("deploy_inject_default") is not False
+            or archive_gate.get("target_deploy_inject_default") is not False
+            or maintenance.get("live_archive_provider") != "none"
+        ):
+            failures.append("QA S3 retirement drift: deploys must not inject QA_ARCHIVE_ENABLED")
         if rollout["component_release"]["observed_live_state"] != "not_deployed":
             failures.append("raw-only release must not claim unobserved deployment")
     except (KeyError, TypeError, yaml.YAMLError) as exc:
@@ -536,6 +562,30 @@ def self_test() -> int:
                 "observed_live_state: deployed",
                 "unobserved deployment",
             ),
+            (
+                "ops/qa/deploy_rollout.yaml",
+                "deploy_inject_default: false",
+                "deploy_inject_default: true",
+                "QA S3 retirement drift",
+            ),
+            (
+                "ops/qa/policy.yaml",
+                "  archive:\n    enabled: false",
+                "  archive:\n    enabled: true",
+                "archive.enabled must stay false",
+            ),
+            (
+                "ops/stage0/deploy_via_ssm_bluegreen.sh",
+                "",
+                "\nassert_live_qa_archive_coordinates\n",
+                "assert_live_qa_archive_coordinates",
+            ),
+            (
+                "ops/stage0/deploy_via_ssm_bluegreen.sh",
+                "",
+                '\n  env_default QA_ARCHIVE_ENABLED "${QA_ARCHIVE_ENABLED:-true}"\n',
+                "env_default QA_ARCHIVE_ENABLED",
+            ),
         )
         for rel, old, new, expected in mutations:
             target = fixture / rel
@@ -546,7 +596,7 @@ def self_test() -> int:
             if not any(expected in item for item in scan(fixture)):
                 raise AssertionError(f"missed mutation: {rel}: {expected}")
             target.write_text(original)
-        for rel in (RETIRED[0], "frontend/src/api/qaBundle.ts"):
+        for rel in (RETIRED[0], "frontend/src/api/qaBundle.ts", RETIRED_QA_S3_OWNER):
             target = fixture / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("qaBundle")

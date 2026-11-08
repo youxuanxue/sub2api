@@ -33,10 +33,27 @@ _install_spec.loader.exec_module(installer)
 
 
 class RawArchiveReleasePlanTest(unittest.TestCase):
-    def test_rollout_is_raw_archive_contract(self):
+    def test_retired_qa_s3_rollout_plans_a_plain_gateway_release(self):
         self.assertEqual(
-            planner.release_mode(ROOT / "ops/qa/deploy_rollout.yaml"), "raw_archive"
+            planner.release_mode(ROOT / "ops/qa/deploy_rollout.yaml"), "gateway"
         )
+
+    def test_pre_retirement_rollback_target_still_classifies(self):
+        # deploy-stage0 reads the rollout from the target tag; tags <= 1.8.353
+        # still carry raw_archive_v1 and must remain deployable for rollback.
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "rollout.yaml"
+            p.write_text("prod: {component_release: {runtime_contract: raw_archive_v1}}\n")
+            self.assertEqual(planner.release_mode(p), "raw_archive")
+
+    def test_cli_publishes_gateway_mode_for_current_rollout(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "ops/stage0/prod_release_plan.py"),
+             "--operation", "classify", "--rollout", str(ROOT / "ops/qa/deploy_rollout.yaml")],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "mode=gateway\n")
 
     def test_unknown_contract_fails_closed(self):
         with tempfile.TemporaryDirectory() as d:
@@ -56,6 +73,7 @@ class RawArchiveReleasePlanTest(unittest.TestCase):
                 "prod: []",
                 "prod: {component_release: []}",
                 "prod: {component_release: {runtime_contract: independent_v1}}",
+                "prod: {component_release: {runtime_contract: [gateway_only_v1]}}",
             ):
                 with self.subTest(body=body):
                     path.write_text(body)

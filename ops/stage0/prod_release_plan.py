@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Validate the raw-only target contract before a gateway release mutates hosts.
+"""Validate the target runtime contract before a gateway release mutates hosts.
 
 Maintenance is published independently. Gateway release classification never
-infers its baseline or authorizes a raw storage migration.
+infers its baseline or authorizes a raw storage migration. QA S3 was retired on
+2026-11-08: ``gateway_only_v1`` plans a plain gateway release with no QA
+component step; ``raw_archive_v1`` stays accepted for rollback targets.
 """
 
 from __future__ import annotations
@@ -13,6 +15,13 @@ from pathlib import Path
 import yaml
 
 
+RELEASE_MODES = {
+    "gateway_only_v1": "gateway",
+    # Rollback targets released before the QA S3 retirement.
+    "raw_archive_v1": "raw_archive",
+}
+
+
 def release_mode(rollout: Path) -> str:
     data = yaml.safe_load(rollout.read_text())
     prod = data.get("prod") if isinstance(data, dict) else None
@@ -20,11 +29,12 @@ def release_mode(rollout: Path) -> str:
     contract = (
         component.get("runtime_contract") if isinstance(component, dict) else None
     )
-    if contract != "raw_archive_v1":
+    mode = RELEASE_MODES.get(contract) if isinstance(contract, str) else None
+    if mode is None:
         raise ValueError(
             "unsupported runtime contract; raw archive compatibility must be verified separately"
         )
-    return "raw_archive"
+    return mode
 
 
 def main() -> None:

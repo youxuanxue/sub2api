@@ -34,9 +34,16 @@ def probe_script_bytes() -> bytes:
     return CONTAINER_RESOLVER.read_bytes() + b"\n" + PROBE.read_bytes()
 
 
-def live_archive_coordinates() -> dict[str, str]:
-    """Read literal values from the same owner shipped to blue/green hosts."""
-    owner = ROOT / "ops/stage0/qa-runtime-environment.sh"
+# QA S3 archive retired 2026-11-08 (ops/qa/deploy_rollout.yaml): the owner file is
+# deleted and node1 copies come from the host timer tokenkey-qa-archive.
+LIVE_ARCHIVE_OWNER = ROOT / "ops/stage0/qa-runtime-environment.sh"  # script-ref-allow-missing: retired QA S3 owner
+
+
+def live_archive_coordinates() -> dict[str, str] | None:
+    """Read live S3 coordinates; ``None`` means the QA S3 archive is retired."""
+    owner = LIVE_ARCHIVE_OWNER
+    if not owner.is_file():
+        return None
     values = {}
     for line in owner.read_text(encoding="utf-8").splitlines():
         if line.startswith("QA_LIVE_ARCHIVE_STORAGE_"):
@@ -54,12 +61,17 @@ def evaluate_storage(storage: Any, *, maintenance_paused: bool = False) -> dict[
         return {"ok": False, "failures": ["qa_runtime_storage_unavailable"]}
     if storage.get("runtime_contract") != "independent-v1" or storage.get("runtime_stopped") is not True:
         failures.append("qa_runtime_pin_invalid")
+    coordinates = live_archive_coordinates()
+    if coordinates is None:
+        # No S3 provider to verify: only the stopped runtime pin stays meaningful.
+        return {"ok": not failures, "failures": failures, "deferred_until_resume": deferred,
+                "archive_provider": "retired"}
     environment = storage.get("environment")
     if not isinstance(environment, dict):
         environment = {}
     if environment.get("QA_ARCHIVE_ENABLED") != "true":
         failures.append("qa_archive_disabled_or_unknown")
-    for key, expected in live_archive_coordinates().items():
+    for key, expected in coordinates.items():
         if environment.get(key) != expected:
             failures.append("qa_archive_coordinate_drift:" + key)
     if storage.get("credentials_file_present") is not False:

@@ -18,7 +18,7 @@
 
 ## Linked Tests
 
-- `ops/stage0/test_prod_component_release.py`::`RawArchiveReleasePlanTest.test_rollout_is_raw_archive_contract`
+- `ops/stage0/test_prod_component_release.py`::`RawArchiveReleasePlanTest.test_retired_qa_s3_rollout_plans_a_plain_gateway_release`
 - `ops/stage0/test_prod_component_release.py`::`BlueGreenCompletionTest.test_us051_completion_waits_and_propagates_drain_failure`
 - `ops/stage0/test_bluegreen_host_runtime.py`::`HostRuntimeTest.test_both_colors_receive_readonly_identity_without_secret_contents`
 - `backend/internal/server/routes/qa_retired_routes_test.go`::`TestRetiredQAProductRoutesReturn404`
