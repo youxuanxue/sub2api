@@ -458,6 +458,47 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class QaCleanupBacklogTest(unittest.TestCase):
+    """Cleanup now reclaims verified hours and holds back only unarchived ones,
+    so the unit stays green while the archive falls behind. node1 was down
+    2026-11-04..07 with no receipt-age alert; this is that alert."""
+
+    def write(self, cleanup):
+        import tempfile
+        d = pathlib.Path(tempfile.mkdtemp())
+        p = d / "cleanup.json"
+        p.write_text(json.dumps({"ok": True, "result": {"cleanup": cleanup}}))
+        return p
+
+    def test_old_blocked_hour_is_unhealthy(self):
+        p = self.write({"oldest_receipt_blocked_hour_utc": "2026-11-04T16:00:00Z", "receipt_blocked_hours": 2})
+        now = watch.datetime.fromisoformat("2026-11-05T17:00:00+00:00").timestamp()
+        fact = watch.qa_cleanup_backlog_fact(p, now)
+        self.assertFalse(fact["healthy"])
+        self.assertIn("2026-11-04T16:00:00Z", fact["reason"])
+        self.assertIn("2 hours held back", fact["reason"])
+
+    def test_recent_blocked_hour_is_not_an_alert(self):
+        p = self.write({"oldest_receipt_blocked_hour_utc": "2026-11-05T10:00:00Z", "receipt_blocked_hours": 1})
+        now = watch.datetime.fromisoformat("2026-11-05T17:00:00+00:00").timestamp()
+        self.assertIsNone(watch.qa_cleanup_backlog_fact(p, now))
+
+    def test_no_blocked_hour_or_missing_receipt_is_not_an_alert(self):
+        self.assertIsNone(watch.qa_cleanup_backlog_fact(self.write({"receipt_blocked_hours": 0}), 0))
+        self.assertIsNone(watch.qa_cleanup_backlog_fact(pathlib.Path("/nonexistent/cleanup.json"), 0))
+
+    def test_unparseable_hour_is_reported(self):
+        p = self.write({"oldest_receipt_blocked_hour_utc": "not-a-time"})
+        self.assertFalse(watch.qa_cleanup_backlog_fact(p, 0)["healthy"])
+
+    def test_receipt_path_matches_the_host_runner(self):
+        root = pathlib.Path(__file__).resolve().parents[2]
+        runner = (root / "ops/qa/local_maintenance_host.py").read_text()
+        self.assertIn("STATE = Path('/var/lib/tokenkey/qa-local')", runner)
+        self.assertIn("STATE/(phase+('-plan' if dry_run else '')+'.json')", runner)
+        self.assertEqual(watch.QA_CLEANUP_RECEIPT, pathlib.Path("/var/lib/tokenkey/qa-local/cleanup.json"))
+
+
 class QaArchiveCoverageTest(unittest.TestCase):
     """The archive push (tar stream to node1) went unmonitored in production
     until 2026-11-03: prod's qa-cleanup paged every 5 minutes for a correct

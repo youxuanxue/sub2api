@@ -31,6 +31,10 @@ type LocalCleanupResult struct {
 	ArchiveReceiptRoot  string         `json:"archive_receipt_root,omitempty"`
 	ArchiveEnvironment  string         `json:"archive_environment,omitempty"`
 	ReceiptBlockedHours int            `json:"receipt_blocked_hours,omitempty"`
+	// The oldest hour still waiting for its node1 receipt. Hours with a
+	// verified receipt are reclaimed anyway, so this is the signal that the
+	// archive is falling behind (host_https_watch alerts on its age).
+	OldestReceiptBlockedHour *time.Time `json:"oldest_receipt_blocked_hour_utc,omitempty"`
 	// Why each hour was held back, so an operator can tell "not archived yet"
 	// from "a receipt claims an archive that is not on node1".
 	ReceiptBlockedReasons []string `json:"receipt_blocked_reasons,omitempty"`
@@ -267,24 +271,12 @@ func RunLocalCleanup(ctx context.Context, conn *sql.Conn, opts Options, dryRun b
 		result.SelectedHours = append(result.SelectedHours, h)
 	}
 	sort.Slice(result.SelectedHours, func(i, j int) bool { return result.SelectedHours[i].Before(result.SelectedHours[j]) })
-	if len(result.SelectedHours) > MaxTransitionDrops {
-		result.SelectedHours = result.SelectedHours[:MaxTransitionDrops]
-	}
 	if opts.ArchiveReceiptRoot != "" {
-		allowed := make([]time.Time, 0, len(result.SelectedHours))
-		var receiptErr error
-		for _, h := range result.SelectedHours {
-			ok, checkErr := hasNode1Receipt(opts.ArchiveReceiptRoot, opts.ArchiveEnvironment, h)
-			if checkErr != nil {
-				receiptErr = errors.Join(receiptErr, fmt.Errorf("%s: %w", h.Format(time.RFC3339), checkErr))
-			}
-			if ok {
-				allowed = append(allowed, h)
-			} else {
-				result.ReceiptBlockedHours++
-			}
-		}
-		result.SelectedHours = allowed
+		gate := gateHoursOnNode1Receipts(opts.ArchiveReceiptRoot, opts.ArchiveEnvironment, result.SelectedHours)
+		result.SelectedHours = gate.Allowed
+		result.ReceiptBlockedHours = gate.Blocked
+		result.OldestReceiptBlockedHour = gate.OldestBlocked
+		receiptErr := gate.Err
 		if result.ReceiptBlockedHours > 0 {
 			// Holding an hour back IS the gate working: the copy it would have
 			// deleted is not provably on node1. Report it as a result, not an
@@ -299,12 +291,13 @@ func RunLocalCleanup(ctx context.Context, conn *sql.Conn, opts Options, dryRun b
 				result.ReceiptBlockedReasons = append(result.ReceiptBlockedReasons,
 					"node1 archive receipt missing")
 			}
-			// Do not drop any source while the gate is uncertain -- including
-			// hours whose own receipt verified, because a batch that is partly
-			// unprovable says the archive is not keeping up.
-			result.SelectedHours = nil
-			return result, nil
 		}
+	}
+	// Bound drops per run after the receipt gate, not before: truncating first
+	// let a run of unarchived oldest hours fill every slot, so newer hours that
+	// node1 already holds were never reclaimed.
+	if len(result.SelectedHours) > MaxTransitionDrops {
+		result.SelectedHours = result.SelectedHours[:MaxTransitionDrops]
 	}
 	if dryRun {
 		return result, nil
@@ -333,6 +326,39 @@ func RunLocalCleanup(ctx context.Context, conn *sql.Conn, opts Options, dryRun b
 		result.Expiries = append(result.Expiries, expiry)
 	}
 	return result, joined
+}
+
+// receiptGate is the per-hour node1 receipt decision for one cleanup batch.
+type receiptGate struct {
+	Allowed       []time.Time
+	Blocked       int
+	OldestBlocked *time.Time
+	Err           error
+}
+
+// gateHoursOnNode1Receipts gates each hour on its own receipt: an hour is
+// dropped only when node1 provably holds it. Holding the whole batch back
+// because one hour was missing let two failed pushes block 62 verified hours
+// on prod (2026-11-08) while the disk kept filling. The archive falling behind
+// is reported through OldestBlocked instead. hours must be sorted ascending.
+func gateHoursOnNode1Receipts(root, environment string, hours []time.Time) receiptGate {
+	gate := receiptGate{Allowed: make([]time.Time, 0, len(hours))}
+	for _, h := range hours {
+		ok, checkErr := hasNode1Receipt(root, environment, h)
+		if checkErr != nil {
+			gate.Err = errors.Join(gate.Err, fmt.Errorf("%s: %w", h.Format(time.RFC3339), checkErr))
+		}
+		if ok {
+			gate.Allowed = append(gate.Allowed, h)
+			continue
+		}
+		gate.Blocked++
+		if gate.OldestBlocked == nil {
+			blocked := h
+			gate.OldestBlocked = &blocked
+		}
+	}
+	return gate
 }
 
 // expiredHotHours also finds raw/DLQ files from hours where DB capture failed.

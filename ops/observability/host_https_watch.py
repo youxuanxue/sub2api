@@ -11,6 +11,7 @@ import sys
 import subprocess
 from pathlib import Path
 import time
+from datetime import datetime
 from urllib.parse import urlparse
 
 from https_health import probe_health
@@ -202,6 +203,37 @@ def physical_backup_fact(path: Path, now: float) -> dict:
     return {"healthy": False, "reason": last_error}
 
 
+# Cleanup reclaims every hour whose node1 receipt verifies and holds back only
+# the rest, so a healthy unit can hide an archive that stopped keeping up. The
+# oldest held-back hour is the signal: node1 was down 2026-11-04..07 and no
+# receipt-age alert existed. 24h tolerates one slow push across the 4-hourly
+# archive cadence plus the 24h retention boundary.
+QA_CLEANUP_RECEIPT = Path("/var/lib/tokenkey/qa-local/cleanup.json")
+QA_CLEANUP_MAX_BLOCKED_AGE = 24 * 3600
+
+
+def qa_cleanup_backlog_fact(path: Path, now: float) -> dict | None:
+    """Return an unhealthy fact when the oldest receipt-blocked hour is too old."""
+    try:
+        receipt = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    cleanup = ((receipt.get("result") or {}).get("cleanup") or {}) if isinstance(receipt, dict) else {}
+    oldest = cleanup.get("oldest_receipt_blocked_hour_utc") if isinstance(cleanup, dict) else None
+    if not isinstance(oldest, str) or not oldest:
+        return None
+    try:
+        stamp = datetime.fromisoformat(oldest.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return {"healthy": False, "reason": "invalid oldest_receipt_blocked_hour_utc"}
+    age = now - stamp
+    if age <= QA_CLEANUP_MAX_BLOCKED_AGE:
+        return None
+    blocked = cleanup.get("receipt_blocked_hours", 0)
+    return {"healthy": False,
+            "reason": f"node1 archive behind: oldest unarchived hour {oldest} is {int(age // 3600)}h old ({blocked} hours held back)"}
+
+
 def probe_job(name: str, *, expected_paused=False) -> dict:
     if name == "tokenkey-postgres-recovery":
         return physical_backup_fact(Path("/var/lib/tokenkey/postgres-backup/health.json"), time.time())
@@ -214,7 +246,12 @@ def probe_job(name: str, *, expected_paused=False) -> dict:
     # Read after systemd: the job may start while properties are collected.
     # Linux monotonic() shares systemd's CLOCK_MONOTONIC; /proc/uptime is
     # truncated to centiseconds and includes suspend time (CLOCK_BOOTTIME).
-    return job_fact(service, timer, time.monotonic(), JOB_LIMITS[name], expected_paused=expected_paused)
+    fact = job_fact(service, timer, time.monotonic(), JOB_LIMITS[name], expected_paused=expected_paused)
+    if name == "tokenkey-qa-cleanup" and fact["healthy"] and not expected_paused:
+        backlog = qa_cleanup_backlog_fact(QA_CLEANUP_RECEIPT, time.time())
+        if backlog is not None:
+            return backlog
+    return fact
 
 
 def tick_jobs(jobs, previous, now, probe, send, node="unknown"):
