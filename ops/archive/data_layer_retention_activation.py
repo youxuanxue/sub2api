@@ -32,9 +32,6 @@ WITH bounds AS MATERIALIZED (
   SELECT clock_timestamp() AS server_clock, clock_timestamp()-interval '30 days' AS cutoff
 ), settings AS (
   SELECT value::jsonb AS value FROM settings WHERE key='ops_advanced_settings'
-), telemetry AS (
-  SELECT last_success_at,last_error_at,last_result FROM ops_job_heartbeats
-  WHERE job_name='telemetry_archive_shadow'
 ), maintenance AS (
   SELECT last_success_at,last_error_at,last_result FROM ops_job_heartbeats
   WHERE job_name='ops_partition_maintenance'
@@ -49,16 +46,7 @@ SELECT json_build_object(
   'usage_legacy_attached',EXISTS(SELECT 1 FROM pg_inherits WHERE inhparent=to_regclass('public.usage_logs') AND inhrelid=to_regclass('public.usage_logs_legacy')),
   'usage_future_partition_exists',to_regclass('public.usage_logs_' || to_char((clock_timestamp() AT TIME ZONE 'UTC')::date+1,'YYYYMMDD')) IS NOT NULL,
   'usage_partition_maintenance_last_success_at',(SELECT to_char(last_success_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') FROM maintenance),
-  'usage_partition_maintenance_clean',COALESCE((SELECT last_success_at>=clock_timestamp()-interval '26 hours' AND (last_error_at IS NULL OR last_error_at<=last_success_at) FROM maintenance),false),
-  'telemetry_last_success_at',(SELECT to_char(last_success_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') FROM telemetry),
-  'telemetry_last_error_at',(SELECT to_char(last_error_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') FROM telemetry),
-  'telemetry_stats',(SELECT CASE WHEN last_result IS NULL THEN NULL ELSE last_result::jsonb END FROM telemetry),
-  'telemetry_clean',COALESCE((SELECT
-    last_success_at >= clock_timestamp()-interval '3 minutes'
-    AND (last_error_at IS NULL OR last_error_at <= last_success_at)
-    AND COALESCE((last_result::jsonb->>'dropped')::bigint,-1)=0
-    AND COALESCE((last_result::jsonb->>'failed')::bigint,-1)=0
-    FROM telemetry),false)
+  'usage_partition_maintenance_clean',COALESCE((SELECT last_success_at>=clock_timestamp()-interval '26 hours' AND (last_error_at IS NULL OR last_error_at<=last_success_at) FROM maintenance),false)
 )::text;
 """.strip()
     return "\n".join([
@@ -149,14 +137,6 @@ def _ready(payload: dict[str, Any]) -> tuple[bool,list[str]]:
         or not usage_tomorrow_covered
     ):
         reasons.append("usage_logs partition cutover or maintenance proof is incomplete")
-    stats = ops.get("telemetry_stats")
-    if (
-        ops.get("telemetry_clean") is not True
-        or not isinstance(stats,dict)
-        or stats.get("dropped") != 0
-        or stats.get("failed") != 0
-    ):
-        reasons.append("telemetry shadow has no fresh zero-loss heartbeat")
     return not reasons,reasons
 
 

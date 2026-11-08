@@ -424,7 +424,6 @@ color_container() { printf 'tokenkey-%s\n' "$1"; }
 container_image() { printf 'ghcr.io/youxuanxue/sub2api:1.8.98\n'; }
 image_repo() { printf 'ghcr.io/youxuanxue/sub2api\n'; }
 env_get() { printf 'ghcr.io/youxuanxue/sub2api:1.8.98\n'; }
-TELEMETRY_ARCHIVE_ENABLED=""
 deploy_target_color
 """
     return subprocess.run(
@@ -503,7 +502,6 @@ TARGET_CONTAINER=""
 CUTOVER_COMMITTED=0
 DEPLOY_PROFILE=prod
 TAG=1.8.99
-TELEMETRY_ARCHIVE_ENABLED=""
 {function_name}
 """
         return subprocess.run(
@@ -753,42 +751,6 @@ validate_prepared_receipt blue green
                     result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
                     self.assertEqual(result.returncode == 0, mutation == "none", result.stdout + result.stderr)
 
-    def test_telemetry_defaults_are_empty_and_explicit_storage_survives(self) -> None:
-        for bucket, region in [("", ""), ("explicit-archive", "us-west-2")]:
-            with self.subTest(bucket=bucket):
-                proc, params, remote = _render(env_extra={
-                    "TELEMETRY_ARCHIVE_BUCKET": bucket, "TELEMETRY_ARCHIVE_REGION": region,
-                })
-                self.assertEqual(proc.returncode, 0, proc.stderr)
-                delivered = dict(part.split("=", 1) for part in shlex.split(_launch_command(params["commands"]))
-                                 if "=" in part)
-                self.assertEqual(delivered["TELEMETRY_ARCHIVE_BUCKET"], bucket)
-                self.assertEqual(delivered["TELEMETRY_ARCHIVE_REGION"], region)
-                functions = "\n".join(_extract_shell_function(remote, name) for name in
-                                      ("env_default", "ensure_profile_environment"))
-                for existing in (False, True):
-                    with tempfile.TemporaryDirectory() as tmp:
-                        env_file = pathlib.Path(tmp) / ".env"
-                        env_file.write_text("TELEMETRY_ARCHIVE_BUCKET=host-custom\nTELEMETRY_ARCHIVE_REGION=host-region\n"
-                                            if existing else "")
-                        script = f"""set -euo pipefail
-{functions}
-ENV_FILE={shlex.quote(str(env_file))}
-DEPLOY_PROFILE=prod
-TELEMETRY_ARCHIVE_BUCKET={shlex.quote(delivered['TELEMETRY_ARCHIVE_BUCKET'])}
-TELEMETRY_ARCHIVE_REGION={shlex.quote(delivered['TELEMETRY_ARCHIVE_REGION'])}
-log() {{ :; }}
-env_get() {{ sed -n "s/^$1=//p" "$ENV_FILE"; }}
-env_set() {{ printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"; }}
-ensure_profile_environment
-"""
-                        result = subprocess.run(["bash"], input=script, capture_output=True, text=True)
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                        final = dict(line.split("=", 1) for line in env_file.read_text().splitlines())
-                        self.assertEqual(final["TELEMETRY_ARCHIVE_ENABLED"], "false")
-                        self.assertEqual(final["TELEMETRY_ARCHIVE_BUCKET"], "host-custom" if existing else bucket)
-                        self.assertEqual(final["TELEMETRY_ARCHIVE_REGION"], "host-region" if existing else region)
-
     def test_rejects_unknown_instance_id_shape(self) -> None:
         proc, params, remote = _render("x-invalid")
         self.assertNotEqual(proc.returncode, 0)
@@ -934,10 +896,7 @@ run_bluegreen_stage
         self.assertIn("TAG='1.8.99'", joined)
         self.assertIn("DEPLOY_PROFILE='prod'", joined)
         self.assertNotIn("QA_ARCHIVE_", joined)
-        self.assertIn("TELEMETRY_ARCHIVE_ENABLED=''", joined)
-        self.assertIn("TELEMETRY_ARCHIVE_BUCKET=''", joined)
-        self.assertIn("TELEMETRY_ARCHIVE_REGION=''", joined)
-        self.assertIn("TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES='33554432'", joined)
+        self.assertNotIn("TELEMETRY_ARCHIVE_", joined)
         self.assertIn("MEDIA_STORAGE_BUCKET=''", joined)
         self.assertIn("MEDIA_STORAGE_DRIVER='local'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_ENABLED='false'", joined)
@@ -977,8 +936,8 @@ run_bluegreen_stage
         self.assertNotIn("env_set SUB2API_IMAGES_REASONING_EFFORT", remote)
         self.assertNotIn("env_set SUB2API_IMAGES_PROMPT_SCAFFOLD", remote)
         self.assertNotIn("QA_ARCHIVE_", remote)
-        self.assertEqual(remote.count("- TELEMETRY_ARCHIVE_ENABLED="), 2)
-        self.assertIn("env_default TELEMETRY_ARCHIVE_ENABLED false", remote)
+        # 2026-11-08 用户决定保持关闭并删除代码：遥测归档 env 不得重新进入部署模板。
+        self.assertNotIn("TELEMETRY_ARCHIVE_", remote)
         self.assertIn('TOKENKEY_BLUEGREEN_HEALTH_TRIES:-60', remote)
         self.assertIn('TOKENKEY_BLUEGREEN_UNHEALTHY_LIMIT:-3', remote)
         self.assertIn('entered terminal state ${status}; failing health wait immediately', remote)
@@ -1372,14 +1331,6 @@ finish_pending_drain
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("cutover timestamp", proc.stderr)
         self.assertNotIn("cutover_at=", github_output)
-
-    def test_telemetry_enable_is_explicitly_delivered(self) -> None:
-        proc, params, remote = _render(env_extra={"TELEMETRY_ARCHIVE_ENABLED": "true"})
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        assert params is not None
-        assert remote is not None
-        self.assertIn("TELEMETRY_ARCHIVE_ENABLED='true'", "\n".join(params["commands"]))
-        self.assertIn('env_set TELEMETRY_ARCHIVE_ENABLED "${TELEMETRY_ARCHIVE_ENABLED}"', remote)
 
     def test_health_wait_fails_fast_only_for_terminal_or_repeated_unhealthy_states(self) -> None:
         proc, _, remote = _render()

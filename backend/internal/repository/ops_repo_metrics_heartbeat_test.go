@@ -35,7 +35,7 @@ func TestUpsertJobHeartbeatPersistsErrorResult(t *testing.T) {
 	result := `{"dropped":1,"failed":0}`
 	repo := &opsRepository{db: db}
 	require.NoError(t, repo.UpsertJobHeartbeat(context.Background(), &service.OpsUpsertJobHeartbeatInput{
-		JobName:     "telemetry_archive_shadow",
+		JobName:     "example_job",
 		LastRunAt:   &now,
 		LastErrorAt: &now,
 		LastError:   &message,

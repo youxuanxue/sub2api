@@ -8,21 +8,6 @@ import unittest
 COMPOSE = pathlib.Path(__file__).with_name("docker-compose.yml")
 ENV_EXAMPLE = pathlib.Path(__file__).with_name(".env.example")
 
-TELEMETRY_DEFAULTS = {
-    "ENABLED": "false",
-    "REGION": "",
-    "BUCKET": "",
-    "PREFIX": "prod/raw-telemetry",
-    "QUEUE_SIZE": "8192",
-    "QUEUE_MAX_BYTES": "33554432",
-    "MAX_EVENT_BYTES": "1048576",
-    "BATCH_SIZE": "256",
-    "WORKER_COUNT": "4",
-    "FLUSH_INTERVAL_SECONDS": "5",
-    "PUT_TIMEOUT_SECONDS": "10",
-}
-
-
 def logging_violations(text: str) -> list[str]:
     violations: list[str] = []
     if "x-tokenkey-logging: &tokenkey-logging" not in text:
@@ -43,20 +28,10 @@ def logging_violations(text: str) -> list[str]:
 
 
 class ComposeRuntimeGuardsTest(unittest.TestCase):
-    def test_raw_telemetry_shadow_is_explicitly_default_off(self) -> None:
-        text = COMPOSE.read_text(encoding="utf-8")
-        env_values = {}
-        for line in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines():
-            if line.startswith("TELEMETRY_ARCHIVE_"):
-                key, value = line.split("=", 1)
-                env_values[key.removeprefix("TELEMETRY_ARCHIVE_")] = value
-        self.assertEqual(env_values, TELEMETRY_DEFAULTS)
-        for name, value in TELEMETRY_DEFAULTS.items():
-            self.assertIn(
-                f"TELEMETRY_ARCHIVE_{name}=${{TELEMETRY_ARCHIVE_{name}:-{value}}}",
-                text,
-            )
-        self.assertNotIn("TELEMETRY_ARCHIVE_ACCESS_KEY", text)
+    def test_retired_telemetry_archive_env_is_absent(self) -> None:
+        # 2026-11-08 用户决定保持关闭并删除代码；不得在 Stage0 模板重新引入。
+        for path in (COMPOSE, ENV_EXAMPLE):
+            self.assertNotIn("TELEMETRY_ARCHIVE_", path.read_text(encoding="utf-8"), path.name)
 
     def test_all_stage0_services_use_bounded_json_logging(self) -> None:
         self.assertEqual(logging_violations(COMPOSE.read_text(encoding="utf-8")), [])

@@ -3798,59 +3798,25 @@
       "rationale": "Focused regressions for the bounded fallback: rate limiting, deterministic file/byte convergence, fail-closed deletion errors, and path-safe persistence of unsafe correlation IDs."
     },
     {
-      "path": "backend/internal/telemetryarchive/shadow.go",
-      "must_contain": [
-        "type Sink interface",
-        "DefaultQueueMaxBytes",
-        "s.slots <- struct{}{}",
-        "s.reserveBytes(maxReservation)",
-        "s.recordDrop(\"queue_full\")",
-        "context.WithTimeout(context.Background(), s.config.PutTimeout)",
-        "\"schema-version\":",
-        "\"record-count\":",
-        "s.instance"
-      ],
-      "rationale": "Single owner for the best-effort raw telemetry shadow. Count is reserved before JSON serialization, queued/in-flight payload bytes have an independent hard bound, uploads have a timeout, and versioned object metadata plus per-process keys make replay deterministic without putting S3 on the PostgreSQL request path. Dropping any of these can affect online writes or silently corrupt archive coverage while ordinary repository tests remain green."
-    },
-    {
-      "path": "backend/internal/service/telemetry_archive_health.go",
-      "must_contain": [
-        "telemetry_archive_shadow",
-        "stats := s.shadow.Stats()",
-        "stats.Dropped > 0 || stats.Failed > 0",
-        "LastResult: &resultText"
-      ],
-      "rationale": "Single runtime-health owner for telemetry activation. It publishes cumulative JSON stats through ops_job_heartbeats and keeps any process-level drop or upload failure unhealthy until restart; without it an enabled but lossy shadow can look green and incorrectly support a later PostgreSQL-retention decision."
-    },
-    {
-      "path": "backend/internal/repository/telemetry_archive_provider.go",
-      "must_contain": [
-        "func ProvideTelemetryArchive(cfg *config.Config) *telemetryarchive.Shadow",
-        "func ProvideUsageLogRepository(",
-        "repo.telemetry = archive",
-        "func ProvideOpsRepository(db *sql.DB, archive *telemetryarchive.Shadow) service.OpsRepository"
-      ],
-      "rationale": "Repository injection owner for usage, ops-error, and ops-system telemetry. The shadow package alone is inert; these provider assignments ensure every committed PostgreSQL write path shares the same bounded sink without making S3 canonical."
-    },
-    {
       "path": "backend/internal/repository/usage_log_repo_insert.go",
       "must_contain": [
-        "telemetryValue: r.snapshotUsageTelemetry(log, prepared)",
-        "ownedLog := *log",
-        "r.enqueueUsageValue(req.telemetryValue)",
-        "r.enqueueUsageAfterCommit(tx, log)"
+        "ownedLog := *log"
       ],
-      "rationale": "Usage telemetry must be captured at the committed insert call sites, including transaction and late batch completion paths. The worker-owned copy prevents a timed-out caller from racing a still-running batch, while the immutable telemetry value ensures a late successful insert is shadowed exactly once without serializing before Shadow reserves capacity."
+      "rationale": "The worker-owned copy prevents a timed-out caller from racing a still-running usage batch. The raw telemetry S3 shadow was retired (2026-11-08 用户决定保持关闭并删除代码); its usage enqueue hooks must not return through an upstream merge or revert.",
+      "must_not_contain": [
+        "telemetryarchive",
+        "snapshotUsageTelemetry",
+        "telemetryValue"
+      ]
     },
     {
       "path": "backend/internal/repository/ops_repo.go",
-      "must_contain": [
-        "r.enqueueOpsError(input)",
-        "snapshot.UpstreamErrors = nil",
-        "r.telemetry.Enqueue(telemetryarchive.DatasetOpsError, &snapshot)",
-        "r.telemetry.Enqueue(telemetryarchive.DatasetOpsSystem, input)"
-      ],
-      "rationale": "Ops error and system writes are the other two raw telemetry producers. Provider wiring can remain compile-clean while an upstream merge drops these post-commit enqueue call sites, silently making the archive incomplete. The ops-error snapshot must also discard the non-persisted raw upstream graph before the long-lived S3 write, retaining only the sanitized JSON stored in PostgreSQL."
+      "rationale": "Ops error/system writes no longer feed a raw telemetry S3 shadow (2026-11-08 用户决定保持关闭并删除代码). Pin the absence so the retired post-commit enqueue path cannot be reintroduced silently.",
+      "must_not_contain": [
+        "telemetryarchive",
+        "r.telemetry",
+        "enqueueOpsError"
+      ]
     },
     {
       "path": "backend/internal/repository/ops_repo_user_visible_failure_tk.go",
@@ -3882,35 +3848,25 @@
       "rationale": "The INSERT column list, its $N placeholders and the Go args slice must be proven equal by derivation from insertOpsErrorLogSQL, not by a hardcoded count. The previous require.Len(args, 38) had no mechanical tie to the SQL: it only failed after a mismatch was already written, and it is exactly the kind of assertion an upstream merge rewrites to the new number instead of investigating."
     },
     {
-      "path": "backend/internal/repository/telemetry_archive_hooks_test.go",
-      "must_contain": [
-        "TestUS042UsageBestEffortLateCompletionStillEnqueuesTelemetry",
-        "TestUS042UsageBatchLateCompletionEnqueuesImmutableTelemetryOnce",
-        "TestUS042OpsErrorTelemetryExcludesNonPersistedDiagnostics",
-        "TestOpsBatchTelemetryWaitsForCommit",
-        "TestOpsSystemTelemetryMatchesPersistedNormalization"
-      ],
-      "rationale": "Focused behavior guards for post-commit telemetry: best-effort and normal usage batches preserve immutable late completions, failed commits emit nothing, and ops-system payloads match persisted normalization."
-    },
-    {
       "path": "backend/internal/repository/wire.go",
       "must_contain": [
-        "ProvideTelemetryArchive,",
-        "ProvideUsageLogRepository,",
-        "ProvideOpsRepository,"
+        "NewUsageLogRepository,",
+        "NewOpsRepository,"
       ],
-      "rationale": "Wire registration for the telemetry archive provider and both repository consumers. An upstream merge can restore the old constructors while compiling successfully, leaving the S3 shadow silently unused."
+      "rationale": "Usage and ops repositories use the upstream constructors since the telemetry archive was retired (2026-11-08 用户决定保持关闭并删除代码). Reintroducing the archive providers would rewire an S3 shadow into every committed write.",
+      "must_not_contain": [
+        "ProvideTelemetryArchive",
+        "ProvideUsageLogRepository",
+        "ProvideOpsRepository"
+      ]
     },
     {
       "path": "backend/cmd/server/wire.go",
-      "must_contain": [
-        "telemetryArchive *telemetryarchive.Shadow,",
-        "telemetryArchiveHealth *service.TelemetryArchiveHealth,",
-        "telemetryArchiveHealth.Stop(ctx)",
-        "archiveErr = telemetryArchive.Stop(ctx)",
-        "return errors.Join(healthErr, archiveErr)"
-      ],
-      "rationale": "Application shutdown must stop the telemetry heartbeat before draining the bounded shadow through the normal cleanup owner. Losing these hooks leaves a stale green heartbeat or discards queued committed events on restart even though ordinary runtime writes look healthy."
+      "rationale": "The telemetry archive shadow and its heartbeat were retired (2026-11-08 用户决定保持关闭并删除代码); application cleanup must not regain their shutdown hooks.",
+      "must_not_contain": [
+        "telemetryarchive",
+        "TelemetryArchive"
+      ]
     },
     {
       "path": "backend/internal/service/gateway_request_tk_prompt_fingerprint.go",
@@ -12167,17 +12123,18 @@
       "path": "deploy/domestic/bluegreen.py",
       "must_contain": [
         "domestic QA capture must stay enabled",
-        "domestic telemetry archive must stay disabled",
         "domestic QA archive upload must stay disabled",
         "domestic QA archive storage must not be s3",
         "env['QA_CAPTURE_ENABLED'] = 'true'",
-        "env['TELEMETRY_ARCHIVE_ENABLED'] = 'false'",
         "def reclaim_candidate_name(target, routed):",
         "if target == routed:",
         "if requests != 0:",
         "reclaim_candidate_name(target, old)"
       ],
-      "rationale": "cn-prod candidates must keep local QA capture on and refuse telemetry archive, QA archive, and S3 storage. Reverting the overlay to capture-disabled or copying a prod archive env would upload or drop capture without a gateway code change. reclaim_candidate_name must keep deciding on ROUTED-ness, not run state: cn-prod has two legitimate steady states that leave a container on the candidate name -- promote() keeps the outgoing color exited for rollback, and remediate-newapi-nonstream-timeout.sh deliberately recreates the previous color so both sides carry the new budget. Refusing every running container blocked all cn-prod releases after any budget remediation; dropping the routed-color or in_flight checks would instead cut live traffic or truncate a draining response."
+      "rationale": "cn-prod candidates must keep local QA capture on and refuse QA archive and S3 storage. The telemetry archive env is gone (2026-11-08 用户决定保持关闭并删除代码) and must not return. Reverting the overlay to capture-disabled or copying a prod archive env would upload or drop capture without a gateway code change. reclaim_candidate_name must keep deciding on ROUTED-ness, not run state: cn-prod has two legitimate steady states that leave a container on the candidate name -- promote() keeps the outgoing color exited for rollback, and remediate-newapi-nonstream-timeout.sh deliberately recreates the previous color so both sides carry the new budget. Refusing every running container blocked all cn-prod releases after any budget remediation; dropping the routed-color or in_flight checks would instead cut live traffic or truncate a draining response.",
+      "must_not_contain": [
+        "TELEMETRY_ARCHIVE_"
+      ]
     },
     {
       "path": "deploy/domestic/test_bluegreen.py",
@@ -12196,7 +12153,7 @@
         "def test_candidate_enables_capture_without_s3_upload(",
         "def test_candidate_rejects_capture_off_archive_upload_and_s3("
       ],
-      "rationale": "Domestic blue/green must prove capture is forced on while telemetry archive, QA archive, and S3 storage are rejected."
+      "rationale": "Domestic blue/green must prove capture is forced on while QA archive and S3 storage are rejected."
     },
     {
       "path": "deploy/domestic/post_release.py",
@@ -14863,11 +14820,11 @@
     },
     {
       "path": "ops/observability/data_layer_safety_verdict.py",
-      "must_contain": [
-        "reported_loss = True",
-        "telemetry_run = _timestamp(telemetry.get(\"last_run_at\"))"
-      ],
-      "rationale": "Cumulative shadow loss counters amplify one failed upload into three findings; the loss finding owns its derived error/stale-clean-heartbeat, and liveness stays on last_run_at so a dead publisher still fails closed."
+      "rationale": "The telemetry archive gate was retired (2026-11-08 用户决定保持关闭并删除代码). The data-layer verdict must not regain a telemetry finding that would page on a heartbeat no process writes.",
+      "must_not_contain": [
+        "TELEMETRYSTATS",
+        "telemetry_archive"
+      ]
     },
     {
       "path": "backend/internal/service/openai_gateway_qwen_token_plan_tk_test.go",
@@ -16984,8 +16941,6 @@
     {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
       "must_contain": [
-        "env_default TELEMETRY_ARCHIVE_BUCKET \"${TELEMETRY_ARCHIVE_BUCKET:-}\"",
-        "DELIVER_TELEMETRY_BUCKET=\"${TELEMETRY_ARCHIVE_BUCKET:-}\"",
         "append_layout_exception_caddy() {",
         "profiles: [\"caddy-adopt\"]",
         "container_name: tokenkey-caddy",
@@ -17003,9 +16958,10 @@
         "QA_RUNTIME_KEYS",
         "env_default QA_ARCHIVE_ENABLED",
         "- QA_ARCHIVE_ENABLED=",
-        "qa-runtime-environment.sh"
+        "qa-runtime-environment.sh",
+        "TELEMETRY_ARCHIVE_"
       ],
-      "rationale": "QA S3 was retired on 2026-11-08: prod deploys never inject QA_ARCHIVE_ENABLED, demand S3 coordinates, or pass QA_ARCHIVE_* into either color (absent key = gateway default off); QA_CAPTURE_* stays. .env keys read after cutover (API_DOMAIN) are checked before any route switch. Disabled telemetry has no implicit AWS storage destination. Layout-exception caddy is recorded on the blue/green compose with the 100m x 5 log cap and is started by name when the Stage0 compose file is absent."
+      "rationale": "QA S3 and the telemetry archive were retired on 2026-11-08 (user decision): prod deploys never inject QA_ARCHIVE_ENABLED, demand S3 coordinates, or pass QA_ARCHIVE_* into either color (absent key = gateway default off); QA_CAPTURE_* stays. .env keys read after cutover (API_DOMAIN) are checked before any route switch. Disabled telemetry has no implicit AWS storage destination. Layout-exception caddy is recorded on the blue/green compose with the 100m x 5 log cap and is started by name when the Stage0 compose file is absent."
     },
     {
       "path": "deploy/aws/stage0/qa-runtime-compose.yml",
@@ -17059,8 +17015,7 @@
       "must_contain": [
         "def test_env_without_qa_keys_deploys_without_qa_archive(",
         "def test_stale_qa_archive_keys_in_dotenv_do_not_reach_the_container(",
-        "def test_missing_api_domain_fails_before_any_cutover(",
-        "test_telemetry_defaults_are_empty_and_explicit_storage_survives"
+        "def test_missing_api_domain_fails_before_any_cutover("
       ],
       "rationale": "A .env without QA keys deploys with no QA_ARCHIVE_* in either color, stale QA_ARCHIVE_* keys cannot reach the container, a missing API_DOMAIN fails before cutover, and explicitly configured storage settings survive."
     },
@@ -17745,10 +17700,12 @@
     {
       "path": "deploy/domestic/compose.override.yml",
       "must_contain": [
-        "QA_CAPTURE_ENABLED: \"true\"",
-        "TELEMETRY_ARCHIVE_ENABLED: \"false\""
+        "QA_CAPTURE_ENABLED: \"true\""
       ],
-      "rationale": "cn-prod compose must enable local QA capture and keep telemetry archive off so the next candidate does not upload QA or telemetry to S3."
+      "rationale": "cn-prod compose must enable local QA capture so the next candidate keeps capture on without uploading QA to S3. The telemetry archive env was retired (2026-11-08 用户决定保持关闭并删除代码).",
+      "must_not_contain": [
+        "TELEMETRY_ARCHIVE_"
+      ]
     },
     {
       "path": "deploy/domestic/test_pool_env_probe.py",
@@ -19485,6 +19442,22 @@
         "func TestDoWithTLSRecordsOpenAIHTTP2FailureForHTTPProxy("
       ],
       "rationale": "Keep the OpenAI HTTP/2 policy, H1 fallback ALPN, and non-OpenAI invariance under test."
+    },
+    {
+      "path": "backend/internal/config/config.go",
+      "must_not_contain": [
+        "TelemetryArchive",
+        "telemetry_archive"
+      ],
+      "rationale": "Raw telemetry S3 shadow config was retired (2026-11-08 用户决定保持关闭并删除代码). Reintroducing the config struct or defaults is the first step of silently reviving the archive writer."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_not_contain": [
+        "telemetryarchive",
+        "TelemetryArchive"
+      ],
+      "rationale": "Generated wiring must not regain the retired telemetry archive shadow or its heartbeat (2026-11-08 用户决定保持关闭并删除代码)."
     }
   ]
 }

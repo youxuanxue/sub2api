@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log"
 	"net/http"
 	"sync"
@@ -22,7 +21,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/server"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/telemetryarchive"
 
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
@@ -148,8 +146,6 @@ func provideCleanup(
 	auditLog *service.AuditLogService,
 	openAIAutoReset *service.OpenAIQuotaAutoResetService,
 	promptAudit *securityaudit.PromptService,
-	telemetryArchive *telemetryarchive.Shadow,
-	telemetryArchiveHealth *service.TelemetryArchiveHealth,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -179,17 +175,6 @@ func provideCleanup(
 					pluginManager.Stop()
 				}
 				return nil
-			}},
-			{"TelemetryArchive", func() error {
-				var healthErr error
-				if telemetryArchiveHealth != nil {
-					healthErr = telemetryArchiveHealth.Stop(ctx)
-				}
-				var archiveErr error
-				if telemetryArchive != nil {
-					archiveErr = telemetryArchive.Stop(ctx)
-				}
-				return errors.Join(healthErr, archiveErr)
 			}},
 			{"OpsIngressRejectAggregator", func() error {
 				if opsIngressReject != nil {
