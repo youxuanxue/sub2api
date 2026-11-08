@@ -53,7 +53,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 | 只读副本、按用户分库 | **否** | 库不是当前瓶颈。两站独立已经是地域上的水平拆分 |
 | 自动故障转移 | **否** | 应用没有主库发现。一台新主库不是高可用 |
 | 第三台机器只跑 Redis | **否** | 会话跟着账本走即可。单独的 Redis 集群是以后的事 |
-| 数据机继续用 LUKS | **否** | 用户决策：这些数据暂时不需要加密卷，和 cn-prod 一致。加密卷还让每次重启都要等人解锁 |
+| 数据机继续用 LUKS | **否** | 用户决策：这些数据暂时不需要加密卷，和 cn-prod 一致。加密卷让每次开机都多一个取钥依赖，取钥失败库就起不来 |
 | 切换时清空 Redis | **否** | Redis 里有在途扣费预留（`billing:inflight*`）和未结算的 Grok 视频计费（`grok_video_pending:*`）。清空就是错账。用复制迁移 |
 | 两站同一个窗口切 | **否** | 一站出问题时，另一站要还在。逐站切 |
 | 切库的同时改连接池默认值 | **否** | 那是第二台网关的门禁，不是这次的代码 |
@@ -68,33 +68,35 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 ## 现网基线
 
-2026-11-08 读到的事实，不是长期规格。切流前逐项重新实测。
+2026-11-08 20:27 CST 两站只读探针实测（`ops/observability/run-probe.sh`）。这些是当天的事实，不是长期规格；切流前重新实测。
 
 | 项 | prod | cn-prod |
 |---|---|---|
-| 主机 | 腾讯美西 Lighthouse `lhins-fcwpwymt`，私网 `10.4.0.16` | 腾讯北京 `lhins-6qmb3fd6` |
-| 同机进程 | 网关蓝绿、Caddy、Redis、Postgres | 同左 |
-| 数据所在 | LUKS（根盘上的 80G 文件卷） | 普通 ext4，无加密 |
-| 应用机重启后 | 等人工解锁才能起业务 | 自动起 |
-| Redis | `tk-cutover-prod-redis`，AOF everysec；是否设密码待实测（仓库里只有已退役的 Hetzner 模板写空密码） | AOF everysec，有密码 |
-| 网关连库 | 部署模板写死 `DATABASE_HOST=tokenkey-postgres`、`REDIS_HOST=tokenkey-redis`（`ops/stage0/deploy_via_ssm_bluegreen.sh`） | stage0 compose 写死 `postgres` / `redis`；蓝绿候选色继承现役容器的 env，只覆盖 `deploy/domestic/bluegreen.py` 列出的键 |
-| 每色 DB / Redis 池 | 模板默认 50 / 1024，`.env` 可覆盖 | 40 / 96（`compose.override.yml`） |
+| 主机 | 腾讯美西 `lhins-fcwpwymt`，4 vCPU / 15.6 GiB，私网 `10.4.0.16` | 腾讯北京 `lhins-6qmb3fd6`，4 vCPU / 7.7 GiB，私网 `10.2.4.11` |
+| 同机进程 | `tokenkey-blue`、`tokenkey-caddy`、`tk-cutover-prod-redis`、`tk-archive-standby`（PG） | 网关蓝绿、socat 控制代理 `tokenkey`、`tokenkey-caddy`、`tokenkey-redis`、`tokenkey-postgres` |
+| 数据所在 | LUKS：根盘文件 `recovery-rebuild-20261108.luks`（64G）经 loop 挂到 `/srv/tokenkey-rehearsal`，已用 25G | 根盘普通 ext4 `/var/lib/tokenkey`，无加密 |
+| 应用机重启后 | 11-08 13:03 整机重启过。当天新装 `tokenkey-luks-unlock.service`，开机从 COS 取钥解锁到 tmpfs；还没经过一次无人值守的重启。这个 unit 不在仓库里 | 自动起 |
+| Postgres | 18.6，库 22 GB，`max_connections` 200，容器内存上限 4G | 18.6，库 2.9 GB，`max_connections` 100，无容器内存上限 |
+| Redis | 8.10.3，AOF everysec，**无密码**，`maxmemory` 512MB + `allkeys-lru`，容器内存上限 1G，已用约 9MB | 8.10.2，AOF everysec，有密码，`maxmemory` 0 + `noeviction`，无容器内存上限，已用约 6MB |
+| 网关连库 | 容器 env `DATABASE_HOST=tokenkey-postgres`、`REDIS_HOST=tokenkey-redis`。部署模板（`ops/stage0/deploy_via_ssm_bluegreen.sh`）写死这两个值 | 容器 env `DATABASE_HOST=postgres`、`REDIS_HOST=redis`。蓝绿候选色继承现役容器的 env，只覆盖 `deploy/domestic/bluegreen.py` 列出的键 |
+| 每色 DB / Redis 池 | 现役 `tokenkey-blue` 是 11-08 重建时手工 `docker run` 的，env 和 `config.yaml` 都没设池参数，按代码默认 256 / 1024 运行。下次走模板的蓝绿发布会变成 50 / 1024 | 40 / 96（`compose.override.yml`） |
+| 实测连接 | 网关 7 条 + 1 条 psql | 网关 5 条 + 1 条 psql |
 | 蓝绿重叠期 | 两色同时在，连接数翻倍 | 同左 |
-| Postgres `max_connections` | 200 | 待测 |
-| 备份 | pgBackRest，S3 仓库，timer 在应用机 | pgBackRest，COS `/cn-prod/postgres`，timer 在应用机 |
-| Caddy 无可用上游时 | 仓库模板 `deploy/aws/stage0/Caddyfile` 等 30 秒；现网挂载的是切流时的 `Caddyfile.cutover`，待实测 | 最多等 30 秒（`lb_try_duration 30s`） |
+| 备份 | pgBackRest，`archive_command` 推 S3，最近归档正常；timer 在应用机 | pgBackRest，推 COS `/cn-prod/postgres`，最近归档正常（上一次失败是 11-02 的已知事故）；timer 在应用机 |
+| Caddy 上游 | 现网 `/var/lib/tokenkey/caddy/Caddyfile` 只有 `reverse_proxy tokenkey-blue:8080 { flush_interval -1 }`，**没有健康检查，也没有 `lb_try_duration`**。上游不可用时请求立刻失败 | 有健康检查和 `lb_try_duration 30s`，上游不可用时最多等 30 秒 |
 | `RUN_MODE` | `standard` | `standard` |
 | 网关内存 | `mem_limit 8g`、`GOMEMLIMIT=6GiB`（#3101） | `GOMEMLIMIT=2GiB`，无容器上限 |
-| 应用机上的其他写库方 | 备份 timer、QA 维护、运维探针 | 备份 timer、运维探针 |
+| 应用机上的其他写库方 | pgBackRest 备份和归档检查、QA 维护三个 timer（cleanup / provision / archive）、`tokenkey-https-watch`、运维探针 | 同左 |
+| 主机防火墙 | `INPUT` 默认放行，挂腾讯云 `YJ-FIREWALL-INPUT` 链；主机只监听 80 / 443，PG 和 Redis 没有发布到主机端口 | 同左 |
 
-prod 主机内存两处记录不一致：`deploy/hetzner/README.md` 写 8G，#3101 注释写 16G。开机前实测。
+两处文档和实测不一致：`deploy/hetzner/README.md` 把 prod 写成 4C8G，实际是 4 vCPU / 15.6 GiB；`deploy/domestic/README.md` 把 cn-prod 写成 8C，实际 `nproc` 是 4。
 
 ## 两站统一布局
 
 - **数据机**：与应用机同地域、同账号、同私网。不跨云。数据目录 `/var/lib/tokenkey`，普通 ext4。磁盘按当时的库体积、WAL 和一份恢复余量定。
 - **容器**：`tokenkey-postgres`、`tokenkey-redis`。Postgres 大版本与当站现役一致，因为物理恢复要求同一大版本。
-- **内存**：Postgres 和 Redis 各设容器内存上限。Redis 淘汰策略沿用现值，不改成会淘汰计费 key 的策略。
-- **Redis**：AOF everysec，设 `requirepass`。cn-prod 沿用现有密码；prod 新生成一个，只存两台主机的 `.env`。
+- **内存**：Postgres 和 Redis 各设容器内存上限。
+- **Redis**：AOF everysec，设 `maxmemory` 并用 `noeviction`。prod 现网是 `allkeys-lru`，内存满时会淘汰在途扣费 key；数据机统一用 cn-prod 的 `noeviction`，宁可写失败也不丢账。设 `requirepass`，两站都在切流时生成新密码，只存数据机和应用机的 `.env`。prod 现网没有密码；cn-prod 的现有密码不再沿用。
 - **防火墙**：云防火墙不开公网入站；主机 iptables 只放行本站应用机私网地址访问 5432 和 6379。
 - **运维**：数据机注册自己的 SSM Hybrid。pgBackRest 的备份、归档检查、身份续期三个 timer 和主机磁盘、内存告警装到数据机，再从应用机卸下。
 - **网关**：`DATABASE_HOST`、`REDIS_HOST`、`REDIS_PASSWORD` 从 `.env` 读，切流时填数据机私网地址。
@@ -104,8 +106,8 @@ prod 主机内存两处记录不一致：`deploy/hetzner/README.md` 写 8G，#31
 都走正常发布。默认值保持现状，所以发布后行为不变。
 
 1. prod 部署模板把两个 Host 改成 `${DATABASE_HOST:-tokenkey-postgres}` 这类写法，`ops/stage0/test_deploy_via_ssm_bluegreen.py` 同步改。
-2. cn-prod 在 `compose.override.yml` 声明两个 Host，取值来自 `.env`，默认值为现值；`bluegreen.py` 把它们列入要传播的键，否则候选色会继承旧值。漏列时 `test_pool_env_probe.py` 会失败。cn-prod 的 Redis 密码不变，不进 override。
-3. 实测 prod 现网 Caddyfile。上游等待（`lb_try_duration`）和健康检查参数与仓库模板不一致时，先用 `ops/stage0/sync_caddyfile_via_ssm.sh` 对齐。对齐只需 `caddy reload`，用户无感。
+2. cn-prod 在 `compose.override.yml` 声明两个 Host，取值来自 `.env`，默认值为现值；`bluegreen.py` 把它们列入要传播的键，否则候选色会继承旧值。漏列时 `test_pool_env_probe.py` 会失败。cn-prod 的候选色从现役容器继承密钥，所以 `REDIS_PASSWORD` 也要能从 `.env` 覆盖，否则新密码到不了新色；密码本身不进 override 文件。
+3. prod 现网 Caddyfile 补上和 cn-prod 相同的健康检查和 `lb_try_duration 30s` / `lb_try_interval 1s`。这是停写窗口第 2 步的前提：没有它，Caddy 指向未启动的新色时请求会立刻失败。蓝绿渲染（`render_caddy_with_upstream`）只改上游地址那一行，所以补上的参数会保留到后续发布；改动同时入仓。`caddy validate` 后 `caddy reload`，用户无感。
 4. `deploy/tencent/tencent_pgbackrest.py` 和 `deploy/domestic/cn_pgbackrest.py` 支持在数据机上运行，容器名和主机角色按新布局。
 5. 需要直连库或 Redis 的运维探针和技能改成在数据机上执行。grep 命中约 80 个文件（含测试和文档）用本机 `docker exec` 找库，先出清单，再按清单逐个改。入口统一走 `ops/lib/resolve-app-container.sh`。Redis 设了密码之后，这些入口一并带上密码。
 6. 准备 Redis 迁移用的私网转发：在应用机上起一个只监听私网地址的转发容器，把旧 Redis 暴露给数据机，不重建旧 Redis。防火墙只放行数据机私网地址。窗口结束后删掉。
@@ -122,12 +124,14 @@ prod 主机内存两处记录不一致：`deploy/hetzner/README.md` 写 8G，#31
 
 按统一布局装好。开机后分别从公网和同私网的其他主机测一次 5432、6379，确认都不可达。
 
-cn-prod 注意：腾讯北京锐驰配额 5 台已被 `cn-ip1..4` 和 cn-prod 主机占满。开机前要先提配额，或者选不占这项配额的套餐。
+cn-prod 注意：据 `deploy/hetzner/README.md` 2026-11-06 的记录，腾讯北京锐驰配额 5 台已被 `cn-ip1..4` 和 cn-prod 主机占满。开机前在控制台复核；仍然占满就先提配额，或者选不占这项配额的套餐。
+
+磁盘按实测库体积起算：prod 22 GB，cn-prod 2.9 GB，再加 WAL 和一份恢复余量。
 
 ### 3. 备用库与 Redis 副本（用户无感）
 
 - **Postgres**：用当站 pgBackRest 恢复到数据机，作为备用库从仓库持续回放 WAL。备用库不归档。应用继续写旧库。
-- **Redis**：数据机上的 Redis 经私网转发做旧 Redis 的副本，cn-prod 配 `masterauth`。全量同步时旧 Redis 会 fork 一次，放在低谷做。
+- **Redis**：数据机上的 Redis 经私网转发做旧 Redis 的副本，cn-prod 用旧密码配 `masterauth`，数据机自己用新密码。两站 Redis 都只用了约 10MB，全量同步的 fork 开销可以忽略。
 - **放弃**：删掉备用库和副本即可，现网不变。
 
 ### 4. 演练（用户无感）
@@ -143,7 +147,7 @@ cn-prod 注意：腾讯北京锐驰配额 5 台已被 `cn-ip1..4` 和 cn-prod �
 在批准的低谷时段执行：
 
 1. 确认备用库回放延迟和 Redis 复制偏移都接近零。停掉应用机上其他写库方（见基线表）。
-2. 预先创建新色容器但不启动，`.env` 已写好数据机地址（prod 同时写入 Redis 密码）。Caddy 上游改指新色。新色还没启动，新请求在 Caddy 里重试排队，最长等 `lb_try_duration`。旧色只处理在途请求，排空有上限，超过上限的长流被切断。
+2. 预先创建新色容器但不启动，`.env` 已写好数据机地址和新的 Redis 密码。Caddy 上游改指新色。新色还没启动，新请求在 Caddy 里重试排队，最长等 `lb_try_duration`。旧色只处理在途请求，排空有上限，超过上限的长流被切断。
 3. 停止旧色。在旧库上查 `pg_stat_activity`、在旧 Redis 上查 `CLIENT LIST`，除了复制连接和本次操作的连接，必须一个都没有。有就先找出是谁，不往下走。
 4. 旧库执行 `pg_switch_wal()`，等 `pg_stat_archiver` 显示这一段已归档，备用库回放到这一段。
 5. Redis 副本偏移等于主库偏移后，执行 `REPLICAOF NO ONE`。
@@ -161,7 +165,7 @@ cn-prod 注意：腾讯北京锐驰配额 5 台已被 `cn-ip1..4` 和 cn-prod �
 
 ## prod 应用机的加密卷
 
-prod 应用机的 Docker 数据目录和 `.env` 也在 LUKS 卷上。拆库之后，应用机重启仍要人工解锁，期间网关起不来，但库不受影响。
+prod 应用机的 Docker 数据目录和 `.env` 也在 LUKS 卷上。11-08 新装的自动解锁还没经过无人值守的重启；它失败时网关起不来，但拆库之后库不受影响。
 
 把应用机迁出 LUKS 要移动 Docker 数据目录，需要重启 Docker，因此是另一次窗口。本设计只记下这件事，不排进这次。目标布局和 cn-prod 一致。
 
@@ -175,7 +179,7 @@ prod 应用机的 Docker 数据目录和 `.env` 也在 LUKS 卷上。拆库之�
 两站都拆完之前，不部署第二台网关。拆完之后要在某站加副本，先满足下面三条，缺一条就不加：
 
 - 现网 `RUN_MODE` 不是 `simple`。`simple` 会跳过清理锁，每台网关都会做清理。
-- 网关台数 × 每色连接上限 × 2（蓝绿重叠），再加上备份和运维连接，放得进 `max_connections`。按 prod 当天的 200 和每色 50 算，两台网关已经占满，必须先把每色上限调低。Redis 连接池一并收小。
+- 网关台数 × 每色连接上限 × 2（蓝绿重叠），再加上备份和运维连接，放得进 `max_connections`。prod 现役按代码默认 256 运行，单色已经超过 200；走模板后是 50，两台网关加蓝绿重叠正好占满 200。cn-prod 是 40 和 100，单台网关在蓝绿重叠时已经用掉 80。加副本前必须先把每色上限调低。Redis 连接池一并收小。
 - `model_pricing.json` 和插件目录确认是每台机器自己的缓存，不是要在副本之间互相覆盖的事实来源。
 
 账号调度和用量已经在同一个库里，多台网关共用这份状态。上游配额才是容量上限。
@@ -183,9 +187,8 @@ prod 应用机的 Docker 数据目录和 `.env` 也在 LUKS 卷上。拆库之�
 ## 风险
 
 - 停写窗口内的新请求要排队，超过 Caddy 等待上限的会失败；超过排空上限的长流会被切断。审批时附预估数量。
-- Redis 全量同步时旧 Redis 会 fork，应用机内存短时上升。做之前核对主机总内存。
 - 跨机后每次查询多一次私网往返。演练测得的 p99 不可接受就不切。
 - 私网放行写错会把库暴露出去，或者切断应用。开机后按第 2 步测端口。
 - 旧库被重新启动成可写主库会造成双写。提升之后保持停止。
 - 去掉加密卷后，拿到数据机的磁盘快照就能读到库。这是已接受的取舍。
-- cn-prod 锐驰配额已满，开机可能被卡住。
+- cn-prod 锐驰配额可能已满，开机会被卡住。
