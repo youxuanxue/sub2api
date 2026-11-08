@@ -46,6 +46,21 @@ class LocalHostTest(unittest.TestCase):
         self.assertNotEqual(local.expected_prod_hostname({'prod': {'instance_name': 'tokenkey-prod-tokyo-20261017'}}),
                             live['host_watch']['hostname'])
 
+    def test_install_manifest_uses_cn_prod_target_instance_name(self):
+        # cn-prod's target has neither host_watch nor prod; on 2026-11-08 the
+        # installer raised KeyError: 'prod' there and could not upgrade cn-prod.
+        root = Path(__file__).resolve().parents[2]
+        domestic = json.loads((root/'deploy/domestic/prod-target.json').read_text())
+        self.assertNotIn('host_watch', domestic)
+        self.assertNotIn('prod', domestic)
+        self.assertEqual(local.expected_prod_hostname(domestic), domestic['instance_name'])
+        self.assertEqual(domestic['instance_name'], 'tokenkey-cn-prod')
+
+    def test_install_manifest_without_identity_is_refused(self):
+        for manifest in ({}, {'prod': {}}, {'instance_name': ''}, {'prod': 'x'}):
+            with self.assertRaisesRegex(ValueError, 'no host identity'):
+                local.expected_prod_hostname(manifest)
+
     def test_install_apply_reads_manifest_environment_before_installing_units(self):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)
