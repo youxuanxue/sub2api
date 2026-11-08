@@ -82,6 +82,6 @@ prod:
     repository_iam_state: contract_ready
     observed_iam_state: applied
     independent_evidence_state: production_workstation_recovery_verified
-    recovery_cli: backend/cmd/qa-archive
+    recovery_cli: removed_2026-11-08
     break_glass_state: retired
     shared_role_boundary: shared_ec2_instance_role_no_process_isolation

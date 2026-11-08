@@ -95,8 +95,6 @@ class PreflightCIHandoffTest(unittest.TestCase):
             "_bg_spawn protocol_routing",
             "_bg_spawn pricing_serving",
             "_bg_spawn merge_conflict",
-            "_bg_spawn qa_phase2",
-            "_qa_phase_ops_spawn_if_needed",
         ):
             with self.subTest(key=key):
                 self.assertLess(script.index(key), template_idx)

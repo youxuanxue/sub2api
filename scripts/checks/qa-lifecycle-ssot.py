@@ -33,6 +33,25 @@ RETIRED = (
     "frontend/src/composables/useTkQABundle.ts",
     "frontend/src/components/keys/QABundlePanel.vue",
     ".github/workflows/deploy-qa-bundle.yml",
+    # QA S3 retired 2026-11-08: local 24h + node1 every 4h replaced these owners.
+    "backend/cmd/qa-archive",
+    "backend/cmd/server/qa_maintenance.go",
+    "backend/cmd/server/qa_maintenance_boundary.go",
+    "backend/cmd/server/qa_single_owner_activation.go",
+    "backend/internal/observability/qa/archive/store.go",
+    "backend/internal/observability/qa/archive/reconciler.go",
+    "backend/internal/observability/qa/archive/gap_decision.go",
+    "deploy/aws/stage0/tokenkey-qa-maintenance.sh",
+    "deploy/aws/stage0/tokenkey-qa-boundary.sh",
+    "deploy/aws/stage0/qa-runtime.sh",
+    "deploy/aws/stage0/qa-runtime-compose.yml",
+    "deploy/aws/cloudformation/stage0-qa-raw-archive.yaml",
+    "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh",  # script-ref-allow-missing: retired QA S3 owner
+    "ops/stage0/sync-qa-boundary-timer-via-ssm.sh",  # script-ref-allow-missing: retired QA S3 owner
+    "ops/stage0/activate-qa-single-owner-via-ssm.sh",  # script-ref-allow-missing: retired QA S3 owner
+    "ops/qa/qa_archive_recovery_gate.py",  # script-ref-allow-missing: retired QA S3 owner
+    "ops/qa/prod_qa_maintenance.py",  # script-ref-allow-missing: retired QA S3 owner
+    "ops/qa/qa_phase2_health.py",  # script-ref-allow-missing: retired QA S3 owner
 )
 
 REQUIRED = {
@@ -65,46 +84,20 @@ REQUIRED = {
         "def test_symlink_and_default_partition_block_orphan_deletion(",
         "def test_locked_partition_keeps_rows_and_files_for_next_run(",
     ),
-    "backend/internal/observability/qa/archive/reconciler_test.go": (
-        "func TestReconcilerVerificationFailureMarksSegmentFailed(",
-        "func TestReconcilerMissingEvidenceBlocksShardBeforeUpload(",
-    ),
     "backend/internal/observability/qa/lifecycle/boundary_execution_test.go": (
-        "func TestDropCommittedHourRollsBackWhenSealChangesAfterLock(",
-        "func TestResumePendingHotCleanupsKeepsPerHourFailureVisibleAfterDrop(",
-    ),
-    "deploy/aws/stage0/qa-runtime.sh": (
-        "tk_resolve_qa_runtime",
-        "tokenkey-qa-runtime",
-        "independent-v1",
-    ),
-    "backend/cmd/server/qa_maintenance.go": (
-        "singleOwnerActive",
-        "dropArchivedHour",
-        "resumeHotCleanup",
-        "lifecycle.RunProvision",
-        "lifecycle.ResumePendingHotCleanups",
-    ),
-    "backend/cmd/server/qa_maintenance_boundary.go": (
-        "single_owner_activate",
-        "qa boundary is retired after single-owner activation",
-        "runTransitionBoundary",
+        "func TestDropFixedAgeHourPersistsTerminalGapBeforeDrop(",
+        "func TestDropFixedAgeHourPreservesUnknownCommitClassification(",
     ),
     "scripts/preflight.sh": ("python3 ./scripts/checks/qa-lifecycle-ssot.py; then",),
     "backend/internal/observability/qa/lifecycle/boundary.go": (
         "MaxPendingHotCleanup = 48",
-        "LIMIT $1",
-        "ResumePendingHotCleanups",
+        "ResumeDroppedHourCleanup",
         "exact source-hour upper bound and never authorizes deletion",
     ),
-    "ops/stage0/sync-qa-boundary-timer-via-ssm.sh": (
-        "qa_single_owner_active",
-        "single-owner activation receipt count",
-        "systemctl disable tokenkey-qa-boundary.timer",
-        "systemctl stop tokenkey-qa-boundary.timer",
-    ),
+    # Superseded 2026-11-08 (QA S3 retired); the doc stays as the history record.
     "docs/approved/qa-raw-only.md": (
-        "status: approved",
+        "status: archived",
+        "superseded_by: design-tencent-cos-backup-node1-qa.md",
         "raw S3",
         "不增加 SSE-C",
         "restore_verified",
@@ -116,27 +109,7 @@ REQUIRED = {
 }
 
 FORBIDDEN_TEXT = {
-    "backend/cmd/server/qa_maintenance_boundary.go": (
-        "--qa-cutover-provision-only",
-        "--qa-cutover-inventory",
-        "--qa-cutover-plan",
-        "--qa-cutover-apply",
-        "--qa-cutover-finalize-plan",
-        "--qa-cutover-finalize",
-    ),
     "scripts/preflight.sh": ("qa-lifecycle-ssot.py --quiet",),
-    "ops/stage0/sync-qa-boundary-timer-via-ssm.sh": (
-        "qa_exports_tmp",
-        "qa-export-orphan",
-        "qa-stale-cleanup",
-        "qa_finalized",
-    ),
-    "deploy/aws/stage0/tokenkey-qa-boundary.sh": (
-        "qa_exports_tmp",
-        "qa-export-orphan",
-        "--qa-cutover-provision-only",
-        "--qa-cutover-finalize",
-    ),
     "deploy/aws/stage0/stage0-ec2-bootstrap.sh": (
         "qa_exports_tmp",
         "qa-export-orphan",
@@ -203,16 +176,8 @@ FORBIDDEN_LEGACY_PROD_QA_TREES = {
     "frontend/src/api": ("/users/me/qa/",),
 }
 
-BOUNDARY_PRE_ACTIVATION_GUARD = "ensureQABoundaryPreActivation(ctx, lockedDB, deps)"
-
 FIXED_AGE_OWNER_SURFACES = (
-    "backend/cmd/server/qa_maintenance.go",
-    "backend/cmd/server/qa_maintenance_boundary.go",
     "backend/internal/observability/qa/lifecycle/boundary.go",
-    "deploy/aws/stage0/tokenkey-qa-maintenance.sh",
-    "deploy/aws/stage0/tokenkey-qa-boundary.sh",
-    "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh",
-    "ops/stage0/sync-qa-boundary-timer-via-ssm.sh",
 )
 
 FIXED_AGE_OWNER_MARKERS = (
@@ -225,12 +190,9 @@ FIXED_AGE_OWNER_MARKERS = (
     "24 * time.Hour",
 )
 
-TRANSITION_FIXED_AGE_OWNER = {
-    "backend/internal/observability/qa/lifecycle/boundary.go": {
-        "RetentionBoundary(": "boundary := "
-        "pgpartition.RetentionBoundary(provision.DBAnchor)"
-    }
-}
+# The gateway transition boundary was retired with QA S3 (2026-11-08); the only
+# fixed-age owner is local_cleanup.go, which REQUIRED pins.
+TRANSITION_FIXED_AGE_OWNER: dict[str, dict[str, str]] = {}
 
 
 def _read(root: Path, rel: str) -> str:
@@ -305,12 +267,6 @@ def scan(root: Path) -> list[str]:
                         else "legacy frontend QA fallback"
                     )
                     failures.append(f"{surface} remains in {source_rel}: {needle}")
-
-    boundary_command = _read(root, "backend/cmd/server/qa_maintenance_boundary.go")
-    if boundary_command.count(BOUNDARY_PRE_ACTIVATION_GUARD) != 1:
-        failures.append(
-            "the QA transition boundary must fail after single-owner activation"
-        )
 
     for rel in FIXED_AGE_OWNER_SURFACES:
         path = root / rel
@@ -527,18 +483,6 @@ def self_test() -> int:
                 "operations-only",
             ),
             (
-                "backend/cmd/server/qa_maintenance_boundary.go",
-                BOUNDARY_PRE_ACTIVATION_GUARD,
-                "",
-                "transition boundary",
-            ),
-            (
-                "backend/cmd/server/qa_maintenance_boundary.go",
-                "",
-                "\n--qa-cutover-finalize\n",
-                "--qa-cutover-finalize",
-            ),
-            (
                 "backend/internal/observability/qa/lifecycle/boundary.go",
                 "",
                 "\nRunBoundary(\n",
@@ -548,7 +492,7 @@ def self_test() -> int:
                 "backend/internal/observability/qa/lifecycle/boundary.go",
                 "",
                 "\nRetentionBoundary(\n",
-                "transition fixed-age",
+                "alternate fixed-age",
             ),
             (
                 "backend/internal/observability/qa/lifecycle/boundary.go",

@@ -88,8 +88,6 @@
 #        silently rots when the target heading is reworded. Driven by
 #        `scripts/checks/approved-docs-index.py` (status vocabulary stays with
 #        `dev-rules/scripts/check_approved_docs.py`, which does not check membership).
-#   QA raw archive contract gate — runs archive/lifecycle tests and ensures the
-#        retired Bundle service/worker surface cannot return.
 #   gh CLI repository context    — a workflow job that calls repo-scoped `gh`
 #        subcommands without actions/checkout must pass GH_REPO, or gh fails at
 #        runtime with "fatal: not a git repository". Driven by
@@ -405,10 +403,6 @@ export PREFLIGHT_BASE="${template_base:-origin/main}"
 # section positions below. Spawn guards mirror each section's prerequisite
 # checks; a missing prerequisite leaves the job unspawned and the section
 # falls back to its serial FAIL/skip path.
-_qa_raw_archive_gate_run() {
-    python3 -m unittest ops.stage0.test_bluegreen_host_runtime ops.stage0.test_prod_component_release &&
-    cd backend && go test -tags=unit -v ./internal/config ./internal/observability/qa/archive ./internal/observability/qa/lifecycle ./internal/observability/qa
-}
 _protocol_routing_gate_run() {
     python3 ./scripts/checks/test_protocol_routing_ssot.py >/dev/null &&
         python3 ./scripts/checks/protocol-routing-ssot.py --quiet
@@ -421,33 +415,6 @@ _merge_conflict_gate_run() {
     python3 ./scripts/checks/test_merge_conflict_markers.py >/dev/null &&
         python3 ./scripts/checks/merge-conflict-markers.py --quiet
 }
-_qa_phase2_gate_run() {
-    python3 -m py_compile \
-        ./ops/qa/qa_archive_recovery_gate.py \
-        ./ops/qa/prod_qa_archive_closeout.py \
-        ./ops/qa/prod_phase2_live_health.py \
-        ./ops/qa/verify_raw_archive_iam_contract.py \
-        ./ops/qa/qa_phase2_health.py \
-        ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py \
-        ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py &&
-        python3 -m unittest \
-            deploy.aws.cloudformation.test_stage0_qa_raw_archive_contract \
-            ops.qa.test_qa_archive_recovery_gate \
-            ops.qa.test_prod_qa_archive_closeout \
-            ops.qa.test_prod_phase2_live_health
-}
-_qa_phase_ops_gate_run() {
-    python3 -m py_compile ./ops/qa/prod_phase2_baseline.py &&
-        python3 ./ops/qa/test_qa_phase_ops.py
-}
-_qa_phase_ops_spawn_if_needed() {
-    if [ "$_preflight_skip_slow_ops" -ne 1 ] && command -v python3 >/dev/null 2>&1; then
-        _bg_spawn qa_phase_ops _qa_phase_ops_gate_run
-    fi
-}
-if [ "$_preflight_skip_go_contracts" -ne 1 ] && [ "$_preflight_skip_slow_ops" -ne 1 ] && command -v python3 >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
-    _bg_spawn qa_raw_archive _qa_raw_archive_gate_run
-fi
 if command -v python3 >/dev/null 2>&1; then
     _archive_rehearsal_spawn_if_needed
     _bg_spawn anthropic_unittest \
@@ -477,8 +444,6 @@ if command -v python3 >/dev/null 2>&1; then
     _bg_spawn protocol_routing _protocol_routing_gate_run
     _bg_spawn pricing_serving _pricing_serving_gate_run
     _bg_spawn merge_conflict _merge_conflict_gate_run
-    _bg_spawn qa_phase2 _qa_phase2_gate_run
-    _qa_phase_ops_spawn_if_needed
 fi
 # Compatibility shims until the dev-rules template carries the project-needed
 # deleted-ref base and scans colocated Python tests outside tests/ directories.
@@ -1987,64 +1952,6 @@ else
     echo "  ok: one approved QA lifecycle owner; retired conflicts remain absent"
 fi
 
-# ---- sub2api: QA Phase 2 recovery and IAM contracts ------------------------
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'QA Phase 2 recovery and IAM contracts'; then
-echo "=== sub2api: QA Phase 2 recovery and IAM contracts ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required by QA recovery contract tests)"
-    errors=$((errors + 1))
-elif _bg_spawned qa_phase2; then
-    _bg_join qa_phase2 replay-on-failure
-    if [ "$_bg_rc" -ne 0 ]; then
-        echo "  FAIL: QA Phase 2 recovery and IAM contracts"
-        errors=$((errors + 1))
-    else
-        echo "  ok: exact QA IAM sets and approval-bound workstation recovery gate pass"
-    fi
-elif ! python3 -m py_compile \
-    ./ops/qa/qa_archive_recovery_gate.py \
-    ./ops/qa/prod_qa_archive_closeout.py \
-    ./ops/qa/prod_phase2_live_health.py \
-    ./ops/qa/verify_raw_archive_iam_contract.py \
-    ./ops/qa/qa_phase2_health.py \
-    ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py; then
-    errors=$((errors + 1))
-elif ! python3 -m unittest \
-    deploy.aws.cloudformation.test_stage0_qa_raw_archive_contract \
-    ops.qa.test_qa_archive_recovery_gate \
-    ops.qa.test_prod_qa_archive_closeout \
-    ops.qa.test_prod_phase2_live_health; then
-    errors=$((errors + 1))
-else
-    echo "  ok: exact QA IAM sets and approval-bound workstation recovery gate pass"
-fi
-
-fi # preflight gate
-if _preflight_selected 'QA raw archive contract'; then
-echo "=== sub2api: QA raw archive contract ==="
-if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
-    echo "  skip: unchanged Go preflight surface"
-elif [ "$_preflight_skip_slow_ops" -eq 1 ]; then
-    echo "  skip: unchanged CI surface; required preflight gate not needed"
-elif ! command -v go >/dev/null 2>&1; then
-    echo "  FAIL: go not on PATH (required to run QA raw archive contract tests)"
-    errors=$((errors + 1))
-elif ! _bg_spawned qa_raw_archive; then
-    echo "  FAIL: QA raw archive gate background job was not spawned (internal preflight bug)"
-    errors=$((errors + 1))
-else
-    _bg_join qa_raw_archive
-    if [ "$_bg_rc" -ne 0 ]; then
-        tail -40 "$_preflight_bg_dir/qa_raw_archive.out" | sed 's/^/    /'
-        errors=$((errors + 1))
-    else
-        echo "  ok: QA raw archive and lifecycle contract tests pass"
-    fi
-fi
-
 # ---- sub2api: frontend release asset contract -------------------------------
 echo ""
 
@@ -2409,18 +2316,6 @@ if ! python3 ./ops/observability/test_remediate_disable_image_concurrency.py >/d
     errors=$((errors + 1))
 else
     echo "  ok: image-concurrency disable drain/timeout/ENABLED=false fail-closed"
-fi
-
-
-fi # preflight gate
-if _preflight_selected 'QA single-owner SSM operator contract'; then
-echo "=== sub2api: QA single-owner SSM operator contract ==="
-if ! bash ./ops/stage0/test_activate_qa_single_owner_via_ssm.sh >/dev/null 2>&1; then
-    echo "  FAIL: QA single-owner SSM operator contract test"
-    echo "        — run: bash ops/stage0/test_activate_qa_single_owner_via_ssm.sh"
-    errors=$((errors + 1))
-else
-    echo "  ok: QA activation confirmation is fail-closed"
 fi
 
 
