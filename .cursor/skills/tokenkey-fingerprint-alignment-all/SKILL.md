@@ -20,7 +20,8 @@ description: >-
 - Kiro CLI：真实、已登录 `kiro-cli` + mitm collector，同时观察 TLS、HTTP、协议和
   auth cohort；rustls extension order 以 semantic projection 比较。
 - Antigravity：真实客户端 HTTP MITM；TLS 非承重。
-- Codex：读取安装的 CLI binary/static identity；门禁是 `check`。
+- Codex：读取安装的 CLI binary/static identity，门禁是 `check`；TLS lane 是真实
+  codex 连本地采集端点的 `tls-capture`（`--skip-codex-tls` 可跳过，覆盖记为 incomplete）。
 
 umbrella 只负责编排和一个合并变更，不把 release metadata、static evidence、wire
 capture、runtime identity 或 production-configured observation 混成同一证据层。

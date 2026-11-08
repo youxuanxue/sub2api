@@ -60,6 +60,14 @@ class CaptureAllExitContractTest(unittest.TestCase):
         self.assertEqual(3, self._run((3, 0, 0, 0)).returncode)
         self.assertEqual(3, self._run((0, 0, 0, 0), "--skip-cc").returncode)
 
+    def test_codex_lane_runs_tls_capture_and_reports_it(self) -> None:
+        result = self._run((0, 0, 0, 0))
+        self.assertIn("codex-tls", result.stdout)
+        self.assertIn("Codex CLI TLS", result.stdout)
+        skipped = self._run((0, 0, 0, 0), "--skip-codex-tls")
+        self.assertEqual(3, skipped.returncode)
+        self.assertRegex(skipped.stdout, r"codex-tls\s+skipped")
+
 
 if __name__ == "__main__":
     unittest.main()
