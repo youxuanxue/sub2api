@@ -40,7 +40,11 @@ reviewed installer 生成，当前 `PHASES` 不包含 archive，因此本次代�
 把 node1 receipt 根目录接入 cleanup；普通 `--apply` 继续只安装本地 provision/cleanup。
 
 本地 cleanup 在配置 `ArchiveReceiptRoot` 后把 node1 receipt 作为硬门禁：缺失、不可达、
-格式错误或校验字段不完整均返回失败并保留源小时；不会为了维持 24 小时数字删除唯一副本。
+格式错误或校验字段不完整的小时都会保留；不会为了维持 24 小时数字删除唯一副本。门禁按小时
+判断：回执校验通过的小时照常删除，只保留缺回执的小时（2026-11-08 起；此前一个小时缺回执会
+让整批都不删，两个推送失败的小时曾挡住 62 个已归档小时）。cleanup 回执的
+`oldest_receipt_blocked_hour_utc` 记录最早被保留的小时，宿主 watcher 在它超过 24 小时时
+按 `job:tokenkey-qa-cleanup` 告警，提示归档已落后。
 
 # QA Operations
 

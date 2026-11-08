@@ -23,11 +23,14 @@ func TestReceiptGateReportsBlockedHoursWithoutFailing(t *testing.T) {
 	if strings.Contains(gate, "gate blocked cleanup (%d hours)") {
 		t.Error("the blocked-hour error wrapper is still returned")
 	}
-	if !strings.Contains(gate, "return result, nil") {
-		t.Error("the gate must return a result, not an error")
+	if strings.Contains(gate, "return result,") {
+		t.Error("the gate must not return early: verified hours in the same batch still have to be dropped")
 	}
-	if !strings.Contains(gate, "result.SelectedHours = nil") {
-		t.Error("a partly unprovable batch must drop nothing at all")
+	if strings.Contains(gate, "result.SelectedHours = nil") {
+		t.Error("a missing receipt must hold back only its own hour, not the whole batch")
+	}
+	if !strings.Contains(gate, "result.SelectedHours = gate.Allowed") {
+		t.Error("only hours with a verified receipt may be selected for drop")
 	}
 	if !strings.Contains(gate, "ReceiptBlockedReasons") {
 		t.Error("the reason must reach the receipt so an operator can tell the two cases apart")
@@ -209,5 +212,83 @@ func TestLocalCopyHourStillRequiresItsPayload(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("the absent local manifest must be reported")
+	}
+}
+
+func writeStreamedReceipt(t *testing.T, receiptRoot string, hour time.Time) {
+	t.Helper()
+	path := filepath.Join(receiptRoot, "prod", hour.Format("2006/01/02/15")+".json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	receipt := `{"schema_version":"qa-node1-hour-v1","environment":"prod",` +
+		`"window_start":"` + hour.Format(time.RFC3339) + `",` +
+		`"window_end":"` + hour.Add(time.Hour).Format(time.RFC3339) + `",` +
+		`"ok":true,"file_count":1,"total_bytes":1,"transport":"ssh-tar",` +
+		`"remote_dir":"/storage/tokenkey-archive/qa-raw/prod/` + hour.Format("2006/01/02/15") + `",` +
+		`"manifest_sha256":"` + strings.Repeat("c", 64) + `"}`
+	if err := os.WriteFile(path, []byte(receipt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Live case 2026-11-08: two hours failed their push, and the all-or-nothing
+// gate held back 62 hours that node1 already held, so prod reclaimed nothing.
+// Each hour is now gated on its own receipt.
+func TestGateReclaimsVerifiedHoursAndHoldsOnlyMissingOnes(t *testing.T) {
+	receiptRoot := filepath.Join(t.TempDir(), "receipts")
+	base := time.Date(2026, 11, 4, 14, 0, 0, 0, time.UTC)
+	hours := []time.Time{base, base.Add(time.Hour), base.Add(2 * time.Hour), base.Add(3 * time.Hour)}
+	// Hours 1 and 3 never reached node1.
+	writeStreamedReceipt(t, receiptRoot, hours[0])
+	writeStreamedReceipt(t, receiptRoot, hours[2])
+
+	gate := gateHoursOnNode1Receipts(receiptRoot, "prod", hours)
+
+	if len(gate.Allowed) != 2 || !gate.Allowed[0].Equal(hours[0]) || !gate.Allowed[1].Equal(hours[2]) {
+		t.Fatalf("only receipted hours may be dropped, got %v", gate.Allowed)
+	}
+	if gate.Blocked != 2 {
+		t.Fatalf("blocked = %d, want 2", gate.Blocked)
+	}
+	if gate.OldestBlocked == nil || !gate.OldestBlocked.Equal(hours[1]) {
+		t.Fatalf("oldest blocked hour = %v, want %v", gate.OldestBlocked, hours[1])
+	}
+	if gate.Err != nil {
+		t.Fatalf("absent receipts are not errors: %v", gate.Err)
+	}
+}
+
+// A receipt that exists but cannot be trusted still blocks its hour and is
+// reported, while its verified neighbours are reclaimed.
+func TestGateReportsUntrustedReceiptWithoutBlockingNeighbours(t *testing.T) {
+	receiptRoot := filepath.Join(t.TempDir(), "receipts")
+	good := time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
+	bad := good.Add(time.Hour)
+	writeStreamedReceipt(t, receiptRoot, good)
+	path := filepath.Join(receiptRoot, "prod", bad.Format("2006/01/02/15")+".json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gate := gateHoursOnNode1Receipts(receiptRoot, "prod", []time.Time{good, bad})
+
+	if len(gate.Allowed) != 1 || !gate.Allowed[0].Equal(good) {
+		t.Fatalf("allowed = %v, want only %v", gate.Allowed, good)
+	}
+	if gate.OldestBlocked == nil || !gate.OldestBlocked.Equal(bad) {
+		t.Fatalf("oldest blocked hour = %v, want %v", gate.OldestBlocked, bad)
+	}
+	if gate.Err == nil {
+		t.Fatal("an unparseable receipt must be reported")
+	}
+}
+
+func TestOldestBlockedHourIsInTheResult(t *testing.T) {
+	if !strings.Contains(readSource(t), `json:"oldest_receipt_blocked_hour_utc,omitempty"`) {
+		t.Fatal("LocalCleanupResult must expose oldest_receipt_blocked_hour_utc for the host watcher")
 	}
 }
