@@ -128,8 +128,7 @@ AWS repo1 仍是 prod 唯一经过恢复验证的链。
 ## 2026-11-08 决定：停写 AWS repo1，COS 为唯一 repository
 
 **2026-11-08 用户决定停写 AWS repo1，COS 为唯一 repository。** prod 与 cn-prod 同时执行。
-该决定覆盖上节「不得按阶段 6 退役 AWS 的 prod 写入身份」的限制，由用户在知情下作出：
-prod 的 COS 链仍只有 `--verify-only` 证据（2026-11-02），尚未做过真实恢复。
+该决定覆盖上节「不得按阶段 6 退役 AWS 的 prod 写入身份」的限制。决定依据是 2026-11-08 在独立数据机上完成的 prod COS 真实恢复（见下节）。
 
 | 项 | 决定 |
 |---|---|
@@ -179,8 +178,35 @@ prod 的 COS 链仍只有 `--verify-only` 证据（2026-11-02），尚未做过�
   `AROAZ55ZQM2DC6BZQWQ4B`）上的 S3 备份权限。角色本身**不能删**：两台主机的 SSM 运维
   通道（run-probe、发布、诊断）都靠它，只撤销 S3 备份相关的 policy。
 
-**仍然成立的风险**：prod COS 尚未做过真实恢复。建议在独立主机或临时挂盘上补一次
-`cos_restore_acceptance.py --repo 2 --apply`（见上节解除例外的三种方式），但不阻塞本决定。
+### prod COS 真实恢复证据（2026-11-08）
+
+在独立数据机 `lhins-rbjrqukb`（Lighthouse `tokenkey-usw-data-20261108`，na-siliconvalley-2，私网 10.4.0.17）上完成。
+镜像由 `deploy/aws/stage0/postgres-backup/Dockerfile` 构建，pgBackRest 2.58.0、PostgreSQL 18.6，与 prod `tk-archive-standby` 相同。
+命令经腾讯 TAT 下发。恢复容器以 `--user 70:70` 运行，配置只读挂载，`listen_addresses` 为空，`archive_mode=off`；结束后删除沙箱。
+prod 只承受两次只读查询。
+
+恢复来源为 COS 桶 `tokenkey-prod-backup-usw-1320330536` 的 `/prod/postgres`，即 prod 的 repo2：
+
+| 恢复点 | 备份集 | 耗时 | 库大小 | 结果 |
+|---|---|---|---|---|
+| 最新 | `20261108-004323F_20261108-143107I`（备份结束 2026-11-08 14:31 UTC） | restore 271s + 启动 2s | 23,666,316,991 字节 | 在 LSN `45/C4277558` 一致并完成 redo，promote 到 timeline 4；最新 `usage_logs` 行为 14:31:35 UTC |
+| 最旧 full | `20261101-012705F` | restore 212s + 启动 2s | 22,116,603,583 字节 | 最新 `usage_logs` 行为 2026-11-01 01:31:40 UTC |
+
+**校验**：`pg_isready` 通过、`pg_is_in_recovery()` 为 `f`。在恢复副本和 live prod 上运行同一组 `cos_restore_acceptance.py` 里的 `SCHEMA_SQL`/`DATA_SQL`。live prod 一侧为只读查询，时间 14:35:55 UTC，LSN `45/C6C5FE50`。最新恢复点与 live prod 的对比：
+- schema 完全一致：419 表、594 外键、295 主键、86 序列；
+- `accounts` 359 = 359，`api_keys` 264 = 264；
+- `usage_logs` 和 `billing_dedup` 均落后 164 行，没有超前；
+- 配对漂移 8,706,269 与 live 相同；
+- `cost_sum` 和 `actual_cost_sum` 均低于 live。
+
+最旧恢复点的表结构较少（405 表），这符合预期，后续迁移是之后才加的。
+
+**覆盖范围**：两次恢复都用 `--type=immediate --target-action=promote`，证明的是每个备份集及其所需 WAL 可以恢复；**没有**证明能 PITR 到归档最新点。
+本次没有运行工具本身，所以没有写入 `repository_verification.json` / `restore_acceptance.json`，`host_https_watch` 会继续报这两项原因，直到工具在 prod 上正式跑一次。
+
+**网络**：恢复容器必须能连到 COS。Postgres 启动时会对备份结束点的 WAL 段执行 `archive-get`，本次为 `0000000300000045000000C4`。
+`cos_restore_acceptance.py` 默认使用 Docker 默认 bridge，可出站访问 COS，同时不加入 tokenkey 网络，所以碰不到网关和生产库。
+**不要改成 `--network none`**：那样启动时会报 `could not locate required checkpoint record`。
 
 ## 当前阻塞输入
 
