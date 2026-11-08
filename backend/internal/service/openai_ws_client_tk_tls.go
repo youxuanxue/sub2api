@@ -123,8 +123,49 @@ func (d *coderOpenAIWSClientDialer) tkOpenAIWSTLSHTTPClient(ctx context.Context,
 }
 
 func (p *openAIWSConnPool) withTLSProfile(ctx context.Context, account *Account) context.Context {
+	ctx = withOpenAIWSDialAccount(ctx, account)
 	if p == nil || p.tlsProfileFor == nil || account == nil {
 		return ctx
 	}
 	return withOpenAIWSTLSProfile(ctx, p.tlsProfileFor(account))
+}
+
+type openAIWSDialAccountCtxKey struct{}
+
+// withOpenAIWSDialAccount tags a WS dial with its account so the dialer can
+// report the used TLS identity for flagged and non-flagged accounts alike.
+func withOpenAIWSDialAccount(ctx context.Context, account *Account) context.Context {
+	if ctx == nil || account == nil || account.ID <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, openAIWSDialAccountCtxKey{}, account.ID)
+}
+
+// withOpenAIWSDialIdentity attaches both the account and its TLS profile.
+func withOpenAIWSDialIdentity(ctx context.Context, account *Account, profile *tlsfingerprint.Profile) context.Context {
+	return withOpenAIWSTLSProfile(withOpenAIWSDialAccount(ctx, account), profile)
+}
+
+// tkRecordOpenAIWSTLSIdentity reports the TLS identity of a successful WS
+// upgrade. The profile counts as used only when the dial went through the uTLS
+// client from tkOpenAIWSTLSHTTPClient (the only WS transport with a custom
+// DialTLSContext); every other path, including https:// proxies, is crypto/tls.
+func tkRecordOpenAIWSTLSIdentity(ctx context.Context, proxyURL string, client *http.Client, resp *http.Response) {
+	if ctx == nil || resp == nil {
+		return
+	}
+	accountID, _ := ctx.Value(openAIWSDialAccountCtxKey{}).(int64)
+	if accountID <= 0 {
+		return
+	}
+	used := ""
+	if profile := openAIWSTLSProfileFromContext(ctx); profile != nil && client != nil {
+		if tr, ok := client.Transport.(*http.Transport); ok && tr.DialTLSContext != nil {
+			used = profile.Name
+			if used == "" {
+				used = "unnamed"
+			}
+		}
+	}
+	RecordUpstreamTLSIdentity(ctx, UpstreamTLSIdentityFromResponse(accountID, UpstreamTLSIdentityTransportWSS, used, proxyURL, resp))
 }
