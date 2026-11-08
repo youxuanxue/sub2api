@@ -83,7 +83,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 | 每色 DB / Redis 池 | 现役 `tokenkey-blue` 是 11-08 重建时手工 `docker run` 的，env 和 `config.yaml` 都没设池参数，按代码默认 256 / 1024 运行。下次走模板的蓝绿发布会变成 50 / 1024 | 40 / 96（`compose.override.yml`） |
 | 实测连接 | 网关 7 条 + 1 条 psql | 网关 5 条 + 1 条 psql |
 | 蓝绿重叠期 | 两色同时在，连接数翻倍 | 同左 |
-| 备份 | pgBackRest，`archive_command` 推 S3，最近归档正常；timer 在应用机 | pgBackRest，推 COS `/cn-prod/postgres`，最近归档正常（上一次失败是 11-02 的已知事故）；timer 在应用机 |
+| 备份 | pgBackRest 双仓库：AWS S3 `us-east-1` 和腾讯 COS 美西。WAL 每 5 分钟归档，每 2 小时增量，全量保留 7 天；两个仓库状态都是 ok；timer 在应用机 | pgBackRest 双仓库：AWS S3 `ap-northeast-1` 和腾讯 COS 北京，周期和保留期同 prod；两个仓库状态都是 ok（归档上一次失败是 11-02 的已知事故）；timer 在应用机 |
 | Caddy 上游 | 现网 `/var/lib/tokenkey/caddy/Caddyfile` 只有 `reverse_proxy tokenkey-blue:8080 { flush_interval -1 }`，**没有健康检查，也没有 `lb_try_duration`**。上游不可用时请求立刻失败 | 有健康检查和 `lb_try_duration 30s`，上游不可用时最多等 30 秒 |
 | `RUN_MODE` | `standard` | `standard` |
 | 网关内存 | `mem_limit 8g`、`GOMEMLIMIT=6GiB`（#3101） | `GOMEMLIMIT=2GiB`，无容器上限 |
@@ -94,7 +94,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 ## 两站统一布局
 
-- **数据机**：与应用机同地域、同账号、同私网。不跨云。数据目录 `/var/lib/tokenkey`，普通 ext4。磁盘按当时的库体积、WAL 和一份恢复余量定。
+- **数据机**：与应用机同地域、同账号、同私网。不跨云。数据目录 `/var/lib/tokenkey`，放在系统盘的普通 ext4 上，和 cn-prod 现在一样。磁盘大小见「数据机配置」。
 - **容器**：`tokenkey-postgres`、`tokenkey-redis`。Postgres 大版本与当站现役一致，因为物理恢复要求同一大版本。
 - **内存**：Postgres 和 Redis 各设容器内存上限，数值见「数据机配置」。
 - **参数**：Postgres 和 Redis 用仓库里同一份 compose 启动，参数全部写成命令行 `-c`。只有和内存相关的值按站不同，从数据机 `.env` 读。
@@ -172,12 +172,12 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 |---|---|---|
 | CPU | 4 vCPU | 2 vCPU |
 | 内存 | 16 GB | 8 GB |
-| 磁盘 | SSD 云盘，至少 200 GB | SSD 云盘，至少 100 GB |
+| 磁盘 | SSD 系统盘，至少 200 GB | SSD 系统盘，至少 100 GB |
 | 位置 | 腾讯美西 `na-siliconvalley`，与应用机同一私网 | 腾讯北京，与应用机同一私网 |
 | PG 容器内存上限 | 13 GB | 6 GB |
 | Redis | `maxmemory` 512MB，容器上限 1GB | 同左 |
 
-数据优先放在独立的云硬盘上，不放系统盘。这样重装系统不会带走数据，磁盘也能单独扩容和打快照。所选套餐不支持挂独立云硬盘时，才放系统盘。具体套餐和月价在申请预算时按当时报价给出。
+数据放在系统盘上，和 cn-prod 现在一样，不要求独立云硬盘。数据安全靠 pgBackRest：WAL 每 5 分钟归档一次，每 2 小时做一次增量备份，每站同时推到 AWS S3 和腾讯 COS 两个仓库。磁盘坏了或系统盘被重装，最多丢最后几分钟还没归档的 WAL。独立云硬盘只能缩短恢复时间，因为挂上盘就能起库，不用从仓库下载。切流第 3 步会实测从仓库恢复一次要多久；那个时长不可接受时，再考虑加独立云硬盘。具体套餐和月价在申请预算时按当时报价给出。
 
 ### 依据
 
