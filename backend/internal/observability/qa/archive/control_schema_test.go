@@ -149,6 +149,48 @@ VALUES ($1,'qa-archive-gap-decision-v1',$2::jsonb,'feng',1)`, planHash, planJSON
 	require.ErrorContains(t, err, "append-only")
 }
 
+// QA S3 retired 2026-11-08: tk_110 drops the S3-only tables, keeps the shard
+// control rows that local cleanup still writes, and is safe to re-run.
+func TestQAArchiveS3TablesDropKeepsShardControlAndIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	db := openArchiveIntegrationDB(t, "qa_archive_s3_drop")
+	defer func() { _ = db.Close() }()
+
+	for _, name := range []string{
+		"tk_069_create_qa_archive_shards.sql",
+		"tk_070_qa_archive_closeout_control.sql",
+		"tk_075_qa_archive_gap_decision_receipts.sql",
+	} {
+		applyMigration(t, ctx, db, name)
+	}
+	window := time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC)
+	var shardID int64
+	require.NoError(t, db.QueryRowContext(ctx, `
+INSERT INTO qa_archive_shards (window_start, window_end, generation, state, s3_prefix, cleanup_eligible, created_at, updated_at)
+VALUES ($1, $2, 0, 'committed', $3, false, now(), now()) RETURNING id`,
+		window, window.Add(time.Hour), ShardPrefix(window)).Scan(&shardID))
+	var segmentID int64
+	require.NoError(t, db.QueryRowContext(ctx, `
+INSERT INTO qa_archive_segments (shard_id, segment_id, segment_kind, state, attempt_id, manifest_key, records_key)
+VALUES ($1, 'base-0001', 'base', 'committed', 'a1', 'm', 'r') RETURNING id`, shardID).Scan(&segmentID))
+	_, err := db.ExecContext(ctx, `INSERT INTO qa_archive_segment_records (segment_id, created_at, request_id) VALUES ($1, $2, 'req-1')`, segmentID, window)
+	require.NoError(t, err)
+
+	applyMigration(t, ctx, db, "tk_110_drop_qa_archive_s3_tables.sql")
+	applyMigration(t, ctx, db, "tk_110_drop_qa_archive_s3_tables.sql")
+
+	assertTableAbsent(t, db, "qa_archive_segment_records")
+	assertTableAbsent(t, db, "qa_archive_segments")
+	assertTableAbsent(t, db, "qa_archive_gap_decision_receipts")
+	assertTable(t, db, "qa_archive_shards")
+	var remaining int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM qa_archive_shards WHERE id=$1`, shardID).Scan(&remaining))
+	require.Equal(t, 1, remaining, "shard control rows must survive the drop")
+	var fn bool
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regprocedure('tk_qa_archive_gap_decision_receipts_immutable()') IS NOT NULL`).Scan(&fn))
+	require.False(t, fn, "receipt trigger function must be dropped with its table")
+}
+
 func applyMigration(t *testing.T, ctx context.Context, db *sql.DB, name string) {
 	t.Helper()
 	body, err := migrations.FS.ReadFile(name)
