@@ -14,15 +14,6 @@ prod:
     delete_unarchived: true
     archive_uploads: retired
 
-  lifecycle:
-    owner: tokenkey-qa-maintenance
-    future_horizon_hours: 72
-    drop_requires_raw_commit: true
-    drop_requires_restore_verified: true
-    drop_requires_capture_seal: true
-    provision_lock_retry_sqlstate: "55P03"
-    provision_lock_retry_backoff_ms: [250, 500, 1000, 2000, 4000, 8000]
-
   archive:
     enabled: false
     scope: all_users_all_api_keys
@@ -36,7 +27,6 @@ prod:
     runner_gid: 1000
     host_scratch_dir: /var/lib/tokenkey/app/qa_archive_tmp
     container_scratch_dir: /app/data/qa_archive_tmp
-    host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json
 
   disk_monitor:
     used_percent: 80

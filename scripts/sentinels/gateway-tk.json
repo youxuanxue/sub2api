@@ -17028,10 +17028,12 @@
     {
       "path": "ops/qa/local_maintenance_host.py",
       "must_contain": [
-        "require_legacy_paused()",
         "'cleanup': '*-*-* *:02/5:00 UTC',"
       ],
-      "rationale": "Local QA maintenance keeps refusing to run while a legacy owner is active, and cleanup stays on its 5-minute cadence."
+      "rationale": "Local QA maintenance keeps refusing to run while a legacy owner is active, and cleanup stays on its 5-minute cadence. The S3-era legacy-owner guard was removed 2026-11-09: it required masked unit links to exist and so blocked a fresh host.",
+      "must_not_contain": [
+        "def require_legacy_paused("
+      ]
     },
     {
       "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",

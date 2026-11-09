@@ -21,7 +21,6 @@ UNITS = Path('/etc/systemd/system')
 HOST_LOCK = Path('/var/lib/tokenkey/qa-lifecycle/host.lock')
 HOT_DATA = Path('/var/lib/tokenkey/app')
 NODE1_ROOT = Path('/var/lib/tokenkey/qa-node1')
-LEGACY = ('tokenkey-qa-maintenance', 'tokenkey-qa-boundary')
 PHASES = {
     'provision': '*-*-* *:00:00 UTC',
     'cleanup': '*-*-* *:02/5:00 UTC',
@@ -135,15 +134,6 @@ def pg_environment(container):
     return ''.join(f'{key}={value}\n' for key, value in values.items())
 
 
-def require_legacy_paused():
-    for job in LEGACY:
-        timer = invoke(['systemctl', 'show', job+'.timer', '-p', 'ActiveState,UnitFileState'])
-        facts = dict(line.split('=', 1) for line in timer.splitlines() if '=' in line)
-        active = invoke(['systemctl', 'show', job+'.service', '-p', 'ActiveState', '--value']).strip()
-        if facts.get('ActiveState') != 'inactive' or facts.get('UnitFileState') not in ('disabled', 'masked') or active not in ('inactive', 'failed'):
-            raise ValueError('legacy QA owner must remain paused: '+job)
-
-
 def unit_files(bundle, phase, environment='prod', remote=None):
     if phase not in PHASES and phase != ARCHIVE_PHASE:
         raise ValueError('unknown local phase')
@@ -238,7 +228,6 @@ def run_phase(config, phase, dry_run=False):
     binary = Path(config['binary'])
     if hashlib.sha256(binary.read_bytes()).hexdigest() != config['sha256']:
         raise ValueError('binary digest mismatch')
-    require_legacy_paused()
     started = time.time()
     receipt = {'schema_version': 1, 'phase': phase, 'ok': False, 'started_at': started}
     task_name = f'tokenkey-qa-{phase}-{os.getpid()}'
@@ -253,7 +242,6 @@ def run_phase(config, phase, dry_run=False):
                     if time.monotonic() >= deadline:
                         raise TimeoutError('QA host lock busy')
                     time.sleep(1)
-            require_legacy_paused()
             postgres, network = resolve_postgres_runtime()
             with tempfile.TemporaryDirectory(prefix='qa-local-', dir='/run') as scratch:
                 env = Path(scratch)/'pg.env'
@@ -340,7 +328,6 @@ def install(args):
     manifest = json.loads(args.manifest.read_text())
     if socket.gethostname() != expected_prod_hostname(manifest):
         raise ValueError('expected current prod hostname')
-    require_legacy_paused()
     digest = hashlib.sha256(args.binary.read_bytes()).hexdigest()
     if digest != args.sha256:
         raise ValueError('artifact digest mismatch')

@@ -26,7 +26,7 @@ installer 默认只计划（只读挂载）；`--apply` 才安装并执行。停
 已删除的未归档数据无法恢复。预建与清理均不依赖 S3，清理容器只挂载两个 QA 热目录。
 
 QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 每 4h。旧 `tokenkey-qa-maintenance`/`tokenkey-qa-boundary` 的代码、宿主脚本与巡检已删除；
-主机上已 mask 的单元留待单独的主机清理，`require_legacy_paused()` 仍要求它们保持停用。
+2026-11-09 删除了 `require_legacy_paused()`：它要求主机上必须留着这两个单元的 mask 链接，全新主机因此会被拦住。两台主机换上不含这道检查的 bundle 之后，再删除旧的 mask 链接；先删链接会让旧 bundle 的清理失败。
 历史 capture failure 和归档失败回执保留，不宣称全局 capture hard-health 已恢复。
 
 ## node1 小时归档
