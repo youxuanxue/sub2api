@@ -42,6 +42,10 @@ class DomesticBluegreenTest(unittest.TestCase):
         values.update({
             'QA_CAPTURE_ENABLED': 'true',
             'SECURITY_PROXY_PROBE_PRESET': 'domestic',
+            'DATABASE_HOST': 'postgres',
+            'DATABASE_PORT': '5432',
+            'REDIS_HOST': 'redis',
+            'REDIS_PORT': '6379',
         })
         values.update(overrides)
         return values
@@ -218,6 +222,19 @@ class DomesticBluegreenTest(unittest.TestCase):
         self.assertEqual(app['environment']['JWT_SECRET'], 'literal$${value}')
         self.assertEqual(app['environment']['DATABASE_HOST'], 'postgres')
         self.assertEqual(app['ports'][0]['published'], '18082')
+
+    def test_data_plane_cutover_endpoints_reach_the_new_color(self):
+        # After the data-plane cutover the live color still carries the old
+        # same-host addresses; the new color must take the ones from .env.
+        current = fixture()
+        volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
+        service = {'volumes': volumes, 'environment': self._compose_env(
+            DATABASE_HOST='10.2.4.5', REDIS_HOST='10.2.4.5')}
+        app = bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-green')[
+            'services']['tokenkey-green']
+        self.assertEqual(app['environment']['DATABASE_HOST'], '10.2.4.5')
+        self.assertEqual(app['environment']['REDIS_HOST'], '10.2.4.5')
+        self.assertEqual(app['environment']['DATABASE_PORT'], '5432')
 
     def test_candidate_rejects_missing_or_blank_pool_env_keys(self):
         volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]

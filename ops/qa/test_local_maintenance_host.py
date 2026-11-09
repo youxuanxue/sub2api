@@ -201,6 +201,47 @@ class LocalHostTest(unittest.TestCase):
             self.assertIn('--mount', mounts)
             self.assertIn(f'type=bind,src={node1},dst=/app/node1,readonly', mounts)
 
+    def _app(self, host, running=True, networks=('tokenkey_tokenkey-network',)):
+        return [{'State': {'Running': running}, 'Image': 'sha256:app',
+                 'Config': {'Env': [f'DATABASE_HOST={host}', 'DATABASE_PORT=5432',
+                                    'DATABASE_PASSWORD=app-secret']},
+                 'NetworkSettings': {'Networks': {n: {} for n in networks}}}]
+
+    def test_remote_runtime_is_off_while_postgres_is_local(self):
+        for host in ('tokenkey-postgres', 'postgres'):
+            with self.subTest(host=host), mock.patch.object(
+                    local, 'invoke', return_value=json.dumps(self._app(host))):
+                self.assertIsNone(local.remote_postgres_runtime())
+
+    def test_remote_runtime_points_pghost_at_the_data_machine(self):
+        with mock.patch.object(local, 'invoke', return_value=json.dumps(self._app('10.4.0.3'))):
+            runtime, network = local.remote_postgres_runtime()
+        self.assertEqual(network, 'tokenkey_tokenkey-network')
+        self.assertEqual(runtime['Image'], 'sha256:app')
+        with mock.patch.object(local, 'app_database_env', return_value={
+                'POSTGRES_PASSWORD': 'app-secret', 'POSTGRES_USER': 'tokenkey', 'POSTGRES_DB': 'tokenkey'}):
+            env = local.pg_environment(runtime)
+        self.assertIn('PGHOST=10.4.0.3\n', env)
+        self.assertIn('PGPORT=5432\n', env)
+        self.assertIn('PGPASSWORD=app-secret\n', env)
+
+    def test_remote_runtime_skips_running_containers_without_database_host(self):
+        # The socat control proxy is named `tokenkey`, an app candidate; it must
+        # not end the search before the real app color is inspected.
+        proxy = [{'State': {'Running': True}, 'Image': 'sha256:socat', 'Config': {'Env': []},
+                  'NetworkSettings': {'Networks': {'tokenkey_tokenkey-network': {}}}}]
+        def inspect(args):
+            return json.dumps(self._app('10.2.4.5') if args[-1] == 'tk-cutover-prod-app' else proxy)
+        with mock.patch.object(local, 'invoke', side_effect=inspect):
+            runtime, _ = local.remote_postgres_runtime()
+        self.assertEqual(runtime['TkPGHost'], '10.2.4.5')
+
+    def test_remote_runtime_rejects_ambiguous_app_network(self):
+        app = self._app('10.4.0.3', networks=('a', 'b'))
+        with mock.patch.object(local, 'invoke', return_value=json.dumps(app)):
+            with self.assertRaises(ValueError):
+                local.remote_postgres_runtime()
+
     def test_resolve_postgres_runtime_prefers_tokenkey_postgres_alias_network(self):
         pg={'State':{'Running':True},'Image':'sha256:fixture',
             'NetworkSettings':{'Networks':{

@@ -16,7 +16,12 @@ import fcntl, json, re, subprocess, sys, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-CONTAINER = "tk-archive-standby"
+# The live app host names its database container tk-archive-standby (layout
+# exception); the data machine uses tokenkey-postgres. Resolve the single
+# running candidate instead of a literal, as deploy/domestic/cn_pgbackrest.py
+# does, so the same host copy runs on either host.
+POSTGRES_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
+_CONTAINER: str | None = None
 STANZA = "tokenkey"
 STATE = Path("/var/lib/tokenkey/postgres-backup")
 COS_REPO = "prod/postgres"
@@ -24,6 +29,19 @@ LIVE_REPO = COS_REPO
 
 class Err(RuntimeError):
     pass
+
+def container() -> str:
+    """The one running Postgres container on this host; fail closed otherwise."""
+    global _CONTAINER
+    if _CONTAINER:
+        return _CONTAINER
+    names = subprocess.run(["docker", "ps", "--format", "{{.Names}}"],
+                           text=True, capture_output=True, check=False).stdout.split()
+    matched = [name for name in names if name in POSTGRES_CANDIDATES]
+    if len(matched) != 1:
+        raise Err(f"postgres container unresolved (running candidates: {matched or 'none'})")
+    _CONTAINER = matched[0]
+    return _CONTAINER
 
 def run(cmd, timeout=120):
     r = subprocess.run(cmd, text=True, capture_output=True, check=False, timeout=timeout)
@@ -33,7 +51,7 @@ def run(cmd, timeout=120):
 
 def backrest(*args, timeout=120):
     return run([
-        "docker", "exec", "--user", "postgres", CONTAINER,
+        "docker", "exec", "--user", "postgres", container(),
         "timeout", "-s", "TERM", str(timeout),
         "pgbackrest", f"--stanza={STANZA}", *args,
     ], timeout=timeout + 15)
@@ -47,7 +65,7 @@ PRIMARY_REPO = 2
 def configured_repositories() -> tuple:
     """Repository indices present in the mounted runtime config."""
     out = run([
-        "docker", "exec", "--user", "postgres", CONTAINER,
+        "docker", "exec", "--user", "postgres", container(),
         "grep", "-E", "^repo[0-9]+-type=", "/etc/pgbackrest/pgbackrest.conf",
     ])
     return tuple(sorted({int(m) for m in re.findall(r"^repo(\d+)-type=", out, re.M)}))
@@ -289,7 +307,7 @@ def cmd_check():
             ") FROM pg_stat_archiver;"
         )
         arch = json.loads(run([
-            "docker", "exec", "--user", "postgres", CONTAINER,
+            "docker", "exec", "--user", "postgres", container(),
             "psql", "-U", "tokenkey", "-d", "tokenkey", "-XAtc", sql,
         ]))
         infos = {repo: repo_info(repo) for repo in repos}

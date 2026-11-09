@@ -164,6 +164,12 @@ QA_ENV_KEYS = (
 # declares an app env key that none of these three tuples claims.
 CONFIG_ENV_KEYS = (
     'SECURITY_PROXY_PROBE_PRESET',
+    # Data plane endpoints (design-data-plane-split.md). Without these a color
+    # promoted after the cutover would inherit the old same-host addresses.
+    'DATABASE_HOST',
+    'DATABASE_PORT',
+    'REDIS_HOST',
+    'REDIS_PORT',
 )
 
 
