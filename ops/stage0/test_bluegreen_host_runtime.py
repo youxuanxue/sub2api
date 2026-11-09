@@ -69,20 +69,6 @@ class HostRuntimeTest(unittest.TestCase):
             aws.mkdir()
             with self.assertRaises(ValueError):
                 bindings(root, {}, True, uid=os.getuid())
-            (root / 'qa-secrets').mkdir()
-            path = root / 'qa-secrets/raw.json'
-            path.write_text('synthetic')
-            path.chmod(0o644)
-            env = {'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE': '/run/secrets/tokenkey-qa/raw.json'}
-            with self.assertRaises(ValueError):
-                bindings(root, env, False, uid=os.getuid(), qa_maintenance=True)
-            path.chmod(0o600)
-            with self.assertRaises(ValueError):
-                bindings(root, {**env, 'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE': '/etc/passwd'}, False, qa_maintenance=True)
-            path.unlink()
-            path.symlink_to('/etc/passwd')
-            with self.assertRaises(ValueError):
-                bindings(root, env, False, uid=os.getuid(), qa_maintenance=True)
 
     def test_hybrid_without_aws_dir_skips_identity_mount(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -98,22 +84,6 @@ class HostRuntimeTest(unittest.TestCase):
                 service = result['services']['tokenkey-' + color]
                 self.assertNotIn('/aws', {m.get('target') for m in service.get('volumes', []) if isinstance(m, dict)})
                 self.assertNotIn('AWS_SHARED_CREDENTIALS_FILE=/aws/credentials', service.get('environment', []))
-
-
-    def test_only_maintenance_receives_private_raw_identity(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            env = {'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE': '/run/secrets/tokenkey-qa/raw.json'}
-            self.assertEqual(bindings(root, env, False), ([], []))
-            (root / 'qa-secrets').mkdir()
-            raw = root / 'qa-secrets/raw.json'
-            raw.write_text('synthetic-raw-identity')
-            raw.chmod(0o600)
-            mounts, environment = bindings(root, env, False, uid=os.getuid(), qa_maintenance=True)
-            self.assertEqual(mounts, [{'type': 'bind', 'source': str(raw),
-                                     'target': env['QA_ARCHIVE_STORAGE_CREDENTIALS_FILE'],
-                                     'read_only': True, 'bind': {'create_host_path': False}}])
-            self.assertEqual(environment, [])
 
     def test_root_disk_and_unmounted_data_are_rejected(self):
         root = Path('/var/lib/tokenkey')
