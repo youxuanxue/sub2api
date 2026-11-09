@@ -37,6 +37,32 @@ class _Lock:
 
 
 class TencentPgBackrestTests(TestCase):
+    def setUp(self):
+        # Most tests stub run(); pin the resolved container so they never shell out.
+        runner._CONTAINER = "tk-archive-standby"
+        self.addCleanup(setattr, runner, "_CONTAINER", None)
+
+    def _ps(self, names):
+        return patch.object(runner.subprocess, "run", return_value=type(
+            "R", (), {"stdout": "\n".join(names), "returncode": 0})())
+
+    def test_container_resolves_the_layout_exception_name_on_the_app_host(self):
+        runner._CONTAINER = None
+        with self._ps(["tokenkey-blue", "tk-archive-standby", "tokenkey-caddy"]):
+            self.assertEqual(runner.container(), "tk-archive-standby")
+
+    def test_container_resolves_tokenkey_postgres_on_the_data_machine(self):
+        runner._CONTAINER = None
+        with self._ps(["tokenkey-postgres", "tokenkey-redis"]):
+            self.assertEqual(runner.container(), "tokenkey-postgres")
+
+    def test_container_fails_closed_when_none_or_both_run(self):
+        for names in ([], ["tokenkey-postgres", "tk-archive-standby"]):
+            runner._CONTAINER = None
+            with self.subTest(names=names), self._ps(names):
+                with self.assertRaises(runner.Err):
+                    runner.container()
+
     def test_dual_repository_backup_runs_each_repo_and_records_both_labels(self):
         info = {
             "name": "tokenkey",
