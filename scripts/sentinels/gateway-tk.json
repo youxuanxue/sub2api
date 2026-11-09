@@ -217,6 +217,22 @@
       "rationale": "Long recovery probes must set the SSM plugin execution timeout, not only the command delivery deadline."
     },
     {
+      "path": "ops/observability/run-probe.sh",
+      "must_contain": [
+        "WITH_FILES+=(\"$OUTPUT_REDACT\")",
+        "python3 /tmp/probe_output_redact.py -- bash $REMOTE_PATH"
+      ],
+      "rationale": "Every probe's remote stdout/stderr passes the credential redactor before reaching SSM history or callers; a 2026-11-08 probe leaked a pgBackRest STS token through a hand-written filter."
+    },
+    {
+      "path": "ops/observability/test_probe_output_redact.py",
+      "must_contain": [
+        "test_pgbackrest_sts_token_regression",
+        "test_usage_and_metadata_fields_survive"
+      ],
+      "rationale": "Keep the leaked-token regression and the usage-field false-positive guard under executable coverage."
+    },
+    {
       "path": "ops/observability/test_run_probe.py",
       "must_contain": [
         "test_remote_execution_timeout_matches_requested_long_probe",

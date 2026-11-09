@@ -104,7 +104,8 @@ func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedMod
 	switch a.Platform {
 	case PlatformAntigravity:
 		if isAntigravityGeminiModel(modelKey) && !isAntigravityGeminiImageModel(modelKey) && modelKey != antigravityGeminiModelRateLimitKey {
-			keys = append(keys, antigravityGeminiModelRateLimitKey)
+			// TK: Pro Argon has its own quota, see antigravity_argon_quota_scope_tk.go.
+			keys = append(keys, tkAntigravityGeminiFamilyReadKeys(a, modelKey)...)
 		}
 	case PlatformOpenAI:
 		if openAIImageGenerationRateLimitApplies(ctx, requestedModel, modelKey) && modelKey != openAIImageGenerationRateLimitKey {

@@ -582,7 +582,9 @@ class RunProbePollingTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout, "fact\n" * 10000)
         params = self.aws_params_log.read_text(encoding="utf-8")
-        self.assertIn("python3 /tmp/probe_output_transport.py encode -- bash", params)
+        self.assertIn(
+            "python3 /tmp/probe_output_transport.py encode -- python3 /tmp/probe_output_redact.py -- bash", params
+        )
         self._assert_one_command(expected_gets=1)
 
     def test_compressed_corruption_never_exposes_partial_stdout(self) -> None:

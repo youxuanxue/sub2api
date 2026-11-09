@@ -51,7 +51,9 @@
 #   line; multiple --env are concatenated with spaces.
 #
 # Output (always on stdout):
-#   The remote script's stdout verbatim.
+#   The remote script's stdout, with credential values replaced by [REDACTED]
+#   on the remote host (ops/observability/probe_output_redact.py). Remote
+#   stderr is filtered the same way. There is no opt-out.
 #
 # Stderr lines (decorated, distinguishable from probe stderr):
 #   "[run-probe] resolved region=... instance_id=... command_id=..."
@@ -137,6 +139,10 @@ fi
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROBE_CONTRACTS="$REPO_ROOT/ops/observability/probe-contracts.json"
 OUTPUT_TRANSPORT="$REPO_ROOT/ops/observability/probe_output_transport.py"
+# Every probe's stdout/stderr is filtered on the remote host before it reaches
+# SSM history, SSH logs or callers; probes no longer carry their own grep -v.
+OUTPUT_REDACT="$REPO_ROOT/ops/observability/probe_output_redact.py"
+WITH_FILES+=("$OUTPUT_REDACT")
 if [ "$COMPRESSED_OUTPUT" = "1" ]; then
   WITH_FILES+=("$OUTPUT_TRANSPORT")
 fi
@@ -273,9 +279,9 @@ done
 B64=$(gzip -cn < "$SCRIPT_PATH" | base64 | tr -d '\n')
 REMOTE_PARTS+=("echo $B64 | base64 -d | gzip -d > $REMOTE_PATH && chmod +x $REMOTE_PATH")
 if [ "$COMPRESSED_OUTPUT" = "1" ]; then
-  REMOTE_PARTS+=("env $ENV_PREFIX python3 /tmp/probe_output_transport.py encode -- bash $REMOTE_PATH")
+  REMOTE_PARTS+=("env $ENV_PREFIX python3 /tmp/probe_output_transport.py encode -- python3 /tmp/probe_output_redact.py -- bash $REMOTE_PATH")
 else
-  REMOTE_PARTS+=("env $ENV_PREFIX bash $REMOTE_PATH")
+  REMOTE_PARTS+=("env $ENV_PREFIX python3 /tmp/probe_output_redact.py -- bash $REMOTE_PATH")
 fi
 REMOTE_LINE=""
 for part in "${REMOTE_PARTS[@]}"; do
