@@ -1,7 +1,7 @@
 ---
 title: 腾讯 COS 数据库备份与 node1 QA 归档
 status: approved
-approved_by: "feng（本次会话同意三项迁移决策，并将 QA node1 保留期改为 365 天；2026-11-02 同意 prod 阶段 3 以 verify-only 结束，记为明确例外）"
+approved_by: "feng（本次会话同意三项迁移决策，并将 QA node1 保留期改为 365 天；2026-11-02 同意 prod 阶段 3 以 verify-only 结束，记为明确例外；2026-11-08 用户决定停写 AWS repo1，COS 为唯一 repository）"
 approved_at: 2026-10-31
 authors: [agent]
 risk: high
@@ -124,6 +124,89 @@ schema 与线上一致（409 表 / 96 外键 / 281 主键 / 86 序列），行�
 在上述任一完成前，**不得按阶段 6 退役 AWS 的 prod 写入身份** ——
 阶段 6 要求「确认 COS 与 node1 连续健康」，而 prod 的 COS 链尚未被证明可恢复，
 AWS repo1 仍是 prod 唯一经过恢复验证的链。
+
+## 2026-11-08 决定：停写 AWS repo1，COS 为唯一 repository
+
+**2026-11-08 用户决定停写 AWS repo1，COS 为唯一 repository。** prod 与 cn-prod 同时执行。
+该决定覆盖上节「不得按阶段 6 退役 AWS 的 prod 写入身份」的限制。决定依据是 2026-11-08 在独立数据机上完成的 prod COS 真实恢复（见下节）。
+
+| 项 | 决定 |
+|---|---|
+| repository 编号 | COS 保持 `repo2`，不改编号为 `repo1` |
+| 运行时配置 | 只渲染 `repo2-*`，无任何 `repo1-*`、AWS endpoint 或 STS token |
+| 身份刷新 | prod `tencent_backup_identity.py`、cn-prod `cn_backup_identity.py` 不再读 `/root/.aws/credentials`、不调 STS；缺 COS 凭据即失败并保留现配置，绝不回退 AWS |
+| runner | `PRIMARY_REPO = 2`；配置里没有 repo2 时写 `primary_repository_missing` 硬故障回执，不备份其他仓库 |
+| AWS 对象 | 原样保留（不 expire、不删）；桶/角色清理是单独的 infra 步骤 |
+
+**为什么保持 repo2，不改成 repo1。** pgBackRest 不在仓库内记录编号：`archive.info` /
+`backup.info` 只记 stanza 与 PG system-id/版本，编号只是配置键（`repoN-*`）和 `--repo=N`
+选择器。所以改号不会破坏 COS 上的链，但它不带来任何收益，反而有成本：
+
+1. 现有 `--repo=2` 的所有入口（`cos_restore_acceptance.py --repo 2`、runbook、回执里的
+   `stanza_status["2"]`）都要跟着改，改漏一处就静默读到别的仓库；
+2. 保持编号时，切换就是「删掉所有 `repo1-*` 行」，`repo2-*` 行逐字不变，可逐字 diff 审核；
+3. 遗留的 `--repo=1` 调用会以 `[032] key '1' is not valid for 'repo' option` 明确失败，
+   而不是悄悄落到另一个仓库上。
+
+**单仓库下的 pgBackRest 2.58 行为（2026-11-08 本地 postgres:18-alpine + pgBackRest
+2.58.0 实测，从双仓库热切到仅 repo2，PG 持续运行）：**
+
+| 命令 | 结果 |
+|---|---|
+| `archive-push`（`archive_command` 无 `--repo`） | 只推送到配置中的 repo2；切换后 `pg_switch_wal()` 立即归档，`failed_count` 0 |
+| `check`（不接受 `--repo`） | 校验唯一的 repo2，通过 |
+| `info`（不带 `--repo`） | 只列 repo2，`status.code` 0 |
+| `backup`（带或不带 `--repo=2`） | 都写 repo2；runner 继续显式传 `--repo=2` |
+| `expire --repo=2` | 只按 repo2 的 `retention-full=7` 清理 repo2 的备份及其 WAL |
+| `--repo=1` | 报 `[032]` 失败 |
+| `restore --repo=2` | 仅凭 repo2 恢复成功 |
+| 被移除的 repo1 | 对象保持原状，不被 expire 或改写 |
+
+**WAL 链为何不断。** COS 自 2026-11-02 起就与 AWS 接收同一条 `archive-push` 扇出，WAL
+连续（2026-11-08 只读核对：prod repo2 `...330041` → `...45AE`，cn-prod repo2
+`...16B7` → `...240063`，max 与 repo1 一致）。移除 repo1 只是缩小扇出，不新建 stanza，
+也不需要原先 cn-prod 那套「先 staging 再上线」的 repo2 预检（那套预检防的是无 stanza 的
+新仓库拖住 AWS-only 的 `archive_command`），因此已删除。配置写入是原子替换，切换瞬间
+正在执行的 `archive-push` 读的是旧配置，仍会成功写入两个仓库。
+
+**留给单独 infra 步骤的 AWS 资源（不在本变更内删除）：**
+
+- prod：S3 桶 `tokenkey-prod-physical-backup-682751977094-us-east-1`（活前缀
+  `candidates/tencent-usw-20261022/postgres`，Tokyo 历史只读前缀 `prod/postgres`）；
+- cn-prod：S3 桶 `tokenkey-cn-prod-physical-backup-682751977094-ap-northeast-1`（前缀 `cn-prod/postgres`）；
+- 两台主机共用的 SSM Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（RoleId
+  `AROAZ55ZQM2DC6BZQWQ4B`）上的 S3 备份权限。角色本身**不能删**：两台主机的 SSM 运维
+  通道（run-probe、发布、诊断）都靠它，只撤销 S3 备份相关的 policy。
+
+### prod COS 真实恢复证据（2026-11-08）
+
+在独立数据机 `lhins-rbjrqukb`（Lighthouse `tokenkey-usw-data-20261108`，na-siliconvalley-2，私网 10.4.0.17）上完成。
+镜像由 `deploy/aws/stage0/postgres-backup/Dockerfile` 构建，pgBackRest 2.58.0、PostgreSQL 18.6，与 prod `tk-archive-standby` 相同。
+命令经腾讯 TAT 下发。恢复容器以 `--user 70:70` 运行，配置只读挂载，`listen_addresses` 为空，`archive_mode=off`；结束后删除沙箱。
+prod 只承受两次只读查询。
+
+恢复来源为 COS 桶 `tokenkey-prod-backup-usw-1320330536` 的 `/prod/postgres`，即 prod 的 repo2：
+
+| 恢复点 | 备份集 | 耗时 | 库大小 | 结果 |
+|---|---|---|---|---|
+| 最新 | `20261108-004323F_20261108-143107I`（备份结束 2026-11-08 14:31 UTC） | restore 271s + 启动 2s | 23,666,316,991 字节 | 在 LSN `45/C4277558` 一致并完成 redo，promote 到 timeline 4；最新 `usage_logs` 行为 14:31:35 UTC |
+| 最旧 full | `20261101-012705F` | restore 212s + 启动 2s | 22,116,603,583 字节 | 最新 `usage_logs` 行为 2026-11-01 01:31:40 UTC |
+
+**校验**：`pg_isready` 通过、`pg_is_in_recovery()` 为 `f`。在恢复副本和 live prod 上运行同一组 `cos_restore_acceptance.py` 里的 `SCHEMA_SQL`/`DATA_SQL`。live prod 一侧为只读查询，时间 14:35:55 UTC，LSN `45/C6C5FE50`。最新恢复点与 live prod 的对比：
+- schema 完全一致：419 表、594 外键、295 主键、86 序列；
+- `accounts` 359 = 359，`api_keys` 264 = 264；
+- `usage_logs` 和 `billing_dedup` 均落后 164 行，没有超前；
+- 配对漂移 8,706,269 与 live 相同；
+- `cost_sum` 和 `actual_cost_sum` 均低于 live。
+
+最旧恢复点的表结构较少（405 表），这符合预期，后续迁移是之后才加的。
+
+**覆盖范围**：两次恢复都用 `--type=immediate --target-action=promote`，证明的是每个备份集及其所需 WAL 可以恢复；**没有**证明能 PITR 到归档最新点。
+本次没有运行工具本身，所以没有写入 `repository_verification.json` / `restore_acceptance.json`，`host_https_watch` 会继续报这两项原因，直到工具在 prod 上正式跑一次。
+
+**网络**：恢复容器必须能连到 COS。Postgres 启动时会对备份结束点的 WAL 段执行 `archive-get`，本次为 `0000000300000045000000C4`。
+`cos_restore_acceptance.py` 默认使用 Docker 默认 bridge，可出站访问 COS，同时不加入 tokenkey 网络，所以碰不到网关和生产库。
+**不要改成 `--network none`**：那样启动时会报 `could not locate required checkpoint record`。
 
 ## 当前阻塞输入
 

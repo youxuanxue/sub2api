@@ -14,8 +14,8 @@
 | 主机 | 腾讯 Lighthouse `VM-0-16-ubuntu`，**amd64**，SSM Hybrid（id 见候选矩阵） |
 | PG | 容器 `tk-archive-standby`（非 compose，别名 `postgres`/`tokenkey-postgres`），amd64 镜像，PG 18.6 / pgBackRest 2.58.0 |
 | 数据 | `/srv/tokenkey-rehearsal/standby-pg`，位于 LUKS mapper `tokenkey_recovery`；无 EBS、无 DLM、无整机快照 |
-| 活链 | `s3://<physical-backup 桶>/candidates/tencent-usw-20261022/postgres`，timeline 2；身份由 `tencent_backup_identity.py` 每分钟刷新到 tmpfs |
-| 操作入口 | 宿主 `tencent_pgbackrest.py backup|check`（**尚未入仓**，无 accept/verify/status）；timer 同名 `tokenkey-postgres-{backup,archive-check}` |
+| 活链 | 2026-11-08 起仅 COS `repo2` `/prod/postgres`；`tencent_backup_identity.py` 每分钟用 COS 凭据渲染 tmpfs 配置。AWS `candidates/tencent-usw-20261022/postgres`（timeline 2）停写保留 |
+| 操作入口 | 宿主 `tencent_pgbackrest.py backup|check`（仓库 SSOT `deploy/tencent/tencent_pgbackrest.py`，宿主副本不随合并更新；无 accept/verify/status）；timer 同名 `tokenkey-postgres-{backup,archive-check}` |
 | 已知偏差 | 运行时 `archive_timeout=0`（基线 300），待审批修正 |
 
 `prod/postgres` 是 Tokyo timeline 1 的冻结只读链；不得写入，也不作为恢复默认。

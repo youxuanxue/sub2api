@@ -232,6 +232,40 @@ class PhysicalBackupWatchTest(unittest.TestCase):
             self.assertIn('repo2', fact['reason'])
             self.assertIn('初始化', fact['reason'])
 
+    def test_single_cos_repository_receipt_is_healthy(self):
+        # 2026-11-08: AWS repo1 retired. The runner's receipt then lists only
+        # COS repo2; nothing in the watcher may expect a repo1 or AWS entry.
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            path = pathlib.Path(root) / 'archive_check.json'
+            path.write_text(json.dumps({
+                'status': 'ok', 'started_at': 980, 'completed_at': 990,
+                'stanza_status': {'2': {'code': 0, 'message': 'ok'}},
+                'repositories': [{'repo': 2, 'status': 'ok'}],
+                'aws_repo1': 'retired', 'backup_count': 91,
+            }))
+            fact = watch.physical_backup_fact(path.with_name('health.json'), 1000)
+            self.assertTrue(fact['healthy'])
+            self.assertEqual(fact['severity'], 'info')
+
+    def test_missing_cos_backups_or_repository_stay_hard_faults(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            path = pathlib.Path(root) / 'archive_check.json'
+            for reasons, evidence in (
+                (['repository_failed'], {'repositories': [2]}),
+                (['primary_repository_missing'], {'detail': 'primary COS repository repo2 is not configured'}),
+            ):
+                with self.subTest(reasons=reasons):
+                    path.write_text(json.dumps({
+                        'status': 'degraded', 'completed_at': 990, 'reasons': reasons,
+                        reasons[0]: evidence,
+                    }))
+                    fact = watch.physical_backup_fact(path, 1000)
+                    self.assertFalse(fact['healthy'])
+                    self.assertEqual(fact['severity'], 'error')
+                    self.assertIn(reasons[0], fact['reason'])
+
     def test_bootstrap_reason_without_its_evidence_stays_a_fault(self):
         # The advisory band must not be reachable by naming a reason alone.
         import tempfile

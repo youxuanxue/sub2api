@@ -18622,7 +18622,7 @@
       "path": "deploy/tencent/tencent_pgbackrest.py",
       "must_contain": [
         "def repository_state(repo: int, info: dict) -> str:",
-        "if repo >= 2 and code == 2 and not (info.get(\"backup\") or []):",
+        "if repo != PRIMARY_REPO and code == 2 and not (info.get(\"backup\") or []):",
         "return \"bootstrapping\"",
         "BOOTSTRAP_REASON = \"repository_bootstrapping\"",
         "if ok and bootstrapping:",
@@ -18632,9 +18632,12 @@
         "def archiver_healthy(arch: dict) -> bool:",
         "        ok = not broken and archiving_now",
         "raise Err(\"refusing to write a degraded receipt without a reason\")",
-        "        return _instant(archived) > _instant(failed_at)"
+        "        return _instant(archived) > _instant(failed_at)",
+        "PRIMARY_REPO = 2",
+        "raise Err(f\"primary COS repository repo{PRIMARY_REPO} is not configured\")",
+        "PRIMARY_MISSING_REASON = \"primary_repository_missing\""
       ],
-      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo >= 2` keeps the primary recovery chain out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command. A check that raises still writes a degraded receipt carrying the pgBackRest error code and HINTs: a MISSING receipt is indistinguishable from a dead timer to the 900s freshness gate, which is strictly worse than a degraded one. Archive health is judged on CURRENT state (last_archived_time newer than last_failed_time), never on the cumulative failed_count: those counters never decrease, so `failed_count == 0` asks 'has this host ever failed' and pinned cn-prod to degraded forever after a 3-minute incident. Timestamps are parsed, not string-compared, because equal wall-clock text can carry different UTC offsets. Every non-ok receipt names a reason with a matching evidence object."
+      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo != PRIMARY_REPO` keeps the primary recovery chain (COS repo2, the only repository since 2026-11-08) out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command. A check that raises still writes a degraded receipt carrying the pgBackRest error code and HINTs: a MISSING receipt is indistinguishable from a dead timer to the 900s freshness gate, which is strictly worse than a degraded one. Archive health is judged on CURRENT state (last_archived_time newer than last_failed_time), never on the cumulative failed_count: those counters never decrease, so `failed_count == 0` asks 'has this host ever failed' and pinned cn-prod to degraded forever after a 3-minute incident. Timestamps are parsed, not string-compared, because equal wall-clock text can carry different UTC offsets. Every non-ok receipt names a reason with a matching evidence object. Since 2026-11-08 COS repo2 is the only repository: a config without repo2 raises and writes a primary_repository_missing receipt (a hard fault), never falling back to backing up AWS repo1."
     },
     {
       "path": "deploy/tencent/test_tencent_pgbackrest.py",
@@ -18646,15 +18649,19 @@
         "def test_check_failure_still_writes_a_diagnosable_receipt(",
         "def test_recovered_host_is_ok_despite_a_nonzero_cumulative_failed_count(",
         "def test_a_degraded_receipt_always_names_a_reason(",
-        "def test_archiver_healthy_compares_instants_not_strings("
+        "def test_archiver_healthy_compares_instants_not_strings(",
+        "def test_cos_only_check_is_ok_with_a_single_repository(",
+        "def test_cos_only_check_with_no_backups_is_a_fault(",
+        "def test_check_without_cos_configured_writes_a_hard_fault_receipt(",
+        "def test_config_without_cos_never_falls_back_to_aws("
       ],
-      "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches repo1, and a failing archive_command is never excused."
+      "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches the primary COS repo2, and a failing archive_command is never excused. A single COS repository is healthy, and a COS repository without backups or missing from the config is a fault."
     },
     {
       "path": "deploy/domestic/cn_pgbackrest.py",
       "must_contain": [
         "def repository_state(repo: int, info: dict) -> str:",
-        "if repo >= 2 and code == 2 and not (info.get(\"backup\") or []):",
+        "if repo != PRIMARY_REPO and code == 2 and not (info.get(\"backup\") or []):",
         "return \"bootstrapping\"",
         "BOOTSTRAP_REASON = \"repository_bootstrapping\"",
         "if ok and bootstrapping:",
@@ -18664,9 +18671,12 @@
         "def archiver_healthy(arch: dict) -> bool:",
         "        ok = not broken and archiving_now",
         "raise Err(\"refusing to write a degraded receipt without a reason\")",
-        "        return _instant(archived) > _instant(failed_at)"
+        "        return _instant(archived) > _instant(failed_at)",
+        "PRIMARY_REPO = 2",
+        "raise Err(f\"primary COS repository repo{PRIMARY_REPO} is not configured\")",
+        "PRIMARY_MISSING_REASON = \"primary_repository_missing\""
       ],
-      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo >= 2` keeps the primary recovery chain out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command. A check that raises still writes a degraded receipt carrying the pgBackRest error code and HINTs: a MISSING receipt is indistinguishable from a dead timer to the 900s freshness gate, which is strictly worse than a degraded one. Archive health is judged on CURRENT state (last_archived_time newer than last_failed_time), never on the cumulative failed_count: those counters never decrease, so `failed_count == 0` asks 'has this host ever failed' and pinned cn-prod to degraded forever after a 3-minute incident. Timestamps are parsed, not string-compared, because equal wall-clock text can carry different UTC offsets. Every non-ok receipt names a reason with a matching evidence object."
+      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo != PRIMARY_REPO` keeps the primary recovery chain (COS repo2, the only repository since 2026-11-08) out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command. A check that raises still writes a degraded receipt carrying the pgBackRest error code and HINTs: a MISSING receipt is indistinguishable from a dead timer to the 900s freshness gate, which is strictly worse than a degraded one. Archive health is judged on CURRENT state (last_archived_time newer than last_failed_time), never on the cumulative failed_count: those counters never decrease, so `failed_count == 0` asks 'has this host ever failed' and pinned cn-prod to degraded forever after a 3-minute incident. Timestamps are parsed, not string-compared, because equal wall-clock text can carry different UTC offsets. Every non-ok receipt names a reason with a matching evidence object. Since 2026-11-08 COS repo2 is the only repository: a config without repo2 raises and writes a primary_repository_missing receipt (a hard fault), never falling back to backing up AWS repo1."
     },
     {
       "path": "deploy/domestic/test_cn_pgbackrest.py",
@@ -18678,39 +18688,61 @@
         "def test_check_failure_still_writes_a_diagnosable_receipt(",
         "def test_recovered_host_is_ok_despite_a_nonzero_cumulative_failed_count(",
         "def test_a_degraded_receipt_always_names_a_reason(",
-        "def test_archiver_healthy_compares_instants_not_strings("
+        "def test_archiver_healthy_compares_instants_not_strings(",
+        "def test_cos_only_check_is_ok_with_a_single_repository(",
+        "def test_cos_only_check_with_no_backups_is_a_fault(",
+        "def test_check_without_cos_configured_writes_a_hard_fault_receipt(",
+        "def test_config_without_cos_never_falls_back_to_aws("
       ],
-      "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches repo1, and a failing archive_command is never excused."
+      "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches the primary COS repo2, and a failing archive_command is never excused. A single COS repository is healthy, and a COS repository without backups or missing from the config is a fault."
     },
     {
       "path": "deploy/domestic/cn_backup_identity.py",
       "must_contain": [
-        "def prepare_repo2(contents: str) -> None:",
-        "STAGING = CONFIG.with_name(\".pgbackrest-staging.conf\")",
-        "_staged(container, \"stanza-create\", timeout=300)",
-        "if cos is not None and not repo2_live():",
-        "except RepositoryBusy as busy:",
-        "        aws = read_aws_credentials()\n        validate_identity(caller_identity(aws, target[\"ssm_region\"]), target)\n        atomic_private(render_config(aws, cos))",
-        "        secondary = _staged_stanza(container, 2)",
-        "        primary = _staged_stanza(container, 1)",
-        "if (secondary.get(\"status\") or {}).get(\"code\") not in (0, 2):",
-        "if (secondary.get(\"status\") or {}).get(\"code\") == 2 and (secondary.get(\"backup\") or []):"
+        "def render_config(cos: dict[str, str]) -> str:",
+        "\"repo2-type=s3\", f\"repo2-path={COS_PATH}\",",
+        "atomic_private(render_config(read_cos_credentials()))",
+        "\"aws_repo1\": \"retired\""
       ],
-      "rationale": "archive_command is `archive-push %p` with no --repo, so pgBackRest fans WAL to EVERY configured repository. repo2 must therefore be created and verified through a staged --config BEFORE it reaches the live config; otherwise archiving depends on a stanza-less repository and stalls until archive-timeout (observed on cn-prod 2026-11-02: WAL stalled, backup failed [082], repo1 healthy throughout). Order is load-bearing: stanza-create, then check, then a read-only repo1 info -- the rollout order the approved COS parallel-repository design already mandates. RepositoryBusy keeps a [050] lock collision with the 2-hourly backup a deferral rather than a stuck enablement. repo1's identity is re-read and re-validated AFTER the preflight: the SSM agent rotates credentials on its own ~25-minute schedule while the preflight can take ~11 minutes, so installing the pre-rendered config would leave the primary chain on a superseded session token. The preflight deliberately does NOT run a full `check`: that command forces a WAL switch and waits for the segment to reach EVERY configured repository, but the live archive_command is still AWS-only at that point, so it times out with [082] no matter how healthy repo2 is -- and `--repo` is rejected for check, so it cannot be scoped to the primary chain. What is provable pre-live is what it runs: the stanza exists on repo2, repo2 reads back (code 2 'no valid backups' is its expected pre-first-backup state, while code 2 WITH backups means a lost chain and is refused), and repo1 is still intact. The full check belongs to the 5-minute archive-check timer after repo2 goes live."
+      "rationale": "2026-11-08 user decision: stop writing AWS repo1; Beijing COS at index repo2 is the only pgBackRest repository. The refresher renders a COS-only config (no repo1 option, no AWS endpoint, no STS token) and requires the root-only COS credential: without it the refresh fails and the last good config stays live, never falling back to AWS. COS keeps index 2 so `--repo=2` means COS in the runner, cos_restore_acceptance.py and every runbook, and a stale `--repo=1` fails with [032] instead of reaching a different repository. The former repo2 staging preflight protected an AWS-only archive_command from a stanza-less COS repository; COS has had a valid stanza since 2026-11-02, so dropping repo1 only shrinks the archive-push fan-out (verified on pgBackRest 2.58)."
     },
     {
       "path": "deploy/domestic/test_cn_backup_identity.py",
       "must_contain": [
-        "def test_staging_is_verified_in_order_before_live_config_is_written(",
-        "def test_failure_leaves_live_config_untouched_and_cleans_staging(",
-        "def test_lock_collision_defers_instead_of_failing(",
-        "def test_steady_state_does_not_rerun_the_preflight(",
-        "def test_identity_is_reread_after_the_preflight(",
-        "def test_repo2_without_its_first_backup_is_accepted(",
-        "def test_repo2_reporting_invalid_with_backups_is_refused(",
-        "self.assertNotIn((\"check\",), calls, \"a full check cannot run pre-live\")"
+        "def test_render_is_cos_only_with_no_repo1_or_aws_endpoint(",
+        "def test_render_parses_as_a_single_cos_repository(",
+        "def test_module_no_longer_touches_aws(",
+        "def test_missing_cos_credentials_fail_and_keep_the_current_config("
       ],
-      "rationale": "Keep the enablement-order guarantees executable: staged verification precedes the live write, a failure leaves the live config AWS-only, a lock collision defers, and steady state does not re-run the preflight."
+      "rationale": "Keep the COS-only render executable: no repo1/AWS in the config, exactly one repository index (2), and no AWS fallback when COS credentials are missing."
+    },
+    {
+      "path": "ops/stage0/tencent_backup_identity.py",
+      "must_contain": [
+        "from postgres_backup import cos_configuration",
+        "contents = render_config(read_cos_credentials())",
+        "for path in (SOURCE_CONFIG, CANDIDATE_CONFIG):",
+        "'aws_repo1': 'retired'"
+      ],
+      "rationale": "prod renders a COS-only pgBackRest config (2026-11-08: AWS repo1 retired). It must not read /root/.aws/credentials, call STS or render any repo1/AWS option, so the short-lived AWS session token stops being written into the mounted config. Both tmpfs configs are rewritten: CANDIDATE_CONFIG is published into the live container mount, SOURCE_CONFIG is what the archive-standby recreate mounts."
+    },
+    {
+      "path": "ops/stage0/test_tencent_backup_identity.py",
+      "must_contain": [
+        "def test_rendered_config_is_cos_only_with_no_aws(",
+        "def test_module_no_longer_reads_aws_session_or_calls_sts(",
+        "def test_refresh_writes_cos_only_config_to_both_runtime_paths(",
+        "def test_missing_cos_credentials_fail_without_aws_fallback("
+      ],
+      "rationale": "Keep the prod COS-only render executable: no repo1/AWS/STS token, both runtime paths rewritten, and no AWS fallback."
+    },
+    {
+      "path": "ops/stage0/postgres_backup.py",
+      "must_contain": [
+        "COS_REPO_INDEX = 2",
+        "def cos_configuration(cos: dict) -> str:"
+      ],
+      "rationale": "COS keeps index repo2 as the only repository. pgBackRest stores no index inside a repository, so the index is a config key only; keeping 2 makes the switch a pure deletion of repo1-* lines and keeps `--repo=2` meaning COS everywhere."
     },
     {
       "path": "backend/internal/service/account_standing_billing_tk.go",

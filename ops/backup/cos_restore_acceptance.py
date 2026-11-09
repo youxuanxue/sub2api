@@ -20,9 +20,13 @@ Isolation, because prod and cn-prod both serve live users from the same host:
     only ever read from (pgbackrest info, one comparison query)
   * no published ports, and the restored instance listens on a unix socket only,
     so nothing can connect to it from outside
-  * the restore container joins NO docker network -- it cannot reach the gateway
-    or the live database even by name. Verified on cn-prod: `pg_isready -h
-    tokenkey-postgres` from such a container returns "no response".
+  * the restore container stays on Docker's default bridge only and never joins
+    the tokenkey network -- it cannot reach the gateway or the live database even
+    by name. Verified on cn-prod: `pg_isready -h tokenkey-postgres` from such a
+    container returns "no response". Do NOT harden this to `--network none`:
+    Postgres runs archive-get against COS for the backup-end WAL at startup, and
+    without egress it fails with "could not locate required checkpoint record"
+    (seen on prod, 2026-11-08).
   * cpu/memory caps plus nice/ionice keep it off the live workload's back
   * the pgbackrest config is mounted read-only and `--delta` is never used, so
     no production directory is writable from inside
@@ -214,7 +218,8 @@ class Sandbox:
     def restore(self, repo: int, label: str, timeout: int) -> None:
         self._fresh_pgdata()
         run(["docker", "rm", "-f", self.name], check=False)
-        # Downloading needs COS reachability, but the container joins no docker
+        # Downloading (and archive-get at startup) needs COS egress, so the
+        # container stays on the default bridge; it never joins the tokenkey
         # network, so the gateway and the live database stay unreachable.
         run(["sudo", "nice", "-n", "19", "ionice", "-c3", "docker", "run", "--rm",
              "--name", self.name, *self._limits(),

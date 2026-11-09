@@ -133,6 +133,50 @@ pg1-user=tokenkey
     return rendered
 
 
+# COS stays at index 2 when it becomes the only repository (2026-11-08 user
+# decision: stop writing AWS repo1). pgBackRest stores nothing about the index
+# inside a repository, so the index is purely a config key -- but every tool,
+# receipt and runbook already says `--repo=2` for COS. Keeping it means the
+# AWS->COS-only switch is a pure deletion of repo1-* lines with the repo2-*
+# lines byte-identical, and any stale `--repo=1` invocation fails loudly with
+# [032] instead of silently reaching a different repository.
+COS_REPO_INDEX = 2
+
+
+def cos_configuration(cos: dict) -> str:
+    """Render the COS-only pgBackRest config: no repo1, no AWS endpoint.
+
+    Same global options as configuration(); credentials are still injected by
+    the host identity refresher, never rendered here.
+    """
+    repo = _validate_secondary(cos)
+    n = COS_REPO_INDEX
+    return f"""[global]
+repo{n}-type=s3
+repo{n}-path={repo['path']}
+repo{n}-s3-bucket={repo['bucket']}
+repo{n}-s3-region={repo['region']}
+repo{n}-s3-endpoint={repo['endpoint']}
+repo{n}-s3-uri-style={repo['uri_style']}
+repo{n}-retention-full-type=time
+repo{n}-retention-full={RETENTION_DAYS}
+repo{n}-bundle=y
+repo{n}-block=y
+compress-type=zst
+process-max=2
+start-fast=y
+archive-async=n
+archive-timeout=120
+log-level-console=info
+log-level-file=off
+
+[{STANZA}]
+pg1-path=/var/lib/postgresql/data
+pg1-socket-path=/var/run/postgresql
+pg1-user=tokenkey
+"""
+
+
 def info_entry(raw: str) -> dict:
     values = json.loads(raw)
     matches = [value for value in values if value.get("name") == STANZA]
