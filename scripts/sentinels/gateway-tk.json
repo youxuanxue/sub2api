@@ -115,7 +115,7 @@
       "path": "ops/observability/install-host-https-watch.sh",
       "must_contain": [
         "config=build_config(role,socket.gethostname(),prod_matrix,domestic)",
-        "if role=='cn-prod':command+=['--env-file','/opt/tokenkey/host-alerts.env']",
+        "if role=='cn-prod' or role.endswith('-data'):command+=['--env-file','/opt/tokenkey/host-alerts.env']",
         "OnUnitActiveSec=2min"
       ],
       "rationale": "The installer must consume the tested coverage owner and existing host-local credentials, including UCloud."

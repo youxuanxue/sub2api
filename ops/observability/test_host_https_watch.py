@@ -48,6 +48,15 @@ class CoveragePlanTest(unittest.TestCase):
                 self.assertEqual(config['targets'], {})
                 self.assertEqual(config['jobs'], ['tokenkey-disk-metrics'])
 
+    def test_installer_points_non_app_hosts_at_host_alerts_env(self):
+        # The data machine has no app .env; its Feishu pair must sit where
+        # install-proxy-host-alerts.sh and disk-metrics already read it, or the
+        # dry-run fails and the timer is never enabled.
+        source = (pathlib.Path(__file__).resolve().parent / 'install-host-https-watch.sh').read_text()
+        self.assertIn("if role=='cn-prod' or role.endswith('-data'):"
+                      "command+=['--env-file','/opt/tokenkey/host-alerts.env']", source)
+        self.assertNotIn('/etc/tokenkey/host-alerts.env', source)
+
     def test_data_roles_refuse_the_app_host_and_each_other(self):
         for role, host in (('prod-data', self.watch['hostname']),
                            ('cn-prod-data', self.domestic['instance_name']),
