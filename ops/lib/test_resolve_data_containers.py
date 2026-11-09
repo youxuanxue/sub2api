@@ -70,6 +70,37 @@ class ShellOwnerTest(unittest.TestCase):
         self.assertEqual(self.resolve("tk_resolve_postgres_container", {"pg-x"}, "pg-x").stdout.strip(), "pg-x")
         self.assertNotEqual(self.resolve("tk_resolve_postgres_container", set(), "pg-x").returncode, 0)
 
+    def test_data_plane_client_resolves_for_sql_but_not_for_server(self) -> None:
+        running = {"tokenkey-blue", "tokenkey-postgres-client", "tokenkey-redis-client"}
+        self.assertEqual(self.resolve("tk_require_postgres_container", running).stdout.strip(),
+                         "tokenkey-postgres-client")
+        self.assertEqual(self.resolve("tk_require_redis_container", running).stdout.strip(),
+                         "tokenkey-redis-client")
+        for function in ("tk_resolve_postgres_server_container", "tk_resolve_redis_server_container"):
+            with self.subTest(function=function):
+                self.assertNotEqual(self.resolve(function, running).returncode, 0)
+
+    def test_client_next_to_live_server_is_ambiguous(self) -> None:
+        # Installing the client before the old server stops must not silently
+        # pick either side: probes fail closed until exactly one remains.
+        for running in ({"tk-archive-standby", "tokenkey-postgres-client"},
+                        {"tokenkey-postgres", "tokenkey-postgres-client"}):
+            with self.subTest(running=running):
+                proc = self.resolve("tk_require_postgres_container", running)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn("tokenkey-postgres-client", proc.stderr)
+        proc = self.resolve("tk_resolve_postgres_server_container", {"tk-archive-standby", "tokenkey-postgres-client"})
+        self.assertEqual(proc.stdout.strip(), "tk-archive-standby")
+
+    def test_data_machine_resolves_only_its_servers(self) -> None:
+        running = {"tokenkey-postgres", "tokenkey-redis"}
+        for function, expected in (("tk_resolve_postgres_container", "tokenkey-postgres"),
+                                   ("tk_resolve_postgres_server_container", "tokenkey-postgres"),
+                                   ("tk_resolve_redis_container", "tokenkey-redis"),
+                                   ("tk_resolve_redis_server_container", "tokenkey-redis")):
+            with self.subTest(function=function):
+                self.assertEqual(self.resolve(function, running).stdout.strip(), expected)
+
 
 class PythonOwnerTest(unittest.TestCase):
     def patched(self, running: set[str]):
@@ -83,6 +114,27 @@ class PythonOwnerTest(unittest.TestCase):
         text = SHELL_OWNER.read_text()
         self.assertIn(f'TK_POSTGRES_CONTAINER_CANDIDATES="{" ".join(owner.POSTGRES_CANDIDATES)}"', text)
         self.assertIn(f'TK_REDIS_CONTAINER_CANDIDATES="{" ".join(owner.REDIS_CANDIDATES)}"', text)
+        self.assertIn(f'TK_POSTGRES_CLIENT_CONTAINER_CANDIDATES="{" ".join(owner.POSTGRES_CLIENT_CANDIDATES)}"', text)
+        self.assertIn(f'TK_REDIS_CLIENT_CONTAINER_CANDIDATES="{" ".join(owner.REDIS_CLIENT_CANDIDATES)}"', text)
+
+    def test_server_tuples_never_contain_the_client(self) -> None:
+        # pgBackRest (tencent_pgbackrest, cn_pgbackrest) and QA runtime discovery
+        # compare against POSTGRES_CANDIDATES; a client there would run
+        # pgbackrest in a container without the data directory.
+        self.assertNotIn(owner.POSTGRES_CLIENT_CONTAINER, owner.POSTGRES_CANDIDATES)
+        self.assertNotIn(owner.REDIS_CLIENT_CONTAINER, owner.REDIS_CANDIDATES)
+        self.assertEqual(owner.POSTGRES_CLIENT_CANDIDATES[:-1], owner.POSTGRES_CANDIDATES)
+        self.assertEqual(owner.REDIS_CLIENT_CANDIDATES[:-1], owner.REDIS_CANDIDATES)
+
+    def test_python_client_and_server_resolution(self) -> None:
+        with self.patched({"tokenkey-postgres-client", "tokenkey-redis-client"}):
+            self.assertEqual(owner.resolve_postgres(), "tokenkey-postgres-client")
+            self.assertEqual(owner.resolve_redis(), "tokenkey-redis-client")
+            self.assertIsNone(owner.resolve_postgres_server())
+            self.assertIsNone(owner.resolve_redis_server())
+        with self.patched({"tk-archive-standby", "tokenkey-postgres-client"}):
+            self.assertIsNone(owner.resolve_postgres())
+            self.assertEqual(owner.resolve_postgres_server(), "tk-archive-standby")
 
     def test_tencent_names_and_ambiguity(self) -> None:
         with self.patched({"tk-archive-standby", "tk-cutover-prod-redis"}):

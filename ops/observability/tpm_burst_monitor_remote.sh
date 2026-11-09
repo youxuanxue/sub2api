@@ -21,7 +21,19 @@ if [ -r /var/lib/tokenkey/active-color ]; then
   color="$(tr -d '[:space:]' < /var/lib/tokenkey/active-color)"
   case "$color" in blue|green) APP_CONTAINER="tokenkey-${color}" ;; esac
 fi
-export DURATION_S INTERVAL_S APP_CONTAINER
+# psql / redis-cli go through the canonical resolver so they keep working after
+# the data-plane split (data-plane client container); container stats only make
+# sense for a server on this host and are left empty once the data moved away.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo '{"error":"container resolver not found"}'; exit 2; }
+TK_PG="$(tk_require_postgres_container auto)" || { echo '{"error":"postgres container unresolved"}'; exit 2; }
+TK_REDIS="$(tk_require_redis_container auto)" || { echo '{"error":"redis container unresolved"}'; exit 2; }
+TK_PG_SERVER="$(tk_resolve_postgres_server_container auto || true)"
+TK_REDIS_SERVER="$(tk_resolve_redis_server_container auto || true)"
+export DURATION_S INTERVAL_S APP_CONTAINER TK_PG TK_REDIS TK_PG_SERVER TK_REDIS_SERVER
 
 echo "=== monitor_meta ==="
 python3 - <<'PY'
@@ -42,7 +54,7 @@ import json, os, subprocess, time, re
 duration_s = int(os.environ.get("DURATION_S", "180"))
 interval_s = int(os.environ.get("INTERVAL_S", "2"))
 app = os.environ.get("APP_CONTAINER", "tokenkey")
-psql = ["docker", "exec", "tokenkey-postgres", "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t"]
+psql = ["docker", "exec", os.environ["TK_PG"], "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t"]
 
 def sh(cmd):
     p = subprocess.run(cmd, capture_output=True, text=True, shell=isinstance(cmd, str))
@@ -64,6 +76,8 @@ def read_mem_available_kb():
     return None
 
 def docker_stats(name):
+    if not name:
+        return None
     rc, out, _ = sh(["docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}\t{{.PIDs}}", name])
     if rc != 0 or not out:
         return None
@@ -95,7 +109,7 @@ def pg_conn():
         return None
 
 def redis_clients():
-    rc, out, _ = sh("docker exec tokenkey-redis redis-cli INFO clients 2>/dev/null")
+    rc, out, _ = sh(["docker", "exec", os.environ["TK_REDIS"], "redis-cli", "INFO", "clients"])
     if rc != 0:
         return None
     d = {}
@@ -122,8 +136,8 @@ while time.time() < deadline:
         "mem_available_kb": read_mem_available_kb(),
         "tcp_estab": ss_estab(),
         "app": docker_stats(app),
-        "postgres": docker_stats("tokenkey-postgres"),
-        "redis": docker_stats("tokenkey-redis"),
+        "postgres": docker_stats(os.environ.get("TK_PG_SERVER", "")),
+        "redis": docker_stats(os.environ.get("TK_REDIS_SERVER", "")),
         "caddy": docker_stats("tokenkey-caddy"),
         "pg_conn": pg_conn(),
         "redis_clients": redis_clients(),

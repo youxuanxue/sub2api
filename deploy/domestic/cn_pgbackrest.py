@@ -60,7 +60,8 @@ def _container() -> str:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             candidates = module.POSTGRES_CANDIDATES
-            resolved = module.resolve_postgres()
+            # pgBackRest needs the data directory: server names only, never the client.
+            resolved = module.resolve_postgres_server()
             if not resolved:
                 raise Err(f"postgres container unresolved (candidates: {', '.join(candidates)})")
             _CONTAINER = resolved

@@ -41,8 +41,6 @@ ALLOWED_PREFIXES = (
     "deploy/domestic/",  # cn-prod: independent domestic layout
 )
 ALLOWED_FILES = {
-    # cn-prod-only sampler (tpm_burst_bundle.sh always targets cn-prod).
-    "ops/observability/tpm_burst_monitor_remote.sh",
     # This checker names the literals it forbids.
     "scripts/checks/data-container-resolver.py",
 }
