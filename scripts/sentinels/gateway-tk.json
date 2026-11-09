@@ -12013,9 +12013,11 @@
         "prodUsageLogRetentionDays  = 400",
         "prodErrorLogRetentionDays  = 30",
         "prodSystemLogRetentionDays = 7",
-        "billingDedupRetentionDays  = 400",
+        "billingDedupRetentionDays        = 7",
+        "billingDedupArchiveRetentionDays = 30",
         "func resolveDataLifecyclePolicy(",
-        "billingDedupRetentionDays: billingDedupRetentionDays",
+        "billingDedupRetentionDays:        billingDedupRetentionDays",
+        "billingDedupArchiveRetentionDays: billingDedupArchiveRetentionDays",
         "func capLifecycleRetention(",
         "func dataLifecycleRoleKnown("
       ],
@@ -12208,11 +12210,31 @@
         "if !s.snapshotEffective().Enabled {",
         "policy := resolveDataLifecyclePolicy(s.cfg, effective.OpsCleanupConfig)",
         "s.dashboardRepo.CleanupUsageLogs(ctx, now.AddDate(0, 0, -policy.usageLogRetentionDays))",
-        "s.dashboardRepo.CleanupUsageBillingDedup(ctx, now.AddDate(0, 0, -policy.billingDedupRetentionDays))",
+        "s.cleanupUsageBillingDedup(ctx, now, policy)",
         "{policy.errorLogRetentionDays, \"ops_error_logs\"",
         "{policy.systemLogRetentionDays, \"ops_system_logs\""
       ],
       "rationale": "OpsCleanupService is the sole automatic age-retention owner. It must keep partition provisioning active during cleanup hold, then use the shared role policy for usage, archive-first billing dedup, and separate error/system windows. Losing any hook can create double ownership, leave a dataset unbounded, or advance destructive cleanup under the wrong role policy."
+    },
+    {
+      "path": "backend/internal/service/ops_cleanup_billing_dedup_tk.go",
+      "must_contain": [
+        "type UsageBillingDedupArchiveCleaner interface",
+        "cleaner, ok := s.dashboardRepo.(UsageBillingDedupArchiveCleaner)",
+        "purged, backlog, err := cleaner.PurgeExpiredUsageBillingDedup(ctx, archiveCutoff)",
+        "if !backlog {",
+        "s.dashboardRepo.CleanupUsageBillingDedup(ctx, hotCutoff)",
+        "cleaner.CleanupUsageBillingDedupArchive(ctx, archiveCutoff)"
+      ],
+      "rationale": "Billing dedup lifecycle owner (docs/approved/billing-dedup-retention.md): purge keys past the 30-day archive window first, run the upstream hot-to-archive move only when that purge has no backlog, then trim the archive. Losing the backlog guard copies millions of expired keys into the archive; losing the archive trim leaves the archive unbounded."
+    },
+    {
+      "path": "backend/internal/repository/dashboard_aggregation_repo_tk_dedup_archive.go",
+      "must_contain": [
+        "var _ service.UsageBillingDedupArchiveCleaner = (*dashboardAggregationRepository)(nil)",
+        "usageBillingDedupPurgeMaxRowsPerRun = 1_000_000"
+      ],
+      "rationale": "The production repository must implement the dedup archive extension, or the cleanup silently falls back to the upstream move and the archive grows forever."
     },
     {
       "path": "backend/internal/service/dashboard_aggregation_service.go",

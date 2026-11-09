@@ -3,6 +3,9 @@
 当前身份与恢复入口见 [舰队清单](../../deploy/hetzner/README.md)。
 一次性换机工具（fresh-candidate delta、Tokyo usage 修复等）已随旧主机退役删除（2026-10-23）；
 `standard_freeze_delta.py` 为保留的通用冻结增量计划。新的整机替换按 host-replacement 技能准备新身份与回执。
+`usage_billing_dedup` 自 2026-11 起每晚删除超过保留期的行（热表 7 天，含归档共 30 天，见
+[`billing-dedup-retention.md`](../../docs/approved/billing-dedup-retention.md)）。`append_only` 策略在候选机数据和
+冻结之间跨过一次每晚清理时，旧前缀行数会对不上并按设计 fail closed。这时改用 `refresh` 策略，或在冻结前暂停清理。
 通用分区维护工具仍可用，不因目录名 migration 而删除。
 
 # usage_logs 日分区切换

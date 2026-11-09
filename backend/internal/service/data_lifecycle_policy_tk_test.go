@@ -26,7 +26,8 @@ func TestResolveDataLifecyclePolicyRoleLimits(t *testing.T) {
 	require.Equal(t, 400, prod.usageLogRetentionDays)
 	require.Equal(t, 30, prod.errorLogRetentionDays)
 	require.Equal(t, 7, prod.systemLogRetentionDays)
-	require.Equal(t, 400, prod.billingDedupRetentionDays)
+	require.Equal(t, 7, prod.billingDedupRetentionDays)
+	require.Equal(t, 30, prod.billingDedupArchiveRetentionDays)
 }
 
 func TestResolveDataLifecyclePolicyPreservesShorterAndZeroValues(t *testing.T) {
@@ -46,7 +47,7 @@ func TestResolveDataLifecyclePolicyPreservesShorterAndZeroValues(t *testing.T) {
 	require.Equal(t, 2, policy.usageLogRetentionDays)
 	require.Equal(t, 5, policy.errorLogRetentionDays)
 	require.Zero(t, policy.systemLogRetentionDays)
-	require.Equal(t, 400, policy.billingDedupRetentionDays)
+	require.Equal(t, 7, policy.billingDedupRetentionDays)
 }
 
 func TestResolveDataLifecyclePolicyPinsBillingDedup(t *testing.T) {
@@ -59,7 +60,7 @@ func TestResolveDataLifecyclePolicyPinsBillingDedup(t *testing.T) {
 			},
 		}
 		policy := resolveDataLifecyclePolicy(cfg, config.OpsCleanupConfig{})
-		require.Equal(t, 400, policy.billingDedupRetentionDays)
+		require.Equal(t, 7, policy.billingDedupRetentionDays)
 	}
 }
 
