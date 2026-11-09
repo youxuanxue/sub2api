@@ -2,7 +2,6 @@ schema_version: 1
 
 prod:
   capture_enabled: true
-  maintenance_schedule_utc: "*:15"
 
   # QA S3 archive retired 2026-11-08 (user decision). Local data stays 24h; host
   # timer tokenkey-qa-archive (ops/qa/node1_archive.py) copies to node1 every 4h.

@@ -17148,24 +17148,6 @@
       "rationale": "Real kernel locks keep pg_dump and the local QA jobs on qa-lifecycle/host.lock without holding QA behind object upload."
     },
     {
-      "path": "ops/stage0/retire_aws_standby_timers.py",
-      "must_contain": [
-        "instance_identity() != expected",
-        "running - {\"tokenkey-postgres\", \"tokenkey-redis\"}",
-        "command(\"systemctl\", \"disable\", \"--now\", timer)",
-        "restore(states)"
-      ],
-      "rationale": "Old-host cleanup requires exact AWS identity and idle services, touches only allowlisted timers and retains rollback state."
-    },
-    {
-      "path": "ops/stage0/test_retire_aws_standby_timers.py",
-      "must_contain": [
-        "test_hcloud_wrong_identity_running_gateway_and_busy_jobs_never_mutate",
-        "test_partial_failure_restores_original_timer_states"
-      ],
-      "rationale": "Timer retirement cannot target a live gateway and must restore original state on partial failure."
-    },
-    {
       "path": "backend/internal/server/middleware/logger.go",
       "must_contain": [
         "observeIngress(c, startTime)",
