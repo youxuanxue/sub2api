@@ -242,7 +242,6 @@ assert_post_cutover_environment() {
 # before traffic moves; the fix is ops/stage0/sync_caddyfile_via_ssm.sh.
 PROD_EDGE_REQUIRED_ENV=(ACME_EMAIL GLOBAL_SITE_PHASE GLOBAL_SITE_DOMAIN API_ALIAS_DOMAIN API_CN_DOMAIN)
 assert_edge_profile_environment() {
-  [[ "${DEPLOY_PROFILE}" = prod ]] || return 0
   local key missing=()
   for key in "${PROD_EDGE_REQUIRED_ENV[@]}"; do
     [[ -n "$(env_get "${key}")" ]] || missing+=("${key}")

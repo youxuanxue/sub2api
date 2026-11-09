@@ -851,7 +851,6 @@ ensure_profile_environment
 ENV_FILE={shlex.quote(str(env_file))}
 PREPARED_FILE={shlex.quote(str(pathlib.Path(tmp) / "absent"))}
 PROD_EDGE_REQUIRED_ENV=({" ".join(_PROD_EDGE_KEYS)})
-DEPLOY_PROFILE=prod
 LIVE_CADDY={shlex.quote(str(pathlib.Path(tmp) / "absent-caddy"))}
 STAGE={stage}
 LEGACY_MIGRATED=0
@@ -876,7 +875,7 @@ run_bluegreen_stage
                         self.assertNotIn("moved-or-prepared", result.stdout)
                         self.assertIn("API_DOMAIN is required before cutover", result.stderr)
 
-    def _edge_assert(self, dotenv: str, caddyfile: str | None, profile: str = "prod"):
+    def _edge_assert(self, dotenv: str, caddyfile: str | None):
         proc, _, remote = _render()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         assert remote is not None
@@ -892,7 +891,6 @@ run_bluegreen_stage
 {functions}
 ENV_FILE={shlex.quote(str(env_file))}
 LIVE_CADDY={shlex.quote(str(caddy))}
-DEPLOY_PROFILE={profile}
 PROD_EDGE_REQUIRED_ENV=({" ".join(_PROD_EDGE_KEYS)})
 die() {{ echo "die:$*" >&2; exit 42; }}
 env_get() {{ sed -n "s/^$1=//p" "$ENV_FILE"; }}
@@ -925,10 +923,6 @@ echo passed
         result = self._edge_assert(full, minimal)
         self.assertEqual(result.returncode, 42)
         self.assertIn("is not the canonical prod render", result.stderr)
-
-    def test_edge_contract_only_applies_to_prod_profile(self) -> None:
-        result = self._edge_assert("API_DOMAIN=api.example.test\n", "x {\n}\n", profile="replay")
-        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_remote_script_parses(self) -> None:
         proc, params, remote = _render()

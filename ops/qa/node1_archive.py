@@ -118,11 +118,11 @@ def hours_to_copy(source_root: Path, before: dt.datetime) -> list[dt.datetime]:
 
 
 def ensure_traversable(directory: Path) -> None:
-    """Let the cleanup container enter one directory without listing payloads.
+    """Let the cleanup container enter and list one directory.
 
-    Only the traverse/read bits on this directory change. Payload directories
-    below it keep their own 0700 mode, so widening the root exposes receipts
-    (via ensure_readable_tree) and nothing else.
+    Only this directory's group/other read+execute bits change. Payload
+    directories below it keep their own 0700 mode, so their contents stay
+    private; only receipts (via ensure_readable_tree) become readable.
     """
     try:
         mode = directory.stat().st_mode

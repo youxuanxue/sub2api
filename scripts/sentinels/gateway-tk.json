@@ -19489,10 +19489,9 @@
       "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
       "must_contain": [
         "def test_missing_edge_env_fails_before_cutover(",
-        "def test_hand_written_caddyfile_fails_before_cutover(",
-        "def test_edge_contract_only_applies_to_prod_profile("
+        "def test_hand_written_caddyfile_fails_before_cutover("
       ],
-      "rationale": "Pins the prod edge env contract: each missing key and a non-canonical Caddyfile fail before cutover; non-prod profiles are not checked."
+      "rationale": "Pins the prod edge env contract: each missing key and a non-canonical Caddyfile fail before cutover."
     },
     {
       "path": "ops/stage0/sync_caddyfile_via_ssm.sh",
