@@ -151,7 +151,14 @@ TK_PG="$(tk_require_postgres_container auto)" || die "resolver did not pick $PG_
 TK_REDIS="$(tk_require_redis_container auto)" || die "resolver did not pick $REDIS_CLIENT"
 [ "$TK_PG" = "$PG_CLIENT" ] || die "resolver picked $TK_PG"
 [ "$TK_REDIS" = "$REDIS_CLIENT" ] || die "resolver picked $TK_REDIS"
-docker exec "$TK_PG" psql -U "$db_user" -d "$db_name" -XAtc \
-  "select 'pg ok in_recovery=' || pg_is_in_recovery() || ' server=' || inet_server_addr()"
-echo "redis ping=$(docker exec "$TK_REDIS" redis-cli PING | tr -d '\r') role=$(docker exec "$TK_REDIS" redis-cli INFO replication | tr -d '\r' | awk -F: '/^role/{print $2}')"
+pg_recovery="$(docker exec "$TK_PG" psql -U "$db_user" -d "$db_name" -XAtc 'select pg_is_in_recovery()')"
+[ "$pg_recovery" = f ] || die "data machine Postgres is in recovery (${pg_recovery}); promote it first"
+echo "pg ok primary=$db_host:$db_port"
+# Assigned first so a failing exec aborts under set -e; inside echo it would not.
+# PONG also proves the wrapper is first on PATH (the bare binary would dial 127.0.0.1).
+redis_ping="$(docker exec "$TK_REDIS" redis-cli PING | tr -d '\r')"
+[ "$redis_ping" = PONG ] || die "redis-cli via $TK_REDIS answered '${redis_ping}', want PONG"
+redis_role="$(docker exec "$TK_REDIS" redis-cli INFO replication | tr -d '\r' | awk -F: '/^role/{print $2}')"
+[ "$redis_role" = master ] || die "data machine Redis role is '${redis_role}', want master"
+echo "redis ping=$redis_ping role=$redis_role"
 echo "RESULT installed"
