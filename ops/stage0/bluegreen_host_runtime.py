@@ -10,13 +10,6 @@ import os
 from pathlib import Path
 import stat
 import subprocess
-import sys
-
-
-QA_FILES = {
-    'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE': 'raw.json',
-}
-QA_CONTAINER_ROOT = '/run/secrets/tokenkey-qa'
 
 
 def private_file(path, uid):
@@ -65,7 +58,7 @@ def check_volume(root, run=subprocess.check_output, platform='tencent-luks',
     raise ValueError('unsupported host volume platform')
 
 
-def bindings(root, env, hybrid_prod, uid=1000, *, qa_maintenance=False):
+def bindings(root, hybrid_prod, uid=1000):
     mounts, environment = [], []
     if hybrid_prod:
         directory = root / 'aws'
@@ -85,19 +78,6 @@ def bindings(root, env, hybrid_prod, uid=1000, *, qa_maintenance=False):
             mounts.append({'type': 'bind', 'source': str(directory), 'target': '/aws',
                            'read_only': True, 'bind': {'create_host_path': False}})
             environment += ['AWS_SHARED_CREDENTIALS_FILE=/aws/credentials', 'AWS_SDK_LOAD_CONFIG=1']
-
-    selected = {key: name for key, name in QA_FILES.items() if qa_maintenance and env.get(key)}
-    if selected:
-        directory = root / 'qa-secrets'
-        if directory.is_symlink() or not directory.is_dir():
-            raise ValueError('QA credential directory is missing or unsafe')
-        # Mount individual files: do not expose unrelated identities in this directory.
-        for key, name in selected.items():
-            if env[key] != QA_CONTAINER_ROOT + '/' + name:
-                raise ValueError('unsupported QA credential path')
-            private_file(directory / name, uid)
-            mounts.append({'type': 'bind', 'source': str(directory / name), 'target': env[key],
-                           'read_only': True, 'bind': {'create_host_path': False}})
     return mounts, environment
 
 
@@ -120,27 +100,13 @@ def main():
     parser.add_argument('--mapper-name', default='tokenkey_recovery',
                         help='dm-crypt mapper basename when --platform=tencent-luks')
     parser.add_argument('--compose', type=Path)
-    parser.add_argument('--docker-mounts', action='store_true')
-    parser.add_argument('--qa-maintenance', action='store_true', help='mount raw identity only for maintenance children')
-    parser.add_argument('--env-file', type=Path)
     args = parser.parse_args()
     try:
         if args.check_volume or args.hybrid_prod:
             check_volume(args.root, platform=args.platform, mapper_name=args.mapper_name)
-        if args.compose or args.docker_mounts:
-            env = {}
-            for line in (args.env_file or args.root / '.env').read_text().splitlines():
-                key, sep, value = line.partition('=')
-                if sep:
-                    env[key] = value.strip().strip('\"\'')
-            mounts, environment = bindings(args.root, env, args.hybrid_prod, qa_maintenance=args.qa_maintenance)
-            if args.compose:
-                args.compose.write_text(patch_compose(args.compose.read_text(), mounts, environment))
-            if args.docker_mounts:
-                for mount in mounts:
-                    # Unlike --volume, --mount refuses to create a missing source.
-                    value = f"type=bind,src={mount['source']},dst={mount['target']},readonly"
-                    sys.stdout.buffer.write(('--mount\0' + value + '\0').encode())
+        if args.compose:
+            mounts, environment = bindings(args.root, args.hybrid_prod)
+            args.compose.write_text(patch_compose(args.compose.read_text(), mounts, environment))
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         # Exception text could include a credential path or host command output.
         raise SystemExit('blue/green runtime prerequisite failed: check data volume and private credential mounts') from None
