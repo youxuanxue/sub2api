@@ -22,17 +22,27 @@ spec.loader.exec_module(acceptance)
 # what DATA_SQL returns.
 LIVE = {
     "accounts": 137, "api_keys": 110,
-    "usage_logs": 515715, "billing_dedup": 515689,
+    "usage_logs": 515715,
     "cost_sum": "9232.404804", "actual_cost_sum": "3374.483810",
     "db_size_bytes": 1704564415,
+    # Billing pair inside the fixed window. prod 2026-11-09 measured 339,940
+    # dedup rows in 3 days, each with its usage_logs row (0 orphans).
+    "window_start": "2026-11-06T00:00:00Z",
+    "window_usage_logs": 339940, "window_billing_dedup": 339940,
 }
-# The oldest full, restored from COS: strictly behind live, same billing drift.
+# The oldest full, restored from COS: strictly behind live. It predates the
+# window, so the pair has no rows there to compare.
 HISTORICAL = {
     "accounts": 135, "api_keys": 110,
-    "usage_logs": 507683, "billing_dedup": 507657,
+    "usage_logs": 507683,
     "cost_sum": "9045.662212", "actual_cost_sum": "3315.381977",
     "db_size_bytes": 1678743231,
+    "window_start": "2026-11-06T00:00:00Z",
+    "window_usage_logs": 0, "window_billing_dedup": 0,
 }
+# The latest point: inside the window, behind live by a few minutes of traffic.
+LATEST = dict(LIVE, usage_logs=515551, window_usage_logs=339776, window_billing_dedup=339776,
+              cost_sum="9231.0", actual_cost_sum="3374.0")
 
 
 class CompareTest(unittest.TestCase):
@@ -49,13 +59,31 @@ class CompareTest(unittest.TestCase):
         ahead = dict(HISTORICAL, cost_sum="99999.0")
         self.assertTrue(any("cost_sum" in p for p in acceptance.compare(ahead, LIVE)))
 
+    def test_latest_point_inside_the_window_is_accepted(self) -> None:
+        self.assertEqual(acceptance.compare(LATEST, LIVE), [])
+
     def test_billing_pair_drift_must_match_live(self) -> None:
         # usage_logs and usage_billing_dedup are written together. The same
-        # delta as live is what distinguishes a consistent restore from a copy
-        # captured mid-write; cn-prod showed 26 on live and on both points.
-        torn = dict(HISTORICAL, billing_dedup=HISTORICAL["billing_dedup"] - 700)
+        # delta as live inside the window is what distinguishes a consistent
+        # restore from a copy captured mid-write.
+        torn = dict(LATEST, window_billing_dedup=LATEST["window_billing_dedup"] - 700)
         problems = acceptance.compare(torn, LIVE)
         self.assertTrue(any("billing pair drift" in p for p in problems))
+
+    def test_nightly_dedup_trim_does_not_fail_acceptance(self) -> None:
+        # Live deletes dedup keys older than 7 days every night. A point taken
+        # before the trim holds far more dedup rows than live, and that is not
+        # a backup problem. Whole-table dedup counts are not compared at all.
+        self.assertNotIn("usage_billing_dedup", acceptance.DATA_SQL)
+        self.assertEqual(acceptance.compare(dict(LATEST, billing_dedup=18_000_000), dict(LIVE, billing_dedup=2_000_000)), [])
+
+    def test_pair_window_must_be_identical_on_both_sides(self) -> None:
+        shifted = dict(LATEST, window_start="2026-11-06T01:00:00Z")
+        self.assertTrue(any("pair window mismatch" in p for p in acceptance.compare(shifted, LIVE)))
+
+    def test_missing_window_counts_fail(self) -> None:
+        absent = {k: v for k, v in LATEST.items() if k != "window_billing_dedup"}
+        self.assertTrue(any("not computable" in p for p in acceptance.compare(absent, LIVE)))
 
     def test_missing_aggregate_is_a_failure_not_a_pass(self) -> None:
         absent = {k: v for k, v in HISTORICAL.items() if k != "cost_sum"}
@@ -80,12 +108,28 @@ class SoftDeleteTest(unittest.TestCase):
         self.assertIn("FROM usage_logs)", acceptance.DATA_SQL)
 
 
+class PairWindowTest(unittest.TestCase):
+    def test_window_start_is_three_days_back_on_the_hour(self) -> None:
+        from datetime import datetime, timezone
+        now = datetime(2026, 11, 9, 14, 37, 12, tzinfo=timezone.utc)
+        self.assertEqual(acceptance.pair_window_start(now), "2026-11-06T14:00:00Z")
+
+    def test_window_stays_inside_the_dedup_hot_window(self) -> None:
+        # The nightly trim keeps 7 days; the window must not reach rows it deletes.
+        self.assertLess(acceptance.PAIR_WINDOW.days, 7)
+
+    def test_window_sql_rejects_anything_but_a_utc_timestamp(self) -> None:
+        for bad in ("2026-11-06", "2026-11-06T00:00:00+08:00", "x'; DROP TABLE users; --"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                acceptance.window_sql(bad)
+
+
 class SelfCheckRegistryTest(unittest.TestCase):
     def test_every_sql_generator_is_enumerated_or_exempt(self) -> None:
         # ops-sql-coverage requires forced classification so a new generator
         # cannot ship without reaching the real-Postgres execution gate.
         labels = {label for label, _ in acceptance.iter_self_check_sql()}
-        self.assertEqual(labels, {"SCHEMA_SQL", "DATA_SQL"})
+        self.assertEqual(labels, {"SCHEMA_SQL", "DATA_SQL", "window_sql"})
         self.assertIn("live_sql", acceptance.SELF_CHECK_EXEMPT)
         for _, sql in acceptance.iter_self_check_sql():
             self.assertIn("json_build_object", sql)

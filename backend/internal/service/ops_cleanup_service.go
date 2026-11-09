@@ -373,7 +373,7 @@ func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDelet
 		out.usageLogs = "skipped"
 	}
 	if policy.billingDedupRetentionDays >= 0 {
-		if err := s.dashboardRepo.CleanupUsageBillingDedup(ctx, now.AddDate(0, 0, -policy.billingDedupRetentionDays)); err != nil {
+		if err := s.cleanupUsageBillingDedup(ctx, now, policy); err != nil {
 			return out, fmt.Errorf("cleanup usage_billing_dedup: %w", err)
 		}
 		out.billingDedup = "ok"
