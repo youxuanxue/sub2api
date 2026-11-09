@@ -14,38 +14,31 @@ import (
 //	SETTINGS ENABLE_PUSH=0, INITIAL_WINDOW_SIZE=2097152, MAX_FRAME_SIZE=16384,
 //	MAX_HEADER_LIST_SIZE=16384; WINDOW_UPDATE(conn)=5177345.
 //
-// Go's http2 client derives these from HTTP2Config / MaxResponseHeaderBytes;
-// the values below reproduce the same SETTINGS + WINDOW_UPDATE bytes (Go adds
-// 320 bytes of per-field overhead to MaxResponseHeaderBytes when advertising
-// MAX_HEADER_LIST_SIZE). Pseudo-header order stays Go's a,m,p,s (codex: m,s,a,p);
-// net/http exposes no knob for it.
+// Go's http2 client derives MAX_HEADER_LIST_SIZE from MaxResponseHeaderBytes
+// (Go adds 320 bytes of per-field overhead). The constants below copy only
+// MAX_FRAME_SIZE and MAX_HEADER_LIST_SIZE. INITIAL_WINDOW_SIZE and the
+// connection WINDOW_UPDATE stay at Go's defaults: those Codex values are the
+// single-user ~5 MiB connection window. Pseudo-header order stays Go's
+// a,m,p,s (codex: m,s,a,p); net/http exposes no knob for it.
 const (
-	codexH2InitialStreamWindow         = 2097152
-	codexH2ConnectionWindow            = 5177345
 	codexH2MaxFrameSize                = 16384
 	codexH2MaxResponseHeaderBytesForGo = 16384 - 320
 )
 
-// applyTLSProfileHTTP2Settings aligns the HTTP/2 preface with the client whose
-// TLS identity the profile mimics. Only the Codex CLI profile is tuned today;
-// other profiles keep Go defaults.
-//
-// profile.HTTP2Windows=go_default keeps Go's flow-control windows (4 MiB
-// stream / 1 GiB connection): one pooled connection carries every concurrent
-// user stream of the account, and the single-user Codex ~5 MiB connection
-// window lets a few slow readers stall all of them (peer RST INTERNAL_ERROR).
-// MAX_FRAME_SIZE / MAX_HEADER_LIST_SIZE stay at Codex values in both modes:
-// they never throttle throughput, so the A/B changes only the window bytes.
+// applyTLSProfileHTTP2Settings keeps the Codex CLI frame size and header-list
+// size on the Codex TLS profile. Flow-control windows stay at Go's defaults
+// (4 MiB stream / 1 GiB connection). The captured Codex windows are 2 MiB
+// stream / ~5 MiB connection, sized for one CLI user; a pooled gateway
+// connection multiplexes the account's concurrent streams, and that ~5 MiB
+// connection window lets a few slow readers stall the rest (peer RST
+// INTERNAL_ERROR). Frame size and header-list size do not throttle throughput.
+// Other profile names keep Go's HTTP/2 settings entirely.
 func applyTLSProfileHTTP2Settings(transport *http.Transport, profile *tlsfingerprint.Profile) {
 	if transport == nil || profile == nil || profile.Name != service.CanonicalCodexCLITLSProfileName {
 		return
 	}
 	if transport.HTTP2 == nil {
 		transport.HTTP2 = &http.HTTP2Config{}
-	}
-	if !profile.UsesGoDefaultHTTP2Windows() {
-		transport.HTTP2.MaxReceiveBufferPerStream = codexH2InitialStreamWindow
-		transport.HTTP2.MaxReceiveBufferPerConnection = codexH2ConnectionWindow
 	}
 	transport.HTTP2.MaxReadFrameSize = codexH2MaxFrameSize
 	transport.MaxResponseHeaderBytes = codexH2MaxResponseHeaderBytesForGo
@@ -73,12 +66,9 @@ func isOpenAITLSHTTP1Mode(mode string) bool {
 	return mode == upstreamProtocolModeOpenAIH1 || mode == upstreamProtocolModeOpenAIH1Fallback
 }
 
-// tlsFingerprintPoolKeySuffix makes the window policy part of the pool key so
-// toggling extra.tls_fingerprint_h2_windows rebuilds the client. The default
-// policy adds nothing, keeping existing pool keys stable.
-func tlsFingerprintPoolKeySuffix(profile *tlsfingerprint.Profile) string {
-	if profile.UsesGoDefaultHTTP2Windows() {
-		return ":tls|h2win:" + tlsfingerprint.HTTP2WindowsGoDefault
-	}
+// tlsFingerprintPoolKeySuffix marks fingerprint transports in the client pool.
+// Window size is not part of the key: the Codex profile always uses Go's
+// flow-control windows.
+func tlsFingerprintPoolKeySuffix(*tlsfingerprint.Profile) string {
 	return ":tls"
 }
