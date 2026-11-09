@@ -43,9 +43,12 @@ SECRET_DIR="${TK_DATAPLANE_CLIENT_DIR:-/var/lib/tokenkey/dataplane-client}"
 die() { echo "FAIL $*" >&2; exit 2; }
 
 app="$(tk_resolve_app_container auto)" || die "app container unresolved"
+# Read the env once. awk must not `exit` early: under pipefail the writer
+# would die of SIGPIPE (rc 141) and set -e would abort the whole script.
+app_envs="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$app")" \
+  || die "cannot inspect $app"
 app_env() {
-  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$app" \
-    | awk -v k="$1" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }'
+  printf '%s\n' "$app_envs" | awk -v k="$1" 'index($0, k "=") == 1 && !seen { print substr($0, length(k) + 2); seen = 1 }'
 }
 db_host="$(app_env DATABASE_HOST)"; db_port="$(app_env DATABASE_PORT)"
 db_user="$(app_env DATABASE_USER)"; db_name="$(app_env DATABASE_DBNAME)"
