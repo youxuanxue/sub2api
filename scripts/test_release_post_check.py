@@ -13,6 +13,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import re
 import unittest
 from datetime import datetime, timezone
 
@@ -702,8 +703,12 @@ class DeployStage0PostReleaseJobTest(unittest.TestCase):
         self.assertNotIn("HOOK_PATTERNS=<hook", text)
         self.assertNotIn("\n  post-release-check:\n", text)
         self.assertNotIn("needs: deploy", text)
-        deploy_start = text.index("  deploy:")
-        next_job = text.find("\n  qa-infra-check:", deploy_start)
+        deploy_start = text.index("\n  deploy:\n")
+        # Bound the block by the next top-level job so a step that moves out of
+        # the deploy job fails here. find() returning -1 would silently slice to
+        # the end of the file (the old qa-infra-check job no longer exists).
+        following = re.search(r"\n  [a-z][a-z0-9-]*:\n", text[deploy_start + 1:])
+        next_job = deploy_start + 1 + following.start() if following else len(text)
         deploy_block = text[deploy_start:next_job]
         self.assertIn("id: post_release_check", deploy_block)
         self.assertIn("--plan-file", deploy_block)
