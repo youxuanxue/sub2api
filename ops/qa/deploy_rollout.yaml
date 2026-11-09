@@ -34,9 +34,6 @@ prod:
     sync_failure_restore_policy: pre_sync_timer_state
     min_consecutive_scheduled_runs: 2
     host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh
-    health_evaluator: ops/qa/qa_phase2_health.py
-    live_health_probe: ops/observability/probe-qa-phase2-live-health.sh
-    live_health_evaluator: ops/qa/prod_phase2_live_health.py
     catchup_gap_policy: accepted_terminal
     health_evidence:
       - systemd
@@ -79,14 +76,12 @@ prod:
   QA_CAPTURE_BODY_MAX_BYTES:
     policy_target: prod.capture_body_max_bytes
     default_bytes: 1153434
+  # QA S3 retired 2026-11-08: verifier/reconciler/recovery gate scripts removed.
   raw_archive_recovery:
     repository_state: ready
     repository_iam_state: contract_ready
     observed_iam_state: applied
-    iam_contract_verifier: ops/qa/verify_raw_archive_iam_contract.py
-    iam_contract_reconciler: ops/qa/reconcile_raw_archive_iam_contract.sh
     independent_evidence_state: production_workstation_recovery_verified
-    recovery_cli: backend/cmd/qa-archive
-    retirement_gate: ops/qa/qa_archive_recovery_gate.py
+    recovery_cli: removed_2026-11-08
     break_glass_state: retired
     shared_role_boundary: shared_ec2_instance_role_no_process_isolation

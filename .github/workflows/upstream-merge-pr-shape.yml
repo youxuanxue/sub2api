@@ -479,10 +479,12 @@ jobs:
             exit 1
           fi
 
-      - name: Check 10 — raw archive contract stays executable after merge
+      - name: Check 10 — local QA lifecycle contract stays executable after merge
         run: |
           set -euo pipefail
-          (cd backend && go test -tags=unit ./internal/observability/qa/archive ./internal/observability/qa/lifecycle ./internal/observability/qa -count=1)
+          # QA S3 retired 2026-11-08; archive/ now only holds the qa_archive_shards
+          # control rows that the local 24h cleanup writes.
+          (cd backend && go test -tags=unit ./internal/observability/qa/archive ./internal/observability/qa/lifecycle ./internal/observability/qa ./cmd/qa-local-maintenance -count=1)
           python3 -m pip install 'PyYAML==6.0.3'
           python3 scripts/checks/qa-lifecycle-ssot.py
 

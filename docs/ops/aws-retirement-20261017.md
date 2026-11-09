@@ -47,5 +47,5 @@ EBS 卷或公网静态 IP。旧 Hcloud 主机也已退役。当前服务身份�
 QA 上传暂停由现网矩阵 `deploy/tencent/candidate-usw-20261022.json` 的 `host_watch.paused_jobs` 持有（2026-10-22 起；冻结 Tokyo 清单不再承载）。
 宿主监控会检查暂停任务保持停用，意外恢复则报警；capture 与 pgBackRest 物理备份继续运行（旧 pgdump 已退役）。
 boundary 因独立的历史归档验收问题保持停用，DROP pause 保留；不能因暂停上传而掩盖该问题。
-暂停期巡检与当前验收见 [QA 运维入口](../../ops/qa/README.md#暂停期间的巡检)。
+暂停期巡检与当前验收见 [QA 运维入口](../../ops/qa/README.md#巡检)。
 修改仓库不会安装 watcher、启动任务或删除资源；宿主脚本安装仍需独立验证与相应授权。

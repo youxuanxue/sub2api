@@ -10,7 +10,7 @@ Wrap the existing ``commands`` array as a single:
 so the payload body still runs under bash. Idempotent if already wrapped.
 
 Why wrap unconditionally, even for payloads that already pipe into `sudo bash`
-(e.g. run-qa-maintenance-health-gate-via-ssm.sh)? The inner `sudo bash` exists
+(e.g. senders that elevate with an inner `sudo bash`)? The inner `sudo bash` exists
 to ELEVATE; this wrapper exists to pick the SHELL. Keeping them separate means
 no sender has to reason about which form it emits — one rule, same result on
 EC2 and Hybrid. The cost is a second base64 layer when reading an ssm-params

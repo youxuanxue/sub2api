@@ -12,7 +12,7 @@ risk: high
 ## 决策
 
 1. prod 数据库备份迁到腾讯 COS 美西地域；cn-prod 数据库备份迁到腾讯 COS 北京地域。AWS S3 在迁移期保留为只读回退链，腾讯 COS 完成独立恢复验收后停止 AWS 写入和运行时身份。AWS 对象删除是单独的不可逆收尾动作。
-2. QA 继续在 prod/cn-prod 本地保留至少 24 小时。每 4 小时在低峰复制已封口的 QA raw 文件到自有 node1；本方案不验收 QA 数据库恢复，也不改在线 PostgreSQL、网关或 QA capture。
+2. QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 每 4h，取代 [qa-raw-only](qa-raw-only.md) 的 raw S3 归档。QA 继续在 prod/cn-prod 本地保留至少 24 小时。每 4 小时在低峰复制已封口的 QA raw 文件到自有 node1；本方案不验收 QA 数据库恢复，也不改在线 PostgreSQL、网关或 QA capture。
 3. node1 每日从两套腾讯 COS 备份仓库拉取已完成对象，保存为最终兜底副本。node1 故障不应影响业务；node1 副本必须有独立 manifest、校验和、配额与失败告警。
 
 历史 AWS/Hetzner QA 对象按原 UTC 小时归属保留，不做历史搬迁。仓库中的 Tokyo node1 reader/ingress 已退役；本方案中的 node1 指用户指定的现有自有服务器。
@@ -33,7 +33,7 @@ risk: high
 |---|---|---|
 | prod | AWS S3 `us-east-1`，活前缀 `candidates/tencent-usw-20261022/postgres` | 腾讯 COS 美西独立前缀 |
 | cn-prod | AWS S3 `ap-northeast-1`（东京），前缀 `cn-prod/postgres` | 腾讯 COS 北京独立前缀 |
-| prod QA | 本地 capture；S3 maintenance 当前暂停；本地 provision/cleanup active | 本地 24h + node1 每 4h raw copy，node1 保留 365 天 |
+| prod QA | 本地 capture；QA S3 已退役（2026-11-08）；本地 provision/cleanup active | 本地 24h + node1 每 4h raw copy，node1 保留 365 天 |
 | cn-prod QA | 本地 capture 和热目录；QA S3 禁止 | 本地 24h + node1 每 4h raw copy，node1 保留 365 天 |
 
 数据库 pgBackRest 仍使用每 2 小时备份、连续 WAL、每 5 分钟 archive check，full retention 为 7 天。物理备份覆盖 PostgreSQL cluster；Redis、主机配置、密钥和 QA raw 文件不因此自动进入数据库备份。旧 pgdump 不作为新主链路。
@@ -67,6 +67,7 @@ risk: high
 - 空间策略为 **85% 使用率告警、90% 禁止新归档、95% 紧急告警**。当前 `/storage` 可用约 9.59 TiB，QA 6 TiB + 数据库 2 TiB 后仍保留约 1.59 TiB，用于临时文件和文件系统余量。
 - 当前 `/storage` 单盘作为可重建本地副本使用，不为 RAID 重构停机或重格式化；COS 与 AWS 回退链承担跨节点保护。若未来要求 node1 单盘故障后仍立即可读，再另购同容量盘做 RAID1，实施前必须迁移并校验现有数据。
 - 不依赖 node1 恢复 QA 数据库。若未来需要恢复，另立审批和验收契约；本设计不提供该能力。
+- QA S3 退役后（2026-11-08）仓库只保留本地链路：`backend/cmd/qa-local-maintenance`（provision/cleanup）、主机定时器 `tokenkey-qa-archive`（`ops/qa/node1_archive.py`）与 `qa_archive_shards` 中的 DROP 回执。网关 maintenance/boundary 子命令、`qa-archive` 恢复 CLI、raw archive CloudFormation 与 Phase 2/IAM 巡检均已删除；主机上被 mask 的 `tokenkey-qa-maintenance`/`tokenkey-qa-boundary` 单元留待单独的主机清理。
 
 ## 执行阶段与门禁
 

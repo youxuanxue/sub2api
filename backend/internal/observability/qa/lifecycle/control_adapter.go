@@ -8,7 +8,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
 )
 
-// SQLControlAdapter adapts archive.SQLControlStore to lifecycle.ControlStore.
+// SQLControlAdapter adapts archive.SQLControlStore to TransitionControlStore.
 type SQLControlAdapter struct {
 	Store *archive.SQLControlStore
 }
@@ -18,10 +18,6 @@ func NewSQLControlAdapter(store *archive.SQLControlStore) SQLControlAdapter {
 		store = archive.NewSQLControlStore()
 	}
 	return SQLControlAdapter{Store: store}
-}
-
-func (a SQLControlAdapter) MarkSourceUnavailableAfterRetention(ctx context.Context, conn *sql.Conn, window archive.Window) (int64, error) {
-	return a.Store.MarkSourceUnavailableAfterRetention(ctx, conn, window)
 }
 
 func (a SQLControlAdapter) RecordSourceDropped(ctx context.Context, tx *sql.Tx, shardID int64, partitionName string, droppedAt time.Time) error {

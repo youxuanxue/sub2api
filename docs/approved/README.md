@@ -159,7 +159,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`design-phase1-prod-activation-gates.md`](design-phase1-prod-activation-gates.md) | Phase1 activation gates（telemetry 探针已退役：2026-11-08 用户决定保持关闭并删除代码） |
 | [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 archive 桶 |
 | [`ops-error-logs-column-contract.md`](ops-error-logs-column-contract.md) | `ops_error_logs` 列契约：声明 == 写入 ∪ DB 托管（无 Ent schema 表的机械替代） |
-| [`qa-raw-only.md`](qa-raw-only.md) | 现行 QA 契约：prod capture、raw archive、上传暂停时的本地 24h 清理 |
+| [`qa-raw-only.md`](qa-raw-only.md) | archived：QA S3 已退役（2026-11-08）；现行 QA 为本地 24h + node1 每 4h，见 design-tencent-cos-backup-node1-qa.md |
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
 | [`qa-redaction-identified-formats-only.md`](qa-redaction-identified-formats-only.md) | QA 脱敏已识别格式边界与性能优化 |
 | [`design-prod-physical-backup.md`](design-prod-physical-backup.md) | 每周全量、两小时块增量、WAL 连续归档及隔离验收 |
@@ -204,7 +204,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 | File | Topic |
 | --- | --- |
-| [design-prod-qa-24h-s3-lifecycle.md](design-prod-qa-24h-s3-lifecycle.md) | archived：24h 用户面与 Bundle；shard 状态机仅供历史核对 |
+| [design-prod-qa-24h-s3-lifecycle.md](design-prod-qa-24h-s3-lifecycle.md) | archived：QA S3 已退役（2026-11-08）；shard 状态机仍被本地 cleanup 写入 |
 | [qa-bundle-session-export.md](qa-bundle-session-export.md) | archived：退役用户会话导出 |
 | [design-split-deploy-qa-bundle.md](design-split-deploy-qa-bundle.md) | archived：退役 Bundle worker 发布 |
 | [prod-component-release.md](prod-component-release.md) | archived：原组件发布设计，由 raw-only 替代 |

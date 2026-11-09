@@ -12,8 +12,3 @@ const (
 	StateExpiredUnarchived = "expired_unarchived"
 	StateGapRecorded       = "gap_recorded"
 )
-
-// MutableShardStates are safe to refresh counts/prefix during archive-only maintenance.
-func MutableShardStates() []string {
-	return []string{StatePending, StateFailed}
-}

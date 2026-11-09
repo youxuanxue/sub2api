@@ -50,7 +50,6 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict) ->
         jobs = ["tokenkey-disk-metrics"] + list(domestic.get("local_qa_jobs", []))
     else:
         jobs = ["tokenkey-pgdump", "tokenkey-disk-metrics", "tokenkey-ghcr-prune-daily"]
-        jobs += ["tokenkey-qa-maintenance", "tokenkey-qa-boundary"]
         jobs += watch.get("local_qa_jobs", [])
     paused = dict(watch.get("paused_jobs", {})) if role == "prod" else {}
     return {"node": role, "targets": targets, "jobs": jobs, "paused_jobs": paused}
@@ -104,8 +103,8 @@ JOB_LIMITS = {
     "tokenkey-cn-postgres-archive-check": (15 * 60, 300),
     "tokenkey-disk-metrics": (15 * 60, 60),
     "tokenkey-ghcr-prune-daily": (30 * 3600, 15 * 60),
-    "tokenkey-qa-maintenance": (2 * 3600, 40 * 60 + 60),
-    "tokenkey-qa-boundary": (2 * 3600, 40 * 60 + 60),
+    # tokenkey-qa-maintenance / tokenkey-qa-boundary were retired with QA S3
+    # (2026-11-08); their masked units are not watched.
     "tokenkey-qa-provision": (2 * 3600, 960),
     "tokenkey-qa-cleanup": (20 * 60, 960),
     # Archive runs every 4 hours (ops/qa/local_maintenance_host.py SCHEDULE);

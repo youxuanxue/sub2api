@@ -104,7 +104,7 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
         self.assertIn("-trimpath", release_warm["env"]["GOFLAGS"].split())
         self.assertIn("-tags=embed", release_warm["run"])
         self.assertIn("./cmd/server", release_warm["run"])
-        self.assertIn("./cmd/qa-archive", release_warm["run"])
+        self.assertNotIn("./cmd/qa-archive", release_warm["run"])
         self.assertIn("steps.release_budget.outputs.fits == 'true'", release_warm["if"])
 
         prune = next(step for step in steps if step.get("name") == "Heal managed Go cache budget")

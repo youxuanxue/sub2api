@@ -10,8 +10,7 @@
       "ssm_prefix": "",
       "probe_target": "prod",
       "layout": "usw",
-      "public_health": "true",
-      "qa_archive": "true"
+      "public_health": "true"
     },
     {
       "target_id": "cn-prod",
@@ -23,8 +22,7 @@
       "ssm_prefix": "",
       "probe_target": "cn-prod",
       "layout": "domestic",
-      "public_health": "false",
-      "qa_archive": "false"
+      "public_health": "false"
     }
   ]
 }

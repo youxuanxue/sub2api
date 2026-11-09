@@ -195,6 +195,8 @@ def candidate_compose(service, current, image, target):
     for key in POOL_ENV_KEYS + CONFIG_ENV_KEYS:
         env[key] = str(service_env[key]).strip()
     env['QA_CAPTURE_ENABLED'] = 'true'
+    # QA S3 retired 2026-11-08 (local 24h + node1 every 4h). The gateway no longer
+    # reads QA_ARCHIVE_*; refuse them anyway so nobody re-enables QA S3 on cn-prod.
     if env.get('QA_ARCHIVE_ENABLED', '').strip().lower() == 'true':
         raise ValueError('domestic QA archive upload must stay disabled')
     if env.get('QA_ARCHIVE_STORAGE_DRIVER', '').strip().lower() == 's3':

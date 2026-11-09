@@ -1,12 +1,15 @@
 ---
 title: QA raw-only 归档与 Hetzner 迁移
-status: approved
+status: archived
+superseded_by: design-tencent-cos-backup-node1-qa.md
 approved_by: "user（本会话：砍掉 QA 主机、QA bundle 及相关产品功能，只保留定时 prod QA 归档到 raw S3）"
 owners: [tk-platform]
 risk: high
 ---
 
 # QA raw-only
+
+> **已被取代（2026-11-08）。QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 每 4h。** 现行 QA 契约见 [腾讯 COS 数据库备份与 node1 QA 归档](design-tencent-cos-backup-node1-qa.md#node1-qa) 与 [QA 运维入口](../../ops/qa/README.md)。下文 raw S3 归档、maintenance、boundary、single-owner、`qa-archive` 恢复 CLI 与 IAM 校验均已从仓库删除，仅作历史记录；删除契约（退役 Bundle、导出 API 与 UI）仍然有效。S3 段与 gap 回执表已无代码读写，待主机换上新 `qa-local-maintenance` 后由后续迁移删除；`qa_archive_shards` 保留给本地 cleanup 记录 DROP 回执。
 
 > **现状（2026-10-23，2026-10-28 确认仍有效）**：raw-only 契约仍有效；归档目标已由 Hetzner 改回 AWS S3（见下文「存储和迁移」后续段落），**上传当前暂停**（`host_watch.paused_jobs`）。标题中的 Hetzner 迁移为历史。下文 Hetzner 切换步骤是当时的操作记录。现网按文首这段和 2026-10-16 之后的段落读：目标曾回到 AWS S3，上传暂停，本地 24h 清理独立运行。
 
@@ -19,11 +22,11 @@ prod gateway capture → capture ledger / qa_records / local blobs → tokenkey-
 | 职责 | 唯一 owner |
 | --- | --- |
 | 捕获与脱敏 | backend/internal/observability/qa/service.go、sse_tee.go |
-| raw archive 与校验 | backend/internal/observability/qa/archive/ |
-| 归档、恢复验证后清理 | backend/cmd/server/qa_maintenance.go、qa/lifecycle/ |
-| 定时隔离执行、资源限制 | deploy/aws/stage0/tokenkey-qa-maintenance.sh |
+| raw archive 与校验 | （已删除 2026-11-08）archive/ 只剩 qa_archive_shards 控制面 |
+| 归档、恢复验证后清理 | （已删除 2026-11-08）网关 qa-maintenance 子命令；本地清理为 qa/lifecycle/ |
+| 定时隔离执行、资源限制 | （已删除 2026-11-08）tokenkey-qa-maintenance 宿主脚本 |
 | 策略 | ops/qa/policy.yaml |
-| 运维 restore | backend/cmd/qa-archive/ |
+| 运维 restore | （已删除 2026-11-08）qa-archive 恢复 CLI |
 
 raw 不开放给产品用户；保留已有 capture seal、raw commit、restore_verified 和 DROP pause 等防丢失门禁。Edge capture 继续关闭。
 
@@ -59,7 +62,7 @@ QA 基础设施部署权限由 `deploy/aws/cloudformation/cicd-oidc.yaml` 管理
 
 ## 运维工具接口
 
-存量预复制与冻结清单工具已随上述决策移除。维护 pin 安装与回退复用 `ops/stage0/qa-runtime-install.py` 和 `deploy/aws/stage0/qa-runtime-transaction.sh`；DROP pause、pin 绑定及验收记录复用 `ops/stage0/prod_release_state.py`；运维恢复沿用 `backend/cmd/qa-archive/`。过渡期间根据已记录的 UTC 小时边界明确选择 AWS 或 Hetzner 恢复坐标，不将单一存储配置误认为包含两侧全部历史。
+存量预复制与冻结清单工具已随上述决策移除。维护 pin 安装与回退、DROP pause 与 pin 绑定记录、运维恢复 CLI（`qa-runtime-install.py`、`qa-runtime-transaction.sh`、`prod_release_state.py`、`backend/cmd/qa-archive/`）已于 2026-11-08 随 QA S3 退役删除。过渡期间根据已记录的 UTC 小时边界明确选择 AWS 或 Hetzner 恢复坐标，不将单一存储配置误认为包含两侧全部历史。
 
 raw 凭据只挂载给 maintenance 子容器；网关两种颜色不挂载 raw 文件。网关发布只接受 `raw_archive_v1` 目标；缺失、旧 Bundle 和未知契约在触碰主机前拒绝。历史版本回滚须另行验证 raw capture/maintenance 兼容性与 DROP pause，不能由普通发布绕过。
 

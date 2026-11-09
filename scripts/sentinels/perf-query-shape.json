@@ -172,16 +172,18 @@
       "path": "backend/internal/observability/qa/lifecycle/boundary.go",
       "must_contain": [
         "RunProvision(",
-        "DropCommittedHour(",
-        "ResumePendingHotCleanups(",
         "MaintenanceLockID",
-        "InspectCatchupHourTx"
+        "InspectCatchupHourTx",
+        "dropFixedAgeHour(",
+        "ResumeDroppedHourCleanup("
       ],
       "must_not_contain": [
         "RehomeDefaultMonthly",
-        "_rehome_staging"
+        "_rehome_staging",
+        "DropCommittedHour(",
+        "RunTransitionBoundary("
       ],
-      "rationale": "The QA lifecycle library provisions future hourly partitions and exposes maintenance-only committed-hour DROP plus bounded post-DROP cleanup recovery. Rehome/staging or fixed-age boundary symbols here would bypass the capture-seal, raw-commit, restore-verification, and lock-time recheck contract."
+      "rationale": "The QA lifecycle library provisions future hourly partitions and owns the local 24h drop plus resumable post-DROP cleanup. QA S3 retired 2026-11-08: the archive-verified DropCommittedHour and the gateway transition owner must not return; rehome/staging symbols would bypass the lock-time recheck."
     },
     {
       "path": "backend/internal/handler/admin/dashboard_snapshot_v2_handler.go",

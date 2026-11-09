@@ -276,23 +276,27 @@
     {
       "path": "backend/internal/config/config.go",
       "must_contain": [
-        "viper.SetDefault(\"qa_archive.storage.credentials_file\", \"\")"
+        "viper.SetDefault(\"qa_capture.storage.credentials_file\", \"\")"
       ],
-      "rationale": "Raw archive credentials use a private file without changing other S3 services."
+      "must_not_contain": [
+        "QaArchive",
+        "qa_archive."
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. Capture keeps its private credentials file; the QA archive config block must not return."
     },
     {
-      "path": "backend/internal/observability/qa/archive/store.go",
+      "path": "backend/internal/observability/qa/blob_store.go",
       "must_contain": [
         "storage.ReadCredentials()"
       ],
-      "rationale": "QA file identities must remain independent of the ambient AWS provider used by non-QA services."
+      "rationale": "QA capture file identities must remain independent of the ambient AWS provider used by non-QA services."
     },
     {
-      "path": "backend/internal/observability/qa/archive/store_credentials_test.go",
+      "path": "backend/internal/config/qa_storage_credentials_test.go",
       "must_contain": [
-        "TestUS062_QAFileIdentityOverridesAmbientAWSOnlyForItsStore"
+        "TestUS062_QAStoragePrivateCredentialsFailClosed"
       ],
-      "rationale": "Protect the actual signed-request regression proving QA credentials override only the selected store."
+      "rationale": "Protect the fail-closed private credentials file contract that QA capture still uses."
     },
     {
       "path": "backend/internal/config/config.go",
@@ -11868,60 +11872,59 @@
       "rationale": "OpenRouter seller catalog schema 2.4 document builder (modality-owned pricing/capacity). Flat root pricing fields must not return; silent revert breaks new-provider onboarding."
     },
     {
-      "path": "backend/cmd/qa-archive/main.go",
+      "path": "backend/cmd/server/main.go",
       "must_contain": [
-        "NewReadOnlyObjectStoreForWorkstation",
-        "buildInspectReceipt",
-        "validRecoveryRunID",
-        "validateSecureRestoreTree",
-        "shared_ec2_instance_role_no_process_isolation",
-        "window-bound privacy confirmation required"
+        "partitionMaintenanceRequested(os.Args[1:])"
       ],
-      "rationale": "QA recovery CLI is the single metadata-first inspect/verify/restore adapter. Workstation reads must keep direct recovery-role S3 access without app config or PostgreSQL, correlate three distinct receipts, preserve structured integrity failures, and enforce isolated 0700/0600 restore output. These guards are load-bearing but can be dropped by an upstream CLI rewrite while the verifier package still compiles."
+      "must_not_contain": [
+        "qaMaintenanceRequested",
+        "qaBoundaryRequested",
+        "qaSingleOwnerActivationRequested"
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. The gateway binary must not regain the QA S3 maintenance, boundary, or single-owner subcommands."
     },
     {
-      "path": "backend/cmd/server/qa_maintenance.go",
+      "path": "backend/internal/observability/qa/archive/control_store.go",
       "must_contain": [
-        "qaMaintenanceConfirmation",
-        "archive.PreviousSealedHour",
-        "deletion_authorized=false",
-        "archive.NewReconciler",
-        "aggregate_record_count",
-        "lockAcquired",
-        "CatchupDispositionSourceUnavailableAfterRetention",
-        "compensation_terminal"
+        "func (s *SQLControlStore) RecordSourceDropped",
+        "func (s *SQLControlStore) RecordHotFilesCleaned",
+        "func (s *SQLControlStore) PersistBoundaryTerminalGap"
       ],
-      "rationale": "Prod QA maintenance must retain sealed-window selection, the single verified reconciler owner, failure-safe locking, committed aggregate heartbeat, hard denial of deletion, and fail-closed terminal compensation that still preserves normal-hour facts."
+      "must_not_contain": [
+        "qa_archive_segment_records",
+        "qa_archive_segments",
+        "qa_archive_gap_decision_receipts"
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. archive/ keeps only the qa_archive_shards control rows local cleanup writes; the S3 segment and gap-receipt tables are no longer read and are dropped by a follow-up migration once hosts run the new qa-local-maintenance."
     },
     {
-      "path": "backend/internal/observability/qa/archive/segment_builder.go",
+      "path": "backend/internal/observability/qa/lifecycle/control_adapter.go",
       "must_contain": [
-        "func BuildSegment",
-        "records.parquet",
-        "SegmentKindDelta",
-        "IntegrityMissingEvidence"
+        "archive.NewSQLControlStore()"
       ],
-      "rationale": "QA base/delta artifacts must remain keyset-paged, file-backed, deterministic, and fail closed before upload when evidence is missing."
+      "must_not_contain": [
+        "ObjectStore",
+        "Reconcile",
+        "MarkSourceUnavailableAfterRetention"
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. Local cleanup's control adapter must not reach an object store or the retired reconciler."
     },
     {
-      "path": "backend/internal/observability/qa/archive/reconciler.go",
+      "path": "Dockerfile.goreleaser",
       "must_contain": [
-        "func (r *Reconciler) Reconcile",
-        "CompareAndSwap",
-        "PendingVerified",
-        "DeletionAuthorized: false"
+        "${TARGETPLATFORM}/sub2api /app/sub2api"
       ],
-      "rationale": "The sole QA archive state machine must preserve resume, append-only delta, bounded commit CAS, and deletion denial semantics."
+      "must_not_contain": [
+        "qa-archive"
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. The release image must not ship the retired qa-archive recovery CLI."
     },
     {
-      "path": "backend/internal/observability/qa/archive/verifier.go",
+      "path": "scripts/checks/release-image-binaries.sh",
       "must_contain": [
-        "func VerifyCommit",
-        "manifest.BlobMissingCount != 0",
-        "IntegrityCorruptArtifact",
-        "verifyCommitIdentities"
+        "test ! -e /app/qa-archive"
       ],
-      "rationale": "Every visible QA commit must pass read-after-write checksum, manifest integrity, missing-evidence, and duplicate-identity verification."
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. Post-publish verification proves the qa-archive binary is absent on every platform."
     },
     {
       "path": "backend/internal/service/ops_gateway_latency.go",
@@ -16964,51 +16967,49 @@
       "rationale": "QA S3 and the telemetry archive were retired on 2026-11-08 (user decision): prod deploys never inject QA_ARCHIVE_ENABLED, demand S3 coordinates, or pass QA_ARCHIVE_* into either color (absent key = gateway default off); QA_CAPTURE_* stays. .env keys read after cutover (API_DOMAIN) are checked before any route switch. Disabled telemetry has no implicit AWS storage destination. Layout-exception caddy is recorded on the blue/green compose with the 100m x 5 log cap and is started by name when the Stage0 compose file is absent."
     },
     {
-      "path": "deploy/aws/stage0/qa-runtime-compose.yml",
+      "path": "ops/observability/host_https_watch.py",
       "must_contain": [
-        "${QA_ARCHIVE_STORAGE_DRIVER:?QA_ARCHIVE_STORAGE_DRIVER is required}",
-        "${QA_ARCHIVE_STORAGE_REGION:?QA_ARCHIVE_STORAGE_REGION is required}",
-        "${QA_ARCHIVE_STORAGE_ENDPOINT:?QA_ARCHIVE_STORAGE_ENDPOINT is required}",
-        "${QA_ARCHIVE_STORAGE_CREDENTIALS_FILE:-}",
-        "${QA_ARCHIVE_STORAGE_PREFIX:?QA_ARCHIVE_STORAGE_PREFIX is required}"
+        "\"tokenkey-qa-cleanup\": (20 * 60, 960),",
+        "\"tokenkey-qa-archive\": (9 * 3600, 1800),"
       ],
-      "rationale": "The independent maintenance pin requires explicit storage coordinates. An empty private credential path permits EC2 instance-role authentication."
+      "must_not_contain": [
+        "\"tokenkey-qa-maintenance\": (",
+        "\"tokenkey-qa-boundary\": (",
+        "jobs += [\"tokenkey-qa-maintenance\""
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. The watcher monitors the local QA jobs; the masked S3 maintenance/boundary units are neither watched nor paused."
     },
     {
-      "path": "ops/observability/probe-qa-phase2-live-health.sh",
+      "path": "deploy/tencent/candidate-usw-20261022.json",
       "must_contain": [
-        "[\"docker\", \"inspect\", \"tokenkey-qa-runtime\"]",
-        "print(\"PHASE2STORAGE \"",
-        "\"credentials_file_present\": bool(env.get(\"QA_ARCHIVE_STORAGE_CREDENTIALS_FILE\", \"\").strip())",
-        "\"service_active_state\": os.environ.get(\"TK_SERVICE_ACTIVE_STATE\", \"\")"
+        "\"tokenkey-qa-cleanup\"",
+        "\"tokenkey-qa-archive\""
       ],
-      "rationale": "Archive coordinates come from the independent stopped maintenance pin, not a gateway color. Probe output must filter credential contents."
+      "must_not_contain": [
+        "\"tokenkey-qa-maintenance\":",
+        "\"tokenkey-qa-boundary\":",
+        "prod_phase2_live_health"
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. paused_jobs and the watcher JOB_LIMITS drop the S3 units together; local QA jobs stay monitored."
     },
     {
-      "path": "ops/stage0/qa-runtime-install.py",
+      "path": "deploy/aws/stage0/stage0-ec2-bootstrap.sh",
       "must_contain": [
-        "def data_network(networks: dict) -> str:",
-        "if \"tokenkey-postgres\" in (net.get(\"Aliases\") or []):",
-        "raise ValueError(\"database network is ambiguous\")"
+        "systemctl enable --now tokenkey-disk-metrics.timer"
       ],
-      "rationale": "The QA runtime pin's DATABASE_HOST is tokenkey-postgres; multi-network layout-exception hosts (Tencent prod) must pin the network advertising that alias, not fail or pick arbitrarily."
+      "must_not_contain": [
+        "tokenkey-qa-boundary",
+        "tokenkey-qa-maintenance"
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. The AWS standby bootstrap must not install the S3-era QA runners."
     },
     {
-      "path": "ops/qa/prod_phase2_live_health.py",
+      "path": "ops/qa/local_maintenance_host.py",
       "must_contain": [
-        "def live_archive_coordinates()",
-        "storage = evaluate_storage(snapshot.get(\"storage\"), maintenance_paused=",
-        "deferred.append(\"qa_archive_instance_role_unavailable\")",
-        "\"qa_runtime_storage_unavailable\"",
-        "skip_iam = not args.legacy_aws",
-        "maintenance_paused=bool(maintenance_pause_reason)",
-        "get(\"host_watch\", {}).get(\"paused_jobs\", {}).get(\"tokenkey-qa-maintenance\", \"\")",
-        "def _defer_paused_instance_role(",
-        "iam.get(\"applicable\", True)",
-        "if not owner.is_file():",
-        "\"archive_provider\": \"retired\""
+        "require_legacy_paused()",
+        "'cleanup': '*-*-* *:02/5:00 UTC',"
       ],
-      "rationale": "Live QA health validates the stopped maintenance pin and fails on missing evidence. With the QA S3 coordinate owner retired it reports archive_provider=retired instead of failing; while uploads are paused, missing statements on the retired instance role are deferred; any other IAM failure still exits."
+      "rationale": "Local QA maintenance keeps refusing to run while a legacy owner is active, and cleanup stays on its 5-minute cadence."
     },
     {
       "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
@@ -17020,82 +17021,53 @@
       "rationale": "A .env without QA keys deploys with no QA_ARCHIVE_* in either color, stale QA_ARCHIVE_* keys cannot reach the container, a missing API_DOMAIN fails before cutover, and explicitly configured storage settings survive."
     },
     {
-      "path": "ops/qa/test_prod_phase2_live_health.py",
+      "path": "ops/observability/test_host_https_watch.py",
       "must_contain": [
-        "def test_live_storage_fails_on_missing_facts_aws_and_invalid_pin(",
-        "def test_legacy_iam_failure_is_separate_from_live_health(",
-        "def test_storage_probe_reads_stopped_pin_and_redacts_secrets(",
-        "def test_runtime_compose_requires_each_storage_coordinate(",
-        "def test_baseline_checks_pin_and_fails_when_storage_is_unknown(",
-        "def test_pause_ignores_old_archive_but_preserves_boundary_and_storage(",
-        "def test_pause_rejects_resumed_or_unknown_systemd_states(",
-        "def test_paused_uploads_defer_only_the_write_identity_check(",
-        "def test_paused_upload_defers_only_retired_instance_role_sids(",
-        "def test_paused_upload_still_reports_other_iam_drift(",
-        "def test_retired_s3_owner_reports_retired_and_keeps_pin_checks("
+        "for retired in ('tokenkey-qa-maintenance', 'tokenkey-qa-boundary'):"
       ],
-      "rationale": "Behavior tests prevent false healthy output when independent pin or instance-role evidence is absent, secrets leaking through probe output, and missing storage coordinates."
+      "rationale": "Protect the regression that keeps the retired S3 units out of jobs, paused_jobs and JOB_LIMITS."
     },
     {
       "path": ".github/workflows/ops-daily-diagnostics.yml",
       "must_contain": [
-        "prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json",
-        "qa-raw-archive-iam|$TARGET_ID|paused",
-        "qa-raw-archive-iam|$TARGET_ID|not-applicable",
         "external-health|$TARGET_ID|on-host",
         "RUNTIME_RESOURCE_LAYOUT=$RUNTIME_LAYOUT",
         "ops/observability/diagnostics-targets.json",
-        "error-clustering|$TARGET_ID|retired",
-        "if (.iam_contract.applicable == false) then \"false\" else \"true\" end"
+        "error-clustering|$TARGET_ID|retired"
       ],
       "must_not_contain": [
-        "bash ops/stage0/deploy-error-clustering-binary.sh",
-        "diagnostics_include_error_clustering",
-        ".iam_contract.applicable // true"
+        "prod_phase2_live_health.py",
+        "probe-qa-phase2-live-health.sh",
+        "qa-raw-archive-iam|",
+        "QA_RAW_ARCHIVE_STACK",
+        "QA_ARCHIVE"
       ],
-      "rationale": "Daily diagnostics keeps the historical AWS IAM audit for US West. While QA upload is paused, missing statements on the retired Tokyo role are deferred. Beijing is in the same matrix and does not run that audit or the public DNS health check. The job does not compile error_clustering; the daily error ledger owns classification."
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. Daily diagnostics keeps the matrix probes and no longer runs QA Phase 2 live health or raw-archive IAM checks."
     },
     {
       "path": "ops/observability/diagnostics-targets.json",
       "must_contain": [
         "\"target_id\": \"prod\"",
         "\"layout\": \"usw\"",
-        "\"qa_archive\": \"true\"",
         "\"public_health\": \"true\"",
         "\"target_id\": \"cn-prod\"",
         "\"layout\": \"domestic\"",
-        "\"qa_archive\": \"false\"",
         "\"public_health\": \"false\"",
         "\"probe_target\": \"cn-prod\""
       ],
-      "rationale": "Daily diagnostics uses one matrix. US West keeps public health and the paused QA IAM audit. Beijing is diagnosed on its own SSM host; public DNS and the Tokyo archive role do not apply."
-    },
-    {
-      "path": "deploy/aws/stage0/tokenkey-qa-maintenance.sh",
-      "must_contain": [
-        "with_qa_lifecycle_lock 0 run_single_owner_activation",
-        "acquire_qa_lifecycle_lock 600 || return $?",
-        "acquire_qa_lifecycle_lock \"$1\" || return $?"
+      "must_not_contain": [
+        "\"qa_archive\""
       ],
-      "rationale": "Scheduled archive waits for backup; owner activation must fail immediately on a busy host lock."
-    },
-    {
-      "path": "deploy/aws/stage0/tokenkey-qa-boundary.sh",
-      "must_contain": [
-        "QA_LIFECYCLE_LOCK_FILE",
-        "flock -w 600 9",
-        "qa_fail lifecycle_lock_busy 75"
-      ],
-      "rationale": "Boundary DDL must share the backup/archive lease and fail with a receipt before child execution."
+      "rationale": "Daily diagnostics uses one matrix. US West keeps public health; Beijing is probed on-host. The QA archive flag was retired with QA S3."
     },
     {
       "path": "ops/stage0/test_qa_backup_host_lock.py",
       "must_contain": [
-        "test_archive_waits_for_backup_and_preserves_success_receipt",
-        "test_boundary_lock_timeout_records_failure_without_container_work",
-        "test_dump_releases_lease_before_slow_object_upload"
+        "test_dump_waits_for_qa_then_writes_valid_recovery_artifact",
+        "test_dump_releases_lease_before_slow_object_upload",
+        "test_dump_lock_timeout_does_not_prune_existing_backup"
       ],
-      "rationale": "Real kernel locks protect QA and dumps without holding QA behind object upload."
+      "rationale": "Real kernel locks keep pg_dump and the local QA jobs on qa-lifecycle/host.lock without holding QA behind object upload."
     },
     {
       "path": "ops/stage0/retire_aws_standby_timers.py",
@@ -17481,15 +17453,6 @@
         "resolveNativeGeminiThinkingVariant(account, requestedModel, preferred)"
       ],
       "rationale": "Model cooldown reads and writes must reuse native forwarding variant resolution for explicit low/medium requests."
-    },
-    {
-      "path": "ops/qa/qa_phase2_health.py",
-      "must_contain": [
-        "if maintenance_paused:",
-        "None if maintenance_paused else archive",
-        "_evaluate_boundary(forward_reasons, snapshot, now)"
-      ],
-      "rationale": "Paused archive checks must retain boundary coverage and reject unexpected service activity."
     },
     {
       "path": "backend/internal/service/openai_response_protection_diagnostic_tk.go",
