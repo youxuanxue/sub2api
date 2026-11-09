@@ -21,6 +21,8 @@ _SCRIPT = pathlib.Path(__file__).resolve().parent / "deploy_via_ssm_bluegreen.sh
 _PROD_IID = "i-0prod000000000000"
 
 
+_PROD_EDGE_KEYS = ("ACME_EMAIL", "GLOBAL_SITE_PHASE", "GLOBAL_SITE_DOMAIN", "API_ALIAS_DOMAIN", "API_CN_DOMAIN")
+
 def _render(instance_id: str = _PROD_IID, tag: str = "1.8.99", env_extra: dict | None = None):
     out_dir = pathlib.Path(tempfile.mkdtemp(prefix="bluegreen-render-"))
     env = {
@@ -836,9 +838,11 @@ ensure_profile_environment
         self.assertEqual(proc.returncode, 0, proc.stderr)
         assert remote is not None
         functions = "\n".join(_extract_shell_function(remote, name) for name in
-                              ("assert_post_cutover_environment", "run_bluegreen_stage"))
+                              ("assert_post_cutover_environment", "assert_edge_profile_environment",
+                               "run_bluegreen_stage"))
+        edge = "".join(f"{k}=v.example.test\n" for k in _PROD_EDGE_KEYS)
         for stage in ("deploy", "prepare", "promote"):
-            for dotenv, ok in (("TOKENKEY_IMAGE=x\n", False), ("API_DOMAIN=api.example.test\n", True)):
+            for dotenv, ok in (("TOKENKEY_IMAGE=x\n" + edge, False), ("API_DOMAIN=api.example.test\n" + edge, True)):
                 with self.subTest(stage=stage, ok=ok), tempfile.TemporaryDirectory() as tmp:
                     env_file = pathlib.Path(tmp) / ".env"
                     env_file.write_text(dotenv)
@@ -846,6 +850,9 @@ ensure_profile_environment
 {functions}
 ENV_FILE={shlex.quote(str(env_file))}
 PREPARED_FILE={shlex.quote(str(pathlib.Path(tmp) / "absent"))}
+PROD_EDGE_REQUIRED_ENV=({" ".join(_PROD_EDGE_KEYS)})
+DEPLOY_PROFILE=prod
+LIVE_CADDY={shlex.quote(str(pathlib.Path(tmp) / "absent-caddy"))}
 STAGE={stage}
 LEGACY_MIGRATED=0
 log() {{ :; }}
@@ -868,6 +875,60 @@ run_bluegreen_stage
                         self.assertEqual(result.returncode, 42)
                         self.assertNotIn("moved-or-prepared", result.stdout)
                         self.assertIn("API_DOMAIN is required before cutover", result.stderr)
+
+    def _edge_assert(self, dotenv: str, caddyfile: str | None, profile: str = "prod"):
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        assert remote is not None
+        functions = "\n".join(_extract_shell_function(remote, name) for name in
+                              ("assert_post_cutover_environment", "assert_edge_profile_environment"))
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = pathlib.Path(tmp) / ".env"
+            env_file.write_text(dotenv)
+            caddy = pathlib.Path(tmp) / "Caddyfile"
+            if caddyfile is not None:
+                caddy.write_text(caddyfile)
+            script = f"""set -euo pipefail
+{functions}
+ENV_FILE={shlex.quote(str(env_file))}
+LIVE_CADDY={shlex.quote(str(caddy))}
+DEPLOY_PROFILE={profile}
+PROD_EDGE_REQUIRED_ENV=({" ".join(_PROD_EDGE_KEYS)})
+die() {{ echo "die:$*" >&2; exit 42; }}
+env_get() {{ sed -n "s/^$1=//p" "$ENV_FILE"; }}
+assert_post_cutover_environment
+echo passed
+"""
+            return subprocess.run(["bash"], input=script, capture_output=True, text=True)
+
+    def test_prod_edge_env_contract_is_pinned(self) -> None:
+        _, _, remote = _render()
+        assert remote is not None
+        self.assertIn("PROD_EDGE_REQUIRED_ENV=(" + " ".join(_PROD_EDGE_KEYS) + ")", remote)
+
+    def test_missing_edge_env_fails_before_cutover(self) -> None:
+        # 2026-11-08 rebuild: .env came back with only API_DOMAIN.
+        full = "API_DOMAIN=api.tokenkey.dev\n" + "".join(f"{k}=x.example\n" for k in _PROD_EDGE_KEYS)
+        canonical = "api.tokenkey.dev {\n\timport tokenkey_api_machine\n}\n"
+        ok = self._edge_assert(full, canonical)
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        for key in _PROD_EDGE_KEYS:
+            with self.subTest(missing=key):
+                dotenv = "".join(l + "\n" for l in full.splitlines() if not l.startswith(key + "="))
+                result = self._edge_assert(dotenv, canonical)
+                self.assertEqual(result.returncode, 42)
+                self.assertIn(f"missing {key}", result.stderr)
+
+    def test_hand_written_caddyfile_fails_before_cutover(self) -> None:
+        full = "API_DOMAIN=api.tokenkey.dev\n" + "".join(f"{k}=x.example\n" for k in _PROD_EDGE_KEYS)
+        minimal = "api.tokenkey.dev, tokenkey.dev {\n\treverse_proxy tokenkey-green:8080\n}\n"
+        result = self._edge_assert(full, minimal)
+        self.assertEqual(result.returncode, 42)
+        self.assertIn("is not the canonical prod render", result.stderr)
+
+    def test_edge_contract_only_applies_to_prod_profile(self) -> None:
+        result = self._edge_assert("API_DOMAIN=api.example.test\n", "x {\n}\n", profile="replay")
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_remote_script_parses(self) -> None:
         proc, params, remote = _render()

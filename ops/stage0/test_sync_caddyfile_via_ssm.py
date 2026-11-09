@@ -278,6 +278,22 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         body = _ssm_script_body(params)
         self.assertIn("set -euo pipefail", body)
 
+    def test_acme_email_override_reaches_the_render_subprocess(self) -> None:
+        # 2026-11-09 prod: ACME_EMAIL passed on the command line was assigned
+        # after `set -a` ended, so render-prod-caddyfile.sh saw it empty and
+        # caddy validate rejected `email` with no argument.
+        script = _host_script("prod")
+        proc = _run_fragment(
+            script,
+            'if [ -n "$TARGET_ACME_EMAIL" ]; then',
+            'echo "render context loaded',
+            prelude='TARGET_ACME_EMAIL=ops@example.com\nLIVE=/dev/null\nunset ACME_EMAIL',
+            epilogue='bash -c \'printf "%s" "${ACME_EMAIL:-}"\'',
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "ops@example.com",
+                         "the render subprocess must inherit the ACME_EMAIL override")
+
     def test_prod_preserves_bluegreen_active_upstream(self) -> None:
         proc, params = _run_sync("prod")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
@@ -327,6 +343,40 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         self.assertIn("TARGET_API_ALIAS_DOMAIN='api.callmodel.io'", joined)
         self.assertLess(joined.index("global homepage phase persisted"), joined.index("render context loaded"))
         self.assertIn("restoring previous Caddyfile and environment", joined)
+
+    def test_prod_persists_api_cn_domain_into_host_env(self) -> None:
+        # Without API_CN_DOMAIN in .env the canonical render drops the
+        # api-cn vhost; the 2026-11-08 rebuild lost it and only a hand edit
+        # kept api-cn.tokenkey.dev serving.
+        proc, params = _run_sync("prod", {"API_CN_DOMAIN": "api-cn.tokenkey.dev"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert params is not None
+        script = _ssm_script_body(params)
+        self.assertIn("APPLY_API_CN='true'", script)
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = pathlib.Path(tmp) / ".env"
+            env_file.write_text("API_DOMAIN=api.tokenkey.dev\nAPI_CN_DOMAIN=stale.example\n")
+            proc = _run_fragment(
+                script,
+                'if [ "$APPLY_GLOBAL_PROFILE" = true ] ||',
+                '# API_DOMAIN / ACME_EMAIL are persisted',
+                prelude=(
+                    f"ENV_FILE={env_file}\nTS=t\nsudo() {{ \"$@\"; }}\nchown() {{ :; }}\nchmod() {{ :; }}\n"
+                    "APPLY_GLOBAL_PROFILE=false\nAPPLY_API_ALIAS=false\n"
+                    "TARGET_GLOBAL_SITE_PHASE=\nTARGET_GLOBAL_SITE_DOMAIN=\nTARGET_API_ALIAS_DOMAIN=\n"
+                    "APPLY_API_CN=true\nTARGET_API_CN_DOMAIN=api-cn.tokenkey.dev"
+                ),
+            )
+            self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+            lines = env_file.read_text().splitlines()
+            self.assertEqual([l for l in lines if l.startswith("API_CN_DOMAIN=")],
+                             ["API_CN_DOMAIN=api-cn.tokenkey.dev"])
+            self.assertIn("API_DOMAIN=api.tokenkey.dev", lines)
+
+    def test_prod_rejects_invalid_api_cn_domain(self) -> None:
+        proc, _ = _run_sync("prod", {"API_CN_DOMAIN": "Not A Host"})
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("API_CN_DOMAIN must be empty or a lowercase DNS hostname", proc.stderr)
 
     def test_prod_disabled_clears_persisted_domain(self) -> None:
         proc, params = _run_sync("prod", {"GLOBAL_SITE_PHASE": "disabled"})

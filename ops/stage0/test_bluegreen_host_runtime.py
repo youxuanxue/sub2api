@@ -199,6 +199,7 @@ class HostRuntimeTest(unittest.TestCase):
         functions = '\n'.join(_extract_shell_function(remote, name) for name in (
             'run_bluegreen_stage', 'ensure_legacy_cutover', 'deploy_target_color',
             'backup_env', 'restore_env_if_safe', 'cleanup_on_exit', 'assert_post_cutover_environment',
+            'assert_edge_profile_environment',
         ))
         for stage, layout in (('deploy', 'legacy'), ('deploy', 'blue'), ('prepare', 'blue')):
             with self.subTest(stage=stage, layout=layout), tempfile.TemporaryDirectory() as tmp:
@@ -214,6 +215,8 @@ ROUTE_SWITCHED=0
 TARGET_CONTAINER=""
 LEGACY_MIGRATED=0
 TAG=1.8.99
+# Restore-on-failure is under test here, not the prod edge contract.
+DEPLOY_PROFILE=replay
 sudo() { if [[ "$1" = docker ]]; then return 0; fi; command "$@"; }
 log() { :; }
 die() { echo "$*" >&2; exit 1; }
