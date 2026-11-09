@@ -124,14 +124,14 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 ### 建议值
 
-数据机首次启动（以备用库身份启动）时就用这些值，提升之后不再改。以 prod 16 GB、cn-prod 8 GB 为例，内存相关的值按内存比例给。
+数据机首次启动（以备用库身份启动）时就用这些值，提升之后不再改。内存相关的值按 prod 8 GB、cn-prod 4 GB 给（见「数据机配置」）。
 
 | 参数 | 现值 | 建议 | 理由 |
 |---|---|---|---|
-| `shared_buffers` | 128MB | 内存 25%：prod 4GB，cn-prod 2GB | 现值是安装默认；`wal_buffers` 会随之自动升到 16MB |
-| `effective_cache_size` | 4GB | 内存 75%：prod 12GB，cn-prod 6GB | 让优化器知道有多少页缓存 |
-| `work_mem` | 4MB | 16MB | 两站都有大量临时文件。200 条连接各用一份时是 3.2GB；一条复杂查询可能用好几份，所以不再往上加 |
-| `maintenance_work_mem` | 64MB | prod 512MB，cn-prod 256MB | 加快 vacuum 和建索引 |
+| `shared_buffers` | 128MB | 内存 25%：prod 2GB，cn-prod 1GB | 现值是安装默认；`wal_buffers` 会随之自动升到 16MB。prod 日常热数据约 3.8 GB，2GB 加页缓存装得下；再大会和页缓存重复缓存同一份数据 |
+| `effective_cache_size` | 4GB | prod 5GB，cn-prod 2.5GB | 让优化器知道 PG 加页缓存一共能缓存多少。按 PG 容器上限算，不按整机内存算 |
+| `work_mem` | 4MB | 16MB | 两站都有大量临时文件；prod 17 小时 922 个，平均每个 3.9 MB，16MB 能消掉大部分。实际只有十来条连接，不会把内存用满 |
+| `maintenance_work_mem` | 64MB | prod 256MB，cn-prod 128MB | 加快 vacuum 和建索引 |
 | `max_connections` | 200 / 100 | 两站都 200 | cn-prod 一台网关在蓝绿重叠时就占 80，再加运维连接已经贴近 100。备用库的这一项不能小于主库，200 两站都满足 |
 | `jit` | on | off | 网关都是短查询，JIT 编译只增加延迟。仓库调优文件已经是 off |
 | `max_parallel_workers` / `max_parallel_workers_per_gather` | 8 / 2 | 2 / 1 | 沿用仓库调优文件的值，避免一条报表查询占满 CPU |
@@ -148,7 +148,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 | `log_lock_waits` / `log_temp_files` / `log_min_duration_statement` | off / -1 / -1 | on / 16MB / 1s | 锁等待、大临时文件和慢查询进日志 |
 | `timezone` / `log_timezone` | Tokyo / Shanghai | 两站都 `UTC` | 和网关、分区边界一致。改之前确认运维脚本里没有依赖服务器时区的日期计算 |
 | 容器 `shm_size` | 64MB | 1GB | 64MB 下并行哈希可能报共享内存不足 |
-| 容器内存上限 | 4G / 无 | prod 13G，cn-prod 6G | 见「数据机配置」 |
+| 容器内存上限 | 4G / 无 | prod 6G，cn-prod 3G | 见「数据机配置」 |
 
 不改的：`wal_level`、`archive_mode`、`archive_command`、`archive_timeout`、`synchronous_commit`、`full_page_writes`、autovacuum 各项、`statement_timeout`、`lock_timeout`。两站的死元组比例都很低，autovacuum 不需要调；全局 `statement_timeout` 会误伤迁移和清理任务。
 
@@ -162,7 +162,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 ### 不在这次做
 
 - **cn-prod 的 `usage_logs` 没有分区**（1.1 GB，869 次全表扫描读了 1.07 亿行），prod 是按日分区的。分区切换有自己的工具 `ops/migration/usage_logs_daily_partition.py` 和维护窗口，与换机器无关。拆库完成后单独做，两站的表结构才算一致。
-- **prod 的 `usage_billing_dedup` 有 8.4 GB**，是最大的一张表（2026-04-20 起 1,817 万行，保留 400 天）。它决定 prod 的磁盘增长，但清理策略不是参数问题，这次不动。
+- **prod 的 `usage_billing_dedup` 有 8.4 GB**，是最大的一张表（2026-04-21 起约 1,800 万行，保留 400 天）。其中唯一索引 2.6 GB、主键 664 MB，主键从未被用过；行数是 `usage_logs` 的两倍左右，而近 7 天两者一一对应，说明多出来的是早期数据。它决定 prod 的磁盘增长和热数据大小，但处理方式涉及计费幂等，要单独评估，这次不动。
 
 ## 数据机配置
 
@@ -170,23 +170,38 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 | | prod | cn-prod |
 |---|---|---|
-| CPU | 4 vCPU | 2 vCPU |
-| 内存 | 16 GB | 8 GB |
-| 磁盘 | SSD 系统盘，至少 200 GB | SSD 系统盘，至少 100 GB |
-| 位置 | 腾讯美西 `na-siliconvalley`，与应用机同一私网 | 腾讯北京，与应用机同一私网 |
-| PG 容器内存上限 | 13 GB | 6 GB |
-| Redis | `maxmemory` 512MB，容器上限 1GB | 同左 |
+| 套餐 | 美西轻量通用型 `bundle_gen_nmc_lin_med8_02`，月付 133 元 | 北京轻量通用型 `bundle_gen_mc_med4_01`，月付 80 元 |
+| CPU / 内存 | 2 vCPU / 8 GB | 2 vCPU / 4 GB |
+| 磁盘 | SSD 系统盘 150 GB | SSD 系统盘 90 GB |
+| 位置 | 与应用机同地域同可用区，同一个轻量私网 | 同左 |
+| PG 容器内存上限 | 6 GB | 3 GB |
+| Redis | `maxmemory` 512MB，容器上限 1GB | `maxmemory` 256MB，容器上限 512MB |
 
-数据放在系统盘上，和 cn-prod 现在一样，不要求独立云硬盘。数据安全靠 pgBackRest：WAL 每 5 分钟归档一次，每 2 小时做一次增量备份，每站同时推到 AWS S3 和腾讯 COS 两个仓库。磁盘坏了或系统盘被重装，最多丢最后几分钟还没归档的 WAL。独立云硬盘只能缩短恢复时间，因为挂上盘就能起库，不用从仓库下载。切流第 3 步会实测从仓库恢复一次要多久；那个时长不可接受时，再考虑加独立云硬盘。具体套餐和月价在申请预算时按当时报价给出。
+prod 数据机已于 2026-11-08 开通：`lhins-rbjrqukb`，私网 `10.4.0.17`，自动续费。不开任何公网入站端口，远程操作走腾讯云 TAT。cn-prod 数据机等 prod 切流稳定后再开。
+
+轻量套餐支持 `ModifyInstancesBundle` 原地升配。切流后缓存命中率长期低于 99% 时再升，不提前买大。
+
+数据放在系统盘上，和 cn-prod 现在一样，不要求独立云硬盘。数据安全靠 pgBackRest：WAL 每 5 分钟归档一次，每 2 小时做一次增量备份，每站同时推到 AWS S3 和腾讯 COS 两个仓库。磁盘坏了或系统盘被重装，最多丢最后几分钟还没归档的 WAL。独立云硬盘只能缩短恢复时间。2026-11-08 在 prod 数据机上实测，从 COS 恢复 prod 全库（23 GB）用 271 秒，回放和启动 2 秒，所以不需要独立云硬盘。
 
 ### 依据
 
-- **CPU**：实测 PG 容器 CPU 占用 prod 1.5%、cn-prod 1%，prod 整机负载 0.6（4 核）。CPU 不是瓶颈。prod 给 4 核，是为 pgBackRest 压缩、autovacuum 和偶发报表查询留余量；cn-prod 2 核足够。
-- **内存**：prod 库 22 GB，现在 PG 用了 2.7 GB，整机有 12 GB 页缓存，命中率靠这部分维持。16 GB 能把 4 GB `shared_buffers` 和约 8 GB 页缓存都留给库。cn-prod 库 2.9 GB，8 GB 内存能让全库和未来一年的热数据都留在内存里。4 GB 是下限，但留给 vacuum、备份和 Redis 的余量太小。
-- **磁盘**（按近期增长估算，保留期按代码默认值）：
-  - prod：`usage_logs` 近一周满日每天 60–205 MB、按日分区；`usage_billing_dedup` 每天约 40 MB；两者都保留 400 天，最早的分区要到 2027 年才开始被清理。合计约 4.5 GB/月，一年后约 80 GB。再加 4 GB WAL、切流演练时在数据机上另恢复一份（约 22 GB）、pgBackRest 本地暂存和余量，200 GB 是下限。
-  - cn-prod：`usage_logs` 每天约 45 MB，`ops_system_logs` 保留 30 天、总量封顶约 1 GB。合计约 1.7 GB/月，一年后约 25 GB。100 GB 留足余量。
-- **两站一致**：配置形状相同，只有大小不同。参数按内存比例给，同一份启动定义两站都能用。
+2026-11-09 在 prod 只读实测（PG 已运行 17 小时）：
+
+| 指标 | 实测 |
+|---|---|
+| 60 秒采样缓存命中率 | 99.85%，每秒读盘 3.3 块（约 26 KB/s） |
+| 事务 | 约 83 次/秒，每秒新增 5 行、更新 8 行 |
+| 请求量 | 近一周每天 5 万到 18 万次，峰值小时约 8,800 次 |
+| PG 容器 CPU / 内存 | 1.5% / 2.6 GB |
+
+日常真正被访问的数据约 3.8 GB：核心表 42 MB、最近 3 天 `usage_logs` 分区 243 MB、最近一天 QA 和 ops 日志约 185 MB、`usage_billing_dedup` 的索引 3.3 GB。
+
+- **CPU**：PG 只用了 1.5%，2 核足够。
+- **内存**：8 GB 里给 `shared_buffers` 2 GB、页缓存约 4 GB，能装下 3.8 GB 的热数据。现在 128MB `shared_buffers` 就有 99.85% 的命中率，靠的是 prod 应用机 14 GB 的页缓存；数据机页缓存小一些，所以 `shared_buffers` 要调大。cn-prod 库只有 2.9 GB，4 GB 内存能把整个库放进缓存。
+- **磁盘**：
+  - prod：`usage_logs` 每天 60–205 MB，`usage_billing_dedup` 每天约 40 MB，两者都保留 400 天。合计约 4.5 GB/月。150 GB 能撑约两年；COS 恢复验证时在数据机上临时多恢复一份（23 GB）也放得下，实测恢复后还剩 114 GB。
+  - cn-prod：合计约 1.7 GB/月，90 GB 够用三年以上。
+- **要盯的风险**：`usage_billing_dedup` 的索引按随机 request_id 写入，一年后会到 5 GB 以上，超出内存。写入只有每秒约 5 次，读盘对 SSD 没有压力；命中率长期低于 99% 时升配，或者先处理这张表（见「不在这次做」）。
 
 ## 切流前的代码改动
 
