@@ -83,7 +83,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 | 每色 DB / Redis 池 | 现役 `tokenkey-blue` 是 11-08 重建时手工 `docker run` 的，env 和 `config.yaml` 都没设池参数，按代码默认 256 / 1024 运行。下次走模板的蓝绿发布会变成 50 / 1024 | 40 / 96（`compose.override.yml`） |
 | 实测连接 | 网关 7 条 + 1 条 psql | 网关 5 条 + 1 条 psql |
 | 蓝绿重叠期 | 两色同时在，连接数翻倍 | 同左 |
-| 备份 | pgBackRest 双仓库：AWS S3 `us-east-1` 和腾讯 COS 美西。WAL 每 5 分钟归档，每 2 小时增量，全量保留 7 天；两个仓库状态都是 ok；timer 在应用机 | pgBackRest 双仓库：AWS S3 `ap-northeast-1` 和腾讯 COS 北京，周期和保留期同 prod；两个仓库状态都是 ok（归档上一次失败是 11-02 的已知事故）；timer 在应用机 |
+| 备份 | pgBackRest 单仓库：腾讯 COS 美西（`repo2`）。WAL 每 5 分钟归档，每 2 小时增量，全量保留 7 天；仓库状态 ok；timer 在应用机。AWS S3 `us-east-1`（`repo1`）自 2026-11-08 起不再写入（#3107） | pgBackRest 单仓库：腾讯 COS 北京（`repo2`），周期和保留期同 prod；仓库状态 ok（归档上一次失败是 11-02 的已知事故）；timer 在应用机。AWS S3 `ap-northeast-1`（`repo1`）同样自 2026-11-08 起不再写入（#3107） |
 | Caddy 上游 | 现网 `/var/lib/tokenkey/caddy/Caddyfile` 只有 `reverse_proxy tokenkey-blue:8080 { flush_interval -1 }`，**没有健康检查，也没有 `lb_try_duration`**。上游不可用时请求立刻失败 | 有健康检查和 `lb_try_duration 30s`，上游不可用时最多等 30 秒 |
 | `RUN_MODE` | `standard` | `standard` |
 | 网关内存 | `mem_limit 8g`、`GOMEMLIMIT=6GiB`（#3101） | `GOMEMLIMIT=2GiB`，无容器上限 |
@@ -181,7 +181,7 @@ prod 数据机：`lhins-p43i2kxh`，私网 `10.4.0.3`，2026-11-09 开通，自�
 
 轻量套餐支持 `ModifyInstancesBundle` 原地升配。切流后缓存命中率长期低于 99% 时再升，不提前买大。
 
-数据放在系统盘上，和 cn-prod 现在一样，不要求独立云硬盘。数据安全靠 pgBackRest：WAL 每 5 分钟归档一次，每 2 小时做一次增量备份，每站同时推到 AWS S3 和腾讯 COS 两个仓库。磁盘坏了或系统盘被重装，最多丢最后几分钟还没归档的 WAL。独立云硬盘只能缩短恢复时间。2026-11-08 在 prod 数据机上实测，从 COS 恢复 prod 全库（23 GB）用 271 秒，回放和启动 2 秒，所以不需要独立云硬盘。
+数据放在系统盘上，和 cn-prod 现在一样，不要求独立云硬盘。数据安全靠 pgBackRest：WAL 每 5 分钟归档一次，每 2 小时做一次增量备份，每站只推到本站的腾讯 COS 仓库（AWS S3 仓库自 2026-11-08 起不再写入，#3107）。磁盘坏了或系统盘被重装，最多丢最后几分钟还没归档的 WAL。独立云硬盘只能缩短恢复时间。2026-11-08 在 prod 数据机上实测，从 COS 恢复 prod 全库（23 GB）用 271 秒，回放和启动 2 秒，所以不需要独立云硬盘。
 
 ### 依据
 
