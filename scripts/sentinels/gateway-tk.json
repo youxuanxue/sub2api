@@ -19385,7 +19385,7 @@
       "must_contain": [
         "applyTLSProfileHTTP2Settings(transport, profile)"
       ],
-      "rationale": "Aligns HTTP/2 SETTINGS/WINDOW_UPDATE with real codex (hyper/h2) for tk_canonical_codex_cli; other profiles keep Go defaults."
+      "rationale": "Applies Codex HTTP/2 frame size and header-list size for tk_canonical_codex_cli. Flow-control windows stay at Go defaults; other profiles are unchanged."
     },
     {
       "path": "backend/internal/handler/wire_protocol_ssot_tk.go",
@@ -19400,9 +19400,12 @@
         "func (s *OpenAIGatewayService) resolveOpenAITLSProfile(account *Account) *tlsfingerprint.Profile {",
         "!account.IsOpenAIOAuthLike()",
         "func (s *OpenAIGatewayService) doOpenAIUpstreamWithAccountTLS(",
-        "withOpenAITLSHTTP2Windows(profile, account)"
+        "s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, profile)"
       ],
-      "rationale": "Single OpenAI-gateway owner for outbound TLS identity: only opted-in OpenAI OAuth/SetupToken accounts get a uTLS profile; all others keep the exact historical httpUpstream.Do call."
+      "must_not_contain": [
+        "withOpenAITLSHTTP2Windows"
+      ],
+      "rationale": "Single OpenAI-gateway owner for outbound TLS identity: only opted-in OpenAI OAuth/SetupToken accounts get a uTLS profile; all others keep the exact historical httpUpstream.Do call. The profile is passed through unchanged; HTTP/2 windows are not an account setting."
     },
     {
       "path": "backend/internal/observability/qa/lifecycle/local_cleanup.go",
@@ -19469,25 +19472,36 @@
       "must_contain": [
         "func (s *httpUpstreamService) resolveTLSFingerprintProtocolMode(upstreamProfile service.HTTPUpstreamProfile, proxyKey string, parsedProxy *url.URL) string {",
         "return s.resolveProtocolMode(upstreamProfile, proxyKey, parsedProxy)",
-        "if !profile.UsesGoDefaultHTTP2Windows() {",
-        "func tlsFingerprintPoolKeySuffix(profile *tlsfingerprint.Profile) string {"
+        "transport.HTTP2.MaxReadFrameSize = codexH2MaxFrameSize",
+        "func tlsFingerprintPoolKeySuffix(*tlsfingerprint.Profile) string {"
       ],
-      "rationale": "OpenAI TLS-fingerprint transport follows gateway.openai_http2 (openai_h2 15s/15s ping, H1 fallback with http/1.1-only ALPN) and supports per-account Go-default HTTP/2 windows."
+      "must_not_contain": [
+        "UsesGoDefaultHTTP2Windows",
+        "MaxReceiveBufferPerConnection ="
+      ],
+      "rationale": "OpenAI TLS-fingerprint transport follows gateway.openai_http2 (openai_h2 15s/15s ping, H1 fallback with http/1.1-only ALPN). Codex frame size and header-list size stay aligned; flow-control windows stay at Go defaults because the ~5 MiB CLI connection window stalls a pooled multi-stream connection."
     },
     {
       "path": "backend/internal/pkg/tlsfingerprint/profile_tk.go",
       "must_contain": [
-        "HTTP2WindowsGoDefault = \"go_default\"",
         "func (p *Profile) WithHTTP1OnlyALPN() *Profile {"
       ],
-      "rationale": "Per-request HTTP/2 window policy and the HTTP/1.1-only ALPN derivation for the OpenAI fingerprint transport."
+      "must_not_contain": [
+        "HTTP2WindowsGoDefault",
+        "tls_fingerprint_h2_windows"
+      ],
+      "rationale": "HTTP/1.1-only ALPN derivation for the OpenAI fingerprint transport. HTTP/2 window size is not a profile or account setting."
     },
     {
       "path": "backend/internal/service/account_tk_openai_tls.go",
       "must_contain": [
-        "func (a *Account) openAIOAuthTLSFingerprintH2Windows() string {",
-        "a.Extra[\"tls_fingerprint_h2_windows\"]"
-      ]
+        "func (a *Account) isOpenAIOAuthTLSFingerprintEnabled() bool {"
+      ],
+      "must_not_contain": [
+        "tls_fingerprint_h2_windows",
+        "openAIOAuthTLSFingerprintH2Windows"
+      ],
+      "rationale": "OpenAI OAuth TLS fingerprint stays opt-in. The per-account HTTP/2 window override was removed; Codex windows are fixed in the transport."
     },
     {
       "path": "backend/internal/repository/http_upstream_tk_openai_tls_policy_test.go",

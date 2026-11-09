@@ -32,7 +32,6 @@ type Profile struct {
 	KeyShareGroups      []uint16 // Empty uses [X25519]
 	PSKModes            []uint16 // Empty uses [psk_dhe_ke]
 	Extensions          []uint16 // Extension type IDs in order; empty uses default Node.js 24.x order
-	HTTP2Windows        string   // TK: HTTP/2 flow-control window policy, see profile_tk.go; never affects the ClientHello
 }
 
 // Dialer creates TLS connections with custom fingerprints.
