@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 import stat
 import subprocess
-import sys
 
 
 def private_file(path, uid):
@@ -59,7 +58,7 @@ def check_volume(root, run=subprocess.check_output, platform='tencent-luks',
     raise ValueError('unsupported host volume platform')
 
 
-def bindings(root, env, hybrid_prod, uid=1000):
+def bindings(root, hybrid_prod, uid=1000):
     mounts, environment = [], []
     if hybrid_prod:
         directory = root / 'aws'
@@ -101,26 +100,13 @@ def main():
     parser.add_argument('--mapper-name', default='tokenkey_recovery',
                         help='dm-crypt mapper basename when --platform=tencent-luks')
     parser.add_argument('--compose', type=Path)
-    parser.add_argument('--docker-mounts', action='store_true')
-    parser.add_argument('--env-file', type=Path)
     args = parser.parse_args()
     try:
         if args.check_volume or args.hybrid_prod:
             check_volume(args.root, platform=args.platform, mapper_name=args.mapper_name)
-        if args.compose or args.docker_mounts:
-            env = {}
-            for line in (args.env_file or args.root / '.env').read_text().splitlines():
-                key, sep, value = line.partition('=')
-                if sep:
-                    env[key] = value.strip().strip('\"\'')
-            mounts, environment = bindings(args.root, env, args.hybrid_prod)
-            if args.compose:
-                args.compose.write_text(patch_compose(args.compose.read_text(), mounts, environment))
-            if args.docker_mounts:
-                for mount in mounts:
-                    # Unlike --volume, --mount refuses to create a missing source.
-                    value = f"type=bind,src={mount['source']},dst={mount['target']},readonly"
-                    sys.stdout.buffer.write(('--mount\0' + value + '\0').encode())
+        if args.compose:
+            mounts, environment = bindings(args.root, args.hybrid_prod)
+            args.compose.write_text(patch_compose(args.compose.read_text(), mounts, environment))
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         # Exception text could include a credential path or host command output.
         raise SystemExit('blue/green runtime prerequisite failed: check data volume and private credential mounts') from None

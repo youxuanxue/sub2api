@@ -37,12 +37,10 @@ class HostRuntimeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'aws').mkdir()
-            (root / 'qa-secrets').mkdir()
-            for path in (root / 'aws/credentials', root / 'qa-secrets/raw.json'):
-                path.write_text('secret-must-not-be-rendered')
-                path.chmod(0o600)
-            env = {'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE': '/run/secrets/tokenkey-qa/raw.json'}
-            mounts, environment = bindings(root, env, True, uid=os.getuid())
+            path = root / 'aws/credentials'
+            path.write_text('secret-must-not-be-rendered')
+            path.chmod(0o600)
+            mounts, environment = bindings(root, True, uid=os.getuid())
             proc, _, remote = _render()
             self.assertEqual(proc.returncode, 0, proc.stderr)
             source = remote.split("<<'YAML'\n", 1)[1].split('\nYAML', 1)[0]
@@ -58,22 +56,22 @@ class HostRuntimeTest(unittest.TestCase):
     def test_missing_public_or_wrong_identity_paths_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.assertEqual(bindings(root, {}, False), ([], []))
+            self.assertEqual(bindings(root, False), ([], []))
             # Hybrid without /aws: empty mounts (matches live legacy tokenkey).
-            self.assertEqual(bindings(root, {}, True), ([], []))
+            self.assertEqual(bindings(root, True), ([], []))
             aws = root / 'aws'
             aws.symlink_to('/tmp')
             with self.assertRaises(ValueError):
-                bindings(root, {}, True)
+                bindings(root, True)
             aws.unlink()
             aws.mkdir()
             with self.assertRaises(ValueError):
-                bindings(root, {}, True, uid=os.getuid())
+                bindings(root, True, uid=os.getuid())
 
     def test_hybrid_without_aws_dir_skips_identity_mount(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            mounts, environment = bindings(root, {}, True, uid=os.getuid())
+            mounts, environment = bindings(root, True, uid=os.getuid())
             self.assertEqual(mounts, [])
             self.assertEqual(environment, [])
             proc, _, remote = _render()
