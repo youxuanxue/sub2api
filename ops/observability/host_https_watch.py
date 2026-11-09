@@ -24,12 +24,21 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict) ->
     ``prod_matrix`` is the live prod matrix (deploy/tencent/candidate-usw-20261022.json);
     its ``host_watch`` block owns watch identity, domains and expected-paused jobs.
     """
-    if role not in ("prod", "cn-prod"):
-        raise ValueError("WATCH_ROLE must be prod or cn-prod")
+    if role not in ("prod", "cn-prod", "prod-data", "cn-prod-data"):
+        raise ValueError("WATCH_ROLE must be prod, cn-prod, prod-data or cn-prod-data")
     watch = prod_matrix["host_watch"]
-    allowed = {domestic["instance_name"] if role == "cn-prod" else watch["hostname"]}
-    if hostname not in allowed:
+    allowed = {
+        "prod": watch["hostname"],
+        "cn-prod": domestic["instance_name"],
+        # Data-plane machines (design-data-plane-split.md) own Postgres and its
+        # pgBackRest jobs after the cutover; they watch only those jobs.
+        "prod-data": watch.get("data_hostname"),
+        "cn-prod-data": domestic.get("data_instance_name"),
+    }[role]
+    if not allowed or hostname != allowed:
         raise ValueError("host identity mismatch")
+    if role.endswith("-data"):
+        return {"node": role, "targets": {}, "jobs": ["tokenkey-disk-metrics"], "paused_jobs": {}}
     targets = {}
     if role == "prod":
         targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
@@ -278,6 +287,30 @@ def tick_jobs(jobs, previous, now, probe, send, node="unknown"):
     return state
 
 
+BACKUP_STATE = Path("/var/lib/tokenkey/postgres-backup")
+
+
+def backup_jobs(node_role, state: Path) -> list:
+    """pgBackRest jobs to watch on this host, gated on its own receipts.
+
+    Stage0 installer writes enabled.json; Tencent cutover activates via
+    archive_check.json. This used to gate on node == "prod" only, so cn-prod's
+    own pgBackRest backup/archive-check/recovery ran unmonitored even though
+    archive_check.json existed there too -- found 2026-11-03. After the
+    data-plane split the receipts live on the data machine, so the app host
+    stops watching backups and the data machine starts.
+    """
+    if not ((state / "enabled.json").exists() or (state / "archive_check.json").exists()):
+        return []
+    if node_role in ("prod", "prod-data"):
+        return ["tokenkey-postgres-backup", "tokenkey-postgres-archive-check",
+                "tokenkey-postgres-recovery"]
+    if node_role in ("cn-prod", "cn-prod-data"):
+        return ["tokenkey-cn-postgres-backup", "tokenkey-cn-postgres-archive-check",
+                "tokenkey-postgres-recovery"]
+    return []
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -288,20 +321,7 @@ def main() -> None:
     os.umask(0o077)
     config = json.loads(args.config.read_text())
     targets = config["targets"]
-    jobs = list(config.get("jobs", []))
-    # Stage0 installer writes enabled.json; Tencent cutover activates via
-    # archive_check.json. This used to gate on node == "prod" only, so
-    # cn-prod's own pgBackRest backup/archive-check/recovery ran unmonitored
-    # even though archive_check.json existed there too -- found 2026-11-03.
-    backup_state = Path("/var/lib/tokenkey/postgres-backup")
-    if (backup_state / "enabled.json").exists() or (backup_state / "archive_check.json").exists():
-        node_role = config.get("node")
-        if node_role == "prod":
-            jobs += ["tokenkey-postgres-backup", "tokenkey-postgres-archive-check",
-                     "tokenkey-postgres-recovery"]
-        elif node_role == "cn-prod":
-            jobs += ["tokenkey-cn-postgres-backup", "tokenkey-cn-postgres-archive-check",
-                     "tokenkey-postgres-recovery"]
+    jobs = list(config.get("jobs", [])) + backup_jobs(config.get("node"), BACKUP_STATE)
     paused = config.get("paused_jobs", {})
     if not isinstance(jobs, list) or any(name not in JOB_LIMITS for name in jobs):
         raise ValueError("unknown host job")

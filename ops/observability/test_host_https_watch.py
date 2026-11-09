@@ -37,6 +37,24 @@ class CoveragePlanTest(unittest.TestCase):
                          {'tokenkey-disk-metrics', 'tokenkey-qa-provision',
                           'tokenkey-qa-cleanup', 'tokenkey-qa-archive'})
 
+    def test_data_machines_watch_only_their_own_jobs(self):
+        # After the data-plane split the data machine owns pgBackRest; its
+        # watcher probes no public targets and runs no QA jobs.
+        for role, host in (('prod-data', self.watch['data_hostname']),
+                           ('cn-prod-data', self.domestic['data_instance_name'])):
+            with self.subTest(role=role):
+                config = self.config(role, host)
+                self.assertEqual(config['node'], role)
+                self.assertEqual(config['targets'], {})
+                self.assertEqual(config['jobs'], ['tokenkey-disk-metrics'])
+
+    def test_data_roles_refuse_the_app_host_and_each_other(self):
+        for role, host in (('prod-data', self.watch['hostname']),
+                           ('cn-prod-data', self.domestic['instance_name']),
+                           ('prod-data', self.domestic['data_instance_name'])):
+            with self.subTest(role=role, host=host), self.assertRaises(ValueError):
+                self.config(role, host)
+
     def test_refuses_wrong_host_and_retains_prod_monitor_peer(self):
         with self.assertRaisesRegex(ValueError, 'host identity'):
             self.config('cn-prod', 'some-other-host')
@@ -599,11 +617,19 @@ class CnProdPostgresCoverageTest(unittest.TestCase):
         self.assertNotIn('tokenkey-cn-postgres-recovery', watch.JOB_LIMITS)
 
     def test_auto_discovery_covers_cn_prod_when_archive_check_exists(self):
-        source = (pathlib.Path(__file__).resolve().parent / 'host_https_watch.py').read_text()
-        main_body = source[source.index('def main('):]
-        self.assertIn('node_role == "cn-prod"', main_body)
-        self.assertIn('tokenkey-cn-postgres-backup', main_body)
-        self.assertIn('tokenkey-postgres-recovery', main_body)
-        # And it must still be gated on the evidence file existing, not
-        # unconditional for every host.
-        self.assertIn('archive_check.json', main_body)
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            state = pathlib.Path(root)
+            # Gated on the evidence file existing, not unconditional per host.
+            self.assertEqual(watch.backup_jobs('cn-prod', state), [])
+            (state / 'archive_check.json').write_text('{}')
+            for role in ('cn-prod', 'cn-prod-data'):
+                with self.subTest(role=role):
+                    self.assertEqual(watch.backup_jobs(role, state), [
+                        'tokenkey-cn-postgres-backup', 'tokenkey-cn-postgres-archive-check',
+                        'tokenkey-postgres-recovery'])
+            for role in ('prod', 'prod-data'):
+                with self.subTest(role=role):
+                    self.assertIn('tokenkey-postgres-backup', watch.backup_jobs(role, state))
+            for job in watch.backup_jobs('cn-prod-data', state) + watch.backup_jobs('prod-data', state):
+                self.assertIn(job, watch.JOB_LIMITS)

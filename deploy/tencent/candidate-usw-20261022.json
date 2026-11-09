@@ -50,6 +50,7 @@
       "tokenkey-qa-provision",
       "tokenkey-qa-cleanup",
       "tokenkey-qa-archive"
-    ]
+    ],
+    "data_hostname": "VM-0-3-ubuntu"
   }
 }

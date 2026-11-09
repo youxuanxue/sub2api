@@ -40,6 +40,8 @@ for file in files:shutil.copy2(root/file,base/file)
 (base/'config.json').write_text(json.dumps(config)+'\n')
 command=['/usr/bin/python3',str(base/'host_https_watch.py'),'--config',str(base/'config.json'),'--state','/var/lib/tokenkey/https-watch/state.json']
 if role=='cn-prod':command+=['--env-file','/opt/tokenkey/host-alerts.env']
+# Data machines carry only the Feishu webhook pair, in their own file.
+elif role.endswith('-data'):command+=['--env-file','/etc/tokenkey/host-alerts.env']
 # Validate credentials and probe every target without sending a test message.
 check=subprocess.run(command+['--dry-run'],capture_output=True,text=True)
 if check.returncode:raise SystemExit('dry-run failed; timer not enabled')
