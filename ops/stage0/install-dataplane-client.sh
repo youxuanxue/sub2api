@@ -36,7 +36,9 @@ done
 MODE="${MODE:-plan}"
 PG_CLIENT=tokenkey-postgres-client
 REDIS_CLIENT=tokenkey-redis-client
-SECRET_DIR="${TK_DATAPLANE_CLIENT_DIR:-/etc/tokenkey/dataplane-client}"
+# Next to the host .env: on prod /var/lib/tokenkey is the encrypted data mount,
+# while /etc sits on the plain system disk.
+SECRET_DIR="${TK_DATAPLANE_CLIENT_DIR:-/var/lib/tokenkey/dataplane-client}"
 
 die() { echo "FAIL $*" >&2; exit 2; }
 
@@ -53,14 +55,23 @@ redis_pass="$(app_env REDIS_PASSWORD)"
 db_port="${db_port:-5432}"; redis_port="${redis_port:-6379}"
 db_user="${db_user:-tokenkey}"; db_name="${db_name:-tokenkey}"
 
-case "$db_host" in
-  "" | postgres | tokenkey-postgres | tk-archive-standby)
-    die "app $app still uses local Postgres (DATABASE_HOST=${db_host:-<empty>}); install only after the cutover" ;;
-esac
-case "$redis_host" in
-  "" | redis | tokenkey-redis | tk-cutover-prod-redis)
-    die "app $app still uses local Redis (REDIS_HOST=${redis_host:-<empty>}); install only after the cutover" ;;
-esac
+# A host that names a local container (server names from the owner, plus the
+# compose service alias) means the cutover has not happened yet.
+is_local_host() {
+  local host="$1" alias="$2" name
+  shift 2
+  [ -z "$host" ] || [ "$host" = "$alias" ] && return 0
+  for name in "$@"; do [ "$host" = "$name" ] && return 0; done
+  return 1
+}
+# shellcheck disable=SC2086  # owner candidate lists are fixed space-separated literals.
+if is_local_host "$db_host" postgres $TK_POSTGRES_CONTAINER_CANDIDATES; then
+  die "app $app still uses local Postgres (DATABASE_HOST=${db_host:-<empty>}); install only after the cutover"
+fi
+# shellcheck disable=SC2086
+if is_local_host "$redis_host" redis $TK_REDIS_CONTAINER_CANDIDATES; then
+  die "app $app still uses local Redis (REDIS_HOST=${redis_host:-<empty>}); install only after the cutover"
+fi
 [ -n "$db_pass" ] || die "app $app has no DATABASE_PASSWORD"
 
 if pg_server="$(tk_resolve_postgres_server_container auto)"; then
@@ -121,8 +132,8 @@ pass="$(cat /run/tokenkey/redis-password 2>/dev/null)"
 if [ -n "$pass" ]; then REDISCLI_AUTH="$pass"; export REDISCLI_AUTH; fi
 exec /usr/local/bin/redis-cli --no-auth-warning -h "$TK_REDIS_HOST" -p "$TK_REDIS_PORT" "$@"
 SH
+# docker exec runs as root in both images, so the 0600 secret files stay readable.
 chmod 0755 "$SECRET_DIR/redis-cli"
-chmod 0644 "$SECRET_DIR/redis-password"
 
 docker rm -f "$PG_CLIENT" "$REDIS_CLIENT" >/dev/null 2>&1 || true
 docker run -d --name "$PG_CLIENT" --restart unless-stopped --memory 256m --cpus 0.5 \
@@ -140,7 +151,7 @@ TK_PG="$(tk_require_postgres_container auto)" || die "resolver did not pick $PG_
 TK_REDIS="$(tk_require_redis_container auto)" || die "resolver did not pick $REDIS_CLIENT"
 [ "$TK_PG" = "$PG_CLIENT" ] || die "resolver picked $TK_PG"
 [ "$TK_REDIS" = "$REDIS_CLIENT" ] || die "resolver picked $TK_REDIS"
-docker exec "$TK_PG" psql -U tokenkey -d tokenkey -XAtc \
+docker exec "$TK_PG" psql -U "$db_user" -d "$db_name" -XAtc \
   "select 'pg ok in_recovery=' || pg_is_in_recovery() || ' server=' || inet_server_addr()"
 echo "redis ping=$(docker exec "$TK_REDIS" redis-cli PING | tr -d '\r') role=$(docker exec "$TK_REDIS" redis-cli INFO replication | tr -d '\r' | awk -F: '/^role/{print $2}')"
 echo "RESULT installed"
