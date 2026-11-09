@@ -99,7 +99,8 @@
         "if reasons == [\"repository_bootstrapping\"]:",
         "healthy = receipt.get(\"status\") == \"ok\" and not reasons",
         "jobs = [\"tokenkey-disk-metrics\"] + list(domestic.get(\"local_qa_jobs\", []))",
-        "elif node_role == \"cn-prod\":",
+        "if node_role in (\"cn-prod\", \"cn-prod-data\"):",
+        "jobs = list(config.get(\"jobs\", [])) + backup_jobs(config.get(\"node\"), BACKUP_STATE)",
         "\"tokenkey-cn-postgres-backup\": (3 * 3600, 3670),",
         "\"tokenkey-cn-postgres-archive-check\": (15 * 60, 300),",
         "\"tokenkey-qa-archive\": (9 * 3600, 1800),",
@@ -114,7 +115,7 @@
       "path": "ops/observability/install-host-https-watch.sh",
       "must_contain": [
         "config=build_config(role,socket.gethostname(),prod_matrix,domestic)",
-        "if role=='cn-prod':command+=['--env-file','/opt/tokenkey/host-alerts.env']",
+        "if role=='cn-prod' or role.endswith('-data'):command+=['--env-file','/opt/tokenkey/host-alerts.env']",
         "OnUnitActiveSec=2min"
       ],
       "rationale": "The installer must consume the tested coverage owner and existing host-local credentials, including UCloud."
