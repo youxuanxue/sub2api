@@ -273,17 +273,32 @@ cn-prod 注意：据 `deploy/hetzner/README.md` 2026-11-06 的记录，腾讯北
 
 ### 5. 停写窗口（需当站停写审批）
 
-在批准的低谷时段执行：
+在批准的低谷时段执行。窗口由 `ops/stage0/dataplane-cutover-app.sh` 在应用机上一次跑完，经 `run-probe.sh` 下发。`PHASE=check`（默认）只读，可以随时跑，会列出所有前提和执行计划。`PHASE=apply` 需要确认口令 `TK_DATAPLANE_CONFIRM=cutover-<站点>-to-<数据机私网 IP>`。数据机上的 `ops/stage0/dataplane-cutover-data.sh` 负责窗口前的只读检查（含「数据库参数」表）和窗口后的收尾。
 
-1. 确认备用库回放延迟和 Redis 复制偏移都接近零。停掉应用机上其他写库方（见基线表）。新色的 compose 必须用含 #3114 的版本重新渲染：prod 主机上 1.8.355 渲染出的 `docker-compose.bluegreen.yml` 把 `DATABASE_HOST=tokenkey-postgres` 写死了，只改 `.env` 不会生效。cn-prod 的 override 和 `bluegreen.py` 已同步到 main（2026-11-09 核对）。
-2. 预先创建新色容器但不启动，`.env` 已写好数据机地址（prod 同时写入新的 Redis 密码）。Caddy 上游改指新色。新色还没启动，新请求在 Caddy 里重试排队，最长等 `lb_try_duration`。旧色只处理在途请求，**排空上限 10 秒，超时切断**（用户 2026-11-09 决定）：`docker stop -t 10`，不沿用网关默认的 120 秒排空。
-3. 停止旧色。在旧库上查 `pg_stat_activity`、在旧 Redis 上查 `CLIENT LIST`，除了复制连接和本次操作的连接，必须一个都没有。有就先找出是谁，不往下走。
-4. 旧库执行 `pg_switch_wal()`，等 `pg_stat_archiver` 显示这一段已归档，备用库回放到这一段。
-5. Redis 副本偏移等于主库偏移后，执行 `REPLICAOF NO ONE`。
-6. 提升备用库，立刻停止旧库和旧 Redis，并执行 `docker update --restart=no`。旧库原来是 `unless-stopped`，不改的话会被误启动，造成双写。**这一步不可回头。** 在这之前放弃：Caddy 指回旧色并启动旧色，即可回到原状。
-7. 启动新色。就绪后 Caddy 里排队的请求开始放行。随后用 #3116 的安装脚本装上数据面客户端容器，探针恢复可用。旧库停掉之前不能装：客户端和旧库同时运行时，探针会因不唯一而失败。
-8. 发一笔真实请求，确认用量和扣费落在新库。确认新主库开始往同一仓库归档（新的 timeline）。在数据机上启用备份 timer，并以 `prod-data` / `cn-prod-data` 角色安装看门狗（#3117）。应用机上的备份 timer 保持停用。
-9. 清掉 `postgresql.auto.conf` 里的旧值，创建 `pg_stat_statements`，用 `SHOW` 逐项核对「数据库参数」表。
+现役色原地重建，不切到另一色（用户 2026-11-09 决定）：Caddyfile、`active-color` 和 Gemini 控制别名都不动。现役色停下后，新请求在 Caddy 里排队，最长等 `lb_try_duration`。
+
+窗口前提（`PHASE=check` 全部通过才允许 apply）：
+- prod 主机上的 `docker-compose.bluegreen.yml` 必须由含 #3114 的版本渲染。1.8.355 渲染出的那份把 `DATABASE_HOST=tokenkey-postgres` 写死了，只改 `.env` 不会生效。所以窗口前要先正常发一版。
+- prod 的新 Redis 密码要从托管桶放到应用机的 `/var/lib/tokenkey/dataplane-redis-password`，权限 0600。cn-prod 沿用现有密码。
+- cn-prod 的 override 和 `bluegreen.py` 已同步到 main（2026-11-09 核对）。
+
+apply 的顺序：
+
+1. 停掉应用机上其他写库方：备份、归档检查、身份续期和 QA 三个 timer。
+2. 给现役色发 SIGUSR1 开始排空。**排空上限 10 秒，超时切断**（用户 2026-11-09 决定），不沿用网关默认的 120 秒。
+3. 在旧库上查 `pg_stat_activity`，在旧 Redis 上查 `CLIENT LIST`。除了复制连接和本次操作的连接，必须一个都没有，有就中止。
+4. 旧库执行 `pg_switch_wal()`，等 `pg_stat_archiver` 显示这一段已归档。
+5. 等数据机备用库回放到这个 LSN，等 Redis 副本偏移追上旧主库。
+6. 数据机 Redis 执行 `REPLICAOF NO ONE`，然后 `pg_promote`。**这一步不可回头。** 在这之前任何一步失败，脚本都会重新启动现役色和停掉的 timer，站点回到原状（退出码 3）。
+7. 停止旧库和旧 Redis，并执行 `docker update --restart=no`。旧库原来是 `unless-stopped`，不改的话会被误启动，造成双写。
+8. `.env` 改成数据机地址（先备份原文件；prod 同时写入新 Redis 密码），原地重建现役色，等 `/health` 就绪。Caddy 里排队的请求随即放行。cn-prod 的现役色由每次发版的 `compose.json` 起，里面是写死的 env。脚本复制一份到新目录，只改四个地址键再重建；原发版目录不改。
+9. QA timer 重新启动。备份相关的 timer 在应用机上停用，`postgres-backup/` 下的回执改名保留，应用机看门狗随之不再监控备份。
+
+窗口之后：
+- 数据机执行 `PHASE=finish dataplane-cutover-data.sh`。它会重置 `postgresql.auto.conf` 里的旧值，创建 `pg_stat_statements`，强制切一次 WAL 并确认已归档到 COS，再逐项核对「数据库参数」表。
+- 应用机用 #3116 的安装脚本装上数据面客户端容器，探针恢复可用。旧库停掉之前不能装：客户端和旧库同时运行时，探针会因不唯一而失败。
+- 数据机启用备份 timer，并以 `prod-data` / `cn-prod-data` 角色安装看门狗（#3117）。
+- 发一笔真实请求，确认用量和扣费落在新库。
 
 **排空 10 秒的影响**（2026-11-09 prod 实测）：请求平均 14.7 秒，最安静的 UTC 22 点每分钟约 42 个请求，切换时同时在途的约 10 个。10 秒内跑完的正常记账；跑不完的被切断，客户端收到连接中断。被切断的请求：
 - 不写用量、不扣费，因为结算发生在请求结束时，而旧色已经停了；
@@ -294,7 +309,7 @@ cn-prod 注意：据 `deploy/hetzner/README.md` 2026-11-06 的记录，腾讯北
 
 **窗口估算**：排空 10 秒、确认无连接约 2 秒、最后一段 WAL 归档与回放约 5 秒、Redis 切主不到 1 秒、提升约 1 秒（实测 prod 0.54 秒、cn-prod 1.08 秒）、新色就绪约 6 秒，合计约 25 秒，在 `lb_try_duration 30s` 内。这段时间里新请求在 Caddy 排队变慢，不返回 502。WAL 和排空两项要到窗口里才能实测；整窗实测超过 30 秒，就先调大 `lb_try_duration`。
 
-从第 2 步到第 7 步要在 `lb_try_duration` 内完成。演练估算超过这个上限时，停写审批要写明超出的部分会返回 502，或者先申请临时调大上限。窗口结束的标志是新库接受写入并且归档在推进，不是容器启动成功。
+从第 2 步到第 8 步要在 `lb_try_duration` 内完成。演练估算超过这个上限时，停写审批要写明超出的部分会返回 502，或者先申请临时调大上限。窗口结束的标志是新库接受写入并且归档在推进，不是容器启动成功。
 
 ### 6. 观察与收尾
 
