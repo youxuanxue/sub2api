@@ -38,7 +38,7 @@
 日志轮转和 compose 项目名随 1.8.318 蓝绿自动归位（override 的 20m×3、`cn-prod-bluegreen`）。
 蓝绿 loopback 端口 blue=18081 / green=18082 是约定，不是漂移；`compose.local.yml` 的 18080 只用于无蓝绿的单容器。
 
-数据面切流之后，`compose.override.yml` 把 `postgres` 和 `redis` 放进 `local-data` profile。默认 `docker compose up` 不启动它们。旧库容器还在，重启策略是 `no`；加上 `--profile local-data` 会把旧主库拉起来，和数据机写同一套 COS 仓库。蓝绿 `prepare` 仍是 `up --no-deps`，不启用这个 profile。这份 override 要铺到 `/opt/tokenkey/compose.override.yml` 之后，主机上的 `docker compose up` 才吃到这个 profile。
+数据面切流之后，`compose.override.yml` 把 `postgres` 和 `redis` 放进 `local-data` profile，并清掉 `tokenkey` 对它们的 `depends_on`。只加 profile 时 `docker compose config` 会因依赖未定义而失败，蓝绿 `prepare` 读的就是这份 config。清掉依赖后，默认项目只剩网关和 Caddy，不会启动旧库。加上 `--profile local-data` 会把旧主库拉起来，和数据机写同一套 COS 仓库。这份 override 要铺到 `/opt/tokenkey/compose.override.yml` 之后才在主机上生效。
 
 ## 首次安装与配置 owner
 

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -89,6 +92,44 @@ class PoolEnvProbeSSOTTest(unittest.TestCase):
             r'(?m)^\s*SECURITY_PROXY_PROBE_PRESET:\s*"domestic"\s*$',
             "cn-prod must default proxy exit probes to the domestic builtin chain",
         )
+
+
+class LocalDataProfileTest(unittest.TestCase):
+    def _config(self, *extra: str) -> dict:
+        env = os.environ.copy()
+        env.update({
+            "JWT_SECRET": "dummy-jwt",
+            "TOTP_ENCRYPTION_KEY": "dummy-totp",
+            "POSTGRES_PASSWORD": "dummy-pg",
+            "TOKENKEY_IMAGE": "tokenkey:local",
+            "POSTGRES_IMAGE": "postgres:18-alpine",
+            "REDIS_IMAGE": "redis:8-alpine",
+            "CADDY_IMAGE": "caddy:2",
+            "DATABASE_HOST": "10.2.4.5",
+            "REDIS_HOST": "10.2.4.5",
+        })
+        base = ROOT / "deploy/aws/stage0/docker-compose.yml"
+        proc = subprocess.run(
+            ["docker", "compose", "-f", str(base), "-f", str(OVERRIDE), *extra, "config", "--format", "json"],
+            env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def test_default_project_resolves_the_gateway_without_local_servers(self):
+        doc = self._config()
+        self.assertEqual(set(doc["services"]), {"tokenkey", "caddy"})
+        tokenkey = doc["services"]["tokenkey"]
+        self.assertEqual(tokenkey.get("depends_on") or {}, {})
+        self.assertEqual(tokenkey["environment"]["DATABASE_HOST"], "10.2.4.5")
+        self.assertEqual(tokenkey["environment"]["REDIS_HOST"], "10.2.4.5")
+
+    def test_local_data_profile_is_what_starts_the_old_servers(self):
+        doc = self._config("--profile", "local-data")
+        self.assertEqual(set(doc["services"]), {"tokenkey", "caddy", "postgres", "redis"})
+        self.assertEqual(doc["services"]["postgres"].get("profiles"), ["local-data"])
+        self.assertEqual(doc["services"]["redis"].get("profiles"), ["local-data"])
+        self.assertEqual(doc["services"]["tokenkey"].get("depends_on") or {}, {})
 
 
 if __name__ == "__main__":

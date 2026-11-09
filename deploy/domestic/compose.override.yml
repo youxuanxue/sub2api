@@ -28,6 +28,12 @@ services:
       options:
         max-size: "20m"
         max-file: "3"
+    # Local postgres/redis are on the local-data profile below. depends_on has
+    # to be cleared with them: a profiled dependency is undefined in the default
+    # project, so `docker compose config` fails, and bluegreen prepare reads
+    # that config. With the dependency gone, a plain `up` starts the gateway
+    # and Caddy only.
+    depends_on: !reset {}
   caddy:
     image: ${CADDY_IMAGE:?Pinned CADDY_IMAGE is required}
     pull_policy: never
