@@ -1,7 +1,8 @@
 ---
 title: prod 与 cn-prod 数据面从应用机拆出
-status: pending
-approved_by: pending
+status: approved
+approved_by: "feng（2026-11-09 会话：同意 #3102 的设计，要求文档与最新实测保持一致）"
+approved_at: 2026-11-09
 risk: high
 authors: [agent]
 ---
@@ -29,6 +30,8 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 4. 删除旧数据目录、旧 Redis 和 prod 的旧 LUKS 载体。
 
 批准前不购买机器，不切流，不重启现网。
+
+审批状态（2026-11-09）：第 1 项（本设计）已批准。第 2 项：两站数据机已开通。第 3 项：两站的停写窗口都还没批，所以两站都还没停写、没切流。第 4 项未批。
 
 ## 乔布斯复审
 
@@ -84,7 +87,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 | 实测连接 | 网关 7 条 + 1 条 psql | 网关 5 条 + 1 条 psql |
 | 蓝绿重叠期 | 两色同时在，连接数翻倍 | 同左 |
 | 备份 | pgBackRest 单仓库：腾讯 COS 美西（`repo2`）。WAL 每 5 分钟归档，每 2 小时增量，全量保留 7 天；仓库状态 ok；timer 在应用机。AWS S3 `us-east-1`（`repo1`）自 2026-11-08 起不再写入（#3107） | pgBackRest 单仓库：腾讯 COS 北京（`repo2`），周期和保留期同 prod；仓库状态 ok（归档上一次失败是 11-02 的已知事故）；timer 在应用机。AWS S3 `ap-northeast-1`（`repo1`）同样自 2026-11-08 起不再写入（#3107） |
-| Caddy 上游 | 现网 `/var/lib/tokenkey/caddy/Caddyfile` 只有 `reverse_proxy tokenkey-blue:8080 { flush_interval -1 }`，**没有健康检查，也没有 `lb_try_duration`**。上游不可用时请求立刻失败 | 有健康检查和 `lb_try_duration 30s`，上游不可用时最多等 30 秒 |
+| Caddy 上游 | 现网 `/var/lib/tokenkey/caddy/Caddyfile` 只有 `reverse_proxy tokenkey-blue:8080 { flush_interval -1 }`，**没有健康检查，也没有 `lb_try_duration`**。上游不可用时请求立刻失败。2026-11-09 已补上健康检查和 `lb_try_duration 30s` / `lb_try_interval 1s` | 有健康检查和 `lb_try_duration 30s`，上游不可用时最多等 30 秒 |
 | `RUN_MODE` | `standard` | `standard` |
 | 网关内存 | `mem_limit 8g`、`GOMEMLIMIT=6GiB`（#3101） | `GOMEMLIMIT=2GiB`，无容器上限 |
 | 应用机上的其他写库方 | pgBackRest 备份和归档检查、QA 维护三个 timer（cleanup / provision / archive）、`tokenkey-https-watch`、运维探针 | 同左 |
@@ -170,14 +173,22 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 | | prod | cn-prod |
 |---|---|---|
-| 套餐 | 美西轻量入门型 `bundle_starter_nmc_lin_med8_02`，月付 90 元 | 北京轻量通用型 `bundle_gen_mc_med4_01`，月付 80 元 |
+| 套餐 | 美西轻量入门型 `bundle_starter_nmc_lin_med8_02`，月付 90 元 | 北京轻量入门型 `bundle_starter_mc_med4_02`，月付 75 元 |
 | CPU / 内存 | 2 vCPU / 8 GB | 2 vCPU / 4 GB |
-| 磁盘 | SSD 系统盘 100 GB | SSD 系统盘 90 GB |
+| 磁盘 | SSD 系统盘 100 GB | SSD 系统盘 70 GB |
 | 位置 | 与应用机同地域同可用区，同一个轻量私网 | 同左 |
 | PG 容器内存上限 | 6 GB | 3 GB |
 | Redis | `maxmemory` 512MB，容器上限 1GB | `maxmemory` 256MB，容器上限 512MB |
 
-prod 数据机：`lhins-p43i2kxh`，私网 `10.4.0.3`，2026-11-09 开通，自动续费。不开任何公网入站端口，远程操作走腾讯云 TAT。2026-11-08 先开过一台通用型 150 GB 的 `lhins-rbjrqukb`，去重表清理后改用入门型，旧机器已在无理由退款期内退还。轻量只能升配不能降配，换小只能退了重买。cn-prod 数据机等 prod 切流稳定后再开。
+prod 数据机：`lhins-p43i2kxh`，私网 `10.4.0.3`，2026-11-09 开通，自动续费。不开任何公网入站端口，远程操作走腾讯云 TAT。2026-11-08 先开过一台通用型 150 GB 的 `lhins-rbjrqukb`，去重表清理后改用入门型，旧机器已在无理由退款期内退还。轻量只能升配不能降配，换小只能退了重买。
+
+cn-prod 数据机：`lhins-odyx5eis`，私网 `10.2.4.5`，2026-11-09 开通，自动续费。原计划等 prod 稳定后再开，实际提前开通，用来同步搭建备用库和副本；切流仍按逐站顺序。
+
+两台数据机的现状（2026-11-09 只读核对）：
+- 系统时区 UTC。
+- SSM Hybrid 已注册：prod `mi-044ba9da6453c1557`，cn-prod `mi-084a456b3dee71bb4`。
+- 腾讯云防火墙只放行本站应用机访问 5432 和 6379，另放行私网 ICMP。从公网和同私网的代理机测试，22、5432、6379 都不可达。
+- pgBackRest 配置里 COS 的编号是 `repo2`，和 `tencent_pgbackrest.py` / `cn_pgbackrest.py` 的 `PRIMARY_REPO = 2` 一致；`restore_command` 也是 `--repo=2`。
 
 轻量套餐支持 `ModifyInstancesBundle` 原地升配。切流后缓存命中率长期低于 99% 时再升，不提前买大。
 
@@ -200,19 +211,19 @@ prod 数据机：`lhins-p43i2kxh`，私网 `10.4.0.3`，2026-11-09 开通，自�
 - **内存**：8 GB 里给 `shared_buffers` 2 GB、页缓存约 4 GB，装得下约 1.8 GB 的热数据。COS 恢复验收要在同一台机器上再起一个 PG（默认 1 GB），8 GB 留得出这份余量，4 GB 不够。cn-prod 库只有 2.9 GB，4 GB 内存能把整个库放进缓存。
 - **磁盘**：
   - prod：`usage_logs` 近 14 天平均每天约 123 MB，约 3.7 GB/月；去重表已降到稳态，不再增长。100 GB 下：正式库 23 GB，加上 COS 恢复验收临时多恢复的一份（实测 2026-11-09 恢复 23 GB 用 291 秒，恢复后剩 66 GB），约 10 个月后会变紧。届时升配或把验收挪到别的机器。
-  - cn-prod：合计约 1.7 GB/月，90 GB 够用三年以上。
+  - cn-prod：合计约 1.7 GB/月。70 GB 下库 2.7 GB，系统盘剩 57 GB，够用两年以上。
 - **要盯的风险**：磁盘（见上）。切流后命中率长期低于 99% 时升配；轻量升配需要重启实例，要找窗口。
 
 ## 切流前的代码改动
 
-都走正常发布。默认值保持现状，所以发布后行为不变。
+都走正常发布。默认值保持现状，所以发布后行为不变。第 1、2、4 项已在 #3114 合并；第 5 项由 #3116 完成，备份监控由 #3117 完成。
 
 1. prod 部署模板把两个 Host 改成 `${DATABASE_HOST:-tokenkey-postgres}` 这类写法，`ops/stage0/test_deploy_via_ssm_bluegreen.py` 同步改。
 2. cn-prod 在 `compose.override.yml` 声明两个 Host，取值来自 `.env`，默认值为现值；`bluegreen.py` 把它们列入要传播的键，否则候选色会继承旧值。漏列时 `test_pool_env_probe.py` 会失败。cn-prod 的 Redis 密码不变，候选色照旧从现役容器继承，不进 override。
-3. prod 现网 Caddyfile 补上和 cn-prod 相同的健康检查和 `lb_try_duration 30s` / `lb_try_interval 1s`。这是停写窗口第 2 步的前提：没有它，Caddy 指向未启动的新色时请求会立刻失败。蓝绿渲染（`render_caddy_with_upstream`）只改上游地址那一行，所以补上的参数会保留到后续发布；改动同时入仓。`caddy validate` 后 `caddy reload`，用户无感。
+3. （已完成，2026-11-09 核对）prod 现网 Caddyfile 补上和 cn-prod 相同的健康检查和 `lb_try_duration 30s` / `lb_try_interval 1s`。这是停写窗口第 2 步的前提：没有它，Caddy 指向未启动的新色时请求会立刻失败。蓝绿渲染（`render_caddy_with_upstream`）只改上游地址那一行，所以补上的参数会保留到后续发布；改动同时入仓。`caddy validate` 后 `caddy reload`，用户无感。
 4. `deploy/tencent/tencent_pgbackrest.py` 和 `deploy/domestic/cn_pgbackrest.py` 支持在数据机上运行，容器名和主机角色按新布局。
-5. 需要直连库或 Redis 的运维探针和技能改成在数据机上执行。grep 命中约 80 个文件（含测试和文档）用本机 `docker exec` 找库，先出清单，再按清单逐个改。入口统一走 `ops/lib/resolve-app-container.sh`。Redis 设了密码之后，这些入口一并带上密码。
-6. 准备 Redis 迁移用的私网转发：在应用机上起一个只监听私网地址的转发容器，把旧 Redis 暴露给数据机，不重建旧 Redis。防火墙只放行数据机私网地址。窗口结束后删掉。
+5. 运维探针继续在应用机上执行，经数据面客户端容器连数据机（#3116）。`ops/lib/resolve-app-container.sh` 的 SQL 和 redis-cli 入口新增候选 `tokenkey-postgres-client` / `tokenkey-redis-client`，约 70 个探针不用改。规则仍是只能有一个在运行：旧库和客户端同时运行时判为不唯一，探针直接失败。pgBackRest 只解析真库容器。客户端由 #3116 的安装脚本安装，带确认口令；它从现役色读数据机地址和密码。仍读本机的两项：容量探针对数据目录跑 `df`、日常诊断 tail PG/Redis 日志。切流后这两项要到数据机上看。
+6. （已完成）准备 Redis 迁移用的私网转发：在应用机上起一个只监听私网地址的转发容器，把旧 Redis 暴露给数据机，不重建旧 Redis。防火墙只放行数据机私网地址。窗口结束后删掉。
 
 ## 每站实施步骤
 
@@ -246,18 +257,32 @@ cn-prod 注意：据 `deploy/hetzner/README.md` 2026-11-06 的记录，腾讯北
 - 测完删掉演练实例。
 - 汇总窗口估算：排空旧色、最后一段 WAL 归档与回放、提升、新色启动到就绪、Caddy 切换。这个数和低谷时段的请求量一起写进停写审批。
 
+2026-11-09 两站演练实测：
+
+| 项 | prod | cn-prod |
+|---|---|---|
+| 从 COS 恢复（演练实例） | 240 秒 | 143 秒 |
+| 启动到追上 WAL | 12 秒 | 11 秒 |
+| 提升（`pg_promote`） | 0.54 秒 | 1.08 秒 |
+| 提升后第一笔写入 | 71 ms | 99 ms |
+| 热路径查询比本机多出 | 不到 0.2 ms | 1–3 ms，最大约 9 ms |
+| Redis 比本机多出 | 0.2–0.3 ms | 0.2–0.3 ms |
+| 新色从启动到就绪 | 6 秒（看日志） | 6 秒（看日志） |
+
+两站的 p99 都可接受。演练实例测完已删除，真正的备用库全程在回放。整窗时长还没有实测，要到窗口里才测得到。
+
 ### 5. 停写窗口（需当站停写审批）
 
 在批准的低谷时段执行：
 
-1. 确认备用库回放延迟和 Redis 复制偏移都接近零。停掉应用机上其他写库方（见基线表）。
+1. 确认备用库回放延迟和 Redis 复制偏移都接近零。停掉应用机上其他写库方（见基线表）。新色的 compose 必须用含 #3114 的版本重新渲染：prod 主机上 1.8.355 渲染出的 `docker-compose.bluegreen.yml` 把 `DATABASE_HOST=tokenkey-postgres` 写死了，只改 `.env` 不会生效。cn-prod 的 override 和 `bluegreen.py` 已同步到 main（2026-11-09 核对）。
 2. 预先创建新色容器但不启动，`.env` 已写好数据机地址（prod 同时写入新的 Redis 密码）。Caddy 上游改指新色。新色还没启动，新请求在 Caddy 里重试排队，最长等 `lb_try_duration`。旧色只处理在途请求，**排空上限 10 秒，超时切断**（用户 2026-11-09 决定）：`docker stop -t 10`，不沿用网关默认的 120 秒排空。
 3. 停止旧色。在旧库上查 `pg_stat_activity`、在旧 Redis 上查 `CLIENT LIST`，除了复制连接和本次操作的连接，必须一个都没有。有就先找出是谁，不往下走。
 4. 旧库执行 `pg_switch_wal()`，等 `pg_stat_archiver` 显示这一段已归档，备用库回放到这一段。
 5. Redis 副本偏移等于主库偏移后，执行 `REPLICAOF NO ONE`。
-6. 提升备用库，立刻停止旧库和旧 Redis。**这一步不可回头。** 在这之前放弃：Caddy 指回旧色并启动旧色，即可回到原状。
-7. 启动新色。就绪后 Caddy 里排队的请求开始放行。
-8. 发一笔真实请求，确认用量和扣费落在新库。确认新主库开始往同一仓库归档（新的 timeline）。在数据机上启用备份 timer，应用机上的备份 timer 保持停用。
+6. 提升备用库，立刻停止旧库和旧 Redis，并执行 `docker update --restart=no`。旧库原来是 `unless-stopped`，不改的话会被误启动，造成双写。**这一步不可回头。** 在这之前放弃：Caddy 指回旧色并启动旧色，即可回到原状。
+7. 启动新色。就绪后 Caddy 里排队的请求开始放行。随后用 #3116 的安装脚本装上数据面客户端容器，探针恢复可用。旧库停掉之前不能装：客户端和旧库同时运行时，探针会因不唯一而失败。
+8. 发一笔真实请求，确认用量和扣费落在新库。确认新主库开始往同一仓库归档（新的 timeline）。在数据机上启用备份 timer，并以 `prod-data` / `cn-prod-data` 角色安装看门狗（#3117）。应用机上的备份 timer 保持停用。
 9. 清掉 `postgresql.auto.conf` 里的旧值，创建 `pg_stat_statements`，用 `SHOW` 逐项核对「数据库参数」表。
 
 **排空 10 秒的影响**（2026-11-09 prod 实测）：请求平均 14.7 秒，最安静的 UTC 22 点每分钟约 42 个请求，切换时同时在途的约 10 个。10 秒内跑完的正常记账；跑不完的被切断，客户端收到连接中断。被切断的请求：
@@ -267,7 +292,7 @@ cn-prod 注意：据 `deploy/hetzner/README.md` 2026-11-06 的记录，腾讯北
 
 近 7 天 p99 是 143 秒，超过 5 分钟的请求共 2,343 个（每天约 330 个），长流式请求基本都会被切断。
 
-**窗口估算**：排空 10 秒、确认无连接约 2 秒、最后一段 WAL 归档与回放约 5 秒、Redis 切主不到 1 秒、提升约 2 秒、新色就绪 6–11 秒，合计约 25–30 秒，在 `lb_try_duration 30s` 内。这段时间里新请求在 Caddy 排队变慢，不返回 502。演练时逐项实测，实测超过 30 秒就先调大 `lb_try_duration`。
+**窗口估算**：排空 10 秒、确认无连接约 2 秒、最后一段 WAL 归档与回放约 5 秒、Redis 切主不到 1 秒、提升约 1 秒（实测 prod 0.54 秒、cn-prod 1.08 秒）、新色就绪约 6 秒，合计约 25 秒，在 `lb_try_duration 30s` 内。这段时间里新请求在 Caddy 排队变慢，不返回 502。WAL 和排空两项要到窗口里才能实测；整窗实测超过 30 秒，就先调大 `lb_try_duration`。
 
 从第 2 步到第 7 步要在 `lb_try_duration` 内完成。演练估算超过这个上限时，停写审批要写明超出的部分会返回 502，或者先申请临时调大上限。窗口结束的标志是新库接受写入并且归档在推进，不是容器启动成功。
 
@@ -275,6 +300,7 @@ cn-prod 注意：据 `deploy/hetzner/README.md` 2026-11-06 的记录，腾讯北
 
 - 新主库产出第一份成功的全量备份之前，旧数据目录不动。
 - 删除旧数据目录、旧 Redis 和转发容器需要单独批准。
+- `usage_billing_dedup` 唯一索引的 `REINDEX CONCURRENTLY` 要等 7–30 天的键迁完归档（约 3 个晚上）再做，不挡切流。
 - prod 的 LUKS 载体和异机密钥要等应用机也迁出 LUKS 之后才能删（见下节）。
 
 ## prod 应用机的加密卷
