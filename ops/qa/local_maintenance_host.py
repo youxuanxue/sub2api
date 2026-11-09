@@ -39,8 +39,9 @@ DEFAULT_REMOTE_ROOT = '/storage/tokenkey-archive'
 # tokenkey-postgres on tokenkey_tokenkey-network keeps PGHOST stable.
 POSTGRES_RUNTIME_CANDIDATES = ('tokenkey-postgres', 'tk-archive-standby')
 APP_RUNTIME_CANDIDATES = ('tokenkey-green', 'tokenkey-blue', 'tokenkey', 'tk-cutover-prod-app')
-# DATABASE_HOST values that mean "the Postgres container on this host".
-LOCAL_POSTGRES_HOSTS = frozenset({'tokenkey-postgres', 'postgres', 'tk-archive-standby'})
+# DATABASE_HOST values that mean "the Postgres container on this host":
+# the container names plus the compose service alias.
+LOCAL_POSTGRES_HOSTS = frozenset(POSTGRES_RUNTIME_CANDIDATES) | {'postgres'}
 
 
 def invoke(args, **kwargs):
@@ -118,7 +119,10 @@ def remote_postgres_runtime():
             continue
         env = dict(item.split('=', 1) for item in app['Config']['Env'] if '=' in item)
         host = env.get('DATABASE_HOST', '')
-        if not host or host in LOCAL_POSTGRES_HOSTS:
+        if not host:
+            # e.g. the `tokenkey` socat control proxy matches a candidate name.
+            continue
+        if host in LOCAL_POSTGRES_HOSTS:
             return None
         networks = app['NetworkSettings']['Networks']
         if len(networks) != 1:

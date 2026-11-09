@@ -63,6 +63,16 @@ class TencentPgBackrestTests(TestCase):
                 with self.assertRaises(runner.Err):
                     runner.container()
 
+    def test_candidates_match_the_shared_resolver_owner(self):
+        # The host copy runs without the repo tree, so it carries its own list;
+        # this keeps it from drifting from ops/lib/resolve_app_container.py.
+        import importlib.util
+        owner = Path(__file__).resolve().parents[2] / "ops" / "lib" / "resolve_app_container.py"
+        spec = importlib.util.spec_from_file_location("tk_resolve_owner", owner)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(runner.POSTGRES_CANDIDATES, module.POSTGRES_CANDIDATES)
+
     def test_dual_repository_backup_runs_each_repo_and_records_both_labels(self):
         info = {
             "name": "tokenkey",

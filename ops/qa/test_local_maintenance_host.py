@@ -234,6 +234,17 @@ class LocalHostTest(unittest.TestCase):
         self.assertIn('PGPORT=5432\n', env)
         self.assertIn('PGPASSWORD=app-secret\n', env)
 
+    def test_remote_runtime_skips_running_containers_without_database_host(self):
+        # The socat control proxy is named `tokenkey`, an app candidate; it must
+        # not end the search before the real app color is inspected.
+        proxy = [{'State': {'Running': True}, 'Image': 'sha256:socat', 'Config': {'Env': []},
+                  'NetworkSettings': {'Networks': {'tokenkey_tokenkey-network': {}}}}]
+        def inspect(args):
+            return json.dumps(self._app('10.2.4.5') if args[-1] == 'tk-cutover-prod-app' else proxy)
+        with mock.patch.object(local, 'invoke', side_effect=inspect):
+            runtime, _ = local.remote_postgres_runtime()
+        self.assertEqual(runtime['TkPGHost'], '10.2.4.5')
+
     def test_remote_runtime_rejects_ambiguous_app_network(self):
         app = self._app('10.4.0.3', networks=('a', 'b'))
         with mock.patch.object(local, 'invoke', return_value=json.dumps(app)):
