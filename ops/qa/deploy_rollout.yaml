@@ -24,53 +24,10 @@ prod:
     deploy_inject_default: false
     policy_target: prod.archive.enabled
     target_deploy_inject_default: false
-  tokenkey_qa_maintenance_timer:
-    repository_closeout_state: single_owner_ready
-    observed_live_state: single_owner_not_activated
-    policy_target_state: sole_lifecycle_owner_after_activation
-    host_artifact_sync_on_prod_deploy: component_change_only
-    host_artifact_source: target_release_tag
-    sync_active_service_policy: bounded_drain_then_replace
-    sync_failure_restore_policy: pre_sync_timer_state
-    min_consecutive_scheduled_runs: 2
-    host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh
-    catchup_gap_policy: accepted_terminal
-    health_evidence:
-      - systemd
-      - host_receipt
-      - database_heartbeat
-      - archive_control_rows
-    # QA S3 retired 2026-11-08; node1 copies are owned by host timer tokenkey-qa-archive.
-    # Operator upload pause (not capture): current prod host_watch.paused_jobs in
-    # deploy/tencent/candidate-usw-20261022.json; ordinary releases must preserve timers.
-    live_archive_provider: none
-    legacy_aws_iam_check: explicit --legacy-aws
-  tokenkey_qa_boundary:
-    repository_closeout_state: pre_activation_fixed_age_transition
-    observed_live_state: single_owner_not_activated
-    policy_target_state: disabled_after_single_owner_activate
-    host_artifact_sync_on_prod_deploy: component_change_only
-    host_artifact_source: target_release_tag
-    sync_active_service_policy: bounded_drain_then_replace
-    sync_failure_restore_policy: activation_receipt_forces_disabled
-    deploy_owner_restore_mode: durable_single_owner_activation_receipt
-    schedule_utc: "*:00"
-    randomized_delay_minutes: 0
-    host_runner: /usr/local/bin/tokenkey-qa-boundary.sh
-    host_receipt: /var/lib/tokenkey/qa-boundary-last-run.json
-    database_heartbeat_job: qa-boundary
-    pre_activation_role: provision_and_fixed_age_whole_partition_cleanup
-    pre_activation_retention_hours: 24
-    pre_activation_terminal_gap_policy: persist_before_drop
-    activation_receipt_phase: single_owner_activate
-    health_evidence:
-      - boundary_systemd
-      - boundary_host_receipt
-      - boundary_database_heartbeat
-      - qa_records_catalog
   qa_records:
-    partition_owner_repository: tokenkey-qa-maintenance
-    partition_owner_observed: qa_lifecycle_boundary
+    # QA S3 retired 2026-11-08: hourly partitions are owned by the local
+    # tokenkey-qa-provision / tokenkey-qa-cleanup timers (policy.yaml local_lifecycle).
+    partition_owner_repository: tokenkey-qa-provision
   QA_CAPTURE_ENABLED:
     policy_target: prod.capture_enabled
   QA_CAPTURE_BODY_MAX_BYTES:

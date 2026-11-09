@@ -73,7 +73,6 @@ REQUIRED = {
         "LOCK TABLE ONLY public.qa_records IN SHARE UPDATE EXCLUSIVE MODE",
     ),
     "ops/qa/local_maintenance_host.py": (
-        "require_legacy_paused()",
         "fcntl.LOCK_EX | fcntl.LOCK_NB",
         "hashlib.sha256(binary.read_bytes())",
     ),
@@ -103,7 +102,7 @@ REQUIRED = {
         "restore_verified",
         "DROP pause",
     ),
-    "ops/qa/README.md": ("tokenkey-qa-maintenance", "raw"),
+    "ops/qa/README.md": ("tokenkey-qa-cleanup", "raw"),
     "ops/qa/policy.yaml": ("raw_user_access: false",),
     "ops/stage0/deploy_via_ssm_bluegreen.sh": ("assert_post_cutover_environment",),
 }
@@ -298,17 +297,8 @@ def scan(root: Path) -> list[str]:
             "archive_uploads": "retired",
         }:
             failures.append("independent local retention policy drift")
-        lifecycle = policy["prod"]["lifecycle"]
-        if lifecycle != {
-            "owner": "tokenkey-qa-maintenance",
-            "future_horizon_hours": 72,
-            "drop_requires_raw_commit": True,
-            "drop_requires_restore_verified": True,
-            "drop_requires_capture_seal": True,
-            "provision_lock_retry_sqlstate": "55P03",
-            "provision_lock_retry_backoff_ms": [250, 500, 1000, 2000, 4000, 8000],
-        }:
-            failures.append("QA policy lifecycle contract drift")
+        if "lifecycle" in policy["prod"]:
+            failures.append("retired S3-era QA lifecycle owner returned to policy")
         if policy["prod"]["disk_monitor"]["automatic_cleanup"] is not False:
             failures.append("QA disk monitor must not authorize automatic cleanup")
         if policy["prod"]["disk_monitor"]["pause_capture"] is not False:
@@ -325,34 +315,10 @@ def scan(root: Path) -> list[str]:
 
     try:
         rollout = yaml.safe_load(_read(root, "ops/qa/deploy_rollout.yaml"))["prod"]
-        maintenance = rollout["tokenkey_qa_maintenance_timer"]
-        boundary = rollout["tokenkey_qa_boundary"]
-        if maintenance["repository_closeout_state"] != "single_owner_ready":
-            failures.append("maintenance repository readiness drift")
-        if maintenance["observed_live_state"] != "single_owner_not_activated":
-            failures.append("maintenance observed state must remain not activated")
-        if boundary["policy_target_state"] != "disabled_after_single_owner_activate":
-            failures.append("boundary target state drift")
-        if (
-            boundary["repository_closeout_state"]
-            != "pre_activation_fixed_age_transition"
-        ):
-            failures.append("boundary transition repository state drift")
-        if (
-            boundary["pre_activation_role"]
-            != "provision_and_fixed_age_whole_partition_cleanup"
-        ):
-            failures.append("boundary transition role drift")
-        if boundary["pre_activation_retention_hours"] != 24:
-            failures.append("boundary transition retention drift")
-        if boundary["pre_activation_terminal_gap_policy"] != "persist_before_drop":
-            failures.append("boundary transition terminal-gap policy drift")
-        if boundary["observed_live_state"] != "single_owner_not_activated":
-            failures.append("boundary observed state must remain not activated")
-        if (
-            rollout["qa_records"]["partition_owner_repository"]
-            != "tokenkey-qa-maintenance"
-        ):
+        for retired in ("tokenkey_qa_maintenance_timer", "tokenkey_qa_boundary"):
+            if retired in rollout:
+                failures.append(f"retired S3-era QA owner returned to rollout: {retired}")
+        if rollout["qa_records"]["partition_owner_repository"] != "tokenkey-qa-provision":
             failures.append("repository partition owner drift")
         if (
             "user_export" in rollout
@@ -364,7 +330,6 @@ def scan(root: Path) -> list[str]:
             archive_gate.get("state") != "retired"
             or archive_gate.get("deploy_inject_default") is not False
             or archive_gate.get("target_deploy_inject_default") is not False
-            or maintenance.get("live_archive_provider") != "none"
         ):
             failures.append("QA S3 retirement drift: deploys must not inject QA_ARCHIVE_ENABLED")
         if rollout["component_release"]["observed_live_state"] != "not_deployed":
@@ -454,21 +419,21 @@ def self_test() -> int:
             ),
             (
                 "ops/qa/policy.yaml",
-                "drop_requires_raw_commit: true",
-                "drop_requires_raw_commit: false",
-                "policy lifecycle",
+                "  archive:\n",
+                "  lifecycle:\n    owner: tokenkey-qa-maintenance\n\n  archive:\n",
+                "retired S3-era QA lifecycle owner",
             ),
             (
-                "ops/qa/policy.yaml",
-                "drop_requires_restore_verified: true",
-                "drop_requires_restore_verified: false",
-                "policy lifecycle",
+                "ops/qa/deploy_rollout.yaml",
+                "  qa_records:\n",
+                "  tokenkey_qa_boundary:\n    observed_live_state: deployed\n  qa_records:\n",
+                "retired S3-era QA owner returned to rollout",
             ),
             (
-                "ops/qa/policy.yaml",
-                "drop_requires_capture_seal: true",
-                "drop_requires_capture_seal: false",
-                "policy lifecycle",
+                "ops/qa/deploy_rollout.yaml",
+                "partition_owner_repository: tokenkey-qa-provision",
+                "partition_owner_repository: tokenkey-qa-maintenance",
+                "repository partition owner drift",
             ),
             (
                 "ops/qa/policy.yaml",

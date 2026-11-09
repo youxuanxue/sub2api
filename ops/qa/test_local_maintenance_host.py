@@ -76,7 +76,6 @@ class LocalHostTest(unittest.TestCase):
                  mock.patch.object(local, 'ARCHIVE_POLICY', root/'missing-policy'), \
                  mock.patch.object(local, 'STATE', root/'state'), \
                  mock.patch.object(local.socket, 'gethostname', return_value='fixture-host'), \
-                 mock.patch.object(local, 'require_legacy_paused'), \
                  mock.patch.object(local, 'install_units') as install_units:
                 local.install(args)
             bundle = install_units.call_args.args[0]
@@ -99,7 +98,6 @@ class LocalHostTest(unittest.TestCase):
             with mock.patch.object(local, 'BASE', root/'base'), \
                  mock.patch.object(local, 'STATE', root/'state'), \
                  mock.patch.object(local.socket, 'gethostname', return_value='fixture-host'), \
-                 mock.patch.object(local, 'require_legacy_paused'), \
                  mock.patch.object(local, 'install_units') as install_units:
                 local.install(args)
             bundle = install_units.call_args.args[0]
@@ -110,13 +108,6 @@ class LocalHostTest(unittest.TestCase):
                 (bundle/'backup'/'node1_storage_policy.py').read_bytes(),
                 (Path(__file__).resolve().parents[1] / 'backup' / 'node1_storage_policy.py').read_bytes(),
             )
-
-    def test_active_legacy_owner_blocks_local_work(self):
-        with mock.patch.object(local, 'invoke', side_effect=['ActiveState=active\nUnitFileState=enabled\n', 'inactive']):
-            with self.assertRaisesRegex(ValueError, 'legacy QA owner'):
-                local.require_legacy_paused()
-        with mock.patch.object(local, 'invoke', side_effect=['ActiveState=inactive\nUnitFileState=disabled\n', 'failed']*2):
-            local.require_legacy_paused()
 
     def test_wrong_binary_digest_blocks_before_docker_or_database(self):
         with tempfile.TemporaryDirectory() as root:
@@ -278,7 +269,6 @@ class LocalHostTest(unittest.TestCase):
             pg={'State':{'Running':True},'Image':'sha256:fixture','NetworkSettings':{'Networks':{'qa':{}}},
                 'Config':{'Env':['POSTGRES_PASSWORD=fixture']}}
             with mock.patch.object(local.socket,'gethostname',return_value='fixture'), \
-                 mock.patch.object(local,'require_legacy_paused'), \
                  mock.patch.object(local,'STATE',data/'state'), \
                  mock.patch.object(local,'HOST_LOCK',data/'lock'), \
                  mock.patch.object(local,'HOT_DATA',data), \

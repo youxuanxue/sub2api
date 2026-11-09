@@ -2227,10 +2227,6 @@ elif ! python3 ./ops/stage0/test_qa_backup_host_lock.py >/dev/null 2>&1; then
     echo "  FAIL: QA and pg_dump host lock behavior"
     echo "        - run: python3 ops/stage0/test_qa_backup_host_lock.py"
     errors=$((errors + 1))
-elif ! python3 ./ops/stage0/test_retire_aws_standby_timers.py >/dev/null 2>&1; then
-    echo "  FAIL: AWS standby timer identity and rollback safety"
-    echo "        - run: python3 ops/stage0/test_retire_aws_standby_timers.py"
-    errors=$((errors + 1))
 elif ! python3 ./ops/stage0/test_pgdump_storage.py >/dev/null 2>&1; then
     echo "  FAIL: pgdump private storage identity and encryption contracts"
     errors=$((errors + 1))
