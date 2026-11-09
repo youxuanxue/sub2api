@@ -19475,6 +19475,41 @@
         "TelemetryArchive"
       ],
       "rationale": "Generated wiring must not regain the retired telemetry archive shadow or its heartbeat (2026-11-08 用户决定保持关闭并删除代码)."
+    },
+    {
+      "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
+      "must_contain": [
+        "PROD_EDGE_REQUIRED_ENV=(ACME_EMAIL GLOBAL_SITE_PHASE GLOBAL_SITE_DOMAIN API_ALIAS_DOMAIN API_CN_DOMAIN)",
+        "assert_edge_profile_environment() {",
+        "grep -q 'import tokenkey_api_machine' \"${LIVE_CADDY}\""
+      ],
+      "rationale": "2026-11-08 prod rebuild left .env without the edge keys and a hand-written Caddyfile; 1.8.354 cut over and only the CallModel facade probe noticed. prod deploy/prepare/promote must refuse before traffic moves when any edge key is missing or the live Caddyfile is not the canonical render."
+    },
+    {
+      "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
+      "must_contain": [
+        "def test_missing_edge_env_fails_before_cutover(",
+        "def test_hand_written_caddyfile_fails_before_cutover(",
+        "def test_edge_contract_only_applies_to_prod_profile("
+      ],
+      "rationale": "Pins the prod edge env contract: each missing key and a non-canonical Caddyfile fail before cutover; non-prod profiles are not checked."
+    },
+    {
+      "path": "ops/stage0/sync_caddyfile_via_ssm.sh",
+      "must_contain": [
+        "\"export ACME_EMAIL\",",
+        "APPLY_API_CN=false",
+        "api cn persisted:"
+      ],
+      "rationale": "2026-11-09: an ACME_EMAIL override assigned after set -a was not exported, so the render saw it empty and caddy validate failed. API_CN_DOMAIN must be persistable or a re-render drops the api-cn vhost."
+    },
+    {
+      "path": "ops/qa/node1_archive.py",
+      "must_contain": [
+        "def ensure_traversable(directory: Path) -> None:",
+        "    ensure_traversable(node1)\n"
+      ],
+      "rationale": "The cleanup container (uid 1000) bind-mounts node1_root; a 0700 root recreated after the 2026-11-08 rebuild hid every receipt and blocked 24 hours."
     }
   ]
 }
