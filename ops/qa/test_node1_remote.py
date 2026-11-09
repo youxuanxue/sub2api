@@ -871,6 +871,27 @@ class ReceiptReadabilityTest(unittest.TestCase):
         self.assertLess(body.index("atomic_json(node1"), body.index("ensure_readable_tree"),
                         "repair must follow the last receipt write")
 
+    def test_a_0700_node1_root_is_made_traversable(self) -> None:
+        # 2026-11-08 prod rebuild: run() recreated node1_root as 0700 and the
+        # cleanup container (uid 1000, bind-mounts node1_root) could not reach
+        # any receipt below it, so 24 hours stayed blocked.
+        with tempfile.TemporaryDirectory() as root:
+            node1 = pathlib.Path(root) / "qa-node1"
+            node1.mkdir(mode=0o700)
+            self.archive.ensure_traversable(node1)
+            self.assertEqual(node1.stat().st_mode & 0o055, 0o055,
+                             "node1_root must be traversable by the cleanup container")
+
+    def test_run_repairs_the_node1_root_before_the_receipt_tree(self) -> None:
+        import ast
+        source = (HERE / "node1_archive.py").read_text()
+        run = next(node for node in ast.walk(ast.parse(source))
+                   if isinstance(node, ast.FunctionDef) and node.name == "run")
+        body = ast.unparse(run)
+        self.assertIn("ensure_traversable(node1)", body,
+                      "run() must keep node1_root traversable after each archive pass")
+        self.assertLess(body.index("atomic_json(node1"), body.index("ensure_traversable(node1)"))
+
     def test_repair_leaves_non_json_alone(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             receipts = pathlib.Path(root) / "receipts"

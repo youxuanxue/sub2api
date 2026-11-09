@@ -230,6 +230,32 @@ assert_post_cutover_environment() {
   # traffic moves (1.8.353: API_DOMAIN was only checked after the route switch).
   [[ -f "${ENV_FILE}" ]] || die "missing ${ENV_FILE}; is this a Stage0 host?"
   [[ -n "$(env_get API_DOMAIN)" ]] || die "API_DOMAIN is required before cutover (routed health observation)"
+  assert_edge_profile_environment
+}
+
+# Host contract for the canonical prod edge (deploy/aws/stage0/Caddyfile rendered by
+# render-prod-caddyfile.sh). The 2026-11-08 data-disk rebuild left .env without
+# ACME_EMAIL / GLOBAL_SITE_* / API_ALIAS_DOMAIN / API_CN_DOMAIN and a hand-written
+# Caddyfile that proxied every host straight to the gateway. 1.8.354 then cut over
+# and only the post-deploy CallModel facade probe noticed (admin/human redirects gone).
+# A re-render from that .env would also have dropped api-cn.tokenkey.dev. Refuse
+# before traffic moves; the fix is ops/stage0/sync_caddyfile_via_ssm.sh.
+PROD_EDGE_REQUIRED_ENV=(ACME_EMAIL GLOBAL_SITE_PHASE GLOBAL_SITE_DOMAIN API_ALIAS_DOMAIN API_CN_DOMAIN)
+assert_edge_profile_environment() {
+  [[ "${DEPLOY_PROFILE}" = prod ]] || return 0
+  local key missing=()
+  for key in "${PROD_EDGE_REQUIRED_ENV[@]}"; do
+    [[ -n "$(env_get "${key}")" ]] || missing+=("${key}")
+  done
+  if (( ${#missing[@]} > 0 )); then
+    die "prod edge env incomplete before cutover: missing ${missing[*]} in ${ENV_FILE}; restore them and re-render with ops/stage0/sync_caddyfile_via_ssm.sh"
+  fi
+  # The canonical render always imports the machine allowlist on API hosts; a
+  # Caddyfile without it is not the repo template (legal pages, facade redirects,
+  # rate limits and TLS options are all missing with it).
+  if [[ -f "${LIVE_CADDY}" ]] && ! grep -q 'import tokenkey_api_machine' "${LIVE_CADDY}"; then
+    die "live Caddyfile ${LIVE_CADDY} is not the canonical prod render; re-render with ops/stage0/sync_caddyfile_via_ssm.sh before cutover"
+  fi
 }
 
 ensure_profile_environment() {
