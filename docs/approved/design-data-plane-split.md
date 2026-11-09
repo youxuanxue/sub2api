@@ -128,7 +128,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 | 参数 | 现值 | 建议 | 理由 |
 |---|---|---|---|
-| `shared_buffers` | 128MB | 内存 25%：prod 2GB，cn-prod 1GB | 现值是安装默认；`wal_buffers` 会随之自动升到 16MB。prod 日常热数据约 3.8 GB，2GB 加页缓存装得下；再大会和页缓存重复缓存同一份数据 |
+| `shared_buffers` | 128MB | 内存 25%：prod 2GB，cn-prod 1GB | 现值是安装默认；`wal_buffers` 会随之自动升到 16MB。prod 日常热数据 2026-11-09 删除旧去重键后约 1.8 GB，重建去重索引后约 1.1 GB，2GB 装得下；再大会和页缓存重复缓存同一份数据 |
 | `effective_cache_size` | 4GB | prod 5GB，cn-prod 2.5GB | 让优化器知道 PG 加页缓存一共能缓存多少。按 PG 容器上限算，不按整机内存算 |
 | `work_mem` | 4MB | 16MB | 两站都有大量临时文件；prod 17 小时 922 个，平均每个 3.9 MB，16MB 能消掉大部分。实际只有十来条连接，不会把内存用满 |
 | `maintenance_work_mem` | 64MB | prod 256MB，cn-prod 128MB | 加快 vacuum 和建索引 |
@@ -162,7 +162,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 ### 不在这次做
 
 - **cn-prod 的 `usage_logs` 没有分区**（1.1 GB，869 次全表扫描读了 1.07 亿行），prod 是按日分区的。分区切换有自己的工具 `ops/migration/usage_logs_daily_partition.py` 和维护窗口，与换机器无关。拆库完成后单独做，两站的表结构才算一致。
-- **prod 的 `usage_billing_dedup` 有 8.4 GB**，是最大的一张表（2026-04-21 起约 1,800 万行，保留 400 天）。其中唯一索引 2.6 GB、主键 664 MB，主键从未被用过；行数是 `usage_logs` 的两倍左右，而近 7 天两者一一对应，说明多出来的是早期数据。它决定 prod 的磁盘增长和热数据大小，但处理方式涉及计费幂等，要单独评估，这次不动。
+- **`usage_billing_dedup` 已单独处理**（[`billing-dedup-retention.md`](billing-dedup-retention.md)，#3110）：热表 7 天，含归档共 30 天。2026-11-09 已在线删除 1,446 万行超过 30 天的键，热表从 1,822 万行降到 376 万行，删除期间服务无影响。表文件仍是 5.1 GB 数据加 3.3 GB 索引；空出的数据页由后续写入复用，不做 `VACUUM FULL`。唯一索引要在 #3110 部署并迁完归档后用 `REINDEX INDEX CONCURRENTLY` 重建一次，见「每站实施步骤」第 1 步。
 
 ## 数据机配置
 
@@ -170,14 +170,14 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 | | prod | cn-prod |
 |---|---|---|
-| 套餐 | 美西轻量通用型 `bundle_gen_nmc_lin_med8_02`，月付 133 元 | 北京轻量通用型 `bundle_gen_mc_med4_01`，月付 80 元 |
+| 套餐 | 美西轻量入门型 `bundle_starter_nmc_lin_med8_02`，月付 90 元 | 北京轻量通用型 `bundle_gen_mc_med4_01`，月付 80 元 |
 | CPU / 内存 | 2 vCPU / 8 GB | 2 vCPU / 4 GB |
-| 磁盘 | SSD 系统盘 150 GB | SSD 系统盘 90 GB |
+| 磁盘 | SSD 系统盘 100 GB | SSD 系统盘 90 GB |
 | 位置 | 与应用机同地域同可用区，同一个轻量私网 | 同左 |
 | PG 容器内存上限 | 6 GB | 3 GB |
 | Redis | `maxmemory` 512MB，容器上限 1GB | `maxmemory` 256MB，容器上限 512MB |
 
-prod 数据机已于 2026-11-08 开通：`lhins-rbjrqukb`，私网 `10.4.0.17`，自动续费。不开任何公网入站端口，远程操作走腾讯云 TAT。cn-prod 数据机等 prod 切流稳定后再开。
+prod 数据机：`lhins-p43i2kxh`，私网 `10.4.0.3`，2026-11-09 开通，自动续费。不开任何公网入站端口，远程操作走腾讯云 TAT。2026-11-08 先开过一台通用型 150 GB 的 `lhins-rbjrqukb`，去重表清理后改用入门型，旧机器已在无理由退款期内退还。轻量只能升配不能降配，换小只能退了重买。cn-prod 数据机等 prod 切流稳定后再开。
 
 轻量套餐支持 `ModifyInstancesBundle` 原地升配。切流后缓存命中率长期低于 99% 时再升，不提前买大。
 
@@ -194,14 +194,14 @@ prod 数据机已于 2026-11-08 开通：`lhins-rbjrqukb`，私网 `10.4.0.17`�
 | 请求量 | 近一周每天 5 万到 18 万次，峰值小时约 8,800 次 |
 | PG 容器 CPU / 内存 | 1.5% / 2.6 GB |
 
-日常真正被访问的数据约 3.8 GB：核心表 42 MB、最近 3 天 `usage_logs` 分区 243 MB、最近一天 QA 和 ops 日志约 185 MB、`usage_billing_dedup` 的索引 3.3 GB。
+日常真正被访问的数据，2026-11-09 删除旧去重键后约 1.8 GB：核心表约 60 MB、最近 3 天 `usage_logs` 分区约 300 MB、最近的 ops 和 QA 日志约 200 MB、`usage_billing_dedup` 唯一索引里仍被写入的部分约 1.2 GB（重建索引后约 0.1 GB）。当天下午 60 秒采样：命中率 98.48%，每秒读盘约 450 KB，PG CPU 11.5%，连接 11 条。
 
 - **CPU**：PG 只用了 1.5%，2 核足够。
-- **内存**：8 GB 里给 `shared_buffers` 2 GB、页缓存约 4 GB，能装下 3.8 GB 的热数据。现在 128MB `shared_buffers` 就有 99.85% 的命中率，靠的是 prod 应用机 14 GB 的页缓存；数据机页缓存小一些，所以 `shared_buffers` 要调大。cn-prod 库只有 2.9 GB，4 GB 内存能把整个库放进缓存。
+- **内存**：8 GB 里给 `shared_buffers` 2 GB、页缓存约 4 GB，装得下约 1.8 GB 的热数据。COS 恢复验收要在同一台机器上再起一个 PG（默认 1 GB），8 GB 留得出这份余量，4 GB 不够。cn-prod 库只有 2.9 GB，4 GB 内存能把整个库放进缓存。
 - **磁盘**：
-  - prod：`usage_logs` 每天 60–205 MB，`usage_billing_dedup` 每天约 40 MB，两者都保留 400 天。合计约 4.5 GB/月。150 GB 能撑约两年；COS 恢复验证时在数据机上临时多恢复一份（23 GB）也放得下，实测恢复后还剩 114 GB。
+  - prod：`usage_logs` 近 14 天平均每天约 123 MB，约 3.7 GB/月；去重表已降到稳态，不再增长。100 GB 下：正式库 23 GB，加上 COS 恢复验收临时多恢复的一份（实测 2026-11-09 恢复 23 GB 用 291 秒，恢复后剩 66 GB），约 10 个月后会变紧。届时升配或把验收挪到别的机器。
   - cn-prod：合计约 1.7 GB/月，90 GB 够用三年以上。
-- **要盯的风险**：`usage_billing_dedup` 的索引按随机 request_id 写入，一年后会到 5 GB 以上，超出内存。写入只有每秒约 5 次，读盘对 SSD 没有压力；命中率长期低于 99% 时升配，或者先处理这张表（见「不在这次做」）。
+- **要盯的风险**：磁盘（见上）。切流后命中率长期低于 99% 时升配；轻量升配需要重启实例，要找窗口。
 
 ## 切流前的代码改动
 
@@ -221,6 +221,8 @@ prod 数据机已于 2026-11-08 开通：`lhins-rbjrqukb`，私网 `10.4.0.17`�
 ### 1. 只读准备（用户无感）
 
 读取当站以下数据：近 7 天按小时的请求量（用来找低谷）、库体积和 WAL 速率、`max_connections`、Redis 内存和 key 数、最近一次蓝绿发布里新色从启动到就绪的耗时。这些数决定机器规格和窗口时长。
+
+prod 另查：`usage_billing_dedup` 的 `n_dead_tup` 已被 autovacuum 清掉（2026-11-09 删除后约 26 万），#3110 已部署且 7–30 天的键已迁进归档表。满足后在现网执行一次 `REINDEX INDEX CONCURRENTLY idx_usage_billing_dedup_request_api_key`（不锁写入，临时多占约 0.1 GB），唯一索引从 2.6 GB 降到约 0.1 GB。备用库从之后的备份恢复，就直接带上小索引。
 
 ### 2. 开机（需预算审批，用户无感）
 
