@@ -91,14 +91,13 @@ Inputs:
 
 | Name | Type | Default | Notes |
 |---|---|---|---|
-| `operation` | choice | `deploy` | `deploy` runs the image switch and acceptance path; `smoke-only` runs canonical API acceptance probes; `qa-infra-check` validates the dedicated QA OIDC/IAM path and stack binding without mutation |
+| `operation` | choice | `deploy` | `deploy` runs the image switch and acceptance path; `replay` prepares the inactive color and verifies account-supply cases without cutover; `smoke-only` runs canonical API acceptance probes |
 | `tag` | string | required | image tag without leading `v`; must match `^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$`; in read-only modes it is an audit label only |
 | `simple_release_override` | bool | `false` | deploy-only; flip only when the target host is amd64 (default-deny against the §9.1 Graviton trap) |
 
-All jobs bind GitHub Environment **`prod`**. The `deploy` job receives
-`id-token: write` and `packages: read`; `qa-infra-check` receives only
-`contents: read` plus `id-token: write` so it can prove both OIDC role assumptions;
-`smoke-only` receives `contents: read` only and cannot obtain AWS credentials.
+All jobs bind GitHub Environment **`prod`**. The `deploy` and `replay` jobs
+receive `id-token: write` and `packages: read`; `smoke-only` receives
+`contents: read` only and cannot obtain AWS credentials.
 
 Steps:
 
@@ -207,22 +206,14 @@ Steps:
 12. **Feishu release rollout notification** — best-effort rollout card after
    smoke and post-release check (green or skip). Uses the pre-mutation runtime
    tag baseline for release notes.
-13. **Job summary** — write app and QA Worker images, Worker source, rollout
-   mode, host runtime mode, the SSM command id, and a one-line app rollback
-   dispatch. Legacy rollback is explicitly degraded: it requires a fully
-   verified live Worker, converges the current maintenance runner, disables
-   boundary before app mutation, skips canary, and pauses DROP until a
-   Phase 3 app is restored. No auto-rollback (would mask transient failures).
-14. **Read-only QA infrastructure acceptance** — `operation=qa-infra-check`
-   validates both IAM stack outputs, exact `QA_INFRA_OIDC_ROLE_ARN` binding,
-   real deployment-role assumption, recognized raw-archive stack identity,
-   and Bundle-era CloudFormation service-role binding. It contains no change
-   set, SSM, host sync, canary, or image mutation.
+13. **Job summary** — write the app image, stack, instance, API URL, the SSM
+   command id, and a one-line rollback dispatch (re-run with a previous tag).
+   No auto-rollback (would mask transient failures).
 
 Concurrency `group: deploy-stage0-prod`, `cancel-in-progress: false` is shared
 by all operations. Workflow-level permission is `contents: read`; the `deploy`
-job adds `id-token: write` and `packages: read`, `qa-infra-check` adds only
-`id-token: write`, and `smoke-only` keeps the workflow default. No job
+and `replay` jobs add `id-token: write` and `packages: read`, and `smoke-only`
+keeps the workflow default. No job
 receives `contents: write`. The post-release live check is a later step in
 `deploy`; it is read-only SSM plus git history and does not mutate host
 colors.

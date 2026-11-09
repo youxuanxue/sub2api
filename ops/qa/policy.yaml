@@ -2,7 +2,6 @@ schema_version: 1
 
 prod:
   capture_enabled: true
-  maintenance_schedule_utc: "*:15"
 
   # QA S3 archive retired 2026-11-08 (user decision). Local data stays 24h; host
   # timer tokenkey-qa-archive (ops/qa/node1_archive.py) copies to node1 every 4h.
@@ -13,15 +12,6 @@ prod:
     retention_hours: 24
     delete_unarchived: true
     archive_uploads: retired
-
-  lifecycle:
-    owner: tokenkey-qa-maintenance
-    future_horizon_hours: 72
-    drop_requires_raw_commit: true
-    drop_requires_restore_verified: true
-    drop_requires_capture_seal: true
-    provision_lock_retry_sqlstate: "55P03"
-    provision_lock_retry_backoff_ms: [250, 500, 1000, 2000, 4000, 8000]
 
   archive:
     enabled: false
@@ -36,7 +26,6 @@ prod:
     runner_gid: 1000
     host_scratch_dir: /var/lib/tokenkey/app/qa_archive_tmp
     container_scratch_dir: /app/data/qa_archive_tmp
-    host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json
 
   disk_monitor:
     used_percent: 80

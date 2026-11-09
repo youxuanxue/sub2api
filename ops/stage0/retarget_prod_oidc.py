@@ -51,7 +51,7 @@ def render(live, canonical):
     kept = [r for r in old_send[0]['Fn::If'][1]['Resource']
             if is_managed_instance_grant(r) and r not in canonical_resources]
     old_send[0]['Fn::If'][1]['Resource'] = copy.deepcopy(canonical_resources) + kept
-    for sid in ('DescribeInstanceInformationForSsmReadiness', 'ReadQaRawArchiveNetworkForDiagnostics', 'ReadEbsSnapshotsForDiagnostics'):
+    for sid in ('DescribeInstanceInformationForSsmReadiness', 'ReadEbsSnapshotsForDiagnostics'):
         targets = [s for s in old if s.get('Sid') == sid]
         sources = [s for s in new if s.get('Sid') == sid]
         if len(targets) != 1 or len(sources) != 1:

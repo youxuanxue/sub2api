@@ -227,7 +227,6 @@ def validate_plan_target(plan, args, app, postgres):
 
 def guard(args, db):
     require(socket.gethostname() == args.expected_host, 'host mismatch')
-    lifecycle_host.require_legacy_paused()
     app = inspect(args.app)
     require(app['State']['Running'] and app['State'].get('Health', {}).get('Status') == 'healthy', 'gateway not healthy')
     root = Path(args.data_dir)
