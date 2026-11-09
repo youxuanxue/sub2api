@@ -17026,6 +17026,60 @@
       "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. The AWS standby bootstrap must not install the S3-era QA runners."
     },
     {
+      "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
+      "must_contain": [
+        "- DATABASE_HOST=${DATABASE_HOST:-tokenkey-postgres}",
+        "- DATABASE_PORT=${DATABASE_PORT:-5432}",
+        "- REDIS_HOST=${REDIS_HOST:-tokenkey-redis}",
+        "- REDIS_PORT=${REDIS_PORT:-6379}"
+      ],
+      "rationale": "Data-plane split (docs/approved/design-data-plane-split.md): prod colors read the Postgres/Redis endpoints from .env so the cutover can point them at the data machine. Reverting to literals would make the next release silently reconnect to the stopped same-host database."
+    },
+    {
+      "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
+      "must_contain": [
+        "\"DATABASE_HOST=${DATABASE_HOST:-tokenkey-postgres}\"",
+        "self.assertEqual(remote.count(\"- \" + line), 2, line)"
+      ],
+      "rationale": "Regression test for the prod data-plane endpoint hook: both colors must take the .env-backed host and port."
+    },
+    {
+      "path": "deploy/domestic/bluegreen.py",
+      "must_contain": [
+        "'DATABASE_HOST',",
+        "'DATABASE_PORT',",
+        "'REDIS_HOST',",
+        "'REDIS_PORT',"
+      ],
+      "rationale": "cn-prod candidates inherit env from the live color; only CONFIG_ENV_KEYS are refreshed from compose. Without these the first release after the data-plane cutover would carry the old same-host addresses."
+    },
+    {
+      "path": "deploy/domestic/compose.override.yml",
+      "must_contain": [
+        "DATABASE_HOST: \"${DATABASE_HOST:-postgres}\"",
+        "REDIS_HOST: \"${REDIS_HOST:-redis}\""
+      ],
+      "rationale": "Source of the cn-prod data-plane endpoints propagated by bluegreen.CONFIG_ENV_KEYS."
+    },
+    {
+      "path": "ops/qa/local_maintenance_host.py",
+      "must_contain": [
+        "def remote_postgres_runtime():",
+        "postgres, network = remote_postgres_runtime() or resolve_postgres_runtime()",
+        "'PGHOST': container.get('TkPGHost', 'tokenkey-postgres'),"
+      ],
+      "rationale": "After the data-plane split QA provision/cleanup must reach Postgres on the data machine; losing this path stops hourly QA partition provisioning (72h horizon) and capture writes start failing."
+    },
+    {
+      "path": "deploy/tencent/tencent_pgbackrest.py",
+      "must_contain": [
+        "POSTGRES_CANDIDATES = (\"tokenkey-postgres\", \"tk-archive-standby\")",
+        "def container() -> str:",
+        "\"docker\", \"exec\", \"--user\", \"postgres\", container(),"
+      ],
+      "rationale": "The same host copy runs backups on the app host today and on the data machine after the cutover; a literal container name fails there with No such container."
+    },
+    {
       "path": "ops/qa/local_maintenance_host.py",
       "must_contain": [
         "require_legacy_paused()",

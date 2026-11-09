@@ -972,8 +972,15 @@ echo passed
         self.assertIn("http://localhost:8080/health", remote)
         self.assertIn("drain_container \"${active_container}\"", remote)
         self.assertIn("sudo docker rm -f tokenkey", remote)
-        self.assertIn("DATABASE_HOST=tokenkey-postgres", remote)
-        self.assertIn("REDIS_HOST=tokenkey-redis", remote)
+        # Data plane split: hosts come from .env so the cutover can point both
+        # colors at the data machine; the defaults keep today's same-host layout.
+        for line in ("DATABASE_HOST=${DATABASE_HOST:-tokenkey-postgres}",
+                     "DATABASE_PORT=${DATABASE_PORT:-5432}",
+                     "REDIS_HOST=${REDIS_HOST:-tokenkey-redis}",
+                     "REDIS_PORT=${REDIS_PORT:-6379}",
+                     "REDIS_PASSWORD=${REDIS_PASSWORD:-}"):
+            self.assertEqual(remote.count("- " + line), 2, line)
+        self.assertNotIn("- DATABASE_HOST=tokenkey-postgres\n", remote)
         self.assertIn("x-tokenkey-logging: &tokenkey-logging", remote)
         self.assertEqual(remote.count("logging: *tokenkey-logging"), 2)
         self.assertEqual(remote.count("start_period: 120s"), 2)

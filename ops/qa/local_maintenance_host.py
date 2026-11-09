@@ -39,6 +39,9 @@ DEFAULT_REMOTE_ROOT = '/storage/tokenkey-archive'
 # tokenkey-postgres on tokenkey_tokenkey-network keeps PGHOST stable.
 POSTGRES_RUNTIME_CANDIDATES = ('tokenkey-postgres', 'tk-archive-standby')
 APP_RUNTIME_CANDIDATES = ('tokenkey-green', 'tokenkey-blue', 'tokenkey', 'tk-cutover-prod-app')
+# DATABASE_HOST values that mean "the Postgres container on this host":
+# the container names plus the compose service alias.
+LOCAL_POSTGRES_HOSTS = frozenset(POSTGRES_RUNTIME_CANDIDATES) | {'postgres'}
 
 
 def invoke(args, **kwargs):
@@ -99,6 +102,38 @@ def resolve_postgres_runtime():
     raise ValueError(last_error)
 
 
+def remote_postgres_runtime():
+    """After the data-plane split Postgres runs on the data machine.
+
+    The active app container then carries a DATABASE_HOST that is not a local
+    container name. The job reuses the app's network and image (the job binary
+    is statically linked) and points PGHOST at that host. Returns None while
+    Postgres is still a local container, so today's behavior is unchanged.
+    """
+    for name in APP_RUNTIME_CANDIDATES:
+        try:
+            app = json.loads(invoke(['docker', 'inspect', name]))[0]
+        except subprocess.CalledProcessError:
+            continue
+        if not app['State']['Running']:
+            continue
+        env = dict(item.split('=', 1) for item in app['Config']['Env'] if '=' in item)
+        host = env.get('DATABASE_HOST', '')
+        if not host:
+            # e.g. the `tokenkey` socat control proxy matches a candidate name.
+            continue
+        if host in LOCAL_POSTGRES_HOSTS:
+            return None
+        networks = app['NetworkSettings']['Networks']
+        if len(networks) != 1:
+            raise ValueError(f'{name}: expected one network, got {sorted(networks)}')
+        # pg_environment reads the password from Config.Env and falls back to
+        # the app's DATABASE_PASSWORD; the app image runs the static binary.
+        return {'Config': {'Env': []}, 'Image': app['Image'],
+                'TkPGHost': host, 'TkPGPort': env.get('DATABASE_PORT') or '5432'}, next(iter(networks))
+    return None
+
+
 def app_database_env():
     for name in APP_RUNTIME_CANDIDATES:
         try:
@@ -124,7 +159,8 @@ def pg_environment(container):
     if not env.get('POSTGRES_PASSWORD'):
         raise ValueError('PostgreSQL password is unavailable')
     values = {
-        'PGHOST': 'tokenkey-postgres', 'PGPORT': '5432',
+        'PGHOST': container.get('TkPGHost', 'tokenkey-postgres'),
+        'PGPORT': container.get('TkPGPort', '5432'),
         'PGUSER': env.get('POSTGRES_USER', 'tokenkey'),
         'PGDATABASE': env.get('POSTGRES_DB', 'tokenkey'),
         'PGPASSWORD': env['POSTGRES_PASSWORD'], 'PGSSLMODE': 'disable',
@@ -254,7 +290,7 @@ def run_phase(config, phase, dry_run=False):
                         raise TimeoutError('QA host lock busy')
                     time.sleep(1)
             require_legacy_paused()
-            postgres, network = resolve_postgres_runtime()
+            postgres, network = remote_postgres_runtime() or resolve_postgres_runtime()
             with tempfile.TemporaryDirectory(prefix='qa-local-', dir='/run') as scratch:
                 env = Path(scratch)/'pg.env'
                 env.write_text(pg_environment(postgres))
