@@ -134,6 +134,16 @@ class CosOnlyRefreshTest(unittest.TestCase):
                 identity.refresh()
             self.assertEqual(config.read_text(), "previous")
 
+    def test_data_machine_hostname_does_not_refresh(self) -> None:
+        with contextlib.ExitStack() as stack:
+            config = self._arena(stack)
+            config.parent.mkdir(parents=True)
+            config.write_text("previous")
+            stack.enter_context(mock.patch.object(identity.socket, "gethostname", return_value="VM-4-5-ubuntu"))
+            with self.assertRaisesRegex(ValueError, "data-machine pgBackRest config is static"):
+                identity.refresh()
+            self.assertEqual(config.read_text(), "previous")
+
     def test_failure_output_withholds_credentials(self) -> None:
         import io
         out = io.StringIO()

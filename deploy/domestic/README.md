@@ -2,7 +2,7 @@
 
 当前应用在腾讯北京 `tokenkey-cn-prod`（`lhins-6qmb3fd6`，`154.8.214.179`）。该实例与 `cn-ip1..4` 到期 **2026-11-22**，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是 `https://api.galaxywaveai.com`，它和静态 IP 共用 `(tk_upstream)`，站点定义在 [`Caddyfile`](Caddyfile)。`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前不要把它解析到北京，也不要写成 `public_origin` 或 `SERVER_FRONTEND_URL`。发版身份仍以 [`prod-target.json`](prod-target.json) 为准。下面的表是 2026-10-14 首次上线记录。
 
-逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。北京本机 pgBackRest（stanza `tokenkey`，timer `tokenkey-cn-postgres-backup` / `tokenkey-cn-postgres-archive-check`）在跑，并且本机已恢复过自己的全量。2026-11-08 起唯一仓库是北京 COS `repo2`（`tokenkey-cnprod-backup-bj-1320330536` `/cn-prod/postgres`），东京 AWS `repo1` 停写、对象保留待清理；配置由 `cn_backup_identity.py` 只用 COS 凭据渲染，详见[设计](../../docs/approved/design-tencent-cos-backup-node1-qa.md#2026-11-08-决定停写-aws-repo1cos-为唯一-repository)。备份验收到此为止，不再另开恢复机，也不从东京仓库再导一份库。
+逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。2026-11-09 停写窗口之后，`tokenkey-cn-postgres-backup` 和 `tokenkey-cn-postgres-archive-check` 在数据机 `VM-4-5-ubuntu`（`10.2.4.5`）上跑，应用机上的对应 timer 已停用。`cn_backup_identity.py` 只认主机名 `tokenkey-cn-prod`，数据机上会拒绝，所以数据机用切流时写下的静态 pgBackRest 配置，不跑 identity timer。2026-11-08 起唯一仓库是北京 COS `repo2`（`tokenkey-cnprod-backup-bj-1320330536` `/cn-prod/postgres`），东京 AWS `repo1` 停写、对象保留待清理；详见[设计](../../docs/approved/design-tencent-cos-backup-node1-qa.md#2026-11-08-决定停写-aws-repo1cos-为唯一-repository)。备份验收到此为止，不再另开恢复机，也不从东京仓库再导一份库。
 
 审批范围和费用见 [design-domestic-cluster.md](../../docs/approved/design-domestic-cluster.md)。
 这是独立于美西 prod 的国内站点，不使用 Hetzner dispatcher 或美西数据库；只读观测通过独立注册的 AWS SSM Hybrid agent 下发。
@@ -37,6 +37,8 @@
 
 日志轮转和 compose 项目名随 1.8.318 蓝绿自动归位（override 的 20m×3、`cn-prod-bluegreen`）。
 蓝绿 loopback 端口 blue=18081 / green=18082 是约定，不是漂移；`compose.local.yml` 的 18080 只用于无蓝绿的单容器。
+
+数据面切流之后，`compose.override.yml` 把 `postgres` 和 `redis` 放进 `local-data` profile。默认 `docker compose up` 不启动它们。旧库容器还在，重启策略是 `no`；加上 `--profile local-data` 会把旧主库拉起来，和数据机写同一套 COS 仓库。蓝绿 `prepare` 仍是 `up --no-deps`，不启用这个 profile。这份 override 要铺到 `/opt/tokenkey/compose.override.yml` 之后，主机上的 `docker compose up` 才吃到这个 profile。
 
 ## 首次安装与配置 owner
 
