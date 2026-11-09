@@ -276,23 +276,27 @@
     {
       "path": "backend/internal/config/config.go",
       "must_contain": [
-        "viper.SetDefault(\"qa_archive.storage.credentials_file\", \"\")"
+        "viper.SetDefault(\"qa_capture.storage.credentials_file\", \"\")"
       ],
-      "rationale": "Raw archive credentials use a private file without changing other S3 services."
+      "must_not_contain": [
+        "QaArchive",
+        "qa_archive."
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. Capture keeps its private credentials file; the QA archive config block must not return."
     },
     {
-      "path": "backend/internal/observability/qa/archive/store.go",
+      "path": "backend/internal/observability/qa/blob_store.go",
       "must_contain": [
         "storage.ReadCredentials()"
       ],
-      "rationale": "QA file identities must remain independent of the ambient AWS provider used by non-QA services."
+      "rationale": "QA capture file identities must remain independent of the ambient AWS provider used by non-QA services."
     },
     {
-      "path": "backend/internal/observability/qa/archive/store_credentials_test.go",
+      "path": "backend/internal/config/qa_storage_credentials_test.go",
       "must_contain": [
-        "TestUS062_QAFileIdentityOverridesAmbientAWSOnlyForItsStore"
+        "TestUS062_QAStoragePrivateCredentialsFailClosed"
       ],
-      "rationale": "Protect the actual signed-request regression proving QA credentials override only the selected store."
+      "rationale": "Protect the fail-closed private credentials file contract that QA capture still uses."
     },
     {
       "path": "backend/internal/config/config.go",
@@ -3798,59 +3802,25 @@
       "rationale": "Focused regressions for the bounded fallback: rate limiting, deterministic file/byte convergence, fail-closed deletion errors, and path-safe persistence of unsafe correlation IDs."
     },
     {
-      "path": "backend/internal/telemetryarchive/shadow.go",
-      "must_contain": [
-        "type Sink interface",
-        "DefaultQueueMaxBytes",
-        "s.slots <- struct{}{}",
-        "s.reserveBytes(maxReservation)",
-        "s.recordDrop(\"queue_full\")",
-        "context.WithTimeout(context.Background(), s.config.PutTimeout)",
-        "\"schema-version\":",
-        "\"record-count\":",
-        "s.instance"
-      ],
-      "rationale": "Single owner for the best-effort raw telemetry shadow. Count is reserved before JSON serialization, queued/in-flight payload bytes have an independent hard bound, uploads have a timeout, and versioned object metadata plus per-process keys make replay deterministic without putting S3 on the PostgreSQL request path. Dropping any of these can affect online writes or silently corrupt archive coverage while ordinary repository tests remain green."
-    },
-    {
-      "path": "backend/internal/service/telemetry_archive_health.go",
-      "must_contain": [
-        "telemetry_archive_shadow",
-        "stats := s.shadow.Stats()",
-        "stats.Dropped > 0 || stats.Failed > 0",
-        "LastResult: &resultText"
-      ],
-      "rationale": "Single runtime-health owner for telemetry activation. It publishes cumulative JSON stats through ops_job_heartbeats and keeps any process-level drop or upload failure unhealthy until restart; without it an enabled but lossy shadow can look green and incorrectly support a later PostgreSQL-retention decision."
-    },
-    {
-      "path": "backend/internal/repository/telemetry_archive_provider.go",
-      "must_contain": [
-        "func ProvideTelemetryArchive(cfg *config.Config) *telemetryarchive.Shadow",
-        "func ProvideUsageLogRepository(",
-        "repo.telemetry = archive",
-        "func ProvideOpsRepository(db *sql.DB, archive *telemetryarchive.Shadow) service.OpsRepository"
-      ],
-      "rationale": "Repository injection owner for usage, ops-error, and ops-system telemetry. The shadow package alone is inert; these provider assignments ensure every committed PostgreSQL write path shares the same bounded sink without making S3 canonical."
-    },
-    {
       "path": "backend/internal/repository/usage_log_repo_insert.go",
       "must_contain": [
-        "telemetryValue: r.snapshotUsageTelemetry(log, prepared)",
-        "ownedLog := *log",
-        "r.enqueueUsageValue(req.telemetryValue)",
-        "r.enqueueUsageAfterCommit(tx, log)"
+        "ownedLog := *log"
       ],
-      "rationale": "Usage telemetry must be captured at the committed insert call sites, including transaction and late batch completion paths. The worker-owned copy prevents a timed-out caller from racing a still-running batch, while the immutable telemetry value ensures a late successful insert is shadowed exactly once without serializing before Shadow reserves capacity."
+      "rationale": "The worker-owned copy prevents a timed-out caller from racing a still-running usage batch. The raw telemetry S3 shadow was retired (2026-11-08 用户决定保持关闭并删除代码); its usage enqueue hooks must not return through an upstream merge or revert.",
+      "must_not_contain": [
+        "telemetryarchive",
+        "snapshotUsageTelemetry",
+        "telemetryValue"
+      ]
     },
     {
       "path": "backend/internal/repository/ops_repo.go",
-      "must_contain": [
-        "r.enqueueOpsError(input)",
-        "snapshot.UpstreamErrors = nil",
-        "r.telemetry.Enqueue(telemetryarchive.DatasetOpsError, &snapshot)",
-        "r.telemetry.Enqueue(telemetryarchive.DatasetOpsSystem, input)"
-      ],
-      "rationale": "Ops error and system writes are the other two raw telemetry producers. Provider wiring can remain compile-clean while an upstream merge drops these post-commit enqueue call sites, silently making the archive incomplete. The ops-error snapshot must also discard the non-persisted raw upstream graph before the long-lived S3 write, retaining only the sanitized JSON stored in PostgreSQL."
+      "rationale": "Ops error/system writes no longer feed a raw telemetry S3 shadow (2026-11-08 用户决定保持关闭并删除代码). Pin the absence so the retired post-commit enqueue path cannot be reintroduced silently.",
+      "must_not_contain": [
+        "telemetryarchive",
+        "r.telemetry",
+        "enqueueOpsError"
+      ]
     },
     {
       "path": "backend/internal/repository/ops_repo_user_visible_failure_tk.go",
@@ -3882,35 +3852,25 @@
       "rationale": "The INSERT column list, its $N placeholders and the Go args slice must be proven equal by derivation from insertOpsErrorLogSQL, not by a hardcoded count. The previous require.Len(args, 38) had no mechanical tie to the SQL: it only failed after a mismatch was already written, and it is exactly the kind of assertion an upstream merge rewrites to the new number instead of investigating."
     },
     {
-      "path": "backend/internal/repository/telemetry_archive_hooks_test.go",
-      "must_contain": [
-        "TestUS042UsageBestEffortLateCompletionStillEnqueuesTelemetry",
-        "TestUS042UsageBatchLateCompletionEnqueuesImmutableTelemetryOnce",
-        "TestUS042OpsErrorTelemetryExcludesNonPersistedDiagnostics",
-        "TestOpsBatchTelemetryWaitsForCommit",
-        "TestOpsSystemTelemetryMatchesPersistedNormalization"
-      ],
-      "rationale": "Focused behavior guards for post-commit telemetry: best-effort and normal usage batches preserve immutable late completions, failed commits emit nothing, and ops-system payloads match persisted normalization."
-    },
-    {
       "path": "backend/internal/repository/wire.go",
       "must_contain": [
-        "ProvideTelemetryArchive,",
-        "ProvideUsageLogRepository,",
-        "ProvideOpsRepository,"
+        "NewUsageLogRepository,",
+        "NewOpsRepository,"
       ],
-      "rationale": "Wire registration for the telemetry archive provider and both repository consumers. An upstream merge can restore the old constructors while compiling successfully, leaving the S3 shadow silently unused."
+      "rationale": "Usage and ops repositories use the upstream constructors since the telemetry archive was retired (2026-11-08 用户决定保持关闭并删除代码). Reintroducing the archive providers would rewire an S3 shadow into every committed write.",
+      "must_not_contain": [
+        "ProvideTelemetryArchive",
+        "ProvideUsageLogRepository",
+        "ProvideOpsRepository"
+      ]
     },
     {
       "path": "backend/cmd/server/wire.go",
-      "must_contain": [
-        "telemetryArchive *telemetryarchive.Shadow,",
-        "telemetryArchiveHealth *service.TelemetryArchiveHealth,",
-        "telemetryArchiveHealth.Stop(ctx)",
-        "archiveErr = telemetryArchive.Stop(ctx)",
-        "return errors.Join(healthErr, archiveErr)"
-      ],
-      "rationale": "Application shutdown must stop the telemetry heartbeat before draining the bounded shadow through the normal cleanup owner. Losing these hooks leaves a stale green heartbeat or discards queued committed events on restart even though ordinary runtime writes look healthy."
+      "rationale": "The telemetry archive shadow and its heartbeat were retired (2026-11-08 用户决定保持关闭并删除代码); application cleanup must not regain their shutdown hooks.",
+      "must_not_contain": [
+        "telemetryarchive",
+        "TelemetryArchive"
+      ]
     },
     {
       "path": "backend/internal/service/gateway_request_tk_prompt_fingerprint.go",
@@ -11912,60 +11872,59 @@
       "rationale": "OpenRouter seller catalog schema 2.4 document builder (modality-owned pricing/capacity). Flat root pricing fields must not return; silent revert breaks new-provider onboarding."
     },
     {
-      "path": "backend/cmd/qa-archive/main.go",
+      "path": "backend/cmd/server/main.go",
       "must_contain": [
-        "NewReadOnlyObjectStoreForWorkstation",
-        "buildInspectReceipt",
-        "validRecoveryRunID",
-        "validateSecureRestoreTree",
-        "shared_ec2_instance_role_no_process_isolation",
-        "window-bound privacy confirmation required"
+        "partitionMaintenanceRequested(os.Args[1:])"
       ],
-      "rationale": "QA recovery CLI is the single metadata-first inspect/verify/restore adapter. Workstation reads must keep direct recovery-role S3 access without app config or PostgreSQL, correlate three distinct receipts, preserve structured integrity failures, and enforce isolated 0700/0600 restore output. These guards are load-bearing but can be dropped by an upstream CLI rewrite while the verifier package still compiles."
+      "must_not_contain": [
+        "qaMaintenanceRequested",
+        "qaBoundaryRequested",
+        "qaSingleOwnerActivationRequested"
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. The gateway binary must not regain the QA S3 maintenance, boundary, or single-owner subcommands."
     },
     {
-      "path": "backend/cmd/server/qa_maintenance.go",
+      "path": "backend/internal/observability/qa/archive/control_store.go",
       "must_contain": [
-        "qaMaintenanceConfirmation",
-        "archive.PreviousSealedHour",
-        "deletion_authorized=false",
-        "archive.NewReconciler",
-        "aggregate_record_count",
-        "lockAcquired",
-        "CatchupDispositionSourceUnavailableAfterRetention",
-        "compensation_terminal"
+        "func (s *SQLControlStore) RecordSourceDropped",
+        "func (s *SQLControlStore) RecordHotFilesCleaned",
+        "func (s *SQLControlStore) PersistBoundaryTerminalGap"
       ],
-      "rationale": "Prod QA maintenance must retain sealed-window selection, the single verified reconciler owner, failure-safe locking, committed aggregate heartbeat, hard denial of deletion, and fail-closed terminal compensation that still preserves normal-hour facts."
+      "must_not_contain": [
+        "qa_archive_segment_records",
+        "qa_archive_segments",
+        "qa_archive_gap_decision_receipts"
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. archive/ keeps only the qa_archive_shards control rows local cleanup writes; the S3 segment and gap-receipt tables are no longer read and are dropped by a follow-up migration once hosts run the new qa-local-maintenance."
     },
     {
-      "path": "backend/internal/observability/qa/archive/segment_builder.go",
+      "path": "backend/internal/observability/qa/lifecycle/control_adapter.go",
       "must_contain": [
-        "func BuildSegment",
-        "records.parquet",
-        "SegmentKindDelta",
-        "IntegrityMissingEvidence"
+        "archive.NewSQLControlStore()"
       ],
-      "rationale": "QA base/delta artifacts must remain keyset-paged, file-backed, deterministic, and fail closed before upload when evidence is missing."
+      "must_not_contain": [
+        "ObjectStore",
+        "Reconcile",
+        "MarkSourceUnavailableAfterRetention"
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. Local cleanup's control adapter must not reach an object store or the retired reconciler."
     },
     {
-      "path": "backend/internal/observability/qa/archive/reconciler.go",
+      "path": "Dockerfile.goreleaser",
       "must_contain": [
-        "func (r *Reconciler) Reconcile",
-        "CompareAndSwap",
-        "PendingVerified",
-        "DeletionAuthorized: false"
+        "${TARGETPLATFORM}/sub2api /app/sub2api"
       ],
-      "rationale": "The sole QA archive state machine must preserve resume, append-only delta, bounded commit CAS, and deletion denial semantics."
+      "must_not_contain": [
+        "qa-archive"
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. The release image must not ship the retired qa-archive recovery CLI."
     },
     {
-      "path": "backend/internal/observability/qa/archive/verifier.go",
+      "path": "scripts/checks/release-image-binaries.sh",
       "must_contain": [
-        "func VerifyCommit",
-        "manifest.BlobMissingCount != 0",
-        "IntegrityCorruptArtifact",
-        "verifyCommitIdentities"
+        "test ! -e /app/qa-archive"
       ],
-      "rationale": "Every visible QA commit must pass read-after-write checksum, manifest integrity, missing-evidence, and duplicate-identity verification."
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. Post-publish verification proves the qa-archive binary is absent on every platform."
     },
     {
       "path": "backend/internal/service/ops_gateway_latency.go",
@@ -12054,9 +12013,11 @@
         "prodUsageLogRetentionDays  = 400",
         "prodErrorLogRetentionDays  = 30",
         "prodSystemLogRetentionDays = 7",
-        "billingDedupRetentionDays  = 400",
+        "billingDedupRetentionDays        = 7",
+        "billingDedupArchiveRetentionDays = 30",
         "func resolveDataLifecyclePolicy(",
-        "billingDedupRetentionDays: billingDedupRetentionDays",
+        "billingDedupRetentionDays:        billingDedupRetentionDays",
+        "billingDedupArchiveRetentionDays: billingDedupArchiveRetentionDays",
         "func capLifecycleRetention(",
         "func dataLifecycleRoleKnown("
       ],
@@ -12167,17 +12128,18 @@
       "path": "deploy/domestic/bluegreen.py",
       "must_contain": [
         "domestic QA capture must stay enabled",
-        "domestic telemetry archive must stay disabled",
         "domestic QA archive upload must stay disabled",
         "domestic QA archive storage must not be s3",
         "env['QA_CAPTURE_ENABLED'] = 'true'",
-        "env['TELEMETRY_ARCHIVE_ENABLED'] = 'false'",
         "def reclaim_candidate_name(target, routed):",
         "if target == routed:",
         "if requests != 0:",
         "reclaim_candidate_name(target, old)"
       ],
-      "rationale": "cn-prod candidates must keep local QA capture on and refuse telemetry archive, QA archive, and S3 storage. Reverting the overlay to capture-disabled or copying a prod archive env would upload or drop capture without a gateway code change. reclaim_candidate_name must keep deciding on ROUTED-ness, not run state: cn-prod has two legitimate steady states that leave a container on the candidate name -- promote() keeps the outgoing color exited for rollback, and remediate-newapi-nonstream-timeout.sh deliberately recreates the previous color so both sides carry the new budget. Refusing every running container blocked all cn-prod releases after any budget remediation; dropping the routed-color or in_flight checks would instead cut live traffic or truncate a draining response."
+      "rationale": "cn-prod candidates must keep local QA capture on and refuse QA archive and S3 storage. The telemetry archive env is gone (2026-11-08 用户决定保持关闭并删除代码) and must not return. Reverting the overlay to capture-disabled or copying a prod archive env would upload or drop capture without a gateway code change. reclaim_candidate_name must keep deciding on ROUTED-ness, not run state: cn-prod has two legitimate steady states that leave a container on the candidate name -- promote() keeps the outgoing color exited for rollback, and remediate-newapi-nonstream-timeout.sh deliberately recreates the previous color so both sides carry the new budget. Refusing every running container blocked all cn-prod releases after any budget remediation; dropping the routed-color or in_flight checks would instead cut live traffic or truncate a draining response.",
+      "must_not_contain": [
+        "TELEMETRY_ARCHIVE_"
+      ]
     },
     {
       "path": "deploy/domestic/test_bluegreen.py",
@@ -12196,7 +12158,7 @@
         "def test_candidate_enables_capture_without_s3_upload(",
         "def test_candidate_rejects_capture_off_archive_upload_and_s3("
       ],
-      "rationale": "Domestic blue/green must prove capture is forced on while telemetry archive, QA archive, and S3 storage are rejected."
+      "rationale": "Domestic blue/green must prove capture is forced on while QA archive and S3 storage are rejected."
     },
     {
       "path": "deploy/domestic/post_release.py",
@@ -12248,11 +12210,31 @@
         "if !s.snapshotEffective().Enabled {",
         "policy := resolveDataLifecyclePolicy(s.cfg, effective.OpsCleanupConfig)",
         "s.dashboardRepo.CleanupUsageLogs(ctx, now.AddDate(0, 0, -policy.usageLogRetentionDays))",
-        "s.dashboardRepo.CleanupUsageBillingDedup(ctx, now.AddDate(0, 0, -policy.billingDedupRetentionDays))",
+        "s.cleanupUsageBillingDedup(ctx, now, policy)",
         "{policy.errorLogRetentionDays, \"ops_error_logs\"",
         "{policy.systemLogRetentionDays, \"ops_system_logs\""
       ],
       "rationale": "OpsCleanupService is the sole automatic age-retention owner. It must keep partition provisioning active during cleanup hold, then use the shared role policy for usage, archive-first billing dedup, and separate error/system windows. Losing any hook can create double ownership, leave a dataset unbounded, or advance destructive cleanup under the wrong role policy."
+    },
+    {
+      "path": "backend/internal/service/ops_cleanup_billing_dedup_tk.go",
+      "must_contain": [
+        "type UsageBillingDedupArchiveCleaner interface",
+        "cleaner, ok := s.dashboardRepo.(UsageBillingDedupArchiveCleaner)",
+        "purged, backlog, err := cleaner.PurgeExpiredUsageBillingDedup(ctx, archiveCutoff)",
+        "if !backlog {",
+        "s.dashboardRepo.CleanupUsageBillingDedup(ctx, hotCutoff)",
+        "cleaner.CleanupUsageBillingDedupArchive(ctx, archiveCutoff)"
+      ],
+      "rationale": "Billing dedup lifecycle owner (docs/approved/billing-dedup-retention.md): purge keys past the 30-day archive window first, run the upstream hot-to-archive move only when that purge has no backlog, then trim the archive. Losing the backlog guard copies millions of expired keys into the archive; losing the archive trim leaves the archive unbounded."
+    },
+    {
+      "path": "backend/internal/repository/dashboard_aggregation_repo_tk_dedup_archive.go",
+      "must_contain": [
+        "var _ service.UsageBillingDedupArchiveCleaner = (*dashboardAggregationRepository)(nil)",
+        "usageBillingDedupPurgeMaxRowsPerRun = 1_000_000"
+      ],
+      "rationale": "The production repository must implement the dedup archive extension, or the cleanup silently falls back to the upstream move and the archive grows forever."
     },
     {
       "path": "backend/internal/service/dashboard_aggregation_service.go",
@@ -14863,11 +14845,11 @@
     },
     {
       "path": "ops/observability/data_layer_safety_verdict.py",
-      "must_contain": [
-        "reported_loss = True",
-        "telemetry_run = _timestamp(telemetry.get(\"last_run_at\"))"
-      ],
-      "rationale": "Cumulative shadow loss counters amplify one failed upload into three findings; the loss finding owns its derived error/stale-clean-heartbeat, and liveness stays on last_run_at so a dead publisher still fails closed."
+      "rationale": "The telemetry archive gate was retired (2026-11-08 用户决定保持关闭并删除代码). The data-layer verdict must not regain a telemetry finding that would page on a heartbeat no process writes.",
+      "must_not_contain": [
+        "TELEMETRYSTATS",
+        "telemetry_archive"
+      ]
     },
     {
       "path": "backend/internal/service/openai_gateway_qwen_token_plan_tk_test.go",
@@ -16982,166 +16964,132 @@
       "rationale": "Single Kiro request budget owner: latch deadline once, restrict relay inheritance, preserve caller cancel and stop account retries at exhaustion."
     },
     {
-      "path": "ops/stage0/qa-runtime-environment.sh",
-      "must_contain": [
-        "QA_LIVE_ARCHIVE_STORAGE_DRIVER=\"s3\"",
-        "QA_LIVE_ARCHIVE_STORAGE_REGION=\"us-east-1\"",
-        "QA_LIVE_ARCHIVE_STORAGE_BUCKET=\"tokenkey-prod-qa-raw-archive-682751977094\"",
-        "QA_LIVE_ARCHIVE_STORAGE_ENDPOINT=\"https://s3.us-east-1.amazonaws.com\"",
-        "QA_LIVE_ARCHIVE_STORAGE_PREFIX=\"raw/v1\""
-      ],
-      "rationale": "Live QA raw storage coordinates are owned here and shared with the delivered deployment script and health evaluator. Ordinary releases must not silently change the explicitly approved AWS raw coordinates."
-    },
-    {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
       "must_contain": [
-        "assert_live_qa_archive_coordinates() {",
-        "  assert_live_qa_archive_coordinates",
-        "live QA archive requires EC2 instance-role authentication",
-        "DELIVER_QA_ARCHIVE_REGION=\"${QA_ARCHIVE_STORAGE_REGION:-${QA_LIVE_ARCHIVE_STORAGE_REGION}}\"",
-        "env_default TELEMETRY_ARCHIVE_BUCKET \"${TELEMETRY_ARCHIVE_BUCKET:-}\"",
-        "DELIVER_TELEMETRY_BUCKET=\"${TELEMETRY_ARCHIVE_BUCKET:-}\"",
         "append_layout_exception_caddy() {",
         "profiles: [\"caddy-adopt\"]",
         "container_name: tokenkey-caddy",
         "name: tk-cutover-prod",
-        "docker start tokenkey-caddy"
+        "docker start tokenkey-caddy",
+        "assert_post_cutover_environment() {",
+        "API_DOMAIN is required before cutover",
+        "      - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}"
       ],
       "must_not_contain": [
-        "tokenkey-prod-qa-raw-archive-682751977094"
+        "tokenkey-prod-qa-raw-archive-682751977094",
+        "assert_live_qa_archive_coordinates",
+        "assert_qa_provider_unchanged",
+        "QA_LIVE_ARCHIVE_STORAGE_DRIVER",
+        "QA_RUNTIME_KEYS",
+        "env_default QA_ARCHIVE_ENABLED",
+        "- QA_ARCHIVE_ENABLED=",
+        "qa-runtime-environment.sh",
+        "TELEMETRY_ARCHIVE_"
       ],
-      "rationale": "Prod deploys validate existing raw coordinates and EC2 role authentication before preparing a gateway; missing settings fail instead of changing buckets. Disabled telemetry also has no implicit AWS storage destination. Layout-exception caddy is recorded on the blue/green compose with the 100m x 5 log cap and is started by name when the Stage0 compose file is absent."
+      "rationale": "QA S3 and the telemetry archive were retired on 2026-11-08 (user decision): prod deploys never inject QA_ARCHIVE_ENABLED, demand S3 coordinates, or pass QA_ARCHIVE_* into either color (absent key = gateway default off); QA_CAPTURE_* stays. .env keys read after cutover (API_DOMAIN) are checked before any route switch. Disabled telemetry has no implicit AWS storage destination. Layout-exception caddy is recorded on the blue/green compose with the 100m x 5 log cap and is started by name when the Stage0 compose file is absent."
     },
     {
-      "path": "deploy/aws/stage0/qa-runtime-compose.yml",
+      "path": "ops/observability/host_https_watch.py",
       "must_contain": [
-        "${QA_ARCHIVE_STORAGE_DRIVER:?QA_ARCHIVE_STORAGE_DRIVER is required}",
-        "${QA_ARCHIVE_STORAGE_REGION:?QA_ARCHIVE_STORAGE_REGION is required}",
-        "${QA_ARCHIVE_STORAGE_ENDPOINT:?QA_ARCHIVE_STORAGE_ENDPOINT is required}",
-        "${QA_ARCHIVE_STORAGE_CREDENTIALS_FILE:-}",
-        "${QA_ARCHIVE_STORAGE_PREFIX:?QA_ARCHIVE_STORAGE_PREFIX is required}"
+        "\"tokenkey-qa-cleanup\": (20 * 60, 960),",
+        "\"tokenkey-qa-archive\": (9 * 3600, 1800),"
       ],
-      "rationale": "The independent maintenance pin requires explicit storage coordinates. An empty private credential path permits EC2 instance-role authentication."
+      "must_not_contain": [
+        "\"tokenkey-qa-maintenance\": (",
+        "\"tokenkey-qa-boundary\": (",
+        "jobs += [\"tokenkey-qa-maintenance\""
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. The watcher monitors the local QA jobs; the masked S3 maintenance/boundary units are neither watched nor paused."
     },
     {
-      "path": "ops/observability/probe-qa-phase2-live-health.sh",
+      "path": "deploy/tencent/candidate-usw-20261022.json",
       "must_contain": [
-        "[\"docker\", \"inspect\", \"tokenkey-qa-runtime\"]",
-        "print(\"PHASE2STORAGE \"",
-        "\"credentials_file_present\": bool(env.get(\"QA_ARCHIVE_STORAGE_CREDENTIALS_FILE\", \"\").strip())",
-        "\"service_active_state\": os.environ.get(\"TK_SERVICE_ACTIVE_STATE\", \"\")"
+        "\"tokenkey-qa-cleanup\"",
+        "\"tokenkey-qa-archive\""
       ],
-      "rationale": "Archive coordinates come from the independent stopped maintenance pin, not a gateway color. Probe output must filter credential contents."
+      "must_not_contain": [
+        "\"tokenkey-qa-maintenance\":",
+        "\"tokenkey-qa-boundary\":",
+        "prod_phase2_live_health"
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. paused_jobs and the watcher JOB_LIMITS drop the S3 units together; local QA jobs stay monitored."
     },
     {
-      "path": "ops/stage0/qa-runtime-install.py",
+      "path": "deploy/aws/stage0/stage0-ec2-bootstrap.sh",
       "must_contain": [
-        "def data_network(networks: dict) -> str:",
-        "if \"tokenkey-postgres\" in (net.get(\"Aliases\") or []):",
-        "raise ValueError(\"database network is ambiguous\")"
+        "systemctl enable --now tokenkey-disk-metrics.timer"
       ],
-      "rationale": "The QA runtime pin's DATABASE_HOST is tokenkey-postgres; multi-network layout-exception hosts (Tencent prod) must pin the network advertising that alias, not fail or pick arbitrarily."
+      "must_not_contain": [
+        "tokenkey-qa-boundary",
+        "tokenkey-qa-maintenance"
+      ],
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. The AWS standby bootstrap must not install the S3-era QA runners."
     },
     {
-      "path": "ops/qa/prod_phase2_live_health.py",
+      "path": "ops/qa/local_maintenance_host.py",
       "must_contain": [
-        "def live_archive_coordinates()",
-        "ops/stage0/qa-runtime-environment.sh",
-        "storage = evaluate_storage(snapshot.get(\"storage\"), maintenance_paused=",
-        "deferred.append(\"qa_archive_instance_role_unavailable\")",
-        "\"qa_runtime_storage_unavailable\"",
-        "skip_iam = not args.legacy_aws",
-        "maintenance_paused=bool(maintenance_pause_reason)",
-        "get(\"host_watch\", {}).get(\"paused_jobs\", {}).get(\"tokenkey-qa-maintenance\", \"\")",
-        "def _defer_paused_instance_role(",
-        "iam.get(\"applicable\", True)"
+        "require_legacy_paused()",
+        "'cleanup': '*-*-* *:02/5:00 UTC',"
       ],
-      "rationale": "Live QA health validates the maintenance pin against the shared AWS contract and fails on missing evidence. While uploads are paused, missing statements on the retired instance role are deferred; any other IAM failure still exits."
+      "rationale": "Local QA maintenance keeps refusing to run while a legacy owner is active, and cleanup stays on its 5-minute cadence."
     },
     {
       "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
       "must_contain": [
-        "def test_live_qa_coordinates_are_aws_and_complete(",
-        "test_telemetry_defaults_are_empty_and_explicit_storage_survives"
+        "def test_env_without_qa_keys_deploys_without_qa_archive(",
+        "def test_stale_qa_archive_keys_in_dotenv_do_not_reach_the_container(",
+        "def test_missing_api_domain_fails_before_any_cutover("
       ],
-      "rationale": "Deployment preserves live QA coordinates and explicitly configured storage settings."
+      "rationale": "A .env without QA keys deploys with no QA_ARCHIVE_* in either color, stale QA_ARCHIVE_* keys cannot reach the container, a missing API_DOMAIN fails before cutover, and explicitly configured storage settings survive."
     },
     {
-      "path": "ops/qa/test_prod_phase2_live_health.py",
+      "path": "ops/observability/test_host_https_watch.py",
       "must_contain": [
-        "def test_live_storage_fails_on_missing_facts_aws_and_invalid_pin(",
-        "def test_legacy_iam_failure_is_separate_from_live_health(",
-        "def test_storage_probe_reads_stopped_pin_and_redacts_secrets(",
-        "def test_runtime_compose_requires_each_storage_coordinate(",
-        "def test_baseline_checks_pin_and_fails_when_storage_is_unknown(",
-        "def test_pause_ignores_old_archive_but_preserves_boundary_and_storage(",
-        "def test_pause_rejects_resumed_or_unknown_systemd_states(",
-        "def test_paused_uploads_defer_only_the_write_identity_check(",
-        "def test_paused_upload_defers_only_retired_instance_role_sids(",
-        "def test_paused_upload_still_reports_other_iam_drift("
+        "for retired in ('tokenkey-qa-maintenance', 'tokenkey-qa-boundary'):"
       ],
-      "rationale": "Behavior tests prevent false healthy output when independent pin or instance-role evidence is absent, secrets leaking through probe output, and missing storage coordinates."
+      "rationale": "Protect the regression that keeps the retired S3 units out of jobs, paused_jobs and JOB_LIMITS."
     },
     {
       "path": ".github/workflows/ops-daily-diagnostics.yml",
       "must_contain": [
-        "prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json",
-        "qa-raw-archive-iam|$TARGET_ID|paused",
-        "qa-raw-archive-iam|$TARGET_ID|not-applicable",
         "external-health|$TARGET_ID|on-host",
         "RUNTIME_RESOURCE_LAYOUT=$RUNTIME_LAYOUT",
         "ops/observability/diagnostics-targets.json",
-        "error-clustering|$TARGET_ID|retired",
-        "if (.iam_contract.applicable == false) then \"false\" else \"true\" end"
+        "error-clustering|$TARGET_ID|retired"
       ],
       "must_not_contain": [
-        "bash ops/stage0/deploy-error-clustering-binary.sh",
-        "diagnostics_include_error_clustering",
-        ".iam_contract.applicable // true"
+        "prod_phase2_live_health.py",
+        "probe-qa-phase2-live-health.sh",
+        "qa-raw-archive-iam|",
+        "QA_RAW_ARCHIVE_STACK",
+        "QA_ARCHIVE"
       ],
-      "rationale": "Daily diagnostics keeps the historical AWS IAM audit for US West. While QA upload is paused, missing statements on the retired Tokyo role are deferred. Beijing is in the same matrix and does not run that audit or the public DNS health check. The job does not compile error_clustering; the daily error ledger owns classification."
+      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. Daily diagnostics keeps the matrix probes and no longer runs QA Phase 2 live health or raw-archive IAM checks."
     },
     {
       "path": "ops/observability/diagnostics-targets.json",
       "must_contain": [
         "\"target_id\": \"prod\"",
         "\"layout\": \"usw\"",
-        "\"qa_archive\": \"true\"",
         "\"public_health\": \"true\"",
         "\"target_id\": \"cn-prod\"",
         "\"layout\": \"domestic\"",
-        "\"qa_archive\": \"false\"",
         "\"public_health\": \"false\"",
         "\"probe_target\": \"cn-prod\""
       ],
-      "rationale": "Daily diagnostics uses one matrix. US West keeps public health and the paused QA IAM audit. Beijing is diagnosed on its own SSM host; public DNS and the Tokyo archive role do not apply."
-    },
-    {
-      "path": "deploy/aws/stage0/tokenkey-qa-maintenance.sh",
-      "must_contain": [
-        "with_qa_lifecycle_lock 0 run_single_owner_activation",
-        "acquire_qa_lifecycle_lock 600 || return $?",
-        "acquire_qa_lifecycle_lock \"$1\" || return $?"
+      "must_not_contain": [
+        "\"qa_archive\""
       ],
-      "rationale": "Scheduled archive waits for backup; owner activation must fail immediately on a busy host lock."
-    },
-    {
-      "path": "deploy/aws/stage0/tokenkey-qa-boundary.sh",
-      "must_contain": [
-        "QA_LIFECYCLE_LOCK_FILE",
-        "flock -w 600 9",
-        "qa_fail lifecycle_lock_busy 75"
-      ],
-      "rationale": "Boundary DDL must share the backup/archive lease and fail with a receipt before child execution."
+      "rationale": "Daily diagnostics uses one matrix. US West keeps public health; Beijing is probed on-host. The QA archive flag was retired with QA S3."
     },
     {
       "path": "ops/stage0/test_qa_backup_host_lock.py",
       "must_contain": [
-        "test_archive_waits_for_backup_and_preserves_success_receipt",
-        "test_boundary_lock_timeout_records_failure_without_container_work",
-        "test_dump_releases_lease_before_slow_object_upload"
+        "test_dump_waits_for_qa_then_writes_valid_recovery_artifact",
+        "test_dump_releases_lease_before_slow_object_upload",
+        "test_dump_lock_timeout_does_not_prune_existing_backup"
       ],
-      "rationale": "Real kernel locks protect QA and dumps without holding QA behind object upload."
+      "rationale": "Real kernel locks keep pg_dump and the local QA jobs on qa-lifecycle/host.lock without holding QA behind object upload."
     },
     {
       "path": "ops/stage0/retire_aws_standby_timers.py",
@@ -17529,15 +17477,6 @@
       "rationale": "Model cooldown reads and writes must reuse native forwarding variant resolution for explicit low/medium requests."
     },
     {
-      "path": "ops/qa/qa_phase2_health.py",
-      "must_contain": [
-        "if maintenance_paused:",
-        "None if maintenance_paused else archive",
-        "_evaluate_boundary(forward_reasons, snapshot, now)"
-      ],
-      "rationale": "Paused archive checks must retain boundary coverage and reject unexpected service activity."
-    },
-    {
       "path": "backend/internal/service/openai_response_protection_diagnostic_tk.go",
       "must_contain": [
         "func recordOpenAIResponseProtectionDiagnostic(",
@@ -17746,10 +17685,12 @@
     {
       "path": "deploy/domestic/compose.override.yml",
       "must_contain": [
-        "QA_CAPTURE_ENABLED: \"true\"",
-        "TELEMETRY_ARCHIVE_ENABLED: \"false\""
+        "QA_CAPTURE_ENABLED: \"true\""
       ],
-      "rationale": "cn-prod compose must enable local QA capture and keep telemetry archive off so the next candidate does not upload QA or telemetry to S3."
+      "rationale": "cn-prod compose must enable local QA capture so the next candidate keeps capture on without uploading QA to S3. The telemetry archive env was retired (2026-11-08 用户决定保持关闭并删除代码).",
+      "must_not_contain": [
+        "TELEMETRY_ARCHIVE_"
+      ]
     },
     {
       "path": "deploy/domestic/test_pool_env_probe.py",
@@ -18666,7 +18607,7 @@
       "path": "deploy/tencent/tencent_pgbackrest.py",
       "must_contain": [
         "def repository_state(repo: int, info: dict) -> str:",
-        "if repo >= 2 and code == 2 and not (info.get(\"backup\") or []):",
+        "if repo != PRIMARY_REPO and code == 2 and not (info.get(\"backup\") or []):",
         "return \"bootstrapping\"",
         "BOOTSTRAP_REASON = \"repository_bootstrapping\"",
         "if ok and bootstrapping:",
@@ -18676,9 +18617,12 @@
         "def archiver_healthy(arch: dict) -> bool:",
         "        ok = not broken and archiving_now",
         "raise Err(\"refusing to write a degraded receipt without a reason\")",
-        "        return _instant(archived) > _instant(failed_at)"
+        "        return _instant(archived) > _instant(failed_at)",
+        "PRIMARY_REPO = 2",
+        "raise Err(f\"primary COS repository repo{PRIMARY_REPO} is not configured\")",
+        "PRIMARY_MISSING_REASON = \"primary_repository_missing\""
       ],
-      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo >= 2` keeps the primary recovery chain out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command. A check that raises still writes a degraded receipt carrying the pgBackRest error code and HINTs: a MISSING receipt is indistinguishable from a dead timer to the 900s freshness gate, which is strictly worse than a degraded one. Archive health is judged on CURRENT state (last_archived_time newer than last_failed_time), never on the cumulative failed_count: those counters never decrease, so `failed_count == 0` asks 'has this host ever failed' and pinned cn-prod to degraded forever after a 3-minute incident. Timestamps are parsed, not string-compared, because equal wall-clock text can carry different UTC offsets. Every non-ok receipt names a reason with a matching evidence object."
+      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo != PRIMARY_REPO` keeps the primary recovery chain (COS repo2, the only repository since 2026-11-08) out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command. A check that raises still writes a degraded receipt carrying the pgBackRest error code and HINTs: a MISSING receipt is indistinguishable from a dead timer to the 900s freshness gate, which is strictly worse than a degraded one. Archive health is judged on CURRENT state (last_archived_time newer than last_failed_time), never on the cumulative failed_count: those counters never decrease, so `failed_count == 0` asks 'has this host ever failed' and pinned cn-prod to degraded forever after a 3-minute incident. Timestamps are parsed, not string-compared, because equal wall-clock text can carry different UTC offsets. Every non-ok receipt names a reason with a matching evidence object. Since 2026-11-08 COS repo2 is the only repository: a config without repo2 raises and writes a primary_repository_missing receipt (a hard fault), never falling back to backing up AWS repo1."
     },
     {
       "path": "deploy/tencent/test_tencent_pgbackrest.py",
@@ -18690,15 +18634,19 @@
         "def test_check_failure_still_writes_a_diagnosable_receipt(",
         "def test_recovered_host_is_ok_despite_a_nonzero_cumulative_failed_count(",
         "def test_a_degraded_receipt_always_names_a_reason(",
-        "def test_archiver_healthy_compares_instants_not_strings("
+        "def test_archiver_healthy_compares_instants_not_strings(",
+        "def test_cos_only_check_is_ok_with_a_single_repository(",
+        "def test_cos_only_check_with_no_backups_is_a_fault(",
+        "def test_check_without_cos_configured_writes_a_hard_fault_receipt(",
+        "def test_config_without_cos_never_falls_back_to_aws("
       ],
-      "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches repo1, and a failing archive_command is never excused."
+      "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches the primary COS repo2, and a failing archive_command is never excused. A single COS repository is healthy, and a COS repository without backups or missing from the config is a fault."
     },
     {
       "path": "deploy/domestic/cn_pgbackrest.py",
       "must_contain": [
         "def repository_state(repo: int, info: dict) -> str:",
-        "if repo >= 2 and code == 2 and not (info.get(\"backup\") or []):",
+        "if repo != PRIMARY_REPO and code == 2 and not (info.get(\"backup\") or []):",
         "return \"bootstrapping\"",
         "BOOTSTRAP_REASON = \"repository_bootstrapping\"",
         "if ok and bootstrapping:",
@@ -18708,9 +18656,12 @@
         "def archiver_healthy(arch: dict) -> bool:",
         "        ok = not broken and archiving_now",
         "raise Err(\"refusing to write a degraded receipt without a reason\")",
-        "        return _instant(archived) > _instant(failed_at)"
+        "        return _instant(archived) > _instant(failed_at)",
+        "PRIMARY_REPO = 2",
+        "raise Err(f\"primary COS repository repo{PRIMARY_REPO} is not configured\")",
+        "PRIMARY_MISSING_REASON = \"primary_repository_missing\""
       ],
-      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo >= 2` keeps the primary recovery chain out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command. A check that raises still writes a degraded receipt carrying the pgBackRest error code and HINTs: a MISSING receipt is indistinguishable from a dead timer to the 900s freshness gate, which is strictly worse than a degraded one. Archive health is judged on CURRENT state (last_archived_time newer than last_failed_time), never on the cumulative failed_count: those counters never decrease, so `failed_count == 0` asks 'has this host ever failed' and pinned cn-prod to degraded forever after a 3-minute incident. Timestamps are parsed, not string-compared, because equal wall-clock text can carry different UTC offsets. Every non-ok receipt names a reason with a matching evidence object."
+      "rationale": "A newly configured pgBackRest repository reports code 2 until its first full lands; check must classify that as bootstrapping, not failure. Both halves of the exemption are load-bearing: `repo != PRIMARY_REPO` keeps the primary recovery chain (COS repo2, the only repository since 2026-11-08) out of it, and the empty-backup test keeps a repository that LOST its chain a failure. Bootstrap is degraded-with-reasons and exits 0; it never excuses a failing archive_command. A check that raises still writes a degraded receipt carrying the pgBackRest error code and HINTs: a MISSING receipt is indistinguishable from a dead timer to the 900s freshness gate, which is strictly worse than a degraded one. Archive health is judged on CURRENT state (last_archived_time newer than last_failed_time), never on the cumulative failed_count: those counters never decrease, so `failed_count == 0` asks 'has this host ever failed' and pinned cn-prod to degraded forever after a 3-minute incident. Timestamps are parsed, not string-compared, because equal wall-clock text can carry different UTC offsets. Every non-ok receipt names a reason with a matching evidence object. Since 2026-11-08 COS repo2 is the only repository: a config without repo2 raises and writes a primary_repository_missing receipt (a hard fault), never falling back to backing up AWS repo1."
     },
     {
       "path": "deploy/domestic/test_cn_pgbackrest.py",
@@ -18722,39 +18673,61 @@
         "def test_check_failure_still_writes_a_diagnosable_receipt(",
         "def test_recovered_host_is_ok_despite_a_nonzero_cumulative_failed_count(",
         "def test_a_degraded_receipt_always_names_a_reason(",
-        "def test_archiver_healthy_compares_instants_not_strings("
+        "def test_archiver_healthy_compares_instants_not_strings(",
+        "def test_cos_only_check_is_ok_with_a_single_repository(",
+        "def test_cos_only_check_with_no_backups_is_a_fault(",
+        "def test_check_without_cos_configured_writes_a_hard_fault_receipt(",
+        "def test_config_without_cos_never_falls_back_to_aws("
       ],
-      "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches repo1, and a failing archive_command is never excused."
+      "rationale": "Keep the bootstrap-vs-failure boundary executable: exemption applies, exemption refused for a repository with backups, exemption never reaches the primary COS repo2, and a failing archive_command is never excused. A single COS repository is healthy, and a COS repository without backups or missing from the config is a fault."
     },
     {
       "path": "deploy/domestic/cn_backup_identity.py",
       "must_contain": [
-        "def prepare_repo2(contents: str) -> None:",
-        "STAGING = CONFIG.with_name(\".pgbackrest-staging.conf\")",
-        "_staged(container, \"stanza-create\", timeout=300)",
-        "if cos is not None and not repo2_live():",
-        "except RepositoryBusy as busy:",
-        "        aws = read_aws_credentials()\n        validate_identity(caller_identity(aws, target[\"ssm_region\"]), target)\n        atomic_private(render_config(aws, cos))",
-        "        secondary = _staged_stanza(container, 2)",
-        "        primary = _staged_stanza(container, 1)",
-        "if (secondary.get(\"status\") or {}).get(\"code\") not in (0, 2):",
-        "if (secondary.get(\"status\") or {}).get(\"code\") == 2 and (secondary.get(\"backup\") or []):"
+        "def render_config(cos: dict[str, str]) -> str:",
+        "\"repo2-type=s3\", f\"repo2-path={COS_PATH}\",",
+        "atomic_private(render_config(read_cos_credentials()))",
+        "\"aws_repo1\": \"retired\""
       ],
-      "rationale": "archive_command is `archive-push %p` with no --repo, so pgBackRest fans WAL to EVERY configured repository. repo2 must therefore be created and verified through a staged --config BEFORE it reaches the live config; otherwise archiving depends on a stanza-less repository and stalls until archive-timeout (observed on cn-prod 2026-11-02: WAL stalled, backup failed [082], repo1 healthy throughout). Order is load-bearing: stanza-create, then check, then a read-only repo1 info -- the rollout order the approved COS parallel-repository design already mandates. RepositoryBusy keeps a [050] lock collision with the 2-hourly backup a deferral rather than a stuck enablement. repo1's identity is re-read and re-validated AFTER the preflight: the SSM agent rotates credentials on its own ~25-minute schedule while the preflight can take ~11 minutes, so installing the pre-rendered config would leave the primary chain on a superseded session token. The preflight deliberately does NOT run a full `check`: that command forces a WAL switch and waits for the segment to reach EVERY configured repository, but the live archive_command is still AWS-only at that point, so it times out with [082] no matter how healthy repo2 is -- and `--repo` is rejected for check, so it cannot be scoped to the primary chain. What is provable pre-live is what it runs: the stanza exists on repo2, repo2 reads back (code 2 'no valid backups' is its expected pre-first-backup state, while code 2 WITH backups means a lost chain and is refused), and repo1 is still intact. The full check belongs to the 5-minute archive-check timer after repo2 goes live."
+      "rationale": "2026-11-08 user decision: stop writing AWS repo1; Beijing COS at index repo2 is the only pgBackRest repository. The refresher renders a COS-only config (no repo1 option, no AWS endpoint, no STS token) and requires the root-only COS credential: without it the refresh fails and the last good config stays live, never falling back to AWS. COS keeps index 2 so `--repo=2` means COS in the runner, cos_restore_acceptance.py and every runbook, and a stale `--repo=1` fails with [032] instead of reaching a different repository. The former repo2 staging preflight protected an AWS-only archive_command from a stanza-less COS repository; COS has had a valid stanza since 2026-11-02, so dropping repo1 only shrinks the archive-push fan-out (verified on pgBackRest 2.58)."
     },
     {
       "path": "deploy/domestic/test_cn_backup_identity.py",
       "must_contain": [
-        "def test_staging_is_verified_in_order_before_live_config_is_written(",
-        "def test_failure_leaves_live_config_untouched_and_cleans_staging(",
-        "def test_lock_collision_defers_instead_of_failing(",
-        "def test_steady_state_does_not_rerun_the_preflight(",
-        "def test_identity_is_reread_after_the_preflight(",
-        "def test_repo2_without_its_first_backup_is_accepted(",
-        "def test_repo2_reporting_invalid_with_backups_is_refused(",
-        "self.assertNotIn((\"check\",), calls, \"a full check cannot run pre-live\")"
+        "def test_render_is_cos_only_with_no_repo1_or_aws_endpoint(",
+        "def test_render_parses_as_a_single_cos_repository(",
+        "def test_module_no_longer_touches_aws(",
+        "def test_missing_cos_credentials_fail_and_keep_the_current_config("
       ],
-      "rationale": "Keep the enablement-order guarantees executable: staged verification precedes the live write, a failure leaves the live config AWS-only, a lock collision defers, and steady state does not re-run the preflight."
+      "rationale": "Keep the COS-only render executable: no repo1/AWS in the config, exactly one repository index (2), and no AWS fallback when COS credentials are missing."
+    },
+    {
+      "path": "ops/stage0/tencent_backup_identity.py",
+      "must_contain": [
+        "from postgres_backup import cos_configuration",
+        "contents = render_config(read_cos_credentials())",
+        "for path in (SOURCE_CONFIG, CANDIDATE_CONFIG):",
+        "'aws_repo1': 'retired'"
+      ],
+      "rationale": "prod renders a COS-only pgBackRest config (2026-11-08: AWS repo1 retired). It must not read /root/.aws/credentials, call STS or render any repo1/AWS option, so the short-lived AWS session token stops being written into the mounted config. Both tmpfs configs are rewritten: CANDIDATE_CONFIG is published into the live container mount, SOURCE_CONFIG is what the archive-standby recreate mounts."
+    },
+    {
+      "path": "ops/stage0/test_tencent_backup_identity.py",
+      "must_contain": [
+        "def test_rendered_config_is_cos_only_with_no_aws(",
+        "def test_module_no_longer_reads_aws_session_or_calls_sts(",
+        "def test_refresh_writes_cos_only_config_to_both_runtime_paths(",
+        "def test_missing_cos_credentials_fail_without_aws_fallback("
+      ],
+      "rationale": "Keep the prod COS-only render executable: no repo1/AWS/STS token, both runtime paths rewritten, and no AWS fallback."
+    },
+    {
+      "path": "ops/stage0/postgres_backup.py",
+      "must_contain": [
+        "COS_REPO_INDEX = 2",
+        "def cos_configuration(cos: dict) -> str:"
+      ],
+      "rationale": "COS keeps index repo2 as the only repository. pgBackRest stores no index inside a repository, so the index is a config key only; keeping 2 makes the switch a pure deletion of repo1-* lines and keeps `--repo=2` meaning COS everywhere."
     },
     {
       "path": "backend/internal/service/account_standing_billing_tk.go",
@@ -19387,7 +19360,8 @@
       "must_contain": [
         "func (s *OpenAIGatewayService) resolveOpenAITLSProfile(account *Account) *tlsfingerprint.Profile {",
         "!account.IsOpenAIOAuthLike()",
-        "func (s *OpenAIGatewayService) doOpenAIUpstreamWithAccountTLS("
+        "func (s *OpenAIGatewayService) doOpenAIUpstreamWithAccountTLS(",
+        "withOpenAITLSHTTP2Windows(profile, account)"
       ],
       "rationale": "Single OpenAI-gateway owner for outbound TLS identity: only opted-in OpenAI OAuth/SetupToken accounts get a uTLS profile; all others keep the exact historical httpUpstream.Do call."
     },
@@ -19419,7 +19393,13 @@
       "path": "backend/internal/repository/http_upstream.go",
       "must_contain": [
         "recordUpstreamTLSIdentity(resp, entry, accountID, proxyURL, nil)",
-        "recordUpstreamTLSIdentity(resp, entry, accountID, proxyURL, profile)"
+        "recordUpstreamTLSIdentity(resp, entry, accountID, proxyURL, profile)",
+        "protocolMode := s.resolveTLSFingerprintProtocolMode(upstreamProfile, proxyKey, parsedProxy)",
+        "cacheKey := \"tls:\" + buildCacheKey(isolation, proxyKey, accountID, protocolMode)",
+        "transport, err := buildUpstreamTransportWithTLSFingerprintMode(settings, parsedProxy, profile, protocolMode)",
+        "s.recordOpenAIHTTP2Failure(upstreamProfile, entry.protocolMode, entry.proxyKey, err)",
+        "h2Mode = upstreamProtocolModeOpenAIH2",
+        "profile = profile.WithHTTP1OnlyALPN()"
       ],
       "rationale": "Prod evidence of the TLS identity actually used per account (uTLS profile vs crypto/tls, HTTP proto, ALPN) for HTTPS and WSS. Owner: backend/internal/service/upstream_tls_identity_tk.go. Info-level audit.tls_identity events are rate-limited per identity key and persisted to ops_system_logs by the audit.* rule in OpsSystemLogSink. Dropping any hook silently removes the only non-Debug signal that a fingerprint profile is in use."
     },
@@ -19444,6 +19424,91 @@
         "case resp.TLS == nil:"
       ],
       "rationale": "Prod evidence of the TLS identity actually used per account (uTLS profile vs crypto/tls, HTTP proto, ALPN) for HTTPS and WSS. Owner: backend/internal/service/upstream_tls_identity_tk.go. Info-level audit.tls_identity events are rate-limited per identity key and persisted to ops_system_logs by the audit.* rule in OpsSystemLogSink. Dropping any hook silently removes the only non-Debug signal that a fingerprint profile is in use."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream_tk_codex_h2.go",
+      "must_contain": [
+        "func (s *httpUpstreamService) resolveTLSFingerprintProtocolMode(upstreamProfile service.HTTPUpstreamProfile, proxyKey string, parsedProxy *url.URL) string {",
+        "return s.resolveProtocolMode(upstreamProfile, proxyKey, parsedProxy)",
+        "if !profile.UsesGoDefaultHTTP2Windows() {",
+        "func tlsFingerprintPoolKeySuffix(profile *tlsfingerprint.Profile) string {"
+      ],
+      "rationale": "OpenAI TLS-fingerprint transport follows gateway.openai_http2 (openai_h2 15s/15s ping, H1 fallback with http/1.1-only ALPN) and supports per-account Go-default HTTP/2 windows."
+    },
+    {
+      "path": "backend/internal/pkg/tlsfingerprint/profile_tk.go",
+      "must_contain": [
+        "HTTP2WindowsGoDefault = \"go_default\"",
+        "func (p *Profile) WithHTTP1OnlyALPN() *Profile {"
+      ],
+      "rationale": "Per-request HTTP/2 window policy and the HTTP/1.1-only ALPN derivation for the OpenAI fingerprint transport."
+    },
+    {
+      "path": "backend/internal/service/account_tk_openai_tls.go",
+      "must_contain": [
+        "func (a *Account) openAIOAuthTLSFingerprintH2Windows() string {",
+        "a.Extra[\"tls_fingerprint_h2_windows\"]"
+      ]
+    },
+    {
+      "path": "backend/internal/repository/http_upstream_tk_openai_tls_policy_test.go",
+      "must_contain": [
+        "func TestOpenAITLSFingerprintH2UsesOpenAIPingAndCodexWindows(",
+        "func TestOpenAITLSFingerprintH1FallbackOffersOnlyHTTP1(",
+        "func TestNonOpenAITLSFingerprintTransportsUnchanged(",
+        "func TestDoWithTLSRecordsOpenAIHTTP2FailureForHTTPProxy("
+      ],
+      "rationale": "Keep the OpenAI HTTP/2 policy, H1 fallback ALPN, and non-OpenAI invariance under test."
+    },
+    {
+      "path": "backend/internal/config/config.go",
+      "must_not_contain": [
+        "TelemetryArchive",
+        "telemetry_archive"
+      ],
+      "rationale": "Raw telemetry S3 shadow config was retired (2026-11-08 用户决定保持关闭并删除代码). Reintroducing the config struct or defaults is the first step of silently reviving the archive writer."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_not_contain": [
+        "telemetryarchive",
+        "TelemetryArchive"
+      ],
+      "rationale": "Generated wiring must not regain the retired telemetry archive shadow or its heartbeat (2026-11-08 用户决定保持关闭并删除代码)."
+    },
+    {
+      "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
+      "must_contain": [
+        "PROD_EDGE_REQUIRED_ENV=(ACME_EMAIL GLOBAL_SITE_PHASE GLOBAL_SITE_DOMAIN API_ALIAS_DOMAIN API_CN_DOMAIN)",
+        "assert_edge_profile_environment() {",
+        "grep -q 'import tokenkey_api_machine' \"${LIVE_CADDY}\""
+      ],
+      "rationale": "2026-11-08 prod rebuild left .env without the edge keys and a hand-written Caddyfile; 1.8.354 cut over and only the CallModel facade probe noticed. prod deploy/prepare/promote must refuse before traffic moves when any edge key is missing or the live Caddyfile is not the canonical render."
+    },
+    {
+      "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
+      "must_contain": [
+        "def test_missing_edge_env_fails_before_cutover(",
+        "def test_hand_written_caddyfile_fails_before_cutover("
+      ],
+      "rationale": "Pins the prod edge env contract: each missing key and a non-canonical Caddyfile fail before cutover."
+    },
+    {
+      "path": "ops/stage0/sync_caddyfile_via_ssm.sh",
+      "must_contain": [
+        "\"export ACME_EMAIL\",",
+        "APPLY_API_CN=false",
+        "api cn persisted:"
+      ],
+      "rationale": "2026-11-09: an ACME_EMAIL override assigned after set -a was not exported, so the render saw it empty and caddy validate failed. API_CN_DOMAIN must be persistable or a re-render drops the api-cn vhost."
+    },
+    {
+      "path": "ops/qa/node1_archive.py",
+      "must_contain": [
+        "def ensure_traversable(directory: Path) -> None:",
+        "    ensure_traversable(node1)\n"
+      ],
+      "rationale": "The cleanup container (uid 1000) bind-mounts node1_root; a 0700 root recreated after the 2026-11-08 rebuild hid every receipt and blocked 24 hours."
     }
   ]
 }

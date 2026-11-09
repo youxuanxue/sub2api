@@ -117,6 +117,21 @@ def hours_to_copy(source_root: Path, before: dt.datetime) -> list[dt.datetime]:
     return sorted(found)
 
 
+def ensure_traversable(directory: Path) -> None:
+    """Let the cleanup container enter and list one directory.
+
+    Only this directory's group/other read+execute bits change. Payload
+    directories below it keep their own 0700 mode, so their contents stay
+    private; only receipts (via ensure_readable_tree) become readable.
+    """
+    try:
+        mode = directory.stat().st_mode
+    except OSError:
+        return
+    if (mode & 0o055) != 0o055:
+        directory.chmod(mode | 0o055)
+
+
 def ensure_readable_tree(root: Path) -> None:
     """Make the receipt tree traversable and its receipts readable.
 
@@ -495,6 +510,10 @@ def run(args: argparse.Namespace) -> int:
             result["failed"].append({"window_start": hour.isoformat(), "error": str(exc)})
     result["ok"] = not result["failed"]
     atomic_json(node1 / "receipts" / args.environment / "last-run.json", result)
+    # The cleanup container bind-mounts node1_root itself, so a 0700 root hides
+    # every receipt below it. After the 2026-11-08 prod rebuild the root came
+    # back 0700 and 24 hours stayed blocked on "permission denied".
+    ensure_traversable(node1)
     # Receipts written by earlier runs (and by this one) must be readable by
     # the cleanup container; a root-owned 0600 file leaves the gate blind.
     ensure_readable_tree(node1 / "receipts")

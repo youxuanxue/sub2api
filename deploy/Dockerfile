@@ -76,11 +76,7 @@ RUN VERSION_VALUE="${VERSION}" && \
     -tags embed \
     -ldflags="-s -w -X main.Version=${VERSION_VALUE} -X main.Commit=${COMMIT} -X main.Date=${DATE_VALUE} -X main.BuildType=release" \
     -o /app/sub2api \
-    ./cmd/server && \
-    CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w -X main.Commit=${COMMIT}" \
-    -o /app/qa-archive \
-    ./cmd/qa-archive
+    ./cmd/server
 
 # -----------------------------------------------------------------------------
 # Stage 3: Final Runtime Image
@@ -109,7 +105,6 @@ WORKDIR /app
 
 # Copy binary and runtime fallback resources from builder
 COPY --from=backend-builder /app/sub2api /app/sub2api
-COPY --from=backend-builder /app/qa-archive /app/qa-archive
 COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources
 
 # Create data directory

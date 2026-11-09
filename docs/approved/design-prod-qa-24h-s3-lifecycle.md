@@ -1,7 +1,7 @@
 ---
 title: Prod-only QA S3 用户面与小时归档生命周期
 status: archived
-superseded_by: qa-raw-only.md
+superseded_by: design-tencent-cos-backup-node1-qa.md
 approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-17; S3-only user surface, capture-sealed archive-gated hourly DROP, fail-closed single maintenance owner, no automatic emergency deletion, and PR #1688 Bundle bootstrap/app rollback contract)"
 approved_at: 2026-08-05
 last_reviewed: 2026-08-19
@@ -17,6 +17,8 @@ scope:
   - edge QA removal
 ---
 
+> **已被取代（2026-11-08）。QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 每 4h；见 [node1 QA](design-tencent-cos-backup-node1-qa.md#node1-qa)。S3 归档与 maintenance owner 已删除；segment/gap 表已无代码读写，由后续迁移删除；`qa_archive_shards` 状态机仍由本地 cleanup 写入。**
+>
 > **已归档（2026-10-28）。** 现行 QA 契约是 [qa-raw-only](qa-raw-only.md)：prod capture、raw archive，以及暂停上传期间的本地 24h 清理。用户导出、Bundle、worker 和 `deploy-qa-bundle.yml` 已退役。本文保留 2026-08 的小时归档与 shard 状态机记录（`archive/state.go` 仍引用 §14.1），不再授权执行用户面、Bundle 或独立 worker 发布。
 
 

@@ -8,7 +8,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/batchworker"
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -21,7 +20,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/server"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/telemetryarchive"
 	"github.com/redis/go-redis/v9"
 	"log"
 	"net/http"
@@ -110,8 +108,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	authHandler := handler.NewAuthHandler(configConfig, authService, userService, settingService, promoService, redeemService, totpService, userAttributeService)
 	userHandler := handler.NewUserHandler(userService, authService, emailService, emailCache, affiliateService, serviceUserPlatformQuotaRepository)
 	mcpoAuthHandler := handler.NewMCPOAuthHandler(mcpoAuthService, totpService, userService, settingService, configConfig)
-	shadow := repository.ProvideTelemetryArchive(configConfig)
-	usageLogRepository := repository.ProvideUsageLogRepository(client, db, shadow)
+	usageLogRepository := repository.NewUsageLogRepository(client, db)
 	usageBillingRepository := repository.NewUsageBillingRepository(client, db)
 	gatewayCache := repository.NewGatewayCache(redisClient)
 	schedulerOutboxRepository := repository.NewSchedulerOutboxRepository(db)
@@ -170,7 +167,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	universalCapabilityService := service.NewUniversalCapabilityService(apiKeyService, gatewayService, modelListFilter)
 	apiKeyHandler := handler.ProvideTKAPIKeyHandler(apiKeyService, universalCapabilityService)
 	usageService := service.NewUsageService(usageLogRepository, userRepository, client, apiKeyAuthCacheInvalidator)
-	opsRepository := repository.ProvideOpsRepository(db, shadow)
+	opsRepository := repository.NewOpsRepository(db)
 	openAIOAuthClient := repository.NewOpenAIOAuthClient()
 	privacyClientFactory := providePrivacyClientFactory()
 	openAIOAuthService := service.ProvideOpenAIOAuthService(proxyRepository, openAIOAuthClient, privacyClientFactory, redisClient)
@@ -439,8 +436,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	tkKiroCacheBillingReady := service.ProvideTKKiroCacheBilling(kiroGatewayService, cacheFingerprintStore, settingService)
 	mainTkCleanupHooks := provideTKCleanupHooks(schedulerRateLimitReaper, anthropicConfigReconciler, holdReconcilerService, tkAccountIncidentNotifier, tkPricingMissingNotifier, upstream400StreakSentinel, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkPricingOverlayRuntimeReady, tkAccountModelMappingRuntimeServingReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkOpenAISaturationReady, tkGatewayHandlerModelListReady, tkUniversalModelsProviderReady, tkGroupUnsupportedModelCacheReady, protocolRoutingSSOTReady, tkKiroCacheBillingReady)
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
-	telemetryArchiveHealth := service.ProvideTelemetryArchiveHealth(shadow, opsRepository)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, claudeCodeVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, geminiCachedContentService, batchImageCleanupService, batchImageWorkerRuntime, managedBatchRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, balanceNotifyService, digestSessionStore, pluginManager, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, terminalOutcomeRecorder, mainTkCleanupHooks, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, openCodeGoUsageService, auditLogService, openAIQuotaAutoResetService, promptService, shadow, telemetryArchiveHealth)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, claudeCodeVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, geminiCachedContentService, batchImageCleanupService, batchImageWorkerRuntime, managedBatchRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, balanceNotifyService, digestSessionStore, pluginManager, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, terminalOutcomeRecorder, mainTkCleanupHooks, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, openCodeGoUsageService, auditLogService, openAIQuotaAutoResetService, promptService)
 	application := &Application{
 		Server:        httpServer,
 		PromptAudit:   promptService,
@@ -534,8 +530,6 @@ func provideCleanup(
 	auditLog *service.AuditLogService,
 	openAIAutoReset *service.OpenAIQuotaAutoResetService,
 	promptAudit *securityaudit.PromptService,
-	telemetryArchive *telemetryarchive.Shadow,
-	telemetryArchiveHealth *service.TelemetryArchiveHealth,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -564,17 +558,6 @@ func provideCleanup(
 					pluginManager.Stop()
 				}
 				return nil
-			}},
-			{"TelemetryArchive", func() error {
-				var healthErr error
-				if telemetryArchiveHealth != nil {
-					healthErr = telemetryArchiveHealth.Stop(ctx)
-				}
-				var archiveErr error
-				if telemetryArchive != nil {
-					archiveErr = telemetryArchive.Stop(ctx)
-				}
-				return errors.Join(healthErr, archiveErr)
 			}},
 			{"OpsIngressRejectAggregator", func() error {
 				if opsIngressReject != nil {

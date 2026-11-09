@@ -22,7 +22,7 @@ class RetentionActivationTest(unittest.TestCase):
         self.assertIn("ops_error_logs", script)
         self.assertIn("ops_system_logs", script)
         self.assertIn("active_image", script)
-        self.assertIn("telemetry_archive_shadow", script)
+        self.assertNotIn("telemetry_archive_shadow", script)
         self.assertIn("ops_partition_maintenance", script)
         self.assertNotIn("forward_archive_window", script)
         self.assertNotIn("qa_archive_shards", script)
@@ -52,8 +52,6 @@ class RetentionActivationTest(unittest.TestCase):
                 "usage_legacy_attached": True,
                 "usage_future_partition_exists": False,
                 "usage_partition_maintenance_clean": True,
-                "telemetry_clean": True,
-                "telemetry_stats": {"dropped": 0, "failed": 0},
             },
         }
         ready, reasons = activation._ready(payload)
@@ -82,8 +80,6 @@ class RetentionActivationTest(unittest.TestCase):
                 "usage_legacy_attached": True,
                 "usage_future_partition_exists": True,
                 "usage_partition_maintenance_clean": True,
-                "telemetry_clean": True,
-                "telemetry_stats": {"dropped": 0, "failed": 0},
             },
         }
         ready, reasons = activation._ready(payload)

@@ -1,22 +1,26 @@
 #!/usr/bin/env python3
-"""Tencent cutover primary: scheduled pgBackRest backup/check on candidate repo.
+"""Tencent USW prod: scheduled pgBackRest backup/check on the COS repository.
 
-Repo record of the host-installed copy at
-/usr/local/lib/tokenkey/tencent-pgbackrest/tencent_pgbackrest.py (fetched read-only
-2026-10-22, host sha256 f30b556d7f1aef10...; this header is the only difference).
+Repo SSOT for the host-installed copy at
+/usr/local/lib/tokenkey/tencent-pgbackrest/tencent_pgbackrest.py. The host copy
+is NOT updated by merging; installing it is a separate approved host step.
 Run by tokenkey-postgres-backup.service / tokenkey-postgres-archive-check.service.
-Contains no credentials; the repo identity is renewed by tokenkey-backup-identity.timer.
+Contains no credentials; the COS config is rendered by tokenkey-backup-identity.timer
+(ops/stage0/tencent_backup_identity.py).
+
+Since 2026-11-08 COS (repo2) is the only repository; AWS repo1
+(candidates/tencent-usw-20261022/postgres) is no longer written.
 """
 from __future__ import annotations
-import fcntl, json, subprocess, sys, time
+import fcntl, json, re, subprocess, sys, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 CONTAINER = "tk-archive-standby"
 STANZA = "tokenkey"
 STATE = Path("/var/lib/tokenkey/postgres-backup")
-LIVE_REPO = "candidates/tencent-usw-20261022/postgres"
 COS_REPO = "prod/postgres"
+LIVE_REPO = COS_REPO
 
 class Err(RuntimeError):
     pass
@@ -34,16 +38,27 @@ def backrest(*args, timeout=120):
         "pgbackrest", f"--stanza={STANZA}", *args,
     ], timeout=timeout + 15)
 
-def repo2_enabled():
-    """Detect the opt-in COS repository from the mounted runtime config."""
-    result = subprocess.run([
-        "docker", "exec", "--user", "postgres", CONTAINER,
-        "sh", "-c", "grep -q '^repo2-type=' /etc/pgbackrest/pgbackrest.conf",
-    ], capture_output=True, check=False)
-    return result.returncode == 0
+# COS is the only repository since 2026-11-08 (user decision: stop writing
+# AWS repo1) and keeps index 2, so `--repo=2` means COS everywhere: here, in
+# ops/backup/cos_restore_acceptance.py and in every runbook. The primary chain
+# is whatever PRIMARY_REPO names, never "the lowest index".
+PRIMARY_REPO = 2
 
-def repository_numbers():
-    return (1, 2) if repo2_enabled() else (1,)
+def configured_repositories() -> tuple:
+    """Repository indices present in the mounted runtime config."""
+    out = run([
+        "docker", "exec", "--user", "postgres", CONTAINER,
+        "grep", "-E", "^repo[0-9]+-type=", "/etc/pgbackrest/pgbackrest.conf",
+    ])
+    return tuple(sorted({int(m) for m in re.findall(r"^repo(\d+)-type=", out, re.M)}))
+
+def repository_numbers() -> tuple:
+    repos = configured_repositories()
+    if PRIMARY_REPO not in repos:
+        # Never fall back to backing up whatever else is configured: a config
+        # without COS is a fault, not a reason to write AWS again.
+        raise Err(f"primary COS repository repo{PRIMARY_REPO} is not configured")
+    return repos
 
 def repo_info(repo):
     values = json.loads(backrest(f"--repo={repo}", "--output=json", "info"))
@@ -60,8 +75,8 @@ def repo_info(repo):
 # a window that is structurally guaranteed and was up to 2 hours wide.
 #
 # The exemption is deliberately narrow:
-#   - only for repositories with index >= 2.  repo1 is the primary recovery
-#     chain; "no valid backups" there is a disaster, never a bootstrap.
+#   - never for PRIMARY_REPO (COS repo2, the only recovery chain since
+#     2026-11-08); "no valid backups" there is a disaster, never a bootstrap.
 #   - only when that repository's backup list is EMPTY.  Code 2 with backups
 #     present means a repository that once had them and now reports invalid,
 #     which stays a failure.
@@ -71,13 +86,14 @@ def repository_state(repo: int, info: dict) -> str:
     code = (info.get("status") or {}).get("code")
     if code == 0:
         return "ok"
-    if repo >= 2 and code == 2 and not (info.get("backup") or []):
+    if repo != PRIMARY_REPO and code == 2 and not (info.get("backup") or []):
         return "bootstrapping"
     return "failed"
 
 CHECK_FAILED_REASON = "check_command_failed"
 ARCHIVE_FAILING_REASON = "wal_archive_failing"
 REPOSITORY_FAILED_REASON = "repository_failed"
+PRIMARY_MISSING_REASON = "primary_repository_missing"
 
 def archiver_healthy(arch: dict) -> bool:
     """Is WAL archiving working NOW, rather than has it ever failed?
@@ -184,17 +200,18 @@ def cmd_backup():
             if len(fresh) != 1 or fresh[0]["type"] != kinds[repo]:
                 raise Err(f"completed backup missing from repository {repo} info")
             fresh_by_repo[repo] = fresh[0]
-        primary_fresh = fresh_by_repo[1]
+        primary_fresh = fresh_by_repo[PRIMARY_REPO]
         receipt = {
             "schema_version": 1,
             "status": "ok",
-            "kind": kinds[1],
+            "kind": kinds[PRIMARY_REPO],
             "label": primary_fresh["label"],
             "completed_at": time.time(),
             "duration_seconds": round(time.time() - started, 3),
             "live_repo": LIVE_REPO,
-            "cos_repo": COS_REPO if 2 in repos else None,
-            "cos_repo2": 2 in repos,
+            "cos_repo": COS_REPO,
+            "cos_repo2": True,
+            "aws_repo1": "configured" if 1 in repos else "retired",
             "repositories": [
                 {"repo": repo, "label": fresh_by_repo[repo]["label"],
                  "kind": kinds[repo], "status": "ok"}
@@ -211,7 +228,23 @@ def cmd_check():
     lock = exclusive("check")
     try:
         started = time.time()
-        repos = repository_numbers()
+        try:
+            repos = repository_numbers()
+        except Err as exc:
+            # Same rule as a failing check: leave a diagnosable receipt rather
+            # than none. Not in host_https_watch's evidence map -> hard fault.
+            atomic_json(STATE / "archive_check.json", {
+                "schema_version": 1,
+                "status": "degraded",
+                "started_at": started,
+                "completed_at": time.time(),
+                "reasons": [PRIMARY_MISSING_REASON],
+                PRIMARY_MISSING_REASON: {"detail": str(exc)[:400]},
+                "live_repo": LIVE_REPO,
+                "cos_repo": COS_REPO,
+                "host_role": "tencent-usw-prod",
+            })
+            raise
         # pgBackRest 2.58 does not accept --repo for the check command.  A
         # single check validates every configured repository and deliberately
         # forces one WAL archive round-trip through the shared archive_command.
@@ -231,8 +264,9 @@ def cmd_check():
                 "reasons": [CHECK_FAILED_REASON],
                 CHECK_FAILED_REASON: {"detail": check_failure_detail(str(exc))},
                 "live_repo": LIVE_REPO,
-                "cos_repo": COS_REPO if 2 in repos else None,
-                "cos_repo2": 2 in repos,
+                "cos_repo": COS_REPO,
+                "cos_repo2": True,
+                "aws_repo1": "configured" if 1 in repos else "retired",
                 "host_role": "tencent-usw-prod",
                 "repositories": [{"repo": repo, "status": "unknown"} for repo in repos],
             })
@@ -286,10 +320,11 @@ def cmd_check():
             "archiver": arch,
             "stanza_status": {str(repo): infos[repo].get("status") for repo in repos},
             "live_repo": LIVE_REPO,
-            "cos_repo": COS_REPO if 2 in repos else None,
-            "cos_repo2": 2 in repos,
+            "cos_repo": COS_REPO,
+            "cos_repo2": True,
+            "aws_repo1": "configured" if 1 in repos else "retired",
             "host_role": "tencent-usw-prod",
-            "backup_count": len(infos[1].get("backup") or []),
+            "backup_count": len(infos[PRIMARY_REPO].get("backup") or []),
             "repositories": [
                 {"repo": repo, "status": states[repo]} for repo in repos
             ],

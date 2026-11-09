@@ -302,10 +302,21 @@ def run_phase(config, phase, dry_run=False):
 
 
 def expected_prod_hostname(manifest):
-    """Live prod matrix (deploy/tencent/candidate-usw-20261022.json) owns host_watch.hostname."""
+    """Expected hostname for the host this manifest describes.
+
+    Live prod matrix (deploy/tencent/candidate-usw-20261022.json) owns
+    host_watch.hostname. The cn-prod target (deploy/domestic/prod-target.json)
+    carries its identity as a top-level instance_name -- the same field
+    host_https_watch.build_config checks for cn-prod. Legacy matrices use
+    prod.instance_name. Anything else is refused rather than guessed.
+    """
     if 'host_watch' in manifest:
         return manifest['host_watch']['hostname']
-    return manifest['prod']['instance_name']
+    if isinstance(manifest.get('prod'), dict) and manifest['prod'].get('instance_name'):
+        return manifest['prod']['instance_name']
+    if isinstance(manifest.get('instance_name'), str) and manifest['instance_name']:
+        return manifest['instance_name']
+    raise ValueError('manifest has no host identity (host_watch.hostname, prod.instance_name or instance_name)')
 
 
 def resolve_environment(manifest, args):

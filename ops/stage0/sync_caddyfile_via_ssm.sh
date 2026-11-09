@@ -54,6 +54,10 @@
 #                                     disabled, which clears the persisted value
 #   API_ALIAS_DOMAIN                  prod-only optional; set to persist/clear the
 #                                     second machine host (e.g. api.callmodel.io)
+#   API_CN_DOMAIN                     prod-only optional; set to persist/clear the
+#                                     CN machine host (e.g. api-cn.tokenkey.dev).
+#                                     Omitting it on a host whose .env lacks the key
+#                                     drops that vhost from the rendered Caddyfile.
 #   ACME_EMAIL                        optional override when host .env has an
 #                                     empty ACME_EMAIL= (console-adopted hosts).
 #   STAGE0_SSM_TIMEOUT_SECONDS        SSM poll timeout (default 240)
@@ -93,9 +97,12 @@ TARGET_GLOBAL_SITE_PHASE=""
 TARGET_GLOBAL_SITE_DOMAIN=""
 APPLY_API_ALIAS=false
 TARGET_API_ALIAS_DOMAIN=""
+APPLY_API_CN=false
+TARGET_API_CN_DOMAIN=""
 global_phase_is_set="${GLOBAL_SITE_PHASE+x}"
 global_domain_is_set="${GLOBAL_SITE_DOMAIN+x}"
 api_alias_is_set="${API_ALIAS_DOMAIN+x}"
+api_cn_is_set="${API_CN_DOMAIN+x}"
 
 TARGET_ACME_EMAIL=""
 if [[ -n "${ACME_EMAIL+x}" ]]; then
@@ -145,6 +152,14 @@ if [[ "${KIND}" == prod ]]; then
       exit 1
     fi
   fi
+  if [[ -n "${api_cn_is_set}" ]]; then
+    APPLY_API_CN=true
+    TARGET_API_CN_DOMAIN="${API_CN_DOMAIN}"
+    if [[ -n "${TARGET_API_CN_DOMAIN}" && ! "${TARGET_API_CN_DOMAIN}" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]; then
+      echo "sync_caddyfile_via_ssm: API_CN_DOMAIN must be empty or a lowercase DNS hostname" >&2
+      exit 1
+    fi
+  fi
 fi
 
 # base64 the canonical repo Caddyfile; tr -d '\n' keeps it a single token so it
@@ -190,6 +205,8 @@ jq -n \
   --arg global_site_domain "${TARGET_GLOBAL_SITE_DOMAIN}" \
   --arg apply_api_alias "${APPLY_API_ALIAS}" \
   --arg api_alias_domain "${TARGET_API_ALIAS_DOMAIN}" \
+  --arg apply_api_cn "${APPLY_API_CN}" \
+  --arg api_cn_domain "${TARGET_API_CN_DOMAIN}" \
   --arg acme_email "${TARGET_ACME_EMAIL}" '{
           # Hetzner/Ubuntu Hybrid SSM runs AWS-RunShellScript under /bin/sh (dash),
           # which rejects `set -o pipefail`.
@@ -204,6 +221,8 @@ jq -n \
           ("TARGET_GLOBAL_SITE_DOMAIN=" + ($global_site_domain | @sh)),
           ("APPLY_API_ALIAS=" + ($apply_api_alias | @sh)),
           ("TARGET_API_ALIAS_DOMAIN=" + ($api_alias_domain | @sh)),
+          ("APPLY_API_CN=" + ($apply_api_cn | @sh)),
+          ("TARGET_API_CN_DOMAIN=" + ($api_cn_domain | @sh)),
           ("TARGET_ACME_EMAIL=" + ($acme_email | @sh)),
           "CADDY_DIR=/var/lib/tokenkey/caddy",
           "LIVE=$CADDY_DIR/Caddyfile",
@@ -229,14 +248,15 @@ jq -n \
           "rollback() { rc=$?; echo \"::warning::sync failed; restoring previous Caddyfile and environment\"; if [ -f \"$ENV_BACKUP\" ]; then sudo cp -a \"$ENV_BACKUP\" \"$ENV_FILE\"; fi; if [ -f \"$BACKUP\" ]; then sudo sh -c \"cat '\''$BACKUP'\'' > '\''$LIVE'\''\"; sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -5 || true; fi; exit $rc; }",
           "trap rollback ERR",
           "echo \"=== derive render vars (same set as boot UserData) ===\"",
-          "if [ \"$APPLY_GLOBAL_PROFILE\" = true ] || [ \"$APPLY_API_ALIAS\" = true ]; then",
+          "if [ \"$APPLY_GLOBAL_PROFILE\" = true ] || [ \"$APPLY_API_ALIAS\" = true ] || [ \"$APPLY_API_CN\" = true ]; then",
           "  ENV_NEW=$ENV_FILE.new-$TS",
-          "  sudo awk -v apply_global=\"$APPLY_GLOBAL_PROFILE\" -v phase=\"$TARGET_GLOBAL_SITE_PHASE\" -v domain=\"$TARGET_GLOBAL_SITE_DOMAIN\" -v apply_alias=\"$APPLY_API_ALIAS\" -v alias=\"$TARGET_API_ALIAS_DOMAIN\" '\''BEGIN { phase_seen=0; domain_seen=0; alias_seen=0 } /^GLOBAL_SITE_PHASE=/ { if (apply_global == \"true\") { print \"GLOBAL_SITE_PHASE=\" phase; phase_seen=1; next } } /^GLOBAL_SITE_DOMAIN=/ { if (apply_global == \"true\") { print \"GLOBAL_SITE_DOMAIN=\" domain; domain_seen=1; next } } /^API_ALIAS_DOMAIN=/ { if (apply_alias == \"true\") { print \"API_ALIAS_DOMAIN=\" alias; alias_seen=1; next } } { print } END { if (apply_global == \"true\") { if (!phase_seen) print \"GLOBAL_SITE_PHASE=\" phase; if (!domain_seen) print \"GLOBAL_SITE_DOMAIN=\" domain } if (apply_alias == \"true\" && !alias_seen) print \"API_ALIAS_DOMAIN=\" alias }'\'' \"$ENV_FILE\" | sudo tee \"$ENV_NEW\" >/dev/null",
+          "  sudo awk -v apply_global=\"$APPLY_GLOBAL_PROFILE\" -v phase=\"$TARGET_GLOBAL_SITE_PHASE\" -v domain=\"$TARGET_GLOBAL_SITE_DOMAIN\" -v apply_alias=\"$APPLY_API_ALIAS\" -v alias=\"$TARGET_API_ALIAS_DOMAIN\" -v apply_cn=\"$APPLY_API_CN\" -v cn=\"$TARGET_API_CN_DOMAIN\" '\''BEGIN { phase_seen=0; domain_seen=0; alias_seen=0; cn_seen=0 } /^GLOBAL_SITE_PHASE=/ { if (apply_global == \"true\") { print \"GLOBAL_SITE_PHASE=\" phase; phase_seen=1; next } } /^GLOBAL_SITE_DOMAIN=/ { if (apply_global == \"true\") { print \"GLOBAL_SITE_DOMAIN=\" domain; domain_seen=1; next } } /^API_ALIAS_DOMAIN=/ { if (apply_alias == \"true\") { print \"API_ALIAS_DOMAIN=\" alias; alias_seen=1; next } } /^API_CN_DOMAIN=/ { if (apply_cn == \"true\") { print \"API_CN_DOMAIN=\" cn; cn_seen=1; next } } { print } END { if (apply_global == \"true\") { if (!phase_seen) print \"GLOBAL_SITE_PHASE=\" phase; if (!domain_seen) print \"GLOBAL_SITE_DOMAIN=\" domain } if (apply_alias == \"true\" && !alias_seen) print \"API_ALIAS_DOMAIN=\" alias; if (apply_cn == \"true\" && !cn_seen) print \"API_CN_DOMAIN=\" cn }'\'' \"$ENV_FILE\" | sudo tee \"$ENV_NEW\" >/dev/null",
           "  sudo chown --reference=\"$ENV_FILE\" \"$ENV_NEW\"",
           "  sudo chmod --reference=\"$ENV_FILE\" \"$ENV_NEW\"",
           "  sudo mv \"$ENV_NEW\" \"$ENV_FILE\"",
           "  if [ \"$APPLY_GLOBAL_PROFILE\" = true ]; then echo \"global homepage phase persisted: $TARGET_GLOBAL_SITE_PHASE\"; fi",
           "  if [ \"$APPLY_API_ALIAS\" = true ]; then echo \"api alias persisted: ${TARGET_API_ALIAS_DOMAIN:-<empty>}\"; fi",
+          "  if [ \"$APPLY_API_CN\" = true ]; then echo \"api cn persisted: ${TARGET_API_CN_DOMAIN:-<empty>}\"; fi",
           "fi",
           "# API_DOMAIN / ACME_EMAIL are persisted in the host .env at boot.",
           "set -a; . /var/lib/tokenkey/.env; set +a",
@@ -246,6 +266,9 @@ jq -n \
           "  ACME_EMAIL=\"$(sed -n '\''s/^[[:space:]]*email[[:space:]][[:space:]]*\\(.*\\)$/\\1/p'\'' \"$LIVE\" | head -1)\"",
           "fi",
           "[ -n \"${ACME_EMAIL:-}\" ] || { echo \"::error::ACME_EMAIL empty in /var/lib/tokenkey/.env and live Caddyfile\"; exit 1; }",
+          "# The override / Caddyfile fallback above assigns after `set -a` ended; export so the",
+          "# render subprocess sees it (2026-11-09: an unexported override rendered `email` empty).",
+          "export ACME_EMAIL",
           "echo \"render context loaded for kind=$KIND\"",
           ("printf '\''%s'\'' \"" + $b64 + "\" | base64 -d | sudo tee \"$CADDY_DIR/Caddyfile.template\" >/dev/null"),
           "if [ \"$KIND\" = prod ]; then",

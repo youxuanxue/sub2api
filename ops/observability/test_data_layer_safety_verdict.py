@@ -35,7 +35,6 @@ def _signals() -> dict:
         },
         "BACKUPSTATS": {"latest_pgdump_at": (NOW - dt.timedelta(hours=1)).isoformat()},
         "SNAPSHOTSTATS": {"latest_snapshot_at": (NOW - dt.timedelta(hours=12)).isoformat()},
-        "TELEMETRYSTATS": {"probe_ok": True, "enabled": False},
         "ARCHIVESTATS": {
             "archive_mode": "frozen",
             "ledgers": [
@@ -294,144 +293,16 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
         }
         self.assertIn("archive_restore_proof", kinds)
 
-    def test_enabled_telemetry_requires_fresh_clean_zero_loss_stats(self) -> None:
+    def test_retired_telemetry_signal_is_ignored(self) -> None:
+        # 2026-11-08 用户决定保持关闭并删除代码：遥测归档不再是数据层门禁。
         signals = _signals()
-        signals["TELEMETRYSTATS"] = {
-            "probe_ok": True,
-            "enabled": True,
-            "last_run_at": (NOW - dt.timedelta(minutes=1)).isoformat(),
-            "last_success_at": (NOW - dt.timedelta(minutes=1)).isoformat(),
-            "last_error_at": None,
-            "last_result": {"dropped": 0, "failed": 0},
-        }
-        self.assertEqual(verdict.compute_verdict(signals)["verdict"], "green")
-
-        signals["TELEMETRYSTATS"]["last_error_at"] = NOW.isoformat()
-        signals["TELEMETRYSTATS"]["last_result"] = {"dropped": 2, "failed": 1}
+        signals["TELEMETRYSTATS"] = {"probe_ok": False, "enabled": True}
+        self.assertNotIn("TELEMETRYSTATS", verdict.parse_signals('TELEMETRYSTATS {"probe_ok":true}'))
         kinds = {
             finding["kind"]
             for finding in verdict.compute_verdict(signals)["findings"]
         }
-        self.assertIn("telemetry_archive_loss", kinds)
-
-    def test_reported_loss_owns_its_derived_error_and_stale_clean_heartbeat(self) -> None:
-        """One failed upload must raise exactly one finding, not three.
-
-        Loss counters are cumulative until process restart and the health owner
-        stops writing last_success_at while any counter is non-zero, so the
-        derived "failed since clean heartbeat" and "clean heartbeat stale"
-        conditions are guaranteed side effects of the loss rather than
-        independent failures. The loss finding owns them; liveness moves to
-        last_run_at, which keeps ticking every minute.
-        """
-        signals = _signals()
-        signals["TELEMETRYSTATS"] = {
-            "probe_ok": True,
-            "enabled": True,
-            # Publisher is alive: last_run_at keeps advancing every minute.
-            "last_run_at": (NOW - dt.timedelta(seconds=30)).isoformat(),
-            # Frozen at the last clean tick, hours before the loss.
-            "last_success_at": (NOW - dt.timedelta(hours=6)).isoformat(),
-            "last_error_at": (NOW - dt.timedelta(seconds=30)).isoformat(),
-            "last_result": {"dropped": 0, "failed": 1},
-        }
-        findings = verdict.compute_verdict(signals)["findings"]
-        telemetry_kinds = [
-            finding["kind"] for finding in findings if finding["kind"].startswith("telemetry_")
-        ]
-        self.assertEqual(["telemetry_archive_loss"], telemetry_kinds)
-        self.assertEqual(verdict.compute_verdict(signals)["verdict"], "unsafe")
-
-    def test_reported_loss_still_fails_closed_when_publisher_stops(self) -> None:
-        """Suppression is scoped to redundancy, never to a dead publisher.
-
-        While a loss is reported last_success_at is frozen by design, so a
-        wedged or dead writer would be invisible if the loss finding also
-        swallowed liveness. last_run_at is the independent signal.
-        """
-        signals = _signals()
-        signals["TELEMETRYSTATS"] = {
-            "probe_ok": True,
-            "enabled": True,
-            "last_run_at": (NOW - dt.timedelta(hours=2)).isoformat(),
-            "last_success_at": (NOW - dt.timedelta(hours=6)).isoformat(),
-            "last_error_at": (NOW - dt.timedelta(hours=2)).isoformat(),
-            "last_result": {"dropped": 0, "failed": 1},
-        }
-        kinds = {finding["kind"] for finding in verdict.compute_verdict(signals)["findings"]}
-        self.assertIn("telemetry_archive_loss", kinds)
-        self.assertIn("telemetry_archive_heartbeat", kinds)
-
-    def test_error_without_reported_loss_is_still_its_own_finding(self) -> None:
-        """Only a reported loss owns the error timestamp it caused."""
-        signals = _signals()
-        signals["TELEMETRYSTATS"] = {
-            "probe_ok": True,
-            "enabled": True,
-            "last_run_at": (NOW - dt.timedelta(seconds=30)).isoformat(),
-            "last_success_at": (NOW - dt.timedelta(minutes=1)).isoformat(),
-            "last_error_at": (NOW - dt.timedelta(seconds=30)).isoformat(),
-            "last_result": {"dropped": 0, "failed": 0},
-        }
-        kinds = {finding["kind"] for finding in verdict.compute_verdict(signals)["findings"]}
-        self.assertIn("telemetry_archive_error", kinds)
-
-    def test_invalid_stats_do_not_suppress_clean_heartbeat_requirement(self) -> None:
-        """Unreadable stats cannot prove a loss, so liveness stays on the clean tick."""
-        signals = _signals()
-        signals["TELEMETRYSTATS"] = {
-            "probe_ok": True,
-            "enabled": True,
-            "last_run_at": (NOW - dt.timedelta(seconds=30)).isoformat(),
-            "last_success_at": (NOW - dt.timedelta(hours=6)).isoformat(),
-            "last_error_at": None,
-            "last_result": {"dropped": -1, "failed": 0},
-        }
-        kinds = {finding["kind"] for finding in verdict.compute_verdict(signals)["findings"]}
-        self.assertIn("telemetry_archive_stats", kinds)
-        self.assertIn("telemetry_archive_heartbeat", kinds)
-
-    def test_enabled_telemetry_missing_or_stale_health_fails_closed(self) -> None:
-        cases = (
-            ({"probe_ok": False, "enabled": True}, "telemetry_archive_probe"),
-            ({"probe_ok": True, "enabled": "true"}, "telemetry_archive_probe"),
-            (
-                {
-                    "probe_ok": True,
-                    "enabled": True,
-                    "last_success_at": (NOW - dt.timedelta(minutes=4)).isoformat(),
-                    "last_result": {"dropped": 0, "failed": 0},
-                },
-                "telemetry_archive_heartbeat",
-            ),
-            (
-                {
-                    "probe_ok": True,
-                    "enabled": True,
-                    "last_success_at": NOW.isoformat(),
-                    "last_result": "not-json",
-                },
-                "telemetry_archive_stats",
-            ),
-        )
-        for signal, expected_kind in cases:
-            with self.subTest(expected_kind=expected_kind):
-                signals = _signals()
-                signals["TELEMETRYSTATS"] = signal
-                kinds = {
-                    finding["kind"]
-                    for finding in verdict.compute_verdict(signals)["findings"]
-                }
-                self.assertIn(expected_kind, kinds)
-
-    def test_missing_telemetry_enablement_signal_fails_closed(self) -> None:
-        signals = _signals()
-        del signals["TELEMETRYSTATS"]
-        kinds = {
-            finding["kind"]
-            for finding in verdict.compute_verdict(signals)["findings"]
-        }
-        self.assertIn("telemetry_archive_probe", kinds)
+        self.assertFalse(any(kind.startswith("telemetry_") for kind in kinds), kinds)
 
     def test_probe_shell_parses(self) -> None:
         proc = subprocess.run(

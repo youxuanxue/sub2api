@@ -33,6 +33,25 @@ RETIRED = (
     "frontend/src/composables/useTkQABundle.ts",
     "frontend/src/components/keys/QABundlePanel.vue",
     ".github/workflows/deploy-qa-bundle.yml",
+    # QA S3 retired 2026-11-08: local 24h + node1 every 4h replaced these owners.
+    "backend/cmd/qa-archive",
+    "backend/cmd/server/qa_maintenance.go",
+    "backend/cmd/server/qa_maintenance_boundary.go",
+    "backend/cmd/server/qa_single_owner_activation.go",
+    "backend/internal/observability/qa/archive/store.go",
+    "backend/internal/observability/qa/archive/reconciler.go",
+    "backend/internal/observability/qa/archive/gap_decision.go",
+    "deploy/aws/stage0/tokenkey-qa-maintenance.sh",
+    "deploy/aws/stage0/tokenkey-qa-boundary.sh",
+    "deploy/aws/stage0/qa-runtime.sh",
+    "deploy/aws/stage0/qa-runtime-compose.yml",
+    "deploy/aws/cloudformation/stage0-qa-raw-archive.yaml",
+    "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh",  # script-ref-allow-missing: retired QA S3 owner
+    "ops/stage0/sync-qa-boundary-timer-via-ssm.sh",  # script-ref-allow-missing: retired QA S3 owner
+    "ops/stage0/activate-qa-single-owner-via-ssm.sh",  # script-ref-allow-missing: retired QA S3 owner
+    "ops/qa/qa_archive_recovery_gate.py",  # script-ref-allow-missing: retired QA S3 owner
+    "ops/qa/prod_qa_maintenance.py",  # script-ref-allow-missing: retired QA S3 owner
+    "ops/qa/qa_phase2_health.py",  # script-ref-allow-missing: retired QA S3 owner
 )
 
 REQUIRED = {
@@ -65,46 +84,20 @@ REQUIRED = {
         "def test_symlink_and_default_partition_block_orphan_deletion(",
         "def test_locked_partition_keeps_rows_and_files_for_next_run(",
     ),
-    "backend/internal/observability/qa/archive/reconciler_test.go": (
-        "func TestReconcilerVerificationFailureMarksSegmentFailed(",
-        "func TestReconcilerMissingEvidenceBlocksShardBeforeUpload(",
-    ),
     "backend/internal/observability/qa/lifecycle/boundary_execution_test.go": (
-        "func TestDropCommittedHourRollsBackWhenSealChangesAfterLock(",
-        "func TestResumePendingHotCleanupsKeepsPerHourFailureVisibleAfterDrop(",
-    ),
-    "deploy/aws/stage0/qa-runtime.sh": (
-        "tk_resolve_qa_runtime",
-        "tokenkey-qa-runtime",
-        "independent-v1",
-    ),
-    "backend/cmd/server/qa_maintenance.go": (
-        "singleOwnerActive",
-        "dropArchivedHour",
-        "resumeHotCleanup",
-        "lifecycle.RunProvision",
-        "lifecycle.ResumePendingHotCleanups",
-    ),
-    "backend/cmd/server/qa_maintenance_boundary.go": (
-        "single_owner_activate",
-        "qa boundary is retired after single-owner activation",
-        "runTransitionBoundary",
+        "func TestDropFixedAgeHourPersistsTerminalGapBeforeDrop(",
+        "func TestDropFixedAgeHourPreservesUnknownCommitClassification(",
     ),
     "scripts/preflight.sh": ("python3 ./scripts/checks/qa-lifecycle-ssot.py; then",),
     "backend/internal/observability/qa/lifecycle/boundary.go": (
         "MaxPendingHotCleanup = 48",
-        "LIMIT $1",
-        "ResumePendingHotCleanups",
+        "ResumeDroppedHourCleanup",
         "exact source-hour upper bound and never authorizes deletion",
     ),
-    "ops/stage0/sync-qa-boundary-timer-via-ssm.sh": (
-        "qa_single_owner_active",
-        "single-owner activation receipt count",
-        "systemctl disable tokenkey-qa-boundary.timer",
-        "systemctl stop tokenkey-qa-boundary.timer",
-    ),
+    # Superseded 2026-11-08 (QA S3 retired); the doc stays as the history record.
     "docs/approved/qa-raw-only.md": (
-        "status: approved",
+        "status: archived",
+        "superseded_by: design-tencent-cos-backup-node1-qa.md",
         "raw S3",
         "不增加 SSE-C",
         "restore_verified",
@@ -112,31 +105,11 @@ REQUIRED = {
     ),
     "ops/qa/README.md": ("tokenkey-qa-maintenance", "raw"),
     "ops/qa/policy.yaml": ("raw_user_access: false",),
-    "ops/stage0/deploy_via_ssm_bluegreen.sh": ("assert_qa_provider_unchanged",),
+    "ops/stage0/deploy_via_ssm_bluegreen.sh": ("assert_post_cutover_environment",),
 }
 
 FORBIDDEN_TEXT = {
-    "backend/cmd/server/qa_maintenance_boundary.go": (
-        "--qa-cutover-provision-only",
-        "--qa-cutover-inventory",
-        "--qa-cutover-plan",
-        "--qa-cutover-apply",
-        "--qa-cutover-finalize-plan",
-        "--qa-cutover-finalize",
-    ),
     "scripts/preflight.sh": ("qa-lifecycle-ssot.py --quiet",),
-    "ops/stage0/sync-qa-boundary-timer-via-ssm.sh": (
-        "qa_exports_tmp",
-        "qa-export-orphan",
-        "qa-stale-cleanup",
-        "qa_finalized",
-    ),
-    "deploy/aws/stage0/tokenkey-qa-boundary.sh": (
-        "qa_exports_tmp",
-        "qa-export-orphan",
-        "--qa-cutover-provision-only",
-        "--qa-cutover-finalize",
-    ),
     "deploy/aws/stage0/stage0-ec2-bootstrap.sh": (
         "qa_exports_tmp",
         "qa-export-orphan",
@@ -158,8 +131,22 @@ FORBIDDEN_TEXT = {
         "enabled_after_finalize",
         "owns_export_orphans",
         "finalize_legacy_monthly_policy",
+        "live_archive_coordinates_owner",
     ),
+    # QA S3 retired 2026-11-08: deploys must not inject or demand S3 coordinates.
+    "ops/stage0/deploy_via_ssm_bluegreen.sh": (
+        "assert_live_qa_archive_coordinates",
+        "assert_qa_provider_unchanged",
+        "QA_LIVE_ARCHIVE_STORAGE_",
+        "QA_RUNTIME_KEYS",
+        "env_default QA_ARCHIVE_ENABLED",
+        "- QA_ARCHIVE_",
+        "qa-runtime-environment.sh",
+    ),
+    "ops/stage0/deploy_via_ssm.sh": ("QA_ARCHIVE_ENABLED:-true", "qa_archive_cmds"),
 }
+
+RETIRED_QA_S3_OWNER = "ops/stage0/qa-runtime-environment.sh"  # script-ref-allow-missing: retired QA S3 owner
 
 FORBIDDEN_TREE_TEXT = {
     "backend/internal/observability/qa/lifecycle": (
@@ -189,16 +176,8 @@ FORBIDDEN_LEGACY_PROD_QA_TREES = {
     "frontend/src/api": ("/users/me/qa/",),
 }
 
-BOUNDARY_PRE_ACTIVATION_GUARD = "ensureQABoundaryPreActivation(ctx, lockedDB, deps)"
-
 FIXED_AGE_OWNER_SURFACES = (
-    "backend/cmd/server/qa_maintenance.go",
-    "backend/cmd/server/qa_maintenance_boundary.go",
     "backend/internal/observability/qa/lifecycle/boundary.go",
-    "deploy/aws/stage0/tokenkey-qa-maintenance.sh",
-    "deploy/aws/stage0/tokenkey-qa-boundary.sh",
-    "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh",
-    "ops/stage0/sync-qa-boundary-timer-via-ssm.sh",
 )
 
 FIXED_AGE_OWNER_MARKERS = (
@@ -211,12 +190,9 @@ FIXED_AGE_OWNER_MARKERS = (
     "24 * time.Hour",
 )
 
-TRANSITION_FIXED_AGE_OWNER = {
-    "backend/internal/observability/qa/lifecycle/boundary.go": {
-        "RetentionBoundary(": "boundary := "
-        "pgpartition.RetentionBoundary(provision.DBAnchor)"
-    }
-}
+# The gateway transition boundary was retired with QA S3 (2026-11-08); the only
+# fixed-age owner is local_cleanup.go, which REQUIRED pins.
+TRANSITION_FIXED_AGE_OWNER: dict[str, dict[str, str]] = {}
 
 
 def _read(root: Path, rel: str) -> str:
@@ -228,6 +204,8 @@ def scan(root: Path) -> list[str]:
     for rel in RETIRED:
         if (root / rel).exists():
             failures.append(f"retired QA owner still exists: {rel}")
+    if (root / RETIRED_QA_S3_OWNER).exists():
+        failures.append(f"retired QA S3 coordinate owner still exists: {RETIRED_QA_S3_OWNER}")
     for rel, needles in REQUIRED.items():
         path = root / rel
         if not path.is_file():
@@ -290,12 +268,6 @@ def scan(root: Path) -> list[str]:
                     )
                     failures.append(f"{surface} remains in {source_rel}: {needle}")
 
-    boundary_command = _read(root, "backend/cmd/server/qa_maintenance_boundary.go")
-    if boundary_command.count(BOUNDARY_PRE_ACTIVATION_GUARD) != 1:
-        failures.append(
-            "the QA transition boundary must fail after single-owner activation"
-        )
-
     for rel in FIXED_AGE_OWNER_SURFACES:
         path = root / rel
         if not path.is_file():
@@ -323,7 +295,7 @@ def scan(root: Path) -> list[str]:
             "cleanup_owner": "tokenkey-qa-cleanup",
             "retention_hours": 24,
             "delete_unarchived": True,
-            "archive_uploads": "paused",
+            "archive_uploads": "retired",
         }:
             failures.append("independent local retention policy drift")
         lifecycle = policy["prod"]["lifecycle"]
@@ -346,6 +318,8 @@ def scan(root: Path) -> list[str]:
             or "user_qa" in policy["prod"]
         ):
             failures.append("raw archive must remain operations-only")
+        if policy["prod"]["archive"]["enabled"] is not False:
+            failures.append("QA S3 archive is retired; policy archive.enabled must stay false")
     except (KeyError, TypeError, yaml.YAMLError) as exc:
         failures.append(f"QA policy invalid: {exc}")
 
@@ -382,9 +356,17 @@ def scan(root: Path) -> list[str]:
             failures.append("repository partition owner drift")
         if (
             "user_export" in rollout
-            or rollout["component_release"]["runtime_contract"] != "raw_archive_v1"
+            or rollout["component_release"]["runtime_contract"] != "gateway_only_v1"
         ):
             failures.append("raw-only release contract drift")
+        archive_gate = rollout["QA_ARCHIVE_ENABLED"]
+        if (
+            archive_gate.get("state") != "retired"
+            or archive_gate.get("deploy_inject_default") is not False
+            or archive_gate.get("target_deploy_inject_default") is not False
+            or maintenance.get("live_archive_provider") != "none"
+        ):
+            failures.append("QA S3 retirement drift: deploys must not inject QA_ARCHIVE_ENABLED")
         if rollout["component_release"]["observed_live_state"] != "not_deployed":
             failures.append("raw-only release must not claim unobserved deployment")
     except (KeyError, TypeError, yaml.YAMLError) as exc:
@@ -501,18 +483,6 @@ def self_test() -> int:
                 "operations-only",
             ),
             (
-                "backend/cmd/server/qa_maintenance_boundary.go",
-                BOUNDARY_PRE_ACTIVATION_GUARD,
-                "",
-                "transition boundary",
-            ),
-            (
-                "backend/cmd/server/qa_maintenance_boundary.go",
-                "",
-                "\n--qa-cutover-finalize\n",
-                "--qa-cutover-finalize",
-            ),
-            (
                 "backend/internal/observability/qa/lifecycle/boundary.go",
                 "",
                 "\nRunBoundary(\n",
@@ -522,7 +492,7 @@ def self_test() -> int:
                 "backend/internal/observability/qa/lifecycle/boundary.go",
                 "",
                 "\nRetentionBoundary(\n",
-                "transition fixed-age",
+                "alternate fixed-age",
             ),
             (
                 "backend/internal/observability/qa/lifecycle/boundary.go",
@@ -536,6 +506,30 @@ def self_test() -> int:
                 "observed_live_state: deployed",
                 "unobserved deployment",
             ),
+            (
+                "ops/qa/deploy_rollout.yaml",
+                "deploy_inject_default: false",
+                "deploy_inject_default: true",
+                "QA S3 retirement drift",
+            ),
+            (
+                "ops/qa/policy.yaml",
+                "  archive:\n    enabled: false",
+                "  archive:\n    enabled: true",
+                "archive.enabled must stay false",
+            ),
+            (
+                "ops/stage0/deploy_via_ssm_bluegreen.sh",
+                "",
+                "\nassert_live_qa_archive_coordinates\n",
+                "assert_live_qa_archive_coordinates",
+            ),
+            (
+                "ops/stage0/deploy_via_ssm_bluegreen.sh",
+                "",
+                '\n  env_default QA_ARCHIVE_ENABLED "${QA_ARCHIVE_ENABLED:-true}"\n',
+                "env_default QA_ARCHIVE_ENABLED",
+            ),
         )
         for rel, old, new, expected in mutations:
             target = fixture / rel
@@ -546,7 +540,7 @@ def self_test() -> int:
             if not any(expected in item for item in scan(fixture)):
                 raise AssertionError(f"missed mutation: {rel}: {expected}")
             target.write_text(original)
-        for rel in (RETIRED[0], "frontend/src/api/qaBundle.ts"):
+        for rel in (RETIRED[0], "frontend/src/api/qaBundle.ts", RETIRED_QA_S3_OWNER):
             target = fixture / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("qaBundle")

@@ -107,12 +107,10 @@ type Config struct {
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	QACapture               QACaptureConfig               `mapstructure:"qa_capture"`
-	QaArchive               QaArchiveConfig               `mapstructure:"qa_archive"`
 	MediaStorage            MediaStorageConfig            `mapstructure:"media_storage"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ManagedBatch            ManagedBatchConfig            `mapstructure:"managed_batch"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
-	TelemetryArchive        TelemetryArchiveConfig        `mapstructure:"telemetry_archive"`
 	Plugins                 PluginConfig                  `mapstructure:"plugins"`
 
 	// Enforce only API-key spending windows in simple mode.
@@ -205,23 +203,6 @@ type PluginConfig struct {
 	StartTimeoutSeconds  int               `mapstructure:"start_timeout_seconds"`
 }
 
-// TelemetryArchiveConfig controls the best-effort raw telemetry S3 shadow.
-// PostgreSQL remains canonical; this path is disabled unless explicitly enabled
-// with a complete region/bucket/prefix configuration.
-type TelemetryArchiveConfig struct {
-	Enabled              bool   `mapstructure:"enabled"`
-	Region               string `mapstructure:"region"`
-	Bucket               string `mapstructure:"bucket"`
-	Prefix               string `mapstructure:"prefix"`
-	QueueSize            int    `mapstructure:"queue_size"`
-	QueueMaxBytes        int64  `mapstructure:"queue_max_bytes"`
-	MaxEventBytes        int    `mapstructure:"max_event_bytes"`
-	BatchSize            int    `mapstructure:"batch_size"`
-	WorkerCount          int    `mapstructure:"worker_count"`
-	FlushIntervalSeconds int    `mapstructure:"flush_interval_seconds"`
-	PutTimeoutSeconds    int    `mapstructure:"put_timeout_seconds"`
-}
-
 type LogConfig struct {
 	Level           string            `mapstructure:"level"`
 	Format          string            `mapstructure:"format"`
@@ -290,13 +271,6 @@ type QACaptureConfig struct {
 	WorkerCount       int                    `mapstructure:"worker_count"`
 	QueueSize         int                    `mapstructure:"queue_size"`
 	Storage           QACaptureStorageConfig `mapstructure:"storage"`
-}
-
-// QaArchiveConfig controls hourly raw QA archive shards (Phase 2+).
-type QaArchiveConfig struct {
-	Enabled          bool                   `mapstructure:"enabled"`
-	SealDelayMinutes int                    `mapstructure:"seal_delay_minutes"`
-	Storage          QACaptureStorageConfig `mapstructure:"storage"`
 }
 
 type QACaptureStorageConfig struct {
@@ -2416,19 +2390,6 @@ func setDefaults() {
 	viper.SetDefault("log.sampling.initial", 100)
 	viper.SetDefault("log.sampling.thereafter", 100)
 
-	// Raw telemetry S3 shadow. Default-off and IAM-role-only on Stage0.
-	viper.SetDefault("telemetry_archive.enabled", false)
-	viper.SetDefault("telemetry_archive.region", "")
-	viper.SetDefault("telemetry_archive.bucket", "")
-	viper.SetDefault("telemetry_archive.prefix", "prod/raw-telemetry")
-	viper.SetDefault("telemetry_archive.queue_size", 8192)
-	viper.SetDefault("telemetry_archive.queue_max_bytes", 32*1024*1024)
-	viper.SetDefault("telemetry_archive.max_event_bytes", 1024*1024)
-	viper.SetDefault("telemetry_archive.batch_size", 256)
-	viper.SetDefault("telemetry_archive.worker_count", 4)
-	viper.SetDefault("telemetry_archive.flush_interval_seconds", 5)
-	viper.SetDefault("telemetry_archive.put_timeout_seconds", 10)
-
 	// CORS
 	viper.SetDefault("cors.allowed_origins", []string{})
 	viper.SetDefault("cors.allow_credentials", true)
@@ -2783,19 +2744,6 @@ func setDefaults() {
 	viper.SetDefault("qa_capture.storage.secret_access_key", "")
 	viper.SetDefault("qa_capture.storage.prefix", "qa_blobs")
 	viper.SetDefault("qa_capture.storage.force_path_style", false)
-
-	// qa_archive: raw hourly shards (Phase 2). Disabled until prod enables archive-only maintenance.
-	viper.SetDefault("qa_archive.enabled", false)
-	viper.SetDefault("qa_archive.seal_delay_minutes", 15)
-	viper.SetDefault("qa_archive.storage.driver", "")
-	viper.SetDefault("qa_archive.storage.endpoint", "")
-	viper.SetDefault("qa_archive.storage.region", "")
-	viper.SetDefault("qa_archive.storage.bucket", "")
-	viper.SetDefault("qa_archive.storage.credentials_file", "")
-	viper.SetDefault("qa_archive.storage.access_key_id", "")
-	viper.SetDefault("qa_archive.storage.secret_access_key", "")
-	viper.SetDefault("qa_archive.storage.prefix", "raw/v1")
-	viper.SetDefault("qa_archive.storage.force_path_style", false)
 
 	// media_storage.* has no struct default, so pin viper keys here to enable
 	// MEDIA_STORAGE_* env injection (same nested-key reason as export_storage).
@@ -3799,9 +3747,6 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("qa_capture.storage.driver must be one of: localfs/s3")
 	}
-	if err := validateQaArchiveConfig(c.QaArchive); err != nil {
-		return err
-	}
 	if c.Gateway.MaxBodySize <= 0 {
 		return fmt.Errorf("gateway.max_body_size must be positive")
 	}
@@ -4275,39 +4220,6 @@ func (c *Config) Validate() error {
 	if c.Ops.Cleanup.Enabled && strings.TrimSpace(c.Ops.Cleanup.Schedule) == "" {
 		return fmt.Errorf("ops.cleanup.schedule is required when ops.cleanup.enabled=true")
 	}
-	archive := c.TelemetryArchive
-	if archive.Enabled {
-		if archive.QueueSize <= 0 || archive.QueueSize > 1_000_000 {
-			return fmt.Errorf("telemetry_archive.queue_size must be between 1 and 1000000")
-		}
-		if archive.QueueMaxBytes <= 0 || archive.QueueMaxBytes > 4*1024*1024*1024 {
-			return fmt.Errorf("telemetry_archive.queue_max_bytes must be between 1 and 4294967296")
-		}
-		if archive.MaxEventBytes <= 0 || int64(archive.MaxEventBytes) > archive.QueueMaxBytes {
-			return fmt.Errorf("telemetry_archive.max_event_bytes must be positive and no greater than queue_max_bytes")
-		}
-		if archive.BatchSize <= 0 || archive.BatchSize > archive.QueueSize {
-			return fmt.Errorf("telemetry_archive.batch_size must be positive and no greater than queue_size")
-		}
-		if archive.WorkerCount <= 0 || archive.WorkerCount > 64 {
-			return fmt.Errorf("telemetry_archive.worker_count must be between 1 and 64")
-		}
-		if archive.FlushIntervalSeconds <= 0 || archive.FlushIntervalSeconds > 300 {
-			return fmt.Errorf("telemetry_archive.flush_interval_seconds must be between 1 and 300")
-		}
-		if archive.PutTimeoutSeconds <= 0 || archive.PutTimeoutSeconds > 60 {
-			return fmt.Errorf("telemetry_archive.put_timeout_seconds must be between 1 and 60")
-		}
-		if strings.TrimSpace(archive.Region) == "" {
-			return fmt.Errorf("telemetry_archive.region is required when enabled")
-		}
-		if strings.TrimSpace(archive.Bucket) == "" {
-			return fmt.Errorf("telemetry_archive.bucket is required when enabled")
-		}
-		if strings.Trim(strings.TrimSpace(archive.Prefix), "/") == "" {
-			return fmt.Errorf("telemetry_archive.prefix is required when enabled")
-		}
-	}
 	if c.Concurrency.PingInterval < 5 || c.Concurrency.PingInterval > 30 {
 		return fmt.Errorf("concurrency.ping_interval must be between 5-30 seconds")
 	}
@@ -4327,29 +4239,6 @@ func (c *Config) Validate() error {
 	}
 	if err := ValidateDingTalkConfig(c.DingTalk); err != nil {
 		return fmt.Errorf("dingtalk_connect: %w", err)
-	}
-	return nil
-}
-
-func validateQaArchiveConfig(archive QaArchiveConfig) error {
-	if !archive.Enabled {
-		return nil
-	}
-	if archive.SealDelayMinutes < 0 || archive.SealDelayMinutes > 120 {
-		return fmt.Errorf("qa_archive.seal_delay_minutes must be between 0 and 120")
-	}
-	driver := strings.ToLower(strings.TrimSpace(archive.Storage.Driver))
-	if driver != "s3" {
-		return fmt.Errorf("qa_archive.storage.driver must be s3 when enabled")
-	}
-	if strings.TrimSpace(archive.Storage.Region) == "" {
-		return fmt.Errorf("qa_archive.storage.region is required when enabled")
-	}
-	if strings.TrimSpace(archive.Storage.Bucket) == "" {
-		return fmt.Errorf("qa_archive.storage.bucket is required when enabled")
-	}
-	if strings.Trim(strings.TrimSpace(archive.Storage.Prefix), "/") == "" {
-		return fmt.Errorf("qa_archive.storage.prefix is required when enabled")
 	}
 	return nil
 }

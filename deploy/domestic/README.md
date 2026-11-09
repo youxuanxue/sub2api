@@ -2,7 +2,7 @@
 
 当前应用在腾讯北京 `tokenkey-cn-prod`（`lhins-6qmb3fd6`，`154.8.214.179`）。该实例与 `cn-ip1..4` 到期 **2026-11-22**，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是 `https://api.galaxywaveai.com`，它和静态 IP 共用 `(tk_upstream)`，站点定义在 [`Caddyfile`](Caddyfile)。`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前不要把它解析到北京，也不要写成 `public_origin` 或 `SERVER_FRONTEND_URL`。发版身份仍以 [`prod-target.json`](prod-target.json) 为准。下面的表是 2026-10-14 首次上线记录。
 
-逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。北京本机 pgBackRest（stanza `tokenkey`，timer `tokenkey-cn-postgres-backup` / `tokenkey-cn-postgres-archive-check`）在跑，并且本机已恢复过自己的全量。备份验收到此为止，不再另开恢复机，也不从东京仓库再导一份库。
+逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。北京本机 pgBackRest（stanza `tokenkey`，timer `tokenkey-cn-postgres-backup` / `tokenkey-cn-postgres-archive-check`）在跑，并且本机已恢复过自己的全量。2026-11-08 起唯一仓库是北京 COS `repo2`（`tokenkey-cnprod-backup-bj-1320330536` `/cn-prod/postgres`），东京 AWS `repo1` 停写、对象保留待清理；配置由 `cn_backup_identity.py` 只用 COS 凭据渲染，详见[设计](../../docs/approved/design-tencent-cos-backup-node1-qa.md#2026-11-08-决定停写-aws-repo1cos-为唯一-repository)。备份验收到此为止，不再另开恢复机，也不从东京仓库再导一份库。
 
 审批范围和费用见 [design-domestic-cluster.md](../../docs/approved/design-domestic-cluster.md)。
 这是独立于美西 prod 的国内站点，不使用 Hetzner dispatcher 或美西数据库；只读观测通过独立注册的 AWS SSM Hybrid agent 下发。
@@ -48,10 +48,10 @@
 - `prepare-runtime.py STATE_DIR` 从共享 Stage0 Compose/Caddy 模板生成本机受保护 bundle，
   重用已存在的 secrets，不在 stdout 输出配置或密钥。`STATE_DIR/images.json` 必须来自
   已校验的 amd64 镜像，包含各服务的 `source` digest、`config` digest、归档 `sha256` 与本地 `tag`。
-- `compose.override.yml` 打开 QA capture、关闭 telemetry archive，不配置 QA S3 上传，并将应用池对齐 **O 8C/8G**
+- `compose.override.yml` 打开 QA capture，不配置 QA S3 上传，并将应用池对齐 **O 8C/8G**
   （`GOMEMLIMIT=2GiB`、DB open/idle `40/10`、Redis pool/idle `96/8`；内存档未变，
   仅主机从 4C 升到 8C）。蓝绿 `prepare` 会用该文件解析出的池参数，以及
-  `QA_CAPTURE_ENABLED=true`、`TELEMETRY_ARCHIVE_ENABLED=false`，覆盖候选容器
+  `QA_CAPTURE_ENABLED=true`，覆盖候选容器
   env（密钥仍取自线上容器）。候选若带上 QA archive 或 S3 driver 会被拒绝。容量 bump 可先起候选再切 Caddy。现网核对/写入还可用
   `ops/observability/probe-cn-prod-pool-env.sh`（经 `run-probe.sh --target cn-prod`，
   写入需 `APPLY=yes-tune-cn-prod-pools`，会 recreate 当前色）。单号 Inflight/RPM/TPM
@@ -248,7 +248,7 @@ python3 bluegreen.py notify --state /opt/tokenkey/releases/1.8.306-2d4b4cdbf \
 视为已启用。本站通过将默认组设为 inactive/exclusive、只保留目标专属组为可用组完成实际隔离；
 已验证客户可用组仅有 `china_deployed`，绑定其他组返回 403。未来开放其他组时须重新评估该边界。
 
-QA capture 与美西 prod 一样打开，只写本地记录和热目录；telemetry archive 保持关闭，QA 不上传 S3。cn-prod 直接复用与 prod 相同的共享 Caddy 模板，不增加国内专属路径拦截。
+QA capture 与美西 prod 一样打开，只写本地记录和热目录，QA 不上传 S3。cn-prod 直接复用与 prod 相同的共享 Caddy 模板，不增加国内专属路径拦截。
 媒体、视频、音频、实时会话及 provider 兼容别名继续交给应用的鉴权、模型目录和供应账号
 能力判断，未来新增模型不需要改 Caddyfile。前端不按国内域名隐藏工具菜单或路由，Studio、
 Batch Image 等入口与其他站点一致。QA bundle、用户导出和 worker 已退役；旧 QA 路径是否

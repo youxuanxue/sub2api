@@ -7,18 +7,23 @@ schema_version: 1
 
 prod:
   component_release:
-    runtime_contract: raw_archive_v1
+    # QA S3 retired 2026-11-08: a gateway release plans no QA component step.
+    # The planner still accepts raw_archive_v1 for rollback targets <= 1.8.353.
+    runtime_contract: gateway_only_v1
     repository_state: ready
     observed_live_state: not_deployed
     planner: ops/stage0/prod_release_plan.py
     verified_state: /var/lib/tokenkey/qa-release/verified.json
   QA_ARCHIVE_ENABLED:
-    deploy_inject_default: true
+    # Retired: deploy scripts never inject QA_ARCHIVE_*; absent key = gateway default off.
+    # Local 24h + node1 copy every 4h (host timer tokenkey-qa-archive, ops/qa/node1_archive.py);
+    # COS holds database backups only. Design: docs/approved/design-tencent-cos-backup-node1-qa.md
+    state: retired
+    retired_on: "2026-11-08"
+    decided_by: user
+    deploy_inject_default: false
     policy_target: prod.archive.enabled
-    target_deploy_inject_default: true
-    enable_after: docs/approved/design-prod-qa-24h-s3-lifecycle.md
-    repository_closeout_state: production_recloseout_verified
-    observed_live_state: production_recloseout_verified
+    target_deploy_inject_default: false
   tokenkey_qa_maintenance_timer:
     repository_closeout_state: single_owner_ready
     observed_live_state: single_owner_not_activated
@@ -29,20 +34,16 @@ prod:
     sync_failure_restore_policy: pre_sync_timer_state
     min_consecutive_scheduled_runs: 2
     host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh
-    health_evaluator: ops/qa/qa_phase2_health.py
-    live_health_probe: ops/observability/probe-qa-phase2-live-health.sh
-    live_health_evaluator: ops/qa/prod_phase2_live_health.py
     catchup_gap_policy: accepted_terminal
     health_evidence:
       - systemd
       - host_receipt
       - database_heartbeat
       - archive_control_rows
-    live_archive_provider: aws_s3
+    # QA S3 retired 2026-11-08; node1 copies are owned by host timer tokenkey-qa-archive.
     # Operator upload pause (not capture): current prod host_watch.paused_jobs in
     # deploy/tencent/candidate-usw-20261022.json; ordinary releases must preserve timers.
-    # This metadata describes capability, not permission to resume uploads.
-    live_archive_coordinates_owner: ops/stage0/qa-runtime-environment.sh
+    live_archive_provider: none
     legacy_aws_iam_check: explicit --legacy-aws
   tokenkey_qa_boundary:
     repository_closeout_state: pre_activation_fixed_age_transition
@@ -75,14 +76,12 @@ prod:
   QA_CAPTURE_BODY_MAX_BYTES:
     policy_target: prod.capture_body_max_bytes
     default_bytes: 1153434
+  # QA S3 retired 2026-11-08: verifier/reconciler/recovery gate scripts removed.
   raw_archive_recovery:
     repository_state: ready
     repository_iam_state: contract_ready
     observed_iam_state: applied
-    iam_contract_verifier: ops/qa/verify_raw_archive_iam_contract.py
-    iam_contract_reconciler: ops/qa/reconcile_raw_archive_iam_contract.sh
     independent_evidence_state: production_workstation_recovery_verified
-    recovery_cli: backend/cmd/qa-archive
-    retirement_gate: ops/qa/qa_archive_recovery_gate.py
+    recovery_cli: removed_2026-11-08
     break_glass_state: retired
     shared_role_boundary: shared_ec2_instance_role_no_process_isolation

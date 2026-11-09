@@ -79,22 +79,6 @@ type ExpiryResult struct {
 	Error             string    `json:"error,omitempty"`
 }
 
-type HotCleanupResult struct {
-	ShardID     int64     `json:"shard_id"`
-	WindowStart time.Time `json:"window_start_utc"`
-	Cleaned     bool      `json:"cleaned"`
-	Error       string    `json:"error,omitempty"`
-}
-
-// TransitionBoundaryResult is the pre-activation compatibility result. It is
-// retired irreversibly when the single-owner activation receipt is committed.
-type TransitionBoundaryResult struct {
-	Provision          ProvisionResult    `json:"provision"`
-	Expiries           []ExpiryResult     `json:"expiries,omitempty"`
-	HotCleanupResumed  []HotCleanupResult `json:"hot_cleanup_resumed,omitempty"`
-	DeletionAuthorized bool               `json:"deletion_authorized"`
-}
-
 type Options struct {
 	HoursAhead int
 	BlobRoot   string
@@ -203,86 +187,6 @@ func RunProvision(ctx context.Context, db DB, opts Options, clock Clock) (Provis
 	return result, nil
 }
 
-// DropCommittedHour drops one exact hourly child only after capture seal and
-// archive membership are revalidated while the child is write-locked.
-func DropCommittedHour(
-	ctx context.Context,
-	conn *sql.Conn,
-	control ControlStore,
-	child pgpartition.ChildPartitionBound,
-	validateSeal func() error,
-	now func() time.Time,
-) (ExpiryResult, error) {
-	result := ExpiryResult{
-		RetentionBoundary: child.Upper,
-		PartitionName:     child.Name,
-		PartitionUpper:    child.Upper,
-	}
-	if control == nil {
-		return result, errors.New("lifecycle: archive control is required")
-	}
-	if validateSeal == nil {
-		return result, errors.New("lifecycle: capture seal validator is required")
-	}
-	if err := validateSeal(); err != nil {
-		result.Error = err.Error()
-		return result, fmt.Errorf("lifecycle: validate capture seal before lock: %w", err)
-	}
-	if now == nil {
-		now = time.Now
-	}
-
-	window := archive.Window{Start: child.Lower.UTC(), End: child.Upper.UTC()}
-	if !window.End.Equal(window.Start.Add(time.Hour)) {
-		return result, errors.New("lifecycle: source partition is not an exact UTC hour")
-	}
-	tx, err := conn.BeginTx(ctx, nil)
-	if err != nil {
-		result.Error = err.Error()
-		return result, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err := pgpartition.LockChildPartition(ctx, tx, child); err != nil {
-		result.Error = err.Error()
-		return result, err
-	}
-	lockedChild, err := revalidateLockedChild(ctx, tx, child, child.Upper)
-	if err != nil {
-		result.Error = err.Error()
-		return result, err
-	}
-	child = lockedChild
-	if err := validateSeal(); err != nil {
-		result.Error = err.Error()
-		return result, fmt.Errorf("lifecycle: revalidate capture seal after lock: %w", err)
-	}
-	status, err := control.InspectCatchupHourTx(ctx, tx, window)
-	if err != nil {
-		result.Error = err.Error()
-		return result, err
-	}
-	if !status.Exists || status.ShardID == 0 || status.State != archive.StateCommitted || !status.RestoreVerified || status.UncoveredSourceExists {
-		err := fmt.Errorf("lifecycle: archive membership is not committed and restore-verified for %s", window.Start.Format(time.RFC3339))
-		result.Error = err.Error()
-		return result, err
-	}
-	if err := pgpartition.DropChildPartition(ctx, tx, child); err != nil {
-		result.Error = err.Error()
-		return result, fmt.Errorf("lifecycle: drop partition %s: %w", child.Name, err)
-	}
-	droppedAt := now().UTC()
-	if err := control.RecordSourceDropped(ctx, tx, status.ShardID, child.Name, droppedAt); err != nil {
-		result.Error = err.Error()
-		return result, fmt.Errorf("lifecycle: record source drop: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		result.Error = err.Error()
-		return result, fmt.Errorf("lifecycle: commit partition drop: %w", err)
-	}
-	result.SourceDroppedAt = droppedAt
-	return result, nil
-}
-
 func revalidateLockedChild(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -352,21 +256,8 @@ func transitionNeedsTerminalGap(status archive.CatchupHourStatus) bool {
 	return status.UncoveredSourceExists
 }
 
-// DropTransitionExpiredHour preserves the already-running fixed-age policy
-// until activation. It must never be called by the final maintenance owner.
-func DropTransitionExpiredHour(
-	ctx context.Context,
-	conn *sql.Conn,
-	control TransitionControlStore,
-	child pgpartition.ChildPartitionBound,
-	boundary time.Time,
-	now func() time.Time,
-) (ExpiryResult, error) {
-	return dropFixedAgeHour(ctx, conn, control, child, boundary, now)
-}
-
-// dropFixedAgeHour is shared by the historical transition and the explicitly
-// authorized local retention owner. The archive-verified owner never calls it.
+// dropFixedAgeHour is the explicitly authorized local 24h retention drop. It
+// persists a terminal-gap receipt before DROP when the hour was never archived.
 func dropFixedAgeHour(ctx context.Context, conn *sql.Conn, control TransitionControlStore,
 	child pgpartition.ChildPartitionBound, boundary time.Time, now func() time.Time,
 ) (ExpiryResult, error) {
@@ -432,88 +323,6 @@ func dropFixedAgeHour(ctx context.Context, conn *sql.Conn, control TransitionCon
 	return result, nil
 }
 
-// RunTransitionBoundary preserves the pre-existing 24-hour cleanup while the
-// capture ledger warms up. The command layer gates it on the absence of the
-// irreversible single-owner activation receipt.
-func RunTransitionBoundary(
-	ctx context.Context,
-	db *sql.DB,
-	control TransitionControlStore,
-	opts Options,
-) (TransitionBoundaryResult, error) {
-	var result TransitionBoundaryResult
-	provision, err := RunProvision(ctx, db, opts, nil)
-	result.Provision = provision
-	if err != nil {
-		return result, err
-	}
-	boundary := pgpartition.RetentionBoundary(provision.DBAnchor)
-	expired, err := SelectTransitionExpiredHours(ctx, db, boundary)
-	if err != nil {
-		return result, err
-	}
-	if len(expired) > MaxTransitionDrops {
-		expired = expired[:MaxTransitionDrops]
-	}
-	var joined error
-	for _, child := range expired {
-		conn, connErr := db.Conn(ctx)
-		if connErr != nil {
-			return result, errors.Join(joined, connErr)
-		}
-		expiry, dropErr := DropTransitionExpiredHour(ctx, conn, control, child, boundary, time.Now)
-		_ = conn.Close()
-		result.Expiries = append(result.Expiries, expiry)
-		if dropErr != nil {
-			joined = errors.Join(joined, dropErr)
-			continue
-		}
-		result.DeletionAuthorized = true
-		if opts.BlobRoot != "" {
-			cleanupConn, cleanupConnErr := db.Conn(ctx)
-			if cleanupConnErr != nil {
-				joined = errors.Join(joined, cleanupConnErr)
-				continue
-			}
-			_, cleanupErr := ResumeDroppedHourCleanup(ctx, cleanupConn, control, child.Lower, opts)
-			_ = cleanupConn.Close()
-			if cleanupErr != nil {
-				joined = errors.Join(joined, cleanupErr)
-			} else {
-				result.Expiries[len(result.Expiries)-1].HotFilesCleaned = true
-			}
-		}
-	}
-	conn, connErr := db.Conn(ctx)
-	if connErr != nil {
-		return result, errors.Join(joined, connErr)
-	}
-	result.HotCleanupResumed, err = ResumePendingHotCleanups(ctx, conn, control, opts)
-	_ = conn.Close()
-	if err != nil {
-		joined = errors.Join(joined, err)
-	}
-	for _, cleanup := range result.HotCleanupResumed {
-		if cleanup.Error != "" {
-			joined = errors.Join(joined, fmt.Errorf("lifecycle: resume transition hot cleanup shard %d: %s", cleanup.ShardID, cleanup.Error))
-		}
-	}
-	return result, joined
-}
-
-// CleanupHotFilesForHour removes only the canonical Blob/DLQ directories for
-// one already-dropped source hour and records the idempotent cleanup outcome.
-func CleanupHotFilesForHour(
-	ctx context.Context,
-	conn *sql.Conn,
-	control ControlStore,
-	hourStart time.Time,
-	opts Options,
-) error {
-	_, err := ResumeDroppedHourCleanup(ctx, conn, control, hourStart, opts)
-	return err
-}
-
 // ResumeDroppedHourCleanup uses the durable archive-control drop receipt to
 // finish an exact hour whose partition was already removed in a prior run.
 func ResumeDroppedHourCleanup(
@@ -574,56 +383,6 @@ WHERE window_start = $1 AND generation = 0`, hourStart.UTC()).Scan(
 	}
 	result.HotFilesCleaned = true
 	return result, nil
-}
-
-// ResumePendingHotCleanups completes file cleanup for hours whose partition
-// DROP already committed in an earlier maintenance run.
-func ResumePendingHotCleanups(
-	ctx context.Context,
-	conn *sql.Conn,
-	control ControlStore,
-	opts Options,
-) ([]HotCleanupResult, error) {
-	if opts.BlobRoot == "" {
-		return nil, nil
-	}
-	rows, err := conn.QueryContext(ctx, `
-SELECT id, window_start
-FROM qa_archive_shards
-WHERE source_dropped_at IS NOT NULL
-  AND hot_files_cleaned_at IS NULL
-ORDER BY window_start
-	LIMIT $1`, MaxPendingHotCleanup)
-	if err != nil {
-		return nil, fmt.Errorf("lifecycle: list pending hot cleanup: %w", err)
-	}
-	var pending []HotCleanupResult
-	for rows.Next() {
-		var shardID int64
-		var windowStart time.Time
-		if err := rows.Scan(&shardID, &windowStart); err != nil {
-			_ = rows.Close()
-			return pending, err
-		}
-		pending = append(pending, HotCleanupResult{ShardID: shardID, WindowStart: windowStart.UTC()})
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return pending, err
-	}
-	if err := rows.Close(); err != nil {
-		return pending, err
-	}
-	for i := range pending {
-		item := &pending[i]
-		_, cleanupErr := ResumeDroppedHourCleanup(ctx, conn, control, item.WindowStart, opts)
-		if cleanupErr != nil {
-			item.Error = cleanupErr.Error()
-		} else {
-			item.Cleaned = true
-		}
-	}
-	return pending, nil
 }
 
 func redactCleanupError(err error) string {

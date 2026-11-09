@@ -99,9 +99,7 @@
     "terminal event registry": "base",
     "engine facade registry": "base",
     "QA lifecycle SSOT": "qa",
-    "QA Phase 2 recovery and IAM contracts": "qa",
-    "QA Phase 1 closeout + Phase 2 baseline": "qa",
-    "QA raw archive contract": "qa",
+    "QA local lifecycle contract": "qa",
     "frontend release asset contract": "frontend",
     "storefront SEO alignment": "frontend",
     "admin persistent-shell layout": "frontend",
@@ -120,7 +118,6 @@
     "runtime resource config verdict selftest": "observability",
     "disable image concurrency remediate contract": "observability",
     "env secret backup fail-closed contract": "deploy",
-    "QA single-owner SSM operator contract": "qa",
     "Feishu release notes collection": "deploy",
     "ghcr-prune-daily timer contract": "deploy",
     "host BBR SSOT wiring": "deploy",
@@ -201,7 +198,6 @@
     "gemini web control protocol parity": "gemini-web"
   },
   "backgrounds": {
-    "qa_raw_archive": "QA raw archive contract",
     "anthropic_unittest": "ops/anthropic orchestrators unittest",
     "det_ops_observability": "observability test suite",
     "det_ops_stage0": "stage0 test suite",
@@ -217,10 +213,9 @@
     "protocol_routing": "protocol-routing SSOT",
     "pricing_serving": "pricing/serving approved-doc precedence",
     "merge_conflict": "merge conflict markers",
-    "qa_phase2": "QA Phase 2 recovery and IAM contracts",
-    "qa_phase_ops": "QA Phase 1 closeout + Phase 2 baseline",
     "ssm_parse": "SSM host command script parse",
-    "archive_rehearsal": "nonprod archive/restore rehearsal"
+    "archive_rehearsal": "nonprod archive/restore rehearsal",
+    "qa_local_lifecycle": "QA local lifecycle contract"
   },
   "input_sets": {
     "base": [],
@@ -351,8 +346,6 @@
       "backend/internal/handler/gemini_web_session_handler.go"
     ],
     "hcloud-live-ops": [
-      "ops/qa/prod_qa_maintenance.py",
-      "ops/qa/prod_qa_archive_closeout.py",
       "ops/stage0/*",
       "ops/anthropic/*",
       "ops/accounts/*",

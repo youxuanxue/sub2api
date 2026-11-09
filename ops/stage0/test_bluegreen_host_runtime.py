@@ -198,12 +198,12 @@ class HostRuntimeTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         functions = '\n'.join(_extract_shell_function(remote, name) for name in (
             'run_bluegreen_stage', 'ensure_legacy_cutover', 'deploy_target_color',
-            'backup_env', 'restore_env_if_safe', 'cleanup_on_exit',
+            'backup_env', 'restore_env_if_safe', 'cleanup_on_exit', 'assert_post_cutover_environment',
         ))
         for stage, layout in (('deploy', 'legacy'), ('deploy', 'blue'), ('prepare', 'blue')):
             with self.subTest(stage=stage, layout=layout), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                original = 'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=\nTOKENKEY_IMAGE=repo:1.8.98\n'
+                original = 'API_DOMAIN=api.example.test\nTOKENKEY_IMAGE=repo:1.8.98\n'
                 (root / '.env').write_text(original)
                 script = 'set -euo pipefail\n' + functions + '''
 ENV_FILE="$ROOT/.env"
@@ -214,6 +214,8 @@ ROUTE_SWITCHED=0
 TARGET_CONTAINER=""
 LEGACY_MIGRATED=0
 TAG=1.8.99
+# Restore-on-failure is under test here; the edge contract has its own tests.
+assert_edge_profile_environment() { :; }
 sudo() { if [[ "$1" = docker ]]; then return 0; fi; command "$@"; }
 log() { :; }
 die() { echo "$*" >&2; exit 1; }
@@ -226,8 +228,9 @@ image_repo() { printf repo; }
 other_color() { printf green; }
 color_container() { printf 'tokenkey-%s' "$1"; }
 env_set() { :; }
+env_get() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
 ensure_profile_environment() {
-  printf 'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=/run/secrets/tokenkey-qa/raw.json\n' > "$ENV_FILE"
+  printf 'API_DOMAIN=api.example.test\nSERVER_FRONTEND_URL=https://api.example.test\n' > "$ENV_FILE"
 }
 # A candidate prerequisite failure precedes Docker and cutover.
 write_bluegreen_compose() { return 73; }

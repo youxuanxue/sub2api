@@ -14,7 +14,6 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/telemetryarchive"
 )
 
 // usageLogInsertArgTypes must stay in the same order as:
@@ -104,11 +103,10 @@ const (
 )
 
 type usageLogCreateRequest struct {
-	log            *service.UsageLog
-	prepared       usageLogInsertPrepared
-	telemetryValue any
-	shared         *usageLogCreateShared
-	resultCh       chan usageLogCreateResult
+	log      *service.UsageLog
+	prepared usageLogInsertPrepared
+	shared   *usageLogCreateShared
+	resultCh chan usageLogCreateResult
 }
 
 type usageLogCreateResult struct {
@@ -117,10 +115,9 @@ type usageLogCreateResult struct {
 }
 
 type usageLogBestEffortRequest struct {
-	prepared       usageLogInsertPrepared
-	apiKeyID       int64
-	telemetryValue any
-	resultCh       chan usageLogCreateResult
+	prepared usageLogInsertPrepared
+	apiKeyID int64
+	resultCh chan usageLogCreateResult
 }
 
 type usageLogInsertPrepared struct {
@@ -161,25 +158,14 @@ func (r *usageLogRepository) Create(ctx context.Context, log *service.UsageLog) 
 	}
 
 	if tx := dbent.TxFromContext(ctx); tx != nil {
-		inserted, err := r.createSingle(ctx, tx.Client(), log)
-		if err == nil && inserted {
-			r.enqueueUsageAfterCommit(tx, log)
-		}
-		return inserted, err
+		return r.createSingle(ctx, tx.Client(), log)
 	}
-	var inserted bool
-	var err error
 	requestID := strings.TrimSpace(log.RequestID)
 	if requestID == "" {
-		inserted, err = r.createSingle(ctx, r.sql, log)
-	} else {
-		log.RequestID = requestID
-		return r.createBatched(ctx, log)
+		return r.createSingle(ctx, r.sql, log)
 	}
-	if err == nil && inserted {
-		r.enqueueUsage(log)
-	}
-	return inserted, err
+	log.RequestID = requestID
+	return r.createBatched(ctx, log)
 }
 
 func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.UsageLog) error {
@@ -188,35 +174,24 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 	}
 
 	if tx := dbent.TxFromContext(ctx); tx != nil {
-		inserted, err := r.createSingle(ctx, tx.Client(), log)
-		if err == nil && inserted {
-			r.enqueueUsageAfterCommit(tx, log)
-		}
+		_, err := r.createSingle(ctx, tx.Client(), log)
 		return err
 	}
 	if r.db == nil {
-		inserted, err := r.createSingle(ctx, r.sql, log)
-		if err == nil && inserted {
-			r.enqueueUsage(log)
-		}
+		_, err := r.createSingle(ctx, r.sql, log)
 		return err
 	}
 
 	r.ensureBestEffortBatcher()
 	if r.bestEffortBatchCh == nil {
-		inserted, err := r.createSingle(ctx, r.sql, log)
-		if err == nil && inserted {
-			r.enqueueUsage(log)
-		}
+		_, err := r.createSingle(ctx, r.sql, log)
 		return err
 	}
 
-	prepared := prepareUsageLogInsert(log)
 	req := usageLogBestEffortRequest{
-		prepared:       prepared,
-		apiKeyID:       log.APIKeyID,
-		telemetryValue: r.snapshotUsageTelemetry(log, prepared),
-		resultCh:       make(chan usageLogCreateResult, 1),
+		prepared: prepareUsageLogInsert(log),
+		apiKeyID: log.APIKeyID,
+		resultCh: make(chan usageLogCreateResult, 1),
 	}
 	if key, ok := r.bestEffortRecentKey(req.prepared.requestID, req.apiKeyID); ok {
 		if _, exists := r.bestEffortRecent.Get(key); exists {
@@ -241,115 +216,11 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 	}
 }
 
-func (r *usageLogRepository) snapshotUsageTelemetry(
-	log *service.UsageLog,
-	prepared usageLogInsertPrepared,
-) any {
-	if r == nil || r.telemetry == nil || log == nil {
-		return nil
-	}
-	snapshot := cloneUsageLog(log)
-	snapshot.CreatedAt = prepared.createdAt
-	snapshot.RequestID = prepared.requestID
-	snapshot.RateMultiplier = prepared.rateMultiplier
-	snapshot.RequestType = service.RequestType(prepared.requestType)
-	if strings.TrimSpace(snapshot.RequestedModel) == "" {
-		snapshot.RequestedModel = strings.TrimSpace(snapshot.Model)
-	}
-	return snapshot
-}
-
-func cloneUsageLog(log *service.UsageLog) *service.UsageLog {
-	if log == nil {
-		return nil
-	}
-	snapshot := *log
-	snapshot.UpstreamModel = cloneUsageLogValue(log.UpstreamModel)
-	snapshot.UpstreamResponseModel = cloneUsageLogValue(log.UpstreamResponseModel)
-	snapshot.UpstreamModelMismatch = cloneUsageLogValue(log.UpstreamModelMismatch)
-	snapshot.UpstreamRequestID = cloneUsageLogValue(log.UpstreamRequestID)
-	snapshot.ChannelID = cloneUsageLogValue(log.ChannelID)
-	snapshot.ModelMappingChain = cloneUsageLogValue(log.ModelMappingChain)
-	snapshot.BillingTier = cloneUsageLogValue(log.BillingTier)
-	snapshot.BillingMode = cloneUsageLogValue(log.BillingMode)
-	snapshot.ServiceTier = cloneUsageLogValue(log.ServiceTier)
-	snapshot.ReasoningEffort = cloneUsageLogValue(log.ReasoningEffort)
-	snapshot.RequestedReasoningEffort = cloneUsageLogValue(log.RequestedReasoningEffort)
-	snapshot.InboundEndpoint = cloneUsageLogValue(log.InboundEndpoint)
-	snapshot.UpstreamEndpoint = cloneUsageLogValue(log.UpstreamEndpoint)
-	snapshot.GroupID = cloneUsageLogValue(log.GroupID)
-	snapshot.SubscriptionID = cloneUsageLogValue(log.SubscriptionID)
-	snapshot.AccountRateMultiplier = cloneUsageLogValue(log.AccountRateMultiplier)
-	snapshot.AccountStatsCost = cloneUsageLogValue(log.AccountStatsCost)
-	snapshot.DurationMs = cloneUsageLogValue(log.DurationMs)
-	snapshot.GatewayLatencyMs = cloneUsageLogValue(log.GatewayLatencyMs)
-	snapshot.FirstTokenMs = cloneUsageLogValue(log.FirstTokenMs)
-	snapshot.UserAgent = cloneUsageLogValue(log.UserAgent)
-	snapshot.IPAddress = cloneUsageLogValue(log.IPAddress)
-	snapshot.SessionID = cloneUsageLogValue(log.SessionID)
-	snapshot.CodexInstallationID = cloneUsageLogValue(log.CodexInstallationID)
-	snapshot.ImageSize = cloneUsageLogValue(log.ImageSize)
-	snapshot.ImageInputSize = cloneUsageLogValue(log.ImageInputSize)
-	snapshot.ImageOutputSize = cloneUsageLogValue(log.ImageOutputSize)
-	snapshot.ImageSizeSource = cloneUsageLogValue(log.ImageSizeSource)
-	snapshot.MediaType = cloneUsageLogValue(log.MediaType)
-	snapshot.VideoResolution = cloneUsageLogValue(log.VideoResolution)
-	snapshot.VideoDurationSeconds = cloneUsageLogValue(log.VideoDurationSeconds)
-	if log.ImageSizeBreakdown != nil {
-		snapshot.ImageSizeBreakdown = make(map[string]int, len(log.ImageSizeBreakdown))
-		for size, count := range log.ImageSizeBreakdown {
-			snapshot.ImageSizeBreakdown[size] = count
-		}
-	}
-
-	// Relations are not usage_logs columns and can retain large or sensitive graphs.
-	snapshot.User = nil
-	snapshot.APIKey = nil
-	snapshot.Account = nil
-	snapshot.Group = nil
-	snapshot.Subscription = nil
-	return &snapshot
-}
-
-func cloneUsageLogValue[T any](value *T) *T {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
 func freezeUsageLogFloat64(value *float64) any {
 	if value == nil {
 		return nil
 	}
 	return *value
-}
-
-func (r *usageLogRepository) enqueueUsage(log *service.UsageLog) {
-	r.enqueueUsageValue(log)
-}
-
-func (r *usageLogRepository) enqueueUsageValue(value any) {
-	if r != nil && r.telemetry != nil && value != nil {
-		r.telemetry.Enqueue(telemetryarchive.DatasetUsage, value)
-	}
-}
-
-func (r *usageLogRepository) enqueueUsageAfterCommit(tx *dbent.Tx, log *service.UsageLog) {
-	if r == nil || r.telemetry == nil || tx == nil || log == nil {
-		return
-	}
-	value := r.snapshotUsageTelemetry(log, prepareUsageLogInsert(log))
-	tx.OnCommit(func(next dbent.Committer) dbent.Committer {
-		return dbent.CommitFunc(func(ctx context.Context, committedTx *dbent.Tx) error {
-			if err := next.Commit(ctx, committedTx); err != nil {
-				return err
-			}
-			r.enqueueUsageValue(value)
-			return nil
-		})
-	})
 }
 
 func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor, log *service.UsageLog) (bool, error) {
@@ -465,31 +336,20 @@ func (r *usageLogRepository) createSinglePrepared(
 }
 
 func (r *usageLogRepository) createBatched(ctx context.Context, log *service.UsageLog) (bool, error) {
-	prepared := prepareUsageLogInsert(log)
-	telemetryValue := r.snapshotUsageTelemetry(log, prepared)
 	if r.db == nil {
-		inserted, err := r.createSingle(ctx, r.sql, log)
-		if err == nil && inserted {
-			r.enqueueUsageValue(telemetryValue)
-		}
-		return inserted, err
+		return r.createSingle(ctx, r.sql, log)
 	}
 	r.ensureCreateBatcher()
 	if r.createBatchCh == nil {
-		inserted, err := r.createSingle(ctx, r.sql, log)
-		if err == nil && inserted {
-			r.enqueueUsageValue(telemetryValue)
-		}
-		return inserted, err
+		return r.createSingle(ctx, r.sql, log)
 	}
 	ownedLog := *log
 
 	req := usageLogCreateRequest{
-		log:            &ownedLog,
-		prepared:       prepared,
-		telemetryValue: telemetryValue,
-		shared:         &usageLogCreateShared{},
-		resultCh:       make(chan usageLogCreateResult, 1),
+		log:      &ownedLog,
+		prepared: prepareUsageLogInsert(log),
+		shared:   &usageLogCreateShared{},
+		resultCh: make(chan usageLogCreateResult, 1),
 	}
 
 	// 队列满时阻塞等待而非立即报错：本路径是 best-effort 丢弃后的最后兜底，
@@ -856,9 +716,6 @@ func (r *usageLogRepository) completeUsageLogBestEffortRequest(
 	req usageLogBestEffortRequest,
 	result usageLogCreateResult,
 ) {
-	if result.err == nil && result.inserted {
-		r.enqueueUsageValue(req.telemetryValue)
-	}
 	sendUsageLogBestEffortResult(req.resultCh, result)
 }
 
@@ -900,9 +757,6 @@ func sendUsageLogBestEffortResult(ch chan usageLogCreateResult, result usageLogC
 }
 
 func (r *usageLogRepository) completeUsageLogCreateRequest(req usageLogCreateRequest, res usageLogCreateResult) {
-	if res.err == nil && res.inserted {
-		r.enqueueUsageValue(req.telemetryValue)
-	}
 	if req.shared != nil {
 		req.shared.state.Store(usageLogCreateStateCompleted)
 	}

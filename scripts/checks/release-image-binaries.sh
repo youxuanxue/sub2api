@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify each published release image platform contains both required executables.
+# Verify each published release image platform contains the gateway executable.
 set -euo pipefail
 
 IMAGE="${1:-}"
@@ -39,17 +39,10 @@ for platform in "${platforms[@]}"; do
     echo "failed to pull ${IMAGE} for ${platform}" >&2
     exit 1
   fi
+  # QA S3 retired 2026-11-08: the qa-archive recovery CLI must not ship again.
   docker run --rm --pull=never --platform "${platform}" --entrypoint /bin/sh "${IMAGE}" -ec '
-    test -x /app/sub2api && test -x /app/qa-archive
+    test -x /app/sub2api
+    test ! -e /app/qa-archive
     /app/sub2api -version >/dev/null 2>&1
-    set +e
-    qa_output=$(/app/qa-archive 2>&1)
-    qa_rc=$?
-    set -e
-    test "$qa_rc" -eq 2
-    case "$qa_output" in
-      *\"error\":\"command\ required:*) ;;
-      *) exit 1 ;;
-    esac
   '
 done

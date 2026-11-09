@@ -1,7 +1,11 @@
 ---
 title: pgBackRest AWS repo1 与腾讯 COS repo2 并行迁移草案
-status: draft
+status: superseded
 ---
+
+> **已结束（2026-11-08）**：用户决定停写 AWS repo1，COS `repo2` 为唯一 repository，见
+> [设计](../../approved/design-tencent-cos-backup-node1-qa.md#2026-11-08-决定停写-aws-repo1cos-为唯一-repository)。
+> 下文是并行期的历史记录，不再描述现网。
 
 # 目的
 

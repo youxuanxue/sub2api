@@ -579,6 +579,35 @@ class PhysicalBackupTests(unittest.TestCase):
         self.assertEqual(config["global"].getint("repo2-retention-full"), 7)
         self.assertNotIn("repo2-s3-key=", rendered)
 
+    def test_cos_only_config_has_no_repo1_or_aws_endpoint(self):
+        # 2026-11-08: AWS repo1 retired; COS stays at index 2 as the only repo.
+        import configparser
+        import re
+
+        rendered = backup.cos_configuration({
+            "bucket": "tokenkey-prod-backup-usw-1320330536",
+            "region": "na-siliconvalley",
+            "endpoint": "cos.na-siliconvalley.myqcloud.com",
+            "path": "/prod/postgres",
+            "uri_style": "host",
+        })
+        self.assertNotIn("repo1-", rendered)
+        self.assertNotIn("amazonaws.com", rendered)
+        self.assertNotIn("s3-key", rendered)
+        config = configparser.ConfigParser()
+        config.read_string(rendered)
+        indices = {int(m.group(1)) for key in config["global"]
+                   if (m := re.match(r"repo(\d+)-", key))}
+        self.assertEqual(indices, {backup.COS_REPO_INDEX})
+        self.assertEqual(backup.COS_REPO_INDEX, 2)
+        self.assertEqual(config["global"]["repo2-s3-endpoint"], "cos.na-siliconvalley.myqcloud.com")
+        self.assertEqual(config["global"]["repo2-s3-uri-style"], "host")
+        self.assertEqual(config["global"].getint("repo2-retention-full"), 7)
+        self.assertEqual(config["global"]["archive-timeout"], "120")
+        with self.assertRaises(backup.BackupError):
+            backup.cos_configuration({"bucket": "x", "region": "na-siliconvalley",
+                                      "endpoint": "https://evil", "path": "/p"})
+
     def test_config_rejects_unsafe_or_partial_cos_repo2(self):
         valid = {
             "bucket": "tokenkey-prod-cos-123456789012",

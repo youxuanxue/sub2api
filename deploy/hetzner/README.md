@@ -69,15 +69,16 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
 活舰队矩阵：[`deploy/tencent/candidate-usw-20261022.json`](../tencent/candidate-usw-20261022.json)（`deployable=true`；`resolve_prod_ssm_target.py --target auto` → 本机）。
 
-### 活物理备份前缀（切流后）
+### 活物理备份仓库（2026-11-08 起 COS 唯一）
+
+2026-11-08 用户决定停写 AWS repo1，COS 为唯一 repository（[设计](../../docs/approved/design-tencent-cos-backup-node1-qa.md#2026-11-08-决定停写-aws-repo1cos-为唯一-repository)）。
 
 | 项 | 值 |
 |---|---|
-| 活仓库 | `s3://tokenkey-prod-physical-backup-682751977094-us-east-1/candidates/tencent-usw-20261022/postgres`（timeline 2） |
-| 历史只读 | 同桶 `prod/postgres`（Tokyo timeline 1；腾讯身份仅 Get） |
-| 身份续期 | `tokenkey-backup-identity.timer` → `/run/tokenkey-backup-candidate/` |
+| 活仓库 | pgBackRest `repo2`：COS `tokenkey-prod-backup-usw-1320330536`（`cos.na-siliconvalley.myqcloud.com`）`/prod/postgres` |
+| 配置渲染 | `tokenkey-backup-identity.timer` → `ops/stage0/tencent_backup_identity.py`，只读 root-only `/etc/tokenkey/cos-backup.env`，写 `/run/tokenkey-backup-candidate/` 与 `/run/tokenkey-recovery/`；不再读 AWS 会话、不调 STS |
 | 备份/检查 | `tokenkey-postgres-backup.timer`（偶数小时 :30 UTC）+ `tokenkey-postgres-archive-check.timer`（5min） |
-| 升格策略 | **不**把活链写回 `prod/postgres`（避免与冻结东京链混写）；候选前缀即现网活备份 SSOT，直至另行批准迁移路径 |
+| 已停写（保留待清理） | AWS `s3://tokenkey-prod-physical-backup-682751977094-us-east-1/candidates/tencent-usw-20261022/postgres`（timeline 2）与同桶 Tokyo 历史 `prod/postgres` |
 
 ### 日本出口代理（已关停 · 2026-10-23 删除）
 
@@ -131,13 +132,11 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 ## 开放运维项（非过程史）
 
 1. **账号**：prod 原生账号承接请求；错误、不可调度状态由运营处理，不自动恢复中继或旧副本。
-2. **QA**：capture 沿现有配置；用户已暂停向 S3 上传。停用期望 owner 为现网矩阵 `host_watch` 的
-   `paused_jobs`：`tokenkey-qa-maintenance`（上传暂停）与 `tokenkey-qa-boundary`
-   （历史归档验收问题保持停用，DROP pause 保留）。capture 与备份继续运行。
-   暂停期巡检与恢复见 [QA 运维入口](../../ops/qa/README.md)。
+2. **QA**：capture 沿现有配置；QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 每 4h（主机定时器 `tokenkey-qa-archive`）。
+   旧 `tokenkey-qa-maintenance`/`tokenkey-qa-boundary` 已从仓库与 watcher 删除，主机上已 mask 的单元
+   留待单独清理。巡检见 [QA 运维入口](../../ops/qa/README.md)。
 3. **监控**：腾讯机无 EBS/DLM；Tokyo 已退役，快照已全部删除（见 [runbook](../../docs/ops/tokyo-retirement-runbook.md)）。宿主 HTTPS/job watcher 读取暂停 owner，
-   要求所列 timer 停用且 service 不在运行；意外恢复会告警。daily diagnostics 复用同一暂停清单，
-   暂停期不要求归档回执刷新，boundary 与存储检查保留。其他任务仍按成功时效监控。
+   要求所列 timer 停用且 service 不在运行；意外恢复会告警。其他任务（含 `local_qa_jobs`）按成功时效监控。
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
 4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本 Lightsail 代理已于 2026-10-23 删除；
    新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
@@ -151,7 +150,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 | 类别 | 当前用途 / owner | 清理条件 |
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | 腾讯美西 prod/出口机与北京 cn-prod 远程执行、参数与 GHCR 身份；`ops/stage0/resolve_prod_ssm_target.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
-| QA raw archive | 存储配置为 AWS S3，当前上传已暂停；历史恢复按小时来源选择 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
+| QA raw archive | QA S3 已于 2026-11-08 退役；仓库模板与恢复 CLI 已删除，历史对象按七天生命周期到期 | 删除 `tokenkey-prod-qa-raw-archive` CFN 栈（含桶、KMS、恢复角色）由单独收尾执行，见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界) |
 | 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
 | 历史 archive / dormant media 桶 | 历史数据与停用配置；媒体默认不启用 S3，只有显式 opt-in | 资产销毁另行审批，不能把停用 bucket 描述成现网迁移对象 |
@@ -167,7 +166,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 | `HCLOUD_TOKEN` | **已退役**；勿再用于 TokenKey prod 供给 |
 | `HCLOUD_S3_Access_Key` / `HCLOUD_S3_Secret_Key` | 本机受保护的对象存储凭据；不输出、不入库 |
 | `QA_*` | QA 独立迁移契约；不得因网关迁完而直接切换默认值 |
-| `QA_LIVE_ARCHIVE_*`（脚本内部常量） | 现行 QA raw 坐标由 `ops/stage0/qa-runtime-environment.sh` 统一持有；prod 蓝绿发布缺失或偏离这些坐标、意外配置静态凭据时直接失败。AWS IAM/raw 策略检查兼容保留 `--legacy-aws` 参数 |
+| `QA_ARCHIVE_*` | QA S3 归档 2026-11-08 退役；prod 蓝绿发布不再注入或校验这些键，compose 也不再传入容器（网关缺省关闭归档）。node1 副本由主机定时器 `tokenkey-qa-archive` 负责 |
 
 媒体默认 AWS 坐标清理：`ops/stage0/retire_dormant_media_storage.py` 默认 plan；
 通过 `run-probe --script ops/stage0/retire_dormant_media_storage_remote.sh`
@@ -177,16 +176,13 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 
 ## QA 与备份排队、旧 AWS 定时任务收尾
 
-共享脚本使用 `/var/lib/tokenkey/qa-lifecycle/host.lock`：pg_dump 持共享锁，QA boundary 与
-archive 持独占锁；备份完成本地文件后立即解锁，上传不阻塞 QA。定时 QA 最多等待 600 秒，
-备份最多等待 2400 秒；超时任务失败，不跳过数据库原有短锁超时、seal、restore 或 DROP 门禁。
-单一 owner 的 plan/activation 仍立即报锁忙，避免把旧计划排队执行。
+共享脚本使用 `/var/lib/tokenkey/qa-lifecycle/host.lock`：pg_dump 持共享锁，本地 QA
+provision/cleanup 持独占锁；备份完成本地文件后立即解锁，上传不阻塞 QA。本地 QA 最多等待 600 秒，
+备份最多等待 2400 秒；超时任务失败，不跳过数据库短锁超时。
 
-现有主机不会因代码合并自动更新。安装前保存三个 host 脚本的原文件、权限与哈希，核对
-备份、maintenance、boundary service 都未运行，再使用同一 host.lock 排他锁安装脚本；
-保持原有 timer、maintenance pin、存储身份和资源限制。任务忙则等待，不能强杀。
-回退同样在任务空闲且持排他锁时恢复原文件，随后观察下一轮 timer 的回执与备份产物。
-仅更新宿主脚本，不发布网关镜像或重启 gateway、Caddy、PostgreSQL/Redis。
+QA S3 退役（2026-11-08）后，旧 maintenance/boundary 宿主脚本已从仓库删除。主机上已 mask 的
+单元与 `/usr/local/bin/tokenkey-qa-{maintenance,boundary}.sh` 留待单独的主机清理；清理前保持 mask，
+`local_maintenance_host.py` 的 `require_legacy_paused()` 会在它们被意外启用时拒绝运行本地 QA 任务。
 
 普通蓝绿发布不再注入 telemetry 的 AWS 桶/region 默认值，telemetry 默认关闭。
 显式 opt-in 和主机已有配置继续保留；此变更不等于已清理运行容器中的休眠变量，也不表示

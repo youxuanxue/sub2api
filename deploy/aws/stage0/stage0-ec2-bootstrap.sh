@@ -266,11 +266,6 @@ API_ALIAS_DOMAIN="${API_ALIAS_DOMAIN}" \
 
 install -d -m 0755 /etc/tokenkey
 install -d -m 0755 /usr/local/lib/tokenkey
-QA_BOUNDARY_B64_PARAM_PREFIX="${STAGE0_PREFIX}/qa-boundary.gzip.b64"
-RAW="$(aws ssm get-parameter --name "${QA_BOUNDARY_B64_PARAM_PREFIX}.part1" --region "${REGION}" --query Parameter.Value --output text)"
-RAW+="$(aws ssm get-parameter --name "${QA_BOUNDARY_B64_PARAM_PREFIX}.part2" --region "${REGION}" --query Parameter.Value --output text)"
-printf '%s' "${RAW}" | base64 -d | gunzip > /usr/local/bin/tokenkey-qa-boundary.sh
-chmod 0755 /usr/local/bin/tokenkey-qa-boundary.sh
 
 printf '%s\n' "${STAGE0_PREFIX}/ghcr-prune.b64" > /etc/tokenkey/ghcr-prune-ssm.path
 install -m 0755 /dev/stdin /usr/local/bin/tokenkey-prune-ghcr-app-tags.sh <<'LOADEREOF'
@@ -534,8 +529,6 @@ RandomizedDelaySec=2min
 WantedBy=timers.target
 PTEOF
 
-/usr/local/bin/tokenkey-qa-boundary.sh --install-units
-
 # --- 7. CloudWatch Agent ------------------------------------------------
 cat > /opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json <<'CWEOF'
 {
@@ -569,7 +562,6 @@ if [ "${TOKENKEY_ENABLE_LEGACY_PGDUMP:-false}" = true ] && [ ! -e /var/lib/token
   systemctl enable --now tokenkey-pgdump.timer
 fi
 systemctl enable --now tokenkey-disk-metrics.timer
-systemctl disable --now tokenkey-qa-boundary.timer
 systemctl enable --now tokenkey-ghcr-prune-daily.timer
 if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
   /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \

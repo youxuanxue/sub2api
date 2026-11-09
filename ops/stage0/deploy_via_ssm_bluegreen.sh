@@ -31,9 +31,6 @@
 
 set -euo pipefail
 
-# shellcheck source=qa-runtime-environment.sh
-source "$(dirname "$0")/qa-runtime-environment.sh"
-
 TAG="${1:-${INPUT_TAG:-}}"
 INSTANCE_ID="${2:-${INSTANCE_ID:-}}"
 COMMENT="${3:-${SSM_COMMENT:-deploy-stage0-bluegreen}}"
@@ -188,16 +185,6 @@ env_default() {
   fi
 }
 
-env_apply_if_supplied() {
-  local key="$1" desired="$2" supplied="$3"
-  if [[ "${supplied}" = true ]]; then
-    env_set "${key}" "${desired}"
-    log "applied desired ${key}"
-  else
-    log "${key} not supplied; preserving existing host value"
-  fi
-}
-
 backup_env() {
   local phase="$1" ts
   ts="$(date +%Y%m%d-%H%M%S)"
@@ -238,46 +225,40 @@ cleanup_on_exit() {
 }
 trap cleanup_on_exit EXIT
 
-assert_qa_provider_unchanged() {
-  local key flag
-  # A normal gateway release must not redirect archive writes. The frozen raw
-  # migration updates maintenance coordinates before any gateway release.
-  for key in "${QA_RUNTIME_KEYS[@]}"; do
-    flag="${key}_SET"
-    if [[ "${!flag:-false}" = true && "${!key:-}" != "$(env_get "${key}")" ]]; then
-      die "QA coordinate change requires the separate migration: ${key}"
-    fi
-  done
+assert_post_cutover_environment() {
+  # Every .env key read after commit_cutover must be checked here, before any
+  # traffic moves (1.8.353: API_DOMAIN was only checked after the route switch).
+  [[ -f "${ENV_FILE}" ]] || die "missing ${ENV_FILE}; is this a Stage0 host?"
+  [[ -n "$(env_get API_DOMAIN)" ]] || die "API_DOMAIN is required before cutover (routed health observation)"
+  assert_edge_profile_environment
 }
 
-assert_live_qa_archive_coordinates() {
-  [[ "$(env_get QA_ARCHIVE_ENABLED)" = true ]] || return 0
-
-  local key expected actual
-  for key in \
-    QA_ARCHIVE_STORAGE_DRIVER \
-    QA_ARCHIVE_STORAGE_REGION \
-    QA_ARCHIVE_STORAGE_BUCKET \
-    QA_ARCHIVE_STORAGE_ENDPOINT \
-    QA_ARCHIVE_STORAGE_PREFIX; do
-    expected="${key/QA_ARCHIVE_/QA_LIVE_ARCHIVE_}"
-    expected="${!expected}"
-    actual="$(env_get "${key}")"
-    [[ -n "${actual}" ]] || die "missing live QA archive coordinate: ${key}"
-    [[ "${actual}" = "${expected}" ]] || die "live QA archive coordinate differs from current storage contract: ${key}"
+# Host contract for the canonical prod edge (deploy/aws/stage0/Caddyfile rendered by
+# render-prod-caddyfile.sh). The 2026-11-08 data-disk rebuild left .env without
+# ACME_EMAIL / GLOBAL_SITE_* / API_ALIAS_DOMAIN / API_CN_DOMAIN and a hand-written
+# Caddyfile that proxied every host straight to the gateway. 1.8.354 then cut over
+# and only the post-deploy CallModel facade probe noticed (admin/human redirects gone).
+# A re-render from that .env would also have dropped api-cn.tokenkey.dev. Refuse
+# before traffic moves; the fix is ops/stage0/sync_caddyfile_via_ssm.sh.
+PROD_EDGE_REQUIRED_ENV=(ACME_EMAIL GLOBAL_SITE_PHASE GLOBAL_SITE_DOMAIN API_ALIAS_DOMAIN API_CN_DOMAIN)
+assert_edge_profile_environment() {
+  local key missing=()
+  for key in "${PROD_EDGE_REQUIRED_ENV[@]}"; do
+    [[ -n "$(env_get "${key}")" ]] || missing+=("${key}")
   done
-  [[ -z "$(env_get QA_ARCHIVE_STORAGE_CREDENTIALS_FILE)" ]] ||
-    die "live QA archive requires EC2 instance-role authentication"
+  if (( ${#missing[@]} > 0 )); then
+    die "prod edge env incomplete before cutover: missing ${missing[*]} in ${ENV_FILE}; restore them and re-render with ops/stage0/sync_caddyfile_via_ssm.sh"
+  fi
+  # The canonical render always imports the machine allowlist on API hosts; a
+  # Caddyfile without it is not the repo template (legal pages, facade redirects,
+  # rate limits and TLS options are all missing with it).
+  if [[ -f "${LIVE_CADDY}" ]] && ! grep -q 'import tokenkey_api_machine' "${LIVE_CADDY}"; then
+    die "live Caddyfile ${LIVE_CADDY} is not the canonical prod render; re-render with ops/stage0/sync_caddyfile_via_ssm.sh before cutover"
+  fi
 }
 
 ensure_profile_environment() {
   [[ -f "${ENV_FILE}" ]] || die "missing ${ENV_FILE}; is this a Stage0 host?"
-  assert_qa_provider_unchanged
-  local runtime_key runtime_set
-  for runtime_key in "${QA_RUNTIME_KEYS[@]}"; do
-    runtime_set="${runtime_key}_SET"
-    env_apply_if_supplied "${runtime_key}" "${!runtime_key:-}" "${!runtime_set:-false}"
-  done
 
   local api_domain
   api_domain="$(env_get API_DOMAIN)"
@@ -290,22 +271,8 @@ ensure_profile_environment() {
 
   env_default TOKENKEY_GHCR_KEEP_TAGS 3
 
-  # Target: ops/qa/policy.yaml prod.archive.enabled. Rollout gate default true
-  # after Phase 2 recovery closeout: ops/qa/deploy_rollout.yaml (SSOT).
-  env_default QA_ARCHIVE_ENABLED "${QA_ARCHIVE_ENABLED:-true}"
-  assert_live_qa_archive_coordinates
-
-  env_default TELEMETRY_ARCHIVE_ENABLED false
-  env_default TELEMETRY_ARCHIVE_REGION "${TELEMETRY_ARCHIVE_REGION:-}"
-  env_default TELEMETRY_ARCHIVE_BUCKET "${TELEMETRY_ARCHIVE_BUCKET:-}"
-  env_default TELEMETRY_ARCHIVE_PREFIX "${TELEMETRY_ARCHIVE_PREFIX:-prod/raw-telemetry}"
-  env_default TELEMETRY_ARCHIVE_QUEUE_SIZE "${TELEMETRY_ARCHIVE_QUEUE_SIZE:-8192}"
-  env_default TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES "${TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES:-33554432}"
-  env_default TELEMETRY_ARCHIVE_MAX_EVENT_BYTES "${TELEMETRY_ARCHIVE_MAX_EVENT_BYTES:-1048576}"
-  env_default TELEMETRY_ARCHIVE_BATCH_SIZE "${TELEMETRY_ARCHIVE_BATCH_SIZE:-256}"
-  env_default TELEMETRY_ARCHIVE_WORKER_COUNT "${TELEMETRY_ARCHIVE_WORKER_COUNT:-4}"
-  env_default TELEMETRY_ARCHIVE_FLUSH_INTERVAL_SECONDS "${TELEMETRY_ARCHIVE_FLUSH_INTERVAL_SECONDS:-5}"
-  env_default TELEMETRY_ARCHIVE_PUT_TIMEOUT_SECONDS "${TELEMETRY_ARCHIVE_PUT_TIMEOUT_SECONDS:-10}"
+  # QA S3 archive retired 2026-11-08 (ops/qa/deploy_rollout.yaml). Never
+  # inject QA archive keys: the gateway defaults archive off when they are absent.
 
   # Media offload is explicit opt-in. Never resurrect the dormant AWS bucket.
   env_default MEDIA_STORAGE_DRIVER "${MEDIA_STORAGE_DRIVER:-local}"
@@ -688,25 +655,6 @@ services:
       - GATEWAY_NEWAPI_CHAT_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT:-0}
       - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}
       - QA_CAPTURE_BODY_MAX_BYTES=${QA_CAPTURE_BODY_MAX_BYTES:-}
-      - QA_ARCHIVE_STORAGE_ENDPOINT=${QA_ARCHIVE_STORAGE_ENDPOINT:-}
-      - QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE=${QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE:-}
-      - QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=${QA_ARCHIVE_STORAGE_CREDENTIALS_FILE:-}
-      - QA_ARCHIVE_ENABLED=${QA_ARCHIVE_ENABLED:-}
-      - QA_ARCHIVE_STORAGE_DRIVER=${QA_ARCHIVE_STORAGE_DRIVER:-}
-      - QA_ARCHIVE_STORAGE_REGION=${QA_ARCHIVE_STORAGE_REGION:-}
-      - QA_ARCHIVE_STORAGE_BUCKET=${QA_ARCHIVE_STORAGE_BUCKET:-}
-      - QA_ARCHIVE_STORAGE_PREFIX=${QA_ARCHIVE_STORAGE_PREFIX:-}
-      - TELEMETRY_ARCHIVE_ENABLED=${TELEMETRY_ARCHIVE_ENABLED:-}
-      - TELEMETRY_ARCHIVE_REGION=${TELEMETRY_ARCHIVE_REGION:-}
-      - TELEMETRY_ARCHIVE_BUCKET=${TELEMETRY_ARCHIVE_BUCKET:-}
-      - TELEMETRY_ARCHIVE_PREFIX=${TELEMETRY_ARCHIVE_PREFIX:-}
-      - TELEMETRY_ARCHIVE_QUEUE_SIZE=${TELEMETRY_ARCHIVE_QUEUE_SIZE:-}
-      - TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES=${TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES:-}
-      - TELEMETRY_ARCHIVE_MAX_EVENT_BYTES=${TELEMETRY_ARCHIVE_MAX_EVENT_BYTES:-}
-      - TELEMETRY_ARCHIVE_BATCH_SIZE=${TELEMETRY_ARCHIVE_BATCH_SIZE:-}
-      - TELEMETRY_ARCHIVE_WORKER_COUNT=${TELEMETRY_ARCHIVE_WORKER_COUNT:-}
-      - TELEMETRY_ARCHIVE_FLUSH_INTERVAL_SECONDS=${TELEMETRY_ARCHIVE_FLUSH_INTERVAL_SECONDS:-}
-      - TELEMETRY_ARCHIVE_PUT_TIMEOUT_SECONDS=${TELEMETRY_ARCHIVE_PUT_TIMEOUT_SECONDS:-}
       - MEDIA_STORAGE_DRIVER=${MEDIA_STORAGE_DRIVER:-}
       - MEDIA_STORAGE_REGION=${MEDIA_STORAGE_REGION:-}
       - MEDIA_STORAGE_BUCKET=${MEDIA_STORAGE_BUCKET:-}
@@ -791,25 +739,6 @@ services:
       - GATEWAY_NEWAPI_CHAT_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT:-0}
       - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}
       - QA_CAPTURE_BODY_MAX_BYTES=${QA_CAPTURE_BODY_MAX_BYTES:-}
-      - QA_ARCHIVE_STORAGE_ENDPOINT=${QA_ARCHIVE_STORAGE_ENDPOINT:-}
-      - QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE=${QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE:-}
-      - QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=${QA_ARCHIVE_STORAGE_CREDENTIALS_FILE:-}
-      - QA_ARCHIVE_ENABLED=${QA_ARCHIVE_ENABLED:-}
-      - QA_ARCHIVE_STORAGE_DRIVER=${QA_ARCHIVE_STORAGE_DRIVER:-}
-      - QA_ARCHIVE_STORAGE_REGION=${QA_ARCHIVE_STORAGE_REGION:-}
-      - QA_ARCHIVE_STORAGE_BUCKET=${QA_ARCHIVE_STORAGE_BUCKET:-}
-      - QA_ARCHIVE_STORAGE_PREFIX=${QA_ARCHIVE_STORAGE_PREFIX:-}
-      - TELEMETRY_ARCHIVE_ENABLED=${TELEMETRY_ARCHIVE_ENABLED:-}
-      - TELEMETRY_ARCHIVE_REGION=${TELEMETRY_ARCHIVE_REGION:-}
-      - TELEMETRY_ARCHIVE_BUCKET=${TELEMETRY_ARCHIVE_BUCKET:-}
-      - TELEMETRY_ARCHIVE_PREFIX=${TELEMETRY_ARCHIVE_PREFIX:-}
-      - TELEMETRY_ARCHIVE_QUEUE_SIZE=${TELEMETRY_ARCHIVE_QUEUE_SIZE:-}
-      - TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES=${TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES:-}
-      - TELEMETRY_ARCHIVE_MAX_EVENT_BYTES=${TELEMETRY_ARCHIVE_MAX_EVENT_BYTES:-}
-      - TELEMETRY_ARCHIVE_BATCH_SIZE=${TELEMETRY_ARCHIVE_BATCH_SIZE:-}
-      - TELEMETRY_ARCHIVE_WORKER_COUNT=${TELEMETRY_ARCHIVE_WORKER_COUNT:-}
-      - TELEMETRY_ARCHIVE_FLUSH_INTERVAL_SECONDS=${TELEMETRY_ARCHIVE_FLUSH_INTERVAL_SECONDS:-}
-      - TELEMETRY_ARCHIVE_PUT_TIMEOUT_SECONDS=${TELEMETRY_ARCHIVE_PUT_TIMEOUT_SECONDS:-}
       - MEDIA_STORAGE_DRIVER=${MEDIA_STORAGE_DRIVER:-}
       - MEDIA_STORAGE_REGION=${MEDIA_STORAGE_REGION:-}
       - MEDIA_STORAGE_BUCKET=${MEDIA_STORAGE_BUCKET:-}
@@ -1286,10 +1215,6 @@ deploy_target_color() {
   log "deploy target=${target} image=${new_img} active=${active} active_image=${active_img:-unknown}"
   TARGET_CONTAINER="${target_container}"
   CUTOVER_COMMITTED=0
-  if [[ -n "${TELEMETRY_ARCHIVE_ENABLED:-}" ]]; then
-    env_set TELEMETRY_ARCHIVE_ENABLED "${TELEMETRY_ARCHIVE_ENABLED}"
-    log "set TELEMETRY_ARCHIVE_ENABLED=${TELEMETRY_ARCHIVE_ENABLED}"
-  fi
   env_set "TOKENKEY_IMAGE_$(printf '%s' "${target}" | tr '[:lower:]' '[:upper:]')" "${new_img}"
   if [[ "${STAGE:-deploy}" != prepare ]]; then env_set TOKENKEY_IMAGE "${new_img}"; fi
   write_bluegreen_compose
@@ -1424,6 +1349,7 @@ run_bluegreen_stage() {
   case "${STAGE}" in
     promote)
       prepare_live_paths
+      assert_post_cutover_environment
       promote_prepared_color
       ;;
     prepare)
@@ -1437,6 +1363,7 @@ run_bluegreen_stage() {
       # Capture the rollback baseline before any profile/credential changes.
       backup_env prepare
       ensure_profile_environment
+      assert_post_cutover_environment
       deploy_target_color
       ;;
     deploy)
@@ -1444,6 +1371,7 @@ run_bluegreen_stage() {
       [[ ! -e "${PREPARED_FILE}" ]] || die "prepared candidate awaits review; use explicit promote"
       backup_env deploy
       ensure_profile_environment
+      assert_post_cutover_environment
       ensure_legacy_cutover
       if [[ "${LEGACY_MIGRATED}" = 0 ]]; then deploy_target_color; fi
       ;;
@@ -1480,18 +1408,7 @@ sudo docker logs "${active_container}" --since 2m 2>&1 | tail -30 || true
 echo "tk_stage0_cutover: timestamp=${CUTOVER_AT}"
 REMOTE
 
-REMOTE_SCRIPT="$(cat "$(dirname "$0")/qa-runtime-environment.sh")
-${REMOTE_SCRIPT}"
 printf '%s\n' "${REMOTE_SCRIPT}" > "${remote_script_file}"
-# Supplemental coordinates use the same explicit/unset contract as older keys.
-qa_runtime_exports=""
-for key in "${QA_RUNTIME_KEYS[@]}"; do
-  case "${!key-}" in
-    *$'\n'*|*$'\r'*|*'$'*) echo "invalid runtime coordinate: ${key}" >&2; exit 1 ;;
-  esac
-  printf -v escaped '%q' "${!key-}"
-  qa_runtime_exports+=" ${key}=${escaped} ${key}_SET=$([[ -n "${!key+x}" ]] && echo true || echo false)"
-done
 hybrid_prod=false
 [[ "${DEPLOY_PROFILE}" != prod || "${INSTANCE_ID}" != mi-* ]] || hybrid_prod=true
 
@@ -1501,21 +1418,6 @@ REMOTE_B64="$(printf '%s' "${REMOTE_SCRIPT}" | gzip -n -9 | base64 | tr -d '\n')
 chunks_json="$(printf '%s' "${REMOTE_B64}" | fold -w 1000 | jq -R -s 'split("\n") | map(select(length > 0))')"
 
 if [[ "${DEPLOY_PROFILE}" = prod ]]; then
-  DELIVER_QA_ARCHIVE_ENABLED="${QA_ARCHIVE_ENABLED:-true}"
-  DELIVER_QA_ARCHIVE_DRIVER="${QA_ARCHIVE_STORAGE_DRIVER:-${QA_LIVE_ARCHIVE_STORAGE_DRIVER}}"
-  DELIVER_QA_ARCHIVE_REGION="${QA_ARCHIVE_STORAGE_REGION:-${QA_LIVE_ARCHIVE_STORAGE_REGION}}"
-  DELIVER_QA_ARCHIVE_BUCKET="${QA_ARCHIVE_STORAGE_BUCKET:-${QA_LIVE_ARCHIVE_STORAGE_BUCKET}}"
-  DELIVER_QA_ARCHIVE_PREFIX="${QA_ARCHIVE_STORAGE_PREFIX:-${QA_LIVE_ARCHIVE_STORAGE_PREFIX}}"
-  DELIVER_TELEMETRY_REGION="${TELEMETRY_ARCHIVE_REGION:-}"
-  DELIVER_TELEMETRY_BUCKET="${TELEMETRY_ARCHIVE_BUCKET:-}"
-  DELIVER_TELEMETRY_PREFIX="${TELEMETRY_ARCHIVE_PREFIX:-prod/raw-telemetry}"
-  DELIVER_TELEMETRY_QUEUE_SIZE="${TELEMETRY_ARCHIVE_QUEUE_SIZE:-8192}"
-  DELIVER_TELEMETRY_QUEUE_MAX_BYTES="${TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES:-33554432}"
-  DELIVER_TELEMETRY_MAX_EVENT_BYTES="${TELEMETRY_ARCHIVE_MAX_EVENT_BYTES:-1048576}"
-  DELIVER_TELEMETRY_BATCH_SIZE="${TELEMETRY_ARCHIVE_BATCH_SIZE:-256}"
-  DELIVER_TELEMETRY_WORKER_COUNT="${TELEMETRY_ARCHIVE_WORKER_COUNT:-4}"
-  DELIVER_TELEMETRY_FLUSH_INTERVAL="${TELEMETRY_ARCHIVE_FLUSH_INTERVAL_SECONDS:-5}"
-  DELIVER_TELEMETRY_PUT_TIMEOUT="${TELEMETRY_ARCHIVE_PUT_TIMEOUT_SECONDS:-10}"
   DELIVER_MEDIA_DRIVER="${MEDIA_STORAGE_DRIVER:-local}"
   DELIVER_MEDIA_REGION="${MEDIA_STORAGE_REGION:-}"
   DELIVER_MEDIA_BUCKET="${MEDIA_STORAGE_BUCKET:-}"
@@ -1523,16 +1425,12 @@ if [[ "${DEPLOY_PROFILE}" = prod ]]; then
   DELIVER_IMAGE_MAX="${GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS:-8}"
   DELIVER_IMAGE_OVERFLOW="${GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE:-reject}"
 else
-  DELIVER_QA_ARCHIVE_ENABLED="" DELIVER_QA_ARCHIVE_DRIVER="" DELIVER_QA_ARCHIVE_REGION="" DELIVER_QA_ARCHIVE_BUCKET="" DELIVER_QA_ARCHIVE_PREFIX=""
-  DELIVER_TELEMETRY_REGION="" DELIVER_TELEMETRY_BUCKET="" DELIVER_TELEMETRY_PREFIX="" DELIVER_TELEMETRY_QUEUE_SIZE="" DELIVER_TELEMETRY_QUEUE_MAX_BYTES=""
-  DELIVER_TELEMETRY_MAX_EVENT_BYTES="" DELIVER_TELEMETRY_BATCH_SIZE="" DELIVER_TELEMETRY_WORKER_COUNT="" DELIVER_TELEMETRY_FLUSH_INTERVAL="" DELIVER_TELEMETRY_PUT_TIMEOUT=""
   DELIVER_MEDIA_DRIVER="" DELIVER_MEDIA_REGION="" DELIVER_MEDIA_BUCKET=""
   DELIVER_IMAGE_ENABLED="" DELIVER_IMAGE_MAX="" DELIVER_IMAGE_OVERFLOW=""
 fi
 
 jq -n \
   --arg tag "${TAG}" \
-  --arg qa_runtime_exports "${qa_runtime_exports}" \
   --arg hybrid_prod "${hybrid_prod}" \
   --arg host_runtime_b64 "$(base64 < "$(dirname "$0")/bluegreen_host_runtime.py" | tr -d '\n')" \
   --arg stage "${STAGE}" \
@@ -1543,22 +1441,6 @@ jq -n \
   --arg replace_receipt "${REPLACE_RECEIPT}" \
   --arg deploy_profile "${DEPLOY_PROFILE}" \
   --arg execution_timeout "${EXECUTION_TIMEOUT_SECONDS}" \
-  --arg qa_archive_enabled "${DELIVER_QA_ARCHIVE_ENABLED}" \
-  --arg qa_archive_driver "${DELIVER_QA_ARCHIVE_DRIVER}" \
-  --arg qa_archive_region "${DELIVER_QA_ARCHIVE_REGION}" \
-  --arg qa_archive_bucket "${DELIVER_QA_ARCHIVE_BUCKET}" \
-  --arg qa_archive_prefix "${DELIVER_QA_ARCHIVE_PREFIX}" \
-  --arg telemetry_enabled "${TELEMETRY_ARCHIVE_ENABLED:-}" \
-  --arg telemetry_region "${DELIVER_TELEMETRY_REGION}" \
-  --arg telemetry_bucket "${DELIVER_TELEMETRY_BUCKET}" \
-  --arg telemetry_prefix "${DELIVER_TELEMETRY_PREFIX}" \
-  --arg telemetry_queue_size "${DELIVER_TELEMETRY_QUEUE_SIZE}" \
-  --arg telemetry_queue_max_bytes "${DELIVER_TELEMETRY_QUEUE_MAX_BYTES}" \
-  --arg telemetry_max_event_bytes "${DELIVER_TELEMETRY_MAX_EVENT_BYTES}" \
-  --arg telemetry_batch_size "${DELIVER_TELEMETRY_BATCH_SIZE}" \
-  --arg telemetry_worker_count "${DELIVER_TELEMETRY_WORKER_COUNT}" \
-  --arg telemetry_flush_interval "${DELIVER_TELEMETRY_FLUSH_INTERVAL}" \
-  --arg telemetry_put_timeout "${DELIVER_TELEMETRY_PUT_TIMEOUT}" \
   --arg media_driver "${DELIVER_MEDIA_DRIVER}" \
   --arg media_region "${DELIVER_MEDIA_REGION}" \
   --arg media_bucket "${DELIVER_MEDIA_BUCKET}" \
@@ -1574,7 +1456,6 @@ jq -n \
     "chmod 700 /tmp/tokenkey-bluegreen-deploy.sh",
     (
       "TAG=" + ($tag|@sh)
-      + $qa_runtime_exports
       + " HYBRID_PROD=" + ($hybrid_prod|@sh)
       + " HOST_RUNTIME_B64=" + ($host_runtime_b64|@sh)
       + " STAGE=" + ($stage|@sh)
@@ -1584,22 +1465,6 @@ jq -n \
       + " REPLAY_CONTRACT_B64=" + ($replay_contract_b64|@sh)
       + " REPLACE_RECEIPT=" + ($replace_receipt|@sh)
       + " DEPLOY_PROFILE=" + ($deploy_profile|@sh)
-      + " QA_ARCHIVE_ENABLED=" + ($qa_archive_enabled|@sh)
-      + " QA_ARCHIVE_STORAGE_DRIVER=" + ($qa_archive_driver|@sh)
-      + " QA_ARCHIVE_STORAGE_REGION=" + ($qa_archive_region|@sh)
-      + " QA_ARCHIVE_STORAGE_BUCKET=" + ($qa_archive_bucket|@sh)
-      + " QA_ARCHIVE_STORAGE_PREFIX=" + ($qa_archive_prefix|@sh)
-      + " TELEMETRY_ARCHIVE_ENABLED=" + ($telemetry_enabled|@sh)
-      + " TELEMETRY_ARCHIVE_REGION=" + ($telemetry_region|@sh)
-      + " TELEMETRY_ARCHIVE_BUCKET=" + ($telemetry_bucket|@sh)
-      + " TELEMETRY_ARCHIVE_PREFIX=" + ($telemetry_prefix|@sh)
-      + " TELEMETRY_ARCHIVE_QUEUE_SIZE=" + ($telemetry_queue_size|@sh)
-      + " TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES=" + ($telemetry_queue_max_bytes|@sh)
-      + " TELEMETRY_ARCHIVE_MAX_EVENT_BYTES=" + ($telemetry_max_event_bytes|@sh)
-      + " TELEMETRY_ARCHIVE_BATCH_SIZE=" + ($telemetry_batch_size|@sh)
-      + " TELEMETRY_ARCHIVE_WORKER_COUNT=" + ($telemetry_worker_count|@sh)
-      + " TELEMETRY_ARCHIVE_FLUSH_INTERVAL_SECONDS=" + ($telemetry_flush_interval|@sh)
-      + " TELEMETRY_ARCHIVE_PUT_TIMEOUT_SECONDS=" + ($telemetry_put_timeout|@sh)
       + " MEDIA_STORAGE_DRIVER=" + ($media_driver|@sh)
       + " MEDIA_STORAGE_REGION=" + ($media_region|@sh)
       + " MEDIA_STORAGE_BUCKET=" + ($media_bucket|@sh)

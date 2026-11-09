@@ -9,13 +9,11 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/telemetryarchive"
 	"github.com/lib/pq"
 )
 
 type opsRepository struct {
-	db        *sql.DB
-	telemetry telemetryarchive.Sink
+	db *sql.DB
 }
 
 const insertOpsErrorLogSQL = `
@@ -83,7 +81,6 @@ func (r *opsRepository) InsertErrorLog(ctx context.Context, input *service.OpsIn
 	if err != nil {
 		return 0, err
 	}
-	r.enqueueOpsError(input)
 	return id, nil
 }
 
@@ -127,25 +124,7 @@ func (r *opsRepository) BatchInsertErrorLogs(ctx context.Context, inputs []*serv
 	if err = tx.Commit(); err != nil {
 		return inserted, err
 	}
-	for _, input := range inputs {
-		r.enqueueOpsError(input)
-	}
 	return inserted, nil
-}
-
-func (r *opsRepository) enqueueOpsError(input *service.OpsInsertErrorLogInput) {
-	if r == nil || r.telemetry == nil || input == nil {
-		return
-	}
-	snapshot := *input
-	// Only the sanitized JSON is persisted. Keep raw/non-column diagnostic
-	// fields out of the long-lived S3 replay payload.
-	snapshot.UpstreamErrors = nil
-	snapshot.IsBusinessLimited = false
-	// The deleted-key attribution fields that used to be zeroed here are gone from the
-	// input struct entirely, so there is nothing left to strip: no user-identifying key
-	// name or submitted prefix can reach the long-lived S3 payload by construction.
-	r.telemetry.Enqueue(telemetryarchive.DatasetOpsError, &snapshot)
 }
 
 func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
@@ -697,7 +676,6 @@ func (r *opsRepository) BatchInsertSystemLogs(ctx context.Context, inputs []*ser
 	}
 
 	var inserted int64
-	shadowed := make([]*service.OpsInsertSystemLogInput, 0, len(inputs))
 	for _, input := range inputs {
 		if input == nil {
 			continue
@@ -746,7 +724,6 @@ func (r *opsRepository) BatchInsertSystemLogs(ctx context.Context, inputs []*ser
 			return inserted, err
 		}
 		inserted++
-		shadowed = append(shadowed, &normalized)
 	}
 
 	if _, err := stmt.ExecContext(ctx); err != nil {
@@ -760,11 +737,6 @@ func (r *opsRepository) BatchInsertSystemLogs(ctx context.Context, inputs []*ser
 	}
 	if err := tx.Commit(); err != nil {
 		return inserted, err
-	}
-	if r.telemetry != nil {
-		for _, input := range shadowed {
-			r.telemetry.Enqueue(telemetryarchive.DatasetOpsSystem, input)
-		}
 	}
 	return inserted, nil
 }

@@ -20,9 +20,13 @@ Isolation, because prod and cn-prod both serve live users from the same host:
     only ever read from (pgbackrest info, one comparison query)
   * no published ports, and the restored instance listens on a unix socket only,
     so nothing can connect to it from outside
-  * the restore container joins NO docker network -- it cannot reach the gateway
-    or the live database even by name. Verified on cn-prod: `pg_isready -h
-    tokenkey-postgres` from such a container returns "no response".
+  * the restore container stays on Docker's default bridge only and never joins
+    the tokenkey network -- it cannot reach the gateway or the live database even
+    by name. Verified on cn-prod: `pg_isready -h tokenkey-postgres` from such a
+    container returns "no response". Do NOT harden this to `--network none`:
+    Postgres runs archive-get against COS for the backup-end WAL at startup, and
+    without egress it fails with "could not locate required checkpoint record"
+    (seen on prod, 2026-11-08).
   * cpu/memory caps plus nice/ionice keep it off the live workload's back
   * the pgbackrest config is mounted read-only and `--delta` is never used, so
     no production directory is writable from inside
@@ -48,6 +52,7 @@ import subprocess
 import sys
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 STANZA = "tokenkey"
@@ -56,6 +61,8 @@ CONTAINER_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
 # Verified against the live schema rather than guessed: `usage_logs` carries the
 # cost columns and `usage_billing_dedup` mirrors it row for row, so their row
 # delta is a strong signal that a restored copy is internally consistent.
+# usage_billing_dedup keeps only 7 days and is trimmed nightly, so it is counted
+# only inside a fixed window (window_sql below), never as a whole table.
 # accounts and api_keys are soft-delete tables: `deleted_at IS NULL` is what Ent
 # adds automatically and hand-written SQL must add itself. It matters here
 # beyond tidiness -- a row soft-deleted AFTER the recovery point still reads as
@@ -67,7 +74,6 @@ SELECT json_build_object(
   'accounts',(SELECT count(*) FROM accounts WHERE deleted_at IS NULL),
   'api_keys',(SELECT count(*) FROM api_keys WHERE deleted_at IS NULL),
   'usage_logs',(SELECT count(*) FROM usage_logs),
-  'billing_dedup',(SELECT count(*) FROM usage_billing_dedup),
   'cost_sum',(SELECT round(COALESCE(sum(total_cost),0),6)::text FROM usage_logs),
   'actual_cost_sum',(SELECT round(COALESCE(sum(actual_cost),0),6)::text FROM usage_logs),
   'db_size_bytes',pg_database_size('tokenkey')
@@ -80,6 +86,29 @@ SELECT json_build_object(
   'sequences',(SELECT count(*) FROM information_schema.sequences WHERE sequence_schema='public')
 )"""
 
+# The billing pair is compared inside [window_start, now). window_start is fixed
+# once from the live clock and sent to both sides, so the live snapshot and the
+# restored copy count the same span. It sits well inside the 7-day dedup window,
+# so the nightly trim never removes rows the comparison depends on.
+PAIR_WINDOW = timedelta(days=3)
+_WINDOW_START_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+
+
+def window_sql(window_start: str) -> str:
+    if not _WINDOW_START_RE.fullmatch(window_start):
+        raise ValueError(f"window_start must be UTC ISO-8601: {window_start!r}")
+    return f"""
+SELECT json_build_object(
+  'window_start','{window_start}',
+  'window_usage_logs',(SELECT count(*) FROM usage_logs WHERE created_at >= '{window_start}'::timestamptz),
+  'window_billing_dedup',(SELECT count(*) FROM usage_billing_dedup WHERE created_at >= '{window_start}'::timestamptz)
+)"""
+
+
+def pair_window_start(now: datetime) -> str:
+    start = (now.astimezone(timezone.utc) - PAIR_WINDOW).replace(minute=0, second=0, microsecond=0)
+    return start.strftime("%Y-%m-%dT%H:%M:%SZ")
+
 
 # ops-sql-coverage: every *_SQL / *_sql symbol must be enumerated or exempted,
 # so the execution gate runs it against a real Postgres rather than trusting a
@@ -91,7 +120,8 @@ SELF_CHECK_EXEMPT: dict[str, str] = {
 
 def iter_self_check_sql() -> list[tuple[str, str]]:
     """(label, rendered_sql) for the ops-sql-coverage real-Postgres self-check."""
-    return [("SCHEMA_SQL", SCHEMA_SQL), ("DATA_SQL", DATA_SQL)]
+    return [("SCHEMA_SQL", SCHEMA_SQL), ("DATA_SQL", DATA_SQL),
+            ("window_sql", window_sql("2026-11-01T00:00:00Z"))]
 
 
 class AcceptanceError(RuntimeError):
@@ -214,7 +244,8 @@ class Sandbox:
     def restore(self, repo: int, label: str, timeout: int) -> None:
         self._fresh_pgdata()
         run(["docker", "rm", "-f", self.name], check=False)
-        # Downloading needs COS reachability, but the container joins no docker
+        # Downloading (and archive-get at startup) needs COS egress, so the
+        # container stays on the default bridge; it never joins the tokenkey
         # network, so the gateway and the live database stay unreachable.
         run(["sudo", "nice", "-n", "19", "ionice", "-c3", "docker", "run", "--rm",
              "--name", self.name, *self._limits(),
@@ -260,9 +291,13 @@ class Sandbox:
 
 
 def compare(restored: dict, live: dict) -> list[str]:
-    """A restored point is a PAST state: it may lag live, never exceed it."""
+    """A restored point is a PAST state: it may lag live, never exceed it.
+
+    usage_billing_dedup is not in the never-exceed list: live trims it nightly,
+    so a week-old point legitimately holds dedup rows that live has deleted.
+    """
     problems = []
-    for key in ("accounts", "api_keys", "usage_logs", "billing_dedup"):
+    for key in ("accounts", "api_keys", "usage_logs"):
         got, expected = restored.get(key), live.get(key)
         if isinstance(got, int) and isinstance(expected, int) and got > expected:
             problems.append(f"{key} restored {got} > live {expected}")
@@ -272,17 +307,31 @@ def compare(restored: dict, live: dict) -> list[str]:
                 problems.append(f"{key} restored {restored[key]} > live {live[key]}")
         except (KeyError, TypeError, ValueError):
             problems.append(f"{key} missing or unparseable")
-    # usage_logs and usage_billing_dedup are written together; the same delta on
-    # the restored copy as on live means the pair survived the round trip rather
-    # than being captured mid-write.
-    try:
-        restored_drift = abs(restored["usage_logs"] - restored["billing_dedup"])
-        live_drift = abs(live["usage_logs"] - live["billing_dedup"])
-        if restored_drift != live_drift:
-            problems.append(f"billing pair drift {restored_drift} != live {live_drift}")
-    except (KeyError, TypeError):
-        problems.append("billing pair drift not computable")
+    problems.extend(compare_pair_window(restored, live))
     return problems
+
+
+def compare_pair_window(restored: dict, live: dict) -> list[str]:
+    """usage_logs and usage_billing_dedup are written together. Inside the same
+    window, the same delta on the restored copy as on live means the pair
+    survived the round trip rather than being captured mid-write.
+
+    A point older than window_start has no rows in the window, so the pair
+    cannot be checked there; that is reported, not counted as a failure. The
+    latest point always falls inside the window.
+    """
+    try:
+        if restored["window_start"] != live["window_start"]:
+            return [f"pair window mismatch {restored['window_start']} != live {live['window_start']}"]
+        if restored["window_usage_logs"] == 0 and restored["window_billing_dedup"] == 0:
+            return []
+        restored_drift = abs(restored["window_usage_logs"] - restored["window_billing_dedup"])
+        live_drift = abs(live["window_usage_logs"] - live["window_billing_dedup"])
+    except (KeyError, TypeError):
+        return ["billing pair drift not computable"]
+    if restored_drift != live_drift:
+        return [f"billing pair drift {restored_drift} != live {live_drift} since {live['window_start']}"]
+    return []
 
 
 def atomic_json(path: Path, value: dict) -> None:
@@ -321,7 +370,8 @@ def main() -> int:
     historical, latest = targets(entry)
     wal = wal_continuity(entry)
     live_schema = live_sql(container, SCHEMA_SQL)
-    live_data = live_sql(container, DATA_SQL)
+    window_start = pair_window_start(datetime.now(timezone.utc))
+    live_data = {**live_sql(container, DATA_SQL), **live_sql(container, window_sql(window_start))}
     primary_connections = int(live_setting(container, "max_connections"))
 
     plan = {
@@ -365,7 +415,7 @@ def main() -> int:
             copied = time.time()
             ready = box.start(primary_connections, args.ready_timeout)
             schema = box.sql(SCHEMA_SQL)
-            data = box.sql(DATA_SQL)
+            data = {**box.sql(DATA_SQL), **box.sql(window_sql(window_start))}
             box.stop()
         problems = compare(data, live_data)
         if schema != live_schema:

@@ -20,24 +20,18 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
         self,
         *,
         states: dict[str, str],
-        telemetry: dict[str, str],
-        active_color: str | None = None,
-        app_container: str = "auto",
         partition_sql: str | None = None,
         partition_failure: bool = False,
         postgres_container: str = "tokenkey-postgres",
         postgres_states: dict[str, str] | None = None,
         expect_exit: int = 0,
-    ) -> tuple[dict[str, object], dict[str, object], str]:
+    ) -> tuple[dict[str, object], str]:
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
             fakebin = root / "bin"
             fakebin.mkdir()
             calls = root / "docker-calls.log"
             partition_stdin = root / "partition-stdin.sql"
-            active_file = root / "active-color"
-            if active_color is not None:
-                active_file.write_text(active_color, encoding="utf-8")
 
             docker = fakebin / "docker"
             docker.write_text(
@@ -60,33 +54,22 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
                           esac
                           exit 0
                           ;;
-                        *Config.Env*)
-                          [ "$state" = running ] || exit 1
-                          telemetry_var="TELEMETRY_${key}"
-                          enabled="${!telemetry_var:-false}"
-                          printf 'TELEMETRY_ARCHIVE_ENABLED=%s\n' "$enabled"
-                          exit 0
-                          ;;
                       esac
                       exit 2
                     fi
                     if [ "$1" = exec ]; then
-                      if [[ "$*" == *telemetry_archive_shadow* ]]; then
-                        printf '%s\n' 'TELEMETRYSTATS {"probe_ok":true,"enabled":true,"last_result":{"dropped":0,"failed":0}}'
-                      else
-                        has_i=false
-                        for arg in "$@"; do
-                          if [ "$arg" = "-i" ]; then
-                            has_i=true
-                            break
-                          fi
-                        done
-                        [ "$has_i" = true ] || exit 2
-                        query="$(cat)"
-                        printf '%s' "$query" > "$FAKE_PARTITION_STDIN"
-                        [ "${PARTITION_FAILURE:-false}" = true ] && exit 1
-                        printf '%s\n' 'PARTITIONSTATS {"probe_ok":true}'
-                      fi
+                      has_i=false
+                      for arg in "$@"; do
+                        if [ "$arg" = "-i" ]; then
+                          has_i=true
+                          break
+                        fi
+                      done
+                      [ "$has_i" = true ] || exit 2
+                      query="$(cat)"
+                      printf '%s' "$query" > "$FAKE_PARTITION_STDIN"
+                      [ "${PARTITION_FAILURE:-false}" = true ] && exit 1
+                      printf '%s\n' 'PARTITIONSTATS {"probe_ok":true}'
                       exit 0
                     fi
                     exit 2
@@ -99,8 +82,6 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
             env = {
                 **os.environ,
                 "PATH": f"{fakebin}:{os.environ.get('PATH', '')}",
-                "ACTIVE_COLOR_FILE": str(active_file),
-                "APP_CONTAINER": app_container,
                 "FAKE_DOCKER_CALLS": str(calls),
                 "FAKE_PARTITION_STDIN": str(partition_stdin),
                 "PARTITION_FAILURE": "true" if partition_failure else "false",
@@ -110,7 +91,6 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
             for name in ("tokenkey", "tokenkey-blue", "tokenkey-green"):
                 key = name.replace("-", "_").upper()
                 env[f"STATE_{key}"] = states.get(name, "missing")
-                env[f"TELEMETRY_{key}"] = telemetry.get(name, "false")
             # Stage0 vs Tencent layout-exception PG name; exactly one runs unless
             # postgres_states spells the boundary under test.
             if postgres_states is None:
@@ -128,76 +108,25 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, expect_exit, msg=proc.stderr + proc.stdout)
             if expect_exit != 0:
-                return {}, {}, proc.stderr + proc.stdout
-            telemetry_line = next(
-                (line for line in proc.stdout.splitlines() if line.startswith("TELEMETRYSTATS ")),
-                None,
-            )
+                return {}, proc.stderr + proc.stdout
+            self.assertNotIn("TELEMETRYSTATS", proc.stdout)
             partition_line = next(
                 (line for line in proc.stdout.splitlines() if line.startswith("PARTITIONSTATS ")),
                 None,
             )
-            self.assertIsNotNone(telemetry_line, msg=proc.stdout)
             self.assertIsNotNone(partition_line, msg=proc.stdout)
-            assert telemetry_line is not None and partition_line is not None
+            assert partition_line is not None
             calls_text = calls.read_text(encoding="utf-8")
             if partition_stdin.exists():
                 calls_text += "\nPARTITION_SQL:\n" + partition_stdin.read_text(encoding="utf-8")
             return (
-                json.loads(telemetry_line.removeprefix("TELEMETRYSTATS ")),
                 json.loads(partition_line.removeprefix("PARTITIONSTATS ")),
                 calls_text,
             )
 
-    def test_active_color_running_container_wins(self) -> None:
-        signal, _, calls = self.run_probe(
-            active_color="green\n",
-            states={"tokenkey": "running", "tokenkey-blue": "running", "tokenkey-green": "running"},
-            telemetry={"tokenkey-green": "true"},
-        )
-        self.assertIs(signal["enabled"], True)
-        self.assertIn("tokenkey-green", calls)
-
-    def test_stopped_active_target_does_not_win_ambiguous_fallback(self) -> None:
-        signal, _, _ = self.run_probe(
-            active_color="green\n",
-            states={"tokenkey": "running", "tokenkey-blue": "running", "tokenkey-green": "stopped"},
-            telemetry={"tokenkey": "true", "tokenkey-blue": "true", "tokenkey-green": "true"},
-        )
-        self.assertEqual(signal, {"probe_ok": False, "enabled": None})
-
-    def test_unique_running_fallback_is_selected(self) -> None:
-        signal, _, calls = self.run_probe(
-            states={"tokenkey-blue": "running"},
-            telemetry={"tokenkey-blue": "true"},
-        )
-        self.assertIs(signal["enabled"], True)
-        self.assertIn("tokenkey-blue", calls)
-
-    def test_zero_running_candidates_fails_closed(self) -> None:
-        signal, _, _ = self.run_probe(states={}, telemetry={})
-        self.assertEqual(signal, {"probe_ok": False, "enabled": None})
-
-    def test_multiple_running_candidates_fail_closed(self) -> None:
-        signal, _, _ = self.run_probe(
-            states={"tokenkey-blue": "running", "tokenkey-green": "running"},
-            telemetry={"tokenkey-blue": "true", "tokenkey-green": "true"},
-        )
-        self.assertEqual(signal, {"probe_ok": False, "enabled": None})
-
-    def test_explicit_stopped_container_fails_closed(self) -> None:
-        signal, _, calls = self.run_probe(
-            app_container="tokenkey-green",
-            states={"tokenkey": "running", "tokenkey-green": "stopped"},
-            telemetry={"tokenkey": "true", "tokenkey-green": "true"},
-        )
-        self.assertEqual(signal, {"probe_ok": False, "enabled": None})
-        self.assertNotIn("Config.Env tokenkey\n", calls)
-
     def test_executes_shared_partition_sql_through_container_stdin(self) -> None:
-        _, partition, calls = self.run_probe(
+        partition, calls = self.run_probe(
             states={"tokenkey": "running"},
-            telemetry={"tokenkey": "false"},
         )
         self.assertEqual(partition, {"probe_ok": True})
         self.assertIn("exec -i -e", calls)
@@ -205,9 +134,8 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
         self.assertIn("pg_get_expr(child.relpartbound, child.oid, true)", calls)
 
     def test_layout_exception_postgres_name_is_resolved(self) -> None:
-        _, partition, calls = self.run_probe(
+        partition, calls = self.run_probe(
             states={"tokenkey": "running"},
-            telemetry={"tokenkey": "false"},
             postgres_container="tk-archive-standby",
         )
         self.assertEqual(partition, {"probe_ok": True})
@@ -215,9 +143,8 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
         self.assertNotIn("tokenkey-postgres psql", calls)
 
     def test_stopped_stage0_postgres_does_not_mask_layout_exception(self) -> None:
-        _, partition, calls = self.run_probe(
+        partition, calls = self.run_probe(
             states={"tokenkey": "running"},
-            telemetry={"tokenkey": "false"},
             postgres_states={"tokenkey-postgres": "stopped", "tk-archive-standby": "running"},
         )
         self.assertEqual(partition, {"probe_ok": True})
@@ -225,35 +152,31 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
         self.assertNotIn("tokenkey-postgres psql", calls)
 
     def test_two_running_postgres_candidates_fail_closed(self) -> None:
-        _, _, text = self.run_probe(
+        _, text = self.run_probe(
             states={"tokenkey": "running"},
-            telemetry={"tokenkey": "false"},
             postgres_states={"tokenkey-postgres": "running", "tk-archive-standby": "running"},
             expect_exit=1,
         )
         self.assertIn("unresolved", text)
 
     def test_no_running_postgres_fails_closed(self) -> None:
-        _, _, text = self.run_probe(
+        _, text = self.run_probe(
             states={"tokenkey": "running"},
-            telemetry={"tokenkey": "false"},
             postgres_states={"tokenkey-postgres": "missing", "tk-archive-standby": "stopped"},
             expect_exit=1,
         )
         self.assertIn("unresolved", text)
 
     def test_explicit_missing_partition_sql_fails_closed(self) -> None:
-        _, partition, _ = self.run_probe(
+        partition, _ = self.run_probe(
             states={"tokenkey": "running"},
-            telemetry={"tokenkey": "false"},
             partition_sql="/definitely/missing/partition-coverage.sql",
         )
         self.assertEqual(partition, {"probe_ok": False})
 
     def test_partition_sql_failure_fails_closed(self) -> None:
-        _, partition, _ = self.run_probe(
+        partition, _ = self.run_probe(
             states={"tokenkey": "running"},
-            telemetry={"tokenkey": "false"},
             partition_failure=True,
         )
         self.assertEqual(partition, {"probe_ok": False})

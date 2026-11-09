@@ -101,7 +101,8 @@ Primary IP 均 `auto_delete=true`，删除主机将同时释放这些地址。�
 独立前缀为 `prod/legacy-node-archive/20261016-hcloud-edges/<node>/frozen-full.dump`。
 每份复制前后均下载 SHA-256 比对，且核验大小、AES256 和无 Expiration header；
 汇总校验清单位于同批前缀的 `manifest.json`。原备份副本未删除。
-归档桶的 400 天规则仅覆盖 `prod/ops-archive/`，另有 `prod/raw-telemetry/` 的 120 天规则；
+归档桶的 400 天规则仅覆盖 `prod/ops-archive/`，另有 `prod/raw-telemetry/` 的 120 天规则
+（telemetry archive 代码已于 2026-11-08 删除，该规则留待基础设施变更处理）；
 新 legacy-node-archive 前缀不匹配这些规则，当前无自动过期，按用户后续决定清理。
 旧机数据库保持默认只读、业务自启动禁用；最近六小时 Caddy 日志样本中仅扫描/308 等，
 未见成功业务请求，不能将其表述为完全无请求。

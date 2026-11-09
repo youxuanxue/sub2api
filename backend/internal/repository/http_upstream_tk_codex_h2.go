@@ -2,6 +2,7 @@ package repository
 
 import (
 	"net/http"
+	"net/url"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -28,6 +29,13 @@ const (
 // applyTLSProfileHTTP2Settings aligns the HTTP/2 preface with the client whose
 // TLS identity the profile mimics. Only the Codex CLI profile is tuned today;
 // other profiles keep Go defaults.
+//
+// profile.HTTP2Windows=go_default keeps Go's flow-control windows (4 MiB
+// stream / 1 GiB connection): one pooled connection carries every concurrent
+// user stream of the account, and the single-user Codex ~5 MiB connection
+// window lets a few slow readers stall all of them (peer RST INTERNAL_ERROR).
+// MAX_FRAME_SIZE / MAX_HEADER_LIST_SIZE stay at Codex values in both modes:
+// they never throttle throughput, so the A/B changes only the window bytes.
 func applyTLSProfileHTTP2Settings(transport *http.Transport, profile *tlsfingerprint.Profile) {
 	if transport == nil || profile == nil || profile.Name != service.CanonicalCodexCLITLSProfileName {
 		return
@@ -35,8 +43,42 @@ func applyTLSProfileHTTP2Settings(transport *http.Transport, profile *tlsfingerp
 	if transport.HTTP2 == nil {
 		transport.HTTP2 = &http.HTTP2Config{}
 	}
-	transport.HTTP2.MaxReceiveBufferPerStream = codexH2InitialStreamWindow
-	transport.HTTP2.MaxReceiveBufferPerConnection = codexH2ConnectionWindow
+	if !profile.UsesGoDefaultHTTP2Windows() {
+		transport.HTTP2.MaxReceiveBufferPerStream = codexH2InitialStreamWindow
+		transport.HTTP2.MaxReceiveBufferPerConnection = codexH2ConnectionWindow
+	}
 	transport.HTTP2.MaxReadFrameSize = codexH2MaxFrameSize
 	transport.MaxResponseHeaderBytes = codexH2MaxResponseHeaderBytesForGo
+}
+
+// resolveTLSFingerprintProtocolMode keeps every non-OpenAI fingerprint
+// transport on its historical default key/long_stream_h2 path; OpenAI follows
+// the same gateway.openai_http2 policy (incl. HTTP-proxy H1 fallback) as Do.
+func (s *httpUpstreamService) resolveTLSFingerprintProtocolMode(upstreamProfile service.HTTPUpstreamProfile, proxyKey string, parsedProxy *url.URL) string {
+	if upstreamProfile != service.HTTPUpstreamProfileOpenAI {
+		return upstreamProtocolModeDefault
+	}
+	return s.resolveProtocolMode(upstreamProfile, proxyKey, parsedProxy)
+}
+
+func isOpenAITLSProtocolMode(mode string) bool {
+	switch mode {
+	case upstreamProtocolModeOpenAIH2, upstreamProtocolModeOpenAIH1, upstreamProtocolModeOpenAIH1Fallback:
+		return true
+	}
+	return false
+}
+
+func isOpenAITLSHTTP1Mode(mode string) bool {
+	return mode == upstreamProtocolModeOpenAIH1 || mode == upstreamProtocolModeOpenAIH1Fallback
+}
+
+// tlsFingerprintPoolKeySuffix makes the window policy part of the pool key so
+// toggling extra.tls_fingerprint_h2_windows rebuilds the client. The default
+// policy adds nothing, keeping existing pool keys stable.
+func tlsFingerprintPoolKeySuffix(profile *tlsfingerprint.Profile) string {
+	if profile.UsesGoDefaultHTTP2Windows() {
+		return ":tls|h2win:" + tlsfingerprint.HTTP2WindowsGoDefault
+	}
+	return ":tls"
 }

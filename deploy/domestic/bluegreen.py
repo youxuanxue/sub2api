@@ -149,11 +149,10 @@ POOL_ENV_KEYS = (
     'REDIS_POOL_SIZE',
     'REDIS_MIN_IDLE_CONNS',
 )
-# Capture matches prod. Telemetry archive stays off, and QA archive must not
+# Capture matches prod. QA archive must not
 # point at S3: the maintenance uploader stays retired on this host.
 QA_ENV_KEYS = (
     'QA_CAPTURE_ENABLED',
-    'TELEMETRY_ARCHIVE_ENABLED',
 )
 # Non-pool, non-QA settings that compose.override.yml owns. The candidate env is
 # inherited from the live container (that is how secrets stay on the host and
@@ -193,12 +192,11 @@ def candidate_compose(service, current, image, target):
     _required_env(service_env, CONFIG_ENV_KEYS, 'config')
     if str(service_env['QA_CAPTURE_ENABLED']).strip().lower() != 'true':
         raise ValueError('domestic QA capture must stay enabled')
-    if str(service_env['TELEMETRY_ARCHIVE_ENABLED']).strip().lower() != 'false':
-        raise ValueError('domestic telemetry archive must stay disabled')
     for key in POOL_ENV_KEYS + CONFIG_ENV_KEYS:
         env[key] = str(service_env[key]).strip()
     env['QA_CAPTURE_ENABLED'] = 'true'
-    env['TELEMETRY_ARCHIVE_ENABLED'] = 'false'
+    # QA S3 retired 2026-11-08 (local 24h + node1 every 4h). The gateway no longer
+    # reads QA_ARCHIVE_*; refuse them anyway so nobody re-enables QA S3 on cn-prod.
     if env.get('QA_ARCHIVE_ENABLED', '').strip().lower() == 'true':
         raise ValueError('domestic QA archive upload must stay disabled')
     if env.get('QA_ARCHIVE_STORAGE_DRIVER', '').strip().lower() == 's3':
