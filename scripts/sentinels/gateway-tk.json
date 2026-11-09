@@ -99,7 +99,8 @@
         "if reasons == [\"repository_bootstrapping\"]:",
         "healthy = receipt.get(\"status\") == \"ok\" and not reasons",
         "jobs = [\"tokenkey-disk-metrics\"] + list(domestic.get(\"local_qa_jobs\", []))",
-        "elif node_role == \"cn-prod\":",
+        "if node_role in (\"cn-prod\", \"cn-prod-data\"):",
+        "jobs = list(config.get(\"jobs\", [])) + backup_jobs(config.get(\"node\"), BACKUP_STATE)",
         "\"tokenkey-cn-postgres-backup\": (3 * 3600, 3670),",
         "\"tokenkey-cn-postgres-archive-check\": (15 * 60, 300),",
         "\"tokenkey-qa-archive\": (9 * 3600, 1800),",
@@ -114,7 +115,7 @@
       "path": "ops/observability/install-host-https-watch.sh",
       "must_contain": [
         "config=build_config(role,socket.gethostname(),prod_matrix,domestic)",
-        "if role=='cn-prod':command+=['--env-file','/opt/tokenkey/host-alerts.env']",
+        "if role=='cn-prod' or role.endswith('-data'):command+=['--env-file','/opt/tokenkey/host-alerts.env']",
         "OnUnitActiveSec=2min"
       ],
       "rationale": "The installer must consume the tested coverage owner and existing host-local credentials, including UCloud."
@@ -19547,6 +19548,73 @@
         "    ensure_traversable(node1)\n"
       ],
       "rationale": "The cleanup container (uid 1000) bind-mounts node1_root; a 0700 root recreated after the 2026-11-08 rebuild hid every receipt and blocked 24 hours."
+    },
+    {
+      "path": "ops/lib/resolve_app_container.py",
+      "must_contain": [
+        "POSTGRES_CANDIDATES = (\"tokenkey-postgres\", \"tk-archive-standby\")",
+        "POSTGRES_CLIENT_CANDIDATES = (*POSTGRES_CANDIDATES, POSTGRES_CLIENT_CONTAINER)",
+        "REDIS_CLIENT_CANDIDATES = (*REDIS_CANDIDATES, REDIS_CLIENT_CONTAINER)",
+        "return _resolve_single_running(requested, POSTGRES_CLIENT_CANDIDATES, docker)",
+        "def resolve_postgres_server(",
+        "candidates = {\"postgres\": POSTGRES_CLIENT_CANDIDATES, \"redis\": REDIS_CLIENT_CANDIDATES}[kind]"
+      ],
+      "rationale": "Data-plane split (design-data-plane-split.md): SQL / redis-cli callers resolve over server names plus the data-plane client container, still under the single-running rule so a client next to a live local server fails closed. POSTGRES_CANDIDATES stays server-only: pgBackRest and QA runtime discovery must never pick a client without the data directory."
+    },
+    {
+      "path": "ops/lib/resolve-app-container.sh",
+      "must_contain": [
+        "TK_POSTGRES_CLIENT_CONTAINER_CANDIDATES=\"tokenkey-postgres tk-archive-standby tokenkey-postgres-client\"",
+        "TK_REDIS_CLIENT_CONTAINER_CANDIDATES=\"tokenkey-redis tk-cutover-prod-redis tokenkey-redis-client\"",
+        "_tk_resolve_single_running \"${1:-auto}\" $TK_POSTGRES_CLIENT_CONTAINER_CANDIDATES",
+        "tk_resolve_postgres_server_container() {",
+        "tk_resolve_redis_server_container() {"
+      ],
+      "rationale": "Shell owner of the same split: tk_require_* (about 70 probes) accept the data-plane client; the *_server_* resolvers never do."
+    },
+    {
+      "path": "deploy/domestic/cn_pgbackrest.py",
+      "must_contain": [
+        "resolved = module.resolve_postgres_server()"
+      ],
+      "rationale": "cn-prod pgBackRest runs inside the server container that owns the data directory. Resolving through the SQL resolver could select the data-plane client and run pgbackrest without PGDATA."
+    },
+    {
+      "path": ".github/workflows/ops-daily-diagnostics.yml",
+      "must_contain": [
+        "variable=\"PG_CONTAINER\", candidates=_tk.POSTGRES_CLIENT_CANDIDATES",
+        "variable=\"REDIS_CONTAINER\", candidates=_tk.REDIS_CLIENT_CANDIDATES",
+        "postgres_container={{.Name}}"
+      ],
+      "rationale": "After the data-plane split the app host keeps only the client container; daily diagnostics must still resolve it and name which container answered instead of reporting unresolved."
+    },
+    {
+      "path": "ops/stage0/install-dataplane-client.sh",
+      "must_contain": [
+        "die \"local Postgres server $pg_server is still running; stop it first\"",
+        "[ \"${TK_DATAPLANE_CLIENT_CONFIRM:-}\" = \"$want\" ] || {",
+        "[ \"$pg_recovery\" = f ] || die",
+        "[ \"$redis_ping\" = PONG ] || die"
+      ],
+      "rationale": "Installer refuses while the old local server still runs (double-target risk), writes only with the exact confirm, and fails unless the data machine is a promoted primary reachable through the redis-cli wrapper."
+    },
+    {
+      "path": "ops/lib/test_resolve_data_containers.py",
+      "must_contain": [
+        "def test_client_next_to_live_server_is_ambiguous(",
+        "def test_server_tuples_never_contain_the_client(",
+        "def test_data_machine_resolves_only_its_servers("
+      ],
+      "rationale": "Executable guard for the server/client resolver boundary."
+    },
+    {
+      "path": "ops/stage0/test_install_dataplane_client.py",
+      "must_contain": [
+        "def test_refuses_while_app_still_uses_local_database(",
+        "def test_refuses_while_old_server_is_running(",
+        "def test_plan_is_read_only_and_apply_needs_exact_confirm("
+      ],
+      "rationale": "Executable guard for the installer's refusal paths."
     }
   ]
 }

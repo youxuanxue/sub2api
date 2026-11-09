@@ -39,7 +39,9 @@ base.mkdir(parents=True,exist_ok=True,mode=0o700)
 for file in files:shutil.copy2(root/file,base/file)
 (base/'config.json').write_text(json.dumps(config)+'\n')
 command=['/usr/bin/python3',str(base/'host_https_watch.py'),'--config',str(base/'config.json'),'--state','/var/lib/tokenkey/https-watch/state.json']
-if role=='cn-prod':command+=['--env-file','/opt/tokenkey/host-alerts.env']
+# Hosts without the app .env (cn-prod, data machines) keep the Feishu pair in
+# the same host-alerts.env that install-proxy-host-alerts.sh / disk-metrics use.
+if role=='cn-prod' or role.endswith('-data'):command+=['--env-file','/opt/tokenkey/host-alerts.env']
 # Validate credentials and probe every target without sending a test message.
 check=subprocess.run(command+['--dry-run'],capture_output=True,text=True)
 if check.returncode:raise SystemExit('dry-run failed; timer not enabled')

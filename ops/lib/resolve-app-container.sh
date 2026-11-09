@@ -95,6 +95,17 @@ tk_resolve_app_container() {
 # POSTGRES_CANDIDATES / REDIS_CANDIDATES there must equal the lists below.
 TK_POSTGRES_CONTAINER_CANDIDATES="tokenkey-postgres tk-archive-standby"
 TK_REDIS_CONTAINER_CANDIDATES="tokenkey-redis tk-cutover-prod-redis"
+# After the data-plane split (docs/approved/design-data-plane-split.md) the app
+# host runs no database. ops/stage0/install-dataplane-client.sh then starts one
+# client container per kind whose psql / redis-cli already point at the data
+# machine, so `docker exec "$TK_PG" psql -U tokenkey -d tokenkey` keeps working
+# unchanged. SQL / redis-cli callers resolve over server + client names; the
+# single-running rule still applies, so a client next to a live local server is
+# ambiguous and fails closed. Callers that need the data directory or the server
+# process itself (pgBackRest, container stats, server logs) use the *_server_*
+# resolvers, which never return a client.
+TK_POSTGRES_CLIENT_CONTAINER_CANDIDATES="tokenkey-postgres tk-archive-standby tokenkey-postgres-client"
+TK_REDIS_CLIENT_CONTAINER_CANDIDATES="tokenkey-redis tk-cutover-prod-redis tokenkey-redis-client"
 
 # _tk_resolve_single_running REQUESTED CANDIDATES... -> prints the one running name.
 _tk_resolve_single_running() {
@@ -115,14 +126,28 @@ _tk_resolve_single_running() {
   printf '%s\n' "$found"
 }
 
-# tk_resolve_postgres_container [NAME|auto] -> prints the running PostgreSQL container.
+# tk_resolve_postgres_container [NAME|auto] -> prints the running container to
+# `docker exec ... psql` in: the local server, or the data-plane client.
 tk_resolve_postgres_container() {
+  # shellcheck disable=SC2086  # candidate list is a fixed space-separated literal.
+  _tk_resolve_single_running "${1:-auto}" $TK_POSTGRES_CLIENT_CONTAINER_CANDIDATES
+}
+
+# tk_resolve_redis_container [NAME|auto] -> prints the running container to
+# `docker exec ... redis-cli` in: the local server, or the data-plane client.
+tk_resolve_redis_container() {
+  # shellcheck disable=SC2086  # candidate list is a fixed space-separated literal.
+  _tk_resolve_single_running "${1:-auto}" $TK_REDIS_CLIENT_CONTAINER_CANDIDATES
+}
+
+# tk_resolve_postgres_server_container / tk_resolve_redis_server_container [NAME|auto]
+# -> the running server container on this host; never a data-plane client.
+tk_resolve_postgres_server_container() {
   # shellcheck disable=SC2086  # candidate list is a fixed space-separated literal.
   _tk_resolve_single_running "${1:-auto}" $TK_POSTGRES_CONTAINER_CANDIDATES
 }
 
-# tk_resolve_redis_container [NAME|auto] -> prints the running Redis container.
-tk_resolve_redis_container() {
+tk_resolve_redis_server_container() {
   # shellcheck disable=SC2086  # candidate list is a fixed space-separated literal.
   _tk_resolve_single_running "${1:-auto}" $TK_REDIS_CONTAINER_CANDIDATES
 }
@@ -132,12 +157,12 @@ tk_resolve_redis_container() {
 # fails so call sites can stay one line: `TK_PG="$(tk_require_postgres_container)" || exit 1`.
 tk_require_postgres_container() {
   tk_resolve_postgres_container "${1:-auto}" && return 0
-  echo "postgres container unresolved (want exactly one running of: $TK_POSTGRES_CONTAINER_CANDIDATES)" >&2
+  echo "postgres container unresolved (want exactly one running of: $TK_POSTGRES_CLIENT_CONTAINER_CANDIDATES)" >&2
   return 1
 }
 
 tk_require_redis_container() {
   tk_resolve_redis_container "${1:-auto}" && return 0
-  echo "redis container unresolved (want exactly one running of: $TK_REDIS_CONTAINER_CANDIDATES)" >&2
+  echo "redis container unresolved (want exactly one running of: $TK_REDIS_CLIENT_CONTAINER_CANDIDATES)" >&2
   return 1
 }

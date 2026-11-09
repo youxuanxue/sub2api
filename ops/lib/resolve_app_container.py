@@ -35,6 +35,14 @@ CANDIDATES = ("tokenkey", "tokenkey-blue", "tokenkey-green")
 # Keep in lockstep with TK_POSTGRES_CONTAINER_CANDIDATES in resolve-app-container.sh.
 POSTGRES_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
 REDIS_CANDIDATES = ("tokenkey-redis", "tk-cutover-prod-redis")
+# Server names plus the data-plane client container (design-data-plane-split.md).
+# SQL / redis-cli callers use these; pgBackRest, container stats and server logs
+# keep the server-only tuples above. Keep in lockstep with
+# TK_*_CLIENT_CONTAINER_CANDIDATES in resolve-app-container.sh.
+POSTGRES_CLIENT_CONTAINER = "tokenkey-postgres-client"
+REDIS_CLIENT_CONTAINER = "tokenkey-redis-client"
+POSTGRES_CLIENT_CANDIDATES = (*POSTGRES_CANDIDATES, POSTGRES_CLIENT_CONTAINER)
+REDIS_CLIENT_CANDIDATES = (*REDIS_CANDIDATES, REDIS_CLIENT_CONTAINER)
 
 
 def remote_shell_snippet(*, docker: str = "docker", variable: str = "APP_CONTAINER") -> list[str]:
@@ -166,12 +174,22 @@ def _resolve_single_running(
 
 
 def resolve_postgres(requested: str = "auto", *, docker: tuple[str, ...] = ("docker",)) -> str | None:
-    """Return the running PostgreSQL container, or None when ambiguous/absent."""
-    return _resolve_single_running(requested, POSTGRES_CANDIDATES, docker)
+    """Return the running container to run psql in (server or data-plane client)."""
+    return _resolve_single_running(requested, POSTGRES_CLIENT_CANDIDATES, docker)
 
 
 def resolve_redis(requested: str = "auto", *, docker: tuple[str, ...] = ("docker",)) -> str | None:
-    """Return the running Redis container, or None when ambiguous/absent."""
+    """Return the running container to run redis-cli in (server or data-plane client)."""
+    return _resolve_single_running(requested, REDIS_CLIENT_CANDIDATES, docker)
+
+
+def resolve_postgres_server(requested: str = "auto", *, docker: tuple[str, ...] = ("docker",)) -> str | None:
+    """Return the running PostgreSQL server container; never the client."""
+    return _resolve_single_running(requested, POSTGRES_CANDIDATES, docker)
+
+
+def resolve_redis_server(requested: str = "auto", *, docker: tuple[str, ...] = ("docker",)) -> str | None:
+    """Return the running Redis server container; never the client."""
     return _resolve_single_running(requested, REDIS_CANDIDATES, docker)
 
 
@@ -185,7 +203,7 @@ def data_container_shell_snippet(
     preambles). With `required` (the default) an unresolved container exits 1
     with a readable error instead of `docker exec`-ing a stale or absent name.
     """
-    candidates = {"postgres": POSTGRES_CANDIDATES, "redis": REDIS_CANDIDATES}[kind]
+    candidates = {"postgres": POSTGRES_CLIENT_CANDIDATES, "redis": REDIS_CLIENT_CANDIDATES}[kind]
     var = variable or ("TK_PG" if kind == "postgres" else "TK_REDIS")
     line = "; ".join(remote_unique_running_snippet(docker=docker, variable=var, candidates=candidates))
     if required:

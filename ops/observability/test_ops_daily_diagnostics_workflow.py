@@ -723,6 +723,14 @@ class DataContainerResolutionTest(unittest.TestCase):
         self.assertIn('candidates=_tk.POSTGRES_CANDIDATES', text)
         self.assertIn('candidates=_tk.REDIS_CANDIDATES', text)
 
+    def test_container_health_survives_data_plane_split(self) -> None:
+        # After the split the app host keeps only the data-plane client; the
+        # health line must still resolve it and say which container answered.
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('variable="PG_CONTAINER", candidates=_tk.POSTGRES_CLIENT_CANDIDATES', text)
+        self.assertIn('variable="REDIS_CONTAINER", candidates=_tk.REDIS_CLIENT_CANDIDATES', text)
+        self.assertIn("postgres_container={{.Name}}", text)
+
 
 if __name__ == "__main__":
     unittest.main()

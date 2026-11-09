@@ -11,5 +11,6 @@
     "tokenkey-qa-provision",
     "tokenkey-qa-cleanup",
     "tokenkey-qa-archive"
-  ]
+  ],
+  "data_instance_name": "VM-4-5-ubuntu"
 }
