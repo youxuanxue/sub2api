@@ -113,6 +113,21 @@ class AppWindowTest(unittest.TestCase):
         self.assertIn("FAIL missing", proc.stdout)
         self.assertIn("skip data redis checks", proc.stdout)
 
+    def test_window_pauses_https_watch_and_bounds_the_wait_before_promote(self) -> None:
+        # https-watch probes the database; it must pause with the other writers.
+        # The pre-promote waits share one budget below Caddy's lb_try_duration
+        # (30s), so a slow archive aborts and restores instead of returning 502s.
+        source = APP.read_text()
+        self.assertIn("qa-archive|https-watch)", source)
+        self.assertIn('PRE_PROMOTE_BUDGET_S="${PRE_PROMOTE_BUDGET_S:-20}"', source)
+        self.assertEqual(source.count("while within_budget; do"), 3)
+
+    def test_abort_reports_an_incomplete_restore(self) -> None:
+        source = APP.read_text()
+        body = source[source.index("abort() {"):source.index("phase_apply() {")]
+        self.assertNotIn("|| true", body)
+        self.assertIn("exit 4", body)
+
     def test_rejects_public_data_ip(self) -> None:
         proc, calls = run(APP, self.dir, **{**self.env, "DATA_IP": "43.153.73.120"})
         self.assertEqual(proc.returncode, 2)

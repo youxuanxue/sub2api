@@ -12,7 +12,7 @@
 # TK_DATAPLANE_CONFIRM=cutover-<SITE>-to-<DATA_IP>.
 #
 # Window order (apply):
-#   1  stop the other writers on this host (backup / archive-check / identity / QA timers)
+#   1  stop the other writers on this host (backup / archive-check / identity / QA / https-watch timers)
 #   2  drain the live color: SIGUSR1, at most DRAIN_SECONDS (10, user decision), then stop
 #   3  prove no client is left on the old Postgres and the old Redis
 #   4  pg_switch_wal on the old primary, wait until that segment is archived
@@ -38,11 +38,15 @@ PHASE="${PHASE:-check}"
 SITE="${SITE:?SITE must be prod or cn-prod}"
 DATA="${DATA_IP:?DATA_IP (data machine private IP) required}"
 DRAIN_SECONDS="${DRAIN_SECONDS:-10}"
+# From stopping the live color to promotion, new requests wait in Caddy for at
+# most lb_try_duration (30s). Abort and restore before that runs out, so a slow
+# archive or replay costs latency instead of 502s.
+PRE_PROMOTE_BUDGET_S="${PRE_PROMOTE_BUDGET_S:-20}"
 case "$SITE" in
   prod) ROOT=/var/lib/tokenkey ENV_FILE=/var/lib/tokenkey/.env
-        TIMER_RE='^tokenkey-(postgres-backup|postgres-archive-check|backup-identity|qa-provision|qa-cleanup|qa-archive)\.timer$' ;;
+        TIMER_RE='^tokenkey-(postgres-backup|postgres-archive-check|backup-identity|qa-provision|qa-cleanup|qa-archive|https-watch)\.timer$' ;;
   cn-prod) ROOT=/opt/tokenkey ENV_FILE=/opt/tokenkey/.env
-        TIMER_RE='^tokenkey-(cn-postgres-backup|cn-postgres-archive-check|cn-backup-identity|qa-provision|qa-cleanup|qa-archive)\.timer$' ;;
+        TIMER_RE='^tokenkey-(cn-postgres-backup|cn-postgres-archive-check|cn-backup-identity|qa-provision|qa-cleanup|qa-archive|https-watch)\.timer$' ;;
   *) echo "FAIL SITE must be prod or cn-prod" >&2; exit 2 ;;
 esac
 case "$DATA" in 10.*) ;; *) echo "FAIL DATA_IP must be a private 10.x address" >&2; exit 2 ;; esac
@@ -52,6 +56,9 @@ BACKUP_STATE=/var/lib/tokenkey/postgres-backup
 
 T0="$(date +%s%N)"
 ms() { echo $(( ($(date +%s%N) - T0) / 1000000 )); }
+DOWN_AT=""
+# within_budget: true while the color has been down for less than the budget.
+within_budget() { [ $(( ($(date +%s%N) - DOWN_AT) / 1000000000 )) -lt "$PRE_PROMOTE_BUDGET_S" ]; }
 log() { echo "[$(ms)ms] $*"; }
 die() { echo "FAIL $*" >&2; exit "${2:-2}"; }
 
@@ -199,11 +206,14 @@ phase_check() {
 # --- apply ---------------------------------------------------------------------
 paused=""
 abort() { # before the point of no return: put the site back
+  local restored=ok
   echo "ABORT $*; restoring $app and writer timers" >&2
-  docker start "$app" >/dev/null 2>&1 || true
-  wait_live || echo "ABORT: $app did not come back healthy; check now" >&2
+  docker start "$app" >/dev/null || restored="docker start $app failed"
+  wait_live || restored="$app did not come back healthy"
   # shellcheck disable=SC2086
-  [ -n "$paused" ] && systemctl start $paused || true
+  if [ -n "$paused" ] && ! systemctl start $paused; then restored="$restored; timers not restarted:$paused"; fi
+  [ "$restored" = ok ] || { echo "ABORT RESTORE INCOMPLETE: $restored; fix by hand now" >&2; exit 4; }
+  echo "ABORT site restored" >&2
   exit 3
 }
 
@@ -226,8 +236,11 @@ phase_apply() {
     [ "$n" = 0 ] && break
     sleep 1
   done
-  log "  in_flight at stop: ${n:-?}"
+  # The drain budget is spent; anything still in flight is cut (user decision
+  # 2026-11-09). Report which, so the window record shows how many were cut.
+  if [ "$n" = 0 ]; then log "  drained cleanly"; else log "  cutting in_flight=${n:-unknown}"; fi
   docker stop -t 1 "$app" >/dev/null || abort "cannot stop $app"
+  DOWN_AT="$(date +%s%N)"
 
   log "3 no clients left"
   n="$(old_q "select count(*) from pg_stat_activity where backend_type = 'client backend' and pid <> pg_backend_pid()")"
@@ -239,20 +252,20 @@ phase_apply() {
   log "4 switch and archive the last WAL"
   lsn="$(old_q 'select pg_switch_wal()')"
   seg="$(old_q "select pg_walfile_name('$lsn')")"
-  for i in $(seq 1 60); do
+  while within_budget; do
     [ "$(old_q "select coalesce(last_archived_wal >= '$seg', false) from pg_stat_archiver")" = t ] && break
-    sleep 0.5
+    sleep 0.25
   done
-  [ "$(old_q "select coalesce(last_archived_wal >= '$seg', false) from pg_stat_archiver")" = t ] || abort "segment $seg not archived in 30s"
+  [ "$(old_q "select coalesce(last_archived_wal >= '$seg', false) from pg_stat_archiver")" = t ] || abort "segment $seg not archived within ${PRE_PROMOTE_BUDGET_S}s"
 
   log "5 wait for the replicas (lsn=$lsn)"
-  for i in $(seq 1 120); do
+  while within_budget; do
     [ "$(data_q "select pg_last_wal_replay_lsn() >= '$lsn'::pg_lsn")" = t ] && break
-    sleep 0.5
+    sleep 0.25
   done
-  [ "$(data_q "select pg_last_wal_replay_lsn() >= '$lsn'::pg_lsn")" = t ] || abort "data standby did not replay through $lsn"
+  [ "$(data_q "select pg_last_wal_replay_lsn() >= '$lsn'::pg_lsn")" = t ] || abort "data standby did not replay through $lsn within ${PRE_PROMOTE_BUDGET_S}s"
   redis_offset="$(old_rc INFO replication | field master_repl_offset)"
-  for i in $(seq 1 40); do
+  while within_budget; do
     [ "$(data_rc INFO replication | field slave_repl_offset)" -ge "$redis_offset" ] && break
     sleep 0.25
   done
@@ -268,7 +281,8 @@ phase_apply() {
     || [ "$(data_q 'select pg_is_in_recovery()')" != f ]; then
     # Redis already left replication; Postgres did not promote. Re-attach Redis
     # and restore the old site: nothing has written to the data machine yet.
-    data_rc REPLICAOF "$redis_master_host" "$redis_master_port" >/dev/null || true
+    [ "$(data_rc REPLICAOF "$redis_master_host" "$redis_master_port")" = OK ] \
+      || echo "WARN data redis not re-attached to $redis_master_host:$redis_master_port; re-run the replica setup before retrying" >&2
     abort "pg_promote failed"
   fi
   log "  promoted; timeline $(data_q 'select timeline_id from pg_control_checkpoint()')"
@@ -286,14 +300,21 @@ phase_apply() {
   log "  $app ready on $DATA"
 
   log "9 timers"
+  local timer_problems=""
   for t in $paused; do
-    case "$t" in tokenkey-qa-*) systemctl start "$t" ;; *) systemctl disable --now "$t" >/dev/null 2>&1 || true ;; esac
+    case "$t" in
+      tokenkey-qa-* | tokenkey-https-watch.timer) systemctl start "$t" || timer_problems="$timer_problems start:$t" ;;
+      *) systemctl disable --now "$t" >/dev/null || timer_problems="$timer_problems disable:$t" ;;
+    esac
   done
   # The app-host watcher keys backup monitoring on these receipts; the data
   # machine owns them now (#3117). Kept, renamed, for the rollback record.
   for f in archive_check.json enabled.json backup.json; do
     [ -f "$BACKUP_STATE/$f" ] && mv "$BACKUP_STATE/$f" "$BACKUP_STATE/$f.pre-dataplane"
   done
+  # The data plane is already live; a timer problem does not undo the cutover,
+  # but it must not pass silently either.
+  [ -z "$timer_problems" ] || die "cutover done, but timers need attention:$timer_problems" 4
   log "RESULT cutover done"
   echo "next: on the data machine PHASE=finish ops/stage0/dataplane-cutover-data.sh; then install-dataplane-client.sh here; then the ${SITE}-data watcher and backup timers on the data machine"
 }
