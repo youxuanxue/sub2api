@@ -58,6 +58,21 @@ def extract_runtime_params_commands() -> list[str]:
             os.environ["DIAGNOSTICS_LOG_SINCE"] = old_since
 
 
+def extract_receipt_params_commands() -> list[str]:
+    """Host script that reads the backup receipt on the data machine."""
+    from ops.stage0.ssm_wrap_bash_commands import unwrap_commands
+
+    marker = 'python3 - <<\'PY\' > "$OUT/receipt-params.json"\n'
+    text = workflow_text()
+    start = text.index(marker) + len(marker)
+    end = text.index("\n          PY", start)
+    script = textwrap.dedent(text[start:end])
+    stdout = io.StringIO()
+    with contextlib.redirect_stdout(stdout):
+        exec(compile(script, str(WORKFLOW), "exec"), {})
+    return unwrap_commands(json.loads(stdout.getvalue())["commands"])
+
+
 def extract_runtime_params_raw_commands() -> list[str]:
     """Raw SSM commands array (still wrapped) for Hybrid dash regression."""
     marker = 'python3 - <<\'PY\' > "$OUT/runtime-params.json"\n'
@@ -152,26 +167,29 @@ def run_issue_lifecycle(
 
 
 class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
-    def test_restore_canary_receipt_uses_existing_runtime_probe(self) -> None:
-        commands = extract_runtime_params_commands()
-        self.assertIn("echo ===PHYSICAL_BACKUP_HEALTH_RECEIPT===", commands)
-        self.assertIn("echo ===END_PHYSICAL_BACKUP_HEALTH_RECEIPT===", commands)
+    def test_restore_canary_receipt_reads_the_data_machine(self) -> None:
+        runtime = extract_runtime_params_commands()
+        self.assertNotIn("echo ===PHYSICAL_BACKUP_HEALTH_RECEIPT===", runtime)
+        self.assertFalse(any("postgres-backup" in line for line in runtime))
+        receipt = extract_receipt_params_commands()
+        self.assertTrue(any("/var/lib/tokenkey/postgres-backup/" in line for line in receipt))
 
         text = workflow_text()
         self.assertIn("postgres_backup_verdict.py", text)
         self.assertIn("physical-backup|$TARGET_ID", text)
-        runtime_start = text.index('python3 - <<\'PY\' > "$OUT/runtime-params.json"')
-        runtime_end = text.index("Error clustering retired from daily diagnostics", runtime_start)
-        runtime_block = text[runtime_start:runtime_end]
-        self.assertNotIn("run-probe.sh", runtime_block)
+        self.assertIn(
+            'data_machine_target.py --site "$PROBE_TARGET" --verify',
+            text,
+        )
+        self.assertIn(
+            '--target "${PROBE_TARGET}-data" --script ops/observability/probe-data-layer-safety.sh',
+            text,
+        )
 
     def test_large_restore_receipt_survives_runtime_ssm_transport(self) -> None:
         from ops.observability.probe_output_transport import decode
 
-        commands = extract_runtime_params_commands()
-        start = commands.index("echo ===PHYSICAL_BACKUP_HEALTH_RECEIPT===") + 1
-        end = commands.index("echo ===END_PHYSICAL_BACKUP_HEALTH_RECEIPT===")
-        command = "\n".join(commands[start:end])
+        command = "\n".join(extract_receipt_params_commands())
         row = {"rows": 100000, "total_cost": "123.4567890123", "actual_cost": "12.3456789012",
                "min_created_at": "2026-01-01T00:00:00.000000Z",
                "max_created_at": "2026-01-31T23:59:59.123456Z"}

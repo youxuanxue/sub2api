@@ -315,7 +315,7 @@ apply 的顺序：
 
 - 新主库产出第一份成功的全量备份之前，旧数据目录不动。两站数据机在 2026-11-10 已各完成一份切流后的全量：prod `20261110-013449F`（01:40 UTC），cn-prod `20261110-013338F`（01:34 UTC）。当天 02:30 UTC 的定时任务在这两份全量上做了增量，回执文件只保留最新一轮。删除旧数据目录仍然要单独批准。
 - cn-prod 切流后的第一轮备份（16:30–20:30 UTC）报 `[106] new backup label is not later than latest`。原因：旧应用机的 pgBackRest 标签是北京时间，数据机是 UTC。22:30 UTC 那一轮起恢复正常，期间 WAL 归档没有中断。prod 旧标签本来就是 UTC，不受影响。
-- 切流后读数据机的探针：`run-probe.sh --target prod-data / cn-prod-data` 直连数据机，SSM 身份不符就拒绝。每日容量探针在数据机上跑 `df`，跑道按数据机系统盘计算；`log_dump` 的 `tokenkey-postgres` / `tokenkey-redis` 读数据机上的日志。CI 角色要能对这两个 `mi-*` 执行 `SendCommand`，授权在栈外 inline policy `tokenkey-lightsail-edge-addon`（见 `docs/ops/tencent-cutover-checklist.md`）。应用机上的容量探针仍会把本机 `df` 判为「无结论」（#3122），作为兜底。
+- 切流后读数据机的探针：`run-probe.sh --target prod-data / cn-prod-data` 直连数据机，SSM 身份不符就拒绝。每日容量探针在数据机上跑 `df`，跑道按数据机系统盘计算；`log_dump` 的 `tokenkey-postgres` / `tokenkey-redis` 读数据机上的日志。物理备份回执（`archive_check.json`）和 prod 的 data-layer safety 探针也读数据机：应用机上的回执已改名留档，pgdump 目录还在，继续在应用机上读会把正常备份报成缺失。CI 角色要能对这两个 `mi-*` 执行 `SendCommand`，授权在栈外 inline policy `tokenkey-lightsail-edge-addon`（见 `docs/ops/tencent-cutover-checklist.md`）。应用机上的容量探针仍会把本机 `df` 判为「无结论」（#3122），作为兜底。
 - 删除旧数据目录、旧 Redis 和转发容器需要单独批准。
 - `usage_billing_dedup` 唯一索引的 `REINDEX CONCURRENTLY` 要等 7–30 天的键迁完归档（约 3 个晚上）再做，不挡切流。
 - prod 的 LUKS 载体和异机密钥要等应用机也迁出 LUKS 之后才能删（见下节）。
