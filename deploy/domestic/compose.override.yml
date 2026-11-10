@@ -16,10 +16,10 @@ services:
       DATABASE_MAX_IDLE_CONNS: "10"
       REDIS_POOL_SIZE: "96"
       REDIS_MIN_IDLE_CONNS: "8"
-      # Data plane endpoints. Today they resolve to the same-host containers;
-      # the data-plane cutover sets them to the data machine's private IP in
-      # /opt/tokenkey/.env (design-data-plane-split.md). The password stays on
-      # the live container and is inherited, so it is not declared here.
+      # Data plane endpoints. The default is the same-host name. After the
+      # cutover, /opt/tokenkey/.env sets the data machine private IP
+      # (design-data-plane-split.md). The password stays on the live container
+      # and is inherited, so it is not declared here.
       DATABASE_HOST: "${DATABASE_HOST:-postgres}"
       DATABASE_PORT: "${DATABASE_PORT:-5432}"
       REDIS_HOST: "${REDIS_HOST:-redis}"
@@ -28,6 +28,12 @@ services:
       options:
         max-size: "20m"
         max-file: "3"
+    # Local postgres/redis are on the local-data profile below. depends_on has
+    # to be cleared with them: a profiled dependency is undefined in the default
+    # project, so `docker compose config` fails, and bluegreen prepare reads
+    # that config. With the dependency gone, a plain `up` starts the gateway
+    # and Caddy only.
+    depends_on: !reset {}
   caddy:
     image: ${CADDY_IMAGE:?Pinned CADDY_IMAGE is required}
     pull_policy: never
@@ -35,9 +41,14 @@ services:
       options:
         max-size: "20m"
         max-file: "3"
+  # Retired local servers. A plain `docker compose up` must not start them:
+  # the old primary would archive into the same COS repo as the data machine.
+  # Blue/green prepare uses `up --no-deps` and does not enable this profile.
   postgres:
+    profiles: ["local-data"]
     image: ${POSTGRES_IMAGE:?Pinned POSTGRES_IMAGE is required}
     pull_policy: never
   redis:
+    profiles: ["local-data"]
     image: ${REDIS_IMAGE:?Pinned REDIS_IMAGE is required}
     pull_policy: never

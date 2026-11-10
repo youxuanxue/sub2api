@@ -125,8 +125,12 @@ def atomic_private(contents: str, destination: Path | None = None) -> None:
 
 def refresh() -> dict[str, object]:
     target = load_target()
+    # Data machines keep the static pgBackRest file written at cutover. This
+    # refresh writes the app host's tmpfs config and must not be pointed at them.
     if os.geteuid() != 0 or socket.gethostname() != target["instance_name"]:
-        raise ValueError("wrong target host or user")
+        raise ValueError(
+            "wrong target host or user; data-machine pgBackRest config is static "
+            "and this refresh only runs on the app host")
     if subprocess.check_output(["findmnt", "-n", "-o", "FSTYPE", "--target", "/run"], text=True).strip() != "tmpfs":
         raise ValueError("runtime directory is not tmpfs")
     atomic_private(render_config(read_cos_credentials()))

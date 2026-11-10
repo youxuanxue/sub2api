@@ -97,13 +97,22 @@ image_of_first() {
 pg_image="${PG_CLIENT_IMAGE:-$(image_of_first $TK_POSTGRES_CONTAINER_CANDIDATES || true)}"
 # shellcheck disable=SC2086
 redis_image="${REDIS_CLIENT_IMAGE:-$(image_of_first $TK_REDIS_CONTAINER_CANDIDATES || true)}"
+# A failed inspect can leave a leading newline in the captured image. docker run
+# then rejects it as an invalid reference.
+pg_image="$(printf '%s' "$pg_image" | tr -d '[:space:]')"
+redis_image="$(printf '%s' "$redis_image" | tr -d '[:space:]')"
 [ -n "$pg_image" ] || die "no Postgres image found; set PG_CLIENT_IMAGE"
 [ -n "$redis_image" ] || die "no Redis image found; set REDIS_CLIENT_IMAGE"
+# Clients join the app container's network. The default bridge is docker0, and
+# prod's DOCKER-USER chain rejects that path to the data machine.
+app_net="$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$app" | tr -d '[:space:]')"
+[ -n "$app_net" ] || die "app $app has no docker network"
 timeout 3 bash -c "</dev/tcp/$db_host/$db_port" 2>/dev/null || die "cannot reach $db_host:$db_port"
 timeout 3 bash -c "</dev/tcp/$redis_host/$redis_port" 2>/dev/null || die "cannot reach $redis_host:$redis_port"
 
 echo "== plan"
 echo "  app=$app"
+echo "  network=$app_net"
 echo "  $PG_CLIENT image=$pg_image -> $db_user@$db_host:$db_port/$db_name"
 echo "  $REDIS_CLIENT image=$redis_image -> $redis_host:$redis_port auth=$([ -n "$redis_pass" ] && echo yes || echo no)"
 for name in "$PG_CLIENT" "$REDIS_CLIENT"; do
@@ -140,9 +149,11 @@ chmod 0755 "$SECRET_DIR/redis-cli"
 
 docker rm -f "$PG_CLIENT" "$REDIS_CLIENT" >/dev/null 2>&1 || true
 docker run -d --name "$PG_CLIENT" --restart unless-stopped --memory 256m --cpus 0.5 \
+  --network "$app_net" \
   --label tokenkey.role=dataplane-client --env-file "$SECRET_DIR/postgres.env" \
   --entrypoint sleep "$pg_image" infinity >/dev/null
 docker run -d --name "$REDIS_CLIENT" --restart unless-stopped --memory 128m --cpus 0.25 \
+  --network "$app_net" \
   --label tokenkey.role=dataplane-client \
   -e TK_REDIS_HOST="$redis_host" -e TK_REDIS_PORT="$redis_port" \
   -v "$SECRET_DIR/redis-password:/run/tokenkey/redis-password:ro" \

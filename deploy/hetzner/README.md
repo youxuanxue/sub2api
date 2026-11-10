@@ -76,8 +76,8 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 | 项 | 值 |
 |---|---|
 | 活仓库 | pgBackRest `repo2`：COS `tokenkey-prod-backup-usw-1320330536`（`cos.na-siliconvalley.myqcloud.com`）`/prod/postgres` |
-| 配置渲染 | `tokenkey-backup-identity.timer` → `ops/stage0/tencent_backup_identity.py`，只读 root-only `/etc/tokenkey/cos-backup.env`，写 `/run/tokenkey-backup-candidate/` 与 `/run/tokenkey-recovery/`；不再读 AWS 会话、不调 STS |
-| 备份/检查 | `tokenkey-postgres-backup.timer`（偶数小时 :30 UTC）+ `tokenkey-postgres-archive-check.timer`（5min） |
+| 配置渲染 | 数据机用切流时写下的静态 pgBackRest 配置。`tokenkey-backup-identity.timer` → `ops/stage0/tencent_backup_identity.py` 只认应用机主机名，切流后在应用机上停用，不能在数据机上跑；它仍只读 root-only `/etc/tokenkey/cos-backup.env`，写应用机的 `/run/tokenkey-backup-candidate/` 与 `/run/tokenkey-recovery/`，不读 AWS 会话、不调 STS |
+| 备份/检查 | 数据机上的 `tokenkey-postgres-backup.timer`（偶数小时 :30 UTC）和 `tokenkey-postgres-archive-check.timer`（5min）。应用机上这两项已停用 |
 | 已停写（保留待清理） | AWS `s3://tokenkey-prod-physical-backup-682751977094-us-east-1/candidates/tencent-usw-20261022/postgres`（timeline 2）与同桶 Tokyo 历史 `prod/postgres` |
 
 ### 日本出口代理（已关停 · 2026-10-23 删除）

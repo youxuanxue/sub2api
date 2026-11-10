@@ -132,7 +132,7 @@ class BackupIdentityTest(unittest.TestCase):
         with patch.object(identity.os, 'geteuid', return_value=0), \
              patch.object(identity.socket, 'gethostname', return_value='another-host'), \
              patch.object(identity, 'atomic_private') as write:
-            with self.assertRaises(ValueError):
+            with self.assertRaisesRegex(ValueError, 'data-machine pgBackRest config is static'):
                 identity.refresh()
             write.assert_not_called()
 

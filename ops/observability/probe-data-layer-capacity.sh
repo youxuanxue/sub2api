@@ -196,8 +196,13 @@ fi
 echo "=== DFSTATS (data volume) ==="
 # Host df of the data dir (where PG data lives); bytes via -B1. -P (POSIX) forces
 # one line per filesystem so a long device name can't wrap and mis-shift columns.
-df -P -B1 "${DATA_DIR}" 2>/dev/null | awk 'NR==2 {
-  printf "DFSTATS {\"df_total_bytes\":%s,\"df_used_bytes\":%s,\"df_avail_bytes\":%s,\"df_mount\":\"%s\"}\n", $2, $3, $4, $6
+# A dataplane client means this host no longer holds the live database. The df
+# below is the app host, often still containing the retired data directory.
+# df_is_live_data=false tells the verdict not to treat it as the database disk.
+df_live=true
+case "$TK_PG" in *-client) df_live=false ;; esac
+df -P -B1 "${DATA_DIR}" 2>/dev/null | awk -v live="$df_live" 'NR==2 {
+  printf "DFSTATS {\"df_total_bytes\":%s,\"df_used_bytes\":%s,\"df_avail_bytes\":%s,\"df_mount\":\"%s\",\"df_is_live_data\":%s}\n", $2, $3, $4, $6, live
 }'
 
 echo "=== DFBACKING (filesystem holding the data volume's backing file) ==="

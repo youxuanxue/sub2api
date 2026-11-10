@@ -179,8 +179,12 @@ def atomic_private(path, contents, uid=70):
 
 def refresh():
     require_target()
+    # Data machines keep the static pgBackRest file written at cutover. This
+    # refresh writes the app host's tmpfs config and must not be pointed at them.
     if os.geteuid() != 0 or socket.gethostname() != HOST:
-        raise ValueError('wrong target host or user')
+        raise ValueError(
+            'wrong target host or user; data-machine pgBackRest config is static '
+            'and this refresh only runs on the app host')
     for parent in (SOURCE_CONFIG.parent, CANDIDATE_CONFIG.parent):
         # /run is tmpfs; do not fall back to disk or follow a host symlink.
         if any(p.is_symlink() for p in (parent, *parent.parents)):

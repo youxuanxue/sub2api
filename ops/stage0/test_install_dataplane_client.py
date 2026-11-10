@@ -20,12 +20,24 @@ def fake_docker(directory: pathlib.Path, running: set[str], env: dict[str, str])
     docker.write_text(textwrap.dedent(f"""\
         #!/bin/bash
         echo "$*" >> "{directory}/calls"
+        if [ "$1" = exec ]; then
+          case "$*" in
+            *pg_is_in_recovery*) echo f ;;
+            *PING*) echo PONG ;;
+            *replication*) printf 'role:master\\n' ;;
+          esac
+          exit 0
+        fi
         [ "$1" = inspect ] || exit 0
         name="${{@: -1}}"
         case "$3" in
-          *State.Running*) for r in {" ".join(sorted(running))}; do [ "$r" = "$name" ] && echo true && exit 0; done; exit 1 ;;
+          *State.Running*)
+            if grep -q "run -d --name $name " "{directory}/calls"; then echo true; exit 0; fi
+            for r in {" ".join(sorted(running))}; do [ "$r" = "$name" ] && echo true && exit 0; done
+            exit 1 ;;
           *Config.Env*) [ "$name" = tokenkey-blue ] && printf '{env_lines}\\n' && exit 0; exit 1 ;;
-          *Config.Image*) case "$name" in tokenkey-postgres) echo postgres:18-alpine ;; tokenkey-redis) echo redis:8-alpine ;; *) exit 1 ;; esac ;;
+          *Config.Image*) case "$name" in tokenkey-postgres) printf '\\npostgres:18-alpine\\n' ;; tokenkey-redis) echo redis:8-alpine ;; *) exit 1 ;; esac ;;
+          *NetworkMode*) [ "$name" = tokenkey-blue ] && echo tokenkey_tokenkey-network && exit 0; exit 1 ;;
           *) case "$name" in tokenkey-postgres|tokenkey-redis|tokenkey-blue) exit 0 ;; esac; exit 1 ;;
         esac
         """))
@@ -77,6 +89,8 @@ class InstallDataplaneClientTest(unittest.TestCase):
         proc, calls, directory = self.run_script({"tokenkey-blue"}, CUTOVER_ENV)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("TK_DATAPLANE_CLIENT_CONFIRM=install-dataplane-client-10.4.0.3", proc.stdout)
+        self.assertIn("network=tokenkey_tokenkey-network", proc.stdout)
+        self.assertIn("image=postgres:18-alpine ->", proc.stdout)
         self.assertNotIn("run -d", calls)
         self.assertFalse((directory / "secrets").exists())
         proc, calls, directory = self.run_script({"tokenkey-blue"}, CUTOVER_ENV, MODE="apply",
@@ -84,6 +98,15 @@ class InstallDataplaneClientTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 64, proc.stderr)
         self.assertNotIn("run -d", calls)
         self.assertFalse((directory / "secrets").exists())
+
+    def test_apply_puts_clients_on_the_app_network(self) -> None:
+        proc, calls, _ = self.run_script(
+            {"tokenkey-blue"}, CUTOVER_ENV, MODE="apply",
+            TK_DATAPLANE_CLIENT_CONFIRM="install-dataplane-client-10.4.0.3")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("RESULT installed", proc.stdout)
+        self.assertEqual(calls.count("run -d"), 2)
+        self.assertEqual(calls.count("--network tokenkey_tokenkey-network"), 2)
 
 
 if __name__ == "__main__":

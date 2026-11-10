@@ -91,6 +91,25 @@ class DataLayerCapacitySafetyTest(unittest.TestCase):
         self.assertEqual(out["verdict"], "unknown")
         self.assertIsNone(out["monthly_growth_gib"])
 
+    def test_app_host_df_after_dataplane_split_is_not_a_runway(self) -> None:
+        out = verdict.compute_verdict(
+            {
+                "usage_logs_bytes": 7657177088,
+                "catalog_probe_ok": True,
+                "growth_probe_ok": False,
+                "df_total_bytes": 83938926592,
+                "df_avail_bytes": 57783738368,
+                "df_is_live_data": False,
+                **_window(5130936320, window_rows_est=5030000),
+            },
+            _THRESHOLDS,
+        )
+        self.assertEqual(out["verdict"], "unknown")
+        self.assertIn("data machine", out["summary"])
+        self.assertIsNone(out["months_to_volume_full"])
+        self.assertAlmostEqual(out["usage_logs_gib"], 7.131, places=2)
+        self.assertIsNotNone(out["monthly_growth_gib"])
+
     def test_missing_catalog_snapshot_is_unknown_not_green(self) -> None:
         thresholds = {
             "months_to_volume_full": {"approaching": 6, "trigger": 3},
@@ -468,9 +487,54 @@ class DataLayerCapacitySafetyTest(unittest.TestCase):
         self.assertIn('PGSTATS {"catalog_probe_ok":false', proc.stdout)
         self.assertIn('PGGROWTH {"growth_probe_ok":false', proc.stdout)
         self.assertIn("DFSTATS", proc.stdout)
+        self.assertIn('"df_is_live_data":true', proc.stdout)
         self.assertIn("PGOPTIONS=-c default_transaction_read_only=on", docker_args)
         self.assertIn("-c lock_timeout=100ms", docker_args)
         self.assertIn("-c statement_timeout=2s", docker_args)
+
+    def test_probe_marks_app_host_df_when_only_the_client_is_running(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = pathlib.Path(tmp)
+            bin_path = tmp_path / "bin"
+            bin_path.mkdir()
+            docker_stub = bin_path / "docker"
+            docker_stub.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    if [[ "$1" == inspect && "$*" == *State.Running* ]]; then
+                      [[ "${@: -1}" == tokenkey-postgres-client ]] && printf 'true\\n' || exit 1
+                      exit 0
+                    fi
+                    if [[ "$1" == ps ]]; then
+                      printf 'tokenkey-postgres-client\\n'
+                      exit 0
+                    fi
+                    exit 1
+                    """
+                ),
+                encoding="utf-8",
+            )
+            docker_stub.chmod(0o755)
+            df_stub = bin_path / "df"
+            df_stub.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'Filesystem 1-blocks Used Available Capacity Mounted on\\n'\n"
+                "printf '/dev/mock 10 4 6 40%% /var/lib/tokenkey\\n'\n",
+                encoding="utf-8",
+            )
+            df_stub.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_path}:{env['PATH']}"
+            proc = subprocess.run(
+                ["bash", str(_PROBE)],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn('"df_is_live_data":false', proc.stdout)
 
     def test_probe_shell_parses(self) -> None:
         proc = subprocess.run(

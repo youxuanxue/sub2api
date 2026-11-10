@@ -17755,6 +17755,22 @@
       "rationale": "Mechanical guard that compose.override keeps SECURITY_PROXY_PROBE_PRESET=domestic."
     },
     {
+      "path": "deploy/domestic/compose.override.yml",
+      "must_contain": [
+        "profiles: [\"local-data\"]",
+        "depends_on: !reset {}"
+      ],
+      "rationale": "After the data-plane cutover a plain compose up must not start the retired cn-prod primary, and clearing depends_on is what keeps docker compose config valid for bluegreen prepare. A profile without the reset makes the project fail closed in the wrong place."
+    },
+    {
+      "path": "deploy/domestic/test_pool_env_probe.py",
+      "must_contain": [
+        "def test_default_project_resolves_the_gateway_without_local_servers(self):",
+        "def test_local_data_profile_is_what_starts_the_old_servers(self):"
+      ],
+      "rationale": "The local-data profile is only real if the merged compose project omits postgres/redis by default and brings them back when the profile is enabled."
+    },
+    {
       "path": "backend/internal/config/config.go",
       "must_contain": [
         "viper.SetDefault(\"security.proxy_probe.preset\", \"\")",

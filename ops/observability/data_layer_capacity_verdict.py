@@ -272,6 +272,23 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
     else:
         monthly_growth = window_bytes
 
+    # After the data-plane split the probe still runs on the app host. SQL goes
+    # through the client to the live database, so the ledger size and growth
+    # above stay valid. df of /var/lib/tokenkey is the app host and can still
+    # see the retired data directory, so it must not become a runway.
+    if stats.get("df_is_live_data") is False:
+        return {
+            "verdict": "unknown",
+            "usage_logs_gib": round(usage_logs_bytes / 1024**3, 3),
+            "monthly_growth_gib": round(monthly_growth / 1024**3, 3),
+            "monthly_growth_source": "partition_bytes",
+            "months_to_volume_full": None,
+            "usage_logs_pct_of_volume": None,
+            "df_avail_gib": None,
+            "df_avail_source": None,
+            "summary": "df is the app host, not the data machine disk - capacity verdict inconclusive",
+        }
+
     # No volume data (df missing / probe partial failure) => inconclusive, NOT a
     # trigger. Guard on df_total only: df_total>0 with df_avail==0 is a genuinely
     # full disk and SHOULD still trigger below.

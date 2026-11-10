@@ -18,7 +18,7 @@ WRITES = ("kill -s USR1", "stop ", "update --restart", "compose", "REPLICAOF", "
           "pg_switch_wal", "systemctl stop", "systemctl start", "systemctl disable", "alter system")
 
 
-def stub_bin(directory: pathlib.Path, *, app_db_host: str = "tokenkey-postgres") -> None:
+def stub_bin(directory: pathlib.Path, *, app_db_host: str = "tokenkey-postgres", caddy_try_s: int = 30) -> None:
     """docker / systemctl / ip stubs: every call is logged, reads answer a healthy prod."""
     log = directory / "calls"
     docker = directory / "docker"
@@ -48,7 +48,7 @@ def stub_bin(directory: pathlib.Path, *, app_db_host: str = "tokenkey-postgres")
               *"INFO replication"*) printf 'role:slave\\nmaster_link_status:up\\nslave_repl_offset:5\\n' ;;
               *"CONFIG GET maxmemory-policy"*) printf 'maxmemory-policy\\nnoeviction\\n' ;;
               *"CONFIG GET appendonly"*) printf 'appendonly\\nyes\\n' ;;
-              *"cat /etc/caddy/Caddyfile"*) printf 'reverse_proxy tokenkey-blue:8080 {{\\n lb_try_duration 30s\\n}}\\n' ;;
+              *"cat /etc/caddy/Caddyfile"*) printf 'reverse_proxy tokenkey-blue:8080 {{\\n lb_try_duration {caddy_try_s}s\\n}}\\n' ;;
               *) : ;;
             esac ;;
         esac
@@ -127,6 +127,14 @@ class AppWindowTest(unittest.TestCase):
         body = source[source.index("abort() {"):source.index("phase_apply() {")]
         self.assertNotIn("|| true", body)
         self.assertIn("exit 4", body)
+
+    def test_check_rejects_a_caddy_wait_below_the_promote_budget(self) -> None:
+        stub_bin(self.dir, caddy_try_s=15)
+        proc, calls = run(APP, self.dir, **self.env, PRE_PROMOTE_BUDGET_S="20")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("does not cover budget 20s", proc.stdout)
+        for write in WRITES:
+            self.assertNotIn(write, calls)
 
     def test_rejects_public_data_ip(self) -> None:
         proc, calls = run(APP, self.dir, **{**self.env, "DATA_IP": "43.153.73.120"})

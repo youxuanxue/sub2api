@@ -184,7 +184,14 @@ phase_check() {
   fi
   caddy="$(docker exec tokenkey-caddy cat /etc/caddy/Caddyfile 2>/dev/null)"
   printf '%s' "$caddy" | grep -q "reverse_proxy $app:8080" && ok "caddy routes $app" || bad "caddy does not route $app"
-  printf '%s' "$caddy" | grep -q 'lb_try_duration 30s' && ok "caddy lb_try_duration 30s" || bad "caddy has no lb_try_duration 30s"
+  # The wait must cover this budget. 30s is the steady value; a measured archive
+  # slower than that is raised on the host for the window, then put back.
+  caddy_wait="$(printf '%s\n' "$caddy" | sed -n 's/.*lb_try_duration \([0-9][0-9]*\)s.*/\1/p' | head -1)"
+  if [ -n "${caddy_wait}" ] && [ "$caddy_wait" -ge "$PRE_PROMOTE_BUDGET_S" ] && [ "$caddy_wait" -ge 30 ]; then
+    ok "caddy lb_try_duration ${caddy_wait}s covers budget ${PRE_PROMOTE_BUDGET_S}s"
+  else
+    bad "caddy lb_try_duration ${caddy_wait:-missing}s does not cover budget ${PRE_PROMOTE_BUDGET_S}s"
+  fi
   if [ "$SITE" = prod ]; then
     prod_compose_ok && ok "bluegreen compose reads DATABASE_HOST/REDIS_HOST from .env" \
       || bad "bluegreen compose hardcodes the local hosts; deploy a release that contains #3114 first"
