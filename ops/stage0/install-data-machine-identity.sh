@@ -139,6 +139,14 @@ want="install-data-identity-${SITE}-${hostname}"
 
 # --- apply ---------------------------------------------------------------------
 before="$(sha256sum "$DATA_CONFIG" | cut -c1-16)"
+# The mounted config contains the COS key. Keep the rollback copy root-only
+# and remove it on every exit, including a failed archive check.
+config_mode="$(stat -c '%a' "$DATA_CONFIG")"
+config_owner="$(stat -c '%u:%g' "$DATA_CONFIG")"
+config_backup="$(mktemp)"
+cp -a "$DATA_CONFIG" "$config_backup"
+chmod 0600 "$config_backup"
+trap 'rm -f "$config_backup"' EXIT
 install -d -m 0700 "$LIB"
 for f in $FILES; do install -m 0600 "$BUNDLE_DIR/$f" "$LIB/$f"; done
 service_body > "$UNIT_DIR/$UNIT.service"
@@ -149,11 +157,16 @@ systemctl daemon-reload
 # A refresh that cannot read the credential leaves the config untouched; the
 # unit failing here stops the install before the timer is enabled.
 systemctl start "$UNIT.service" || die "first refresh failed; config unchanged, timer not enabled" 3
-systemctl enable --now "$UNIT.timer" >/dev/null
+# Prove the rendered config before arming the 15-minute writer. A bad key
+# restores the previous file and leaves the timer disabled.
+if ! systemctl start "$BACKUP_PREFIX-archive-check.service"; then
+  cp -a "$config_backup" "$DATA_CONFIG"
+  chmod "$config_mode" "$DATA_CONFIG"
+  chown "$config_owner" "$DATA_CONFIG"
+  die "$BACKUP_PREFIX-archive-check failed; restored previous config, timer not enabled" 3
+fi
 after="$(sha256sum "$DATA_CONFIG" | cut -c1-16)"
 [ "$(stat -c '%U %g %a' "$DATA_CONFIG")" = "root 70 640" ] || die "$DATA_CONFIG lost root:70 0640" 3
-# archive-check runs `pgbackrest check` against COS with the new config and
-# writes the receipt the watchers read; a bad key fails here, not hours later.
-systemctl start "$BACKUP_PREFIX-archive-check.service" || die "$BACKUP_PREFIX-archive-check failed after refresh" 3
+systemctl enable --now "$UNIT.timer" >/dev/null
 echo "  config sha $before -> $after"
 echo "RESULT installed $UNIT.timer=$(systemctl is-active "$UNIT.timer")"

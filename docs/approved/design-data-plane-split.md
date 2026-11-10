@@ -313,7 +313,7 @@ apply 的顺序：
 
 ### 6. 观察与收尾
 
-- 新主库产出第一份成功的全量备份之前，旧数据目录不动。两站切流后到 2026-11-10 为止，数据机上只有增量备份（prod 最新一份在 timeline 4，cn-prod 在 timeline 2），依附的全量还是切流前旧主库做的。`backup_kind` 按 UTC 周日 00:30 切周，所以第一份新 timeline 上的全量是 2026-11-15（周日）之后的第一轮，也可以经单独批准提前手动跑一份。
+- 新主库产出第一份成功的全量备份之前，旧数据目录不动。两站数据机在 2026-11-10 已各完成一份切流后的全量：prod `20261110-013449F`（01:40 UTC），cn-prod `20261110-013338F`（01:34 UTC）。当天 02:30 UTC 的定时任务在这两份全量上做了增量，回执文件只保留最新一轮。删除旧数据目录仍然要单独批准。
 - cn-prod 切流后的第一轮备份（16:30–20:30 UTC）报 `[106] new backup label is not later than latest`。原因：旧应用机的 pgBackRest 标签是北京时间，数据机是 UTC。22:30 UTC 那一轮起恢复正常，期间 WAL 归档没有中断。prod 旧标签本来就是 UTC，不受影响。
 - 切流后读数据机的探针：`run-probe.sh --target prod-data / cn-prod-data` 直连数据机，SSM 身份不符就拒绝。每日容量探针在数据机上跑 `df`，跑道按数据机系统盘计算；`log_dump` 的 `tokenkey-postgres` / `tokenkey-redis` 读数据机上的日志。CI 角色要能对这两个 `mi-*` 执行 `SendCommand`，授权在栈外 inline policy `tokenkey-lightsail-edge-addon`（见 `docs/ops/tencent-cutover-checklist.md`）。应用机上的容量探针仍会把本机 `df` 判为「无结论」（#3122），作为兜底。
 - 删除旧数据目录、旧 Redis 和转发容器需要单独批准。

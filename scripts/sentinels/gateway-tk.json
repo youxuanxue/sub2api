@@ -18832,7 +18832,8 @@
         "TK_DATA_IDENTITY_CONFIRM",
         "OnUnitActiveSec=15min",
         "systemctl start \"$UNIT.service\" || die \"first refresh failed; config unchanged, timer not enabled\" 3",
-        "systemctl start \"$BACKUP_PREFIX-archive-check.service\" || die"
+        "if ! systemctl start \"$BACKUP_PREFIX-archive-check.service\"; then",
+        "restored previous config, timer not enabled"
       ],
       "rationale": "The data-machine identity installer refuses without its confirm, credential and host checks, refreshes once before enabling the timer, and proves the new config with archive-check so a bad key fails at install time."
     },
@@ -18841,6 +18842,7 @@
       "must_contain": [
         "def test_apply_installs_the_refresher_and_checks_the_archive(self) -> None:",
         "def test_failed_first_refresh_does_not_enable_the_timer(self) -> None:",
+        "def test_failed_archive_check_restores_the_config_and_skips_the_timer(self) -> None:",
         "def test_refuses_on_the_app_host(self) -> None:"
       ],
       "rationale": "Keep the installer's order and refusals executable."

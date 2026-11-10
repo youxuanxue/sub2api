@@ -22,6 +22,8 @@ DATA_HOST = {
     "cn-prod": json.loads((ROOT / "deploy/domestic/prod-target.json").read_text())["data_instance_name"],
 }
 UNIT = {"prod": "tokenkey-backup-identity", "cn-prod": "tokenkey-cn-backup-identity"}
+ARCHIVE = {"prod": "tokenkey-postgres-archive-check.service",
+           "cn-prod": "tokenkey-cn-postgres-archive-check.service"}
 # Calls that change the host. Plan mode and every refusal must issue none.
 WRITES = ("systemctl start", "systemctl enable", "systemctl daemon-reload")
 
@@ -43,7 +45,8 @@ class InstallDataMachineIdentityTest(unittest.TestCase):
         self.credentials = self.dir / "cos-backup.env"
 
     def stub(self, site: str, *, hostname: str | None = None, running: bool = True,
-             credential: str | None = "root 600", refresh_ok: bool = True) -> None:
+             credential: str | None = "root 600", refresh_ok: bool = True,
+             archive_ok: bool = True) -> None:
         log = self.calls
         config_stat = "root 70 640"
         scripts = {
@@ -55,12 +58,23 @@ class InstallDataMachineIdentityTest(unittest.TestCase):
                        f'[ "${{@: -1}}" = tokenkey-postgres ] && {{ echo {"true" if running else "false"}; exit 0; }}\n'
                        'exit 1'),
             "systemctl": (f'echo "systemctl $*" >> "{log}"\n'
-                          f'[ "$1 $2" = "start {UNIT[site]}.service" ] && exit {0 if refresh_ok else 1}\n'
+                          f'if [ "$1 $2" = "start {UNIT[site]}.service" ]; then\n'
+                          f'  [ {0 if refresh_ok else 1} -eq 0 ] || exit 1\n'
+                          f'  printf rewritten > "{self.config}"\n'
+                          f'  exit 0\n'
+                          f'fi\n'
+                          f'[ "$1 $2" = "start {ARCHIVE[site]}" ] && exit {0 if archive_ok else 1}\n'
                           '[ "$1" = is-active ] && echo active\nexit 0'),
             "systemd-analyze": f'echo "systemd-analyze $*" >> "{log}"; exit 0',
+            "chown": "exit 0",
             # Owner/mode answers the tests control; GNU stat -c is not on macOS.
-            "stat": (f'case "${{@: -1}}" in "{self.credentials}") echo "{credential or ""}" ;; '
-                     f'"{self.config}") echo "{config_stat}" ;; *) exit 1 ;; esac'),
+            # %a and %u:%g are the rollback copy; the display form is the apply check.
+            "stat": (f'fmt=; prev=\n'
+                     f'for arg in "$@"; do [ "$prev" = -c ] && fmt=$arg; prev=$arg; done\n'
+                     f'case "${{@: -1}}" in "{self.credentials}") echo "{credential or ""}" ;;\n'
+                     f'  "{self.config}")\n'
+                     f'    case "$fmt" in %a) echo 640 ;; %u:%g) echo 0:70 ;; *) echo "{config_stat}" ;; esac ;;\n'
+                     f'  *) exit 1 ;; esac'),
         }
         for name, body in scripts.items():
             path = self.bin / name
@@ -112,11 +126,11 @@ class InstallDataMachineIdentityTest(unittest.TestCase):
         self.assertIn("TK_TENCENT_PROD_MATRIX=", service)
         self.assertIn("OnUnitActiveSec=15min", (self.units / f"{UNIT[site]}.timer").read_text())
         self.assertTrue((self.lib / "backup-identity" / "postgres_backup.py").is_file())
-        # Refresh before enabling the timer, then prove the new config with archive-check.
+        # Prove the new config before arming the timer.
         order = [line for line in calls.splitlines() if line.startswith(("systemctl start", "systemctl enable"))]
         self.assertEqual(order, [f"systemctl start {UNIT[site]}.service",
-                                 f"systemctl enable --now {UNIT[site]}.timer",
-                                 "systemctl start tokenkey-postgres-archive-check.service"])
+                                 "systemctl start tokenkey-postgres-archive-check.service",
+                                 f"systemctl enable --now {UNIT[site]}.timer"])
 
     def test_failed_first_refresh_does_not_enable_the_timer(self) -> None:
         site = "cn-prod"
@@ -125,6 +139,16 @@ class InstallDataMachineIdentityTest(unittest.TestCase):
                                       TK_DATA_IDENTITY_CONFIRM=f"install-data-identity-{site}-{DATA_HOST[site]}")
         self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
         self.assertIn("timer not enabled", proc.stderr)
+        self.assertNotIn("systemctl enable", calls)
+
+    def test_failed_archive_check_restores_the_config_and_skips_the_timer(self) -> None:
+        site = "cn-prod"
+        self.stub(site, archive_ok=False)
+        proc, calls = self.run_script(site, MODE="apply",
+                                      TK_DATA_IDENTITY_CONFIRM=f"install-data-identity-{site}-{DATA_HOST[site]}")
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        self.assertIn("restored previous config, timer not enabled", proc.stderr)
+        self.assertEqual(self.config.read_text(), "previous")
         self.assertNotIn("systemctl enable", calls)
 
     def test_apply_refuses_without_the_exact_confirm(self) -> None:
