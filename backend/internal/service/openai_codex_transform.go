@@ -25,14 +25,16 @@ var codexModelMap = map[string]string{
 	"codex-auto-review": "codex-auto-review",
 	// ChatGPT Codex dropped GPT-5.4 / GPT-5.4 mini (2026-08-31). Official
 	// replacement: bare 5.4 → GPT-5.6 Terra, 5.4 mini → GPT-5.6 Luna.
-	"gpt-5.4":                    "gpt-5.6-terra",
-	"gpt-5.4-mini":               "gpt-5.6-luna",
-	"gpt-5.4-none":               "gpt-5.6-terra",
-	"gpt-5.4-low":                "gpt-5.6-terra",
-	"gpt-5.4-medium":             "gpt-5.6-terra",
-	"gpt-5.4-high":               "gpt-5.6-terra",
-	"gpt-5.4-xhigh":              "gpt-5.6-terra",
-	"gpt-5.4-chat-latest":        "gpt-5.6-terra",
+	"gpt-5.4":             "gpt-5.6-terra",
+	"gpt-5.4-mini":        "gpt-5.6-luna",
+	"gpt-5.4-none":        "gpt-5.6-terra",
+	"gpt-5.4-low":         "gpt-5.6-terra",
+	"gpt-5.4-medium":      "gpt-5.6-terra",
+	"gpt-5.4-high":        "gpt-5.6-terra",
+	"gpt-5.4-xhigh":       "gpt-5.6-terra",
+	"gpt-5.4-chat-latest": "gpt-5.6-terra",
+	// gpt-5.3-codex-spark is retired from the account floor. These spellings
+	// still canonicalize to it so admission fails closed; do not retarget them.
 	"gpt-5.3":                    "gpt-5.3-codex-spark",
 	"gpt-5.3-none":               "gpt-5.3-codex-spark",
 	"gpt-5.3-low":                "gpt-5.3-codex-spark",

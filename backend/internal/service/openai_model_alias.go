@@ -167,6 +167,7 @@ func normalizeOpenAIBillingModel(model string) string {
 		return "gpt-5.4"
 	case strings.Contains(normalized, "gpt-5.2"):
 		return "gpt-5.2"
+	// Retired spark spellings keep the historical spark price card.
 	case strings.Contains(normalized, "gpt-5.3-codex-spark"):
 		return "gpt-5.3-codex-spark"
 	case strings.Contains(normalized, "gpt-5.3-codex"):

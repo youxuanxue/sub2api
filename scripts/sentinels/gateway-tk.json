@@ -16118,11 +16118,33 @@
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
       "must_contain": [
         "var tkOpenAITextCompatibilityAliases = map[string]string{",
+        "\"gpt-5.6\": \"gpt-5.6-sol\"",
         "\"gpt-6\":   \"gpt-6-astra\"",
         "\"gpt-6.1\": \"gpt-6.1-sol\"",
         "tkOpenAITextCompatibilityAliases,"
       ],
-      "rationale": "Floor SSOT companion for gpt-6→Astra and gpt-6.1→gpt-6.1-sol text aliases (pairs with pricing-availability sentinel). Prevents upstream-shaped mapping helpers from dropping the aliases while Sol/Luna/6.1 catalog rows remain."
+      "must_not_contain": [
+        "\"gpt-5.3-codex-spark\""
+      ],
+      "rationale": "Floor SSOT companion for gpt-5.6→Sol, gpt-6→Astra and gpt-6.1→gpt-6.1-sol. The quoted spark id must not return to this owner: it is structurally gone, and TokenSea extras must not reintroduce it. Prevents a later edit from restoring spark or unfolding bare gpt-5.6 back to identity while the catalog rows remain."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_ssot_tk_test.go",
+      "must_contain": [
+        "spark is no longer on the OpenAI floor",
+        "retired spark must not re-enter the relay floor",
+        "floor alias %s must match overlay _aliases",
+        "floor alias %s must match codexModelMap"
+      ],
+      "rationale": "Canonical and TokenSea floors must reject retired spark, and OpenAI text aliases must stay equal to overlay _aliases and codexModelMap. Losing these assertions lets the floor drift from the price and wire owners."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_transform.go",
+      "must_contain": [
+        "still canonicalize to it so admission fails closed",
+        "\"gpt-5.3\":                    \"gpt-5.3-codex-spark\""
+      ],
+      "rationale": "Legacy Codex spellings still canonicalize to retired spark so explicit floors fail closed. Do not retarget those spellings onto a live model, and do not drop the fail-closed comment while the map remains."
     },
     {
       "path": "backend/internal/handler/gateway_models_test.go",
