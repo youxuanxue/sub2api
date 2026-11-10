@@ -150,8 +150,34 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
 
         self.assertEqual(result["instance_id"], _INSTANCE)
         command = run.call_args.args[0]
-        self.assertEqual(command[command.index("--target") + 1], _TARGET)
+        self.assertEqual(command[command.index("--target") + 1], f"{_TARGET}-data")
         self.assertIn(f"REMOTE_TARGET={_TARGET}", command)
+
+    def test_cn_prod_reads_its_data_machine(self) -> None:
+        payload = {
+            "mode": "usage_logs_daily_partition_status",
+            "target": "cn-prod",
+            "deletion_authorized": False,
+        }
+        completed = subprocess.CompletedProcess(
+            ["bash"],
+            0,
+            stdout=json.dumps(payload) + "\n",
+            stderr="[run-probe] resolved region=eu-west-2 instance_id=mi-084a456b3dee71bb4\n",
+        )
+        with mock.patch.object(control.subprocess, "run", return_value=completed) as run:
+            result = control._run_remote("cn-prod", "status", [], timeout_seconds=120)
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("--target") + 1], "cn-prod-data")
+        self.assertIn("REMOTE_TARGET=cn-prod", command)
+        self.assertEqual(result["target"], "cn-prod")
+        self.assertEqual(result["instance_id"], "mi-084a456b3dee71bb4")
+
+    def test_data_machine_name_is_not_a_logical_target(self) -> None:
+        with mock.patch.object(control.subprocess, "run") as run:
+            with self.assertRaisesRegex(remote.UsagePartitionError, "prod or cn-prod"):
+                control._run_remote("cn-prod-data", "status", [], timeout_seconds=120)
+        run.assert_not_called()
 
     def test_prepare_receipt_cannot_cross_targets(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

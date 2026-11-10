@@ -164,7 +164,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 ### 不在这次做
 
-- **cn-prod 的 `usage_logs` 没有分区**（1.1 GB，869 次全表扫描读了 1.07 亿行），prod 是按日分区的。分区切换有自己的工具 `ops/migration/usage_logs_daily_partition.py` 和维护窗口，与换机器无关。拆库完成后单独做，两站的表结构才算一致。
+- **cn-prod 的 `usage_logs` 已在 2026-11-10 切成日分区**（`usage_logs_daily_partition.py --target cn-prod`，上界 `2026-11-12T00:00:00Z`，历史行留在 `usage_logs_legacy`，并预建之后 8 个日分区）。切换前它是 1.1 GB 的整表。prod 原本就是日分区。两边之后由同一套每晚维护补未来分区。
 - **`usage_billing_dedup` 已单独处理**（[`billing-dedup-retention.md`](billing-dedup-retention.md)，#3110）：热表 7 天，含归档共 30 天。2026-11-09 已在线删除 1,446 万行超过 30 天的键，热表从 1,822 万行降到 376 万行，删除期间服务无影响。表文件仍是 5.1 GB 数据加 3.3 GB 索引；空出的数据页由后续写入复用，不做 `VACUUM FULL`。唯一索引要在 #3110 部署并迁完归档后用 `REINDEX INDEX CONCURRENTLY` 重建一次，见「每站实施步骤」第 1 步。
 
 ## 数据机配置

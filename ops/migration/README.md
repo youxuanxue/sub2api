@@ -10,9 +10,9 @@
 
 # usage_logs 日分区切换
 
-`usage_logs_daily_partition.py` 是 prod 的分区维护入口。它不会由应用启动或
-migration runner 自动执行，也不会复制历史明细。命令显式指定 `--target prod`；
-confirmation、远端 receipt 和本地 receipt 均与目标绑定。
+`usage_logs_daily_partition.py` 是用量明细日分区的显式入口，prod 和 cn-prod 共用。它不会由应用启动或
+migration runner 自动执行，也不会复制历史明细。命令显式指定 `--target prod` 或 `--target cn-prod`；
+SQL 发到该站数据机（`prod-data` / `cn-prod-data`）。confirmation、远端 receipt 和本地 receipt 均与站点名绑定。
 
 先读取目标状态，再并发创建普通 `(request_id, api_key_id)` 查询索引，并在线准备及验证固定上界
 CHECK。以下以当前 `prod` 为例：

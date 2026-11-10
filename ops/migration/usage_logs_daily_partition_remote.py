@@ -14,7 +14,7 @@ from collections.abc import Iterable
 from typing import Any
 
 
-TARGET_RE = re.compile(r"prod")
+TARGET_RE = re.compile(r"cn-prod|prod")
 BOUND_CONSTRAINT = "usage_logs_partition_upper"
 BOUND_COMMENT_PREFIX = "tokenkey-usage-partition-upper-v1:"
 QUERY_INDEX = "idx_usage_logs_request_api_key_partition"
@@ -53,7 +53,7 @@ def _canonical_json(value: Any) -> str:
 
 def _target(value: str) -> str:
     if TARGET_RE.fullmatch(value) is None:
-        raise UsagePartitionError("target must be prod")
+        raise UsagePartitionError("target must be prod or cn-prod")
     return value
 
 

@@ -62,11 +62,14 @@ def _run_remote(
     expected_instance_id: str | None = None,
 ) -> dict[str, Any]:
     target = remote._target(target)
+    # Postgres runs on the site data machine. The receipt target stays the site
+    # name; run-probe.sh resolves prod-data / cn-prod-data and refuses a host
+    # whose SSM name does not match.
     command_line = [
         "bash",
         str(RUN_PROBE),
         "--target",
-        target,
+        f"{target}-data",
         "--script",
         str(REMOTE_WRAPPER),
         "--with",
