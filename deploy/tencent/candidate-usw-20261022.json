@@ -52,5 +52,14 @@
       "tokenkey-qa-archive"
     ],
     "data_hostname": "VM-0-3-ubuntu"
+  },
+  "data_machine": {
+    "note": "Data machine after the data-plane split (docs/approved/design-data-plane-split.md). run-probe.sh --target prod-data checks SSM Name before sending. TAT is the fallback transport.",
+    "hostname": "VM-0-3-ubuntu",
+    "lighthouse_instance_id": "lhins-p43i2kxh",
+    "private_ip": "10.4.0.3",
+    "ssm_name": "tokenkey-usw-data",
+    "expected_ssm_instance_id": "mi-044ba9da6453c1557",
+    "ssm_region": "eu-west-2"
   }
 }

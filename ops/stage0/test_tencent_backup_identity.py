@@ -132,9 +132,55 @@ class BackupIdentityTest(unittest.TestCase):
         with patch.object(identity.os, 'geteuid', return_value=0), \
              patch.object(identity.socket, 'gethostname', return_value='another-host'), \
              patch.object(identity, 'atomic_private') as write:
-            with self.assertRaisesRegex(ValueError, 'data-machine pgBackRest config is static'):
+            with self.assertRaisesRegex(ValueError, 'app host or the data machine'):
                 identity.refresh()
             write.assert_not_called()
+
+    def _data_arena(self, stack, directory):
+        config = Path(directory) / 'pgbackrest-cos' / 'pgbackrest.conf'
+        config.parent.mkdir()
+        config.write_text('previous')
+        stack.enter_context(patch.object(identity, 'DATA_CONFIG', config))
+        stack.enter_context(patch.object(identity, 'DATA_HOST', 'VM-0-3-ubuntu'))
+        stack.enter_context(patch.object(identity.os, 'geteuid', return_value=0))
+        stack.enter_context(patch.object(identity.socket, 'gethostname', return_value='VM-0-3-ubuntu'))
+        stack.enter_context(patch.object(identity.Path, 'is_symlink', return_value=False))
+        return config, stack.enter_context(patch.object(identity.os, 'fchown'))
+
+    def test_data_machine_refresh_rewrites_the_mounted_config(self):
+        # After the split the data machine runs the database; rotating the COS
+        # key must reach the file its container mounts, keeping root:postgres 0640.
+        with tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
+            config, fchown = self._data_arena(stack, directory)
+            stack.enter_context(patch.object(
+                identity, 'read_cos_credentials', return_value={'key': 'cos-id', 'secret': 'cos-secret'}))
+            tmpfs = stack.enter_context(patch.object(identity.subprocess, 'check_output'))
+            result = identity.refresh()
+            body = config.read_text()
+            self.assertIn('repo2-s3-key=cos-id\n', body)
+            self.assertIn('repo2-path=/prod/postgres\n', body)
+            self.assertNotIn('repo1-', body)
+            self.assertEqual(config.stat().st_mode & 0o777, 0o640)
+            fchown.assert_called_once()
+            self.assertEqual(fchown.call_args.args[1:], (0, 70))
+            tmpfs.assert_not_called()
+        self.assertEqual(result['host_role'], 'data-machine')
+        self.assertNotIn('cos-secret', json.dumps(result))
+
+    def test_data_machine_without_credentials_keeps_the_current_config(self):
+        with tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
+            config, _ = self._data_arena(stack, directory)
+            stack.enter_context(patch.object(
+                identity, 'read_cos_credentials', side_effect=FileNotFoundError('absent')))
+            with self.assertRaises(FileNotFoundError):
+                identity.refresh()
+            self.assertEqual(config.read_text(), 'previous')
+
+    def test_data_host_comes_from_the_prod_matrix(self):
+        matrix = json.loads((Path(__file__).resolve().parents[2] / 'deploy' / 'tencent'
+                             / 'candidate-usw-20261022.json').read_text())
+        self.assertEqual(identity.DATA_HOST, matrix['host_watch']['data_hostname'])
+        self.assertNotEqual(identity.DATA_HOST, identity.HOST)
 
     def test_error_output_never_includes_credentials(self):
         output = io.StringIO()

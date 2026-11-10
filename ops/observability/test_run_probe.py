@@ -337,6 +337,89 @@ class RunProbeUCloudSSMTest(unittest.TestCase):
         self.assertNotIn("send-command", proc.stderr + proc.stdout)
 
 
+class RunProbeDataMachineTest(unittest.TestCase):
+    """prod-data / cn-prod-data resolve the data machine from the site matrix."""
+
+    WANT = {
+        "prod-data": ("mi-044ba9da6453c1557", "tokenkey-usw-data"),
+        "cn-prod-data": ("mi-084a456b3dee71bb4", "tokenkey-cn-data"),
+    }
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.temporary.name)
+        self.bin_dir = self.root / "bin"
+        self.bin_dir.mkdir()
+        self.log = self.root / "aws-calls"
+        aws = self.bin_dir / "aws"
+        aws.write_text(textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            args="$*"
+            echo "$args" >> "{self.log}"
+            if [[ "$args" == *"describe-instance-information"* ]]; then
+              printf '%s\\n' "{{\\"InstanceInformationList\\":[{{\\"PingStatus\\":\\"Online\\",\\"Name\\":\\"$SSM_FIXTURE_NAME\\",\\"PlatformType\\":\\"Linux\\"}}]}}"
+            elif [[ "$args" == *"send-command"* ]]; then
+              printf '%s\\n' 'command-data-test'
+            elif [[ "$args" == *"get-command-invocation"* ]]; then
+              printf '%s\\n' '{{"Status":"Success","StandardOutputContent":"data-machine-result\\n","StandardErrorContent":""}}'
+            else
+              echo "unexpected fake aws call: $args" >&2
+              exit 1
+            fi
+            """))
+        aws.chmod(0o755)
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def _run(self, target: str, ssm_name: str, *extra: str) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env.update({"PATH": f"{self.bin_dir}{os.pathsep}{env['PATH']}", "SSM_FIXTURE_NAME": ssm_name})
+        probe = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
+        return _run("--target", target, "--script", str(probe), *extra, env=env)
+
+    def test_data_targets_send_to_the_matrix_instance(self) -> None:
+        for target, (instance, name) in self.WANT.items():
+            with self.subTest(target=target):
+                self.log.unlink(missing_ok=True)
+                proc = self._run(target, name)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.stdout, "data-machine-result\n")
+                self.assertIn(f"instance_id={instance}", proc.stderr)
+                sends = [line for line in self.log.read_text().splitlines() if "send-command" in line]
+                self.assertEqual(len(sends), 1)
+                self.assertIn(f"--instance-ids {instance}", sends[0])
+
+    def test_wrong_ssm_name_stops_before_send(self) -> None:
+        # An app-host Name on the data machine's mi-* means the matrix and the
+        # registration disagree; nothing may be sent.
+        proc = self._run("prod-data", "tokenkey-usw-rehearsal-20261021")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("prod-data SSM identity is not ready", proc.stderr)
+        self.assertNotIn("send-command", self.log.read_text())
+
+    def test_expected_instance_id_must_match_the_data_machine(self) -> None:
+        proc = self._run("cn-prod-data", "tokenkey-cn-data", "--expected-instance-id", "mi-06568963b4b3c3239")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("does not match --expected-instance-id", proc.stderr)
+        self.assertNotIn("send-command", self.log.read_text())
+
+    def test_matrices_record_distinct_data_identities(self) -> None:
+        repo = pathlib.Path(__file__).resolve().parents[2]
+        prod = json.loads((repo / "deploy/tencent/candidate-usw-20261022.json").read_text())
+        cn = json.loads((repo / "deploy/domestic/prod-target.json").read_text())
+        self.assertEqual(
+            (prod["data_machine"]["expected_ssm_instance_id"], prod["data_machine"]["ssm_name"]),
+            self.WANT["prod-data"])
+        self.assertEqual((cn["data_ssm_instance_id"], cn["data_ssm_name"]), self.WANT["cn-prod-data"])
+        self.assertNotEqual(prod["data_machine"]["expected_ssm_instance_id"],
+                            prod["target"]["expected_ssm_instance_id"])
+        self.assertNotEqual(cn["data_ssm_instance_id"], cn["ssm_instance_id"])
+        self.assertEqual(prod["data_machine"]["hostname"], prod["host_watch"]["data_hostname"])
+
+
 class RunProbePollingTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()

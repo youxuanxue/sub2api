@@ -12,5 +12,9 @@
     "tokenkey-qa-cleanup",
     "tokenkey-qa-archive"
   ],
-  "data_instance_name": "VM-4-5-ubuntu"
+  "data_instance_name": "VM-4-5-ubuntu",
+  "data_lighthouse_instance_id": "lhins-odyx5eis",
+  "data_private_ip": "10.2.4.5",
+  "data_ssm_name": "tokenkey-cn-data",
+  "data_ssm_instance_id": "mi-084a456b3dee71bb4"
 }

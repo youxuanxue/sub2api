@@ -18793,6 +18793,92 @@
       "rationale": "Keep the prod COS-only render executable: no repo1/AWS/STS token, both runtime paths rewritten, and no AWS fallback."
     },
     {
+      "path": "ops/stage0/tencent_backup_identity.py",
+      "must_contain": [
+        "DATA_CONFIG = Path('/etc/tokenkey/pgbackrest-cos/pgbackrest.conf')",
+        "if DATA_HOST and hostname == DATA_HOST:",
+        "atomic_private(DATA_CONFIG, contents, uid=0, gid=70, mode=0o640)"
+      ],
+      "rationale": "After the data-plane split the prod database runs on the data machine. A COS key rotation must reach the config its container mounts read-only, so the refresher branches on the matrix data_hostname and rewrites that file root:postgres 0640 from the data machine's own credential. Losing the branch puts key rotation back to a hand edit, and the first rotation silently breaks archiving."
+    },
+    {
+      "path": "deploy/domestic/cn_backup_identity.py",
+      "must_contain": [
+        "DATA_CONFIG = Path(\"/etc/tokenkey/pgbackrest-cos/pgbackrest.conf\")",
+        "if target[\"data_instance_name\"] and hostname == target[\"data_instance_name\"]:",
+        "atomic_private(contents, DATA_CONFIG, owner=(0, 70), mode=0o640, prepare_parent=False)"
+      ],
+      "rationale": "Same contract for cn-prod: the refresher recognises the data machine from prod-target.json data_instance_name and rewrites its mounted pgBackRest config, so COS key rotation is one file on one host."
+    },
+    {
+      "path": "ops/stage0/test_tencent_backup_identity.py",
+      "must_contain": [
+        "def test_data_machine_refresh_rewrites_the_mounted_config(self):",
+        "def test_data_machine_without_credentials_keeps_the_current_config(self):"
+      ],
+      "rationale": "Keep the prod data-machine refresh executable: mounted config rewritten with root:postgres 0640, and a missing credential keeps the current config."
+    },
+    {
+      "path": "deploy/domestic/test_cn_backup_identity.py",
+      "must_contain": [
+        "def test_data_machine_refresh_rewrites_the_mounted_config(self) -> None:",
+        "def test_data_machine_without_credentials_keeps_the_current_config(self) -> None:"
+      ],
+      "rationale": "Keep the cn-prod data-machine refresh executable."
+    },
+    {
+      "path": "ops/stage0/install-data-machine-identity.sh",
+      "must_contain": [
+        "TK_DATA_IDENTITY_CONFIRM",
+        "OnUnitActiveSec=15min",
+        "systemctl start \"$UNIT.service\" || die \"first refresh failed; config unchanged, timer not enabled\" 3",
+        "systemctl start \"$BACKUP_PREFIX-archive-check.service\" || die"
+      ],
+      "rationale": "The data-machine identity installer refuses without its confirm, credential and host checks, refreshes once before enabling the timer, and proves the new config with archive-check so a bad key fails at install time."
+    },
+    {
+      "path": "ops/stage0/test_install_data_machine_identity.py",
+      "must_contain": [
+        "def test_apply_installs_the_refresher_and_checks_the_archive(self) -> None:",
+        "def test_failed_first_refresh_does_not_enable_the_timer(self) -> None:",
+        "def test_refuses_on_the_app_host(self) -> None:"
+      ],
+      "rationale": "Keep the installer's order and refusals executable."
+    },
+    {
+      "path": "ops/observability/run-probe.sh",
+      "must_contain": [
+        "prod|cn-prod|prod-data|cn-prod-data) ;;",
+        "if [ \"$SSM_PING_STATUS\" != \"Online\" ] || [ \"$SSM_NAME\" != \"$DATA_SSM_NAME\" ] || [ \"$SSM_PLATFORM\" != \"Linux\" ]; then"
+      ],
+      "rationale": "Data-machine probes resolve the SSM identity from the site matrix and check the registered Name before sending, so a re-registered mi-* cannot receive a probe meant for the database."
+    },
+    {
+      "path": "ops/observability/test_run_probe.py",
+      "must_contain": [
+        "def test_data_targets_send_to_the_matrix_instance(self) -> None:",
+        "def test_wrong_ssm_name_stops_before_send(self) -> None:"
+      ],
+      "rationale": "Keep data-machine probe resolution and the Name check executable."
+    },
+    {
+      "path": ".github/workflows/ops-daily-diagnostics.yml",
+      "must_contain": [
+        "--target \"${PROBE_TARGET}-data\" --script ops/observability/probe-data-layer-capacity.sh",
+        "python3 ops/observability/log_dump_target.py",
+        "INSTANCE_ID: ${{ steps.logtarget.outputs.id }}"
+      ],
+      "rationale": "After the data-plane split the database disk and the Postgres/Redis logs are on the data machine. The daily capacity runway and log_dump must read there; the app host only has the retired data directory and the stopped originals."
+    },
+    {
+      "path": "ops/observability/test_log_dump_target.py",
+      "must_contain": [
+        "def test_data_containers_go_to_the_matrix_data_machine(self) -> None:",
+        "def test_daily_capacity_probe_runs_on_the_data_machine(self) -> None:"
+      ],
+      "rationale": "Keep the data-machine routing for log_dump and the daily capacity probe executable."
+    },
+    {
       "path": "ops/stage0/postgres_backup.py",
       "must_contain": [
         "COS_REPO_INDEX = 2",
