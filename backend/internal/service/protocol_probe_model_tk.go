@@ -46,13 +46,16 @@ func protocolProbeModelCandidates(account *Account) []string {
 		if iGPT != jGPT {
 			return iGPT
 		}
-		// Fewer name segments first. Alphabetical order puts a narrow SKU such
-		// as gpt-5.3-codex-spark ahead of gpt-5.5; that model is often absent
-		// on platform API keys and must not be the first witness.
-		iSegments := strings.Count(candidates[i], "-")
-		jSegments := strings.Count(candidates[j], "-")
-		if iSegments != jSegments {
-			return iSegments < jSegments
+		// Within gpt- names only, fewer segments first. Alphabetical order puts
+		// gpt-5.3-codex-spark ahead of gpt-5.5; that SKU is often absent on
+		// platform API keys and must not be the first witness. Other vendors
+		// keep plain alphabetical order.
+		if iGPT && jGPT {
+			iSegments := strings.Count(candidates[i], "-")
+			jSegments := strings.Count(candidates[j], "-")
+			if iSegments != jSegments {
+				return iSegments < jSegments
+			}
 		}
 		return candidates[i] < candidates[j]
 	})
