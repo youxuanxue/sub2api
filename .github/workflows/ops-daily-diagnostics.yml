@@ -971,10 +971,12 @@ jobs:
           # After the data-plane split Postgres and Redis run on the data
           # machine (docs/approved/design-data-plane-split.md). The app host
           # only has the stopped originals, so their logs are read there.
-          python3 ops/observability/log_dump_target.py \
-            --container "$INPUT_CONTAINER" \
-            --app-instance "$APP_INSTANCE_ID" --app-region "$APP_SSM_REGION" \
-            --github-output "$GITHUB_OUTPUT"
+          case "$INPUT_CONTAINER" in
+            tokenkey-postgres|tokenkey-redis)
+              python3 ops/observability/data_machine_target.py --site prod --verify --github-output "$GITHUB_OUTPUT" ;;
+            *)
+              printf 'id=%s\nssm_region=%s\n' "$APP_INSTANCE_ID" "$APP_SSM_REGION" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Run docker logs on prod via SSM
         env:

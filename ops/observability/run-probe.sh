@@ -43,10 +43,8 @@
 #                        UCLOUD_SSH_* remains the one-time/bootstrap fallback.
 #   --target prod-data / cn-prod-data
 #                        the site's data machine (Postgres/Redis after the
-#                        data-plane split). The SSM identity comes from the
-#                        site matrix (deploy/tencent/candidate-usw-20261022.json
-#                        `data_machine`, deploy/domestic/prod-target.json
-#                        `data_ssm_*`); the SSM Name must match before sending.
+#                        data-plane split), resolved and verified by
+#                        ops/observability/data_machine_target.py.
 #
 #   --timeout-seconds    30..2592000; passed to the remote transport and also
 #                        used as the local polling budget. Polling never
@@ -250,50 +248,17 @@ if [ "$TARGET" = "prod" ]; then
 fi
 
 if [ "$TARGET" = "prod-data" ] || [ "$TARGET" = "cn-prod-data" ]; then
-  # Data machines have one registered SSM identity each, recorded in the site
-  # matrix. Name + Online are checked before any command is sent, so a
-  # re-registered or reused mi-* cannot receive a probe meant for the database.
-  if [ "$TARGET" = "prod-data" ]; then
-    DATA_MANIFEST="$REPO_ROOT/deploy/tencent/candidate-usw-20261022.json"
-  else
-    DATA_MANIFEST="$REPO_ROOT/deploy/domestic/prod-target.json"
+  # ops/observability/data_machine_target.py owns the data-machine identity:
+  # it reads the site matrix and requires SSM Online + the registered Name
+  # before anything is sent. Exit 1 = matrix incomplete, 2 = SSM not ready.
+  DATA_RESOLVE_RC=0
+  DATA_RESOLVED=$(python3 "$REPO_ROOT/ops/observability/data_machine_target.py" \
+    --site "${TARGET%-data}" --verify) || DATA_RESOLVE_RC=$?
+  if [ "$DATA_RESOLVE_RC" -ne 0 ]; then
+    exit "$DATA_RESOLVE_RC"
   fi
-  read -r REGION INSTANCE_ID DATA_SSM_NAME < <(python3 - "$DATA_MANIFEST" "$TARGET" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    doc = json.load(handle)
-if sys.argv[2] == "prod-data":
-    data = doc.get("data_machine") or {}
-    fields = (data.get("ssm_region"), data.get("expected_ssm_instance_id"), data.get("ssm_name"))
-else:
-    fields = (doc.get("ssm_region"), doc.get("data_ssm_instance_id"), doc.get("data_ssm_name"))
-print(" ".join(str(value or "-") for value in fields))
-PY
-  )
-  if [[ ! "${INSTANCE_ID:-}" =~ ^mi-[0-9a-f]{17}$ ]] || [[ ! "${REGION:-}" =~ ^[a-z0-9-]+$ ]] || [ "${DATA_SSM_NAME:--}" = "-" ]; then
-    echo "[run-probe] ERROR: $TARGET SSM identity missing from $DATA_MANIFEST" >&2
-    exit 1
-  fi
-  if ! SSM_INFO=$(aws ssm describe-instance-information --region "$REGION" \
-      --filters "Key=InstanceIds,Values=$INSTANCE_ID" --output json 2>&1); then
-    echo "[run-probe] ERROR: $TARGET SSM managed instance lookup failed" >&2
-    printf '%s\n' "$SSM_INFO" >&2
-    exit 2
-  fi
-  SSM_STATE=$(printf '%s' "$SSM_INFO" | python3 -c '
-import json, sys
-items = json.load(sys.stdin).get("InstanceInformationList", [])
-if len(items) != 1:
-    raise SystemExit(1)
-print("\t".join(str(items[0].get(k) or "") for k in ("PingStatus", "Name", "PlatformType")))
-' 2>/dev/null || true)
-  IFS=$'\t' read -r SSM_PING_STATUS SSM_NAME SSM_PLATFORM <<<"$SSM_STATE"
-  if [ "$SSM_PING_STATUS" != "Online" ] || [ "$SSM_NAME" != "$DATA_SSM_NAME" ] || [ "$SSM_PLATFORM" != "Linux" ]; then
-    echo "[run-probe] ERROR: $TARGET SSM identity is not ready (name=${SSM_NAME:-<empty>} want=$DATA_SSM_NAME status=${SSM_PING_STATUS:-<empty>} platform=${SSM_PLATFORM:-<empty>})" >&2
-    exit 2
-  fi
+  REGION="$(printf '%s\n' "$DATA_RESOLVED" | awk -F= '$1=="ssm_region" {print $2; exit}')"
+  INSTANCE_ID="$(printf '%s\n' "$DATA_RESOLVED" | awk -F= '$1=="instance_id" {print $2; exit}')"
 fi
 
 if [ "$TARGET" != "cn-prod" ] && { [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; }; then

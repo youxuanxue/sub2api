@@ -109,8 +109,11 @@ tk_resolve_postgres_server_container auto >/dev/null 2>&1 \
 [ -d "$(dirname "$DATA_CONFIG")" ] || problems="$problems; $(dirname "$DATA_CONFIG") missing"
 if [ ! -f "$CREDENTIALS" ]; then
   problems="$problems; $CREDENTIALS missing (copy it from the custody bucket first)"
-elif [ "$(stat -c '%U %a' "$CREDENTIALS")" != "root 600" ] && [ "$(stat -c '%U %a' "$CREDENTIALS")" != "root 400" ]; then
-  problems="$problems; $CREDENTIALS must be root-owned 0600 or 0400"
+else
+  case "$(stat -c '%U %a' "$CREDENTIALS")" in
+    "root 600"|"root 400") ;;
+    *) problems="$problems; $CREDENTIALS must be root-owned 0600 or 0400" ;;
+  esac
 fi
 
 echo "== plan site=$SITE host=$hostname"

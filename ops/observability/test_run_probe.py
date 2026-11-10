@@ -397,7 +397,7 @@ class RunProbeDataMachineTest(unittest.TestCase):
         # registration disagree; nothing may be sent.
         proc = self._run("prod-data", "tokenkey-usw-rehearsal-20261021")
         self.assertEqual(proc.returncode, 2)
-        self.assertIn("prod-data SSM identity is not ready", proc.stderr)
+        self.assertIn("prod data machine SSM identity is not ready", proc.stderr)
         self.assertNotIn("send-command", self.log.read_text())
 
     def test_expected_instance_id_must_match_the_data_machine(self) -> None:

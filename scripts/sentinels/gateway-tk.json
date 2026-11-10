@@ -18849,9 +18849,25 @@
       "path": "ops/observability/run-probe.sh",
       "must_contain": [
         "prod|cn-prod|prod-data|cn-prod-data) ;;",
-        "if [ \"$SSM_PING_STATUS\" != \"Online\" ] || [ \"$SSM_NAME\" != \"$DATA_SSM_NAME\" ] || [ \"$SSM_PLATFORM\" != \"Linux\" ]; then"
+        "python3 \"$REPO_ROOT/ops/observability/data_machine_target.py\" \\"
       ],
-      "rationale": "Data-machine probes resolve the SSM identity from the site matrix and check the registered Name before sending, so a re-registered mi-* cannot receive a probe meant for the database."
+      "rationale": "Data-machine probes take their SSM identity from data_machine_target.py, which reads the site matrix and requires SSM Online plus the registered Name before sending, so a re-registered mi-* cannot receive a probe meant for the database."
+    },
+    {
+      "path": "ops/observability/data_machine_target.py",
+      "must_contain": [
+        "\"prod\": ROOT / \"deploy\" / \"tencent\" / \"candidate-usw-20261022.json\",",
+        "if seen != {\"PingStatus\": \"Online\", \"Name\": target[\"ssm_name\"], \"PlatformType\": \"Linux\"}:"
+      ],
+      "rationale": "Single owner of the data-machine SSM identity for run-probe.sh and log_dump: matrix-sourced, verified Online + registered Name before any command."
+    },
+    {
+      "path": "ops/observability/test_data_machine_target.py",
+      "must_contain": [
+        "def test_verify_requires_the_registered_name_online(self) -> None:",
+        "def test_workflow_reads_data_logs_and_capacity_on_the_data_machine(self) -> None:"
+      ],
+      "rationale": "Keep the data-machine identity check and the workflow routing executable."
     },
     {
       "path": "ops/observability/test_run_probe.py",
@@ -18865,18 +18881,10 @@
       "path": ".github/workflows/ops-daily-diagnostics.yml",
       "must_contain": [
         "--target \"${PROBE_TARGET}-data\" --script ops/observability/probe-data-layer-capacity.sh",
-        "python3 ops/observability/log_dump_target.py",
+        "python3 ops/observability/data_machine_target.py --site prod --verify --github-output \"$GITHUB_OUTPUT\"",
         "INSTANCE_ID: ${{ steps.logtarget.outputs.id }}"
       ],
       "rationale": "After the data-plane split the database disk and the Postgres/Redis logs are on the data machine. The daily capacity runway and log_dump must read there; the app host only has the retired data directory and the stopped originals."
-    },
-    {
-      "path": "ops/observability/test_log_dump_target.py",
-      "must_contain": [
-        "def test_data_containers_go_to_the_matrix_data_machine(self) -> None:",
-        "def test_daily_capacity_probe_runs_on_the_data_machine(self) -> None:"
-      ],
-      "rationale": "Keep the data-machine routing for log_dump and the daily capacity probe executable."
     },
     {
       "path": "ops/stage0/postgres_backup.py",
