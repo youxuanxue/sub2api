@@ -984,6 +984,24 @@
         "test_real_drift_still_writes_a_canonical_candidate"
       ],
       "rationale": "Proves the candidate write is gated on real owner drift in both directions: a non-canonical registry produces no candidate, while genuine drift still writes a canonical one. Without the positive case the gate could silently stop emitting candidates at all."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_supported_models_tk.go",
+      "must_contain": [
+        "gpt-5.3-codex-spark is structurally gone"
+      ],
+      "must_not_contain": [
+        "\"gpt-5.3-codex-spark\":"
+      ],
+      "rationale": "gpt-5.3-codex-spark is retired from the OpenAI servable allowlist. Historical billing stays in the price registry; refresh must not put the id back, and the allowlist marker block must not grow a spark row."
+    },
+    {
+      "path": "ops/pricing/servable-reprobe-ledger.json",
+      "must_contain": [
+        "\"model\": \"gpt-5.3-codex-spark\"",
+        "do not restore it to the servable allowlist or the derived account model_mapping floor."
+      ],
+      "rationale": "The durable structurally_gone ledger entry is the only authority that stops servable-allowlist refresh from restoring retired spark. A dated or account-specific reason is rejected by the ledger validator, so this anchor keeps the durable wording."
     }
   ]
 }
