@@ -46,6 +46,17 @@ func protocolProbeModelCandidates(account *Account) []string {
 		if iGPT != jGPT {
 			return iGPT
 		}
+		// Within gpt- names only, fewer segments first. Alphabetical order puts
+		// gpt-5.3-codex-spark ahead of gpt-5.5; that SKU is often absent on
+		// platform API keys and must not be the first witness. Other vendors
+		// keep plain alphabetical order.
+		if iGPT && jGPT {
+			iSegments := strings.Count(candidates[i], "-")
+			jSegments := strings.Count(candidates[j], "-")
+			if iSegments != jSegments {
+				return iSegments < jSegments
+			}
+		}
 		return candidates[i] < candidates[j]
 	})
 
@@ -70,6 +81,11 @@ func protocolProbeModelCandidates(account *Account) []string {
 			candidates = append(candidates, probeModel)
 		}
 	}
+	if account.Platform == PlatformOpenAI {
+		// gpt-6-luna is a published text model these platform keys can call.
+		// gpt-5.3-codex-spark sorts earlier and is absent on the same keys.
+		candidates = preferProtocolProbeModel(candidates, "gpt-6-luna")
+	}
 	if len(candidates) > protocolProbeMaxModels {
 		candidates = candidates[:protocolProbeMaxModels]
 	}
@@ -80,6 +96,20 @@ func protocolProbeModelCandidates(account *Account) []string {
 // callers/tests that only need the deterministic first representative.
 func selectProtocolProbeModel(account *Account) string {
 	return protocolProbeModelCandidates(account)[0]
+}
+
+func preferProtocolProbeModel(candidates []string, model string) []string {
+	for index, candidate := range candidates {
+		if candidate != model {
+			continue
+		}
+		if index == 0 {
+			return candidates
+		}
+		rest := append(append([]string{}, candidates[:index]...), candidates[index+1:]...)
+		return append([]string{model}, rest...)
+	}
+	return candidates
 }
 
 func protocolProbeModelSpecificHTTPFailure(status int, body []byte) bool {

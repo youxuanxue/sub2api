@@ -583,7 +583,12 @@ func applyProtocolProbeRequestIdentity(
 	profile := HTTPUpstreamProfileOpenAI
 	if account != nil && account.IsGrok() {
 		profile = HTTPUpstreamProfileGrok
-	} else if protocol == protocolrouter.ProtocolResponses {
+	} else if protocol == protocolrouter.ProtocolResponses && account.UsesOpenAICodexProtocol() {
+		// Platform API keys are dispatched without Codex client identity.
+		// Sending originator/version/User-Agent here makes api.openai.com treat
+		// the probe as Codex BYOK and reject organizations on the API-credits
+		// promo (codex_byok_restricted_by_api_credit_promo), so a working
+		// /v1/responses account never records a positive verdict.
 		applyOpenAICodexProbeHeaders(req.Header)
 	}
 	reqCtx := WithHTTPUpstreamProfile(req.Context(), profile)
