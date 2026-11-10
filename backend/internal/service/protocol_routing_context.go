@@ -17,6 +17,9 @@ type protocolRoutingContextValue struct {
 	plans             *protocolPlanCache
 	nativeOnly        bool
 	immutableAccounts bool
+	// facts memoizes request-only derivations for this canonical request. It
+	// survives withProtocolNativeOnly because those facts never read route policy.
+	facts *protocolRequestFacts
 }
 
 type protocolPlanCacheKey struct {
@@ -83,6 +86,7 @@ func WithProtocolRouting(
 		router:  router,
 		request: request,
 		plans:   newProtocolPlanCache(),
+		facts:   newProtocolRequestFacts(),
 	})
 }
 

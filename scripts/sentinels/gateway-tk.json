@@ -19839,6 +19839,78 @@
         "candidates = preferProtocolProbeModel(candidates, \"gpt-6-luna\")"
       ],
       "rationale": "OpenAI protocol probes that declare gpt-6-luna must witness that published text model first. Otherwise gpt-5.3-codex-spark, which platform keys do not have, occupies the first witness."
+    },
+    {
+      "path": "backend/internal/service/protocol_request_facts_tk.go",
+      "must_contain": [
+        "func protocolRoutingExplicitImageIntent(",
+        "func protocolRoutingReasoningBody(",
+        "func reasoningEffortPolicyKey(",
+        "func protocolRoutingRequestFor("
+      ],
+      "rationale": "Per-request owner of request-only candidate facts (image-generation intent per model, reasoning-effort body rewrite per group policy, routed-request lookup). Candidate selection evaluates every account against the same request; recomputing these per account re-scans and re-copies the whole body (about 25% of prod gateway CPU at 2.7 req/s before this owner existed). The reasoning key must length-prefix every policy input so distinct policies never share an entry."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/request.go",
+      "must_contain": [
+        "memo *requestMemo",
+        "func (r CanonicalRequest) Matches(input CanonicalRequestInput) bool",
+        "memo:              &requestMemo{}"
+      ],
+      "rationale": "CanonicalRequest carries a request-level memo shared by every copy, and Matches lets callers keep an identical request instead of copying and sha256-hashing the body again. Dropping either returns candidate selection to one full body copy, hash and policy inspection per account."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/responses_chat_downgrade_tk.go",
+      "must_contain": [
+        "memo.downgradeOnce.Do(func() {",
+        "func computeResponsesToChatDowngrade("
+      ],
+      "rationale": "The Responses to Chat downgrade is a pure function of the immutable request and runs once per request through the memo. Plan evaluates it for every Chat-only account and again for the effective request; it does a full JSON decode, re-encode and re-parse."
+    },
+    {
+      "path": "backend/internal/service/universal_candidate_eligibility.go",
+      "must_contain": [
+        "existing.Matches(input)",
+        "protocolRoutingRequestFor(ctx, router)"
+      ],
+      "rationale": "withRequestProfile keeps the routed request already in the context when a candidate group leaves it unchanged, skipping a body copy, sha256 digest and policy inspection per group. The unchanged-request condition is CanonicalRequest.Matches, never a digest or length comparison."
+    },
+    {
+      "path": "backend/internal/service/protocol_request_facts_tk_test.go",
+      "must_contain": [
+        "func TestReasoningEffortPolicyKeySeparatesEveryInput",
+        "func TestCandidateBillingReasoningBodyMemoMatchesFresh",
+        "func TestCandidateImageIntentMemoIsPerModel",
+        "func TestWithRequestProfileReusesMatchingRoutedRequest",
+        "func TestCandidateAdmissionPassUnchangedByRequestFacts",
+        "func TestPathContextModelRewriteLeavesRequestBodyIntact"
+      ],
+      "rationale": "Pins that the request-fact caches change cost only: a full candidates() pass with and without the cache yields the same accounts, groups, models, Plan digests, adjustments and endpoints, and cache keys never merge distinct inputs."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/request_memo_tk_test.go",
+      "must_contain": [
+        "func TestResponsesToChatDowngradeMemoMatchesFreshComputation",
+        "func TestResponsesToChatDowngradeWithoutMemo",
+        "func TestCanonicalRequestMatchesNewCanonicalRequest"
+      ],
+      "rationale": "Pins that the memoized downgrade equals a fresh computation, that a request without a memo still works, and that Matches agrees with NewCanonicalRequest across protocol, model, path, profile, validation flag and body variations."
+    },
+    {
+      "path": "backend/internal/service/candidate_request_facts_bench_tk_test.go",
+      "must_contain": [
+        "func BenchmarkCandidateRequestFactsAdmissionPass"
+      ],
+      "rationale": "Cost guard for the candidate admission pass with many accounts, several groups and a large body. Without it a per-account recompute can return unnoticed because every behavior test still passes."
+    },
+    {
+      "path": "backend/internal/integration/kiro/estimate_prepared_tk_test.go",
+      "must_contain": [
+        "func TestPromptEstimate_MatchesLegacyByteForByte",
+        "func TestPromptEstimate_StoredCountRescaled",
+        "func TestPromptEstimate_NilSafe"
+      ],
+      "rationale": "Pins PromptEstimate to the frozen 1.8.358 per-call implementation byte for byte: input total, every prefix block fingerprint and count, split results at every truncation point, and the entries written to the store. These counts feed billing."
     }
   ]
 }

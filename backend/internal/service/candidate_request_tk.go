@@ -266,7 +266,7 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 		body: append([]byte(nil), body...), contentType: contentType, forcePlatform: forcedPlatform, session: session, websocket: websocket, promptCacheSession: promptCacheSession}
 	canonicalInbound, canonicalPath, canonicalShapeOK := candidateCanonicalProtocol(shape, path)
 	if canonical, ok := ProtocolRoutingRequest(ctx); ok && canonicalShapeOK &&
-		canonical.InboundProtocol() == canonicalInbound && canonical.ResponsesPath() == canonicalPath && bytes.Equal(canonical.Body(), body) {
+		canonical.InboundProtocol() == canonicalInbound && canonical.ResponsesPath() == canonicalPath && canonical.BodyEquals(body) {
 		state.requestProfile, state.requestProfileValid = canonical.Profile(), true
 	} else {
 		state.requestProfile, state.requestProfileValid = candidateRequestProfile(shape, path, model, body)
@@ -422,7 +422,10 @@ func (r *CandidateRequest) pathContext(ctx context.Context, group *Group) (conte
 		}
 	}
 	body := r.body
-	if request, ok := ProtocolRoutingRequest(ctx); ok && !UsesGeminiImagesAdapter(r.shape, r.model) {
+	// r.body is this request's private copy and sjson.SetBytes below never
+	// writes into its input, so when the routed request holds the same bytes
+	// the private copy is used directly instead of copying the routed body.
+	if request, ok := ProtocolRoutingRequest(ctx); ok && !UsesGeminiImagesAdapter(r.shape, r.model) && !request.BodyEquals(r.body) {
 		body = request.Body()
 	}
 	mapping := ChannelMappingResult{MappedModel: model}
@@ -501,8 +504,12 @@ func candidatePathAllowsEndpoint(ctx context.Context, account *Account, group *G
 	if universalShapeRequiresImageGenerationEnabled(shape) && !group.AllowImageGeneration {
 		return false
 	}
+	// Image intent depends only on the routed request and model, so every
+	// account evaluated against this request shares one body scan.
 	if request, ok := ProtocolRoutingRequest(ctx); ok && !group.AllowImageGeneration &&
-		IsExplicitImageGenerationIntent("", model, request.Body()) {
+		protocolRoutingExplicitImageIntent(ctx, model, func() bool {
+			return IsExplicitImageGenerationIntent("", model, request.Body())
+		}) {
 		return false
 	}
 	if shape == ShapeAnthropicMessages || shape == ShapeAnthropicCountTokens {

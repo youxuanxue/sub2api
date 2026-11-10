@@ -14,13 +14,18 @@ import (
 // cacheBillingEnabled reflects the kill-switch only (not session readiness) so
 // BillingTier stays kiro-cache-estimated whenever the feature is on — even if
 // conversationId/store cannot split this request.
+//
+// est is the per-request PromptEstimate; pass the same value to
+// commitKiroCacheFingerprints so the input total, cache split and fingerprint
+// commit share one tokenization of the prompt.
 func (s *KiroGatewayService) kiroPromptUsage(
 	ctx context.Context,
 	account *Account,
-	req *kiroproto.ClaudeRequest,
+	est *kiroproto.PromptEstimate,
 	payload *kiroproto.KiroPayload,
 ) (inputTokens, cacheReadTokens, cacheCreationTokens int, sessionKey string, cacheBillingEnabled bool) {
-	inputTokens = kiroproto.EstimateInputTokens(req)
+	inputTokens = est.InputTokens()
+	req := est.Request()
 	if s == nil || req == nil || account == nil {
 		return inputTokens, 0, 0, "", false
 	}
@@ -35,7 +40,7 @@ func (s *KiroGatewayService) kiroPromptUsage(
 	if sessionKey == "" || s.kiroCacheStore == nil {
 		return inputTokens, 0, 0, sessionKey, true
 	}
-	split := kiroproto.EstimateCacheUsageSplit(ctx, s.kiroCacheStore, sessionKey, req)
+	split := est.CacheUsageSplit(ctx, s.kiroCacheStore, sessionKey)
 	return split.InputTokens, split.CacheReadTokens, split.CacheCreationTokens, sessionKey, true
 }
 
@@ -46,18 +51,20 @@ func (s *KiroGatewayService) kiroCacheBillingFlagEnabled(ctx context.Context) bo
 	return s.kiroCacheBillingSetting.IsKiroCacheBillingEnabled(ctx)
 }
 
+// commitKiroCacheFingerprints reuses the prefix blocks kiroPromptUsage already
+// built on est instead of re-tokenizing every segment.
 func (s *KiroGatewayService) commitKiroCacheFingerprints(
 	ctx context.Context,
 	sessionKey string,
-	req *kiroproto.ClaudeRequest,
+	est *kiroproto.PromptEstimate,
 	rawBody []byte,
 	enabled bool,
 ) {
-	if !enabled || s == nil || s.kiroCacheStore == nil || sessionKey == "" || req == nil {
+	if !enabled || s == nil || s.kiroCacheStore == nil || sessionKey == "" || est.Request() == nil {
 		return
 	}
 	ttl := kiroproto.ResolveCacheTTL(rawBody)
-	kiroproto.CommitCacheFingerprints(ctx, s.kiroCacheStore, sessionKey, req, ttl)
+	est.CommitCacheFingerprints(ctx, s.kiroCacheStore, sessionKey, ttl)
 }
 
 func kiroClaudeUsage(input, output, cacheRead, cacheCreation int) ClaudeUsage {

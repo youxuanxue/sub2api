@@ -2,8 +2,6 @@ package kiro
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -70,57 +68,7 @@ func EstimateCacheUsageSplit(
 	sessionKey string,
 	req *ClaudeRequest,
 ) CacheUsageSplit {
-	total := EstimateInputTokens(req)
-	split := CacheUsageSplit{InputTokens: total}
-	if total <= 0 || store == nil || strings.TrimSpace(sessionKey) == "" || req == nil {
-		return split
-	}
-
-	blocks := buildCachePrefixBlocks(req)
-	if len(blocks) == 0 {
-		return split
-	}
-
-	matchedCum := 0
-	for i := len(blocks) - 1; i >= 0; i-- {
-		b := blocks[i]
-		if b.cumTokens < MinCacheablePrefixTokens {
-			continue
-		}
-		tokens, ok, err := store.Get(ctx, sessionKey, b.fingerprintHex)
-		if err != nil || !ok {
-			continue
-		}
-		// Prefer the stored token count when present; fall back to current estimate.
-		if tokens > 0 {
-			matchedCum = tokens
-		} else {
-			matchedCum = b.cumTokens
-		}
-		break
-	}
-
-	if matchedCum > 0 {
-		// Align fingerprint-segment counts with EstimateInputTokens (labels differ).
-		profileTotal := blocks[len(blocks)-1].cumTokens
-		if profileTotal > 0 && profileTotal != total {
-			matchedCum = matchedCum * total / profileTotal
-		}
-		if matchedCum > total {
-			matchedCum = total
-		}
-	}
-
-	if matchedCum >= MinCacheablePrefixTokens {
-		read := applyCacheReadHaircut(matchedCum)
-		if read > total {
-			read = total
-		}
-		split.MatchedPrefixTokens = matchedCum
-		split.CacheReadTokens = read
-		split.InputTokens = total - read
-	}
-	return split
+	return PreparePromptEstimate(req).CacheUsageSplit(ctx, store, sessionKey)
 }
 
 // CommitCacheFingerprints records prefix fingerprints after a successful
@@ -132,21 +80,7 @@ func CommitCacheFingerprints(
 	req *ClaudeRequest,
 	ttl time.Duration,
 ) {
-	if store == nil || strings.TrimSpace(sessionKey) == "" || req == nil {
-		return
-	}
-	if ttl <= 0 {
-		ttl = DefaultCacheTTL
-	}
-	if ttl > MaxCacheTTL {
-		ttl = MaxCacheTTL
-	}
-	for _, b := range buildCachePrefixBlocks(req) {
-		if b.cumTokens <= 0 {
-			continue
-		}
-		_ = store.Put(ctx, sessionKey, b.fingerprintHex, b.cumTokens, ttl)
-	}
+	PreparePromptEstimate(req).CommitCacheFingerprints(ctx, store, sessionKey, ttl)
 }
 
 // ResolveCacheTTL returns 1h when the raw Anthropic body requests ttl=1h,
@@ -175,65 +109,4 @@ func applyCacheReadHaircut(tokens int) int {
 		return 0
 	}
 	return tokens * CacheReadHaircutBPS / 10000
-}
-
-func buildCachePrefixBlocks(req *ClaudeRequest) []cachePrefixBlock {
-	if req == nil {
-		return nil
-	}
-	segments := make([]string, 0, 2+len(req.Messages))
-	if sys := extractSystemPrompt(req.System); sys != "" {
-		segments = append(segments, "system\n"+sys)
-	}
-	if tools := marshalToolsForCache(req.Tools); tools != "" {
-		segments = append(segments, "tools\n"+tools)
-	}
-	for i := range req.Messages {
-		msg := req.Messages[i]
-		text := flattenMessageTextForCache(msg.Content)
-		segments = append(segments, fmt.Sprintf("msg:%s:%d\n%s", msg.Role, i, text))
-	}
-	if len(segments) == 0 {
-		return nil
-	}
-
-	prelude := sha256.Sum256([]byte("kiro-cache-v1|" + strings.TrimSpace(req.Model)))
-	running := prelude
-	cumTokens := 0
-	out := make([]cachePrefixBlock, 0, len(segments))
-	for _, seg := range segments {
-		segHash := sha256.Sum256([]byte(seg))
-		var next [32]byte
-		h := sha256.New()
-		_, _ = h.Write(running[:])
-		_, _ = h.Write(segHash[:])
-		copy(next[:], h.Sum(nil))
-		running = next
-		cumTokens += countTokens(seg)
-		out = append(out, cachePrefixBlock{
-			fingerprintHex: hex.EncodeToString(running[:]),
-			cumTokens:      cumTokens,
-		})
-	}
-	return out
-}
-
-func marshalToolsForCache(tools []ClaudeTool) string {
-	if len(tools) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(tools)*3)
-	for i := range tools {
-		t := tools[i]
-		parts = append(parts, t.Name, t.Description)
-		if js := marshalJSONForEstimate(t.InputSchema); js != "" {
-			parts = append(parts, js)
-		}
-	}
-	return strings.Join(parts, "\n")
-}
-
-func flattenMessageTextForCache(content any) string {
-	parts := appendMessageContentForEstimate(nil, content)
-	return strings.Join(parts, "\n")
 }

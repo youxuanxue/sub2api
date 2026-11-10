@@ -123,7 +123,7 @@ func (r *UniversalRoutingResolver) withRequestProfile(ctx context.Context, shape
 	var err error
 	if profile != nil {
 		profile.Stream = stream
-		request, err = protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		input := protocolrouter.CanonicalRequestInput{
 			InboundProtocol: inbound,
 			RequestedModel:  model,
 			ResponsesPath:   responsesPath,
@@ -131,7 +131,22 @@ func (r *UniversalRoutingResolver) withRequestProfile(ctx context.Context, shape
 			Body:            body,
 			// See the provenance note on WithRequestProfile.
 			BodyJSONValidated: true,
-		})
+		}
+		if existing, routed := protocolRoutingRequestFor(ctx, router); routed && existing.Matches(input) {
+			// Candidate groups that keep the request unchanged would rebuild an
+			// identical request (same digest), which WithProtocolRouting then
+			// discards. Keep the existing one and skip the body copy and hash.
+			request = existing
+		} else {
+			request, err = protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+				InboundProtocol:   input.InboundProtocol,
+				RequestedModel:    input.RequestedModel,
+				ResponsesPath:     input.ResponsesPath,
+				Profile:           input.Profile,
+				Body:              input.Body,
+				BodyJSONValidated: true,
+			})
+		}
 	} else {
 		request, err = protocolrouter.ParseCanonicalRequest(inbound, responsesPath, model, stream, body)
 		noteGatewayCanonicalParse(ctx)

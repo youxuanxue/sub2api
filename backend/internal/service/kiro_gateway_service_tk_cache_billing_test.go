@@ -78,7 +78,7 @@ func TestKiroPromptUsage_FlagOffKeepsFullInput(t *testing.T) {
 		},
 	}
 	payload := kiroproto.ClaudeToKiro(req, false)
-	in, read, create, session, enabled := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, req, payload)
+	in, read, create, session, enabled := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, kiroproto.PreparePromptEstimate(req), payload)
 	if enabled || read != 0 || create != 0 || session != "" {
 		t.Fatalf("flag-off: enabled=%v read=%d create=%d session=%q", enabled, read, create, session)
 	}
@@ -106,7 +106,7 @@ func TestKiroPromptUsage_FlagOnWithoutConversationStillMarksEnabled(t *testing.T
 			{Role: "user", Content: "hello"},
 		},
 	}
-	in, read, _, session, enabled := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, req, &kiroproto.KiroPayload{})
+	in, read, _, session, enabled := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, kiroproto.PreparePromptEstimate(req), &kiroproto.KiroPayload{})
 	if !enabled {
 		t.Fatal("flag-on with empty conversation must still report enabled for billing_tier")
 	}
@@ -138,11 +138,11 @@ func TestKiroPromptUsage_DefaultOnSplitsWhenPrefixed(t *testing.T) {
 		},
 	}
 	payload1 := kiroproto.ClaudeToKiro(turn1, false)
-	_, _, _, session, enabled := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, turn1, payload1)
+	_, _, _, session, enabled := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, kiroproto.PreparePromptEstimate(turn1), payload1)
 	if !enabled || session == "" {
 		t.Fatalf("default-on should enable cache billing, enabled=%v session=%q", enabled, session)
 	}
-	svc.commitKiroCacheFingerprints(context.Background(), session, turn1, nil, true)
+	svc.commitKiroCacheFingerprints(context.Background(), session, kiroproto.PreparePromptEstimate(turn1), nil, true)
 
 	turn2 := &kiroproto.ClaudeRequest{
 		Model:  "claude-sonnet-4-6",
@@ -154,7 +154,7 @@ func TestKiroPromptUsage_DefaultOnSplitsWhenPrefixed(t *testing.T) {
 		},
 	}
 	payload2 := kiroproto.ClaudeToKiro(turn2, false)
-	in, read, _, _, _ := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, turn2, payload2)
+	in, read, _, _, _ := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, kiroproto.PreparePromptEstimate(turn2), payload2)
 	if read <= 0 {
 		t.Fatalf("second turn should have cache_read, got input=%d read=%d", in, read)
 	}

@@ -464,7 +464,8 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	b := getKiroWaitBudget(c, s.cfg, req, startTime)
 	RecordOpsFirstOutputBudget(c, account, b.budget, streamFirstOutputBudgetReason(b.high))
 
-	inputTokens, cacheReadTokens, cacheCreationTokens, cacheSessionKey, cacheBillingEnabled := s.kiroPromptUsage(ctx, account, req, payload)
+	promptEstimate := kiroproto.PreparePromptEstimate(req)
+	inputTokens, cacheReadTokens, cacheCreationTokens, cacheSessionKey, cacheBillingEnabled := s.kiroPromptUsage(ctx, account, promptEstimate, payload)
 
 	var (
 		textBuf        string
@@ -591,7 +592,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		c.JSON(http.StatusOK, resp)
 	}
 
-	s.commitKiroCacheFingerprints(ctx, cacheSessionKey, req, rawBody, cacheBillingEnabled)
+	s.commitKiroCacheFingerprints(ctx, cacheSessionKey, promptEstimate, rawBody, cacheBillingEnabled)
 
 	return &ForwardResult{
 		RequestID:     requestID,
@@ -645,7 +646,8 @@ func (s *KiroGatewayService) forwardStreaming(
 	s.ensureKiroStreamingKeepalive(c, model, requestID)
 	defer stopPreContentStreamKeepalive(c)
 
-	inputTokens, cacheReadTokens, cacheCreationTokens, cacheSessionKey, cacheBillingEnabled := s.kiroPromptUsage(ctx, account, req, payload)
+	promptEstimate := kiroproto.PreparePromptEstimate(req)
+	inputTokens, cacheReadTokens, cacheCreationTokens, cacheSessionKey, cacheBillingEnabled := s.kiroPromptUsage(ctx, account, promptEstimate, payload)
 	enc := &kiroSSEEncoder{
 		w:       w,
 		flusher: flusher,
@@ -916,7 +918,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	captureKiroInternalThinking(c, stashThinking, thinkingSigBuf)
 	flusher.Flush()
 
-	s.commitKiroCacheFingerprints(ctx, cacheSessionKey, req, rawBody, cacheBillingEnabled)
+	s.commitKiroCacheFingerprints(ctx, cacheSessionKey, promptEstimate, rawBody, cacheBillingEnabled)
 
 	return &ForwardResult{
 		RequestID:     requestID,

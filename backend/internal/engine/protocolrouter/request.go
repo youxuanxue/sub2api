@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/anthropicpolicy"
 )
@@ -38,6 +39,21 @@ type CanonicalRequest struct {
 	// decision. It is derived here, once, and only when bodyJSONValidated proves
 	// the bytes decode, so an unproven body still reaches the validating path.
 	policyFacts anthropicpolicy.Facts
+	// memo caches derivations that depend only on this immutable request. Every
+	// copy of one constructed request shares it, so candidate selection derives
+	// them once per request instead of once per account.
+	memo *requestMemo
+}
+
+type requestMemo struct {
+	downgradeOnce sync.Once
+	downgrade     downgradeOutcome
+}
+
+type downgradeOutcome struct {
+	request    CanonicalRequest
+	adjustment string
+	ok         bool
 }
 
 func NewCanonicalRequest(input CanonicalRequestInput) (CanonicalRequest, error) {
@@ -70,6 +86,7 @@ func NewCanonicalRequest(input CanonicalRequestInput) (CanonicalRequest, error) 
 		profile:           input.Profile,
 		body:              body,
 		bodyJSONValidated: input.BodyJSONValidated,
+		memo:              &requestMemo{},
 	}
 	req.digest = digestRequest(req)
 	if req.bodyJSONValidated {
@@ -90,6 +107,28 @@ func (r CanonicalRequest) Body() []byte                     { return append([]by
 // admission already decoded.
 func (r CanonicalRequest) BodyEquals(body []byte) bool {
 	return bytes.Equal(r.body, body)
+}
+
+// Matches reports whether NewCanonicalRequest(input) would build exactly r.
+// Every field NewCanonicalRequest stores is compared after the same
+// normalization, and the digest and policy facts are pure functions of those
+// fields, so a caller holding r can keep it (and its memo) instead of copying
+// and hashing the same body again.
+func (r CanonicalRequest) Matches(input CanonicalRequestInput) bool {
+	if r.memo == nil || input.InboundProtocol != r.inboundProtocol ||
+		strings.TrimSpace(input.RequestedModel) != r.requestedModel ||
+		input.Profile != r.profile || input.BodyJSONValidated != r.bodyJSONValidated {
+		return false
+	}
+	path := input.ResponsesPath
+	if r.inboundProtocol == ProtocolResponses {
+		if path == ResponsesPathNone {
+			path = ResponsesPathRoot
+		}
+	} else {
+		path = ResponsesPathNone
+	}
+	return path == r.responsesPath && bytes.Equal(r.body, input.Body)
 }
 
 func digestRequest(req CanonicalRequest) RequestDigest {
