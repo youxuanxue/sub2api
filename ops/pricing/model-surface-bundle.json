@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "f65ada1260e09aeb871e0690b921036b82f6e1336871880adc51425fee6371b9",
+  "floor_sha256": "21fde26846510a13534d716eef44060a8af3526b0aee7197a9fab62a12d008e5",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -31,7 +31,6 @@
         "gemini-3-pro-image": "gemini-3-pro-image",
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image-preview",
-        "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
         "gpt-5.5": "gpt-5.5",
         "gpt-5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-sol": "gpt-5.6-sol",
@@ -212,9 +211,8 @@
       },
       "openai": {
         "codex-auto-review": "codex-auto-review",
-        "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
         "gpt-5.5": "gpt-5.5",
-        "gpt-5.6": "gpt-5.6",
+        "gpt-5.6": "gpt-5.6-sol",
         "gpt-5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-sol": "gpt-5.6-sol",
         "gpt-5.6-terra": "gpt-5.6-terra",
@@ -260,7 +258,6 @@
         "gemini-3-pro-image": "gemini-3-pro-image",
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image-preview",
-        "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
         "gpt-5.5": "gpt-5.5",
         "gpt-5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-sol": "gpt-5.6-sol",

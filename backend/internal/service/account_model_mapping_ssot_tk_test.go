@@ -121,6 +121,7 @@ func TestOpenAITokenseaRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	require.Contains(t, mapping, "gpt-5.6-sol")
 	require.Contains(t, mapping, "gpt-5.6-terra")
 	require.Contains(t, mapping, "gpt-5.5")
+	require.NotContains(t, mapping, "gpt-5.3-codex-spark", "retired spark must not re-enter the relay floor")
 	require.NotContains(t, mapping, "byteplus/dreamina-seedance-2-0-260128", "non-SSOT upstream id is a boundary sample, not an owner copy")
 	// Live 2026-08-20 account 92 raw chat: listed DeepSeek/Qwen/GLM/Kimi IDs
 	// returned 400 openai_error; dated flash-0731 is not even listed.
@@ -169,17 +170,18 @@ func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
 		"gpt-5-mini",
 		"gpt-5.4-high",
 		"gpt-5.5-pro",
-		"codex-mini-latest",
-		"gpt-5.3-chat-latest",
 	} {
 		// Scheduler admits aliases via CanonicalizeOpenAICompatRoutingModel before
 		// IsModelSupported; mapping lookup itself only strips effort/spelling.
 		routed := CanonicalizeOpenAICompatRoutingModel(model)
 		require.True(t, account.IsModelSupported(routed), "known routing alias %q (routed %q) should match the OpenAI floor", model, routed)
 	}
-	require.True(t, account.IsModelSupported("gpt-5.3-codex-spark"), "spark itself remains served")
-	require.True(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-5.3-codex")), "legacy codex id should alias to spark without display")
-	require.True(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-5-codex")), "legacy GPT-5 Codex id should alias to spark without display")
+	require.NotContains(t, mapping, "gpt-5.3-codex-spark")
+	require.False(t, account.IsModelSupported("gpt-5.3-codex-spark"), "spark is no longer on the OpenAI floor")
+	require.False(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-5.3-codex")), "legacy codex id folds to retired spark")
+	require.False(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-5-codex")), "legacy GPT-5 Codex id folds to retired spark")
+	require.False(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("codex-mini-latest")), "codex-mini-latest folds to retired spark")
+	require.False(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-5.3-chat-latest")), "gpt-5.3-chat-latest folds to retired spark")
 	require.True(t, account.IsModelSupported("gpt-6-astra"), "gpt-6-astra must be on the OpenAI floor")
 	require.True(t, account.IsModelSupported("gpt-6-sol"), "gpt-6-sol must be on the OpenAI floor")
 	require.True(t, account.IsModelSupported("gpt-6-luna"), "gpt-6-luna must be on the OpenAI floor")
@@ -389,6 +391,9 @@ func requireOpenAIImageCompatibilityAliases(t *testing.T, mapping map[string]str
 			continue
 		}
 		require.Equal(t, to, mapping[from], "OpenAI image alias %s must map to %s", from, to)
+		owner, declared := tkPricingRegistryAliasOwner(from)
+		require.Truef(t, declared, "image alias %s must be an overlay _aliases key", from)
+		require.Equalf(t, to, owner, "image alias %s must match overlay _aliases", from)
 	}
 	require.Equal(t, "gpt-image-2", mapping["gpt-image-2"])
 	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5-flare"])
@@ -417,7 +422,12 @@ func requireOpenAITextCompatibilityAliases(t *testing.T, mapping map[string]stri
 			continue
 		}
 		require.Equal(t, to, mapping[from], "OpenAI text alias %s must map to %s", from, to)
+		owner, declared := tkPricingRegistryAliasOwner(from)
+		require.Truef(t, declared, "floor alias %s must be an overlay _aliases key", from)
+		require.Equalf(t, to, owner, "floor alias %s must match overlay _aliases", from)
+		require.Equalf(t, to, codexModelMap[from], "floor alias %s must match codexModelMap", from)
 	}
+	require.Equal(t, "gpt-5.6-sol", mapping["gpt-5.6"])
 	require.Equal(t, "gpt-6-astra", mapping["gpt-6"])
 	_, hasBareGPT6Catalog := displaySet["gpt-6"]
 	require.False(t, hasBareGPT6Catalog, "bare gpt-6 stays alias-only; Sol/Luna/Astra are the catalog rows")
@@ -483,14 +493,21 @@ func requireIdentityMappingForIDs(t *testing.T, mapping map[string]string, ids [
 	idSet := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		idSet[id] = struct{}{}
+		if alias, folded := tkOpenAITextCompatibilityAliases[id]; folded && mapping[id] == alias {
+			continue
+		}
 		require.Equal(t, id, mapping[id], "mapping for SSOT id %s must be identity", id)
 	}
-	// Compatibility aliases may add extra keys, but every target must stay in the
-	// SSOT id set and SSOT keys themselves must remain identity (checked above).
+	// Compatibility aliases may add extra keys. A catalog id may also be a
+	// public alias (bare gpt-5.6 → sol). Every other SSOT key stays identity,
+	// and every target stays in the SSOT id set.
 	for from, to := range mapping {
 		_, isSSOT := idSet[from]
 		require.Contains(t, idSet, to, "mapping target %q for %q must be an SSOT id", to, from)
 		if isSSOT {
+			if alias, folded := tkOpenAITextCompatibilityAliases[from]; folded && to == alias {
+				continue
+			}
 			require.Equal(t, from, to, "SSOT key %q must remain identity", from)
 		}
 	}

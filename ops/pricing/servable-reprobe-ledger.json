@@ -95,6 +95,11 @@
       "reason": "Hard-rejected by openai_deprecated_model_tk.go; do not advertise or auto-probe as a selectable model."
     },
     {
+      "platform": "openai",
+      "model": "gpt-5.3-codex-spark",
+      "reason": "ChatGPT OAuth rejects the model as unsupported, and api.openai.com does not list it. Keep historical billing; do not restore it to the servable allowlist or the derived account model_mapping floor."
+    },
+    {
       "platform": "grok",
       "model": "grok-imagine-image-pro",
       "reason": "Retired upstream; replaced by grok-imagine-image-quality."

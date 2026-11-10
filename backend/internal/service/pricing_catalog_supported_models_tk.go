@@ -53,9 +53,11 @@ var supportedClaudeCatalogModels = func() map[string]struct{} {
 
 // supportedOpenAICatalogModels — gpt IDs confirmed servable.
 var supportedOpenAICatalogModels = map[string]struct{}{
+	// gpt-5.3-codex-spark is structurally gone: ChatGPT OAuth rejects it and
+	// api.openai.com does not list it. Historical billing stays; the account
+	// floor must not whitelist it. See servable-reprobe-ledger.json.
 	// servable-allowlist:begin openai
-	"codex-auto-review":   {},
-	"gpt-5.3-codex-spark": {},
+	"codex-auto-review": {},
 	// gpt-5.4 / gpt-5.4-mini / gpt-5.2 are retired client-facing ids: OAuth
 	// remaps them for access, but public /pricing and menus must not advertise
 	// them (upstream Codex entitlement dropped 5.2; 5.4 → terra/luna).

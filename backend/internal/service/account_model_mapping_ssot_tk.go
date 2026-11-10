@@ -532,8 +532,10 @@ var tkOpenAIImageCompatibilityAliases = map[string]string{
 }
 
 // Public text aliases on the native OpenAI floor (not shared with relay image
-// aliases). gpt-6 folds onto Astra; keep in sync with codexModelMap + overlay.
+// aliases). gpt-6 folds onto Astra and bare gpt-5.6 onto Sol; keep in sync
+// with codexModelMap + overlay. api.openai.com does not list bare gpt-5.6.
 var tkOpenAITextCompatibilityAliases = map[string]string{
+	"gpt-5.6": "gpt-5.6-sol",
 	"gpt-6":   "gpt-6-astra",
 	"gpt-6.1": "gpt-6.1-sol",
 }
@@ -614,9 +616,10 @@ var tkImageCompatibilityAliases = map[string]string{
 // tokenseaRelaySharedExtraSSOTIDs are public CatalogPolicy models already
 // served on prod account 92 but absent from the 47-id upstream snapshot.
 // Bare gpt-5.6 is overlay pricing-alias-only (→ sol); floor serves sol/terra/luna.
+// gpt-5.3-codex-spark is structurally gone and is not a client-facing catalog
+// id, so it must not be reintroduced here.
 var tokenseaRelaySharedExtraSSOTIDs = []string{
 	"codex-auto-review",
-	"gpt-5.3-codex-spark",
 }
 
 func tokenseaRelaySupportsRequestedModel(requestedModel string) bool {
