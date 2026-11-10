@@ -218,22 +218,22 @@ func platformOpenAIAPIKeyRejectsCodexIdentity(account *Account) bool {
 	return isOfficialOpenAIModelsBaseURL(account.GetOpenAIBaseURL())
 }
 
-// stripPlatformOpenAIAPIKeyCodexIdentity removes Codex client identity before
-// an official platform API key request leaves the gateway. The passthrough
-// allowlist otherwise copies originator, Codex User-Agent, and x-codex-* onto
-// https://api.openai.com/v1/responses, and OpenAI answers 400.
+// stripPlatformOpenAIAPIKeyCodexIdentity removes the Codex client pair
+// (originator, version, Codex User-Agent) before an official platform API key
+// request leaves the gateway. Those headers make api.openai.com classify the
+// call as Codex usage and reject organizations on the monthly API Credits
+// benefit. OpenAI-Beta and x-codex-* stay caller-controlled; OAuth is untouched.
 func stripPlatformOpenAIAPIKeyCodexIdentity(headers http.Header, account *Account) {
 	if headers == nil || !platformOpenAIAPIKeyRejectsCodexIdentity(account) {
 		return
 	}
 	for key := range headers {
 		canonical := http.CanonicalHeaderKey(key)
-		if canonical == "Originator" || canonical == "Version" || strings.HasPrefix(canonical, "X-Codex-") {
+		if canonical == "Originator" || canonical == "Version" {
 			delete(headers, key)
 		}
 	}
 	if openai.IsCodexOfficialClientRequest(headers.Get("User-Agent")) {
 		headers.Del("User-Agent")
 	}
-	stripOpenAILegacyResponsesBeta(headers)
 }

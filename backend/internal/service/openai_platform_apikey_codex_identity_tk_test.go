@@ -101,16 +101,14 @@ func TestPlatformAPIKeyResponsesDropsCodexIdentity(t *testing.T) {
 			require.Error(t, err)
 			require.NotNil(t, upstream.lastReq)
 			headers := upstream.lastReq.Header
+			require.Equal(t, "responses=experimental", headers.Get("OpenAI-Beta"))
+			require.Equal(t, "turn-state", headers.Get("x-codex-turn-state"))
 			if tt.wantIdentity {
 				require.Equal(t, "codex_cli_rs", headers.Get("originator"))
 				require.Equal(t, tt.userAgent, headers.Get("User-Agent"))
-				require.Equal(t, "responses=experimental", headers.Get("OpenAI-Beta"))
-				require.Equal(t, "turn-state", headers.Get("x-codex-turn-state"))
 			} else {
 				require.Empty(t, headers.Get("originator"))
 				require.Empty(t, headers.Get("version"))
-				require.Empty(t, headers.Get("OpenAI-Beta"))
-				require.Empty(t, headers.Get("x-codex-turn-state"))
 				if tt.userAgent == "python-requests/2.33.1" {
 					require.Equal(t, tt.userAgent, headers.Get("User-Agent"))
 				} else {
