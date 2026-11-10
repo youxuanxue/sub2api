@@ -574,6 +574,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	if err := applyMappedGPT55LiteCompatibility(req, account, body); err != nil {
 		return nil, err
 	}
+	stripPlatformOpenAIAPIKeyCodexIdentity(req.Header, account)
 	return req, nil
 }
 

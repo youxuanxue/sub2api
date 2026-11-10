@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -203,4 +204,36 @@ func (s *OpenAIGatewayService) tkApplyOpenAIPassthroughUpstreamHeaders(
 		enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))
 	}
 	return nil
+}
+
+// platformOpenAIAPIKeyRejectsCodexIdentity reports official api.openai.com
+// platform keys. Those organizations reject Codex-classified calls when they
+// are enrolled in the monthly API Credits benefit
+// (codex_byok_restricted_by_api_credit_promo). OAuth still speaks Codex.
+// Custom base URLs are left unchanged so relays can keep their own identity.
+func platformOpenAIAPIKeyRejectsCodexIdentity(account *Account) bool {
+	if account == nil || account.Type != AccountTypeAPIKey || !account.IsOpenAI() || account.UsesOpenAICodexProtocol() {
+		return false
+	}
+	return isOfficialOpenAIModelsBaseURL(account.GetOpenAIBaseURL())
+}
+
+// stripPlatformOpenAIAPIKeyCodexIdentity removes Codex client identity before
+// an official platform API key request leaves the gateway. The passthrough
+// allowlist otherwise copies originator, Codex User-Agent, and x-codex-* onto
+// https://api.openai.com/v1/responses, and OpenAI answers 400.
+func stripPlatformOpenAIAPIKeyCodexIdentity(headers http.Header, account *Account) {
+	if headers == nil || !platformOpenAIAPIKeyRejectsCodexIdentity(account) {
+		return
+	}
+	for key := range headers {
+		canonical := http.CanonicalHeaderKey(key)
+		if canonical == "Originator" || canonical == "Version" || strings.HasPrefix(canonical, "X-Codex-") {
+			delete(headers, key)
+		}
+	}
+	if openai.IsCodexOfficialClientRequest(headers.Get("User-Agent")) {
+		headers.Del("User-Agent")
+	}
+	stripOpenAILegacyResponsesBeta(headers)
 }
