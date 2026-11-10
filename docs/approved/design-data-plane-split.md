@@ -313,7 +313,9 @@ apply 的顺序：
 
 ### 6. 观察与收尾
 
-- 新主库产出第一份成功的全量备份之前，旧数据目录不动。
+- 新主库产出第一份成功的全量备份之前，旧数据目录不动。两站切流后到 2026-11-10 为止，数据机上只有增量备份（prod 最新一份在 timeline 4，cn-prod 在 timeline 2），依附的全量还是切流前旧主库做的。`backup_kind` 按 UTC 周日 00:30 切周，所以第一份新 timeline 上的全量是 2026-11-15（周日）之后的第一轮，也可以经单独批准提前手动跑一份。
+- cn-prod 切流后的第一轮备份（16:30–20:30 UTC）报 `[106] new backup label is not later than latest`。原因：旧应用机的 pgBackRest 标签是北京时间，数据机是 UTC。22:30 UTC 那一轮起恢复正常，期间 WAL 归档没有中断。prod 旧标签本来就是 UTC，不受影响。
+- 切流后仍读应用机本地数据目录的两项：容量探针在应用机上对 `/var/lib/tokenkey` 跑 `df`，现在判为「无结论」，不再给出跑道（#3122）；日常诊断 tail PG/Redis 日志，只解析真库，现在显示 unresolved。数据机的磁盘告警由数据机上的 disk-metrics 和看门狗负责。
 - 删除旧数据目录、旧 Redis 和转发容器需要单独批准。
 - `usage_billing_dedup` 唯一索引的 `REINDEX CONCURRENTLY` 要等 7–30 天的键迁完归档（约 3 个晚上）再做，不挡切流。
 - prod 的 LUKS 载体和异机密钥要等应用机也迁出 LUKS 之后才能删（见下节）。
