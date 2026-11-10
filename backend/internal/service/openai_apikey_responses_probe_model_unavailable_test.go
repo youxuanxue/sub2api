@@ -36,7 +36,12 @@ func TestResponsesProbeModelUnavailableIsInconclusive(t *testing.T) {
 
 func TestSelectResponsesProbeModelPrefersGeneralTextModel(t *testing.T) {
 	account := &Account{Credentials: map[string]any{"model_mapping": map[string]any{
-		"codex-auto-review": "codex-auto-review", "gpt-image-2": "gpt-image-2", "gpt-5.5": "gpt-5.5",
+		"codex-auto-review":   "codex-auto-review",
+		"gpt-image-2":         "gpt-image-2",
+		"gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
+		"gpt-5.5":             "gpt-5.5",
+		"gpt-6-astra":         "gpt-6-astra",
 	}}}
 	require.Equal(t, "gpt-5.5", selectProtocolProbeModel(account))
+	require.Equal(t, []string{"gpt-5.5", "gpt-6-astra", "gpt-5.3-codex-spark", "codex-auto-review"}, protocolProbeModelCandidates(account))
 }
