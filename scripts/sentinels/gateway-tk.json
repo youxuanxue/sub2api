@@ -19759,6 +19759,64 @@
         "def test_plan_is_read_only_and_apply_needs_exact_confirm("
       ],
       "rationale": "Executable guard for the installer's refusal paths."
+    },
+    {
+      "path": "backend/internal/service/protocol_capability_probe.go",
+      "must_contain": [
+        "protocol == protocolrouter.ProtocolResponses && account.UsesOpenAICodexProtocol()"
+      ],
+      "rationale": "Responses protocol probes attach Codex originator, version, and User-Agent only for Codex-protocol accounts. Platform API keys enrolled in the monthly API Credits benefit reject that identity with codex_byok_restricted_by_api_credit_promo, so an upstream merge must not restore Codex headers for every Responses probe."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough_tk.go",
+      "must_contain": [
+        "func platformOpenAIAPIKeyRejectsCodexIdentity(account *Account) bool {",
+        "func stripPlatformOpenAIAPIKeyCodexIdentity(headers http.Header, account *Account) {"
+      ],
+      "rationale": "Official api.openai.com API-key egress must drop Codex client identity before the request leaves. OAuth and non-api.openai.com relays stay on their existing identity."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
+        "stripPlatformOpenAIAPIKeyCodexIdentity(req.Header, account)"
+      ],
+      "rationale": "The non-passthrough Responses builder is the path used by platform API keys. The strip call has to stay after header overrides, or client originator and Codex User-Agent reach api.openai.com again."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "stripPlatformOpenAIAPIKeyCodexIdentity(req.Header, account)"
+      ],
+      "rationale": "Passthrough Responses uses the same platform-key strip after beta-feature and header-override writes."
+    },
+    {
+      "path": "backend/internal/service/openai_images.go",
+      "must_contain": [
+        "stripPlatformOpenAIAPIKeyCodexIdentity(req.Header, account)"
+      ],
+      "rationale": "Image generation copies the same Codex header allowlist. Platform API keys must strip that identity before api.openai.com."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder_payload.go",
+      "must_contain": [
+        "stripPlatformOpenAIAPIKeyCodexIdentity(headers, account)"
+      ],
+      "rationale": "WebSocket handshake headers for platform API keys must drop Codex identity after the final User-Agent and header-override writes."
+    },
+    {
+      "path": "backend/internal/service/openai_platform_apikey_codex_identity_tk_test.go",
+      "must_contain": [
+        "func TestPlatformAPIKeyResponsesDropsCodexIdentity(t *testing.T)",
+        "func TestStripPlatformOpenAIAPIKeyCodexIdentityLeavesOAuthUntouched(t *testing.T)"
+      ],
+      "rationale": "Pins both directions: official platform API keys drop Codex identity on the normal and passthrough Responses paths, and the strip helper does not touch OAuth accounts."
+    },
+    {
+      "path": "backend/internal/service/protocol_probe_model_tk.go",
+      "must_contain": [
+        "candidates = preferProtocolProbeModel(candidates, \"gpt-6-luna\")"
+      ],
+      "rationale": "OpenAI protocol probes that declare gpt-6-luna must witness that published text model first. Otherwise gpt-5.3-codex-spark, which platform keys do not have, occupies the first witness."
     }
   ]
 }
