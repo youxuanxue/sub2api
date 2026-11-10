@@ -46,28 +46,7 @@ func countTokens(s string) int { return tokenestimate.Count(s) }
 //
 // Skipped: image blocks (binary, not text-tokenized).
 func EstimateInputTokens(req *ClaudeRequest) int {
-	if req == nil {
-		return 0
-	}
-
-	parts := make([]string, 0, 8)
-
-	// System prompt (raw flatten — same shape extractSystemPrompt produces).
-	if sys := extractSystemPrompt(req.System); sys != "" {
-		parts = append(parts, sys)
-	}
-
-	// Messages: text + tool_result text + tool_use Input JSON.
-	for i := range req.Messages {
-		parts = appendMessageContentForEstimate(parts, req.Messages[i].Content)
-	}
-
-	total := countTokens(strings.Join(parts, "\n"))
-
-	// Tools definitions count as input (the model sees them in the prompt).
-	total += estimateToolsTokens(req.Tools)
-
-	return total
+	return PreparePromptEstimate(req).InputTokens()
 }
 
 // appendMessageContentForEstimate flattens one message's content into parts for
@@ -113,28 +92,6 @@ func appendMessageContentForEstimate(parts []string, content any) []string {
 		}
 	}
 	return parts
-}
-
-// estimateToolsTokens counts the tokens contributed by tool definitions:
-// name + description + the serialized input_schema for each tool.
-func estimateToolsTokens(tools []ClaudeTool) int {
-	if len(tools) == 0 {
-		return 0
-	}
-	parts := make([]string, 0, len(tools)*3)
-	for i := range tools {
-		t := tools[i]
-		if t.Name != "" {
-			parts = append(parts, t.Name)
-		}
-		if t.Description != "" {
-			parts = append(parts, t.Description)
-		}
-		if js := marshalJSONForEstimate(t.InputSchema); js != "" {
-			parts = append(parts, js)
-		}
-	}
-	return countTokens(strings.Join(parts, "\n"))
 }
 
 // EstimateOutputTokens estimates the completion-side token count for a Kiro

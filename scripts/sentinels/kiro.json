@@ -501,8 +501,8 @@
       "path": "backend/internal/service/kiro_gateway_service_tk_cache_billing.go",
       "must_contain": [
         "func (s *KiroGatewayService) kiroPromptUsage",
-        "kiroproto.EstimateInputTokens",
-        "kiroproto.EstimateCacheUsageSplit",
+        "est.InputTokens()",
+        "est.CacheUsageSplit(",
         "kiroproto.CacheSessionKey",
         "commitKiroCacheFingerprints",
         "IsKiroCacheBillingEnabled",
@@ -512,7 +512,17 @@
         "KiroCacheEstimatedBillingTier",
         "KiroEstimatedBillingTier"
       ],
-      "rationale": "TK companion that owns Kiro prompt-side billing attribution. EstimateInputTokens remains the total-prompt owner; EstimateCacheUsageSplit optionally moves a matched conversation prefix into cache_read (haircut + min size). kiroBillingTier follows the kill-switch flag (not session readiness) so kiro-cache-estimated stays dashboard-observable whenever the feature is on. Losing this companion silently regresses multi-turn Kiro bills back to full-input pricing or drops the kill-switch path."
+      "rationale": "TK companion that owns Kiro prompt-side billing attribution. PromptEstimate.InputTokens remains the total-prompt owner (EstimateInputTokens delegates to it); PromptEstimate.CacheUsageSplit optionally moves a matched conversation prefix into cache_read (haircut + min size). kiroBillingTier follows the kill-switch flag (not session readiness) so kiro-cache-estimated stays dashboard-observable whenever the feature is on. Losing this companion silently regresses multi-turn Kiro bills back to full-input pricing or drops the kill-switch path."
+    },
+    {
+      "path": "backend/internal/integration/kiro/prompt_estimate_tk.go",
+      "must_contain": [
+        "func PreparePromptEstimate",
+        "func (p *PromptEstimate) InputTokens",
+        "func (p *PromptEstimate) CacheUsageSplit",
+        "func (p *PromptEstimate) CommitCacheFingerprints"
+      ],
+      "rationale": "Per-request owner of Kiro prompt-side token work. The input total, cache split and fingerprint commit must share one flatten/tokenize pass; the package-level EstimateInputTokens/EstimateCacheUsageSplit/CommitCacheFingerprints delegate here. Splitting them back into independent per-call estimates re-tokenizes every prompt byte twice more per request (CPU), and the counts feed billing so both paths must stay byte-for-byte equal."
     },
     {
       "path": "backend/cmd/server/wire_assertion_tk_test.go",
