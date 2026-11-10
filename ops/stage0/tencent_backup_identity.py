@@ -11,6 +11,12 @@ database container. No credentials enter output.
 `policy` still prints the retired AWS policy so the IAM role / bucket cleanup
 (a separate infra step) has an exact record of what the role was allowed to do.
 
+After the data-plane split (docs/approved/design-data-plane-split.md) the live
+database runs on the data machine (matrix `host_watch.data_hostname`). There
+`refresh` reads the data machine's own root-only COS credential and rewrites
+the on-disk config the database container mounts read-only, so a key rotation
+is one file on one host. The app host keeps its tmpfs paths for rollback only.
+
 Host identity (hostname, SSM instance) comes from the Tencent prod matrix:
   1. $TK_TENCENT_PROD_MATRIX (explicit path; host installs set this)
   2. candidate-usw-20261022.json next to this file (host installs may ship it)
@@ -47,7 +53,8 @@ def load_target(candidates=None):
     """Return the identity fields from the first readable matrix, or raise ValueError."""
     for path in candidates if candidates is not None else matrix_candidates():
         try:
-            target = json.loads(path.read_text(encoding='utf-8'))['target']
+            document = json.loads(path.read_text(encoding='utf-8'))
+            target = document['target']
         except (OSError, ValueError, KeyError, TypeError):
             continue
         fields = {key: target.get(key) for key in
@@ -56,6 +63,8 @@ def load_target(candidates=None):
             raise ValueError('incomplete Tencent prod matrix: ' + str(path))
         if not fields['expected_ssm_instance_id'].startswith('mi-'):
             raise ValueError('Tencent prod matrix instance is not an SSM Hybrid id')
+        data_hostname = (document.get('host_watch') or {}).get('data_hostname')
+        fields['data_hostname'] = data_hostname if isinstance(data_hostname, str) and data_hostname else None
         return fields
     raise ValueError('Tencent prod matrix not found')
 
@@ -71,6 +80,7 @@ ROLE_ID = 'AROAZ55ZQM2DC6BZQWQ4B'
 ROLE = _TARGET and _TARGET['ssm_hybrid_role_name']
 INSTANCE = _TARGET and _TARGET['expected_ssm_instance_id']
 HOST = _TARGET and _TARGET['hostname']
+DATA_HOST = _TARGET and _TARGET['data_hostname']
 SSM_REGION = _TARGET and _TARGET['ssm_region']
 USER_ID = _TARGET and ROLE_ID + ':' + INSTANCE
 # Retired AWS repo1 (no longer written; objects kept for separate cleanup).
@@ -85,6 +95,9 @@ CANDIDATE_PREFIX = 'candidates/tencent-usw-20261022'
 SOURCE_CONFIG = Path('/run/tokenkey-recovery/config/pgbackrest.conf')
 CANDIDATE_CONFIG = Path('/run/tokenkey-backup-candidate/config/pgbackrest.conf')
 COS_CREDENTIALS = Path('/etc/tokenkey/cos-backup.env')
+# Data machine: the database container mounts this directory read-only at
+# /etc/pgbackrest. root:postgres 0640 is what the container reads today.
+DATA_CONFIG = Path('/etc/tokenkey/pgbackrest-cos/pgbackrest.conf')
 COS_BUCKET = 'tokenkey-prod-backup-usw-1320330536'
 COS_REGION = 'na-siliconvalley'
 COS_ENDPOINT = 'cos.na-siliconvalley.myqcloud.com'
@@ -160,14 +173,14 @@ def render_config(cos_credentials):
         'repo2-s3-key-secret=' + cos_credentials['secret'], 1)
 
 
-def atomic_private(path, contents, uid=70):
+def atomic_private(path, contents, uid=70, gid=None, mode=0o600):
     if path.is_symlink() or path.parent.is_symlink():
         raise ValueError('symlink configuration refused')
     fd, temporary = tempfile.mkstemp(prefix='.identity-', dir=path.parent)
     try:
         with os.fdopen(fd, 'w') as stream:
-            os.fchmod(stream.fileno(), 0o600)
-            os.fchown(stream.fileno(), uid, uid)
+            os.fchmod(stream.fileno(), mode)
+            os.fchown(stream.fileno(), uid, uid if gid is None else gid)
             stream.write(contents)
             stream.flush()
             os.fsync(stream.fileno())
@@ -177,14 +190,27 @@ def atomic_private(path, contents, uid=70):
             os.unlink(temporary)
 
 
+def refresh_data_machine():
+    """Rewrite the data machine's mounted config from its own credential file."""
+    if DATA_CONFIG.parent.is_symlink() or not DATA_CONFIG.parent.is_dir():
+        raise ValueError('data-machine pgBackRest config directory missing')
+    # Read first: a missing or malformed credential keeps the current config.
+    contents = render_config(read_cos_credentials())
+    atomic_private(DATA_CONFIG, contents, uid=0, gid=70, mode=0o640)
+    return {'status': 'refreshed', 'at': dt.datetime.now(dt.timezone.utc).isoformat(),
+            'host_role': 'data-machine', 'repositories': ['cos-repo2'],
+            'aws_repo1': 'retired', 'cutover_authorized': False}
+
+
 def refresh():
     require_target()
-    # Data machines keep the static pgBackRest file written at cutover. This
-    # refresh writes the app host's tmpfs config and must not be pointed at them.
-    if os.geteuid() != 0 or socket.gethostname() != HOST:
-        raise ValueError(
-            'wrong target host or user; data-machine pgBackRest config is static '
-            'and this refresh only runs on the app host')
+    if os.geteuid() != 0:
+        raise ValueError('refresh requires root')
+    hostname = socket.gethostname()
+    if DATA_HOST and hostname == DATA_HOST:
+        return refresh_data_machine()
+    if hostname != HOST:
+        raise ValueError('wrong target host; refresh runs on the app host or the data machine')
     for parent in (SOURCE_CONFIG.parent, CANDIDATE_CONFIG.parent):
         # /run is tmpfs; do not fall back to disk or follow a host symlink.
         if any(p.is_symlink() for p in (parent, *parent.parents)):

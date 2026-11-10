@@ -341,7 +341,10 @@ jobs:
               *) add_finding "runtime_resource_config" "skip" "info" "Runtime resource config inconclusive ($TARGET_ID)" "The read-only runtime config probe did not return a usable snapshot." "runtime-resource-config|$TARGET_ID" ;;
             esac
 
-            CAP_OUT="$(bash ops/observability/run-probe.sh --target "$PROBE_TARGET" --script ops/observability/probe-data-layer-capacity.sh --comment "daily data-layer capacity" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — probe failure -> unknown verdict (surfaced as a finding), never breaks the run
+            # The database disk is on the data machine since the data-plane split
+            # (docs/approved/design-data-plane-split.md); df on the app host is
+            # not the runway.
+            CAP_OUT="$(bash ops/observability/run-probe.sh --target "${PROBE_TARGET}-data" --script ops/observability/probe-data-layer-capacity.sh --comment "daily data-layer capacity" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — probe failure -> unknown verdict (surfaced as a finding), never breaks the run
             CAP_VERDICT="$(printf '%s' "$CAP_OUT" | python3 ops/observability/data_layer_capacity_verdict.py 2>>"$STDERR" || echo '{}')"
             printf 'data_layer_capacity: %s\n' "$CAP_VERDICT" >> "$STDOUT"
             CAP_V="$(printf '%s' "$CAP_VERDICT" | jq -r '.verdict // "unknown"')"
@@ -958,10 +961,27 @@ jobs:
           )
           ' "$RESOLVED_JSON"
 
+      - name: Route Postgres/Redis logs to the data machine
+        id: logtarget
+        env:
+          APP_INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          APP_SSM_REGION: ${{ steps.instance.outputs.ssm_region }}
+        run: |
+          set -euo pipefail
+          # After the data-plane split Postgres and Redis run on the data
+          # machine (docs/approved/design-data-plane-split.md). The app host
+          # only has the stopped originals, so their logs are read there.
+          case "$INPUT_CONTAINER" in
+            tokenkey-postgres|tokenkey-redis)
+              python3 ops/observability/data_machine_target.py --site prod --verify --github-output "$GITHUB_OUTPUT" ;;
+            *)
+              printf 'id=%s\nssm_region=%s\n' "$APP_INSTANCE_ID" "$APP_SSM_REGION" >> "$GITHUB_OUTPUT" ;;
+          esac
+
       - name: Run docker logs on prod via SSM
         env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
+          INSTANCE_ID: ${{ steps.logtarget.outputs.id }}
+          AWS_REGION: ${{ steps.logtarget.outputs.ssm_region }}
         run: |
           set -euo pipefail
           export GREP_B64="$(printf '%s' "$INPUT_GREP" | base64 -w0 2>/dev/null \

@@ -103,7 +103,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 - **参数**：Postgres 和 Redis 用仓库里同一份 compose 启动，参数全部写成命令行 `-c`。只有和内存相关的值按站不同，从数据机 `.env` 读。
 - **Redis**：AOF everysec，设 `maxmemory` 并用 `noeviction`。prod 现网是 `allkeys-lru`，内存满时会淘汰在途扣费 key；数据机统一用 cn-prod 的 `noeviction`，宁可写失败也不丢账。设 `requirepass`。cn-prod 沿用现有密码；prod 现网没有密码，切流时新生成一个，只存数据机和应用机的 `.env`。
 - **防火墙**：云防火墙不开公网入站；主机 iptables 只放行本站应用机私网地址访问 5432 和 6379。
-- **运维**：数据机注册自己的 SSM Hybrid。备份 timer、归档检查 timer 和数据盘告警装在数据机上，应用机上的这几项停用。身份续期不搬：`tencent_backup_identity.py` 和 `cn_backup_identity.py` 只认应用机主机名，在数据机上拒绝；数据机用切流时写下的静态 pgBackRest 配置，密钥轮换不会自动传到数据机。应用机上的 identity timer 保持停用。
+- **运维**：数据机注册自己的 SSM Hybrid，身份记在两份站点矩阵里（prod `deploy/tencent/candidate-usw-20261022.json` 的 `data_machine`，cn-prod `deploy/domestic/prod-target.json` 的 `data_ssm_*`），由 `ops/observability/data_machine_target.py` 读取并在下发前核对。备份 timer、归档检查 timer、身份续期 timer 和数据盘告警装在数据机上，应用机上的这几项停用。身份续期：`tencent_backup_identity.py` 和 `cn_backup_identity.py` 按矩阵里的数据机主机名分支，在数据机上读本机 root-only 的 `/etc/tokenkey/cos-backup.env`，原子重写容器只读挂载的 `/etc/tokenkey/pgbackrest-cos/pgbackrest.conf`（保持 `root:postgres 0640`）。轮换 COS 密钥只改数据机上的这一个文件。由 `ops/stage0/install-data-machine-identity.sh` 安装，带确认口令。
 - **网关**：`DATABASE_HOST`、`REDIS_HOST`、`REDIS_PASSWORD` 从 `.env` 读，切流时填数据机私网地址。
 
 ## 数据库参数
@@ -297,7 +297,7 @@ apply 的顺序：
 窗口之后：
 - 数据机执行 `PHASE=finish dataplane-cutover-data.sh`。它会重置 `postgresql.auto.conf` 里的旧值，创建 `pg_stat_statements`，强制切一次 WAL 并确认已归档到 COS，再逐项核对「数据库参数」表。
 - 应用机用 #3116 的安装脚本装上数据面客户端容器，探针恢复可用。旧库停掉之前不能装：客户端和旧库同时运行时，探针会因不唯一而失败。
-- 数据机启用备份 timer，并以 `prod-data` / `cn-prod-data` 角色安装看门狗（#3117）。身份续期 timer 不启用，原因见「两站统一布局」。
+- 数据机启用备份 timer，并以 `prod-data` / `cn-prod-data` 角色安装看门狗（#3117）。身份续期 timer 用 `install-data-machine-identity.sh` 安装：先把 COS 密钥放到数据机的 `/etc/tokenkey/cos-backup.env`，安装后跑一次续期和归档检查；之后删掉应用机上那份。
 - 发一笔真实请求，确认用量和扣费落在新库。
 
 **排空 10 秒的影响**（2026-11-09 prod 实测）：请求平均 14.7 秒，最安静的 UTC 22 点每分钟约 42 个请求，切换时同时在途的约 10 个。10 秒内跑完的正常记账；跑不完的被切断，客户端收到连接中断。被切断的请求：
@@ -313,9 +313,9 @@ apply 的顺序：
 
 ### 6. 观察与收尾
 
-- 新主库产出第一份成功的全量备份之前，旧数据目录不动。两站切流后到 2026-11-10 为止，数据机上只有增量备份（prod 最新一份在 timeline 4，cn-prod 在 timeline 2），依附的全量还是切流前旧主库做的。`backup_kind` 按 UTC 周日 00:30 切周，所以第一份新 timeline 上的全量是 2026-11-15（周日）之后的第一轮，也可以经单独批准提前手动跑一份。
+- 新主库产出第一份成功的全量备份之前，旧数据目录不动。两站数据机在 2026-11-10 已各完成一份切流后的全量：prod `20261110-013449F`（01:40 UTC），cn-prod `20261110-013338F`（01:34 UTC）。当天 02:30 UTC 的定时任务在这两份全量上做了增量，回执文件只保留最新一轮。删除旧数据目录仍然要单独批准。
 - cn-prod 切流后的第一轮备份（16:30–20:30 UTC）报 `[106] new backup label is not later than latest`。原因：旧应用机的 pgBackRest 标签是北京时间，数据机是 UTC。22:30 UTC 那一轮起恢复正常，期间 WAL 归档没有中断。prod 旧标签本来就是 UTC，不受影响。
-- 切流后仍读应用机本地数据目录的两项：容量探针在应用机上对 `/var/lib/tokenkey` 跑 `df`，现在判为「无结论」，不再给出跑道（#3122）；日常诊断 tail PG/Redis 日志，只解析真库，现在显示 unresolved。数据机的磁盘告警由数据机上的 disk-metrics 和看门狗负责。
+- 切流后读数据机的探针：`run-probe.sh --target prod-data / cn-prod-data` 直连数据机，SSM 身份不符就拒绝。每日容量探针在数据机上跑 `df`，跑道按数据机系统盘计算；`log_dump` 的 `tokenkey-postgres` / `tokenkey-redis` 读数据机上的日志。CI 角色要能对这两个 `mi-*` 执行 `SendCommand`，授权在栈外 inline policy `tokenkey-lightsail-edge-addon`（见 `docs/ops/tencent-cutover-checklist.md`）。应用机上的容量探针仍会把本机 `df` 判为「无结论」（#3122），作为兜底。
 - 删除旧数据目录、旧 Redis 和转发容器需要单独批准。
 - `usage_billing_dedup` 唯一索引的 `REINDEX CONCURRENTLY` 要等 7–30 天的键迁完归档（约 3 个晚上）再做，不挡切流。
 - prod 的 LUKS 载体和异机密钥要等应用机也迁出 LUKS 之后才能删（见下节）。

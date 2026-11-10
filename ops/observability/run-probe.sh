@@ -12,7 +12,7 @@
 #
 # Usage:
 #   bash ops/observability/run-probe.sh \
-#       --target prod | --target cn-prod \
+#       --target prod | cn-prod | prod-data | cn-prod-data \
 #       --script ops/observability/probe-caps.sh \
 #       [--env KEY=VAL ...] \
 #       [--with PATH ...]   upload additional local files to /tmp/<basename> on remote
@@ -41,6 +41,10 @@
 #                        managed instance. Set UCLOUD_SSM_INSTANCE_ID and
 #                        UCLOUD_SSM_REGION to override the domestic manifest;
 #                        UCLOUD_SSH_* remains the one-time/bootstrap fallback.
+#   --target prod-data / cn-prod-data
+#                        the site's data machine (Postgres/Redis after the
+#                        data-plane split), resolved and verified by
+#                        ops/observability/data_machine_target.py.
 #
 #   --timeout-seconds    30..2592000; passed to the remote transport and also
 #                        used as the local polling budget. Polling never
@@ -126,9 +130,12 @@ if [ ! -f "$SCRIPT_PATH" ]; then
   exit 1
 fi
 
-if [ "$DESCRIBE_SCRIPT" = "0" ] && [ "$TARGET" != "prod" ] && [ "$TARGET" != "cn-prod" ]; then
-	echo "[run-probe] ERROR: --target must be 'prod' or 'cn-prod', got: $TARGET" >&2
-  exit 1
+if [ "$DESCRIBE_SCRIPT" = "0" ]; then
+  case "$TARGET" in
+    prod|cn-prod|prod-data|cn-prod-data) ;;
+    *) echo "[run-probe] ERROR: --target must be 'prod', 'cn-prod', 'prod-data' or 'cn-prod-data', got: $TARGET" >&2
+       exit 1 ;;
+  esac
 fi
 
 # Default remote path to /tmp/<basename>
@@ -238,6 +245,20 @@ if [ "$TARGET" = "prod" ]; then
     echo "[run-probe] ERROR: resolve_prod_ssm_target returned empty ssm_region" >&2
     exit 2
   fi
+fi
+
+if [ "$TARGET" = "prod-data" ] || [ "$TARGET" = "cn-prod-data" ]; then
+  # ops/observability/data_machine_target.py owns the data-machine identity:
+  # it reads the site matrix and requires SSM Online + the registered Name
+  # before anything is sent. Exit 1 = matrix incomplete, 2 = SSM not ready.
+  DATA_RESOLVE_RC=0
+  DATA_RESOLVED=$(python3 "$REPO_ROOT/ops/observability/data_machine_target.py" \
+    --site "${TARGET%-data}" --verify) || DATA_RESOLVE_RC=$?
+  if [ "$DATA_RESOLVE_RC" -ne 0 ]; then
+    exit "$DATA_RESOLVE_RC"
+  fi
+  REGION="$(printf '%s\n' "$DATA_RESOLVED" | awk -F= '$1=="ssm_region" {print $2; exit}')"
+  INSTANCE_ID="$(printf '%s\n' "$DATA_RESOLVED" | awk -F= '$1=="instance_id" {print $2; exit}')"
 fi
 
 if [ "$TARGET" != "cn-prod" ] && { [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; }; then

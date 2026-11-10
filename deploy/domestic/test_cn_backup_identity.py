@@ -84,12 +84,14 @@ class CnBackupIdentityTest(unittest.TestCase):
             )
             target = identity.load_target((path,))
             self.assertEqual(target["instance_name"], "tokenkey-cn-prod")
+            self.assertEqual(target["data_instance_name"], "")
             with self.assertRaises(ValueError):
                 identity.load_target((pathlib.Path(root) / "missing.json",))
 
 
 class CosOnlyRefreshTest(unittest.TestCase):
-    TARGET = {"instance_name": "tokenkey-cn-prod", "ssm_instance_id": "mi-x", "ssm_region": "eu-west-2"}
+    TARGET = {"instance_name": "tokenkey-cn-prod", "ssm_instance_id": "mi-x", "ssm_region": "eu-west-2",
+              "data_instance_name": "VM-4-5-ubuntu"}
 
     def _arena(self, stack: contextlib.ExitStack) -> pathlib.Path:
         root = pathlib.Path(stack.enter_context(tempfile.TemporaryDirectory()))
@@ -134,15 +136,57 @@ class CosOnlyRefreshTest(unittest.TestCase):
                 identity.refresh()
             self.assertEqual(config.read_text(), "previous")
 
-    def test_data_machine_hostname_does_not_refresh(self) -> None:
+    def _data_arena(self, stack: contextlib.ExitStack) -> tuple[pathlib.Path, pathlib.Path]:
+        app_config = self._arena(stack)
+        data_config = app_config.parents[2] / "pgbackrest-cos" / "pgbackrest.conf"
+        data_config.parent.mkdir(parents=True)
+        data_config.write_text("previous")
+        stack.enter_context(mock.patch.object(identity, "DATA_CONFIG", data_config))
+        stack.enter_context(mock.patch.object(identity.socket, "gethostname", return_value="VM-4-5-ubuntu"))
+        return app_config, data_config
+
+    def test_data_machine_refresh_rewrites_the_mounted_config(self) -> None:
+        # After the split the data machine runs the database; rotating the COS
+        # key must reach the file its container mounts, keeping root:postgres 0640.
+        with contextlib.ExitStack() as stack:
+            app_config, data_config = self._data_arena(stack)
+            stack.enter_context(mock.patch.object(identity, "read_cos_credentials", return_value={"key": "sid", "secret": "skey"}))
+            fchown = identity.os.fchown
+            result = identity.refresh()
+            live = data_config.read_text()
+            mode = stat.S_IMODE(data_config.stat().st_mode)
+            self.assertFalse(app_config.exists())
+            identity.subprocess.check_output.assert_not_called()
+            self.assertEqual(fchown.call_args.args[1:], (0, 70))
+        self.assertIn("repo2-s3-key=sid\n", live)
+        self.assertIn("repo2-path=/cn-prod/postgres\n", live)
+        self.assertNotIn("repo1-", live)
+        self.assertEqual(mode, 0o640)
+        self.assertEqual(result["host_role"], "data-machine")
+        self.assertNotIn("skey", json.dumps(result))
+
+    def test_data_machine_without_credentials_keeps_the_current_config(self) -> None:
+        with contextlib.ExitStack() as stack:
+            _, data_config = self._data_arena(stack)
+            stack.enter_context(mock.patch.object(
+                identity, "read_cos_credentials", side_effect=FileNotFoundError("absent")))
+            with self.assertRaises(FileNotFoundError):
+                identity.refresh()
+            self.assertEqual(data_config.read_text(), "previous")
+
+    def test_other_host_does_not_refresh(self) -> None:
         with contextlib.ExitStack() as stack:
             config = self._arena(stack)
-            config.parent.mkdir(parents=True)
-            config.write_text("previous")
-            stack.enter_context(mock.patch.object(identity.socket, "gethostname", return_value="VM-4-5-ubuntu"))
-            with self.assertRaisesRegex(ValueError, "data-machine pgBackRest config is static"):
+            stack.enter_context(mock.patch.object(identity.socket, "gethostname", return_value="other-host"))
+            with self.assertRaisesRegex(ValueError, "app host or the data machine"):
                 identity.refresh()
-            self.assertEqual(config.read_text(), "previous")
+            self.assertFalse(config.exists())
+
+    def test_data_instance_name_comes_from_the_shipped_manifest(self) -> None:
+        manifest = json.loads((HERE / "prod-target.json").read_text())
+        target = identity.load_target((HERE / "prod-target.json",))
+        self.assertEqual(target["data_instance_name"], manifest["data_instance_name"])
+        self.assertNotEqual(target["data_instance_name"], target["instance_name"])
 
     def test_failure_output_withholds_credentials(self) -> None:
         import io

@@ -13,6 +13,12 @@ going live) was removed with repo1: it protected an AWS-only live
 archive_command from a stanza-less COS repository. COS has been live with a
 valid stanza since 2026-11-02, so removing repo1 only shrinks the archive-push
 fan-out and needs no staging (verified with pgBackRest 2.58, see the design).
+
+After the data-plane split (docs/approved/design-data-plane-split.md) the live
+database runs on the data machine (`data_instance_name` in prod-target.json).
+There the refresh reads the data machine's own root-only COS credential and
+rewrites the on-disk config the database container mounts read-only, so a key
+rotation is one file on one host.
 """
 from __future__ import annotations
 
@@ -30,6 +36,9 @@ TARGET_CANDIDATES = (
     Path(__file__).resolve().parent / TARGET_NAME,
 )
 CONFIG = Path("/run/tokenkey-cn-prod-backup/config/pgbackrest.conf")
+# Data machine: the database container mounts this directory read-only at
+# /etc/pgbackrest. root:postgres 0640 is what the container reads today.
+DATA_CONFIG = Path("/etc/tokenkey/pgbackrest-cos/pgbackrest.conf")
 COS_CREDENTIALS = Path("/etc/tokenkey/cos-backup.env")
 COS_BUCKET = "tokenkey-cnprod-backup-bj-1320330536"
 COS_REGION = "ap-beijing"
@@ -50,6 +59,8 @@ def load_target(candidates: tuple[Path, ...] = TARGET_CANDIDATES) -> dict[str, s
         if (not target["ssm_instance_id"].startswith("mi-")
                 or not target["instance_name"] or not target["ssm_region"]):
             raise ValueError("invalid cn-prod target manifest")
+        data_name = data.get("data_instance_name")
+        target["data_instance_name"] = data_name if isinstance(data_name, str) and data_name else ""
         return target
     raise ValueError("cn-prod target manifest not found")
 
@@ -99,38 +110,53 @@ def render_config(cos: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def atomic_private(contents: str, destination: Path | None = None) -> None:
-    """Write a 0600 postgres-owned config atomically inside the mounted dir."""
+def atomic_private(contents: str, destination: Path | None = None, *,
+                   owner: tuple[int, int] = (70, 70), mode: int = 0o600,
+                   prepare_parent: bool = True) -> None:
+    """Write a postgres-readable config atomically inside the mounted dir."""
     destination = CONFIG if destination is None else destination
     if destination.is_symlink() or destination.parent.is_symlink():
         raise ValueError("symlink configuration refused")
-    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
-    os.chmod(destination.parent.parent, 0o711)
-    os.chmod(destination.parent, 0o755)
+    if prepare_parent:
+        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+        os.chmod(destination.parent.parent, 0o711)
+        os.chmod(destination.parent, 0o755)
     fd, temporary = tempfile.mkstemp(prefix=".cfg-", dir=destination.parent)
     try:
         with os.fdopen(fd, "w") as stream:
-            os.fchmod(stream.fileno(), 0o600)
-            os.fchown(stream.fileno(), 70, 70)
+            os.fchmod(stream.fileno(), mode)
+            os.fchown(stream.fileno(), *owner)
             stream.write(contents)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, destination)
-        os.chmod(destination, 0o600)
-        os.chown(destination, 70, 70)
+        os.chmod(destination, mode)
+        os.chown(destination, *owner)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
 
 
+def refresh_data_machine() -> dict[str, object]:
+    """Rewrite the data machine's mounted config from its own credential file."""
+    if DATA_CONFIG.parent.is_symlink() or not DATA_CONFIG.parent.is_dir():
+        raise ValueError("data-machine pgBackRest config directory missing")
+    # Read first: a missing or malformed credential keeps the current config.
+    contents = render_config(read_cos_credentials())
+    atomic_private(contents, DATA_CONFIG, owner=(0, 70), mode=0o640, prepare_parent=False)
+    return {"status": "refreshed", "host_role": "data-machine", "repositories": ["cos-repo2"],
+            "aws_repo1": "retired", "credentials_withheld": True, "cutover_authorized": False}
+
+
 def refresh() -> dict[str, object]:
     target = load_target()
-    # Data machines keep the static pgBackRest file written at cutover. This
-    # refresh writes the app host's tmpfs config and must not be pointed at them.
-    if os.geteuid() != 0 or socket.gethostname() != target["instance_name"]:
-        raise ValueError(
-            "wrong target host or user; data-machine pgBackRest config is static "
-            "and this refresh only runs on the app host")
+    if os.geteuid() != 0:
+        raise ValueError("refresh requires root")
+    hostname = socket.gethostname()
+    if target["data_instance_name"] and hostname == target["data_instance_name"]:
+        return refresh_data_machine()
+    if hostname != target["instance_name"]:
+        raise ValueError("wrong target host; refresh runs on the app host or the data machine")
     if subprocess.check_output(["findmnt", "-n", "-o", "FSTYPE", "--target", "/run"], text=True).strip() != "tmpfs":
         raise ValueError("runtime directory is not tmpfs")
     atomic_private(render_config(read_cos_credentials()))
