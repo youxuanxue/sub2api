@@ -24,6 +24,20 @@ func downgradeResponsesToChat(request CanonicalRequest) (CanonicalRequest, strin
 		profile.ContentKinds&ContentAudio == 0 {
 		return request, "", true
 	}
+	// Plan evaluates this downgrade for every Chat-only account and again for
+	// the effective request; the result depends only on the immutable request.
+	if request.memo == nil {
+		return computeResponsesToChatDowngrade(request)
+	}
+	memo := request.memo
+	memo.downgradeOnce.Do(func() {
+		memo.downgrade.request, memo.downgrade.adjustment, memo.downgrade.ok = computeResponsesToChatDowngrade(request)
+	})
+	return memo.downgrade.request, memo.downgrade.adjustment, memo.downgrade.ok
+}
+
+func computeResponsesToChatDowngrade(request CanonicalRequest) (CanonicalRequest, string, bool) {
+	profile := request.Profile()
 	stripped, changed, err := stripResponsesChatUnsupported(request.Body())
 	if err != nil || !changed {
 		return request, "", err == nil

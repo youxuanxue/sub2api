@@ -177,11 +177,19 @@ func candidateBillingPolicyForOrigin(ctx context.Context, account, billingAccoun
 	}
 	if account != nil && account.Platform == PlatformOpenAI && (shape == ShapeOpenAIChat || shape == ShapeAnthropicMessages || shape == ShapeAnthropicCountTokens) {
 		if request, ok := ProtocolRoutingRequest(ctx); ok {
-			body, _, err := ApplyOpenAIReasoningEffortPolicy(request.Body(), group.MaxReasoningEffort, group.ReasoningEffortMappings, group.MaxReasoningEffortOverLimit)
+			// The rewritten body depends only on the routed request and this
+			// group's policy; accounts sharing both reuse one rewrite.
+			reasoningBody, err := protocolRoutingReasoningBody(ctx, group, func() (string, error) {
+				body, _, err := ApplyOpenAIReasoningEffortPolicy(request.Body(), group.MaxReasoningEffort, group.ReasoningEffortMappings, group.MaxReasoningEffortOverLimit)
+				if err != nil {
+					return "", err
+				}
+				return string(body), nil
+			})
 			if err != nil {
 				return policy, err
 			}
-			policy.reasoningBody = string(body)
+			policy.reasoningBody = reasoningBody
 		} else {
 			policy.reasoningMaximum = NormalizeMaxReasoningEffort(group.MaxReasoningEffort)
 			policy.reasoningOverLimit = NormalizeMaxReasoningEffortOverLimit(group.MaxReasoningEffortOverLimit)
