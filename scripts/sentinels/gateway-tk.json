@@ -18883,7 +18883,9 @@
       "path": ".github/workflows/ops-daily-diagnostics.yml",
       "must_contain": [
         "--target \"${PROBE_TARGET}-data\" --script ops/observability/probe-data-layer-capacity.sh",
+        "--target \"${PROBE_TARGET}-data\" --script ops/observability/probe-data-layer-safety.sh",
         "python3 ops/observability/data_machine_target.py --site prod --verify --github-output \"$GITHUB_OUTPUT\"",
+        "python3 ops/observability/data_machine_target.py --site \"$PROBE_TARGET\" --verify",
         "INSTANCE_ID: ${{ steps.logtarget.outputs.id }}"
       ],
       "rationale": "After the data-plane split the database disk and the Postgres/Redis logs are on the data machine. The daily capacity runway and log_dump must read there; the app host only has the retired data directory and the stopped originals."

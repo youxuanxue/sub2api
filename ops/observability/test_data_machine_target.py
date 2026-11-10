@@ -77,6 +77,9 @@ class DataMachineTargetTest(unittest.TestCase):
         self.assertIn("INSTANCE_ID: ${{ steps.logtarget.outputs.id }}", workflow)
         cap = next(l for l in workflow.splitlines() if "probe-data-layer-capacity.sh" in l and "run-probe.sh" in l)
         self.assertIn('--target "${PROBE_TARGET}-data"', cap)
+        safety = next(l for l in workflow.splitlines() if "probe-data-layer-safety.sh" in l and "run-probe.sh" in l)
+        self.assertIn('--target "${PROBE_TARGET}-data"', safety)
+        self.assertIn('data_machine_target.py --site "$PROBE_TARGET" --verify', workflow)
         targets = json.loads((HERE / "diagnostics-targets.json").read_text())["include"]
         self.assertEqual({t["probe_target"] for t in targets}, set(WANT))
 
