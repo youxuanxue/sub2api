@@ -1575,13 +1575,8 @@ const refreshAccountsIncrementally = async () => {
 
 const handleManualRefresh = async () => {
   lastFetchedAt = Date.now()
-  await refreshAccountPage()
-  // load() already starts the batch passive-usage refresh for Anthropic/OpenAI/Kiro
-  // rows (override path). Bump the token so the residual self-fetch platforms
-  // (gemini/antigravity cells) also refresh on explicit user refresh.
-  usageManualRefreshToken.value += 1
-  await Promise.all([load(), loadUpstreamBillingProbeGlobalState()])
-  // Force usage cells to refetch /usage on explicit user refresh.
+  await Promise.all([refreshAccountPage(), loadUpstreamBillingProbeGlobalState()])
+  // load() refreshes batched usage; notify the remaining self-fetch cells once.
   usageManualRefreshToken.value += 1
 }
 

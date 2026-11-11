@@ -209,6 +209,8 @@ describe('admin AccountsView lite account list', () => {
     await flushPromises()
     expect(wrapper.get('[data-account-name="updated row"]').element).toBe(row)
     expect(wrapper.find('[aria-busy="true"]').exists()).toBe(false)
+    expect(listAccounts).toHaveBeenCalledTimes(2) // Initial load plus one manual refresh.
+    expect(getBatchPassiveUsage).toHaveBeenCalledTimes(2)
     wrapper.unmount()
   })
 
