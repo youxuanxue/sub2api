@@ -177,6 +177,7 @@
     "host auto-upgrade disabled": "deploy",
     "gh CLI repository context": "deploy",
     "Node version alignment": "build",
+    "auto-merge protected paths": "auto-merge",
     "Go version alignment": "build",
     "release cache toolchain parity": "build",
     "platform registry drift": "build",
@@ -230,6 +231,7 @@
       "docs/*",
       "scripts/*"
     ],
+    "auto-merge": [".preflight/*", ".github/*", "scripts/checks/auto-merge-protected-paths.py"],
     "frontend": [
       "frontend/*",
       "backend/*",

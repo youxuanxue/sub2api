@@ -4,8 +4,10 @@ import datetime as dt
 import io
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -122,6 +124,74 @@ class ArchiveProgressTest(unittest.TestCase):
             self.assertNotIn('private payload', stderr.getvalue())
             receipt = node1_root / 'receipts' / 'prod' / 'last-run.json'
             self.assertEqual(json.loads(receipt.read_text()), summary)
+
+
+    def test_orphan_staging_from_a_killed_run_is_removed_on_the_next_run(self):
+        # systemd's TimeoutStartSec sends SIGTERM, which skips push_hour's
+        # finally; prod left two .push-* directories (993 MB) that way.
+        with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as node1:
+            root = Path(node1)
+            stale = root / '.push-2026111011-80t9evow'
+            fresh = root / '.push-2026111112-abc123'
+            unrelated = root / '.push-notes'
+            for directory in (stale, fresh, unrelated):
+                directory.mkdir()
+                (directory / 'manifest.json').write_text('{}')
+            stale_file = root / '.push-2026111010-file'
+            stale_file.write_text('not a directory')
+            receipts = root / 'receipts'
+            receipts.mkdir()
+            old = time.time() - 3 * 3600
+            for path in (stale, unrelated, stale_file):
+                os.utime(path, (old, old))
+            args = argparse.Namespace(source_root=source, node1_root=node1, environment='prod',
+                                      before='2026-11-11T08:00:00Z', remote_target='')
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                self.assertEqual(archive.run(args), 0)
+            summary = json.loads(stdout.getvalue())
+            self.assertEqual(summary['removed_staging'], ['.push-2026111011-80t9evow'])
+            self.assertEqual(summary['staging_cleanup_failed'], [])
+            self.assertFalse(stale.exists())
+            # A run may overlap a manual one, so recent staging is left alone,
+            # and only directories named by push_hour are ever touched.
+            self.assertTrue(fresh.is_dir())
+            self.assertTrue(unrelated.is_dir())
+            self.assertTrue(stale_file.is_file())
+            self.assertTrue(receipts.is_dir())
+
+    def test_orphan_cleanup_tolerates_a_missing_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(archive.remove_orphan_staging(Path(directory) / 'absent'), ([], []))
+
+    def test_a_staging_dir_that_cannot_be_removed_does_not_stop_archiving(self):
+        hour = dt.datetime(2026, 11, 11, 6, tzinfo=dt.timezone.utc)
+        with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as node1:
+            stale = Path(node1) / '.push-2026111011-stuck'
+            stale.mkdir()
+            old = time.time() - 3 * 3600
+            os.utime(stale, (old, old))
+            directory = Path(source) / 'qa_blobs' / hour.strftime(archive.HOUR)
+            directory.mkdir(parents=True)
+            (directory / 'one.bin').write_bytes(b'payload')
+            args = argparse.Namespace(source_root=source, node1_root=node1, environment='prod',
+                                      before='2026-11-11T08:00:00Z', remote_target='')
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr), \
+                 mock.patch.object(archive.shutil, 'rmtree', side_effect=PermissionError('denied')):
+                self.assertEqual(archive.run(args), 0)
+            summary = json.loads(stdout.getvalue())
+            self.assertEqual(len(summary['completed']), 1)
+            self.assertEqual(summary['removed_staging'], [])
+            self.assertEqual([f['name'] for f in summary['staging_cleanup_failed']],
+                             ['.push-2026111011-stuck'])
+            self.assertIn('qa_archive_staging_cleanup_failed', stderr.getvalue())
+
+    def test_staging_pattern_matches_the_names_push_hour_creates(self):
+        hour = dt.datetime(2026, 11, 10, 11, tzinfo=dt.timezone.utc)
+        with tempfile.TemporaryDirectory() as directory:
+            created = Path(tempfile.mkdtemp(prefix=f".push-{hour.strftime('%Y%m%d%H')}-", dir=directory))
+            self.assertRegex(created.name, archive.STAGING_PATTERN)
 
 
 if __name__ == '__main__':

@@ -95,6 +95,9 @@
 #   Node version alignment       — CI frontend jobs must setup-node the same
 #        major as the release Dockerfile (ARG NODE_IMAGE). Driven by
 #        `scripts/checks/node-version-align.py`.
+#   auto-merge protected paths   — publish-on-push paths of the publishing
+#        workflows are listed for auto-merge-low-risk. Driven by
+#        `scripts/checks/auto-merge-protected-paths.py`.
 #   platform registry drift      — Go ↔ TS platform registry lockstep
 #        (OpenAI-compat list, dispatch-config platforms, Platform universe,
 #        Ent platform enum coverage, admin UI style maps). Driven by
@@ -3749,6 +3752,24 @@ elif ! python3 ./scripts/checks/node-version-align.py --quiet; then
     errors=$((errors + 1))
 else
     echo "  ok: CI setup-node majors match Dockerfile NODE_IMAGE"
+fi
+
+# ---- sub2api: auto-merge protected paths -------------------------------------
+# Paths whose push to main publishes (gemini-web image, pricing to prod) must
+# be listed for dev-rules' auto-merge-low-risk in .preflight/high-risk-anchor.conf.
+# Gate: scripts/checks/auto-merge-protected-paths.py.
+echo ""
+
+fi # preflight gate
+if _preflight_selected 'auto-merge protected paths'; then
+echo "=== sub2api: auto-merge protected paths ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by auto-merge-protected-paths.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/auto-merge-protected-paths.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: publish-on-push paths are protected from auto-merge"
 fi
 
 # ---- sub2api: Go version alignment -------------------------------------------

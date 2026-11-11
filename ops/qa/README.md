@@ -90,6 +90,7 @@ python3 scripts/checks/qa-lifecycle-ssot.py
 `qa_archive_progress` 日志记录每小时开始、manifest/容量检查、暂存、传输和完成阶段，
 `qa_archive_probe_failed` 记录失败的检查和尝试次数。整轮超时时，先看最后一条阶段日志；
 不能只凭 systemd 的 timeout 判定是网络还是本地文件处理。
+超时由 systemd 发 SIGTERM，`push_hour` 的 `finally` 不会执行，会留下 `.push-<小时>-*` 暂存目录。下一轮开始时会删除超过 2 小时的这类目录，`last-run.json` 的 `removed_staging` 记录删了哪些；删除失败记在 `staging_cleanup_failed`，并输出 `qa_archive_staging_cleanup_failed` 日志，不会中止本轮归档。
 
 ## QA 与备份锁冲突
 
