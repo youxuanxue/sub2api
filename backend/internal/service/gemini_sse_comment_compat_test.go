@@ -50,7 +50,7 @@ func TestDownstreamRejectsSSECommentsReadsBothHeaders(t *testing.T) {
 }
 
 // runAntigravityGeminiStreamWithIdle 起一条上游流：先发一个 data 事件，然后空闲 idle 时长再关闭，
-// 返回写给下游的全部字节。用来观察空闲期间网关是否发了 ":\n\n" 心跳。
+// 返回写给下游的全部字节。用来观察空闲心跳是空白帧 "\n"，还是对 go/python genai 被关掉。
 func runAntigravityGeminiStreamWithIdle(t *testing.T, userAgent string, idle time.Duration) (out string) {
 	t.Helper()
 	synctest.Test(t, func(t *testing.T) {
