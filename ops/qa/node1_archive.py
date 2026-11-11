@@ -13,7 +13,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
+import stat
 import tempfile
 import time
 import sys
@@ -488,6 +490,34 @@ def copy_hour(source_root: Path, node1_root: Path, environment: str, hour: dt.da
         raise
 
 
+# push_hour stages each hour under the receipt root and removes it in a finally
+# block, which a SIGTERM skips. systemd sends exactly that when the unit hits
+# TimeoutStartSec, so every timed-out run left a .push-* directory behind (prod
+# 2026-11-09 and 11-10: 993 MB). The unit is oneshot, but a manual run can
+# overlap it, so only directories older than any possible run are removed.
+STAGING_PATTERN = re.compile(r"^\.push-\d{10}-[A-Za-z0-9_]+$")
+STAGING_MAX_AGE = dt.timedelta(hours=2)
+
+
+def remove_orphan_staging(receipt_root: Path, now: float | None = None) -> list[str]:
+    """Delete stale push staging directories; return the removed names."""
+    now = time.time() if now is None else now
+    removed = []
+    try:
+        entries = list(receipt_root.iterdir())
+    except FileNotFoundError:
+        return removed
+    for entry in entries:
+        if not STAGING_PATTERN.match(entry.name):
+            continue
+        info = entry.lstat()
+        if not stat.S_ISDIR(info.st_mode) or now - info.st_mtime < STAGING_MAX_AGE.total_seconds():
+            continue
+        shutil.rmtree(entry)
+        removed.append(entry.name)
+    return sorted(removed)
+
+
 def run(args: argparse.Namespace) -> int:
     source = Path(args.source_root).resolve()
     node1 = Path(args.node1_root).resolve()
@@ -497,6 +527,7 @@ def run(args: argparse.Namespace) -> int:
     if args.before:
         before = dt.datetime.fromisoformat(args.before.replace("Z", "+00:00"))
     selected = hours_to_copy(source, hour_start(before))
+    removed_staging = remove_orphan_staging(node1)
 
     # node1_root is the receipt root in both modes. In remote mode the payload
     # goes to node1 over SSH while receipts stay local, because the cleanup
@@ -511,7 +542,8 @@ def run(args: argparse.Namespace) -> int:
 
     result = {"schema_version": SCHEMA, "ok": True, "environment": args.environment,
               "transport": "ssh-tar" if remote else "local-copy",
-              "selected_hours": [h.isoformat() for h in selected], "completed": [], "failed": []}
+              "selected_hours": [h.isoformat() for h in selected], "completed": [], "failed": [],
+              "removed_staging": removed_staging}
     for hour in selected:
         started = time.monotonic()
         log_progress(args.environment, hour, "start")
