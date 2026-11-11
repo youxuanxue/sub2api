@@ -423,6 +423,7 @@
                 <div class="flex items-center gap-2">
                   <button
                     type="button"
+                    v-if="supportsPricingModelSync(section.platform)"
                     @click="syncLatestModels(sIdx)"
                     :disabled="syncingPlatform === section.platform"
                     class="text-xs text-gray-500 hover:text-primary-600 disabled:opacity-50"
@@ -639,6 +640,7 @@ import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
 import { platformTextClass, platformBadgeLightClass } from '@/utils/platformColors'
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
+import { listPlatformIds, supportsPricingModelSync } from '@/constants/platformCatalog'
 import { STATUS_ACTIVE, STATUS_DISABLED } from '@/constants/channel'
 import {
   apiToFormSections,
@@ -761,7 +763,7 @@ let abortController: AbortController | null = null
 // Single source of truth: GATEWAY_PLATFORMS includes the fifth platform `newapi`.
 // A previous 4-element hardcoded array silently dropped newapi data on the
 // API → form → API round-trip (see docs/approved/admin-ui-newapi-platform-end-to-end.md §1.5).
-const platformOrder: readonly GroupPlatform[] = GATEWAY_PLATFORMS
+const platformOrder = computed(() => [...listPlatformIds(), 'composite'] as GroupPlatform[])
 // ── Helpers ──
 function formatDate(value: string): string {
   if (!value) return '-'
@@ -879,6 +881,7 @@ function addPricingEntry(sectionIdx: number) {
     output_price: null,
     cache_write_price: null,
     cache_write_1h_price: null,
+    cache_write_12h_price: null,
     cache_read_price: null,
     fast_multiplier: null,
     flex_multiplier: null,
@@ -917,6 +920,7 @@ async function syncLatestModels(sectionIdx: number) {
       output_price: null,
       cache_write_price: null,
       cache_write_1h_price: null,
+      cache_write_12h_price: null,
       cache_read_price: null,
 fast_multiplier: null,
       flex_multiplier: null,
@@ -987,6 +991,7 @@ function addRulePricingEntry(sectionIdx: number, ruleIndex: number) {
     output_price: null,
     cache_write_price: null,
     cache_write_1h_price: null,
+    cache_write_12h_price: null,
     cache_read_price: null,
     image_input_price: null,
     image_output_price: null,
@@ -1105,6 +1110,7 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
             output_price: mTokToPerToken(p.output_price),
             cache_write_price: mTokToPerToken(p.cache_write_price),
             cache_write_1h_price: mTokToPerToken(p.cache_write_1h_price),
+            cache_write_12h_price: mTokToPerToken(p.cache_write_12h_price),
             cache_read_price: mTokToPerToken(p.cache_read_price),
             reasoning_effort_multipliers: formReasoningEffortMultipliersToAPI(p.reasoning_effort_multipliers),
             image_input_price: mTokToPerToken(p.image_input_price),
@@ -1125,7 +1131,7 @@ function formToAPI() {
 }
 
 function apiToForm(channel: Channel): PlatformSection[] {
-  return apiToFormSections(channel, allGroups.value, platformOrder)
+  return apiToFormSections(channel, allGroups.value, platformOrder.value)
 }
 
 // ── Load data ──
@@ -1286,6 +1292,7 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
         output_price: perTokenToMTok(p.output_price),
         cache_write_price: perTokenToMTok(p.cache_write_price),
         cache_write_1h_price: perTokenToMTok(p.cache_write_1h_price),
+        cache_write_12h_price: perTokenToMTok(p.cache_write_12h_price),
         cache_read_price: perTokenToMTok(p.cache_read_price),
         reasoning_effort_multipliers: p.reasoning_effort_multipliers ? { ...p.reasoning_effort_multipliers } : null,
         image_input_price: perTokenToMTok(p.image_input_price),

@@ -24,8 +24,26 @@ func TestUpstream400StreakRepository_OpenStreakRules(t *testing.T) {
 
 	user := mustCreateUser(t, client, &service.User{Email: fmt.Sprintf("streak-%d@test.com", time.Now().UnixNano())})
 	key := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, Key: fmt.Sprintf("sk-streak-%d", time.Now().UnixNano()), Name: "streak"})
+	var accountIDs []int64
+	t.Cleanup(func() {
+		// Committed success fixtures must not pollute later global usage totals.
+		for _, table := range []string{"ops_error_logs", "usage_logs"} {
+			_, err := integrationDB.ExecContext(ctx, "DELETE FROM "+table+" WHERE user_id = $1", user.ID)
+			require.NoError(t, err)
+		}
+		_, err := integrationDB.ExecContext(ctx, "DELETE FROM api_keys WHERE id = $1", key.ID)
+		require.NoError(t, err)
+		for _, id := range accountIDs {
+			_, err := integrationDB.ExecContext(ctx, "DELETE FROM accounts WHERE id = $1", id)
+			require.NoError(t, err)
+		}
+		_, err = integrationDB.ExecContext(ctx, "DELETE FROM users WHERE id = $1", user.ID)
+		require.NoError(t, err)
+	})
 	mk := func(name string) int64 {
-		return mustCreateAccount(t, client, &service.Account{Name: name, Schedulable: true}).ID
+		id := mustCreateAccount(t, client, &service.Account{Name: name, Schedulable: true}).ID
+		accountIDs = append(accountIDs, id)
+		return id
 	}
 	expired, broken, recovered, short, mixed := mk("st-expired"), mk("st-broken"), mk("st-recovered"), mk("st-short"), mk("st-mixed")
 

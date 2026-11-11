@@ -256,6 +256,32 @@ describe('UseKeyModal — preserved snippet correctness', () => {
     expect(models['claude-sonnet-5-5'].variants).not.toHaveProperty('none')
   })
 
+  it.each([
+    ['claude-fable-5-2', 'Claude Fable 5.2'],
+    ['claude-mythos-5-2', 'Claude Mythos 5.2']
+  ])('exports %s on Anthropic with adaptive thinking and all supported effort levels', async (model, name) => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'sk-test', baseUrl: 'https://example.com/v1', platform: 'anthropic' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: { template: '<span />' } } }
+    })
+    const tab = wrapper.findAll('button').find(button => button.text().includes('keys.useKeyModal.cliTabs.opencode'))
+    expect(tab).toBeDefined()
+    await tab!.trigger('click')
+    await nextTick()
+    const config = JSON.parse(wrapper.find('pre code').text()).provider.anthropic.models[model]
+    expect(config.name).toBe(name)
+    expect(config.limit).toEqual({ context: 1000000, output: 128000 })
+    expect(config.modalities).toEqual({ input: ['text', 'image', 'pdf'], output: ['text'] })
+    expect(config.options).toEqual({ thinking: { type: 'adaptive' }, effort: 'high' })
+    expect(config.variants).toEqual({
+      low: { effort: 'low' },
+      medium: { effort: 'medium' },
+      high: { effort: 'high' },
+      xhigh: { effort: 'xhigh' },
+      max: { effort: 'max' }
+    })
+  })
+
   it('renders Claude Fable 5 OpenCode config with adaptive thinking', async () => {
     const wrapper = mountModal({ platform: 'antigravity' })
     const opencodeTab = wrapper.findAll('button').find((b) => b.text().includes('keys.useKeyModal.cliTabs.opencode'))
@@ -1166,5 +1192,24 @@ describe('Gemini image alias instructions', () => {
         : JSON.parse(JSON.parse(snippet.match(/payload = json.loads\((.*)\)/)![1]))
       expect(payload.generationConfig.responseModalities).toEqual(['TEXT', 'IMAGE'])
     }
+  })
+})
+
+
+describe('UseKeyModal shared Codex image authentication', () => {
+  it.each(['codex', 'codex-ws'])('offers native image mode and preserves legacy setup for %s', async (client) => {
+    const wrapper = mount(UseKeyGuide, { props: { apiKey: 'sk-test', baseUrl: 'https://example.com', platform: 'openai', selectedClient: 'codex', selectedTransport: client === 'codex-ws' ? 'websocket' : 'http' }, global: { stubs: STUBS } })
+    expect(wrapper.findAll('pre code').map(block => block.text()).join('\n')).toContain('requires_openai_auth = true')
+    await wrapper.get('[data-testid="codex-auth-mode-api-key"]').trigger('click')
+    const code = wrapper.findAll('pre code').map(block => block.text()).join('\n')
+    expect(code).toContain('requires_openai_auth = false')
+    expect(code).toContain('experimental_bearer_token = "sk-test"')
+    expect(code).toContain('x-openai-actor-authorization')
+    expect(code).toContain('image_generation = true')
+    expect(code).toContain('web_search = "live"')
+    expect(code).not.toContain('"OPENAI_API_KEY"')
+    await wrapper.get('[data-testid="codex-auth-mode-legacy"]').trigger('click')
+    expect(wrapper.findAll('pre code').map(block => block.text()).join('\n')).toContain('"OPENAI_API_KEY": "sk-test"')
+    wrapper.unmount()
   })
 })

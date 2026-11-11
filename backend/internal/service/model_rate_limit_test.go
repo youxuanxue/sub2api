@@ -606,10 +606,10 @@ func TestIsModelRateLimited_AnthropicFableFamilyKey(t *testing.T) {
 }
 
 func TestAntigravityImageModelRateLimitStaysOffGeminiFamily(t *testing.T) {
-	imageKeys := antigravityModelRateLimitKeys("gemini-3.1-flash-image")
+	imageKeys := antigravityModelRateLimitKeys(nil, "gemini-3.1-flash-image")
 	require.Equal(t, []string{"gemini-3.1-flash-image"}, imageKeys)
 
-	textKeys := antigravityModelRateLimitKeys("gemini-3-flash-preview")
+	textKeys := antigravityModelRateLimitKeys(nil, "gemini-3-flash-preview")
 	require.Equal(t, []string{"gemini-3-flash-preview", antigravityGeminiModelRateLimitKey}, textKeys)
 
 	future := time.Now().Add(10 * time.Minute).Format(time.RFC3339)

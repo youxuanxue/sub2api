@@ -445,7 +445,7 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 	if account.IsPoolMode() {
 		// 池模式只跳过默认账号状态处理；管理员显式配置的临时不可调度规则仍应生效。
 		// 401 保留现有认证错误语义，避免改变重复 401 的升级行为。
-		if statusCode != http.StatusUnauthorized && s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
+		if tempUnschedRulesApply(account, statusCode, responseBody, tempUnschedulableModel(ctx, nil)) && s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
 			return ErrorPolicyTempUnscheduled
 		}
 		return ErrorPolicySkipped
@@ -464,7 +464,7 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // classifyGeminiLoopErrorPolicy 只判断重试循环该不该停，不写账号状态。
 // CheckErrorPolicy 会在判定临时不可调度时立刻落库；循环里再调一次，
 // 循环后的正式检查会把刚写下的 401 暂停当成「重复 401」升级成 error。
-func classifyGeminiLoopErrorPolicy(account *Account, statusCode int, responseBody []byte) ErrorPolicyResult {
+func classifyGeminiLoopErrorPolicy(account *Account, statusCode int, responseBody []byte, requestedModel ...string) ErrorPolicyResult {
 	if account == nil {
 		return ErrorPolicyNone
 	}
@@ -475,7 +475,7 @@ func classifyGeminiLoopErrorPolicy(account *Account, statusCode int, responseBod
 		return ErrorPolicySkipped
 	}
 	if account.IsPoolMode() {
-		if statusCode != http.StatusUnauthorized && len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0 {
+		if tempUnschedRulesApply(account, statusCode, responseBody, firstRequestedModel(requestedModel)) && len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0 {
 			return ErrorPolicyTempUnscheduled
 		}
 		return ErrorPolicySkipped
@@ -483,19 +483,20 @@ func classifyGeminiLoopErrorPolicy(account *Account, statusCode int, responseBod
 	if statusCode == 529 {
 		return ErrorPolicyMatched
 	}
-	if geminiLoopWouldTempUnschedule(account, statusCode, responseBody) {
+	if geminiLoopWouldTempUnschedule(account, statusCode, responseBody, requestedModel...) {
 		return ErrorPolicyTempUnscheduled
 	}
 	return ErrorPolicyNone
 }
 
-func geminiLoopWouldTempUnschedule(account *Account, statusCode int, responseBody []byte) bool {
+func geminiLoopWouldTempUnschedule(account *Account, statusCode int, responseBody []byte, requestedModel ...string) bool {
 	if account == nil || !account.IsTempUnschedulableEnabled() {
 		return false
 	}
 	if statusCode == http.StatusUnauthorized && account.Platform != PlatformAntigravity &&
 		wasTempUnschedByStatusCode(account.TempUnschedulableReason, statusCode) {
-		return false
+		matches := matchTempUnschedulableRules(account, statusCode, responseBody)
+		return len(matches) > 0 && tempUnschedHitUsesModelScope(account, matches[0].rule, firstRequestedModel(requestedModel), statusCode, responseBody)
 	}
 	return len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0
 }
@@ -1602,10 +1603,6 @@ func (s *RateLimitService) persistAnthropicFableWindowLimit(ctx context.Context,
 	if limit == nil {
 		return false
 	}
-	// 429 响应头本身携带最新的窗口用量（7d_oi utilization=1.0）。限流期内
-	// Fable 请求不再调度到该账号，若不在此处采样，7d F 进度条会冻结在
-	// 限流前的旧值直到窗口重置。
-	s.samplePassiveUsageFromHeaders(ctx, account, headers)
 	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, anthropicFableRateLimitKey, limit.resetAt, limit.reason); err != nil {
 		slog.Warn("anthropic_fable_window_rate_limit_set_failed",
 			"account_id", account.ID,
@@ -2011,12 +2008,11 @@ func findAnthropicNotFoundModel(text string) string {
 	return strings.Trim(match[1], " .,'\"`)")
 }
 
-// UpdateSessionWindow 从成功响应更新5h窗口状态
+// UpdateSessionWindow 从成功响应更新5h窗口状态并采样可用的额度窗口。
 func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Account, headers http.Header) {
 	status := headers.Get("anthropic-ratelimit-unified-5h-status")
 	if status == "" {
-		// Ultra setup-token 没有 5h 窗口，成功响应只带 7 日头。仍采样 7d，
-		// 不写 5h 窗口，也不清限流或 session_window_utilization。
+		// Ultra 等账号可能仅返回周窗口；不能因缺少 5h 状态而丢弃真实的 7d 用量。
 		s.samplePassiveUsageFromHeaders(ctx, account, headers)
 		return
 	}
@@ -2640,10 +2636,17 @@ func (s *RateLimitService) tryTempUnschedulable(ctx context.Context, account *Ac
 	if !account.IsTempUnschedulableEnabled() {
 		return false
 	}
+	matches := matchTempUnschedulableRules(account, statusCode, responseBody)
+	if len(matches) == 0 {
+		return false
+	}
+	modelKey := tempUnschedulableModel(ctx, requestedModel)
 	// 401 首次命中可临时不可调度（给 token 刷新窗口）；
 	// 若历史上已因 401 进入过临时不可调度，则本次应升级为 error（返回 false 交由默认错误逻辑处理）。
 	// Antigravity 跳过：其 401 由 applyErrorPolicy 的 temp_unschedulable_rules 自行控制，无需升级逻辑。
-	if statusCode == http.StatusUnauthorized && account.Platform != PlatformAntigravity {
+	// 模型级命中只冷却模型、不写账号级状态，不参与升级。
+	if statusCode == http.StatusUnauthorized && account.Platform != PlatformAntigravity &&
+		!tempUnschedHitUsesModelScope(account, matches[0].rule, modelKey, statusCode, responseBody) {
 		reason := account.TempUnschedulableReason
 		// 缓存可能没有 reason，从 DB 回退读取
 		if reason == "" {
@@ -2657,8 +2660,8 @@ func (s *RateLimitService) tryTempUnschedulable(ctx context.Context, account *Ac
 			return false
 		}
 	}
-	for _, match := range matchTempUnschedulableRules(account, statusCode, responseBody) {
-		if s.triggerTempUnschedulable(ctx, account, match.rule, match.ruleIndex, statusCode, match.matchedKeyword, responseBody, tempUnschedulableModel(ctx, requestedModel)) {
+	for _, match := range matches {
+		if s.triggerTempUnschedulable(ctx, account, match.rule, match.ruleIndex, statusCode, match.matchedKeyword, responseBody, modelKey) {
 			return true
 		}
 	}
@@ -2708,6 +2711,8 @@ func (s *RateLimitService) triggerTempUnschedulable(ctx context.Context, account
 
 	now := time.Now()
 	until := now.Add(time.Duration(rule.DurationMinutes) * time.Minute)
+	modelKey := firstRequestedModel(requestedModel)
+	modelScoped := tempUnschedHitUsesModelScope(account, rule, modelKey, statusCode, responseBody)
 
 	state := &TempUnschedState{
 		UntilUnix:       until.Unix(),
@@ -2716,6 +2721,11 @@ func (s *RateLimitService) triggerTempUnschedulable(ctx context.Context, account
 		MatchedKeyword:  matchedKeyword,
 		RuleIndex:       ruleIndex,
 		ErrorMessage:    truncateTempUnschedMessage(responseBody, tempUnschedMessageMaxBytes),
+		Scope:           TempUnschedScopeAccount,
+	}
+	if modelScoped {
+		state.Scope = TempUnschedScopeModel
+		state.Model = modelKey
 	}
 
 	reason := ""
@@ -2726,18 +2736,16 @@ func (s *RateLimitService) triggerTempUnschedulable(ctx context.Context, account
 		reason = strings.TrimSpace(state.ErrorMessage)
 	}
 
-	// Persist known-model failures under the model key so the scheduler excludes
-	// only this (account, model) pair. Authentication and model-unknown failures
-	// retain the legacy account-wide temporary-unschedulable behavior below.
-	modelKey := firstRequestedModel(requestedModel)
-	if modelKey != "" && statusCode != http.StatusUnauthorized {
+	// Persist model-scoped hits under the model key so the scheduler excludes
+	// only this (account, model) pair; every other hit pauses the whole account below.
+	if modelScoped {
 		if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelKey, until, reason); err != nil {
 			slog.Warn("temp_unsched_model_rate_limit_set_failed", "account_id", account.ID, "model", modelKey, "error", err)
 			// The rule matched, so fail over the current request even if persistence
 			// failed; never widen a model-scoped failure into an account-wide block.
 			return true
 		}
-		slog.Info("account_model_temp_unschedulable", "account_id", account.ID, "model", modelKey, "until", until, "rule_index", ruleIndex, "status_code", statusCode)
+		slog.Info("account_model_temp_unschedulable", "account_id", account.ID, "model", modelKey, "until", until, "rule_index", ruleIndex, "rule_scope", rule.Scope, "status_code", statusCode)
 		return true
 	}
 
@@ -2753,7 +2761,7 @@ func (s *RateLimitService) triggerTempUnschedulable(ctx context.Context, account
 		}
 	}
 
-	slog.Info("account_temp_unschedulable", "account_id", account.ID, "until", until, "rule_index", ruleIndex, "status_code", statusCode)
+	slog.Info("account_temp_unschedulable", "account_id", account.ID, "until", until, "rule_index", ruleIndex, "rule_scope", rule.Scope, "status_code", statusCode)
 	return true
 }
 

@@ -76,7 +76,7 @@ func (s *defaultOpenAIAccountScheduler) openAICandidatesBeforeWindow(ctx context
 		// require_privacy_set is a group-scoped eligibility gate. Do not mutate the
 		// shared account: another group may intentionally allow accounts whose
 		// upstream privacy setting has not been confirmed.
-		if schedGroup != nil && schedGroup.RequirePrivacySet && !account.IsPrivacySet() {
+		if (req.RequirePrivacySet || (schedGroup != nil && schedGroup.RequirePrivacySet)) && !account.IsPrivacySet() {
 			filterStats.exclude("privacy_not_set")
 			continue
 		}

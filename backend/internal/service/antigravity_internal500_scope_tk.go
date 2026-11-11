@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 )
 
 // INTERNAL 500 ("Internal error encountered.", status INTERNAL) is a transient
@@ -37,7 +39,11 @@ func (s *AntigravityGatewayService) handleInternal500ForModel(
 		s.handleInternal500RetryExhausted(ctx, prefix, account)
 		return
 	}
-	until := time.Now().Add(antigravityInternal500ModelCooldown)
+	cooldown := antigravityInternal500ModelCooldown
+	if antigravity.IsImageModel(modelKey) {
+		cooldown = internal500ImageCooldown()
+	}
+	until := time.Now().Add(cooldown)
 	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelKey, until, antigravityInternal500ModelCooldownReason); err != nil {
 		slog.Error("internal500_model_cooldown_failed",
 			"prefix", prefix, "account_id", account.ID, "model", modelKey, "error", err)
@@ -46,5 +52,5 @@ func (s *AntigravityGatewayService) handleInternal500ForModel(
 	s.updateAccountModelRateLimitInCache(ctx, account, modelKey, until)
 	slog.Info("internal500_model_cooldown",
 		"account_id", account.ID, "account_name", account.Name, "model", modelKey,
-		"duration", antigravityInternal500ModelCooldown)
+		"duration", cooldown)
 }

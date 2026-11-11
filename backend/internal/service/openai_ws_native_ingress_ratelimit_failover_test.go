@@ -22,7 +22,7 @@ func TestOpenAIWSNativeIngressRateLimit_LaterTurnRetriesCurrentTurnNotFirstPacke
 	cause := &UpstreamFailoverError{StatusCode: http.StatusTooManyRequests, ResponseBody: []byte(`{"error":{"type":"rate_limit_error"}}`)}
 
 	err := openAIWSNativeIngressRateLimitFailoverError(2, cause, identity, fullInput, true, "gpt-5.6-sol")
-	kept := openAIWSIngressRelayResultError(err)
+	kept := openAIWSNativeIngressFinalizeFailover(2, openAIWSIngressRelayResultError(err))
 	dialErr := fmt.Errorf("acquire upstream websocket: %w", err)
 
 	for _, candidate := range []error{err, kept, dialErr} {
@@ -131,4 +131,12 @@ func jsonRawMessages(items ...string) []json.RawMessage {
 		out[i] = json.RawMessage(item)
 	}
 	return out
+}
+
+func TestOpenAIWSNativeIngressRateLimit_FinalizePlainLaterTurnFailsClosed(t *testing.T) {
+	cause := &UpstreamFailoverError{StatusCode: http.StatusBadGateway}
+	payload, current := OpenAIWSCurrentTurnRetryPayload(openAIWSNativeIngressFinalizeFailover(2, cause))
+	require.True(t, current)
+	require.Empty(t, payload)
+	require.Same(t, cause, openAIWSNativeIngressFinalizeFailover(1, cause))
 }

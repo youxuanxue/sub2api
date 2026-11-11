@@ -411,7 +411,7 @@ type TestConnectionImage struct {
 	Data     string // raw base64 without data: URL prefix
 }
 
-const antigravityConnectionTestMaxOutputTokens = 64
+const antigravityConnectionTestMaxOutputTokens = antigravityTestMaxOutputTokens
 
 // TestConnection 测试 Antigravity 账号连接。
 // 复用 antigravityRetryLoop 的重试路径，但 readOnlyAccountState=true：不写限流 /
@@ -449,7 +449,7 @@ func (s *AntigravityGatewayService) TestConnectionWithPrompt(ctx context.Context
 	if strings.HasPrefix(modelID, "gemini-") || antigravity.IsImageModel(mappedModel) {
 		requestBody, err = s.buildGeminiTestRequest(projectID, mappedModel, prompt)
 	} else {
-		requestBody, err = s.buildClaudeTestRequest(projectID, mappedModel)
+		requestBody, err = s.buildClaudeTestRequest(projectID, mappedModel, prompt)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("构建请求失败: %w", err)
@@ -586,23 +586,36 @@ func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model, pro
 		"generationConfig": map[string]any{
 			"maxOutputTokens": antigravityConnectionTestMaxOutputTokens,
 		},
+		"toolConfig": map[string]any{
+			"functionCallingConfig": map[string]any{
+				"mode": "VALIDATED",
+			},
+		},
 	}
 	payloadBytes, _ := json.Marshal(payload)
 	return s.wrapV1InternalRequest(projectID, model, payloadBytes)
 }
 
 // buildClaudeTestRequest 构建 Claude 格式测试请求并转换为 Gemini 格式
-// 使用最小 token 消耗：输入 "." + MaxTokens: 1
-func (s *AntigravityGatewayService) buildClaudeTestRequest(projectID, mappedModel string) ([]byte, error) {
+// 与其他平台一致：发送管理员输入的提示词（默认 "hi"），留出足够的输出 token 以便模型回答。
+func (s *AntigravityGatewayService) buildClaudeTestRequest(projectID, mappedModel, prompt string) ([]byte, error) {
+	textPrompt := strings.TrimSpace(prompt)
+	if textPrompt == "" {
+		textPrompt = defaultGeminiTextTestPrompt
+	}
+	content, err := json.Marshal(textPrompt)
+	if err != nil {
+		return nil, err
+	}
 	claudeReq := &antigravity.ClaudeRequest{
 		Model: mappedModel,
 		Messages: []antigravity.ClaudeMessage{
 			{
 				Role:    "user",
-				Content: json.RawMessage(`"."`),
+				Content: json.RawMessage(content),
 			},
 		},
-		MaxTokens: 1,
+		MaxTokens: antigravityTestMaxOutputTokens,
 		Stream:    false,
 	}
 	return antigravity.TransformClaudeToGemini(claudeReq, projectID, mappedModel)
@@ -887,3 +900,6 @@ func (s *AntigravityGatewayService) unwrapV1InternalResponse(body []byte) ([]byt
 	}
 	return body, nil
 }
+
+// Allow thinking models enough room to answer the administrator test prompt.
+const antigravityTestMaxOutputTokens = 256

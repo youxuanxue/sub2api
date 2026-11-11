@@ -44,7 +44,7 @@ func TestOpenAIStreamCapacityRuleCoolsOnlyKnownModel(t *testing.T) {
 					require.Equal(t, []string{tc.model}, repo.modelRateLimitScopes)
 					require.Contains(t, repo.modelRateLimitReasons[0], "server_is_overloaded")
 					require.False(t, err.RetryableOnSameAccount, "the matched model is cooling, switch accounts immediately")
-					require.False(t, err.RequestScopedTransient)
+					require.True(t, err.RequestScopedTransient, "model cooldown must not enable generic account blocking")
 				} else {
 					require.Empty(t, repo.modelRateLimitScopes)
 					require.True(t, err.RetryableOnSameAccount)

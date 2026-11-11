@@ -279,14 +279,18 @@ gateway:
   # NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX in ops/stage0/first_output_timeout_ssot.py.
   # Grok text Responses first-byte timeout (seconds, 0=inherit stream_first_output SSOT, max 60)
   grok_response_header_timeout: 0
+  # Opt out of fixed OpenAI transport-error account cooldown (does not clear existing pauses).
+  disable_openai_transport_error_cooldown: false
   # Max request body size in bytes (default: 256MB)
   # 请求体最大字节数（默认 256MB）
   max_body_size: 268435456
   # Per-instance ingress allocation budget. Unreferenced intermediates are released after each phase.
   # Final bodies (and still-referenced preread buffers) remain charged until the handler returns.
   # Include all concurrent long-lived requests and upload/decode workspace; see EDGE_SECURITY.md.
-  # 实例级请求体分配预算；超出返回 503 + Retry-After，0 禁用。按容器内存预留业务/GC空间。
-  request_body_memory_budget_bytes: 1073741824
+  # Unset (default): 1/4 of the memory limit (min of RAM, cgroup limit, GOMEMLIMIT), at least 1 GiB.
+  # 实例级请求体分配预算；超出返回 503 + Retry-After，0 禁用。
+  # 不配置时自动取内存上限（物理内存/cgroup 限额/GOMEMLIMIT 的最小值）的 1/4，最低 1GiB；显式配置后不再自适应。
+  # request_body_memory_budget_bytes: 1073741824
   # Individual socket read/write idle deadlines, not the entire SSE lifetime; 0 disables.
   # 上传单次读取、下游单次写入/flush 超时（秒），不会限制正常长流的总时长；0 禁用。
   request_body_read_timeout_seconds: 120

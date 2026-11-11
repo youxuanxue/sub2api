@@ -495,3 +495,19 @@ func (s *OpenAIGatewayService) openAIWSAcquireTimeout() time.Duration {
 	}
 	return dial + 2*time.Second
 }
+
+// openAIWSNativeIngressFinalizeFailover preserves an explicitly rebuilt current
+// turn. Plain later-turn failures cannot safely replay the first client packet.
+func openAIWSNativeIngressFinalizeFailover(turn int, err error) error {
+	if turn <= 1 {
+		return err
+	}
+	if _, current := OpenAIWSCurrentTurnRetryPayload(err); current {
+		return err
+	}
+	var failover *UpstreamFailoverError
+	if errors.As(err, &failover) {
+		return newOpenAIWSCurrentTurnFailoverError(err, nil)
+	}
+	return err
+}

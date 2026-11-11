@@ -193,7 +193,7 @@ func TestOpenAICapacityRetryAfter_EnabledRuleKeepsItsOwnCooldown(t *testing.T) {
 	)
 
 	require.False(t, err.RetryableOnSameAccount, "the matched model rule still switches accounts immediately")
-	require.False(t, err.RequestScopedTransient)
+	require.True(t, err.RequestScopedTransient, "model cooldown must not trigger outer account penalties")
 	require.Len(t, repo.modelCalls, 1, "retry-after must not add a second, longer cooldown")
 	require.Equal(t, "gpt-5.4", repo.modelCalls[0].scope)
 	require.NotEqual(t, openAICapacityRetryAfterModelCooldownReason, repo.modelCalls[0].reason)

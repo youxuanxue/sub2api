@@ -23,9 +23,9 @@ type CyberSessionBlockStore interface {
 	FindCyberSessionBlocked(ctx context.Context, keys []string) (string, error)
 }
 
-// CyberSessionBlock is one cyber hit to persist. Keys are exact block keys.
-// TranscriptLengths records the history length of each transcript key and,
-// like ScopeKey, is only meaningful for transcript matching.
+// CyberSessionBlock is one cyber hit to persist. Keys are exact block keys;
+// TranscriptLengths records the history length of each transcript key among
+// them and, like ScopeKey, is only meaningful for transcript matching.
 type CyberSessionBlock struct {
 	APIKeyID          int64
 	ScopeKey          string

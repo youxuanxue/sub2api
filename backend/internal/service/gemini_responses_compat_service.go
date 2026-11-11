@@ -88,7 +88,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
 	}
 
-	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
+	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody, mappedModel)
 	if err != nil {
 		return nil, s.writeResponsesCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}

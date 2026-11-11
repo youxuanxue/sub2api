@@ -149,3 +149,24 @@ test('registration rechecks changed email requirements before submitting', async
   await page.locator('button[type="submit"]').click()
   await expect(page).toHaveURL(/\/quickstart\?.*client=qwen-code/)
 })
+
+for (const width of [1440, 390]) {
+  test(`Codex native image authentication is selectable without losing standard setup at ${width}px`, async ({ page }) => {
+    const { calls } = await fixture(page)
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/quickstart?client=codex-cli')
+    const workspace = page.locator('[data-tk="quickstart-config-workspace"]')
+    await expect(workspace).toContainText('requires_openai_auth = true')
+    await page.getByTestId('codex-auth-mode-api-key').click()
+    await expect(workspace).toContainText('requires_openai_auth = false')
+    await expect(workspace).toContainText('experimental_bearer_token')
+    await expect(workspace).toContainText('image_generation = true')
+    await expect(workspace).toContainText('web_search = "live"')
+    await expect(workspace).not.toContainText('"OPENAI_API_KEY"')
+    await page.getByTestId('codex-auth-mode-legacy').click()
+    await expect(workspace).toContainText('"OPENAI_API_KEY"')
+    expect(calls.filter(call => call.includes('gateway'))).toEqual([])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
+    await page.screenshot({ path: test.info().outputPath('codex-image-auth.png'), fullPage: true })
+  })
+}

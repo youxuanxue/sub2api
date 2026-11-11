@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,20 @@ import (
 )
 
 type upstreamContextTestKey string
+
+type keepaliveTestRecorder struct {
+	*httptest.ResponseRecorder
+	ping chan struct{}
+	once sync.Once
+}
+
+func (r *keepaliveTestRecorder) Write(p []byte) (int, error) {
+	n, err := r.ResponseRecorder.Write(p)
+	if strings.Contains(r.Body.String(), "event: ping") {
+		r.once.Do(func() { close(r.ping) })
+	}
+	return n, err
+}
 
 func newStreamingResponseTestGatewayService() *GatewayService {
 	return &GatewayService{
@@ -61,7 +76,7 @@ func TestGatewayService_StreamingKeepaliveUsesIdleTimer(t *testing.T) {
 	svc := newStreamingResponseTestGatewayService()
 	svc.cfg.Gateway.StreamKeepaliveInterval = 1
 
-	rec := httptest.NewRecorder()
+	rec := &keepaliveTestRecorder{ResponseRecorder: httptest.NewRecorder(), ping: make(chan struct{})}
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
@@ -71,7 +86,10 @@ func TestGatewayService_StreamingKeepaliveUsesIdleTimer(t *testing.T) {
 	go func() {
 		defer func() { _ = pw.Close() }()
 		_, _ = pw.Write([]byte("data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n"))
-		time.Sleep(1100 * time.Millisecond)
+		select {
+		case <-rec.ping:
+		case <-time.After(10 * time.Second):
+		}
 		_, _ = pw.Write([]byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
 	}()
 

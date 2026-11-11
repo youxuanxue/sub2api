@@ -2,12 +2,51 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+// GLM 5.2 accepts disabled thinking; GLM 5.3 requires at least low.
+func TestGLMReasoningEffortPolicyAfterNativeNormalization(t *testing.T) {
+	for _, model := range []string{"glm-5.2", "glm-5.3"} {
+		for _, field := range []string{`"reasoning":{"effort":"%s"}`, `"reasoning_effort":"%s"`} {
+			for _, effort := range []string{"none", "minimal"} {
+				for _, ceiling := range []string{"minimal", "low"} {
+					for _, overLimit := range []string{ReasoningEffortOverLimitDowngrade, ReasoningEffortOverLimitDeny} {
+						t.Run(model+"/"+field+"/"+effort+"/"+ceiling+"/"+overLimit, func(t *testing.T) {
+							body := []byte(fmt.Sprintf(`{"model":%q,`+field+`}`, model, effort))
+							ctx := WithOpenAIReasoningEffortPolicy(context.Background(), ceiling, nil, overLimit)
+							normalized, normalizationChanged := NormalizeGLMOpenAIReasoningEffort(body, model)
+							require.Equal(t, model == "glm-5.3", normalizationChanged)
+							got, changed, err := ApplyOpenAIReasoningEffortPolicyFromContext(ctx, normalized)
+							if model == "glm-5.2" {
+								require.NoError(t, err)
+								require.False(t, changed)
+								require.Equal(t, body, got)
+								return
+							}
+							require.JSONEq(t, fmt.Sprintf(`{"model":%q,`+field+`}`, model, "low"), string(normalized))
+							if ceiling == "minimal" && overLimit == ReasoningEffortOverLimitDeny {
+								var denied *ReasoningEffortOverLimitError
+								require.ErrorAs(t, err, &denied)
+								require.Equal(t, "low", denied.Requested)
+								require.Equal(t, "minimal", denied.Max)
+								return
+							}
+							require.NoError(t, err)
+							require.Equal(t, ceiling == "minimal", changed)
+							require.JSONEq(t, fmt.Sprintf(`{"model":%q,`+field+`}`, model, ceiling), string(got))
+						})
+					}
+				}
+			}
+		}
+	}
+}
 
 func TestCanonicalRequestedReasoningEffort(t *testing.T) {
 	t.Parallel()

@@ -192,7 +192,7 @@
           @select-all-results="handleSelectAllResults"
           @toggle-schedulable="handleBulkToggleSchedulable"
         />
-        <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden" :aria-busy="loading" :inert="loading && accounts.length > 0">
         <!-- 列宽由 column.width 固定（table-layout: fixed），虚拟窗口滚动不会改列宽，
              因此行高只取决于该行自己的内容。overscan 保持一小段，避免整页 100 行同时挂载。 -->
         <DataTable
@@ -200,7 +200,7 @@
           fluid
           :columns="cols"
           :data="accounts"
-          :loading="loading"
+          :loading="loading && accounts.length === 0"
           row-key="id"
           :server-side-sort="true"
           :sticky-edge-hints="false"
@@ -334,6 +334,7 @@
               :today-stats-loading="todayStatsLoading"
               :manual-refresh-token="usageManualRefreshToken"
               :usage-override="accountUsageOverrideFor(row)"
+              :usage-loading-override="accountUsageBatchLoading"
               @account-updated="handleAccountUpdated"
             />
           </template>
@@ -877,7 +878,7 @@ const usageManualRefreshToken = ref(0)
 // TK: batch passive-usage for the list, replacing the per-row /usage fan-out for
 // Anthropic / OpenAI OAuth / Kiro rows. The cell renders usageOverrideFor(row) and
 // never self-fetches when an override is present (see useTkAccountUsageBatch).
-const { usageOverrideFor: accountUsageOverrideFor, refreshUsageBatch } = useTkAccountUsageBatch()
+const { usageOverrideFor: accountUsageOverrideFor, refreshUsageBatch, usageLoading: accountUsageBatchLoading } = useTkAccountUsageBatch()
 
 const refreshAccountRowMetrics = (refreshTodayStats = true) => {
   const rows = accounts.value.slice()
