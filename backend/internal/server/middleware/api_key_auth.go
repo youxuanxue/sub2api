@@ -549,6 +549,9 @@ func isTokenKeyVideoTaskRead(method, path string) bool {
 		return false
 	}
 	for _, root := range []string{
+		"/api/v3/contents/generations/tasks/",
+		"/v3/contents/generations/tasks/",
+		"/contents/generations/tasks/",
 		"/video/generations/",
 		"/videos/generations/",
 		"/videos/edits/",

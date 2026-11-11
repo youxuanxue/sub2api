@@ -46,7 +46,10 @@ func (h *GatewayHandler) GeminiImageGenerations(c *gin.Context) {
 
 // Buffer only this non-streaming facade; Flush must not commit the native
 // response before it has been converted to the Images envelope.
-type geminiImagesWriter struct {
+type geminiImagesWriter = bufferedJSONWriter
+
+// bufferedJSONWriter captures non-streaming protocol facades before projection.
+type bufferedJSONWriter struct {
 	gin.ResponseWriter
 	headers   http.Header
 	body      bytes.Buffer
@@ -58,14 +61,14 @@ type geminiImagesWriter struct {
 
 const maxGeminiImagesResponseBytes = 32 << 20
 
-func (w *geminiImagesWriter) Header() http.Header { return w.headers }
-func (w *geminiImagesWriter) WriteHeader(status int) {
+func (w *bufferedJSONWriter) Header() http.Header { return w.headers }
+func (w *bufferedJSONWriter) WriteHeader(status int) {
 	if !w.written {
 		w.status = status
 	}
 }
-func (w *geminiImagesWriter) WriteHeaderNow() { w.written = true }
-func (w *geminiImagesWriter) Write(b []byte) (int, error) {
+func (w *bufferedJSONWriter) WriteHeaderNow() { w.written = true }
+func (w *bufferedJSONWriter) Write(b []byte) (int, error) {
 	w.written = true
 	if w.body.Len()+len(b) > maxGeminiImagesResponseBytes {
 		w.overflow = true
@@ -73,16 +76,16 @@ func (w *geminiImagesWriter) Write(b []byte) (int, error) {
 	}
 	return w.body.Write(b)
 }
-func (w *geminiImagesWriter) WriteString(s string) (int, error) { return w.Write([]byte(s)) }
-func (w *geminiImagesWriter) Flush()                            { w.WriteHeaderNow() }
-func (w *geminiImagesWriter) Status() int                       { return w.status }
-func (w *geminiImagesWriter) Size() int {
+func (w *bufferedJSONWriter) WriteString(s string) (int, error) { return w.Write([]byte(s)) }
+func (w *bufferedJSONWriter) Flush()                            { w.WriteHeaderNow() }
+func (w *bufferedJSONWriter) Status() int                       { return w.status }
+func (w *bufferedJSONWriter) Size() int {
 	if !w.written {
 		return -1
 	}
 	return w.body.Len()
 }
-func (w *geminiImagesWriter) Written() bool { return w.written }
+func (w *bufferedJSONWriter) Written() bool { return w.written }
 
 func writeGeminiImagesResponse(c *gin.Context, w *geminiImagesWriter) {
 	if requestID := w.headers.Get("X-Request-Id"); requestID != "" {

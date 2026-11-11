@@ -15,6 +15,11 @@ var ErrCandidatePolicyConflict = errors.New("candidate has conflicting authorize
 // selectCandidateBillingOrigin receives legal origins for one account in one
 // payment tier. Price only selects its accounting origin, never an account.
 func selectCandidateBillingOrigin(ctx context.Context, userID int64, account *Account, groups []Group, model string, shape UniversalShape, channels *ChannelService, rates *userGroupRateResolver, accounts AccountRepository) (*Group, error) {
+	// Native Ark accounts settle actual completion tokens; bridge accounts use
+	// the existing per-second video policy, including origin equivalence.
+	if shape == ShapeSeedance && account != nil && account.Platform == PlatformNewAPI {
+		shape = ShapeOpenAIVideo
+	}
 	if len(groups) == 0 {
 		return nil, ErrUniversalNoEntitledGroup
 	}

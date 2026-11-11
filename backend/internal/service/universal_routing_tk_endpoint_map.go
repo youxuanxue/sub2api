@@ -32,6 +32,7 @@ const (
 	ShapeGemini                                     // POST /v1beta/models/{model}:action
 	ShapeOpenAIAudioSpeech
 	ShapeOpenAIAudioTranscription
+	ShapeSeedance // Ark-native task protocol; raw Ark or the shared video bridge.
 )
 
 // UniversalShapeForRequest 由 gin 路由模式（c.FullPath()，handler 前即稳定可得）+ HTTP 方法
@@ -40,6 +41,8 @@ func UniversalShapeForRequest(fullPath, method string) UniversalShape {
 	p := fullPath
 	isPost := strings.EqualFold(method, http.MethodPost)
 	switch {
+	case strings.Contains(p, "/contents/generations/tasks"):
+		return ShapeSeedance
 	case isPost && strings.HasSuffix(p, "/audio/speech"):
 		return ShapeOpenAIAudioSpeech
 	case isPost && strings.HasSuffix(p, "/audio/transcriptions"):
@@ -172,6 +175,8 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 			out = append(out, PlatformGrok)
 		}
 		return out
+	case ShapeSeedance:
+		return capabilityPlatforms(engine.BridgeEndpointVideoSubmit)
 	case ShapeGemini:
 		// Native Gemini requests can also be served by Vertex service accounts
 		// represented as newapi ch41. Account-level shape/model checks below keep

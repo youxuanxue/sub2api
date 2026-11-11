@@ -231,6 +231,9 @@ func universalOpenAICompatMappingHonorsPlatformHint(account *Account, model stri
 
 func universalOpenAICompatAccountSupportsShape(account *Account, shape UniversalShape) bool {
 	switch shape {
+	case ShapeSeedance:
+		return account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilitySeedance) ||
+			(account.Platform == PlatformNewAPI && accountSupportsOpenAIVideoCapability(account))
 	case ShapeOpenAIAudioSpeech:
 		return SupportsNativeAudioSpeech(account)
 	case ShapeOpenAIAudioTranscription:
