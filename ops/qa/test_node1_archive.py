@@ -151,6 +151,7 @@ class ArchiveProgressTest(unittest.TestCase):
                 self.assertEqual(archive.run(args), 0)
             summary = json.loads(stdout.getvalue())
             self.assertEqual(summary['removed_staging'], ['.push-2026111011-80t9evow'])
+            self.assertEqual(summary['staging_cleanup_failed'], [])
             self.assertFalse(stale.exists())
             # A run may overlap a manual one, so recent staging is left alone,
             # and only directories named by push_hour are ever touched.
@@ -161,7 +162,30 @@ class ArchiveProgressTest(unittest.TestCase):
 
     def test_orphan_cleanup_tolerates_a_missing_root(self):
         with tempfile.TemporaryDirectory() as directory:
-            self.assertEqual(archive.remove_orphan_staging(Path(directory) / 'absent'), [])
+            self.assertEqual(archive.remove_orphan_staging(Path(directory) / 'absent'), ([], []))
+
+    def test_a_staging_dir_that_cannot_be_removed_does_not_stop_archiving(self):
+        hour = dt.datetime(2026, 11, 11, 6, tzinfo=dt.timezone.utc)
+        with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as node1:
+            stale = Path(node1) / '.push-2026111011-stuck'
+            stale.mkdir()
+            old = time.time() - 3 * 3600
+            os.utime(stale, (old, old))
+            directory = Path(source) / 'qa_blobs' / hour.strftime(archive.HOUR)
+            directory.mkdir(parents=True)
+            (directory / 'one.bin').write_bytes(b'payload')
+            args = argparse.Namespace(source_root=source, node1_root=node1, environment='prod',
+                                      before='2026-11-11T08:00:00Z', remote_target='')
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr), \
+                 mock.patch.object(archive.shutil, 'rmtree', side_effect=PermissionError('denied')):
+                self.assertEqual(archive.run(args), 0)
+            summary = json.loads(stdout.getvalue())
+            self.assertEqual(len(summary['completed']), 1)
+            self.assertEqual(summary['removed_staging'], [])
+            self.assertEqual([f['name'] for f in summary['staging_cleanup_failed']],
+                             ['.push-2026111011-stuck'])
+            self.assertIn('qa_archive_staging_cleanup_failed', stderr.getvalue())
 
     def test_staging_pattern_matches_the_names_push_hour_creates(self):
         hour = dt.datetime(2026, 11, 10, 11, tzinfo=dt.timezone.utc)

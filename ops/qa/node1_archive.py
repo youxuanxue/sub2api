@@ -499,23 +499,33 @@ STAGING_PATTERN = re.compile(r"^\.push-\d{10}-[A-Za-z0-9_]+$")
 STAGING_MAX_AGE = dt.timedelta(hours=2)
 
 
-def remove_orphan_staging(receipt_root: Path, now: float | None = None) -> list[str]:
-    """Delete stale push staging directories; return the removed names."""
+def remove_orphan_staging(receipt_root: Path, now: float | None = None) -> tuple[list[str], list[dict]]:
+    """Delete stale push staging directories.
+
+    Returns (removed names, failures). A failure is reported, not raised: the
+    hours still need archiving, and the cleanup gate depends on their receipts.
+    """
     now = time.time() if now is None else now
-    removed = []
+    removed, failed = [], []
     try:
         entries = list(receipt_root.iterdir())
     except FileNotFoundError:
-        return removed
+        return removed, failed
     for entry in entries:
         if not STAGING_PATTERN.match(entry.name):
             continue
-        info = entry.lstat()
-        if not stat.S_ISDIR(info.st_mode) or now - info.st_mtime < STAGING_MAX_AGE.total_seconds():
+        try:
+            info = entry.lstat()
+            if not stat.S_ISDIR(info.st_mode) or now - info.st_mtime < STAGING_MAX_AGE.total_seconds():
+                continue
+            shutil.rmtree(entry)
+        except OSError as exc:
+            failed.append({"name": entry.name, "error": f"{type(exc).__name__}: {exc}"})
+            print(json.dumps({"event": "qa_archive_staging_cleanup_failed", "name": entry.name,
+                              "error": type(exc).__name__}, sort_keys=True), file=sys.stderr)
             continue
-        shutil.rmtree(entry)
         removed.append(entry.name)
-    return sorted(removed)
+    return sorted(removed), failed
 
 
 def run(args: argparse.Namespace) -> int:
@@ -527,7 +537,7 @@ def run(args: argparse.Namespace) -> int:
     if args.before:
         before = dt.datetime.fromisoformat(args.before.replace("Z", "+00:00"))
     selected = hours_to_copy(source, hour_start(before))
-    removed_staging = remove_orphan_staging(node1)
+    removed_staging, staging_failures = remove_orphan_staging(node1)
 
     # node1_root is the receipt root in both modes. In remote mode the payload
     # goes to node1 over SSH while receipts stay local, because the cleanup
@@ -543,7 +553,7 @@ def run(args: argparse.Namespace) -> int:
     result = {"schema_version": SCHEMA, "ok": True, "environment": args.environment,
               "transport": "ssh-tar" if remote else "local-copy",
               "selected_hours": [h.isoformat() for h in selected], "completed": [], "failed": [],
-              "removed_staging": removed_staging}
+              "removed_staging": removed_staging, "staging_cleanup_failed": staging_failures}
     for hour in selected:
         started = time.monotonic()
         log_progress(args.environment, hour, "start")
