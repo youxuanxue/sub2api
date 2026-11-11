@@ -908,6 +908,15 @@ func (s *OpenAIGatewayService) buildOpenAIImagesRequest(
 	if baseURL == "" {
 		baseURL = newAPIOpenAIImageEditsBaseURL(account)
 	}
+	if baseURL == "" && account != nil && account.Platform == PlatformNewAPI {
+		// A later selection can replace the OpenAI-channel account that passed
+		// the route gate. Do not send that newapi key to api.openai.com.
+		return nil, &UpstreamFailoverError{
+			StatusCode: http.StatusBadGateway,
+			Scope:      GatewayFailureScopeAccount,
+			Reason:     "newapi_image_upstream_unsupported",
+		}
+	}
 	if baseURL != "" {
 		validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 		if err != nil {
