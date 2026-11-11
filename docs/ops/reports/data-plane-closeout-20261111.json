@@ -1,0 +1,688 @@
+{
+  "observed_date": "2026-11-11",
+  "base_commit": "e4849f54306655875fe099a8d524aefa66891a26",
+  "restore": {
+    "prod": {
+      "completed_at": 1794367409.294569,
+      "duration_seconds": 980.826,
+      "historical_schema_baseline": null,
+      "host_role": "prod-data",
+      "reasons": null,
+      "repo": 2,
+      "schema_version": 1,
+      "stanza": "tokenkey",
+      "started_at": 1794366428.468625,
+      "status": "ok",
+      "timeline": "00000004",
+      "points": [
+        {
+          "data": {
+            "accounts": 528,
+            "actual_cost_sum": "74924.365845",
+            "api_keys": 516,
+            "cost_sum": "312556.403883",
+            "db_size_bytes": 21903611583,
+            "usage_logs": 9580737,
+            "window_billing_dedup": 139271,
+            "window_end": "2026-11-10T01:00:00Z",
+            "window_start": "2026-11-08T03:00:00Z",
+            "window_usage_logs": 139271
+          },
+          "label": "20261110-013449F",
+          "phase": "historical",
+          "problems": [],
+          "recovery_seconds": 4.607,
+          "restore_seconds": 398.063,
+          "window_reference": {
+            "window_billing_dedup": 139271,
+            "window_end": "2026-11-10T01:00:00Z",
+            "window_start": "2026-11-08T03:00:00Z",
+            "window_usage_logs": 139271
+          },
+          "schema": {
+            "fkeys": 97,
+            "pkeys": 185,
+            "sequences": 85,
+            "tables": 130
+          }
+        },
+        {
+          "data": {
+            "accounts": 544,
+            "actual_cost_sum": "76353.619677",
+            "api_keys": 517,
+            "cost_sum": "318490.282126",
+            "db_size_bytes": 22299760319,
+            "usage_logs": 9689870,
+            "window_billing_dedup": 248729,
+            "window_end": "2026-11-11T02:00:00Z",
+            "window_start": "2026-11-08T03:00:00Z",
+            "window_usage_logs": 248729
+          },
+          "label": "20261110-013449F_20261111-023004I",
+          "phase": "latest",
+          "problems": [],
+          "recovery_seconds": 2.501,
+          "restore_seconds": 394.829,
+          "window_reference": {
+            "window_billing_dedup": 248729,
+            "window_end": "2026-11-11T02:00:00Z",
+            "window_start": "2026-11-08T03:00:00Z",
+            "window_usage_logs": 248729
+          },
+          "schema": {
+            "fkeys": 97,
+            "pkeys": 185,
+            "sequences": 85,
+            "tables": 130
+          }
+        }
+      ]
+    },
+    "cn-prod": {
+      "completed_at": 1794366678.495748,
+      "duration_seconds": 278.107,
+      "historical_schema_baseline": {
+        "historical_extra_constraints": {
+          "billing_usage_entries.billing_usage_entries_usage_log_id_fkey": {
+            "definition": "FOREIGN KEY (usage_log_id) REFERENCES usage_logs(id) ON DELETE CASCADE",
+            "type": "f"
+          },
+          "usage_logs.usage_logs_pkey": {
+            "definition": "PRIMARY KEY (id)",
+            "type": "p"
+          }
+        },
+        "label": "20261110-013338F",
+        "reference": "docs/approved/design-data-plane-split.md (cn-prod usage_logs daily partition conversion, PR #3129); exact constraint diff verified by isolated restore 2026-11-11",
+        "timeline": "00000002"
+      },
+      "host_role": "cn-prod-data",
+      "reasons": null,
+      "repo": 2,
+      "schema_version": 1,
+      "stanza": "tokenkey",
+      "started_at": 1794366400.3887239,
+      "status": "ok",
+      "timeline": "00000002",
+      "points": [
+        {
+          "data": {
+            "accounts": 211,
+            "actual_cost_sum": "11244.711141",
+            "api_keys": 113,
+            "cost_sum": "33341.529969",
+            "db_size_bytes": 2688784063,
+            "usage_logs": 993057,
+            "window_billing_dedup": 29112,
+            "window_end": "2026-11-10T01:00:00Z",
+            "window_start": "2026-11-08T03:00:00Z",
+            "window_usage_logs": 29112
+          },
+          "label": "20261110-013338F",
+          "phase": "historical",
+          "problems": [],
+          "recovery_seconds": 2.646,
+          "restore_seconds": 108.605,
+          "window_reference": {
+            "window_billing_dedup": 29112,
+            "window_end": "2026-11-10T01:00:00Z",
+            "window_start": "2026-11-08T03:00:00Z",
+            "window_usage_logs": 29112
+          },
+          "schema": {
+            "fkeys": 98,
+            "pkeys": 186,
+            "sequences": 85,
+            "tables": 130
+          }
+        },
+        {
+          "data": {
+            "accounts": 236,
+            "actual_cost_sum": "11406.026994",
+            "api_keys": 113,
+            "cost_sum": "33588.080561",
+            "db_size_bytes": 2963134143,
+            "usage_logs": 1065302,
+            "window_billing_dedup": 99892,
+            "window_end": "2026-11-11T02:00:00Z",
+            "window_start": "2026-11-08T03:00:00Z",
+            "window_usage_logs": 99892
+          },
+          "label": "20261110-013338F_20261111-023005I",
+          "phase": "latest",
+          "problems": [],
+          "recovery_seconds": 2.649,
+          "restore_seconds": 152.457,
+          "window_reference": {
+            "window_billing_dedup": 99892,
+            "window_end": "2026-11-11T02:00:00Z",
+            "window_start": "2026-11-08T03:00:00Z",
+            "window_usage_logs": 99892
+          },
+          "schema": {
+            "fkeys": 97,
+            "pkeys": 185,
+            "sequences": 85,
+            "tables": 130
+          }
+        }
+      ]
+    }
+  },
+  "resource_audit": [
+    {
+      "InstanceId": "lhins-p43i2kxh",
+      "InstanceName": "tokenkey-usw-data-20261109",
+      "CPU": 2,
+      "Memory": 8,
+      "SystemDisk": {
+        "DiskType": "CLOUD_SSD",
+        "DiskSize": 100,
+        "DiskId": "lhdisk-2dfaa0sx"
+      },
+      "ExpiredTime": "2026-12-09T05:49:23Z",
+      "RenewFlag": "NOTIFY_AND_AUTO_RENEW",
+      "InstanceState": "RUNNING"
+    },
+    {
+      "InstanceId": "lhins-fcwpwymt",
+      "InstanceName": "tokenkey-usw-rehearsal-20261021",
+      "CPU": 4,
+      "Memory": 16,
+      "SystemDisk": {
+        "DiskType": "CLOUD_SSD",
+        "DiskSize": 180,
+        "DiskId": "lhdisk-gb1on81n"
+      },
+      "ExpiredTime": "2026-11-21T08:31:14Z",
+      "RenewFlag": "NOTIFY_AND_AUTO_RENEW",
+      "InstanceState": "RUNNING"
+    },
+    {
+      "InstanceId": "lhins-odyx5eis",
+      "InstanceName": "tokenkey-cn-data-20261109",
+      "CPU": 2,
+      "Memory": 4,
+      "SystemDisk": {
+        "DiskType": "CLOUD_SSD",
+        "DiskSize": 70,
+        "DiskId": "lhdisk-a2bgxbr6"
+      },
+      "ExpiredTime": "2026-12-09T06:44:02Z",
+      "RenewFlag": "NOTIFY_AND_AUTO_RENEW",
+      "InstanceState": "RUNNING"
+    },
+    {
+      "InstanceId": "lhins-6qmb3fd6",
+      "InstanceName": "tokenkey-cn-prod",
+      "CPU": 4,
+      "Memory": 8,
+      "SystemDisk": {
+        "DiskType": "CLOUD_SSD",
+        "DiskSize": 120,
+        "DiskId": "lhdisk-l5hfqzl8"
+      },
+      "ExpiredTime": "2026-11-22T13:25:29Z",
+      "RenewFlag": "NOTIFY_AND_AUTO_RENEW",
+      "InstanceState": "RUNNING"
+    }
+  ],
+  "pg_config": {
+    "prod": {
+      "host": "VM-0-3-ubuntu",
+      "timeline": 4,
+      "path": "/var/lib/tokenkey/postgres/postgresql.conf",
+      "reconciled_overrides": [
+        "listen_addresses",
+        "log_timezone",
+        "max_connections",
+        "max_wal_size",
+        "min_wal_size",
+        "shared_buffers",
+        "timezone"
+      ],
+      "before_sha256": "e53f42e7c44c7b7121e8914d6a71637fe9ac1c6674fd2cb8b709d3cac2ca9311",
+      "status": "ok",
+      "backup": "/var/lib/tokenkey/postgres-backup/postgresql.conf.pre-closeout-e53f42e7c44c",
+      "effective_settings_unchanged": true,
+      "restarted": false,
+      "completed_at": 1794368237.793265
+    },
+    "cn-prod": {
+      "host": "VM-4-5-ubuntu",
+      "timeline": 2,
+      "path": "/var/lib/tokenkey/postgres/postgresql.conf",
+      "reconciled_overrides": [
+        "listen_addresses",
+        "log_timezone",
+        "max_connections",
+        "max_wal_size",
+        "min_wal_size",
+        "shared_buffers",
+        "timezone"
+      ],
+      "before_sha256": "6175ef61bb39f0d2b621f217befd895e8986d671a00114d084144b576ab5ba93",
+      "status": "ok",
+      "backup": "/var/lib/tokenkey/postgres-backup/postgresql.conf.pre-closeout-6175ef61bb39",
+      "effective_settings_unchanged": true,
+      "restarted": false,
+      "completed_at": 1794367856.8974187
+    }
+  },
+  "dedup": {
+    "cutoff": "2026-11-04T03:00:00Z",
+    "cn-prod": {
+      "archive": {
+        "host": "VM-4-5-ubuntu",
+        "timeline": 2,
+        "cutoff": "2026-11-04T03:00:00+00:00",
+        "action": "archive",
+        "batch_size": 10000,
+        "per_run_cap": 1000000,
+        "remaining": false,
+        "indexes_before": [
+          {
+            "name": "usage_billing_dedup_pkey",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 23101440
+          },
+          {
+            "name": "idx_usage_billing_dedup_created_at_brin",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 24576
+          },
+          {
+            "name": "idx_usage_billing_dedup_request_api_key",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 93790208
+          }
+        ],
+        "sql_sha256": "9f0ba6869b34f401ad4d9bc01aa2860a91f5929361025897dea068801f388621",
+        "status": "ok",
+        "archived": 25292,
+        "indexes_after": [
+          {
+            "name": "usage_billing_dedup_pkey",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 23101440
+          },
+          {
+            "name": "idx_usage_billing_dedup_created_at_brin",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 24576
+          },
+          {
+            "name": "idx_usage_billing_dedup_request_api_key",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 93790208
+          }
+        ],
+        "duration_seconds": 2.35,
+        "completed_at": 1794368236.314626
+      },
+      "reindex": {
+        "host": "VM-4-5-ubuntu",
+        "timeline": 2,
+        "cutoff": "2026-11-04T03:00:00+00:00",
+        "action": "reindex",
+        "batch_size": 10000,
+        "per_run_cap": 1000000,
+        "remaining": false,
+        "indexes_before": [
+          {
+            "name": "usage_billing_dedup_pkey",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 23101440
+          },
+          {
+            "name": "idx_usage_billing_dedup_created_at_brin",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 24576
+          },
+          {
+            "name": "idx_usage_billing_dedup_request_api_key",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 93790208
+          }
+        ],
+        "sql_sha256": "9f0ba6869b34f401ad4d9bc01aa2860a91f5929361025897dea068801f388621",
+        "status": "ok",
+        "indexes_after": [
+          {
+            "name": "idx_usage_billing_dedup_created_at_brin",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 24576
+          },
+          {
+            "name": "idx_usage_billing_dedup_request_api_key",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 30613504
+          },
+          {
+            "name": "usage_billing_dedup_pkey",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 8904704
+          }
+        ],
+        "duration_seconds": 2.09,
+        "completed_at": 1794368517.8659935
+      }
+    },
+    "prod": {
+      "purge": {
+        "host": "VM-0-3-ubuntu",
+        "timeline": 4,
+        "cutoff": "2026-10-12T05:47:24.178512+00:00",
+        "action": "purge",
+        "batch_size": 10000,
+        "per_run_cap": 1000000,
+        "remaining": false,
+        "indexes_before": [
+          {
+            "name": "idx_usage_billing_dedup_created_at_brin",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 188416
+          },
+          {
+            "name": "idx_usage_billing_dedup_request_api_key",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 2735136768
+          },
+          {
+            "name": "usage_billing_dedup_pkey",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 695959552
+          }
+        ],
+        "sql_sha256": "847930f28265f3bb183a1fbcc5c7aa1fcf251fc018c021d6ec845a3495575b3a",
+        "status": "ok",
+        "purged": 29054,
+        "indexes_after": [
+          {
+            "name": "idx_usage_billing_dedup_created_at_brin",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 188416
+          },
+          {
+            "name": "idx_usage_billing_dedup_request_api_key",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 2735136768
+          },
+          {
+            "name": "usage_billing_dedup_pkey",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 695959552
+          }
+        ],
+        "duration_seconds": 56.889,
+        "completed_at": 1794376101.452755
+      },
+      "archive": {
+        "host": "VM-0-3-ubuntu",
+        "timeline": 4,
+        "cutoff": "2026-11-04T03:00:00+00:00",
+        "action": "archive",
+        "batch_size": 10000,
+        "per_run_cap": 1000000,
+        "remaining": false,
+        "indexes_before": [
+          {
+            "name": "idx_usage_billing_dedup_created_at_brin",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 188416
+          },
+          {
+            "name": "idx_usage_billing_dedup_request_api_key",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 2735136768
+          },
+          {
+            "name": "usage_billing_dedup_pkey",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 695959552
+          }
+        ],
+        "sql_sha256": "9f0ba6869b34f401ad4d9bc01aa2860a91f5929361025897dea068801f388621",
+        "status": "ok",
+        "archived": 896791,
+        "indexes_after": [
+          {
+            "name": "idx_usage_billing_dedup_created_at_brin",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 188416
+          },
+          {
+            "name": "idx_usage_billing_dedup_request_api_key",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 2735136768
+          },
+          {
+            "name": "usage_billing_dedup_pkey",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 695959552
+          }
+        ],
+        "duration_seconds": 118.534,
+        "completed_at": 1794376321.7740433
+      },
+      "reindex": {
+        "host": "VM-0-3-ubuntu",
+        "timeline": 4,
+        "cutoff": "2026-11-04T03:00:00+00:00",
+        "action": "reindex",
+        "batch_size": 10000,
+        "per_run_cap": 1000000,
+        "remaining": false,
+        "indexes_before": [
+          {
+            "name": "idx_usage_billing_dedup_created_at_brin",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 188416
+          },
+          {
+            "name": "idx_usage_billing_dedup_request_api_key",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 2735136768
+          },
+          {
+            "name": "usage_billing_dedup_pkey",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 695959552
+          }
+        ],
+        "sql_sha256": "9f0ba6869b34f401ad4d9bc01aa2860a91f5929361025897dea068801f388621",
+        "status": "ok",
+        "indexes_after": [
+          {
+            "name": "idx_usage_billing_dedup_request_api_key",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 56827904
+          },
+          {
+            "name": "usage_billing_dedup_pkey",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 16515072
+          },
+          {
+            "name": "idx_usage_billing_dedup_created_at_brin",
+            "indisvalid": true,
+            "indisready": true,
+            "bytes": 188416
+          }
+        ],
+        "duration_seconds": 4.621,
+        "completed_at": 1794376402.0182126
+      }
+    }
+  },
+  "final_health": {
+    "prod": {
+      "observed_at": "2026-11-11T05:56:08Z",
+      "public_health": "ok",
+      "app_restarts": 0,
+      "app_oom": false,
+      "qa_last_15m": {
+        "capture_status": "captured",
+        "n": 1075,
+        "latest": "2026-11-11T05:56:08.034145+00:00"
+      },
+      "qa_capture_heartbeat": {
+        "job_name": "qa_capture",
+        "last_success_at": "2026-11-08T06:24:02.349292+00:00",
+        "last_error": "failed",
+        "last_result": "{\"inflight\":0,\"observed_at\":\"2026-11-11T05:55:33.349048021Z\",\"pending\":0,\"reason\":\"runtime_discontinuity\",\"redaction\":{\"redacted_records\":3334949,\"redacted_bytes\":13311106172,\"unknown_format_records\":9032,\"unknown_format_bytes\":4512304300,\"unknown_format_ratio\":0.0027082872931490105,\"redaction_version\":\"logredact-v4\",\"unknown_format_drift\":false},\"status\":\"failed\",\"unresolved_failures\":3}"
+      },
+      "postgres": {
+        "timeline": 4,
+        "recovery": false,
+        "started": "2026-11-09T08:50:12.093081+00:00",
+        "pending_restart": 0,
+        "archive_failed": 0,
+        "connections": 17
+      },
+      "postgres_observed_at": "2026-11-11T05:56:06Z"
+    },
+    "cn-prod": {
+      "observed_at": "2026-11-11T05:56:08Z",
+      "public_health": "ok",
+      "app_restarts": 0,
+      "app_oom": false,
+      "qa_last_15m": {
+        "capture_status": "captured",
+        "n": 61,
+        "latest": "2026-11-11T05:56:04.125177+00:00"
+      },
+      "qa_capture_heartbeat": {
+        "job_name": "qa_capture",
+        "last_success_at": "2026-10-25T02:30:42.981619+00:00",
+        "last_error": "failed",
+        "last_result": "{\"inflight\":0,\"observed_at\":\"2026-11-11T05:56:02.647822649Z\",\"pending\":0,\"reason\":\"runtime_discontinuity\",\"redaction\":{\"redacted_records\":289362,\"redacted_bytes\":1444443953,\"unknown_format_records\":1060,\"unknown_format_bytes\":95748700,\"unknown_format_ratio\":0.00366323152314402,\"redaction_version\":\"logredact-v4\",\"unknown_format_drift\":false},\"status\":\"failed\",\"unresolved_failures\":11}"
+      },
+      "postgres": {
+        "timeline": 2,
+        "recovery": false,
+        "started": "2026-11-09T08:49:11.860051+00:00",
+        "pending_restart": 0,
+        "archive_failed": 0,
+        "connections": 18
+      },
+      "postgres_observed_at": "2026-11-11T03:43:02Z"
+    }
+  },
+  "validation": {
+    "preflight": "PASS",
+    "log": "preflight-closeout-purge-v2.txt",
+    "duration_seconds": 524,
+    "backup_unit_tests": 33,
+    "pg_config_unit_tests": 1,
+    "dedup_unit_tests": 3,
+    "real_postgres_18_integration": "PASS",
+    "preflight_base_commit": "77f6f14977222171b5aba41ae99b8d078f01c42c",
+    "aligned_preflight": {
+      "status": "PASS",
+      "base_commit": "e4849f54306655875fe099a8d524aefa66891a26",
+      "log": "preflight-acl-lock.txt",
+      "duration_seconds": 257,
+      "changes_committed": false
+    }
+  },
+  "execution_base_commit": "77f6f14977222171b5aba41ae99b8d078f01c42c",
+  "application_storage_preparation": {
+    "status": "prepared_not_cut_over",
+    "source": "LUKS remains mounted",
+    "destination": "/var/lib/tokenkey-luks-exit/staging",
+    "precopy_seconds": 425.939,
+    "precopy_bytes": 12811464329,
+    "checksum_delta_scan_seconds": 213.826,
+    "checksum_delta_bytes": 644137981,
+    "consistent": false,
+    "production_services_stopped": false,
+    "rehearsals": {
+      "metadata_copy_and_reverse_sync": "PASS",
+      "overlay2_daemon_restart_identity_and_volumes": "PASS",
+      "standby_remained_stopped": true
+    },
+    "ssm_commands": {
+      "precopy": "c61b9530-6e71-46cb-bd25-8a3befcfe428",
+      "delta": "383e9f8c-8ddf-4158-9d5a-b5be8296f4a8"
+    }
+  },
+  "host_source_acl": {
+    "prod": {
+      "status": "committed",
+      "service_active": true,
+      "service_enabled": true,
+      "data_ip": "10.4.0.3",
+      "app_ip": "10.4.0.16",
+      "stage_command": "a6d7f9a4-91e2-4824-905b-fba0bdf2f320",
+      "persistence_fix_command": "d24c09b0-f485-48e2-aafb-165854d4c099"
+    },
+    "cn-prod": {
+      "status": "committed",
+      "service_active": true,
+      "service_enabled": true,
+      "data_ip": "10.2.4.5",
+      "app_ip": "10.2.4.11",
+      "stage_command": "2486406e-e153-46cd-a452-f5c34b05079b",
+      "commit_command": "12f7f5d2-3fac-44f6-9aed-daf40ff3b921"
+    },
+    "isolated_real_tcp_DNAT_INPUT_rollback": "PASS",
+    "production_docker_restart_performed": false
+  },
+  "post_prepare_health": {
+    "observed_at": "2026-11-11T09:36:02Z",
+    "prod": {
+      "postgres_primary": true,
+      "redis": "PONG",
+      "public_health": "ok",
+      "app_restarts": 0,
+      "oom": false,
+      "qa_unresolved": 3,
+      "qa_current_runtime_pending": 0,
+      "qa_current_runtime_inflight": 0,
+      "qa_current_runtime_failed": 0
+    },
+    "cn-prod": {
+      "postgres_primary": true,
+      "redis": "PONG",
+      "public_health": "ok",
+      "app_restarts": 0,
+      "oom": false,
+      "qa_unresolved": 11,
+      "qa_current_runtime_pending": 0,
+      "qa_current_runtime_inflight": 0,
+      "qa_current_runtime_failed": 0
+    }
+  }
+}

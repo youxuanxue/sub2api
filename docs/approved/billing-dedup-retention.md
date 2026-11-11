@@ -76,11 +76,11 @@ TK 在 #2113（2026-09-11）改成不信任客户端 ID，只用网关为每个�
 
 prod 超过 30 天的 1,446 万行按每晚 100 万行，第 1 步约 15 个晚上删完，期间第 2 步跳过，归档表保持为空。之后进入稳态：热表约 7 天（prod 约 76 万行），归档表约 23 天（prod 约 300 万行）。cn-prod 没有积压，第一晚就进入稳态。
 
-删除不会让表文件变小。积压删完后，在 prod 数据面拆分的停写窗口里对这张表做一次 `VACUUM FULL`（或在新数据机上恢复时自然只带稳态数据），见 [`design-data-plane-split.md`](design-data-plane-split.md)。
+删除不会让表文件变小，物理恢复也会保留已有空页。热表超过 7 天的归档积压收敛后，用 `REINDEX INDEX CONCURRENTLY` 重建膨胀索引；不做 `VACUUM FULL`。执行期间保留正常计费与归档，先确认没有长期事务、无效索引和备份/维护冲突，见 [`design-data-plane-split.md`](design-data-plane-split.md)。
 
 ## 受影响的运维工具
 
-- **COS 恢复验收** `ops/backup/cos_restore_acceptance.py`：以前比较整表 `usage_logs` 与 `usage_billing_dedup` 的行数差。每晚清理会让整表行数变化，所以改为只在固定的 3 天窗口内比较这对表。窗口起点由线上时钟定一次，同时用于线上快照和恢复副本。早于窗口的恢复点在窗口内没有行，只做其余检查。去重表也不再参与「恢复点不得超过线上」的判定。
+- **COS 恢复验收** `ops/backup/cos_restore_acceptance.py`：以前比较整表 `usage_logs` 与 `usage_billing_dedup` 的行数差。每晚清理会让整表行数变化，所以改为只在固定的 3 天窗口内比较这对表。窗口起点由线上时钟定一次，终点为该备份开始前已完成的整小时；相同的上下界同时用于线上快照和恢复副本，排除备份边界正在异步落账的请求。早于窗口的恢复点在窗口内没有行，只做其余检查。去重表也不再参与「恢复点不得超过线上」的判定。
 - **冻结增量** `ops/migration/standard_freeze_delta.py`：`append_only` 策略假设这张表只追加。跨过一次每晚清理时会按设计 fail closed，改用 `refresh` 策略或冻结前暂停清理。已写进 `ops/migration/README.md`。
 
 ## 验证

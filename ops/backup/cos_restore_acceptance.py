@@ -20,10 +20,9 @@ Isolation, because prod and cn-prod both serve live users from the same host:
     only ever read from (pgbackrest info, one comparison query)
   * no published ports, and the restored instance listens on a unix socket only,
     so nothing can connect to it from outside
-  * the restore container stays on Docker's default bridge only and never joins
-    the tokenkey network -- it cannot reach the gateway or the live database even
-    by name. Verified on cn-prod: `pg_isready -h tokenkey-postgres` from such a
-    container returns "no response". Do NOT harden this to `--network none`:
+  * the restore container uses its own disposable bridge and never joins a
+    production network (data machines also run their primary on the default
+    bridge). Do NOT harden this to `--network none`:
     Postgres runs archive-get against COS for the backup-end WAL at startup, and
     without egress it fails with "could not locate required checkpoint record"
     (seen on prod, 2026-11-08).
@@ -63,28 +62,38 @@ CONTAINER_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
 # delta is a strong signal that a restored copy is internally consistent.
 # usage_billing_dedup keeps only 7 days and is trimmed nightly, so it is counted
 # only inside a fixed window (window_sql below), never as a whole table.
-# accounts and api_keys are soft-delete tables: `deleted_at IS NULL` is what Ent
-# adds automatically and hand-written SQL must add itself. It matters here
-# beyond tidiness -- a row soft-deleted AFTER the recovery point still reads as
-# live in the restored copy, so counting ghosts would make the "restored must
-# not exceed live" comparison drift for a reason that has nothing to do with
-# the backup. cn-prod carries 3 such accounts and 2 api_keys today.
+# Count accounts and API keys including soft-deleted rows: deletion after a
+# recovery point changes active counts legitimately, while physical row counts
+# remain comparable. Never compare a historical active count with today's.
 DATA_SQL = """
 SELECT json_build_object(
-  'accounts',(SELECT count(*) FROM accounts WHERE deleted_at IS NULL),
-  'api_keys',(SELECT count(*) FROM api_keys WHERE deleted_at IS NULL),
+  'accounts',(SELECT count(*) FROM accounts),
+  'api_keys',(SELECT count(*) FROM api_keys),
   'usage_logs',(SELECT count(*) FROM usage_logs),
   'cost_sum',(SELECT round(COALESCE(sum(total_cost),0),6)::text FROM usage_logs),
   'actual_cost_sum',(SELECT round(COALESCE(sum(actual_cost),0),6)::text FROM usage_logs),
   'db_size_bytes',pg_database_size('tokenkey')
-)"""
+) -- ops-allow-soft-deleted: physical row population across recovery times
+"""
 SCHEMA_SQL = """
 SELECT json_build_object(
-  'tables',(SELECT count(*) FROM information_schema.tables WHERE table_schema='public'),
-  'fkeys',(SELECT count(*) FROM pg_constraint WHERE contype='f'),
-  'pkeys',(SELECT count(*) FROM pg_constraint WHERE contype='p'),
-  'sequences',(SELECT count(*) FROM information_schema.sequences WHERE sequence_schema='public')
+  'tables',(SELECT count(*) FROM information_schema.tables t
+            JOIN pg_namespace n ON n.nspname=t.table_schema
+            JOIN pg_class c ON c.relnamespace=n.oid AND c.relname=t.table_name
+            WHERE t.table_schema='public' AND NOT c.relispartition),
+  'fkeys',(SELECT count(*) FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
+           WHERE k.contype='f' AND NOT c.relispartition),
+  'pkeys',(SELECT count(*) FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
+           WHERE k.contype='p' AND NOT c.relispartition),
+  'sequences',(SELECT count(*) FROM information_schema.sequences WHERE sequence_schema='public'),
+  'constraints',(SELECT COALESCE(json_object_agg(c.relname||'.'||k.conname,
+                 json_build_object('type',k.contype,'definition',pg_get_constraintdef(k.oid))), '{}'::json)
+                 FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
+                 JOIN pg_namespace n ON n.oid=c.relnamespace
+                 WHERE k.contype IN ('f','p') AND NOT c.relispartition AND n.nspname='public')
 )"""
+# Hour/day partitions are provisioned continuously. Their child constraints and
+# table counts legitimately differ from a past backup; compare stable owners.
 
 # The billing pair is compared inside [window_start, now). window_start is fixed
 # once from the live clock and sent to both sides, so the live snapshot and the
@@ -94,20 +103,34 @@ PAIR_WINDOW = timedelta(days=3)
 _WINDOW_START_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 
-def window_sql(window_start: str) -> str:
+def window_sql(window_start: str, window_end: str | None = None) -> str:
     if not _WINDOW_START_RE.fullmatch(window_start):
         raise ValueError(f"window_start must be UTC ISO-8601: {window_start!r}")
+    if window_end is not None and not _WINDOW_START_RE.fullmatch(window_end):
+        raise ValueError("window_end must be UTC ISO-8601")
+    end_clause = f" AND created_at < '{window_end}'::timestamptz" if window_end else ""
     return f"""
 SELECT json_build_object(
+  'window_end',{repr(window_end) if window_end else 'NULL'},
   'window_start','{window_start}',
-  'window_usage_logs',(SELECT count(*) FROM usage_logs WHERE created_at >= '{window_start}'::timestamptz),
-  'window_billing_dedup',(SELECT count(*) FROM usage_billing_dedup WHERE created_at >= '{window_start}'::timestamptz)
+  'window_usage_logs',(SELECT count(*) FROM usage_logs WHERE created_at >= '{window_start}'::timestamptz{end_clause}),
+  'window_billing_dedup',(SELECT count(*) FROM usage_billing_dedup WHERE created_at >= '{window_start}'::timestamptz{end_clause})
 )"""
 
 
 def pair_window_start(now: datetime) -> str:
     start = (now.astimezone(timezone.utc) - PAIR_WINDOW).replace(minute=0, second=0, microsecond=0)
     return start.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def pair_window_end(entry: dict, label: str) -> str:
+    # A backup can stop between the billing claim and asynchronous usage insert.
+    # Compare only hours completed before this backup STARTED, on both databases.
+    selected = next((b for b in entry.get("backup", []) if b["label"] == label), None)
+    if selected is None or not isinstance(selected.get("timestamp", {}).get("start"), (int, float)):
+        raise AcceptanceError("backup start timestamp missing for closed billing window")
+    end = datetime.fromtimestamp(selected["timestamp"]["start"], timezone.utc).replace(minute=0, second=0, microsecond=0)
+    return end.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ops-sql-coverage: every *_SQL / *_sql symbol must be enumerated or exempted,
@@ -121,7 +144,7 @@ SELF_CHECK_EXEMPT: dict[str, str] = {
 def iter_self_check_sql() -> list[tuple[str, str]]:
     """(label, rendered_sql) for the ops-sql-coverage real-Postgres self-check."""
     return [("SCHEMA_SQL", SCHEMA_SQL), ("DATA_SQL", DATA_SQL),
-            ("window_sql", window_sql("2026-11-01T00:00:00Z"))]
+            ("window_sql", window_sql("2026-11-01T00:00:00Z", "2026-11-02T00:00:00Z"))]
 
 
 class AcceptanceError(RuntimeError):
@@ -165,18 +188,30 @@ def repo_info(container: str, repo: int) -> dict:
     return values[0]
 
 
-def targets(entry: dict) -> tuple[str, str]:
+def targets(entry: dict, timeline: str | None = None) -> tuple[str, str]:
     """A historical point (oldest full) and the latest point."""
     backups = entry.get("backup") or []
+    if timeline is not None:
+        if not re.fullmatch(r"[0-9A-F]{8}", timeline):
+            raise AcceptanceError("timeline must be eight uppercase hexadecimal digits")
+        backups = [b for b in backups
+                   if (b.get("archive") or {}).get("start", "").startswith(timeline)
+                   and (b.get("archive") or {}).get("stop", "").startswith(timeline)
+                   and not b.get("error")]
     fulls = [b for b in backups if b["type"] == "full"]
     if not fulls or not backups:
         raise AcceptanceError("repository has no full backup to restore from")
     return fulls[0]["label"], backups[-1]["label"]
 
 
-def wal_continuity(entry: dict) -> dict:
+def wal_continuity(entry: dict, timeline: str | None = None) -> dict:
     archive = (entry.get("archive") or [{}])[0]
     low, high = archive.get("min") or "", archive.get("max") or ""
+    if timeline is not None:
+        historical, _ = targets(entry, timeline)
+        low = next(b["archive"]["start"] for b in entry["backup"] if b["label"] == historical)
+        if not high.startswith(timeline):
+            raise AcceptanceError("repository WAL head does not match the selected live timeline")
     if not re.fullmatch(r"[0-9A-F]{24}", low) or not re.fullmatch(r"[0-9A-F]{24}", high):
         raise AcceptanceError("WAL range is not a pair of segment names")
     if low[:8] != high[:8]:
@@ -221,14 +256,17 @@ class Sandbox:
         self.work = root / f"cos-acceptance-{uuid.uuid4().hex[:12]}"
         self.pgdata = self.work / "pgdata"
         self.name = f"cos-acc-{uuid.uuid4().hex[:8]}"
+        self.network = self.name + "-net"
         self.cpus, self.memory = cpus, memory
 
     def __enter__(self):
         self._fresh_pgdata()
+        run(["docker", "network", "create", self.network])
         return self
 
     def __exit__(self, *_):
         run(["docker", "rm", "-f", self.name], check=False)
+        run(["docker", "network", "rm", self.network], check=False)
         if self.work.exists():
             run(["sudo", "rm", "-rf", str(self.work)], check=False)
 
@@ -239,14 +277,15 @@ class Sandbox:
 
     def _limits(self) -> list[str]:
         return ["--cpus", self.cpus, "--memory", self.memory,
-                "--memory-swap", self.memory, "--user", "70:70"]
+                "--memory-swap", self.memory, "--user", "70:70",
+                "--network", self.network]
 
     def restore(self, repo: int, label: str, timeout: int) -> None:
         self._fresh_pgdata()
         run(["docker", "rm", "-f", self.name], check=False)
         # Downloading (and archive-get at startup) needs COS egress, so the
-        # container stays on the default bridge; it never joins the tokenkey
-        # network, so the gateway and the live database stay unreachable.
+        # container uses a disposable bridge rather than a production network.
+        # Only the read-only COS configuration and disposable PGDATA are mounted.
         run(["sudo", "nice", "-n", "19", "ionice", "-c3", "docker", "run", "--rm",
              "--name", self.name, *self._limits(),
              "-v", f"{self.config}:/etc/pgbackrest:ro",
@@ -266,6 +305,8 @@ class Sandbox:
              "--entrypoint", "postgres", self.image,
              "-D", "/var/lib/postgresql/data",
              "-c", "listen_addresses=",
+             "-c", "archive_mode=off",
+             "-c", "archive_command=",
              "-c", f"max_connections={max_connections}",
              "-c", "shared_buffers=128MB"])
         deadline = started + ready_timeout
@@ -288,6 +329,25 @@ class Sandbox:
 
     def stop(self) -> None:
         run(["docker", "rm", "-f", self.name], check=False)
+
+
+def expected_schema(live: dict, phase: str, label: str, timeline: str | None,
+                    baseline: dict | None) -> dict:
+    """Only a pinned, reviewed historical constraint delta may differ from live."""
+    if baseline is None or phase != "historical":
+        return live
+    if baseline.get("label") != label or baseline.get("timeline") != timeline or not baseline.get("reference"):
+        raise AcceptanceError("historical schema baseline does not match the selected label/timeline")
+    expected = {**live, "constraints": dict(live["constraints"])}
+    extras = baseline.get("historical_extra_constraints")
+    if not isinstance(extras, dict) or not extras:
+        raise AcceptanceError("historical schema baseline has no reviewed constraints")
+    for name, constraint in extras.items():
+        if name in expected["constraints"] or constraint.get("type") not in ("p", "f") or not constraint.get("definition"):
+            raise AcceptanceError("invalid historical constraint delta")
+        expected["constraints"][name] = constraint
+        expected["pkeys" if constraint["type"] == "p" else "fkeys"] += 1
+    return expected
 
 
 def compare(restored: dict, live: dict) -> list[str]:
@@ -321,7 +381,7 @@ def compare_pair_window(restored: dict, live: dict) -> list[str]:
     latest point always falls inside the window.
     """
     try:
-        if restored["window_start"] != live["window_start"]:
+        if restored["window_start"] != live["window_start"] or restored.get("window_end") != live.get("window_end"):
             return [f"pair window mismatch {restored['window_start']} != live {live['window_start']}"]
         if restored["window_usage_logs"] == 0 and restored["window_billing_dedup"] == 0:
             return []
@@ -345,6 +405,8 @@ def atomic_json(path: Path, value: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=int, required=True, help="repository to accept (2 = COS)")
+    parser.add_argument("--timeline", help="reviewed live timeline, eight uppercase hex digits; restrict both restore points")
+    parser.add_argument("--historical-schema-baseline", type=Path, help="reviewed constraint delta pinned to historical label and timeline")
     parser.add_argument("--image", default="tokenkey-postgres:18-pgbackrest")
     parser.add_argument("--config", type=Path, required=True,
                         help="host path of the pgbackrest config directory (mounted read-only)")
@@ -367,16 +429,23 @@ def main() -> int:
 
     container = live_container()
     entry = repo_info(container, args.repo)
-    historical, latest = targets(entry)
-    wal = wal_continuity(entry)
+    if args.timeline is not None:
+        actual = live_sql(container, "SELECT json_build_object('timeline',timeline_id) FROM pg_control_checkpoint()")
+        if args.timeline != f"{actual['timeline']:08X}":
+            raise AcceptanceError("selected timeline does not match the live primary")
+    historical, latest = targets(entry, args.timeline)
+    wal = wal_continuity(entry, args.timeline)
+    baseline = json.loads(args.historical_schema_baseline.read_text()) if args.historical_schema_baseline else None
     live_schema = live_sql(container, SCHEMA_SQL)
+    historical_schema = expected_schema(live_schema, "historical", historical, args.timeline, baseline)
     window_start = pair_window_start(datetime.now(timezone.utc))
-    live_data = {**live_sql(container, DATA_SQL), **live_sql(container, window_sql(window_start))}
+    live_data = live_sql(container, DATA_SQL)
     primary_connections = int(live_setting(container, "max_connections"))
 
     plan = {
         "repo": args.repo, "historical": historical, "latest": latest,
-        "wal": wal, "live_schema": live_schema, "primary_max_connections": primary_connections,
+        "timeline": args.timeline,
+        "wal": wal, "live_schema": live_schema, "historical_schema_baseline": baseline, "primary_max_connections": primary_connections,
     }
     if not args.apply:
         print(json.dumps({"status": "planned", "verify_only": args.verify_only, **plan},
@@ -415,15 +484,19 @@ def main() -> int:
             copied = time.time()
             ready = box.start(primary_connections, args.ready_timeout)
             schema = box.sql(SCHEMA_SQL)
-            data = {**box.sql(DATA_SQL), **box.sql(window_sql(window_start))}
+            window_end = pair_window_end(entry, label)
+            reference = {**live_data, **live_sql(container, window_sql(window_start, window_end))}
+            data = {**box.sql(DATA_SQL), **box.sql(window_sql(window_start, window_end))}
             box.stop()
-        problems = compare(data, live_data)
-        if schema != live_schema:
-            problems.append(f"schema {schema} != live {live_schema}")
+        problems = compare(data, reference)
+        expected = historical_schema if phase == "historical" else live_schema
+        if schema != expected:
+            problems.append(f"schema differs from reviewed {phase} baseline")
         if problems:
             failures.extend(f"{phase}: {p}" for p in problems)
         points.append({
             "phase": phase, "label": label, "schema": schema, "data": data,
+            "window_reference": {k:v for k,v in reference.items() if k.startswith("window_")},
             "restore_seconds": round(copied - restore_started, 3),
             "recovery_seconds": round(ready, 3),
             "problems": problems,
@@ -439,6 +512,8 @@ def main() -> int:
         "schema_version": 1,
         "status": "ok" if ok else "degraded",
         "repo": args.repo,
+        "timeline": args.timeline,
+        "historical_schema_baseline": baseline,
         "stanza": STANZA,
         "host_role": args.host_role or None,
         "started_at": started,

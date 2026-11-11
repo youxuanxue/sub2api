@@ -122,7 +122,7 @@ DEPLOY_TOKEN="${DEPLOY_TOKEN:-}"
 
 # Check the actual data mount before locks, backups, Docker or directory creation.
 if [[ "${HYBRID_PROD:-false}" = true ]]; then
-  python3 -c "$(printf '%s' "${HOST_RUNTIME_B64}" | base64 -d)" --check-volume
+  python3 -c "$(printf '%s' "${HOST_RUNTIME_B64}" | base64 -d)" --check-volume --contract-b64 "${VOLUME_CONTRACT_B64:-}"
 fi
 
 # Serialize host mutations across local invocations and workflow dispatches.
@@ -762,7 +762,7 @@ networks:
     external: true
     name: tokenkey_tokenkey-network
 YAML
-  local -a runtime_args=(--compose "${tmp}")
+  local -a runtime_args=(--compose "${tmp}" --contract-b64 "${VOLUME_CONTRACT_B64:-}")
   [[ "${HYBRID_PROD:-false}" != true ]] || runtime_args+=(--hybrid-prod)
   sudo python3 -c "$(printf '%s' "${HOST_RUNTIME_B64}" | base64 -d)" "${runtime_args[@]}"
 
@@ -886,11 +886,11 @@ UNIT
     # Docker restart policies run before tokenkey.service, so protect both units.
     local unit
     for unit in docker tokenkey; do
-      sudo tee "/etc/systemd/system/${unit}.service.d/tokenkey-volume.conf" >/dev/null <<'GUARD'
+      sudo tee "/etc/systemd/system/${unit}.service.d/tokenkey-volume.conf" >/dev/null <<GUARD
 [Unit]
-RequiresMountsFor=/var/lib/tokenkey
+RequiresMountsFor=/var/lib/tokenkey /srv/tokenkey-rehearsal
 [Service]
-ExecStartPre=/usr/bin/python3 /usr/local/lib/tokenkey/bluegreen_host_runtime.py --check-volume
+ExecStartPre=/usr/bin/python3 /usr/local/lib/tokenkey/bluegreen_host_runtime.py --check-volume --contract-b64 ${VOLUME_CONTRACT_B64}
 GUARD
     done
   fi
@@ -1412,6 +1412,22 @@ printf '%s\n' "${REMOTE_SCRIPT}" > "${remote_script_file}"
 hybrid_prod=false
 [[ "${DEPLOY_PROFILE}" != prod || "${INSTANCE_ID}" != mi-* ]] || hybrid_prod=true
 
+# Pin the site contract to the resolved Hybrid instance; unknown hosts fail closed.
+volume_contract_b64=""
+if [[ "${hybrid_prod}" = true ]]; then
+  volume_contract_b64="$(python3 - "$(dirname "$0")" "${INSTANCE_ID}" <<'PYCONTRACT'
+import base64, json, pathlib, sys
+sys.path.insert(0, sys.argv[1])
+from bluegreen_host_runtime import volume_contract
+matrix = pathlib.Path(sys.argv[1]).resolve().parents[1] / 'deploy/tencent/candidate-usw-20261022.json'
+target = json.loads(matrix.read_text())['target']
+if target['expected_ssm_instance_id'] != sys.argv[2]:
+    raise SystemExit('Hybrid storage contract instance mismatch')
+print(base64.b64encode(json.dumps(volume_contract(target), sort_keys=True).encode()).decode())
+PYCONTRACT
+)"
+fi
+
 # Compress before both base64 layers: SSM limits the whole document + parameters
 # to 97 KB, so splitting an uncompressed script into chunks does not help.
 REMOTE_B64="$(printf '%s' "${REMOTE_SCRIPT}" | gzip -n -9 | base64 | tr -d '\n')"
@@ -1432,6 +1448,7 @@ fi
 jq -n \
   --arg tag "${TAG}" \
   --arg hybrid_prod "${hybrid_prod}" \
+  --arg volume_contract_b64 "${volume_contract_b64}" \
   --arg host_runtime_b64 "$(base64 < "$(dirname "$0")/bluegreen_host_runtime.py" | tr -d '\n')" \
   --arg stage "${STAGE}" \
   --arg deploy_token "${DEPLOY_TOKEN}" \
@@ -1457,6 +1474,7 @@ jq -n \
     (
       "TAG=" + ($tag|@sh)
       + " HYBRID_PROD=" + ($hybrid_prod|@sh)
+      + " VOLUME_CONTRACT_B64=" + ($volume_contract_b64|@sh)
       + " HOST_RUNTIME_B64=" + ($host_runtime_b64|@sh)
       + " STAGE=" + ($stage|@sh)
       + " DEPLOY_TOKEN=" + ($deploy_token|@sh)

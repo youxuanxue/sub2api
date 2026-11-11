@@ -2,10 +2,20 @@
 
 当前应用在腾讯北京 `tokenkey-cn-prod`（`lhins-6qmb3fd6`，`154.8.214.179`）。该实例与 `cn-ip1..4` 到期 **2026-11-22**，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是 `https://api.galaxywaveai.com`，它和静态 IP 共用 `(tk_upstream)`，站点定义在 [`Caddyfile`](Caddyfile)。`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前不要把它解析到北京，也不要写成 `public_origin` 或 `SERVER_FRONTEND_URL`。发版身份仍以 [`prod-target.json`](prod-target.json) 为准。下面的表是 2026-10-14 首次上线记录。
 
-逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。2026-11-09 停写窗口之后，`tokenkey-cn-postgres-backup` 和 `tokenkey-cn-postgres-archive-check` 在数据机 `VM-4-5-ubuntu`（`10.2.4.5`）上跑，应用机上的对应 timer 已停用。数据机上的 `tokenkey-cn-backup-identity.timer`（15min）运行 `cn_backup_identity.py`，读数据机 root-only `/etc/tokenkey/cos-backup.env`，重写 `/etc/tokenkey/pgbackrest-cos/pgbackrest.conf`；由 `ops/stage0/install-data-machine-identity.sh` 安装。轮换 COS 密钥只改数据机上的这一个文件。2026-11-08 起唯一仓库是北京 COS `repo2`（`tokenkey-cnprod-backup-bj-1320330536` `/cn-prod/postgres`），东京 AWS `repo1` 停写、对象保留待清理；详见[设计](../../docs/approved/design-tencent-cos-backup-node1-qa.md#2026-11-08-决定停写-aws-repo1cos-为唯一-repository)。备份验收到此为止，不再另开恢复机，也不从东京仓库再导一份库。
+逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。2026-11-09 数据面切流之后，`tokenkey-cn-postgres-backup` 和 `tokenkey-cn-postgres-archive-check` 在数据机 `VM-4-5-ubuntu`（`10.2.4.5`）上跑，应用机上的对应 timer 已停用。数据机上的 `tokenkey-cn-backup-identity.timer`（15min）运行 `cn_backup_identity.py`，读数据机 root-only `/etc/tokenkey/cos-backup.env`，重写 `/etc/tokenkey/pgbackrest-cos/pgbackrest.conf`；由 `ops/stage0/install-data-machine-identity.sh` 安装。轮换 COS 密钥只改数据机上的这一个文件。2026-11-08 起唯一仓库是北京 COS `repo2`（`tokenkey-cnprod-backup-bj-1320330536` `/cn-prod/postgres`），东京 AWS `repo1` 停写、对象保留待清理；详见[设计](../../docs/approved/design-tencent-cos-backup-node1-qa.md#2026-11-08-决定停写-aws-repo1cos-为唯一-repository)。切流后的新时间线恢复验收使用数据机上的隔离临时容器，不从东京仓库导库，也不覆盖活库。
 
 审批范围和费用见 [design-domestic-cluster.md](../../docs/approved/design-domestic-cluster.md)。
 这是独立于美西 prod 的国内站点，不使用 Hetzner dispatcher 或美西数据库；只读观测通过独立注册的 AWS SSM Hybrid agent 下发。
+
+## 当前数据面（2026-11-11 核账）
+
+应用机 4C8G / 120 GB SSD；独立数据机 2C4G / 70 GB SSD。
+网关连接本站数据机 `10.2.4.5`，Postgres 为 timeline 2 主库，Redis 为带密码的 AOF 主库。
+数据机只运行 `tokenkey-postgres` / `tokenkey-redis`；应用机以客户端容器承接运维探针。
+当前 `usage_logs` 为日分区，历史数据仍在 `usage_logs_legacy`。
+旧本地 PG、Redis 和迁移转发容器已不在容器清单中，已知旧数据目录也不存在；
+停用的备份单元、旧 runner、`.env.pre-dataplane-*` 和发布回退材料保持原状。
+恢复与配置验收见 [数据面拆分设计](../../docs/approved/design-data-plane-split.md#6-观察与收尾)。
 
 ## 首次部署目标（2026-10-14）
 
@@ -343,3 +353,10 @@ owner 中显式识别为 `cn-prod`，沿用 prod 用户失败告警规则。
 两个复制客户 key 的鉴权在更新后仍通过。邮件与整机失联外部探测不在此次送达证明之内。
 
 备案、备份和恢复按用户决定后续处理；此回执仅记录当前实测可达性。
+
+
+2026-11-11 主机来源保护已补齐：两台数据机上的 `tokenkey-data-source-acl.service` 已 active/enabled，
+只放行本站应用机到本站私网 PG/Redis 的连接；规则 owner 为 `ops/stage0/dataplane_source_acl.py`。
+安装先带五分钟自动回滚，经应用 SQL、Redis PING 与公网健康验证后提交；Docker 重启后由 unit 重装自有链。
+本轮未重启 Docker。prod 应用 LUKS 仍在用，预复制与隔离演练已完成，具体维护窗尚未执行；
+见[迁出准备与窗口方案](../../docs/ops/prod-app-luks-exit-plan.md)。

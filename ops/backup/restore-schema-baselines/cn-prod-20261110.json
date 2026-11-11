@@ -1,0 +1,9 @@
+{
+  "label": "20261110-013338F",
+  "timeline": "00000002",
+  "reference": "docs/approved/design-data-plane-split.md (cn-prod usage_logs daily partition conversion, PR #3129); exact constraint diff verified by isolated restore 2026-11-11",
+  "historical_extra_constraints": {
+    "billing_usage_entries.billing_usage_entries_usage_log_id_fkey": {"type": "f", "definition": "FOREIGN KEY (usage_log_id) REFERENCES usage_logs(id) ON DELETE CASCADE"},
+    "usage_logs.usage_logs_pkey": {"type": "p", "definition": "PRIMARY KEY (id)"}
+  }
+}
