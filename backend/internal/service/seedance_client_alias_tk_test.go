@@ -16,11 +16,11 @@ func TestResolveSeedanceClientAlias(t *testing.T) {
 	}{
 		{"hyphen 1.5-pro", "doubao-seedance-1-5-pro", "doubao-seedance-1-5-pro-251215", true},
 		{"dotted 1.5-pro", "doubao-seedance-1.5-pro", "doubao-seedance-1-5-pro-251215", true},
-		{"hyphen 2.0", "doubao-seedance-2-0", "doubao-seedance-2-0-260128", true},
+		{"hyphen 2.0", "doubao-seedance-2-0", "doubao-seedance-2.0", true},
 		{"plan 2.0 stays", "doubao-seedance-2.0", "", false},
-		{"hyphen 2.0-fast", "doubao-seedance-2-0-fast", "doubao-seedance-2-0-fast-260128", true},
+		{"hyphen 2.0-fast", "doubao-seedance-2-0-fast", "doubao-seedance-2.0-fast", true},
 		{"plan 2.0-fast stays", "doubao-seedance-2.0-fast", "", false},
-		{"hyphen 2.5", "doubao-seedance-2-5", "doubao-seedance-2-5-260628", true},
+		{"hyphen 2.5", "doubao-seedance-2-5", "doubao-seedance-2.5", true},
 		{"plan 2.5 stays", "doubao-seedance-2.5", "", false},
 		{"case fold", "Doubao-Seedance-1.5-Pro", "doubao-seedance-1-5-pro-251215", true},
 		{"dated 1.5-pro stays", "doubao-seedance-1-5-pro-251215", "", false},
@@ -46,12 +46,12 @@ func TestResolveSeedanceClientAlias(t *testing.T) {
 
 func TestApplySeedanceClientAlias_RewritesBody(t *testing.T) {
 	t.Parallel()
-	body := []byte(`{"model":"doubao-seedance-2-0","prompt":"a cat","duration":5}`)
-	got, resolved, ok := ApplySeedanceClientAlias(body, "doubao-seedance-2-0")
-	if !ok || resolved != "doubao-seedance-2-0-260128" {
+	body := []byte(`{"model":"doubao-seedance-2-5","prompt":"a cat","duration":5}`)
+	got, resolved, ok := ApplySeedanceClientAlias(body, "doubao-seedance-2-5")
+	if !ok || resolved != "doubao-seedance-2.5" {
 		t.Fatalf("ok=%v resolved=%q", ok, resolved)
 	}
-	if gjson.GetBytes(got, "model").String() != "doubao-seedance-2-0-260128" {
+	if gjson.GetBytes(got, "model").String() != "doubao-seedance-2.5" {
 		t.Fatalf("body model = %q", gjson.GetBytes(got, "model").String())
 	}
 	if gjson.GetBytes(got, "prompt").String() != "a cat" || gjson.GetBytes(got, "duration").Int() != 5 {
