@@ -31,7 +31,7 @@ import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
 import CNProviderUsageCell from './usage-cells/CNProviderUsageCell.vue'
-import { isCNProviderPlatform } from './credentialsBuilder'
+import { usesCNProviderUsageCell } from './credentialsBuilder'
 import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
 import {
   PLATFORM_ANTHROPIC,
@@ -59,7 +59,7 @@ const activeCell = computed(() => {
     return OllamaCloudUsageCell
   }
 
-  if (isCNProviderPlatform(account.platform) || account.platform === 'opencode_go') {
+  if (usesCNProviderUsageCell(account.platform)) {
     return CNProviderUsageCell
   }
 

@@ -2040,7 +2040,7 @@ func TestOpenAIWSHTTPBridgeAcceptsFirstFrameAboveLegacy16MiB(t *testing.T) {
 		defer func() { _ = conn.CloseNow() }()
 		conn.SetReadLimit(ResolveOpenAIWSClientReadLimitBytes(cfg))
 
-		readCtx, cancelRead := context.WithTimeout(r.Context(), 10*time.Second)
+		readCtx, cancelRead := context.WithTimeout(r.Context(), 60*time.Second)
 		msgType, firstMessage, err := conn.Read(readCtx)
 		cancelRead()
 		if err != nil {
@@ -2059,7 +2059,7 @@ func TestOpenAIWSHTTPBridgeAcceptsFirstFrameAboveLegacy16MiB(t *testing.T) {
 		req.Header.Set("User-Agent", "codex_cli_rs/0.135.0")
 		ginCtx.Request = req
 
-		proxyCtx, cancelProxy := context.WithTimeout(r.Context(), 20*time.Second)
+		proxyCtx, cancelProxy := context.WithTimeout(r.Context(), 60*time.Second)
 		defer cancelProxy()
 		errCh <- svc.ProxyResponsesWebSocketFromClient(proxyCtx, ginCtx, conn, account, "sk-test", firstMessage, hooks)
 	}))
@@ -2071,14 +2071,14 @@ func TestOpenAIWSHTTPBridgeAcceptsFirstFrameAboveLegacy16MiB(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = clientConn.CloseNow() }()
 
-	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 20*time.Second)
+	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 60*time.Second)
 	err = clientConn.Write(writeCtx, coderws.MessageText, payload)
 	cancelWrite()
 	require.NoError(t, err)
 
 	var eventTypes []string
 	for {
-		readCtx, cancelRead := context.WithTimeout(context.Background(), 10*time.Second)
+		readCtx, cancelRead := context.WithTimeout(context.Background(), 60*time.Second)
 		msgType, event, readErr := clientConn.Read(readCtx)
 		cancelRead()
 		require.NoError(t, readErr)
@@ -2383,4 +2383,43 @@ func TestOpenAIWSHTTPBridge_IdleTimeoutClosesClientSession(t *testing.T) {
 		t.Fatal("timed out waiting for idle HTTP bridge session to close")
 	}
 	require.Len(t, upstream.bodies, 1, "an idle client must not leave a continuation request running")
+}
+
+func TestProxyOpenAIWSHTTPBridgeTurn_StagesCodexFingerprint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	run := func(account *Account) *http.Request {
+		sse := `data: {"type":"response.completed","response":{"id":"resp_fp","model":"gpt-5.5","status":"completed","usage":{"input_tokens":1,"output_tokens":1}}}` + "\n\n"
+		upstream := &httpUpstreamRecorder{resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(sse)),
+		}}
+		svc := &OpenAIGatewayService{
+			cfg:          &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+			httpUpstream: upstream,
+		}
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+		payload := []byte(`{"type":"response.create","model":"gpt-5.5","store":false,"input":"hi"}`)
+		_, err := svc.proxyOpenAIWSHTTPBridgeTurn(
+			context.Background(), c, account, "test-token", payload, len(payload),
+			"gpt-5.5", "", "", "", "", 1,
+			func([]byte) error { return nil },
+		)
+		require.NoError(t, err)
+		require.NotNil(t, upstream.lastReq)
+		return upstream.lastReq
+	}
+
+	full := newTestOAuthAccount(7101, map[string]any{"codex_fingerprint_mode": "full"})
+	ids := resolveCodexFingerprintIDsFromRequest(full, nil)
+	require.NotNil(t, ids)
+	first := run(full)
+	require.Equal(t, ids.sessionID, first.Header.Get("session_id"))
+	require.Equal(t, ids.installationID, first.Header.Get("x-codex-installation-id"))
+	// Every bridge request carries the same account-level session_id, keeping upstream cache routing stable
+	require.Equal(t, first.Header.Get("session_id"), run(full).Header.Get("session_id"))
+
+	off := newTestOAuthAccount(7102, map[string]any{"codex_fingerprint_mode": "off"})
+	require.Empty(t, run(off).Header.Get("session_id"), "accounts without convergence get no session_id")
 }

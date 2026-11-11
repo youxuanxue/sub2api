@@ -1,9 +1,9 @@
 <template>
-  <div ref="rootRef">
+  <div ref="rootRef" :aria-busy="loading || activeQueryLoading">
     <TodayStatsBadges :stats="todayStats" :loading="todayStatsLoading" />
 
     <!-- Loading state -->
-    <div v-if="loading" class="space-y-1.5">
+    <div v-if="loading && !usageInfo" class="space-y-1.5">
       <div class="flex items-center gap-1">
         <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
         <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
@@ -84,12 +84,12 @@
           <button
             type="button"
             class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="activeQueryLoading"
+            :disabled="activeQueryLoading || loading"
             @click="loadActiveUsage"
           >
             <svg
               class="h-2.5 w-2.5"
-              :class="{ 'animate-spin': activeQueryLoading }"
+              :class="{ 'animate-spin': activeQueryLoading || loading }"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"

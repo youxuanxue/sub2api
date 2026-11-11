@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -45,6 +46,18 @@ func (s *GatewayService) tkCountTokensFailoverError(account *Account, resp *http
 		// is unaffected.
 		RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
 	}
+}
+
+// Count-token failover skips generic account penalties. An explicit model-scoped
+// 401 still belongs to its configured model owner before the caller switches accounts.
+func (s *GatewayService) tkCountTokensFailoverErrorWithModel(ctx context.Context, account *Account, resp *http.Response, respBody []byte, model string) *UpstreamFailoverError {
+	err := s.tkCountTokensFailoverError(account, resp, respBody)
+	if err != nil && resp.StatusCode == http.StatusUnauthorized && s.rateLimitService != nil && tempUnschedRulesApply(account, resp.StatusCode, respBody, model) {
+		s.rateLimitService.HandleTempUnschedulable(ctx, account, resp.StatusCode, respBody, model)
+		err.RequestScopedTransient = true
+		err.RetryableOnSameAccount = false
+	}
+	return err
 }
 
 // WriteCountTokensFailoverError 在 count_tokens 的 failover loop 耗尽（所有候选

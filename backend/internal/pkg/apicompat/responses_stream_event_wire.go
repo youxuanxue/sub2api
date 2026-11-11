@@ -129,14 +129,21 @@ func (e ResponsesStreamEvent) putItemID(m map[string]any) {
 // carrying text/annotations/logprobs (matching cc-switch's push_text_delta).
 func outputTextPartWire(part *ResponsesContentPart) map[string]any {
 	text := ""
+	annotations, logprobs := []any{}, []any{}
 	if part != nil {
 		text = part.Text
+		if part.Annotations != nil {
+			annotations = part.Annotations
+		}
+		if part.Logprobs != nil {
+			logprobs = part.Logprobs
+		}
 	}
 	return map[string]any{
 		"type":        "output_text",
 		"text":        text,
-		"annotations": []any{},
-		"logprobs":    []any{},
+		"annotations": annotations,
+		"logprobs":    logprobs,
 	}
 }
 
@@ -214,26 +221,14 @@ func messageContentWire(parts []ResponsesContentPart) []map[string]any {
 		if typ == "" {
 			typ = "output_text"
 		}
-		if typ == "refusal" {
-			out = append(out, map[string]any{
-				"type":    "refusal",
-				"refusal": p.Refusal,
-			})
-			continue
+		switch typ {
+		case "output_text":
+			out = append(out, outputTextPartWire(&p))
+		case "refusal":
+			out = append(out, map[string]any{"type": typ, "refusal": p.Refusal})
+		default:
+			out = append(out, map[string]any{"type": typ, "text": p.Text})
 		}
-		part := map[string]any{
-			"type":        typ,
-			"text":        p.Text,
-			"annotations": p.Annotations,
-			"logprobs":    p.Logprobs,
-		}
-		if part["annotations"] == nil {
-			part["annotations"] = []any{}
-		}
-		if part["logprobs"] == nil {
-			part["logprobs"] = []any{}
-		}
-		out = append(out, part)
 	}
 	return out
 }

@@ -84,7 +84,7 @@ func TestOpenAIImagesRejectedDriverDoesNotCoolImageModel(t *testing.T) {
 	}
 }
 
-func TestGPTImage25PricingDoesNotUseLegacyImageRates(t *testing.T) {
+func TestGPTImage25And26PricingDoesNotUseLegacyImageRates(t *testing.T) {
 	for _, model := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-2026-09-08", "gpt-image-2.5-sunburst-2026-09-08", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
 		svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{"gpt-image-2": {InputCostPerToken: 2.5e-6, OutputCostPerImageToken: 15e-6}}}
 		p := svc.GetModelPricing(model)
@@ -107,7 +107,7 @@ func TestGPTImageRejectedOnChatCompletionsMessage(t *testing.T) {
 	require.Contains(t, GPTImageRejectedOnChatCompletionsMessage, "/v1/images/edits")
 }
 
-func TestGPTImage25AccountModelPermissions(t *testing.T) {
+func TestGPTImage25And26AccountModelPermissions(t *testing.T) {
 	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken} {
 		for _, model := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
 			for _, mapping := range []map[string]any{nil, {model: model}} {

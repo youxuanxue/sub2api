@@ -108,6 +108,8 @@ func TestDefaultAntigravityModelMapping_Gemini4ArgonAndClaude55Models(t *testing
 func TestDefaultBedrockModelMapping_ContainsNewClaudeModels(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
+		"claude-fable-5-2":  "anthropic.claude-fable-5-2",
+		"claude-mythos-5-2": "anthropic.claude-mythos-5-2",
 		"claude-fable-5":    "anthropic.claude-fable-5",
 		"claude-opus-4-8":   "us.anthropic.claude-opus-4-8-v1",
 		"claude-sonnet-5":   "us.anthropic.claude-sonnet-5-v1",

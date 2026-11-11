@@ -216,7 +216,9 @@
 
           <template #cell-usage="{ row }">
             <div class="text-sm">
+              <span v-if="usageLoading && !usageStats[row.id]" data-test="usage-pending" class="inline-block h-4 w-16 animate-pulse rounded bg-gray-200 dark:bg-gray-700" aria-label="Loading usage" />
               <button
+                v-else
                 type="button"
                 class="font-medium text-primary-600 hover:text-primary-700 tabular-nums dark:text-primary-400 dark:hover:text-primary-300"
                 :title="t('keys.usageTrendHint')"
@@ -1482,6 +1484,7 @@ const usageEndDate = ref(todayLocal)
 const showUsageTrend = ref(false)
 const usageTrendKeyId = ref<number | null>(null)
 const usageTrendKeyName = ref('')
+const usageLoading = ref(false)
 const userGroupRates = ref<Record<number, number>>({})
 
 const pagination = ref({
@@ -1703,6 +1706,7 @@ const loadApiKeys = async () => {
   abortController = controller
   const { signal } = controller
   loading.value = true
+  usageLoading.value = false
   try {
     // Build filters
     const filters: {
@@ -1763,6 +1767,7 @@ const loadUsageStatsForKeys = async (keyIds: number[], signal?: AbortSignal) => 
     usageStats.value = {}
     return
   }
+  usageLoading.value = true
   try {
     const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, {
       signal,
@@ -1775,6 +1780,10 @@ const loadUsageStatsForKeys = async (keyIds: number[], signal?: AbortSignal) => 
   } catch (e) {
     if (!isAbortError(e)) {
       console.error('Failed to load usage stats:', e)
+    }
+  } finally {
+    if (!signal.aborted) {
+      usageLoading.value = false
     }
   }
 }

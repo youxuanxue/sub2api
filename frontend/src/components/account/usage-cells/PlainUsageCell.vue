@@ -1,7 +1,7 @@
 <template>
   <div ref="rootRef">
-    <AccountQuotaInfo v-if="account.platform === 'gemini'" :account="account" />
-    <div v-else class="space-y-1">
+    <div class="space-y-1">
+      <span v-if="account.platform === 'gemini' && account.type === 'service_account'" class="text-xs text-gray-500">vertex</span>
       <TodayStatsBadges :stats="todayStats" :loading="todayStatsLoading" />
 
       <UsageProgressBar
@@ -38,7 +38,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import UsageProgressBar from '../UsageProgressBar.vue'
-import AccountQuotaInfo from '../AccountQuotaInfo.vue'
 import TodayStatsBadges from './TodayStatsBadges.vue'
 import {
   accountUsageCellPropDefaults,

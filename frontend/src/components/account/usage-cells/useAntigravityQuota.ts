@@ -41,6 +41,39 @@ function getAntigravityUsageFromAPI(
 }
 
 export function useAntigravityQuota(usageInfo: Ref<AccountUsageInfo | null>) {
+const antigravityQuotaGroupBars = computed(() => {
+  const groups = usageInfo.value?.antigravity_quota_groups
+  if (!groups || groups.length === 0) return []
+  const bars: Array<{
+    key: string
+    label: string
+    title: string
+    utilization: number
+    resetsAt: string | null
+    color: 'indigo' | 'emerald' | 'purple' | 'amber'
+  }> = []
+  for (const group of groups) {
+    // 'gemini' = Gemini models, 'gemini-argon-wtu' = the separate Argon quota of Pro plans,
+    // '3p' (or anything else) = Antigravity's Claude and GPT models.
+    const family = group.key === 'gemini' ? 'Gemini' : group.key.startsWith('gemini-argon') ? 'Argon' : 'Other'
+    for (const window of group.windows || []) {
+      const weekly = window.window === 'weekly'
+      const labelKey = `admin.accounts.usageWindow.antigravity${family}${weekly ? 'Weekly' : '5h'}`
+      const color: 'indigo' | 'emerald' | 'purple' | 'amber' =
+        family === 'Gemini' ? (weekly ? 'indigo' : 'emerald') : family === 'Argon' ? 'indigo' : weekly ? 'purple' : 'amber'
+      bars.push({
+        key: `${group.key}-${window.window}`,
+        label: labelKey,
+        title: group.name,
+        utilization: Math.round(window.utilization ?? 0),
+        resetsAt: window.resets_at ?? null,
+        color
+      })
+    }
+  }
+  return bars
+})
+
   const hasAntigravityQuotaFromAPI = computed(() => {
     return (
       !!usageInfo.value?.antigravity_quota &&
@@ -90,6 +123,7 @@ export function useAntigravityQuota(usageInfo: Ref<AccountUsageInfo | null>) {
   })
 
   return {
+    antigravityQuotaGroupBars,
     hasAntigravityQuotaFromAPI,
     antigravity3ProUsageFromAPI,
     antigravity3FlashUsageFromAPI,

@@ -125,6 +125,7 @@ func (f *fakeCyberBlockStore) SetCyberSessionBlocked(_ context.Context, block Cy
 	if block.ScopeKey != "" {
 		if f.scopes == nil {
 			f.scopes = map[string]bool{}
+			f.lengths = map[int64][]int{}
 		}
 		if f.lengths == nil {
 			f.lengths = map[int64][]int{}

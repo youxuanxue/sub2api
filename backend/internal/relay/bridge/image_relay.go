@@ -22,7 +22,39 @@ import (
 )
 
 // RunImageRelay mirrors relay.ImageHelper without New API billing.
+// The image token breakdown is not part of New API's dto.Usage; it is
+// returned separately by RunImageRelayWithUsage for callers that need it.
 func RunImageRelay(c *gin.Context, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
+	usage, apiErr := runImageRelay(c, info, nil)
+	return usage, apiErr
+}
+
+// RunImageRelayWithUsage is RunImageRelay plus the image token breakdown
+// recovered from the client-facing response. New API's dto.Usage carries no
+// output_tokens_details, so output_tokens_details.image_tokens would otherwise
+// be lost and token-priced image owners would fail closed (unbilled).
+func RunImageRelayWithUsage(c *gin.Context, info *relaycommon.RelayInfo) (*dto.Usage, ImageUsageDetails, bool, *types.NewAPIError) {
+	var observer *imageUsageObserver
+	usage, apiErr := runImageRelay(c, info, func(c *gin.Context) {
+		original := c.Writer
+		observer = &imageUsageObserver{ResponseWriter: original}
+		c.Writer = observer
+	})
+	if apiErr != nil {
+		return nil, ImageUsageDetails{}, false, apiErr
+	}
+	if observer == nil {
+		return usage, ImageUsageDetails{}, false, nil
+	}
+	details, ok := observer.Details()
+	return usage, details, ok, nil
+}
+
+func runImageRelay(
+	c *gin.Context,
+	info *relaycommon.RelayInfo,
+	installObserver func(*gin.Context),
+) (*dto.Usage, *types.NewAPIError) {
 	defer filterUpstreamResponseHeaders(c)()
 	info.InitChannelMeta(c)
 
@@ -90,6 +122,16 @@ func RunImageRelay(c *gin.Context, info *relaycommon.RelayInfo) (*dto.Usage, *ty
 	}
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")
+
+	if installObserver != nil {
+		// Install after the adaptor has settled headers but before any body is
+		// written, so the whole client-facing response is observed. The
+		// observer sits outside upstreamHeaderFilter, so header stripping still
+		// applies; restore the writer before the header-filter defer runs.
+		beforeObserver := c.Writer
+		installObserver(c)
+		defer func() { c.Writer = beforeObserver }()
+	}
 
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {

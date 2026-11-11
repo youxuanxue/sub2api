@@ -190,11 +190,12 @@ func bindOpenAIReasoningEffortPolicyForMessagesRequest(c *gin.Context, apiKey *s
 		return
 	}
 	bindRequestedReasoningEffort(c, body, strings.TrimSpace(gjson.GetBytes(body, "model").String()))
+	isCNTarget := service.IsCNProvider(effectiveAPIKeyPlatform(c, apiKey))
 	// The Messages bridge synthesizes a default OpenAI effort when no explicit
 	// effort is present. Bind the group policy only for an explicit client value
 	// so the ceiling does not alter that default. Messages accepts the same
 	// nested/flat compatibility fields as the OpenAI surfaces.
-	hasExplicitEffort := false
+	hasExplicitEffort := !isCNTarget && gjson.GetBytes(body, "thinking.type").String() == "disabled"
 	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort"} {
 		effort := gjson.GetBytes(body, path)
 		if effort.Exists() && effort.Type == gjson.String && strings.TrimSpace(effort.String()) != "" {
@@ -209,5 +210,9 @@ func bindOpenAIReasoningEffortPolicyForMessagesRequest(c *gin.Context, apiKey *s
 	if !ok {
 		return
 	}
-	c.Request = c.Request.WithContext(service.WithOpenAIReasoningEffortPolicy(c.Request.Context(), maxEffort, mappings, overLimit))
+	if isCNTarget {
+		c.Request = c.Request.WithContext(service.WithOpenAIReasoningEffortPolicy(c.Request.Context(), maxEffort, mappings, overLimit))
+		return
+	}
+	c.Request = c.Request.WithContext(service.WithOpenAIReasoningEffortPolicyForMessages(c.Request.Context(), body, maxEffort, mappings, overLimit))
 }

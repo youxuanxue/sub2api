@@ -77,6 +77,8 @@ const usageLogsEffectiveRequestedModelIndex = "idx_usage_logs_effective_requeste
 const usageLogsEffectiveUpstreamModelIndex = "idx_usage_logs_effective_upstream_model_created"
 const usageLogsUpstreamRequestIDIndexMigration = "233_add_usage_log_upstream_request_id_index_notx.sql"
 const usageLogsUpstreamRequestIDIndex = "idx_usage_logs_upstream_request_id"
+const usageLogsAPIKeyCostIndexMigration = "249_add_usage_logs_api_key_cost_index_notx.sql"
+const usageLogsAPIKeyCostIndex = "idx_usage_logs_api_key_created_cost"
 
 // migrationDB is the session-scoped database surface used by the migration
 // runner. Both *sql.DB and *sql.Conn satisfy it, but production migrations use a
@@ -90,14 +92,16 @@ type migrationDB interface {
 }
 
 type nonTransactionalIndexPolicy struct {
-	indexName              string
-	partitionedTable       string
-	partitionedFallbackDDL string
-	partitionedIndexExpr   string
-	partitionedIndexWhere  string
+	indexName               string
+	partitionedTable        string
+	partitionedFallbackDDL  string
+	partitionedIndexExpr    string
+	partitionedIndexInclude string
+	partitionedIndexWhere   string
 }
 
 var nonTransactionalIndexPolicies = map[string][]nonTransactionalIndexPolicy{
+	usageLogsAPIKeyCostIndexMigration: {{indexName: usageLogsAPIKeyCostIndex, partitionedTable: "usage_logs", partitionedIndexExpr: "api_key_id, created_at", partitionedIndexInclude: "actual_cost"}},
 	usageLogsUpstreamRequestIDIndexMigration: {
 		{
 			indexName:             usageLogsUpstreamRequestIDIndex,

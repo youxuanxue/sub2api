@@ -52,7 +52,7 @@ func tkAntigravityModelRateLimitWriteKeys(account *Account, model string) []stri
 	if model != "" && isAntigravityGeminiArgonModel(model) && tkAntigravityArgonQuotaSeparate(account) {
 		return []string{model, antigravityGeminiArgonRateLimitKey}
 	}
-	return antigravityModelRateLimitKeys(model)
+	return antigravityModelRateLimitKeys(account, model)
 }
 
 // tkAntigravityGeminiFamilyReadKeys returns the family scopes a non-image

@@ -55,10 +55,15 @@ type GeminiFunctionCall struct {
 
 // GeminiFunctionResponse Gemini 函数响应
 type GeminiFunctionResponse struct {
-	Name     string         `json:"name"`
-	Response map[string]any `json:"response"`
-	ID       string         `json:"id,omitempty"`
-	Parts    []GeminiPart   `json:"parts,omitempty"`
+	Parts    []GeminiFunctionResponsePart `json:"parts,omitempty"`
+	Name     string                       `json:"name"`
+	Response map[string]any               `json:"response"`
+	ID       string                       `json:"id,omitempty"`
+}
+
+// GeminiFunctionResponsePart contains inline tool media, not message text.
+type GeminiFunctionResponsePart struct {
+	InlineData *GeminiInlineData `json:"inlineData,omitempty"`
 }
 
 // GeminiGenerationConfig Gemini 生成配置

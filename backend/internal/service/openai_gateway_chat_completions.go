@@ -186,7 +186,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, originalModel, defaultMappedModel)
 	upstreamModel = protocolExecutionResolvedModel(ctx, upstreamModel)
 	billingModel = settleOpenAIBillingFromUpstream(billingModel, upstreamModel)
-	if err := validateGPT61SolCompatRequest(body, upstreamModel); err != nil {
+	if err := validateGPT61CompatRequest(body, upstreamModel); err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}

@@ -3525,7 +3525,7 @@
         "stashGeminiWebEstimateResponseBody(c, collectedBytes)",
         "stashGeminiWebEstimateResponseBody(c, unwrappedBody)",
         "stashGeminiWebEstimateResponseBody(c, respBody)",
-        "stashGeminiWebEstimateOutputText(c, seenText)",
+        "stashGeminiWebEstimateOutputText(c, seenText.seen.String())",
         "geminiWebMissingAccountReferenceClientFault(account, resp.StatusCode, respBody)"
       ],
       "rationale": "Messages Forward and ForwardNative must invoke applyGeminiWebTextUsageEstimate and stash response materials. Unit tests call the helper directly, so deleting these shared-upstream call sites stays green while gemini-web text returns to $0. Missing Worker account-binding must short-circuit to client 400 before handleGeminiUpstreamError / failover — otherwise Chat-compat omission SetErrors healthy sessions."
@@ -3536,7 +3536,7 @@
         "applyGeminiWebTextUsageEstimate(c, account, result, geminiReq, responseErr)",
         "stashGeminiWebEstimateResponseBody(c, collectedBytes)",
         "stashGeminiWebEstimateResponseBody(c, respBody)",
-        "stashGeminiWebEstimateOutputText(c, seenText)",
+        "stashGeminiWebEstimateOutputText(c, seenText.seen.String())",
         "setGeminiWebAccountHeader(upstreamReq, account)",
         "geminiWebMissingAccountReferenceClientFault(account, resp.StatusCode, respBody)"
       ],
@@ -5805,7 +5805,7 @@
       "path": "backend/internal/service/openai_gateway_passthrough.go",
       "must_contain": [
         "shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)",
-        "case \"response.created\", \"response.queued\", \"response.in_progress\", \"response.metadata\", \"keepalive\":",
+        "case \"response.created\", \"response.queued\", \"response.in_progress\", \"response.metadata\",\n\t\t\"codex.rate_limits\", \"codex.response.metadata\", \"keepalive\":",
         "failoverErr.SafeToFailoverAfterWrite = streamHasOnlyKeepaliveOutput(c)",
         "return c != nil && c.Writer != nil && c.Writer.Size() > 0 && OpenAICompactKeepaliveAdjustedWrittenSize(c) < 0",
         "const openAICapacityShedClientRetryAfterSeconds = 30",
@@ -8411,15 +8411,16 @@
         "if s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...) {",
         "if shouldDisable && statusCode == http.StatusServiceUnavailable {",
         "failoverErr.RetryableOnSameAccount = false",
-        "failoverErr.RequestScopedTransient = false"
+        "failoverErr.RequestScopedTransient = true"
       ],
-      "rationale": "Explicit operator overload rules must also apply to HTTP 200 SSE terminal failures and skip same-account retries after cooling the selected model. Default capacity retries remain unchanged without a matching rule."
+      "rationale": "Explicit operator overload rules must also apply to HTTP 200 SSE terminal failures and skip same-account retries after cooling the selected model. Keep the failure request-scoped to prevent generic account-wide cooldown; default retries remain unchanged without a match."
     },
     {
       "path": "backend/internal/service/openai_stream_capacity_rule_tk.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) tkHandleOpenAIStreamCapacityRule",
-        "openAIStreamFailedEventPassthroughBody(payload, message)",
+        "openAICapacityShedRuleBody(payload)",
+        "tempUnschedHitUsesModelScope(account, matches[0].rule, model, http.StatusServiceUnavailable, body)",
         "HandleTempUnschedulable(stateCtx, account, http.StatusServiceUnavailable, body, model)"
       ],
       "rationale": "Reuse the model cooldown owner and match only the actual stream error envelope, never echoed instructions or response output."
@@ -11626,7 +11627,7 @@
     {
       "path": "backend/internal/service/api_key_auth_cache_impl.go",
       "must_contain": [
-        "apiKeyAuthSnapshotVersion = 26",
+        "apiKeyAuthSnapshotVersion = 27",
         "apiKey.Group.StickyRoutingMode",
         "apiKey.Group.MessagesCompactionEnabled",
         "apiKey.Group.MessagesCompactionInputTokensThreshold",
@@ -11701,6 +11702,7 @@
       "path": "backend/internal/service/gemini_messages_compat_service_tk_error_policy.go",
       "must_contain": [
         "func (s *GeminiMessagesCompatService) tkApplyGeminiErrorPolicy(",
+        "CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, geminiCodeAssistMappedModelFromContext(ctx))",
         "func (s *GeminiMessagesCompatService) skippedErrorPolicyFailoverError("
       ],
       "rationale": "P2 companion: Gemini ErrorPolicy helpers including Antigravity relay capacity classification inside checkErrorPolicyInLoop and the shared tkApplyGeminiErrorPolicy switch. Losing these restores pool_mode swallowing of internal relay empty-pool responses."
@@ -16639,7 +16641,7 @@
       "must_contain": [
         "StreamFirstOutputTimeoutSeconds int `mapstructure:\"stream_first_output_timeout_seconds\"`",
         "StreamFirstOutputHighEffortTimeoutSeconds int `mapstructure:\"stream_first_output_high_effort_timeout_seconds\"`",
-        "NewAPIChatNonstreamFirstOutputTimeout int `mapstructure:\"newapi_chat_nonstream_first_output_timeout\"`",
+        "NewAPIChatNonstreamFirstOutputTimeout int  `mapstructure:\"newapi_chat_nonstream_first_output_timeout\"`",
         "viper.SetDefault(\"gateway.stream_first_output_timeout_seconds\", 120)",
         "viper.SetDefault(\"gateway.stream_first_output_high_effort_timeout_seconds\", 600)",
         "viper.SetDefault(\"gateway.newapi_chat_first_output_timeout\", 0)",
@@ -20051,6 +20053,98 @@
       "rationale": "Pins content-only segment counts, legacy fingerprint compatibility, Option B splits at every truncation point, store writes, and single-pass tokenization in either call order. The frozen pre-memoization flow remains the benchmark baseline, not the billing-count oracle."
     },
     {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "Scope:           normalizeTempUnschedScope(entry[\"scope\"])",
+        "func normalizeTempUnschedScope(raw any) string"
+      ],
+      "rationale": "Explicit temporary-unschedulable scope must survive credential parsing; a defined Scope field alone silently falls back to the wrong account/model policy."
+    },
+    {
+      "path": "backend/internal/service/temp_unsched_scope_test.go",
+      "must_contain": [
+        "func TestGetTempUnschedulableRules_ParsesScope",
+        "func TestOpenAIFailoverSideEffects_401FollowsTempUnschedScope",
+        "func TestGeminiLoopModelScope401MatchesFinalPolicy"
+      ],
+      "rationale": "Keep scope parsing, credential-priority 401, and read-only Gemini loop/final-policy parity regression tests collected."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder.go",
+      "must_contain": [
+        "func openAIWSNativeIngressFinalizeFailover",
+        "return newOpenAIWSCurrentTurnFailoverError(err, nil)"
+      ],
+      "rationale": "An unwrapped later-turn failover must fail closed when no safe current-turn payload was reconstructed."
+    },
+    {
+      "path": "backend/internal/service/openai_subscription_long_context_test.go",
+      "must_contain": [
+        "func TestCalculateCostUnified_ModelLongContextExemptionPreservesCustomIntervals",
+        "func TestOpenAIGatewayServiceRecordUsage_GPT61SolExemptionSurvivesRepricing"
+      ],
+      "rationale": "Subscription exemptions must remain covered through real settlement/repricing without suppressing administrator interval pricing."
+    },
+    {
+      "path": "backend/internal/service/openai_cache_write_ttl_test.go",
+      "must_contain": [
+        "preview := svc.previewOpenAIClientUsageCost",
+        "log.TotalCost, preview.TotalCost",
+        "log.ActualCost, preview.ActualCost"
+      ],
+      "rationale": "OpenAI TTL response preview and independently settled ledger/debit must share the same price owner and cache-write split."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service.go",
+      "must_contain": [
+        "if account.Type == AccountTypeSetupToken {",
+        "return s.getPassiveUsageForAccount(ctx, account)"
+      ],
+      "rationale": "Explicit Anthropic setup-token refresh must reuse persisted passive windows, including weekly samples, without requiring OAuth profile scope."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_setup_token_weekly_test.go",
+      "must_contain": [
+        "func TestAccountUsageService_SetupTokenWeeklyUsage",
+        "func TestAccountUsageService_NonAnthropicSetupTokenPreservesEstimate"
+      ],
+      "rationale": "Keep setup-token explicit/forced/passive/batch window parity and non-Anthropic estimates covered by collected regression tests."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_handle_upstream_error.go",
+      "must_contain": [
+        "} else if customErrorCodesEnabled && account.ShouldHandleErrorCode(statusCode) {"
+      ],
+      "rationale": "An excluded custom error status must not disable an Anthropic account; dedicated credential and authoritative health guards keep their existing precedence."
+    },
+    {
+      "path": "backend/internal/service/claude_52_pricing_test.go",
+      "must_contain": [
+        "func TestClaude52UnpublishedFallbackFailsClosed",
+        "require.ErrorIs(t, err, ErrModelPricingUnavailable)"
+      ],
+      "rationale": "Imported legacy model rates must not bypass the active pricing registry publication boundary."
+    },
+    {
+      "path": "backend/internal/service/antigravity_internal500_scope_tk.go",
+      "must_contain": [
+        "if antigravity.IsImageModel(modelKey) {",
+        "cooldown = internal500ImageCooldown()",
+        "account.ID, modelKey, until, antigravityInternal500ModelCooldownReason"
+      ],
+      "rationale": "Keep the imported image cooldown override in the actual model-scoped owner. Text INTERNAL 500 remains model-only with the existing duration; never widen an image failure to account health."
+    },
+    {
+      "path": "backend/internal/service/antigravity_internal500_scope_test.go",
+      "must_contain": [
+        "TestInternal500ImageCooldownFromEnv",
+        "repo.modelLimitCalls[0].resetAt",
+        "require.Empty(t, repo.tempUnschedCalls)",
+        "require.Empty(t, repo.setErrorCalls)"
+      ],
+      "rationale": "Exercise the imported image override through the actual model write and retain text isolation and zero account penalties."
+    },
+    {
       "path": "ops/qa/node1_archive.py",
       "must_contain": [
         "def remove_orphan_staging(receipt_root: Path, now: float | None = None) -> tuple[list[str], list[dict]]:",
@@ -20067,6 +20161,86 @@
         "def test_a_staging_dir_that_cannot_be_removed_does_not_stop_archiving(self):"
       ],
       "rationale": "Keep orphan staging cleanup executable: stale push dirs removed, fresh and unrelated entries kept, and the pattern pinned to push_hour's own mkdtemp prefix."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_count_tokens.go",
+      "must_contain": [
+        "s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, prepared.UpstreamModel)"
+      ],
+      "rationale": "Both native and Anthropic-compatible input-token error paths must cool the actual mapped model, preserving explicit model-scoped rules without penalizing the whole account."
+    },
+    {
+      "path": "backend/internal/service/gateway_count_tokens.go",
+      "must_contain": [
+        "s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, reqModel)",
+        "s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, gjson.GetBytes(body, \"model\").String())"
+      ],
+      "rationale": "Keep the final upstream model on canonical and passthrough Anthropic count_tokens error policy paths."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_registry_alias.go",
+      "must_contain": [
+        "ImageCacheReadPricePerToken:        p.CacheReadInputImageTokenCost,"
+      ],
+      "rationale": "Published image cache-read rates must survive registry conversion into the actual settlement owner."
+    },
+    {
+      "path": "backend/internal/service/pricing_tk_base_tax.go",
+      "must_contain": [
+        "c.CacheReadInputImageTokenCost = tkApplyBaseTaxMultiplier(c.CacheReadInputImageTokenCost, multiplier)",
+        "c.ImageCacheReadPricePerToken = tkApplyBaseTaxMultiplier(c.ImageCacheReadPricePerToken, multiplier)"
+      ],
+      "rationale": "The imported image-cache price follows the same registry presentation and billing scaling policy as other token rates."
+    },
+    {
+      "path": "backend/internal/service/pricing_tk_deepseek_peak.go",
+      "must_contain": [
+        "cloned.ImageCacheReadPricePerToken = scale(cloned.ImageCacheReadPricePerToken)"
+      ],
+      "rationale": "Scaling a token price must retain the image-cache dimension."
+    },
+    {
+      "path": "backend/internal/service/openai_images26_test.go",
+      "must_contain": [
+        "func TestImageCacheReadPriceSurvivesRegistryConversionAndScaling",
+        "60*1.25e-6+40*2e-6, cost.CacheReadCost"
+      ],
+      "rationale": "Exercise actual mixed text/image cache settlement and immutable registry presentation/scaling."
+    },
+    {
+      "path": "backend/internal/service/temp_unsched_scope_test.go",
+      "must_contain": [
+        "func TestCountTokensEntries_ExplicitModelScope401OnlyCoolsModel",
+        "\"gpt-5.4-upstream\", repo.modelRateLimitCalls[0].scope",
+        "\"claude-sonnet-4-5-upstream\", repo.modelRateLimitCalls[0].scope"
+      ],
+      "rationale": "Collected endpoint regressions must exercise final mapped model writes and zero account penalties."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_count_tokens_failover.go",
+      "must_contain": [
+        "func (s *GatewayService) tkCountTokensFailoverErrorWithModel",
+        "tempUnschedRulesApply(account, resp.StatusCode, respBody, model)",
+        "err.RequestScopedTransient = true",
+        "err.RetryableOnSameAccount = false"
+      ],
+      "rationale": "A count_tokens failover must honor explicit model-scoped 401 rules without triggering generic account penalties or retrying the cooled model on the same account."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_newapi_pool.go",
+      "must_contain": [
+        "ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(group) && group.ID == *groupID",
+        "return group.Platform"
+      ],
+      "rationale": "Scheduling platform and privacy must share the authenticated hydrated group; avoid an extra database snapshot lookup for the same group."
+    },
+    {
+      "path": "backend/internal/service/openai_privacy_gate_ctx_test.go",
+      "must_contain": [
+        "func TestOpenAIGatewayService_PrivacyGateReadsAuthGroupFromContext",
+        "require.Zero(t, groupRepo.calls.Load()"
+      ],
+      "rationale": "Legacy and advanced scheduling must retain privacy admission with zero group-table reads when auth context is already hydrated."
     },
     {
       "path": "backend/internal/repository/usage_log_repo_insert.go",

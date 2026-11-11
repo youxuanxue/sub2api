@@ -9,6 +9,8 @@ revised_at: 2026-10-28
 
 - [未知 TTL 缓存创建量计费](cache-creation-unknown-ttl-billing.md)：已知 TTL 保留原价，结算时仍未知的差额按 1h；不追补旧账。
 
+- [NewAPI 生图图片 token 计费](newapi-image-token-billing.md)：new-api `dto.Usage` 丢 `output_tokens_details`，bridge 从响应补回图片 token，修复 token 计价生图白送。
+
 - 已完成：[newapi OpenAI 渠道 image edits](newapi-openai-image-edits.md)：仅 OpenAI 渠道 newapi 账号转发 `/v1/images/edits`，其它 newapi 渠道仍 404。已随 #3153 合入。
 
 - [Kiro 文件工具分块兼容方案](kiro-file-tool-chunking.md)：已确认的按账号分块提示；实测缓解长静默断流，明确轮数、成本和非保证边界。
@@ -203,6 +205,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`upstream-merge-2026-10-06.md`](upstream-merge-2026-10-06.md) | 隔离上游合并、241 迁移与 TokenKey CHECK/404 裁决；不授权主线合并或部署 |
 | [`upstream-merge-2026-10-22-migrations.md`](upstream-merge-2026-10-22-migrations.md) | 2026-10-22 上游迁移已随 #2796 合入（`shipped`） |
 | [`upstream-merge-2026-11-05-migrations.md`](upstream-merge-2026-11-05-migrations.md) | 2026-11-05 上游迁移 247–249 已随 #3068 合入（`shipped`） |
+| [`upstream-merge-2026-11-11.md`](upstream-merge-2026-11-11.md) | 本轮隔离合并、覆盖索引与 OpenAI TTL 迁移边界；生产与主线审批待确认 |
 
 ## 已归档的 QA 设计
 
