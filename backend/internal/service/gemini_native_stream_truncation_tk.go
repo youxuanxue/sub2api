@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -158,6 +159,13 @@ func finalizeAntigravityGeminiStreamTruncation(
 	}
 	if c != nil && c.Request != nil && geminiNativeStreamClientAborted(c.Request.Context()) {
 		return nil
+	}
+	// 与 Gemini compat 路径一致：干净 EOF 时客户端看不到任何错误信号，SDK 只会报
+	// "stream ended without a finish reason" 且无法判断是否可重试。补一个完整的
+	// 原生错误帧，让客户端拿到明确的 502 / upstream_stream_truncated。
+	if c != nil && c.Writer != nil {
+		_, _ = fmt.Fprint(c.Writer, geminiNativeSSEErrorFrame(http.StatusBadGateway, GeminiNativeStreamTruncatedCode))
+		c.Writer.Flush()
 	}
 	return recordGeminiNativeStreamTruncation(c, account, upstreamRequestID)
 }

@@ -184,3 +184,38 @@ func TestGeminiNativeStreamTruncation_ClientAbortIsNotUpstreamFault(t *testing.T
 		&Account{ID: 44, Name: "acct", Platform: PlatformGemini}, "req-3", nil, nil)
 	require.NoError(t, err, "client abort must not be attributed to the upstream account")
 }
+
+// A truncated Antigravity stream must end with a native error frame so the
+// client sees an explicit 502 instead of a bare EOF; a complete stream must not.
+func TestAntigravityGeminiStreamTruncation_WritesClientErrorFrame(t *testing.T) {
+	for _, tc := range geminiNativeTruncationCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost,
+				"/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse", nil)
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(tc.wire)),
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			}
+			svc := newAntigravityTestService(&config.Config{
+				Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+			})
+			account := &Account{ID: 43, Name: "antigravity-acct", Platform: PlatformAntigravity}
+
+			streamRes, err := svc.handleGeminiStreamingResponse(c, resp, time.Now())
+			require.NoError(t, err)
+			require.Equal(t, tc.wantTruncated, finalizeAntigravityGeminiStreamTruncation(c, streamRes, account, "req-4") != nil)
+
+			body := rec.Body.String()
+			if tc.wantTruncated {
+				require.True(t, strings.HasSuffix(body, geminiNativeSSEErrorFrame(http.StatusBadGateway, GeminiNativeStreamTruncatedCode)),
+					"error frame must be the last frame the client receives")
+				return
+			}
+			require.NotContains(t, body, GeminiNativeStreamTruncatedCode)
+		})
+	}
+}
