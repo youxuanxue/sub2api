@@ -70,7 +70,7 @@ var usageLogInsertArgTypes = [...]string{
 	"jsonb",       // image_size_breakdown
 	"integer",     // video_count
 	"text",        // video_resolution
-	"integer",     // video_duration_seconds
+	"bigint",      // video_duration_seconds
 	"text",        // service_tier
 	"text",        // reasoning_effort
 	"text",        // requested_reasoning_effort
