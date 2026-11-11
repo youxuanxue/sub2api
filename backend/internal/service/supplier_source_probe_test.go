@@ -57,7 +57,7 @@ func TestUS048_ProbeUntilCompleteNormalizesAndSuggestsOnlyProbePassed(t *testing
 	ratio := 0.5
 	source := &SupplierSource{
 		ID: 3, SupplierName: "baidu", SupplierLane: "default",
-		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
+		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "secret",
 		BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "DeepSeek-V4-Pro", UpstreamModelID: "DeepSeek-V4-Pro", PurchaseRatio: &ratio},
@@ -106,7 +106,7 @@ func TestUS048_ValidateProbesConfiguredRowsWithoutWritingAccounts(t *testing.T) 
 	source := &SupplierSource{
 		ID: 11, SupplierName: "baidu", SupplierLane: "default",
 		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com",
-		EncryptedCredential: "enc:secret", BasePriority: 100,
+		EncryptedCredential: "secret", BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio},
 		},
@@ -131,7 +131,7 @@ func TestUS048_ProbeUntilCompleteSuggestionsAloneDoNotBlockProjection(t *testing
 	ratio := 0.5
 	source := &SupplierSource{
 		ID: 5, SupplierName: "baidu", SupplierLane: "default",
-		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
+		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "secret",
 		BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio},
@@ -158,7 +158,7 @@ func TestUS048_ProbeUntilCompletePreservesIntentionalClientUpstreamRemap(t *test
 	ratio := 0.5
 	source := &SupplierSource{
 		ID: 6, SupplierName: "FMGo", SupplierLane: "seedance",
-		ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1", EncryptedCredential: "enc:secret",
+		ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1", EncryptedCredential: "secret",
 		BasePriority: 100,
 		Models: []SupplierSourceModel{{
 			ClientModelID:   "doubao-seedance-2-0-260128",
@@ -186,7 +186,7 @@ func TestUS048_ProbeUntilCompletePreservesIntentionalClientUpstreamRemap(t *test
 func TestUS048_ProbeUntilCompleteAuthFailureDoesNotFailJob(t *testing.T) {
 	source := &SupplierSource{
 		ID: 4, SupplierName: "baidu", SupplierLane: "default",
-		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
+		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "secret",
 		BasePriority: 100, Models: nil,
 	}
 	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
@@ -263,7 +263,7 @@ func TestCloneSupplierSourceProbeResultEmptySlicesJSONNotNull(t *testing.T) {
 func TestUS048_StartSupplierProbeJobProbesAllCandidatesAsynchronously(t *testing.T) {
 	source := &SupplierSource{
 		ID: 8, SupplierName: "baidu", SupplierLane: "default",
-		Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
+		Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "secret",
 		BasePriority: 100, Models: nil,
 	}
 	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
@@ -311,7 +311,7 @@ func TestUS048_FMGoProbeSkipsNonVideoInventory(t *testing.T) {
 		ID: 10, SupplierName: "feimiao", SupplierLane: "default",
 		ChannelType:         newapiconstant.ChannelTypeDoubaoVideo,
 		Endpoint:            "https://www.fmgo.top",
-		EncryptedCredential: "enc:secret",
+		EncryptedCredential: "secret",
 		BasePriority:        100,
 	}
 	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
@@ -349,7 +349,7 @@ func TestUS048_AnthropicChannelScopedDiscoverProbesOnlyClaudeFamily(t *testing.T
 	source := &SupplierSource{
 		ID: 12, SupplierName: "tokensea", SupplierLane: "anthropic",
 		ChannelType: newapiconstant.ChannelTypeAnthropic, Endpoint: "https://agent.tokensea.ai/v1",
-		EncryptedCredential: "enc:secret", BasePriority: 100, Models: nil,
+		EncryptedCredential: "secret", BasePriority: 100, Models: nil,
 	}
 	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
 	lister := &supplierProbeFake{
@@ -390,7 +390,7 @@ func TestUS048_OpenAIChannelScopedHasNoIDFamilyRule(t *testing.T) {
 	source := &SupplierSource{
 		ID: 13, SupplierName: "tokensea", SupplierLane: "openai",
 		ChannelType: newapiconstant.ChannelTypeOpenAI, Endpoint: "https://agent.tokensea.ai/v1",
-		EncryptedCredential: "enc:secret", BasePriority: 100, Models: nil,
+		EncryptedCredential: "secret", BasePriority: 100, Models: nil,
 	}
 	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
 	lister := &supplierProbeFake{
@@ -415,7 +415,7 @@ func TestUS048_AnthropicWithoutChannelScopedProbesAllChatCandidates(t *testing.T
 	source := &SupplierSource{
 		ID: 14, SupplierName: "tokensea", SupplierLane: "anthropic",
 		ChannelType: newapiconstant.ChannelTypeAnthropic, Endpoint: "https://agent.tokensea.ai/v1",
-		EncryptedCredential: "enc:secret", BasePriority: 100, Models: nil,
+		EncryptedCredential: "secret", BasePriority: 100, Models: nil,
 	}
 	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
 	lister := &supplierProbeFake{

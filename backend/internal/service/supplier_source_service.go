@@ -119,7 +119,7 @@ func (s *SupplierSourceService) Get(ctx context.Context, id int64) (*SupplierSou
 }
 
 func (s *SupplierSourceService) Create(ctx context.Context, input SupplierSourceInput) (*SupplierSource, error) {
-	if s == nil || s.repo == nil || s.encryptor == nil || s.fingerprinter == nil {
+	if s == nil || s.repo == nil || s.fingerprinter == nil {
 		return nil, ErrSupplierSourceInvalidInput
 	}
 	if strings.TrimSpace(input.Credential) == "" {
@@ -154,7 +154,7 @@ func (s *SupplierSourceService) Create(ctx context.Context, input SupplierSource
 }
 
 func (s *SupplierSourceService) Update(ctx context.Context, id int64, input SupplierSourceInput) (*SupplierSource, error) {
-	if s == nil || s.repo == nil || s.encryptor == nil || s.fingerprinter == nil || id <= 0 {
+	if s == nil || s.repo == nil || s.fingerprinter == nil || id <= 0 {
 		return nil, ErrSupplierSourceInvalidInput
 	}
 	if err := input.Validate(); err != nil {
@@ -191,6 +191,61 @@ func (s *SupplierSourceService) Update(ctx context.Context, id int64, input Supp
 		return nil, err
 	}
 	return updated, nil
+}
+
+// RestoreCredentialFromManagedAccounts copies the single distinct managed-account
+// api_key back onto the supplier source as plaintext. Zero keys and conflicting
+// keys leave the stored credential unchanged.
+func (s *SupplierSourceService) RestoreCredentialFromManagedAccounts(ctx context.Context, id int64) (*SupplierSource, error) {
+	if s == nil || s.repo == nil || s.accounts == nil || id <= 0 {
+		return nil, ErrSupplierSourceInvalidInput
+	}
+	source, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	accounts, err := s.accounts.ListManagedAccounts(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	credential, err := distinctManagedAPIKey(accounts)
+	if err != nil {
+		return nil, err
+	}
+	stored, fingerprint, err := s.protectCredential(credential)
+	if err != nil {
+		return nil, err
+	}
+	source.EncryptedCredential = stored
+	source.CredentialFingerprint = fingerprint
+	if err := s.repo.Update(ctx, source); err != nil {
+		return nil, err
+	}
+	return s.repo.Get(ctx, source.ID)
+}
+
+func distinctManagedAPIKey(accounts []*Account) (string, error) {
+	chosen := ""
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		key := strings.TrimSpace(account.GetCredential("api_key"))
+		if key == "" {
+			continue
+		}
+		if chosen == "" {
+			chosen = key
+			continue
+		}
+		if chosen != key {
+			return "", ErrSupplierSourceCredentialRestoreConflict
+		}
+	}
+	if chosen == "" {
+		return "", ErrSupplierSourceCredentialRestoreEmpty
+	}
+	return chosen, nil
 }
 
 func (s *SupplierSourceService) PriorityPreview(ctx context.Context) (*SupplierPriorityPreview, error) {
@@ -236,7 +291,7 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 	result := &SupplierSourceSyncResult{
 		SourceID: sourceID, ProbeResults: make([]SupplierProbeResult, 0), Changes: make([]SupplierSourceAccountChange, 0),
 	}
-	if s == nil || s.repo == nil || s.accounts == nil || s.encryptor == nil || sourceID <= 0 {
+	if s == nil || s.repo == nil || s.accounts == nil || sourceID <= 0 {
 		result.FailedStep = "validate_request"
 		return result, ErrSupplierSourceInvalidInput
 	}
@@ -245,10 +300,10 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 		result.FailedStep = "load_source"
 		return result, err
 	}
-	credential, err := s.encryptor.Decrypt(source.EncryptedCredential)
+	credential, err := supplierStoredCredential(source.EncryptedCredential)
 	if err != nil {
-		result.FailedStep = "decrypt_credential"
-		return result, fmt.Errorf("%w: %v", ErrSupplierSourceCredentialUndecryptable, err)
+		result.FailedStep = "load_credential"
+		return result, err
 	}
 	targets, err := supplierTargetBands(source)
 	if err != nil {
@@ -903,15 +958,22 @@ func (s *SupplierSourceService) ensureSupplierManagedConcurrency(
 
 func (s *SupplierSourceService) protectCredential(credential string) (string, string, error) {
 	credential = strings.TrimSpace(credential)
-	encrypted, err := s.encryptor.Encrypt(credential)
-	if err != nil {
-		return "", "", fmt.Errorf("encrypt supplier credential: %w", err)
+	if credential == "" || s == nil || s.fingerprinter == nil {
+		return "", "", ErrSupplierSourceInvalidInput
 	}
 	fingerprint, err := s.fingerprinter.Fingerprint(credential)
 	if err != nil {
 		return "", "", fmt.Errorf("fingerprint supplier credential: %w", err)
 	}
-	return encrypted, fingerprint, nil
+	return credential, fingerprint, nil
+}
+
+func supplierStoredCredential(stored string) (string, error) {
+	credential := strings.TrimSpace(stored)
+	if credential == "" {
+		return "", fmt.Errorf("%w: credential is empty", ErrSupplierSourceInvalidInput)
+	}
+	return credential, nil
 }
 
 func supplierPriorityOverlapWarnings(entries []SupplierPriorityPreviewEntry) []SupplierPriorityPreviewWarning {

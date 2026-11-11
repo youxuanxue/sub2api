@@ -13371,13 +13371,14 @@
         "func (s *SupplierSourceService) GetSupplierProbeJob(",
         "supplierProbeCandidateConcurrency = 8",
         "go s.runSupplierProbeCandidates(jobCtx, job, probeAccount, probeable)",
-        "return result, fmt.Errorf(\"%w: %v\", ErrSupplierSourceCredentialUndecryptable, err)"
+        "credential, err := supplierStoredCredential(source.EncryptedCredential)",
+        "result.FailedStep = \"load_credential\""
       ],
       "must_not_contain": [
         "supplierDiscoverProbeBudget",
         "probe_skipped_budget"
       ],
-      "rationale": "models-discover must list/normalize synchronously then probe EVERY probeable candidate asynchronously at high concurrency. A fixed probe budget would silently leave remaining upstream models' servability unknown, which violates the supplier-source product definition. Discover/validate decrypt failures wrap ErrSupplierSourceCredentialUndecryptable for actionable admin responses."
+      "rationale": "models-discover must list/normalize synchronously then probe EVERY probeable candidate asynchronously at high concurrency. A fixed probe budget would silently leave remaining upstream models' servability unknown, which violates the supplier-source product definition. Discover reads the stored supplier API key as plaintext and reports an empty credential as load_credential."
     },
     {
       "path": "backend/internal/service/supplier_source_probe_test.go",
@@ -13411,9 +13412,11 @@
     {
       "path": "backend/internal/service/supplier_source.go",
       "must_contain": [
-        "ErrSupplierSourceCredentialUndecryptable = errors.New(\"supplier credential cannot be decrypted with the current encryption key; re-enter the API key and save\")"
+        "ErrSupplierSourceCredentialUndecryptable   = errors.New(\"supplier credential cannot be decrypted with the current encryption key; re-enter the API key and save\")",
+        "ErrSupplierSourceCredentialRestoreEmpty    = errors.New(\"managed accounts have no api key to copy back\")",
+        "ErrSupplierSourceCredentialRestoreConflict = errors.New(\"managed accounts do not share one api key\")"
       ],
-      "rationale": "Supplier sync/discover/validate must surface a dedicated undecryptable-credential error when TOTP_ENCRYPTION_KEY cannot open encrypted_credential (key rotation / migration without re-protect). Losing the sentinel lets an upstream merge restore opaque 500s and hide the operator remediations path."
+      "rationale": "Supplier credentials are stored as plaintext in the historical encrypted_credential column. The historical undecryptable error stays mapped by the admin handler. Reverse sync copies one distinct managed-account api_key back and refuses empty or conflicting keys without rewriting the stored credential."
     },
     {
       "path": "backend/internal/service/supplier_source_service.go",
@@ -13430,12 +13433,14 @@
         "relevantMatches := make([]*Account, 0, len(matches))",
         "if err := s.syncSupplierMetadata(ctx, source, managedByBand, result); err != nil {",
         "if err := s.ensureSupplierRoutingGroups(ctx, source, managedByBand, result); err != nil {",
-        "return result, fmt.Errorf(\"%w: %v\", ErrSupplierSourceCredentialUndecryptable, err)"
+        "func (s *SupplierSourceService) RestoreCredentialFromManagedAccounts(",
+        "func distinctManagedAPIKey(accounts []*Account) (string, error)",
+        "func supplierStoredCredential(stored string) (string, error)"
       ],
       "must_not_contain": [
         "result.ProbeResults = s.probeSupplierTargets"
       ],
-      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write. Metadata (name/priority) converges before structural projection so base_priority changes are not stranded behind protocol failures. Anthropic sources ensure claude routing group membership after metadata and again after successful structural writes for newly created bands. Governed text identity drift is repaired by a projection write; media-only accounts without a text capability are already converged, while a stale capability link triggers exactly one cleanup write. Adoption candidates are already transport-scoped by FindCredentialEndpointMatches(channel_type); sync only skips this source's managed accounts before adopt/conflict. Decrypt failures wrap ErrSupplierSourceCredentialUndecryptable so admin APIs return an actionable conflict instead of a generic 500."
+      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write. Metadata (name/priority) converges before structural projection so base_priority changes are not stranded behind protocol failures. Anthropic sources ensure claude routing group membership after metadata and again after successful structural writes for newly created bands. Governed text identity drift is repaired by a projection write; media-only accounts without a text capability are already converged, while a stale capability link triggers exactly one cleanup write. Adoption candidates are already transport-scoped by FindCredentialEndpointMatches(channel_type); sync only skips this source's managed accounts before adopt/conflict. Sync reads the stored API key as plaintext. RestoreCredentialFromManagedAccounts copies the single distinct managed-account api_key back and does not write when keys are missing or conflicting."
     },
     {
       "path": "backend/internal/service/supplier_source_routing_group.go",
