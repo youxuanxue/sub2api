@@ -184,3 +184,65 @@ func TestGeminiNativeStreamTruncation_ClientAbortIsNotUpstreamFault(t *testing.T
 		&Account{ID: 44, Name: "acct", Platform: PlatformGemini}, "req-3", nil, nil)
 	require.NoError(t, err, "client abort must not be attributed to the upstream account")
 }
+
+// A truncated Antigravity stream must end with a native error frame so the
+// client sees an explicit 502 instead of a bare EOF; a complete stream must not.
+func TestAntigravityGeminiStreamTruncation_WritesClientErrorFrame(t *testing.T) {
+	for _, tc := range geminiNativeTruncationCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost,
+				"/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse", nil)
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(tc.wire)),
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			}
+			svc := newAntigravityTestService(&config.Config{
+				Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+			})
+			account := &Account{ID: 43, Name: "antigravity-acct", Platform: PlatformAntigravity}
+
+			streamRes, err := svc.handleGeminiStreamingResponse(c, resp, time.Now())
+			require.NoError(t, err)
+			require.Equal(t, tc.wantTruncated, finalizeAntigravityGeminiStreamTruncation(c, streamRes, account, "req-4") != nil)
+
+			body := rec.Body.String()
+			if tc.wantTruncated {
+				require.True(t, strings.HasSuffix(body, geminiNativeSSEErrorFrame(http.StatusBadGateway, GeminiNativeStreamTruncatedCode)),
+					"error frame must be the last frame the client receives")
+				return
+			}
+			require.NotContains(t, body, GeminiNativeStreamTruncatedCode)
+		})
+	}
+}
+
+func TestClearStickySessionIfBoundTo(t *testing.T) {
+	group := int64(21)
+	newSvc := func(bound int64) (*GatewayService, *stubGatewayCache) {
+		cache := &stubGatewayCache{sessionBindings: map[string]int64{}}
+		if bound > 0 {
+			cache.sessionBindings["gemini:s"] = bound
+		}
+		return &GatewayService{cache: cache}, cache
+	}
+
+	t.Run("clears_binding_to_failed_account", func(t *testing.T) {
+		svc, cache := newSvc(529)
+		require.True(t, svc.ClearStickySessionIfBoundTo(context.Background(), &group, "gemini:s", 529))
+		require.Empty(t, cache.sessionBindings)
+	})
+	t.Run("keeps_binding_that_moved_to_another_account", func(t *testing.T) {
+		svc, cache := newSvc(244)
+		require.False(t, svc.ClearStickySessionIfBoundTo(context.Background(), &group, "gemini:s", 529))
+		require.Equal(t, int64(244), cache.sessionBindings["gemini:s"])
+	})
+	t.Run("no_binding_or_key_is_noop", func(t *testing.T) {
+		svc, _ := newSvc(0)
+		require.False(t, svc.ClearStickySessionIfBoundTo(context.Background(), &group, "gemini:s", 529))
+		require.False(t, svc.ClearStickySessionIfBoundTo(context.Background(), &group, "", 529))
+	})
+}
