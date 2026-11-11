@@ -6,17 +6,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// geminiClientRejectsSSEComments 判断下游客户端是否是「无法容忍 SSE 注释行」的 Google GenAI SDK。
+// geminiClientRejectsSSEComments 判断下游是不是 go-genai / python-genai。
 //
-// Gemini 原生流里我们用 ":\n\n" 作为空闲心跳（防止代理/Cloudflare Tunnel 断开），但官方 SDK 里
-// 有两个实现不按 SSE 规范忽略注释行：
-//   - go-genai（Antigravity CLI 在用）：api_client.go iterateResponseStream 对任何非 "data:" 前缀的
-//     事件直接报 "invalid stream chunk: :"，整个流中断；
-//   - python-genai：_api_client.py 把非 "data:" 行当作错误 JSON 拼接后 json.loads，同样抛错。
+// Gemini 原生流的空闲心跳是空白帧 "\n"（geminiNativeSSEKeepaliveFrame）。":\n\n" 会留在
+// @google/genai 缓冲里，流结束抛 Incomplete JSON segment at the end。这两个 SDK 还不能接受
+// 裸换行：它会粘到下一个以 "\n\n" 切分的事件上，前缀检查失败，所以原生流转发对它们关闭流内心跳。
+//   - go-genai（Antigravity CLI）：非 "data:" 前缀直接报 "invalid stream chunk"。
+//   - python-genai：把非 "data:" 行拼进 JSON 再 json.loads。
 //
-// js-genai 用的是规范的 event-stream 解析器，能正确忽略注释。Google 官方 API 从不下发注释行，
-// 所以这两个 SDK 从未处理过这种输入。识别依据是 SDK 固定携带的 User-Agent / X-Goog-Api-Client，
-// 形如 "google-genai-sdk/1.71.0 gl-go/go1.28 ..." 或 "google-genai-sdk/1.x gl-python/3.12"。
+// js-genai（gl-node）使用规范的 event-stream 解析器，返回 false，继续收空白帧。识别依据是
+// User-Agent / X-Goog-Api-Client 里同时出现 "google-genai-sdk/" 与 "gl-go/" 或 "gl-python/"。
 func geminiClientRejectsSSEComments(clientHint string) bool {
 	hint := strings.ToLower(strings.TrimSpace(clientHint))
 	if !strings.Contains(hint, "google-genai-sdk/") {

@@ -15370,11 +15370,33 @@
       "must_contain": [
         "if payload == \"\" || payload == \"[DONE]\" {",
         "Native Gemini wire format does not use [DONE].",
+        "keepaliveFrame := geminiNativeSSEKeepaliveFrame",
         "cw.Fprintf(\"%s\", geminiNativeSSEKeepaliveFrame)",
         "if isGeminiNativeSSEKeepalive(trimmed) {",
         "geminiNativeSSEErrorFrame(http.StatusBadGateway, reason)"
       ],
-      "rationale": "Gemini CLI / @google/genai throws Incomplete JSON segment at the end for unterminated data: [DONE] OR leading SSE comment heartbeats. Drop empty data/[DONE], translate upstream heartbeats to whitespace, and emit data-only errors so responseLineRE can drain the buffer at EOF."
+      "must_not_contain": [
+        "keepaliveFrame = \":\\n\\n\""
+      ],
+      "rationale": "Gemini CLI / @google/genai throws Incomplete JSON segment at the end for unterminated data: [DONE] OR SSE comment heartbeats. Drop empty data/[DONE], translate upstream heartbeats to whitespace, and keep the in-stream ticker on geminiNativeSSEKeepaliveFrame. Reassigning that ticker to a comment frame sticks the CLI buffer until EOF."
+    },
+    {
+      "path": "backend/internal/service/gemini_sse_comment_compat.go",
+      "must_contain": [
+        "func geminiClientRejectsSSEComments(clientHint string) bool {",
+        "strings.Contains(hint, \"google-genai-sdk/\")",
+        "strings.Contains(hint, \"gl-go/\") || strings.Contains(hint, \"gl-python/\")"
+      ],
+      "rationale": "go-genai / python-genai reject non-data events and a bare newline glued onto the next frame. This classifier is why Gemini-native in-stream keepalive is disabled for them while Gemini CLI still receives the whitespace frame."
+    },
+    {
+      "path": "backend/internal/service/gemini_sse_comment_compat_test.go",
+      "must_contain": [
+        "func TestAntigravityGeminiStreamUsesWhitespaceKeepaliveForGeminiCLI(",
+        "func TestAntigravityGeminiStreamSkipsCommentKeepaliveForGoGenai(",
+        "geminiCLISSEFullyDrained(out)"
+      ],
+      "rationale": "gemini-4-argon thinking gaps exceed keepalive. Gemini CLI must fully drain a whitespace idle frame; go-genai must not receive an in-stream heartbeat."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
