@@ -213,9 +213,12 @@
     "protocol_routing": "protocol-routing SSOT",
     "pricing_serving": "pricing/serving approved-doc precedence",
     "merge_conflict": "merge conflict markers",
+    "spec_delta": "spec-delta liveness",
+    "gateway_tk": "gateway TK sentinel registry",
     "ssm_parse": "SSM host command script parse",
     "archive_rehearsal": "nonprod archive/restore rehearsal",
-    "qa_local_lifecycle": "QA local lifecycle contract"
+    "qa_local_lifecycle": "QA local lifecycle contract",
+    "lint_changed": "backend lint"
   },
   "input_sets": {
     "base": [],

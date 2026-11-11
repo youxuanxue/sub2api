@@ -25,7 +25,7 @@ def configured_command() -> str:
     return commands[0]
 
 
-def run_configured_command(*, github_actions: bool, backend_lint: str = "1") -> bool:
+def run_configured_command(*, github_actions: bool, backend_lint: str = "1", deferred: str = "") -> str:
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         (root / "backend").mkdir()
@@ -36,12 +36,16 @@ def run_configured_command(*, github_actions: bool, backend_lint: str = "1") -> 
         fake_make.write_text(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
-            f"touch {marker!s}\n",
+            f"printf '%s\\n' \"$*\" > {marker!s}\n",
             encoding="utf-8",
         )
         fake_make.chmod(0o755)
         env = os.environ.copy()
         env["PREFLIGHT_BACKEND_LINT"] = backend_lint
+        if deferred:
+            env["PREFLIGHT_LINT_DEFERRED"] = deferred
+        else:
+            env.pop("PREFLIGHT_LINT_DEFERRED", None)
         env["PATH"] = f"{fake_bin}:{env['PATH']}"
         if github_actions:
             env["GITHUB_ACTIONS"] = "true"
@@ -58,18 +62,23 @@ def run_configured_command(*, github_actions: bool, backend_lint: str = "1") -> 
         self_message = result.stdout + result.stderr
         if result.returncode != 0:
             raise AssertionError(self_message)
-        return marker.exists()
+        if not marker.exists():
+            return ""
+        return marker.read_text(encoding="utf-8").strip()
 
 
 class PreflightCILintSkipTest(unittest.TestCase):
     def test_github_actions_does_not_run_duplicate_lint(self) -> None:
-        self.assertFalse(run_configured_command(github_actions=True))
+        self.assertEqual(run_configured_command(github_actions=True), "")
 
     def test_local_script_change_does_not_run_backend_lint(self) -> None:
-        self.assertFalse(run_configured_command(github_actions=False, backend_lint="0"))
+        self.assertEqual(run_configured_command(github_actions=False, backend_lint="0"), "")
 
-    def test_local_preflight_still_runs_lint(self) -> None:
-        self.assertTrue(run_configured_command(github_actions=False))
+    def test_local_preflight_lints_changed_packages(self) -> None:
+        self.assertEqual(run_configured_command(github_actions=False), "lint-changed")
+
+    def test_deferred_lint_is_not_started_again_by_the_template(self) -> None:
+        self.assertEqual(run_configured_command(github_actions=False, deferred="1"), "")
 
 
 if __name__ == "__main__":

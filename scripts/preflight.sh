@@ -160,6 +160,7 @@ if [ "$_scope" = "full" ]; then
     unset PREFLIGHT_SKIP_AGENT_CONTRACT PREFLIGHT_SKIP_MAIN_ANCESTRY
     unset PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY PREFLIGHT_DEFER_GO_ARTIFACT_DRIFT
     export PREFLIGHT_FAST=0
+    export PREFLIGHT_FULL_LINT=1
 fi
 if [ "$_plan_only" -eq 1 ]; then
     exec python3 ./scripts/preflight/plan.py --scope "$_scope"
@@ -247,6 +248,20 @@ _preflight_skip_main_ancestry=0
 case "${PREFLIGHT_SKIP_MAIN_ANCESTRY:-}" in
     1|true|yes|TRUE|YES) _preflight_skip_main_ancestry=1 ;;
 esac
+
+# The prompt-surface fixture compiles backend/internal/service. On a backend
+# edit that compile used to run beside golangci-lint and both took several
+# minutes. CI test-unit already owns the fixture; --full still runs it here.
+_preflight_apply_local_speed_defaults() {
+    if [ "${1:-}" = "full" ]; then
+        return 0
+    fi
+    case "${PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY:-}" in
+        0|false|no|FALSE|NO) ;;
+        *) export PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY=1 ;;
+    esac
+}
+_preflight_apply_local_speed_defaults "$_scope"
 
 # ---- TK: background-job helpers ----------------------------------------------
 # The most expensive sub2api gates (QA go test, the unittest-discover suites,
@@ -420,6 +435,13 @@ _merge_conflict_gate_run() {
     python3 ./scripts/checks/test_merge_conflict_markers.py >/dev/null &&
         python3 ./scripts/checks/merge-conflict-markers.py --quiet
 }
+_spec_delta_gate_run() {
+    python3 ./scripts/checks/spec-delta-liveness.py --selftest >/dev/null &&
+        python3 ./scripts/checks/spec-delta-liveness.py --quiet
+}
+_gateway_tk_gate_run() {
+    python3 ./scripts/sentinels/check-gateway-tk.py --quiet
+}
 if [ "$_preflight_skip_go_contracts" -ne 1 ] && [ "$_preflight_skip_slow_ops" -ne 1 ] && command -v go >/dev/null 2>&1; then
     _bg_spawn qa_local_lifecycle _qa_local_lifecycle_gate_run
 fi
@@ -452,6 +474,14 @@ if command -v python3 >/dev/null 2>&1; then
     _bg_spawn protocol_routing _protocol_routing_gate_run
     _bg_spawn pricing_serving _pricing_serving_gate_run
     _bg_spawn merge_conflict _merge_conflict_gate_run
+    _bg_spawn spec_delta _spec_delta_gate_run
+    _bg_spawn gateway_tk _gateway_tk_gate_run
+fi
+# Lint overlaps the template and the later Python gates. The template's own
+# linter command no-ops while PREFLIGHT_LINT_DEFERRED=1; the join is at the end.
+if [ "${GITHUB_ACTIONS:-}" != "true" ] && _preflight_selected "bg:lint_changed"; then
+    export PREFLIGHT_LINT_DEFERRED=1
+    _bg_spawn lint_changed make -C backend lint-changed
 fi
 # Compatibility shims until the dev-rules template carries the project-needed
 # deleted-ref base and scans colocated Python tests outside tests/ directories.
@@ -684,6 +714,14 @@ echo "=== sub2api: spec-delta liveness ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by spec-delta liveness check)"
     errors=$((errors + 1))
+elif _bg_spawned spec_delta; then
+    _bg_join spec_delta replay-on-failure
+    if [ "$_bg_rc" -ne 0 ]; then
+        echo "  FAIL: spec-delta Owners path does not resolve, or the checker self-test failed"
+        errors=$((errors + 1))
+    else
+        echo "  ok: every spec-delta Owners path resolves"
+    fi
 elif ! python3 ./scripts/checks/spec-delta-liveness.py --selftest >/dev/null; then
     echo "  FAIL: spec-delta liveness checker self-tests"
     errors=$((errors + 1))
@@ -1403,6 +1441,13 @@ echo "=== sub2api: gateway TK sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read gateway-tk-sentinels.json)"
     errors=$((errors + 1))
+elif _bg_spawned gateway_tk; then
+    _bg_join gateway_tk replay-on-failure
+    if [ "$_bg_rc" -ne 0 ]; then
+        errors=$((errors + 1))
+    else
+        echo "  ok: all gateway TK sentinels intact"
+    fi
 elif ! python3 ./scripts/sentinels/check-gateway-tk.py --quiet; then
     # check-gateway-tk-sentinels.py already printed the actionable failure.
     errors=$((errors + 1))
@@ -4033,6 +4078,17 @@ fi
 
 fi # preflight gate
 
+if _bg_spawned lint_changed; then
+echo ""
+echo "=== sub2api: backend lint ==="
+_bg_join lint_changed replay-on-failure
+if [ "$_bg_rc" -ne 0 ]; then
+    echo "  FAIL: backend lint (changed packages, or the whole module when go.mod / golangci config / --full requires it)"
+    errors=$((errors + 1))
+else
+    echo "  ok: backend lint passed"
+fi
+fi
 
 echo ""
 if [ "$errors" -eq 0 ]; then

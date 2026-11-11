@@ -1,4 +1,4 @@
-.PHONY: build generate test test-unit test-integration test-e2e lint lint-security
+.PHONY: build generate test test-unit test-integration test-e2e lint lint-changed lint-security
 
 VERSION ?= $(shell ./scripts/resolve-version.sh)
 LDFLAGS ?= -s -w -X main.Version=$(VERSION)
@@ -101,6 +101,20 @@ test-qa-local: verify-toolchain
 
 lint: ensure-golangci-lint
 	$(GOLANGCI_LINT) run ./... $(GOLANGCI_LINT_FAST_ARGS)
+
+# Preflight lints changed packages. PREFLIGHT_FULL_LINT=1, or a go.mod / sum /
+# golangci config edit, still runs the module. SKIP means no Go inputs changed.
+lint-changed: ensure-golangci-lint
+	@pkgs=$$(python3 ../scripts/checks/lint-changed-go.py --packages); \
+	status=$$?; \
+	if [ $$status -ne 0 ]; then exit $$status; fi; \
+	if [ "$$pkgs" = "SKIP" ]; then \
+		echo "lint-changed: no changed Go packages"; \
+	elif [ "$$pkgs" = "FULL" ]; then \
+		$(GOLANGCI_LINT) run ./... $(GOLANGCI_LINT_FAST_ARGS); \
+	else \
+		$(GOLANGCI_LINT) run $$pkgs --concurrency=$$(getconf _NPROCESSORS_ONLN); \
+	fi
 
 lint-security: ensure-golangci-lint
 	$(GOLANGCI_LINT) run ./... --enable-only gosec $(GOLANGCI_LINT_SECURITY_ARGS)

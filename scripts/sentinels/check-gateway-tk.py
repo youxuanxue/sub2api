@@ -312,22 +312,46 @@ var _ = gatewayFailureSemanticRetryableAccount
     return failures
 
 
+def _production_go_files(backend_dir: Path) -> list[Path]:
+    """Hand-written production Go. Generated ent/ and vendor are not adapters."""
+    files: list[Path] = []
+    if not backend_dir.is_dir():
+        return files
+    for path in backend_dir.iterdir():
+        if path.name in {"ent", "vendor"} or path.name.startswith("."):
+            continue
+        if path.is_dir():
+            files.extend(
+                candidate
+                for candidate in path.rglob("*.go")
+                if not candidate.name.endswith("_test.go")
+            )
+        elif path.suffix == ".go" and not path.name.endswith("_test.go"):
+            files.append(path)
+    return sorted(files)
+
+
 def check_failover_ssot() -> tuple[bool, list[str]]:
-    """Reject new adapter-local retry-next-account policy owners.
+    """Reject new adapter-local retry-next-account policy owners."""
+    return _check_failover_ssot(REPO_ROOT / "backend")
+
+
+def _check_failover_ssot(backend_dir: Path) -> tuple[bool, list[str]]:
+    """Scan hand-written production Go. Generated backend/ent and vendor are not adapters.
 
     Provider adapters may parse payloads and expose a shouldFailover facade for
     existing callers, but every such facade must directly submit an observation
     to classifyGatewayFailover. Splitting by top-level Go function declaration
     keeps this check deterministic without depending on a local Go toolchain.
     """
-    backend_dir = REPO_ROOT / "backend"
     failures: list[str] = _failover_scanner_selftest()
-    for file_path in sorted(backend_dir.rglob("*.go")):
-        if file_path.name.endswith("_test.go"):
-            continue
+    for file_path in _production_go_files(backend_dir):
         source = file_path.read_text(encoding="utf-8", errors="replace")
         clean = _strip_go_comments_and_literals(source)
-        rel = file_path.relative_to(REPO_ROOT)
+        try:
+            rel = file_path.relative_to(REPO_ROOT)
+        except ValueError:
+            rel = file_path
         for name, offset, body in _go_functions(source):
             violation = _failover_function_violation(name, body)
             if violation:
