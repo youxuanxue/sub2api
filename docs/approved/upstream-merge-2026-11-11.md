@@ -1,14 +1,17 @@
 ---
 title: TokenKey upstream merge 2026-11-11 isolation and migration scope
-status: pending
-approved_by: pending
+status: shipped
+approved_by: "youxuanxue（PR #3156 人工合并；本会话确认已合并）"
+approved_at: 2026-11-12
+related_prs: [3156]
+related_commits: [69327dbcb78e8c4a9dfd7904650559a21d34b8e8]
 authors: [codex]
 created: 2026-11-11
 ---
 
 # 2026-11-11 上游合并范围
 
-用户在本会话要求继续执行 `$tokenkey-upstream-merge`。该指令及后续“提交 pr 里面”授权在隔离分支完成合并实现、冲突裁决、本地验证、提交推送和独立 PR；本文不声称用户已审批生产迁移、部署或主线合并。生产发布前由人确认本节迁移和保留行为。
+用户在本会话要求继续执行 `$tokenkey-upstream-merge`。该指令及后续“提交 pr 里面”授权在隔离分支完成合并实现、冲突裁决、本地验证、提交推送和独立 PR；用户随后确认“已经合并”，GitHub 记录 #3156 由 youxuanxue 于 2026-11-12 07:24:27（Asia/Shanghai）合入主线，merge commit 为 `69327dbcb78e8c4a9dfd7904650559a21d34b8e8`，据此将本实现范围标记为已合并。此记录不授权生产部署或线上迁移；生产发布前仍由人确认本节迁移和保留行为。
 
 初始审计 fork base 为 `77f6f14977222171b5aba41ae99b8d078f01c42c`；用户要求对齐 origin/main 后，最初 upstream harness 基线更新为 `8a375b68b6cc107cbc36ea086a20b2fbdb52d6a0`（包含 #3149 和 #3150）；随后主线的 #3151–#3153 与版本 1.8.363 已通过额外 main merge 纳入，当前 PR 比较基线为 `87e6007a496d273d92c247a88fb134ae73761d76`。上游目标仍为 `530c5e3a4f9c73ca2b0881191d0ef8e0d82c5484`；保留原 upstream 双 parent merge ancestry 和后续 main 对齐提交。
 
