@@ -519,14 +519,14 @@ func readVideoFetchResponseBodyLimited(r io.Reader, maxBytes int64) ([]byte, err
 // bridge-local lookup; external preflight callers MUST use engine-level truth
 // so capability semantics stay centralized outside the bridge package.
 //
-// baseURL selects among variants that share a channel_type. Today those are
-// XRToken and FMGo, both reached on ChannelTypeDoubaoVideo with host-specific
-// task paths — see video_relay_tk_xrtoken.go and video_relay_tk_fmgo.go.
-// Dispatching on the sentinel base_url (rather than minting a TK-private
-// channel_type) keeps this a pure bridge-local concern: engine capability,
-// route registration and the admin channel catalog all keep treating the
-// account as ch54, exactly as they do for the ch45 Agent Plan and ch46
-// Qianfan sentinels.
+// baseURL selects among variants that share a channel_type. XRToken and FMGo
+// share ChannelTypeDoubaoVideo and differ by host — see
+// video_relay_tk_xrtoken.go and video_relay_tk_fmgo.go. VolcEngine Agent Plan
+// shares ChannelTypeVolcEngine with pay-as-you-go Ark, but its stored root is
+// already /api/plan/v3, so the doubao adaptor's /api/v3 suffix would double
+// the path — see video_relay_tk_volcengine_plan.go. Dispatching on the
+// sentinel base_url (rather than minting a TK-private channel_type) keeps
+// this a pure bridge-local concern.
 //
 // An empty baseURL falls through to the upstream adaptor, which is the correct
 // default: callers that have no base_url (legacy registry rows) get official
@@ -540,6 +540,9 @@ func taskAdaptorForChannel(channelType int, baseURL string) channel.TaskAdaptor 
 	}
 	if newapiintegration.IsFMGoBaseURL(channelType, baseURL) {
 		return newFMGoTaskAdaptor()
+	}
+	if newapiintegration.IsVolcEngineAgentPlanBaseURL(channelType, baseURL) {
+		return newVolcenginePlanTaskAdaptor()
 	}
 	// Ali / DashScope (ch17) shares one TaskAdaptor; HappyHorse needs a TK
 	// companion for media[] / resolution dialect while Wan keeps upstream.

@@ -13235,7 +13235,8 @@
         "fmgo_videos",
         "respond-async",
         "FMGoSubmitPath",
-        "FMGoUsesVideosDialect"
+        "FMGoUsesVideosDialect",
+        "IsVolcEngineAgentPlanBaseURL"
       ],
       "rationale": "Version-one supplier probing is intentionally fixed to OpenAI Chat. Even successful Responses or Anthropic Messages evidence must fail closed as protocol_unsupported instead of silently expanding the production transport surface. FMGo ch54 live families (v2.5/431/mini) use official POST /v1/videos; legacy feimiao-v2 stays on async chat completions. XRToken/Ark Sync probes must send Ark content[] (not prompt) and XRToken must prefix volcengine/ so Sync does not fail every configured Seedance row."
     },
@@ -13251,6 +13252,7 @@
         "TestUS048_FMGoVideoProbeURLUsesVideosForLiveFamilies",
         "TestUS048_ArkContentsProbeBodyUsesContentArray",
         "TestUS048_XRTokenVideoProbeURLAndPrefix",
+        "TestSupplierVideoProbeURL_VolcEngineAgentPlan",
         "TestUS048_FMGoVideosProbeBodyMatchesOfficialDialect",
         "TestUS048_FMGoChatProbeBodyMatchesOfficialDialect",
         "TestUS048_VideoProbeAcceptsHTTP202"

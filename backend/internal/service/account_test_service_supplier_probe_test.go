@@ -142,6 +142,15 @@ func TestUS048_ArkContentsProbeBodyUsesContentArray(t *testing.T) {
 	require.Equal(t, "probe", item["text"])
 }
 
+func TestSupplierVideoProbeURL_VolcEngineAgentPlan(t *testing.T) {
+	planContents := newapiintegration.VolcEngineAgentPlanBaseURL + "/contents/generations/tasks"
+	require.Equal(t, planContents, supplierVideoProbeURL(newapiconstant.ChannelTypeVolcEngine, newapiintegration.VolcEngineAgentPlanBaseURL, "doubao-seedance-2.5"))
+	require.Equal(t, planContents, supplierVideoProbeURL(newapiconstant.ChannelTypeVolcEngine, newapiintegration.VolcEngineAgentPlanBaseKey, "doubao-seedance-2.5"))
+	require.Equal(t, planContents, supplierVideoProbeURL(newapiconstant.ChannelTypeVolcEngine, newapiintegration.VolcEngineAgentPlanBaseURL+"/chat/completions", "doubao-seedance-2.5"))
+	require.Equal(t, "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks", supplierVideoProbeURL(newapiconstant.ChannelTypeVolcEngine, "https://ark.cn-beijing.volces.com", "doubao-seedance-2.5"))
+	require.Equal(t, newapiintegration.VolcEngineAgentPlanBaseURL+"/api/v3/contents/generations/tasks", supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, newapiintegration.VolcEngineAgentPlanBaseURL, "doubao-seedance-2.5"))
+}
+
 func TestUS048_XRTokenVideoProbeURLAndPrefix(t *testing.T) {
 	require.Equal(t,
 		newapiintegration.XRTokenBaseURL+"/v1/contents/generations/tasks",
