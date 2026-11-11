@@ -101,6 +101,17 @@ func CandidateRequestFromContext(ctx context.Context) *CandidateRequest {
 	return r
 }
 
+// ContextWithCandidateRequest attaches an already-built candidate admission.
+func ContextWithCandidateRequest(ctx context.Context, req *CandidateRequest) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if req == nil {
+		req = &CandidateRequest{}
+	}
+	return context.WithValue(ctx, candidateRequestContextKey{}, req)
+}
+
 // CandidateRequestBody returns the payload after candidate authorization and
 // any safety shaping. WebSocket ingress must forward this exact body when a
 // continuation pointer was removed during admission.

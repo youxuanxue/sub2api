@@ -34,10 +34,10 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 	}
 
 	audited := map[string][]string{
-		"/api/v3/contents/generations/tasks": {"grok_media.go"},
-		"/v3/contents/generations/tasks":     {"grok_media.go"},
-		"/v1/contents/generations/tasks":     {"grok_media.go"},
-		"/contents/generations/tasks":        {"grok_media.go"},
+		"/api/v3/contents/generations/tasks": {"grok_media.go", "openai_gateway_tk_video.go"},
+		"/v3/contents/generations/tasks":     {"grok_media.go", "openai_gateway_tk_video.go"},
+		"/v1/contents/generations/tasks":     {"grok_media.go", "openai_gateway_tk_video.go"},
+		"/contents/generations/tasks":        {"grok_media.go", "openai_gateway_tk_video.go"},
 		"/messages":                          {"gateway_handler.go", "openai_gateway_handler.go"},
 		"/systemone":                         {"gateway_systemone.go"},
 		"/responses":                         {"gateway_handler_responses.go", "openai_gateway_handler.go"},

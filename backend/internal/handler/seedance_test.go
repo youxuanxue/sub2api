@@ -95,3 +95,21 @@ func TestSeedanceHandlerLifecycleAndOwnership(t *testing.T) {
 	}
 	require.Len(t, bindings.billed, 1)
 }
+
+func TestSeedanceCandidateSelectionDoesNotRequireBoundGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &OpenAIGatewayHandler{}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/contents/generations/tasks", strings.NewReader(`{"model":"doubao-seedance-2.0","content":[{"type":"text","text":"waves"}]}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request = c.Request.WithContext(service.ContextWithCandidateRequest(c.Request.Context(), &service.CandidateRequest{}))
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 421, UserID: 16, RoutingMode: service.RoutingModeUniversal})
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 16})
+
+	h.SeedanceTasks(c)
+
+	require.NotContains(t, w.Body.String(), "Seedance requires an OpenAI or composite group")
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Contains(t, w.Body.String(), "Video task registry is not configured")
+}

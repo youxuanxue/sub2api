@@ -71,6 +71,35 @@ func TestSeedanceStatusAndDelete(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, w.Code)
 }
 
+func TestSeedanceContentsAsVideoSubmitBody(t *testing.T) {
+	got, err := SeedanceContentsAsVideoSubmitBody([]byte(`{"model":"doubao-seedance-2.0","content":[{"type":"text","text":"waves"},{"type":"image_url","image_url":{"url":"https://example.com/a.png"}}],"duration":5}`))
+	require.NoError(t, err)
+	require.Equal(t, "waves", gjson.GetBytes(got, "prompt").String())
+	require.Equal(t, "doubao-seedance-2.0", gjson.GetBytes(got, "model").String())
+	require.Equal(t, "https://example.com/a.png", gjson.GetBytes(got, "content.1.image_url.url").String())
+	require.Equal(t, "https://example.com/a.png", gjson.GetBytes(got, "images.0").String())
+	require.Equal(t, "https://example.com/a.png", gjson.GetBytes(got, "metadata.content.1.image_url.url").String())
+	require.Equal(t, "5", gjson.GetBytes(got, "seconds").String())
+	require.Equal(t, int64(5), gjson.GetBytes(got, "metadata.duration").Int())
+	require.Equal(t, int64(5), gjson.GetBytes(got, "duration").Int())
+
+	unchanged := []byte(`{"model":"doubao-seedance-2.0","prompt":"already"}`)
+	got, err = SeedanceContentsAsVideoSubmitBody(unchanged)
+	require.NoError(t, err)
+	require.Equal(t, string(unchanged), string(got))
+
+	_, err = SeedanceContentsAsVideoSubmitBody([]byte(`{"model":"doubao-seedance-2.0","content":[{"type":"image_url","image_url":{"url":"https://example.com/a.png"}}]}`))
+	require.EqualError(t, err, "content must include text")
+	require.False(t, SeedanceGroupPlatformAllowed(PlatformNewAPI))
+	require.True(t, SeedanceGroupPlatformAllowed(PlatformOpenAI))
+	require.False(t, SeedanceGroupPlatformAllowed(PlatformAnthropic))
+	require.True(t, SeedanceContentsUsesVideoSelection(context.Background(), PlatformNewAPI))
+	require.False(t, SeedanceContentsUsesVideoSelection(context.Background(), PlatformOpenAI))
+	admitted := context.WithValue(context.Background(), candidateRequestContextKey{}, &CandidateRequest{})
+	require.True(t, SeedanceContentsUsesVideoSelection(admitted, PlatformOpenAI))
+	require.True(t, SeedanceContentsUsesVideoSelection(admitted, ""))
+}
+
 func TestSeedanceValidationAndCapability(t *testing.T) {
 	for _, body := range []string{`{`, `[]`, `{}`, `{"model":12,"content":[{}]}`, `{"model":"x","content":[]}`} {
 		_, err := ParseSeedanceRequest([]byte(body))

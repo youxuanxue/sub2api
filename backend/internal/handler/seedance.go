@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"mime"
 	"net/http"
+	"strings"
 	"time"
 
 	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -20,8 +23,43 @@ func (h *OpenAIGatewayHandler) SeedanceTasks(c *gin.Context) {
 			return
 		}
 	}
+	if c.Request.Method == http.MethodGet && strings.HasPrefix(c.Param("task_id"), "vt_") {
+		h.VideoFetch(c)
+		return
+	}
 	key, ok := middleware.GetAPIKeyFromContext(c)
-	if !ok || key.Group == nil || (key.Group.Platform != service.PlatformOpenAI && key.Group.Platform != service.PlatformComposite) {
+	platform := ""
+	if ok && key.Group != nil {
+		platform = key.Group.Platform
+	}
+	// Video selection admits newapi task-adaptor accounts across the caller's
+	// authorized groups. It must run before the OpenAI seedance-capability
+	// gate, which rejects a universal key that has not had a billing group
+	// attached yet.
+	if service.SeedanceContentsUsesVideoSelection(c.Request.Context(), platform) {
+		switch c.Request.Method {
+		case http.MethodGet:
+			h.VideoFetch(c)
+		case http.MethodPost:
+			raw, err := io.ReadAll(c.Request.Body)
+			if err != nil {
+				h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+				return
+			}
+			rewritten, err := service.SeedanceContentsAsVideoSubmitBody(raw)
+			if err != nil {
+				h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+				return
+			}
+			c.Request.Body = io.NopCloser(bytes.NewReader(rewritten))
+			c.Request.ContentLength = int64(len(rewritten))
+			h.VideoSubmit(c)
+		default:
+			h.errorResponse(c, http.StatusMethodNotAllowed, "invalid_request_error", "Seedance task deletion is not supported for this group")
+		}
+		return
+	}
+	if !ok || key.Group == nil || !service.SeedanceGroupPlatformAllowed(platform) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", "Seedance requires an OpenAI or composite group")
 		return
 	}

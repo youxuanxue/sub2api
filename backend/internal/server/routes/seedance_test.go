@@ -25,6 +25,14 @@ func TestSeedanceNativeRoutes(t *testing.T) {
 	}
 }
 
+func TestSeedanceNewAPIGroupUsesVideoPipeline(t *testing.T) {
+	w := httptest.NewRecorder()
+	newGatewayRoutesTestRouter(service.PlatformNewAPI).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v3/contents/generations/tasks", strings.NewReader(`{"model":"doubao-seedance-2.0","content":[{"type":"text","text":"waves"}]}`)))
+	require.NotContains(t, w.Body.String(), "Seedance requires an OpenAI or composite group")
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Contains(t, w.Body.String(), "Video task registry is not configured")
+}
+
 func TestSeedanceRejectsOtherPlatforms(t *testing.T) {
 	for _, platform := range []string{service.PlatformGrok, service.PlatformAnthropic, service.PlatformGemini} {
 		w := httptest.NewRecorder()

@@ -24,6 +24,119 @@ func (e GrokMediaEndpoint) IsSeedance() bool {
 	return e == SeedanceEndpointCreate || e == SeedanceEndpointStatus || e == SeedanceEndpointDelete
 }
 
+// SeedanceGroupPlatformAllowed is the direct-key passthrough gate for the
+// OpenAI seedance-capability forwarder. newapi video accounts are not in
+// that set; they are chosen by video account selection.
+func SeedanceGroupPlatformAllowed(platform string) bool {
+	switch platform {
+	case PlatformOpenAI, PlatformComposite:
+		return true
+	default:
+		return false
+	}
+}
+
+// SeedanceContentsUsesVideoSelection reports that this contents call must
+// select a video-capable account instead of an OpenAI seedance-capability
+// account. A candidate request means admission already ran across the key's
+// authorized groups; the billing group is filled in only after an account is
+// chosen. A direct newapi key is already scoped to that video pool.
+func SeedanceContentsUsesVideoSelection(ctx context.Context, groupPlatform string) bool {
+	if CandidateRequestFromContext(ctx) != nil {
+		return true
+	}
+	return groupPlatform == PlatformNewAPI
+}
+
+// SeedanceContentsAsVideoSubmitBody lets an Ark contents create ride the
+// newapi video pipeline. Text parts become prompt. Image parts are copied to
+// images and metadata.content so the doubao/XRToken adaptor keeps roles and
+// FMGo still sees reference images. Duration is copied to seconds and
+// metadata.duration because the doubao adaptor ignores a top-level duration.
+// A body that already has prompt and no content array is left unchanged.
+func SeedanceContentsAsVideoSubmitBody(body []byte) ([]byte, error) {
+	if !gjson.ValidBytes(body) || !gjson.ParseBytes(body).IsObject() {
+		return nil, fmt.Errorf("request body must be a JSON object")
+	}
+	out := body
+	if strings.TrimSpace(gjson.GetBytes(body, "prompt").String()) == "" {
+		info, err := ParseSeedanceRequest(body)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(info.Prompt) == "" {
+			return nil, fmt.Errorf("content must include text")
+		}
+		out, err = sjson.SetBytes(out, "prompt", info.Prompt)
+		if err != nil {
+			return nil, err
+		}
+	}
+	content := gjson.GetBytes(out, "content")
+	if !content.IsArray() || len(content.Array()) == 0 {
+		return out, nil
+	}
+	return liftSeedanceContentForVideoSubmit(out, content)
+}
+
+// liftSeedanceContentForVideoSubmit copies Ark content fields onto the
+// carriers the newapi video adaptors already read. Top-level content, duration,
+// and ratio stay in place for billing and for adaptors that re-read the
+// original body.
+func liftSeedanceContentForVideoSubmit(body []byte, content gjson.Result) ([]byte, error) {
+	out := body
+	var err error
+	if !gjson.GetBytes(out, "images").Exists() {
+		var images []string
+		for _, item := range content.Array() {
+			if item.Get("type").String() != "image_url" {
+				continue
+			}
+			if url := strings.TrimSpace(item.Get("image_url.url").String()); url != "" {
+				images = append(images, url)
+			}
+		}
+		if len(images) > 0 {
+			out, err = sjson.SetBytes(out, "images", images)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if !gjson.GetBytes(out, "metadata.content").Exists() {
+		out, err = sjson.SetRawBytes(out, "metadata.content", []byte(content.Raw))
+		if err != nil {
+			return nil, err
+		}
+	}
+	duration := gjson.GetBytes(out, "duration")
+	if duration.Exists() && (duration.Type == gjson.Number || duration.Type == gjson.String) {
+		if !gjson.GetBytes(out, "seconds").Exists() {
+			seconds := strings.TrimSpace(duration.String())
+			if seconds != "" {
+				out, err = sjson.SetBytes(out, "seconds", seconds)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+		if !gjson.GetBytes(out, "metadata.duration").Exists() {
+			out, err = sjson.SetRawBytes(out, "metadata.duration", []byte(duration.Raw))
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	ratio := gjson.GetBytes(out, "ratio")
+	if ratio.Type == gjson.String && strings.TrimSpace(ratio.String()) != "" && !gjson.GetBytes(out, "metadata.ratio").Exists() {
+		out, err = sjson.SetRawBytes(out, "metadata.ratio", []byte(ratio.Raw))
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
 // SeedanceTaskKey isolates ownership and billing keys from other video providers.
 func SeedanceTaskKey(id string) string { return "seedance:" + strings.TrimSpace(id) }
 

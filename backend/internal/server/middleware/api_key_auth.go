@@ -554,6 +554,10 @@ func isTokenKeyVideoTaskRead(method, path string) bool {
 		"/videos/edits/",
 		"/videos/extensions/",
 		"/videos/",
+		"/api/v3/contents/generations/tasks/",
+		"/v3/contents/generations/tasks/",
+		"/v1/contents/generations/tasks/",
+		"/contents/generations/tasks/",
 	} {
 		for _, prefix := range []string{root, "/v1" + root} {
 			if taskID, ok := strings.CutPrefix(path, prefix); ok {

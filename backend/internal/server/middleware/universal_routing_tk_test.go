@@ -896,6 +896,20 @@ func TestMaybeResolveUniversal_TokenKeyVideoPollKeepsRegistryRouteAuthoritative(
 	}
 }
 
+func TestMaybeResolveUniversal_SeedanceContentsPollSkipsFreshResolve(t *testing.T) {
+	lister := &stubSpanLister{groups: []service.Group{activeGroup(19, service.PlatformNewAPI)}}
+	resolver := service.NewUniversalRoutingResolver(lister)
+	c, _ := newTestCtx(http.MethodGet, "/v1/contents/generations/tasks/vt_seedance", "")
+	apiKey := &service.APIKey{ID: 421, UserID: 16, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("registry-owned seedance poll should continue")
+	}
+	if lister.calls != 0 || apiKey.GroupID != nil {
+		t.Fatalf("vt_ poll must not pick a new group, calls=%d group=%v", lister.calls, apiKey.GroupID)
+	}
+}
+
 func TestMaybeResolveUniversal_NativeVideoPollStillResolvesPlatform(t *testing.T) {
 	lister := &stubSpanLister{groups: []service.Group{activeGroup(30, service.PlatformNewAPI)}}
 	resolver := service.NewUniversalRoutingResolver(lister)

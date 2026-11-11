@@ -71,6 +71,10 @@ func UniversalShapeForRequest(fullPath, method string) UniversalShape {
 		// before this mapper because they reuse the submit-time pinned route; native
 		// provider status IDs still resolve here for their platform-specific handler.
 		return ShapeOpenAIVideo
+	case strings.Contains(p, "/contents/generations/tasks"):
+		// Same video candidate set as /v1/videos. ShapeSkip never admits the
+		// newapi accounts that serve Seedance, and the handler then 403s.
+		return ShapeOpenAIVideo
 	case strings.Contains(p, "/v1beta/models"):
 		if !isPost {
 			return ShapeSkip // GET 列表/单模型元数据：无需解析
