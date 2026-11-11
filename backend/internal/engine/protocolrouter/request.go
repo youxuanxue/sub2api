@@ -48,6 +48,11 @@ type CanonicalRequest struct {
 type requestMemo struct {
 	downgradeOnce sync.Once
 	downgrade     downgradeOutcome
+
+	chatToResponsesOnce sync.Once
+	chatToResponsesOK   bool
+	chatToMessagesOnce  sync.Once
+	chatToMessagesOK    bool
 }
 
 type downgradeOutcome struct {
