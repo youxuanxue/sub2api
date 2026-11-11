@@ -19964,6 +19964,24 @@
         "func TestPromptEstimate_NilSafe"
       ],
       "rationale": "Pins PromptEstimate to the frozen 1.8.358 per-call implementation byte for byte: input total, every prefix block fingerprint and count, split results at every truncation point, and the entries written to the store. These counts feed billing."
+    },
+    {
+      "path": "ops/qa/node1_archive.py",
+      "must_contain": [
+        "def remove_orphan_staging(receipt_root: Path, now: float | None = None) -> tuple[list[str], list[dict]]:",
+        "removed_staging, staging_failures = remove_orphan_staging(node1)",
+        "STAGING_MAX_AGE = dt.timedelta(hours=2)"
+      ],
+      "rationale": "A timed-out archive run is killed by SIGTERM, which skips push_hour's finally and leaves a .push-* staging directory (prod 2026-11-09/10: 993 MB). The next run removes stale ones; the age floor keeps an overlapping manual run's staging intact. A staging directory that cannot be removed is reported, never raised, so it cannot stop the hours from being archived."
+    },
+    {
+      "path": "ops/qa/test_node1_archive.py",
+      "must_contain": [
+        "def test_orphan_staging_from_a_killed_run_is_removed_on_the_next_run(self):",
+        "def test_staging_pattern_matches_the_names_push_hour_creates(self):",
+        "def test_a_staging_dir_that_cannot_be_removed_does_not_stop_archiving(self):"
+      ],
+      "rationale": "Keep orphan staging cleanup executable: stale push dirs removed, fresh and unrelated entries kept, and the pattern pinned to push_hour's own mkdtemp prefix."
     }
   ]
 }
