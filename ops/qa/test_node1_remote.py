@@ -973,3 +973,54 @@ class ManifestProbeRetryTest(unittest.TestCase):
             self.assertEqual(
                 self.remote.remote_manifest_digest(Path("/k"), "j", "t", "/d"), "")
         self.assertEqual(len(calls), 1)
+
+
+class CapacityProbeRetryTest(unittest.TestCase):
+    """Replay prod's 2026-11-10 jump-host closure during the capacity check."""
+
+    def setUp(self):
+        self.remote = _load('node1_remote')
+        self.capacity = {'total_bytes': NODE1_TOTAL, 'free_bytes': NODE1_FREE,
+                         'qa_used_bytes': 1234}
+
+    def probe(self):
+        return self.remote.remote_capacity(Path('/k'), 'jump', 'node1', '/archive')
+
+    def test_connection_closed_then_success_preserves_capacity(self):
+        closed = mock.Mock(returncode=255, stdout='',
+                           stderr='Connection closed by jump port 22')
+        success = mock.Mock(returncode=0, stdout=json.dumps(self.capacity), stderr='')
+        with mock.patch.object(self.remote.subprocess, 'run', side_effect=[closed, success]) as run, \
+             mock.patch.object(self.remote.time, 'sleep') as sleep:
+            self.assertEqual(self.probe(), self.capacity)
+        self.assertEqual(run.call_count, 2)
+        sleep.assert_called_once_with(2)
+
+    def test_capacity_timeouts_are_bounded_and_never_become_success(self):
+        import subprocess
+        with mock.patch.object(self.remote.subprocess, 'run',
+                               side_effect=subprocess.TimeoutExpired('ssh', 120)) as run, \
+             mock.patch.object(self.remote.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(self.remote.RemoteError, 'after 3 attempts'):
+                self.probe()
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(sleep.call_args_list, [mock.call(2), mock.call(4)])
+
+    def test_malformed_success_is_rejected_without_retry(self):
+        with mock.patch.object(self.remote.subprocess, 'run',
+                               return_value=mock.Mock(returncode=0, stdout='bad JSON', stderr='')) as run, \
+             mock.patch.object(self.remote.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(self.remote.RemoteError, 'returned no JSON'):
+                self.probe()
+        self.assertEqual(run.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_manifest_timeout_uses_the_same_bounded_retry(self):
+        import subprocess
+        with mock.patch.object(self.remote.subprocess, 'run', side_effect=[
+                subprocess.TimeoutExpired('ssh', 120),
+                mock.Mock(returncode=0, stdout='a' * 64, stderr='')]) as run, \
+             mock.patch.object(self.remote.time, 'sleep'):
+            self.assertEqual(self.remote.remote_manifest_digest(Path('/k'), 'j', 't', '/d'),
+                             'a' * 64)
+        self.assertEqual(run.call_count, 2)

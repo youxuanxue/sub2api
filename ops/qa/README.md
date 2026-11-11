@@ -85,6 +85,12 @@ python3 scripts/checks/qa-lifecycle-ssot.py --self-test
 python3 scripts/checks/qa-lifecycle-ssot.py
 ```
 
+归档的容量与 manifest 只读 SSH 检查使用同一套有界重试：每次最多 120 秒，
+最多三次，间隔 2 秒、4 秒；持续失败仍将该小时记为失败，不放行清理。
+`qa_archive_progress` 日志记录每小时开始、manifest/容量检查、暂存、传输和完成阶段，
+`qa_archive_probe_failed` 记录失败的检查和尝试次数。整轮超时时，先看最后一条阶段日志；
+不能只凭 systemd 的 timeout 判定是网络还是本地文件处理。
+
 ## QA 与备份锁冲突
 
 本地 provision/cleanup 与 pg_dump 共享 `/var/lib/tokenkey/qa-lifecycle/host.lock`，排队规则见
