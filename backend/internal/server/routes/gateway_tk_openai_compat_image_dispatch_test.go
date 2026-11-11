@@ -27,3 +27,17 @@ func TestTkOpenAIImageGenerationsDispatch_GrokUsesGrokImages(t *testing.T) {
 func TestTkOpenAIImageGenerationsDispatch_UnknownPlatformNotFound(t *testing.T) {
 	require.Equal(t, "not_found", tkOpenAIImageGenerationsDispatch(service.PlatformAnthropic))
 }
+
+func TestTkOpenAIImageEditsDispatch_OpenAIAndGrokKeepNativeForwarders(t *testing.T) {
+	require.Equal(t, "images", tkOpenAIImageEditsDispatch(service.PlatformOpenAI, false))
+	require.Equal(t, "grok_images", tkOpenAIImageEditsDispatch(service.PlatformGrok, false))
+}
+
+func TestTkOpenAIImageEditsDispatch_NewAPIOpenAIRelayUsesImages(t *testing.T) {
+	require.Equal(t, "images", tkOpenAIImageEditsDispatch(service.PlatformNewAPI, true))
+}
+
+func TestTkOpenAIImageEditsDispatch_OtherNewAPIStaysGated(t *testing.T) {
+	require.Equal(t, "not_found", tkOpenAIImageEditsDispatch(service.PlatformNewAPI, false))
+	require.Equal(t, "not_found", tkOpenAIImageEditsDispatch(service.PlatformAnthropic, true))
+}
