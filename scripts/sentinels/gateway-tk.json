@@ -20241,6 +20241,22 @@
         "require.Zero(t, groupRepo.calls.Load()"
       ],
       "rationale": "Legacy and advanced scheduling must retain privacy admission with zero group-table reads when auth context is already hydrated."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_insert.go",
+      "must_contain": [
+        "\t\"bigint\",      // video_duration_seconds"
+      ],
+      "rationale": "usage_logs.video_duration_seconds is BIGINT on every database after tk_111 (ent schema is Int64). Upstream's insert cast list says integer; an upstream merge restoring it would truncate the bind type back to integer."
+    },
+    {
+      "path": "backend/migrations/tk_111_usage_logs_video_duration_seconds_bigint.sql",
+      "must_contain": [
+        ") = 'integer' THEN",
+        "SET LOCAL lock_timeout = '5s';",
+        "ALTER TABLE usage_logs ALTER COLUMN video_duration_seconds TYPE BIGINT;"
+      ],
+      "rationale": "tk_025 (BIGINT) and upstream 172 (INTEGER) race on ADD COLUMN IF NOT EXISTS. tk_111 widens only an integer column, so production databases (already bigint) are never rewritten during a blue/green deploy, and lock_timeout keeps a contended ALTER from queueing in front of writers."
     }
   ]
 }
