@@ -19906,9 +19906,22 @@
       "must_contain": [
         "memo *requestMemo",
         "func (r CanonicalRequest) Matches(input CanonicalRequestInput) bool",
-        "memo:              &requestMemo{}"
+        "memo:              &requestMemo{}",
+        "chatToResponsesOnce sync.Once",
+        "chatToMessagesOnce  sync.Once"
       ],
       "rationale": "CanonicalRequest carries a request-level memo shared by every copy, and Matches lets callers keep an identical request instead of copying and sha256-hashing the body again. Dropping either returns candidate selection to one full body copy, hash and policy inspection per account."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/registry.go",
+      "must_contain": [
+        "req.profile.PromptCache == PromptCachePlacement || !preservesMessagesToResponsesContent(req)",
+        "memo.chatToResponsesOnce.Do(func() {",
+        "memo.chatToResponsesOK = computeChatToResponsesPreservation(req)",
+        "memo.chatToMessagesOnce.Do(func() {",
+        "memo.chatToMessagesOK = computeChatToMessagesPreservation(req)"
+      ],
+      "rationale": "Chat conversion preservation rejects incompatible profiles before body inspection and memoizes the original typed decode/validation once per immutable request. Repeated candidate Plans must not unmarshal the Chat body per account; nil-memo requests retain fresh validation."
     },
     {
       "path": "backend/internal/engine/protocolrouter/responses_chat_downgrade_tk.go",
@@ -19943,9 +19956,13 @@
       "must_contain": [
         "func TestResponsesToChatDowngradeMemoMatchesFreshComputation",
         "func TestResponsesToChatDowngradeWithoutMemo",
-        "func TestCanonicalRequestMatchesNewCanonicalRequest"
+        "func TestCanonicalRequestMatchesNewCanonicalRequest",
+        "func TestChatPreservationMemoMatchesFreshComputation",
+        "func TestChatToResponsesProfileRejectsBeforeMemo",
+        "func TestChatPreservationMemoConcurrentPlansAndAllocations",
+        "func BenchmarkChatPreservationMemoPlanAcrossAccounts"
       ],
-      "rationale": "Pins that the memoized downgrade equals a fresh computation, that a request without a memo still works, and that Matches agrees with NewCanonicalRequest across protocol, model, path, profile, validation flag and body variations."
+      "rationale": "Pins fresh-computation equivalence and nil-memo fallback for downgrade and Chat preservation, profile-first rejection, concurrent multi-account Plans and allocation/benchmark cost guards. Matches agrees with NewCanonicalRequest across protocol, model, path, profile, validation flag and body variations."
     },
     {
       "path": "backend/internal/service/candidate_request_facts_bench_tk_test.go",
