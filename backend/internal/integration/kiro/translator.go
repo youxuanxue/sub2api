@@ -1945,27 +1945,66 @@ func truncateHistoryTurns(payload *KiroPayload, hasPriming bool) {
 }
 
 func stripOldestHistoryImagesUntilFit(payload *KiroPayload, hasPriming bool) {
+	size := payloadByteSize(payload)
+	if size <= maxPayloadBytes {
+		return
+	}
 	start := 0
 	if hasPriming && len(payload.ConversationState.History) >= 2 {
 		start = 2
 	}
-	for payloadByteSize(payload) > maxPayloadBytes {
-		removed := false
-		for i := start; i < len(payload.ConversationState.History); i++ {
-			user := payload.ConversationState.History[i].UserInputMessage
-			if user == nil || len(user.Images) == 0 {
-				continue
+
+	// Usually each history entry owns its user message. If pointers are shared,
+	// removing one image changes several serialized occurrences, so retain full
+	// payload sizing for that uncommon case.
+	sharedUser := false
+	seen := map[*KiroUserInputMessage]struct{}{
+		&payload.ConversationState.CurrentMessage.UserInputMessage: {},
+	}
+	for _, entry := range payload.ConversationState.History {
+		if user := entry.UserInputMessage; user != nil {
+			if _, ok := seen[user]; ok {
+				sharedUser = true
+				break
+			}
+			seen[user] = struct{}{}
+		}
+	}
+
+	for i := start; i < len(payload.ConversationState.History) && size > maxPayloadBytes; i++ {
+		user := payload.ConversationState.History[i].UserInputMessage
+		if user == nil {
+			continue
+		}
+		for len(user.Images) > 0 && size > maxPayloadBytes {
+			var removedBytes int
+			if !sharedUser {
+				// Marshal only the image being removed, preserving encoding/json's
+				// escaping rules without repeatedly encoding the remaining payload.
+				raw, _ := json.Marshal(user.Images[0])
+				removedBytes = len(raw)
+				if len(user.Images) > 1 {
+					removedBytes++ // adjacent array comma
+				} else {
+					removedBytes += len(`,"images":[]`) // omitempty removes the field
+				}
 			}
 			user.Images = user.Images[1:]
 			if len(user.Images) == 0 {
 				user.Images = nil
 			}
+			previousContent := user.Content
 			noteImageOmission(user)
-			removed = true
-			break
-		}
-		if !removed {
-			return
+			if sharedUser {
+				size = payloadByteSize(payload)
+				continue
+			}
+			if user.Content != previousContent {
+				before, _ := json.Marshal(previousContent)
+				after, _ := json.Marshal(user.Content)
+				removedBytes += len(before) - len(after)
+			}
+			size -= removedBytes
 		}
 	}
 }
