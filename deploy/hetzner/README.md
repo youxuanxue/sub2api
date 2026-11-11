@@ -6,6 +6,23 @@
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
 切流回执：[`docs/ops/reports/tencent-cutover-20261022.json`](../../docs/ops/reports/tencent-cutover-20261022.json)
 
+## 2026-11-11 应用替换准备中（未切流）
+
+prod 和 cn-prod 均已拆分应用机与独立数据机，并非整个站点只剩应用机。
+prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
+[`prod-target.json`](../domestic/prod-target.json)。本次仅替换 prod 应用机，两个站点的数据服务和 cn-prod 应用不迁移、不重启。
+
+原地 LUKS 搬盘已取消。新应用候选 `lhins-2kf31667` / `43.162.126.44` / `10.4.0.9`，
+SSM `mi-000c0168439c243a8`（eu-west-2），2C8G / 80 GB SSD，95 元/月自动续费。
+普通根盘 `/var/lib/docker`、`/var/lib/tokenkey`，不启动 PG/Redis 服务端。
+候选储存身份：[app-parallel-20261111.json](../tencent/app-parallel-20261111.json)；
+**该文件不改变默认 prod resolver**。DNS、CI 默认目标和 QA 归档 owner 仍是旧应用机。
+新机 QA capture 临时关闭，不能在旧归档 owner 停用前开启新归档。
+
+旧应用机现为 4C16G / 180 GB SSD，355 元/月；旧机不停止、不销毁，LUKS 和历史 QA 保留。
+并行期间增加 95 元/月；只有另行授权退役旧机后，应用机月费才净减 260 元。
+验收、剩余门禁与回执见[批准方案](../../docs/approved/design-prod-app-parallel-replacement.md#实际证据)。
+
 ## 活舰队（prod-only，2026-10-22 切流起）
 
 | 节点 | 正式域名 | 公网 IP | 控制面身份 | 备注 |
@@ -22,14 +39,18 @@ prod 直接使用原生账号；旧中继 stub 已软删。
 
 | 角色 | 地域 / 实例 ID | 公网 IP | 私网 IP | 规格 |
 |---|---|---|---|---|
-| prod 主机 | na-siliconvalley-2 / `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | 4C8G / 120 GB SSD |
+| prod 旧应用机（仍接流） | na-siliconvalley-2 / `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | 4C16G / 180 GB SSD |
 | 美西出口 `usw-eval1` | na-siliconvalley-2 / `lhins-56ogvsid` | `43.162.90.151` | `10.4.0.2` | 2C2G / 40 GB SSD |
 | 美西出口 `usw-eval2` | na-siliconvalley-2 / `lhins-mtiwmfod` | `43.162.126.190` | `10.4.0.11` | 2C2G / 40 GB SSD |
 | 美西出口 `usw-eval3` | na-siliconvalley-2 / `lhins-n1w2c5qr` | `43.162.116.209` | `10.4.0.5` | 2C2G / 40 GB SSD |
 | 美西出口 `usw-eval4` | na-siliconvalley-2 / `lhins-h12i2d2r` | `43.162.103.103` | `10.4.0.4` | 2C2G / 40 GB SSD |
 
 实例到期约 2026-11-21/22 UTC，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-22 用户决定按月自动续费；账户余额不足仍会停机）。SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
-SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。**2026-10-22 起 `usw-eval1..4` 为原 `jp-*` 账号的生产出口**（私网 SOCKS）。活绑定以 prod / cn-prod `proxies` 为准。
+SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。
+`usw-eval1..4` 曾承接原 `jp-*` 账号；2026-11-11 核对 prod 活配置已无该组，不能按历史表推断当前账号出口。
+prod 实际活出口为腾讯北京四台、阿里北京四台和 AWS Oregon 四台，存在 default 别名重复行；
+新应用候选已通过全部 16 条活配置的认证连通测试。Oregon 主机仍是保留的 AWS 计算依赖，不能描述成零 AWS。
+活绑定以 prod / cn-prod `proxies` 为准。
 
 #### 国内出口 `cn-ip1..4`（腾讯北京锐驰，公网 SOCKS）
 

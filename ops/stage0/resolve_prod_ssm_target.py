@@ -22,6 +22,7 @@ from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "ops/stage0"))
+from bluegreen_host_runtime import volume_contract
 TENCENT_USW_MATRIX = REPO_ROOT / "deploy/tencent/candidate-usw-20261022.json"
 AWS_STACK = "tokenkey-prod-stage0"
 INSTANCE_RE = re.compile(r"^(?:i|mi)-[0-9a-f]{8,}$")
@@ -171,6 +172,10 @@ def resolve_tencent_usw_candidate(matrix_path: pathlib.Path) -> dict[str, str]:
             fail("pre-cutover candidate must keep cutover_authorized=false")
         api_domain = directed
 
+    try:
+        storage = volume_contract(target)
+    except ValueError as exc:
+        fail(str(exc))
     rows = list_instance_information(region)
     matches = [
         r
@@ -199,7 +204,9 @@ def resolve_tencent_usw_candidate(matrix_path: pathlib.Path) -> dict[str, str]:
             "computer_name": name,
             "cutover_authorized": "true" if live else "false",
             "volume_mount": str(target.get("volume_mount") or ""),
-            "volume_platform": str(target.get("volume_platform") or "tencent-luks"),
+            "volume_platform": storage['platform'],
+            "volume_mapper": storage['mapper_name'],
+            "volume_root_uuid": storage.get('root_uuid', ''),
         }
     )
 
