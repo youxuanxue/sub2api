@@ -1,10 +1,12 @@
 ---
 title: newapi OpenAI 渠道的 image edits 转发
-status: pending
-approved_by: pending
+status: shipped
+approved_by: "youxuanxue (merged #3153, 2026-11-11)"
 created: 2026-11-11
 authors: [agent]
 risk: high
+related_prs: ["#3153"]
+related_commits: ["6ec613a746887f0279196a3f51366ba8e0e3ff2b"]
 ---
 
 # newapi OpenAI 渠道的 image edits 转发
