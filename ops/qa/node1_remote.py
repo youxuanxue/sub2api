@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import shlex
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -107,6 +108,32 @@ printf '{{"ok":true,"already_present":false,"manifest_sha256":"%s","file_count":
 """
 
 
+def _read_probe(command: list[str], script: str, operation: str) -> subprocess.CompletedProcess:
+    """Retry bounded, read-only SSH probes after a jump-host disconnect.
+
+    Both manifest and capacity checks share this policy. A successful reply
+    still goes through the caller's validation; malformed data is never a
+    reason to retry or to permit a write.
+    """
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        try:
+            result = subprocess.run(command, input=script, text=True,
+                                    capture_output=True, check=False, timeout=120)
+        except subprocess.TimeoutExpired:
+            error = "timed out after 120 seconds"
+        else:
+            if result.returncode == 0:
+                return result
+            error = (result.stderr or result.stdout).strip()[-600:]
+        print(json.dumps({"event": "qa_archive_probe_failed", "operation": operation,
+                          "attempt": attempt, "attempts": attempts, "error": error}),
+              file=sys.stderr, flush=True)
+        if attempt < attempts:
+            time.sleep(2 * attempt)
+    raise RemoteError(f"node1 {operation} probe failed after {attempts} attempts: {error}")
+
+
 def remote_capacity(key: Path, jump: str, target: str, remote_root: str) -> dict:
     """Free space and QA receipt usage ON NODE1, not on the sending host.
 
@@ -123,11 +150,8 @@ EOF2
 used=$(find "$root/qa-raw" -type f -printf '%s\\n' 2>/dev/null | awk '{{t+=$1}} END {{print t+0}}')
 printf '{{"total_bytes":%s,"free_bytes":%s,"qa_used_bytes":%s}}\\n' "$total" "$free" "$used"
 """
-    result = subprocess.run([*ssh_command(key, jump, target), "bash", "-s"],
-                            input=script, text=True, capture_output=True,
-                            check=False, timeout=120)
-    if result.returncode:
-        raise RemoteError(f"node1 capacity probe failed: {(result.stderr or result.stdout)[-600:]}")
+    result = _read_probe([*ssh_command(key, jump, target), "bash", "-s"],
+                         script, "capacity")
     try:
         return json.loads(result.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError) as exc:
@@ -154,23 +178,7 @@ def remote_manifest_digest(key: Path, jump: str, target: str, remote_dir: str) -
         f'fi\n'
     )
     command = ssh_command(key, jump, target) + ["sh", "-s"]
-    # The jump host resets a connection now and then. A probe that gives up on
-    # the first reset turns a transient handshake failure into a failed hour:
-    # cn-prod reported 23 completed and 1 failed on 2026-11-03 purely because
-    # of "kex_exchange_identification: read: Connection reset by peer", which
-    # also made the whole unit exit non-zero. Retry before deciding.
-    attempts = 3
-    result = None
-    for attempt in range(attempts):
-        result = subprocess.run(command, input=script, capture_output=True,
-                                text=True, check=False, timeout=120)
-        if result.returncode == 0:
-            break
-        if attempt + 1 < attempts:
-            time.sleep(2 * (attempt + 1))
-    if result.returncode != 0:
-        raise RemoteError(f"node1 manifest probe failed after {attempts} attempts: "
-                          f"{(result.stderr or result.stdout).strip()[:300]}")
+    result = _read_probe(command, script, "manifest")
     answer = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
     if answer == "ABSENT":
         return ""
