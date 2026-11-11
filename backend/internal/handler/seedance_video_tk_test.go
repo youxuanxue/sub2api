@@ -37,8 +37,11 @@ func TestSeedanceVideoDirectAndUniversalHTTP(t *testing.T) {
 					body, err := io.ReadAll(r.Body)
 					assert.NoError(t, err)
 					assert.Equal(t, model, gjson.GetBytes(body, "model").String())
-					assert.Contains(t, string(body), "A red ball")
-					assert.Contains(t, string(body), "480p")
+					assert.Equal(t, "https://example.com/frame.png", gjson.GetBytes(body, "content.0.image_url.url").String())
+					assert.Equal(t, "A red ball", gjson.GetBytes(body, "content.1.text").String())
+					assert.Equal(t, int64(5), gjson.GetBytes(body, "duration").Int())
+					assert.Equal(t, "16:9", gjson.GetBytes(body, "ratio").String())
+					assert.Equal(t, "480p", gjson.GetBytes(body, "resolution").String())
 					_, _ = io.WriteString(w, `{"id":"upstream-private-id"}`)
 					return
 				}
@@ -91,7 +94,7 @@ func TestSeedanceVideoDirectAndUniversalHTTP(t *testing.T) {
 			router.GET("/v1/contents/generations/tasks/:task_id", h.SeedanceTasks)
 			router.DELETE("/v1/contents/generations/tasks/:task_id", h.SeedanceTasks)
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/contents/generations/tasks", strings.NewReader(`{"model":"`+model+`","content":[{"type":"text","text":"A red ball"}],"resolution":"480p","duration":5}`))
+			req := httptest.NewRequest(http.MethodPost, "/v1/contents/generations/tasks", strings.NewReader(`{"model":"`+model+`","content":[{"type":"text","text":"A red ball"},{"type":"image_url","role":"first_frame","image_url":{"url":"https://example.com/frame.png"}}],"resolution":"480p","duration":5,"ratio":"16:9"}`))
 			req.Header.Set("Content-Type", "application/json")
 			router.ServeHTTP(w, req)
 			require.Equal(t, http.StatusOK, w.Code, w.Body.String())

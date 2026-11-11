@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -54,7 +56,80 @@ func PrepareSeedanceVideoRequest(body []byte) ([]byte, error) {
 		if strings.TrimSpace(info.InputImageURLs[0]) == "" {
 			return nil, fmt.Errorf("image_url.url is required")
 		}
-		request["image"], _ = json.Marshal(info.InputImageURLs[0])
+		images, err := json.Marshal([]string{strings.TrimSpace(info.InputImageURLs[0])})
+		if err != nil {
+			return nil, err
+		}
+		request["images"] = images
+	}
+	if err := projectSeedanceFieldsForDoubao(request); err != nil {
+		return nil, err
 	}
 	return json.Marshal(request)
+}
+
+// projectSeedanceFieldsForDoubao copies Ark fields onto the carriers
+// task/doubao convertToRequestPayload already reads: Images, Seconds, and
+// Metadata. A singular image, or a top-level duration and ratio, never arrive
+// there. Top-level content, duration, and ratio stay for billing.
+func projectSeedanceFieldsForDoubao(request map[string]json.RawMessage) error {
+	meta := map[string]json.RawMessage{}
+	if raw, ok := request["metadata"]; ok {
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			return fmt.Errorf("metadata must be an object")
+		}
+	}
+	if content, ok := request["content"]; ok {
+		if _, exists := meta["content"]; !exists {
+			meta["content"] = content
+		}
+	}
+	if raw, ok := request["duration"]; ok {
+		if _, exists := request["seconds"]; !exists {
+			if seconds, ok := seedanceSecondsLiteral(raw); ok {
+				encoded, err := json.Marshal(seconds)
+				if err != nil {
+					return err
+				}
+				request["seconds"] = encoded
+			}
+		}
+		if _, exists := meta["duration"]; !exists {
+			meta["duration"] = raw
+		}
+	}
+	if raw, ok := request["ratio"]; ok {
+		if _, exists := meta["ratio"]; !exists {
+			meta["ratio"] = raw
+		}
+	}
+	if len(meta) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	request["metadata"] = encoded
+	return nil
+}
+
+func seedanceSecondsLiteral(raw json.RawMessage) (string, bool) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return "", false
+	}
+	if raw[0] == '"' {
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			return "", false
+		}
+		text = strings.TrimSpace(text)
+		return text, text != ""
+	}
+	var whole int
+	if err := json.Unmarshal(raw, &whole); err == nil && whole > 0 {
+		return strconv.Itoa(whole), true
+	}
+	return "", false
 }
