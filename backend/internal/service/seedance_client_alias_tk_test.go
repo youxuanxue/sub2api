@@ -17,11 +17,11 @@ func TestResolveSeedanceClientAlias(t *testing.T) {
 		{"hyphen 1.5-pro", "doubao-seedance-1-5-pro", "doubao-seedance-1-5-pro-251215", true},
 		{"dotted 1.5-pro", "doubao-seedance-1.5-pro", "doubao-seedance-1-5-pro-251215", true},
 		{"hyphen 2.0", "doubao-seedance-2-0", "doubao-seedance-2-0-260128", true},
-		{"dotted 2.0", "doubao-seedance-2.0", "doubao-seedance-2-0-260128", true},
+		{"plan 2.0 stays", "doubao-seedance-2.0", "", false},
 		{"hyphen 2.0-fast", "doubao-seedance-2-0-fast", "doubao-seedance-2-0-fast-260128", true},
-		{"dotted 2.0-fast", "doubao-seedance-2.0-fast", "doubao-seedance-2-0-fast-260128", true},
+		{"plan 2.0-fast stays", "doubao-seedance-2.0-fast", "", false},
 		{"hyphen 2.5", "doubao-seedance-2-5", "doubao-seedance-2-5-260628", true},
-		{"dotted 2.5", "doubao-seedance-2.5", "doubao-seedance-2-5-260628", true},
+		{"plan 2.5 stays", "doubao-seedance-2.5", "", false},
 		{"case fold", "Doubao-Seedance-1.5-Pro", "doubao-seedance-1-5-pro-251215", true},
 		{"dated 1.5-pro stays", "doubao-seedance-1-5-pro-251215", "", false},
 		{"dated 2.0 stays", "doubao-seedance-2-0-260128", "", false},
@@ -65,5 +65,14 @@ func TestApplySeedanceClientAlias_LeavesForeignBody(t *testing.T) {
 	got, resolved, ok := ApplySeedanceClientAlias(body, "doubao-seedance-2.0-mini")
 	if ok || resolved != "doubao-seedance-2.0-mini" || string(got) != string(body) {
 		t.Fatalf("mini must not alias: ok=%v resolved=%q body=%s", ok, resolved, got)
+	}
+}
+
+func TestApplySeedanceClientAlias_KeepsVolcEnginePlanModel(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"doubao-seedance-2.5","content":[{"type":"text","text":"a red ball"}]}`)
+	got, resolved, ok := ApplySeedanceClientAlias(body, "doubao-seedance-2.5")
+	if ok || resolved != "doubao-seedance-2.5" || string(got) != string(body) {
+		t.Fatalf("plan id must reach candidate evaluation unchanged: ok=%v resolved=%q body=%s", ok, resolved, got)
 	}
 }
