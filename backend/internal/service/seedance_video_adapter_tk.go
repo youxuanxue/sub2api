@@ -79,10 +79,12 @@ func projectSeedanceFieldsForDoubao(request map[string]json.RawMessage) error {
 			return fmt.Errorf("metadata must be an object")
 		}
 	}
+	if meta == nil {
+		meta = make(map[string]json.RawMessage)
+	}
 	if content, ok := request["content"]; ok {
-		if _, exists := meta["content"]; !exists {
-			meta["content"] = content
-		}
+		// Doubao metadata replaces Images; use only the validated Ark content.
+		meta["content"] = content
 	}
 	if raw, ok := request["duration"]; ok {
 		if _, exists := request["seconds"]; !exists {

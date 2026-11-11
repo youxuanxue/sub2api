@@ -3,6 +3,24 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/seedance_video_adapter_tk.go",
+      "must_contain": [
+        "func PrepareSeedanceVideoRequest(",
+        "projectSeedanceFieldsForDoubao(request)",
+        "meta[\"content\"] = content"
+      ],
+      "rationale": "NewAPI Seedance must project validated Ark content into the actual Doubao metadata carrier so compatibility metadata cannot replace moderated and billed inputs."
+    },
+    {
+      "path": "backend/internal/service/seedance_video_adapter_tk_test.go",
+      "must_contain": [
+        "func TestSeedanceVideoRequestMetadataCannotReplaceValidatedContent(t *testing.T)",
+        "adaptor.BuildRequestBody(",
+        "func TestSeedanceVideoRequestRejectsUnsupportedOrConflictingInputs(t *testing.T)"
+      ],
+      "rationale": "Protect the real Doubao wire-payload regression for null metadata and hidden last-frame/audio inputs, plus invalid metadata rejection."
+    },
+    {
       "path": "backend/internal/handler/seedance.go",
       "must_contain": [
         "service.CandidateExecutionPlatform(c.Request.Context())",

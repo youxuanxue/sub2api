@@ -4,8 +4,15 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/relay/channel/task/doubao"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -41,6 +48,53 @@ func TestSeedanceVideoRequestRejectsUnsupportedOrConflictingInputs(t *testing.T)
 	}
 	_, err := PrepareSeedanceVideoRequest([]byte(`{"model":"m","content":[{"type":"text","text":"a"}],"image":"https://example.com/hidden.png"}`))
 	require.ErrorContains(t, err, "use content.image_url")
+	for _, metadata := range []string{`[]`, `"text"`, `42`, `true`} {
+		t.Run(metadata, func(t *testing.T) {
+			_, err := PrepareSeedanceVideoRequest([]byte(`{"model":"m","content":[{"type":"text","text":"a"}],"metadata":` + metadata + `}`))
+			require.ErrorContains(t, err, "metadata must be an object")
+		})
+	}
+}
+
+func TestSeedanceVideoRequestMetadataCannotReplaceValidatedContent(t *testing.T) {
+	for _, image := range []bool{false, true} {
+		for _, tc := range []struct {
+			name     string
+			metadata string
+		}{
+			{"conflicting", `{"content":[{"type":"image_url","role":"last_frame","image_url":{"url":"https://example.com/unchecked.png"}},{"type":"audio_url","audio_url":{"url":"https://example.com/unchecked.wav"}}]}`},
+			{"null", `null`},
+		} {
+			t.Run(fmt.Sprintf("image=%t/metadata=%s", image, tc.name), func(t *testing.T) {
+				content := `[{"type":"text","text":"red ball"}]`
+				if image {
+					content = `[{"type":"text","text":"red ball"},{"type":"image_url","role":"first_frame","image_url":{"url":"https://example.com/approved.png"}}]`
+				}
+				body, err := PrepareSeedanceVideoRequest([]byte(`{"model":"m","content":` + content + `,"metadata":` + tc.metadata + `}`))
+				require.NoError(t, err)
+				var request relaycommon.TaskSubmitReq
+				require.NoError(t, json.Unmarshal(body, &request))
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Set("task_request", request)
+				adaptor := &doubao.TaskAdaptor{}
+				reader, err := adaptor.BuildRequestBody(c, &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}})
+				require.NoError(t, err)
+				wire, err := io.ReadAll(reader)
+				require.NoError(t, err)
+				parts := gjson.GetBytes(wire, "content").Array()
+				if image {
+					require.Len(t, parts, 2)
+					require.Equal(t, "image_url", parts[0].Get("type").String())
+					require.Equal(t, "first_frame", parts[0].Get("role").String())
+					require.Equal(t, "https://example.com/approved.png", parts[0].Get("image_url.url").String())
+				} else {
+					require.Len(t, parts, 1)
+				}
+				require.Equal(t, "text", parts[len(parts)-1].Get("type").String())
+				require.Equal(t, "red ball", parts[len(parts)-1].Get("text").String())
+			})
+		}
+	}
 }
 
 func TestSeedanceBillingOriginUsesActualAccountTariff(t *testing.T) {
