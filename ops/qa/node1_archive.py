@@ -220,6 +220,13 @@ def _receipt_from_manifest(target: Path, environment: str, hour: dt.datetime) ->
     }
 
 
+def log_progress(environment: str, hour: dt.datetime, phase: str, **fields) -> None:
+    """Leave a flushed breadcrumb even if systemd later kills a stuck run."""
+    print(json.dumps({"event": "qa_archive_progress", "environment": environment,
+                      "window_start": hour.isoformat(), "phase": phase, **fields}),
+          file=sys.stderr, flush=True)
+
+
 def push_hour(source_root: Path, receipt_root: Path, environment: str,
               hour: dt.datetime, remote: dict) -> dict:
     """Archive one hour to a remote node1 over SSH instead of a mounted path.
@@ -259,6 +266,7 @@ def push_hour(source_root: Path, receipt_root: Path, environment: str,
         # hours that never reached node1, which made this path skip them as
         # done while the cleanup gate blocked them forever. Read the digest
         # back and re-push when it does not match.
+        log_progress(environment, hour, "manifest_probe")
         remote_digest = node1_remote.remote_manifest_digest(
             remote["key"], remote["jump"], remote["target"], remote_dir)
         if remote_digest and remote_digest == existing.get("manifest_sha256"):
@@ -271,6 +279,7 @@ def push_hour(source_root: Path, receipt_root: Path, environment: str,
         repush_reason = reason
 
     required_bytes = sum(path.stat().st_size for _, path in source_files)
+    log_progress(environment, hour, "capacity_probe")
     capacity = node1_remote.remote_capacity(
         remote["key"], remote["jump"], remote["target"], remote["remote_root"])
     try:
@@ -285,8 +294,12 @@ def push_hour(source_root: Path, receipt_root: Path, environment: str,
     staging = Path(tempfile.mkdtemp(prefix=f".push-{hour.strftime('%Y%m%d%H')}-",
                                     dir=receipt_root))
     try:
+        log_progress(environment, hour, "stage", file_count=len(source_files),
+                     total_bytes=required_bytes)
         manifest, manifest_sha, manifest_size, total = _stage_hour(staging, source_files,
                                                                    environment, hour)
+        log_progress(environment, hour, "transfer", file_count=manifest["file_count"],
+                     total_bytes=total)
         summary = node1_remote.push_directory(
             staging, key=remote["key"], jump=remote["jump"], target=remote["target"],
             remote_dir=remote_dir, rate_kbps=remote["rate_kbps"],
@@ -500,6 +513,8 @@ def run(args: argparse.Namespace) -> int:
               "transport": "ssh-tar" if remote else "local-copy",
               "selected_hours": [h.isoformat() for h in selected], "completed": [], "failed": []}
     for hour in selected:
+        started = time.monotonic()
+        log_progress(args.environment, hour, "start")
         try:
             if remote:
                 result["completed"].append(
@@ -508,6 +523,11 @@ def run(args: argparse.Namespace) -> int:
                 result["completed"].append(copy_hour(source, node1, args.environment, hour))
         except Exception as exc:
             result["failed"].append({"window_start": hour.isoformat(), "error": str(exc)})
+            log_progress(args.environment, hour, "failed",
+                         elapsed_seconds=round(time.monotonic() - started, 3))
+        else:
+            log_progress(args.environment, hour, "complete",
+                         elapsed_seconds=round(time.monotonic() - started, 3))
     result["ok"] = not result["failed"]
     atomic_json(node1 / "receipts" / args.environment / "last-run.json", result)
     # The cleanup container bind-mounts node1_root itself, so a 0700 root hides
