@@ -114,6 +114,43 @@ func TestForwardImages_NewAPIOpenAIChannelEditUsesAccountBaseURL(t *testing.T) {
 	require.Equal(t, "ZWRpdGVk", gjson.Get(rec.Body.String(), "data.0.b64_json").String())
 }
 
+func TestForwardImages_NewAPIOpenAIChannelGenerationDoesNotFillBaseURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-image-2","prompt":"a cat"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: &httpUpstreamRecorder{},
+	}
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+
+	account := &Account{
+		ID:          454,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeOpenAI,
+		Credentials: map[string]any{
+			"api_key":  "test-api-key",
+			"base_url": "https://agent.tokensea.ai",
+		},
+	}
+
+	_, err = svc.ForwardImages(context.Background(), c, account, body, parsed, "")
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.Equal(t, GatewayFailureReason("newapi_image_upstream_unsupported"), failover.Reason)
+	upstream, ok := svc.httpUpstream.(*httpUpstreamRecorder)
+	require.True(t, ok)
+	require.Nil(t, upstream.lastReq)
+}
+
 func TestForwardImages_OtherNewAPIChannelDoesNotUseOfficialOpenAI(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

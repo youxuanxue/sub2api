@@ -905,12 +905,12 @@ func (s *OpenAIGatewayService) buildOpenAIImagesRequest(
 		targetURL = openAIImagesEditsURL
 	}
 	baseURL := account.GetOpenAIBaseURL()
-	if baseURL == "" {
+	if baseURL == "" && endpoint == openAIImagesEditsEndpoint {
 		baseURL = newAPIOpenAIImageEditsBaseURL(account)
 	}
 	if baseURL == "" && account != nil && account.Platform == PlatformNewAPI {
-		// A later selection can replace the OpenAI-channel account that passed
-		// the route gate. Do not send that newapi key to api.openai.com.
+		// Images() can reselect after the route gate. A newapi key must not
+		// fall through to https://api.openai.com on either images endpoint.
 		return nil, &UpstreamFailoverError{
 			StatusCode: http.StatusBadGateway,
 			Scope:      GatewayFailureScopeAccount,

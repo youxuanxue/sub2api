@@ -13,7 +13,7 @@ risk: high
 
 `POST /v1/images/edits` 在执行账号是 newapi、且渠道类型为 OpenAI（`channel_type=1`）、并配置了 `base_url` 时，走现有 OpenAI Images API-key 转发。上游地址是该账号的 `base_url` 加上 `/v1/images/edits`，鉴权使用账号自己的 API key。
 
-其它 newapi 渠道仍返回 HTTP 404 `The image edits API is only available for OpenAI platform groups`。若编辑转发过程中改选到这类账号，请求失败并切换账号，不会发到 `https://api.openai.com`。原生 OpenAI 与 Grok 的编辑路径不变。`/v1/images/generations` 的 newapi bridge 不变。
+其它 newapi 渠道在入口仍返回 HTTP 404 `The image edits API is only available for OpenAI platform groups`。OpenAI 渠道的 `base_url` 只补在 `/v1/images/edits`。原生 Images builder 如果改选到仍没有 OpenAI base URL 的 newapi 账号，请求失败并切换账号，不把该账号的 key 发到 `https://api.openai.com`。原生 OpenAI 与 Grok 的编辑路径不变。`/v1/images/generations` 的 newapi bridge 不变。
 
 ## 原因
 
