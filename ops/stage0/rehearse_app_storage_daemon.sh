@@ -6,7 +6,12 @@
 # and those two owned volumes after collecting the result.
 set -eu
 [ -f /.dockerenv ] || { echo 'requires a disposable container' >&2; exit 1; }
-mkdir -p /fixture-old /fixture-new /var/lib/tokenkey /srv/tokenkey-rehearsal /run/dind
+mkdir -p /fixture-old /fixture-new /fixture-old-alias /var/lib/tokenkey /srv/tokenkey-rehearsal /run/dind
+mkdir -p /fixture-old/qa-lifecycle
+touch /fixture-old/bluegreen-deploy.lock /fixture-old/qa-lifecycle/host.lock
+mount --bind /fixture-old /fixture-old-alias
+exec 9</fixture-old-alias/bluegreen-deploy.lock
+flock -n 9
 mount --bind /fixture-old /var/lib/tokenkey
 mount --bind /fixture-old /srv/tokenkey-rehearsal
 mkdir -p /var/lib/tokenkey/app
@@ -30,14 +35,26 @@ docker create --name standby --network none --restart=no redis:8-alpine >/dev/nu
 docker inspect active client standby --format '{{.Id}} {{.Name}} {{json .Mounts}}' > /run/dind/before
 # Online pre-copy cannot be used as a startup image.
 rsync -aHAXSx --numeric-ids /var/lib/tokenkey/ /fixture-new/
+exec 8</fixture-new/bluegreen-deploy.lock
+flock -n 8
 docker stop -t 10 active client >/dev/null
 kill "$daemon_pid"; wait "$daemon_pid"
 # Actual final offline copy with checksum, retaining anonymous-volume paths.
-rsync -aHAXSx --numeric-ids --checksum --delete-delay /var/lib/tokenkey/ /fixture-new/
+rsync -aHAXSx --numeric-ids --checksum --delete-delay --exclude=/bluegreen-deploy.lock --exclude=/qa-lifecycle/host.lock /var/lib/tokenkey/ /fixture-new/
 umount /srv/tokenkey-rehearsal
 umount /var/lib/tokenkey
 mount --bind /fixture-new /var/lib/tokenkey
 mount --bind /fixture-new /srv/tokenkey-rehearsal
+python3 - <<'PY'
+import fcntl
+for path in ('/fixture-old-alias/bluegreen-deploy.lock', '/var/lib/tokenkey/bluegreen-deploy.lock'):
+    with open(path) as competitor:
+        try:
+            fcntl.flock(competitor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            continue
+        raise SystemExit('lock continuity lost across unmount')
+PY
 start_daemon
 docker inspect active client standby --format '{{.Id}} {{.Name}} {{json .Mounts}}' > /run/dind/after
 cmp /run/dind/before /run/dind/after
@@ -47,6 +64,24 @@ docker start active client >/dev/null
 [ "$(docker exec active cat /qa/ledger)" = 'synthetic qa' ]
 [ "$(docker inspect standby --format '{{.State.Status}}')" = created ]
 [ "$(docker info --format '{{.DockerRootDir}}')" = /srv/tokenkey-rehearsal/docker ]
+# New local writes must be retained by rollback, even after ingress resumed.
+docker exec active sh -c 'echo after-cutover > /qa/ledger; echo after-cutover > /named/new-proof'
+docker exec client sh -c 'echo after-cutover > /data/new-proof'
 docker stop -t 10 active client >/dev/null
 kill "$daemon_pid"; wait "$daemon_pid"
-printf '{"overlay2_daemon_restart":"passed","container_identity_and_volumes":"passed","standby_remained_stopped":true}\n'
+rsync -aHAXSx --numeric-ids --checksum --delete-delay --exclude=/bluegreen-deploy.lock --exclude=/qa-lifecycle/host.lock /var/lib/tokenkey/ /fixture-old-alias/
+umount /srv/tokenkey-rehearsal
+umount /var/lib/tokenkey
+mount --bind /fixture-old-alias /var/lib/tokenkey
+mount --bind /fixture-old-alias /srv/tokenkey-rehearsal
+start_daemon
+docker inspect active client standby --format '{{.Id}} {{.Name}} {{json .Mounts}}' > /run/dind/rollback
+cmp /run/dind/before /run/dind/rollback
+docker start active client >/dev/null
+[ "$(docker exec active cat /qa/ledger)" = after-cutover ]
+[ "$(docker exec active cat /named/new-proof)" = after-cutover ]
+[ "$(docker exec client cat /data/new-proof)" = after-cutover ]
+[ "$(docker inspect standby --format '{{.State.Status}}')" = created ]
+docker stop -t 10 active client >/dev/null
+kill "$daemon_pid"; wait "$daemon_pid"
+printf '{"overlay2_daemon_restart":"passed","container_identity_and_volumes":"passed","standby_remained_stopped":true,"alias_and_copied_locks":"passed","rollback_preserved_new_writes":"passed"}\n'

@@ -2264,6 +2264,7 @@ elif ! PYTHONPATH="./ops/stage0${PYTHONPATH:+:$PYTHONPATH}" python3 -m unittest 
     ops.stage0.test_deploy_via_ssm_bluegreen \
     ops.stage0.test_root_bind_storage \
     ops.stage0.test_prepare_app_luks_exit \
+    ops.stage0.test_cutover_app_luks_exit \
     ops.stage0.test_dataplane_source_acl >/dev/null 2>&1; then
     echo "  FAIL: data-plane closeout, storage identity and source ACL contracts"
     errors=$((errors + 1))
