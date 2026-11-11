@@ -84,7 +84,11 @@ func (s *GatewayService) candidateSupportsRequest(ctx context.Context, account *
 		if !universalOpenAICompatAccountSupportsShape(account, shape) {
 			return false, nil
 		}
-		supported = universalOpenAICompatAccountSupportsModel(ctx, s, account, model, shape)
+		if shape == ShapeSeedance && account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilitySeedance) {
+			supported = accountAdmitsRequestedModelWithContext(ctx, account, model)
+		} else {
+			supported = universalOpenAICompatAccountSupportsModel(ctx, s, account, model, shape)
+		}
 	} else {
 		supported = s.isModelSupportedByAccountWithContext(ctx, account, model)
 	}

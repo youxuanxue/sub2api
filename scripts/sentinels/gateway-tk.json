@@ -3,6 +3,49 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/seedance_video_adapter_tk.go",
+      "must_contain": [
+        "func PrepareSeedanceVideoRequest(",
+        "projectSeedanceFieldsForDoubao(request)",
+        "meta[\"content\"] = content"
+      ],
+      "rationale": "NewAPI Seedance must project validated Ark content into the actual Doubao metadata carrier so compatibility metadata cannot replace moderated and billed inputs."
+    },
+    {
+      "path": "backend/internal/service/seedance_video_adapter_tk_test.go",
+      "must_contain": [
+        "func TestSeedanceVideoRequestMetadataCannotReplaceValidatedContent(t *testing.T)",
+        "adaptor.BuildRequestBody(",
+        "func TestSeedanceVideoRequestRejectsUnsupportedOrConflictingInputs(t *testing.T)"
+      ],
+      "rationale": "Protect the real Doubao wire-payload regression for null metadata and hidden last-frame/audio inputs, plus invalid metadata rejection."
+    },
+    {
+      "path": "backend/internal/handler/seedance.go",
+      "must_contain": [
+        "service.CandidateExecutionPlatform(c.Request.Context())",
+        "h.seedanceVideoTask(c)"
+      ],
+      "rationale": "Seedance dispatch follows the actual candidate account, including NewAPI supply authorized through Universal keys."
+    },
+    {
+      "path": "backend/internal/handler/seedance_video_tk.go",
+      "must_contain": [
+        "h.VideoSubmit(c)",
+        "h.VideoFetch(c)",
+        "record.UserID != subject.UserID"
+      ],
+      "rationale": "Ark facade shares video settlement and pinned task lifecycle; cross-user task reads and cancellation never reveal task existence."
+    },
+    {
+      "path": "backend/internal/handler/seedance_video_tk_test.go",
+      "must_contain": [
+        "func TestSeedanceVideoDirectAndUniversalHTTP(t *testing.T)",
+        "middleware.MaybeResolveUniversal(c, key, api.UniversalResolver())"
+      ],
+      "rationale": "Protect Direct and unbound Universal Seedance HTTP submission, attribution, repeated polls and foreign-user isolation."
+    },
+    {
       "path": "backend/internal/repository/account_repo.go",
       "must_contain": [
         "dbaccount.HasProxyWith(dbproxy.DeletedAtIsNil(), dbproxy.NameEQ(option.ProxyName))"

@@ -59,7 +59,8 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 			requestPath = c.Request.URL.Path
 		}
 	}
-	if isTokenKeyVideoTaskRead(method, requestPath) {
+	if isTokenKeyVideoTaskRead(method, requestPath) ||
+		(method == http.MethodDelete && isTokenKeyVideoTaskRead(http.MethodGet, requestPath)) {
 		// A vt_ poll is a read of an existing registry-owned resource, not a new
 		// scheduling decision. VideoFetch authorizes the user and consumes the
 		// submit-time pinned upstream route.
@@ -113,6 +114,15 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 			// though the upstream request is the same bare model.
 			if stripped, _, ok := service.TkStripContextWindowAliasJSONModel(body); ok {
 				body = stripped
+				c.Request.Body = io.NopCloser(bytes.NewReader(body))
+				c.Request.ContentLength = int64(len(body))
+				c.Request.Header.Del("Content-Encoding")
+				c.Request.Header.Del("Content-Length")
+			}
+		}
+		if shape == service.ShapeSeedance {
+			if rewritten, resolved, changed := service.ApplySeedanceClientAlias(body, model); changed {
+				body, model = rewritten, resolved
 				c.Request.Body = io.NopCloser(bytes.NewReader(body))
 				c.Request.ContentLength = int64(len(body))
 				c.Request.Header.Del("Content-Encoding")
@@ -403,6 +413,8 @@ func universalShapeLabel(shape service.UniversalShape) string {
 		return "openai_images_edit"
 	case service.ShapeOpenAIVideo:
 		return "openai_video"
+	case service.ShapeSeedance:
+		return "seedance"
 	case service.ShapeGemini:
 		return "gemini"
 	default:

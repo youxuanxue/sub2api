@@ -4,6 +4,7 @@ import (
 	"context"
 	"mime"
 	"net/http"
+	"strings"
 	"time"
 
 	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -21,7 +22,18 @@ func (h *OpenAIGatewayHandler) SeedanceTasks(c *gin.Context) {
 		}
 	}
 	key, ok := middleware.GetAPIKeyFromContext(c)
-	if !ok || key.Group == nil || (key.Group.Platform != service.PlatformOpenAI && key.Group.Platform != service.PlatformComposite) {
+	if ok && c.Request.Method != http.MethodPost && strings.HasPrefix(c.Param("task_id"), "vt_") {
+		h.seedanceVideoTask(c)
+		return
+	}
+	platform, selected := service.CandidateExecutionPlatform(c.Request.Context())
+	if ok && ((selected && platform == service.PlatformNewAPI) ||
+		(!selected && key.Group != nil && key.Group.Platform == service.PlatformNewAPI)) {
+		h.seedanceVideoTask(c)
+		return
+	}
+	if !ok || key.Group == nil || (selected && platform != service.PlatformOpenAI) ||
+		(!selected && key.Group.Platform != service.PlatformOpenAI && key.Group.Platform != service.PlatformComposite) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", "Seedance requires an OpenAI or composite group")
 		return
 	}

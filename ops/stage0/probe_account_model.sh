@@ -164,9 +164,12 @@ if [[ ! "$PROBE_LOCK_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$PROBE_LOCK_TIMEOUT_
   fail_json "PROBE_LOCK_TIMEOUT_SECONDS must be a positive integer"
 fi
 case "$ENDPOINT" in
-  messages|count_tokens|chat|responses|embeddings|images|speech|transcriptions|gemini|gemini_image) ;;
-  *) fail_json "ENDPOINT must be messages, count_tokens, chat, responses, embeddings, images, speech, transcriptions, gemini, or gemini_image" ;;
+  messages|count_tokens|chat|responses|embeddings|images|speech|transcriptions|gemini|gemini_image|videos|seedance) ;;
+  *) fail_json "unsupported ENDPOINT" ;;
 esac
+if [[ "$ENDPOINT" == "videos" || "$ENDPOINT" == "seedance" ]]; then
+  [[ -n "$REQUEST_BODY_JSON" ]] || fail_json "video probes require an explicit bounded REQUEST_BODY_JSON"
+fi
 if [[ "$ENDPOINT" == "gemini_image" ]]; then
   python3 -c 'from PIL import Image' >/dev/null 2>&1 || fail_json "gemini_image requires Pillow in the probe Python environment"
 fi
@@ -452,6 +455,8 @@ case "$ENDPOINT" in
   embeddings) PATH_SUFFIX="/v1/embeddings"; AUTH_HEADER_NAME="Authorization";;
   responses) PATH_SUFFIX="/v1/responses"; AUTH_HEADER_NAME="Authorization";;
   images) PATH_SUFFIX="/v1/images/generations"; AUTH_HEADER_NAME="Authorization";;
+  videos) PATH_SUFFIX="/v1/videos"; AUTH_HEADER_NAME="Authorization";;
+  seedance) PATH_SUFFIX="/v1/contents/generations/tasks"; AUTH_HEADER_NAME="Authorization";;
   speech) PATH_SUFFIX="/v1/audio/speech"; AUTH_HEADER_NAME="Authorization";;
   transcriptions) PATH_SUFFIX="/v1/audio/transcriptions"; AUTH_HEADER_NAME="Authorization";;
 esac

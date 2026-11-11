@@ -21,6 +21,10 @@ func TestIsTokenKeyVideoTaskRead(t *testing.T) {
 		"/v1/videos/vt_123",
 		"/videos/generations/vt_123",
 		"/v1/videos/edits/vt_123",
+		"/v1/contents/generations/tasks/vt_123",
+		"/api/v3/contents/generations/tasks/vt_123",
+		"/v3/contents/generations/tasks/vt_123",
+		"/contents/generations/tasks/vt_123",
 	} {
 		require.True(t, isTokenKeyVideoTaskRead(http.MethodGet, path), path)
 		require.True(t, skipsBillingEnforcement(http.MethodGet, path), path)
@@ -30,4 +34,8 @@ func TestIsTokenKeyVideoTaskRead(t *testing.T) {
 	require.False(t, isTokenKeyVideoTaskRead(http.MethodGet, "/v1/videos/request-native"))
 	require.False(t, isTokenKeyVideoTaskRead(http.MethodGet, "/v1/videos/vt_123/content"))
 	require.False(t, skipsBillingEnforcement(http.MethodGet, "/v1/videos/request-native"))
+	require.False(t, skipsBillingEnforcement(http.MethodDelete, "/v1/contents/generations/tasks/vt_123"))
+	require.False(t, skipsBillingEnforcement(http.MethodPost, "/v1/contents/generations/tasks"))
+	require.False(t, skipsBillingEnforcement(http.MethodGet, "/v1/contents/generations/tasks/native-task"))
+	require.False(t, skipsBillingEnforcement(http.MethodGet, "/v1/contents/generations/tasks/vt_123/content"))
 }

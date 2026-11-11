@@ -100,6 +100,7 @@ func TestUS050_CandidateMediaUsesSelectedModelAndReleasesSlot(t *testing.T) {
 		{"embeddings", "/v1/embeddings", "text-embedding-3-small", service.ShapeOpenAIEmbeddings},
 		{"images", "/v1/images/generations", "gpt-image-2", service.ShapeOpenAIImages},
 		{"video", "/v1/videos", "doubao-seedance-1-0-pro-250528", service.ShapeOpenAIVideo},
+		{"seedance", "/v1/contents/generations/tasks", "doubao-seedance-1-0-pro-250528", service.ShapeSeedance},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			var upstreamCalls atomic.Int32
@@ -116,7 +117,7 @@ func TestUS050_CandidateMediaUsesSelectedModelAndReleasesSlot(t *testing.T) {
 			group := service.Group{ID: 8, Platform: service.PlatformComposite, Status: service.StatusActive, Hydrated: true, RateMultiplier: 1, AllowImageGeneration: true}
 			account := service.Account{ID: 12, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Concurrency: 2, GroupIDs: []int64{8},
 				Credentials: map[string]any{"api_key": "media-key", "base_url": upstream.URL, "model_mapping": map[string]any{scenario.model: scenario.model}}}
-			if scenario.shape == service.ShapeOpenAIVideo {
+			if scenario.shape == service.ShapeOpenAIVideo || scenario.shape == service.ShapeSeedance {
 				account.Platform, account.ChannelType = service.PlatformNewAPI, 54
 				account.Credentials["base_url"] = newapiintegration.XRTokenBaseURL
 			}
@@ -135,6 +136,9 @@ func TestUS050_CandidateMediaUsesSelectedModelAndReleasesSlot(t *testing.T) {
 			service.ProvideTKUniversalModelsProvider(api, gateway, nil, openai, service.NewProtocolRouter())
 			key := &service.APIKey{ID: 20, UserID: 30, Group: &group, GroupID: &group.ID, User: &service.User{ID: 30, Balance: 10}}
 			body := `{"model":"client-alias","input":"hello","prompt":"test","duration":1}`
+			if scenario.shape == service.ShapeSeedance {
+				body = `{"model":"client-alias","content":[{"type":"text","text":"test"}],"duration":1}`
+			}
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
 			c.Request = httptest.NewRequest(http.MethodPost, scenario.path, strings.NewReader(body))
@@ -152,10 +156,13 @@ func TestUS050_CandidateMediaUsesSelectedModelAndReleasesSlot(t *testing.T) {
 			case service.ShapeOpenAIVideo:
 				h.SetVideoTaskCache(repository.NewVideoTaskCache(nil))
 				h.VideoSubmit(c)
+			case service.ShapeSeedance:
+				h.SetVideoTaskCache(repository.NewVideoTaskCache(nil))
+				h.SeedanceTasks(c)
 			}
 			require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
 			require.Equal(t, int32(1), atomic.LoadInt32(&cache.releaseAccountCalled), "selected capacity must be released on every terminal path: %s", recorder.Body.String())
-			if scenario.shape == service.ShapeOpenAIVideo {
+			if scenario.shape == service.ShapeOpenAIVideo || scenario.shape == service.ShapeSeedance {
 				require.Zero(t, upstreamCalls.Load(), "invalid provider duration must reject before paid submission")
 				require.Contains(t, recorder.Body.String(), "duration must be at least")
 			} else {
