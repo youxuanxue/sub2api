@@ -10,19 +10,19 @@
 
 | 节点 | 正式域名 | 公网 IP | 控制面身份 | 备注 |
 |------|----------|---------|------------|------|
-| **prod** | `api.tokenkey.dev` | `43.162.83.233` | Lighthouse `lhins-fcwpwymt` · SSM Hybrid `mi-080ed76dc6d97d8b5` · eu-west-2 | 腾讯美西 · timeline 2 · LUKS mapper；Stage0 例外布局（见下） |
+| **prod** | `api.tokenkey.dev` | `43.162.83.233` | Lighthouse `lhins-fcwpwymt` · SSM Hybrid `mi-080ed76dc6d97d8b5` · eu-west-2 | 腾讯美西应用机 · LUKS mapper；数据库已迁数据机（见下） |
 
 四个长期正式域名 A 记录（TTL 300）指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。`api-cn.tokenkey.dev` 仍暂时指向同一地址，日后退役。国内长期入口 `api.galaxywaveai.com` 指向腾讯北京 `154.8.214.179`，站点见 [`deploy/domestic/README.md`](../domestic/README.md)。
 prod 直接使用原生账号；旧中继 stub 已软删。
 **Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已于 2026-10-23 完全退役**（实例、栈、VPC、卷、EIP、快照均已删；仅留 S3 历史链 `prod/postgres` timeline 1，只含数据库）。不能当作现网入口。
-**布局（2026-10-22 例外路径已收敛）：** LUKS 双挂仍在；Docker Root **例外**保留 `/srv/tokenkey-rehearsal/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`；网关容器 `tokenkey` / `tokenkey-caddy`；PG/Redis 名仍为 cutover 字面量但带 `postgres`/`redis` 网络别名；Redis 自 2026-10-22 起 AOF（everysec）持久化，数据在 `/srv/tokenkey-rehearsal/redis`。默认可 `deploy-stage0`。细则 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)；unlock [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
+**布局（2026-10-22 例外路径已收敛）：** LUKS 双挂仍在；Docker Root **例外**保留 `/srv/tokenkey-rehearsal/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`；网关容器 `tokenkey` / `tokenkey-caddy`；PG/Redis 已于 2026-11-10 迁至独立数据机；应用机上的探针使用 `tokenkey-postgres-client` / `tokenkey-redis-client`，不运行旧服务端。默认可 `deploy-stage0`。细则 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)；unlock [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
 历史数据从 S3 隔离归档读取。退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 
 ### 同机附属 / 代理验证资源
 
 | 角色 | 地域 / 实例 ID | 公网 IP | 私网 IP | 规格 |
 |---|---|---|---|---|
-| prod 主机 | na-siliconvalley-2 / `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | 4C8G / 120 GB SSD |
+| prod 主机 | na-siliconvalley-2 / `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | 4C16G / 180 GB SSD |
 | 美西出口 `usw-eval1` | na-siliconvalley-2 / `lhins-56ogvsid` | `43.162.90.151` | `10.4.0.2` | 2C2G / 40 GB SSD |
 | 美西出口 `usw-eval2` | na-siliconvalley-2 / `lhins-mtiwmfod` | `43.162.126.190` | `10.4.0.11` | 2C2G / 40 GB SSD |
 | 美西出口 `usw-eval3` | na-siliconvalley-2 / `lhins-n1w2c5qr` | `43.162.116.209` | `10.4.0.5` | 2C2G / 40 GB SSD |
@@ -68,6 +68,21 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 另有 prod 应用侧 `proxy_unreachable_count` P0（网关拨测），不能替代本机 timer。
 
 活舰队矩阵：[`deploy/tencent/candidate-usw-20261022.json`](../tencent/candidate-usw-20261022.json)（`deployable=true`；`resolve_prod_ssm_target.py --target auto` → 本机）。
+
+### 数据面（2026-11-11 核账）
+
+prod 数据机 `lhins-p43i2kxh`，私网 `10.4.0.3`，2C8G / 100 GB SSD；
+cn-prod 数据机 `lhins-odyx5eis`，私网 `10.2.4.5`，2C4G / 70 GB SSD。
+两台均运行 `tokenkey-postgres` / `tokenkey-redis`，数据目录为普通 ext4 的 `/var/lib/tokenkey`，
+2026-12-09 到期，自动续费。应用机的数据库/Redis Host 指向本站数据机。
+数据机 SSM 身份由站点矩阵拥有，探针用 `--target prod-data|cn-prod-data`。
+5432/6379 只绑定私网地址，腾讯云防火墙仅放行本站应用机私网 IP。
+
+切流前的旧数据库、Redis 与转发容器在 2026-11-11 核账时已不在应用机容器清单中，
+已知旧 PG/Redis 目录也已不存在；不根据历史清单再次删除。
+应用机仍保留部署回退材料、停用单元和切流前备份回执。
+prod 的 Docker Root、应用文件与 `.env` 仍依赖 LUKS，迁出需要独立维护窗口。
+收尾验收见 [数据面拆分设计](../../docs/approved/design-data-plane-split.md#6-观察与收尾)。
 
 ### 活物理备份仓库（2026-11-08 起 COS 唯一）
 
@@ -212,3 +227,10 @@ cn-prod 逻辑 dump 已停。验收是北京本机 pgBackRest 能恢复，见 [d
 `tokenkey-host-replacement` 与 [AWS DR](../aws/RUNBOOK-disaster-recovery.md) 中适用的恢复步骤；
 旧 CFN/实例身份不作为新机默认目标。旧机磁盘停写后的数据不能整库覆盖活库。
 迁移收尾、QA 当前验收与旧机回收边界见 [收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)。
+
+
+2026-11-11 主机来源保护已补齐：两台数据机上的 `tokenkey-data-source-acl.service` 已 active/enabled，
+只放行本站应用机到本站私网 PG/Redis 的连接；规则 owner 为 `ops/stage0/dataplane_source_acl.py`。
+安装先带五分钟自动回滚，经应用 SQL、Redis PING 与公网健康验证后提交；Docker 重启后由 unit 重装自有链。
+本轮未重启 Docker。prod 应用 LUKS 仍在用，预复制与隔离演练已完成，具体维护窗尚未执行；
+见[迁出准备与窗口方案](../../docs/ops/prod-app-luks-exit-plan.md)。

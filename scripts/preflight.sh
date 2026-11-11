@@ -2255,6 +2255,19 @@ _tk_clear_core_bare
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for activation safety tests)"
     errors=$((errors + 1))
+elif ! PYTHONPATH="./ops/stage0${PYTHONPATH:+:$PYTHONPATH}" python3 -m unittest \
+    ops.backup.test_cos_restore_acceptance \
+    ops.stage0.test_reconcile_dataplane_pg_config \
+    ops.stage0.test_closeout_billing_dedup \
+    ops.stage0.test_bluegreen_host_runtime \
+    ops.stage0.test_resolve_prod_ssm_target \
+    ops.stage0.test_deploy_via_ssm_bluegreen \
+    ops.stage0.test_root_bind_storage \
+    ops.stage0.test_prepare_app_luks_exit \
+    ops.stage0.test_cutover_app_luks_exit \
+    ops.stage0.test_dataplane_source_acl >/dev/null 2>&1; then
+    echo "  FAIL: data-plane closeout, storage identity and source ACL contracts"
+    errors=$((errors + 1))
 elif ! python3 ./ops/observability/test_probe_data_layer_safety.py >/dev/null 2>&1; then
     echo "  FAIL: data-layer safety probe contracts"
     echo "        - run: python3 ops/observability/test_probe_data_layer_safety.py"

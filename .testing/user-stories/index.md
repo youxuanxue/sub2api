@@ -78,3 +78,5 @@
 | US-073 | 用户历史用量账单查询与下载 | Done | `.testing/user-stories/stories/US-073-historical-usage-billing.md` |
 
 | US-074 | 网关保留请求协议语义与最终计量 | InTest | `.testing/user-stories/stories/US-074-gateway-issue-remediation.md` |
+
+| US-075 | 应用根盘迁出准备与数据机来源保护 | InTest | `.testing/user-stories/stories/US-075-app-storage-and-data-source-guards.md` |

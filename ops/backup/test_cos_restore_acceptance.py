@@ -17,9 +17,9 @@ acceptance = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
 spec.loader.exec_module(acceptance)
 
-# Live cn-prod at the time of the first successful acceptance run. accounts and
-# api_keys are soft-delete filtered (140 rows / 137 live, 112 / 110), which is
-# what DATA_SQL returns.
+# Historical fixture from the first cn-prod acceptance run. These original
+# active-row counts remain valid comparison fixtures; DATA_SQL now compares
+# physical row populations, including rows soft-deleted after a recovery point.
 LIVE = {
     "accounts": 137, "api_keys": 110,
     "usage_logs": 515715,
@@ -91,18 +91,6 @@ class CompareTest(unittest.TestCase):
 
 
 class SoftDeleteTest(unittest.TestCase):
-    def test_soft_delete_tables_are_filtered(self) -> None:
-        # Soft-delete does not reset status, and a row deleted AFTER the
-        # recovery point still reads as live in the restored copy. Counting
-        # ghosts would drift the comparison for a reason that has nothing to do
-        # with the backup. cn-prod carries 3 such accounts and 2 api_keys.
-        for table in ("accounts", "api_keys"):
-            with self.subTest(table=table):
-                self.assertRegex(
-                    acceptance.DATA_SQL,
-                    rf"FROM {table} WHERE deleted_at IS NULL",
-                    f"{table} is a soft-delete table and must be filtered")
-
     def test_tables_without_soft_delete_are_not_filtered(self) -> None:
         # usage_logs has no deleted_at column; adding a filter would error.
         self.assertIn("FROM usage_logs)", acceptance.DATA_SQL)
@@ -215,6 +203,21 @@ class WalContinuityTest(unittest.TestCase):
 
 
 class TargetsTest(unittest.TestCase):
+    def test_reviewed_live_timeline_excludes_old_chain_and_failed_backups(self) -> None:
+        def backup(label, timeline, kind="full", error=False):
+            return {"label": label, "type": kind, "error": error,
+                    "archive": {"start": timeline + "0000000100000001", "stop": timeline + "0000000100000002"}}
+        entry = {"backup": [backup("old", "00000003"), backup("new-full", "00000004"),
+                            backup("new-incr", "00000004", "incr"),
+                            backup("failed", "00000004", "incr", True)],
+                 "archive": [{"min": "000000030000000100000001", "max": "000000040000000100000003"}]}
+        self.assertEqual(acceptance.targets(entry, "00000004"), ("new-full", "new-incr"))
+        self.assertEqual(acceptance.wal_continuity(entry, "00000004")["timeline"], "00000004")
+        with self.assertRaises(acceptance.AcceptanceError):
+            acceptance.targets(entry, "00000005")
+        with self.assertRaises(acceptance.AcceptanceError):
+            acceptance.wal_continuity(entry, "00000003")
+
     def test_oldest_full_and_latest_point_are_chosen(self) -> None:
         entry = {"backup": [
             {"label": "20261102-202410F", "type": "full"},
@@ -235,14 +238,15 @@ class IsolationTest(unittest.TestCase):
     def _sandbox(self):
         return acceptance.Sandbox("img", pathlib.Path("/conf"), pathlib.Path("/tmp"), "1", "1g")
 
-    def test_restore_joins_no_network_and_publishes_no_port(self) -> None:
+    def test_restore_uses_its_own_network_and_publishes_no_port(self) -> None:
         box = self._sandbox()
         with mock.patch.object(acceptance, "run", return_value="") as runner:
             box.restore(2, "20261102-202410F", 60)
         argv = next(c.args[0] for c in runner.call_args_list if "run" in c.args[0])
         self.assertNotIn("-p", argv)
         self.assertNotIn("--publish", argv)
-        self.assertNotIn("--network", argv, "joining a network would expose the gateway")
+        self.assertEqual(argv[argv.index("--network") + 1], box.network)
+        self.assertTrue(box.network.startswith("cos-acc-"))
         self.assertIn("--rm", argv)
         self.assertIn("/conf:/etc/pgbackrest:ro", argv, "config must be read-only")
         self.assertNotIn("--delta", argv, "--delta could write into an existing directory")
@@ -277,7 +281,9 @@ class IsolationTest(unittest.TestCase):
         argv = next(c for c in calls if "-d" in c)
         self.assertIn("max_connections=100", argv)
         self.assertIn("listen_addresses=", argv, "the socket must not be reachable over TCP")
-        self.assertNotIn("--network", argv)
+        self.assertIn("archive_mode=off", argv, "the restored primary must never archive into the live chain")
+        self.assertIn("archive_command=", argv)
+        self.assertEqual(argv[argv.index("--network") + 1], box.network)
 
     def test_sandbox_cleans_up_even_when_the_body_raises(self) -> None:
         removed = []
@@ -319,6 +325,30 @@ class ReceiptTest(unittest.TestCase):
         self.assertTrue(problems)
         status = "ok" if not problems else "degraded"
         self.assertEqual(status, "degraded")
+
+class HistoricalSchemaBaselineTest(unittest.TestCase):
+    def test_only_pinned_historical_constraints_change_the_expected_schema(self):
+        live = {'tables': 130, 'fkeys': 97, 'pkeys': 185, 'sequences': 85, 'constraints': {}}
+        baseline = {'label': 'full', 'timeline': '00000002', 'reference': 'approved migration',
+                    'historical_extra_constraints': {'usage_logs.pk': {'type': 'p', 'definition': 'PRIMARY KEY (id)'}}}
+        expected = acceptance.expected_schema(live, 'historical', 'full', '00000002', baseline)
+        self.assertEqual(expected['pkeys'], 186)
+        self.assertEqual(live['constraints'], {}, 'live comparison must remain unchanged')
+        self.assertEqual(acceptance.expected_schema(live, 'latest', 'incr', '00000002', baseline), live)
+        with self.assertRaises(acceptance.AcceptanceError):
+            acceptance.expected_schema(live, 'historical', 'other', '00000002', baseline)
+        with self.assertRaises(acceptance.AcceptanceError):
+            acceptance.expected_schema(live, 'historical', 'full', '00000004', baseline)
+
+
+class ClosedBillingWindowTest(unittest.TestCase):
+    def test_each_point_ends_at_the_last_hour_completed_before_backup_start(self):
+        entry = {'backup': [{'label': 'full', 'timestamp': {'start': 1794274470}}]}
+        self.assertEqual(acceptance.pair_window_end(entry, 'full'), '2026-11-10T01:00:00Z')
+        with self.assertRaises(acceptance.AcceptanceError):
+            acceptance.pair_window_end(entry, 'missing')
+        self.assertTrue(acceptance.compare_pair_window(dict(LATEST, window_end='2026-11-10T01:00:00Z'),
+                                                     dict(LIVE, window_end='2026-11-10T02:00:00Z')))
 
 
 if __name__ == "__main__":
