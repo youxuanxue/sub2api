@@ -88,19 +88,22 @@ func runAntigravityGeminiStreamWithIdle(t *testing.T, userAgent string, idle tim
 	return out
 }
 
-func TestAntigravityGeminiStreamKeepsCommentKeepaliveForOrdinaryClients(t *testing.T) {
-	// The keepalive interval is configured in whole seconds. Leave enough idle
-	// time for the first data event to be processed before the ticker fires;
-	// otherwise a busy CI runner can consume the first tick too early and close
-	// the stream before any heartbeat is written.
-	out := runAntigravityGeminiStreamWithIdle(t, "curl/8.7.1", 2200*time.Millisecond)
-	require.Contains(t, out, ":\n\n", "ordinary clients should still get the idle keepalive")
+func TestAntigravityGeminiStreamUsesWhitespaceKeepaliveForGeminiCLI(t *testing.T) {
+	// Gemini CLI / @google/genai throws "Incomplete JSON segment at the end"
+	// when an SSE comment heartbeat remains in the buffer. gemini-4-argon
+	// thinking regularly outlasts the keepalive interval, so the idle frame
+	// must be whitespace and the whole body must still drain.
+	out := runAntigravityGeminiStreamWithIdle(t, "GeminiCLI-tui/0.68.0/gemini-4-argon (darwin; arm64; terminal)", 2200*time.Millisecond)
 	require.Contains(t, out, `"text":"partial"`)
+	require.NotContains(t, out, ":\n\n")
+	require.True(t, strings.HasSuffix(out, "\n\n\n"), "whitespace keepalive should follow the data frame, body=%q", out)
+	require.True(t, geminiCLISSEFullyDrained(out), "Gemini CLI would throw Incomplete JSON segment at the end; body=%q", out)
 }
 
 func TestAntigravityGeminiStreamSkipsCommentKeepaliveForGoGenai(t *testing.T) {
 	out := runAntigravityGeminiStreamWithIdle(t, "google-genai-sdk/1.71.0 gl-go/go1.28-20260721-RC03", 1200*time.Millisecond)
 	require.Contains(t, out, `"text":"partial"`)
+	require.False(t, strings.HasSuffix(out, "\n\n\n"), "go-genai must not receive an in-stream heartbeat, body=%q", out)
 	for _, event := range strings.Split(out, "\n\n") {
 		require.False(t, strings.HasPrefix(event, ":"), "go-genai must never receive an SSE comment event, got %q", event)
 	}
