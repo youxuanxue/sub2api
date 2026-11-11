@@ -219,30 +219,3 @@ func TestAntigravityGeminiStreamTruncation_WritesClientErrorFrame(t *testing.T) 
 		})
 	}
 }
-
-func TestClearStickySessionIfBoundTo(t *testing.T) {
-	group := int64(21)
-	newSvc := func(bound int64) (*GatewayService, *stubGatewayCache) {
-		cache := &stubGatewayCache{sessionBindings: map[string]int64{}}
-		if bound > 0 {
-			cache.sessionBindings["gemini:s"] = bound
-		}
-		return &GatewayService{cache: cache}, cache
-	}
-
-	t.Run("clears_binding_to_failed_account", func(t *testing.T) {
-		svc, cache := newSvc(529)
-		require.True(t, svc.ClearStickySessionIfBoundTo(context.Background(), &group, "gemini:s", 529))
-		require.Empty(t, cache.sessionBindings)
-	})
-	t.Run("keeps_binding_that_moved_to_another_account", func(t *testing.T) {
-		svc, cache := newSvc(244)
-		require.False(t, svc.ClearStickySessionIfBoundTo(context.Background(), &group, "gemini:s", 529))
-		require.Equal(t, int64(244), cache.sessionBindings["gemini:s"])
-	})
-	t.Run("no_binding_or_key_is_noop", func(t *testing.T) {
-		svc, _ := newSvc(0)
-		require.False(t, svc.ClearStickySessionIfBoundTo(context.Background(), &group, "gemini:s", 529))
-		require.False(t, svc.ClearStickySessionIfBoundTo(context.Background(), &group, "", 529))
-	})
-}

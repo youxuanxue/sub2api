@@ -874,12 +874,6 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			if failoverClientGone(c) {
 				return
 			}
-			// TK: 流截断时字节已写出、不能在本次请求内重放；清掉指向故障账号的粘性绑定，
-			// 让客户端的下一次重试重新选号，而不是再次被钉回刚断流的账号。
-			if errors.Is(err, service.ErrGeminiNativeStreamTruncated) &&
-				h.gatewayService.ClearStickySessionIfBoundTo(c.Request.Context(), apiKey.GroupID, sessionKey, account.ID) {
-				reqLog.Warn("gemini.sticky_session_cleared_after_stream_truncated", zap.Int64("account_id", account.ID))
-			}
 			// Transport errors may already have written a response; pre-send
 			// execution failures have not. Never turn those into empty HTTP 200.
 			if !c.Writer.Written() {
