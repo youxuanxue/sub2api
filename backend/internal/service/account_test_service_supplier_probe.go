@@ -230,6 +230,8 @@ func supplierVideoProbeURL(channelType int, baseURL, upstreamModelID string) str
 		return newapiintegration.NormalizeFMGoBaseURL(baseURL) + newapiintegration.FMGoSubmitPath(upstreamModelID)
 	case newapiintegration.IsXRTokenBaseURL(channelType, baseURL):
 		return newapiintegration.NormalizeXRTokenBaseURL(baseURL) + "/v1/contents/generations/tasks"
+	case newapiintegration.IsVolcEngineAgentPlanBaseURL(channelType, baseURL):
+		return newapiintegration.NormalizeArkChannelBaseURL(channelType, baseURL) + "/contents/generations/tasks"
 	default:
 		return baseURL + "/api/v3/contents/generations/tasks"
 	}
