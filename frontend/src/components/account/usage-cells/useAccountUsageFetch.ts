@@ -17,9 +17,10 @@ import {
   canSelfFetchUsage as accountCanSelfFetchUsage,
   isBatchPassiveCapable,
   usesLocalUsageWindows,
+  usesGeminiSimulatedQuota,
   usesPassiveUsageOnMount as accountUsesPassiveUsageOnMount
 } from '@/utils/accountUsageBatch.tk'
-import { PLATFORM_GEMINI, PLATFORM_KIRO, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
+import { PLATFORM_KIRO, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 // Module-level cache shared across all usage cell instances
 const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
@@ -63,7 +64,8 @@ export function useAccountUsageFetch(
     unmounted.value = true
   })
 
-  const loading = ref(false)
+  const localLoading = ref(false)
+  const loading = computed(() => localLoading.value || props.usageLoadingOverride)
   const activeQueryLoading = ref(false)
   const error = ref<string | null>(null)
   const usageInfo = ref<AccountUsageInfo | null>(
@@ -92,7 +94,7 @@ export function useAccountUsageFetch(
     ([id, value], previous) => {
       if (previous && id !== previous[0]) {
         usageInfo.value = null
-        loading.value = false
+        localLoading.value = false
         activeQueryLoading.value = false
         error.value = null
       }
@@ -140,17 +142,17 @@ export function useAccountUsageFetch(
       const cached = _usageCache.get(props.account.id)
       if (cached && Date.now() - cached.ts < USAGE_CACHE_TTL) {
         adoptUsage(cached.data)
-        loading.value = false
+        localLoading.value = false
         return
       }
     }
 
     const accountId = props.account.id
-    loading.value = true
+    localLoading.value = true
     error.value = null
 
     try {
-      const fetchFn = () => adminAPI.accounts.getUsage(accountId, loadOptions?.source)
+      const fetchFn = () => loadOptions?.source ? adminAPI.accounts.getUsage(accountId, loadOptions.source) : adminAPI.accounts.getUsage(accountId)
       const result = await enqueueUsageRequest(props.account, fetchFn)
       if (!unmounted.value && props.account.id === accountId) {
         if (adoptUsage(result)) _usageCache.set(accountId, { data: result, ts: Date.now() })
@@ -161,7 +163,7 @@ export function useAccountUsageFetch(
         console.error('Failed to load usage:', e)
       }
     } finally {
-      if (!unmounted.value && props.account.id === accountId) loading.value = false
+      if (!unmounted.value && props.account.id === accountId) localLoading.value = false
     }
   }
 
@@ -219,6 +221,7 @@ export function useAccountUsageFetch(
   }
 
   const loadActiveUsage = async () => {
+    if (loading.value || activeQueryLoading.value) return
     const accountId = props.account.id
     activeQueryLoading.value = true
     error.value = null
@@ -368,7 +371,7 @@ export function useAccountUsageFetch(
 
 export function showUsageWindowsForAccount(account: Account): boolean {
   if (
-    account.platform === PLATFORM_GEMINI ||
+    usesGeminiSimulatedQuota(account) ||
     account.platform === PLATFORM_KIRO ||
     usesLocalUsageWindows(account)
   ) {

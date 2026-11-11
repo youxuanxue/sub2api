@@ -50,7 +50,7 @@ describe('useModelWhitelist', () => {
   it('openai 模型列表透传后端 GPT-5.4/GPT-6 官方快照', async () => {
     const models = await loadApiModels('openai', [
       'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-2026-03-05', 'codex-auto-review',
-      'gpt-5.6', 'gpt-6', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna'
+      'gpt-5.6', 'gpt-6', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'
     ])
 
     expect(models).toContain('gpt-5.4')
@@ -64,6 +64,8 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-6.1-terra')
     expect(models).toContain('gpt-6-sol')
     expect(models).toContain('gpt-6-luna')
+    expect(models).toContain('gpt-image-2.6-flare')
+    expect(models).toContain('gpt-image-2.6-sunburst')
   })
 
   it('exposes one GPT-6.1 Sol mapping action with the TokenKey preset', () => {
@@ -125,6 +127,36 @@ describe('useModelWhitelist', () => {
 
     expect(getModelsByPlatform('openai')).toEqual([])
     expect(error.value).toContain('catalog unavailable')
+  })
+
+  it.each([
+    ['claude-fable-5-2', 'Fable 5.2'],
+    ['claude-mythos-5-2', 'Mythos 5.2']
+  ])('preserves %s in Anthropic whitelists and presets without inventing provider mappings', async (model, label) => {
+    await loadApiModels('anthropic', [model])
+    const { getModelsByPlatform } = await import('../useModelWhitelist')
+    for (const platform of ['claude', 'anthropic']) {
+      const models = getModelsByPlatform(platform)
+      expect(models).toContain(model)
+      expect(buildModelMappingObject('whitelist', models, [])?.[model]).toBe(model)
+      expect(getPresetMappingsByPlatform(platform)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ label, from: model, to: model })
+      ]))
+    }
+    expect(getPresetMappingsByPlatform('bedrock')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label, from: model, to: `anthropic.${model}` })
+    ]))
+    expect(getModelsByPlatform('antigravity')).not.toContain(model)
+    expect(getPresetMappingsByPlatform('antigravity').some(mapping => mapping.from === model)).toBe(false)
+  })
+
+  it('Claude Sonnet 5.5 预设使用各平台的官方模型 ID', () => {
+    expect(getPresetMappingsByPlatform('claude')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'Sonnet 5.5', from: 'claude-sonnet-5-5', to: 'claude-sonnet-5-5' })
+    ]))
+    expect(getPresetMappingsByPlatform('bedrock')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'Sonnet 5.5', from: 'claude-sonnet-5-5', to: 'global.anthropic.claude-sonnet-5-5' })
+    ]))
   })
 
   it('Claude 默认白名单保存后允许 Haiku 5.5，预设使用同一模型 ID', async () => {

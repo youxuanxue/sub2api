@@ -31,7 +31,7 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 	// 池模式默认不标记本地账号状态；但管理员显式配置的临时不可调度规则优先。
 	// 401 保留现有认证错误语义，不在这里改变池模式的认证处理。
 	if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic && !cloudwiseModelBalance402 {
-		if statusCode != http.StatusUnauthorized && s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
+		if tempUnschedRulesApply(account, statusCode, responseBody, tempUnschedulableModel(ctx, nil)) && s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
 			return true
 		}
 		slog.Info("pool_mode_error_skipped", "account_id", account.ID, "status_code", statusCode)
@@ -55,6 +55,7 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 	// otherwise a broad "rate limit" keyword rule can shorten a multi-hour
 	// cooldown to a local temporary pause.
 	if statusCode == http.StatusTooManyRequests && account.Platform == PlatformAnthropic {
+		s.samplePassiveUsageFromHeaders(ctx, account, headers)
 		// 7d_oi 是 Fable 模型专属的 7d 窗口：只标记模型级限流，账号对其他模型仍可调度。
 		fableLimited := s.persistAnthropicFableWindowLimit(ctx, account, headers)
 		fableCreditsRequired := s.persistAnthropicFableCreditsRequired(ctx, account, headers, responseBody, firstRequestedModel(requestedModel))
@@ -82,7 +83,7 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 	// 先尝试临时不可调度规则（401除外）
 	// 如果匹配成功，直接返回，不执行后续禁用逻辑
 	// 529 overload 走 handle529 全局冷却，优先于账号级 temp-unsched 规则。
-	if !kiroQuotaExhausted && !kiroModelRestricted && statusCode != 401 && statusCode != 529 {
+	if !kiroQuotaExhausted && !kiroModelRestricted && statusCode != 529 && tempUnschedRulesApply(account, statusCode, responseBody, tempUnschedulableModel(ctx, requestedModel)) {
 		if s.tryTempUnschedulable(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel)) {
 			return true
 		}
@@ -239,7 +240,7 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 	default:
 		if account.Platform == PlatformAnthropic && tkAnthropicStubHealthFuseEligible(statusCode, false) {
 			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
-		} else if customErrorCodesEnabled {
+		} else if customErrorCodesEnabled && account.ShouldHandleErrorCode(statusCode) {
 			msg := "Custom error code triggered"
 			if upstreamMsg != "" {
 				msg = upstreamMsg
@@ -254,4 +255,60 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 	}
 
 	return shouldDisable
+}
+
+// tempUnschedRulesApply 决定本次错误是否交给临时不可调度规则处理。
+// 401 默认留给认证错误处理；只有首条命中规则按模型级生效时，才由规则只冷却该模型。
+func tempUnschedRulesApply(account *Account, statusCode int, responseBody []byte, modelKey string) bool {
+	if statusCode != http.StatusUnauthorized {
+		return true
+	}
+	matches := matchTempUnschedulableRules(account, statusCode, responseBody)
+	return len(matches) > 0 && tempUnschedHitUsesModelScope(account, matches[0].rule, modelKey, statusCode, responseBody)
+}
+
+// tempUnschedHitUsesModelScope 决定一次命中是否按模型级冷却：凭据级 401 始终按账号处理，
+// 其余由规则作用范围决定。
+func tempUnschedHitUsesModelScope(account *Account, rule TempUnschedulableRule, modelKey string, statusCode int, responseBody []byte) bool {
+	if statusCode == http.StatusUnauthorized && unauthorizedRequiresCredentialHandling(account, responseBody) {
+		return false
+	}
+	return tempUnschedRuleUsesModelScope(rule, modelKey, statusCode)
+}
+
+// unauthorizedRequiresCredentialHandling 识别凭据级 401：OAuth 账号与 Spark 影子
+// （失效缓存、刷新窗口、缺 refresh_token 停用），以及 OpenAI 明确的凭据失效
+// （token_invalidated / token_revoked、{"detail":"Unauthorized"}）。
+func unauthorizedRequiresCredentialHandling(account *Account, responseBody []byte) bool {
+	if account == nil {
+		return false
+	}
+	if account.Type == AccountTypeOAuth || account.IsShadow() {
+		return true
+	}
+	if account.Platform != PlatformOpenAI {
+		return false
+	}
+	switch extractUpstreamErrorCode(responseBody) {
+	case "token_invalidated", "token_revoked":
+		return true
+	}
+	return gjson.GetBytes(responseBody, "detail").String() == "Unauthorized"
+}
+
+// tempUnschedRuleUsesModelScope 决定一次命中按模型级冷却还是账号级暂停。
+// 显式 scope 完全由规则决定；scope 为空时模型已知且非 401 走模型级。
+// 模型未知时无法隔离，一律账号级。
+func tempUnschedRuleUsesModelScope(rule TempUnschedulableRule, modelKey string, statusCode int) bool {
+	if strings.TrimSpace(modelKey) == "" {
+		return false
+	}
+	switch rule.Scope {
+	case TempUnschedScopeAccount:
+		return false
+	case TempUnschedScopeModel:
+		return true
+	default:
+		return statusCode != http.StatusUnauthorized
+	}
 }

@@ -154,6 +154,7 @@ func tkScaleModelPricingByFactor(pricing *ModelPricing, factor float64) *ModelPr
 	cloned.InputPricePerToken = scale(cloned.InputPricePerToken)
 	cloned.InputPricePerTokenPriority = scale(cloned.InputPricePerTokenPriority)
 	cloned.ImageInputPricePerToken = scale(cloned.ImageInputPricePerToken)
+	cloned.ImageCacheReadPricePerToken = scale(cloned.ImageCacheReadPricePerToken)
 	cloned.OutputPricePerToken = scale(cloned.OutputPricePerToken)
 	cloned.OutputPricePerTokenPriority = scale(cloned.OutputPricePerTokenPriority)
 	cloned.ThinkingOutputPricePerToken = scale(cloned.ThinkingOutputPricePerToken)

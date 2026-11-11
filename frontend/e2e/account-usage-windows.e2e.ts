@@ -31,11 +31,19 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
       localStorage.setItem('account-column-settings-version', '3')
       localStorage.setItem('account-hidden-columns', JSON.stringify(['id', 'platform_type', 'capacity', 'schedulable', 'today_stats', 'groups', 'proxy', 'priority', 'scheduler_score', 'rate_multiplier', 'upstream_billing_rate', 'last_used_at', 'created_at', 'expires_at', 'notes']))
     }, { user })
+    let listRequests = 0
+    let finishRefresh: () => void = () => {}
+    const refreshPending = new Promise<void>(resolve => { finishRefresh = resolve })
     await page.route('**/api/v1/**', async route => {
       const path = new URL(route.request().url()).pathname
       let data: unknown = {}
       if (path === '/api/v1/auth/me') data = user
-      else if (path === '/api/v1/admin/accounts') data = { items: accounts, total: accounts.length, page: 1, page_size: 20, pages: 1 }
+      else if (path === '/api/v1/admin/accounts') {
+        listRequests += 1
+        if (listRequests === 2) await refreshPending
+        const items = listRequests > 1 ? accounts.map(a => ({ ...a, name: `${a.name} refreshed` })) : accounts
+        data = { items, total: items.length, page: 1, page_size: 20, pages: 1 }
+      }
       else if (path === '/api/v1/admin/accounts/usage/batch') data = { usage }
       else if (path === '/api/v1/admin/accounts/today-stats/batch') data = { stats: Object.fromEntries(accounts.map(a => [a.id, stats])) }
       else if (path.endsWith('/all')) data = []
@@ -77,6 +85,15 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await expect(volc.getByTestId('window-quota').filter({ hasText: 'ark-code-latest' })).toHaveCount(0)
     const overflowing = await page.getByTestId('usage-stats-row').evaluateAll(rows => rows.filter(row => row.scrollWidth > row.clientWidth + 1).length)
     expect(overflowing).toBe(0)
+    const originalRow = await ali.elementHandle()
+    const refreshButton = page.getByRole('button', { name: 'Create Account', exact: true }).locator('..').locator('button').first()
+    await refreshButton.click()
+    await expect(page.locator('[aria-busy="true"][inert]')).toBeVisible()
+    expect(await originalRow!.evaluate(row => row.isConnected)).toBe(true)
+    finishRefresh()
+    await expect(accountRow('ali-token-plan refreshed')).toBeVisible()
+    await expect(refreshButton).toBeEnabled()
+    expect(listRequests).toBe(2)
     await page.screenshot({ path: `e2e/artifacts/account-usage-${viewport.width}.png`, fullPage: true })
   })
 }

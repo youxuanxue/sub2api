@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
 // resolveGroupPlatform returns the canonical Group.Platform value for a given
@@ -25,6 +26,9 @@ import (
 func (s *OpenAIGatewayService) resolveGroupPlatform(ctx context.Context, groupID *int64) string {
 	if s == nil || groupID == nil || *groupID == 0 {
 		return PlatformOpenAI
+	}
+	if group, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(group) && group.ID == *groupID {
+		return group.Platform
 	}
 	if s.schedulerSnapshot == nil {
 		return PlatformOpenAI

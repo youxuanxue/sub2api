@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/google/uuid"
 )
 
@@ -130,7 +131,7 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 	allowDummyThought := strings.HasPrefix(targetModel, "gemini-")
 
 	// 1. 构建 contents
-	contents, messageSystemParts, strippedThinking, err := buildContents(claudeReq.Messages, toolIDToName, isThinkingEnabled, allowDummyThought)
+	contents, messageSystemParts, strippedThinking, err := buildContents(claudeReq.Messages, toolIDToName, isThinkingEnabled, allowDummyThought, gemini.SupportsMultimodalFunctionResponses(targetModel))
 	if err != nil {
 		return nil, fmt.Errorf("build contents: %w", err)
 	}
@@ -443,7 +444,7 @@ func buildSystemInstruction(system json.RawMessage, modelName string, opts Trans
 }
 
 // buildContents 构建 contents
-func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isThinkingEnabled, allowDummyThought bool) ([]GeminiContent, []GeminiPart, bool, error) {
+func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isThinkingEnabled, allowDummyThought, multimodalToolResults bool) ([]GeminiContent, []GeminiPart, bool, error) {
 	var contents []GeminiContent
 	var systemParts []GeminiPart
 	strippedThinking := false
@@ -454,7 +455,7 @@ func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isT
 			role = "model"
 		}
 
-		parts, strippedThisMsg, err := buildParts(msg.Content, toolIDToName, allowDummyThought)
+		parts, strippedThisMsg, err := buildParts(msg.Content, toolIDToName, allowDummyThought, multimodalToolResults)
 		if err != nil {
 			return nil, nil, false, fmt.Errorf("build parts for message %d: %w", i, err)
 		}
@@ -508,7 +509,7 @@ const DummyThoughtSignature = "skip_thought_signature_validator"
 
 // buildParts 构建消息的 parts
 // allowDummyThought: 只有 Gemini 模型支持 dummy thought signature
-func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDummyThought bool) ([]GeminiPart, bool, error) {
+func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDummyThought, multimodalToolResults bool) ([]GeminiPart, bool, error) {
 	var parts []GeminiPart
 	strippedThinking := false
 
@@ -605,15 +606,17 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 			resultContent := parseToolResultContent(block.Content, block.IsError)
 
 			functionResponse := &GeminiFunctionResponse{
-				Name: funcName,
-				Response: map[string]any{
-					"result": resultContent,
-				},
-				ID: block.ToolUseID,
+				Name:     funcName,
+				Response: map[string]any{"result": resultContent},
+				ID:       block.ToolUseID,
 			}
-			if inlineParts := extractToolResultInlineParts(block.Content); len(inlineParts) > 0 {
-				functionResponse.Parts = inlineParts
+			media := extractToolResultInlineParts(block.Content)
+			inlineParts := make([]GeminiFunctionResponsePart, 0, len(media))
+			for _, part := range media {
+				inlineParts = append(inlineParts, GeminiFunctionResponsePart{InlineData: part.InlineData})
 			}
+			// TokenKey keeps media attached to its tool even for legacy model IDs.
+			functionResponse.Parts = inlineParts
 			parts = append(parts, GeminiPart{FunctionResponse: functionResponse})
 		}
 	}

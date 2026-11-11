@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatBalanceRechargeMultiplier } from "@/utils/rechargeBonus";
 import { ref, computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { useSettingsState } from "@/composables/useSettingsState";
@@ -567,8 +568,8 @@ onMounted(() => {
                     ) || 1
                 "
                 type="number"
-                step="0.01"
-                min="0.01"
+                step="0.000001"
+                min="0.000001"
                 class="input"
               />
               <p class="mt-0.5 text-xs text-gray-400">
@@ -583,10 +584,7 @@ onMounted(() => {
               >
                 {{
                   t("admin.settings.payment.balanceRechargePreview", {
-                    usd: (
-                      Number(form.payment_balance_recharge_multiplier) ||
-                      1
-                    ).toFixed(2),
+                    usd: formatBalanceRechargeMultiplier(Number(form.payment_balance_recharge_multiplier) || 1),
                   })
                 }}
               </p>

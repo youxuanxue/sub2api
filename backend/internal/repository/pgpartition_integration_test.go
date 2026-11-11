@@ -425,3 +425,45 @@ func TestPgPartition_DropExpiredHourlyUsesCatalogUpperBound(t *testing.T) {
 		`SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = $1)`, partitionName).Scan(&exists))
 	require.False(t, exists)
 }
+
+// The production usage table is partitioned. Upstream's cost-trend covering
+// index must keep INCLUDE columns on both the parent and every child, including
+// retries and partitions created after rollout.
+func TestCreatePartitionedIndexConcurrently_APIKeyCostCoveringIndex(t *testing.T) {
+	ctx := context.Background()
+	const table = "pgpart_itest_api_key_cost"
+	const parentIndex = "idx_pgpart_itest_api_key_cost"
+	qTable := pq.QuoteIdentifier(table)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+qTable+" CASCADE")
+	})
+	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(`
+ CREATE TABLE %s (api_key_id BIGINT, created_at TIMESTAMPTZ NOT NULL, actual_cost NUMERIC) PARTITION BY RANGE (created_at);
+ CREATE TABLE %s PARTITION OF %s FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
+ CREATE TABLE %s PARTITION OF %s FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');
+ INSERT INTO %s VALUES (7, '2026-01-15', 1.25), (7, '2026-02-15', 2.5);`, qTable, pq.QuoteIdentifier(table+"_p1"), qTable, pq.QuoteIdentifier(table+"_p2"), qTable, qTable))
+	require.NoError(t, err)
+	policies := nonTransactionalIndexPolicies[usageLogsAPIKeyCostIndexMigration]
+	require.Len(t, policies, 1)
+	policy := policies[0]
+	policy.partitionedTable = table
+	policy.indexName = parentIndex
+	require.NoError(t, createPartitionedIndexConcurrently(ctx, integrationDB, policy))
+	require.NoError(t, createPartitionedIndexConcurrently(ctx, integrationDB, policy))
+	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM ('2026-03-01') TO ('2026-04-01')`, pq.QuoteIdentifier(table+"_p3"), qTable))
+	require.NoError(t, err)
+	var valid bool
+	var keys, attributes int
+	var definition string
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT i.indisvalid, i.indnkeyatts, i.indnatts, pg_get_indexdef(i.indexrelid) FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE c.relname=$1`, parentIndex).Scan(&valid, &keys, &attributes, &definition))
+	require.True(t, valid)
+	require.Equal(t, 2, keys)
+	require.Equal(t, 3, attributes)
+	require.Contains(t, definition, "INCLUDE (actual_cost)")
+	var children int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT count(*) FROM pg_inherits h JOIN pg_class p ON p.oid=h.inhparent JOIN pg_index i ON i.indexrelid=h.inhrelid WHERE p.relname=$1 AND i.indisvalid AND i.indnkeyatts=2 AND i.indnatts=3 AND pg_get_indexdef(i.indexrelid) LIKE '%INCLUDE (actual_cost)%'`, parentIndex).Scan(&children))
+	require.Equal(t, 3, children)
+	var total float64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT sum(actual_cost) FROM "+qTable+" WHERE api_key_id=7 AND created_at >= '2026-01-01'").Scan(&total))
+	require.Equal(t, 3.75, total)
+}

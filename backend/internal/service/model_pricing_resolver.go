@@ -359,7 +359,7 @@ func filterValidIntervals(intervals []PricingInterval) []PricingInterval {
 	var valid []PricingInterval
 	for _, iv := range intervals {
 		if iv.InputPrice != nil || iv.OutputPrice != nil ||
-			iv.CacheWritePrice != nil || iv.CacheWrite1hPrice != nil || iv.CacheReadPrice != nil ||
+			iv.CacheWritePrice != nil || iv.CacheWrite1hPrice != nil || iv.CacheWrite12hPrice != nil || iv.CacheReadPrice != nil ||
 			iv.PerRequestPrice != nil || iv.InputMultiplier != nil ||
 			iv.OutputMultiplier != nil || iv.CacheWriteMultiplier != nil ||
 			iv.CacheReadMultiplier != nil {

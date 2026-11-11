@@ -47,6 +47,7 @@ func tkModelPricingFromLiteLLM(p *LiteLLMModelPricing) *ModelPricing {
 		LongContextInputMultiplier:         p.LongContextInputCostMultiplier,
 		LongContextOutputMultiplier:        p.LongContextOutputCostMultiplier,
 		ImageInputPricePerToken:            p.InputCostPerImageToken,
+		ImageCacheReadPricePerToken:        p.CacheReadInputImageTokenCost,
 		ImageOutputPricePerToken:           p.OutputCostPerImageToken,
 		Intervals:                          p.Intervals,
 		registrySnapshot:                   p.registrySnapshot,

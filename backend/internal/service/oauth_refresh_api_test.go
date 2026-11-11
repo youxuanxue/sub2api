@@ -711,11 +711,11 @@ func TestRefreshIfNeeded_LateSuccessAfterDeadlineDoesNotPersist(t *testing.T) {
 	executor := &refreshAPIExecutorStub{
 		needsRefresh: true,
 		credentials:  map[string]any{"access_token": "late-token"},
-		delay:        30 * time.Millisecond,
 	}
 	api := NewOAuthRefreshAPI(repo, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
+	executor.onRefresh = func() { <-ctx.Done() }
 
 	result, err := api.RefreshIfNeeded(ctx, account, executor, time.Hour)
 

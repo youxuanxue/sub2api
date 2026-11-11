@@ -244,13 +244,13 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			writeEstimatedAnthropicCountTokens(c, body)
 			return nil
 		}
-		if failoverErr := s.tkCountTokensFailoverError(account, resp, respBody); failoverErr != nil {
+		if failoverErr := s.tkCountTokensFailoverErrorWithModel(ctx, account, resp, respBody, reqModel); failoverErr != nil {
 			return failoverErr
 		}
 
 		// 标记账号状态（429/529等）
 		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, reqModel)
 		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
@@ -375,11 +375,11 @@ func (s *GatewayService) forwardCountTokensAnthropicPassthrough(ctx context.Cont
 			writeEstimatedAnthropicCountTokens(c, body)
 			return nil
 		}
-		if failoverErr := s.tkCountTokensFailoverError(account, resp, respBody); failoverErr != nil {
+		if failoverErr := s.tkCountTokensFailoverErrorWithModel(ctx, account, resp, respBody, gjson.GetBytes(body, "model").String()); failoverErr != nil {
 			return failoverErr
 		}
 		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, gjson.GetBytes(body, "model").String())
 		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))

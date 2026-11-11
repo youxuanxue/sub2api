@@ -33,7 +33,7 @@ func TestConvertClaudeMessages_ToolResultKeepsBase64Image(t *testing.T) {
 		},
 	}
 
-	out, err := convertClaudeMessagesToGeminiContents(messages, map[string]string{"toolu_1": "view"})
+	out, err := convertClaudeMessagesToGeminiContents(messages, map[string]string{"toolu_1": "view"}, false)
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 	msg, ok := out[0].(map[string]any)
@@ -75,7 +75,7 @@ func TestConvertClaudeMessages_ToolResultDropsNonBase64Image(t *testing.T) {
 		},
 	}
 
-	out, err := convertClaudeMessagesToGeminiContents(messages, nil)
+	out, err := convertClaudeMessagesToGeminiContents(messages, nil, false)
 	require.NoError(t, err)
 	msg, ok := out[0].(map[string]any)
 	require.True(t, ok)
@@ -115,7 +115,7 @@ func TestConvertClaudeMessages_ToolResultImagesEnterOwningFunctionResponse(t *te
 		"toolu_a": "read_a",
 		"toolu_b": "read_b",
 		"toolu_c": "read_c",
-	})
+	}, false)
 	require.NoError(t, err)
 	parts := claudeGeminiParts(t, out)
 
@@ -155,7 +155,7 @@ func TestConvertClaudeMessages_ToolResultWithoutImageOmitsParts(t *testing.T) {
 		},
 	}
 
-	out, err := convertClaudeMessagesToGeminiContents(messages, map[string]string{"toolu_plain": "read_plain"})
+	out, err := convertClaudeMessagesToGeminiContents(messages, map[string]string{"toolu_plain": "read_plain"}, false)
 	require.NoError(t, err)
 	parts := claudeGeminiParts(t, out)
 	require.Equal(t, []any{

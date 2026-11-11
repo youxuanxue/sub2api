@@ -43,11 +43,12 @@ func createPartitionedIndexConcurrently(ctx context.Context, db migrationDB, pol
 			}
 		}
 		createDDL := fmt.Sprintf(
-			"CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s.%s (%s)%s",
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s.%s (%s)%s%s",
 			pq.QuoteIdentifier(childIndex),
 			pq.QuoteIdentifier(partition.schema),
 			pq.QuoteIdentifier(partition.name),
 			policy.partitionedIndexExpr,
+			partitionedIndexIncludeSuffix(policy.partitionedIndexInclude),
 			partitionedIndexWhereSuffix(policy.partitionedIndexWhere),
 		)
 		if _, err := db.ExecContext(ctx, createDDL); err != nil {
@@ -56,10 +57,11 @@ func createPartitionedIndexConcurrently(ctx context.Context, db migrationDB, pol
 	}
 
 	parentDDL := fmt.Sprintf(
-		"CREATE INDEX IF NOT EXISTS %s ON ONLY %s (%s)%s",
+		"CREATE INDEX IF NOT EXISTS %s ON ONLY %s (%s)%s%s",
 		pq.QuoteIdentifier(policy.indexName),
 		pq.QuoteIdentifier(policy.partitionedTable),
 		policy.partitionedIndexExpr,
+		partitionedIndexIncludeSuffix(policy.partitionedIndexInclude),
 		partitionedIndexWhereSuffix(policy.partitionedIndexWhere),
 	)
 	if _, err := db.ExecContext(ctx, parentDDL); err != nil {
@@ -176,4 +178,11 @@ func partitionIndexIsAttached(ctx context.Context, db migrationDB, parentIndex, 
 		return false, fmt.Errorf("check partition index attachment %s -> %s: %w", childIndex, parentIndex, err)
 	}
 	return attached, nil
+}
+
+func partitionedIndexIncludeSuffix(columns string) string {
+	if strings.TrimSpace(columns) == "" {
+		return ""
+	}
+	return " INCLUDE (" + columns + ")"
 }

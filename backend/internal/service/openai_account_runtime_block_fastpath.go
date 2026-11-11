@@ -110,10 +110,20 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	}
 	// Capacity shedding describes this request, not account health. Keep the
 	// account schedulable while the request-local retry budget handles recovery.
-	// A parseable Retry-After cools only this account+model pair; it does not
-	// sleep the request or bench the account's other models.
-	if account != nil && account.Platform == PlatformOpenAI && !account.IsTempUnschedulableEnabled() && isOpenAIRequestScopedCapacityShed("", responseBody) {
-		if s != nil {
+	if account != nil && account.Platform == PlatformOpenAI && isOpenAIRequestScopedCapacityShed("", responseBody) {
+		// An explicit model-scoped rule overrides the default retry policy without
+		// turning a request-level overload into an account-wide health failure.
+		model := firstRequestedModel(canonicalModel)
+		if s != nil && s.rateLimitService != nil && model != "" && account.IsTempUnschedulableEnabled() {
+			ruleBody := openAICapacityShedRuleBody(responseBody)
+			matches := matchTempUnschedulableRules(account, statusCode, ruleBody)
+			if len(matches) > 0 && tempUnschedHitUsesModelScope(account, matches[0].rule, model, statusCode, ruleBody) {
+				stateCtx, cancel := openAIAccountStateContext(ctx)
+				defer cancel()
+				return s.rateLimitService.HandleTempUnschedulable(stateCtx, account, statusCode, ruleBody, model)
+			}
+		}
+		if s != nil && !account.IsTempUnschedulableEnabled() {
 			s.tkApplyOpenAICapacityRetryAfterModelCooldown(ctx, account, statusCode, headers, responseBody, "", canonicalModel...)
 		}
 		return false
@@ -170,7 +180,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	// Isolate a custom temporary-unschedulable match to the known upstream
 	// model before entering the generic account error path. This keeps the
 	// account available to other models and avoids the account runtime blocker.
-	if s.rateLimitService != nil && statusCode != http.StatusUnauthorized && len(canonicalModel) > 0 && strings.TrimSpace(canonicalModel[0]) != "" &&
+	if s.rateLimitService != nil && tempUnschedRulesApply(account, statusCode, responseBody, tempUnschedulableModel(stateCtx, nil)) && len(canonicalModel) > 0 && strings.TrimSpace(canonicalModel[0]) != "" &&
 		s.rateLimitService.HandleTempUnschedulable(stateCtx, account, statusCode, responseBody, canonicalModel[0]) {
 		return true
 	}
@@ -198,8 +208,8 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		return false
 	}
 	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, canonicalModel...)
-	modelTempMatched := statusCode != http.StatusUnauthorized && tempUnschedulableModel(stateCtx, nil) != "" &&
-		len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0
+	matches := matchTempUnschedulableRules(account, statusCode, responseBody)
+	modelTempMatched := len(matches) > 0 && tempUnschedHitUsesModelScope(account, matches[0].rule, tempUnschedulableModel(stateCtx, nil), statusCode, responseBody)
 	if shouldDisable && !modelTempMatched && !tkCloudwiseSkipPermanentRuntimeBlock(account, statusCode, responseBody, canonicalModel) {
 		s.BlockAccountScheduling(account, time.Time{}, "upstream_disable")
 	}

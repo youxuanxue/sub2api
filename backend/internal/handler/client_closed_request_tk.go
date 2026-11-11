@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"errors"
+	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"net/http"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -42,15 +46,23 @@ func markClientClosedForwardRequest(c *gin.Context) {
 }
 
 func writeReadRequestBodyError(c *gin.Context, err error, write gatewayErrorResponseFunc) {
-	if maxErr, ok := extractMaxBytesError(err); ok {
+	var maxErr *http.MaxBytesError
+	if errors.As(err, &maxErr) {
 		write(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
 		return
 	}
-	if isClientClosedRequest(c, err) {
+	// net/http also cancels HTTP/1 request contexts on read timeouts.
+	// Preserve the typed 408 classification before checking caller cancellation.
+	if pkghttputil.DescribeRequestBodyReadFailure(nil, err).Status != http.StatusRequestTimeout && isClientClosedRequest(c, err) {
 		writeClientClosedRequest(c, write)
 		return
 	}
-	write(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+	var req *http.Request
+	if c != nil {
+		req = c.Request
+	}
+	status, message := requestBodyReadFailure(logger.L(), req, err)
+	write(c, status, "invalid_request_error", message)
 }
 
 func writeGoogleReadRequestBodyError(c *gin.Context, err error) {

@@ -1,5 +1,5 @@
 <template>
-  <div ref="rootRef">
+  <div ref="rootRef" :aria-busy="loading || activeQueryLoading">
     <div class="space-y-1">
       <TodayStatsBadges :stats="todayStats" :loading="todayStatsLoading" />
       <UsageProgressBar
@@ -75,12 +75,12 @@
           <button
             type="button"
             class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="activeQueryLoading"
+            :disabled="activeQueryLoading || loading"
             @click="loadActiveUsage"
           >
             <svg
               class="h-2.5 w-2.5"
-              :class="{ 'animate-spin': activeQueryLoading }"
+              :class="{ 'animate-spin': activeQueryLoading || loading }"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
