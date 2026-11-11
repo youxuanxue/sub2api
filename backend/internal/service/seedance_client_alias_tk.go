@@ -6,24 +6,25 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// TokenKey-facing Seedance aliases collapse to the dated official client ids
-// already priced and mapped. Applied at the video submit throat before the
-// unpriced-media guard and account selection, so XRToken / Ark / FMGo keep
-// serving the dated whitelist keys. Aliases stay off the public catalog /
-// Studio menu.
+// 1.5-pro spellings still collapse to the dated client that XRToken / Ark /
+// FMGo map. There is no VolcEngine plan identity for 1.5-pro.
+//
+// 2.0, 2.0-fast, and 2.5 hyphen spellings collapse to the dotted plan ids.
+// Those ids are separately priced and mapped on VolcEngine plan accounts.
+// Dated whitelist ids pass through, so a client that sends one still reaches
+// XRToken / Ark / FMGo. Applied before candidate evaluation and the
+// unpriced-media guard.
 var seedanceClientAliases = map[string]string{
 	"doubao-seedance-1-5-pro":  "doubao-seedance-1-5-pro-251215",
 	"doubao-seedance-1.5-pro":  "doubao-seedance-1-5-pro-251215",
-	"doubao-seedance-2-0":      "doubao-seedance-2-0-260128",
-	"doubao-seedance-2.0":      "doubao-seedance-2-0-260128",
-	"doubao-seedance-2-0-fast": "doubao-seedance-2-0-fast-260128",
-	"doubao-seedance-2.0-fast": "doubao-seedance-2-0-fast-260128",
-	"doubao-seedance-2-5":      "doubao-seedance-2-5-260628",
-	"doubao-seedance-2.5":      "doubao-seedance-2-5-260628",
+	"doubao-seedance-2-0":      "doubao-seedance-2.0",
+	"doubao-seedance-2-0-fast": "doubao-seedance-2.0-fast",
+	"doubao-seedance-2-5":      "doubao-seedance-2.5",
 }
 
-// ResolveSeedanceClientAlias maps a TokenKey public alias to its dated
-// official client. Dated ids, mini, and unknown names pass through.
+// ResolveSeedanceClientAlias maps a TokenKey public alias onto the id that
+// account selection should see. Dated whitelist ids, VolcEngine plan dotted
+// ids, mini, and unknown names pass through.
 func ResolveSeedanceClientAlias(model string) (string, bool) {
 	normalized := strings.ToLower(strings.TrimSpace(model))
 	if normalized == "" {

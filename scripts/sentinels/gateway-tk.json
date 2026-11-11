@@ -6963,7 +6963,7 @@
         "videoDurationBelowProviderMinimum",
         "ApplySeedanceClientAlias"
       ],
-      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoBillingSecondsForAccount resolves provider-specific omitted-duration semantics after account selection and before the hold, while videoRequestedSeconds anchors the shared explicit-duration parser. RefundVideoUsageOnFailure anchors terminal-failed refund, videoSubmitHasVideoInput anchors the unpriced video-input reject guard, and videoDurationBelowProviderMinimum keeps XRToken's four-second floor local and before paid upstream dispatch. ApplySeedanceClientAlias must stay before the unpriced guard so undated public aliases bill and schedule as the dated official ids."
+      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoBillingSecondsForAccount resolves provider-specific omitted-duration semantics after account selection and before the hold, while videoRequestedSeconds anchors the shared explicit-duration parser. RefundVideoUsageOnFailure anchors terminal-failed refund, videoSubmitHasVideoInput anchors the unpriced video-input reject guard, and videoDurationBelowProviderMinimum keeps XRToken's four-second floor local and before paid upstream dispatch. ApplySeedanceClientAlias must stay before the unpriced guard so 1.5-pro still bills as the dated client and 2.0/2.0-fast/2.5 hyphen spellings bill as the VolcEngine plan dotted ids."
     },
     {
       "path": "backend/internal/service/seedance_client_alias_tk.go",
@@ -6971,11 +6971,11 @@
         "ResolveSeedanceClientAlias",
         "ApplySeedanceClientAlias",
         "doubao-seedance-1-5-pro-251215",
-        "doubao-seedance-2-0-260128",
-        "doubao-seedance-2-0-fast-260128",
-        "doubao-seedance-2-5-260628"
+        "\"doubao-seedance-2-0\":      \"doubao-seedance-2.0\"",
+        "\"doubao-seedance-2-0-fast\": \"doubao-seedance-2.0-fast\"",
+        "\"doubao-seedance-2-5\":      \"doubao-seedance-2.5\""
       ],
-      "rationale": "TokenKey public Seedance aliases must resolve to the dated official clients already priced and mapped. Do not serve undated ids as a third product or write them into Studio."
+      "rationale": "1.5-pro aliases stay on the dated XRToken/Ark/FMGo client. 2.0, 2.0-fast, and 2.5 hyphen spellings must resolve to the VolcEngine plan dotted ids before candidate evaluation; rewriting them to the dated SKU hides the plan pool. Dated whitelist ids are not aliases and must pass through."
     },
     {
       "path": "backend/internal/service/seedance_client_alias_tk_test.go",
@@ -6983,10 +6983,13 @@
         "TestResolveSeedanceClientAlias",
         "TestApplySeedanceClientAlias_RewritesBody",
         "TestApplySeedanceClientAlias_LeavesForeignBody",
+        "TestApplySeedanceClientAlias_KeepsVolcEnginePlanModel",
         "doubao-seedance-1.5-pro",
+        "doubao-seedance-2-5",
+        "doubao-seedance-2.5",
         "doubao-seedance-2.0-mini"
       ],
-      "rationale": "Locks hyphen/dot aliases including 1.5-pro, rejects mini as 2.0, and proves body rewrite only touches model."
+      "rationale": "Locks 1.5-pro to the dated client, locks the 2.5 hyphen spelling to the plan dotted id, rejects mini as 2.0, and proves a plan id body is not rewritten."
     },
     {
       "path": "backend/internal/handler/openai_gateway_tk_video_test.go",
