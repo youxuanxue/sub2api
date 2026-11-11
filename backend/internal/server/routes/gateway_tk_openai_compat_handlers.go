@@ -117,10 +117,6 @@ func tkOpenAICompatChatCompletionsPOST(h *handler.Handlers) gin.HandlerFunc {
 	}
 }
 
-func isNativeOpenAIMediaPlatform(platform string) bool {
-	return platform == service.PlatformOpenAI
-}
-
 func isGrokNativeVideoGenerationRoute(c *gin.Context) bool {
 	switch c.FullPath() {
 	case "/v1/videos", "/videos", "/v1/videos/generations", "/videos/generations":
@@ -260,20 +256,41 @@ func tkOpenAICompatAudioTranscriptionHandler(h *handler.Handlers) gin.HandlerFun
 	}
 }
 
-// tkOpenAICompatImageEditsHandler routes POST /images/edits for native OpenAI
-// and Grok groups. NewAPI bridge channels do not currently expose a uniform
-// edit capability, so they stay gated here.
+// tkOpenAIImageEditsDispatch selects the /images/edits handler branch.
+// Native OpenAI and Grok keep their existing forwarders. A newapi account is
+// admitted only when it is an OpenAI-channel relay with its own base URL;
+// other newapi channels stay gated because they do not share this edit protocol.
+func tkOpenAIImageEditsDispatch(platform string, newAPIOpenAIRelay bool) string {
+	switch platform {
+	case service.PlatformOpenAI:
+		return "images"
+	case service.PlatformGrok:
+		return "grok_images"
+	case service.PlatformNewAPI:
+		if newAPIOpenAIRelay {
+			return "images"
+		}
+		return "not_found"
+	default:
+		return "not_found"
+	}
+}
+
+// tkOpenAICompatImageEditsHandler routes POST /images/edits.
 func tkOpenAICompatImageEditsHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		switch getGroupPlatform(c) {
-		case service.PlatformOpenAI:
+		relay := false
+		if c.Request != nil {
+			relay = service.CandidateNewAPIOpenAIImageEditsAccount(c.Request.Context()) != nil
+		}
+		switch tkOpenAIImageEditsDispatch(getGroupPlatform(c), relay) {
+		case "images":
 			h.OpenAIGateway.Images(c)
 			return
-		case service.PlatformGrok:
+		case "grok_images":
 			h.OpenAIGateway.GrokImages(c)
 			return
-		}
-		if !isNativeOpenAIMediaPlatform(getGroupPlatform(c)) {
+		default:
 			service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
@@ -281,9 +298,7 @@ func tkOpenAICompatImageEditsHandler(h *handler.Handlers) gin.HandlerFunc {
 					"message": "The image edits API is only available for OpenAI platform groups",
 				},
 			})
-			return
 		}
-		h.OpenAIGateway.Images(c)
 	}
 }
 

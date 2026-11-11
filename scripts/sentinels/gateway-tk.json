@@ -14380,6 +14380,51 @@
       "rationale": "Focused dispatch regressions for tkOpenAIImageGenerationsDispatch: PlatformOpenAI must select images; OpenAI-compat pool members must keep image_generations."
     },
     {
+      "path": "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",
+      "must_contain": [
+        "func tkOpenAIImageEditsDispatch(platform string, newAPIOpenAIRelay bool) string",
+        "CandidateNewAPIOpenAIImageEditsAccount(c.Request.Context())",
+        "case service.PlatformNewAPI:"
+      ],
+      "rationale": "POST /images/edits admits a newapi account only when the selected execution account is an OpenAI-channel relay. Dropping the dispatch or the candidate check restores the local 404 for account 454, or opens edits for every newapi channel. Upstream merges of the compat handlers compile either way."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_tk_openai_compat_image_dispatch_test.go",
+      "must_contain": [
+        "TestTkOpenAIImageEditsDispatch_NewAPIOpenAIRelayUsesImages",
+        "TestTkOpenAIImageEditsDispatch_OtherNewAPIStaysGated"
+      ],
+      "rationale": "Dispatch regressions for image edits: OpenAI-channel newapi relays use Images(); other newapi channels and unrelated platforms stay not_found."
+    },
+    {
+      "path": "backend/internal/service/openai_images_newapi_edits_tk.go",
+      "must_contain": [
+        "func NewAPIOpenAIImageEditsAccount(account *Account) bool",
+        "account.ChannelType != newapiconstant.ChannelTypeOpenAI",
+        "func newAPIOpenAIImageEditsBaseURL(account *Account) string"
+      ],
+      "rationale": "OpenAI-channel newapi image edits require channel type OpenAI plus a non-empty base_url. Deleting this companion makes the route gate and the edits URL builder compile against missing symbols only if call sites are dropped with it; the sentinel keeps both the predicate and the URL owner."
+    },
+    {
+      "path": "backend/internal/service/openai_images.go",
+      "must_contain": [
+        "baseURL == \"\" && endpoint == openAIImagesEditsEndpoint",
+        "baseURL = newAPIOpenAIImageEditsBaseURL(account)",
+        "newapi_image_upstream_unsupported"
+      ],
+      "rationale": "Edits-only base_url fill and the newapi refusal live in the shared images request builder. Without them, a later account selection sends that newapi key to https://api.openai.com/v1/images/edits. The refusal also covers generations so the same builder cannot leak a newapi key there."
+    },
+    {
+      "path": "backend/internal/service/openai_images_newapi_edits_tk_test.go",
+      "must_contain": [
+        "TestForwardImages_NewAPIOpenAIChannelEditUsesAccountBaseURL",
+        "TestForwardImages_NewAPIOpenAIChannelGenerationDoesNotFillBaseURL",
+        "TestForwardImages_OtherNewAPIChannelDoesNotUseOfficialOpenAI",
+        "https://agent.tokensea.ai/v1/images/edits"
+      ],
+      "rationale": "Forward regressions: an OpenAI-channel newapi edits account posts to its own base URL with its API key; the same account on generations does not use that fill; an Ali channel account does not call api.openai.com."
+    },
+    {
       "path": "backend/internal/service/ali_token_plan_tts_tk.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) ForwardAliTokenPlanTTS(",
@@ -19910,9 +19955,22 @@
       "must_contain": [
         "memo *requestMemo",
         "func (r CanonicalRequest) Matches(input CanonicalRequestInput) bool",
-        "memo:              &requestMemo{}"
+        "memo:              &requestMemo{}",
+        "chatToResponsesOnce sync.Once",
+        "chatToMessagesOnce  sync.Once"
       ],
       "rationale": "CanonicalRequest carries a request-level memo shared by every copy, and Matches lets callers keep an identical request instead of copying and sha256-hashing the body again. Dropping either returns candidate selection to one full body copy, hash and policy inspection per account."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/registry.go",
+      "must_contain": [
+        "req.profile.PromptCache == PromptCachePlacement || !preservesMessagesToResponsesContent(req)",
+        "memo.chatToResponsesOnce.Do(func() {",
+        "memo.chatToResponsesOK = computeChatToResponsesPreservation(req)",
+        "memo.chatToMessagesOnce.Do(func() {",
+        "memo.chatToMessagesOK = computeChatToMessagesPreservation(req)"
+      ],
+      "rationale": "Chat conversion preservation rejects incompatible profiles before body inspection and memoizes the original typed decode/validation once per immutable request. Repeated candidate Plans must not unmarshal the Chat body per account; nil-memo requests retain fresh validation."
     },
     {
       "path": "backend/internal/engine/protocolrouter/responses_chat_downgrade_tk.go",
@@ -19947,9 +20005,13 @@
       "must_contain": [
         "func TestResponsesToChatDowngradeMemoMatchesFreshComputation",
         "func TestResponsesToChatDowngradeWithoutMemo",
-        "func TestCanonicalRequestMatchesNewCanonicalRequest"
+        "func TestCanonicalRequestMatchesNewCanonicalRequest",
+        "func TestChatPreservationMemoMatchesFreshComputation",
+        "func TestChatToResponsesProfileRejectsBeforeMemo",
+        "func TestChatPreservationMemoConcurrentPlansAndAllocations",
+        "func BenchmarkChatPreservationMemoPlanAcrossAccounts"
       ],
-      "rationale": "Pins that the memoized downgrade equals a fresh computation, that a request without a memo still works, and that Matches agrees with NewCanonicalRequest across protocol, model, path, profile, validation flag and body variations."
+      "rationale": "Pins fresh-computation equivalence and nil-memo fallback for downgrade and Chat preservation, profile-first rejection, concurrent multi-account Plans and allocation/benchmark cost guards. Matches agrees with NewCanonicalRequest across protocol, model, path, profile, validation flag and body variations."
     },
     {
       "path": "backend/internal/service/candidate_request_facts_bench_tk_test.go",
@@ -19961,11 +20023,12 @@
     {
       "path": "backend/internal/integration/kiro/estimate_prepared_tk_test.go",
       "must_contain": [
-        "func TestPromptEstimate_MatchesLegacyByteForByte",
+        "func TestPromptEstimate_SegmentCountsAndLegacyFingerprints",
+        "func TestPromptEstimate_TokenizesSegmentsOnce",
         "func TestPromptEstimate_StoredCountRescaled",
         "func TestPromptEstimate_NilSafe"
       ],
-      "rationale": "Pins PromptEstimate to the frozen 1.8.358 per-call implementation byte for byte: input total, every prefix block fingerprint and count, split results at every truncation point, and the entries written to the store. These counts feed billing."
+      "rationale": "Pins content-only segment counts, legacy fingerprint compatibility, Option B splits at every truncation point, store writes, and single-pass tokenization in either call order. The frozen pre-memoization flow remains the benchmark baseline, not the billing-count oracle."
     },
     {
       "path": "backend/internal/service/account.go",

@@ -2,7 +2,7 @@
 
 状态：隔离分支完成实现和本地回归；最终 preflight、提交后的审计和 CI 结果见 PR「验证」。未合并主线或部署。
 
-固定基线与授权范围见 [合并范围](../../approved/upstream-merge-2026-11-11.md)。实际 fork base 为 `8a375b68b6cc107cbc36ea086a20b2fbdb52d6a0`，upstream target 为 `530c5e3a4f9c73ca2b0881191d0ef8e0d82c5484`。用户授权提交推送和独立 runtime 合并 PR；#3132 保留为前置审计。生产迁移、主线合并和部署仍需另行确认。
+固定基线与授权范围见 [合并范围](../../approved/upstream-merge-2026-11-11.md)。最初 upstream harness fork base 为 `8a375b68b6cc107cbc36ea086a20b2fbdb52d6a0`，当前 PR 比较基线为 `87e6007a496d273d92c247a88fb134ae73761d76`，upstream target 为 `530c5e3a4f9c73ca2b0881191d0ef8e0d82c5484`。用户授权提交推送和独立 runtime 合并 PR；#3132 保留为前置审计。生产迁移、主线合并和部署仍需另行确认。
 
 ## 重点风险核对
 
@@ -26,11 +26,13 @@
 
 上线正面作用预计来自：缓存写 TTL 更准确、Key 成本趋势覆盖索引、typed body timeout 诊断、后续轮 WS 防错误重放、新图片选项，以及保留旧数据的额度刷新。上述效果仍取决于验收通过和之后的实际发布。
 
+图片缓存费用存在明确变化：此前 registry→计费结构漏传专用价，回退为文本 cache-read 价；修复后 GPT Image 2.6 的相关缓存项按已发布 2e-6/token，而非文本 1.25e-6/token 结算。混合缓存定向测试验证实际费用；这会增加相关请求的缓存项扣费，不代表总账单同比例增加，也未修改 registry 定价。
+
 负面成本和残余风险：新增列/索引的 DDL 锁等待与 I/O、价卡元数据及模型兼容面扩大、refresh grace 安全取舍、legacy 工具媒体转换分叉，以及生产未覆盖的 WS 路径。当前不足以给出可上线结论。
 
 ## 实际验证证据
 
-本地日志以 `/tmp/tk-upstream-20261111-` 为前缀；PR 只列实际完成项。
+本地日志以 `/tmp/tk-upstream-20261111-` 为前缀；下列完整 unit 结果对应最初 harness `8aa25133f`。后续 main 对齐后的完整重跑及最终 preflight 结果见 PR「验证」，不把旧树的通过冒充新树证明。
 
 - 完整 repository integration 通过（44.533s，`integration-main-final.log`）：真实 PostgreSQL 18.1，覆盖分区 concurrent 索引重试、父子 INCLUDE、新分区、usage/channel TTL round-trip，以及实际 SQL 对旧记录与旧写入的兼容。
 - 前端账号刷新/Key 列表等定向 112/112，价卡/共享指南/白名单等定向 216/216；lint 和包含 vue-tsc 的 production build 通过。对齐后的新增 main 改动不涉及前端，release asset 检查通过。
@@ -56,7 +58,7 @@
 - refresh 继续采用 TokenKey 短宽限期，并发旧快照在同一用户/family 内重新签发；不采用上游严格单次消费测试预期，不能据此声称已消除宽限窗口内重放。过期、禁用和改密的原有安全回归保留。
 - 定时测试改为观察真实事件：keepalive 等待实际 ping 后结束上游；超期 refresh 等 ctx 真正过期后返回。大帧 WS 测试的预算覆盖负载较高机器处理 17 MiB 请求所需时间，不改变运行时代码或帧限制断言。
 - repository 集成的统计污染来自 upstream-400 streak fixture 未清理成功记录；按测试用户清理，session-id fixture 使用回滚事务，统计断言不变。
-- 恢复 upstream parked 的 scope 与订阅长上下文测试，由 unit runner 实际收集；没有通过新增 skip/only 逃避验收。仅删除 upstream 替换的合作方 logo，已退役的 EDGE_SECURITY 不复活。
+- 恢复 upstream parked 的 scope 与订阅长上下文测试，由 unit runner 实际收集；没有通过新增 skip/only 逃避验收。功能/资产删除仅为 upstream 替换的合作方 logo；两份 deferred 测试为路径迁移，已退役的 EDGE_SECURITY 不复活。
 
 ## 线上只读迁移核对
 
@@ -66,7 +68,7 @@
 
 ## 主线与指纹边界
 
-原审计基线为 `77f6f14977222171b5aba41ae99b8d078f01c42c`。按用户要求，对齐到当前固定 main `8a375b68b`，保留 #3149 Agent Plan 视频内容根路径与供应源探针修复，以及 #3150 QA 暂存目录清理；两个 merge parent 必须为当前固定 main 和本轮固定 upstream。未提交的解冲突结果均保存为本地 Git tree/补丁，最终审计以提交后的 HEAD 为准。
+原审计基线为 `77f6f14977222171b5aba41ae99b8d078f01c42c`。按用户要求，先对齐到 main `8a375b68b`，保留 #3149 Agent Plan 视频内容根路径与供应源探针修复，以及 #3150 QA 暂存目录清理；最初 harness 保留固定 main 和 upstream 的两个 parent。提交后 main 又推进至 `87e6007a4`，额外 merge 完整纳入 #3151 Chat 可保留性 memo、#3152 Kiro 方案 B 计费归因、#3153 newapi OpenAI image edits 和版本 1.8.363；这些 main-only 代码与新主线逐文件比较无差异，image builder 薄挂点自动合并后继续保留两侧行为。未提交的解冲突结果均保存为本地 Git tree/补丁，最终审计以提交后的 HEAD 为准。
 
 Claude Code 官方 2.1.322 darwin-arm64 工件按官方 manifest SHA256 校验（`a9d237949db816a0b7afd88a9a8e1df36b3a597a30f5a41d1c0539eb180a3450`），安装后真实版本为 2.1.322；版本 owner 经同步脚本生成副本，静态检查与 StaticVersionTests 2/2 通过。未以版本号推断 TLS/beta/Stainless/system 参数变化。model-surface bundle 只同步元数据与 floor hash，不激活生产模型供应或价格。
 

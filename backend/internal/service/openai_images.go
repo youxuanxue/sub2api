@@ -983,6 +983,18 @@ func (s *OpenAIGatewayService) buildOpenAIImagesRequest(
 		targetURL = openAIImagesEditsURL
 	}
 	baseURL := account.GetOpenAIBaseURL()
+	if baseURL == "" && endpoint == openAIImagesEditsEndpoint {
+		baseURL = newAPIOpenAIImageEditsBaseURL(account)
+	}
+	if baseURL == "" && account != nil && account.Platform == PlatformNewAPI {
+		// Images() can reselect after the route gate. A newapi key must not
+		// fall through to https://api.openai.com on either images endpoint.
+		return nil, &UpstreamFailoverError{
+			StatusCode: http.StatusBadGateway,
+			Scope:      GatewayFailureScopeAccount,
+			Reason:     "newapi_image_upstream_unsupported",
+		}
+	}
 	if baseURL != "" {
 		validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 		if err != nil {

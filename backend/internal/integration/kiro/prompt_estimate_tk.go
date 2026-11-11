@@ -11,20 +11,9 @@ import (
 
 // PromptEstimate memoizes the prompt-side token work for one Kiro request.
 //
-// A single request used to run EstimateInputTokens twice (kiroPromptUsage and
-// again inside EstimateCacheUsageSplit) and built cache-prefix blocks twice
-// (split, then CommitCacheFingerprints), so every prompt byte went through the
-// cl100k tokenizer four times and every tool schema / tool_use input was JSON
-// marshaled four times. PromptEstimate flattens the request once and computes
-// each tokenized string exactly once:
-//
-//   - the input total (system + message parts joined, plus the tools string),
-//   - the labeled cache-prefix segments (one Count per segment).
-//
-// The two families tokenize different strings (segment labels, empty
-// name/description handling), and cl100k counts are not additive across
-// concatenation, so neither is derived from the other; the numbers are
-// byte-for-byte what the previous per-call implementation produced.
+// System, tools and each message are tokenized once, without cache labels.
+// Input totals and cumulative prefix counts share those content-only counts;
+// fingerprint bytes retain the original labels and empty tool fields.
 //
 // The request must not be mutated after PreparePromptEstimate. Not safe for
 // concurrent use; it is owned by one forward call.
@@ -36,8 +25,12 @@ type PromptEstimate struct {
 	messageParts [][]string // appendMessageContentForEstimate(nil, msg.Content) per message
 	toolSchemas  []string   // marshalJSONForEstimate(tool.InputSchema) per tool
 
-	inputDone   bool
-	inputTokens int
+	inputDone     bool
+	inputTokens   int
+	systemTokens  int
+	toolsTokens   int
+	messageTokens []int
+	tokenCounter  func(string) int // nil uses countTokens; request-local instrumentation
 
 	blocksDone bool
 	blocks     []cachePrefixBlock
@@ -83,21 +76,21 @@ func (p *PromptEstimate) InputTokens() int {
 	}
 	p.flatten()
 
-	n := 0
+	count := p.tokenCounter
+	if count == nil {
+		count = countTokens
+	}
 	if p.systemText != "" {
-		n++
+		p.systemTokens = count(p.systemText)
 	}
-	for _, mp := range p.messageParts {
-		n += len(mp)
+	total := p.systemTokens
+	p.messageTokens = make([]int, len(p.messageParts))
+	for i, mp := range p.messageParts {
+		if len(mp) > 0 {
+			p.messageTokens[i] = count(strings.Join(mp, "\n"))
+			total += p.messageTokens[i]
+		}
 	}
-	parts := make([]string, 0, n)
-	if p.systemText != "" {
-		parts = append(parts, p.systemText)
-	}
-	for _, mp := range p.messageParts {
-		parts = append(parts, mp...)
-	}
-	total := countTokens(strings.Join(parts, "\n"))
 
 	// Tools definitions: name + description + serialized input_schema, empty
 	// fields skipped.
@@ -114,7 +107,10 @@ func (p *PromptEstimate) InputTokens() int {
 				toolParts = append(toolParts, js)
 			}
 		}
-		total += countTokens(strings.Join(toolParts, "\n"))
+		if len(toolParts) > 0 {
+			p.toolsTokens = count(strings.Join(toolParts, "\n"))
+			total += p.toolsTokens
+		}
 	}
 
 	p.inputTokens = total
@@ -132,12 +128,14 @@ func (p *PromptEstimate) prefixBlocks() []cachePrefixBlock {
 		return p.blocks
 	}
 	p.blocksDone = true
-	p.flatten()
+	p.InputTokens()
 	req := p.req
 
 	segments := make([]string, 0, 2+len(req.Messages))
+	segmentTokens := make([]int, 0, cap(segments))
 	if p.systemText != "" {
 		segments = append(segments, "system\n"+p.systemText)
+		segmentTokens = append(segmentTokens, p.systemTokens)
 	}
 	if tools := req.Tools; len(tools) > 0 {
 		// Cache segment keeps empty name/description entries (unlike InputTokens).
@@ -150,11 +148,13 @@ func (p *PromptEstimate) prefixBlocks() []cachePrefixBlock {
 		}
 		if s := strings.Join(toolParts, "\n"); s != "" {
 			segments = append(segments, "tools\n"+s)
+			segmentTokens = append(segmentTokens, p.toolsTokens)
 		}
 	}
 	for i := range req.Messages {
 		segments = append(segments,
 			"msg:"+req.Messages[i].Role+":"+strconv.Itoa(i)+"\n"+strings.Join(p.messageParts[i], "\n"))
+		segmentTokens = append(segmentTokens, p.messageTokens[i])
 	}
 	if len(segments) == 0 {
 		return nil
@@ -164,13 +164,13 @@ func (p *PromptEstimate) prefixBlocks() []cachePrefixBlock {
 	var chain [2 * sha256.Size]byte
 	cumTokens := 0
 	out := make([]cachePrefixBlock, 0, len(segments))
-	for _, seg := range segments {
+	for i, seg := range segments {
 		// running = sha256(running || sha256(seg))
 		segHash := sha256.Sum256([]byte(seg))
 		copy(chain[:sha256.Size], running[:])
 		copy(chain[sha256.Size:], segHash[:])
 		running = sha256.Sum256(chain[:])
-		cumTokens += countTokens(seg)
+		cumTokens += segmentTokens[i]
 		out = append(out, cachePrefixBlock{
 			fingerprintHex: hex.EncodeToString(running[:]),
 			cumTokens:      cumTokens,
@@ -214,7 +214,7 @@ func (p *PromptEstimate) CacheUsageSplit(ctx context.Context, store CacheFingerp
 	}
 
 	if matchedCum > 0 {
-		// Align fingerprint-segment counts with InputTokens (labels differ).
+		// Retain defensive rescaling for stored counts from older estimators.
 		profileTotal := blocks[len(blocks)-1].cumTokens
 		if profileTotal > 0 && profileTotal != total {
 			matchedCum = matchedCum * total / profileTotal
@@ -222,6 +222,9 @@ func (p *PromptEstimate) CacheUsageSplit(ctx context.Context, store CacheFingerp
 		if matchedCum > total {
 			matchedCum = total
 		}
+	}
+	if matchedCum < MinCacheablePrefixTokens {
+		matchedCum = 0
 	}
 
 	if matchedCum >= MinCacheablePrefixTokens {
@@ -231,8 +234,16 @@ func (p *PromptEstimate) CacheUsageSplit(ctx context.Context, store CacheFingerp
 		}
 		split.MatchedPrefixTokens = matchedCum
 		split.CacheReadTokens = read
-		split.InputTokens = total - read
 	}
+	unmatched := total - matchedCum
+	if total >= MinCacheablePrefixTokens && unmatched >= MinCacheablePrefixTokens {
+		creation := applyCacheCreationHaircut(unmatched)
+		if creation > total-split.CacheReadTokens {
+			creation = total - split.CacheReadTokens
+		}
+		split.CacheCreationTokens = creation
+	}
+	split.InputTokens = total - split.CacheReadTokens - split.CacheCreationTokens
 	return split
 }
 

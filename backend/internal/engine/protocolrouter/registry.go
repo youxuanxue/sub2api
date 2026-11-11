@@ -195,16 +195,28 @@ func preservesMessagesToChat(req CanonicalRequest) bool {
 }
 
 func preservesChatToResponses(req CanonicalRequest) bool {
-	var chat apicompat.ChatCompletionsRequest
-	if json.Unmarshal(req.body, &chat) != nil || (len(chat.Thinking) > 0 && string(chat.Thinking) != "null") || req.profile.PromptCache == PromptCachePlacement {
+	if req.profile.PromptCache == PromptCachePlacement || !preservesMessagesToResponsesContent(req) ||
+		req.profile.Continuation != ContinuationNone {
 		return false
 	}
 	// ChatCompletionsToResponses already preserves function tools, images, and
 	// tool_call / tool result turns. Text-only-without-tools was fail-closing
 	// Agent /v1/chat/completions onto identity chat, which TokenKey edge
 	// ChatGPT OAuth pools cannot serve (supported_protocols=[responses]).
-	return preservesMessagesToResponsesContent(req) &&
-		req.profile.Continuation == ContinuationNone
+	if req.memo == nil {
+		return computeChatToResponsesPreservation(req)
+	}
+	memo := req.memo
+	memo.chatToResponsesOnce.Do(func() {
+		memo.chatToResponsesOK = computeChatToResponsesPreservation(req)
+	})
+	return memo.chatToResponsesOK
+}
+
+func computeChatToResponsesPreservation(req CanonicalRequest) bool {
+	var chat apicompat.ChatCompletionsRequest
+	return json.Unmarshal(req.body, &chat) == nil &&
+		(len(chat.Thinking) == 0 || string(chat.Thinking) == "null")
 }
 
 func preservesChatToMessages(req CanonicalRequest) bool {
@@ -212,6 +224,19 @@ func preservesChatToMessages(req CanonicalRequest) bool {
 		req.profile.PromptCache == PromptCacheKey {
 		return false
 	}
+	// Body validation and its reasoning check depend only on the immutable
+	// request, not on the candidate account evaluating this route.
+	if req.memo == nil {
+		return computeChatToMessagesPreservation(req)
+	}
+	memo := req.memo
+	memo.chatToMessagesOnce.Do(func() {
+		memo.chatToMessagesOK = computeChatToMessagesPreservation(req)
+	})
+	return memo.chatToMessagesOK
+}
+
+func computeChatToMessagesPreservation(req CanonicalRequest) bool {
 	var chat apicompat.ChatCompletionsRequest
 	var root map[string]json.RawMessage
 	if json.Unmarshal(req.body, &root) != nil || len(root["reasoning"]) > 0 {
