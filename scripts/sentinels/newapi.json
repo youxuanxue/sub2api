@@ -267,12 +267,36 @@
         "newXRTokenTaskAdaptor",
         "IsFMGoBaseURL",
         "newFMGoTaskAdaptor",
+        "IsVolcEngineAgentPlanBaseURL",
+        "newVolcenginePlanTaskAdaptor",
         "ChannelTypeAli",
         "newAliVideoTaskAdaptor",
         "readVideoFetchResponseBodyForAdaptor",
         "videoFetchResponseSanitizer"
       ],
-      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. normalizeVideoSubmitBodyForTaskAdaptor maps the public resolution/audio fields into pinned new-api TaskSubmitReq metadata so the upstream-generated tier cannot diverge from TokenKey billing. videoFetchResponseMaxBytes / errVideoFetchResponseTooLarge are the pressure guard for upstreams that return inline video bytes: TokenKey may deliver one bounded response to the client, never accept unbounded media into memory. ModelMappedHelper is the account model_mapping application on the video submit path: video was the only bridge relay missing it (text/responses/embedding/image all call it), so credentials.model_mapping was ignored and any upstream naming its SKUs differently was unreachable. It must rewrite UpstreamModelName ONLY — OriginModelName stays the billing key, so a re-introduced body rewrite would bill $0 for an id absent from the overlay. IsXRTokenBaseURL/newXRTokenTaskAdaptor are the base_url-sentinel dispatch that lets ch54 serve both official Ark and the ARK-compatible XRToken host without minting a TK-private channel_type. ChannelTypeAli/newAliVideoTaskAdaptor select the TK Ali companion so HappyHorse media[]/resolution dialect can ship without patching pinned new-api task/ali (Wan still delegates). readVideoFetchResponseBodyForAdaptor fuses the bounded poll read with the variant-dialect rewrite in one function precisely so the rewrite cannot be dropped as a separate skippable line while tests still pass; it must run AFTER the bound because inline-media responses would otherwise be read unbounded inside FetchTask."
+      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. normalizeVideoSubmitBodyForTaskAdaptor maps the public resolution/audio fields into pinned new-api TaskSubmitReq metadata so the upstream-generated tier cannot diverge from TokenKey billing. videoFetchResponseMaxBytes / errVideoFetchResponseTooLarge are the pressure guard for upstreams that return inline video bytes: TokenKey may deliver one bounded response to the client, never accept unbounded media into memory. ModelMappedHelper is the account model_mapping application on the video submit path: video was the only bridge relay missing it (text/responses/embedding/image all call it), so credentials.model_mapping was ignored and any upstream naming its SKUs differently was unreachable. It must rewrite UpstreamModelName ONLY — OriginModelName stays the billing key, so a re-introduced body rewrite would bill $0 for an id absent from the overlay. IsXRTokenBaseURL/newXRTokenTaskAdaptor are the base_url-sentinel dispatch that lets ch54 serve both official Ark and the ARK-compatible XRToken host without minting a TK-private channel_type. IsVolcEngineAgentPlanBaseURL/newVolcenginePlanTaskAdaptor keep ch45 Agent Plan video on {plan root}/contents/generations/tasks; the doubao adaptor's /api/v3 suffix would otherwise double that root into an empty 404, and stripping it back to pay-as-you-go /api/v3 returns 401 for a plan key. ChannelTypeAli/newAliVideoTaskAdaptor select the TK Ali companion so HappyHorse media[]/resolution dialect can ship without patching pinned new-api task/ali (Wan still delegates). readVideoFetchResponseBodyForAdaptor fuses the bounded poll read with the variant-dialect rewrite in one function precisely so the rewrite cannot be dropped as a separate skippable line while tests still pass; it must run AFTER the bound because inline-media responses would otherwise be read unbounded inside FetchTask."
+    },
+    {
+      "path": "backend/internal/relay/bridge/video_relay_tk_volcengine_plan.go",
+      "must_contain": [
+        "volcenginePlanTaskAdaptor",
+        "newVolcenginePlanTaskAdaptor",
+        "/contents/generations/tasks",
+        "NormalizeArkChannelBaseURL",
+        "DoRequest",
+        "DoTaskApiRequest(a, c, info, requestBody)"
+      ],
+      "rationale": "TK companion for VolcEngine Agent Plan video. The stored account root is already /api/plan/v3, and the pinned doubao task adaptor appends /api/v3/contents/generations/tasks, which Ark answers with an empty 404. Plan keys accept {plan root}/contents/generations/tasks and are rejected on pay-as-you-go /api/v3. DoRequest must pass the outer adaptor so the embedded doubao receiver cannot restore /api/v3/. Submit and poll both use this path; losing the wrapper makes plan Seedance accounts unreachable even when their model_mapping is correct."
+    },
+    {
+      "path": "backend/internal/relay/bridge/video_relay_tk_volcengine_plan_test.go",
+      "must_contain": [
+        "TestVolcenginePlanContentsURL",
+        "TestTaskAdaptorForChannel_VolcenginePlanSelection",
+        "TestVolcenginePlanTaskAdaptor_DoRequest_HitsPlanContentsPath",
+        "TestVolcenginePlanTaskAdaptor_FetchTask_HitsPlanContentsPath"
+      ],
+      "rationale": "Regressions for Agent Plan video URL selection, submit, and poll. The fake upstream 404s /api/v3 so a wrapper that falls back to the embedded doubao adaptor fails. Pay-as-you-go Ark on ch45 and a plan URL on ch54 must not select this wrapper."
     },
     {
       "path": "backend/internal/relay/bridge/video_relay_tk_ali.go",
