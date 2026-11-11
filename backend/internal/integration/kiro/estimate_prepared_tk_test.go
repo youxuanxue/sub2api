@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -14,8 +15,8 @@ import (
 
 // ---------------------------------------------------------------------------
 // Frozen oracle: verbatim copy of the pre-memoization estimators (1.8.358).
-// Token estimates feed billing, so the memoized path must match these
-// byte-for-byte. Do not "fix" or simplify this copy.
+// Retained for fingerprint compatibility checks and the legacy benchmark.
+// Content-only segment counts intentionally differ from these old totals.
 // ---------------------------------------------------------------------------
 
 func legacyEstimateInputTokens(req *ClaudeRequest) int {
@@ -311,7 +312,8 @@ func BenchmarkKiroPromptUsageFlowLegacy(b *testing.B) {
 // exercise each branch where the input and cache-segment strings differ.
 func equivalenceFixtures() map[string]*ClaudeRequest {
 	f := map[string]*ClaudeRequest{
-		"nil-fields": {Model: "claude-sonnet-4-6"},
+		"nil-fields":      {Model: "claude-sonnet-4-6"},
+		"empty-tool-only": {Model: "claude-sonnet-4-6", Tools: []ClaudeTool{{}}},
 		"string-only": {Model: "claude-sonnet-4-6", System: "sys", Messages: []ClaudeMessage{
 			{Role: "user", Content: "hello"},
 		}},
@@ -354,15 +356,82 @@ func equivalenceFixtures() map[string]*ClaudeRequest {
 	return f
 }
 
-// TestPromptEstimate_MatchesLegacyByteForByte proves the memoized path yields
-// exactly the legacy input totals, prefix fingerprints, cumulative counts and
-// cache splits, across first-turn, matched-prefix and stored-count cases.
-func TestPromptEstimate_MatchesLegacyByteForByte(t *testing.T) {
+// segmentOracle retains legacy hash bytes but independently counts unlabeled
+// content, including the different empty-field rules for tools.
+func segmentOracle(req *ClaudeRequest) (int, []cachePrefixBlock) {
+	if req == nil {
+		return 0, nil
+	}
+	counts := make([]int, 0, 2+len(req.Messages))
+	if sys := extractSystemPrompt(req.System); sys != "" {
+		counts = append(counts, countTokens(sys))
+	}
+	toolsTokens := legacyEstimateToolsTokens(req.Tools)
+	if legacyMarshalToolsForCache(req.Tools) != "" {
+		counts = append(counts, toolsTokens)
+	}
+	for _, msg := range req.Messages {
+		counts = append(counts, countTokens(strings.Join(appendMessageContentForEstimate(nil, msg.Content), "\n")))
+	}
+	blocks := legacyBuildCachePrefixBlocks(req)
+	total := 0
+	for i, n := range counts {
+		total += n
+		blocks[i].cumTokens = total
+	}
+	return total, blocks
+}
+
+func commitOracle(ctx context.Context, store CacheFingerprintStore, session string, req *ClaudeRequest, ttl time.Duration) {
+	_, blocks := segmentOracle(req)
+	for _, b := range blocks {
+		if b.cumTokens > 0 {
+			_ = store.Put(ctx, session, b.fingerprintHex, b.cumTokens, ttl)
+		}
+	}
+}
+
+func splitOracle(ctx context.Context, store CacheFingerprintStore, session string, req *ClaudeRequest) CacheUsageSplit {
+	total, blocks := segmentOracle(req)
+	out := CacheUsageSplit{InputTokens: total}
+	if total <= 0 || store == nil || strings.TrimSpace(session) == "" || len(blocks) == 0 {
+		return out
+	}
+	matched := 0
+	for i := len(blocks) - 1; i >= 0; i-- {
+		b := blocks[i]
+		if b.cumTokens < 1024 {
+			continue
+		}
+		n, ok, err := store.Get(ctx, session, b.fingerprintHex)
+		if err != nil || !ok {
+			continue
+		}
+		matched = n
+		if n <= 0 {
+			matched = b.cumTokens
+		}
+		break
+	}
+	matched = min(matched, total)
+	if matched < 1024 {
+		matched = 0
+	}
+	out.MatchedPrefixTokens = matched
+	out.CacheReadTokens = matched * 6000 / 10000
+	if suffix := total - matched; total >= 1024 && suffix >= 1024 {
+		out.CacheCreationTokens = min(suffix*5000/10000, total-out.CacheReadTokens)
+	}
+	out.InputTokens -= out.CacheReadTokens + out.CacheCreationTokens
+	return out
+}
+
+func TestPromptEstimate_SegmentCountsAndLegacyFingerprints(t *testing.T) {
 	ctx := context.Background()
 	matchedReads := 0
 	for name, req := range equivalenceFixtures() {
 		t.Run(name, func(t *testing.T) {
-			want := legacyEstimateInputTokens(req)
+			want, wantBlocks := segmentOracle(req)
 			if got := EstimateInputTokens(req); got != want {
 				t.Fatalf("EstimateInputTokens=%d legacy=%d", got, want)
 			}
@@ -370,7 +439,6 @@ func TestPromptEstimate_MatchesLegacyByteForByte(t *testing.T) {
 			if got := est.InputTokens(); got != want {
 				t.Fatalf("PromptEstimate.InputTokens=%d legacy=%d", got, want)
 			}
-			wantBlocks := legacyBuildCachePrefixBlocks(req)
 			gotBlocks := est.prefixBlocks()
 			if len(gotBlocks) != len(wantBlocks) {
 				t.Fatalf("blocks len=%d legacy=%d", len(gotBlocks), len(wantBlocks))
@@ -379,6 +447,9 @@ func TestPromptEstimate_MatchesLegacyByteForByte(t *testing.T) {
 				if gotBlocks[i] != wantBlocks[i] {
 					t.Fatalf("block %d=%+v legacy=%+v", i, gotBlocks[i], wantBlocks[i])
 				}
+			}
+			if len(gotBlocks) > 0 && gotBlocks[len(gotBlocks)-1].cumTokens != want {
+				t.Fatalf("last prefix count differs from input total %d", want)
 			}
 
 			// Walk every possible matched prefix: commit a truncated history to
@@ -389,14 +460,17 @@ func TestPromptEstimate_MatchesLegacyByteForByte(t *testing.T) {
 				session := CacheSessionKey(9, req.Model, "conv-eq")
 				legacyStore := NewMemoryCacheFingerprintStore()
 				newStore := NewMemoryCacheFingerprintStore()
-				legacyCommitCacheFingerprints(ctx, legacyStore, session, &prev, DefaultCacheTTL)
+				commitOracle(ctx, legacyStore, session, &prev, DefaultCacheTTL)
 				PreparePromptEstimate(&prev).CommitCacheFingerprints(ctx, newStore, session, DefaultCacheTTL)
 
-				wantSplit := legacyEstimateCacheUsageSplit(ctx, legacyStore, session, req)
+				wantSplit := splitOracle(ctx, legacyStore, session, req)
 				est := PreparePromptEstimate(req)
 				gotSplit := est.CacheUsageSplit(ctx, newStore, session)
 				if gotSplit != wantSplit {
 					t.Fatalf("cut=%d split=%+v legacy=%+v", cut, gotSplit, wantSplit)
+				}
+				if gotSplit.Total() != want {
+					t.Fatalf("cut=%d split total=%d want=%d", cut, gotSplit.Total(), want)
 				}
 				if wantSplit.CacheReadTokens > 0 {
 					matchedReads++
@@ -406,7 +480,7 @@ func TestPromptEstimate_MatchesLegacyByteForByte(t *testing.T) {
 				}
 
 				// Commit after split (forward order) must write identical entries.
-				legacyCommitCacheFingerprints(ctx, legacyStore, session, req, time.Hour)
+				commitOracle(ctx, legacyStore, session, req, time.Hour)
 				est.CommitCacheFingerprints(ctx, newStore, session, time.Hour)
 				for _, b := range wantBlocks {
 					lt, lok, _ := legacyStore.Get(ctx, session, b.fingerprintHex)
@@ -423,22 +497,97 @@ func TestPromptEstimate_MatchesLegacyByteForByte(t *testing.T) {
 	}
 }
 
+func TestPromptEstimate_ProfileTotalRescaled(t *testing.T) {
+	ctx := context.Background()
+	req := realisticKiroRequest(1)
+	est := PreparePromptEstimate(req)
+	blocks := est.prefixBlocks()
+	profileTotal := blocks[len(blocks)-1].cumTokens
+	est.inputTokens = profileTotal * 2
+	store := NewMemoryCacheFingerprintStore()
+	for _, stored := range []int{1, 1024, profileTotal, profileTotal * 3} {
+		_ = store.Put(ctx, "rescale", blocks[len(blocks)-1].fingerprintHex, stored, DefaultCacheTTL)
+		matched := min(stored*2, est.InputTokens())
+		if matched < MinCacheablePrefixTokens {
+			matched = 0
+		}
+		got := est.CacheUsageSplit(ctx, store, "rescale")
+		if got.MatchedPrefixTokens != matched || got.CacheReadTokens != applyCacheReadHaircut(matched) || got.Total() != est.InputTokens() {
+			t.Fatalf("stored=%d split=%+v matched=%d", stored, got, matched)
+		}
+	}
+}
+
 // TestPromptEstimate_StoredCountRescaled covers the branch where the stored
 // token count differs from the current segment estimate.
 func TestPromptEstimate_StoredCountRescaled(t *testing.T) {
 	ctx := context.Background()
 	req := realisticKiroRequest(9)
 	session := CacheSessionKey(3, req.Model, "conv-rescale")
-	blocks := legacyBuildCachePrefixBlocks(req)
+	_, blocks := segmentOracle(req)
 	for _, stored := range []int{0, 1, MinCacheablePrefixTokens, blocks[len(blocks)/2].cumTokens + 777, 10_000_000} {
 		legacyStore := NewMemoryCacheFingerprintStore()
 		newStore := NewMemoryCacheFingerprintStore()
 		fp := blocks[len(blocks)/2].fingerprintHex
 		_ = legacyStore.Put(ctx, session, fp, stored, DefaultCacheTTL)
 		_ = newStore.Put(ctx, session, fp, stored, DefaultCacheTTL)
-		want := legacyEstimateCacheUsageSplit(ctx, legacyStore, session, req)
+		want := splitOracle(ctx, legacyStore, session, req)
 		if got := PreparePromptEstimate(req).CacheUsageSplit(ctx, newStore, session); got != want {
 			t.Fatalf("stored=%d split=%+v legacy=%+v", stored, got, want)
+		}
+	}
+}
+
+func TestPromptEstimate_TokenizesSegmentsOnce(t *testing.T) {
+	for name, req := range equivalenceFixtures() {
+		for _, prefixFirst := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/prefix-first=%v", name, prefixFirst), func(t *testing.T) {
+				calls := make(map[string]int)
+				est := PreparePromptEstimate(req)
+				est.tokenCounter = func(s string) int {
+					calls[s]++
+					return countTokens(s)
+				}
+				expected := make(map[string]int)
+				if s := extractSystemPrompt(req.System); s != "" {
+					expected[s]++
+				}
+				var tools []string
+				for _, tool := range req.Tools {
+					for _, s := range []string{tool.Name, tool.Description, marshalJSONForEstimate(tool.InputSchema)} {
+						if s != "" {
+							tools = append(tools, s)
+						}
+					}
+				}
+				if len(tools) > 0 {
+					expected[strings.Join(tools, "\n")]++
+				}
+				for _, msg := range req.Messages {
+					if parts := appendMessageContentForEstimate(nil, msg.Content); len(parts) > 0 {
+						expected[strings.Join(parts, "\n")]++
+					}
+				}
+				ctx := context.Background()
+				store := NewMemoryCacheFingerprintStore()
+				if prefixFirst {
+					est.CommitCacheFingerprints(ctx, store, "once", DefaultCacheTTL)
+				}
+				for i := 0; i < 3; i++ {
+					_ = est.InputTokens()
+					_ = est.CacheUsageSplit(ctx, store, "once")
+					est.CommitCacheFingerprints(ctx, store, "once", DefaultCacheTTL)
+				}
+				if !reflect.DeepEqual(calls, expected) {
+					t.Fatalf("tokenizer calls=%v want=%v", calls, expected)
+				}
+				if allocs := testing.AllocsPerRun(10, func() {
+					_ = est.InputTokens()
+					_ = est.prefixBlocks()
+				}); allocs != 0 {
+					t.Fatalf("memoized counts/blocks allocated %g times", allocs)
+				}
+			})
 		}
 	}
 }

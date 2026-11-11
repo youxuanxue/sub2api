@@ -21,7 +21,8 @@ import (
 //     is the operator-safe direction.
 //   - Prompt cache split is on by default (gateway.kiro_cache_billing.enabled;
 //     set "false" to disable) and lives in cache_estimate.go: prefix-fingerprint
-//     cache_read with a 90% haircut and a 1024-token minimum.
+//     cache_read and cache_creation with content-only segment counts and a
+//     1024-token minimum; attribution constants live in cache_estimate.go.
 //   - Estimates are tagged with billing_tier="kiro-estimated" by the caller.
 
 // KiroEstimatedBillingTier is the billing_tier label stamped on Kiro usage logs

@@ -246,9 +246,11 @@
         "func CommitCacheFingerprints",
         "MinCacheablePrefixTokens",
         "CacheReadHaircutBPS",
+        "CacheCreationHaircutBPS",
+        "func applyCacheCreationHaircut",
         "func CacheSessionKey"
       ],
-      "rationale": "Prefix-fingerprint cache_read attribution for Kiro when upstream reports no Anthropic cache telemetry. Losing the min-size / haircut / session-key gates silently over-discounts or fabricates cross-conversation cache hits."
+      "rationale": "Option B prefix-fingerprint cache_read and new-suffix cache_creation attribution when Kiro reports no Anthropic cache telemetry. Losing the min-size, read/creation haircuts or session-key gates changes billing or fabricates cross-conversation cache hits."
     },
     {
       "path": "backend/internal/repository/kiro_cache_fingerprint_store.go",
@@ -519,10 +521,14 @@
       "must_contain": [
         "func PreparePromptEstimate",
         "func (p *PromptEstimate) InputTokens",
+        "messageTokens",
+        "cumTokens += segmentTokens[i]",
+        "unmatched := total - matchedCum",
+        "applyCacheCreationHaircut(unmatched)",
         "func (p *PromptEstimate) CacheUsageSplit",
         "func (p *PromptEstimate) CommitCacheFingerprints"
       ],
-      "rationale": "Per-request owner of Kiro prompt-side token work. The input total, cache split and fingerprint commit must share one flatten/tokenize pass; the package-level EstimateInputTokens/EstimateCacheUsageSplit/CommitCacheFingerprints delegate here. Splitting them back into independent per-call estimates re-tokenizes every prompt byte twice more per request (CPU), and the counts feed billing so both paths must stay byte-for-byte equal."
+      "rationale": "Per-request owner of Kiro prompt-side token work. Input totals and cumulative prefix counts share content-only segment counts, while fingerprint bytes remain compatible. Cache splitting applies Option B read and newly written suffix creation attribution. Package-level estimation and commit helpers delegate here."
     },
     {
       "path": "backend/cmd/server/wire_assertion_tk_test.go",

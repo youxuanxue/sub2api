@@ -106,12 +106,12 @@ func TestKiroPromptUsage_FlagOnWithoutConversationStillMarksEnabled(t *testing.T
 			{Role: "user", Content: "hello"},
 		},
 	}
-	in, read, _, session, enabled := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, kiroproto.PreparePromptEstimate(req), &kiroproto.KiroPayload{})
+	in, read, create, session, enabled := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, kiroproto.PreparePromptEstimate(req), &kiroproto.KiroPayload{})
 	if !enabled {
 		t.Fatal("flag-on with empty conversation must still report enabled for billing_tier")
 	}
-	if session != "" || read != 0 {
-		t.Fatalf("empty conversation must not split: session=%q read=%d", session, read)
+	if session != "" || read != 0 || create != 0 {
+		t.Fatalf("empty conversation must not split: session=%q read=%d create=%d", session, read, create)
 	}
 	if in != kiroproto.EstimateInputTokens(req) {
 		t.Fatalf("input=%d", in)
@@ -138,10 +138,14 @@ func TestKiroPromptUsage_DefaultOnSplitsWhenPrefixed(t *testing.T) {
 		},
 	}
 	payload1 := kiroproto.ClaudeToKiro(turn1, false)
-	_, _, _, session, enabled := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, kiroproto.PreparePromptEstimate(turn1), payload1)
+	in1, read1, create1, session, enabled := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, kiroproto.PreparePromptEstimate(turn1), payload1)
 	if !enabled || session == "" {
 		t.Fatalf("default-on should enable cache billing, enabled=%v session=%q", enabled, session)
 	}
+	total1 := kiroproto.EstimateInputTokens(turn1)
+	require.Zero(t, read1)
+	require.Equal(t, total1*kiroproto.CacheCreationHaircutBPS/10000, create1)
+	require.Equal(t, total1, in1+read1+create1)
 	svc.commitKiroCacheFingerprints(context.Background(), session, kiroproto.PreparePromptEstimate(turn1), nil, true)
 
 	turn2 := &kiroproto.ClaudeRequest{
@@ -154,10 +158,13 @@ func TestKiroPromptUsage_DefaultOnSplitsWhenPrefixed(t *testing.T) {
 		},
 	}
 	payload2 := kiroproto.ClaudeToKiro(turn2, false)
-	in, read, _, _, _ := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, kiroproto.PreparePromptEstimate(turn2), payload2)
+	in, read, create, _, _ := svc.kiroPromptUsage(context.Background(), &Account{ID: 9}, kiroproto.PreparePromptEstimate(turn2), payload2)
 	if read <= 0 {
 		t.Fatalf("second turn should have cache_read, got input=%d read=%d", in, read)
 	}
+	require.Equal(t, total1*kiroproto.CacheReadHaircutBPS/10000, read)
+	require.Zero(t, create)
+	require.Equal(t, kiroproto.EstimateInputTokens(turn2), in+read+create)
 }
 
 func TestKiroGatewayService_Forward_CacheBilling_SecondTurnReadsPrefix(t *testing.T) {
@@ -185,35 +192,58 @@ func TestKiroGatewayService_Forward_CacheBilling_SecondTurnReadsPrefix(t *testin
 	require.NoError(t, err)
 	require.Equal(t, "kiro-cache-estimated", result1.BillingTier)
 	require.Zero(t, result1.Usage.CacheReadInputTokens)
-
-	body2, _ := json.Marshal(map[string]any{
-		"model":  "claude-sonnet-4",
-		"system": large,
-		"messages": []map[string]any{
-			{"role": "user", "content": large},
-			{"role": "assistant", "content": "ok"},
-			{"role": "user", "content": "continue " + large[:120]},
-		},
-		"max_tokens": 16,
-		"stream":     false,
+	total1 := kiroproto.EstimateInputTokens(&kiroproto.ClaudeRequest{
+		Model: "claude-sonnet-4", System: large,
+		Messages: []kiroproto.ClaudeMessage{{Role: "user", Content: large}},
 	})
-	parsed2 := &ParsedRequest{Body: NewRequestBodyRef(body2), Model: "claude-sonnet-4", Stream: false}
-	rec2 := httptest.NewRecorder()
-	c2, _ := gin.CreateTestContext(rec2)
-	result2, err := svc.Forward(context.Background(), c2, newKiroAccountForTest(), parsed2, time.Now())
-	require.NoError(t, err)
-	require.Equal(t, "kiro-cache-estimated", result2.BillingTier)
-	require.Positive(t, result2.Usage.CacheReadInputTokens)
-	require.Equal(t, result2.Usage.InputTokens+result2.Usage.CacheReadInputTokens+result2.Usage.CacheCreationInputTokens,
-		kiroproto.EstimateInputTokens(&kiroproto.ClaudeRequest{
-			Model:  "claude-sonnet-4",
-			System: large,
-			Messages: []kiroproto.ClaudeMessage{
-				{Role: "user", Content: large},
-				{Role: "assistant", Content: "ok"},
-				{Role: "user", Content: "continue " + large[:120]},
-			},
-		}))
+	require.Equal(t, total1*kiroproto.CacheCreationHaircutBPS/10000, result1.Usage.CacheCreationInputTokens)
+	require.Equal(t, total1, result1.Usage.InputTokens+result1.Usage.CacheReadInputTokens+result1.Usage.CacheCreationInputTokens)
+
+	for _, suffix := range []string{"continue " + large[:120], "continue " + large} {
+		t.Run(fmt.Sprintf("suffix-bytes-%d", len(suffix)), func(t *testing.T) {
+			// Isolate each second turn from fingerprints committed by the other case.
+			store := kiroproto.NewMemoryCacheFingerprintStore()
+			svc.SetKiroCacheFingerprintStore(store)
+			seedContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+			_, err := svc.Forward(context.Background(), seedContext, newKiroAccountForTest(), parsed1, time.Now())
+			require.NoError(t, err)
+			body2, _ := json.Marshal(map[string]any{
+				"model":  "claude-sonnet-4",
+				"system": large,
+				"messages": []map[string]any{
+					{"role": "user", "content": large},
+					{"role": "assistant", "content": "ok"},
+					{"role": "user", "content": suffix},
+				},
+				"max_tokens": 16,
+				"stream":     false,
+			})
+			parsed2 := &ParsedRequest{Body: NewRequestBodyRef(body2), Model: "claude-sonnet-4", Stream: false}
+			rec2 := httptest.NewRecorder()
+			c2, _ := gin.CreateTestContext(rec2)
+			result2, err := svc.Forward(context.Background(), c2, newKiroAccountForTest(), parsed2, time.Now())
+			require.NoError(t, err)
+			require.Equal(t, "kiro-cache-estimated", result2.BillingTier)
+			require.Positive(t, result2.Usage.CacheReadInputTokens)
+			require.Equal(t, total1*kiroproto.CacheReadHaircutBPS/10000, result2.Usage.CacheReadInputTokens)
+			require.Equal(t, result2.Usage.InputTokens+result2.Usage.CacheReadInputTokens+result2.Usage.CacheCreationInputTokens,
+				kiroproto.EstimateInputTokens(&kiroproto.ClaudeRequest{
+					Model:  "claude-sonnet-4",
+					System: large,
+					Messages: []kiroproto.ClaudeMessage{
+						{Role: "user", Content: large},
+						{Role: "assistant", Content: "ok"},
+						{Role: "user", Content: suffix},
+					},
+				}))
+			total2 := result2.Usage.InputTokens + result2.Usage.CacheReadInputTokens + result2.Usage.CacheCreationInputTokens
+			if unmatched := total2 - total1; unmatched >= kiroproto.MinCacheablePrefixTokens {
+				require.Equal(t, unmatched*kiroproto.CacheCreationHaircutBPS/10000, result2.Usage.CacheCreationInputTokens)
+			} else {
+				require.Zero(t, result2.Usage.CacheCreationInputTokens)
+			}
+		})
+	}
 }
 
 func TestKiroGatewayService_Forward_CacheBilling_UpstreamFailureDoesNotCommit(t *testing.T) {
