@@ -1440,6 +1440,24 @@
         "json.Valid"
       ],
       "rationale": "Reject lossy JSON Unicode decoding without stripping legitimate replacement characters or emoji."
+    },
+    {
+      "path": "backend/internal/integration/kiro/translator.go",
+      "must_contain": [
+        "func stripOldestHistoryImagesUntilFit",
+        "raw, _ := json.Marshal(user.Images[0])",
+        "size -= removedBytes"
+      ],
+      "rationale": "Preserve exact history-image size deltas instead of repeatedly marshaling the whole payload per removed image. JSON escaping, omission notes, priming and pointer-alias behavior remain equivalent to full serialization; the focused differential test anchors wire behavior."
+    },
+    {
+      "path": "backend/internal/integration/kiro/payload_image_size_delta_tk_test.go",
+      "must_contain": [
+        "TestImageReductionMatchesFullSerialization",
+        "referenceStripHistoryImages",
+        "BenchmarkHistoryImageReduction"
+      ],
+      "rationale": "Differential old-loop oracle covers exact-limit boundaries, image-field omission, escaped strings and shared user pointers; paired benchmarks retain a reproducible performance baseline for the history-image hot path."
     }
   ]
 }
