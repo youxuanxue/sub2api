@@ -26,8 +26,12 @@ are. Ops-heavy deploy/observability/stage0 suites no longer select on every
 covers the cross-cut. The QA suite keeps targeted backend globs for
 trajectory / observability/qa owners (not blanket `backend/*`). The initial declared surfaces cover backend/frontend/deploy
 and the listed ops domains; other inputs remain full until their dependencies
-are declared. Local full lint is selected only for backend inputs or full
-validation; CI retains its dedicated lint job.
+are declared. Backend inputs select the lint gate. Local preflight lints the
+changed Go packages. A change to `go.mod`, `go.sum`, or `.golangci.yml` lints
+the whole module, and so does `./scripts/preflight.sh --full`. CI's golangci
+job remains the full-module gate and does not repeat it inside preflight.
+The prompt-surface fixture that compiles `internal/service` is skipped
+locally the same way CI skips it; `--full` runs that fixture.
 
 `input_sets` groups dependencies, `gates` binds section names to those groups,
 `backgrounds` binds jobs to the same gates, and `requires` keeps dependent sections

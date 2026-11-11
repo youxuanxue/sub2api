@@ -174,8 +174,8 @@ jobs:
         env:
           PREFLIGHT_FAST: ${{ github.event_name == 'pull_request' && '1' || '0' }}
           # The CI test-unit job runs the same prompt-surface fixture gateway.
-          # Keep local/full preflight strict, but avoid re-running that slow Go
-          # fixture inside the CI preflight job on main pushes.
+          # Local preflight skips it too unless invoked with --full; this job
+          # always skips it so the compile is not paid twice.
           PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY: "1"
           # Keep the required preflight check authoritative: skip slow contracts
           # only when the changed-surface classifier proves they are unrelated.
