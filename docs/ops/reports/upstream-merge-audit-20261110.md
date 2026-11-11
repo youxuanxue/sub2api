@@ -168,17 +168,36 @@ A/B/C 是通用 `upstream-merge` skill 定义的提交职责，不是按供应�
 | 供应面 / 证据 | 上游可能带来的收益 | TokenKey 覆盖风险与验收要求 |
 |---|---|---|
 | 登录刷新：`7122efee9`；`auth_service.go`、`auth_service_tk_refresh_grace.go` 及其测试 | 原子消费旧 refresh token，避免并发重复兑换；缓存失败拒绝继续签发 | TokenKey 有 10 秒宽限期和会话绑定校验，重复刷新在窗口内允许成功。不能直接换成 upstream 的 GET+DEL 或因测试冲突删除宽限行为，否则多标签页/并发刷新可能重新报失效。原子轮转与宽限如何兼容涉及安全和体验取舍，须明确设计并覆盖并发、过期、禁用、改密、绑定变化和缓存失败；本报告不授权修改该策略。 |
-| Codex WS→HTTP：`40d9c0964`；`openai_ws_http_bridge.go`、`openai_ws_forwarder_ingress.go` | 上游补齐桥接请求的指纹及缓存身份 | TokenKey 已在 ingress `parseClientPayload` 调用 `applyCodexAccountIdentityClientMetadataRaw`，桥接层明确禁止再次处理以免 session/thread UUID 重复哈希。不能直接叠加 upstream staging；验证首轮与后续轮身份稳定、跨账号隔离以及缓存键一致性。 |
+| Codex WS→HTTP：`40d9c0964`；`openai_ws_http_bridge.go`、`openai_ws_forwarder_ingress.go` | 上游补齐桥接请求的指纹及缓存身份 | TokenKey 的账号 namespace 与上游 fingerprint staging 是不同步骤，不能据此断言此补丁会重复哈希。TokenKey 桥接层禁止重复调用的是 `applyCodexAccountIdentityClientMetadataRaw`。集成后仍须验证 body/header 身份一致、跨账号隔离和首轮/后续轮稳定性。 |
 | 调度槽位：`4ac713c4d`；`gateway_scheduling.go` | hydration 失败释放已获取的 Redis 并发槽位 | TokenKey 已在 `newSelectionResult` 的错误路径调用 `releaseProtocolSelectionOnPlanError`，随后经过 profit gate 和 `attachProtocolPlan`。这项收益不能重复计算；整段采用 upstream 实现反而可能丢失 Plan 裁决或错误释放。验证 hydrate/Plan 失败恰好释放一次，以及 slot 后的授权重验。 |
 | 资格、授权、账号错误：`ebf016808`、`a1395eeaf`；`openai_account_runtime_block_fastpath.go`、middleware、gateway routes | 显式模型 cooldown、兼容路径账号错误策略更一致 | 必须保留 `docs/approved/candidate-eligibility-ssot.md` 的 Plan、实际账号平台、Direct/Universal 授权、billing origin/hold 重绑定及失败软降权 owner。特别检查 OpenAI OAuth 429 模型 cooldown 与 capacity-shed 不被改成账号级禁用，不能把上游局部策略覆盖成第二套调度真相。 |
 | 计费与迁移：`fe093d76b`、`508bb9560`、`64e6c260c`；usage repo、Ent、pricing | 保留 OpenAI 30m/12h cache-write 明细，修正回退价与长上下文策略 | 要贯通 usage 解析 → SQL insert/query → 定价 → 结算 → 展示；保留 TokenKey 价格 owner 和幂等扣费/hold 生命周期。不能只更新 Ent 生成物就发布。迁移兼容与旧镜像回滚须另验，预演未执行迁移或账单对照。 |
-| Codex 多轮/工具/图片：`0578fb160`、`142d22cc4`、`f2b0a32b1`、`cf1ba819b` | 防止后续轮误重放首帧、支持搜索激活重连、保留工具元数据和图片错误状态 | 无文本冲突仍须验证 TokenKey continuation 所有权、每轮授权/计费重验、已输出后禁止重放以及 QA terminal capture。更严格 fail-closed 可能增加断连，不能只用首轮成功作验收。 |
-| Gemini/Antigravity：`36484727c`、`e2ce0b43d`、`0b535b5c0`、`d446c4a6b` | 避免思考摘要混入正文，保留工具媒体，适配 schema，限制异常 SSE/非流式读取 | 保留 Plan/converter、多模态 known-negative、模型级 quota/cooldown、流中断已产出计费和共享终止事件。读取上限可能拒绝此前可用的大图片响应，须测边界与错误归类；旧测试文件不恢复不等于可删除其仍有效的行为断言。 |
+| Codex 多轮/工具/图片：`0578fb160`、`142d22cc4`、`f2b0a32b1`、`cf1ba819b` | 防止后续轮误重放首帧、支持搜索激活重连、保留工具元数据和图片错误状态 | `0578fb160` 的后续轮 defer 会在已有 current-turn wrapper 外再包空 payload，遮蔽 TokenKey 为安全 429 重建的当前轮，导致 handler 关闭连接。须保留可安全重试时的 payload、不安全时关闭的分支；其余仍验 continuation 所有权、每轮授权/计费、已输出后禁止重放和 QA terminal capture。 |
+| Gemini/Antigravity：`36484727c`、`e2ce0b43d`、`0b535b5c0`、`d446c4a6b` | 避免思考摘要混入正文，保留工具媒体，适配 schema，限制异常 SSE/非流式读取 | 两端默认行上限均为 500 MiB，上游复用既有 bounded reader，未缩小默认值；风险限定为新增受限读取路径、配置值和边界行为。仍须保留 Plan/converter、多模态 known-negative、模型级 quota/cooldown、流中断计费和共享终止事件。 |
 | 管理与接入 UI：`4a22a75b3`、`5965ac4e9`、`b8de5e170`、Codex export 改动 | 刷新时保留账号行和额度、保存按钮更易触达、密钥列表减少等待、导出配置更新 | 保留 AdminShell 持久布局、TokenKey 品牌/平台、模型菜单与 public quickstart 的共享 owner；settings 并非天然低风险。桌面/移动端实际保存与恢复、导出后接入、列表刷新均需 Playwright 真实 UI 验证。 |
 
 现有保护入口包括 `scripts/sentinels/{gateway-tk,engine-facade,relay-invariants,newapi,kiro,grok,antigravity,frontend-tk,brand,trajectory,terminal,pricing-availability,perf-query-shape}.json` 及 preflight 对应检查器。真正 merge 时应核对实现入口、关键 call site 与行为测试是否同存；现有 registry/marker 通过不能替代上述运行验证。若适配引入新的承重挂点，应补 focused regression 和相应 sentinel，不能只确认文件仍在。
 
-收益判断：后续正确集成有机会改善安全、长会话稳定性、流式内容、计费准确性和管理 UI；这些均为源码推导的潜在收益，不是本 PR 已实现或压测所得。主要负面风险是登录宽限退化、身份重复变换、资格/计费 owner 被旁路、流读取限制与多轮 fail-closed 带来的兼容性变化，以及迁移回滚成本。尚无最终解冲突 tree、全量行为测试或上线 canary，不能据此批准上游整体发布，也不能给出吞吐/错误率改善幅度。
+收益判断：后续正确集成有机会改善安全、长会话稳定性、流式内容、计费准确性和管理 UI；这些均为源码推导的潜在收益，不是本 PR 已实现或压测所得。主要负面风险是登录宽限退化、资格/计费 owner 被旁路、WS 安全重试被遮蔽，以及迁移回滚成本。指纹组合和新增读取边界仍需验证，不能提前认定已回归。尚无最终解冲突 tree、全量行为测试或上线 canary，不能据此批准上游整体发布，也不能给出吞吐/错误率改善幅度。
+
+## 代码与现网逐项核实（2026-11-11）
+
+本节追加实际只读探测，区别于前文 2026-11-10 快照。固定数据库窗口为 **2026-11-10 01:32:00Z 至 2026-11-11 01:32:00Z**，即上海时间 **11 月 10 日 09:32 至 11 月 11 日 09:32**。采集时 prod active blue、cn-prod active green，均为 **1.8.359 / `77f6f1497`**。通过 `ops/observability/run-probe.sh --target prod|cn-prod` 查询活动容器、数据库聚合和保留日志；SQL 强制只读事务及 15 秒 statement timeout。未刷新登录、保存设置、调用付费模型、迁移或部署。
+
+| 项目 | 代码与现网证据 | 核实后的判断 |
+|---|---|---|
+| 登录刷新 | 后端仍有 10 秒宽限；前端 `frontend/src/api/tokenRefresh.ts` 已统一 in-flight、Web Locks 与跨标签页 token 接管。两地 session binding 均关闭。保留日志中 prod refresh 200/400/401 分别为 116/94/1，cn-prod 为 14/6/0；handler 在缺少 token/cookie 等情况下也返回 400。 | 替换宽限机制的语义冲突成立；没有证据证明线上 400 来自并发轮转，更不能预测普遍掉登录。上游原子消费与缓存失败拒绝签发有安全收益，但须兼容现有宽限策略。 |
+| Codex 身份 | prod 18 个 OpenAI OAuth 账号均明确配置 device 且有 seed；cn-prod 没有此类账号。device 主要改写 installation，session/full 的覆盖面更大。DB installation ID 可由 fallback 推导，不能证明实际出站 header。 | 撤回“直接叠加 staging 必然双重哈希”的推断。保留组合验证要求；当前日志未观察到相应身份错误，也未采集真实出站 header/body 对照。 |
+| 槽位释放 | `gateway_scheduling.go` 在 hydration 错误时调用 `releaseProtocolSelectionOnPlanError`，该 owner 释放后清空 ReleaseFunc/Acquired。两地本窗口 ops 错误文本中 hydrate 匹配均为 0。 | 上游释放修复已由 TokenKey 覆盖，不再计为新增收益。零匹配不能单独证明没有泄漏；以释放一次及 Plan 相关行为测试约束后续合并。 |
+| 资格 / cooldown | 当前 fastpath 在 early return 前调用模型级 capacity Retry-After cooldown，429 同样走 OAuth 模型级 cooldown。prod 记录到 OpenAI failover 503→HTTP 200 的上游事件 1,420 条、429→200 的 229 条，503→503 的 47 条。 | 模型级隔离在真实压力路径上有意义，整段覆盖会有实质影响；没有证明当前存在账号级误封。事件条数不是请求数，HTTP 200 也可能是流中错误，不能当作成功恢复率。 |
+| 缓存写入计费 | 两地 schema 仅有 5m/1h 明细，无 OpenAI 30m/12h 字段，迁移 250 未应用。prod 107,954 条 usage 中 9,402 条有 cache-write，其中 OpenAI API-key 8,440 条；cn-prod 70,715 条 usage 全属 newapi，cache-write 为 0。两地负费用、TTL 子桶超过总量、非空 request_id 与 api_key_id 重复组均为 0。 | 缺失 30m/12h 明细是已确认能力缺口，集成有现实收益。未保留原始 TTL 桶，不能量化当前错账，也不能用基本一致性检查证明账单完全准确。 |
+| WS 后续轮 | `openai_ws_forwarder.go` 的 429 helper 在安全时生成当前轮 payload；`OpenAIWSCurrentTurnRetryPayload` 使用 errors.As 取最外 wrapper。上游 `0578fb160` 的 defer 再包 nil，handler 因无安全 payload 而关闭。两地本窗口 usage 的 openai_ws_mode=true 均为 0，previous_response 错误匹配为 0。 | 已确认直接组合会损失现有安全重试；属于未来集成阻塞点，未证实现网已受影响。零 WS 标记不能验证多轮场景，也不能替代最终组合测试。搜索激活重连是另一项收益，应独立验证。 |
+| Gemini / Antigravity | 默认上限两端均为 500 MiB，当前已有大于 40 MiB 图片帧测试。prod 有 218 条 AG usage（140 条 streaming），cn-prod 无 AG 账号；两地 SSE limit / response-too-large 错误文本匹配均为 0。 | 撤回默认限额变小的推断。新增读取路径的边界及工具媒体/思考过滤尚未在最终集成树验证；当前未发现相应限额故障。 |
+| 管理页面 | 当前 quota 子组件刷新时仍可被 loading 分支隐藏，上游保留旧额度有体验收益。前端定向测试 86 项中 78 通过、8 失败，失败集中在 AccountUsageCell 的 Command Code/Cline/Vertex/Gemini 分派或契约。现网相关库存只有 prod 14 个 Gemini API-key 账号，无 Command Code/Cline/Vertex service_account。 | 这是未合上游之前已存在的基线失败，不能归因于本 PR；部分可能为测试契约漂移，不能把 8 项全部算成线上故障。刷新优化应落在 TokenKey 现有共享子组件；未执行登录态 Playwright 保存/刷新验收。 |
+
+证据边界：usage 是记账记录，可能包含已产出后失败的流，不能作为全部成功请求数。DB 聚合覆盖上述完整窗口；容器日志受轮转/保留影响，仅覆盖窗口的一部分，prod 最早可读约 11 月 10 日 08:48Z，cn-prod 约 12:17Z，不能用日志“无匹配”排除整日问题。关键词统计也不覆盖所有同义错误。两地样本表明供应面差异明显，cn-prod 的 newapi 流量不能替 prod 的 OAuth/AG 场景背书。
+
+定向验证：前端 `tokenRefresh.spec.ts` 10/10、`AccountsView.lite.spec.ts` 11/11 通过；`AccountUsageCell.spec.ts` 65 项中 8 项失败。从当前源码提取 current-turn wrapper 与读取函数，在独立 Go 临时模块运行组合实验，确认再包 nil 会遮蔽已有安全重试 payload，1/1 通过；这仅验证错误包装语义，不等同于真实 WS 端到端测试。service 包两组定向测试受本机并发构建影响，首组链接超过 20 分钟仍未进入执行，不计为通过证据。未执行整个上游集成、生产请求重放或真实 UI 保存操作。
 
 ## 可直接模拟 cherry-pick 的上游提交
 
