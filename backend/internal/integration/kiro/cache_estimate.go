@@ -14,20 +14,20 @@ import (
 // full input. These knobs emulate Anthropic prefix-cache economics locally:
 //
 //   - MinCacheablePrefixTokens: Anthropic's practical minimum cacheable prefix.
-//   - CacheReadHaircut: bill only 90% of a matched prefix as cache_read so
-//     tokenizer skew cannot systematically under-charge.
+//   - CacheReadHaircut: attribute 60% of a matched prefix to cache_read.
+//   - CacheCreationHaircut: attribute 50% of a new cacheable suffix to creation.
 //   - Default/Max TTL: 5m unless the request body asks for 1h cache_control.
 const (
 	MinCacheablePrefixTokens = 1024
-	CacheReadHaircutBPS      = 9000 // 90.00% in basis points
+	CacheReadHaircutBPS      = 6000 // 60.00% in basis points
+	CacheCreationHaircutBPS  = 5000 // 50.00% in basis points
 	DefaultCacheTTL          = 5 * time.Minute
 	MaxCacheTTL              = time.Hour
 )
 
 // CacheUsageSplit is the prompt-side breakdown fed into CalculateCostUnified.
 // Anthropic semantics: InputTokens is the non-cached remainder; total prompt
-// tokens = Input + CacheCreation + CacheRead. V1 sets CacheCreation=0 and only
-// applies the read discount (avoids charging 1.25× creation on first write).
+// tokens = Input + CacheCreation + CacheRead.
 type CacheUsageSplit struct {
 	InputTokens         int
 	CacheCreationTokens int
@@ -58,9 +58,9 @@ func CacheSessionKey(accountID int64, model, conversationID string) string {
 
 // EstimateCacheUsageSplit attributes prompt tokens for billing.
 //
-// When store/sessionKey is empty, or the matched prefix is below
-// MinCacheablePrefixTokens, the full estimate stays in InputTokens (no
-// fabricated cache_read). On a successful match it applies CacheReadHaircutBPS.
+// When store/sessionKey is empty, the full estimate stays in InputTokens.
+// Cacheable matches receive read attribution; newly written cacheable suffixes
+// receive creation attribution, each subject to its own haircut.
 // Call CommitCacheFingerprints after a successful upstream response.
 func EstimateCacheUsageSplit(
 	ctx context.Context,
@@ -109,4 +109,11 @@ func applyCacheReadHaircut(tokens int) int {
 		return 0
 	}
 	return tokens * CacheReadHaircutBPS / 10000
+}
+
+func applyCacheCreationHaircut(tokens int) int {
+	if tokens <= 0 {
+		return 0
+	}
+	return tokens * CacheCreationHaircutBPS / 10000
 }

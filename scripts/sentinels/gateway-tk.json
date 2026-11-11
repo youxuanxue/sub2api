@@ -19957,11 +19957,12 @@
     {
       "path": "backend/internal/integration/kiro/estimate_prepared_tk_test.go",
       "must_contain": [
-        "func TestPromptEstimate_MatchesLegacyByteForByte",
+        "func TestPromptEstimate_SegmentCountsAndLegacyFingerprints",
+        "func TestPromptEstimate_TokenizesSegmentsOnce",
         "func TestPromptEstimate_StoredCountRescaled",
         "func TestPromptEstimate_NilSafe"
       ],
-      "rationale": "Pins PromptEstimate to the frozen 1.8.358 per-call implementation byte for byte: input total, every prefix block fingerprint and count, split results at every truncation point, and the entries written to the store. These counts feed billing."
+      "rationale": "Pins content-only segment counts, legacy fingerprint compatibility, Option B splits at every truncation point, store writes, and single-pass tokenization in either call order. The frozen pre-memoization flow remains the benchmark baseline, not the billing-count oracle."
     }
   ]
 }
