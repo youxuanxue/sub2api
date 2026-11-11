@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUS048_CreateSupplierSourceEncryptsCredentialAndDefaultsBasePriority(t *testing.T) {
+func TestUS048_CreateSupplierSourceStoresPlaintextCredentialAndDefaultsBasePriority(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{}
 	svc := NewSupplierSourceService(repo, nil, nil, supplierSourceTestEncryptor{}, supplierSourceTestFingerprinter{})
@@ -27,7 +27,7 @@ func TestUS048_CreateSupplierSourceEncryptsCredentialAndDefaultsBasePriority(t *
 	require.Equal(t, "stbl-5", created.SupplierLane)
 	require.Equal(t, 1, created.ChannelType)
 	require.Equal(t, "https://token.vstecscloud.com/v1", created.Endpoint)
-	require.Equal(t, "enc:secret", repo.stored.EncryptedCredential)
+	require.Equal(t, "secret", repo.stored.EncryptedCredential)
 	require.Equal(t, "fp:secret", repo.stored.CredentialFingerprint)
 	require.Equal(t, 100, repo.stored.BasePriority)
 	require.Equal(t, "lowest ratio only", repo.stored.Notes)
@@ -93,7 +93,7 @@ func TestUS048_UpdateSupplierSourceProvidedCredentialRotatesStoredSecretIdentity
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, "enc:new-secret", updated.EncryptedCredential)
+	require.Equal(t, "new-secret", updated.EncryptedCredential)
 	require.Equal(t, "fp:new-secret", updated.CredentialFingerprint)
 	require.Equal(t, 100, updated.BasePriority)
 }

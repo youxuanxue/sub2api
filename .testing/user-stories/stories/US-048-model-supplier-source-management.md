@@ -14,7 +14,7 @@
 
 ## Acceptance Criteria
 
-1. AC-001 (正向): Given 运营新增供应源，When 只点击保存，Then 系统只写单表采购事实，凭证加密且不回显，新供应源默认 `base_priority=100`，不探测、不创建或修改账号。
+1. AC-001 (正向): Given 运营新增供应源，When 只点击保存，Then 系统只写单表采购事实，凭证以明文写入历史列 `encrypted_credential` 且 API 不回显，新供应源默认 `base_priority=100`，不探测、不创建或修改账号。受管账号只有一把非空 `api_key` 时可以反向写回该列；没有 key 或 key 不一致时不改已存凭证。
 2. AC-002 (优先级): Given 模型采购比例落入六个固定档位，When 查看表单与全局预览，Then 档位分别贡献 `10, 20, …, 60`（相邻增量 10），账号 priority 严格等于 `base_priority + discount_priority`；同源同档模型合并为一个目标账号，预览只比较供应源目标 priority，且 `base_priority + 60` 不得越过 PostgreSQL `INTEGER`。
 3. AC-003 (只读校验): Given 已保存供应源，When 点击「校验模型」，Then 系统走 `POST .../validate`，用带 source/band 身份的内存账号逐模型使用明确 upstream ID 真实探测已保存配置；任一失败返回全部当次结果且不写账号。结果不缓存、不生成授权，也不改变投影按钮状态。默认 Chat 通道只接受 Chat Completions 正向证据；视频通道（channel_type=54）走视频协议真实探测；Anthropic 通道（channel_type=14）走 Messages 真实探测。其它协议证据返回 `protocol_unsupported`，不猜协议、不写账号。
 4. AC-004 (热更新): Given endpoint、credential、模型 ID、模型增减、跨档，或非空受管账号的 `status/schedulable` 与目标不一致，When 未先校验而直接点击「投影账号」，Then 系统走 `POST .../sync` 且不探测模型（`probe_results` 为空），即使 Validate 会对某行失败也直接写账号。以空 mapping、不可调度状态创建缺失账号；非空投影按 `channel_type` 声明通道单一协议能力（默认 Chat-only；Anthropic messages-only），并在单账号事务内提交账号配置、该协议能力、`InitialProbeCompleted=true`/`OfficialSeed=false` 和 scheduler outbox，再做配置读回确认而不进行网络探测，最后从旧档删除 mapping。单账号事务失败时已有账号保持旧配置、新账号保持空 mapping 不可调度；跨账号中途失败保留已完成增加、停止后续减少，返回 `failed_step + changes[]`，重试可继续收敛；空档账号保留并收敛为 `active + schedulable=false`。已选来源存在未保存表单修改时发现/校验/投影入口禁用并提示先保存，成功提示只能从当前结果派生。
@@ -48,7 +48,10 @@
 - `backend/internal/service/supplier_source_priority_test.go`::`TestUS048_DiscountBandBoundaries`
 - `backend/internal/service/supplier_source_priority_test.go`::`TestUS048_SupplierPriorityIsBasePlusBandTimesStep`
 - `backend/internal/service/supplier_source_priority_test.go`::`TestUS048_SupplierPriorityStaysWithinPostgresIntegerRange`
-- `backend/internal/service/supplier_source_service_test.go`::`TestUS048_CreateSupplierSourceEncryptsCredentialAndDefaultsBasePriority`
+- `backend/internal/service/supplier_source_service_test.go`::`TestUS048_CreateSupplierSourceStoresPlaintextCredentialAndDefaultsBasePriority`
+- `backend/internal/service/supplier_source_sync_test.go`::`TestRestoreManagedAPIKeyThenSyncProjectsPlaintext`
+- `backend/internal/service/supplier_source_sync_test.go`::`TestRestoreCredentialRejectsConflictingManagedAPIKeys`
+- `backend/internal/service/supplier_source_sync_test.go`::`TestRestoreCredentialRejectsMissingManagedAPIKey`
 - `backend/internal/service/supplier_source_service_test.go`::`TestUS048_PriorityPreviewGroupsModelsBySourceBand`
 - `backend/internal/service/supplier_source_fingerprint_test.go`::`TestUS048_SupplierCredentialFingerprintFollowsEncryptionKeyNotJWTKey`
 - `backend/internal/repository/model_supplier_source_migration_integration_test.go`::`TestModelSupplierSourceMigrationCreatesOnlyTheSingleSourceTable`

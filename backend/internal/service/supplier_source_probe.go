@@ -108,7 +108,7 @@ func (s *SupplierSourceService) probeJobRegistry() *supplierProbeJobRegistry {
 }
 
 func (s *SupplierSourceService) probeConfiguredSourceModels(ctx context.Context, sourceID int64) ([]SupplierProbeResult, error) {
-	if s == nil || s.repo == nil || s.probe == nil || s.encryptor == nil {
+	if s == nil || s.repo == nil || s.probe == nil {
 		return nil, ErrSupplierSourceInvalidInput
 	}
 	source, err := s.repo.Get(ctx, sourceID)
@@ -118,9 +118,9 @@ func (s *SupplierSourceService) probeConfiguredSourceModels(ctx context.Context,
 	if len(source.Models) == 0 {
 		return []SupplierProbeResult{}, nil
 	}
-	credential, err := s.encryptor.Decrypt(source.EncryptedCredential)
+	credential, err := supplierStoredCredential(source.EncryptedCredential)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrSupplierSourceCredentialUndecryptable, err)
+		return nil, err
 	}
 	targets, err := supplierTargetBands(source)
 	if err != nil {
@@ -138,7 +138,7 @@ func (s *SupplierSourceService) probeConfiguredSourceModels(ctx context.Context,
 // is completed or failed. SuggestedAppends only include probe-passed models.
 func (s *SupplierSourceService) StartSupplierProbeJob(ctx context.Context, sourceID int64, opts SupplierDiscoverOptions) (*SupplierSourceProbeResult, error) {
 	result := emptySupplierSourceProbeResult(sourceID)
-	if s == nil || s.repo == nil || s.probe == nil || s.encryptor == nil || sourceID <= 0 {
+	if s == nil || s.repo == nil || s.probe == nil || sourceID <= 0 {
 		result.FailedStep = "validate_request"
 		result.ProbeStatus = SupplierProbeJobFailed
 		return result, ErrSupplierSourceInvalidInput
@@ -155,11 +155,11 @@ func (s *SupplierSourceService) StartSupplierProbeJob(ctx context.Context, sourc
 		result.ProbeStatus = SupplierProbeJobFailed
 		return result, err
 	}
-	credential, err := s.encryptor.Decrypt(source.EncryptedCredential)
+	credential, err := supplierStoredCredential(source.EncryptedCredential)
 	if err != nil {
-		result.FailedStep = "decrypt_credential"
+		result.FailedStep = "load_credential"
 		result.ProbeStatus = SupplierProbeJobFailed
-		return result, fmt.Errorf("%w: %v", ErrSupplierSourceCredentialUndecryptable, err)
+		return result, err
 	}
 	upstream, err := lister.ListSupplierUpstreamModels(ctx, source.Endpoint, source.ChannelType, credential)
 	if err != nil {

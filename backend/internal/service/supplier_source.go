@@ -31,18 +31,20 @@ var (
 	ErrSupplierSourceInvalidPurchaseRatio = errors.New("supplier source purchase ratio must be a number greater than 0 and at most 1")
 	ErrSupplierSourceDuplicateClientModel = errors.New("supplier source client model ids must be unique")
 	ErrSupplierSourceInvalidInput         = errors.New("invalid supplier source input")
-	// ErrSupplierSourceCredentialUndecryptable means the stored ciphertext cannot be
-	// opened with the current TOTP_ENCRYPTION_KEY (key rotation / migration without
-	// re-protect). Operators must re-enter the API key and save before sync/probe.
-	ErrSupplierSourceCredentialUndecryptable = errors.New("supplier credential cannot be decrypted with the current encryption key; re-enter the API key and save")
-	ErrSupplierSourceProbeFailed             = infraerrors.New(http.StatusUnprocessableEntity, "SUPPLIER_SOURCE_PROBE_FAILED", "one or more supplier models failed validation")
-	ErrSupplierSourceMultipleMatches         = errors.New("supplier source matched multiple accounts")
-	ErrSupplierSourceIdentityConflict        = errors.New("supplier source identity already exists")
-	ErrSupplierProjectionReadbackMismatch    = errors.New("supplier projection readback mismatch")
-	ErrSupplierProjectionProtocolNotReady    = infraerrors.New(http.StatusUnprocessableEntity, "SUPPLIER_PROTOCOL_NOT_READY", "supplier account protocol capability is not ready")
-	ErrSupplierProjectionReaderMissing       = errors.New("supplier projection reader unavailable")
-	ErrSupplierProjectionUpdaterMissing      = errors.New("supplier projection updater unavailable")
-	ErrSupplierReservedAccountExtra          = infraerrors.BadRequest("SUPPLIER_RESERVED_ACCOUNT_EXTRA", "supplier_source_id and supplier_discount_band are reserved for supplier-source sync")
+	// ErrSupplierSourceCredentialUndecryptable is the historical ciphertext failure.
+	// Supplier credentials are stored in plaintext now; sync and probe no longer
+	// return it. The admin handler still maps it.
+	ErrSupplierSourceCredentialUndecryptable   = errors.New("supplier credential cannot be decrypted with the current encryption key; re-enter the API key and save")
+	ErrSupplierSourceCredentialRestoreEmpty    = errors.New("managed accounts have no api key to copy back")
+	ErrSupplierSourceCredentialRestoreConflict = errors.New("managed accounts do not share one api key")
+	ErrSupplierSourceProbeFailed               = infraerrors.New(http.StatusUnprocessableEntity, "SUPPLIER_SOURCE_PROBE_FAILED", "one or more supplier models failed validation")
+	ErrSupplierSourceMultipleMatches           = errors.New("supplier source matched multiple accounts")
+	ErrSupplierSourceIdentityConflict          = errors.New("supplier source identity already exists")
+	ErrSupplierProjectionReadbackMismatch      = errors.New("supplier projection readback mismatch")
+	ErrSupplierProjectionProtocolNotReady      = infraerrors.New(http.StatusUnprocessableEntity, "SUPPLIER_PROTOCOL_NOT_READY", "supplier account protocol capability is not ready")
+	ErrSupplierProjectionReaderMissing         = errors.New("supplier projection reader unavailable")
+	ErrSupplierProjectionUpdaterMissing        = errors.New("supplier projection updater unavailable")
+	ErrSupplierReservedAccountExtra            = infraerrors.BadRequest("SUPPLIER_RESERVED_ACCOUNT_EXTRA", "supplier_source_id and supplier_discount_band are reserved for supplier-source sync")
 )
 
 const (
@@ -59,8 +61,10 @@ type SupplierSource struct {
 	// TokenKey transport and is not part of row or adoption identity.
 	SupplierLane string
 	// ChannelType is the TokenKey/NewAPI Extension Engine transport (协议类型).
-	ChannelType           int
-	Endpoint              string
+	ChannelType int
+	Endpoint    string
+	// EncryptedCredential keeps the historical column name. The value is the
+	// plaintext API key, the same secret accounts.credentials.api_key already stores.
 	EncryptedCredential   string
 	Notes                 string
 	BasePriority          int
