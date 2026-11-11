@@ -5,12 +5,15 @@
 # verified 2026-10-23: WAL archiving healthy, failed_count=0), so logical dumps
 # are no longer the backup path.
 #
-# The SCHEDULE is kept on purpose. Daily diagnostics now also reads this host
-# once a day. This workflow still classifies the pgBackRest receipt every two
-# hours, so a stale backup is seen before the next daily run. The receipt is
-# written every 5 minutes by
-# tokenkey-cn-postgres-archive-check.service (deploy/domestic/cn_pgbackrest.py)
-# through the same owner prod uses: ops/observability/postgres_backup_verdict.py.
+# The SCHEDULE is kept on purpose. Daily diagnostics also reads this receipt
+# once a day. This workflow classifies it every two hours, so a stale backup
+# is seen before the next daily run. Since 2026-11-09 the archive-check timer
+# runs on the data machine; the app host only keeps
+# archive_check.json.pre-dataplane and its timers are disabled. Reading the
+# app host reports a healthy backup as missing. The receipt is written every
+# 5 minutes by tokenkey-cn-postgres-archive-check.service
+# (deploy/domestic/cn_pgbackrest.py) through the same owner prod uses:
+# ops/observability/postgres_backup_verdict.py.
 name: cn-prod Backup Watch
 on:
   schedule:
@@ -52,7 +55,7 @@ jobs:
           done
           true
           EOS
-          bash ops/observability/run-probe.sh --target cn-prod \
+          bash ops/observability/run-probe.sh --target cn-prod-data \
             --script /tmp/read-receipt.sh \
             --comment "cn-prod backup watch" \
             --timeout-seconds 120 > cn-backup-receipt.json
