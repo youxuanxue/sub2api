@@ -9,7 +9,7 @@ revised_at: 2026-10-28
 
 - [未知 TTL 缓存创建量计费](cache-creation-unknown-ttl-billing.md)：已知 TTL 保留原价，结算时仍未知的差额按 1h；不追补旧账。
 
-- pending：[newapi OpenAI 渠道 image edits](newapi-openai-image-edits.md)：仅 OpenAI 渠道 newapi 账号转发 `/v1/images/edits`，其它 newapi 渠道仍 404。
+- 已完成：[newapi OpenAI 渠道 image edits](newapi-openai-image-edits.md)：仅 OpenAI 渠道 newapi 账号转发 `/v1/images/edits`，其它 newapi 渠道仍 404。已随 #3153 合入。
 
 - [Kiro 文件工具分块兼容方案](kiro-file-tool-chunking.md)：已确认的按账号分块提示；实测缓解长静默断流，明确轮数、成本和非保证边界。
 
