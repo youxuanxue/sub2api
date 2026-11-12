@@ -1024,9 +1024,9 @@ echo passed
         assert remote is not None
         for service in ("tokenkey-blue", "tokenkey-green"):
             block = _bluegreen_service_block(remote, service)
-            self.assertEqual(block.count("mem_limit: 8g"), 1, msg=service)
-            self.assertEqual(block.count("memswap_limit: 8g"), 1, msg=service)
-            self.assertEqual(block.count("- GOMEMLIMIT=6GiB"), 1, msg=service)
+            self.assertEqual(block.count("mem_limit: ${TOKENKEY_APP_MEMORY_LIMIT:-8g}"), 1, msg=service)
+            self.assertEqual(block.count("memswap_limit: ${TOKENKEY_APP_MEMORY_LIMIT:-8g}"), 1, msg=service)
+            self.assertEqual(block.count("- GOMEMLIMIT=${TOKENKEY_APP_GOMEMLIMIT:-6GiB}"), 1, msg=service)
 
     def test_image_quality_env_reaches_both_colors_from_host_dotenv_only(self) -> None:
         for instance_id, extra in ((_PROD_IID, None),):

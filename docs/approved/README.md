@@ -7,6 +7,8 @@ revised_at: 2026-10-28
 
 # Approved docs index
 
+- [prod 应用机并行替换](design-prod-app-parallel-replacement.md)：取消原地 LUKS 搬盘；新旧并行、不中断请求、旧机保留；过渡期允许部分 QA 缺口。
+
 - [未知 TTL 缓存创建量计费](cache-creation-unknown-ttl-billing.md)：已知 TTL 保留原价，结算时仍未知的差额按 1h；不追补旧账。
 
 - [NewAPI 生图图片 token 计费](newapi-image-token-billing.md)：new-api `dto.Usage` 丢 `output_tokens_details`，bridge 从响应补回图片 token，修复 token 计价生图白送。

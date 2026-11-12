@@ -52,7 +52,11 @@ class Node1StoragePolicyTest(unittest.TestCase):
                 '{"schema_version":"qa-node1-hour-v1","ok":false,"total_bytes":99}\n',
                 encoding="utf-8",
             )
-            self.assertEqual(policy.receipt_bytes(receipts, kind="qa"), 12)
+            (receipts / "prod" / "source.json").write_text(
+                '{"schema_version":"qa-node1-source-hour-v2","ok":true,"total_bytes":7}\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(policy.receipt_bytes(receipts, kind="qa"), 19)
 
 
 if __name__ == "__main__":

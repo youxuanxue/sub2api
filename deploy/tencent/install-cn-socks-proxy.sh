@@ -26,7 +26,7 @@ GOST_DOWNLOAD_MAX_TIME="${GOST_DOWNLOAD_MAX_TIME:-900}"
 # Sources allowed to reach :1080. cn-prod dials the proxies' public IPs, so its
 # source is the public 154.8.214.179. 106.75.29.139 (retired UCloud cn-prod) is kept
 # to match cn-ip1..4 until the fleet-wide allowlist is changed in one place.
-ALLOWED_SOURCES=(43.162.83.233 154.8.214.179 106.75.29.139)
+ALLOWED_SOURCES=(43.162.83.233 43.162.126.44 154.8.214.179 106.75.29.139)
 
 [[ -s "$GOST_JSON" ]] || { echo "missing gost.json: $GOST_JSON" >&2; exit 1; }
 [[ -s "$ALERT_ENV" ]] || { echo "missing host-alerts.env: $ALERT_ENV" >&2; exit 1; }
