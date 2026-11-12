@@ -129,7 +129,7 @@
       "name": "gemini_thinking_filter_call_sites",
       "source": "backend/internal/service/gemini_messages_compat_service.go",
       "required_literals": [
-        "// Drop Claude thinking blocks — Gemini does not consume Claude's",
+        "// redacted_thinking is opaque Anthropic state. Replaying it as text",
         "normalizeGeminiFunctionArgsJSON(args)",
         "extractGeminiInternalThinkingBlocks(geminiResp)",
         "internalThinkingBlocks, err := collectGeminiSSE("

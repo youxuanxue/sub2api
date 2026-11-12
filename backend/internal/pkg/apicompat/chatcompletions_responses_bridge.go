@@ -619,7 +619,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 		// generic path would insert a spurious message between an assistant
 		// tool_calls message and its tool reply, which DeepSeek rejects
 		// ("insufficient tool messages following tool_calls message"). Skip them.
-		if itemType != "" && itemType != "message" {
+		if !ResponsesInputItemReachesChat(itemType) {
 			pendingReasoning = ""
 			continue
 		}
@@ -653,6 +653,22 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 	}
 
 	return messages, mediaByCallID, nil
+}
+
+// ResponsesInputItemReachesChat reports whether a Responses input item type is
+// turned into a Chat message. Gemini admission uses the same predicate so a
+// skipped item cannot be treated as preserved.
+func ResponsesInputItemReachesChat(itemType string) bool {
+	switch itemType {
+	case "", "message", "input_text", "text", "input_image", "reasoning",
+		"function_call", "function_call_output",
+		"tool_search_call", "tool_search_output",
+		"custom_tool_call", "custom_tool_call_output",
+		"agent_message":
+		return true
+	default:
+		return false
+	}
 }
 
 // AgentMessageText concatenates agent_message text and plaintext encrypted_content

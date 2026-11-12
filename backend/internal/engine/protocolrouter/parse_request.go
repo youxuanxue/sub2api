@@ -110,6 +110,10 @@ func protocolPromptCache(root map[string]any, document any) PromptCacheKind {
 }
 
 func protocolContentKinds(document any) ContentKindSet {
+	return classifyProtocolContent(document) | geminiNestedMediaKinds(document)
+}
+
+func classifyProtocolContent(document any) ContentKindSet {
 	var kinds ContentKindSet
 	var walk func(any, bool)
 	walk = func(value any, contentContext bool) {
@@ -154,6 +158,55 @@ func protocolContentKinds(document any) ContentKindSet {
 	}
 	walk(document, false)
 	return kinds
+}
+
+// geminiNestedMediaKinds finds Gemini inlineData and fileData anywhere in the
+// body. It does not treat nested schema or argument keys named content, input,
+// or prompt as protocol content; that classification stays on the envelope walk.
+func geminiNestedMediaKinds(document any) ContentKindSet {
+	var kinds ContentKindSet
+	var walk func(any)
+	walk = func(value any) {
+		switch current := value.(type) {
+		case []any:
+			for _, item := range current {
+				walk(item)
+			}
+		case map[string]any:
+			for key, child := range current {
+				switch strings.ToLower(strings.TrimSpace(key)) {
+				case "inlinedata":
+					if inline, ok := child.(map[string]any); ok && geminiInlineImage(inline) {
+						kinds |= ContentImage
+					}
+				case "filedata":
+					if file, ok := child.(map[string]any); ok && geminiFileImage(file) {
+						kinds |= ContentImage
+					}
+				}
+				walk(child)
+			}
+		}
+	}
+	walk(document)
+	return kinds
+}
+
+func geminiInlineImage(part map[string]any) bool {
+	mime, _ := part["mimeType"].(string)
+	if mime == "" {
+		mime, _ = part["mime_type"].(string)
+	}
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	return mime == "" || strings.HasPrefix(mime, "image/")
+}
+
+func geminiFileImage(part map[string]any) bool {
+	mime, _ := part["mimeType"].(string)
+	if mime == "" {
+		mime, _ = part["mime_type"].(string)
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(mime)), "image/")
 }
 
 func protocolHasTools(root map[string]any) bool {
