@@ -387,6 +387,13 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 					lastWroteDataEvent = false
 					continue
 				}
+				// A held prefix has not emitted a data frame yet, so this blank
+				// separator is only a keepalive. go-genai / python-genai split on
+				// "\n\n" and reject a leading newline glued onto the first data
+				// line; their idle ticker is already disabled for the same reason.
+				if !modelBytesWritten && downstreamRejectsSSEComments(c) {
+					continue
+				}
 				if cw.Fprintf("%s", geminiNativeSSEKeepaliveFrame) {
 					lastDataAt = time.Now()
 				}
