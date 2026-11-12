@@ -16,14 +16,13 @@ import (
 // Forward, and API-key passthrough share one owner.
 
 // isTokenseaRelayUpstream reports whether this account's wire base_url is
-// agent.tokensea.ai. Covers openai / anthropic typed relays plus newapi
-// Anthropic-channel accounts (prod account 136) that share the same host.
+// agent.tokensea.ai. Typed openai/anthropic tokensea relays are retired;
+// live traffic is supplier-source managed accounts on that host, including
+// newapi Anthropic-channel accounts. The host check still strips fields
+// the upstream rejects.
 func isTokenseaRelayUpstream(account *Account) bool {
 	if account == nil {
 		return false
-	}
-	if account.IsOpenAITokenseaRelay() || account.IsAnthropicTokenseaRelay() {
-		return true
 	}
 	return isTokenseaRelayBaseURL(account.GetCredential("base_url"))
 }

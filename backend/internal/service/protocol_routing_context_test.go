@@ -786,7 +786,7 @@ func TestOfficialOpenAIOAuthChatWithToolsPlansResponses(t *testing.T) {
 	}
 }
 
-func TestTokenseaOpenAIRelayAdmitsLunaChatDespiteLeftoverMapping(t *testing.T) {
+func TestTokenseaHostDoesNotOverrideLeftoverMapping(t *testing.T) {
 	account := protocolRoutingRelinkedOpenAIAccount(92, "https://agent.tokensea.ai/v1", "messages", "chat_completions")
 	account.Extra["openai_passthrough"] = true
 	account.Credentials["model_mapping"] = map[string]any{"gpt-5.4": "gpt-5.4"}
@@ -796,38 +796,16 @@ func TestTokenseaOpenAIRelayAdmitsLunaChatDespiteLeftoverMapping(t *testing.T) {
 		protocolRoutingChatCompletionsToolsRequest(t, "gpt-5.6-luna"),
 	)
 	eligible, reason := protocolRequestEligibilityReason(ctx, account, "gpt-5.6-luna")
-	if !eligible || reason != "" {
-		t.Fatalf("eligibility = %v/%q, want true so leftover mapping cannot hide tokensea floor luna", eligible, reason)
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("eligibility = %v/%q, want false/model_not_supported; host must not inject a tokensea floor", eligible, reason)
 	}
-	plan, governed, err := protocolPlanForAccount(ctx, account, "gpt-5.6-luna")
-	if !governed || err != nil {
-		t.Fatalf("protocolPlanForAccount: governed=%v err=%v", governed, err)
-	}
-	if plan.TargetProtocol() != protocolrouter.ProtocolChatCompletions ||
-		plan.AdapterID() != protocolrouter.AdapterChatIdentity {
-		t.Fatalf("plan target/adapter = %q/%q, want chat_completions/%s",
-			plan.TargetProtocol(), plan.AdapterID(), protocolrouter.AdapterChatIdentity)
-	}
-}
-
-func TestTokenseaOpenAIRelayLeftoverMappingStillRejectsNonFloorID(t *testing.T) {
-	// Boundary sample: leftover passthrough whitelist must still hide IDs that
-	// are not on the tokensea public floor. A too-wide IsOpenAITokenseaRelay
-	// admit-all would fail this and still pass the luna floor case above.
-	const unknownID = "not-a-tokensea-floor-model"
-	account := protocolRoutingRelinkedOpenAIAccount(92, "https://agent.tokensea.ai/v1", "messages", "chat_completions")
-	account.Extra["openai_passthrough"] = true
-	account.Credentials["model_mapping"] = map[string]any{"gpt-5.4": "gpt-5.4"}
-	if tokenseaRelaySupportsRequestedModel(unknownID) {
-		t.Fatal("test precondition: unknownID is a boundary sample, not a floor owner copy")
-	}
-	ctx := WithProtocolRouting(
+	mappedCtx := WithProtocolRouting(
 		context.Background(),
 		protocolRoutingTestRouter(),
-		protocolRoutingChatCompletionsToolsRequest(t, unknownID),
+		protocolRoutingChatCompletionsToolsRequest(t, "gpt-5.4"),
 	)
-	eligible, reason := protocolRequestEligibilityReason(ctx, account, unknownID)
-	if eligible || reason != "model_not_supported" {
-		t.Fatalf("eligibility = %v/%q, want false/model_not_supported for leftover non-floor ID", eligible, reason)
+	eligible, reason = protocolRequestEligibilityReason(mappedCtx, account, "gpt-5.4")
+	if !eligible || reason != "" {
+		t.Fatalf("eligibility = %v/%q, want true for the account's own mapping", eligible, reason)
 	}
 }

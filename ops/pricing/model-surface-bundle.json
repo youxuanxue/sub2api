@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "65662a3bbc1f3a6e4fbf77aaf5a909bbb1b9726c0f9f1a57527ce706dbfee5ab",
+  "floor_sha256": "0fa10b6e869d8a77214901a37ba3bbcdefa41a7f139a41d1fd0f9bf7c5d126b7",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -16,36 +16,6 @@
         "claude-sonnet-4-5": "claude-sonnet-4-5",
         "claude-sonnet-4-6": "claude-sonnet-4-6",
         "claude-sonnet-5": "claude-sonnet-5"
-      },
-      "anthropic_tokensea_relay": {
-        "claude-fable-5": "claude-fable-5",
-        "claude-fable-5-2": "claude-fable-5-2",
-        "claude-haiku-4-5": "claude-haiku-4-5-20251001",
-        "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
-        "claude-opus-4-5": "claude-opus-4-5-20251101",
-        "claude-opus-4-5-20251101": "claude-opus-4-5-20251101",
-        "claude-opus-4-6": "claude-opus-4-6",
-        "claude-opus-4-7": "claude-opus-4-7",
-        "claude-opus-4-8": "claude-opus-4-8",
-        "claude-opus-5": "claude-opus-5",
-        "claude-sonnet-4-6": "claude-sonnet-4-6",
-        "claude-sonnet-5": "claude-sonnet-5",
-        "codex-auto-review": "codex-auto-review",
-        "gemini-3-pro-image": "gemini-3-pro-image",
-        "gemini-3.1-flash-image": "gemini-3.1-flash-image",
-        "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image-preview",
-        "gpt-5.5": "gpt-5.5",
-        "gpt-5.6-luna": "gpt-5.6-luna",
-        "gpt-5.6-sol": "gpt-5.6-sol",
-        "gpt-5.6-terra": "gpt-5.6-terra",
-        "gpt-image-2": "gpt-image-2",
-        "gpt-image-2.5": "gpt-image-2.5-flare",
-        "gpt-image-2.5-flare": "gpt-image-2.5-flare",
-        "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst",
-        "nano-2": "gemini-3.1-flash-image",
-        "nano-banana-2": "gemini-3.1-flash-image",
-        "nano-banana-pro": "gemini-3-pro-image",
-        "nano-pro": "gemini-3-pro-image"
       },
       "antigravity": {
         "gemini-3-flash": "gemini-3.8-flash-high",
@@ -252,33 +222,6 @@
         "hy3*": "hy3*",
         "kimi-*": "kimi-*",
         "minimax-*": "minimax-*"
-      },
-      "openai_tokensea_relay": {
-        "claude-fable-5": "claude-fable-5",
-        "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
-        "claude-opus-4-5-20251101": "claude-opus-4-5-20251101",
-        "claude-opus-4-6": "claude-opus-4-6",
-        "claude-opus-4-7": "claude-opus-4-7",
-        "claude-opus-4-8": "claude-opus-4-8",
-        "claude-opus-5": "claude-opus-5",
-        "claude-sonnet-4-6": "claude-sonnet-4-6",
-        "claude-sonnet-5": "claude-sonnet-5",
-        "codex-auto-review": "codex-auto-review",
-        "gemini-3-pro-image": "gemini-3-pro-image",
-        "gemini-3.1-flash-image": "gemini-3.1-flash-image",
-        "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image-preview",
-        "gpt-5.5": "gpt-5.5",
-        "gpt-5.6-luna": "gpt-5.6-luna",
-        "gpt-5.6-sol": "gpt-5.6-sol",
-        "gpt-5.6-terra": "gpt-5.6-terra",
-        "gpt-image-2": "gpt-image-2",
-        "gpt-image-2.5": "gpt-image-2.5-flare",
-        "gpt-image-2.5-flare": "gpt-image-2.5-flare",
-        "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst",
-        "nano-2": "gemini-3.1-flash-image",
-        "nano-banana-2": "gemini-3.1-flash-image",
-        "nano-banana-pro": "gemini-3-pro-image",
-        "nano-pro": "gemini-3-pro-image"
       }
     },
     "newapi_channel_types": {
@@ -616,7 +559,6 @@
         "claude-opus-5-5",
         "claude-sonnet-5-5"
       ],
-      "anthropic_tokensea_relay": [],
       "antigravity": [
         "gemini-2.5-flash-image-preview",
         "gemini-3-pro-high",
@@ -634,36 +576,6 @@
         "nano-banana-pro-preview",
         "nano-pro",
         "tab_flash_lite_preview"
-      ],
-      "openai_tokensea_relay": [
-        "byteplus/dreamina-seedance-2-0-260128",
-        "byteplus/dreamina-seedance-2-0-fast-260128",
-        "byteplus/dreamina-seedance-2-0-mini-260615",
-        "deepseek-v3.2",
-        "deepseek-v4-flash",
-        "deepseek-v4-pro",
-        "doubao-seedance-2-0-250428",
-        "doubao-seedance-2.0",
-        "gemini-3-pro-image-preview",
-        "gemini-omni-flash-preview",
-        "generate_video_seedance_v2_0",
-        "glm-5",
-        "glm-5.1",
-        "glm-5.2",
-        "gpt-4o-2024-05-13",
-        "kimi-k2.5",
-        "kimi-k2.6",
-        "kimi-k2.7-code",
-        "kimi-k3",
-        "kimi/kimi-k3",
-        "minimax-m2.7",
-        "qwen3.6-plus",
-        "qwen3.7-max",
-        "qwen3.7-plus",
-        "us.anthropic.claude-opus-4-7",
-        "us.anthropic.claude-opus-5",
-        "us.anthropic.claude-sonnet-4-6",
-        "us.anthropic.claude-sonnet-5"
       ]
     },
     "forbidden_model_mapping_prefixes": {

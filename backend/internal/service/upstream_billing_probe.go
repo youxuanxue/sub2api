@@ -1056,13 +1056,13 @@ func isUpstreamBillingProbeAccount(account *Account) bool {
 }
 
 // upstreamBillingProbeSupportsSub2APIBilling reports whether the account upstream
-// exposes TokenKey's /v1/sub2api/billing probe. MaaS dual-stack relays such as
-// CloudWise and tokensea do not implement that endpoint.
+// exposes TokenKey's /v1/sub2api/billing probe. CloudWise does not implement
+// that endpoint.
 func upstreamBillingProbeSupportsSub2APIBilling(account *Account) bool {
 	if account == nil {
 		return false
 	}
-	if account.IsOpenAICloudwiseRelay() || account.IsOpenAITokenseaRelay() {
+	if account.IsOpenAICloudwiseRelay() {
 		return false
 	}
 	return true
