@@ -88,7 +88,7 @@ var routeRegistry = []routeEntry{
 	{inbound: ProtocolResponses, target: ProtocolResponses, kind: RouteIdentity, adapterID: AdapterResponsesIdentity, transport: TransportHTTP, responsesPaths: []ResponsesPathKind{ResponsesPathRoot, ResponsesPathCompact, ResponsesPathInputTokens}, model: permitsResponsesModel, preserves: preservesIdentity, endpoint: resolveEndpoint},
 	{inbound: ProtocolResponses, target: ProtocolChatCompletions, kind: RouteConversion, adapterID: AdapterResponsesToChat, transport: TransportHTTP, model: permitsChatCompletionsModel, preserves: preservesResponsesConversion, endpoint: resolveEndpoint},
 	{inbound: ProtocolResponses, target: ProtocolMessages, kind: RouteConversion, adapterID: AdapterResponsesToMessages, transport: TransportHTTP, model: permitsMessagesModel, preserves: preservesResponsesToMessages, endpoint: resolveEndpoint},
-	{inbound: ProtocolResponses, target: ProtocolGeminiGenerateContent, kind: RouteConversion, adapterID: AdapterResponsesToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesToGemini, endpoint: resolveEndpoint},
+	{inbound: ProtocolResponses, target: ProtocolGeminiGenerateContent, kind: RouteConversion, adapterID: AdapterResponsesToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesResponsesToGemini, endpoint: resolveEndpoint},
 	{inbound: ProtocolGeminiGenerateContent, target: ProtocolGeminiGenerateContent, kind: RouteIdentity, adapterID: AdapterGeminiIdentity, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesGeminiIdentity, endpoint: resolveEndpoint},
 	{inbound: ProtocolGeminiGenerateContent, target: ProtocolChatCompletions, kind: RouteConversion, adapterID: AdapterGeminiToChat, transport: TransportHTTP, model: permitsChatCompletionsModel, preserves: preservesGeminiToChat, endpoint: resolveEndpoint},
 	{inbound: ProtocolGeminiGenerateContent, target: ProtocolMessages, kind: RouteConversion, adapterID: AdapterGeminiToMessages, transport: TransportHTTP, model: permitsMessagesModel, preserves: preservesGeminiToMessages, endpoint: resolveEndpoint},
@@ -279,13 +279,6 @@ func preservesResponsesConversionOptions(req CanonicalRequest) bool {
 		req.profile.PromptCache == PromptCacheNone
 }
 
-func preservesToGemini(req CanonicalRequest) bool {
-	return preservesTextOnlyWithoutTools(req) &&
-		(req.inboundProtocol != ProtocolResponses || req.responsesPath == ResponsesPathRoot) &&
-		req.profile.Continuation == ContinuationNone &&
-		req.profile.Reasoning == ReasoningNone
-}
-
 // OpenAIToGeminiConversionPreserves reports whether Chat/Responses→Gemini keeps
 // request semantics. Edge Plan-view clamps use this to admit native chat hops
 // only when conversion cannot preserve (identity must remain eligible).
@@ -294,21 +287,14 @@ func OpenAIToGeminiConversionPreserves(inbound Protocol, req CanonicalRequest) b
 	case ProtocolChatCompletions:
 		return preservesChatToGemini(req)
 	case ProtocolResponses:
-		return preservesToGemini(req)
+		return preservesResponsesToGemini(req)
 	default:
 		return true
 	}
 }
 
 func preservesGeminiIdentity(req CanonicalRequest) bool {
-	return req.profile.ContentKinds != 0 && req.profile.ContentKinds&^ContentText == 0
-}
-
-func preservesTextOnlyWithoutTools(req CanonicalRequest) bool {
-	return !req.profile.Tools &&
-		req.profile.ToolChoice == ToolChoiceNone &&
-		req.profile.ContentKinds != 0 &&
-		req.profile.ContentKinds&^ContentText == 0
+	return req.profile.ContentKinds != 0 && req.profile.ContentKinds&^(ContentText|ContentImage) == 0
 }
 
 func preservesGeminiToChat(req CanonicalRequest) bool {

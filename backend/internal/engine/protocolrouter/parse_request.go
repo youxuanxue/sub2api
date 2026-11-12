@@ -144,6 +144,16 @@ func protocolContentKinds(document any) ContentKindSet {
 					walk(child, true)
 				case "messages":
 					walk(child, false)
+				case "inlinedata":
+					if inline, ok := child.(map[string]any); ok && geminiInlineImage(inline) {
+						kinds |= ContentImage
+					}
+				case "filedata":
+					if file, ok := child.(map[string]any); ok && geminiFileImage(file) {
+						kinds |= ContentImage
+					}
+				default:
+					walk(child, false)
 				}
 			}
 		case string:
@@ -154,6 +164,23 @@ func protocolContentKinds(document any) ContentKindSet {
 	}
 	walk(document, false)
 	return kinds
+}
+
+func geminiInlineImage(part map[string]any) bool {
+	mime, _ := part["mimeType"].(string)
+	if mime == "" {
+		mime, _ = part["mime_type"].(string)
+	}
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	return mime == "" || strings.HasPrefix(mime, "image/")
+}
+
+func geminiFileImage(part map[string]any) bool {
+	mime, _ := part["mimeType"].(string)
+	if mime == "" {
+		mime, _ = part["mime_type"].(string)
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(mime)), "image/")
 }
 
 func protocolHasTools(root map[string]any) bool {

@@ -3859,6 +3859,16 @@ func convertClaudeMessagesToGeminiGenerateContent(body []byte, models ...string)
 	if tools != nil {
 		out["tools"] = tools
 	}
+	toolConfig, err := claudeToolChoiceToGemini(req["tool_choice"])
+	if err != nil {
+		return nil, err
+	}
+	if toolConfig != nil {
+		if tools == nil {
+			return nil, errors.New("tool_choice requires tools")
+		}
+		out["toolConfig"] = toolConfig
+	}
 
 	generationConfig := convertClaudeGenerationConfig(req)
 	imageConfig, err := geminiCompatGenerationOptions(req)
@@ -3969,16 +3979,30 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 				if !ok {
 					continue
 				}
-				// Drop Claude thinking blocks — Gemini does not consume Claude's
-				// thinking format. The default: path would serialize them as JSON
-				// text, which Gemini echoes back verbatim in its response, producing
-				// {"type":"thinking","signature":"..."} text visible to the caller.
-				// 历史思考块不回传给 Gemini：Gemini 的思考连续性由 thoughtSignature 承载。
-				if bt, _ := bm["type"].(string); bt == "thinking" || bt == "redacted_thinking" {
+				bt, _ := bm["type"].(string)
+				// redacted_thinking is opaque Anthropic state. Replaying it as text
+				// makes Gemini echo the wrapper. A non-blank thinking block becomes
+				// a thought part; blank thinking is omitted.
+				if bt == "redacted_thinking" {
 					droppedThinking = true
 					continue
 				}
-				bt, _ := bm["type"].(string)
+				if bt == "thinking" || bt == "reasoning" {
+					thought, _ := bm["thinking"].(string)
+					if thought == "" {
+						thought, _ = bm["text"].(string)
+					}
+					if strings.TrimSpace(thought) == "" {
+						droppedThinking = true
+						continue
+					}
+					part := map[string]any{"thought": true, "text": thought}
+					if sig, _ := bm["signature"].(string); strings.TrimSpace(sig) != "" {
+						part["thoughtSignature"] = strings.TrimSpace(sig)
+					}
+					parts = append(parts, part)
+					continue
+				}
 				switch bt {
 				case "text":
 					if text, ok := bm["text"].(string); ok {
@@ -4239,6 +4263,57 @@ func normalizeGeminiRequestForAIStudio(body []byte) []byte {
 		return body
 	}
 	return normalized
+}
+
+func claudeToolChoiceToGemini(raw any) (map[string]any, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	mode := ""
+	allowed := ""
+	switch choice := raw.(type) {
+	case string:
+		switch strings.ToLower(strings.TrimSpace(choice)) {
+		case "auto":
+			mode = "AUTO"
+		case "none":
+			mode = "NONE"
+		case "any", "required":
+			mode = "ANY"
+		default:
+			return nil, fmt.Errorf("unsupported tool_choice %q", choice)
+		}
+	case map[string]any:
+		if disabled, ok := choice["disable_parallel_tool_use"].(bool); ok && disabled {
+			return nil, errors.New("disable_parallel_tool_use is not preserved on Gemini")
+		}
+		kind, _ := choice["type"].(string)
+		switch strings.ToLower(strings.TrimSpace(kind)) {
+		case "", "auto":
+			mode = "AUTO"
+		case "none":
+			mode = "NONE"
+		case "any":
+			mode = "ANY"
+		case "tool":
+			name, _ := choice["name"].(string)
+			name = strings.TrimSpace(name)
+			if name == "" {
+				return nil, errors.New("tool_choice requires a function name")
+			}
+			mode = "ANY"
+			allowed = name
+		default:
+			return nil, fmt.Errorf("unsupported tool_choice type %q", kind)
+		}
+	default:
+		return nil, errors.New("tool_choice must be a string or object")
+	}
+	config := map[string]any{"mode": mode}
+	if allowed != "" {
+		config["allowedFunctionNames"] = []any{allowed}
+	}
+	return map[string]any{"functionCallingConfig": config}, nil
 }
 
 func isClaudeWebSearchToolMap(tool map[string]any) bool {

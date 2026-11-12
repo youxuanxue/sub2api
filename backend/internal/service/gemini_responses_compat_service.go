@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // ForwardAsResponses serves OpenAI Responses clients through Gemini-native
@@ -42,23 +43,21 @@ func (s *GeminiMessagesCompatService) ForwardAsResponses(
 	originalModel := responsesReq.Model
 	clientStream := responsesReq.Stream
 
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
+	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(&responsesReq)
 	if err != nil {
 		return nil, s.writeResponsesCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
-	anthropicReq.Stream = clientStream
-
-	claudeBody, err := json.Marshal(anthropicReq)
+	chatReq.Stream = clientStream
+	chatBody, err := json.Marshal(chatReq)
 	if err != nil {
-		return nil, fmt.Errorf("marshal responses compat request: %w", err)
+		return nil, fmt.Errorf("marshal responses chat bridge: %w", err)
 	}
-
-	claudeBody, err = preserveGeminiCompatOptions(body, claudeBody)
+	chatBody, err = preserveGeminiCompatOptions(body, chatBody)
 	if err != nil {
 		return nil, s.writeResponsesCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 
-	return s.forwardClaudeBodyAsResponses(ctx, c, account, claudeBody, originalModel, clientStream, startTime, body)
+	return s.forwardClaudeBodyAsResponses(ctx, c, account, chatBody, originalModel, clientStream, startTime, body)
 }
 
 func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
@@ -88,11 +87,15 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
 	}
 
-	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody, mappedModel)
+	geminiReq, err := convertChatCompletionsToGeminiGenerateContent(claudeBody, mappedModel)
 	if err != nil {
 		return nil, s.writeResponsesCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 	geminiReq = ensureGeminiFunctionCallThoughtSignatures(geminiReq)
+	if geminiChatForwardsReasoningEffort(mappedModel) {
+		effort := gjson.GetBytes(claudeBody, "reasoning_effort").String()
+		geminiReq = applyGeminiCompatThinkingConfig(geminiReq, chatReasoningEffortClaudeBody(effort), mappedModel, clientStream)
+	}
 	geminiReq, imageCanvas, err := prepareGeminiWebImageCanvas(account, mappedModel, geminiReq)
 	if err != nil {
 		return nil, s.writeResponsesCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())

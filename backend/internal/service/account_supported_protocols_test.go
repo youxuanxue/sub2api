@@ -994,14 +994,14 @@ func TestAntigravityAPIKeyKeepsChatWhenGeminiConversionCannotPreserve(t *testing
 		t.Fatalf("prompt-cache plan target=%s adapter=%s, want chat→gemini", cachePlan.TargetProtocol(), cachePlan.AdapterID())
 	}
 
-	// Forced tool_choice cannot Chat→Gemini; admit verified chat hop so identity remains eligible.
-	body := `{"model":"gemini-3.7-flash","messages":[{"role":"user","content":"hi"}],"max_tokens":16,"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":"required"}`
+	// parallel_tool_calls=false cannot Chat→Gemini; admit verified chat hop so identity remains eligible.
+	body := `{"model":"gemini-3.7-flash","messages":[{"role":"user","content":"hi"}],"max_tokens":16,"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"parallel_tool_calls":false}`
 	request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone, "gemini-3.7-flash", false, []byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if protocolrouter.OpenAIToGeminiConversionPreserves(protocolrouter.ProtocolChatCompletions, request) {
-		t.Fatal("fixture must exercise a Chat→Gemini-illegal tool_choice")
+		t.Fatal("fixture must exercise a Chat→Gemini-illegal parallel_tool_calls")
 	}
 	got := routingSupportedProtocolsForInbound(account, protocolrouter.ProtocolChatCompletions, &request)
 	want := []protocolrouter.Protocol{

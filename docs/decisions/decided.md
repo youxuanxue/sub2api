@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-12 Gemini 协议转换按 Chat 直接路径放宽选号
+
+原话：「同意。按照建议方案从 1-4 逐个实现。」
+
+适用范围：Chat→Gemini 直接转换；Messages→Gemini 保留图片、thought part 和 tool_choice；Responses 先桥到 Chat 再转 Gemini；原生 Gemini 带图仍走 identity。不给 Antigravity OAuth 声明原生 Chat/Responses/Messages。远程图片 URL、strict、关闭并行工具、内置工具与 function tools 混放仍然拒绝。
+
 ## 2026-11-12 Gemini 4 Argon / Carbon 默认映射 medium
 
 原话：「如果 gemini-4-carbon-medium 和 gemini-4-carbon-high 都是一样的定价的话，为了提升用户体验，我们应该把 gemini-4-carbon/argon 都默认映射到 -medium。」

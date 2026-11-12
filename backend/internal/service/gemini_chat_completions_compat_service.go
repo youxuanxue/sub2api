@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // ForwardAsChatCompletions serves OpenAI Chat Completions clients through
@@ -40,77 +41,19 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 	}
 
 	originalModel := ccReq.Model
-	stripGeminiChatHistoryReasoning(&ccReq)
 	clientStream := ccReq.Stream
 	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
 
-	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
+	prepared, err := preserveGeminiCompatOptions(body, body)
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
-	if err != nil {
-		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-	}
-	anthropicReq.Stream = clientStream
-
-	claudeBody, err := json.Marshal(anthropicReq)
-	if err != nil {
-		return nil, fmt.Errorf("marshal chat completions compat request: %w", err)
-	}
-
-	claudeBody, err = preserveGeminiCompatOptions(body, claudeBody)
-	if err != nil {
-		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-	}
-
-	return s.forwardClaudeBodyAsChatCompletions(ctx, c, account, claudeBody, originalModel, clientStream, includeUsage, startTime)
+	return s.forwardClaudeBodyAsChatCompletions(ctx, c, account, prepared, originalModel, clientStream, includeUsage, startTime)
 }
 
-// stripGeminiChatHistoryReasoning 丢掉历史 reasoning。Gemini 不消费 OpenAI 的
-// reasoning_content，经 Responses 转换后它们会变成 <thinking> 文本并被回显。
-func stripGeminiChatHistoryReasoning(req *apicompat.ChatCompletionsRequest) {
-	if req == nil {
-		return
-	}
-	for i := range req.Messages {
-		msg := &req.Messages[i]
-		msg.ReasoningContent = ""
-		msg.Reasoning = ""
-		msg.Content = stripGeminiChatReasoningContent(msg.Content)
-	}
-}
-
-func stripGeminiChatReasoningContent(raw json.RawMessage) json.RawMessage {
-	if len(raw) == 0 || raw[0] != '[' {
-		return raw
-	}
-	var parts []map[string]any
-	if err := json.Unmarshal(raw, &parts); err != nil {
-		return raw
-	}
-	kept := make([]map[string]any, 0, len(parts))
-	dropped := false
-	for _, part := range parts {
-		switch part["type"] {
-		case "thinking", "reasoning", "redacted_thinking":
-			dropped = true
-			continue
-		default:
-			kept = append(kept, part)
-		}
-	}
-	if !dropped {
-		return raw
-	}
-	encoded, err := json.Marshal(kept)
-	if err != nil {
-		return raw
-	}
-	return encoded
-}
-
+// forwardClaudeBodyAsChatCompletions sends an already prepared Chat Completions
+// body through the direct Chat→Gemini converter. The name is historical.
 func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	ctx context.Context,
 	c *gin.Context,
@@ -138,13 +81,14 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
 	}
 
-	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody, mappedModel)
+	geminiReq, err := convertChatCompletionsToGeminiGenerateContent(claudeBody, mappedModel)
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 	geminiReq = ensureGeminiFunctionCallThoughtSignatures(geminiReq)
 	if geminiChatForwardsReasoningEffort(mappedModel) {
-		geminiReq = applyGeminiCompatThinkingConfig(geminiReq, claudeBody, mappedModel, clientStream)
+		effort := gjson.GetBytes(claudeBody, "reasoning_effort").String()
+		geminiReq = applyGeminiCompatThinkingConfig(geminiReq, chatReasoningEffortClaudeBody(effort), mappedModel, clientStream)
 	}
 	geminiReq, imageCanvas, err := prepareGeminiWebImageCanvas(account, mappedModel, geminiReq)
 	if err != nil {
