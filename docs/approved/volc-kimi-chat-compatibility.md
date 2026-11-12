@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -40,7 +40,12 @@ No customer prompt content or credentials are included in this repository.
 ## Behavior and owners
 
 Only the evidenced Volc Agent Plan endpoint identity and Kimi K3 family use this
-policy. Existing supplier recognition owns endpoint identification; names and
+policy. The family is `kimi-k3`, `kimi-k3-*`, and `kimi-k3.*` (`kimi-k3.1-pro`
+included, `kimi-k30` excluded). `kimi-k3.1-pro` takes the same Volc normalizer,
+including `n=1`, and the same Moonshot dynamic-tool promotion. The DashScope
+sampling pin (temperature 1, top_p 0.95) stays on `kimi-k3` and `kimi-k3-*`
+only, so an in-range `kimi-k3.1-pro` temperature is still forwarded.
+Existing supplier recognition owns endpoint identification; names and
 account IDs are not selectors. Other suppliers retain their existing policy.
 
 `service/volc_kimi_chat_constraints_tk.go` owns supplier request normalization;

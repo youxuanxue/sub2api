@@ -19,7 +19,7 @@ import (
 // change payload shape. When the client omitted tool_choice, set "required" so
 // the promoted tools are actually invoked instead of the model answering inline.
 func applyMoonshotK3DynamicToolsShape(model string, body []byte) []byte {
-	if len(body) == 0 || !isNewAPIAliFixedSamplingModel(model) {
+	if len(body) == 0 || !isMoonshotK3FamilyModel(model) {
 		return body
 	}
 	messages := gjson.GetBytes(body, "messages")

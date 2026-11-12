@@ -152,12 +152,22 @@ func normalizeMoonshotModelID(model string) string {
 	return normalized
 }
 
+// isMoonshotK3FamilyModel reports the public K3 ids that share the Volc
+// normalizer and Moonshot dynamic-tool promotion. kimi-k3.1-pro uses a dot,
+// so a kimi-k3- prefix does not cover it. kimi-k30 must not match.
+// DashScope's fixed temperature/top_p pin stays on isNewAPIAliFixedSamplingModel
+// and does not follow this family.
+func isMoonshotK3FamilyModel(model string) bool {
+	m := normalizeMoonshotModelID(model)
+	return m == "kimi-k3" || strings.HasPrefix(m, "kimi-k3-") || strings.HasPrefix(m, "kimi-k3.")
+}
+
 func resolveMoonshotThinkingFamily(model string) moonshotThinkingFamily {
 	m := normalizeMoonshotModelID(model)
 	if m == "" {
 		return moonshotThinkingNone
 	}
-	if m == "kimi-k3" || strings.HasPrefix(m, "kimi-k3-") {
+	if isMoonshotK3FamilyModel(m) {
 		return moonshotThinkingK3
 	}
 	if strings.Contains(m, "k2.7-code") {

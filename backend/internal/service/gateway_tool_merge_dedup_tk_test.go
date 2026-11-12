@@ -112,11 +112,11 @@ func TestApplyMoonshotK3DynamicToolsShape_PromotesDistinctTool(t *testing.T) {
 // promotion's own gate, so the test cannot pass by never running the code.
 func moonshotK3DynamicToolsTestModel(t *testing.T) string {
 	t.Helper()
-	for _, candidate := range []string{"kimi-k3", "kimi-k3-0711-preview", "moonshot-v1-8k", "kimi-k2-0905-preview"} {
-		if isNewAPIAliFixedSamplingModel(candidate) {
+	for _, candidate := range []string{"kimi-k3", "kimi-k3.1-pro", "kimi-k3-0711-preview", "moonshot-v1-8k", "kimi-k2-0905-preview"} {
+		if isMoonshotK3FamilyModel(candidate) {
 			return candidate
 		}
 	}
-	t.Skip("no model satisfies isNewAPIAliFixedSamplingModel; promotion gate changed")
+	t.Skip("no model satisfies isMoonshotK3FamilyModel; promotion gate changed")
 	return ""
 }

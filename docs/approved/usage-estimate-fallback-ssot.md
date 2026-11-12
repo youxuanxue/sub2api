@@ -1,7 +1,7 @@
 ---
 title: Zero-usage estimate fallback SSOT（usage 全 0 估算兜底单一事实源）
 status: approved
-approved_by: "product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); product owner (2026-11-05 conversation: 【usage 全 0 估算兜底】，应该全平台全模型统一吧？遵循 ssot 原则。)"
+approved_by: "product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); product owner (2026-11-05 conversation: 【usage 全 0 估算兜底】，应该全平台全模型统一吧？遵循 ssot 原则。); feng (2026-11-12 conversation: 对着 origin/main 检查 2 的用量问题，尽可能修复。)"
 approved_at: 2026-11-05
 created: 2026-11-05
 authors: [claude]
@@ -117,7 +117,7 @@ Per modality:
 | Modality | Effect |
 | --- | --- |
 | Text / tool calls / reasoning | estimated when rule 1-3 hold |
-| Image input parts in a text request | not counted (estimate errs low) |
+| Image input parts in a text request | K3 family (`kimi-k3`, `kimi-k3-*`, `kimi-k3.*`) data-URL images are added to input tokens using the MoonViT media expansion. Other models, and K3 images whose size cannot be read locally (https URLs), are not counted |
 | Image generation (count/size) | never estimated (`ImageCount > 0`, image routes not captured) |
 | Image output tokens | any non-zero value is real usage, wins |
 | Video | never estimated (`VideoCount > 0`, video routes not captured) |
@@ -157,9 +157,12 @@ error is unmeasured: cl100k counts about 1.1 tokens per English word and about
 1.2 per Chinese character, and Claude, Gemini, Kimi and other tokenizers are
 not public or not compared here. On the cn-prod benchmark's random 3–9 letter
 word text, cl100k counted 3.45 tokens per word against 3.42 from real Kimi
-usage, within about 1%. The estimate leaves out chat template overhead, image
-and video input and cache hits, so it errs low for multimodal prompts and
-bills cache hits at the uncached input rate.
+usage, within about 1%. The estimate leaves out chat template overhead, video
+input and cache hits. Image input is counted only for the K3 family data URLs
+described above; every other image still errs low. Cache hits are billed at
+the uncached input rate. A non-zero upstream usage is never replaced, so a
+supplier tokenizer that already differs from the K3 reference (for example a
+stable tool-template delta) stays as reported.
 
 ## Rollout and observation
 
