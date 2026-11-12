@@ -41,6 +41,15 @@ func TestAntigravityMalformedFunctionCallNonStreaming(t *testing.T) {
 				default:
 					_, err = svc.handleResponsesNonStreamingFromAntigravity(c, resp, time.Now(), "test-model", apicompat.ResponsesClientToolMapping{})
 				}
+				if tc.status == http.StatusBadGateway && protocol == "claude" {
+					// Claude Messages 非流式把畸形生成交回 Forward 同账号重试，这里还不写客户端响应。
+					require.Error(t, err)
+					var failover *UpstreamFailoverError
+					require.ErrorAs(t, err, &failover)
+					require.Contains(t, string(failover.ResponseBody), "MALFORMED_FUNCTION_CALL")
+					require.Empty(t, recorder.Body.String())
+					return
+				}
 				require.Equal(t, tc.status, recorder.Code)
 				if tc.status == http.StatusBadGateway {
 					require.Error(t, err)

@@ -148,7 +148,31 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	}
 	resp := result.resp
 	defer func() { _ = resp.Body.Close() }()
+	replayUpstream := func() (*antigravityRetryLoopResult, error) {
+		return s.antigravityRetryLoop(antigravityRetryLoopParams{
+			ctx:             ctx,
+			prefix:          prefix,
+			account:         account,
+			proxyURL:        proxyURL,
+			accessToken:     accessToken,
+			action:          action,
+			body:            geminiBody,
+			c:               c,
+			httpUpstream:    s.httpUpstream,
+			settingService:  s.settingService,
+			accountRepo:     s.accountRepo,
+			handleError:     s.handleUpstreamError,
+			requestedModel:  originalModel,
+			isStickySession: isStickySession,
+			groupID:         0,
+			sessionHash:     "",
+			clientStream:    claudeReq.Stream,
+			keepaliveFrame:  anthropicSSEPingFrame,
+		})
+	}
 
+	malformedAttempt := 0
+handleAntigravityClaudeResponse:
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
 
@@ -472,6 +496,16 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		// 客户端要求流式，直接透传转换
 		streamRes, err := s.handleClaudeStreamingResponse(c, resp, startTime, originalModel)
 		if err != nil {
+			if isAntigravityMalformedGeneration(err) {
+				if nextResp, retryErr := s.retryAntigravityMalformedGeneration(c, prefix, account.ID, malformedAttempt, resp, replayUpstream); retryErr == nil && nextResp != nil {
+					malformedAttempt++
+					resp = nextResp
+					goto handleAntigravityClaudeResponse
+				} else if retryErr != nil {
+					return nil, retryErr
+				}
+				return nil, antigravityMalformedGenerationExhausted()
+			}
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_error error=%v", prefix, err)
 			var terminal *antigravityStreamTerminalError
 			if streamRes == nil || !errors.As(err, &terminal) {
@@ -489,6 +523,16 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		// 客户端要求非流式，收集流式响应后转换返回
 		streamRes, err := s.handleClaudeStreamToNonStreaming(c, resp, startTime, originalModel)
 		if err != nil {
+			if isAntigravityMalformedGeneration(err) {
+				if nextResp, retryErr := s.retryAntigravityMalformedGeneration(c, prefix, account.ID, malformedAttempt, resp, replayUpstream); retryErr == nil && nextResp != nil {
+					malformedAttempt++
+					resp = nextResp
+					goto handleAntigravityClaudeResponse
+				} else if retryErr != nil {
+					return nil, retryErr
+				}
+				return nil, antigravityMalformedGenerationExhausted()
+			}
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_collect_error error=%v", prefix, err)
 			return nil, err
 		}
@@ -512,6 +556,61 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		FirstTokenMs:                  firstTokenMs,
 		ClientDisconnect:              clientDisconnect,
 	}, streamErr
+}
+
+const antigravityMalformedGenerationRetries = 2
+
+func isAntigravityMalformedGeneration(err error) bool {
+	var failover *UpstreamFailoverError
+	return errors.As(err, &failover) && failover != nil && bytes.Contains(failover.ResponseBody, []byte("MALFORMED_FUNCTION_CALL"))
+}
+
+// antigravityMalformedGenerationExhausted 是同账号重试仍失败后的终态。
+// SharedFault 禁止再换号；Client* 让 handler 写出 malformed_function_call，而不是通用 502。
+func antigravityMalformedGenerationExhausted() error {
+	return applyGatewayFailoverSemantic(&UpstreamFailoverError{
+		StatusCode:             http.StatusBadGateway,
+		ResponseBody:           []byte(`{"error":"upstream returned MALFORMED_FUNCTION_CALL"}`),
+		ClientStatusCode:       http.StatusBadGateway,
+		ClientErrorType:        "malformed_function_call",
+		ClientMessage:          "upstream returned MALFORMED_FUNCTION_CALL",
+		RequestScopedTransient: true,
+	}, gatewayFailoverProfileGoogle, gatewayFailureSemanticSharedFault)
+}
+
+func (s *AntigravityGatewayService) retryAntigravityMalformedGeneration(
+	c *gin.Context,
+	prefix string,
+	accountID int64,
+	attempt int,
+	resp *http.Response,
+	replay func() (*antigravityRetryLoopResult, error),
+) (*http.Response, error) {
+	if attempt >= antigravityMalformedGenerationRetries {
+		return nil, nil
+	}
+	logger.LegacyPrintf("service.antigravity_gateway", "%s MALFORMED_FUNCTION_CALL same_account_retry=%d/%d account=%d",
+		prefix, attempt+1, antigravityMalformedGenerationRetries, accountID)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	retryResult, retryErr := replay()
+	if retryErr != nil {
+		if switchErr, ok := IsAntigravityAccountSwitchError(retryErr); ok {
+			return nil, &UpstreamFailoverError{
+				StatusCode:        http.StatusServiceUnavailable,
+				ForceCacheBilling: switchErr.IsStickySession,
+			}
+		}
+		if IsClientClosedRequest(c, retryErr) {
+			return nil, s.writeClaudeError(c, antigravityStatusClientClosed, "client_disconnected", "Client disconnected before upstream response")
+		}
+		return nil, candidateTransportFailure(c.Request.Context(), s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries"), retryErr)
+	}
+	if retryResult == nil || retryResult.resp == nil {
+		return nil, candidateTransportFailure(c.Request.Context(), s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries"), errors.New("upstream returned nil response"))
+	}
+	return retryResult.resp, nil
 }
 
 func isSignatureRelatedError(respBody []byte) bool {

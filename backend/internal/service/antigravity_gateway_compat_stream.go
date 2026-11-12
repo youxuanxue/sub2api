@@ -593,7 +593,7 @@ func antigravityTerminalErrorReason(fault antigravity.StreamTerminalFault) strin
 
 func antigravityMissingTerminalFailover(fault antigravity.StreamTerminalFault) error {
 	if fault == antigravity.StreamTerminalMalformed {
-		logger.LegacyPrintf("service.antigravity_gateway", "Antigravity stream MALFORMED_FUNCTION_CALL before client output, triggering failover")
+		logger.LegacyPrintf("service.antigravity_gateway", "Antigravity stream MALFORMED_FUNCTION_CALL before client output, scheduling same-account generation retry")
 		return &UpstreamFailoverError{
 			StatusCode:             http.StatusBadGateway,
 			ResponseBody:           []byte(`{"error":"upstream returned MALFORMED_FUNCTION_CALL"}`),

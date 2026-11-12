@@ -18469,9 +18469,18 @@
       "must_contain": [
         "return nil, nil, antigravity.ErrMalformedFunctionCall",
         "errors.Is(err, antigravity.ErrMalformedFunctionCall)",
-        "errType = \"malformed_function_call\""
+        "ResponseBody:           []byte(`{\"error\":\"upstream returned MALFORMED_FUNCTION_CALL\"}`),"
       ],
-      "rationale": "Antigravity Claude non-stream collect must early-return ErrMalformedFunctionCall (Wei-Shaw#8361/#8362), and handleClaudeStreamToNonStreaming must map it to 502/malformed_function_call instead of a vague upstream_error or empty Claude 200. Upstream merges into this hotspot can drop either hook while tests on Chat/Responses compat still pass."
+      "rationale": "Antigravity Claude non-stream collect must early-return ErrMalformedFunctionCall (Wei-Shaw#8361/#8362). handleClaudeStreamToNonStreaming must hand that to Forward as a MALFORMED_FUNCTION_CALL failover body instead of writing a vague upstream_error or an empty Claude 200. The client type is written only after same-account retries exhaust; see antigravity_gateway_claude.go."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_claude.go",
+      "must_contain": [
+        "const antigravityMalformedGenerationRetries = 2",
+        "ClientErrorType:        \"malformed_function_call\"",
+        "gatewayFailureSemanticSharedFault"
+      ],
+      "rationale": "Claude Messages MALFORMED_FUNCTION_CALL before visible output retries the original request on the same account at most twice, then returns malformed_function_call as a shared fault so the handler does not switch accounts or map it to a generic 502."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_compat.go",
