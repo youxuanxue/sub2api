@@ -629,7 +629,7 @@ func TestPricingService_GeminiFlashThinkingTiersUseBasePricing(t *testing.T) {
 		OutputCostPerToken:      7.5e-6,
 		CacheReadInputTokenCost: 0.15e-6,
 	}
-	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon"} {
+	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon"} {
 		svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{baseModel: basePricing}}
 		tiers := []string{"", "-high", "-low", "-medium"}
 		if baseModel == "gemini-3.6-flash" {
@@ -648,7 +648,7 @@ func TestPricingService_GeminiFlashThinkingTiersUseBasePricing(t *testing.T) {
 func TestPricingService_GeminiFlashTierSpecificPricingTakesPrecedence(t *testing.T) {
 	basePricing := &LiteLLMModelPricing{InputCostPerToken: 1.5e-6}
 	tierPricing := &LiteLLMModelPricing{InputCostPerToken: 2e-6}
-	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon"} {
+	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon"} {
 		t.Run(baseModel, func(t *testing.T) {
 			svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
 				baseModel:          basePricing,
@@ -683,6 +683,40 @@ func TestBillingService_Gemini36FlashThinkingTierFallbacksAreBillable(t *testing
 			require.InDelta(t, wantCache, cost.CacheReadCost, 1e-12)
 			require.InDelta(t, wantInput+wantOutput+wantCache, cost.TotalCost, 1e-12)
 		})
+	}
+}
+
+func TestBillingService_Gemini4ArgonBillsStableStandardRate(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, nil)
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
+
+	for _, model := range []string{
+		"gemini-4-argon",
+		"gemini-4-argon-low",
+		"gemini-4-argon-medium",
+		"gemini-4-argon-high",
+		"gemini-4-carbon",
+		"gemini-4-carbon-low",
+		"gemini-4-carbon-medium",
+		"gemini-4-carbon-high",
+	} {
+		t.Run(model, func(t *testing.T) {
+			cost, err := svc.CalculateCost(model, tokens, 1)
+			require.NoError(t, err)
+			require.InDelta(t, 4, cost.InputCost, 1e-9)
+			require.InDelta(t, 20, cost.OutputCost, 1e-9)
+			require.InDelta(t, 0.2, cost.CacheReadCost, 1e-9)
+			require.InDelta(t, 24.2, cost.TotalCost, 1e-9)
+		})
+	}
+
+	for _, model := range []string{"gemini-4-argon", "gemini-4-carbon"} {
+		priority, err := svc.CalculateCostWithServiceTier(model, tokens, 1, "priority")
+		require.NoError(t, err, model)
+		require.InDelta(t, 7.2, priority.InputCost, 1e-9, model)
+		require.InDelta(t, 36, priority.OutputCost, 1e-9, model)
+		require.InDelta(t, 0.36, priority.CacheReadCost, 1e-9, model)
+		require.InDelta(t, 43.56, priority.TotalCost, 1e-9, model)
 	}
 }
 

@@ -236,13 +236,14 @@ func TestAntigravityPassthroughsInjectTierWiresNotBareNames(t *testing.T) {
 		"gemini-3.7-flash-low", "gemini-3.7-flash-medium", "gemini-3.7-flash-high",
 		"gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-high",
 		"gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high",
+		"gemini-4-carbon-low", "gemini-4-carbon-medium", "gemini-4-carbon-high",
 	} {
 		require.Equal(t, wire, got[wire], "档位 wire %s 必须被注入", wire)
 	}
 
 	// 裸名自映射不得再被注入。它指向上游目录里不存在的名字（AG 只有档位变体），
-	// 是 404 的来源，且与 DefaultAntigravityModelMapping 的「裸名锁 -high」相反。
-	for _, bare := range []string{"gemini-3.7-flash", "gemini-4-argon"} {
+	// 是 404 的来源，且与 DefaultAntigravityModelMapping 的裸名锁档相反。
+	for _, bare := range []string{"gemini-3.7-flash", "gemini-4-argon", "gemini-4-carbon"} {
 		require.NotEqual(t, bare, got[bare], "裸名 %s 不得自映射", bare)
 	}
 
