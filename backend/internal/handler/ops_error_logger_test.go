@@ -790,6 +790,7 @@ func TestNormalizeOpsErrorType(t *testing.T) {
 		{"known invalid_request_error", "invalid_request_error", "", "invalid_request_error"},
 		{"known rate_limit_error", "rate_limit_error", "", "rate_limit_error"},
 		{"known upstream_error", "upstream_error", "", "upstream_error"},
+		{"known malformed_function_call", "malformed_function_call", "", "malformed_function_call"},
 
 		// Unknown/garbage types are rejected and fall through to code-based or default.
 		{"nil literal from upstream", "<nil>", "", "api_error"},
@@ -814,6 +815,10 @@ func TestNormalizeOpsErrorType(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestClassifyOpsPhaseMalformedFunctionCallIsUpstream(t *testing.T) {
+	require.Equal(t, "upstream", classifyOpsPhase("malformed_function_call", "upstream returned MALFORMED_FUNCTION_CALL", ""))
 }
 
 func TestClassifyOpsNoAvailableAccountsExcludedFromSLA(t *testing.T) {

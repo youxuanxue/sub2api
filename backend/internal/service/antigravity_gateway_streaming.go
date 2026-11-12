@@ -1093,15 +1093,19 @@ func (s *AntigravityGatewayService) handleClaudeStreamToNonStreaming(c *gin.Cont
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, err
 		}
+		if errors.Is(err, antigravity.ErrMalformedFunctionCall) {
+			// 尚未向客户端写正文。交给 Forward 用原请求同账号重试，耗尽后再回
+			// malformed_function_call。这里不能先 writeClaudeError，否则重试来不及发生。
+			return nil, &UpstreamFailoverError{
+				StatusCode:             http.StatusBadGateway,
+				ResponseBody:           []byte(`{"error":"upstream returned MALFORMED_FUNCTION_CALL"}`),
+				RetryableOnSameAccount: true,
+			}
+		}
 
 		errMsg := "Failed to parse upstream response"
 		errType := "upstream_error"
-		if errors.Is(err, antigravity.ErrMalformedFunctionCall) {
-			// Match Chat/Responses compat: do not collapse MALFORMED into a vague
-			// upstream_error, and never surface an empty Claude 200.
-			errMsg = err.Error()
-			errType = "malformed_function_call"
-		} else if strings.Contains(err.Error(), "stream data interval timeout") {
+		if strings.Contains(err.Error(), "stream data interval timeout") {
 			errMsg = "Upstream stream data interval timeout"
 			errType = "upstream_timeout"
 		} else if errors.Is(err, bufio.ErrTooLong) {
@@ -1152,10 +1156,6 @@ func (c *antigravityClaudeStreamCommit) flush(extra []byte, onWrite func()) {
 	if wrote && onWrite != nil {
 		onWrite()
 	}
-}
-
-func (c *antigravityClaudeStreamCommit) committedToClient() bool {
-	return c != nil && (c.visibleWritten || c.keepaliveSent)
 }
 
 // handleClaudeStreamingResponse 处理 Claude 流式响应（Gemini SSE → Claude SSE 转换）
@@ -1302,7 +1302,9 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 					return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, nil
 				}
 				if fault := processor.TerminalFault(); fault != antigravity.StreamTerminalNone {
-					if commit.committedToClient() {
+					// ping 不是正文。MALFORMED_FUNCTION_CALL 在只有 keepalive 时仍回到
+					// Forward 做同账号重试；已经写出文本或 tool_use 则就地报错，不再重放。
+					if commit.visibleWritten || (commit.keepaliveSent && fault != antigravity.StreamTerminalMalformed) {
 						commit.flush(nil, noteWritten)
 						reason := antigravityTerminalErrorReason(fault)
 						sendErrorEvent(reason)
