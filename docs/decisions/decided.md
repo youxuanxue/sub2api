@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-12 手动停调度不进 Plan
+
+原话：「不对，schedulable=false 不应该进 plan，池子不足会是其他的临时不可调度、限流等。」以及「同意。请修复。」
+
+适用范围：候选选号的协议 Plan。`Schedulable=false` 在 Plan 之前排除。临时不可调度、限流、过载、配额仍进入 Plan，只有这些合法路径时仍是容量 429。
+
 ## 2026-11-12 Gemini 4 Argon / Carbon 默认映射 medium
 
 原话：「如果 gemini-4-carbon-medium 和 gemini-4-carbon-high 都是一样的定价的话，为了提升用户体验，我们应该把 gemini-4-carbon/argon 都默认映射到 -medium。」

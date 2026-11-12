@@ -12,7 +12,8 @@
     "AC-002": {
       "status": "contract-tested",
       "evidence": [
-        "backend/internal/service/candidate_eligibility_test.go::TestCandidateEligibilityCapacityIsNotEntitlement",
+        "backend/internal/service/candidate_eligibility_test.go::TestCandidateEligibilityManualSwitchIsNotCapacity",
+        "backend/internal/service/candidate_selection_tk_test.go::TestTempUnschedulableRemainsCapacity",
         "backend/internal/service/candidate_eligibility_test.go::TestCandidateEligibilityUnknownCapabilityIsNotEntitlement"
       ]
     },

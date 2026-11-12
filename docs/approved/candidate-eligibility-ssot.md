@@ -685,6 +685,9 @@ miss and unknown or conflicted capability evidence. The result is
 Ops classifies it as a client request, not routing capacity.
 
 Accounts that can serve the request but are not ready (concurrency, cooldown,
-quota) stay a capacity 429. A concrete unsupported model name and a
+quota, temporary unschedulable, rate limit) stay a capacity 429. The manual
+`Schedulable=false` switch removes the account before Plan; it is not pool
+capacity. Approved by feng on 2026-11-12: 「schedulable=false 不应该进 plan，池子不足会是其他的临时不可调度、限流等。」
+A concrete unsupported model name and a
 known-negative input modality keep their existing 400s. A concrete model miss
 still outranks unknown peer evidence.

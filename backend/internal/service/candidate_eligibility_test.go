@@ -108,7 +108,7 @@ func TestCandidateEligibilityGoogleBackends(t *testing.T) {
 	}
 }
 
-func TestCandidateEligibilityCapacityIsNotEntitlement(t *testing.T) {
+func TestCandidateEligibilityManualSwitchIsNotCapacity(t *testing.T) {
 	resolver, gateway, accounts, request := candidateGoogleFixture(t)
 	for i := range accounts {
 		accounts[i].Schedulable = false
@@ -116,8 +116,10 @@ func TestCandidateEligibilityCapacityIsNotEntitlement(t *testing.T) {
 	wireCandidateTestResolver(resolver, gateway, accounts)
 	group, err := resolveCandidateTest(resolver, request, "")
 	require.Nil(t, group)
-	require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+	require.ErrorIs(t, err, ErrUniversalNoEntitledGroup)
+	require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
 	for i := range accounts {
+		accounts[i].Schedulable = true
 		accounts[i].Credentials["model_mapping"] = map[string]any{"other": "other"}
 	}
 	wireCandidateTestResolver(resolver, gateway, accounts)
@@ -367,6 +369,10 @@ func TestCandidateEligibilityInvalidCapabilityIsCandidateRejection(t *testing.T)
 					case "unsupported":
 						require.Nil(t, group)
 						require.ErrorIs(t, err, ErrUniversalUnsupportedModel)
+					case "disabled":
+						require.Nil(t, group)
+						require.ErrorIs(t, err, ErrUniversalUnsupportedRequest)
+						require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
 					default:
 						require.Nil(t, group)
 						require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)

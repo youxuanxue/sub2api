@@ -10,3 +10,11 @@ package service
 func (a *Account) IsLiveForDiscovery() bool {
 	return a != nil && a.IsActive() && a.Schedulable
 }
+
+// accountParticipatesInProtocolPlan is the operator scheduling switch.
+// Temporary unreadiness (temp_unschedulable, rate limit, overload, quota)
+// stays inside Plan and becomes a capacity miss only after a legal path
+// exists. A manual Schedulable=false account is not a pool member.
+func accountParticipatesInProtocolPlan(account *Account) bool {
+	return account != nil && account.Schedulable
+}
