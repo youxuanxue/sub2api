@@ -385,8 +385,7 @@ func protocolResolvedModelAllowedForTargetWithAdmission(
 	// Volc Agent Plan is the same class for kimi-k3 text: root exposes
 	// /responses, but Chat Completions is the only stable native protocol.
 	if target == protocolrouter.ProtocolResponses &&
-		(account.IsOpenAICloudwiseRelay() || account.IsOpenAITokenseaRelay() ||
-			isNewAPIVolcEngineAgentPlanAccount(account)) {
+		(account.IsOpenAICloudwiseRelay() || isNewAPIVolcEngineAgentPlanAccount(account)) {
 		return false
 	}
 	if target == protocolrouter.ProtocolGeminiGenerateContent {

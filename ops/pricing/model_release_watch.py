@@ -51,16 +51,12 @@ PRIMARY_SURFACES = frozenset({
     "platform:antigravity",
     "platform:grok",
     "platform:kiro",
-    "platform:anthropic_tokensea_relay",
-    "platform:openai_tokensea_relay",
     "platform:openai_cloudwise_relay",
     "allowlist:anthropic",
     "allowlist:openai",
     "allowlist:gemini",
     "allowlist:antigravity",
     "allowlist:grok",
-    "catalog:openai_tokensea_relay",
-    "catalog:anthropic_tokensea_relay",
     "manifest",
 })
 
@@ -461,20 +457,6 @@ def load_baseline(
     for platform, models in _parse_allowlist_maps(go_text).items():
         for model_id in models:
             _add_key(baseline, model_id, f"allowlist:{platform}", model_id)
-
-    for var_name, surface in (
-        ("supportedOpenAITokenseaRelayCatalogModels", "catalog:openai_tokensea_relay"),
-        ("supportedAnthropicTokenseaRelayCatalogModels", "catalog:anthropic_tokensea_relay"),
-    ):
-        match = re.search(
-            rf"{re.escape(var_name)}\s*=\s*map\[string\]struct\{{(.*?)}}",
-            go_text,
-            re.S,
-        )
-        if not match:
-            continue
-        for model_id in re.findall(r'"([^"]+)"\s*:\s*\{\}', match.group(1)):
-            _add_key(baseline, model_id, surface, model_id)
 
     return baseline
 

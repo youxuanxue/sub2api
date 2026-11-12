@@ -491,21 +491,6 @@ def _is_openai_ainzy_relay(row: dict[str, Any]) -> bool:
     return base in {"https://api.ainzy.net/v1", "https://api.ainzy.net"}
 
 
-_TOKENSEA_RELAY_BASE_URLS = {
-    "https://agent.tokensea.ai",
-    "https://agent.tokensea.ai/v1",
-}
-
-
-def _is_openai_tokensea_relay(row: dict[str, Any]) -> bool:
-    if str(row.get("platform") or "").strip().lower() != "openai":
-        return False
-    if str(row.get("type") or "") != "apikey":
-        return False
-    base = str(row.get("base_url") or "").strip().lower().rstrip("/")
-    return base in _TOKENSEA_RELAY_BASE_URLS
-
-
 def _is_openai_cloudwise_relay(row: dict[str, Any]) -> bool:
     # Platform is not part of the identity: prod keeps a dual-stack pair
     # (openai #95 + anthropic #94) on the same CloudWise base_url, and both
@@ -514,15 +499,6 @@ def _is_openai_cloudwise_relay(row: dict[str, Any]) -> bool:
         return False
     base = str(row.get("base_url") or "").strip().lower().rstrip("/")
     return base in {"https://api.cloudwise.ai/api", "https://api-us.cloudwise.ai/api"}
-
-
-def _is_anthropic_tokensea_relay(row: dict[str, Any]) -> bool:
-    if str(row.get("platform") or "").strip().lower() != "anthropic":
-        return False
-    if str(row.get("type") or "") != "apikey":
-        return False
-    base = str(row.get("base_url") or "").strip().lower().rstrip("/")
-    return base in _TOKENSEA_RELAY_BASE_URLS
 
 
 def _is_gemini_web_account(row: dict[str, Any]) -> bool:
@@ -539,12 +515,8 @@ def _account_scope(row: dict[str, Any]) -> str:
         return "gemini_web"
     if _is_openai_ainzy_relay(row):
         return "openai_ainzy_relay"
-    if _is_openai_tokensea_relay(row):
-        return "openai_tokensea_relay"
     if _is_openai_cloudwise_relay(row):
         return "openai_cloudwise_relay"
-    if _is_anthropic_tokensea_relay(row):
-        return "anthropic_tokensea_relay"
     if _is_kiro_scope(row):
         return "kiro"
     platform = str(row.get("platform") or "").strip().lower()
@@ -2642,37 +2614,18 @@ def cmd_selftest(_args) -> int:
         "type": "apikey",
         "base_url": "https://api.openai.com/v1",
     })
-    # /v1 suffix is a stored-URL boundary sample, not an owner copy of live #92/#93.
-    assert _is_openai_tokensea_relay({
-        "platform": "openai",
-        "type": "apikey",
-        "base_url": "https://agent.tokensea.ai",
-    })
-    assert _is_openai_tokensea_relay({
-        "platform": "openai",
-        "type": "apikey",
-        "base_url": "https://agent.tokensea.ai/v1",
-    })
+    # agent.tokensea.ai is no longer a typed relay scope. A stored URL on
+    # platform openai/anthropic falls through to the platform floor.
     assert _account_scope({
         "platform": "openai",
         "type": "apikey",
         "base_url": "https://agent.tokensea.ai/v1/",
-    }) == "openai_tokensea_relay"
-    assert _is_anthropic_tokensea_relay({
-        "platform": "anthropic",
-        "type": "apikey",
-        "base_url": "https://agent.tokensea.ai/v1",
-    })
+    }) == "openai"
     assert _account_scope({
         "platform": "anthropic",
         "type": "apikey",
         "base_url": "https://agent.tokensea.ai/v1",
-    }) == "anthropic_tokensea_relay"
-    assert not _is_openai_tokensea_relay({
-        "platform": "openai",
-        "type": "apikey",
-        "base_url": "https://relay.example.com/v1",
-    })
+    }) == "anthropic"
     prod_only = _resolve_check_targets(
                 prod_instance_id="mi-00000000000000000",
     )

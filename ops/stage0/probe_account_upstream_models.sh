@@ -188,18 +188,10 @@ def derive_account_scope(row):
     }:
         return "openai_ainzy_relay"
     if platform == "openai" and account_type == "apikey" and account_base_url in {
-        "https://agent.tokensea.ai", "https://agent.tokensea.ai/v1",
-    }:
-        return "openai_tokensea_relay"
-    if platform == "openai" and account_type == "apikey" and account_base_url in {
         "https://api.cloudwise.ai/api",
         "https://api-us.cloudwise.ai/api",
     }:
         return "openai_cloudwise_relay"
-    if platform == "anthropic" and account_type == "apikey" and account_base_url in {
-        "https://agent.tokensea.ai", "https://agent.tokensea.ai/v1",
-    }:
-        return "anthropic_tokensea_relay"
     if platform == "newapi":
         channel_type = account.get("channel_type")
         if isinstance(channel_type, int) and channel_type > 0:

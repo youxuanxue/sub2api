@@ -19,28 +19,11 @@ import (
 func tokenseaAnthropicRelayAccount() *Account {
 	account := newAnthropicAPIKeyAccountForTest()
 	account.Credentials["base_url"] = "https://agent.tokensea.ai"
-	account.Credentials["model_mapping"] = modelMappingToAny(anthropicTokenseaRelayModelMappingFloor())
+	account.Credentials["model_mapping"] = map[string]any{
+		"claude-haiku-4-5":  "claude-haiku-4-5-20251001",
+		"claude-sonnet-4-6": "claude-sonnet-4-6",
+	}
 	return account
-}
-
-func TestAnthropicTokenseaRelayFloorMapsShortNamesToWireIDs(t *testing.T) {
-	t.Parallel()
-	mapping := anthropicTokenseaRelayModelMappingFloor()
-	require.Equal(t, "claude-haiku-4-5-20251001", mapping["claude-haiku-4-5"])
-	require.Equal(t, "claude-haiku-4-5-20251001", mapping["claude-haiku-4-5-20251001"])
-	require.Equal(t, "claude-opus-4-5-20251101", mapping["claude-opus-4-5"])
-	require.Equal(t, "claude-opus-4-5-20251101", mapping["claude-opus-4-5-20251101"])
-	require.Equal(t, "claude-sonnet-4-6", mapping["claude-sonnet-4-6"])
-	require.Equal(t, "gpt-5.5", mapping["gpt-5.5"])
-	require.NotContains(t, mapping, "gpt-5.4", "retired client-facing OpenAI ids stay off the public tokensea floor")
-	require.NotContains(t, mapping, "qwen3.7-max", "curated newapi id is a boundary sample, not an owner copy")
-	for _, id := range tokenseaRelayCorePublicFloorIDs() {
-		require.Contains(t, mapping, id, "93 floor must include every 92 live SSOT key")
-	}
-	require.GreaterOrEqual(t, len(mapping), len(tokenseaRelayCorePublicFloorIDs()))
-	if !tokenseaRelayMeetsPublicSSOT("claude-opus-5") {
-		require.NotContains(t, mapping, "claude-opus-5")
-	}
 }
 
 func TestBuildAnthropicCompatUpstreamRequest_PassthroughUsesTokenseaMessagesURL(t *testing.T) {
@@ -106,27 +89,25 @@ func TestForwardAsChatCompletions_AnthropicTokenseaPassthroughMapsHaikuWireID(t 
 	require.Equal(t, "https://agent.tokensea.ai/v1/messages?beta=true", upstream.lastReq.URL.String())
 }
 
-func TestIsModelSupportedByAccount_AnthropicTokenseaUsesMapping(t *testing.T) {
+func TestSupplierManagedTokenseaAccountAdmitsOwnMappingOnly(t *testing.T) {
 	t.Parallel()
 	svc := &GatewayService{}
-	account := tokenseaAnthropicRelayAccount()
-	require.True(t, account.IsAnthropicTokenseaRelay())
-
-	for _, id := range tokenseaRelayCorePublicFloorIDs() {
-		require.True(t, svc.isModelSupportedByAccount(account, id), id)
+	account := &Account{
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai",
+			"model_mapping": map[string]any{
+				"claude-fable-5": "claude-fable-5",
+			},
+		},
 	}
-	require.True(t, svc.isModelSupportedByAccount(account, "claude-haiku-4-5"))
-	// Image marketing aliases must clear the Anthropic-shaped TokenSea gate when
-	// their wire targets are already on the shared 92/93 floor.
-	require.True(t, svc.isModelSupportedByAccount(account, "nano-2"))
-	require.True(t, svc.isModelSupportedByAccount(account, "nano-pro"))
-	require.True(t, svc.isModelSupportedByAccount(account, "gpt-image-2.5"))
-	require.False(t, svc.isModelSupportedByAccount(account, "image-2.5"))
-	require.False(t, svc.isModelSupportedByAccount(account, "gpt-not-in-tokensea-ssot"))
-	require.False(t, svc.isModelSupportedByAccount(account, "gpt"))
+	require.True(t, svc.isModelSupportedByAccount(account, "claude-fable-5"))
+	require.False(t, svc.isModelSupportedByAccount(account, "gpt-5.6-luna"))
+	require.False(t, svc.isModelSupportedByAccount(account, "gpt-not-in-account-mapping"))
 }
 
-func TestIsModelSupportedByAccount_AnthropicTokenseaEmptyMappingUsesSSOTGate(t *testing.T) {
+func TestTypedAnthropicTokenseaURLDoesNotAdmitNonClaudeName(t *testing.T) {
 	t.Parallel()
 	svc := &GatewayService{}
 	account := &Account{
@@ -136,28 +117,8 @@ func TestIsModelSupportedByAccount_AnthropicTokenseaEmptyMappingUsesSSOTGate(t *
 			"base_url": "https://agent.tokensea.ai",
 		},
 	}
-	require.True(t, account.IsAnthropicTokenseaRelay())
-	require.Empty(t, account.GetModelMapping())
-
-	for _, id := range tokenseaRelayNonClaudePublicIDs(t) {
-		require.True(t, account.IsModelSupported(id), id)
-		require.True(t, svc.isModelSupportedByAccount(account, id), id)
-	}
-	require.True(t, svc.isModelSupportedByAccount(account, "claude-haiku-4-5"))
-	require.False(t, account.IsModelSupported("gpt-not-in-tokensea-ssot"))
-	require.False(t, svc.isModelSupportedByAccount(account, "gpt-not-in-tokensea-ssot"))
-	require.False(t, svc.isModelSupportedByAccount(account, "gpt"))
-}
-
-func TestIsModelSupported_AnthropicTokenseaGateOverridesExplicitForbiddenMapping(t *testing.T) {
-	t.Parallel()
-	account := tokenseaAnthropicRelayAccount()
-	account.Credentials["model_mapping"] = map[string]any{
-		"gpt-5.5":                  "gpt-5.5",
-		"gpt-not-in-tokensea-ssot": "gpt-not-in-tokensea-ssot",
-	}
-	require.True(t, account.IsModelSupported("gpt-5.5"))
-	require.False(t, account.IsModelSupported("gpt-not-in-tokensea-ssot"))
+	require.False(t, svc.isModelSupportedByAccount(account, "gpt-5.5"))
+	require.True(t, svc.isModelSupportedByAccount(account, "claude-sonnet-4-6"))
 }
 
 func TestBuildAnthropicCompatUpstreamRequest_OAuthPassthroughUsesBearerAuth(t *testing.T) {

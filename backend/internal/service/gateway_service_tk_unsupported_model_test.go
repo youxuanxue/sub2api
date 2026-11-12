@@ -441,28 +441,15 @@ func TestIsModelSupportedByAccount_MappedCloudwisePrefixDoesNotLeakToOfficialAnt
 	}
 }
 
-func tokenseaRelayNonClaudePublicIDs(t *testing.T) []string {
-	t.Helper()
-	out := make([]string, 0)
-	for _, id := range tokenseaRelayCorePublicFloorIDs() {
-		if !tkIsForwardableAnthropicModelName(id) {
-			out = append(out, id)
-		}
+func TestTkAnthropicCrossVendorSelectionFailure_RejectsFormerTokenseaFloorIDs(t *testing.T) {
+	// Boundary sample: gpt-5.5 used to pass Anthropic ingress because the
+	// retired tokensea floor listed it. Ingress must reject it again.
+	const formerFloorID = "gpt-5.5"
+	if err := tkAnthropicCrossVendorSelectionFailure(formerFloorID); err == nil {
+		t.Fatalf("%q must stay an Anthropic cross-vendor reject", formerFloorID)
 	}
-	if len(out) == 0 {
-		t.Fatal("tokensea public floor must include at least one non-claude id")
-	}
-	return out
-}
-
-func TestTkAnthropicCrossVendorSelectionFailure_AllowsTokenseaPublicSSOT(t *testing.T) {
-	for _, id := range tokenseaRelayNonClaudePublicIDs(t) {
-		if err := tkAnthropicCrossVendorSelectionFailure(id); err != nil {
-			t.Fatalf("tokensea public SSOT id %q must pass Anthropic ingress, got %v", id, err)
-		}
-		if TkIsAnthropicCrossVendorModelName(id) {
-			t.Fatalf("TkIsAnthropicCrossVendorModelName(%q) = true, want false", id)
-		}
+	if !TkIsAnthropicCrossVendorModelName(formerFloorID) {
+		t.Fatalf("TkIsAnthropicCrossVendorModelName(%q) = false, want true", formerFloorID)
 	}
 }
 
@@ -479,7 +466,7 @@ func TestTkAnthropicCrossVendorSelectionFailure_StillRejectsBareAndUnknownGPT(t 
 
 func TestIsModelSupportedByAccount_MappedTokenseaGPTDoesNotLeakToOfficialAnthropic(t *testing.T) {
 	svc := &GatewayService{}
-	sample := tokenseaRelayNonClaudePublicIDs(t)[0]
+	const sample = "gpt-5.5"
 	leaked := &Account{
 		ID:       13,
 		Platform: PlatformAnthropic,
@@ -492,11 +479,8 @@ func TestIsModelSupportedByAccount_MappedTokenseaGPTDoesNotLeakToOfficialAnthrop
 			},
 		},
 	}
-	if leaked.IsAnthropicTokenseaRelay() {
-		t.Fatal("official Anthropic base_url must not be classified as tokensea")
-	}
 	if svc.isModelSupportedByAccount(leaked, sample) {
-		t.Fatalf("non-tokensea mapped anthropic must not claim %s after tokensea ingress allow", sample)
+		t.Fatalf("official anthropic must not claim %s", sample)
 	}
 	if !svc.isModelSupportedByAccount(leaked, "claude-sonnet-4-6") {
 		t.Fatal("non-tokensea mapped anthropic must still serve its claude-* mapping")

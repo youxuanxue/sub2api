@@ -136,8 +136,8 @@ func TestProtocolResolvedModelAllowedForTarget_DualStackMessagesRequiresClaude(t
 	}
 
 	tokensea := protocolRoutingRelinkedOpenAIAccount(92, "https://agent.tokensea.ai/v1", "messages", "chat_completions", "responses")
-	if protocolResolvedModelAllowedForTarget(tokensea, "", protocolrouter.ProtocolResponses, "gpt-5.4", "gpt-5.4", nil) {
-		t.Fatal("tokensea must not plan native responses")
+	if !protocolResolvedModelAllowedForTarget(tokensea, "", protocolrouter.ProtocolResponses, "gpt-5.4", "gpt-5.4", nil) {
+		t.Fatal("typed tokensea URL must not special-case responses")
 	}
 
 	cloudwise := protocolRoutingRelinkedOpenAIAccount(95, "https://api.cloudwise.ai/api", "messages", "chat_completions", "responses")

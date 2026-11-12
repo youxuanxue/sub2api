@@ -50,14 +50,15 @@ func TestTkWriteUnsupportedAnthropicModelAtIngress_AllowsCloudwiseWhitelistModel
 	}
 }
 
-func TestTkWriteUnsupportedAnthropicModelAtIngress_AllowsTokenseaPublicSSOTModels(t *testing.T) {
+func TestTkWriteUnsupportedAnthropicModelAtIngress_RejectsFormerTokenseaFloorModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &GatewayHandler{}
-	// Boundary samples from the tokensea public SSOT floor, not a copied catalog.
-	// gpt-5.4 is retired from public declaration; use a still-public OpenAI id.
 	for _, model := range []string{"gpt-5.5", "gemini-3-pro-image"} {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		require.False(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, model, false, nil), model)
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+		require.True(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, model, false, nil), model)
+		require.Equal(t, http.StatusNotFound, w.Code)
 	}
 }
 
