@@ -53,12 +53,16 @@ func TestTkWriteUnsupportedAnthropicModelAtIngress_AllowsCloudwiseWhitelistModel
 func TestTkWriteUnsupportedAnthropicModelAtIngress_RejectsFormerTokenseaFloorModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &GatewayHandler{}
-	for _, model := range []string{"gpt-5.5", "gemini-3-pro-image"} {
+	for _, model := range []string{"gpt-5.5", "gpt-image-2.5"} {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		require.True(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, model, false, nil), model)
 		require.Equal(t, http.StatusNotFound, w.Code)
+	}
+	for _, model := range []string{"gemini-3-pro-image", "nano-banana-2"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		require.False(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, model, false, nil), model)
 	}
 }
 

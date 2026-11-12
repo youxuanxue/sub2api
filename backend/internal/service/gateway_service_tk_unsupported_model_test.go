@@ -145,18 +145,31 @@ func TestTkWrapSelectionFailure(t *testing.T) {
 		}
 	})
 
-	t.Run("tokensea public SSOT does not beat capacity 429", func(t *testing.T) {
-		// gpt-5.4 is retired from public SSOT; use a still-public OpenAI floor id.
+	t.Run("former tokensea floor id is cross-vendor even with capacity stats", func(t *testing.T) {
 		err := tkWrapSelectionFailure(PlatformAnthropic, "gpt-5.5", selectionFailureStats{
 			Total:            5,
 			ModelUnsupported: 4,
 			Unschedulable:    1,
 		})
+		if !errors.Is(err, ErrUnsupportedModel) {
+			t.Fatalf("want ErrUnsupportedModel for retired tokensea floor id, got %v", err)
+		}
+		if errors.Is(err, ErrNoAvailableAccounts) {
+			t.Fatalf("retired tokensea floor id must not surface as capacity: %v", err)
+		}
+	})
+
+	t.Run("gemini image model stays capacity when anthropic selection is mixed", func(t *testing.T) {
+		err := tkWrapSelectionFailure(PlatformAnthropic, "gemini-3-pro-image", selectionFailureStats{
+			Total:            5,
+			ModelUnsupported: 4,
+			Unschedulable:    1,
+		})
 		if !errors.Is(err, ErrNoAvailableAccounts) {
-			t.Fatalf("want capacity ErrNoAvailableAccounts for tokensea SSOT id, got %v", err)
+			t.Fatalf("want capacity ErrNoAvailableAccounts for gemini image mixed scheduling, got %v", err)
 		}
 		if errors.Is(err, ErrUnsupportedModel) {
-			t.Fatalf("tokensea public SSOT must not be classified as cross-vendor: %v", err)
+			t.Fatalf("gemini image model must not be classified as cross-vendor: %v", err)
 		}
 	})
 
@@ -450,6 +463,14 @@ func TestTkAnthropicCrossVendorSelectionFailure_RejectsFormerTokenseaFloorIDs(t 
 	}
 	if !TkIsAnthropicCrossVendorModelName(formerFloorID) {
 		t.Fatalf("TkIsAnthropicCrossVendorModelName(%q) = false, want true", formerFloorID)
+	}
+	for _, kept := range []string{"gemini-3-pro-image", "gemini-3.1-flash-image", "nano-banana-2", "nano-pro"} {
+		if err := tkAnthropicCrossVendorSelectionFailure(kept); err != nil {
+			t.Fatalf("%q must stay schedulable on an Anthropic group, got %v", kept, err)
+		}
+	}
+	if err := tkAnthropicCrossVendorSelectionFailure("gpt-image-2.5"); err == nil {
+		t.Fatal("gpt-image alias must stay an Anthropic cross-vendor reject")
 	}
 }
 

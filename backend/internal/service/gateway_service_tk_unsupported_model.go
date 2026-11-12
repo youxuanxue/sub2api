@@ -286,6 +286,12 @@ func tkAnthropicCrossVendorSelectionFailure(requestedModel string) error {
 	if openAICloudwiseRelaySupportsRequestedModel(requestedModel) {
 		return nil
 	}
+	// Anthropic groups mixed-schedule Gemini image models onto Antigravity.
+	// That path is not a tokensea floor: rejecting gemini-*-image here 404s
+	// before the scheduler, which the image-generation gate does not own.
+	if anthropicIngressKeepsGeminiImageModel(requestedModel) {
+		return nil
+	}
 	if normalized := claude.NormalizeModelID(requestedModel); normalized != "" && normalized != requestedModel {
 		if tkIsForwardableAnthropicModelName(normalized) {
 			return nil
@@ -298,6 +304,22 @@ func tkAnthropicCrossVendorSelectionFailure(requestedModel string) error {
 // Anthropic claude-* namespace. Exported for handler ingress pre-checks.
 func TkIsAnthropicCrossVendorModelName(requestedModel string) bool {
 	return tkAnthropicCrossVendorSelectionFailure(requestedModel) != nil
+}
+
+// anthropicIngressKeepsGeminiImageModel reports Gemini image output names,
+// including Nano Banana aliases whose wire target is one of those names.
+// GPT Image aliases stay cross-vendor rejects.
+func anthropicIngressKeepsGeminiImageModel(requestedModel string) bool {
+	if isGeminiImageOutputModel(requestedModel) {
+		return true
+	}
+	normalized := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(requestedModel)), "models/")
+	for from, to := range tkImageCompatibilityAliases {
+		if strings.EqualFold(from, normalized) && isGeminiImageOutputModel(to) {
+			return true
+		}
+	}
+	return false
 }
 
 func tkIsForwardableAnthropicModelName(model string) bool {
