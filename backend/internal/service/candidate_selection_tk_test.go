@@ -419,7 +419,10 @@ func TestManualSchedulableOffDoesNotTurnProtocolMissIntoCapacity(t *testing.T) {
 	groupAG := grp(21, PlatformAntigravity, 1, false)
 	groupAG.AllowMessagesDispatch = true
 	r, _, key := globalCandidateFixture([]Group{groupAG, grp(16, PlatformOpenAI, 2, false)}, []Account{live, paused})
-	body := []byte(`{"model":"gemini-3.8-flash","max_tokens":64,"messages":[{"role":"user","content":"OK"}],"thinking":{"type":"adaptive"}}`)
+	// Adaptive thinking is a legal Messages→Gemini route. The miss has to be a
+	// semantic the converter still rejects, or a schedulable Gemini account
+	// serves it and this no longer observes a protocol miss.
+	body := []byte(`{"model":"gemini-3.8-flash","max_tokens":64,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.test/a.png"}}]}]}`)
 	_, _, err := r.PrepareCandidateRequest(context.Background(), key, ShapeAnthropicMessages, "/v1/messages", model, body, "", "")
 	require.ErrorIs(t, err, ErrUniversalUnsupportedRequest)
 	require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)

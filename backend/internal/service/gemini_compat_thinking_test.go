@@ -283,15 +283,18 @@ func TestConvertClaudeMessagesToGemini_DropsHistoryThinkingBlocks(t *testing.T) 
 	]}`)
 	out, err := convertClaudeMessagesToGeminiGenerateContent(body, "gemini-2.5-flash")
 	require.NoError(t, err)
-	require.NotContains(t, string(out), "PRIOR_THOUGHT")
-	require.NotContains(t, string(out), "ONLY_THOUGHT")
 	require.NotContains(t, string(out), "opaque")
+	require.NotContains(t, string(out), `"type":"thinking"`)
 
 	contents := gjson.GetBytes(out, "contents").Array()
-	require.Len(t, contents, 4)
+	require.Len(t, contents, 5)
 	require.Equal(t, "model", contents[1].Get("role").String())
-	require.Len(t, contents[1].Get("parts").Array(), 1)
-	require.Equal(t, "Hello", contents[1].Get("parts.0.text").String())
+	require.Len(t, contents[1].Get("parts").Array(), 2)
+	require.Equal(t, true, contents[1].Get("parts.0.thought").Bool())
+	require.Equal(t, "PRIOR_THOUGHT", contents[1].Get("parts.0.text").String())
+	require.Equal(t, "Hello", contents[1].Get("parts.1.text").String())
+	require.Equal(t, "ONLY_THOUGHT", contents[3].Get("parts.0.text").String())
+	require.Equal(t, true, contents[3].Get("parts.0.thought").Bool())
 	for i, content := range contents {
 		require.NotEmpty(t, content.Get("parts").Array(), "contents[%d] has empty parts", i)
 	}
@@ -321,9 +324,10 @@ func TestGeminiForwardAsChatCompletions_DropsHistoryReasoningContent(t *testing.
 	sent := string(upstream.requestBodies[0])
 	require.NotContains(t, sent, "PRIOR_REASONING")
 	require.NotContains(t, sent, "ALIAS_REASONING")
-	require.NotContains(t, sent, "PART_THINKING")
-	require.NotContains(t, sent, "PART_REASONING")
 	require.NotContains(t, sent, "<thinking>")
+	require.Contains(t, sent, `"thought":true`)
+	require.Contains(t, sent, "PART_THINKING")
+	require.Contains(t, sent, "PART_REASONING")
 	require.Contains(t, sent, "Third")
 	require.Contains(t, sent, "Hello")
 	require.Contains(t, sent, "Again")
@@ -370,10 +374,13 @@ func TestGeminiMessagesForward_SignatureRetryKeepsClientThinkingParams(t *testin
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Len(t, upstream.requestBodies, 3)
 	for i, sent := range upstream.requestBodies {
-		require.NotContains(t, string(sent), "RETRY_THOUGHT", "request %d", i)
-		require.NotContains(t, string(sent), "RETRY_ONLY_THOUGHT", "request %d", i)
-		require.NotContains(t, string(sent), "RETRY_BLANK_THOUGHT", "request %d", i)
-		require.NotContains(t, string(sent), "RETRY_SPACE_THOUGHT", "request %d", i)
+		for _, thought := range []string{"RETRY_THOUGHT", "RETRY_ONLY_THOUGHT", "RETRY_BLANK_THOUGHT", "RETRY_SPACE_THOUGHT"} {
+			if i == 0 {
+				require.Contains(t, string(sent), thought)
+			} else {
+				require.NotContains(t, string(sent), thought, "request %d", i)
+			}
+		}
 		for j, content := range gjson.GetBytes(sent, "contents").Array() {
 			require.NotEmpty(t, content.Get("parts").Array(), "request %d contents[%d] has empty parts", i, j)
 			for k, part := range content.Get("parts").Array() {

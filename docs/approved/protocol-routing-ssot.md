@@ -1,11 +1,20 @@
 ---
 title: Protocol Routing Single Source of Truth
 status: approved
-approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, conversation, conversation_id, and audio behind native Responses; unowned previous_response_id is dropped before forwarding on HTTP and the first WebSocket frame, while later WebSocket turns stay fail-closed)"
+approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, conversation, conversation_id, and audio behind native Responses; unowned previous_response_id is dropped before forwarding on HTTP and the first WebSocket frame, while later WebSocket turns stay fail-closed; 2026-11-12 Chat/Responses/Messages→Gemini preserve alignment)"
 authors: [codex]
 created: 2026-08-24
-revised: 2026-10-29
+revised: 2026-11-12
 revision_note: >
+  2026-11-12: Chat→Gemini is a direct converter and keeps data-URL images,
+  function tools, tool_choice, JSON response format, and reasoning_effort.
+  Messages→Gemini keeps base64 images, thought parts, and tool_choice
+  AUTO/NONE/ANY. Responses→Gemini follows Chat admission through
+  Responses→Chat. Native Gemini identity admits inline and file images.
+  The Gemini Web provider gate stays strict. Remote image URLs, strict
+  tools, parallel_tool_calls=false, and mixed builtin plus function tools
+  stay fail-closed. Antigravity OAuth is not declared as native
+  Chat/Responses/Messages.
   2026-10-29: Responses→Chat drops prompt_cache_key, cache_control,
   previous_response_id, conversation, conversation_id, and audio, then still
   serves. That plan ranks behind native Responses, which keeps the fields.
@@ -323,9 +332,20 @@ AND the required adapter and transport exist
 ```
 
 Antigravity OAuth Chat Completions remain a legal client route. Execution
-converts that body onto the native `v1internal` generateContent envelope,
-including `sessionId`, and converts the upstream response back to Chat
-Completions. The upstream request is not `/v1/chat/completions`.
+converts that body directly onto the native `v1internal` generateContent
+envelope, including `sessionId`, and converts the upstream response back to
+Chat Completions. The upstream request is not `/v1/chat/completions`.
+Chat→Gemini keeps data-URL images, function tools, `tool_choice`
+auto/none/required/named, JSON response format, and `reasoning_effort`.
+Built-in tools are not mixed with function declarations. Remote image URLs,
+strict tools, `parallel_tool_calls=false`, more than five stop sequences, and
+Responses item types the Chat bridge skips stay fail-closed. Nested schema or
+argument keys named content, input, or prompt do not change native Gemini
+content kinds.
+Messages→Gemini keeps base64 images, thought parts, and tool_choice
+AUTO/NONE/ANY. Responses→Gemini is Responses→Chat→Gemini and uses the Chat
+admission rules. Native Gemini identity admits inline and file images; that
+admission does not relax the Gemini Web provider gate.
 
 On a non-`OfficialEndpointAnthropic` identity, native `messages` is legal only
 when the resolved upstream model is in the Claude family (`claude-*`). Retired

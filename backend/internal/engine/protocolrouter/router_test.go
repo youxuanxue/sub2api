@@ -184,9 +184,8 @@ func TestPlanGeminiConversionRejectsUnsupportedSemantics(t *testing.T) {
 	account := testAccount(t, ProtocolGeminiGenerateContent)
 	for _, profile := range []RequestProfile{
 		{Tools: true, ContentKinds: ContentText},
-		{Reasoning: ReasoningEffort, ContentKinds: ContentText},
 		{Continuation: ContinuationPreviousResponse, ContentKinds: ContentText},
-		{ContentKinds: ContentText | ContentImage},
+		{ContentKinds: ContentAudio},
 	} {
 		if _, err := New(allTestAdapters()).Plan(testRequest(t, ProtocolMessages, profile), account); !errors.Is(err, ErrNoLegalRoute) {
 			t.Fatalf("Plan profile=%+v error = %v, want ErrNoLegalRoute", profile, err)

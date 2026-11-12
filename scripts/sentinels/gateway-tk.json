@@ -2163,11 +2163,12 @@
         "func preservesChatToGemini(",
         "req.profile.Continuation != ContinuationNone",
         "!calls[message.ToolCallID]",
-        "apicompat.ResponsesCallIDToAnthropic(call.ID)",
-        "seenCalls[convertedID]",
+        "seenCalls[call.ID]",
+        "seenNames[call.Function.Name]",
+        "builtin && len(names) > 0",
         "return len(calls) == 0"
       ],
-      "rationale": "Chat tool conversion must retain unsupported-semantics and tool-history guards."
+      "rationale": "Chat\u2192Gemini keys tool history by the original call ID. Builtin tools cannot mix with function declarations."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
@@ -2218,18 +2219,18 @@
       "path": "backend/internal/engine/protocolrouter/registry.go",
       "must_contain": [
         "adapterID: AdapterMessagesToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesMessagesToGemini",
-        "func preservesToGemini(req CanonicalRequest) bool {"
+        "preserves: preservesResponsesToGemini"
       ],
-      "rationale": "Messages function tools must reach the existing Gemini converter instead of the generic text-only gate."
+      "rationale": "Messages function tools use preservesMessagesToGemini. Responses\u2192Gemini uses Chat admission, not a text-only gate."
     },
     {
       "path": "backend/internal/engine/protocolrouter/gemini_messages_tools.go",
       "must_contain": [
         "func preservesMessagesToGemini(",
         "req.profile.Continuation != ContinuationNone",
-        "req.profile.Reasoning != ReasoningNone"
+        "req.profile.Reasoning == ReasoningSummary"
       ],
-      "rationale": "Gemini tool admission stays bounded by the converter's supported semantics. OpenAI prompt_cache is sticky metadata dropped at conversion and must not refuse Messages→Gemini."
+      "rationale": "Messages→Gemini admits thought parts. Reasoning summaries and continuation stay closed. Prompt cache must not refuse this route."
     },
     {
       "path": "backend/internal/service/protocol_gemini_tools_tk_test.go",
