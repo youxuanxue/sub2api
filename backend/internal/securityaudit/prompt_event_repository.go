@@ -320,10 +320,9 @@ func eventColumns(alias string) string {
 		%[1]s.chunk_total,%[1]s.latency_ms,%[1]s.created_at`, alias)
 }
 
-// eventDetailColumns adds the full prompt, which can be large, so it is only
-// loaded for single-event detail reads and never for list pages.
+// Retain the legacy scan shape without loading historical raw prompts.
 func eventDetailColumns(alias string) string {
-	return eventColumns(alias) + fmt.Sprintf(",%[1]s.full_prompt", alias)
+	return eventColumns(alias) + ",''::text"
 }
 
 func scanEvent(row rowScanner, withFullPrompt ...bool) (*Event, error) {

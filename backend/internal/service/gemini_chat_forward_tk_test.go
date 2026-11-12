@@ -128,7 +128,7 @@ func TestGeminiChatForwardFailureAndPartialUsage(t *testing.T) {
 			result, err := svc.ForwardGeminiViaChat(ctx, c, account, request)
 			require.Error(t, err)
 			var failover *UpstreamFailoverError
-			if scenario == "retry" {
+			if scenario == "retry" || scenario == "malformed" {
 				require.True(t, errors.As(err, &failover))
 				require.False(t, c.Writer.Written())
 			} else {

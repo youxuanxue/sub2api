@@ -1230,6 +1230,10 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 
 // writeChatCompletionsError writes an error response in OpenAI Chat Completions format.
 func writeChatCompletionsError(c *gin.Context, statusCode int, errType, message string) {
+	writeChatCompletionsErrorWithSource(c, statusCode, errType, message, nil)
+}
+
+func writeChatCompletionsErrorWithSource(c *gin.Context, statusCode int, errType, message string, source []byte) {
 	orig := message
 	if public, sanitized := TkSanitizeBusy429WireMessage(statusCode, message); sanitized {
 		TkAnnotateBusy429Ops(c, errType, orig)
@@ -1245,10 +1249,7 @@ func writeChatCompletionsError(c *gin.Context, statusCode int, errType, message 
 	}
 	MarkResponseCommitted(c)
 	c.JSON(statusCode, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
+		"error": openAIClientErrorBody(errType, message, source),
 	})
 }
 
@@ -1256,13 +1257,11 @@ func writeChatCompletionsError(c *gin.Context, statusCode int, errType, message 
 // streaming error object. Used when the stream must terminate with a visible
 // error (e.g. upstream cyber_policy), so programmatic clients stop retrying.
 // Marshal 失败的兜底会丢弃 message 原文，仅保留 code 与固定提示。
-func buildChatStreamErrorSSE(code, message string) string {
+func buildChatStreamErrorSSE(code, message string, sources ...[]byte) string {
+	errorBody := openAIClientErrorBody("invalid_request_error", message, sources...)
+	errorBody["code"] = code
 	payload, err := json.Marshal(gin.H{
-		"error": gin.H{
-			"type":    "invalid_request_error",
-			"code":    code,
-			"message": message,
-		},
+		"error": errorBody,
 	})
 	if err != nil {
 		return "data: {\"error\":{\"type\":\"invalid_request_error\",\"code\":\"" + code + "\",\"message\":\"upstream error\"}}\n\n"

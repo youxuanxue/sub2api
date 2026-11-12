@@ -46,11 +46,11 @@ func (s *OpenAIGatewayService) tkApplyCodexOAuthForwardBody(
 	// 指纹收敛：一次性解析收敛 ID，请求体和出站头共享同一份 IDs（保证 turn_id 等随机字段一致）。
 	// fingerprintIDs 在此处解析，后续 buildUpstreamRequest 中使用同一份。
 	if !isCompactRequest {
-		var clientHeaders http.Header
-		if c != nil && c.Request != nil {
-			clientHeaders = c.Request.Header
+		bodySessionID := ""
+		if metadata, ok := decoded["client_metadata"].(map[string]any); ok {
+			bodySessionID, _ = metadata["session_id"].(string)
 		}
-		fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
+		fpIDs := resolveGatewayCodexFingerprintIDs(c, account, bodySessionID)
 		if fpIDs != nil {
 			if applyCodexFingerprintClientMetadata(decoded, fpIDs) {
 				modified = true

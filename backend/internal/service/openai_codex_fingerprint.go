@@ -392,6 +392,34 @@ func resolveCodexFingerprintIDsFromRequest(account *Account, clientHeaders http.
 	return resolveCodexFingerprintIDs(account, clientSessionID, mode)
 }
 
+// Device identity remains owned by fingerprint policy. Conversation identity
+// must never collapse across authenticated callers, even in full/session mode.
+func resolveGatewayCodexFingerprintIDs(c *gin.Context, account *Account, bodySessionID string) *codexFingerprintIDs {
+	var headers http.Header
+	if c != nil && c.Request != nil {
+		headers = c.Request.Header
+	}
+	ids := resolveCodexFingerprintIDsFromRequest(account, headers)
+	if ids == nil || ids.mode == codexFingerprintDevice {
+		return ids
+	}
+	session := extractClientSessionID(headers)
+	if session == "" {
+		session = strings.TrimSpace(bodySessionID)
+	}
+	if session == "" {
+		// No stable client session exists. A fresh identity is safer than sharing
+		// the account-wide fallback conversation with unrelated requests.
+		session = uuid.NewString()
+	}
+	identityAccount := codexAccountIdentitySource(c, account)
+	seed := fmt.Sprintf("sub2api:codex-tenant-session:v1:key:%d:account:%d:credential:%s:session:%s", getAPIKeyIDFromContext(c), identityAccount.ID, codexAccountIdentityNamespace(identityAccount), session)
+	ids.sessionID = deriveStableUUIDv4(seed)
+	ids.threadID = deriveStableUUIDv4(seed + ":thread")
+	ids.windowID = ids.threadID + ":0"
+	return ids
+}
+
 // CodexEgressInstallationIDForUsage returns the outbound installation_id that
 // fingerprint convergence applies (or would apply) for this account+request.
 // Prefer staged IDs from the live attempt when present so usage_logs matches the

@@ -357,6 +357,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var terminal openAIRawStreamTerminalState
+	var inBandError *chatStreamInBandError
+	businessOutputSeen := false
+	pendingBytes := 0
+	pendingLimitExceeded := false
 
 	// injectUsageOnlyChunkCost prices the current usage for a usage-only chunk,
 	// injects usage.cost and stashes the precomputed settlement so client cost
@@ -385,8 +389,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		if clientDisconnected {
 			return
 		}
-		if !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
+		if !clientOutputStarted && (!businessOutputSeen || !refusalDetector.ShouldReleaseClientOutput()) {
 			pendingLines = append(pendingLines, line)
+			pendingBytes += len(line) + 1
 			return
 		}
 		if !clientOutputStarted {
@@ -424,6 +429,13 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				continue
 			}
 			trimmedPayload := strings.TrimSpace(payload)
+			if u := extractCCStreamUsage(payload); u != nil {
+				usage = *u
+			}
+			if inBandError = detectChatStreamError(trimmedPayload); inBandError != nil {
+				break
+			}
+			businessOutputSeen = businessOutputSeen || chatPayloadHasBusinessOutput(trimmedPayload)
 			terminal.ObserveDataLine(trimmedPayload)
 			if trimmedPayload != "[DONE]" {
 				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
@@ -447,6 +459,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			if trimmedPayload != "[DONE]" && isOpenAIChatUsageOnlyStreamChunk(trimmedPayload) {
 				line = injectUsageOnlyChunkCost(line)
 			}
+		}
+		if !clientOutputStarted && !businessOutputSeen && pendingBytes+len(line)+1 > candidateChatPendingLimit {
+			pendingLimitExceeded = true
+			break
 		}
 		writeLine(line)
 		if line == "" {
@@ -481,6 +497,24 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 
 	scanErr := scanner.Err()
+	if pendingLimitExceeded {
+		return resultWithUsage(), newOpenAIRawStreamTruncatedFailoverError(c, account, requestID, errCandidateChatPendingLimit)
+	}
+	if inBandError != nil {
+		err := s.handleChatStreamFailure(c, resp, account, inBandError.payload, clientOutputStarted, upstreamModel)
+		var failover *UpstreamFailoverError
+		if !errors.As(err, &failover) && !clientDisconnected {
+			message := extractOpenAISSEErrorMessage(inBandError.payload)
+			status, kind := openAIStreamFailedClientResponse(inBandError.payload, message, "upstream_error")
+			if !clientOutputStarted {
+				writeChatCompletionsErrorWithSource(c, status, kind, message, inBandError.payload)
+			} else {
+				_, _ = fmt.Fprint(c.Writer, buildChatStreamErrorSSE(kind, message, inBandError.payload))
+				c.Writer.Flush()
+			}
+		}
+		return resultWithUsage(), err
+	}
 	if scanErr != nil && !errors.Is(scanErr, context.Canceled) && !errors.Is(scanErr, context.DeadlineExceeded) {
 		logger.L().Warn("openai chat_completions raw: stream read error",
 			zap.Error(scanErr),

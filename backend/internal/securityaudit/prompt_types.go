@@ -107,7 +107,7 @@ type PromptSnapshot struct {
 	Model              string `json:"model"`
 	PromptHash         string `json:"prompt_hash"`
 	RedactedPreview    string `json:"redacted_preview"`
-	FullPrompt         string `json:"full_prompt"`
+	FullPrompt         string `json:"-"` // Legacy storage compatibility; never populated or exposed.
 	PromptLength       int    `json:"prompt_length"`
 	MessageCount       int    `json:"message_count"`
 	Stage              string `json:"stage"`
@@ -117,6 +117,7 @@ type PromptSnapshot struct {
 
 func (s PromptSnapshot) Redacted() PromptSnapshot {
 	s.ScanText = ""
+	s.FullPrompt = ""
 	return s
 }
 

@@ -1817,14 +1817,14 @@ func (s *AuthService) generateRefreshToken(ctx context.Context, user *User, fami
 
 	// 添加到用户Token集合
 	if err := s.refreshTokenCache.AddToUserTokenSet(ctx, user.ID, tokenHash, ttl); err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to add token to user set: %v", err)
-		// 不影响主流程
+		_ = s.refreshTokenCache.DeleteRefreshToken(ctx, tokenHash)
+		return "", fmt.Errorf("index refresh token user: %w", err)
 	}
 
 	// 添加到家族Token集合
 	if err := s.refreshTokenCache.AddToFamilyTokenSet(ctx, familyID, tokenHash, ttl); err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to add token to family set: %v", err)
-		// 不影响主流程
+		_ = s.refreshTokenCache.DeleteRefreshToken(ctx, tokenHash)
+		return "", fmt.Errorf("index refresh token family: %w", err)
 	}
 
 	return rawToken, nil
@@ -1908,7 +1908,9 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 
 	// Token轮转：标记旧Token已轮转并保留极短宽限窗口（替代立即硬删），让宽限期内的
 	// 并发刷新走上面的幂等分支，而非被误判为重放攻击。窗口后由 Redis TTL 自动失效。
-	s.tkMarkRotatedWithGrace(ctx, tokenHash, data)
+	if err := s.tkMarkRotatedWithGrace(ctx, tokenHash, data); err != nil {
+		return nil, err
+	}
 
 	// 生成新的Token对，保持同一个家族ID
 	pair, err := s.GenerateTokenPair(ctx, user, data.FamilyID)
