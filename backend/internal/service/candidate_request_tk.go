@@ -533,6 +533,12 @@ func candidateSelectionError(supported bool, err error, model, platformHint stri
 	if !supported && unsupportedRequestSelection(err) {
 		return fmt.Errorf("%w: %s", ErrUniversalUnsupportedRequest, model)
 	}
+	// supported=0 is not a retryable empty pool. Accounts that admit the model
+	// but are not ready stay capacity below; a zero count is an unsupported
+	// request. A model no schedulable account admits never sets supported.
+	if supported && diag != nil && diag.Supported == 0 {
+		return fmt.Errorf("%w: %s", ErrUniversalUnsupportedRequest, model)
+	}
 	if err != nil && (!supported || !errors.Is(err, protocolrouter.ErrNoLegalRoute)) {
 		capacity := newUniversalCapacityError(platformHint, groupID, diag)
 		if remapped, ok := remapProtocolSelectionFailure(err, capacity); ok {

@@ -424,6 +424,12 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		googleError(c, http.StatusBadRequest, "Request body is empty")
 		return
 	}
+	if action == "generateContent" || action == "streamGenerateContent" {
+		if msg := service.NativeGeminiGenerateContentEnvelopeError(body); msg != "" {
+			googleError(c, http.StatusBadRequest, msg)
+			return
+		}
+	}
 	// TK: canonical Gemini generateContent + WithProtocolRouting — see gemini_v1beta_handler_tk_execute.go
 	if action != "countTokens" {
 		if attachErr := h.tkAttachGeminiGenerateContentProtocolRouting(c, modelName, stream, body); attachErr != nil {
@@ -853,6 +859,11 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			accountReleaseFunc()
 		}
 		if err != nil {
+			var mediaErr *service.AntigravityInlineMediaError
+			if errors.As(err, &mediaErr) && !c.Writer.Written() {
+				googleError(c, http.StatusBadRequest, mediaErr.Error())
+				return
+			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)

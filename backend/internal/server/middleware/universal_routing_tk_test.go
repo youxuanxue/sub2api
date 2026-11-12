@@ -548,12 +548,27 @@ func TestMaybeResolveUniversal_MiddlewareProtocolLeakIs429WithOpsDetail(t *testi
 		c2.Set(service.OpsInternalErrorDetailKey, detail)
 	}
 	service.MarkOpsRoutingCapacityLimited(c2)
-	writeUniversalRoutingCapacityError(c2, service.ShapeOpenAIChat)
+	writeUniversalRoutingCapacityError(c2, service.ShapeOpenAIChat, nil)
 	require.Equal(t, http.StatusTooManyRequests, recorder2.Code)
 	require.Contains(t, recorder2.Body.String(), service.TkClientFacingBusy429Message)
 	stored, ok := c2.Get(service.OpsInternalErrorDetailKey)
 	require.True(t, ok)
 	require.Contains(t, stored.(string), "conflicted")
+}
+
+func TestWriteUniversalRoutingCapacityErrorRecordsSupportDiag(t *testing.T) {
+	c, recorder := newTestCtx(http.MethodPost, "/v1beta/models/gemini-2.5-pro:streamGenerateContent", `{"contents":[{"parts":[{"text":"hi"}]}]}`)
+	diag := &service.CandidateCapacityDiag{AccountTotal: 29, Supported: 0, Ready: 0, RejectReasons: map[string]int{"model_not_admitted": 29}}
+	err := &service.UniversalCapacityError{Platform: service.PlatformGemini, Diag: diag}
+	writeUniversalRoutingCapacityError(c, service.ShapeGemini, err)
+	require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+	require.Contains(t, recorder.Body.String(), service.TkClientFacingBusy429Message)
+	require.NotContains(t, recorder.Body.String(), "account_total")
+	msg := c.GetString(service.OpsUpstreamErrorMessageKey)
+	require.Contains(t, msg, "account_total=29")
+	require.Contains(t, msg, "supported=0")
+	require.Contains(t, msg, "ready=0")
+	require.Contains(t, msg, "model_not_admitted=29")
 }
 
 func TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement(t *testing.T) {

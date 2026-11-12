@@ -42,6 +42,9 @@ func WithForwardGeminiSession(groupID int64, sessionHash string) ForwardGeminiOp
 }
 
 func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte, isStickySession bool, options ...ForwardGeminiOption) (*ForwardResult, error) {
+	if err := antigravityRemoteFileRejected(account, action, body); err != nil {
+		return nil, err
+	}
 	ctx = bindGoogleGeneric403Request(c, ctx)
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)
@@ -349,6 +352,9 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		if unwrapErr != nil || len(unwrappedForOps) == 0 {
 			unwrappedForOps = respBody
 		}
+		if antigravityG1CreditsExhausted(unwrappedForOps) || antigravityG1CreditsExhausted(respBody) {
+			noteGeminiG1CreditsExhausted(ctx, s.accountRepo, account)
+		}
 		s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, originalModel, forwardOpts.groupID, forwardOpts.sessionHash, isStickySession)
 		upstreamMsg := strings.TrimSpace(extractAntigravityErrorMessage(unwrappedForOps))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -434,6 +440,9 @@ handleSuccess:
 		// 客户端要求流式，直接透传
 		streamRes, err := s.handleGeminiStreamingResponse(c, resp, startTime)
 		if err != nil {
+			if geminiUpstreamUnexpectedEOF(err) {
+				noteGeminiStreamDisruption(ctx, s.accountRepo, account)
+			}
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_error error=%v", prefix, err)
 			return nil, err
 		}
@@ -443,6 +452,7 @@ handleSuccess:
 		// TK: 上游在任何终止事件之前干净 EOF 必须失败，不能按 HTTP 200 伪成功收尾。
 		// 还没有可用输出时换号；正文、工具或媒体已经写出时记 stream_truncated，不重放。
 		if truncErr := finalizeAntigravityGeminiStreamTruncation(c, streamRes, account, requestID); truncErr != nil {
+			noteGeminiStreamDisruption(ctx, s.accountRepo, account)
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_truncated", prefix)
 			truncatedUsage := ClaudeUsage{}
 			if usage != nil {
@@ -477,6 +487,9 @@ handleSuccess:
 		// response expected by a non-streaming Gemini client.
 		streamRes, err := s.handleGeminiStreamToNonStreaming(c, resp, startTime, mappedModel)
 		if err != nil {
+			if geminiUpstreamUnexpectedEOF(err) {
+				noteGeminiStreamDisruption(ctx, s.accountRepo, account)
+			}
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_collect_error error=%v", prefix, err)
 			return nil, err
 		}

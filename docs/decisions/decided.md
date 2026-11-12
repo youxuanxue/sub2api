@@ -1,5 +1,23 @@
 # 已决定
 
+## 2026-11-12 Gemini 截断冷却改走已有阶梯
+
+原话：「建议改一下：同一账号 15 分钟内第 3 次原生流截断或 unexpected EOF，临时移出调度 30 分钟。这个有已有的阶梯冷却策略，可以复用吗？直接冷却30分钟太狠了，对我们的池子不友好。INSUFFICIENT_G1_CREDITS 立刻停止调度30分钟。」
+
+适用范围：原生流截断和 `unexpected EOF` 仍是 15 分钟内第 3 次才冷却，时长复用 `anthropicCooldownTierLadder`（30 秒、2 分钟、10 分钟）。冷却未结束前不升档。`INSUFFICIENT_G1_CREDITS` 立刻临时停调度 30 分钟。不永久禁用。
+
+## 2026-11-12 无供给模型 404，支持数为 0 则 400
+
+原话：「同意2的修复建议：建议：没有任何可调度账号能提供的模型，返回 404，不要返回可重试的 429。gemini-4-argon 这 11 次先看那把钥匙的 capacity 诊断（account_total、supported、ready、拒绝原因）。诊断现在只在应用日志里，不在 ops_error_logs。supported=0 就应按不支持的请求返回 400；ready=0 才是真的容量问题，去补这把钥匙的组，不要改 Plan。」
+
+适用范围：万能钥匙选号。没有任何可调度账号承认的模型返回 404。容量诊断 `supported=0` 返回 400 `unsupported_request`，不返回可重试 429。`supported>0` 且 `ready=0` 仍是容量 429。不改协议 Plan。容量诊断写入 ops 内部明细。
+
+## 2026-11-12 Gemini 截断熔断与原生请求体校验
+
+原话：「第 1 个 和 第 3 个，同意建议，请修复。」
+
+适用范围：同一 Antigravity/Gemini 账号在短窗口内反复出现原生流截断或 `unexpected EOF` 时临时移出调度；`INSUFFICIENT_G1_CREDITS` 单独临时停用。原生 `generateContent` / `streamGenerateContent` 在缺少 `contents`，或顶层出现 `messages`、`max_tokens`、`input`、`store` 时本地 400。Antigravity 拒绝 `gs://` 和 `http(s)` `fileUri`，只接受 `inlineData`。不在原生路径上把这些请求改写成 Chat。
+
 ## 2026-11-12 手动停调度不进 Plan
 
 原话：「不对，schedulable=false 不应该进 plan，池子不足会是其他的临时不可调度、限流等。」以及「同意。请修复。」

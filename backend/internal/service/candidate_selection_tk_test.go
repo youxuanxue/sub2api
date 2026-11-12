@@ -402,6 +402,35 @@ func TestGlobalCandidateWindowRecoveryAndStickyAdmission(t *testing.T) {
 	require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
 }
 
+func TestNoSchedulableAccountForGemini25ProIs404NotCapacity(t *testing.T) {
+	const model = "gemini-2.5-pro"
+	live := Account{
+		ID: 62, GroupIDs: []int64{21}, Platform: PlatformAntigravity, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 4,
+		Credentials: map[string]any{
+			"base_url": "https://upstream.example.test", "api_key": "test-only",
+			"model_mapping": map[string]any{"gemini-3.8-flash": "gemini-3.8-flash-high"},
+		},
+	}
+	attachTestProtocolCapability(&live, protocolrouter.ProtocolGeminiGenerateContent)
+	// An unschedulable empty mapping would allow every model name. It is not
+	// a schedulable supplier, so it must not turn the miss into a retryable 429.
+	paused := Account{
+		ID: 9, GroupIDs: []int64{16}, Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: false, Concurrency: 1,
+		Credentials: map[string]any{"base_url": "https://new.example.test", "api_key": "test-only"},
+	}
+	r, _, key := globalCandidateFixture([]Group{
+		grp(21, PlatformAntigravity, 1, false),
+		grp(16, PlatformNewAPI, 2, false),
+	}, []Account{live, paused})
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	_, _, err := r.PrepareCandidateRequest(context.Background(), key, ShapeGemini, "/v1beta/models/"+model+":streamGenerateContent", model, body, "", "")
+	require.ErrorIs(t, err, ErrUniversalUnsupportedModel)
+	require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
+	require.NotErrorIs(t, err, ErrUniversalUnsupportedRequest)
+}
+
 func TestManualSchedulableOffDoesNotTurnProtocolMissIntoCapacity(t *testing.T) {
 	const model = "gemini-3.8-flash"
 	live := Account{

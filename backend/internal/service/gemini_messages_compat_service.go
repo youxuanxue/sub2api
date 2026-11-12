@@ -1233,6 +1233,9 @@ func isGeminiSignatureRelatedError(respBody []byte) bool {
 }
 
 func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte) (*ForwardResult, error) {
+	if err := antigravityRemoteFileRejected(account, action, body); err != nil {
+		return nil, err
+	}
 	ctx = bindGoogleGeneric403Request(c, ctx)
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)
@@ -3254,6 +3257,9 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 			break
 		}
 		if err != nil {
+			if geminiUpstreamUnexpectedEOF(err) && !geminiNativeStreamClientAborted(callerCtx) {
+				noteGeminiStreamDisruption(callerCtx, s.accountRepo, account)
+			}
 			if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
 				return nil, foErr
 			}
@@ -3277,6 +3283,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 	// Ops 侧完全无感，断流账号继续按健康参与候选评分。字节已写给客户端，所以
 	// 这里返回普通终止错误（不是 UpstreamFailoverError），禁止重放。
 	if terminal.IsTruncated() && !geminiNativeStreamClientAborted(callerCtx) {
+		noteGeminiStreamDisruption(callerCtx, s.accountRepo, account)
 		ensureClientStarted()
 		_, _ = fmt.Fprint(c.Writer, geminiNativeSSEErrorFrame(http.StatusBadGateway, GeminiNativeStreamTruncatedCode))
 		flusher.Flush()

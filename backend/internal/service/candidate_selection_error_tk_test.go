@@ -55,6 +55,25 @@ func TestCandidateSelectionError_ProtocolDoesNotOpaque500(t *testing.T) {
 		require.Equal(t, "Unsupported request for model: deepseek-v4.1-flash", TkUnsupportedRequestMessage("deepseek-v4.1-flash"))
 	})
 
+	t.Run("unsupported_request_when_support_count_is_zero", func(t *testing.T) {
+		diag := &CandidateCapacityDiag{AccountTotal: 29, Supported: 0, Ready: 0}
+		err := candidateSelectionError(true, nil, "gemini-4-argon", PlatformAntigravity, 21, diag)
+		require.ErrorIs(t, err, ErrUniversalUnsupportedRequest)
+		require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
+		require.NotErrorIs(t, err, ErrUniversalUnsupportedModel)
+	})
+
+	t.Run("capacity_when_supported_but_not_ready", func(t *testing.T) {
+		diag := &CandidateCapacityDiag{AccountTotal: 15, Supported: 7, Ready: 0}
+		diag.reject("temp_unschedulable")
+		err := candidateSelectionError(true, nil, "gemini-4-argon", PlatformAntigravity, 21, diag)
+		require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+		require.NotErrorIs(t, err, ErrUniversalUnsupportedRequest)
+		require.Equal(t, 7, CandidateCapacityDiagFromError(err).Supported)
+		require.Equal(t, 0, CandidateCapacityDiagFromError(err).Ready)
+		require.Equal(t, "temp_unschedulable=1", CandidateCapacityDiagFromError(err).RejectSummary())
+	})
+
 	t.Run("capacity_when_supported_but_exhausted", func(t *testing.T) {
 		err := candidateSelectionError(true, ErrProtocolRouteUnavailable, "deepseek-v4-pro", PlatformNewAPI, 47, nil)
 		require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
