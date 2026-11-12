@@ -5093,14 +5093,13 @@
         "func (s *OpenAIGatewayService) newAPIBridgeOwnsAnthropicMessages(",
         "if s.newAPIBridgeOwnsAnthropicMessages(account) {",
         "s.ForwardAsAnthropicDispatched(ctx, c, account, body, \"\", defaultMappedModel)",
-        "ShouldUseNativeAnthropicMessagesAPI",
         "if shouldForwardNativeAnthropicMessagesForModel(body)",
         "forwardAnthropicViaNativeMessages",
         "forwardAnthropicViaRawChatCompletions",
-        "IsOpenAITokenseaRelay() && shouldForwardNativeAnthropicMessagesForModel",
+        "ShouldUseNativeAnthropicMessagesAPI(account.Extra)",
         "account.IsOpenAIOAuthLike() && promptCacheKey != \"\" && strings.TrimSpace(c.GetHeader(\"conversation_id\")) == \"\""
       ],
-      "rationale": "TK /v1/messages entry routing (tokensea native /v1/messages, CC fallback, CN providers) and OAuth prompt-cache conversation_id cleanup extracted to companion. OpenAI APIKey dual-stack relays (tokensea/cloudwise) branch to native /v1/messages passthrough for claude-* models; tokensea #92 must do this even when extra.openai_native_messages_supported is a false-negative (GPT probe timeout). Non-Claude models (MiniMax-M3, glm-5) must fall back to raw chat completions like /v1/responses. The newAPIBridgeOwnsAnthropicMessages guard MUST stay the FIRST branch: inbound /v1/messages reaches ForwardAsAnthropic directly from the handler, so without it a bridge-eligible newapi account falls through the last predicate into the OpenAI-shaped CC fallback, whose base URL resolves to \"\" for platform=newapi and defaults to api.openai.com while still sending the real channel key (Qwen/Qwen-2/Qwen-4, 2026-08-24). Dropping it compiles clean and silently re-leaks the credential."
+      "rationale": "TK /v1/messages entry routing (native messages when the probe flag is set, CC fallback, CN providers) and OAuth prompt-cache conversation_id cleanup extracted to companion. Typed openai tokensea relays are retired; supplier-managed newapi accounts stay on the first bridge branch. Non-Claude models (MiniMax-M3, glm-5) must fall back to raw chat completions like /v1/responses. The newAPIBridgeOwnsAnthropicMessages guard MUST stay the FIRST branch: inbound /v1/messages reaches ForwardAsAnthropic directly from the handler, so without it a bridge-eligible newapi account falls through the last predicate into the OpenAI-shaped CC fallback, whose base URL resolves to \"\" for platform=newapi and defaults to api.openai.com while still sending the real channel key (Qwen/Qwen-2/Qwen-4, 2026-08-24). Dropping it compiles clean and silently re-leaks the credential."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages.go",
@@ -5139,7 +5138,7 @@
         "TestForwardAsAnthropic_TokenseaGPTKeepsResponsesWhenFlagTrue",
         "https://agent.tokensea.ai/v1/messages"
       ],
-      "rationale": "Live 2026-08-20 account 92: extra.native_messages=false and extra.responses=true because the GPT /v1/messages probe timed out. Claude /v1/messages must still passthrough; GPT /v1/messages must stay on Responses. Losing these regressions restores 502 not implemented on 92 Claude messages."
+      "rationale": "Typed tokensea relays are retired. A stale native-messages=false flag must not force /v1/messages; the flag true path still passthroughs to https://agent.tokensea.ai/v1/messages. GPT /v1/messages with responses=true stays on Responses."
     },
     {
       "path": "backend/internal/service/openai_cloudwise_relay_tk.go",
@@ -5170,23 +5169,12 @@
       "rationale": "GatewayService.isModelSupportedByAccount must route CloudWise accounts through Account.IsModelSupported before the OpenAI passthrough namespace filter. Empty mapping + passthrough otherwise calls tkIsForwardableOpenAIModelName, which allows gpt-* and rejects claude-/glm- — the opposite of the CloudWise floor. Pin the early return so an upstream merge cannot restore that leak while Account.IsModelSupported tests stay green."
     },
     {
-      "path": "backend/internal/service/gateway_scheduling.go",
-      "must_contain": [
-        "if account.IsAnthropicTokenseaRelay() {",
-        "return account.IsModelSupported(requestedModel)"
-      ],
-      "rationale": "GatewayService.isModelSupportedByAccount must route tokensea anthropic #93 through Account.IsModelSupported before the claude-* namespace guard. Without this early return, gpt/qwen public SSOT IDs that now pass Anthropic ingress still cannot select #93. Pin the short-circuit so an upstream merge cannot restore the 400-before-selection leak."
-    },
-    {
       "path": "backend/internal/handler/gateway_handler_tk_tokensea_plan_test.go",
       "must_contain": [
         "TestTokenseaAnthropicMessagesUsesPlannedChat",
-        "h.executeMessagesSelectedProtocol(",
-        "require.Equal(t, protocolrouter.ProtocolChatCompletions, plan.TargetProtocol())",
-        "require.Equal(t, plan.Endpoint(), upstream.request.URL.String())",
-        "require.Equal(t, 3, result.Usage.InputTokens)"
+        "not allowed by account"
       ],
-      "rationale": "A mapped GPT model on Anthropic tokensea must remain eligible when Plan can convert Messages to a supported Chat endpoint. Protect real handler execution, planned credentials/endpoint/model and usage, instead of encoding platform-based denial."
+      "rationale": "A typed anthropic account on agent.tokensea.ai must not plan GPT. Supplier-managed newapi accounts keep their own model_mapping. The denial is account policy, not a compiled tokensea floor."
     },
     {
       "path": "backend/internal/service/candidate_eligibility_tk_tokensea_test.go",
@@ -5195,25 +5183,9 @@
         "gateway.gatewayCandidates(",
         "resolver.Resolve(",
         "ErrUniversalCapacityUnavailable",
-        "ErrProtocolRouteUnavailable"
+        "ErrUniversalUnsupportedModel"
       ],
-      "rationale": "Universal selection and direct scheduler candidates must agree with Plan for Tokensea GPT requests; mapped models without a legal protocol route must be reported as unavailable capacity, never missing entitlement."
-    },
-    {
-      "path": "backend/internal/service/account.go",
-      "must_contain": [
-        "a.IsAnthropicTokenseaRelay() && !tokenseaRelayAccountSupportsRequestedModel(requestedModel)"
-      ],
-      "rationale": "Tokensea anthropic hard gate must stay at the top of upstream-shaped Account.IsModelSupported. Empty model_mapping would otherwise allow any model onto #93 after the scheduling short-circuit. The helper body lives in account_model_mapping_ssot_tk.go; this pins the injection so an upstream merge cannot drop the call while leaving the companion compile-clean."
-    },
-    {
-      "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
-      "must_contain": [
-        "func tokenseaRelaySupportsRequestedModel(",
-        "func tokenseaRelayAccountSupportsRequestedModel(",
-        "func tokenseaRelayCorePublicFloorIDs("
-      ],
-      "rationale": "Exact-ID public SSOT allowlist for tokensea anthropic ingress and #93 selection. Prefix gpt-* is forbidden; official Anthropic accounts stay on the claude-* guard. Losing these helpers silently reopens Unsupported model 400 on group 1 GPT or lets empty-mapping #93 claim arbitrary names."
+      "rationale": "Universal selection and direct scheduler candidates must agree with Plan. A typed anthropic account on agent.tokensea.ai must not be selected for GPT; a mapped Claude model on that account still follows Plan. Mapped models without a legal protocol route must be reported as unavailable capacity, never missing entitlement."
     },
     {
       "path": "backend/internal/service/openai_cloudwise_relay_tk_test.go",
@@ -5297,15 +5269,13 @@
     {
       "path": "backend/internal/service/gateway_tokensea_anthropic_relay_test.go",
       "must_contain": [
-        "TestAnthropicTokenseaRelayFloorMapsShortNamesToWireIDs",
+        "TestSupplierManagedTokenseaAccountAdmitsOwnMappingOnly",
+        "TestTypedAnthropicTokenseaURLDoesNotAdmitNonClaudeName",
         "TestBuildAnthropicCompatUpstreamRequest_PassthroughUsesTokenseaMessagesURL",
         "TestBuildAnthropicCompatUpstreamRequest_OAuthPassthroughUsesBearerAuth",
-        "TestForwardAsChatCompletions_AnthropicTokenseaPassthroughMapsHaikuWireID",
-        "TestIsModelSupportedByAccount_AnthropicTokenseaUsesMapping",
-        "TestIsModelSupportedByAccount_AnthropicTokenseaEmptyMappingUsesSSOTGate",
-        "TestIsModelSupported_AnthropicTokenseaGateOverridesExplicitForbiddenMapping"
+        "TestForwardAsChatCompletions_AnthropicTokenseaPassthroughMapsHaikuWireID"
       ],
-      "rationale": "Focused regressions for tokensea-cc model_mapping floor (short name→dated wire id) and buildAnthropicCompatUpstreamRequest passthrough auth for API Key and OAuth accounts."
+      "rationale": "Host strips and passthrough URL/auth stay. Supplier-managed newapi accounts admit only their own model_mapping. A typed anthropic URL on agent.tokensea.ai does not admit non-Claude names. There is no compiled tokensea floor."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go",
@@ -6539,13 +6509,7 @@
         "case PlatformKiro:",
         "case accountModelMappingPlatformBedrock:",
         "accountModelMappingPlatformOpenAIAinzyRelay",
-        "accountModelMappingPlatformOpenAITokenseaRelay",
-        "accountModelMappingPlatformAnthropicTokenseaRelay",
         "accountModelMappingPlatformOpenAICloudwiseRelay",
-        "IsOpenAITokenseaRelay()",
-        "openAITokenseaRelayAccountModelMappingFloor(",
-        "IsAnthropicTokenseaRelay()",
-        "anthropicTokenseaRelayModelMappingFloor(",
         "IsOpenAICloudwiseRelay()",
         "openAICloudwiseRelayAccountModelMappingFloor(",
         "func antigravityAccountModelMappingFloor(",
@@ -6554,7 +6518,7 @@
         "newAPIAliTokenPlanModelAliases()",
         "newAPIQianfanTokenPlanModelAliases()"
       ],
-      "rationale": "Single SSOT selector for account model_mapping. It applies runtime replacement scopes first, then derives explicit native mappings from CatalogPolicy projections, platform compatibility owners, Kiro presets, Bedrock defaults, and newapi channel display presets. Losing any branch silently breaks the all-platform explicit model_mapping policy or drops owner-declared compatibility aliases. ModelSurfaceBundleForOps emits the deterministic checksummed release projection once; rollout tools consume that artifact instead of compiling this package. Tokensea relay scopes (openai_tokensea_relay / anthropic_tokensea_relay) and CloudWise relay scope (openai_cloudwise_relay) must stay wired so prod relay accounts keep probe-curated floors. The isNewAPIXRTokenAccount branch routes ch54 XRToken accounts through its base_url-scoped five-model manifest projection instead of the generic channel-type fallback; otherwise apply-accounts would lose the three shared rows indexed under ch45 or leak XRToken-only rows into plain ch54 accounts."
+      "rationale": "Single SSOT selector for account model_mapping. It applies runtime replacement scopes first, then derives explicit native mappings from CatalogPolicy projections, platform compatibility owners, Kiro presets, Bedrock defaults, and newapi channel display presets. Losing any branch silently breaks the all-platform explicit model_mapping policy or drops owner-declared compatibility aliases. ModelSurfaceBundleForOps emits the deterministic checksummed release projection once; rollout tools consume that artifact instead of compiling this package. CloudWise relay scope (openai_cloudwise_relay) must stay wired so prod relay accounts keep the prefix floor. Typed tokensea relay scopes are retired; agent.tokensea.ai traffic uses supplier-managed account mappings. The isNewAPIXRTokenAccount branch routes ch54 XRToken accounts through its base_url-scoped five-model manifest projection instead of the generic channel-type fallback; otherwise apply-accounts would lose the three shared rows indexed under ch45 or leak XRToken-only rows into plain ch54 accounts."
     },
     {
       "path": "backend/internal/service/account_model_mapping_floor_test.go",
@@ -6816,8 +6780,6 @@
         "targeted activation plan changed since dry-run",
         "targeted activation read-back still reports mapping changes",
         "targeted_accounts=targeted_accounts",
-        "anthropic_tokensea_relay",
-        "openai_tokensea_relay",
         "openai_cloudwise_relay"
       ],
       "rationale": "The single prod model-surface activation entry consumes the shared validated manifest projection, validates current/target bundle digests, rejects stale or incomplete independent probe/pricing evidence, defaults to a reviewed mapping dry-run, requires a fixed outer confirmation before the inner mapping apply, and fails unless the post-apply prod release gate passes."
@@ -9074,7 +9036,7 @@
         "path+\".scope\"",
         "isTokenseaRelayBaseURL(account.GetCredential(\"base_url\"))"
       ],
-      "rationale": "Tokensea pre-send strips, account-gated not model-gated. (1) context_management: agent.tokensea.ai returns HTTP 400 'context_management: Extra inputs are not permitted' for EVERY Claude model seen in prod (fable-5 2026-09-20 user16; opus-4-8 same day; opus-5 2026-09-26 user1). (2) cache_control.scope: Claude Code 2.1.92 sends prompt-caching-scope; official Anthropic accepts it, tokensea 400s 'system.N.cache_control.***.scope: Extra inputs are not permitted' (prod 2026-09-28 user16 account 136 × opus-5). isTokenseaRelayUpstream must cover openai/anthropic typed relays AND platform=newapi base_url agent.tokensea.ai (account 136). Dropping either strip or re-adding a model gate silently re-surfaces raw upstream 400s on failover."
+      "rationale": "Tokensea pre-send strips, account-gated not model-gated. (1) context_management: agent.tokensea.ai returns HTTP 400 'context_management: Extra inputs are not permitted' for EVERY Claude model seen in prod (fable-5 2026-09-20 user16; opus-4-8 same day; opus-5 2026-09-26 user1). (2) cache_control.scope: Claude Code 2.1.92 sends prompt-caching-scope; official Anthropic accepts it, tokensea 400s 'system.N.cache_control.***.scope: Extra inputs are not permitted' (prod 2026-09-28 user16 account 136 × opus-5). isTokenseaRelayUpstream keys only off the agent.tokensea.ai host, including supplier-managed newapi accounts (account 136). Dropping either strip or re-adding a model gate silently re-surfaces raw upstream 400s on failover."
     },
     {
       "path": "backend/internal/service/gateway_request_tk_tokensea_test.go",
@@ -9925,8 +9887,7 @@
       "path": "backend/internal/service/gateway_service_tk_unsupported_model.go",
       "must_contain": [
         "func tkIsForwardableAnthropicModelName(model string) bool {",
-        "return strings.HasPrefix(m, \"claude-\")",
-        "tokenseaRelaySupportsRequestedModel(requestedModel)"
+        "return strings.HasPrefix(m, \"claude-\")"
       ],
       "rationale": "must_contain pins both the function and the claude- prefix rule so an upstream merge or refactor that deletes the predicate (re-opening the leak) fails the sentinel check."
     },
@@ -9942,7 +9903,7 @@
       "must_contain": [
         "TestIsModelSupportedByAccount_MappedCloudwisePrefixDoesNotLeakToOfficialAnthropic",
         "TestIsModelSupportedByAccount_MappedTokenseaGPTDoesNotLeakToOfficialAnthropic",
-        "TestTkAnthropicCrossVendorSelectionFailure_AllowsTokenseaPublicSSOT",
+        "TestTkAnthropicCrossVendorSelectionFailure_RejectsFormerTokenseaFloorIDs",
         "https://api.anthropic.com"
       ],
       "rationale": "Regression for PR #1743 R-001: a non-CloudWise anthropic APIKey that copies the CloudWise prefix floor must not be selected for glm/kimi/minimax/deepseek after ingress allows those names."
@@ -12398,10 +12359,9 @@
         "UpstreamBillingProbePlatforms",
         "ErrUpstreamBillingProbeUnsupported",
         "upstreamBillingProbeSupportsSub2APIBilling",
-        "IsOpenAICloudwiseRelay()",
-        "IsOpenAITokenseaRelay()"
+        "IsOpenAICloudwiseRelay()"
       ],
-      "rationale": "MaaS dual-stack relays (CloudWise, tokensea) do not expose /v1/sub2api/billing and must return UPSTREAM_BILLING_PROBE_UNSUPPORTED. UpstreamBillingProbePlatforms is the Go allowlist (excludes newapi/kiro) kept in lockstep with the frontend via platform-registry-drift."
+      "rationale": "CloudWise does not expose /v1/sub2api/billing and must return UPSTREAM_BILLING_PROBE_UNSUPPORTED. UpstreamBillingProbePlatforms is the Go allowlist (excludes newapi/kiro) kept in lockstep with the frontend via platform-registry-drift."
     },
     {
       "path": "backend/internal/service/upstream_billing_probe_multiplatform_test.go",
@@ -16273,7 +16233,6 @@
       "path": "backend/internal/service/account_model_mapping_ssot_tk_test.go",
       "must_contain": [
         "spark is no longer on the OpenAI floor",
-        "retired spark must not re-enter the relay floor",
         "floor alias %s must match overlay _aliases",
         "floor alias %s must match codexModelMap"
       ],

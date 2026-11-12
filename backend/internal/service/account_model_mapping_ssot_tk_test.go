@@ -49,97 +49,11 @@ func TestAccount_IsOpenAIAinzyRelay(t *testing.T) {
 	require.True(t, ainzy.IsOpenAIAinzyRelay())
 }
 
-func TestAccount_IsOpenAITokenseaRelay(t *testing.T) {
+func TestAntigravityFloorKeepsNanoBanana2Alias(t *testing.T) {
 	t.Parallel()
-	require.False(t, (*Account)(nil).IsOpenAITokenseaRelay())
-
-	tokensea := &Account{
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"base_url": "https://agent.tokensea.ai",
-		},
-	}
-	require.True(t, tokensea.IsOpenAITokenseaRelay())
-
-	tokenseaV1 := &Account{
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"base_url": "https://agent.tokensea.ai/v1",
-		},
-	}
-	require.True(t, tokenseaV1.IsOpenAITokenseaRelay(), "base_url /v1 suffix is a stored-URL boundary sample, not an owner copy")
-
-	other := &Account{
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"base_url": "https://relay.example.com/v1",
-		},
-	}
-	require.False(t, other.IsOpenAITokenseaRelay())
-}
-
-func TestAccount_IsAnthropicTokenseaRelay(t *testing.T) {
-	t.Parallel()
-	require.False(t, (*Account)(nil).IsAnthropicTokenseaRelay())
-
-	tokensea := &Account{
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"base_url": "https://agent.tokensea.ai",
-		},
-	}
-	require.True(t, tokensea.IsAnthropicTokenseaRelay())
-
-	tokenseaV1 := &Account{
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"base_url": "https://agent.tokensea.ai/v1",
-		},
-	}
-	require.True(t, tokenseaV1.IsAnthropicTokenseaRelay(), "base_url /v1 suffix is a stored-URL boundary sample, not an owner copy")
-}
-
-func TestOpenAITokenseaRelayFloorIsProbeCuratedOnly(t *testing.T) {
-	t.Parallel()
-	mapping := openAITokenseaRelayAccountModelMappingFloor(context.Background(), nil, nil)
-	requireIdentityMappingForIDs(t, mapping, tokenseaRelayCorePublicFloorIDs())
-	requireTokenseaImageCompatibilityAliases(t, mapping)
-	require.NotEmpty(t, mapping)
-	require.Contains(t, mapping, "claude-sonnet-4-6")
-	// Retired client-facing ids are not public floor members; wire remaps cover access.
-	require.NotContains(t, mapping, "gpt-5.4")
-	require.NotContains(t, mapping, "gpt-5.4-mini")
-	require.NotContains(t, mapping, "gpt-5.2")
-	// Bare gpt-5.6 is an overlay pricing alias → sol; floor serves the wire tiers.
-	require.NotContains(t, mapping, "gpt-5.6", "bare gpt-5.6 is pricing-alias-only; floor owner serves sol/terra/luna")
-	require.Contains(t, mapping, "gpt-5.6-luna")
-	require.Contains(t, mapping, "gpt-5.6-sol")
-	require.Contains(t, mapping, "gpt-5.6-terra")
-	require.Contains(t, mapping, "gpt-5.5")
-	require.NotContains(t, mapping, "gpt-5.3-codex-spark", "retired spark must not re-enter the relay floor")
-	require.NotContains(t, mapping, "byteplus/dreamina-seedance-2-0-260128", "non-SSOT upstream id is a boundary sample, not an owner copy")
-	// Live 2026-08-20 account 92 raw chat: listed DeepSeek/Qwen/GLM/Kimi IDs
-	// returned 400 openai_error; dated flash-0731 is not even listed.
-	require.NotContains(t, mapping, "deepseek-v3.2", "tokensea-listed but chat-400 newapi id is a boundary sample, not an owner copy")
-	require.NotContains(t, mapping, "qwen3.7-max", "tokensea-listed but chat-400 newapi id is a boundary sample, not an owner copy")
-	require.NotContains(t, mapping, "deepseek-v4-flash-0731", "qianfan-dated flash SKU is a boundary sample, not an owner copy")
-}
-
-func TestAnthropicTokenseaRelayFloorCoversSharedOpenAILiveKeys(t *testing.T) {
-	t.Parallel()
-	openaiFloor := openAITokenseaRelayAccountModelMappingFloor(context.Background(), nil, nil)
-	anthropicFloor := anthropicTokenseaRelayModelMappingFloor()
-	require.NotEmpty(t, openaiFloor)
-	for id := range openaiFloor {
-		require.Contains(t, anthropicFloor, id, "account 93 floor must include every account 92 live key")
-	}
-	require.Contains(t, anthropicFloor, "claude-haiku-4-5")
-	require.Equal(t, "claude-haiku-4-5-20251001", anthropicFloor["claude-haiku-4-5"])
+	mapping, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: PlatformAntigravity}, nil, nil, nil)
+	require.True(t, ok)
+	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-banana-2"])
 }
 
 func TestOpenAIAinzyRelayFloorIsProbeCuratedOnly(t *testing.T) {
@@ -197,18 +111,30 @@ func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {
 	ainzy, ok := doc.Platforms[accountModelMappingPlatformOpenAIAinzyRelay]
 	require.True(t, ok)
 	requireIdentityMappingForIDs(t, ainzy, supportedCatalogModelIDsFromMap(supportedOpenAIAinzyRelayCatalogModels))
-	tokensea, ok := doc.Platforms[accountModelMappingPlatformOpenAITokenseaRelay]
-	require.True(t, ok)
-	requireIdentityMappingForIDs(t, tokensea, tokenseaRelayCorePublicFloorIDs())
+	_, hasOpenAITokensea := doc.Platforms["openai_tokensea_relay"]
+	require.False(t, hasOpenAITokensea)
+	_, hasAnthropicTokensea := doc.Platforms["anthropic_tokensea_relay"]
+	require.False(t, hasAnthropicTokensea)
 	cloudwise, ok := doc.Platforms[accountModelMappingPlatformOpenAICloudwiseRelay]
 	require.True(t, ok)
 	require.Equal(t, openAICloudwiseRelayWildcardModelMappingFloor(), cloudwise)
-	anthropicTokensea, ok := doc.Platforms[accountModelMappingPlatformAnthropicTokenseaRelay]
-	require.True(t, ok)
-	require.Equal(t, anthropicTokenseaRelayModelMappingFloor(), anthropicTokensea)
 	canonical, ok := doc.Platforms[PlatformOpenAI]
 	require.True(t, ok)
 	requireIdentityMappingForIDs(t, canonical, supportedCatalogModelIDsForPlatform(PlatformOpenAI))
+}
+
+func TestTypedTokenseaURLUsesCanonicalPlatformFloor(t *testing.T) {
+	t.Parallel()
+	typed := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai/v1",
+		},
+	}
+	mapping, ok := accountModelMappingForAccount(context.Background(), typed, nil, nil, nil)
+	require.True(t, ok)
+	require.Equal(t, openAICanonicalAccountModelMappingFloor(context.Background(), nil, nil), mapping)
 }
 
 func TestAccountModelMappingFloorForOps_ExportsVertexSharedAndProfileFloors(t *testing.T) {
@@ -243,17 +169,8 @@ func TestAccountModelMappingFloorForOps_ExportsPolicyMetadata(t *testing.T) {
 	require.Contains(t, doc.ForbiddenModelMappingKeys[PlatformAnthropic], "claude-sonnet-5-5")
 	require.Contains(t, doc.ForbiddenModelMappingPrefixes[PlatformAntigravity], "gpt-oss-")
 	require.Contains(t, doc.ForbiddenModelMappingPrefixes[PlatformNewAPI], "imagen-")
-	require.ElementsMatch(
-		t,
-		tokenseaRelayForbiddenUpstreamIDs(supportedOpenAITokenseaRelayCatalogModels),
-		doc.ForbiddenModelMappingKeys[accountModelMappingPlatformOpenAITokenseaRelay],
-	)
-	require.Contains(
-		t,
-		doc.ForbiddenModelMappingKeys[accountModelMappingPlatformOpenAITokenseaRelay],
-		"byteplus/dreamina-seedance-2-0-260128",
-		"non-SSOT upstream id is a boundary sample, not an owner copy",
-	)
+	_, hasTokenseaForbidden := doc.ForbiddenModelMappingKeys["openai_tokensea_relay"]
+	require.False(t, hasTokenseaForbidden)
 }
 
 func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {
@@ -431,37 +348,6 @@ func requireOpenAITextCompatibilityAliases(t *testing.T, mapping map[string]stri
 	require.Equal(t, "gpt-6-astra", mapping["gpt-6"])
 	_, hasBareGPT6Catalog := displaySet["gpt-6"]
 	require.False(t, hasBareGPT6Catalog, "bare gpt-6 stays alias-only; Sol/Luna/Astra are the catalog rows")
-}
-
-func requireTokenseaImageCompatibilityAliases(t *testing.T, mapping map[string]string) {
-	t.Helper()
-	targets := make(map[string]struct{}, len(mapping))
-	for _, to := range mapping {
-		targets[to] = struct{}{}
-	}
-	for from, to := range tkImageCompatibilityAliases {
-		if _, ok := targets[to]; !ok {
-			continue
-		}
-		require.Equal(t, to, mapping[from], "Tokensea image alias %s must map to %s", from, to)
-	}
-	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-2"])
-	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-banana-2"])
-	require.Equal(t, "gemini-3-pro-image", mapping["nano-pro"])
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5"])
-	for _, id := range []string{
-		"gpt-image-2-plus",
-		"gpt-image-2-pro",
-		"gpt-image-2-vip",
-		"gpt-image-2.5-vip",
-		"gpt-image-2.5-flare-vip",
-		"gpt-image-2.5-sunburst-vip",
-	} {
-		_, ok := mapping[id]
-		require.False(t, ok, "marketing SKU %s must not be on the Tokensea floor", id)
-	}
-	_, hasImage25 := mapping["image-2.5"]
-	require.False(t, hasImage25, "image-2.5 is not a client-facing images alias")
 }
 
 func grokDisplayBackedCompatibilityAliases() map[string]string {

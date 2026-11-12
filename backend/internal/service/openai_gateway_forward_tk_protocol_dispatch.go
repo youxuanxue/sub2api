@@ -100,7 +100,7 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	}
 	// Dual-stack MaaS relays advertise /v1/responses (probe treats 400 as
 	// "endpoint exists") but only implement Chat + Anthropic Messages.
-	if account.IsOpenAICloudwiseRelay() || account.IsOpenAITokenseaRelay() {
+	if account.IsOpenAICloudwiseRelay() {
 		return true
 	}
 	return !openai_compat.ShouldUseResponsesAPI(account.Extra)

@@ -18,12 +18,10 @@ import (
 )
 
 const (
-	accountModelMappingPlatformBedrock                = "bedrock"
-	accountModelMappingPlatformOpenAIAinzyRelay       = "openai_ainzy_relay"
-	accountModelMappingPlatformOpenAITokenseaRelay    = "openai_tokensea_relay"
-	accountModelMappingPlatformAnthropicTokenseaRelay = "anthropic_tokensea_relay"
-	accountModelMappingPlatformOpenAICloudwiseRelay   = "openai_cloudwise_relay"
-	accountModelMappingPlatformGeminiWeb              = "gemini_web"
+	accountModelMappingPlatformBedrock              = "bedrock"
+	accountModelMappingPlatformOpenAIAinzyRelay     = "openai_ainzy_relay"
+	accountModelMappingPlatformOpenAICloudwiseRelay = "openai_cloudwise_relay"
+	accountModelMappingPlatformGeminiWeb            = "gemini_web"
 )
 
 // accountModelMappingRuntime is the hot runtime replacement layer for the
@@ -230,17 +228,11 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 		if account.IsOpenAIAinzyRelay() {
 			return openAIAinzyRelayAccountModelMappingFloor(ctx, pricing, availability), true
 		}
-		if account.IsOpenAITokenseaRelay() {
-			return openAITokenseaRelayAccountModelMappingFloor(ctx, pricing, availability), true
-		}
 		if account.IsOpenAICloudwiseRelay() {
 			return openAICloudwiseRelayAccountModelMappingFloor(ctx, pricing, availability), true
 		}
 		return openAICanonicalAccountModelMappingFloor(ctx, pricing, availability), true
 	case PlatformAnthropic:
-		if account.IsAnthropicTokenseaRelay() {
-			return anthropicTokenseaRelayModelMappingFloor(), true
-		}
 		ids := ServableClientFacingIDs(ctx, scope, availability, pricing)
 		if len(ids) == 0 {
 			ids = supportedCatalogModelIDsForPlatform(scope)
@@ -303,16 +295,6 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 	if ok && len(relayMapping) > 0 {
 		out.Platforms[accountModelMappingPlatformOpenAIAinzyRelay] = cloneStringMap(relayMapping)
 	}
-	tokenseaMapping, ok := accountModelMappingForAccount(ctx, &Account{
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"base_url": "https://agent.tokensea.ai",
-		},
-	}, nil, nil, runtime)
-	if ok && len(tokenseaMapping) > 0 {
-		out.Platforms[accountModelMappingPlatformOpenAITokenseaRelay] = cloneStringMap(tokenseaMapping)
-	}
 	cloudwiseMapping, ok := accountModelMappingForAccount(ctx, &Account{
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeAPIKey,
@@ -322,16 +304,6 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 	}, nil, nil, runtime)
 	if ok && len(cloudwiseMapping) > 0 {
 		out.Platforms[accountModelMappingPlatformOpenAICloudwiseRelay] = cloneStringMap(cloudwiseMapping)
-	}
-	anthropicTokenseaMapping, ok := accountModelMappingForAccount(ctx, &Account{
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"base_url": "https://agent.tokensea.ai",
-		},
-	}, nil, nil, runtime)
-	if ok && len(anthropicTokenseaMapping) > 0 {
-		out.Platforms[accountModelMappingPlatformAnthropicTokenseaRelay] = cloneStringMap(anthropicTokenseaMapping)
 	}
 	bedrock, ok := accountModelMappingForAccount(ctx, &Account{Platform: PlatformAnthropic, Type: AccountTypeBedrock}, nil, nil, runtime)
 	if ok && len(bedrock) > 0 {
@@ -418,12 +390,6 @@ func accountModelMappingForbiddenKeysByScope() map[string][]string {
 		PlatformAntigravity: append(
 			append(domain.AntigravityStructuralDeadModelMappingKeys(), domain.GeminiProImageModelIDs()...),
 			domain.AntigravityUnpricedModelMappingKeys()...,
-		),
-		accountModelMappingPlatformOpenAITokenseaRelay: tokenseaRelayForbiddenUpstreamIDs(
-			supportedOpenAITokenseaRelayCatalogModels,
-		),
-		accountModelMappingPlatformAnthropicTokenseaRelay: tokenseaRelayForbiddenUpstreamIDs(
-			supportedAnthropicTokenseaRelayCatalogModels,
 		),
 	}
 }
@@ -548,41 +514,11 @@ func openAIAinzyRelayAccountModelMappingFloor(ctx context.Context, pricing *Pric
 	return identityModelMapping(ids)
 }
 
-func openAITokenseaRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
-	_ = ctx
-	_ = pricing
-	_ = availability
-	ids := tokenseaRelayCorePublicFloorIDs()
-	if len(ids) == 0 {
-		return nil
-	}
-	return applyImageCompatibilityAliases(identityModelMapping(ids))
-}
-
 func openAICloudwiseRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
 	_ = ctx
 	_ = pricing
 	_ = availability
 	return cloneStringMap(openAICloudwiseRelayWildcardModelMappingFloor())
-}
-
-func anthropicTokenseaRelayModelMappingFloor() map[string]string {
-	ids := tokenseaRelayPublicSSOTIDs(append(
-		append([]string{}, tokenseaRelayCorePublicFloorIDs()...),
-		supportedCatalogModelIDsFromMap(supportedAnthropicTokenseaRelayCatalogModels)...,
-	))
-	if len(ids) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(ids))
-	for _, id := range ids {
-		if wire, ok := anthropicTokenseaRelayWireModelMapping[id]; ok {
-			out[id] = wire
-			continue
-		}
-		out[id] = id
-	}
-	return applyImageCompatibilityAliases(out)
 }
 
 // applyImageCompatibilityAliases adds Nano Banana / GPT Image 2.5
@@ -611,147 +547,6 @@ var tkImageCompatibilityAliases = map[string]string{
 	"nano-banana-pro": "gemini-3-pro-image",
 	"gpt-image-2.5":   "gpt-image-2.5-flare",
 	"gpt-image-2.6":   "gpt-image-2.6-flare",
-}
-
-// tokenseaRelaySharedExtraSSOTIDs are public CatalogPolicy models already
-// served on prod account 92 but absent from the 47-id upstream snapshot.
-// Bare gpt-5.6 is overlay pricing-alias-only (→ sol); floor serves sol/terra/luna.
-// gpt-5.3-codex-spark is structurally gone and is not a client-facing catalog
-// id, so it must not be reintroduced here.
-var tokenseaRelaySharedExtraSSOTIDs = []string{
-	"codex-auto-review",
-}
-
-func tokenseaRelaySupportsRequestedModel(requestedModel string) bool {
-	normalized := strings.TrimSpace(requestedModel)
-	if normalized == "" {
-		return false
-	}
-	for _, id := range tokenseaRelayCorePublicFloorIDs() {
-		if strings.EqualFold(id, normalized) {
-			return true
-		}
-	}
-	// Marketing aliases in the floor (nano-2/nano-pro/gpt-image-2.5/…) must pass the
-	// same Anthropic-shaped TokenSea gate as their wire targets.
-	for from, to := range tkImageCompatibilityAliases {
-		if !strings.EqualFold(from, normalized) {
-			continue
-		}
-		for _, id := range tokenseaRelayCorePublicFloorIDs() {
-			if strings.EqualFold(id, to) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func tokenseaRelayAccountSupportsRequestedModel(requestedModel string) bool {
-	return tokenseaRelaySupportsRequestedModel(requestedModel) ||
-		tkIsForwardableAnthropicModelName(requestedModel)
-}
-
-// tokenseaRelayCorePublicFloorIDs is the shared 92/93 live floor: upstream 47
-// intersect the public catalog projection, plus the extras 92 already serves.
-func tokenseaRelayCorePublicFloorIDs() []string {
-	return tokenseaRelayPublicSSOTIDs(append(
-		supportedCatalogModelIDsFromMap(supportedOpenAITokenseaRelayCatalogModels),
-		tokenseaRelaySharedExtraSSOTIDs...,
-	))
-}
-
-// tokenseaRelayPublicSSOTIDs keeps only upstream-listed IDs that satisfy the
-// public catalog policy: displayable, priced, and backed by reviewed path evidence.
-func tokenseaRelayPublicSSOTIDs(ids []string) []string {
-	seen := make(map[string]struct{}, len(ids))
-	out := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if !tokenseaRelayMeetsPublicSSOT(id) {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		out = append(out, id)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func tokenseaRelayMeetsPublicSSOT(id string) bool {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return false
-	}
-	if tokenseaRelayIsClientFacing(id) && tokenseaRelayIsPriced(id) {
-		return true
-	}
-	// Official dated wire IDs stay first-class when they alias a client-facing catalog row.
-	for short, wire := range anthropicTokenseaRelayWireModelMapping {
-		if wire == id && tokenseaRelayIsClientFacing(short) && tokenseaRelayIsPriced(short) {
-			return true
-		}
-	}
-	return false
-}
-
-func tokenseaRelayIsClientFacing(id string) bool {
-	if _, ok := supportedOpenAICatalogModels[id]; ok {
-		return true
-	}
-	if _, ok := supportedClaudeCatalogModels[id]; ok {
-		return true
-	}
-	if _, ok := supportedGeminiCatalogModels[id]; ok {
-		return true
-	}
-	if _, ok := supportedAntigravityCatalogModels[id]; ok {
-		return true
-	}
-	// Listing on tokensea GET /v1/models is not serving. Prod account 92
-	// raw POST /v1/chat/completions on 2026-08-20: gpt-5.4/claude-fable-5
-	// returned 200; deepseek-v3.2, qwen3.7-max, glm-5, glm-5.2, kimi-k2.5,
-	// kimi-k3, deepseek-v4-flash, deepseek-v4-pro returned 400 openai_error
-	// (same body as user16); minimax-m2.7 returned 410 EOL;
-	// deepseek-v4-flash-0731 returned 503 model_not_found. Keep them off
-	// the GPT 专线 floor so universal keys stay on vendor newapi accounts.
-	return false
-}
-
-func tokenseaRelayIsPriced(id string) bool {
-	if snap := loadTKPricingOverlaySnapshot(); snap != nil {
-		if pricing := snap.Models[id]; pricing != nil {
-			return true
-		}
-	}
-	return isTkCuratedNewAPIModelListed(id)
-}
-
-func tokenseaRelayForbiddenUpstreamIDs(upstream map[string]struct{}) []string {
-	out := make([]string, 0)
-	for id := range upstream {
-		if !tokenseaRelayMeetsPublicSSOT(id) {
-			out = append(out, id)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-var anthropicTokenseaRelayWireModelMapping = map[string]string{
-	"claude-fable-5":            "claude-fable-5",
-	"claude-haiku-4-5":          "claude-haiku-4-5-20251001",
-	"claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
-	"claude-opus-4-5":           "claude-opus-4-5-20251101",
-	"claude-opus-4-5-20251101":  "claude-opus-4-5-20251101",
-	"claude-opus-4-6":           "claude-opus-4-6",
-	"claude-opus-4-7":           "claude-opus-4-7",
-	"claude-opus-4-8":           "claude-opus-4-8",
-	"claude-opus-5":             "claude-opus-5",
-	"claude-sonnet-4-6":         "claude-sonnet-4-6",
-	"claude-sonnet-5":           "claude-sonnet-5",
 }
 
 func supportedCatalogModelIDsFromMap(src map[string]struct{}) []string {
