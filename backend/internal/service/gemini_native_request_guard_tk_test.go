@@ -149,6 +149,22 @@ func TestNativeGeminiEnvelopeAllowsContentsAndNestedNames(t *testing.T) {
 	require.False(t, GeminiBodyHasRemoteFileURI(body))
 }
 
+func TestAntigravityTransportsRejectRemoteFileURIBeforeUpstream(t *testing.T) {
+	body := []byte(`{"contents":[{"parts":[{"fileData":{"mimeType":"image/png","fileUri":"gs://bucket/a.png"}}]}]}`)
+	oauth := &Account{ID: 292, Platform: PlatformAntigravity, Type: AccountTypeOAuth}
+	_, err := (*AntigravityGatewayService)(nil).ForwardGemini(context.Background(), nil, oauth, "gemini-4-argon", "generateContent", false, body, false)
+	var media *AntigravityInlineMediaError
+	require.ErrorAs(t, err, &media)
+
+	apikey := &Account{ID: 244, Platform: PlatformAntigravity, Type: AccountTypeAPIKey}
+	_, err = (*GeminiMessagesCompatService)(nil).ForwardNative(context.Background(), nil, apikey, "gemini-4-argon", "streamGenerateContent", true, body)
+	require.ErrorAs(t, err, &media)
+
+	official := &Account{ID: 7, Platform: PlatformGemini, Type: AccountTypeAPIKey}
+	require.NoError(t, antigravityRemoteFileRejected(official, "generateContent", body))
+	require.NoError(t, antigravityRemoteFileRejected(oauth, "countTokens", body))
+}
+
 func TestGeminiRemoteFileURIDetectsAntigravityUnsupportedReferences(t *testing.T) {
 	inline := []byte(`{"contents":[{"parts":[{"inlineData":{"mimeType":"image/png","data":"aGVsbG8="}}]}]}`)
 	require.False(t, GeminiBodyHasRemoteFileURI(inline))

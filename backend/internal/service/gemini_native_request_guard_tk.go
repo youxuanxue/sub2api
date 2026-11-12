@@ -81,6 +81,23 @@ func geminiRemoteFileURI(uri string) bool {
 	return strings.HasPrefix(low, "gs://") || strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://")
 }
 
+// antigravityRemoteFileRejected rejects a remote fileUri on the transport that
+// would send it. Governed Antigravity accounts execute Gemini identity, so the
+// check has to live in ForwardGemini and ForwardNative rather than the
+// non-governed branch.
+func antigravityRemoteFileRejected(account *Account, action string, body []byte) error {
+	if account == nil || account.Platform != PlatformAntigravity {
+		return nil
+	}
+	if action != "generateContent" && action != "streamGenerateContent" {
+		return nil
+	}
+	if !GeminiBodyHasRemoteFileURI(body) {
+		return nil
+	}
+	return &AntigravityInlineMediaError{}
+}
+
 // AntigravityInlineMediaError is a local 400. The native body never reaches
 // Antigravity when it references a remote or GCS file.
 type AntigravityInlineMediaError struct{}

@@ -50,9 +50,6 @@ func (h *GatewayHandler) executeGeminiV1BetaSelectedProtocol(
 		if cleanThoughtSignatures {
 			forwardBody = service.CleanGeminiNativeThoughtSignatures(forwardBody)
 		}
-		if executionAccount.Platform == service.PlatformAntigravity && service.GeminiBodyHasRemoteFileURI(forwardBody) {
-			return nil, &service.AntigravityInlineMediaError{}
-		}
 		if executionAccount.Platform == service.PlatformAntigravity && executionAccount.Type != service.AccountTypeAPIKey {
 			return h.antigravityGatewayService.ForwardGemini(
 				executionCtx,

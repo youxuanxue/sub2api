@@ -18192,7 +18192,8 @@
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
         "terminal.ObserveEvent(rawBytes)",
-        "if terminal.IsTruncated() && !geminiNativeStreamClientAborted(callerCtx) {"
+        "if terminal.IsTruncated() && !geminiNativeStreamClientAborted(callerCtx) {",
+        "noteGeminiStreamDisruption(callerCtx, s.accountRepo, account)"
       ],
       "rationale": "The truncation guard only holds while both injection points survive in handleNativeStreamingResponse: ObserveEvent feeds sawDataEvent, and dropping it would leave IsTruncated permanently false — a silently disarmed guard. Upstream changes this file often, so pin both lines."
     },
@@ -18519,6 +18520,29 @@
         "antigravity.NormalizeGeminiResponseSchema(payload)"
       ],
       "rationale": "AG response JSON schema aliases must reach v1internal responseSchema through the shared wire owner."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "antigravityRemoteFileRejected(account, action, body)",
+        "noteGeminiG1CreditsExhausted(ctx, s.accountRepo, account)",
+        "noteGeminiStreamDisruption(ctx, s.accountRepo, account)"
+      ],
+      "rationale": "Antigravity OAuth native Gemini is governed and enters through ForwardGemini. Remote fileUri must be rejected there before any upstream call, and repeated stream truncation or G1 credit exhaustion must still reach the temp-unschedulable owner."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "antigravityRemoteFileRejected(account, action, body)"
+      ],
+      "rationale": "Antigravity API-key native Gemini uses ForwardNative. The same remote fileUri rejection has to run on that transport; official Gemini accounts stay allowed."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_request_guard_tk_test.go",
+      "must_contain": [
+        "func TestAntigravityTransportsRejectRemoteFileURIBeforeUpstream(t *testing.T)"
+      ],
+      "rationale": "The rejection is only real if both nil transports return before touching upstream state."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_service.go",
