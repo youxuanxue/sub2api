@@ -20360,6 +20360,55 @@
         "func TestCloudcodeHostDoesNotOverrideOpenAIPings(t *testing.T) {"
       ],
       "rationale": "DoWithTLS is the production entry. Helper-only tests still pass if an upstream merge stops passing the request host, so the host selection, the negative hosts, and the OpenAI exemption stay pinned here."
+    },
+    {
+      "path": "ops/qa/data_machine_coordinator.py",
+      "must_contain": [
+        "SCHEMA = \"qa-data-machine-cleanup-v1\"",
+        "shared_partition_action",
+        "source_cleanup_allowed",
+        "refusing to overwrite a different cleanup plan"
+      ],
+      "rationale": "The data machine is the sole QA cleanup decision owner: source receipts independently authorize local file cleanup, while shared partition deletion waits for all sources or an explicit approved gap deadline."
+    },
+    {
+      "path": "ops/qa/source_cleanup.py",
+      "must_contain": [
+        "source_id",
+        "shared_partition_action",
+        "shutil.rmtree(relative.name, dir_fd=current)",
+        "source cleanup requires a live capture ledger seal check"
+      ],
+      "rationale": "Application hosts may delete only their own exact authorized QA hour directories; this executor never performs shared database deletion."
+    },
+    {
+      "path": "ops/qa/test_data_machine_coordinator.py",
+      "must_contain": [
+        "test_missing_a_does_not_block_b_source_cleanup_but_holds_shared_partition",
+        "test_explicit_gap_deadline_allows_shared_delete",
+        "test_source_cleanup_removes_only_authorized_source_hour"
+      ],
+      "rationale": "Behavioral regression coverage for independent source cleanup, all-source shared deletion, explicit gap policy and immutable plans."
+    },
+    {
+      "path": "ops/qa/coordinator_host.py",
+      "must_contain": ["def participants(config, hour):", "StrictHostKeyChecking=yes", "cleanup-shared", "oldest_blocked_hour_utc"],
+      "rationale": "The data-machine runner owns historical source membership, pinned worker dispatch, independent cleanup and shared database cleanup with backlog evidence."
+    },
+    {
+      "path": "ops/qa/source_worker.py",
+      "must_contain": ["def seal(config, hour):", "capture changed while archiving", "legacy QA service is still busy"],
+      "rationale": "The fixed-identity application worker must inspect the real capture ledger and reject archive changes or competing legacy owners."
+    },
+    {
+      "path": "backend/internal/observability/qa/lifecycle/shared_cleanup.go",
+      "must_contain": ["func RunSharedCleanup(", "shared QA cleanup requires the exact historical source set", "completion.SealDigest"],
+      "rationale": "Shared DROP has a separate all-source validation path and never claims application disks have all been cleaned."
+    },
+    {
+      "path": "ops/qa/test_coordinator_host.py",
+      "must_contain": ["test_a_unreachable_does_not_block_b_cleanup_or_authorize_shared_drop", "test_retired_source_stays_in_its_historical_hour", "test_database_write_defers_before_lock_or_native_execution_near_backup"],
+      "rationale": "Runtime regression tests keep missing-source failures, historical membership and backup contention from broadening cleanup authority."
     }
   ]
 }

@@ -119,6 +119,23 @@ CLB 的 `RegisterTargets` API 支持 CVM ID 或内网 IP，不代表 Lighthouse 
 数据机协调任务失败只暂停 QA 维护并告警，不阻塞网关请求，不自动停业务或删除唯一副本。
 本节尚未安装新 timer、复制 raw、停用旧 owner 或删除分区/文件。
 
+### 数据机协调器实现（线上未启用）
+
+实现入口为 `ops/qa/coordinator_host.py`、`source_worker.py`、`data_machine_coordinator.py`
+与 `source_cleanup.py`，配置与交接见 [运行手册](../../ops/qa/COORDINATOR.md)：
+
+- 数据机根据历史 source 参与区间调度应用机，应用机封口后直接向 node1 传 raw；
+- 数据机协调器读取 source-isolated node1 receipt 与 capture seal，按 source 生成不可覆盖的小时计划；
+- 已有回执的 source 可独立获得本机热文件清理授权，不会被另一台缺失回执的节点拖住；
+- 共享数据库分区必须等全部历史预期 source 完成；`gap-delete` 仅支持策略预览，宿主和
+  数据库执行器拒绝自动 gap 删除，等待超时策略批准；
+- source 清理器只删除本机精确小时目录，不能删除另一节点文件，也不能越权删除共享分区；
+- 清理支持按源持久化、部分删除重试、迟到文件拦截，不用全站磁盘完成标记；
+- 安装默认仅计划，显式 apply 也不启用 timer；调度有限流、备份避让与独立积压告警接口。
+
+本实现不执行线上交接；真实主机身份、source 历史起止、旧小时迁移、SSH/PG 权限、停用旧
+timer、启用新 watcher 与现场验收仍需单独执行。在验收完成前，不启用新的 source owner。
+
 ## 范围与授权
 
 本方案取代 PR #3148 的 prod 原地 LUKS 搬盘维护窗口。北京时间 2026-11-11

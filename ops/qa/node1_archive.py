@@ -269,7 +269,7 @@ def push_hour(source_root: Path, receipt_root: Path, environment: str,
     network would tie log retention to node1 being reachable.
     """
     identity = hour_identity(environment, hour, source_id)
-    source_files = _hour_sources(source_root, hour)
+    source_files = _hour_sources(source_root, hour, allow_empty=bool(source_id))
     receipt = receipt_path(receipt_root, environment, hour, source_id)
     remote_dir = f"{remote['remote_root'].rstrip('/')}/qa-raw/{archive_namespace(environment, source_id).as_posix()}/{hour.strftime(HOUR)}"
 
@@ -381,7 +381,7 @@ def check_remote_write(*, required_bytes: int, total_bytes: int, free_bytes: int
             "warn": projected_used_percent >= WARN_USED_PERCENT}
 
 
-def _hour_sources(source_root: Path, hour: dt.datetime) -> list[tuple[str, Path]]:
+def _hour_sources(source_root: Path, hour: dt.datetime, *, allow_empty: bool = False) -> list[tuple[str, Path]]:
     """Every regular file under one sealed hour, with its path relative to root.
 
     A sealed hour is not flat: capture shards it into 256 hex subdirectories
@@ -405,7 +405,7 @@ def _hour_sources(source_root: Path, hour: dt.datetime) -> list[tuple[str, Path]
             if not path.is_file():
                 raise ValueError(f"unsafe QA source entry (not a regular file): {path}")
             source_files.append((str(path.relative_to(source_root)), path))
-    if not source_files:
+    if not source_files and not allow_empty:
         raise ValueError(f"hour has no QA files: {hour.isoformat()}")
     return source_files
 
@@ -452,7 +452,7 @@ def _stage_hour(staging: Path, source_files: list[tuple[str, Path]],
 def copy_hour(source_root: Path, node1_root: Path, environment: str, hour: dt.datetime,
               source_id: str = "") -> dict:
     identity = hour_identity(environment, hour, source_id)
-    source_files = _hour_sources(source_root, hour)
+    source_files = _hour_sources(source_root, hour, allow_empty=bool(source_id))
 
     target = node1_root / "qa-raw" / archive_namespace(environment, source_id) / hour.strftime(HOUR)
     receipt = receipt_path(node1_root, environment, hour, source_id)

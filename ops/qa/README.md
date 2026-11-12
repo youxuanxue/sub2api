@@ -42,9 +42,36 @@ QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 �
 同一节点小时发布后只接受内容一致的重试；迟到或变更文件会报错并保留源数据，
 不能靠覆盖已发布目录“补成功”。v2 当前证明的是该源文件快照，不证明 capture 已封口或全站完整。
 现有 cleanup 明确拒绝把单源 v2 回执当成全站删除凭据，包括误放到旧站点小时路径的回执。
-数据机集中调度、参与源集合、capture 封口、全站分区删除与逐节点文件清理仍按
+数据机集中调度、参与源集合、capture 封口、全站分区删除与逐节点文件清理按
 [已批准方案](../../docs/approved/design-prod-app-parallel-replacement.md#qa-集中管理方案用户已同意尚未执行)
-继续实现；这些门禁接好之前，不给现有 timer 启用 source 模式，也不交接线上 owner。
+实现，见下面的新执行入口；线上交接验收之前，不给现有 timer 启用 source 模式。
+
+### 数据机协调器与按源清理
+
+`coordinator_host.py` 是新的数据机调度入口，`data_machine_coordinator.py` 是唯一决策
+owner。前者按历史参与区间登记 source，SSH 调用固定应用机 worker；raw 从应用机直接
+传到 node1，不经过数据机。每个 source 都必须有实时 capture ledger 封口证明，以及
+`qa-node1-source-hour-v2` 回执；归档前后 seal 必须一致。空小时也必须有真实 ledger，不能
+用“没有文件”冒充完整。按“站点＋UTC 小时＋稳定 source”生成内容寻址、不可覆盖计划。
+
+每条 QA 至少保留 24h（整小时需结束后满 24h）。B 完整时，即使 A 不可达，B 仍独立清理
+自己的应用机热文件。共享数据库小时必须等待全部历史参与 source 完整；下线 source
+不能从历史登记中删除。缺源默认 `hold`；策略库仅支持显式 gap 预览，宿主执行器和数据库
+执行器都拒绝自动 gap 删除，超时值尚待批准。
+
+应用机使用 `source_cleanup.py` 消费计划，只删除自己 source 的精确小时目录，不接触另一台
+机器的文件，也不直接删除数据库分区。默认命令只生成计划或 dry-run；`--apply` 仍需由已
+审核的调度入口调用。它校验本机 seal 与归档 manifest，按节点持久化清理意图和完成回执，
+中途失败允许重试，新增/变更文件拒绝删除。共享分区只由数据机调用 native
+`--phase cleanup-shared` 删除，不写表示全站磁盘已清理的 `hot_files_cleaned_at`。
+
+`install_coordinator.py` 安装内容寻址 bundle，默认仅计划，`--apply` 也只安装、不启用
+timer。运行任务低优先级、限 CPU/内存/带宽；DB 写操作短持备份 operator lock，并避开即将
+开始的备份。预建失败不阻断正常 source 清理。新协调器由 `data_qa_jobs` 显式接入既有
+host watcher，监测执行失败、陈旧回执和缺源积压；本变更不修改现网舰队登记。
+
+当前未安装数据机 timer、未交接线上 owner，且未启用 source 模式归档。
+配置、交接与回退见 [协调器运行手册](COORDINATOR.md)。
 
 `node1_archive.py` 只读取已经封口的 `qa_blobs`/`qa_dlq` 小时目录，把文件复制到 node1
 临时目录，逐文件校验 SHA-256、字节数和文件数后原子发布 `manifest.json` 与

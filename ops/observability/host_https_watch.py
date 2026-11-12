@@ -38,7 +38,8 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict) ->
     if not allowed or hostname != allowed:
         raise ValueError("host identity mismatch")
     if role.endswith("-data"):
-        return {"node": role, "targets": {}, "jobs": ["tokenkey-disk-metrics"], "paused_jobs": {}}
+        owner = watch if role == "prod-data" else domestic
+        return {"node": role, "targets": {}, "jobs": ["tokenkey-disk-metrics"] + list(owner.get("data_qa_jobs", [])), "paused_jobs": {}}
     targets = {}
     if role == "prod":
         targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
@@ -116,6 +117,7 @@ JOB_LIMITS = {
     # (2026-11-08); their masked units are not watched.
     "tokenkey-qa-provision": (2 * 3600, 960),
     "tokenkey-qa-cleanup": (20 * 60, 960),
+    "tokenkey-qa-coordinator": (5 * 3600, 4 * 3600),
     # Archive runs every 4 hours (ops/qa/local_maintenance_host.py SCHEDULE);
     # max age allows one missed run before alerting. A full first push of a
     # multi-GiB hour took 18.6 minutes on prod 2026-11-03; the unit's own
@@ -219,6 +221,21 @@ def physical_backup_fact(path: Path, now: float) -> dict:
 # archive cadence plus the 24h retention boundary.
 QA_CLEANUP_RECEIPT = Path("/var/lib/tokenkey/qa-local/cleanup.json")
 QA_CLEANUP_MAX_BLOCKED_AGE = 24 * 3600
+QA_COORDINATOR_RECEIPT = Path("/var/lib/tokenkey/qa-coordinator/last-run.json")
+
+
+def qa_coordinator_fact(path: Path, now: float) -> dict | None:
+    try:
+        receipt = json.loads(path.read_text())
+        observed = datetime.fromisoformat(receipt["observed_at"]).timestamp()
+        if receipt.get("ok") is not True or now - observed > 5 * 3600 or observed > now + 60:
+            raise ValueError("coordinator failed or receipt is stale")
+        oldest = receipt.get("oldest_blocked_hour_utc")
+        if oldest and now - datetime.fromisoformat(oldest).timestamp() > QA_CLEANUP_MAX_BLOCKED_AGE:
+            return {"healthy": False, "reason": f"QA coordinator backlog: oldest held hour {oldest}"}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {"healthy": False, "reason": "QA coordinator receipt missing, invalid, stale or failed"}
+    return None
 
 
 def qa_cleanup_backlog_fact(path: Path, now: float) -> dict | None:
@@ -258,6 +275,10 @@ def probe_job(name: str, *, expected_paused=False) -> dict:
     fact = job_fact(service, timer, time.monotonic(), JOB_LIMITS[name], expected_paused=expected_paused)
     if name == "tokenkey-qa-cleanup" and fact["healthy"] and not expected_paused:
         backlog = qa_cleanup_backlog_fact(QA_CLEANUP_RECEIPT, time.time())
+        if backlog is not None:
+            return backlog
+    if name == "tokenkey-qa-coordinator" and fact["healthy"] and not expected_paused:
+        backlog = qa_coordinator_fact(QA_COORDINATOR_RECEIPT, time.time())
         if backlog is not None:
             return backlog
     return fact
