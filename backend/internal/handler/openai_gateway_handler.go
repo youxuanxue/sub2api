@@ -1693,9 +1693,17 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					// 断开排水期间上游已计量的 usage 必须入账（此前直接 return 丢弃，
 					// payg 上游照常计费而平台漏记）。
 					submitMessagesUsage(result)
-					// Client already gone; if nothing was written, still emit an
-					// Anthropic error so access logs are 502 instead of empty 200.
-					h.ensureAnthropicErrorResponse(c, streamStarted)
+					// 调用方已离开。未写出时记 499，避免空 200，也不要把断开记成上游 502。
+					markClientClosedForwardRequest(c)
+					return
+				}
+				if isClientClosedRequest(c, err) {
+					h.ensureAnthropicErrorResponseForError(c, err, streamStarted)
+					reqLog.Info("openai_messages.forward_canceled",
+						zap.Int64("account_id", account.ID),
+						zap.Error(err),
+					)
+					submitMessagesUsage(result)
 					return
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), false, nil, err)
@@ -1777,6 +1785,17 @@ func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, 
 		return
 	}
 	h.tkAnthropicFailoverExhaustedDefaultResponse(c, failoverErr, streamStarted)
+}
+
+// ensureAnthropicErrorResponseForError records caller cancellation as 499.
+// Other unwritten failures keep the generic Anthropic 502. DeadlineExceeded
+// stays on the 502 path: a server deadline is not caller-owned.
+func (h *OpenAIGatewayHandler) ensureAnthropicErrorResponseForError(c *gin.Context, err error, streamStarted bool) bool {
+	if isClientClosedRequest(c, err) {
+		markClientClosedForwardRequest(c)
+		return false
+	}
+	return h.ensureAnthropicErrorResponse(c, streamStarted)
 }
 
 // ensureAnthropicErrorResponse writes a fallback Anthropic error if no response was written.

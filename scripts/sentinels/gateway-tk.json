@@ -8651,6 +8651,24 @@
       "rationale": "Single owner for Forward-time client cancellation finalization. It marks ops ownership, stops compact keepalive before touching the writer, preserves an already committed status, and otherwise emits bodyless 499. Both failoverClientGone and the direct Forward fallback must reuse this helper so cancellation behavior cannot drift by endpoint. The body-read predicate isClientClosedRequest must stay a thin delegate to the service-layer owner (client-closed-499-ssot) instead of a parallel errors.Is(err, context.Canceled) variant."
     },
     {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "调用方已离开。未写出时记 499，避免空 200，也不要把断开记成上游 502。",
+        "reqLog.Info(\"openai_messages.forward_canceled\"",
+        "func (h *OpenAIGatewayHandler) ensureAnthropicErrorResponseForError("
+      ],
+      "rationale": "OpenAI /v1/messages forward fallback must record caller cancellation as bodyless 499 via markClientClosedForwardRequest. The non-stream prod failure was Post context.Canceled with no upstream status, previously written as generic 502 api_error. Upstream merges of this large handler can keep the helper and its unit tests while dropping the Messages() call site; these literals pin both the streaming client-disconnect branch and the non-stream forward_canceled branch."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_test.go",
+      "must_contain": [
+        "func TestOpenAIEnsureAnthropicErrorResponse_WrappedPostCancelWrites499(",
+        "func TestOpenAIEnsureAnthropicErrorResponse_UpstreamFailureStill502(",
+        "func TestOpenAIEnsureAnthropicErrorResponse_DeadlineStays502("
+      ],
+      "rationale": "Regression for the Messages Anthropic fallback: a url.Error wrapping context.Canceled is 499 with the ops client-closed mark and no body; a plain upstream failure stays 502 api_error; DeadlineExceeded stays 502 and is not caller-owned. Dropping these lets an upstream merge restore the generic 502 for client cancel."
+    },
+    {
       "path": "backend/internal/service/client_closed_request_tk.go",
       "must_contain": [
         "func IsClientClosedRequest(c *gin.Context, err error) bool",
