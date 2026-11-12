@@ -163,12 +163,16 @@ func geminiSystemTextOnly(raw json.RawMessage) bool {
 	}
 	var blocks []struct {
 		Type string `json:"type"`
+		Text string `json:"text"`
 	}
 	if json.Unmarshal(raw, &blocks) != nil {
 		return false
 	}
 	for _, block := range blocks {
 		if block.Type != "" && block.Type != "text" {
+			return false
+		}
+		if strings.Contains(strings.ToLower(block.Text), "data:image/") {
 			return false
 		}
 	}

@@ -338,7 +338,10 @@ Chat Completions. The upstream request is not `/v1/chat/completions`.
 Chat→Gemini keeps data-URL images, function tools, `tool_choice`
 auto/none/required/named, JSON response format, and `reasoning_effort`.
 Built-in tools are not mixed with function declarations. Remote image URLs,
-strict tools, and `parallel_tool_calls=false` stay fail-closed.
+strict tools, `parallel_tool_calls=false`, more than five stop sequences, and
+Responses item types the Chat bridge skips stay fail-closed. Nested schema or
+argument keys named content, input, or prompt do not change native Gemini
+content kinds.
 Messages→Gemini keeps base64 images, thought parts, and tool_choice
 AUTO/NONE/ANY. Responses→Gemini is Responses→Chat→Gemini and uses the Chat
 admission rules. Native Gemini identity admits inline and file images; that

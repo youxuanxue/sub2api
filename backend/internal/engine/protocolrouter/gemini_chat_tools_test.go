@@ -38,6 +38,9 @@ func TestPlanChatToGeminiFunctionTools(t *testing.T) {
 		{"interleaved_result", `{"messages":[{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"user","content":"interruption"},{"role":"tool","tool_call_id":"call_1","content":"sunny"}]}`, false},
 		{"legacy_forced_choice", `{"function_call":{"name":"lookup"}}`, false},
 		{"legacy_functions", `{"functions":[{"name":"extra","parameters":{"type":"object"}}]}`, false},
+		{"stop_within_limit", `{"stop":["a","b","c","d","e"]}`, true},
+		{"stop_over_limit", `{"stop":["a","b","c","d","e","f"]}`, false},
+		{"system_data_image", `{"messages":[{"role":"system","content":[{"type":"text","text":"see data:image/png;base64,aa"}]}]}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var body, patch map[string]json.RawMessage

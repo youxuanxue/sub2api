@@ -2,6 +2,7 @@ package protocolrouter
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 )
@@ -20,7 +21,7 @@ func preservesResponsesToGemini(req CanonicalRequest) bool {
 		return false
 	}
 	var responses apicompat.ResponsesRequest
-	if json.Unmarshal(req.Body(), &responses) != nil {
+	if json.Unmarshal(req.Body(), &responses) != nil || !responsesInputReachesChat(responses.Input) {
 		return false
 	}
 	chat, err := apicompat.ResponsesToChatCompletionsRequest(&responses)
@@ -36,4 +37,31 @@ func preservesResponsesToGemini(req CanonicalRequest) bool {
 		return false
 	}
 	return preservesChatToGemini(bridged)
+}
+
+// responsesInputReachesChat rejects Responses item types that
+// ResponsesToChatCompletionsRequest skips. Chat admission never sees those
+// items, so a later true result would drop them.
+func responsesInputReachesChat(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" || strings.HasPrefix(trimmed, "\"") {
+		return true
+	}
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) != nil {
+		return false
+	}
+	for _, item := range items {
+		piece := strings.TrimSpace(string(item))
+		if piece == "" || piece == "null" || strings.HasPrefix(piece, "\"") {
+			continue
+		}
+		var obj struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(item, &obj) != nil || !apicompat.ResponsesInputItemReachesChat(obj.Type) {
+			return false
+		}
+	}
+	return true
 }

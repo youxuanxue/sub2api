@@ -41,4 +41,8 @@ func TestConvertChatCompletionsToGeminiRejectsRemoteImageAndMixedTools(t *testin
 	mixed := []byte(`{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}},{"type":"web_search"}]}`)
 	_, err = convertChatCompletionsToGeminiGenerateContent(mixed, "gemini-3.8-flash")
 	require.Error(t, err)
+
+	stops := []byte(`{"model":"gemini-3.8-flash","stop":["a","b","c","d","e","f"],"messages":[{"role":"user","content":"hi"}]}`)
+	_, err = convertChatCompletionsToGeminiGenerateContent(stops, "gemini-3.8-flash")
+	require.Error(t, err)
 }

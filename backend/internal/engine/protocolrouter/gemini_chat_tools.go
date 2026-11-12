@@ -24,6 +24,7 @@ func preservesChatToGemini(req CanonicalRequest) bool {
 		ToolChoice        json.RawMessage `json:"tool_choice"`
 		ParallelToolCalls *bool           `json:"parallel_tool_calls"`
 		ResponseFormat    json.RawMessage `json:"response_format"`
+		Stop              json.RawMessage `json:"stop"`
 		FunctionCall      json.RawMessage `json:"function_call"`
 		Functions         json.RawMessage `json:"functions"`
 		Messages          []struct {
@@ -44,6 +45,7 @@ func preservesChatToGemini(req CanonicalRequest) bool {
 	if json.Unmarshal(req.body, &root) != nil ||
 		(root.ParallelToolCalls != nil && !*root.ParallelToolCalls) ||
 		!chatResponseFormatPreserved(root.ResponseFormat) ||
+		!chatStopPreserved(root.Stop) ||
 		hasGeminiJSONValue(root.FunctionCall) || hasGeminiJSONValue(root.Functions) {
 		return false
 	}
@@ -155,6 +157,18 @@ func chatBuiltinTool(toolType string) bool {
 	default:
 		return false
 	}
+}
+
+func chatStopPreserved(raw json.RawMessage) bool {
+	if !hasGeminiJSONValue(raw) {
+		return true
+	}
+	var one string
+	if json.Unmarshal(raw, &one) == nil {
+		return true
+	}
+	var many []string
+	return json.Unmarshal(raw, &many) == nil && len(many) <= 5
 }
 
 func chatResponseFormatPreserved(raw json.RawMessage) bool {

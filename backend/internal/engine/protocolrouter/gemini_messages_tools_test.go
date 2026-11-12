@@ -23,6 +23,14 @@ func TestPlanResponsesToGeminiUsesChatAdmission(t *testing.T) {
 	if _, err := New(allTestAdapters()).Plan(request, testAccount(t, ProtocolGeminiGenerateContent)); !errors.Is(err, ErrNoLegalRoute) {
 		t.Fatalf("remote image err=%v", err)
 	}
+	skipped := []byte(`{"model":"gemini-3.8-flash","input":[{"type":"web_search_call","id":"ws_1"},{"type":"message","role":"user","content":[{"type":"input_text","text":"Where?"}]}]}`)
+	request, err = ParseCanonicalRequest(ProtocolResponses, ResponsesPathRoot, "gemini-3.8-flash", false, skipped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(allTestAdapters()).Plan(request, testAccount(t, ProtocolGeminiGenerateContent)); !errors.Is(err, ErrNoLegalRoute) {
+		t.Fatalf("skipped responses item err=%v", err)
+	}
 }
 
 func TestPlanGeminiIdentityAdmitsInlineImage(t *testing.T) {
@@ -37,6 +45,26 @@ func TestPlanGeminiIdentityAdmitsInlineImage(t *testing.T) {
 	plan, err := New(allTestAdapters()).Plan(request, testAccount(t, ProtocolGeminiGenerateContent))
 	if err != nil || plan.AdapterID() != AdapterGeminiIdentity {
 		t.Fatalf("plan=%+v err=%v", plan, err)
+	}
+}
+
+func TestPlanGeminiIdentityIgnoresSchemaKeysNamedContent(t *testing.T) {
+	bodies := [][]byte{
+		[]byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":[{"name":"write","parameters":{"type":"object","properties":{"content":{"type":"string"}}}}]}]}`),
+		[]byte(`{"contents":[{"role":"model","parts":[{"functionCall":{"name":"write","args":{"input":{"type":"string","value":"x"}}}}]}]}`),
+	}
+	for _, body := range bodies {
+		request, err := ParseCanonicalRequest(ProtocolGeminiGenerateContent, ResponsesPathNone, "gemini-3.8-flash", false, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.Profile().ContentKinds&^(ContentText|ContentImage) != 0 {
+			t.Fatalf("kinds=%b body=%s", request.Profile().ContentKinds, body)
+		}
+		plan, err := New(allTestAdapters()).Plan(request, testAccount(t, ProtocolGeminiGenerateContent))
+		if err != nil || plan.AdapterID() != AdapterGeminiIdentity {
+			t.Fatalf("plan=%+v err=%v body=%s", plan, err, body)
+		}
 	}
 }
 

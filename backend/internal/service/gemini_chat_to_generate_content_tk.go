@@ -474,10 +474,10 @@ func chatGeminiGenerationConfig(req apicompat.ChatCompletionsRequest, root map[s
 	if err != nil {
 		return nil, err
 	}
+	if len(stops) > 5 {
+		return nil, errors.New("stop supports at most 5 sequences on Gemini")
+	}
 	if len(stops) > 0 {
-		if len(stops) > 5 {
-			stops = stops[:5]
-		}
 		out["stopSequences"] = stops
 	}
 	if err := applyChatResponseFormat(out, req.ResponseFormat); err != nil {
