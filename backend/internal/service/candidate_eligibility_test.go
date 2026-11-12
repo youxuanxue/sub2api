@@ -166,8 +166,12 @@ func TestCandidateEligibilityNativeAndLocalModelDenial(t *testing.T) {
 					model = test.model
 				}
 				account := Account{ID: 101, GroupIDs: []int64{1}, Platform: test.platform,
-					Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: false,
+					Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
 					Credentials: map[string]any{"api_key": "test-only", "model_mapping": map[string]any{model: model}}}
+				if supported {
+					until := time.Now().Add(time.Hour)
+					account.TempUnschedulableUntil = &until
+				}
 				attachTestNativeDeclaredCapability(&account)
 				resolver := NewUniversalRoutingResolver(&stubSpanLister{groups: []Group{group}})
 				wireCandidateTestResolver(resolver, &GatewayService{}, []Account{account})
