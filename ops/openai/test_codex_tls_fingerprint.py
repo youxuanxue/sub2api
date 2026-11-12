@@ -71,7 +71,9 @@ def _record(lane: str, order: list[int], profile: dict = PROFILE, **overrides) -
     return record
 
 
-def fixture_bundle(version: str = "0.167.0", profile: dict = PROFILE, mutate=None) -> dict:
+def fixture_bundle(version: str | None = None, profile: dict = PROFILE, mutate=None) -> dict:
+    if version is None:
+        version = profile["observed"]["codex_cli_version"]
     rng = random.Random(7)
     records = []
     for lane, count in (("https", 4), ("wss", 3)):
