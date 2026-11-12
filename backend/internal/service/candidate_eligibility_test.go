@@ -108,7 +108,7 @@ func TestCandidateEligibilityGoogleBackends(t *testing.T) {
 	}
 }
 
-func TestCandidateEligibilityCapacityIsNotEntitlement(t *testing.T) {
+func TestCandidateEligibilityManualSwitchIsNotCapacity(t *testing.T) {
 	resolver, gateway, accounts, request := candidateGoogleFixture(t)
 	for i := range accounts {
 		accounts[i].Schedulable = false
@@ -116,8 +116,10 @@ func TestCandidateEligibilityCapacityIsNotEntitlement(t *testing.T) {
 	wireCandidateTestResolver(resolver, gateway, accounts)
 	group, err := resolveCandidateTest(resolver, request, "")
 	require.Nil(t, group)
-	require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+	require.ErrorIs(t, err, ErrUniversalNoEntitledGroup)
+	require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
 	for i := range accounts {
+		accounts[i].Schedulable = true
 		accounts[i].Credentials["model_mapping"] = map[string]any{"other": "other"}
 	}
 	wireCandidateTestResolver(resolver, gateway, accounts)
@@ -164,8 +166,12 @@ func TestCandidateEligibilityNativeAndLocalModelDenial(t *testing.T) {
 					model = test.model
 				}
 				account := Account{ID: 101, GroupIDs: []int64{1}, Platform: test.platform,
-					Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: false,
+					Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
 					Credentials: map[string]any{"api_key": "test-only", "model_mapping": map[string]any{model: model}}}
+				if supported {
+					until := time.Now().Add(time.Hour)
+					account.TempUnschedulableUntil = &until
+				}
 				attachTestNativeDeclaredCapability(&account)
 				resolver := NewUniversalRoutingResolver(&stubSpanLister{groups: []Group{group}})
 				wireCandidateTestResolver(resolver, &GatewayService{}, []Account{account})
@@ -367,6 +373,10 @@ func TestCandidateEligibilityInvalidCapabilityIsCandidateRejection(t *testing.T)
 					case "unsupported":
 						require.Nil(t, group)
 						require.ErrorIs(t, err, ErrUniversalUnsupportedModel)
+					case "disabled":
+						require.Nil(t, group)
+						require.ErrorIs(t, err, ErrUniversalUnsupportedRequest)
+						require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
 					default:
 						require.Nil(t, group)
 						require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)

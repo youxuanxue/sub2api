@@ -212,6 +212,11 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			diag.reject("force_platform_mismatch")
 			continue
 		}
+		// The manual switch is not pool capacity. Temporary windows stay in
+		// Plan and surface as a capacity miss when nothing else is ready.
+		if !accountParticipatesInProtocolPlan(account) {
+			continue
+		}
 		sticky := account.ID == accountStickyID || account.ID == r.continuationAccountID
 		var subscriptions, balances []Group
 		paths := make(map[int64]*candidateExecutionPath)

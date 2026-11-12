@@ -14,7 +14,7 @@
 ## Acceptance Criteria
 
 1. AC-001 (positive): Given authorized Vertex and Antigravity accounts When one is unavailable Then the resolver selects the eligible peer using the real request Plan.
-2. AC-002 (negative): Given configured capability but no currently available account When resolving Then return capacity 429; unknown evidence must not become entitlement 403.
+2. AC-002 (negative): Given configured capability but only a temporary window (rate limit, temp unschedulable, overload, quota) When resolving Then return capacity 429. A manual Schedulable=false switch does not enter Plan and is not a capacity miss. Unknown evidence must not become entitlement 403.
 3. AC-003 (regression): Given native and valid converted routes When comparing authorized account candidates Then native support adds no priority advantage.
 4. AC-004 (regression): Given authorized Gemini/Antigravity accounts When evaluating Then account membership, actual capability and endpoint permissions control admission; legacy mixed-pool opt-ins and group platform equality do not exclude a legal account.
 5. AC-005 (regression): Given sustained empty-pool feedback When choosing an account Then the same scoped temporary penalty applies, all-saturated pools remain last resorts, and subscription priority survives.
@@ -139,7 +139,9 @@ mixed-pool test documents only the remaining legacy adapter's behavior.
 
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityGoogleBackends`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityThinkingModelReadiness`
-- `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityCapacityIsNotEntitlement`
+- `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityManualSwitchIsNotCapacity`
+- `backend/internal/service/candidate_selection_tk_test.go`::`TestTempUnschedulableRemainsCapacity`
+- `backend/internal/service/candidate_selection_tk_test.go`::`TestManualSchedulableOffDoesNotTurnProtocolMissIntoCapacity`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityUnknownCapabilityIsNotEntitlement`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityNativeAndConverterEqual`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityMixedPoolUsesSchedulerMembership`

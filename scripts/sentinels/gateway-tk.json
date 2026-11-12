@@ -3705,7 +3705,7 @@
         "TestCandidateEligibilityMixedPoolUsesSchedulerMembership",
         "TestCandidateEligibilityNativeAndConverterEqual",
         "TestCandidateEligibilitySaturationPreservesBillingTier",
-        "TestCandidateEligibilityCapacityIsNotEntitlement",
+        "TestCandidateEligibilityManualSwitchIsNotCapacity",
         "TestCandidateEligibilityKnownRouteRejectionIsNotInternal",
         "TestCandidateEligibilityErrorPrecedence",
         "TestCandidateEligibilityNativeAndLocalModelDenial"
