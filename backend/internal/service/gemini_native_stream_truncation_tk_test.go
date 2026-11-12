@@ -219,3 +219,245 @@ func TestAntigravityGeminiStreamTruncation_WritesClientErrorFrame(t *testing.T) 
 		})
 	}
 }
+
+func TestGeminiNativeEventHoldable(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{name: "signature", raw: `{"candidates":[{"content":{"parts":[{"thoughtSignature":"SIG"}]}}]}`, want: true},
+		{name: "empty_text", raw: `{"candidates":[{"content":{"parts":[{"text":"  "}]}}]}`, want: true},
+		{name: "thought_text", raw: `{"candidates":[{"content":{"parts":[{"thought":true,"text":"hmm"}]}}]}`, want: true},
+		{name: "usage_only", raw: `{"usageMetadata":{"promptTokenCount":12,"totalTokenCount":12}}`, want: true},
+		{name: "visible_text", raw: `{"candidates":[{"content":{"parts":[{"text":"answer"}]}}]}`, want: false},
+		{name: "function_call", raw: `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"x"}}]}}]}`, want: false},
+		{name: "inline_data", raw: `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"abc"}}]}}]}`, want: false},
+		{name: "stop", raw: `{"candidates":[{"content":{"parts":[{"thoughtSignature":"SIG"}]},"finishReason":"STOP"}]}`, want: false},
+		{name: "error", raw: `{"error":{"code":503,"message":"overloaded","status":"UNAVAILABLE"}}`, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, geminiNativeEventHoldable([]byte(tc.raw)))
+		})
+	}
+}
+
+func TestAntigravityGeminiEmptyPrefixTruncationFailoversWithoutModelBytes(t *testing.T) {
+	const (
+		signature = `data: {"candidates":[{"content":{"parts":[{"thoughtSignature":"SIG_HELD"}]}}]}` + "\n\n"
+		thought   = `data: {"candidates":[{"content":{"parts":[{"thought":true,"text":"THOUGHT_ONLY"}]}}]}` + "\n\n"
+		blankText = `data: {"candidates":[{"content":{"parts":[{"text":"   "}]}}]}` + "\n\n"
+		answer    = `data: {"candidates":[{"content":{"parts":[{"text":"VISIBLE_ANSWER"}]}}]}` + "\n\n"
+		wrapped   = `data: {"response":{"candidates":[{"content":{"parts":[{"thoughtSignature":"SIG_HELD"}]}}]}}` + "\n\n"
+		stop      = `data: {"candidates":[{"content":{"parts":[{"thoughtSignature":"SIG_HELD"}]},"finishReason":"STOP"}]}` + "\n\n"
+		tool      = `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup"}}]}}]}` + "\n\n"
+		image     = `data: {"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"abc"}}]}}]}` + "\n\n"
+	)
+	cases := []struct {
+		name         string
+		wire         string
+		wantFailover bool
+		// ordered lists fragments that must appear in the client body, in order.
+		ordered []string
+		absent  []string
+	}{
+		{
+			name:         "signature_only",
+			wire:         signature,
+			wantFailover: true,
+			absent:       []string{"SIG_HELD", "data:"},
+		},
+		{
+			name:         "empty_text",
+			wire:         blankText,
+			wantFailover: true,
+			absent:       []string{"data:"},
+		},
+		{
+			name:         "thought_only",
+			wire:         thought,
+			wantFailover: true,
+			absent:       []string{"THOUGHT_ONLY", "data:"},
+		},
+		{
+			name:         "wrapped_signature_only",
+			wire:         wrapped,
+			wantFailover: true,
+			absent:       []string{"SIG_HELD", "data:"},
+		},
+		{
+			name:    "signature_then_text_stays_terminal",
+			wire:    signature + thought + answer,
+			ordered: []string{"SIG_HELD", "THOUGHT_ONLY", "VISIBLE_ANSWER", GeminiNativeStreamTruncatedCode},
+		},
+		{
+			name:    "stop_flushes_signature",
+			wire:    signature + stop,
+			ordered: []string{"SIG_HELD", "STOP"},
+			absent:  []string{GeminiNativeStreamTruncatedCode},
+		},
+		{
+			name:    "function_call_stays_terminal",
+			wire:    tool,
+			ordered: []string{"lookup", GeminiNativeStreamTruncatedCode},
+		},
+		{
+			name:    "inline_data_stays_terminal",
+			wire:    image,
+			ordered: []string{"inlineData", GeminiNativeStreamTruncatedCode},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost,
+				"/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse", nil)
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(tc.wire)),
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			}
+			svc := newAntigravityTestService(&config.Config{
+				Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+			})
+			account := &Account{ID: 43, Name: "antigravity-acct", Platform: PlatformAntigravity}
+
+			streamRes, err := svc.handleGeminiStreamingResponse(c, resp, time.Now())
+			require.NoError(t, err)
+			err = finalizeAntigravityGeminiStreamTruncation(c, streamRes, account, "req-empty")
+
+			body := rec.Body.String()
+			cursor := 0
+			for _, fragment := range tc.ordered {
+				idx := strings.Index(body[cursor:], fragment)
+				require.GreaterOrEqual(t, idx, 0, "missing %q in %q", fragment, body)
+				cursor += idx + len(fragment)
+			}
+			for _, fragment := range tc.absent {
+				require.NotContains(t, body, fragment)
+			}
+
+			truncatedEvents := 0
+			if raw, ok := c.Get(OpsUpstreamErrorsKey); ok {
+				events, _ := raw.([]*OpsUpstreamErrorEvent)
+				for _, ev := range events {
+					if ev != nil && ev.Kind == "stream_truncated" {
+						truncatedEvents++
+					}
+				}
+			}
+			if !tc.wantFailover {
+				require.NotErrorAs(t, err, new(*UpstreamFailoverError))
+				if len(tc.ordered) > 0 && strings.Contains(tc.ordered[len(tc.ordered)-1], GeminiNativeStreamTruncatedCode) {
+					require.ErrorIs(t, err, ErrGeminiNativeStreamTruncated)
+					require.Equal(t, 1, truncatedEvents)
+					require.True(t, streamRes.modelBytesWritten)
+					require.NotNil(t, streamRes.firstTokenMs)
+					streamErrs := GetOpsStreamErrors(c)
+					require.NotEmpty(t, streamErrs)
+					require.True(t, streamErrs[len(streamErrs)-1].CountTowardsSLA)
+				} else {
+					require.NoError(t, err)
+					require.Zero(t, truncatedEvents)
+				}
+				return
+			}
+
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.True(t, failoverErr.ShouldRetryNextAccount())
+			require.True(t, failoverErr.SafeToFailoverAfterWrite, "separator keepalive was written")
+			require.Equal(t, GeminiNativeStreamTruncatedCode, failoverErr.ClientErrorType)
+			require.False(t, streamRes.modelBytesWritten)
+			require.Nil(t, streamRes.firstTokenMs)
+			require.Equal(t, 1, truncatedEvents)
+			require.Empty(t, GetOpsStreamErrors(c), "recovered attempts must not count toward SLA yet")
+		})
+	}
+}
+
+func TestAntigravityGeminiEmptyPrefix_ClientAbortDoesNotFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c.Request = httptest.NewRequest(http.MethodPost,
+		"/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse", nil).WithContext(ctx)
+	wire := `data: {"candidates":[{"content":{"parts":[{"thoughtSignature":"SIG_HELD"}]}}]}` + "\n\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(wire)),
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+	svc := newAntigravityTestService(&config.Config{
+		Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+	})
+	streamRes, err := svc.handleGeminiStreamingResponse(c, resp, time.Now())
+	require.NoError(t, err)
+	err = finalizeAntigravityGeminiStreamTruncation(c, streamRes, &Account{ID: 43, Platform: PlatformAntigravity}, "req-abort")
+	require.NoError(t, err)
+	require.NotContains(t, rec.Body.String(), "SIG_HELD")
+	require.NotContains(t, rec.Body.String(), GeminiNativeStreamTruncatedCode)
+}
+
+func TestAntigravityGeminiHeldPrefixKeepaliveDependsOnClient(t *testing.T) {
+	const (
+		signature = `data: {"candidates":[{"content":{"parts":[{"thoughtSignature":"SIG_HELD"}]}}]}` + "\n\n"
+		answer    = `data: {"candidates":[{"content":{"parts":[{"text":"VISIBLE_ANSWER"}]}}]}` + "\n\n"
+		stop      = `data: {"candidates":[{"finishReason":"STOP"}]}` + "\n\n"
+	)
+	cases := []struct {
+		name      string
+		userAgent string
+		// leadingNewline is the whitespace keepalive emitted while the signature
+		// is held. go-genai / python-genai split on \n\n and treat that newline
+		// as part of the first data event.
+		leadingNewline bool
+	}{
+		{name: "gemini_cli", userAgent: "GeminiCLI-tui/0.68.0", leadingNewline: true},
+		{name: "go_genai", userAgent: "google-genai-sdk/1.71.0 gl-go/go1.28", leadingNewline: false},
+		{name: "python_genai", userAgent: "google-genai-sdk/1.20.0 gl-python/3.12.4", leadingNewline: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost,
+				"/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse", nil)
+			c.Request.Header.Set("User-Agent", tc.userAgent)
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(signature + answer + stop)),
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			}
+			svc := newAntigravityTestService(&config.Config{
+				Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+			})
+			streamRes, err := svc.handleGeminiStreamingResponse(c, resp, time.Now())
+			require.NoError(t, err)
+			require.NoError(t, finalizeAntigravityGeminiStreamTruncation(c, streamRes, &Account{ID: 43, Platform: PlatformAntigravity}, "req-ka"))
+
+			body := rec.Body.String()
+			require.Equal(t, tc.leadingNewline, strings.HasPrefix(body, "\n"))
+			sigAt := strings.Index(body, "SIG_HELD")
+			textAt := strings.Index(body, "VISIBLE_ANSWER")
+			require.GreaterOrEqual(t, sigAt, 0)
+			require.Greater(t, textAt, sigAt)
+			framed := body
+			if tc.leadingNewline {
+				framed = strings.TrimPrefix(body, "\n")
+			}
+			for _, event := range strings.Split(framed, "\n\n") {
+				if event == "" {
+					continue
+				}
+				require.True(t, strings.HasPrefix(event, "data:"), "event %q in %q", event, body)
+			}
+		})
+	}
+}

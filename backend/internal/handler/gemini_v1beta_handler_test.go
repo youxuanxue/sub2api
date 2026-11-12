@@ -5,6 +5,7 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -36,6 +37,55 @@ func TestHandleGeminiFailoverExhaustedUsesCapacityClientMetadata(t *testing.T) {
 			"status": "RESOURCE_EXHAUSTED"
 		}
 	}`, recorder.Body.String())
+}
+
+func TestHandleGeminiFailoverExhaustedEmptyPrefixUsesJSONBeforeCommit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-pro:streamGenerateContent", nil)
+
+	(&GatewayHandler{}).handleGeminiFailoverExhausted(c, &service.UpstreamFailoverError{
+		StatusCode:       http.StatusBadGateway,
+		ClientStatusCode: http.StatusBadGateway,
+		ClientErrorType:  service.GeminiNativeStreamTruncatedCode,
+		ClientMessage:    "Upstream Gemini stream ended before any terminal event",
+		ResponseBody:     []byte(`{"error":{"code":502,"message":"Upstream Gemini stream ended before any terminal event","status":"INTERNAL"}}`),
+	})
+
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.JSONEq(t, `{
+		"error": {
+			"code": 502,
+			"message": "Upstream Gemini stream ended before any terminal event",
+			"status": "INTERNAL"
+		}
+	}`, recorder.Body.String())
+	require.Empty(t, service.GetOpsStreamErrors(c))
+}
+
+func TestHandleGeminiFailoverExhaustedEmptyPrefixFinishesCommittedSSE(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-pro:streamGenerateContent", nil)
+	_, err := c.Writer.Write([]byte("\n"))
+	require.NoError(t, err)
+
+	(&GatewayHandler{}).handleGeminiFailoverExhausted(c, &service.UpstreamFailoverError{
+		StatusCode:       http.StatusBadGateway,
+		ClientStatusCode: http.StatusBadGateway,
+		ClientErrorType:  service.GeminiNativeStreamTruncatedCode,
+		ClientMessage:    "Upstream Gemini stream ended before any terminal event",
+	})
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Contains(t, recorder.Body.String(), service.GeminiNativeStreamTruncatedCode)
+	require.True(t, strings.HasPrefix(recorder.Body.String(), "\n"))
+	streamErrs := service.GetOpsStreamErrors(c)
+	require.NotEmpty(t, streamErrs)
+	require.True(t, streamErrs[len(streamErrs)-1].CountTowardsSLA)
+	require.Equal(t, http.StatusBadGateway, streamErrs[len(streamErrs)-1].IntendedStatus)
 }
 
 func TestHandleGeminiFailoverExhaustedPreservesUnclassifiedProvider503Mapping(t *testing.T) {

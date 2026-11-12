@@ -18183,9 +18183,10 @@
         "func TestGeminiNativeStreamTruncationGuard(t *testing.T) {",
         "func TestAntigravityGeminiStreamTruncationGuard(t *testing.T) {",
         "func TestGeminiNativeStreamTruncation_ClientAbortIsNotUpstreamFault(t *testing.T) {",
+        "func TestAntigravityGeminiEmptyPrefixTruncationFailoversWithoutModelBytes(t *testing.T) {",
         "geminiNativeTruncationCases()"
       ],
-      "rationale": "Both paths drive one shared case matrix so neither can drift, and every silent case asserts zero stream_truncated events — a guard that fires and swallows its own error would otherwise pass. The suite also pins the buffered-stream contract (docs/approved/anthropic-buffered-stream-failure-contract.md): bytes already reached the client, so truncation is a terminal error and must never become an UpstreamFailoverError replay."
+      "rationale": "Both paths drive one shared case matrix so neither can drift, and every silent case asserts zero stream_truncated events — a guard that fires and swallows its own error would otherwise pass. Usable text, tools, and media already written stay a terminal stream_truncated error and must not failover. Antigravity signature-only, empty-text, and thought-only prefixes that end before any terminal event stay unwritten and return UpstreamFailoverError; a later real text or tool call flushes that prefix in order."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",

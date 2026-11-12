@@ -3,14 +3,20 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
+
+// geminiNativeHeldPrefixLimit 是签名 / 空 text / thought 前缀的内存上限。
+// 超过之后改为直接写出，截断走不可重放的终止错误，避免无限缓冲。
+const geminiNativeHeldPrefixLimit = 8 << 20
 
 // ErrGeminiNativeStreamTruncated 标记 Gemini 原生 SSE 流在任何终止事件之前结束。
 var ErrGeminiNativeStreamTruncated = errors.New("upstream Gemini stream ended before any terminal event")
@@ -89,6 +95,73 @@ func (t *geminiNativeStreamTerminalState) IsTruncated() bool {
 	return t != nil && t.sawDataEvent && !t.sawTerminal
 }
 
+// geminiNativeEventHoldable 判断这个事件能不能先扣住、不写给客户端。
+//
+// 可扣住的只有还不能构成回答的前缀：thoughtSignature、空白 text、thought 文本、
+// 以及只有 usage 的事件。非空正文、functionCall、inlineData 和其他未知 part
+// 一旦出现就必须按原顺序放行，之后不得再换号。finishReason、blockReason 和
+// error 是终态，也必须放行——带 STOP 的空回答是完整回合，不是截断。
+func geminiNativeEventHoldable(payload []byte) bool {
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 || !gjson.ValidBytes(payload) || !gjson.ParseBytes(payload).IsObject() {
+		return false
+	}
+	if errObj := gjson.GetBytes(payload, "error"); errObj.Exists() && errObj.IsObject() {
+		return false
+	}
+	if strings.TrimSpace(gjson.GetBytes(payload, "promptFeedback.blockReason").String()) != "" {
+		return false
+	}
+	candidates := gjson.GetBytes(payload, "candidates")
+	if candidates.Exists() && !candidates.IsArray() {
+		return false
+	}
+	holdable := true
+	candidates.ForEach(func(_, cand gjson.Result) bool {
+		if strings.TrimSpace(cand.Get("finishReason").String()) != "" {
+			holdable = false
+			return false
+		}
+		parts := cand.Get("content.parts")
+		if parts.Exists() && !parts.IsArray() {
+			holdable = false
+			return false
+		}
+		parts.ForEach(func(_, part gjson.Result) bool {
+			if !geminiNativePartHoldable(part) {
+				holdable = false
+				return false
+			}
+			return true
+		})
+		return holdable
+	})
+	return holdable
+}
+
+func geminiNativePartHoldable(part gjson.Result) bool {
+	if !part.IsObject() {
+		return false
+	}
+	holdable := true
+	part.ForEach(func(key, value gjson.Result) bool {
+		switch key.String() {
+		case "thoughtSignature", "thought":
+			return true
+		case "text":
+			if strings.TrimSpace(value.String()) == "" || part.Get("thought").Bool() {
+				return true
+			}
+			holdable = false
+			return false
+		default:
+			holdable = false
+			return false
+		}
+	})
+	return holdable
+}
+
 // geminiNativeStreamClientAborted 判定下游已先行离开：取消会连带取消上游请求，
 // 此时上游读到的 EOF 与真实截断不可区分，沿用既有语义不判为上游故障。
 func geminiNativeStreamClientAborted(ctx context.Context) bool {
@@ -99,18 +172,16 @@ func geminiNativeStreamClientAborted(ctx context.Context) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-// recordGeminiNativeStreamTruncation 把上游截断记入 ops 上下文，并返回终止错误。
-//
-// 字节已经写给客户端了，所以按 anthropic-buffered-stream-failure-contract.md 的
-// "已有可用内容后未完整 EOF" 一行处理：返回普通终止错误（不是 UpstreamFailoverError），
-// 不重放——重放会让客户端收到重复内容——同时标记 stream_truncated 并计入 SLA。
-func recordGeminiNativeStreamTruncation(
+// recordGeminiNativeStreamTruncationEvent 记下这次上游截断。换号成功时它留在
+// recovered upstream 遥测里，不单独把请求打成 SLA 失败；已经写出可用内容时由
+// recordGeminiNativeStreamTruncation 再补 SLA 标记。
+func recordGeminiNativeStreamTruncationEvent(
 	c *gin.Context,
 	account *Account,
 	upstreamRequestID string,
-) error {
+) {
 	if c == nil {
-		return ErrGeminiNativeStreamTruncated
+		return
 	}
 	platform := PlatformGemini
 	accountID := int64(0)
@@ -134,6 +205,22 @@ func recordGeminiNativeStreamTruncation(
 		Reason:             GeminiNativeStreamTruncatedCode,
 		Message:            geminiNativeStreamTruncatedMessage,
 	})
+}
+
+// recordGeminiNativeStreamTruncation 把上游截断记入 ops 上下文，并返回终止错误。
+//
+// 可用内容已经写给客户端了，所以按 anthropic-buffered-stream-failure-contract.md
+// 的「已有可用内容后未完整 EOF」处理：返回普通终止错误（不是 UpstreamFailoverError），
+// 不重放——重放会让客户端收到重复内容——同时标记 stream_truncated 并计入 SLA。
+func recordGeminiNativeStreamTruncation(
+	c *gin.Context,
+	account *Account,
+	upstreamRequestID string,
+) error {
+	if c == nil {
+		return ErrGeminiNativeStreamTruncated
+	}
+	recordGeminiNativeStreamTruncationEvent(c, account, upstreamRequestID)
 	MarkOpsStreamErrorValue(c, OpsStreamError{
 		ErrType:         "upstream_error",
 		Code:            GeminiNativeStreamTruncatedCode,
@@ -144,10 +231,38 @@ func recordGeminiNativeStreamTruncation(
 	return ErrGeminiNativeStreamTruncated
 }
 
+// geminiNativeEmptyPrefixFailover 把还没写出可用内容的截断变成换号。
+// 不写错误帧，也不把前缀刷给客户端；只写过空白心跳时标记 SafeToFailoverAfterWrite。
+// 不设置 CountTowardsSLA：后续账号成功时，这次尝试只留在 recovered 遥测里。
+func geminiNativeEmptyPrefixFailover(
+	c *gin.Context,
+	account *Account,
+	upstreamRequestID string,
+) *UpstreamFailoverError {
+	recordGeminiNativeStreamTruncationEvent(c, account, upstreamRequestID)
+	body, _ := json.Marshal(googleapi.ErrorResponse{Error: googleapi.ErrorDetail{
+		Code:    http.StatusBadGateway,
+		Message: geminiNativeStreamTruncatedMessage,
+		Status:  googleapi.HTTPStatusToGoogleStatus(http.StatusBadGateway),
+	}})
+	written := c != nil && c.Writer != nil && c.Writer.Written()
+	return applyGatewayFailoverSemantic(&UpstreamFailoverError{
+		StatusCode:               http.StatusBadGateway,
+		ResponseBody:             body,
+		SafeToFailoverAfterWrite: written,
+		ClientStatusCode:         http.StatusBadGateway,
+		ClientErrorType:          GeminiNativeStreamTruncatedCode,
+		ClientMessage:            geminiNativeStreamTruncatedMessage,
+	}, gatewayFailoverProfileGoogle, gatewayFailureSemanticTransientFault)
+}
+
 // finalizeAntigravityGeminiStreamTruncation 是 Antigravity 原生 Gemini 透传路径的
-// 截断收尾。守卫判定住在 geminiNativeStreamTerminalState，归因住在
-// recordGeminiNativeStreamTruncation；本函数只做"事实 → 错误"的单一接线，是
-// antigravityStreamResult.truncated 的唯一消费者。
+// 截断收尾，也是 antigravityStreamResult.truncated 的唯一消费者。
+//
+// 还没有写出可用内容（签名、空白 text、thought）时换号，与
+// docs/approved/gateway-failover-policy-ssot.md「输出前恢复与缓冲断流修正」同一条：
+// 没有可消费输出就不占用这条客户端流。已经写出正文、工具或媒体时保持终止错误，
+// 补原生错误帧，不重放。
 func finalizeAntigravityGeminiStreamTruncation(
 	c *gin.Context,
 	res *antigravityStreamResult,
@@ -160,9 +275,11 @@ func finalizeAntigravityGeminiStreamTruncation(
 	if c != nil && c.Request != nil && geminiNativeStreamClientAborted(c.Request.Context()) {
 		return nil
 	}
-	// 与 Gemini compat 路径一致：干净 EOF 时客户端看不到任何错误信号，SDK 只会报
-	// "stream ended without a finish reason" 且无法判断是否可重试。补一个完整的
-	// 原生错误帧，让客户端拿到明确的 502 / upstream_stream_truncated。
+	if !res.modelBytesWritten {
+		return geminiNativeEmptyPrefixFailover(c, account, upstreamRequestID)
+	}
+	// 可用内容已经写出。干净 EOF 时客户端看不到终止信号，SDK 只会报
+	// "stream ended without a finish reason"。补一个完整的原生错误帧。
 	if c != nil && c.Writer != nil {
 		_, _ = fmt.Fprint(c.Writer, geminiNativeSSEErrorFrame(http.StatusBadGateway, GeminiNativeStreamTruncatedCode))
 		c.Writer.Flush()
