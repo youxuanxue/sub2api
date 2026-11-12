@@ -54,6 +54,25 @@ func TestKimiK3ImageInputTokensReadsPNGDataURL(t *testing.T) {
 	}
 }
 
+func TestWebPDimensionsAssembleBeforeAddingOne(t *testing.T) {
+	// 512x64: width-1 low byte is 0xFF. Adding 1 before the bitwise OR yields 256.
+	header := make([]byte, 30)
+	copy(header[0:4], "RIFF")
+	copy(header[8:12], "WEBP")
+	copy(header[12:16], "VP8X")
+	header[24], header[25] = 0xFF, 0x01
+	header[27] = 63
+	w, h, ok := webpDimensions(header)
+	if !ok || w != 512 || h != 64 {
+		t.Fatalf("webp size=%dx%d ok=%v want 512x64", w, h, ok)
+	}
+	url := "data:image/webp;base64," + base64.StdEncoding.EncodeToString(header)
+	body := []byte(`{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"` + url + `"}}]}]}`)
+	if got := KimiK3ImageInputTokens(body); got != KimiK3MediaTokens(512, 64) {
+		t.Fatalf("webp tokens=%d want %d", got, KimiK3MediaTokens(512, 64))
+	}
+}
+
 func TestKimiK3ImageInputTokensReadsJPEG(t *testing.T) {
 	img := image.NewNRGBA(image.Rect(0, 0, 64, 64))
 	var buf bytes.Buffer

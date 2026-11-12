@@ -184,8 +184,10 @@ func webpDimensions(b []byte) (int, int, bool) {
 	if len(b) < 30 || string(b[0:4]) != "RIFF" || string(b[8:12]) != "WEBP" || string(b[12:16]) != "VP8X" {
 		return 0, 0, false
 	}
-	w := 1 + int(b[24]) | int(b[25])<<8 | int(b[26])<<16
-	h := 1 + int(b[27]) | int(b[28])<<8 | int(b[29])<<16
+	// Add 1 after the 24-bit assemble. `1 + b | hi` binds the add first and
+	// turns a 512px side (width-1 low byte 0xFF) into 256.
+	w := 1 + (int(b[24]) | int(b[25])<<8 | int(b[26])<<16)
+	h := 1 + (int(b[27]) | int(b[28])<<8 | int(b[29])<<16)
 	return w, h, w > 0 && h > 0
 }
 
