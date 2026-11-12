@@ -172,7 +172,7 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
             "https://ark.cn-beijing.volces.com/api/plan/v3",
         )
 
-    def test_tokensea_v1_suffix_keeps_relay_scope(self):
+    def test_tokensea_v1_suffix_uses_platform_scope(self):
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
                 payload = {"data": {"models": ["gpt-5.4"]}}
@@ -186,7 +186,7 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
             def log_message(self, *_args):
                 pass
 
-        # /v1 suffix is a stored-URL boundary sample, not an owner copy of live #92/#93.
+        # /v1 suffix is a stored-URL boundary sample. It must not create a relay scope.
         cases = [
             (
                 {
@@ -196,7 +196,7 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
                     "channel_type": 0,
                     "base_url": "https://agent.tokensea.ai/v1",
                 },
-                "openai_tokensea_relay",
+                "openai",
             ),
             (
                 {
@@ -206,7 +206,7 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
                     "channel_type": 0,
                     "base_url": "https://agent.tokensea.ai/v1/",
                 },
-                "anthropic_tokensea_relay",
+                "anthropic",
             ),
         ]
         for account, scope in cases:

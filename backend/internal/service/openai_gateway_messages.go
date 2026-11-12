@@ -79,7 +79,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// pairs a Chat Completions converter with the plan-selected /v1/responses
 	// endpoint and can synthesize an empty Anthropic end_turn response.
 	if !protocolExecutionBound(ctx) {
-		// Claude 模型在双栈中转（Tokensea / Cloudwise）上走原生 /v1/messages。
+		// Claude 模型在 Cloudwise 双栈中转上走原生 /v1/messages。
 		// 这必须先于 resolveUpstreamProtocol：Responses 探针为否时该函数会把
 		// 这些账号收成 Chat Completions，原生 Messages 直通就再也走不到。
 		if tkPreferNativeAnthropicMessages(account, body) {
@@ -94,11 +94,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		case APIProtocolAnthropic:
 			return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
 		case APIProtocolChatCompletions:
-			// Tokensea GPT 在 extra.responses=true 时仍走 Responses。双栈的
-			// raw-chat 折叠只覆盖 /v1/responses 与 /v1/chat/completions 入站。
-			if !tkTokenseaGPTKeepsResponses(account, body) {
-				return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
-			}
+			return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		}
 		if result, routed, err := s.tkTryRouteForwardAsAnthropic(ctx, c, account, body, defaultMappedModel); routed {
 			return result, err

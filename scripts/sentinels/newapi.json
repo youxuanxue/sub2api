@@ -2030,6 +2030,18 @@
         "defer filterUpstreamResponseHeaders(c)()"
       ],
       "rationale": "Image adaptor entry must install the supplier-header filter. Re-mirroring relay.ImageHelper can drop this line while the filter unit test still passes."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_tk_tokensea.go",
+      "must_contain": [
+        "func isTokenseaRelayUpstream(account *Account) bool",
+        "return isTokenseaRelayBaseURL(account.GetCredential(\"base_url\"))"
+      ],
+      "must_not_contain": [
+        "IsOpenAITokenseaRelay()",
+        "IsAnthropicTokenseaRelay()"
+      ],
+      "rationale": "Live tokensea traffic is supplier-managed newapi accounts on agent.tokensea.ai. The pre-send strip keys off that host. Typed openai/anthropic relay predicates must not return as a second menu."
     }
   ]
 }

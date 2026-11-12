@@ -35,27 +35,14 @@ func (s *OpenAIGatewayService) newAPIBridgeOwnsAnthropicMessages(account *Accoun
 }
 
 // tkPreferNativeAnthropicMessages reports Claude-model /v1/messages traffic
-// that must passthrough to a dual-stack relay's native Messages endpoint.
-// Tokensea does this even when the native-messages probe flag is stale;
-// other API-key relays do it only when that flag is true.
-// tkTokenseaGPTKeepsResponses 让 Tokensea 上已确认支持 Responses 的非 Claude
-// /v1/messages 继续走 Responses 转换，而不是被双栈 raw-chat 折叠收成 Chat Completions。
-func tkTokenseaGPTKeepsResponses(account *Account, body []byte) bool {
-	return account != nil &&
-		account.IsOpenAITokenseaRelay() &&
-		openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportYes &&
-		!shouldForwardNativeAnthropicMessagesForModel(body)
-}
-
+// that must passthrough to an API-key relay's native Messages endpoint when
+// the native-messages probe flag is true.
 func tkPreferNativeAnthropicMessages(account *Account, body []byte) bool {
 	if account == nil || account.Type != AccountTypeAPIKey || account.IsCNProvider() {
 		return false
 	}
 	if !shouldForwardNativeAnthropicMessagesForModel(body) {
 		return false
-	}
-	if account.IsOpenAITokenseaRelay() {
-		return true
 	}
 	return openai_compat.ShouldUseNativeAnthropicMessagesAPI(account.Extra)
 }
@@ -82,10 +69,6 @@ func (s *OpenAIGatewayService) tkTryRouteForwardAsAnthropic(
 	// resolveUpstreamProtocol 已经处理 adaptive / 显式 anthropic / chat_completions。
 	// 这里不能再按账号协议改判：那会把 resolve 选定的 Responses（按模型分流的
 	// GPT、以及非 API Key 账号的 get-access-token 路径）覆盖成原生 Messages。
-	if account.IsOpenAITokenseaRelay() && shouldForwardNativeAnthropicMessagesForModel(body) {
-		result, err := s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
-		return result, true, err
-	}
 	if account.Type == AccountTypeAPIKey && !account.IsCNProvider() && openai_compat.ShouldUseNativeAnthropicMessagesAPI(account.Extra) {
 		if shouldForwardNativeAnthropicMessagesForModel(body) {
 			result, err := s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)

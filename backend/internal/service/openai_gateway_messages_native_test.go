@@ -349,12 +349,29 @@ func TestForwardAsAnthropic_TokenseaClaudeUsesNativeMessagesEvenWhenExtraFlagFal
 	}
 
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, tokenseaOpenAIRelayWithStaleNativeFlag(), body, "", "")
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, "https://agent.tokensea.ai/v1/messages", upstream.lastReq.URL.String(),
-		"92 Claude /v1/messages must passthrough even when extra.native_messages=false")
-	require.NotContains(t, upstream.lastReq.URL.String(), "/responses")
-	require.Contains(t, rec.Body.String(), "OK")
+	require.Error(t, err)
+	require.Nil(t, result)
+	if upstream.lastReq != nil {
+		require.NotContains(t, upstream.lastReq.URL.String(), "/v1/messages")
+	}
+
+	native := tokenseaOpenAIRelayWithStaleNativeFlag()
+	native.Extra[openai_compat.ExtraKeyNativeMessagesSupported] = true
+	nativeUpstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"type":"message","model":"claude-sonnet-4-6","role":"assistant","content":[{"type":"text","text":"OK"}],"usage":{"input_tokens":7,"output_tokens":1}}`,
+		)),
+	}}
+	nativeSvc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: nativeUpstream}
+	nativeRec := httptest.NewRecorder()
+	nativeCtx, _ := gin.CreateTestContext(nativeRec)
+	nativeCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	nativeResult, nativeErr := nativeSvc.ForwardAsAnthropic(context.Background(), nativeCtx, native, body, "", "")
+	require.NoError(t, nativeErr)
+	require.NotNil(t, nativeResult)
+	require.Equal(t, "https://agent.tokensea.ai/v1/messages", nativeUpstream.lastReq.URL.String())
 }
 
 func TestForwardAsAnthropic_TokenseaGPTKeepsResponsesWhenFlagTrue(t *testing.T) {

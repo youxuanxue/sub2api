@@ -176,7 +176,8 @@ func TestShouldForwardOpenAIResponsesViaRawChatCompletions_DualStackRelaysIgnore
 		},
 		Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: true},
 	}
-	require.True(t, shouldForwardOpenAIResponsesViaRawChatCompletions(tokensea))
+	require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(tokensea),
+		"typed tokensea URL must not special-case responses")
 
 	generic := rawChatCompletionsTestAccount()
 	generic.Extra = map[string]any{openai_compat.ExtraKeyResponsesSupported: true}
