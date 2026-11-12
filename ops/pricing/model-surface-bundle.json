@@ -1,10 +1,11 @@
 {
   "schema_version": 4,
-  "floor_sha256": "539f32f5f91747f5c45ecd4e6aaf015f99b55f44bd30ec44f26221582cd77bf2",
+  "floor_sha256": "65662a3bbc1f3a6e4fbf77aaf5a909bbb1b9726c0f9f1a57527ce706dbfee5ab",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
         "claude-fable-5": "claude-fable-5",
+        "claude-fable-5-1": "claude-fable-5-1",
         "claude-fable-5-2": "claude-fable-5-2",
         "claude-haiku-4-5": "claude-haiku-4-5",
         "claude-opus-4-1": "claude-opus-4-1",

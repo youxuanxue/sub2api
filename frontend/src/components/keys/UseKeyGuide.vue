@@ -1919,6 +1919,7 @@ function generateOpenCodeConfig(
     }
   }
   const claudeModels = {
+    'claude-fable-5-1': { name: 'Claude Fable 5.1', limit: { context: 1000000, output: 128000 }, modalities: { input: ['text', 'image', 'pdf'], output: ['text'] }, options: { thinking: { type: 'adaptive' }, effort: 'high' }, variants: { low: { effort: 'low' }, medium: { effort: 'medium' }, high: { effort: 'high' }, xhigh: { effort: 'xhigh' }, max: { effort: 'max' } } },
     'claude-fable-5-2': { name: 'Claude Fable 5.2', limit: { context: 1000000, output: 128000 }, modalities: { input: ['text', 'image', 'pdf'], output: ['text'] }, options: { thinking: { type: 'adaptive' }, effort: 'high' }, variants: { low: { effort: 'low' }, medium: { effort: 'medium' }, high: { effort: 'high' }, xhigh: { effort: 'xhigh' }, max: { effort: 'max' } } },
     'claude-mythos-5-2': { name: 'Claude Mythos 5.2', limit: { context: 1000000, output: 128000 }, modalities: { input: ['text', 'image', 'pdf'], output: ['text'] }, options: { thinking: { type: 'adaptive' }, effort: 'high' }, variants: { low: { effort: 'low' }, medium: { effort: 'medium' }, high: { effort: 'high' }, xhigh: { effort: 'xhigh' }, max: { effort: 'max' } } },
 	'claude-sonnet-5-5': { name: 'Claude Sonnet 5.5', limit: { context: 1000000, output: 128000 }, modalities: { input: ['text', 'image', 'pdf'], output: ['text'] }, options: { thinking: { type: 'adaptive' }, effort: 'high' }, variants: { low: { effort: 'low' }, medium: { effort: 'medium' }, high: { effort: 'high' }, xhigh: { effort: 'xhigh' }, max: { effort: 'max' } } },

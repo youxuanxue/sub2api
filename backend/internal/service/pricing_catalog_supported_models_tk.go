@@ -27,6 +27,7 @@ import (
 // supportedAnthropicCatalogModels — claude IDs confirmed servable.
 var supportedAnthropicCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin anthropic
+	"claude-fable-5-1":  {},
 	"claude-fable-5-2":  {},
 	"claude-fable-5":    {},
 	"claude-haiku-4-5":  {},

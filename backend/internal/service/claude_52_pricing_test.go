@@ -53,7 +53,20 @@ func TestClaudeFable52PublishedPriceAndPublicCatalog(t *testing.T) {
 	require.InDelta(t, 0.01, row.Pricing.CacheWritePer1K, 1e-12)
 	require.InDelta(t, 0.0002, row.Pricing.CacheReadPer1K, 1e-12)
 	require.True(t, isPublicCatalogModelSupported("anthropic", "claude-fable-5-2"))
+	require.True(t, isPublicCatalogModelSupported("anthropic", "claude-fable-5-1"))
 	require.False(t, isPublicCatalogModelSupported("anthropic", "claude-mythos-5-2"))
+	var fable51 *PublicCatalogModel
+	for i := range public.Data {
+		if public.Data[i].ModelID == "claude-fable-5-1" {
+			fable51 = &public.Data[i]
+		}
+	}
+	require.NotNil(t, fable51)
+	require.Equal(t, "anthropic", fable51.Vendor)
+	require.InDelta(t, 0.01, fable51.Pricing.InputPer1KTokens, 1e-12)
+	require.InDelta(t, 0.05, fable51.Pricing.OutputPer1KTokens, 1e-12)
+	require.InDelta(t, 0.0125, fable51.Pricing.CacheWritePer1K, 1e-12)
+	require.InDelta(t, 0.00025, fable51.Pricing.CacheReadPer1K, 1e-12)
 }
 
 func TestClaude52UnpublishedFallbackFailsClosed(t *testing.T) {
