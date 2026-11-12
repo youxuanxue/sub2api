@@ -50,6 +50,7 @@ bootstrap_host() {
   install -d -m 0700 /opt/tokenkey
   install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app
   install -d -m 0755 /var/lib/tokenkey/{postgres,redis,caddy/data,caddy/config,pgdump}
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../tencent/lock-down-sshd.sh"
   echo 'Host bootstrap complete; application not started'
 }
 

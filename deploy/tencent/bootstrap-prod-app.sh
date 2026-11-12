@@ -52,5 +52,6 @@ if [[ ! -e /root/tokenkey-parallel-transfer/recipient.key ]]; then
     -out /root/tokenkey-parallel-transfer/recipient.crt 2>/dev/null
 fi
 [[ "$(systemctl is-enabled apt-daily-upgrade.timer)" == masked ]]
+bash "$(dirname "$0")/lock-down-sshd.sh"
 echo 'APP_ONLY_BOOTSTRAP_READY'
 findmnt --json --target /var/lib/tokenkey --output SOURCE,TARGET,FSTYPE,UUID,FSROOT

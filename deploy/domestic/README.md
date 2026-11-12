@@ -82,7 +82,9 @@
 
 SSH 只用于一次性 agent bootstrap 或 UHost 控制台不可用时的恢复。需要临时 SSH 时只放行
 当前出口 `/32`，完成操作立即移除；不得把动态运维出口固化为长期防火墙规则。日常 probe
-不得回退到 SSH。
+不得回退到 SSH。新机 bootstrap 会运行
+[`deploy/tencent/lock-down-sshd.sh`](../tencent/lock-down-sshd.sh)：关掉密码登录、root
+登录和 TCP 转发，并锁定 root 密码。云防火墙不开放公网 22。
 
 ## SSM 蓝绿升级（默认）
 
