@@ -176,6 +176,64 @@
           </nav>
         </div>
 
+        <div
+          v-if="showCodexCatalog"
+          class="rounded-lg border border-gray-200 p-3 dark:border-dark-700"
+        >
+          <div class="mb-2">
+            <p class="text-sm font-medium text-gray-900 dark:text-white">
+              {{ t('keys.useKeyModal.openai.authModeTitle') }}
+            </p>
+            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('keys.useKeyModal.openai.authModeDescription') }}
+            </p>
+          </div>
+          <div
+            class="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-700"
+            role="radiogroup"
+            :aria-label="t('keys.useKeyModal.openai.authModeTitle')"
+          >
+            <button
+              type="button"
+              role="radio"
+              data-testid="codex-auth-mode-legacy"
+              :aria-checked="codexAuthMode === 'legacy'"
+              :class="[
+                'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                codexAuthMode === 'legacy'
+                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+              ]"
+              @click="codexAuthMode = 'legacy'"
+            >
+              {{ t('keys.useKeyModal.openai.authModeLegacy') }}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              data-testid="codex-auth-mode-api-key"
+              :aria-checked="codexAuthMode === 'api-key'"
+              :class="[
+                'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                codexAuthMode === 'api-key'
+                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+              ]"
+              @click="codexAuthMode = 'api-key'"
+            >
+              {{ t('keys.useKeyModal.openai.authModeApiKey') }}
+            </button>
+          </div>
+          <div
+            v-if="codexAuthMode === 'api-key'"
+            data-testid="codex-api-key-restart-notice"
+            class="mt-3 flex items-start gap-2 border-l-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-500 dark:bg-amber-950/30 dark:text-amber-200"
+          >
+            <Icon name="exclamationCircle" size="sm" class="mt-0.5 flex-shrink-0" />
+            <p>{{ t('keys.useKeyModal.openai.authModeApiKeyRestartNotice') }}</p>
+          </div>
+        </div>
+
         <!-- OS/Shell Tabs -->
         <div v-if="showShellTabs" data-tk="quickstart-environment-picker" class="border-b border-gray-200 dark:border-dark-700">
           <nav class="-mb-px flex flex-wrap gap-x-4" :aria-label="t('quickstart.environment')">
@@ -295,6 +353,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import { useCodexModelManifest } from '@/composables/useCodexModelManifest'
 import { findCodexCatalogModel, formatCodexReasoningEffortTomlLine, selectCodexConfigReasoningEffort } from '@/utils/codexCatalogConfig'
+import { buildCodexApiKeyAuthConfig } from '@/utils/codexAuthConfig'
 import { buildCodexModelCatalogUrl } from '@/api/codex'
 import {
   useTkUseKey,
@@ -401,6 +460,9 @@ const codexRemoteCatalogToml = computed(() => codexCatalogMode.value === 'remote
 const codexModels = computed<UseKeyServableModel[] | null>(() => manifest.models.value?.map(model => ({
   id: model.slug, capabilities: [], protocols: ['codex'],
 })) ?? null)
+// Preserve the existing standard setup; native image mode is explicitly selectable.
+const codexAuthMode = ref<'legacy' | 'api-key'>('legacy')
+watch(() => props.platform, () => { codexAuthMode.value = 'legacy' })
 const showCodexCatalog = computed(() => hasGuideContext.value && ['codex', 'codex-ws'].includes(activeClientTab.value))
 const codexCatalogPath = computed(() => activeTab.value === 'windows' ? '%userprofile%\\.codex\\codex-models.json' : '~/.codex/codex-models.json')
 async function loadCodexCatalog() {
@@ -1267,6 +1329,7 @@ function generateOpenAIFiles(baseUrl: string, apiKey: string, model: string): Fi
   const configContent = `model_provider = "OpenAI"
 model = "${model}"
 review_model = "${model}"
+web_search = "live"
 ${formatCodexReasoningEffortTomlLine(selectCodexConfigReasoningEffort(findCodexCatalogModel(manifest.content.value, model)))}disable_response_storage = true
 ${codexLocalCatalogToml.value}network_access = "enabled"
 windows_wsl_setup_acknowledged = true
@@ -1275,10 +1338,10 @@ windows_wsl_setup_acknowledged = true
 name = "OpenAI"
 base_url = "${baseUrl}"
 ${codexRemoteCatalogToml.value}wire_api = "responses"
-requires_openai_auth = true
+${codexAuthMode.value === 'api-key' ? buildCodexApiKeyAuthConfig(apiKey) : 'requires_openai_auth = true'}
 
 [features]
-${codexCatalogMode.value === 'remote' ? 'api_key_model_discovery = true\n' : ''}goals = true`
+${codexCatalogMode.value === 'remote' ? 'api_key_model_discovery = true\n' : ''}${codexAuthMode.value === 'api-key' ? 'image_generation = true\n' : ''}goals = true`
 
   // auth.json content
   const authContent = `{
@@ -1291,10 +1354,7 @@ ${codexCatalogMode.value === 'remote' ? 'api_key_model_discovery = true\n' : ''}
       content: configContent,
       hint: t('keys.useKeyModal.openai.configTomlHint')
     },
-    {
-      path: `${configDir}/auth.json`,
-      content: authContent
-    }
+    ...(codexAuthMode.value === 'legacy' ? [{ path: `${configDir}/auth.json`, content: authContent }] : [])
   ]
 }
 
@@ -1306,6 +1366,7 @@ function generateOpenAIWsFiles(baseUrl: string, apiKey: string, model: string): 
   const configContent = `model_provider = "OpenAI"
 model = "${model}"
 review_model = "${model}"
+web_search = "live"
 ${formatCodexReasoningEffortTomlLine(selectCodexConfigReasoningEffort(findCodexCatalogModel(manifest.content.value, model)))}disable_response_storage = true
 ${codexLocalCatalogToml.value}network_access = "enabled"
 windows_wsl_setup_acknowledged = true
@@ -1315,10 +1376,10 @@ name = "OpenAI"
 base_url = "${baseUrl}"
 ${codexRemoteCatalogToml.value}wire_api = "responses"
 supports_websockets = true
-requires_openai_auth = true
+${codexAuthMode.value === 'api-key' ? buildCodexApiKeyAuthConfig(apiKey) : 'requires_openai_auth = true'}
 
 [features]
-${codexCatalogMode.value === 'remote' ? 'api_key_model_discovery = true\n' : ''}responses_websockets_v2 = true
+${codexCatalogMode.value === 'remote' ? 'api_key_model_discovery = true\n' : ''}${codexAuthMode.value === 'api-key' ? 'image_generation = true\n' : ''}responses_websockets_v2 = true
 goals = true`
 
   // auth.json content
@@ -1332,10 +1393,7 @@ goals = true`
       content: configContent,
       hint: t('keys.useKeyModal.openai.configTomlHint')
     },
-    {
-      path: `${configDir}/auth.json`,
-      content: authContent
-    }
+    ...(codexAuthMode.value === 'legacy' ? [{ path: `${configDir}/auth.json`, content: authContent }] : [])
   ]
 }
 
@@ -1855,6 +1913,8 @@ function generateOpenCodeConfig(
     }
   }
   const claudeModels = {
+    'claude-fable-5-2': { name: 'Claude Fable 5.2', limit: { context: 1000000, output: 128000 }, modalities: { input: ['text', 'image', 'pdf'], output: ['text'] }, options: { thinking: { type: 'adaptive' }, effort: 'high' }, variants: { low: { effort: 'low' }, medium: { effort: 'medium' }, high: { effort: 'high' }, xhigh: { effort: 'xhigh' }, max: { effort: 'max' } } },
+    'claude-mythos-5-2': { name: 'Claude Mythos 5.2', limit: { context: 1000000, output: 128000 }, modalities: { input: ['text', 'image', 'pdf'], output: ['text'] }, options: { thinking: { type: 'adaptive' }, effort: 'high' }, variants: { low: { effort: 'low' }, medium: { effort: 'medium' }, high: { effort: 'high' }, xhigh: { effort: 'xhigh' }, max: { effort: 'max' } } },
 	'claude-sonnet-5-5': { name: 'Claude Sonnet 5.5', limit: { context: 1000000, output: 128000 }, modalities: { input: ['text', 'image', 'pdf'], output: ['text'] }, options: { thinking: { type: 'adaptive' }, effort: 'high' }, variants: { low: { effort: 'low' }, medium: { effort: 'medium' }, high: { effort: 'high' }, xhigh: { effort: 'xhigh' }, max: { effort: 'max' } } },
     'claude-opus-5-5': { name: 'Claude Opus 5.5', limit: { context: 1000000, output: 128000 }, modalities: { input: ['text', 'image', 'pdf'], output: ['text'] }, options: { thinking: { type: 'adaptive' }, effort: 'medium' }, variants: { low: { effort: 'low' }, medium: { effort: 'medium' }, high: { effort: 'high' }, xhigh: { effort: 'xhigh' }, max: { effort: 'max' } } },
     'claude-fable-5': {

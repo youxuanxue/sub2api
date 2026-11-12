@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"go.uber.org/zap"
 )
@@ -377,6 +378,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		CacheCreationTokens:      result.Usage.CacheCreationInputTokens,
 		CacheCreation5mTokens:    result.Usage.CacheCreation5mTokens,
 		CacheCreation1hTokens:    result.Usage.CacheCreation1hTokens,
+		CacheCreation30mTokens:   result.Usage.CacheCreation30mInputTokens,
+		CacheCreation12hTokens:   result.Usage.CacheCreation12hInputTokens,
 		CacheReadTokens:          result.Usage.CacheReadInputTokens,
 		ImageOutputTokens:        result.Usage.ImageOutputTokens,
 		ImageInputTokens:         result.Usage.ImageInputTokens,
@@ -468,7 +471,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		var mirroredTokenCost *float64
 		if cost != nil {
 			mirroredTokenCost = s.mirrorOpenAIAccountStatsTokenCost(
-				ctx, result, apiKey, billingModels, pricingAt, tokens, serviceTier, longContextBillingGate, cost,
+				ctx, result, apiKey, billingModels, pricingAt, tokens, serviceTier, longContextBillingGate, cost, openAISubscriptionLongContextExempt(billingAccount, result),
 			)
 		}
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
@@ -563,15 +566,16 @@ type openAICustomerFacingCostInput struct {
 // openAICustomerFacingCostPrepared holds multiplier / model / token inputs shared
 // by settle and by RecordUsage metadata when PrecomputedCost short-circuits.
 type openAICustomerFacingCostPrepared struct {
-	Multiplier             float64
-	ImageMultiplier        float64
-	VideoMultiplier        float64
-	BaseMultiplier         float64
-	BillingModels          []string
-	ServiceTier            string
-	Tokens                 UsageTokens
-	LongContextBillingGate *bool
-	ActualInputTokens      int
+	Multiplier                     float64
+	ImageMultiplier                float64
+	VideoMultiplier                float64
+	BaseMultiplier                 float64
+	BillingModels                  []string
+	ServiceTier                    string
+	Tokens                         UsageTokens
+	LongContextBillingGate         *bool
+	DisableModelLongContextPricing bool
+	ActualInputTokens              int
 }
 
 // openAICustomerFacingCostSettlement is the settled customer-facing cost plus
@@ -603,14 +607,17 @@ func (s *OpenAIGatewayService) prepareOpenAICustomerFacingCostInputs(
 	}
 	out.ActualInputTokens = actualInputTokens
 	out.Tokens = UsageTokens{
-		InputTokens:           actualInputTokens,
-		ImageInputTokens:      result.Usage.ImageInputTokens,
-		OutputTokens:          result.Usage.OutputTokens,
-		CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
-		CacheCreation5mTokens: result.Usage.CacheCreation5mTokens,
-		CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
-		CacheReadTokens:       result.Usage.CacheReadInputTokens,
-		ImageOutputTokens:     result.Usage.ImageOutputTokens,
+		InputTokens:            actualInputTokens,
+		ImageInputTokens:       max(result.Usage.ImageInputTokens-result.Usage.ImageCacheReadTokens, 0),
+		ImageCacheReadTokens:   result.Usage.ImageCacheReadTokens,
+		OutputTokens:           result.Usage.OutputTokens,
+		CacheCreationTokens:    result.Usage.CacheCreationInputTokens,
+		CacheCreation5mTokens:  result.Usage.CacheCreation5mTokens,
+		CacheCreation1hTokens:  result.Usage.CacheCreation1hTokens,
+		CacheCreation30mTokens: result.Usage.CacheCreation30mInputTokens,
+		CacheCreation12hTokens: result.Usage.CacheCreation12hInputTokens,
+		CacheReadTokens:        result.Usage.CacheReadInputTokens,
+		ImageOutputTokens:      result.Usage.ImageOutputTokens,
 	}
 
 	multiplier := 1.0
@@ -667,6 +674,7 @@ func (s *OpenAIGatewayService) prepareOpenAICustomerFacingCostInputs(
 		out.ServiceTier = strings.TrimSpace(*result.ServiceTier)
 	}
 	out.LongContextBillingGate = openAILongContextBillingGate(billingAccount)
+	out.DisableModelLongContextPricing = openAISubscriptionLongContextExempt(billingAccount, result)
 	return out, nil
 }
 
@@ -706,7 +714,7 @@ func (s *OpenAIGatewayService) settleOpenAICustomerFacingCost(
 		prepared.Tokens,
 		prepared.ServiceTier,
 		prepared.LongContextBillingGate,
-		pricingAt,
+		pricingAt, prepared.DisableModelLongContextPricing,
 	)
 	if err != nil {
 		return nil, err
@@ -726,7 +734,7 @@ func (s *OpenAIGatewayService) settleOpenAICustomerFacingCost(
 			responseCost, responseErr := s.calculateOpenAIRecordUsageCost(
 				ctx, in.Result, in.APIKey, responseModels, prepared.Multiplier, prepared.ImageMultiplier,
 				prepared.VideoMultiplier, prepared.BaseMultiplier, prepared.Tokens, prepared.ServiceTier,
-				prepared.LongContextBillingGate, pricingAt,
+				prepared.LongContextBillingGate, pricingAt, prepared.DisableModelLongContextPricing,
 			)
 			baselineChannelPriced := s.resolveOpenAIChannelPricing(ctx, baselineBillingModel, in.APIKey) != nil
 			if responseErr == nil && responseModelBillingAdoptable(cost, responseCost, baselineChannelPriced, responseChannelPriced) {
@@ -754,7 +762,7 @@ func (s *OpenAIGatewayService) settleOpenAICustomerFacingCost(
 			prepared.Tokens,
 			"",
 			prepared.LongContextBillingGate,
-			pricingAt,
+			pricingAt, prepared.DisableModelLongContextPricing,
 		)
 		if standardErr != nil && !isUsagePricingUnavailableError(standardErr) {
 			return nil, standardErr
@@ -787,6 +795,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	serviceTier string,
 	longContextBillingGate *bool,
 	pricingAt time.Time,
+	disableModelLongContext ...bool,
 ) (*CostBreakdown, error) {
 	billingModel := firstUsageBillingModel(billingModels)
 	if result != nil && result.WebSearchCalls > 0 {
@@ -850,7 +859,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 				tokens,
 				serviceTier,
 				optionalStringValue(result.ReasoningEffort),
-				longContextBillingGate,
+				longContextBillingGate, disableModelLongContext...,
 			)
 			if err == nil {
 				tokenCost = cost
@@ -925,7 +934,9 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 	serviceTier string,
 	reasoningEffort string,
 	longContextBillingGate *bool,
+	disableModelLongContext ...bool,
 ) (*CostBreakdown, error) {
+	exempt := len(disableModelLongContext) > 0 && disableModelLongContext[0]
 	if s.resolver != nil && apiKey.Group != nil {
 		gid := apiKey.Group.ID
 		billingAt := RecordUsageBillingAt(pricingAt)
@@ -934,12 +945,13 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier,
 			PricingAt: pricingAt, BillingAt: billingAt,
 			ServiceTier: serviceTier, ReasoningEffort: reasoningEffort, Resolver: s.resolver,
-			LongContextBillingEnabled: longContextBillingGate,
+			LongContextBillingEnabled:      longContextBillingGate,
+			DisableModelLongContextPricing: exempt,
 		})
 	}
 	breakdown, err := s.billingService.calculateCostInternalWithPolicyAt(
 		billingModel, tokens, multiplier, serviceTier, nil,
-		longContextBillingGate == nil || *longContextBillingGate,
+		(longContextBillingGate == nil || *longContextBillingGate) && !exempt,
 		RecordUsageBillingAt(pricingAt),
 	)
 	if err == nil {
@@ -1208,6 +1220,7 @@ func (s *OpenAIGatewayService) mirrorOpenAIAccountStatsTokenCost(
 	serviceTier string,
 	longContextBillingGate *bool,
 	userCost *CostBreakdown,
+	disableModelLongContext ...bool,
 ) *float64 {
 	if userCost == nil {
 		return nil
@@ -1237,7 +1250,7 @@ func (s *OpenAIGatewayService) mirrorOpenAIAccountStatsTokenCost(
 			continue
 		}
 		mirror, err := s.calculateOpenAIRecordUsageTokenCost(
-			ctx, apiKey, candidate, 1.0, pricingAt, tokens, serviceTier, optionalStringValue(result.ReasoningEffort), longContextBillingGate,
+			ctx, apiKey, candidate, 1.0, pricingAt, tokens, serviceTier, optionalStringValue(result.ReasoningEffort), longContextBillingGate, disableModelLongContext...,
 		)
 		if err == nil {
 			if cost := accountStatsTokenCostFromBreakdown(mirror); cost != nil {
@@ -1246,4 +1259,15 @@ func (s *OpenAIGatewayService) mirrorOpenAIAccountStatsTokenCost(
 		}
 	}
 	return nil
+}
+
+func openAISubscriptionLongContextExempt(account *Account, result *OpenAIForwardResult) bool {
+	if !account.IsOpenAIOAuthLike() || result == nil {
+		return false
+	}
+	model := strings.TrimSpace(result.UpstreamModel)
+	if model == "" {
+		model = result.Model
+	}
+	return openai.IsGPT61SolModelSpelling(model) || openai.IsGPT61TerraModelSpelling(model)
 }

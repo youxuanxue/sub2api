@@ -22,6 +22,8 @@ func TestGetClaudeCodeClientVersionPriority(t *testing.T) {
 		{name: "归一化手动值", manual: " v" + claudeCodeTestVersion(t, 1) + " ", synced: claudeCodeTestVersion(t, 2), want: claudeCodeTestVersion(t, 1)},
 		{name: "跟随同步值", synced: claudeCodeTestVersion(t, 2), want: claudeCodeTestVersion(t, 2)},
 		{name: "无效手动值回退", manual: "invalid", synced: claudeCodeTestVersion(t, 2), want: claudeCodeTestVersion(t, 2)},
+		{name: "旧手动值回退同步值", manual: "2.1.280", synced: claudeCodeTestVersion(t, 2), want: claudeCodeTestVersion(t, 2)},
+		{name: "旧同步值回退基线", synced: "2.1.280", want: claude.CLIVersion()},
 		{name: "无效同步值回退", synced: "2.1.9", want: claude.CLIVersion()},
 		{name: "未配置时回退", want: claude.CLIVersion()},
 	} {

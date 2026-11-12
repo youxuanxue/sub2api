@@ -112,6 +112,20 @@ type OpenAIImagesRequest struct {
 	MaskUpload            *OpenAIImagesUpload
 	Body                  []byte
 	bodyHash              string
+	Complexity            string
+	FrameCount            *int
+	FrameDurationMS       *int
+	SVG                   *OpenAIImagesSVGOptions
+	MarkupImageURL        string
+	MarkupUpload          *OpenAIImagesUpload
+}
+
+// Keep SVG author options separate from the image model and its complexity.
+type OpenAIImagesSVGOptions struct {
+	Model     string `json:"model"`
+	Reasoning *struct {
+		Effort string `json:"effort,omitempty"`
+	} `json:"reasoning,omitempty"`
 }
 
 func (r *OpenAIImagesRequest) ModerationBody() []byte {
@@ -157,6 +171,14 @@ func (r *OpenAIImagesRequest) moderationImages() []map[string]string {
 	}
 	if r.MaskUpload != nil {
 		if dataURL := r.MaskUpload.ModerationDataURL(); dataURL != "" {
+			images = append(images, map[string]string{"image_url": dataURL})
+		}
+	}
+	if markupURL := strings.TrimSpace(r.MarkupImageURL); markupURL != "" {
+		images = append(images, map[string]string{"image_url": markupURL})
+	}
+	if r.MarkupUpload != nil {
+		if dataURL := r.MarkupUpload.ModerationDataURL(); dataURL != "" {
 			images = append(images, map[string]string{"image_url": dataURL})
 		}
 	}
@@ -325,6 +347,7 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 	}
 	// Legacy TokenKey-only tk_image_contract is ignored: local canvas/format
 	// post-process is the default for all clients. Still stripped before upstream.
+	req.Complexity = strings.TrimSpace(gjson.GetBytes(body, "complexity").String())
 	req.HasMask = gjson.GetBytes(body, "mask").Exists()
 	if outputCompression := gjson.GetBytes(body, "output_compression"); outputCompression.Exists() {
 		if outputCompression.Type != gjson.Number {
@@ -339,6 +362,20 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 		}
 		v := int(partialImages.Int())
 		req.PartialImages = &v
+	}
+	for _, field := range []struct {
+		name string
+		dest any
+	}{
+		{"frame_count", &req.FrameCount},
+		{"frame_duration_ms", &req.FrameDurationMS},
+		{"svg", &req.SVG},
+	} {
+		if value := gjson.GetBytes(body, field.name); value.Exists() {
+			if err := json.Unmarshal([]byte(value.Raw), field.dest); err != nil {
+				return fmt.Errorf("invalid %s field: %w", field.name, err)
+			}
+		}
 	}
 	if req.IsEdits() {
 		images := gjson.GetBytes(body, "images")
@@ -362,6 +399,18 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 		}
 		if gjson.GetBytes(body, "mask.file_id").Exists() {
 			return fmt.Errorf("mask.file_id is not supported (use mask.image_url instead)")
+		}
+		if markup := gjson.GetBytes(body, "markup"); markup.Exists() && markup.Type != gjson.Null {
+			if !markup.IsObject() {
+				return fmt.Errorf("invalid markup field type")
+			}
+			if markup.Get("file_id").Exists() {
+				return fmt.Errorf("markup.file_id is not supported (use markup.image_url instead)")
+			}
+			req.MarkupImageURL = strings.TrimSpace(markup.Get("image_url").String())
+			if req.MarkupImageURL == "" {
+				return fmt.Errorf("markup.image_url is required")
+			}
 		}
 		if len(req.InputImageURLs) == 0 {
 			return fmt.Errorf("images[].image_url is required")
@@ -412,10 +461,9 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 		fileName := strings.TrimSpace(part.FileName())
 		if fileName != "" {
 			partContentType := strings.TrimSpace(part.Header.Get("Content-Type"))
-			if name == "mask" && len(data) > 0 {
-				req.HasMask = true
+			if (name == "mask" || name == "markup") && len(data) > 0 {
 				width, height := parseOpenAIImageDimensions(part.Header)
-				maskUpload := OpenAIImagesUpload{
+				upload := OpenAIImagesUpload{
 					FieldName:   name,
 					FileName:    fileName,
 					ContentType: partContentType,
@@ -423,7 +471,13 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 					Width:       width,
 					Height:      height,
 				}
-				req.MaskUpload = &maskUpload
+				if name == "mask" {
+					req.HasMask = true
+					req.MaskUpload = &upload
+				} else {
+					req.HasNativeOptions = true
+					req.MarkupUpload = &upload
+				}
 			}
 			if name == "image" || strings.HasPrefix(name, "image[") {
 				width, height := parseOpenAIImageDimensions(part.Header)
@@ -470,6 +524,9 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 			req.Quality = value
 			req.ExplicitQuality = true
 			req.HasNativeOptions = true
+		case "complexity":
+			req.Complexity = value
+			req.HasNativeOptions = true
 		case "background":
 			req.Background = value
 			req.ExplicitBackground = true
@@ -505,6 +562,22 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 				return fmt.Errorf("invalid partial_images field value")
 			}
 			req.PartialImages = &n
+			req.HasNativeOptions = true
+		case "frame_count", "frame_duration_ms":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("invalid %s field value", name)
+			}
+			if name == "frame_count" {
+				req.FrameCount = &n
+			} else {
+				req.FrameDurationMS = &n
+			}
+			req.HasNativeOptions = true
+		case "svg":
+			if err := json.Unmarshal(data, &req.SVG); err != nil {
+				return fmt.Errorf("invalid svg field: %w", err)
+			}
 			req.HasNativeOptions = true
 		default:
 			if isOpenAINativeImageOption(name) && value != "" {
@@ -636,12 +709,17 @@ func hasOpenAINativeImageOptions(exists func(path string) bool) bool {
 	for _, path := range []string{
 		"background",
 		"quality",
+		"complexity",
 		"style",
 		"output_format",
 		"output_compression",
 		"moderation",
 		"input_fidelity",
 		"partial_images",
+		"frame_count",
+		"frame_duration_ms",
+		"svg",
+		"markup",
 	} {
 		if exists(path) {
 			return true
@@ -652,7 +730,7 @@ func hasOpenAINativeImageOptions(exists func(path string) bool) bool {
 
 func isOpenAINativeImageOption(name string) bool {
 	switch strings.TrimSpace(strings.ToLower(name)) {
-	case "background", "quality", "style", "output_format", "output_compression", "moderation", "input_fidelity", "partial_images":
+	case "background", "quality", "complexity", "style", "output_format", "output_compression", "moderation", "input_fidelity", "partial_images", "frame_count", "frame_duration_ms", "svg", "markup":
 		return true
 	default:
 		return false
@@ -1196,7 +1274,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 ) (OpenAIUsage, int, []string, *int, error) {
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
-	if contentType == "" {
+	if direct != nil || contentType == "" {
 		contentType = "text/event-stream"
 	}
 	c.Status(resp.StatusCode)
@@ -1412,14 +1490,31 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	}
 
 	finalizeFallbackBody := func() {
-		if direct != nil {
-			return
-		}
 		if seenSSEData || fallbackBody.Len() == 0 {
 			return
 		}
 		body := bytes.TrimSpace(fallbackBody.Bytes())
 		if len(body) == 0 {
+			return
+		}
+		if direct != nil {
+			// Codex edits can return a complete JSON image despite stream=true.
+			// Deliver it as completion events before marking it successful, so a
+			// paid image is neither discarded nor retried on another account.
+			results, err := parseCodexDirectImagesResponse(body)
+			if err != nil {
+				streamErr = err
+				return
+			}
+			createdAt := gjson.GetBytes(body, "created").Int()
+			usageRaw := []byte(gjson.GetBytes(body, "usage").Raw)
+			for i, result := range results {
+				var eventUsage []byte
+				if i == len(results)-1 {
+					eventUsage = usageRaw
+				}
+				processSSEData(buildOpenAIImagesStreamCompletedPayload(openAIImagesStreamPrefix(direct)+".completed", result, direct.ResponseFormat, createdAt, eventUsage))
+			}
 			return
 		}
 		mergeOpenAIUsage(&usage, body)

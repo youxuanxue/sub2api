@@ -84,3 +84,11 @@ Deletion commit: `9e0bf73e092e99e0b7251d5b938a16c36357c137`, reviewed in
 - **Reason:** the row-pruning command was never shipped in a release image or workflow and its planned schema finalizer was already superseded by the applied `tk_101_ops_error_logs_finalize_unwritten_columns.sql` migration. The preflight debt explicitly scheduled both files for removal after the next upstream merge.
 - **Regression cost / upstream tests lost:** no production entry point or scheduled behavior is removed. The command's classifier unit tests are removed with the unreachable command; ingress-rejection collection and admin read paths remain active.
 - **Re-adopt when:** TokenKey adds a reviewed, supported historical ingress-rejection retention workflow with a shipped executable and an explicit owner. Re-adopt both paths only with that workflow and update this entry in the same change.
+
+## Deletion ledger: consolidated Responses reasoning helper
+
+- **Upstream path:** `backend/internal/pkg/apicompat/responses_reasoning.go`.
+- **Deletion commit + PR:** upstream harness `8aa25133fa1db382ef9e80034ffc160886329298`; review link: https://github.com/youxuanxue/sub2api/compare/main...merge/upstream-2026-11-11 (this upstream merge PR).
+- **Reason:** upstream's new `responsesReasoningText` duplicates TokenKey's existing `extractResponsesOutputReasoningText` in `chatcompletions_responses_bridge.go`. All merged call sites use that existing owner, which preserves visible summary first and raw reasoning content fallback; retaining the unreferenced helper adds a second implementation without a caller.
+- **Regression cost / upstream tests lost:** no reasoning behavior or assertion is retired. `TestResponsesReasoningContentFallback`, `TestResponsesReasoningContentFallbackPerItem`, `TestResponsesToChatCompletions_ReasoningTextFromContent` and `TestResponsesToAnthropic_ReasoningTextFromContent` remain collected and passed in the complete backend unit suite. Future upstream edits to the removed helper require porting their intent into the shared owner.
+- **Re-adopt when:** upstream introduces distinct reasoning semantics that the existing owner cannot represent. Review the new behavior, update the shared owner and regression cases, then restore a separate file only if it owns a distinct responsibility.

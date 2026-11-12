@@ -206,3 +206,12 @@ func TestRefreshTokenPair_TokenVersionMismatch_StillRevokes(t *testing.T) {
 		t.Fatalf("version mismatch must delete the token family")
 	}
 }
+
+func (c *statefulRefreshCache) ConsumeRefreshToken(ctx context.Context, tokenHash string) (*RefreshTokenData, error) {
+	data, err := c.GetRefreshToken(ctx, tokenHash)
+	if err != nil {
+		return nil, err
+	}
+	delete(c.store, tokenHash)
+	return data, nil
+}

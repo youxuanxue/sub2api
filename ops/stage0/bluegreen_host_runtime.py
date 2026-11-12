@@ -5,9 +5,11 @@ Delivered with the existing blue/green primitive. Uses only Python's standard
 library; credential contents never enter Compose, SSM parameters or output.
 """
 import argparse
+import base64
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 
@@ -34,14 +36,54 @@ def _mounted_ext4(root, run):
     return Path(mounted[0]['source']).resolve()
 
 
+def volume_contract(target):
+    """Validate non-secret storage identity before sending it to a host."""
+    platform = target.get('volume_platform', 'tencent-luks')
+    if platform not in ('tencent-luks', 'hetzner', 'tencent-root'):
+        raise ValueError('unsupported host volume platform')
+    mapper = target.get('volume_mapper', 'tokenkey_recovery')
+    if not isinstance(mapper, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', mapper):
+        raise ValueError('invalid mapper name')
+    result = {'platform': platform, 'mapper_name': mapper}
+    if platform == 'tencent-root':
+        uuid = target.get('volume_root_uuid', '')
+        if not isinstance(uuid, str) or not re.fullmatch(r'[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}', uuid):
+            raise ValueError('root filesystem UUID must be pinned')
+        result['root_uuid'] = uuid.lower()
+    return result
+
+
+def check_root(root, root_uuid, run):
+    if root != Path('/var/lib/tokenkey') or root.resolve() != root or not root.is_dir():
+        raise ValueError('ordinary storage requires the canonical app directory')
+    expected = volume_contract({'volume_platform': 'tencent-root', 'volume_root_uuid': root_uuid})['root_uuid']
+    rows = []
+    for path in (Path('/'), root):
+        mounts = json.loads(run(['findmnt', '--json', '--target', str(path), '--output',
+                                 'SOURCE,TARGET,FSTYPE,UUID,FSROOT'], text=True))['filesystems']
+        if len(mounts) != 1:
+            raise ValueError('expected one root filesystem')
+        row = mounts[0]
+        if (row.get('target') != '/' or row.get('fstype') != 'ext4'
+                or row.get('fsroot') != '/' or row.get('uuid', '').lower() != expected
+                or not re.fullmatch(r'/dev/(?:vd|sd|xvd)[a-z]+[0-9]+|/dev/nvme[0-9]+n[0-9]+p[0-9]+', row.get('source', ''))):
+            raise ValueError('ordinary storage does not match pinned root identity')
+        rows.append(row)
+    if rows[0]['source'] != rows[1]['source']:
+        raise ValueError('app storage must use the host root device')
+    private_file(root / '.env', 0)
+
+
 def check_volume(root, run=subprocess.check_output, platform='tencent-luks',
-                 mapper_name='tokenkey_recovery'):
+                 mapper_name='tokenkey_recovery', root_uuid=''):
     """Validate the encrypted/data volume for the explicit platform.
 
     ``tencent-luks`` (default) requires the named dm-crypt mapper and refuses
     Hetzner volume identities. ``hetzner`` remains only as a historical gate
     that requires a Hetzner Cloud Volume id symlink (prod Hetzner is retired).
     """
+    if platform == 'tencent-root':
+        return check_root(root, root_uuid, run)
     source = _mounted_ext4(root, run)
     hetzner_devices = list(Path('/dev/disk/by-id').glob('scsi-0HC_Volume_*'))
     if platform == 'hetzner':
@@ -95,15 +137,23 @@ def main():
     parser.add_argument('--root', type=Path, default=Path('/var/lib/tokenkey'))
     parser.add_argument('--hybrid-prod', action='store_true')
     parser.add_argument('--check-volume', action='store_true')
-    parser.add_argument('--platform', choices=('hetzner', 'tencent-luks'), default='tencent-luks',
+    parser.add_argument('--platform', choices=('hetzner', 'tencent-luks', 'tencent-root'), default='tencent-luks',
                         help='volume identity gate; default tencent-luks (Hetzner Cloud retired)')
     parser.add_argument('--mapper-name', default='tokenkey_recovery',
                         help='dm-crypt mapper basename when --platform=tencent-luks')
     parser.add_argument('--compose', type=Path)
+    parser.add_argument('--root-uuid', default='')
+    parser.add_argument('--contract-b64', default='')
     args = parser.parse_args()
     try:
+        contract = {'platform': args.platform, 'mapper_name': args.mapper_name, 'root_uuid': args.root_uuid}
+        if args.contract_b64:
+            raw = json.loads(base64.b64decode(args.contract_b64, validate=True))
+            contract = volume_contract({'volume_platform': raw['platform'],
+                                        'volume_mapper': raw['mapper_name'],
+                                        'volume_root_uuid': raw.get('root_uuid', '')})
         if args.check_volume or args.hybrid_prod:
-            check_volume(args.root, platform=args.platform, mapper_name=args.mapper_name)
+            check_volume(args.root, **contract)
         if args.compose:
             mounts, environment = bindings(args.root, args.hybrid_prod)
             args.compose.write_text(patch_compose(args.compose.read_text(), mounts, environment))

@@ -1,4 +1,3 @@
-//go:build ignore
 //go:build unit
 
 package service
@@ -7,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -356,7 +356,7 @@ func TestCountTokensEntries_ExplicitModelScope401OnlyCoolsModel(t *testing.T) {
 		svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream, rateLimitService: &RateLimitService{accountRepo: repo, cfg: cfg}}
 		account := newTempUnschedScope401Account(PlatformOpenAI, TempUnschedScopeModel)
 		account.Credentials["api_key"] = "sk-test"
-		account.Credentials["base_url"] = "http://upstream.example"
+		account.Credentials["base_url"] = "https://api.openai.com"
 		account.Concurrency = 1
 		body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}]}`)
 		c, _ := newContext("/v1/messages/count_tokens", body)
@@ -376,6 +376,7 @@ func TestCountTokensEntries_ExplicitModelScope401OnlyCoolsModel(t *testing.T) {
 		svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream, rateLimitService: &RateLimitService{accountRepo: repo, cfg: cfg}}
 		account := newTempUnschedScope401Account(PlatformOpenAI, TempUnschedScopeModel)
 		account.Credentials["api_key"] = "sk-test"
+		account.Credentials["base_url"] = "https://api.openai.com"
 		account.Credentials["model_mapping"] = map[string]any{"gpt-5.4": "gpt-5.4-upstream"}
 		account.Concurrency = 1
 		body := []byte(`{"model":"gpt-5.4","input":"hello"}`)
@@ -417,7 +418,11 @@ func TestCountTokensEntries_ExplicitModelScope401OnlyCoolsModel(t *testing.T) {
 			c, _ := newContext("/v1/messages/count_tokens", body)
 			parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-5"}
 
-			require.Error(t, svc.ForwardCountTokens(context.Background(), c, account, parsed))
+			err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
+			var failover *UpstreamFailoverError
+			require.ErrorAs(t, err, &failover)
+			require.True(t, failover.RequestScopedTransient)
+			require.False(t, failover.RetryableOnSameAccount)
 
 			require.NotNil(t, upstream.lastReq)
 			require.Equal(t, "claude-sonnet-4-5-upstream", gjson.GetBytes(upstream.lastBody, "model").String())
@@ -491,4 +496,28 @@ func TestAnthropicFailoverEntries_ExplicitModelScopeOnlyCoolsModel(t *testing.T)
 		require.Len(t, repo.modelRateLimitCalls, 1)
 		require.Equal(t, "claude-sonnet-4-5", repo.modelRateLimitCalls[0].scope)
 	})
+}
+
+func TestGeminiLoopModelScope401MatchesFinalPolicy(t *testing.T) {
+	for _, pool := range []bool{false, true} {
+		t.Run(fmt.Sprint(pool), func(t *testing.T) {
+			account := newTempUnschedScope401Account(PlatformGemini, TempUnschedScopeModel)
+			if pool {
+				account.Credentials["pool_mode"] = true
+			}
+			account.TempUnschedulableReason = tempUnschedScopePrevious401Mark
+			require.Equal(t, ErrorPolicyTempUnscheduled, classifyGeminiLoopErrorPolicy(account, 401, tempUnschedScope401Body, "gemini-test"))
+			repo := &tempUnschedScopeRepoStub{}
+			svc := &RateLimitService{accountRepo: repo}
+			gemini := &GeminiMessagesCompatService{rateLimitService: svc}
+			ctx := withGeminiCodeAssistMappedModel(context.Background(), "gemini-test")
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			resp := &http.Response{StatusCode: 401, Header: make(http.Header)}
+			_, handled := gemini.tkApplyGeminiErrorPolicy(ctx, c, account, resp, tempUnschedScope401Body, "req-scope", false, geminiErrorPolicyClientNative)
+			require.True(t, handled)
+			require.Len(t, repo.modelRateLimitCalls, 1)
+			require.Zero(t, repo.tempCalls)
+			require.Zero(t, repo.errorCalls)
+		})
+	}
 }

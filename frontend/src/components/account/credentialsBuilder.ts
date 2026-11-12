@@ -548,6 +548,11 @@ export interface CNUsageCellAccount {
 // 官方接口，后端直接拒绝探测，单元格只会显示一行报错。
 const OFFICIAL_ACCOUNT_API_PLATFORMS = ['command_code', 'cline']
 
+export function usesCNProviderUsageCell(platform: string): boolean {
+  return isCNProviderPlatform(platform) || platform === 'opencode_go' || OFFICIAL_ACCOUNT_API_PLATFORMS.includes(platform)
+}
+
+
 function cnUsageCellAccountMode(account: CNUsageCellAccount): string {
   const mode = account.credentials?.account_mode
   return typeof mode === 'string' ? mode : ''

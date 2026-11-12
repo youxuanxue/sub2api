@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "platform": "tencent-lighthouse",
+  "role": "prod-candidate",
+  "notes": [
+    "Isolated app replacement candidate. DNS and the default prod resolver still use the old app host.",
+    "STAGE0_TARGET_MATRIX selects this contract only with the exact candidate SSM identity.",
+    "QA capture is disabled; no archive timer is installed. Do not enable an archive writer before the singleton handoff.",
+    "The Tencent image shares its filesystem UUID with other instances; SSM identity and hostname checks are also required."
+  ],
+  "target": {
+    "resolvable": false,
+    "deployable": false,
+    "cutover_authorized": false,
+    "cutover_completed": false,
+    "instance_name": "tokenkey-usw-app-20261111",
+    "computer_name": "tokenkey-usw-app-20261111",
+    "hostname": "tokenkey-usw-app-20261111",
+    "lighthouse_instance_id": "lhins-2kf31667",
+    "expected_ssm_instance_id": "mi-000c0168439c243a8",
+    "ssm_region": "eu-west-2",
+    "volume_platform": "tencent-root",
+    "volume_root_uuid": "9842d3d6-a839-4127-bda7-f19137effe71",
+    "volume_mount": "/var/lib/tokenkey",
+    "public_ip": "43.162.126.44",
+    "private_ip": "10.4.0.9",
+    "architecture": "amd64",
+    "purpose": "Parallel app-only replacement; no database or Redis server"
+  }
+}

@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -139,7 +138,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
 	}
 
-	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
+	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody, mappedModel)
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
@@ -337,7 +336,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 	} else if useUpstreamStream {
-		collected, usageObj, _, err := collectGeminiSSE(resp.Body, account.Type == AccountTypeOAuth)
+		collected, usageObj, _, err := collectGeminiSSE(resp.Body, account.Type == AccountTypeOAuth, s.cfg)
 		if err != nil {
 			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 		}
@@ -702,13 +701,13 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	nextBlockIndex := 0
 	openBlockIndex := -1
 	openBlockType := ""
-	seenText := ""
-	seenThought := ""
+	var seenText geminiTextDelta
+	var seenThought geminiTextDelta
 	imageStream := newGeminiImageStream()
 	openToolIndex := -1
 	openToolName := ""
-	seenToolJSON := ""
-	defer func() { stashGeminiWebEstimateOutputText(c, seenText) }()
+	var seenToolJSON geminiTextDelta
+	defer func() { stashGeminiWebEstimateOutputText(c, seenText.seen.String()) }()
 
 	closeOpenBlock := func() bool {
 		if openBlockIndex < 0 {
@@ -726,13 +725,13 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 		disconnected := emitAnthropicEvent(&apicompat.AnthropicStreamEvent{Type: "content_block_stop"})
 		openToolIndex = -1
 		openToolName = ""
-		seenToolJSON = ""
+		seenToolJSON.reset()
 		return disconnected
 	}
 
-	reader := bufio.NewReader(resp.Body)
+	reader := newBoundedSSELineReader(resp.Body, s.cfg)
 	for {
-		line, err := reader.ReadString('\n')
+		line, err := reader.ReadLineString()
 		if len(line) > 0 {
 			trimmed := strings.TrimRight(line, "\r\n")
 			if strings.HasPrefix(trimmed, "data:") {
@@ -775,8 +774,8 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 						for _, part := range imageStream.textParts(extractGeminiParts(geminiResp)) {
 							if text, ok := part["text"].(string); ok && text != "" {
 								if geminiTextPartIsThought(part) {
-									delta, nextSeen := computeGeminiTextDelta(seenThought, text)
-									seenThought = nextSeen
+									delta := seenThought.next(text)
+
 									if delta == "" {
 										continue
 									}
@@ -818,7 +817,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 								}
 								delta := text
 								if part["gemini_inline_image"] != true {
-									delta, seenText = computeGeminiTextDelta(seenText, text)
+									delta = seenText.next(text)
 								}
 								if delta == "" {
 									continue
@@ -899,8 +898,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 										argsJSONText = string(b)
 									}
 								}
-								delta, newSeen := computeGeminiTextDelta(seenToolJSON, argsJSONText)
-								seenToolJSON = newSeen
+								delta := seenToolJSON.next(argsJSONText)
 								if delta != "" {
 									if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
 										Type: "content_block_delta",

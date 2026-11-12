@@ -63,6 +63,11 @@ type DispatchOutcome struct {
 	// Propagated so the gateway bills per-image (output_cost_per_image) instead of by
 	// tokens; without it imagen via the bridge silently falls back to token billing.
 	ImageCount int
+	// ImageUsage is the image token breakdown recovered from the client-facing
+	// response (image generations only). New API's dto.Usage has no
+	// output_tokens_details, so this is the only source for
+	// output_tokens_details.image_tokens on the bridge path.
+	ImageUsage *ImageUsageDetails
 }
 
 func firstTokenMs(info *relaycommon.RelayInfo, stream bool) *int {
@@ -281,7 +286,7 @@ func DispatchImageGenerations(_ context.Context, c *gin.Context, in ChannelConte
 	}
 
 	start := time.Now()
-	usage, apiErr := RunImageRelay(c, relayInfo)
+	usage, imageUsage, hasImageUsage, apiErr := RunImageRelayWithUsage(c, relayInfo)
 	dur := time.Since(start)
 	if apiErr != nil {
 		return nil, apiErr
@@ -301,7 +306,7 @@ func DispatchImageGenerations(_ context.Context, c *gin.Context, in ChannelConte
 		imageCount = int(*req.N)
 	}
 
-	return &DispatchOutcome{
+	out := &DispatchOutcome{
 		Usage:           usage,
 		Model:           req.Model,
 		UpstreamModel:   upstream,
@@ -310,7 +315,11 @@ func DispatchImageGenerations(_ context.Context, c *gin.Context, in ChannelConte
 		AdaptorRelayFmt: types.RelayFormatOpenAIImage,
 		AdaptorAPIType:  apiType,
 		ImageCount:      imageCount,
-	}, nil
+	}
+	if hasImageUsage {
+		out.ImageUsage = &imageUsage
+	}
+	return out, nil
 }
 
 // DescribeRelayFormat returns a short metric label for logs.

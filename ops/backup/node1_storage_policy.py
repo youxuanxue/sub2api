@@ -81,7 +81,9 @@ def receipt_bytes(receipt_root: Path, *, kind: str) -> int:
             payload = json.loads(receipt.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if kind == "qa" and payload.get("schema_version") == "qa-node1-hour-v1" and payload.get("ok") is True:
+        if kind == "qa" and payload.get("schema_version") in {
+            "qa-node1-hour-v1", "qa-node1-source-hour-v2"
+        } and payload.get("ok") is True:
             total += int(payload.get("total_bytes", 0))
         elif kind in ("db", "qa") and payload.get("status") == "verified":
             total += int((payload.get("manifest") or {}).get("total_bytes", 0))

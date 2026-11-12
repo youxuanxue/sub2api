@@ -122,7 +122,7 @@ DEPLOY_TOKEN="${DEPLOY_TOKEN:-}"
 
 # Check the actual data mount before locks, backups, Docker or directory creation.
 if [[ "${HYBRID_PROD:-false}" = true ]]; then
-  python3 -c "$(printf '%s' "${HOST_RUNTIME_B64}" | base64 -d)" --check-volume
+  python3 -c "$(printf '%s' "${HOST_RUNTIME_B64}" | base64 -d)" --check-volume --contract-b64 "${VOLUME_CONTRACT_B64:-}"
 fi
 
 # Serialize host mutations across local invocations and workflow dispatches.
@@ -594,10 +594,9 @@ services:
     container_name: tokenkey-blue
     pull_policy: always
     restart: unless-stopped
-    # 8GB host died when this process reached ~6GiB RSS with no cgroup cap.
-    # Keep the hard cap below the 16GB host, and below the cgroup so Go GCs first.
-    mem_limit: 8g
-    memswap_limit: 8g
+    # Smaller parallel hosts pin a per-color cap; preserve the existing 16GB host defaults.
+    mem_limit: ${TOKENKEY_APP_MEMORY_LIMIT:-8g}
+    memswap_limit: ${TOKENKEY_APP_MEMORY_LIMIT:-8g}
     logging: *tokenkey-logging
     stop_grace_period: 180s
     ulimits:
@@ -613,7 +612,7 @@ services:
       # HOST_RUNTIME_ENVIRONMENT
       - SKIP_DATA_CHOWN=1
       - AUTO_SETUP=true
-      - GOMEMLIMIT=6GiB
+      - GOMEMLIMIT=${TOKENKEY_APP_GOMEMLIMIT:-6GiB}
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
       - SERVER_MODE=${SERVER_MODE:-release}
@@ -680,8 +679,8 @@ services:
     restart: unless-stopped
     # 8GB host died when this process reached ~6GiB RSS with no cgroup cap.
     # Keep the hard cap below the 16GB host, and below the cgroup so Go GCs first.
-    mem_limit: 8g
-    memswap_limit: 8g
+    mem_limit: ${TOKENKEY_APP_MEMORY_LIMIT:-8g}
+    memswap_limit: ${TOKENKEY_APP_MEMORY_LIMIT:-8g}
     logging: *tokenkey-logging
     stop_grace_period: 180s
     ulimits:
@@ -697,7 +696,7 @@ services:
       # HOST_RUNTIME_ENVIRONMENT
       - SKIP_DATA_CHOWN=1
       - AUTO_SETUP=true
-      - GOMEMLIMIT=6GiB
+      - GOMEMLIMIT=${TOKENKEY_APP_GOMEMLIMIT:-6GiB}
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
       - SERVER_MODE=${SERVER_MODE:-release}
@@ -762,7 +761,7 @@ networks:
     external: true
     name: tokenkey_tokenkey-network
 YAML
-  local -a runtime_args=(--compose "${tmp}")
+  local -a runtime_args=(--compose "${tmp}" --contract-b64 "${VOLUME_CONTRACT_B64:-}")
   [[ "${HYBRID_PROD:-false}" != true ]] || runtime_args+=(--hybrid-prod)
   sudo python3 -c "$(printf '%s' "${HOST_RUNTIME_B64}" | base64 -d)" "${runtime_args[@]}"
 
@@ -886,13 +885,40 @@ UNIT
     # Docker restart policies run before tokenkey.service, so protect both units.
     local unit
     for unit in docker tokenkey; do
-      sudo tee "/etc/systemd/system/${unit}.service.d/tokenkey-volume.conf" >/dev/null <<'GUARD'
+      sudo tee "/etc/systemd/system/${unit}.service.d/tokenkey-volume.conf" >/dev/null <<GUARD
 [Unit]
 RequiresMountsFor=/var/lib/tokenkey
 [Service]
-ExecStartPre=/usr/bin/python3 /usr/local/lib/tokenkey/bluegreen_host_runtime.py --check-volume
+ExecStartPre=/usr/bin/python3 /usr/local/lib/tokenkey/bluegreen_host_runtime.py --check-volume --contract-b64 ${VOLUME_CONTRACT_B64}
 GUARD
     done
+    if [[ "$(python3 -c 'import base64,json,sys; print(json.loads(base64.b64decode(sys.argv[1]))["platform"])' "${VOLUME_CONTRACT_B64}")" == tencent-root ]]; then
+      printf '%s' "${CONTROL_ALIAS_B64}" | base64 -d | sudo tee /usr/local/lib/tokenkey/sync-control-alias-on-host.sh >/dev/null
+      sudo chmod 0644 /usr/local/lib/tokenkey/sync-control-alias-on-host.sh
+      sudo tee /usr/local/bin/tokenkey-boot-control-alias.sh >/dev/null <<'BOOT_ALIAS'
+#!/bin/bash
+set -euo pipefail
+ROOT=/var/lib/tokenkey
+color="$(sed -n '1p' "${ROOT}/active-color" | tr -d '[:space:]')"
+[[ "$color" == blue || "$color" == green ]]
+# Compose starts before the app is ready; alias verification must wait for HTTP.
+for ((attempt=0; attempt<60; attempt++)); do
+  if docker exec "tokenkey-${color}" wget -q -T 2 -O /dev/null http://127.0.0.1:8080/health \
+    && TK_ACTIVE_COLOR="$color" bash /usr/local/lib/tokenkey/sync-control-alias-on-host.sh \
+    && docker exec "tokenkey-${color}" wget -q -T 2 -O /dev/null http://tokenkey:8080/health; then
+    exit 0
+  fi
+  sleep 2
+done
+echo 'Control alias did not become ready within the boot window' >&2
+exit 1
+BOOT_ALIAS
+      sudo chmod 0755 /usr/local/bin/tokenkey-boot-control-alias.sh
+      sudo tee /etc/systemd/system/tokenkey.service.d/control-alias.conf >/dev/null <<'ALIAS_UNIT'
+[Service]
+ExecStartPost=/usr/local/bin/tokenkey-boot-control-alias.sh
+ALIAS_UNIT
+    fi
   fi
   sudo systemctl daemon-reload
   sudo systemctl enable tokenkey.service >/dev/null
@@ -1412,6 +1438,22 @@ printf '%s\n' "${REMOTE_SCRIPT}" > "${remote_script_file}"
 hybrid_prod=false
 [[ "${DEPLOY_PROFILE}" != prod || "${INSTANCE_ID}" != mi-* ]] || hybrid_prod=true
 
+# Candidate preparation may select a separate manifest without changing live auto resolution.
+volume_contract_b64=""
+if [[ "${hybrid_prod}" = true ]]; then
+  volume_contract_b64="$(python3 - "$(dirname "$0")" "${INSTANCE_ID}" "${STAGE0_TARGET_MATRIX:-}" <<'PYCONTRACT'
+import base64, json, pathlib, sys
+sys.path.insert(0, sys.argv[1])
+from bluegreen_host_runtime import volume_contract
+matrix = pathlib.Path(sys.argv[3]) if sys.argv[3] else pathlib.Path(sys.argv[1]).resolve().parents[1] / 'deploy/tencent/candidate-usw-20261022.json'
+target = json.loads(matrix.read_text())['target']
+if target['expected_ssm_instance_id'] != sys.argv[2]:
+    raise SystemExit('Hybrid storage contract instance mismatch')
+print(base64.b64encode(json.dumps(volume_contract(target), sort_keys=True).encode()).decode())
+PYCONTRACT
+)"
+fi
+
 # Compress before both base64 layers: SSM limits the whole document + parameters
 # to 97 KB, so splitting an uncompressed script into chunks does not help.
 REMOTE_B64="$(printf '%s' "${REMOTE_SCRIPT}" | gzip -n -9 | base64 | tr -d '\n')"
@@ -1432,7 +1474,9 @@ fi
 jq -n \
   --arg tag "${TAG}" \
   --arg hybrid_prod "${hybrid_prod}" \
+  --arg volume_contract_b64 "${volume_contract_b64}" \
   --arg host_runtime_b64 "$(base64 < "$(dirname "$0")/bluegreen_host_runtime.py" | tr -d '\n')" \
+  --arg control_alias_b64 "$(base64 < "$(dirname "$0")/../gemini-web/sync-control-alias-on-host.sh" | tr -d '\n')" \
   --arg stage "${STAGE}" \
   --arg deploy_token "${DEPLOY_TOKEN}" \
   --arg approved_receipt "${APPROVED_RECEIPT}" \
@@ -1457,7 +1501,9 @@ jq -n \
     (
       "TAG=" + ($tag|@sh)
       + " HYBRID_PROD=" + ($hybrid_prod|@sh)
+      + " VOLUME_CONTRACT_B64=" + ($volume_contract_b64|@sh)
       + " HOST_RUNTIME_B64=" + ($host_runtime_b64|@sh)
+      + " CONTROL_ALIAS_B64=" + ($control_alias_b64|@sh)
       + " STAGE=" + ($stage|@sh)
       + " DEPLOY_TOKEN=" + ($deploy_token|@sh)
       + " APPROVED_RECEIPT=" + ($approved_receipt|@sh)

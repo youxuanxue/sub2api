@@ -38,7 +38,7 @@ func (s *GeminiMessagesCompatService) tkApplyGeminiErrorPolicy(
 	if s.rateLimitService == nil {
 		return nil, false
 	}
-	switch policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody); policy {
+	switch policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, geminiCodeAssistMappedModelFromContext(ctx)); policy {
 	case ErrorPolicySkipped:
 		if failoverErr := s.skippedErrorPolicyFailoverError(c, account, resp.StatusCode, respBody, upstreamRequestID); failoverErr != nil {
 			return failoverErr, true
@@ -125,7 +125,7 @@ func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
 
-	policy := classifyGeminiLoopErrorPolicy(account, resp.StatusCode, body)
+	policy := classifyGeminiLoopErrorPolicy(account, resp.StatusCode, body, requestedModel)
 	return policy != ErrorPolicyNone, rebuilt
 }
 

@@ -6,9 +6,14 @@ import "strings"
 // price cards (Fable / Gemini / GPT / DeepSeek / GLM / domestic LLM / Doubao).
 // Claude classic Opus/Sonnet/Haiku and xAI Grok cards stay in initFallbackPricing.
 func (s *BillingService) tkInitFallbackPricingTables() {
-	s.fallbackPrices["jev-latest"] = &ModelPricing{
-		InputPricePerToken:  0.042 / 1_000_000,
-		OutputPricePerToken: 0,
+	s.fallbackPrices["claude-opus-5-5"] = &ModelPricing{
+		InputPricePerToken:         4e-6,
+		OutputPricePerToken:        20e-6,
+		CacheCreationPricePerToken: 5e-6,
+		CacheReadPricePerToken:     0.2e-6,
+		CacheCreation5mPrice:       5e-6,
+		CacheCreation1hPrice:       8e-6,
+		SupportsCacheBreakdown:     true,
 	}
 	s.fallbackPrices["claude-sonnet-5-5"] = &ModelPricing{
 		InputPricePerToken:         2e-6,
@@ -19,14 +24,56 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 		CacheCreation1hPrice:       4e-6,
 		SupportsCacheBreakdown:     true,
 	}
-	s.fallbackPrices["claude-opus-5-5"] = &ModelPricing{
-		InputPricePerToken:         4e-6,
-		OutputPricePerToken:        20e-6,
-		CacheCreationPricePerToken: 5e-6,
-		CacheReadPricePerToken:     0.2e-6,
-		CacheCreation5mPrice:       5e-6,
-		CacheCreation1hPrice:       8e-6,
+	// Claude Haiku 5.5（2026-10-07，$0.10/$0.50，prompt 超 100k tokens 整单 5x）。
+	// 长文本阶梯与目录 *_above_100k_tokens 绝对价同口径，缺目录时回退也不丢阶梯。
+	s.fallbackPrices["claude-haiku-5-5"] = &ModelPricing{
+		InputPricePerToken:          0.1e-6,
+		OutputPricePerToken:         0.5e-6,
+		CacheCreationPricePerToken:  0.125e-6,
+		CacheReadPricePerToken:      0.01e-6,
+		CacheCreation5mPrice:        0.125e-6,
+		CacheCreation1hPrice:        0.2e-6,
+		SupportsCacheBreakdown:      true,
+		LongContextInputThreshold:   100000,
+		LongContextInputMultiplier:  5,
+		LongContextOutputMultiplier: 5,
+	}
+	for _, model := range []string{"claude-fable-5-2", "claude-mythos-5-2"} {
+		p := claude52FallbackPricing
+		s.fallbackPrices[model] = &ModelPricing{
+			InputPricePerToken:         p.InputCostPerToken,
+			OutputPricePerToken:        p.OutputCostPerToken,
+			CacheCreationPricePerToken: p.CacheCreationInputTokenCost,
+			CacheCreation5mPrice:       p.CacheCreationInputTokenCost,
+			CacheCreation1hPrice:       p.CacheCreationInputTokenCostAbove1hr,
+			CacheReadPricePerToken:     p.CacheReadInputTokenCost,
+			SupportsCacheBreakdown:     true,
+		}
+	}
+	// Claude Fable 5.0 and 5.1 use the same input/output and cache-write prices, while
+	// Fable 5.1 reduces cache reads from $1 to $0.25 per MTok.
+	s.fallbackPrices["claude-fable-5"] = &ModelPricing{
+		InputPricePerToken:         10e-6,
+		OutputPricePerToken:        50e-6,
+		CacheCreationPricePerToken: 12.5e-6,
+		CacheCreation5mPrice:       12.5e-6,
+		CacheCreation1hPrice:       20e-6,
+		CacheReadPricePerToken:     1e-6,
 		SupportsCacheBreakdown:     true,
+	}
+	s.fallbackPrices["claude-fable-5-1"] = &ModelPricing{
+		InputPricePerToken:         10e-6,
+		OutputPricePerToken:        50e-6,
+		CacheCreationPricePerToken: 12.5e-6,
+		CacheCreation5mPrice:       12.5e-6,
+		CacheCreation1hPrice:       20e-6,
+		CacheReadPricePerToken:     0.25e-6,
+		SupportsCacheBreakdown:     true,
+	}
+
+	s.fallbackPrices["jev-latest"] = &ModelPricing{
+		InputPricePerToken:  0.042 / 1_000_000,
+		OutputPricePerToken: 0,
 	}
 	s.fallbackPrices["gpt-6-sol"] = &ModelPricing{
 		InputPricePerToken:                 2e-6,
@@ -86,24 +133,10 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 	}
 
 	// Claude Fable 5 (Opus 之上的新档；官方 $10/$50 per MTok)。
-	s.fallbackPrices["claude-fable-5"] = &ModelPricing{
-		InputPricePerToken:         10e-6,
-		OutputPricePerToken:        50e-6,
-		CacheCreationPricePerToken: 12.5e-6,
-		CacheReadPricePerToken:     1.0e-6,
-		SupportsCacheBreakdown:     false,
-	}
 	// Claude Fable 5.1: same I/O and cache-write as Fable 5, but cache read is
 	// official 0.025× base input ($0.25/MTok) — not Fable 5's $1/MTok. Keep an
 	// explicit card so getFallbackPricing's isClaudeFable51Model branch and
 	// overlay owner stay aligned (do not share the Fable 5 pointer).
-	s.fallbackPrices["claude-fable-5-1"] = &ModelPricing{
-		InputPricePerToken:         10e-6,
-		OutputPricePerToken:        50e-6,
-		CacheCreationPricePerToken: 12.5e-6,
-		CacheReadPricePerToken:     0.25e-6,
-		SupportsCacheBreakdown:     false,
-	}
 
 	// Gemini 3.1 Pro
 	s.fallbackPrices["gemini-3.1-pro"] = &ModelPricing{

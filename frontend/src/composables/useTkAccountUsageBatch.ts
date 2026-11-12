@@ -28,6 +28,7 @@ export function useTkAccountUsageBatch() {
   // cell: "the list owns your usage, do not self-fetch" (override !== undefined).
   const usageByAccountId = ref<Record<string, AccountUsageInfo | null>>({})
   const usageReqSeq = ref(0)
+  const usageLoading = ref(false)
 
   /**
    * usageOverrideFor returns the prop value for a given row:
@@ -53,10 +54,12 @@ export function useTkAccountUsageBatch() {
     const reqSeq = ++usageReqSeq.value
 
     if (ids.length === 0) {
+      usageLoading.value = false
       usageByAccountId.value = {}
       return
     }
 
+    usageLoading.value = true
     try {
       const result = await adminAPI.accounts.getBatchPassiveUsage(ids)
       if (reqSeq !== usageReqSeq.value) return
@@ -76,8 +79,10 @@ export function useTkAccountUsageBatch() {
     } catch (error) {
       if (reqSeq !== usageReqSeq.value) return
       console.error('Failed to load batch account usage:', error)
+    } finally {
+      if (reqSeq === usageReqSeq.value) usageLoading.value = false
     }
   }
 
-  return { usageByAccountId, usageOverrideFor, refreshUsageBatch }
+  return { usageByAccountId, usageOverrideFor, refreshUsageBatch, usageLoading }
 }

@@ -7,6 +7,8 @@ export interface AccountUsageCellProps {
   manualRefreshToken?: number
   /** When provided (even null), skip self-fetch and render this usage verbatim. */
   usageOverride?: AccountUsageInfo | null
+  /** Passive batch is refreshing; retain the last quota snapshot. */
+  usageLoadingOverride?: boolean
   /** Override active usage transport when an account uses a separate ID namespace. */
   activeUsageLoader?: () => Promise<AccountUsageInfo>
 }
@@ -16,5 +18,6 @@ export const accountUsageCellPropDefaults = {
   todayStatsLoading: false,
   manualRefreshToken: 0,
   usageOverride: undefined,
+  usageLoadingOverride: false,
   activeUsageLoader: undefined
 } as const

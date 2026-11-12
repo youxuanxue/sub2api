@@ -4,6 +4,7 @@ FRONTEND_CRITICAL_VITEST := \
 	src/api/__tests__/admin.proxies.spec.ts \
 	src/components/admin/account/__tests__/AccountTableFilters.spec.ts \
 	src/views/admin/__tests__/AccountsView.bulkEdit.spec.ts \
+	src/views/admin/__tests__/AccountsView.lite.spec.ts \
 	src/views/admin/__tests__/AccountsView.selectAllResults.spec.ts \
 	src/composables/__tests__/useHistoricalBilling.spec.ts \
 	src/utils/__tests__/historicalBillingExport.spec.ts \

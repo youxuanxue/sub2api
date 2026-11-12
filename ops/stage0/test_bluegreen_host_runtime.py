@@ -10,11 +10,96 @@ from unittest.mock import patch
 
 import yaml
 
-from ops.stage0.bluegreen_host_runtime import bindings, check_volume, patch_compose
+from ops.stage0.bluegreen_host_runtime import bindings, check_volume, patch_compose, volume_contract
 from ops.stage0.test_deploy_via_ssm_bluegreen import _render, _extract_shell_function
 
 
 class HostRuntimeTest(unittest.TestCase):
+    def test_both_colors_allow_smaller_memory_without_changing_legacy_defaults(self):
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        source = remote.split("<<'YAML'\n", 1)[1].split('\nYAML', 1)[0]
+        services = yaml.safe_load(source)['services']
+        for color in ('blue', 'green'):
+            service = services['tokenkey-' + color]
+            self.assertEqual(service['mem_limit'], '${TOKENKEY_APP_MEMORY_LIMIT:-8g}')
+            self.assertEqual(service['memswap_limit'], service['mem_limit'])
+            self.assertIn('GOMEMLIMIT=${TOKENKEY_APP_GOMEMLIMIT:-6GiB}', service['environment'])
+
+    def test_ordinary_root_requires_pinned_identity_and_private_environment(self):
+        root = Path('/var/lib/tokenkey')
+        uuid = '12345678-1234-1234-1234-123456789abc'
+        row = dict(source='/dev/vda1', target='/', fstype='ext4', uuid=uuid, fsroot='/')
+        def response(**changes):
+            return lambda *a, **kw: json.dumps({'filesystems': [{**row, **changes}]})
+        with patch.object(Path, 'resolve', lambda p: p), patch.object(Path, 'is_dir', return_value=True), \
+             patch('ops.stage0.bluegreen_host_runtime.private_file') as private:
+            check_volume(root, response(), platform='tencent-root', root_uuid=uuid)
+            private.assert_called_once_with(root / '.env', 0)
+            for change in ({'uuid': 'wrong'}, {'target': str(root)}, {'fsroot': str(root)},
+                           {'source': '/dev/mapper/tokenkey_recovery'}, {'fstype': 'tmpfs'}):
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    check_volume(root, response(**change), platform='tencent-root', root_uuid=uuid)
+            with self.assertRaises(ValueError):
+                check_volume(root, response(), platform='tencent-root')
+        with patch.object(Path, 'resolve', return_value=Path('/tmp/elsewhere')):
+            with self.assertRaises(ValueError):
+                check_volume(root, response(), platform='tencent-root', root_uuid=uuid)
+        with self.assertRaises(ValueError):
+            volume_contract({'volume_platform': 'tencent-root', 'volume_root_uuid': 'unbound'})
+        with self.assertRaises(ValueError):
+            volume_contract({'volume_mapper': 'x;touch /tmp/unsafe'})
+
+    def test_candidate_manifest_is_pinned_and_persists_startup_guard(self):
+        iid = 'mi-123456789abcdef01'
+        with tempfile.TemporaryDirectory() as tmp:
+            matrix = Path(tmp) / 'candidate.json'
+            matrix.write_text(json.dumps({'target': {
+                'expected_ssm_instance_id': iid, 'volume_platform': 'tencent-root',
+                'volume_root_uuid': '12345678-1234-1234-1234-123456789abc'}}))
+            proc, params, remote = _render(iid, env_extra={'STAGE0_TARGET_MATRIX': str(matrix)})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn('VOLUME_CONTRACT_B64=', json.dumps(params))
+            self.assertIn('CONTROL_ALIAS_B64=', json.dumps(params))
+            self.assertIn('--check-volume --contract-b64 ${VOLUME_CONTRACT_B64}', remote)
+            self.assertIn('for unit in docker tokenkey', remote)
+            proc, _, _ = _render('mi-abcdef01234567890', env_extra={'STAGE0_TARGET_MATRIX': str(matrix)})
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn('contract instance mismatch', proc.stderr)
+
+    def test_root_boot_alias_waits_for_http_and_fails_closed(self):
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        script = remote.split("<<'BOOT_ALIAS'\n", 1)[1].split('\nBOOT_ALIAS', 1)[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'active-color').write_text('blue\n')
+            alias = root / 'alias.sh'
+            alias.write_text('echo alias >> "$TEST_CALLS"\n')
+            docker = root / 'docker'
+            docker.write_text('''#!/bin/bash
+echo "$*" >> "$TEST_CALLS"
+n=$(wc -l < "$TEST_CALLS")
+[[ "${FAIL_ALWAYS:-0}" != 1 && "$n" -gt 2 ]]
+''')
+            docker.chmod(0o755)
+            runnable = script.replace('ROOT=/var/lib/tokenkey', 'ROOT=' + str(root)).replace(
+                '/usr/local/lib/tokenkey/sync-control-alias-on-host.sh', str(alias))
+            env = {**os.environ, 'PATH': str(root) + ':' + os.environ['PATH'], 'TEST_CALLS': str(root / 'calls')}
+            result = subprocess.run(['bash'], input='sleep() { :; }\n' + runnable,
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = (root / 'calls').read_text().splitlines()
+            self.assertEqual(len(calls), 5)
+            self.assertEqual(calls[3], 'alias')
+            self.assertIn('http://tokenkey:8080/health', calls[4])
+            (root / 'calls').unlink()
+            result = subprocess.run(['bash'], input='sleep() { :; }\n' + runnable,
+                                    env={**env, 'FAIL_ALWAYS': '1'}, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(len((root / 'calls').read_text().splitlines()), 60)
+            self.assertIn('did not become ready', result.stderr)
+
     def test_redis_startup_passes_persistence_flags_and_literal_password(self):
         source = Path(__file__).resolve().parents[2] / 'deploy/aws/stage0/docker-compose.yml'
         command = yaml.safe_load(source.read_text())['services']['redis']['command']

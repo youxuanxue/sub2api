@@ -31,6 +31,21 @@ QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 �
 
 ## node1 小时归档
 
+### 双应用节点准备（代码就绪，未切换 owner）
+
+现有 installer/timer 保持原单源格式。`node1_archive.py run --source-id <稳定节点身份>`
+显式使用 `qa-node1-source-hour-v2`：目标为 `qa-raw/<站点>/sources/<节点>/<UTC小时>`，
+回执为 `receipts/<站点>/sources/<节点>/<UTC小时>.json`，运行摘要也按节点隔离。
+节点身份取自受审舰队配置，不使用蓝绿颜色、镜像版本、临时 hostname 或克隆磁盘 UUID。
+不传 `--source-id` 仍走原 v1 路径，不自动迁移或覆盖既有归档。
+
+同一节点小时发布后只接受内容一致的重试；迟到或变更文件会报错并保留源数据，
+不能靠覆盖已发布目录“补成功”。v2 当前证明的是该源文件快照，不证明 capture 已封口或全站完整。
+现有 cleanup 明确拒绝把单源 v2 回执当成全站删除凭据，包括误放到旧站点小时路径的回执。
+数据机集中调度、参与源集合、capture 封口、全站分区删除与逐节点文件清理仍按
+[已批准方案](../../docs/approved/design-prod-app-parallel-replacement.md#qa-集中管理方案用户已同意尚未执行)
+继续实现；这些门禁接好之前，不给现有 timer 启用 source 模式，也不交接线上 owner。
+
 `node1_archive.py` 只读取已经封口的 `qa_blobs`/`qa_dlq` 小时目录，把文件复制到 node1
 临时目录，逐文件校验 SHA-256、字节数和文件数后原子发布 `manifest.json` 与
 `receipts/<environment>/<UTC-hour>.json`。目标目录默认保留 365 天的容量规划；本实现不做

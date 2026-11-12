@@ -438,10 +438,10 @@
     "supports_vision": true,
     "supports_pdf_input": true,
     "supports_reasoning": true,
-    "source": "Anthropic official Fable 5.2 list price (platform.claude.com/docs/en/about-claude/pricing, captured 2026-11-12: in $8/M, out $40/M, 5m cache write $10/M, 1h cache write $16/M, cache read $0.20/M). Exactly 0.8x Fable 5.1 ($10/$50), matching the upstream marketing page for Fable 5.2.",
+    "source": "Anthropic official Fable 5.2 list price (platform.claude.com/docs/en/about-claude/pricing, captured 2026-11-12: in $8/M, out $40/M, 5m cache write $10/M, 1h cache write $16/M, cache read $0.20/M). Exactly 0.8x Fable 5.1 ($10/$50), matching the upstream marketing page for Fable 5.2. Fast mode is 2x, same as the Fable 5.2 service-tier bill, not the Fable 5.1 6x metadata.",
     "prompt_cache_min_tokens": 512,
     "provider_specific_entry": {
-      "fast": 6.0,
+      "fast": 2.0,
       "us": 1.1
     },
     "search_context_cost_per_query": {

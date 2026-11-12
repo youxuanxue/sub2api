@@ -1,5 +1,5 @@
 <template>
-  <div ref="rootRef">
+  <div ref="rootRef" :aria-busy="loading || activeQueryLoading">
     <div v-if="antigravityTierLabel" class="mb-1 flex items-center gap-1">
       <span
         :class="[
@@ -53,7 +53,7 @@
       </span>
     </div>
 
-    <div v-else-if="loading" class="space-y-1.5">
+    <div v-else-if="loading && !usageInfo" class="space-y-1.5">
       <div class="flex items-center gap-1">
         <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
         <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
@@ -64,6 +64,23 @@
     <div v-else-if="error" class="text-xs text-red-500">
       {{ error }}
     </div>
+
+      <!-- Real 5-hour and weekly windows per quota group (retrieveUserQuotaSummary) -->
+      <div v-else-if="antigravityQuotaGroupBars.length > 0" class="space-y-1">
+        <UsageProgressBar
+          v-for="bar in antigravityQuotaGroupBars"
+          :key="bar.key"
+          :label="t(bar.label)"
+          :title="bar.title"
+          :utilization="bar.utilization"
+          :resets-at="bar.resetsAt"
+          :color="bar.color"
+        />
+
+        <div v-if="aiCreditsDisplay" class="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
+          💳 {{ t('admin.accounts.aiCreditsBalance') }}: {{ aiCreditsDisplay }}
+        </div>
+      </div>
 
     <div v-else-if="hasAntigravityQuotaFromAPI" class="space-y-1">
       <UsageProgressBar
@@ -104,6 +121,9 @@
       <UpstreamQuotaSummary :quota="usageInfo?.upstream_quota" class="mt-1" />
     </div>
     <div v-else class="text-xs text-gray-400">-</div>
+    <button v-if="!loading" type="button" class="mt-1 text-xs text-blue-600 disabled:opacity-50" data-testid="antigravity-active-query" :disabled="activeQueryLoading" @click="loadActiveUsage">
+      {{ t('admin.accounts.usageWindow.activeQuery') }}
+    </button>
   </div>
 </template>
 
@@ -125,9 +145,10 @@ const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCel
 const { t } = useI18n()
 const rootRef = ref<HTMLElement | null>(null)
 
-const { loading, error, usageInfo } = useAccountUsageFetch(props, rootRef)
+const { loading, activeQueryLoading, error, usageInfo, loadActiveUsage } = useAccountUsageFetch(props, rootRef)
 
 const {
+  antigravityQuotaGroupBars,
   hasAntigravityQuotaFromAPI,
   antigravity3ProUsageFromAPI,
   antigravity3FlashUsageFromAPI,

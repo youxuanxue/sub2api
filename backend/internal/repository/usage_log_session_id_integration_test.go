@@ -17,8 +17,10 @@ import (
 // read and is omitted (NULL) when absent.
 func TestUsageLog_SessionIDPersistence(t *testing.T) {
 	ctx := context.Background()
-	client := testEntClient(t)
-	repo := newUsageLogRepositoryWithSQL(client, integrationDB)
+	// Roll back fixtures so these two rows cannot affect later global totals.
+	tx := testEntTx(t)
+	client := tx.Client()
+	repo := newUsageLogRepositoryWithSQL(client, tx)
 
 	user := mustCreateUser(t, client, &service.User{Email: "session-id-" + uuid.NewString() + "@example.com"})
 	apiKey := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, Key: "sk-session-" + uuid.NewString(), Name: "k"})

@@ -34,6 +34,72 @@ NODE1_TOTAL = 10_666_332_323_840
 NODE1_FREE = 10_555_000_000_000
 
 
+class SourceRemoteArchiveTest(unittest.TestCase):
+    def test_sources_use_distinct_remote_targets_and_idempotent_receipts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            receipts = root / 'receipts'
+            receipts.mkdir()
+            published = {}
+            pushes = []
+            settings = {'key': Path('/fixture-key'), 'jump': 'jump', 'target': 'node1',
+                        'remote_root': '/archive', 'rate_kbps': 100, 'timeout': 30}
+
+            def push(staging, **options):
+                manifest = json.loads((staging / 'manifest.json').read_text())
+                digest = archive.sha256_file(staging / 'manifest.json')[0]
+                path = options['remote_dir']
+                self.assertNotIn(path, published)
+                published[path] = digest
+                pushes.append(manifest['source_id'])
+                return {'manifest_sha256': digest, 'file_count': manifest['file_count'],
+                        'total_bytes': manifest['total_bytes']}
+
+            def probe(key, jump, target, remote_dir):
+                return published.get(remote_dir, '')
+
+            with mock.patch.object(archive.node1_remote, 'remote_capacity',
+                                   return_value={'total_bytes': NODE1_TOTAL, 'free_bytes': NODE1_FREE,
+                                                 'qa_used_bytes': 0}), \
+                 mock.patch.object(archive.node1_remote, 'push_directory', side_effect=push), \
+                 mock.patch.object(archive.node1_remote, 'remote_manifest_digest', side_effect=probe):
+                for source_id in ('old', 'new'):
+                    source = root / source_id
+                    payload = source / 'qa_blobs' / HOUR.strftime(archive.HOUR) / 'same.bin'
+                    payload.parent.mkdir(parents=True)
+                    payload.write_bytes(source_id.encode())
+                    result = archive.push_hour(source, receipts, 'prod', HOUR, settings, source_id)
+                    self.assertEqual(result['source_id'], source_id)
+                    self.assertEqual(result['schema_version'], archive.SOURCE_SCHEMA)
+                    self.assertEqual(result['remote_dir'], f'/archive/qa-raw/prod/sources/{source_id}/{HOUR.strftime(archive.HOUR)}')
+                    repeated = archive.push_hour(source, receipts, 'prod', HOUR, settings, source_id)
+                    self.assertTrue(repeated['already_completed'])
+                    self.assertEqual(result['manifest_sha256'], repeated['manifest_sha256'])
+                old_receipt = archive.receipt_path(receipts, 'prod', HOUR, 'old')
+                before = old_receipt.read_bytes()
+                (root / 'old' / 'qa_blobs' / HOUR.strftime(archive.HOUR) / 'late.bin').write_bytes(b'late')
+                with self.assertRaisesRegex(ValueError, 'source changed'):
+                    archive.push_hour(root / 'old', receipts, 'prod', HOUR, settings, 'old')
+                self.assertEqual(old_receipt.read_bytes(), before)
+                self.assertEqual(pushes, ['old', 'new'])
+
+    def test_wrong_source_receipt_is_rejected_before_contacting_node1(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, receipts = root / 'source', root / 'receipts'
+            payload = source / 'qa_blobs' / HOUR.strftime(archive.HOUR) / 'one.bin'
+            payload.parent.mkdir(parents=True)
+            payload.write_bytes(b'payload')
+            identity = archive.hour_identity('prod', HOUR, 'old')
+            archive.atomic_json(archive.receipt_path(receipts, 'prod', HOUR, 'old'),
+                                identity | {'source_id': 'new', 'ok': True})
+            with mock.patch.object(archive.node1_remote, 'remote_manifest_digest') as probe:
+                with self.assertRaisesRegex(ValueError, 'receipt is invalid'):
+                    archive.push_hour(source, receipts, 'prod', HOUR,
+                                      {'remote_root': '/archive'}, 'old')
+                probe.assert_not_called()
+
+
 class SshRoutingTest(unittest.TestCase):
     def test_jump_connection_carries_the_key_explicitly(self) -> None:
         # `-J host` does NOT reuse `-i` for the jump hop. Without spelling the

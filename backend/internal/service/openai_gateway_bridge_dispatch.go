@@ -372,14 +372,36 @@ func (s *OpenAIGatewayService) ForwardAsImageGenerationsDispatched(
 	if upstreamModel == "" {
 		upstreamModel = out.Model
 	}
+	forwardUsage := openAIUsageFromNewAPIDTO(out.Usage)
+	mergeBridgeImageUsage(&forwardUsage, out.ImageUsage)
 	return &OpenAIForwardResult{
 		Model:         out.Model,
 		UpstreamModel: upstreamModel,
 		Stream:        false,
 		Duration:      out.Duration,
-		Usage:         openAIUsageFromNewAPIDTO(out.Usage),
+		Usage:         forwardUsage,
 		// Drives per-image billing (output_cost_per_image); without it imagen via the
 		// bridge silently bills by tokens. See bridge.DispatchOutcome.ImageCount.
 		ImageCount: out.ImageCount,
 	}, nil
+}
+
+// mergeBridgeImageUsage folds the image token breakdown observed on the
+// client-facing response into the adaptor usage. New API's dto.Usage carries no
+// output_tokens_details, so without this a token-priced image owner fails
+// closed (ErrImageUsageTokensUnavailable) and the request is served unbilled.
+// Observed values never overwrite a positive adaptor value.
+func mergeBridgeImageUsage(usage *OpenAIUsage, observed *bridge.ImageUsageDetails) {
+	if usage == nil || observed == nil {
+		return
+	}
+	if observed.ImageOutputTokens > 0 {
+		usage.ImageOutputTokens = observed.ImageOutputTokens
+	}
+	if observed.ImageInputTokens > 0 {
+		usage.ImageInputTokens = observed.ImageInputTokens
+	}
+	if observed.TextOutputTokens > 0 && usage.OutputTokens == 0 {
+		usage.OutputTokens = observed.TextOutputTokens
+	}
 }
