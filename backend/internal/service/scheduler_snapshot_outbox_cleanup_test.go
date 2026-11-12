@@ -93,6 +93,7 @@ type outboxCleanupDeleteCall struct {
 }
 
 type outboxCleanupRepo struct {
+	acknowledged        map[int64]bool
 	events              []SchedulerOutboxEvent
 	rows                []int64
 	maxIDCalls          int
@@ -102,6 +103,14 @@ type outboxCleanupRepo struct {
 	releaseCount        int
 	deleteCalls         []outboxCleanupDeleteCall
 	firstCreatedAfterID []int64
+}
+
+func testPendingOutboxIDs(count int) []int64 {
+	ids := make([]int64, count)
+	for i := range ids {
+		ids[i] = int64(i + 1)
+	}
+	return ids
 }
 
 type outboxCleanupAccountRepo struct {
@@ -138,12 +147,13 @@ func (c *blockingOutboxCleanupCache) listCalls() int {
 	return c.calls
 }
 
-func (r *outboxCleanupRepo) ListAfterAndReleaseDedup(ctx context.Context, afterID int64, limit int) ([]SchedulerOutboxEvent, error) {
+func (r *outboxCleanupRepo) ClaimPending(ctx context.Context, limit int, _ time.Duration) ([]SchedulerOutboxEvent, error) {
 	events := make([]SchedulerOutboxEvent, 0, len(r.events))
 	for _, event := range r.events {
-		if event.ID <= afterID {
+		if r.acknowledged[event.ID] {
 			continue
 		}
+		event.ClaimToken = "test-claim"
 		events = append(events, event)
 		if limit > 0 && len(events) >= limit {
 			break
@@ -152,10 +162,42 @@ func (r *outboxCleanupRepo) ListAfterAndReleaseDedup(ctx context.Context, afterI
 	return events, nil
 }
 
+type outboxTestDeliveryLease struct{ ctx context.Context }
+
+func (l outboxTestDeliveryLease) Context() context.Context { return l.ctx }
+func (l outboxTestDeliveryLease) Generation() int64        { return 1 }
+func (l outboxTestDeliveryLease) Release()                 {}
+func (r *outboxCleanupRepo) TryAcquireDeliveryLock(ctx context.Context) (SchedulerOutboxDeliveryLease, bool, error) {
+	return outboxTestDeliveryLease{ctx}, true, nil
+}
+func (r *outboxCleanupRepo) RenewClaim(context.Context, int64, string, time.Duration) (bool, error) {
+	return true, nil
+}
+func (r *outboxCleanupRepo) Acknowledge(_ context.Context, id int64, _ string) (bool, error) {
+	if r.acknowledged == nil {
+		r.acknowledged = make(map[int64]bool)
+	}
+	r.acknowledged[id] = true
+	return true, nil
+}
+func (r *outboxCleanupRepo) PendingCount(ctx context.Context) (int64, error) {
+	r.maxIDCalls++
+	if r.maxIDErr != nil {
+		return 0, r.maxIDErr
+	}
+	var count int64
+	for _, id := range r.rows {
+		if !r.acknowledged[id] {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (r *outboxCleanupRepo) FirstCreatedAtAfter(ctx context.Context, afterID int64) (time.Time, bool, error) {
 	r.firstCreatedAfterID = append(r.firstCreatedAfterID, afterID)
 	for _, event := range r.events {
-		if event.ID > afterID {
+		if !r.acknowledged[event.ID] {
 			return event.CreatedAt, true, nil
 		}
 	}
@@ -373,13 +415,13 @@ func TestSchedulerSnapshotServiceCheckOutboxLagLatchesPersistentDegradation(t *t
 		{
 			name:             "backlog",
 			createdAt:        time.Now(),
-			rows:             []int64{100},
+			rows:             testPendingOutboxIDs(100),
 			backlogThreshold: 50,
 		},
 		{
 			name:             "lag_and_backlog",
 			createdAt:        time.Now().Add(-time.Hour),
-			rows:             []int64{100},
+			rows:             testPendingOutboxIDs(100),
 			lagSeconds:       1,
 			backlogThreshold: 50,
 		},
@@ -436,6 +478,7 @@ func TestSchedulerSnapshotServiceCheckOutboxLagFailedRebuildRearmsAfterRecovery(
 		t.Fatalf("expected a failed rebuild to stay bounded within the episode, got %d attempts", cache.listBucketCalls)
 	}
 
+	repo.acknowledged = map[int64]bool{1: true}
 	svc.checkOutboxLag(context.Background(), 1)
 	repo.events = append(repo.events, SchedulerOutboxEvent{ID: 2, CreatedAt: time.Now().Add(-time.Hour)})
 	repo.rows = []int64{2}
@@ -513,7 +556,7 @@ func TestSchedulerSnapshotServiceCheckOutboxLagBacklogRetryDoesNotBypassNewLagTh
 	cache := &outboxCleanupCache{listBucketErr: errors.New("list buckets failed")}
 	repo := &outboxCleanupRepo{
 		events: []SchedulerOutboxEvent{{ID: 1, CreatedAt: time.Now()}},
-		rows:   []int64{100},
+		rows:   testPendingOutboxIDs(100),
 	}
 	cfg := &config.Config{
 		Gateway: config.GatewayConfig{
@@ -577,7 +620,7 @@ func TestSchedulerSnapshotServiceCheckOutboxLagLagRetryDoesNotDelayOrEscalateNew
 	// Lag recovers while backlog becomes newly degraded. It must start immediately
 	// and its first failure must use the base retry generation, not lag's count.
 	repo.events[0].CreatedAt = time.Now()
-	repo.rows = []int64{100}
+	repo.rows = testPendingOutboxIDs(100)
 	svc.checkOutboxLag(context.Background(), 0)
 	if cache.listBucketCalls != 2 {
 		t.Fatalf("expected the new backlog degradation not to inherit lag cooldown, got %d rebuild attempts", cache.listBucketCalls)
@@ -594,7 +637,7 @@ func TestSchedulerSnapshotServiceCheckOutboxLagBacklogRetrySurvivesUnknownBacklo
 	cache := &outboxCleanupCache{listBucketErr: errors.New("list buckets failed")}
 	repo := &outboxCleanupRepo{
 		events: []SchedulerOutboxEvent{{ID: 1, CreatedAt: time.Now()}},
-		rows:   []int64{100},
+		rows:   testPendingOutboxIDs(100),
 	}
 	cfg := &config.Config{
 		Gateway: config.GatewayConfig{
@@ -649,7 +692,7 @@ func TestSchedulerSnapshotServiceCheckOutboxLagPreemptsUnknownBacklogRetryAtThre
 	cache := &outboxCleanupCache{listBucketErr: errors.New("list buckets failed")}
 	repo := &outboxCleanupRepo{
 		events: []SchedulerOutboxEvent{{ID: 1, CreatedAt: time.Now()}},
-		rows:   []int64{100},
+		rows:   testPendingOutboxIDs(100),
 	}
 	cfg := &config.Config{
 		Gateway: config.GatewayConfig{
@@ -729,13 +772,14 @@ func TestSchedulerSnapshotServicePollOutboxEmptyBatchClearsDegradedEpisode(t *te
 
 	svc.checkOutboxLag(context.Background(), 0)
 	cache.watermark = 1
+	repo.acknowledged = map[int64]bool{1: true}
 	svc.pollOutbox()
 
-	if !reflect.DeepEqual(repo.firstCreatedAfterID, []int64{0}) {
-		t.Fatalf("expected empty poll to use the empty batch as recovery evidence, got watermarks %#v", repo.firstCreatedAfterID)
+	if !reflect.DeepEqual(repo.firstCreatedAfterID, []int64{0, 0}) {
+		t.Fatalf("expected empty claim to verify pending health independently of watermark, got %#v", repo.firstCreatedAfterID)
 	}
-	if repo.maxIDCalls != 1 {
-		t.Fatalf("expected empty poll to skip a redundant backlog query, got %d health checks", repo.maxIDCalls)
+	if repo.maxIDCalls != 2 {
+		t.Fatalf("expected empty claim to verify pending leases, got %d health checks", repo.maxIDCalls)
 	}
 
 	repo.events = append(repo.events, SchedulerOutboxEvent{ID: 2, CreatedAt: time.Now().Add(-time.Hour)})
@@ -781,7 +825,7 @@ func TestSchedulerSnapshotServiceCheckOutboxLagSamplesMaxIDErrors(t *testing.T) 
 	}
 }
 
-func TestSchedulerSnapshotServicePollOutboxHealthyEmptyBatchSkipsLagHealthQueries(t *testing.T) {
+func TestSchedulerSnapshotServicePollOutboxEmptyClaimVerifiesPendingLeases(t *testing.T) {
 	cache := &outboxCleanupCache{}
 	repo := &outboxCleanupRepo{}
 	cfg := &config.Config{
@@ -797,11 +841,8 @@ func TestSchedulerSnapshotServicePollOutboxHealthyEmptyBatchSkipsLagHealthQuerie
 
 	svc.pollOutbox()
 
-	if len(repo.firstCreatedAfterID) != 0 {
-		t.Fatalf("expected healthy empty poll to skip lag query, got watermarks %#v", repo.firstCreatedAfterID)
-	}
-	if repo.maxIDCalls != 0 {
-		t.Fatalf("expected healthy empty poll to skip backlog query, got %d calls", repo.maxIDCalls)
+	if len(repo.firstCreatedAfterID) != 1 || repo.maxIDCalls != 1 {
+		t.Fatalf("empty claims must distinguish no pending rows from unexpired leases")
 	}
 }
 

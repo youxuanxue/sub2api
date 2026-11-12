@@ -493,7 +493,7 @@ func schedulerCacheOptionalString(value any) (string, error) {
 }
 
 func (c *schedulerCache) CaptureBucketWriteToken(ctx context.Context, bucket service.SchedulerBucket) (service.SchedulerBucketWriteToken, error) {
-	result, err := captureBucketWriteTokenScript.Run(ctx, c.rdb, []string{
+	result, err := c.runSchedulerScript(ctx, captureBucketWriteTokenScript, []string{
 		schedulerBucketKey(schedulerEpochPrefix, bucket),
 		schedulerBucketKey(schedulerRetiredPrefix, bucket),
 	}).Int64()
@@ -508,7 +508,7 @@ func (c *schedulerCache) CaptureBucketWriteToken(ctx context.Context, bucket ser
 
 func (c *schedulerCache) RetireBucket(ctx context.Context, bucket service.SchedulerBucket) error {
 	snapshotKeyPrefix := fmt.Sprintf("%s%d:%s:%s:v", schedulerSnapshotPrefix, bucket.GroupID, bucket.Platform, bucket.Mode)
-	result, err := retireBucketScript.Run(ctx, c.rdb, []string{
+	result, err := c.runSchedulerScript(ctx, retireBucketScript, []string{
 		schedulerBucketKey(schedulerEpochPrefix, bucket),
 		schedulerBucketKey(schedulerRetiredPrefix, bucket),
 		schedulerBucketSetKey,
@@ -526,7 +526,7 @@ func (c *schedulerCache) RetireBucket(ctx context.Context, bucket service.Schedu
 
 func (c *schedulerCache) ReopenBucket(ctx context.Context, bucket service.SchedulerBucket) (service.SchedulerBucketWriteToken, error) {
 	snapshotKeyPrefix := fmt.Sprintf("%s%d:%s:%s:v", schedulerSnapshotPrefix, bucket.GroupID, bucket.Platform, bucket.Mode)
-	result, err := reopenBucketScript.Run(ctx, c.rdb, []string{
+	result, err := c.runSchedulerScript(ctx, reopenBucketScript, []string{
 		schedulerBucketKey(schedulerEpochPrefix, bucket),
 		schedulerBucketKey(schedulerRetiredPrefix, bucket),
 		schedulerBucketSetKey,
@@ -648,7 +648,7 @@ func (c *schedulerCache) SetSnapshotByAccountIDs(ctx context.Context, bucket ser
 }
 
 func (c *schedulerCache) allocateSnapshotVersion(ctx context.Context, bucket service.SchedulerBucket, token service.SchedulerBucketWriteToken) (string, error) {
-	result, err := allocateSnapshotVersionScript.Run(ctx, c.rdb, []string{
+	result, err := c.runSchedulerScript(ctx, allocateSnapshotVersionScript, []string{
 		schedulerBucketKey(schedulerEpochPrefix, bucket),
 		schedulerBucketKey(schedulerRetiredPrefix, bucket),
 		schedulerBucketKey(schedulerVersionPrefix, bucket),
@@ -707,7 +707,7 @@ func (c *schedulerCache) writeSnapshotMembers(ctx context.Context, bucket servic
 		}
 		pipe.ZAdd(ctx, snapshotKey, members[start:end]...)
 	}
-	_, err := pipe.Exec(ctx)
+	_, err := c.execSchedulerPipeline(ctx, pipe)
 	return err
 }
 
@@ -731,7 +731,7 @@ func (c *schedulerCache) activateSnapshotVersion(ctx context.Context, bucket ser
 	}
 	args := []any{version, bucket.String(), snapshotKeyPrefix, snapshotGraceTTLSeconds, token.Epoch}
 
-	result, err := activateSnapshotScript.Run(ctx, c.rdb, keys, args...).Int64()
+	result, err := c.runSchedulerScript(ctx, activateSnapshotScript, keys, args...).Int64()
 	if err != nil {
 		return err
 	}
@@ -792,7 +792,7 @@ func (c *schedulerCache) DeleteAccount(ctx context.Context, accountID int64) err
 	pipe := c.rdb.TxPipeline()
 	pipe.Del(ctx, schedulerAccountKey(id), schedulerAccountMetaKey(id), schedulerLastUsedKey(id))
 	pipe.Set(ctx, schedulerAccountMetaRevisionKey, newSchedulerAccountMetaRevision(), 0)
-	_, err := pipe.Exec(ctx)
+	_, err := c.execSchedulerPipeline(ctx, pipe)
 	return err
 }
 
@@ -868,7 +868,7 @@ func (c *schedulerCache) UpdateLastUsed(ctx context.Context, updates map[int64]t
 		// 被删账号的平台未知，全局修订号排在同一 pipeline 的 DEL 之后。
 		pipe.Set(ctx, schedulerAccountMetaRevisionKey, newSchedulerAccountMetaRevision(), 0)
 	}
-	_, err := pipe.Exec(ctx)
+	_, err := c.execSchedulerPipeline(ctx, pipe)
 	return err
 }
 
@@ -1022,7 +1022,7 @@ func (c *schedulerCache) writeAccountIDs(ctx context.Context, accounts []service
 		}
 	}()
 	exec := func() error {
-		cmds, err := pipe.Exec(ctx)
+		cmds, err := c.execSchedulerPipeline(ctx, pipe)
 		if err != nil && !errors.Is(err, redis.Nil) {
 			execFailed = true
 			return err

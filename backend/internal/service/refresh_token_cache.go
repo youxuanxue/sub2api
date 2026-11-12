@@ -21,7 +21,16 @@ type RefreshTokenData struct {
 	// TK: 轮转宽限期标记。非 nil = 该 token 已被轮转，正处于宽限窗口内。
 	// 用于把"并发/多标签页的重复刷新"与"真正的重放攻击"区分开（见
 	// auth_service_tk_refresh_grace.go）。旧记录反序列化时该字段为 nil，向后兼容，无需迁移。
-	RotatedAt *time.Time `json:"rotated_at,omitempty"`
+	RotatedAt      *time.Time `json:"rotated_at,omitempty"`
+	RotationClaim  string     `json:"rotation_claim,omitempty"`
+	RotationResult string     `json:"rotation_result,omitempty"`
+}
+
+// RefreshTokenRotationCache publishes one successor and its encrypted replay
+// result atomically, including the indexes used for session revocation.
+type RefreshTokenRotationCache interface {
+	ClaimRefreshToken(context.Context, string, string, time.Duration) (*RefreshTokenData, bool, error)
+	CompleteRefreshTokenRotation(context.Context, string, string, string, *RefreshTokenData, string, time.Duration) (bool, error)
 }
 
 // RefreshTokenCache 管理Refresh Token的Redis缓存

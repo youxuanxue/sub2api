@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -227,6 +228,24 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	usage := scan.Usage
 
 	if scan.Err != nil {
+		var inBand *chatStreamInBandError
+		if !errors.As(scan.Err, &inBand) && !errors.Is(scan.Err, context.Canceled) && !errors.Is(scan.Err, context.DeadlineExceeded) {
+			inBand = &chatStreamInBandError{payload: []byte(`{"error":{"type":"server_error","code":"incomplete_response","message":"Incomplete upstream response"}}`)}
+		}
+		if inBand != nil {
+			scan.Err = s.handleChatStreamFailure(c, resp, account, inBand.payload, outputStage.semanticOutputReleased, upstreamModel)
+			var failover *UpstreamFailoverError
+			if !errors.As(scan.Err, &failover) && !outputStage.ClientDisconnected() {
+				message := extractOpenAISSEErrorMessage(inBand.payload)
+				status, kind := openAIStreamFailedClientResponse(inBand.payload, message, "api_error")
+				if outputStage.semanticOutputReleased {
+					_, _ = fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE(kind, message))
+					c.Writer.Flush()
+				} else {
+					writeAnthropicError(c, status, kind, message)
+				}
+			}
+		}
 		// Broken upstream read: skip finalization so no synthetic message_stop
 		// masks the truncation, and surface the error to flag usage incomplete
 		// (mirrors forwardResponsesViaRawChatCompletions).

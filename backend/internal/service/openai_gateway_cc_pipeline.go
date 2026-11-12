@@ -287,7 +287,8 @@ type ccStreamScanState struct {
 	// FirstTokenMs 为首个实际输出 chunk（排除 usage-only chunk）的到达时延。
 	FirstTokenMs *int
 	// SawDone 表示上游发出了 [DONE] 哨兵。
-	SawDone bool
+	SawDone   bool
+	SawFinish bool
 	// Err 为 scanner 读错误（客户端 context 取消不属于此类，会原样带出）。
 	// 非 nil 时调用方必须跳过 finalize 并返回 usage-incomplete 错误，避免
 	// 把上游截断伪装成正常收尾。
@@ -333,6 +334,10 @@ func (s *OpenAIGatewayService) scanCCStream(
 		if u := extractCCStreamUsage(payload); u != nil {
 			st.Usage = *u
 		}
+		if streamErr := detectChatStreamError(payload); streamErr != nil {
+			st.Err = streamErr
+			return st
+		}
 
 		var chunk apicompat.ChatCompletionsChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
@@ -346,6 +351,11 @@ func (s *OpenAIGatewayService) scanCCStream(
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
 		}
+		for _, choice := range chunk.Choices {
+			if choice.FinishReason != nil && *choice.FinishReason != "" {
+				st.SawFinish = true
+			}
+		}
 		emit(&chunk)
 	}
 
@@ -357,6 +367,9 @@ func (s *OpenAIGatewayService) scanCCStream(
 			)
 		}
 		st.Err = err
+	}
+	if st.Err == nil && !st.SawDone && !st.SawFinish {
+		st.Err = ErrOpenAIUpstreamStreamTruncated
 	}
 	return st
 }

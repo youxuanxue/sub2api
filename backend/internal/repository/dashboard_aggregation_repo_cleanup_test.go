@@ -50,6 +50,9 @@ func TestCleanupUsageLogs_PartitionedReclaimsStraddlingLegacy(t *testing.T) {
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
 			AddRow(service.GroupUsageDate(todayStart), time.Unix(0, 0).UTC(), "Asia/Shanghai"))
+	mock.ExpectQuery(`WITH claimed AS .*DELETE FROM usage_group_rollup_dirty_days`).
+		WithArgs("Asia/Shanghai", service.GroupUsageDate(todayStart)).
+		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(nil))
 	mock.ExpectCommit()
 
 	err := repo.CleanupUsageLogs(context.Background(), cutoff)
@@ -115,6 +118,9 @@ func TestCleanupUsageLogs_NonPartitionedContinuesUntilShortBatch(t *testing.T) {
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
 			AddRow(service.GroupUsageDate(todayStart), time.Unix(0, 0).UTC(), "Asia/Shanghai"))
+	mock.ExpectQuery(`WITH claimed AS .*DELETE FROM usage_group_rollup_dirty_days`).
+		WithArgs("Asia/Shanghai", service.GroupUsageDate(todayStart)).
+		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(nil))
 	mock.ExpectCommit()
 
 	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))
@@ -150,6 +156,9 @@ func TestCleanupUsageLogs_NonPartitionedStopsAtPerRunCapAndSyncs(t *testing.T) {
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
 			AddRow(service.GroupUsageDate(todayStart), time.Unix(0, 0).UTC(), "Asia/Shanghai"))
+	mock.ExpectQuery(`WITH claimed AS .*DELETE FROM usage_group_rollup_dirty_days`).
+		WithArgs("Asia/Shanghai", service.GroupUsageDate(todayStart)).
+		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(nil))
 	mock.ExpectCommit()
 
 	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))
@@ -203,6 +212,9 @@ func TestCleanupUsageLogs_NonPartitionedUsesChunkedDelete(t *testing.T) {
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
 			AddRow(service.GroupUsageDate(todayStart), time.Unix(0, 0).UTC(), "Asia/Shanghai"))
+	mock.ExpectQuery(`WITH claimed AS .*DELETE FROM usage_group_rollup_dirty_days`).
+		WithArgs("Asia/Shanghai", service.GroupUsageDate(todayStart)).
+		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(nil))
 	mock.ExpectCommit()
 
 	err := repo.CleanupUsageLogs(context.Background(), cutoff)

@@ -20361,6 +20361,66 @@
         "func TestCloudcodeHostDoesNotOverrideOpenAIPings(t *testing.T) {"
       ],
       "rationale": "DoWithTLS is the production entry. Helper-only tests still pass if an upstream merge stops passing the request host, so the host selection, the negative hosts, and the OpenAI exemption stay pinned here."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_stream_error_tk.go",
+      "must_contain": ["detectChatStreamError", "sanitizeOpenAIResponseFailedEventForClient", "openAIStreamFailedEventShouldFailover"],
+      "rationale": "Chat HTTP 200 errors share the existing semantic failover owner and safe public envelope."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_cc_pipeline.go",
+      "must_contain": ["detectChatStreamError"],
+      "rationale": "Converted Chat streams must consume the shared in-band error detector."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": ["detectChatStreamError", "handleChatStreamFailure"],
+      "rationale": "Raw Chat streams must not bypass the shared failure contract."
+    },
+    {
+      "path": "backend/internal/service/scheduler_snapshot_service.go",
+      "must_contain": ["BeginOutboxProjection", "ClaimPending", "Acknowledge(ctx, event.ID, event.ClaimToken)"],
+      "rationale": "Outbox delivery must remain durable and Redis-fenced; a diagnostic watermark is not an ACK."
+    },
+    {
+      "path": "backend/internal/repository/scheduler_projection_fence_tk.go",
+      "must_contain": ["execSchedulerPipeline", "c.rdb.Watch", "tx.TxPipelined", "errSchedulerProjectionFenced"],
+      "rationale": "New outbox owners atomically fence old Redis writes before connection-loss cancellation arrives."
+    },
+    {
+      "path": "backend/internal/service/auth_service_tk_refresh_grace.go",
+      "must_contain": ["ClaimRefreshToken", "CompleteRefreshTokenRotation", "aead.Open", "aead.Seal"],
+      "rationale": "Refresh grace replays one encrypted successor instead of minting concurrent successors."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_fingerprint.go",
+      "must_contain": ["resolveGatewayCodexFingerprintIDs", "sub2api:codex-tenant-session:v1:key:"],
+      "rationale": "Session/full convergence preserves authenticated tenant separation without changing installation identity."
+    },
+    {
+      "path": "backend/internal/securityaudit/prompt_types.go",
+      "must_contain": ["FullPrompt", "json:\"-\""],
+      "rationale": "Legacy internal raw prompt fields must never become API output again."
+    },
+    {
+      "path": "backend/internal/service/openai_error_envelope_tk_test.go",
+      "must_contain": ["TestOpenAIClientErrorEnvelopePreservesRetryAfter", "TestOpenAIClientErrorEnvelopeDropsSafetyDiagnostics", "TestOpenAIClientErrorEnvelopeDropsUnknownNestedMetadata"],
+      "rationale": "Error privacy must not silently remove retry advice, and retry compatibility must not restore private diagnostics."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_inband_error_tk_test.go",
+      "must_contain": ["TestChatInBandErrorPreservesFailureAndUsage", "TestChatInBandErrorPreservesSemanticStatusWithoutDiagnostics"],
+      "rationale": "In-band failures must preserve usage and semantic health classification across raw, converted, and buffered paths."
+    },
+    {
+      "path": "backend/internal/repository/scheduler_outbox_delivery_integration_test.go",
+      "must_contain": ["TestSchedulerOutboxDeliversSmallIDCommittedAfterLargeACK", "TestSchedulerOutboxExpiredClaimCannotACKNewOwner", "TestSchedulerOutboxDeliverySerializesWorkersAndCancelsOnConnectionLoss"],
+      "rationale": "Durable delivery and stale-projector fencing require real database and Redis concurrency regressions."
+    },
+    {
+      "path": "backend/internal/repository/refresh_token_rotation_integration_test.go",
+      "must_contain": ["TestRefreshRotationRealRedisPublishesOnceAndRevokesReplay"],
+      "rationale": "Single-successor publication and family revocation must remain covered against real Redis."
     }
   ]
 }

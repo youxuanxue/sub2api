@@ -399,6 +399,12 @@ func buildOpenAIWSHTTPBridgeFailedEvent(responseID, model string, createdAt int6
 	if errorType != "" {
 		errorBody["type"] = errorType
 	}
+	for _, path := range []string{"error", "response.error"} {
+		if retryAfter := openAIClientErrorRetryAfter(gjson.GetBytes(source, path)); retryAfter != "" {
+			errorBody["headers"] = map[string]string{"retry-after": retryAfter}
+			break
+		}
+	}
 	if createdAt <= 0 {
 		createdAt = time.Now().Unix()
 	}
@@ -459,11 +465,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	// prompt_cache_key get random upstream prompt-cache routing and rarely hit the cache.
 	stageCodexFingerprintIDs(c, nil)
 	if account.UsesOpenAICodexProtocol() {
-		var clientHeaders http.Header
-		if c != nil && c.Request != nil {
-			clientHeaders = c.Request.Header
-		}
-		fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
+		fpIDs := resolveGatewayCodexFingerprintIDs(c, account, gjson.GetBytes(body, "client_metadata.session_id").String())
 		if fpIDs != nil {
 			fpBody, fpChanged, fpErr := applyCodexFingerprintClientMetadataRaw(body, fpIDs)
 			if fpErr != nil {

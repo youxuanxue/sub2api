@@ -936,6 +936,37 @@ func (s *emailBindRefreshTokenCacheStub) ConsumeRefreshToken(_ context.Context, 
 	return &cloned, nil
 }
 
+func (s *emailBindRefreshTokenCacheStub) ClaimRefreshToken(_ context.Context, hash, claim string, _ time.Duration) (*service.RefreshTokenData, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data := s.tokens[hash]
+	if data == nil {
+		return nil, false, service.ErrRefreshTokenNotFound
+	}
+	owned := data.RotatedAt == nil
+	if owned {
+		now := time.Now()
+		data.RotatedAt, data.RotationClaim = &now, claim
+	}
+	cloned := *data
+	return &cloned, owned, nil
+}
+
+func (s *emailBindRefreshTokenCacheStub) CompleteRefreshTokenRotation(_ context.Context, hash, claim, nextHash string, next *service.RefreshTokenData, result string, _ time.Duration) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data := s.tokens[hash]
+	if data == nil || data.RotationClaim != claim || data.RotationResult != "" {
+		return false, nil
+	}
+	data.RotationResult = result
+	cloned := *next
+	s.tokens[nextHash] = &cloned
+	s.userSets[next.UserID][nextHash] = struct{}{}
+	s.families[next.FamilyID][nextHash] = struct{}{}
+	return true, nil
+}
+
 func (s *emailBindRefreshTokenCacheStub) DeleteUserRefreshTokens(_ context.Context, userID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -59,7 +59,7 @@ func TestEnqueueSchedulerOutbox_DeduplicatesIdempotentEvents(t *testing.T) {
 
 	var firstID int64
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT id FROM scheduler_outbox WHERE event_type = $1", service.SchedulerOutboxEventAccountChanged).Scan(&firstID))
-	events, err := NewSchedulerOutboxRepository(integrationDB).ListAfterAndReleaseDedup(ctx, 0, 100)
+	events, err := NewSchedulerOutboxRepository(integrationDB).ClaimPending(ctx, 100, 2*time.Minute)
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 	require.Equal(t, firstID, events[0].ID)
@@ -76,7 +76,7 @@ func TestSchedulerOutbox_ListAfterAndReleaseDedup_AllowsSameKeyWhileEventInFligh
 	accountID := int64(17345)
 	require.NoError(t, enqueueSchedulerOutbox(ctx, integrationDB, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil))
 
-	events, err := NewSchedulerOutboxRepository(integrationDB).ListAfterAndReleaseDedup(ctx, 0, 100)
+	events, err := NewSchedulerOutboxRepository(integrationDB).ClaimPending(ctx, 100, 2*time.Minute)
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 

@@ -15,13 +15,13 @@
       "rationale": "GetLatestUsedAtByUserIDs feeds /admin/users and is called unconditionally on every Users-page load. After usage_logs daily partitioning (prod ~8.7M rows / 70 partitions), per-user LATERAL MAX Appends across partitions and often falls back to created_at index + Filter (~6.5s for 20 ids). ANY($1) + GROUP BY uses per-partition user_id indexes in one pass (~50–250ms, re-measured 2026-10-10). The two shapes return the same map, so TestGetLatestUsedAtByUserIDs_UsesUsageLogs stays green either way — this sentinel is the only mechanical guard against restoring LATERAL. Do NOT re-introduce LATERAL without re-measuring on partitioned prod."
     },
     {
-      "path": "backend/internal/repository/scheduler_outbox_repo.go",
+      "path": "backend/internal/repository/scheduler_outbox_delivery_tk.go",
       "must_contain": [
         "SELECT EXISTS (",
         "FROM scheduler_outbox",
         "WITH selected AS MATERIALIZED ("
       ],
-      "rationale": "Healthy outbox poll must short-circuit empty watermarks with EXISTS before the MATERIALIZED FOR UPDATE claim CTE (PR #2203). Dropping EXISTS reverts to claiming every second even when idle — observed on prod CPU samples."
+      "rationale": "Healthy outbox poll must short-circuit absent claimable pending rows with EXISTS before the MATERIALIZED FOR UPDATE claim CTE (PR #2203). ACK state, never Redis watermark, determines completeness. The partial pending index keeps the empty poll bounded."
     },
     {
       "path": "backend/internal/repository/usage_log_repo_tk_group_rollup.go",

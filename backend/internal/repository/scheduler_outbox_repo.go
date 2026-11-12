@@ -27,97 +27,15 @@ func NewSchedulerOutboxRepository(db *sql.DB) service.SchedulerOutboxRepository 
 	return &schedulerOutboxRepository{db: db}
 }
 
-func (r *schedulerOutboxRepository) ListAfterAndReleaseDedup(ctx context.Context, afterID int64, limit int) ([]service.SchedulerOutboxEvent, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	// Healthy 1s poll path: skip the MATERIALIZED + FOR UPDATE claim when the
-	// watermark already covers everything. Empty EXISTS is far cheaper than the
-	// claim CTE that showed up in prod pg_stat activity during CPU spikes.
-	var hasRows bool
-	if err := r.db.QueryRowContext(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM scheduler_outbox
-			WHERE id > $1
-		)
-	`, afterID).Scan(&hasRows); err != nil {
-		return nil, err
-	}
-	if !hasRows {
-		return nil, nil
-	}
-	rows, err := r.db.QueryContext(ctx, `
-		WITH selected AS MATERIALIZED (
-			SELECT id, event_type, account_id, group_id, payload, created_at
-			FROM scheduler_outbox
-			WHERE id > $1
-			ORDER BY id ASC
-			LIMIT $2
-			FOR UPDATE
-		), released AS (
-			UPDATE scheduler_outbox AS o
-			SET dedup_key = NULL
-			FROM selected AS s
-			WHERE o.id = s.id
-				AND o.dedup_key IS NOT NULL
-			RETURNING o.id
-		)
-		SELECT s.id, s.event_type, s.account_id, s.group_id, s.payload, s.created_at
-		FROM selected AS s
-		CROSS JOIN (SELECT COUNT(*) FROM released) AS release_barrier
-		ORDER BY s.id ASC
-	`, afterID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = rows.Close()
-	}()
-
-	events := make([]service.SchedulerOutboxEvent, 0, limit)
-	for rows.Next() {
-		var (
-			payloadRaw []byte
-			accountID  sql.NullInt64
-			groupID    sql.NullInt64
-			event      service.SchedulerOutboxEvent
-		)
-		if err := rows.Scan(&event.ID, &event.EventType, &accountID, &groupID, &payloadRaw, &event.CreatedAt); err != nil {
-			return nil, err
-		}
-		if accountID.Valid {
-			v := accountID.Int64
-			event.AccountID = &v
-		}
-		if groupID.Valid {
-			v := groupID.Int64
-			event.GroupID = &v
-		}
-		if len(payloadRaw) > 0 {
-			var payload map[string]any
-			if err := json.Unmarshal(payloadRaw, &payload); err != nil {
-				return nil, err
-			}
-			event.Payload = payload
-		}
-		events = append(events, event)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return events, nil
-}
-
 func (r *schedulerOutboxRepository) FirstCreatedAtAfter(ctx context.Context, afterID int64) (time.Time, bool, error) {
 	var createdAt time.Time
 	err := r.db.QueryRowContext(ctx, `
 		SELECT created_at
 		FROM scheduler_outbox
-		WHERE id > $1
-		ORDER BY id ASC
+		WHERE acknowledged_at IS NULL
+		ORDER BY created_at ASC
 		LIMIT 1
-	`, afterID).Scan(&createdAt)
+	`).Scan(&createdAt)
 	if err == sql.ErrNoRows {
 		return time.Time{}, false, nil
 	}
@@ -142,23 +60,21 @@ func (r *schedulerOutboxRepository) DeleteConsumedUpTo(ctx context.Context, wate
 	if limit <= 0 {
 		limit = schedulerOutboxDefaultCleanSize
 	}
-	// created_at < NOW() - INTERVAL '10 seconds' 防御 PG 序列号在事务内提前分配但
-	// 提交延迟的竞争：若某 Tx 在 watermark 推进前持有 id=N（未提交），watermark
-	// 跨过 N 后该 Tx 才提交，此时 row N 已经"低于 watermark"但从未被 poll；10s
-	// 宽限期让此类慢事务有机会提交后被消费，再被 cleanup 删除。
+	// Only a durable ACK permits deletion. A sequence ID or age cannot prove
+	// delivery: a smaller ID may have committed after the diagnostic watermark.
 	result, err := r.db.ExecContext(ctx, `
 		WITH doomed AS (
 			SELECT id
 			FROM scheduler_outbox
-			WHERE id <= $1
-				AND created_at < NOW() - INTERVAL '10 seconds'
+			WHERE acknowledged_at IS NOT NULL
+				AND acknowledged_at < NOW() - INTERVAL '10 seconds'
 			ORDER BY id ASC
-			LIMIT $2
+			LIMIT $1
 		)
 		DELETE FROM scheduler_outbox o
 		USING doomed d
 		WHERE o.id = d.id
-	`, watermark, limit)
+	`, limit)
 	if err != nil {
 		return 0, err
 	}

@@ -2247,8 +2247,8 @@ func TestOpenAIGatewayService_CodexFingerprintHTTPTransformedHeaderBodyParityAnd
 	seed, ok := codexFingerprintSeed(account.Extra)
 	require.True(t, ok)
 	wantInstall := resolveConvergedInstallationID(account, seed)
-	wantSession := resolveConvergedSessionID(seed)
-	wantThread := resolveConvergedThreadID(seed, "header-session")
+	ids := resolveGatewayCodexFingerprintIDs(c, account, "body-session")
+	wantSession, wantThread := ids.sessionID, ids.threadID
 
 	require.Equal(t, wantInstall, upstream.lastReq.Header.Get("x-codex-installation-id"))
 	require.Equal(t, wantSession, upstream.lastReq.Header.Get("session-id"))
@@ -2309,8 +2309,8 @@ func TestOpenAIGatewayService_CodexFingerprintHTTPRawPassthroughHeaderBodyParity
 	seed, ok := codexFingerprintSeed(account.Extra)
 	require.True(t, ok)
 	wantInstall := resolveConvergedInstallationID(account, seed)
-	wantSession := resolveConvergedSessionID(seed)
-	wantThread := resolveConvergedThreadID(seed, "header-session")
+	ids := resolveGatewayCodexFingerprintIDs(c, account, "body-session")
+	wantSession, wantThread := ids.sessionID, ids.threadID
 
 	require.Equal(t, wantInstall, upstream.lastReq.Header.Get("x-codex-installation-id"))
 	require.Equal(t, wantSession, upstream.lastReq.Header.Get("session-id"))
@@ -2408,9 +2408,9 @@ func TestOpenAIGatewayService_CodexFingerprintMessagesBridgeDoesNotInjectBodyPro
 	require.NoError(t, err)
 	require.NotNil(t, upstream.lastReq)
 
-	seed, ok := codexFingerprintSeed(account.Extra)
+	_, ok := codexFingerprintSeed(account.Extra)
 	require.True(t, ok)
-	wantSession := resolveConvergedSessionID(seed)
+	wantSession := resolveGatewayCodexFingerprintIDs(c, account, "anthropic-metadata-session-1").sessionID
 	require.False(t, gjson.GetBytes(upstream.lastBody, "prompt_cache_key").Exists())
 	require.Equal(t, wantSession, gjson.GetBytes(upstream.lastBody, "client_metadata.session_id").String())
 	require.Equal(t, wantSession, upstream.lastReq.Header.Get("session_id"))

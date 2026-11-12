@@ -125,11 +125,11 @@ func TestOpenAIGatewayService_Forward_WSv2_ExecutionScopeUsesOriginalIdentity(t 
 	completed := func(id string) []byte {
 		return []byte(`{"type":"response.completed","response":{"id":"` + id + `","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`)
 	}
-	captureConn := &openAIWSCaptureConn{events: [][]byte{completed("resp_a"), completed("resp_b"), completed("resp_c")}}
 	handshake := http.Header{}
 	handshake.Set(openAIWSTurnStateHeader, "turn-state-from-upstream")
 	pool := newOpenAIWSConnPool(cfg)
-	pool.setClientDialerForTest(&openAIWSCaptureDialer{conn: captureConn, handshake: handshake})
+	dialer := &openAIWSCaptureDialer{handshake: handshake}
+	pool.setClientDialerForTest(dialer)
 	defer pool.Close()
 
 	stateStore := NewOpenAIWSStateStore(nil)
@@ -161,6 +161,10 @@ func TestOpenAIGatewayService_Forward_WSv2_ExecutionScopeUsesOriginalIdentity(t 
 	}
 
 	forward := func(sessionID, body string) (*gin.Context, []byte) {
+		// Tenant-scoped handshakes cannot reuse another session's connection.
+		dialer.mu.Lock()
+		dialer.conn = &openAIWSCaptureConn{events: [][]byte{completed("resp_" + sessionID)}}
+		dialer.mu.Unlock()
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
 		c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
