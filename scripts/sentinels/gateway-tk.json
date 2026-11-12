@@ -20332,6 +20332,34 @@
         "self.assertEqual(policy.receipt_bytes(receipts, kind=\"qa\"), 19)"
       ],
       "rationale": "Regression coverage keeps both legacy and source-isolated QA receipts in dataset accounting while excluding failed receipts."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream.go",
+      "must_contain": [
+        "requestHost = req.URL.Hostname()",
+        "protocolMode = cloudcodeHTTP2ProtocolMode(protocolMode, requestHost)",
+        "h2Mode = upstreamProtocolModeCloudcodeH2"
+      ],
+      "rationale": "Google Code Assist (cloudcode-pa and daily-cloudcode-pa) must keep HTTP/2 and disable proactive PINGs. The host choice is made in DoWithTLS and applied by the fingerprint builder; dropping either line restores the 10s PING that Google answers with GOAWAY too_many_pings."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream_tk_cloudcode_h2.go",
+      "must_contain": [
+        "const upstreamProtocolModeCloudcodeH2 = \"cloudcode_h2\"",
+        "\"cloudcode-pa.googleapis.com\", \"daily-cloudcode-pa.googleapis.com\"",
+        "func cloudcodeHTTP2ProtocolMode(protocolMode, host string) string {",
+        "if isOpenAITLSProtocolMode(protocolMode) {"
+      ],
+      "rationale": "Code Assist ping exemption is exact-host and must not override OpenAI's 15s PING policy. Other hosts stay on the long-stream transport."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream_tk_cloudcode_h2_test.go",
+      "must_contain": [
+        "func TestDoWithTLSSelectsPingPolicyFromRequestHost(t *testing.T) {",
+        "func TestNonCodeAssistHostsKeepLongStreamPings(t *testing.T) {",
+        "func TestCloudcodeHostDoesNotOverrideOpenAIPings(t *testing.T) {"
+      ],
+      "rationale": "DoWithTLS is the production entry. Helper-only tests still pass if an upstream merge stops passing the request host, so the host selection, the negative hosts, and the OpenAI exemption stay pinned here."
     }
   ]
 }
