@@ -88,7 +88,9 @@ func TestCalculateCost_WithCacheTokens(t *testing.T) {
 	cost, err := svc.CalculateCost("claude-sonnet-4", tokens, 1.0)
 	require.NoError(t, err)
 
-	expectedCacheCreation := 2000 * 3.75e-6
+	// Aggregate cache writes carry no TTL. Once the 1h price exists, unknown TTL
+	// bills at that 1h rate ($6/MTok), not the 5-minute write price.
+	expectedCacheCreation := 2000 * 6e-6
 	expectedCacheRead := 3000 * 0.3e-6
 	require.InDelta(t, expectedCacheCreation, cost.CacheCreationCost, 1e-10)
 	require.InDelta(t, expectedCacheRead, cost.CacheReadCost, 1e-10)
