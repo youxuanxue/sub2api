@@ -1,10 +1,11 @@
 {
   "schema_version": 4,
-  "floor_sha256": "c693c53aa43caa3dd8c96833a2ea2a4b6296f26479732c1da5864380a33e857c",
+  "floor_sha256": "94ad142c85f537fe9ec73af23addd67a06443e2e8c157042643adc6f686c45c2",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
         "claude-fable-5": "claude-fable-5",
+        "claude-fable-5-2": "claude-fable-5-2",
         "claude-haiku-4-5": "claude-haiku-4-5",
         "claude-opus-4-1": "claude-opus-4-1",
         "claude-opus-4-5": "claude-opus-4-5",
@@ -17,6 +18,7 @@
       },
       "anthropic_tokensea_relay": {
         "claude-fable-5": "claude-fable-5",
+        "claude-fable-5-2": "claude-fable-5-2",
         "claude-haiku-4-5": "claude-haiku-4-5-20251001",
         "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
         "claude-opus-4-5": "claude-opus-4-5-20251101",
