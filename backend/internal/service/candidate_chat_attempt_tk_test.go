@@ -98,6 +98,21 @@ func TestCandidateChatUsefulOutputStopsTimerAndPreservesBytes(t *testing.T) {
 	}
 }
 
+func TestCandidateChatNullErrorPreservesUsefulOutput(t *testing.T) {
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	a := newCandidateChatAttempt(context.Background(), c.Writer, true, time.Second)
+	defer a.close()
+	content := "data: {\"error\":null,\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"
+	_, err := a.WriteString(content)
+	require.NoError(t, err)
+	a.abortBeforeOutput(errCandidateChatFirstOutput)
+	require.NoError(t, a.ctx.Err())
+	require.True(t, a.started)
+	require.False(t, a.terminal)
+	require.Equal(t, content, rec.Body.String())
+}
+
 func TestCandidateChatClientCancelStopsAfterUsefulOutput(t *testing.T) {
 	canceled := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

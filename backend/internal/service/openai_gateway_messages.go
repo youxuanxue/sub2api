@@ -1486,13 +1486,10 @@ func writeAnthropicError(c *gin.Context, statusCode int, errType, message string
 // streaming response can terminate with a visible error (e.g. upstream
 // cyber_policy) and programmatic clients stop retrying.
 // Marshal 失败的兜底仅保留固定提示。
-func buildAnthropicStreamErrorSSE(errType, message string) string {
+func buildAnthropicStreamErrorSSE(errType, message string, sources ...[]byte) string {
 	payload, err := json.Marshal(gin.H{
-		"type": "error",
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
+		"type":  "error",
+		"error": openAIClientErrorBody(errType, message, sources...),
 	})
 	if err != nil {
 		return "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"" + errType + "\",\"message\":\"upstream error\"}}\n\n"

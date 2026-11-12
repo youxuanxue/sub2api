@@ -20384,6 +20384,51 @@
       "path": "ops/qa/test_local_maintenance_integration.py",
       "must_contain": ["test_independent_shared_retention_drops_without_sources_and_preserves_recent_and_business_data", "source_unavailable_after_retention"],
       "rationale": "Real PostgreSQL proves expiry works without source evidence and preserves recent QA, business tables and disk-completion boundaries."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_stream_error_tk.go",
+      "must_contain": ["detectChatStreamError", "sanitizeOpenAIResponseFailedEventForClient", "openAIStreamFailedEventShouldFailover"],
+      "rationale": "Chat HTTP 200 errors share the existing semantic failover owner and safe public envelope."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_cc_pipeline.go",
+      "must_contain": ["detectChatStreamError"],
+      "rationale": "Converted Chat streams must consume the shared in-band error detector."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": ["detectChatStreamError", "handleChatStreamFailure"],
+      "rationale": "Raw Chat streams must not bypass the shared failure contract."
+    },
+    {
+      "path": "backend/internal/service/auth_service_tk_refresh_grace.go",
+      "must_contain": ["tkMarkRotatedWithGrace", "return ErrServiceUnavailable", "tkRefreshRotatedWithinGrace"],
+      "rationale": "Cache failure must stop refresh issuance without replacing the existing grace policy."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_fingerprint.go",
+      "must_contain": ["resolveGatewayCodexFingerprintIDs", "sub2api:codex-tenant-session:v1:key:"],
+      "rationale": "Session/full convergence preserves authenticated tenant separation without changing installation identity."
+    },
+    {
+      "path": "backend/internal/securityaudit/prompt_types.go",
+      "must_contain": ["FullPrompt", "json:\"-\""],
+      "rationale": "Legacy internal raw prompt fields must never become API output again."
+    },
+    {
+      "path": "backend/internal/service/openai_error_envelope_tk_test.go",
+      "must_contain": ["TestOpenAIClientErrorEnvelopePreservesRetryAfter", "TestOpenAIClientErrorEnvelopeDropsSafetyDiagnostics", "TestOpenAIClientErrorEnvelopeDropsUnknownNestedMetadata"],
+      "rationale": "Error privacy must not silently remove retry advice, and retry compatibility must not restore private diagnostics."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_inband_error_tk_test.go",
+      "must_contain": ["TestChatInBandErrorPreservesFailureAndUsage", "TestChatInBandErrorPreservesSemanticStatusWithoutDiagnostics"],
+      "rationale": "In-band failures must preserve usage and semantic health classification across raw, converted, and buffered paths."
+    },
+    {
+      "path": "backend/internal/service/auth_service_refresh_rotation_failure_tk_test.go",
+      "must_contain": ["TestRefreshGraceCacheFailureDoesNotIssueTokens", "cleanup_failed", "require.Nil(t, pair)"],
+      "rationale": "Marking and indexing failures must not return tokens, including when best-effort cleanup also fails."
     }
   ]
 }

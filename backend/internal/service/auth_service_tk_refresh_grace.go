@@ -24,9 +24,8 @@ import (
 const tkRefreshRotationGrace = 10 * time.Second
 
 // tkMarkRotatedWithGrace 替代轮转时的硬删除：把记录标记为已轮转，并以很短的宽限 TTL
-// 重写回缓存，让它在宽限期后自动过期。失败时退化为不可恢复（调用方继续主流程，旧 token
-// 最终随原 TTL 失效），不影响新 token 的签发。
-func (s *AuthService) tkMarkRotatedWithGrace(ctx context.Context, tokenHash string, data *RefreshTokenData) {
+// 重写回缓存，让它在宽限期后自动过期。缓存失败时不签发新 token。
+func (s *AuthService) tkMarkRotatedWithGrace(ctx context.Context, tokenHash string, data *RefreshTokenData) error {
 	now := time.Now()
 	rotated := *data
 	rotated.RotatedAt = &now
@@ -34,7 +33,9 @@ func (s *AuthService) tkMarkRotatedWithGrace(ctx context.Context, tokenHash stri
 		logger.LegacyPrintf("service.auth", "[Auth] Failed to mark refresh token rotated (grace); falling back to delete: %v", err)
 		// 回退：宽限标记失败则按旧行为硬删，宁可偶发一次误判也不让旧 token 长期有效。
 		_ = s.refreshTokenCache.DeleteRefreshToken(ctx, tokenHash)
+		return ErrServiceUnavailable
 	}
+	return nil
 }
 
 // tkRefreshRotatedWithinGrace 处理对一个已轮转 token 的再次刷新。仅当仍在宽限窗口内
