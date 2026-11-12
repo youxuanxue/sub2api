@@ -564,11 +564,8 @@ func isSupportedGrokCLIVersion(version string) bool {
 		semver.Compare(canonical, minimum) >= 0
 }
 
-// acquireClientWithTLS 获取或创建带 TLS 指纹的客户端
-func (s *httpUpstreamService) acquireClientWithTLS(proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile, upstreamProfile service.HTTPUpstreamProfile) (*upstreamClientEntry, error) {
-	return s.acquireClientWithTLSForHost(proxyURL, accountID, accountConcurrency, profile, upstreamProfile, "")
-}
-
+// acquireClientWithTLSForHost 获取或创建带 TLS 指纹的客户端。
+// requestHost 决定 Code Assist 主机是否使用不发健康 PING 的 HTTP/2 传输。
 func (s *httpUpstreamService) acquireClientWithTLSForHost(proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile, upstreamProfile service.HTTPUpstreamProfile, requestHost string) (*upstreamClientEntry, error) {
 	return s.getClientEntryWithTLSForHost(proxyURL, accountID, accountConcurrency, profile, upstreamProfile, requestHost, true, true)
 }
