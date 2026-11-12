@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -332,6 +333,53 @@ func TestOpenAIEnsureForwardErrorResponse_WrappedForwardCancellationWrites499(t 
 	require.Equal(t, statusClientClosedRequest, c.Writer.Status())
 	require.Empty(t, w.Body.String())
 	require.True(t, service.HasOpsClientClosedRequest(c))
+}
+
+func TestOpenAIEnsureAnthropicErrorResponse_WrappedPostCancelWrites499(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	forwardErr := &url.Error{Op: "Post", URL: "https://upstream.example/v1/messages", Err: context.Canceled}
+
+	h := &OpenAIGatewayHandler{}
+	wrote := h.ensureAnthropicErrorResponseForError(c, forwardErr, false)
+
+	require.False(t, wrote)
+	require.Equal(t, statusClientClosedRequest, c.Writer.Status())
+	require.Empty(t, w.Body.String())
+	require.True(t, service.HasOpsClientClosedRequest(c))
+}
+
+func TestOpenAIEnsureAnthropicErrorResponse_UpstreamFailureStill502(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	h := &OpenAIGatewayHandler{}
+	wrote := h.ensureAnthropicErrorResponseForError(c, errors.New("upstream connection reset"), false)
+
+	require.True(t, wrote)
+	require.Equal(t, http.StatusBadGateway, w.Code)
+	require.Equal(t, "api_error", gjson.Get(w.Body.String(), "error.type").String())
+	require.Equal(t, "Upstream request failed", gjson.Get(w.Body.String(), "error.message").String())
+	require.False(t, service.HasOpsClientClosedRequest(c))
+}
+
+func TestOpenAIEnsureAnthropicErrorResponse_DeadlineStays502(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	forwardErr := fmt.Errorf("Post \"https://upstream.example/v1/messages\": %w", context.DeadlineExceeded)
+
+	h := &OpenAIGatewayHandler{}
+	wrote := h.ensureAnthropicErrorResponseForError(c, forwardErr, false)
+
+	require.True(t, wrote)
+	require.Equal(t, http.StatusBadGateway, w.Code)
+	require.False(t, service.HasOpsClientClosedRequest(c))
 }
 
 // Writer 已写后 ensureForwardErrorResponse 必须仍然把错误信息以 SSE
