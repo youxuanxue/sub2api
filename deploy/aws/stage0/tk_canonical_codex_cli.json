@@ -3,26 +3,83 @@
   "description": "TokenKey canonical Codex CLI TLS profile captured from real codex ClientHello (Rust reqwest 0.12 + rustls 0.23 + aws-lc-rs, X25519MLKEM768 first); rustls randomizes extension order per connection, so shuffle_extensions=true and JA4 (not JA3) is the stable identity. Paired with codex_* User-Agent / originator. HTTPS advertises ALPN h2,http/1.1; the Responses WebSocket handshake sends the same hello without the ALPN extension.",
   "enable_grease": false,
   "shuffle_extensions": true,
-  "cipher_suites": [4866, 4865, 4867, 49196, 49195, 52393, 49200, 49199, 52392, 255],
-  "curves": [4588, 29, 23, 24],
-  "point_formats": [0],
-  "signature_algorithms": [1283, 1027, 1539, 2055, 2054, 2053, 2052, 1537, 1281, 1025, 2308, 2309, 2310],
-  "alpn_protocols": ["h2", "http/1.1"],
-  "supported_versions": [772, 771],
-  "key_share_groups": [4588, 29],
-  "psk_modes": [1],
-  "extensions": [0, 5, 10, 11, 13, 16, 23, 35, 43, 45, 51],
+  "cipher_suites": [
+    4866,
+    4865,
+    4867,
+    49196,
+    49195,
+    52393,
+    49200,
+    49199,
+    52392,
+    255
+  ],
+  "curves": [
+    4588,
+    29,
+    23,
+    24
+  ],
+  "point_formats": [
+    0
+  ],
+  "signature_algorithms": [
+    1283,
+    1027,
+    1539,
+    2055,
+    2054,
+    2053,
+    2052,
+    1537,
+    1281,
+    1025,
+    2308,
+    2309,
+    2310
+  ],
+  "alpn_protocols": [
+    "h2",
+    "http/1.1"
+  ],
+  "supported_versions": [
+    772,
+    771
+  ],
+  "key_share_groups": [
+    4588,
+    29
+  ],
+  "psk_modes": [
+    1
+  ],
+  "extensions": [
+    0,
+    5,
+    10,
+    11,
+    13,
+    16,
+    23,
+    35,
+    43,
+    45,
+    51
+  ],
   "observed": {
     "source": "real-cli-local-connect-capture",
-    "codex_cli_version": "0.167.0",
-    "captured_at": "2026-11-06",
-    "sample_count": 22,
-    "server_names": ["chatgpt.com"],
+    "codex_cli_version": "0.167.2",
+    "captured_at": "2026-11-12",
+    "sample_count": 9,
+    "server_names": [
+      "chatgpt.com"
+    ],
     "https": {
       "ja4": "t13d1011h2_61a7ad8aa9b6_0d308c48d2a3",
       "ja3_raw_sorted_extensions": "771,4866-4865-4867-49196-49195-52393-49200-49199-52392-255,0-5-10-11-13-16-23-35-43-45-51,4588-29-23-24,0",
       "ja3_hash_sorted_extensions": "082240ccb778985f253b420029540a34",
-      "ja3_hash_note": "wire JA3 differs on every connection (22/22 distinct) because rustls shuffles extension order",
+      "ja3_hash_note": "wire JA3 differs per connection (6/6 distinct) because rustls shuffles extension order",
       "negotiated_alpn": "h2",
       "http2_akamai": "2:0;4:2097152;5:16384;6:16384|5177345|0|m,s,a,p"
     },
@@ -35,6 +92,7 @@
     },
     "session_id_length": 32,
     "grease": false,
+    "runtime_digest": "bae02ba14ff2bdec3cb5e794a34ac75b827ad4dcd59d76d7ea329152c3ff8492",
     "note": "Captured by pointing codex at a local CONNECT capture proxy with a throwaway CODEX_HOME, dummy bearer and a local CA (CODEX_CA_CERTIFICATE); no request left the machine. ClientHello semantics are host-independent."
   }
 }

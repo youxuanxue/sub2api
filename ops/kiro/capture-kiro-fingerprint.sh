@@ -92,6 +92,10 @@ cmd_capture() {
   mkdir -p "$OUT_DIR"
   tls_log="$OUT_DIR/${stamp}-kiro-cli-tls.jsonl"
   http_log="$OUT_DIR/${stamp}-kiro-cli-http.jsonl"
+  # The mitm addon appends these lazily. Size checks below must see an empty
+  # file before the first proxied request, otherwise `wc` aborts under `set -e`.
+  : >"$tls_log"
+  : >"$http_log"
   whoami_file="$OUT_DIR/${stamp}-kiro-cli-whoami.txt"
   bundle="$OUT_DIR/${stamp}-kiro-cli.bundle.json"
   mitm_log="$OUT_DIR/${stamp}-mitmdump.log"

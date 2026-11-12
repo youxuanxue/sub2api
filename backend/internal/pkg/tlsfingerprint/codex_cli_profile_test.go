@@ -19,7 +19,7 @@ import (
 )
 
 // codexCLIProfile loads deploy/aws/stage0/tk_canonical_codex_cli.json (the
-// committed capture of real codex-cli 0.167.0) so the replay test cannot drift
+// committed capture of real codex-cli 0.167.2) so the replay test cannot drift
 // from the owner file.
 func codexCLIProfile(t *testing.T) *Profile {
 	t.Helper()
