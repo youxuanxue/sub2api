@@ -64,3 +64,47 @@ func TestNode1ReceiptRequiresVerifiedHourIdentity(t *testing.T) {
 		t.Fatalf("mismatched receipt accepted: ok=%v err=%v", ok, err)
 	}
 }
+
+func TestSourceReceiptCannotAuthorizeSiteCleanup(t *testing.T) {
+	root := t.TempDir()
+	hour := time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
+	receipt := node1Receipt{
+		SchemaVersion: "qa-node1-source-hour-v2", Environment: "prod", SourceID: "old",
+		WindowStart: hour, WindowEnd: hour.Add(time.Hour), OK: true,
+		FileCount: 1, TotalBytes: 7, ManifestSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Transport: "ssh-tar", RemoteDir: "/archive/qa-raw/prod/sources/old/2026/11/11/10",
+	}
+	sourcePath := filepath.Join(root, "prod", "sources", "old", hour.Format("2006/01/02/15")+".json")
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourcePath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := hasNode1Receipt(root, "prod", hour); err != nil || ok {
+		t.Fatalf("single source must not authorize site cleanup: ok=%v err=%v", ok, err)
+	}
+	sitePath := filepath.Join(root, "prod", hour.Format("2006/01/02/15")+".json")
+	if err := os.MkdirAll(filepath.Dir(sitePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range []string{"qa-node1-source-hour-v2", "qa-node1-hour-v1"} {
+		t.Run(schema, func(t *testing.T) {
+			receipt.SchemaVersion = schema
+			raw, err := json.Marshal(receipt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(sitePath, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if ok, err := hasNode1Receipt(root, "prod", hour); err == nil || ok {
+				t.Fatalf("source receipt in site path must fail closed: ok=%v err=%v", ok, err)
+			}
+		})
+	}
+}

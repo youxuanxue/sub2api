@@ -43,6 +43,7 @@ type LocalCleanupResult struct {
 type node1Receipt struct {
 	SchemaVersion string `json:"schema_version"`
 	Environment   string `json:"environment"`
+	SourceID      string `json:"source_id"`
 	// Set when the hour was streamed to node1 over SSH rather than copied into
 	// a locally mounted directory. The payload then lives only on node1, so
 	// there is nothing here to re-hash.
@@ -104,7 +105,7 @@ func hasNode1Receipt(root, environment string, h time.Time) (bool, error) {
 		return false, fmt.Errorf("invalid node1 receipt: %w", err)
 	}
 	start := h.UTC()
-	if receipt.SchemaVersion != "qa-node1-hour-v1" || !receipt.OK || receipt.Environment != environment ||
+	if receipt.SchemaVersion != "qa-node1-hour-v1" || receipt.SourceID != "" || !receipt.OK || receipt.Environment != environment ||
 		!receipt.WindowStart.UTC().Equal(start) || !receipt.WindowEnd.UTC().Equal(start.Add(time.Hour)) ||
 		receipt.FileCount < 1 || receipt.TotalBytes < 0 || len(receipt.ManifestSHA256) != 64 {
 		return false, errors.New("node1 receipt failed integrity checks")

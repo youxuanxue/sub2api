@@ -90,6 +90,7 @@ test-integration: test-qa-local
 .PHONY: test-qa-local
 test-qa-local: verify-toolchain
 	go test -tags=unit ./cmd/qa-local-maintenance ./internal/observability/qa/lifecycle ./internal/pkg/pgpartition
+	cd .. && python3 -m unittest ops.qa.test_node1_archive ops.qa.test_node1_remote
 	@set -eu; \
 		qa_test_dir=$$(mktemp -d); \
 		trap 'rm -rf "$$qa_test_dir"' EXIT; \

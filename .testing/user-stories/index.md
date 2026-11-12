@@ -80,3 +80,4 @@
 | US-074 | 网关保留请求协议语义与最终计量 | InTest | `.testing/user-stories/stories/US-074-gateway-issue-remediation.md` |
 
 | US-075 | prod 应用机并行替换的隔离准备与启动保护 | InTest | `.testing/user-stories/stories/US-075-prod-app-parallel-replacement.md` |
+| US-076 | 双应用节点 QA 归档隔离与全站清理保护 | InTest | `.testing/user-stories/stories/US-076-qa-source-archive-isolation.md` |

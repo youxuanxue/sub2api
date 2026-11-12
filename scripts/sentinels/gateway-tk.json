@@ -20257,6 +20257,63 @@
         "ALTER TABLE usage_logs ALTER COLUMN video_duration_seconds TYPE BIGINT;"
       ],
       "rationale": "tk_025 (BIGINT) and upstream 172 (INTEGER) race on ADD COLUMN IF NOT EXISTS. tk_111 widens only an integer column, so production databases (already bigint) are never rewritten during a blue/green deploy, and lock_timeout keeps a contended ALTER from queueing in front of writers."
+    },
+    {
+      "path": "ops/qa/node1_archive.py",
+      "must_contain": [
+        "SOURCE_SCHEMA = \"qa-node1-source-hour-v2\"",
+        "def archive_namespace(environment: str, source_id: str = \"\") -> Path:",
+        "receipt_path(receipt_root, environment, hour, source_id)",
+        "parser.add_argument(\"--source-id\", default=\"\",",
+        "refusing to overwrite the published hour"
+      ],
+      "rationale": "Application HA preparation: an explicit stable source identity isolates node1 payloads, receipts and run summaries. Source-hour snapshots must not overwrite another node or silently accept late source files as an already archived complete hour; legacy v1 paths remain unchanged."
+    },
+    {
+      "path": "ops/qa/test_node1_archive.py",
+      "must_contain": [
+        "def test_two_sources_cannot_overwrite_each_other_or_legacy(self):",
+        "def test_late_source_files_fail_without_replacing_archive_or_receipt(self):",
+        "def test_interrupted_publish_recovers_only_the_matching_source_snapshot(self):"
+      ],
+      "rationale": "Behavioral coverage for distinct same-hour sources, legacy coexistence, immutable retries, interrupted publication and late capture."
+    },
+    {
+      "path": "backend/internal/observability/qa/lifecycle/local_cleanup.go",
+      "must_contain": [
+        "SourceID      string `json:\"source_id\"`",
+        "receipt.SourceID != \"\""
+      ],
+      "rationale": "A source-specific snapshot is not a site-wide cleanup authorization, even if copied into the legacy receipt path or mislabeled with the old schema."
+    },
+    {
+      "path": "backend/internal/observability/qa/lifecycle/node1_receipt_test.go",
+      "must_contain": [
+        "func TestSourceReceiptCannotAuthorizeSiteCleanup(t *testing.T)"
+      ],
+      "rationale": "Pins fail-closed cleanup across receipt namespaces and accidental schema relabeling."
+    },
+    {
+      "path": "backend/Makefile",
+      "must_contain": [
+        "python3 -m unittest ops.qa.test_node1_archive ops.qa.test_node1_remote"
+      ],
+      "rationale": "Keep source isolation and SSH archive behavior in the existing required QA integration test entry, not just in manual validation."
+    },
+    {
+      "path": "ops/backup/node1_storage_policy.py",
+      "must_contain": [
+        "qa-node1-source-hour-v2"
+      ],
+      "rationale": "Source-isolated QA receipts represent real archived bytes and must remain part of node1 capacity accounting; otherwise each additional application node bypasses the QA dataset cap."
+    },
+    {
+      "path": "ops/backup/test_node1_storage_policy.py",
+      "must_contain": [
+        "qa-node1-source-hour-v2",
+        "self.assertEqual(policy.receipt_bytes(receipts, kind=\"qa\"), 19)"
+      ],
+      "rationale": "Regression coverage keeps both legacy and source-isolated QA receipts in dataset accounting while excluding failed receipts."
     }
   ]
 }

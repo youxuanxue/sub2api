@@ -44,6 +44,29 @@ import node1_remote
 
 HOUR = "%Y/%m/%d/%H"
 SCHEMA = "qa-node1-hour-v1"
+SOURCE_SCHEMA = "qa-node1-source-hour-v2"
+SOURCE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+
+
+def archive_namespace(environment: str, source_id: str = "") -> Path:
+    if environment not in ("prod", "cn-prod"):
+        raise ValueError("unknown QA archive environment")
+    if source_id and not SOURCE_ID.fullmatch(source_id):
+        raise ValueError("unsafe QA source identity")
+    namespace = Path(environment)
+    return namespace / "sources" / source_id if source_id else namespace
+
+
+def hour_identity(environment: str, hour: dt.datetime, source_id: str = "") -> dict:
+    archive_namespace(environment, source_id)
+    if hour.tzinfo is None or hour.utcoffset() != dt.timedelta(0) or hour != hour_start(hour):
+        raise ValueError("QA archive requires an exact UTC hour")
+    identity = {"schema_version": SOURCE_SCHEMA if source_id else SCHEMA,
+                "environment": environment, "window_start": hour.isoformat(),
+                "window_end": (hour + dt.timedelta(hours=1)).isoformat()}
+    if source_id:
+        identity["source_id"] = source_id
+    return identity
 
 
 def atomic_json(path: Path, value: dict) -> None:
@@ -163,11 +186,12 @@ def ensure_readable_tree(root: Path) -> None:
                 continue
 
 
-def receipt_path(root: Path, environment: str, hour: dt.datetime) -> Path:
-    return root / "receipts" / environment / (hour.strftime(HOUR) + ".json")
+def receipt_path(root: Path, environment: str, hour: dt.datetime, source_id: str = "") -> Path:
+    return root / "receipts" / archive_namespace(environment, source_id) / (hour.strftime(HOUR) + ".json")
 
 
-def _verified_manifest(target: Path, environment: str, hour: dt.datetime) -> tuple[dict, str, int]:
+def _verified_manifest(target: Path, environment: str, hour: dt.datetime,
+                       source_id: str = "") -> tuple[dict, str, int]:
     manifest_path = target / "manifest.json"
     if target.is_symlink() or not target.is_dir() or manifest_path.is_symlink() or not manifest_path.is_file():
         raise ValueError(f"published QA hour is missing a safe manifest: {target}")
@@ -176,10 +200,7 @@ def _verified_manifest(target: Path, environment: str, hour: dt.datetime) -> tup
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         raise ValueError(f"published QA manifest is invalid: {manifest_path}") from exc
     if (
-        manifest.get("schema_version") != SCHEMA
-        or manifest.get("environment") != environment
-        or manifest.get("window_start") != hour.isoformat()
-        or manifest.get("window_end") != (hour + dt.timedelta(hours=1)).isoformat()
+        any(manifest.get(key) != value for key, value in hour_identity(environment, hour, source_id).items())
         or not isinstance(manifest.get("files"), list)
         or manifest.get("file_count") != len(manifest["files"])
     ):
@@ -206,14 +227,12 @@ def _verified_manifest(target: Path, environment: str, hour: dt.datetime) -> tup
     return manifest, *sha256_file(manifest_path)
 
 
-def _receipt_from_manifest(target: Path, environment: str, hour: dt.datetime) -> dict:
-    manifest, manifest_sha, manifest_size = _verified_manifest(target, environment, hour)
+def _receipt_from_manifest(target: Path, environment: str, hour: dt.datetime,
+                           source_id: str = "") -> dict:
+    manifest, manifest_sha, manifest_size = _verified_manifest(target, environment, hour, source_id)
     return {
-        "schema_version": SCHEMA,
+        **hour_identity(environment, hour, source_id),
         "ok": True,
-        "environment": environment,
-        "window_start": hour.isoformat(),
-        "window_end": (hour + dt.timedelta(hours=1)).isoformat(),
         "file_count": manifest["file_count"],
         "total_bytes": manifest["total_bytes"],
         "manifest_sha256": manifest_sha,
@@ -230,7 +249,7 @@ def log_progress(environment: str, hour: dt.datetime, phase: str, **fields) -> N
 
 
 def push_hour(source_root: Path, receipt_root: Path, environment: str,
-              hour: dt.datetime, remote: dict) -> dict:
+              hour: dt.datetime, remote: dict, source_id: str = "") -> dict:
     """Archive one hour to a remote node1 over SSH instead of a mounted path.
 
     Identical guarantees to copy_hour: a manifest with a per-file sha256, a
@@ -249,20 +268,27 @@ def push_hour(source_root: Path, receipt_root: Path, environment: str,
     decide whether an hour may be deleted, and routing that read over the
     network would tie log retention to node1 being reachable.
     """
+    identity = hour_identity(environment, hour, source_id)
     source_files = _hour_sources(source_root, hour)
-    receipt = receipt_path(receipt_root, environment, hour)
-    remote_dir = f"{remote['remote_root'].rstrip('/')}/qa-raw/{environment}/{hour.strftime(HOUR)}"
+    receipt = receipt_path(receipt_root, environment, hour, source_id)
+    remote_dir = f"{remote['remote_root'].rstrip('/')}/qa-raw/{archive_namespace(environment, source_id).as_posix()}/{hour.strftime(HOUR)}"
 
     repush_reason = ""
     if receipt.exists():
         try:
             existing = json.loads(receipt.read_text(encoding="utf-8"))
-            valid = (existing.get("schema_version") == SCHEMA
+            valid = (existing.get("schema_version") == identity["schema_version"]
                      and existing.get("ok") is True)
+            if source_id:
+                valid = valid and all(existing.get(key) == value for key, value in identity.items())
         except (OSError, ValueError, json.JSONDecodeError):
             existing, valid = None, False
         if not valid:
             raise ValueError(f"existing node1 receipt is invalid: {receipt}")
+        if source_id:
+            current = _source_manifest(source_files, environment, hour, source_id)
+            if hashlib.sha256(manifest_bytes(current)).hexdigest() != existing.get("manifest_sha256"):
+                raise ValueError("QA source changed after archive; refusing to overwrite the published hour")
         # A receipt is a local claim; node1 holding the manifest is the
         # evidence. An earlier local-copy run wrote valid-looking receipts for
         # hours that never reached node1, which made this path skip them as
@@ -299,7 +325,7 @@ def push_hour(source_root: Path, receipt_root: Path, environment: str,
         log_progress(environment, hour, "stage", file_count=len(source_files),
                      total_bytes=required_bytes)
         manifest, manifest_sha, manifest_size, total = _stage_hour(staging, source_files,
-                                                                   environment, hour)
+                                                                   environment, hour, source_id)
         log_progress(environment, hour, "transfer", file_count=manifest["file_count"],
                      total_bytes=total)
         summary = node1_remote.push_directory(
@@ -319,9 +345,7 @@ def push_hour(source_root: Path, receipt_root: Path, environment: str,
         if int(summary.get("total_bytes", -1)) != total:
             raise ValueError(f"node1 byte count mismatch: local={total} "
                              f"remote={summary.get('total_bytes')}")
-        result = {"schema_version": SCHEMA, "ok": True, "environment": environment,
-                  "window_start": hour.isoformat(),
-                  "window_end": (hour + dt.timedelta(hours=1)).isoformat(),
+        result = {**identity, "ok": True,
                   "file_count": manifest["file_count"], "total_bytes": total,
                   "manifest_sha256": manifest_sha, "manifest_bytes": manifest_size,
                   "transport": "ssh-tar", "remote_dir": remote_dir,
@@ -386,8 +410,22 @@ def _hour_sources(source_root: Path, hour: dt.datetime) -> list[tuple[str, Path]
     return source_files
 
 
+def manifest_bytes(manifest: dict) -> bytes:
+    return json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+
+
+def _source_manifest(source_files: list[tuple[str, Path]], environment: str,
+                     hour: dt.datetime, source_id: str = "") -> dict:
+    entries = []
+    for relative, source in source_files:
+        digest, size = sha256_file(source)
+        entries.append({"path": relative, "bytes": size, "sha256": digest})
+    return {**hour_identity(environment, hour, source_id), "files": entries,
+            "file_count": len(entries), "total_bytes": sum(entry["bytes"] for entry in entries)}
+
+
 def _stage_hour(staging: Path, source_files: list[tuple[str, Path]],
-                environment: str, hour: dt.datetime) -> tuple[dict, str, int, int]:
+                environment: str, hour: dt.datetime, source_id: str = "") -> tuple[dict, str, int, int]:
     """Copy sources into staging with checksums and write the manifest."""
     entries = []
     total = 0
@@ -402,28 +440,32 @@ def _stage_hour(staging: Path, source_files: list[tuple[str, Path]],
         os.chmod(destination, 0o600)
         entries.append({"path": relative, "bytes": size, "sha256": digest})
         total += size
-    manifest = {"schema_version": SCHEMA, "environment": environment,
-                "window_start": hour.isoformat(),
-                "window_end": (hour + dt.timedelta(hours=1)).isoformat(),
+    manifest = {**hour_identity(environment, hour, source_id),
                 "file_count": len(entries), "total_bytes": total, "files": entries}
     manifest_path = staging / "manifest.json"
-    manifest_path.write_bytes(
-        json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode() + b"\n")
+    manifest_path.write_bytes(manifest_bytes(manifest))
     os.chmod(manifest_path, 0o600)
     manifest_sha, manifest_size = sha256_file(manifest_path)
     return manifest, manifest_sha, manifest_size, total
 
 
-def copy_hour(source_root: Path, node1_root: Path, environment: str, hour: dt.datetime) -> dict:
+def copy_hour(source_root: Path, node1_root: Path, environment: str, hour: dt.datetime,
+              source_id: str = "") -> dict:
+    identity = hour_identity(environment, hour, source_id)
     source_files = _hour_sources(source_root, hour)
 
-    target = node1_root / "qa-raw" / environment / hour.strftime(HOUR)
-    receipt = receipt_path(node1_root, environment, hour)
+    target = node1_root / "qa-raw" / archive_namespace(environment, source_id) / hour.strftime(HOUR)
+    receipt = receipt_path(node1_root, environment, hour, source_id)
     if receipt.exists():
         try:
             existing = json.loads(receipt.read_text(encoding="utf-8"))
-            if existing.get("schema_version") == SCHEMA and existing.get("ok") is True:
-                _verified_manifest(target, environment, hour)
+            if existing.get("schema_version") == identity["schema_version"] and existing.get("ok") is True:
+                published, digest, _ = _verified_manifest(target, environment, hour, source_id)
+                if source_id:
+                    if any(existing.get(key) != value for key, value in identity.items()) or existing.get("manifest_sha256") != digest:
+                        raise ValueError("QA source receipt identity or digest mismatch")
+                    if _source_manifest(source_files, environment, hour, source_id) != published:
+                        raise ValueError("QA source changed after archive")
                 return existing | {"already_completed": True}
         except (OSError, ValueError, json.JSONDecodeError):
             pass
@@ -434,7 +476,11 @@ def copy_hour(source_root: Path, node1_root: Path, environment: str, hour: dt.da
     # written. Verify that directory and complete the receipt on retry instead
     # of copying over it or leaving cleanup blocked forever.
     if target.exists():
-        recovered = _receipt_from_manifest(target, environment, hour)
+        if source_id:
+            published, _, _ = _verified_manifest(target, environment, hour, source_id)
+            if _source_manifest(source_files, environment, hour, source_id) != published:
+                raise ValueError("QA source changed after archive; refusing to recover a stale receipt")
+        recovered = _receipt_from_manifest(target, environment, hour, source_id)
         atomic_json(receipt, recovered)
         return recovered | {"recovered_receipt": True}
 
@@ -453,34 +499,11 @@ def copy_hour(source_root: Path, node1_root: Path, environment: str, hour: dt.da
     staging_parent = target.parent
     staging_parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     staging = Path(tempfile.mkdtemp(prefix=f".{hour.strftime('%Y%m%d%H')}-", dir=staging_parent))
-    entries = []
     try:
-        total = 0
-        for relative, source in source_files:
-            destination = staging / relative
-            destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            digest, size = sha256_file(source)
-            shutil.copyfile(source, destination)
-            copied_digest, copied_size = sha256_file(destination)
-            if (digest, size) != (copied_digest, copied_size):
-                raise IOError(f"checksum mismatch after copy: {relative}")
-            os.chmod(destination, 0o600)
-            entries.append({"path": relative, "bytes": size, "sha256": digest})
-            total += size
-        manifest = {"schema_version": SCHEMA, "environment": environment,
-                    "window_start": hour.isoformat(),
-                    "window_end": (hour + dt.timedelta(hours=1)).isoformat(),
-                    "file_count": len(entries), "total_bytes": total, "files": entries}
-        manifest_bytes = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
-        manifest_path = staging / "manifest.json"
-        manifest_path.write_bytes(manifest_bytes + b"\n")
-        os.chmod(manifest_path, 0o600)
-        manifest_sha, manifest_size = sha256_file(manifest_path)
+        manifest, manifest_sha, manifest_size, total = _stage_hour(staging, source_files, environment, hour, source_id)
         os.replace(staging, target)
-        result = {"schema_version": SCHEMA, "ok": True, "environment": environment,
-                  "window_start": hour.isoformat(),
-                  "window_end": (hour + dt.timedelta(hours=1)).isoformat(),
-                  "file_count": len(entries), "total_bytes": total,
+        result = {**identity, "ok": True,
+                  "file_count": manifest["file_count"], "total_bytes": total,
                   "manifest_sha256": manifest_sha, "manifest_bytes": manifest_size,
                   "completed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
         atomic_json(receipt, result)
@@ -529,6 +552,8 @@ def remove_orphan_staging(receipt_root: Path, now: float | None = None) -> tuple
 
 
 def run(args: argparse.Namespace) -> int:
+    source_id = getattr(args, "source_id", "")
+    namespace = archive_namespace(args.environment, source_id)
     source = Path(args.source_root).resolve()
     node1 = Path(args.node1_root).resolve()
     if source == node1 or source in node1.parents or node1 in source.parents:
@@ -550,19 +575,23 @@ def run(args: argparse.Namespace) -> int:
         if not remote["key"].is_file():
             raise ValueError(f"node1 ssh key is missing: {remote['key']}")
 
-    result = {"schema_version": SCHEMA, "ok": True, "environment": args.environment,
+    result = {"schema_version": SOURCE_SCHEMA if source_id else SCHEMA,
+              "ok": True, "environment": args.environment,
               "transport": "ssh-tar" if remote else "local-copy",
               "selected_hours": [h.isoformat() for h in selected], "completed": [], "failed": [],
               "removed_staging": removed_staging, "staging_cleanup_failed": staging_failures}
+    if source_id:
+        result["source_id"] = source_id
+    source_options = {"source_id": source_id} if source_id else {}
     for hour in selected:
         started = time.monotonic()
         log_progress(args.environment, hour, "start")
         try:
             if remote:
                 result["completed"].append(
-                    push_hour(source, node1, args.environment, hour, remote))
+                    push_hour(source, node1, args.environment, hour, remote, **source_options))
             else:
-                result["completed"].append(copy_hour(source, node1, args.environment, hour))
+                result["completed"].append(copy_hour(source, node1, args.environment, hour, **source_options))
         except Exception as exc:
             result["failed"].append({"window_start": hour.isoformat(), "error": str(exc)})
             log_progress(args.environment, hour, "failed",
@@ -571,7 +600,7 @@ def run(args: argparse.Namespace) -> int:
             log_progress(args.environment, hour, "complete",
                          elapsed_seconds=round(time.monotonic() - started, 3))
     result["ok"] = not result["failed"]
-    atomic_json(node1 / "receipts" / args.environment / "last-run.json", result)
+    atomic_json(node1 / "receipts" / namespace / "last-run.json", result)
     # The cleanup container bind-mounts node1_root itself, so a 0700 root hides
     # every receipt below it. After the 2026-11-08 prod rebuild the root came
     # back 0700 and 24 hours stayed blocked on "permission denied".
@@ -589,6 +618,8 @@ def main() -> int:
     parser.add_argument("--source-root", required=True)
     parser.add_argument("--node1-root", required=True)
     parser.add_argument("--environment", choices=("prod", "cn-prod"), required=True)
+    parser.add_argument("--source-id", default="",
+                        help="stable capture node identity; writes isolated v2 source receipts, not a site cleanup authorization")
     parser.add_argument("--before")
     parser.add_argument("--remote-target", default="",
                         help="node1 ssh destination, e.g. root@10.10.2.11. Without it "
