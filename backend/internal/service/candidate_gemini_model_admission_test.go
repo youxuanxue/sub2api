@@ -80,7 +80,8 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 				accounts[1].Schedulable = false
 				wireCandidateTestResolver(resolver, gateway, accounts)
 				_, err = resolver.Resolve(ctx, universalKey(334), inbound.shape, model, "")
-				require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+				require.ErrorIs(t, err, ErrUniversalNoEntitledGroup)
+				require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
 			})
 		}
 	}

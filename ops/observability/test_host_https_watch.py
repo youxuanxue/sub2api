@@ -1,5 +1,6 @@
 import pathlib
 import json
+import tempfile
 import sys
 import unittest
 from unittest.mock import patch
@@ -63,6 +64,24 @@ class CoveragePlanTest(unittest.TestCase):
                            ('prod-data', self.domestic['data_instance_name'])):
             with self.subTest(role=role, host=host), self.assertRaises(ValueError):
                 self.config(role, host)
+
+    def test_coordinator_watch_requires_explicit_data_job_registration(self):
+        self.watch['data_qa_jobs'] = ['tokenkey-qa-coordinator']
+        config = self.config('prod-data', self.watch['data_hostname'])
+        self.assertIn('tokenkey-qa-coordinator', config['jobs'])
+        self.assertNotIn('tokenkey-qa-coordinator', self.config('prod', self.watch['hostname'])['jobs'])
+
+    def test_coordinator_receipt_reports_failure_staleness_and_held_hours(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / 'last-run.json'
+            self.assertFalse(watch.qa_coordinator_fact(path, 100000)['healthy'])
+            receipt = {'ok': True, 'observed_at': '1970-01-02T03:46:40+00:00', 'oldest_blocked_hour_utc': None}
+            path.write_text(json.dumps(receipt))
+            self.assertIsNone(watch.qa_coordinator_fact(path, 100000))
+            self.assertFalse(watch.qa_coordinator_fact(path, 200000)['healthy'])
+            receipt['oldest_blocked_hour_utc'] = '1970-01-01T00:00:00+00:00'
+            path.write_text(json.dumps(receipt))
+            self.assertFalse(watch.qa_coordinator_fact(path, 100000)['healthy'])
 
     def test_refuses_wrong_host_and_retains_prod_monitor_peer(self):
         with self.assertRaisesRegex(ValueError, 'host identity'):

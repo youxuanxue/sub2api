@@ -128,6 +128,9 @@ func (s *GatewayService) evaluateGroupCandidates(ctx context.Context, openai *Op
 	unsupportedModel := false
 	supported := make([]Account, 0, len(accounts))
 	for i := range accounts {
+		if !accountParticipatesInProtocolPlan(&accounts[i]) {
+			continue
+		}
 		ok, err := s.candidateSupportsRequest(ctx, &accounts[i], group.Platform, mixed, model, shape)
 		if err != nil {
 			if errors.Is(err, ErrUniversalUnsupportedModel) {
@@ -192,13 +195,17 @@ func (s *GatewayService) evaluateGroupCandidates(ctx context.Context, openai *Op
 	if result.Supported {
 		return result, nil
 	}
-	// Scheduler snapshots intentionally omit disabled/error/cooling accounts.
-	// Consult configured membership only to distinguish capacity from entitlement.
+	// Live lists omit cooling and manually switched-off accounts. Only the
+	// temporary windows count as support-without-readiness. A manual
+	// Schedulable=false switch never enters Plan.
 	all, err := s.accountRepo.ListAllWithFilters(ctx, "", "", "", "", gid, "", 0)
 	if err != nil {
 		return result, err
 	}
 	for i := range all {
+		if !accountParticipatesInProtocolPlan(&all[i]) {
+			continue
+		}
 		ok, err := s.candidateSupportsRequest(ctx, &all[i], group.Platform, mixed, model, shape)
 		if err != nil {
 			if errors.Is(err, ErrUniversalUnsupportedModel) {

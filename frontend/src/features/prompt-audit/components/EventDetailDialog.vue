@@ -94,7 +94,7 @@ const ACTIONS = new Set(['Allow', 'Warn', 'Block'])
 const RISK_LEVELS = new Set(['low', 'medium', 'high', 'critical'])
 
 function displayPrompt(event: PromptAuditEvent): string {
-  return event.snapshot.full_prompt || event.snapshot.redacted_preview || '—'
+  return event.snapshot.redacted_preview || '—'
 }
 
 function formatDecisionAction(decision: string, action: string): string {

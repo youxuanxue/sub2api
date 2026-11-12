@@ -42,7 +42,7 @@ func TestCandidateEligibilityTokenseaUsesPlanAcrossEntrances(t *testing.T) {
 		wantSelected bool
 	}{
 		{"mapped_claude", true, true},
-		{"disabled_capacity", false, false},
+		{"manual_off", false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const model = "claude-sonnet-4-6"
@@ -60,17 +60,20 @@ func TestCandidateEligibilityTokenseaUsesPlanAcrossEntrances(t *testing.T) {
 			ctx := resolver.WithRequest(context.Background(), ShapeAnthropicMessages, "/v1/messages", model, body)
 			state, err := gateway.evaluateGroupCandidates(ctx, nil, group, model, ShapeAnthropicMessages)
 			require.NoError(t, err)
-			require.True(t, state.Supported)
-			require.Equal(t, tc.wantSelected, state.Available)
 			candidates := gateway.gatewayCandidates(ctx, []Account{*account}, PlatformAnthropic, false, model, nil)
-			selected, err := resolver.Resolve(ctx, universalKey(1), ShapeAnthropicMessages, model, "")
-			if !tc.wantSelected {
+			selected, resolveErr := resolver.Resolve(ctx, universalKey(1), ShapeAnthropicMessages, model, "")
+			if !tc.schedulable {
+				require.False(t, state.Supported)
+				require.False(t, state.Available)
 				require.Empty(t, candidates)
 				require.Nil(t, selected)
-				require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+				require.ErrorIs(t, resolveErr, ErrUniversalNoEntitledGroup)
+				require.NotErrorIs(t, resolveErr, ErrUniversalCapacityUnavailable)
 				return
 			}
-			require.NoError(t, err)
+			require.True(t, state.Supported)
+			require.Equal(t, tc.wantSelected, state.Available)
+			require.NoError(t, resolveErr)
 			require.Equal(t, group.ID, selected.ID)
 			require.Len(t, candidates, 1)
 			require.Equal(t, account.ID, candidates[0].ID)

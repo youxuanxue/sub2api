@@ -132,20 +132,17 @@ func (a *candidateChatAttempt) observe(data []byte) bool {
 			continue
 		}
 		root := gjson.Parse(payload)
-		if root.Get("error").Exists() {
+		if streamError := root.Get("error"); streamError.Exists() && streamError.Type != gjson.Null {
 			a.terminal = true
-			useful = true
+			continue
 		}
 		for _, choice := range root.Get("choices").Array() {
 			if finish := choice.Get("finish_reason"); finish.Exists() && finish.Type != gjson.Null && finish.String() != "" {
 				a.terminal = true
 				useful = true
 			}
-			delta := choice.Get("delta")
-			if delta.Get("content").String() != "" || delta.Get("refusal").String() != "" || delta.Get("reasoning_content").String() != "" || len(delta.Get("tool_calls").Array()) > 0 || delta.Get("function_call").Exists() {
-				useful = true
-			}
 		}
+		useful = useful || chatPayloadHasBusinessOutput(payload)
 	}
 	return useful
 }

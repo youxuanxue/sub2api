@@ -89,6 +89,42 @@ class LocalCleanupIntegration(LocalProvisionIntegration):
     def exists(self,path):
         return self.command(['docker','exec',self.name,'test','-e',path],check=False).returncode==0
 
+    def test_shared_cleanup_requires_all_sources_and_never_marks_application_disks_clean(self):
+        import datetime
+        hour = self.hour(25)
+        old = self.source_hour(hour, 1)
+        paths = self.hot_files(hour)
+        completion = {'state': 'complete', 'manifest_sha256': 'a' * 64, 'seal_digest': 'b' * 64}
+        plan = {'schema_version': 'qa-data-machine-cleanup-v1', 'environment': 'prod',
+                'window_start': hour.isoformat() + 'Z',
+                'window_end': (hour + datetime.timedelta(hours=1)).isoformat() + 'Z',
+                'expected_sources': ['a', 'b'], 'sources': {'a': {'state': 'missing'}, 'b': completion},
+                'shared_partition_action': 'delete'}
+
+        def execute(dry_run=False):
+            proc = subprocess.run(['docker', 'exec', '-i', self.name, 'tee', '/tmp/qa-shared-plan.json'],
+                                  input=json.dumps(plan), text=True, capture_output=True, check=True)
+            self.assertEqual(proc.returncode, 0)
+            command = ['docker', 'exec', '-e', 'PGHOST=/var/run/postgresql', '-e', 'PGUSER=tokenkey',
+                       '-e', 'PGDATABASE=tokenkey', self.name, '/qa-local', '--phase=cleanup-shared',
+                       '--confirm=tokenkey-qa-local-cleanup-shared-v1', '--environment=prod',
+                       '--sources=a,b', '--plan=/tmp/qa-shared-plan.json']
+            return self.command(command + (['--dry-run'] if dry_run else []), check=False)
+
+        denied = execute()
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertEqual(self.sql('SELECT count(*) FROM ' + old), '1')
+        plan['sources']['a'] = completion
+        planned = execute(dry_run=True)
+        self.assertEqual(planned.returncode, 0, planned.stdout + planned.stderr)
+        self.assertEqual(self.sql('SELECT count(*) FROM ' + old), '1')
+        dropped = execute()
+        self.assertEqual(dropped.returncode, 0, dropped.stdout + dropped.stderr)
+        self.assertEqual(self.sql("SELECT to_regclass('%s') IS NULL" % old), 't')
+        self.assertTrue(all(self.exists(path) for path in paths))
+        self.assertEqual(self.sql('SELECT hot_files_cleaned_at IS NULL FROM qa_archive_shards'), 't')
+        self.assertEqual(execute().returncode, 0)
+
     def test_cleanup_plan_then_drop_unarchived_preserves_retention_boundary_and_other_data(self):
         expired=self.hour(25)
         protected=self.hour(24)
@@ -113,6 +149,26 @@ class LocalCleanupIntegration(LocalProvisionIntegration):
         self.assertTrue(self.exists('/app/data/unrelated'))
         self.assertEqual(self.sql("SELECT state||':'||verification_error_code||':'||(source_dropped_at IS NOT NULL)::text||':'||(hot_files_cleaned_at IS NOT NULL)::text FROM qa_archive_shards"),'failed:source_unavailable_after_retention:true:true')
         self.assertEqual(json.loads(self.run_phase(phase='cleanup').stdout)['cleanup']['selected_hours'],None)
+
+    def test_independent_shared_retention_drops_without_sources_and_preserves_recent_and_business_data(self):
+        old = self.source_hour(self.hour(25), 1)
+        keep = self.source_hour(self.hour(24), 2)
+        paths = self.hot_files(self.hour(25))
+        self.sql('CREATE TABLE billing_fixture(id int); INSERT INTO billing_fixture VALUES(7)')
+        planned = json.loads(self.run_phase(phase='expire-shared', dry_run=True).stdout)
+        self.assertFalse(planned['deletion_authorized'])
+        self.assertEqual(planned['cleanup']['expired_partitions'], 1)
+        self.assertEqual(self.sql('SELECT count(*) FROM ' + old), '1')
+        result = json.loads(self.run_phase(phase='expire-shared').stdout)
+        self.assertTrue(result['ok'])
+        self.assertTrue(result['cleanup']['expiries'][0]['terminal_gap'])
+        self.assertEqual(self.sql("SELECT to_regclass('%s') IS NULL" % old), 't')
+        self.assertEqual(self.sql('SELECT id FROM ' + keep), '2')
+        self.assertEqual(self.sql('SELECT id FROM billing_fixture'), '7')
+        self.assertTrue(all(self.exists(path) for path in paths))
+        self.assertEqual(self.sql('SELECT hot_files_cleaned_at IS NULL FROM qa_archive_shards'), 't')
+        self.assertEqual(self.sql("SELECT verification_error_code FROM qa_archive_shards"), 'source_unavailable_after_retention')
+        self.assertEqual(json.loads(self.run_phase(phase='expire-shared').stdout)['cleanup']['expired_partitions'], 0)
 
     def test_orphan_files_and_interrupted_drop_receipt_are_cleaned_without_a_partition(self):
         import datetime

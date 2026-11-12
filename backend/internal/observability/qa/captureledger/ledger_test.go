@@ -36,6 +36,29 @@ func TestHourSealRequiresPersistedCaptureTransitions(t *testing.T) {
 	require.Equal(t, seal.StateDigest, validated.StateDigest)
 }
 
+func TestMaintenanceInspectsExistingLedgerWithoutManufacturingRuntime(t *testing.T) {
+	now := time.Date(2026, 11, 12, 10, 30, 0, 0, time.UTC)
+	root := t.TempDir()
+	ledger, err := Open(root, "real-capture", now, func() time.Time { return now })
+	require.NoError(t, err)
+	identity := CaptureIdentity{RequestID: "pending", CapturedAt: now}
+	require.NoError(t, ledger.Begin(identity))
+	now = now.Add(time.Hour)
+	require.NoError(t, ledger.Snapshot())
+	_, err = InspectHour(root, identity.SourceHour(), now)
+	require.ErrorIs(t, err, ErrHourUnsealed)
+	require.NoError(t, ledger.Start(identity))
+	require.NoError(t, ledger.Complete(identity, OutcomePersisted))
+	seal, err := InspectHour(root, identity.SourceHour(), now)
+	require.NoError(t, err)
+	require.Equal(t, []string{"real-capture"}, seal.RuntimeIDs)
+	receipts, err := os.ReadDir(filepath.Join(root, "runtimes"))
+	require.NoError(t, err)
+	require.Len(t, receipts, 1)
+	_, err = InspectHour(t.TempDir(), identity.SourceHour(), now)
+	require.Error(t, err)
+}
+
 func TestValidateHourSealWorksWithReadOnlyLedger(t *testing.T) {
 	now := time.Date(2026, 8, 15, 9, 40, 0, 0, time.UTC)
 	root := t.TempDir()

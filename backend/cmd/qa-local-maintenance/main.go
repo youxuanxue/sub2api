@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/observability/qa/captureledger"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/lifecycle"
 	_ "github.com/lib/pq"
 )
@@ -31,14 +33,30 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	phase := fs.String("phase", "", "local lifecycle phase")
 	dryRun := fs.Bool("dry-run", false, "plan cleanup without deleting")
 	confirm := fs.String("confirm", "", "exact phase confirmation")
+	ledgerRoot := fs.String("ledger-root", "", "capture ledger for source seal inspection")
+	hour := fs.String("hour", "", "exact UTC hour")
+	planPath := fs.String("plan", "", "coordinator plan for shared database cleanup")
+	environment := fs.String("environment", "", "QA environment")
+	sources := fs.String("sources", "", "comma-separated historical sources for this hour")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || (*phase != "provision" && *phase != "cleanup") {
-		return errors.New("phase must be provision or cleanup; no positional arguments")
+	if fs.NArg() != 0 || (*phase != "provision" && *phase != "cleanup" && *phase != "seal" && *phase != "inspect" && *phase != "cleanup-shared" && *phase != "expire-shared") {
+		return errors.New("unsupported QA phase or positional arguments")
 	}
 	if *confirm != "tokenkey-qa-local-"+*phase+"-v1" {
 		return errors.New("phase confirmation mismatch")
+	}
+	if *phase == "seal" {
+		start, err := time.Parse(time.RFC3339, *hour)
+		if err != nil || !start.Equal(start.UTC().Truncate(time.Hour)) || *ledgerRoot == "" {
+			return errors.New("seal requires a ledger root and exact UTC hour")
+		}
+		seal, err := captureledger.InspectHour(*ledgerRoot, start, time.Now())
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(seal)
 	}
 	// lib/pq consumes PG* environment variables supplied by the host runner.
 	// No application config, cloud credentials, or archive client is loaded.
@@ -79,14 +97,48 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	// The connection closes on every exit, releasing the session lock.
 	started := time.Now().UTC()
 	receipt := map[string]any{"schema_version": 1, "phase": *phase, "started_at": started, "upload_authorized": false, "deletion_authorized": false}
-	if *phase == "provision" {
+	switch *phase {
+	case "provision":
 		if *dryRun {
 			return errors.New("dry-run is only supported for cleanup")
 		}
 		var result lifecycle.ProvisionResult
 		result, err = lifecycle.RunProvision(ctx, conn, lifecycle.Options{}, nil)
 		receipt["provision"] = result
-	} else {
+	case "inspect":
+		anchor, inspectErr := lifecycle.DatabaseUTC(ctx, conn)
+		if inspectErr != nil {
+			return inspectErr
+		}
+		children, inspectErr := lifecycle.SelectTransitionExpiredHours(ctx, conn, anchor.Add(-24*time.Hour))
+		if inspectErr != nil {
+			return inspectErr
+		}
+		hours := make([]time.Time, 0, len(children))
+		for _, child := range children {
+			hours = append(hours, child.Lower.UTC())
+		}
+		receipt["hours"] = hours
+		receipt["db_anchor_utc"] = anchor
+	case "cleanup-shared":
+		raw, readErr := os.ReadFile(*planPath)
+		if readErr != nil {
+			return readErr
+		}
+		var plan lifecycle.SharedCleanupPlan
+		if err := json.Unmarshal(raw, &plan); err != nil {
+			return err
+		}
+		result, cleanupErr := lifecycle.RunSharedCleanup(ctx, conn, plan, *environment, strings.Split(*sources, ","), *dryRun)
+		receipt["cleanup"] = result
+		receipt["deletion_authorized"] = !*dryRun
+		err = cleanupErr
+	case "expire-shared":
+		result, expiryErr := lifecycle.RunSharedRetention(ctx, conn, *dryRun)
+		receipt["cleanup"] = result
+		receipt["deletion_authorized"] = !*dryRun
+		err = expiryErr
+	default:
 		var result lifecycle.LocalCleanupResult
 		result, err = lifecycle.RunLocalCleanup(ctx, conn, lifecycle.Options{
 			BlobRoot: "/app/data", DLQRoot: "/app/data",

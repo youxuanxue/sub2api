@@ -42,9 +42,36 @@ QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 �
 同一节点小时发布后只接受内容一致的重试；迟到或变更文件会报错并保留源数据，
 不能靠覆盖已发布目录“补成功”。v2 当前证明的是该源文件快照，不证明 capture 已封口或全站完整。
 现有 cleanup 明确拒绝把单源 v2 回执当成全站删除凭据，包括误放到旧站点小时路径的回执。
-数据机集中调度、参与源集合、capture 封口、全站分区删除与逐节点文件清理仍按
+数据机归档调度、历史参与源、capture 封口，以及小时结束后 24 小时的独立兜底，按
 [已批准方案](../../docs/approved/design-prod-app-parallel-replacement.md#qa-集中管理方案用户已同意尚未执行)
-继续实现；这些门禁接好之前，不给现有 timer 启用 source 模式，也不交接线上 owner。
+实现，见下面的新执行入口；线上交接验收之前，不给现有 timer 启用 source 模式。
+
+### 数据机协调器与独立一天兜底
+
+`coordinator_host.py` 只在保留窗口内调度归档：按历史参与区间登记 source，SSH 调用固定
+应用机 worker；raw 从应用机直接传到 node1，不经过数据机。归档要求实时 capture ledger
+封口，以及 `qa-node1-source-hour-v2` 回执；归档前后 seal 必须一致。空小时也必须有真实
+ledger，不能用“没有文件”冒充完整。协调器记住已完成小时及其历史参与源，不重复归档，也不
+调度删除。下线 source 只关闭参与区间，不能从历史登记中删除。过期小时交给独立兜底，不重新
+归档空目录。
+
+每条 QA 在小时结束后满 24 小时允许丢失。应用机和数据机各自运行 `force_retention.py`，
+不依赖协调器、对端、归档成功或 capture seal。应用机删除自己的过期 `qa_blobs`/`qa_dlq`
+小时目录和过期归档暂存；数据机调用 native `--phase expire-shared` 删除过期 QA 小时分区。
+缺源、缺回执或协调器故障都不能挡住这次删除。删除不写全站 `hot_files_cleaned_at`，也不碰
+业务、计费和备份。node1 已归档数据的保留期不变。
+
+`data_machine_coordinator.py` 与 `source_cleanup.py` 仍是按回执授权的兼容工具：缺源默认
+`hold`，不自动 `gap-delete`；应用机只删除计划授权的本机小时目录。它们不是
+`tokenkey-qa-retention.timer` 的执行路径。共享分区的周期删除只走 `expire-shared`。
+
+`install_coordinator.py` 安装内容寻址 bundle，默认仅计划，`--apply` 也只安装、不启用
+timer。运行任务低优先级、限 CPU/内存/带宽；数据机 DB 写操作短持备份 operator lock，并避开即将
+开始的备份。新任务由 `data_qa_jobs` 和应用机 `local_qa_jobs` 显式接入既有 host watcher；
+本变更不修改现网舰队登记。
+
+当前未安装数据机 timer、未交接线上 owner，且未启用 source 模式归档。
+配置、交接与回退见 [协调器运行手册](COORDINATOR.md)。
 
 `node1_archive.py` 只读取已经封口的 `qa_blobs`/`qa_dlq` 小时目录，把文件复制到 node1
 临时目录，逐文件校验 SHA-256、字节数和文件数后原子发布 `manifest.json` 与

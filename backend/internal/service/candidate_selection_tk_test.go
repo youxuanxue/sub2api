@@ -398,7 +398,42 @@ func TestGlobalCandidateWindowRecoveryAndStickyAdmission(t *testing.T) {
 	selected.ReleaseFunc()
 	repo.accounts[0].Schedulable = false
 	_, _, err = r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/chat/completions", "gpt-5.4", body, "", "")
-	require.ErrorIs(t, err, ErrUniversalCapacityUnavailable, "recovery cannot bypass hard gates")
+	require.ErrorIs(t, err, ErrUniversalUnsupportedModel, "a manual scheduling switch removes the account before Plan")
+	require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
+}
+
+func TestManualSchedulableOffDoesNotTurnProtocolMissIntoCapacity(t *testing.T) {
+	const model = "gemini-3.8-flash"
+	live := Account{
+		ID: 62, GroupIDs: []int64{21}, Platform: PlatformAntigravity, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{
+			"base_url": "https://upstream.example.test", "api_key": "test-only",
+			"model_mapping": map[string]any{model: model + "-medium"},
+		},
+	}
+	attachTestProtocolCapability(&live, protocolrouter.ProtocolGeminiGenerateContent)
+	paused := globalCandidateAccount(140, 1, 16)
+	paused.Schedulable = false
+	paused.Credentials["model_mapping"] = map[string]any{model: model}
+	groupAG := grp(21, PlatformAntigravity, 1, false)
+	groupAG.AllowMessagesDispatch = true
+	r, _, key := globalCandidateFixture([]Group{groupAG, grp(16, PlatformOpenAI, 2, false)}, []Account{live, paused})
+	body := []byte(`{"model":"gemini-3.8-flash","max_tokens":64,"messages":[{"role":"user","content":"OK"}],"thinking":{"type":"adaptive"}}`)
+	_, _, err := r.PrepareCandidateRequest(context.Background(), key, ShapeAnthropicMessages, "/v1/messages", model, body, "", "")
+	require.ErrorIs(t, err, ErrUniversalUnsupportedRequest)
+	require.NotErrorIs(t, err, ErrUniversalCapacityUnavailable)
+}
+
+func TestTempUnschedulableRemainsCapacity(t *testing.T) {
+	group := grp(10, PlatformOpenAI, 0, false)
+	account := globalCandidateAccount(1, 1, 10)
+	until := time.Now().Add(time.Hour)
+	account.TempUnschedulableUntil = &until
+	r, _, key := globalCandidateFixture([]Group{group}, []Account{account})
+	body := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}]}`)
+	_, _, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/chat/completions", "gpt-5.4", body, "", "")
+	require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
 }
 
 func TestGlobalCandidateNativeConverterParityAndGoogleFailover(t *testing.T) {

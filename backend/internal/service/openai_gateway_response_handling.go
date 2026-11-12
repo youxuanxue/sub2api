@@ -1822,12 +1822,32 @@ func extractOpenAISSEErrorMessage(payload []byte) string {
 	if len(payload) == 0 {
 		return ""
 	}
+	if openAIErrorContainsPrivateDetails(gjson.ParseBytes(payload)) {
+		return "Upstream response failed"
+	}
 	for _, path := range []string{"response.error.message", "error.message", "message"} {
 		if msg := strings.TrimSpace(gjson.GetBytes(payload, path).String()); msg != "" {
 			return sanitizeUpstreamErrorMessage(msg)
 		}
 	}
 	return sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(payload)))
+}
+
+func openAIErrorContainsPrivateDetails(value gjson.Result) bool {
+	private := false
+	if !value.IsObject() && !value.IsArray() {
+		return false
+	}
+	value.ForEach(func(key, child gjson.Result) bool {
+		switch key.String() {
+		case "misalignment", "steer", "detailed_explanation":
+			private = true
+		default:
+			private = openAIErrorContainsPrivateDetails(child)
+		}
+		return !private
+	})
+	return private
 }
 
 func buildOpenAIResponseFailedSSE(responseID, model string, createdAt int64, source []byte, fallbackMessage string) string {
@@ -1857,6 +1877,12 @@ func buildOpenAIResponseFailedSSE(responseID, model string, createdAt int64, sou
 	if errorType != "" {
 		errorBody["type"] = errorType
 	}
+	for _, path := range []string{"error", "response.error"} {
+		if retryAfter := openAIClientErrorRetryAfter(gjson.GetBytes(source, path)); retryAfter != "" {
+			errorBody["headers"] = map[string]string{"retry-after": retryAfter}
+			break
+		}
+	}
 	if createdAt <= 0 {
 		createdAt = time.Now().Unix()
 	}
@@ -1885,6 +1911,33 @@ func buildOpenAIResponseFailedSSE(responseID, model string, createdAt int64, sou
 	return "event: response.failed\ndata: " + string(payload) + "\n\n"
 }
 
+// Keep retry advice without forwarding arbitrary upstream headers or objects.
+func openAIClientErrorRetryAfter(errorValue gjson.Result) string {
+	var retryAfter string
+	headers := errorValue.Get("headers")
+	if !headers.IsObject() {
+		return ""
+	}
+	headers.ForEach(func(key, value gjson.Result) bool {
+		if strings.EqualFold(strings.TrimSpace(key.String()), "retry-after") &&
+			(value.Type == gjson.String || value.Type == gjson.Number) {
+			retryAfter = strings.TrimSpace(value.String())
+		}
+		return retryAfter == ""
+	})
+	return retryAfter
+}
+
+func openAIClientErrorBody(errType, message string, sources ...[]byte) gin.H {
+	body := gin.H{"type": errType, "message": message}
+	if len(sources) > 0 {
+		if retryAfter := openAIClientErrorRetryAfter(gjson.GetBytes(sources[0], "error")); retryAfter != "" {
+			body["headers"] = map[string]string{"retry-after": retryAfter}
+		}
+	}
+	return body
+}
+
 func sanitizeOpenAIResponseFailedEventForClient(payload []byte, eventType string, clientOutputStarted bool) ([]byte, bool) {
 	eventType = strings.TrimSpace(eventType)
 	isFailedEvent := eventType == "response.failed"
@@ -1898,7 +1951,34 @@ func sanitizeOpenAIResponseFailedEventForClient(payload []byte, eventType string
 	if rewritten, changed := sanitizeOpenAICapacityShedErrorCodeForClient(updated); changed {
 		updated = rewritten
 	}
+	// Upstream safety diagnostics can contain another conversation's summary.
+	// Error objects are a public envelope, not an opaque passthrough payload.
+	for _, path := range []string{"response.error", "error"} {
+		value := gjson.GetBytes(updated, path)
+		if !value.IsObject() {
+			continue
+		}
+		safe := make(map[string]any)
+		for _, field := range []string{"type", "code", "param", "retry-after"} {
+			if v := value.Get(field); v.Type == gjson.String {
+				safe[field] = v.String()
+			}
+		}
+		if retryAfter := openAIClientErrorRetryAfter(value); retryAfter != "" {
+			safe["headers"] = map[string]string{"retry-after": retryAfter}
+		}
+		safe["message"] = sanitizeUpstreamErrorMessage(value.Get("message").String())
+		if openAIErrorContainsPrivateDetails(value) {
+			safe["message"] = "Upstream response failed"
+		}
+		next, err := sjson.SetBytes(updated, path, safe)
+		if err != nil {
+			return []byte(`{"type":"error","error":{"type":"upstream_error","message":"Upstream response failed"}}`), true
+		}
+		updated = next
+	}
 	if !isFailedEvent {
+		updated = minimalOpenAIClientErrorEnvelope(updated)
 		return updated, !bytes.Equal(updated, payload)
 	}
 	if clientOutputStarted && isOpenAIContextWindowError(extractOpenAISSEErrorMessage(payload), payload) {
@@ -1923,6 +2003,7 @@ func sanitizeOpenAIResponseFailedEventForClient(payload []byte, eventType string
 		}
 	}
 	if !gjson.GetBytes(updated, "response").Exists() {
+		updated = minimalOpenAIClientErrorEnvelope(updated)
 		return updated, !bytes.Equal(updated, payload)
 	}
 	for _, path := range []string{
@@ -1945,7 +2026,59 @@ func sanitizeOpenAIResponseFailedEventForClient(payload []byte, eventType string
 		}
 		updated = next
 	}
+	updated = minimalOpenAIClientErrorEnvelope(updated)
 	return updated, !bytes.Equal(updated, payload)
+}
+
+func minimalOpenAIClientErrorEnvelope(payload []byte) []byte {
+	root := gjson.ParseBytes(payload)
+	updated := payload
+	keyPath := strings.NewReplacer("\\", "\\\\", ".", "\\.", ":", "\\:")
+	root.ForEach(func(key, value gjson.Result) bool {
+		allowed := false
+		switch key.String() {
+		case "type", "sequence_number", "event_id", "code", "message", "param":
+			allowed = !value.IsObject() && !value.IsArray()
+		case "error", "response", "usage":
+			allowed = value.IsObject()
+		}
+		if !allowed {
+			updated, _ = sjson.DeleteBytes(updated, keyPath.Replace(key.String()))
+		}
+		return true
+	})
+	if message := root.Get("message"); message.Exists() {
+		safe := sanitizeUpstreamErrorMessage(message.String())
+		if openAIErrorContainsPrivateDetails(root) {
+			safe = "Upstream response failed"
+		}
+		updated, _ = sjson.SetBytes(updated, "message", safe)
+	}
+	root.Get("response").ForEach(func(key, value gjson.Result) bool {
+		allowed := false
+		switch key.String() {
+		case "id", "object", "created_at", "status", "model":
+			allowed = !value.IsObject() && !value.IsArray()
+		case "error":
+			allowed = value.IsObject()
+		}
+		if !allowed {
+			updated, _ = sjson.DeleteBytes(updated, "response."+keyPath.Replace(key.String()))
+		}
+		return true
+	})
+	root.Get("usage").ForEach(func(key, value gjson.Result) bool {
+		allowed := false
+		switch key.String() {
+		case "input_tokens", "output_tokens", "total_tokens":
+			allowed = value.Type == gjson.Number
+		}
+		if !allowed {
+			updated, _ = sjson.DeleteBytes(updated, "usage."+keyPath.Replace(key.String()))
+		}
+		return true
+	})
+	return updated
 }
 
 func (s *OpenAIGatewayService) writeOpenAINonStreamingProtocolError(resp *http.Response, c *gin.Context, account *Account, message string) error {

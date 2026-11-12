@@ -11,8 +11,9 @@ import (
 )
 
 // ListCandidateAccounts loads the authorized membership union in one query.
-// Disabled / unschedulable members remain in the snapshot so inference selection
-// can separate support from readiness; discovery menus then apply
+// The manual Schedulable switch is applied by accountParticipatesInProtocolPlan
+// before Plan. Temporary windows stay in this snapshot so a cooled pool can
+// still be distinguished from a model miss. Discovery menus apply
 // Account.IsLiveForDiscovery (docs/approved/discovery-require-live-account.md)
 // before advertising a model.
 func (r *accountRepository) ListCandidateAccounts(ctx context.Context, groupIDs []int64) ([]service.Account, error) {

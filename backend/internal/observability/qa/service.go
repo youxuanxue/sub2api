@@ -142,7 +142,7 @@ func recordQARedactionFormat(format logredact.InputFormat, size int) {
 }
 
 const (
-	qaRedactionVersion               = "logredact-v4"
+	qaRedactionVersion               = "logredact-v5"
 	captureStatusCaptured            = "captured"
 	qaCaptureStatusCapturedToDLQ     = "captured_dlq"
 	qaCapturePersistModeAsync        = "async"

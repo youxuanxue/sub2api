@@ -81,3 +81,4 @@
 
 | US-075 | prod 应用机并行替换的隔离准备与启动保护 | InTest | `.testing/user-stories/stories/US-075-prod-app-parallel-replacement.md` |
 | US-076 | 双应用节点 QA 归档隔离与全站清理保护 | InTest | `.testing/user-stories/stories/US-076-qa-source-archive-isolation.md` |
+| US-077 | 数据机 QA 协调与按源清理策略 | InTest | `.testing/user-stories/stories/US-077-qa-data-machine-coordinator.md` |

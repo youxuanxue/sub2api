@@ -411,10 +411,10 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 	switch {
 	case clientStream:
 		result, handleErr = s.streamChatCompletionsAsResponses(
-			c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
-	case upstreamStream:
+			c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime, account)
+	case upstreamStream && (out.Stream || strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")):
 		result, handleErr = s.bufferStreamChatCompletionsAsResponses(
-			c, resp, originalModel, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
+			c, resp, originalModel, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime, account)
 	default:
 		result, handleErr = s.bufferChatCompletionsAsResponses(
 			c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)

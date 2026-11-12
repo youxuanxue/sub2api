@@ -15,6 +15,11 @@ import (
 const maxRedactDepth = 32
 
 var defaultSensitiveKeys = map[string]struct{}{
+	"api_v3_key":            {},
+	"app_secret":            {},
+	"access_key_id":         {},
+	"access_key_secret":     {},
+	"secret_access_key":     {},
 	"authorization":         {},
 	"proxy-authorization":   {},
 	"x-api-key":             {},
@@ -51,12 +56,16 @@ var defaultSensitiveKeys = map[string]struct{}{
 }
 
 var defaultSensitiveKeyList = []string{
+	"access_key_id",
+	"access_key_secret",
 	"access_token",
 	"accesskeyid",
 	"accesskeysecret",
 	"api-key",
 	"api_key",
+	"api_v3_key",
 	"apikey",
+	"app_secret",
 	"authorization",
 	"authorization_code",
 	"aws_access_key_id",
@@ -78,6 +87,7 @@ var defaultSensitiveKeyList = []string{
 	"proxy-authorization",
 	"refresh_token",
 	"secret",
+	"secret_access_key",
 	"secretaccesskey",
 	"session_token",
 	"set-cookie",
@@ -520,6 +530,9 @@ func isWordByte(c byte) bool {
 }
 
 func (p *textRedactPatterns) hasExactKey(input string) bool {
+	if isDefaultCredentialAlias(input) {
+		return true
+	}
 	n := &p.keySuffixes
 	for len(input) > 0 {
 		r, size := utf8.DecodeLastRuneInString(input)
@@ -815,6 +828,17 @@ func (p *textRedactPatterns) mayContainAssignment(input string) bool {
 		if p.hasKeySuffix(input[:end]) {
 			return true
 		}
+		keyEnd := end
+		if keyEnd > 0 && (input[keyEnd-1] == '"' || input[keyEnd-1] == '\'') {
+			keyEnd--
+		}
+		keyStart := keyEnd
+		for keyStart > 0 && isLinearKeyByte(input[keyStart-1]) {
+			keyStart--
+		}
+		if keyStart < keyEnd && isSensitiveKey(input[keyStart:keyEnd], p.keys) {
+			return true
+		}
 		if end > 0 && (input[end-1] == '"' || input[end-1] == '\'') && p.hasKeySuffix(input[:end-1]) {
 			return true
 		}
@@ -1024,14 +1048,18 @@ func redactValueWithDepth(value any, keys map[string]struct{}, patterns *textRed
 
 func isSensitiveKey(key string, keys map[string]struct{}) bool {
 	normalized := normalizeKey(key)
-	if _, ok := defaultNonCredentialKeys[normalized]; ok {
+	canonical := normalizeCredentialKey(key)
+	if _, ok := defaultNonCredentialKeys[canonical]; ok {
 		return false
 	}
 	if _, ok := keys[normalized]; ok {
 		return true
 	}
+	if isDefaultCredentialAlias(key) {
+		return true
+	}
 	for _, suffix := range defaultSensitiveKeySuffixes {
-		if strings.HasSuffix(normalized, suffix) {
+		if strings.HasSuffix(canonical, suffix) {
 			return true
 		}
 	}
@@ -1040,4 +1068,34 @@ func isSensitiveKey(key string, keys map[string]struct{}) bool {
 
 func normalizeKey(key string) string {
 	return strings.ToLower(strings.TrimSpace(key))
+}
+
+func isDefaultCredentialAlias(key string) bool {
+	canonical := normalizeCredentialKey(key)
+	if _, ok := defaultSensitiveKeys[canonical]; ok {
+		return true
+	}
+	_, ok := defaultSensitiveKeys[strings.ReplaceAll(canonical, "_", "-")]
+	return ok
+}
+
+func normalizeCredentialKey(key string) string {
+	key = strings.TrimSpace(key)
+	var out strings.Builder
+	for i := 0; i < len(key); i++ {
+		c := key[i]
+		if c == '-' {
+			c = '_'
+		}
+		if c >= 'A' && c <= 'Z' {
+			if i > 0 && key[i-1] != '_' && key[i-1] != '-' &&
+				((key[i-1] >= 'a' && key[i-1] <= 'z') || (key[i-1] >= '0' && key[i-1] <= '9') ||
+					(i+1 < len(key) && key[i+1] >= 'a' && key[i+1] <= 'z')) {
+				_ = out.WriteByte('_')
+			}
+			c += 'a' - 'A'
+		}
+		_ = out.WriteByte(c)
+	}
+	return out.String()
 }

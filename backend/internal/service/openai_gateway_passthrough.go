@@ -1597,6 +1597,10 @@ func (s *OpenAIGatewayService) recordOpenAIStreamUpstreamError(
 		if maxBytes <= 0 {
 			maxBytes = 2048
 		}
+		if openAIErrorContainsPrivateDetails(gjson.ParseBytes(payload)) {
+			payload, _ = sanitizeOpenAIResponseFailedEventForClient(payload, "response.failed", false)
+			message = "Upstream response failed"
+		}
 		detail = truncateString(string(payload), maxBytes)
 	}
 	if c != nil {
