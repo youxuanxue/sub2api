@@ -182,6 +182,50 @@ func TestCloudcodeFingerprintTransportNegotiatesHTTP2WithoutPings(t *testing.T) 
 	require.NoError(t, resp.Body.Close())
 }
 
+func TestDoWithTLSSelectsPingPolicyFromRequestHost(t *testing.T) {
+	s := openAITLSPolicyService(t, config.GatewayOpenAIHTTP2Config{})
+	profile := antigravityTLSProfileForTest()
+	const accountID = int64(529)
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	for _, rawURL := range []string{
+		"https://daily-cloudcode-pa.googleapis.com:443/v1internal:streamGenerateContent?alt=sse",
+		"https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+		"https://generativelanguage.googleapis.com/v1beta/models/gemini:streamGenerateContent",
+	} {
+		req, err := http.NewRequestWithContext(canceled, http.MethodPost, rawURL, nil)
+		require.NoError(t, err)
+		_, err = s.DoWithTLS(req, "", accountID, 1, profile)
+		require.ErrorIs(t, err, context.Canceled, rawURL)
+	}
+	requireNoUpstreamInFlight(t, s)
+
+	var quiet, other *upstreamClientEntry
+	s.mu.RLock()
+	for _, entry := range s.clients {
+		switch entry.protocolMode {
+		case upstreamProtocolModeCloudcodeH2:
+			quiet = entry
+		case "":
+			other = entry
+		}
+	}
+	s.mu.RUnlock()
+	require.NotNil(t, quiet, "DoWithTLS 必须为 Code Assist 主机选中 cloudcode_h2")
+	require.NotNil(t, other, "同一账号的其他主机必须仍走长流 PING 传输")
+	require.NotSame(t, quiet.client.Transport, other.client.Transport)
+
+	quietTr := quiet.client.Transport.(*http.Transport)
+	otherTr := other.client.Transport.(*http.Transport)
+	require.True(t, quietTr.ForceAttemptHTTP2)
+	requireHTTP2Configured(t, quietTr, "DoWithTLS 必须为 Code Assist 保持 HTTP/2")
+	require.Equal(t, time.Duration(0), quietTr.HTTP2.SendPingTimeout)
+	require.Equal(t, time.Duration(0), quietTr.HTTP2.PingTimeout)
+	require.Equal(t, longStreamHTTP2ReadIdleTimeout, otherTr.HTTP2.SendPingTimeout)
+	require.Equal(t, longStreamHTTP2PingTimeout, otherTr.HTTP2.PingTimeout)
+}
+
 func TestCloudcodeHTTPSProxyKeepsHTTP2WithoutPings(t *testing.T) {
 	proxyURL, err := url.Parse("https://proxy.test:8443")
 	require.NoError(t, err)
