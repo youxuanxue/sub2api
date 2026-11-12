@@ -563,6 +563,14 @@
       "rationale": "Two load-bearing contracts. (1) buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs (normalizeModelID), or the submit path hits `includes is not a function` after #128 responses. (2) R-003 self-heal: the per-platform candidate lists are NO LONGER hardcoded here — getModelsByPlatform routes the API-backed platforms (anthropic/openai/gemini/antigravity) to servableModelsFor (the self-healing backend cache from useServableModels), keeping only newapi + the long-tail providers static. An upstream merge that re-hardcodes claude/openai/gemini arrays here would re-introduce retired/access-gated models (e.g. claude-fable-5) and defeat the self-heal; these anchors pin the API derivation. (3) newapi static GPT-6.1 Sol whitelist + admin preset mapping must stay aligned with the catalog/pricing floor aliases — dropping gpt-6.1 / gpt-6.1-sol from newapiModels or openaiPresetMappings would hide the public Sol surface from NewAPI account mapping UI after modelops activation."
     },
     {
+      "path": "frontend/src/composables/useModelWhitelist.ts",
+      "must_contain": [
+        "{ label: '4 Argon', from: 'gemini-4-argon', to: 'gemini-4-argon-medium'",
+        "{ label: '4 Carbon', from: 'gemini-4-carbon', to: 'gemini-4-carbon-medium'"
+      ],
+      "rationale": "Antigravity admin presets for Gemini 4 Argon and Carbon must default the bare name to -medium. Medium and high share the token price; medium is the official thinking default. Reverting the preset to -high would make newly applied account mappings spend extra thinking tokens with no rate benefit. Flash presets stay -high."
+    },
+    {
       "path": "backend/internal/service/pricing_catalog_membership_tk.go",
       "must_contain": [
         "func (s *PricingCatalogService) IsModelPriced",
