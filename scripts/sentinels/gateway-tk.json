@@ -20370,7 +20370,7 @@
         "source_cleanup_allowed",
         "refusing to overwrite a different cleanup plan"
       ],
-      "rationale": "The data machine is the sole QA cleanup decision owner: source receipts independently authorize local file cleanup, while shared partition deletion waits for all sources or an explicit approved gap deadline."
+      "rationale": "The receipt-based compatibility planner retains source isolation; periodic expiry is owned separately by force_retention under the approved one-day loss policy."
     },
     {
       "path": "ops/qa/source_cleanup.py",
@@ -20393,23 +20393,38 @@
     },
     {
       "path": "ops/qa/coordinator_host.py",
-      "must_contain": ["def participants(config, hour):", "StrictHostKeyChecking=yes", "cleanup-shared", "oldest_blocked_hour_utc", "plan[\"shared_partition_action\"] == \"delete\" and cleaned", "completed[hour.isoformat()] = plan[\"expected_sources\"]"],
-      "rationale": "The data-machine runner owns historical source membership, pinned worker dispatch, independent cleanup and shared database cleanup with backlog evidence."
+      "must_contain": ["def participants(config, hour):", "StrictHostKeyChecking=yes", "hour + dt.timedelta(hours=25) > anchor", "oldest_blocked_hour_utc", "completed[hour.isoformat()] = plan[\"expected_sources\"]"],
+      "rationale": "The archive runner owns historical membership and pinned dispatch only within retention; independent host expiry must not be coupled to archive availability."
     },
     {
       "path": "ops/qa/source_worker.py",
-      "must_contain": ["def seal(config, hour):", "capture changed while archiving", "legacy QA service is still busy"],
-      "rationale": "The fixed-identity application worker must inspect the real capture ledger and reject archive changes or competing legacy owners."
+      "must_contain": ["def seal(config, hour):", "capture changed while archiving", "legacy QA service is still busy", "require_retained_hour()"],
+      "rationale": "The archive worker rejects changed seals, competing owners and archive completion after the approved expiry deadline."
     },
     {
       "path": "backend/internal/observability/qa/lifecycle/shared_cleanup.go",
-      "must_contain": ["func RunSharedCleanup(", "shared QA cleanup requires the exact historical source set", "completion.SealDigest"],
-      "rationale": "Shared DROP has a separate all-source validation path and never claims application disks have all been cleaned."
+      "must_contain": ["func RunSharedCleanup(", "shared QA cleanup requires the exact historical source set", "completion.SealDigest", "func RunSharedRetention(", "dropFixedAgeHour(ctx, conn, control, child, result.RetentionBoundary, time.Now)"],
+      "rationale": "Receipt-based cleanup remains strict; explicit independent retention reuses bounded, transactional fixed-age QA DROP without claiming all disks clean."
     },
     {
       "path": "ops/qa/test_coordinator_host.py",
-      "must_contain": ["test_a_unreachable_does_not_block_b_cleanup_or_authorize_shared_drop", "test_retired_source_stays_in_its_historical_hour", "test_database_write_defers_before_lock_or_native_execution_near_backup", "test_changed_seal_at_cleanup_revokes_shared_drop_authority", "test_completed_sweep_has_no_backlog_and_reopens_changed_membership_or_partition"],
-      "rationale": "Runtime regression tests keep missing-source failures, historical membership and backup contention from broadening cleanup authority."
+      "must_contain": ["test_a_unreachable_does_not_block_b_archive_and_never_dispatches_cleanup", "test_retired_source_stays_in_its_historical_hour", "test_database_write_defers_before_lock_or_native_execution_near_backup", "test_expired_hours_are_delegated_to_independent_retention_not_rearchived", "test_completed_archive_is_not_repeated_and_membership_change_reopens_it", "test_independent_retention_units_for_both_roles_without_activation"],
+      "rationale": "Runtime tests pin independent expiry installation, retained-hour archive scope, historical membership and backup contention."
+    },
+    {
+      "path": "ops/qa/force_retention.py",
+      "must_contain": ["hour + dt.timedelta(hours=25) <= now", "source_cleanup.remove_hour(target_root, relative)", "\"expire-shared\", dry_run=not apply", "archive_verified", "host_lock\"] + \".retention\""],
+      "rationale": "Approved loss-tolerant expiry must run locally without archive locks or evidence, stay within exact QA hour trees and never claim archive success."
+    },
+    {
+      "path": "ops/qa/test_force_retention.py",
+      "must_contain": ["test_one_day_boundary_dry_run_and_offline_cleanup", "test_boundary_one_second_before_deadline_keeps_entire_hour", "test_symlink_does_not_escape_and_does_not_block_other_hours", "test_full_disk_audit_failure_does_not_block_reclamation", "test_data_retention_uses_native_expiry_without_archive_or_coordinator_lock"],
+      "rationale": "Behavioral regressions cover offline expiry, exact deadline, containment, ENOSPC and independent locks on both host roles."
+    },
+    {
+      "path": "ops/qa/test_local_maintenance_integration.py",
+      "must_contain": ["test_independent_shared_retention_drops_without_sources_and_preserves_recent_and_business_data", "source_unavailable_after_retention"],
+      "rationale": "Real PostgreSQL proves expiry works without source evidence and preserves recent QA, business tables and disk-completion boundaries."
     }
   ]
 }

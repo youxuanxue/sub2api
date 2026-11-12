@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Data-machine QA runner. Configuration and credentials are local, root-owned.
+"""Data-machine QA archive runner. Configuration and credentials are root-owned.
 
 No raw payload is copied through this machine. SSH invokes fixed application
 workers, which transfer directly to node1. Failed sources do not stop other
-sources, but incomplete evidence always holds the shared database partition.
+sources. Independent host-local retention jobs expire hot data after one day.
 """
 from __future__ import annotations
 
@@ -116,19 +116,16 @@ def run(config, *, apply=False):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         inspected = database(config, "inspect")
         anchor = policy._hour(inspected["db_anchor_utc"])
-        # Include a bounded rolling horizon for orphan hot files and for a
-        # process that crashed after DB DROP but before a source cleanup retry.
-        database_hours = {policy._hour(value) for value in inspected["hours"]}
-        hours = set(database_hours)
-        hours.update(anchor - dt.timedelta(hours=offset) for offset in range(1, 49))
+        hours = {anchor - dt.timedelta(hours=offset) for offset in range(1, 25)}
         pending = state / "pending.json"
         if pending.exists():
             hours.update(policy._hour(value) for value in json.loads(pending.read_text()))
         completed_path = state / "completed.json"
         completed = json.loads(completed_path.read_text()) if completed_path.exists() else {}
         selected = sorted(hour for hour in hours if participants(config, hour)
-                          and (hour in database_hours or completed.get(hour.isoformat()) !=
-                               sorted(source["id"] for source in participants(config, hour))))
+                          and hour + dt.timedelta(hours=25) > anchor
+                          and completed.get(hour.isoformat()) !=
+                               sorted(source["id"] for source in participants(config, hour)))
         cursor = state / "cursor.json"
         offset = json.loads(cursor.read_text()).get("offset", 0) if cursor.exists() else 0
         limit = config.get("max_hours_per_run", 4)
@@ -162,41 +159,21 @@ def run(config, *, apply=False):
                     result["errors"].append({"source_id": source["id"], "hour": hour.isoformat(), "operation": "archive", "error": str(exc)})
             plan = policy.build_plan(receipt_root=receipts, environment=config["environment"], hour=hour,
                                      expected_sources=[source["id"] for source in sources], now=anchor)
-            plan_path = state / "plans" / f"{plan['plan_sha256']}.json"
-            policy.write_plan(plan_path, plan)
-            item = {"plan": str(plan_path), "hour": hour.isoformat(), "shared_action": plan["shared_partition_action"], "sources": {}}
-            cleaned = True
-            for source in sources:
-                if source["id"] not in plan["source_cleanup_allowed"]:
-                    cleaned = False
-                    continue
-                try:
-                    receipt = source_command(config, source, "cleanup", hour, plan=plan, apply=apply)
-                    item["sources"][source["id"]] = receipt
-                    if apply:
-                        archive.atomic_json(state / "cleaned" / source["id"] / (hour.strftime(archive.HOUR) + ".json"), receipt)
-                except (OSError, ValueError, subprocess.SubprocessError) as exc:
-                    cleaned = False
-                    result["errors"].append({"source_id": source["id"], "hour": hour.isoformat(), "operation": "cleanup", "error": str(exc)})
-            # Cleanup revalidates each live seal. A failed revalidation must
-            # revoke shared DROP authority, even if archive succeeded earlier.
-            if plan["shared_partition_action"] == "delete" and cleaned:
-                try:
-                    item["database"] = database(config, "cleanup-shared", "--plan", str(plan_path),
-                        "--environment", config["environment"], "--sources", ",".join(plan["expected_sources"]), dry_run=not apply)
-                    if cleaned:
-                        incomplete.discard(hour)
-                        if apply:
-                            completed[hour.isoformat()] = plan["expected_sources"]
-                            archive.atomic_json(completed_path, completed)
-                except (OSError, ValueError, subprocess.SubprocessError) as exc:
-                    result["errors"].append({"hour": hour.isoformat(), "operation": "cleanup-shared", "error": str(exc)})
+            item = {"hour": hour.isoformat(), "sources": plan["sources"]}
+            if all(item["state"] == "complete" for item in plan["sources"].values()):
+                incomplete.discard(hour)
+                if apply:
+                    completed[hour.isoformat()] = plan["expected_sources"]
+                    archive.atomic_json(completed_path, completed)
             result["hours"].append(item)
         if apply:
+            completed = {hour: sources for hour, sources in completed.items()
+                         if policy._hour(hour) + dt.timedelta(hours=25) > anchor}
+            archive.atomic_json(completed_path, completed)
             archive.atomic_json(pending, [hour.isoformat() for hour in sorted(incomplete)])
             archive.atomic_json(cursor, {"offset": (offset + len(chosen)) % max(len(selected), 1)})
         result["ok"] = not result["errors"]
-        blocked = sorted(hour for hour in incomplete if hour + dt.timedelta(hours=25) <= anchor)
+        blocked = sorted(hour for hour in incomplete if hour + dt.timedelta(hours=2) <= anchor)
         result["blocked_hours"] = len(blocked)
         result["oldest_blocked_hour_utc"] = blocked[0].isoformat() if blocked else None
         archive.atomic_json(state / ("last-run.json" if apply else "last-plan.json"), result)

@@ -41,8 +41,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || (*phase != "provision" && *phase != "cleanup" && *phase != "seal" && *phase != "inspect" && *phase != "cleanup-shared") {
-		return errors.New("phase must be provision or cleanup; no positional arguments")
+	if fs.NArg() != 0 || (*phase != "provision" && *phase != "cleanup" && *phase != "seal" && *phase != "inspect" && *phase != "cleanup-shared" && *phase != "expire-shared") {
+		return errors.New("unsupported QA phase or positional arguments")
 	}
 	if *confirm != "tokenkey-qa-local-"+*phase+"-v1" {
 		return errors.New("phase confirmation mismatch")
@@ -133,6 +133,11 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		receipt["cleanup"] = result
 		receipt["deletion_authorized"] = !*dryRun
 		err = cleanupErr
+	case "expire-shared":
+		result, expiryErr := lifecycle.RunSharedRetention(ctx, conn, *dryRun)
+		receipt["cleanup"] = result
+		receipt["deletion_authorized"] = !*dryRun
+		err = expiryErr
 	default:
 		var result lifecycle.LocalCleanupResult
 		result, err = lifecycle.RunLocalCleanup(ctx, conn, lifecycle.Options{

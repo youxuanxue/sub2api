@@ -150,6 +150,26 @@ class LocalCleanupIntegration(LocalProvisionIntegration):
         self.assertEqual(self.sql("SELECT state||':'||verification_error_code||':'||(source_dropped_at IS NOT NULL)::text||':'||(hot_files_cleaned_at IS NOT NULL)::text FROM qa_archive_shards"),'failed:source_unavailable_after_retention:true:true')
         self.assertEqual(json.loads(self.run_phase(phase='cleanup').stdout)['cleanup']['selected_hours'],None)
 
+    def test_independent_shared_retention_drops_without_sources_and_preserves_recent_and_business_data(self):
+        old = self.source_hour(self.hour(25), 1)
+        keep = self.source_hour(self.hour(24), 2)
+        paths = self.hot_files(self.hour(25))
+        self.sql('CREATE TABLE billing_fixture(id int); INSERT INTO billing_fixture VALUES(7)')
+        planned = json.loads(self.run_phase(phase='expire-shared', dry_run=True).stdout)
+        self.assertFalse(planned['deletion_authorized'])
+        self.assertEqual(planned['cleanup']['expired_partitions'], 1)
+        self.assertEqual(self.sql('SELECT count(*) FROM ' + old), '1')
+        result = json.loads(self.run_phase(phase='expire-shared').stdout)
+        self.assertTrue(result['ok'])
+        self.assertTrue(result['cleanup']['expiries'][0]['terminal_gap'])
+        self.assertEqual(self.sql("SELECT to_regclass('%s') IS NULL" % old), 't')
+        self.assertEqual(self.sql('SELECT id FROM ' + keep), '2')
+        self.assertEqual(self.sql('SELECT id FROM billing_fixture'), '7')
+        self.assertTrue(all(self.exists(path) for path in paths))
+        self.assertEqual(self.sql('SELECT hot_files_cleaned_at IS NULL FROM qa_archive_shards'), 't')
+        self.assertEqual(self.sql("SELECT verification_error_code FROM qa_archive_shards"), 'source_unavailable_after_retention')
+        self.assertEqual(json.loads(self.run_phase(phase='expire-shared').stdout)['cleanup']['expired_partitions'], 0)
+
     def test_orphan_files_and_interrupted_drop_receipt_are_cleaned_without_a_partition(self):
         import datetime
         h=self.hour(27)

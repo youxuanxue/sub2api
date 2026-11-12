@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import fcntl
 import hashlib
 import json
@@ -53,7 +54,7 @@ def seal(config, hour):
     return value
 
 
-def run(config, request):
+def run(config, request, *, clock=None):
     validate_config(config)
     if socket.gethostname() != config["hostname"]:
         raise coordinator.CoordinatorError("QA source host identity mismatch")
@@ -82,6 +83,12 @@ def run(config, request):
             if service.returncode or service_facts.get("ActiveState") not in ("inactive", "failed"):
                 raise coordinator.CoordinatorError("legacy QA service is still busy")
     hour = coordinator._hour(request.get("hour", ""))
+    clock = clock or (lambda: dt.datetime.now(dt.timezone.utc))
+    def require_retained_hour():
+        if hour + dt.timedelta(hours=25) <= clock():
+            raise coordinator.CoordinatorError("QA hour expired; local retention accepts loss, not archive success")
+    if request.get("command") == "archive":
+        require_retained_hour()
     source_root = Path(config["source_root"]).resolve(strict=True)
     lock_path = Path(config["host_lock"])
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,6 +115,7 @@ def run(config, request):
             after = seal(config, hour)
             if before["state_digest"] != after["state_digest"]:
                 raise coordinator.CoordinatorError("capture changed while archiving")
+            require_retained_hour()
             return dict(result, seal_digest=after["state_digest"])
         if request.get("command") == "cleanup":
             with tempfile.TemporaryDirectory(prefix="qa-source-") as scratch:

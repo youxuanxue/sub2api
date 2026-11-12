@@ -101,3 +101,41 @@ func RunSharedCleanup(ctx context.Context, conn *sql.Conn, plan SharedCleanupPla
 	}
 	return ExpiryResult{DBAnchor: anchor, SourceDroppedAt: dropped, RetentionBoundary: boundary, PartitionUpper: plan.WindowEnd}, nil
 }
+
+// RunSharedRetention is the explicitly approved loss-tolerant expiry path.
+// It never inspects application disks or waits for archive/source receipts.
+func RunSharedRetention(ctx context.Context, conn *sql.Conn, dryRun bool) (LocalCleanupResult, error) {
+	result := LocalCleanupResult{DryRun: dryRun}
+	anchor, err := DatabaseUTC(ctx, conn)
+	if err != nil {
+		return result, err
+	}
+	result.DBAnchor = anchor
+	result.RetentionBoundary = pgpartition.RetentionBoundary(anchor)
+	children, err := SelectTransitionExpiredHours(ctx, conn, result.RetentionBoundary)
+	if err != nil {
+		return result, err
+	}
+	result.ExpiredPartitions = len(children)
+	control := NewSQLControlAdapter(archive.NewSQLControlStore())
+	var joined error
+	for i, child := range children {
+		if i >= MaxTransitionDrops {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return result, errors.Join(joined, err)
+		}
+		result.SelectedHours = append(result.SelectedHours, child.Lower.UTC())
+		if dryRun {
+			continue
+		}
+		expiry, dropErr := dropFixedAgeHour(ctx, conn, control, child, result.RetentionBoundary, time.Now)
+		if dropErr != nil {
+			expiry.Error = dropErr.Error()
+			joined = errors.Join(joined, dropErr)
+		}
+		result.Expiries = append(result.Expiries, expiry)
+	}
+	return result, joined
+}

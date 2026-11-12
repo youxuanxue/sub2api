@@ -43,7 +43,7 @@ class SourceWorkerTest(unittest.TestCase):
                  mock.patch.object(worker.subprocess, 'run', side_effect=systemctl), \
                  mock.patch.object(worker, 'seal', return_value={'state_digest': 'b' * 64}) as seal, \
                  mock.patch.object(worker.archive, 'push_hour', return_value={'ok': True}) as push:
-                result = worker.run(cfg, request)
+                result = worker.run(cfg, request, clock=lambda: hour + dt.timedelta(hours=2))
             self.assertEqual(seal.call_count, 2)
             self.assertEqual(result['seal_digest'], 'b' * 64)
             self.assertEqual(push.call_args.args[4]['target'], 'root@node1')
@@ -68,7 +68,25 @@ class SourceWorkerTest(unittest.TestCase):
                  mock.patch.object(worker, 'seal', side_effect=[{'state_digest': 'a' * 64}, {'state_digest': 'b' * 64}]), \
                  mock.patch.object(worker.archive, 'push_hour', return_value={'ok': True}):
                 with self.assertRaisesRegex(policy.CoordinatorError, 'capture changed'):
-                    worker.run(cfg, request)
+                    worker.run(cfg, request, clock=lambda: dt.datetime(2026, 11, 10, 2, tzinfo=dt.timezone.utc))
+
+    def test_expired_hour_and_archive_crossing_deadline_cannot_claim_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cfg = source_config(Path(directory))
+            hour = dt.datetime(2026, 11, 10, tzinfo=dt.timezone.utc)
+            request = {'command': 'archive', 'source_id': 'a', 'environment': 'prod', 'hour': hour.isoformat()}
+            deadline = hour + dt.timedelta(hours=25)
+            with mock.patch.object(worker.socket, 'gethostname', return_value=cfg['hostname']), \
+                 mock.patch.object(worker.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout='LoadState=not-found\n')), \
+                 mock.patch.object(worker, 'seal', return_value={'state_digest': 'b' * 64}), \
+                 mock.patch.object(worker.archive, 'push_hour', return_value={'ok': True}) as push:
+                with self.assertRaisesRegex(policy.CoordinatorError, 'expired'):
+                    worker.run(cfg, request, clock=lambda: deadline)
+                push.assert_not_called()
+                times = iter([deadline - dt.timedelta(seconds=1), deadline])
+                with self.assertRaisesRegex(policy.CoordinatorError, 'expired'):
+                    worker.run(cfg, request, clock=lambda: next(times))
+                push.assert_called_once()
 
 
 if __name__ == '__main__':

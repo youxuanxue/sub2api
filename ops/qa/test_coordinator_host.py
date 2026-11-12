@@ -35,83 +35,67 @@ class RunnerTest(unittest.TestCase):
                 'ok': True, 'file_count': 0, 'total_bytes': 0,
                 'manifest_sha256': 'a' * 64, 'seal_digest': 'b' * 64}
 
-    def test_changed_seal_at_cleanup_revokes_shared_drop_authority(self):
+    def test_expired_hours_are_delegated_to_independent_retention_not_rearchived(self):
         with tempfile.TemporaryDirectory() as directory:
             cfg = config(Path(directory))
-            cleaned = []
-            def source_command(config, source, command, hour, **kwargs):
-                if command == 'archive':
-                    return self.evidence(source, hour)
-                if source['id'] == 'a':
-                    raise ValueError('capture seal changed since archive')
-                cleaned.append(source['id'])
-                return {'ok': True}
             def database(config, phase, *args, **kwargs):
-                self.assertNotEqual(phase, 'cleanup-shared')
+                self.assertIn(phase, ('inspect', 'provision'))
                 return {'db_anchor_utc': (HOUR + dt.timedelta(hours=26)).isoformat(), 'hours': [HOUR.isoformat()]}
             with mock.patch.object(host.socket, 'gethostname', return_value='fixture-data'), \
-                 mock.patch.object(host, 'source_command', side_effect=source_command), \
+                 mock.patch.object(host, 'source_command') as command, \
                  mock.patch.object(host, 'database', side_effect=database):
                 result = host.run(cfg, apply=True)
-            self.assertEqual(cleaned, ['b'])
-            self.assertFalse(result['ok'])
-            self.assertEqual(result['blocked_hours'], 1)
+            command.assert_not_called()
+            self.assertTrue(result['ok'])
+            self.assertEqual(result['blocked_hours'], 0)
+            self.assertEqual(result['hours'], [])
 
-    def test_completed_sweep_has_no_backlog_and_reopens_changed_membership_or_partition(self):
+    def test_completed_archive_is_not_repeated_and_membership_change_reopens_it(self):
         with tempfile.TemporaryDirectory() as directory:
             cfg = config(Path(directory))
             for source in cfg['sources']:
                 source['active_from'] = (HOUR - dt.timedelta(hours=48)).isoformat()
                 source.pop('active_until')
-            dropped = set()
-            reappeared = []
-            cleanup_calls = []
+            archived = set()
+            calls = []
             def source_command(config, source, command, hour, **kwargs):
-                if command == 'archive':
-                    return self.evidence(source, hour)
-                cleanup_calls.append((source['id'], hour))
-                return {'ok': True}
+                self.assertEqual(command, 'archive')
+                archived.add(hour)
+                calls.append((source['id'], hour))
+                return self.evidence(source, hour)
             def database(config, phase, *args, **kwargs):
                 if phase == 'inspect':
-                    return {'db_anchor_utc': HOUR.isoformat(), 'hours': reappeared}
-                if phase == 'cleanup-shared':
-                    dropped.add(json.loads(Path(args[1]).read_text())['window_start'])
+                    return {'db_anchor_utc': HOUR.isoformat(), 'hours': []}
+                self.assertEqual(phase, 'provision')
                 return {'ok': True}
             with mock.patch.object(host.socket, 'gethostname', return_value='fixture-data'), \
                  mock.patch.object(host, 'source_command', side_effect=source_command), \
                  mock.patch.object(host, 'database', side_effect=database):
                 for _ in range(24):
                     result = host.run(cfg, apply=True)
-                self.assertEqual(len(dropped), 24)
+                self.assertEqual(len(archived), 24)
                 self.assertEqual(result['blocked_hours'], 0)
                 self.assertIsNone(result['oldest_blocked_hour_utc'])
-                before = len(cleanup_calls)
+                before = len(calls)
                 host.run(cfg, apply=True)
-                self.assertEqual(len(cleanup_calls), before)
-                old_hour = HOUR - dt.timedelta(hours=48)
-                reappeared.append(old_hour.isoformat())
-                for _ in range(8):
-                    host.run(cfg, apply=True)
-                self.assertIn(('a', old_hour), cleanup_calls[before:])
-                reappeared.clear()
+                self.assertEqual(len(calls), before)
                 cfg['sources'][0]['id'] = 'replacement'
-                before = len(cleanup_calls)
+                before = len(calls)
                 for _ in range(24):
                     host.run(cfg, apply=True)
-                self.assertIn(('replacement', old_hour), cleanup_calls[before:])
+                self.assertIn(('replacement', HOUR - dt.timedelta(hours=24)), calls[before:])
 
-    def test_a_unreachable_does_not_block_b_cleanup_or_authorize_shared_drop(self):
+    def test_a_unreachable_does_not_block_b_archive_and_never_dispatches_cleanup(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             cfg = config(root)
-            cleanups = []
+            archives = []
 
             def source_command(config, source, command, hour, **kwargs):
                 if source['id'] == 'a':
                     raise OSError('a unavailable')
-                if command == 'cleanup':
-                    cleanups.append((source['id'], kwargs['plan']['shared_partition_action']))
-                    return {'ok': True, 'source_id': 'b', 'action': 'delete', 'window_start': hour.isoformat()}
+                self.assertEqual(command, 'archive')
+                archives.append(source['id'])
                 return {'schema_version': policy.SOURCE_SCHEMA, 'environment': 'prod', 'source_id': 'b',
                         'window_start': hour.isoformat(), 'window_end': (hour + dt.timedelta(hours=1)).isoformat(),
                         'ok': True, 'file_count': 1, 'total_bytes': 7,
@@ -119,7 +103,7 @@ class RunnerTest(unittest.TestCase):
 
             def database(config, phase, *args, **kwargs):
                 if phase == 'inspect':
-                    return {'db_anchor_utc': (HOUR + dt.timedelta(hours=26)).isoformat(), 'hours': [HOUR.isoformat()]}
+                    return {'db_anchor_utc': (HOUR + dt.timedelta(hours=2)).isoformat(), 'hours': []}
                 if phase == 'provision':
                     raise OSError('backup lock busy')
                 self.fail('shared partition must not be dropped while a is missing')
@@ -128,11 +112,11 @@ class RunnerTest(unittest.TestCase):
                  mock.patch.object(host, 'source_command', side_effect=source_command), \
                  mock.patch.object(host, 'database', side_effect=database):
                 result = host.run(cfg, apply=True)
-            self.assertEqual(cleanups, [('b', 'hold')])
+            self.assertEqual(archives, ['b'])
             self.assertFalse(result['ok'])
             self.assertIn('provision', [error['operation'] for error in result['errors']])
             self.assertEqual(result['blocked_hours'], 1)
-            self.assertTrue((root / 'state' / 'cleaned' / 'b' / (HOUR.strftime('%Y/%m/%d/%H') + '.json')).is_file())
+            self.assertEqual(result['hours'][0]['sources']['b']['state'], 'complete')
 
     def test_retired_source_stays_in_its_historical_hour(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -187,6 +171,18 @@ class InstallerTest(unittest.TestCase):
         self.assertIn('MemoryMax=512M', unit)
         self.assertNotIn('restart', unit)
         self.assertIn('--apply', unit)
+
+    def test_independent_retention_units_for_both_roles_without_activation(self):
+        for role in ('data', 'source'):
+            generated = installer.retention_units(Path('/opt/qa/abc'), role, Path('/etc/qa/pg.env') if role == 'data' else None)
+            unit = generated['tokenkey-qa-retention.service']
+            self.assertIn('--role ' + role, unit)
+            self.assertIn('CPUQuota=20%', unit)
+            self.assertNotIn('Requires=', unit)
+            self.assertNotIn('network-online', unit)
+            self.assertNotIn('coordinator.service', unit)
+            self.assertEqual('EnvironmentFile=' in unit, role == 'data')
+            self.assertIn('OnUnitInactiveSec=5min', generated['tokenkey-qa-retention.timer'])
 
 
 class BackupGuardTest(unittest.TestCase):

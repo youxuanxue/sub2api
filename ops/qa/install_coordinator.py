@@ -20,7 +20,7 @@ from data_machine_coordinator import CoordinatorError
 
 
 FILES = ("coordinator_host.py", "data_machine_coordinator.py", "source_cleanup.py",
-         "source_worker.py", "node1_archive.py", "node1_remote.py")
+         "source_worker.py", "node1_archive.py", "node1_remote.py", "force_retention.py")
 
 
 def units(bundle: Path, environment_file: Path):
@@ -42,6 +42,32 @@ IOSchedulingClass=idle
 Description=TokenKey data-machine QA schedule
 [Timer]
 OnBootSec=5min
+OnUnitInactiveSec=5min
+AccuracySec=30s
+[Install]
+WantedBy=timers.target
+"""}
+
+
+def retention_units(bundle: Path, role: str, environment_file: Path | None):
+    environment = f"EnvironmentFile={environment_file}\n" if role == "data" else ""
+    return {"tokenkey-qa-retention.service": f"""[Unit]
+Description=TokenKey independent QA one-day retention (accept loss)
+After=local-fs.target
+[Service]
+Type=oneshot
+{environment}Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 {bundle}/force_retention.py --role {role} --config {bundle}/config.json --apply
+TimeoutStartSec=5min
+UMask=0077
+Nice=19
+CPUQuota=20%
+MemoryMax=512M
+IOSchedulingClass=idle
+""", "tokenkey-qa-retention.timer": """[Unit]
+Description=TokenKey independent QA retention schedule
+[Timer]
+OnBootSec=2min
 OnUnitInactiveSec=5min
 AccuracySec=30s
 [Install]
@@ -94,19 +120,19 @@ def install(config, binary: Path, *, role: str, base: Path, environment_file: Pa
         shutil.copyfile(policy, staged / "backup" / policy.name)
         (staged / "config.json").write_text(json.dumps(installed_config, sort_keys=True) + "\n")
         (staged / "config.json").chmod(0o600)
-        files = units(bundle, environment_file) if role == "data" else {}
+        files = retention_units(bundle, role, environment_file)
+        if role == "data":
+            files.update(units(bundle, environment_file))
         for name, body in files.items():
             destination = Path("/etc/systemd/system") / name
             if destination.exists() or destination.is_symlink():
                 raise CoordinatorError("refusing to replace an existing coordinator unit")
             (staged / name).write_text(body)
         staged.rename(bundle)
-    if role == "data":
-        subprocess.run(["systemd-analyze", "verify", str(bundle / "tokenkey-qa-coordinator.service"),
-                        str(bundle / "tokenkey-qa-coordinator.timer")], check=True, capture_output=True)
-        for name in files:
-            shutil.copyfile(bundle / name, Path("/etc/systemd/system") / name)
-        subprocess.run(["systemctl", "daemon-reload"], check=True)
+    subprocess.run(["systemd-analyze", "verify", *[str(bundle / name) for name in files]], check=True, capture_output=True)
+    for name in files:
+        shutil.copyfile(bundle / name, Path("/etc/systemd/system") / name)
+    subprocess.run(["systemctl", "daemon-reload"], check=True)
     return plan
 
 
