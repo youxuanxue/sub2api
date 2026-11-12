@@ -160,8 +160,16 @@ func decideUsageEstimate(c *gin.Context, account *Account, model, upstreamModel,
 	if output == "" {
 		return usageEstimateTokens{}, false
 	}
+	requestBody := usageEstimateRequestBody(c, inboundBody)
+	input := tokenestimate.Count(usageEstimateRequestText(requestBody))
+	// K3 image tokens share the text input price. Count them only after a
+	// zero-usage decision, and only for this family: other models keep the
+	// text-only estimate. Remote image URLs stay uncounted.
+	if isMoonshotK3FamilyModel(model) || isMoonshotK3FamilyModel(upstreamModel) {
+		input += tokenestimate.KimiK3ImageInputTokens(requestBody)
+	}
 	est := usageEstimateTokens{
-		Input:  tokenestimate.Count(usageEstimateRequestText(usageEstimateRequestBody(c, inboundBody))),
+		Input:  input,
 		Output: tokenestimate.Count(output),
 	}
 	if est.empty() {

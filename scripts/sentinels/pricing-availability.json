@@ -464,6 +464,25 @@
       "rationale": "Pins the regression proving constructor-created production services list models from the active registry rather than a stale provider compatibility cache after hot reload."
     },
     {
+      "path": "backend/internal/service/pricing_service_test.go",
+      "must_contain": [
+        "func TestBillingService_Gemini4ArgonBillsStableStandardRate",
+        "require.InDelta(t, 24.2, cost.TotalCost, 1e-9)",
+        "require.InDelta(t, 43.56, priority.TotalCost, 1e-9, model)",
+        "\"gemini-4-carbon-medium\""
+      ],
+      "rationale": "Gemini 4 Argon and Carbon settle at the official Standard rate ($4/$20/$0.20 per 1M, Priority $7.20/$36/$0.36). Thinking-tier suffixes share that card. Dropping the assertion lets an upstream merge restore the introductory $2/$10 card while catalog tests still pass."
+    },
+    {
+      "path": "backend/internal/service/tk_pricing_overlay.json",
+      "must_contain": [
+        "Gemini 4 Argon Standard $4/$20 per 1M in/out from 2026-12-01",
+        "\"gemini-4-carbon\": {",
+        "Gemini 4 Carbon Standard $4/$20 per 1M in/out from 2026-12-01"
+      ],
+      "rationale": "The active overlay is the settlement owner. These source lines keep Argon and Carbon on the stable Standard card and keep Carbon as its own owner, so a merge cannot put the introductory $2/$10 rate back or bill Carbon through the Gemini 2.5 Flash family floor."
+    },
+    {
       "path": "backend/internal/service/pricing_catalog_tk.go",
       "must_contain": [
         "applyCatalogRegistrySnapshot(resp, snapshot)",

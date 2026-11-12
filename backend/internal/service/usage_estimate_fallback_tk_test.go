@@ -5,7 +5,10 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -606,4 +609,57 @@ func TestUsageEstimateCostMatchesBilling(t *testing.T) {
 			require.InDelta(t, wire.Get("cost").Float(), usageRepo.lastLog.TotalCost, 1e-12)
 		})
 	}
+}
+
+// Upstream usage of 0 is replaced by the local estimate. For the K3 family that
+// estimate includes MoonViT tokens of data-URL images; other models and a
+// non-zero upstream count stay on the previous rules.
+func TestUsageEstimateKimiK3CountsImageDataURL(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 128, 128))
+	var buf bytes.Buffer
+	require.NoError(t, png.Encode(&buf, img))
+	text := "Describe the image set in one short sentence."
+	request := `{"messages":[{"role":"user","content":[{"type":"text","text":"` + text + `"},{"type":"image_url","image_url":{"url":"data:image/png;base64,` + base64.StdEncoding.EncodeToString(buf.Bytes()) + `"}}]}]}`
+	zero := `{"id":"x","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"` + estimateAnswer + `"},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}`
+	imageTokens := tokenestimate.KimiK3MediaTokens(128, 128)
+	require.Equal(t, 33, imageTokens)
+
+	run := func(t *testing.T, model, response string, seed OpenAIUsage) (bool, OpenAIUsage, string) {
+		t.Helper()
+		gin.SetMode(gin.TestMode)
+		var billed bool
+		var got OpenAIUsage
+		r := gin.New()
+		r.Use(WithUsageEstimateCapture(func(c *gin.Context) { c.Next() }))
+		r.POST("/v1/chat/completions", func(c *gin.Context) {
+			c.Writer.Header().Set("Content-Type", "application/json")
+			_, _ = c.Writer.WriteString(response)
+			result := &OpenAIForwardResult{Model: model, Usage: seed}
+			billed = (&OpenAIGatewayService{}).ApplyOpenAIUsageEstimateFallback(context.Background(), c, estimateTestAccount(), result, []byte(request), nil)
+			got = result.Usage
+		})
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(request)))
+		return billed, got, rec.Body.String()
+	}
+
+	billed, got, body := run(t, "kimi-k3", zero, OpenAIUsage{})
+	require.True(t, billed)
+	require.Equal(t, tokenestimate.Count(text)+imageTokens, got.InputTokens)
+	require.EqualValues(t, got.InputTokens, gjson.Get(body, "usage.prompt_tokens").Int())
+
+	billed, got, _ = run(t, "kimi-k3.1-pro", zero, OpenAIUsage{})
+	require.True(t, billed)
+	require.Equal(t, tokenestimate.Count(text)+imageTokens, got.InputTokens)
+
+	billed, got, body = run(t, "gpt-4o", zero, OpenAIUsage{})
+	require.True(t, billed)
+	require.Equal(t, tokenestimate.Count(text), got.InputTokens)
+	require.EqualValues(t, got.InputTokens, gjson.Get(body, "usage.prompt_tokens").Int())
+
+	real := `{"id":"x","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"` + estimateAnswer + `"},"finish_reason":"stop"}],"usage":{"prompt_tokens":4117,"completion_tokens":4,"total_tokens":4121}}`
+	billed, got, body = run(t, "kimi-k3", real, OpenAIUsage{InputTokens: 4117, OutputTokens: 4})
+	require.False(t, billed)
+	require.Equal(t, 4117, got.InputTokens)
+	require.EqualValues(t, 4117, gjson.Get(body, "usage.prompt_tokens").Int())
 }

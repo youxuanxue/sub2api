@@ -257,6 +257,7 @@ describe('UseKeyModal — preserved snippet correctness', () => {
   })
 
   it.each([
+    ['claude-fable-5-1', 'Claude Fable 5.1'],
     ['claude-fable-5-2', 'Claude Fable 5.2'],
     ['claude-mythos-5-2', 'Claude Mythos 5.2']
   ])('exports %s on Anthropic with adaptive thinking and all supported effort levels', async (model, name) => {

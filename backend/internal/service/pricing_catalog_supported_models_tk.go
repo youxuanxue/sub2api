@@ -27,6 +27,8 @@ import (
 // supportedAnthropicCatalogModels — claude IDs confirmed servable.
 var supportedAnthropicCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin anthropic
+	"claude-fable-5-1":  {},
+	"claude-fable-5-2":  {},
 	"claude-fable-5":    {},
 	"claude-haiku-4-5":  {},
 	"claude-opus-4-1":   {},
@@ -155,6 +157,7 @@ var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{
 // aliases for the Anthropic-shaped tokensea relay scope. Wire mappings stay in
 // anthropicTokenseaRelayModelMappingFloor.
 var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
+	"claude-fable-5-2":          {},
 	"claude-fable-5":            {},
 	"claude-haiku-4-5":          {},
 	"claude-haiku-4-5-20251001": {},
@@ -257,6 +260,13 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	// 429s dominate by volume. Reading it as the whole story is what produced the
 	// two earlier wrong notes in this spot.
 	"gemini-4-argon": {},
+	// gemini-4-carbon: same Antigravity wire shape as Argon. 2026-11-12
+	// fetchAvailableModels on 15 schedulable OAuth accounts: 233/244/292/529
+	// advertise low/medium/high; 268/291/294 advertise Argon wires but
+	// gemini-4-carbon-disabled; the rest are disabled, and 275 omits Carbon.
+	// Bare name maps to -medium. Activation stays targeted to advertising
+	// accounts. Native Gemini catalog stays off.
+	"gemini-4-carbon": {},
 	// Nano Banana 2 is Flash; Pro aliases belong to Gemini Web.
 	"nano-2":        {},
 	"nano-banana-2": {},

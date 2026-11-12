@@ -3,13 +3,74 @@
 package service
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
+func TestClaudeFable52PublishedPriceAndPublicCatalog(t *testing.T) {
+	svc := newTestBillingService()
+	for _, model := range []string{"claude-fable-5-2", "anthropic/claude-fable-5-2", "CLAUDE-FABLE-5-2", "claude-fable-5-2-20261109"} {
+		t.Run(model, func(t *testing.T) {
+			p, err := svc.GetModelPricing(model)
+			require.NoError(t, err)
+			require.InDelta(t, 8e-6, p.InputPricePerToken, 1e-12)
+			require.InDelta(t, 40e-6, p.OutputPricePerToken, 1e-12)
+			require.InDelta(t, 10e-6, p.CacheCreationPricePerToken, 1e-12)
+			require.InDelta(t, 10e-6, p.CacheCreation5mPrice, 1e-12)
+			require.InDelta(t, 16e-6, p.CacheCreation1hPrice, 1e-12)
+			require.InDelta(t, .2e-6, p.CacheReadPricePerToken, 1e-12)
+			require.True(t, p.SupportsCacheBreakdown)
+			for _, tier := range []string{"", "fast"} {
+				cost, err := svc.CalculateCostWithServiceTier(model, UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000}, 1, tier)
+				require.NoError(t, err)
+				multiplier := 1.0
+				if tier == "fast" {
+					multiplier = 2
+				}
+				require.InDelta(t, 8*multiplier, cost.InputCost, 1e-9)
+				require.InDelta(t, 40*multiplier, cost.OutputCost, 1e-9)
+			}
+		})
+	}
+
+	public := FilterPublicCatalogToServable((&PricingCatalogService{}).BuildPublicCatalog(context.Background()))
+	require.NotNil(t, public)
+	var row *PublicCatalogModel
+	for i := range public.Data {
+		require.NotEqual(t, "claude-mythos-5-2", public.Data[i].ModelID)
+		if public.Data[i].ModelID == "claude-fable-5-2" {
+			row = &public.Data[i]
+		}
+	}
+	require.NotNil(t, row)
+	require.Equal(t, "anthropic", row.Vendor)
+	require.Equal(t, 1_000_000, row.ContextWindow)
+	require.Equal(t, 128_000, row.MaxOutputTokens)
+	require.InDelta(t, 0.008, row.Pricing.InputPer1KTokens, 1e-12)
+	require.InDelta(t, 0.04, row.Pricing.OutputPer1KTokens, 1e-12)
+	require.InDelta(t, 0.01, row.Pricing.CacheWritePer1K, 1e-12)
+	require.InDelta(t, 0.0002, row.Pricing.CacheReadPer1K, 1e-12)
+	require.True(t, isPublicCatalogModelSupported("anthropic", "claude-fable-5-2"))
+	require.True(t, isPublicCatalogModelSupported("anthropic", "claude-fable-5-1"))
+	require.False(t, isPublicCatalogModelSupported("anthropic", "claude-mythos-5-2"))
+	var fable51 *PublicCatalogModel
+	for i := range public.Data {
+		if public.Data[i].ModelID == "claude-fable-5-1" {
+			fable51 = &public.Data[i]
+		}
+	}
+	require.NotNil(t, fable51)
+	require.Equal(t, "anthropic", fable51.Vendor)
+	require.InDelta(t, 0.01, fable51.Pricing.InputPer1KTokens, 1e-12)
+	require.InDelta(t, 0.05, fable51.Pricing.OutputPer1KTokens, 1e-12)
+	require.InDelta(t, 0.0125, fable51.Pricing.CacheWritePer1K, 1e-12)
+	require.InDelta(t, 0.00025, fable51.Pricing.CacheReadPer1K, 1e-12)
+}
+
 func TestClaude52UnpublishedFallbackFailsClosed(t *testing.T) {
-	for _, model := range []string{"claude-fable-5-2", "claude-mythos-5-2"} {
+	for _, model := range []string{"claude-mythos-5-2", "anthropic/claude-mythos-5-2", "CLAUDE-MYTHOS-5-2"} {
 		_, err := newTestBillingService().GetModelPricing(model)
 		require.ErrorIs(t, err, ErrModelPricingUnavailable)
 	}

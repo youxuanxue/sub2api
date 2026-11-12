@@ -75,6 +75,16 @@ func TestVolcKimiRequestLimitsRejectUndeliverableFields(t *testing.T) {
 	other, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", []byte(`{"n":2,"top_p":1.5}`))
 	require.NoError(t, err)
 	require.EqualValues(t, 2, gjson.GetBytes(other, "n").Int())
+
+	// kimi-k3.1-pro is the same Volc K3 family. n=2 is rejected; an in-range
+	// temperature is forwarded and is not rewritten to 1.
+	_, err = applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","n":2}`))
+	var invalid *OpenAIInvalidParameterError
+	require.ErrorAs(t, err, &invalid)
+	require.Equal(t, "n", invalid.Param)
+	forwarded, err := applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","temperature":0.6,"messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	require.InDelta(t, 0.6, gjson.GetBytes(forwarded, "temperature").Float(), 0.0001)
 }
 
 func TestVolcKimiReasoningEffortNoneDisablesThinking(t *testing.T) {
