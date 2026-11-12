@@ -27,6 +27,7 @@ import (
 // supportedAnthropicCatalogModels — claude IDs confirmed servable.
 var supportedAnthropicCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin anthropic
+	"claude-fable-5-2":  {},
 	"claude-fable-5":    {},
 	"claude-haiku-4-5":  {},
 	"claude-opus-4-1":   {},
@@ -155,6 +156,7 @@ var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{
 // aliases for the Anthropic-shaped tokensea relay scope. Wire mappings stay in
 // anthropicTokenseaRelayModelMappingFloor.
 var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
+	"claude-fable-5-2":          {},
 	"claude-fable-5":            {},
 	"claude-haiku-4-5":          {},
 	"claude-haiku-4-5-20251001": {},
