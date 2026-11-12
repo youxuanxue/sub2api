@@ -185,6 +185,7 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			r.hasSoftAffinity = true
 		}
 		if reuseAdmissionPaths {
+			reused := 0
 			for _, path := range cachedByAccount[account.ID] {
 				group := groupByID[path.group.ID]
 				if group == nil || !usable[group.ID] {
@@ -193,10 +194,15 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 				path.group = group
 				path.sticky = account.ID == accountStickyID || account.ID == r.continuationAccountID
 				candidates = append(candidates, path)
+				reused++
 				supported = true
 				if capacityHint == nil {
 					capacityHint = group
 				}
+			}
+			if reused > 0 {
+				diag.Supported++
+				diag.Ready++
 			}
 			continue
 		}

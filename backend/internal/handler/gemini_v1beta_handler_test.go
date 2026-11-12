@@ -375,3 +375,25 @@ func TestGeminiV1BetaGetModel_CompositeAntigravityRoute(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	})
 }
+
+func TestGeminiV1BetaModelsRejectsNonGeminiEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := `{"model":"gemini-4-argon","messages":[{"role":"user","content":"hi"}],"max_tokens":16}`
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-4-argon:generateContent", strings.NewReader(body))
+	c.Request = req
+	c.Params = gin.Params{{Key: "modelAction", Value: "/gemini-4-argon:generateContent"}}
+	groupID := int64(4)
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+		ID:      1,
+		GroupID: &groupID,
+		Group:   &service.Group{ID: groupID, Platform: service.PlatformGemini},
+	})
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1, Concurrency: 1})
+
+	(&GatewayHandler{}).GeminiV1BetaModels(c)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "This path only accepts a Gemini generateContent body")
+}

@@ -238,7 +238,7 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 			reqLog.Warn("universal_routing.capacity_unavailable", fields...)
 			service.MarkOpsRoutingCapacityLimited(c)
 			applyUniversalCapacityPlatformHint(c, err)
-			writeUniversalRoutingCapacityError(c, shape)
+			writeUniversalRoutingCapacityError(c, shape, err)
 		} else if errors.Is(err, service.ErrProtocolCapabilityUnknown) || errors.Is(err, service.ErrProtocolRouteUnavailable) {
 			// Defense in depth: selection/eligibility should already classify
 			// these. Unknown capability and a route miss with no supported
@@ -319,11 +319,20 @@ func writeUniversalRoutingUnsupportedInputModalityError(c *gin.Context, shape se
 	}
 }
 
-func writeUniversalRoutingCapacityError(c *gin.Context, shape service.UniversalShape) {
+func writeUniversalRoutingCapacityError(c *gin.Context, shape service.UniversalShape, err error) {
 	const status = http.StatusTooManyRequests
 	// Public copy is SSOT; keep code=no_available_accounts for clients/ops that
-	// key off the stable machine code. Internal detail stays in ops annotation.
-	service.TkAnnotateBusy429Ops(c, "rate_limit_error", "No available accounts for this request. Please retry.")
+	// key off the stable machine code. The capacity diag (account_total,
+	// supported, ready, reject reasons) is internal only, so the next ops row
+	// can tell an unsupported request from a real empty pool.
+	detail := "No available accounts for this request. Please retry."
+	if diag := service.CandidateCapacityDiagFromError(err); diag != nil {
+		detail = fmt.Sprintf("%s account_total=%d supported=%d ready=%d", detail, diag.AccountTotal, diag.Supported, diag.Ready)
+		if summary := diag.RejectSummary(); summary != "" {
+			detail += " reject_reasons=" + summary
+		}
+	}
+	service.TkAnnotateBusy429Ops(c, "rate_limit_error", detail)
 	message := service.TkClientFacingBusy429Message
 	switch shape {
 	case service.ShapeGemini:
