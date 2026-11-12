@@ -187,13 +187,22 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 		CacheReadPricePerToken: 0.075e-6,
 		SupportsCacheBreakdown: false,
 	}
+	s.fallbackPrices["gemini-4-carbon"] = &ModelPricing{
+		InputPricePerToken:             4e-6,    // $4 per MTok Standard from 2026-12-01
+		InputPricePerTokenPriority:     7.2e-6,  // $7.20 per MTok
+		OutputPricePerToken:            20e-6,   // $20 per MTok
+		OutputPricePerTokenPriority:    36e-6,   // $36 per MTok
+		CacheReadPricePerToken:         0.2e-6,  // $0.20 per MTok
+		CacheReadPricePerTokenPriority: 0.36e-6, // $0.36 per MTok
+		SupportsCacheBreakdown:         false,
+	}
 	s.fallbackPrices["gemini-4-argon"] = &ModelPricing{
-		InputPricePerToken:             2e-6,    // $2 per MTok intro through 2026-11-30
-		InputPricePerTokenPriority:     3.6e-6,  // $3.60 per MTok
-		OutputPricePerToken:            10e-6,   // $10 per MTok
-		OutputPricePerTokenPriority:    18e-6,   // $18 per MTok
-		CacheReadPricePerToken:         0.1e-6,  // $0.10 per MTok
-		CacheReadPricePerTokenPriority: 0.18e-6, // $0.18 per MTok
+		InputPricePerToken:             4e-6,    // $4 per MTok Standard from 2026-12-01
+		InputPricePerTokenPriority:     7.2e-6,  // $7.20 per MTok
+		OutputPricePerToken:            20e-6,   // $20 per MTok
+		OutputPricePerTokenPriority:    36e-6,   // $36 per MTok
+		CacheReadPricePerToken:         0.2e-6,  // $0.20 per MTok
+		CacheReadPricePerTokenPriority: 0.36e-6, // $0.36 per MTok
 		SupportsCacheBreakdown:         false,
 	}
 
@@ -549,6 +558,9 @@ func (s *BillingService) tkResolveFallbackTableFamilyPricing(modelLower string) 
 	}
 	if strings.Contains(modelLower, "gemini-3.1-pro") || strings.Contains(modelLower, "gemini-3-1-pro") {
 		return s.fallbackPrices["gemini-3.1-pro"]
+	}
+	if strings.Contains(modelLower, "gemini-4-carbon") {
+		return s.fallbackPrices["gemini-4-carbon"]
 	}
 	if strings.Contains(modelLower, "gemini-4-argon") {
 		return s.fallbackPrices["gemini-4-argon"]

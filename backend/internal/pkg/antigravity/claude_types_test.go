@@ -35,6 +35,7 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 		"gemini-3.7-flash",
 		"gemini-3.8-flash",
 		"gemini-4-argon",
+		"gemini-4-carbon",
 		"gemini-3-flash",
 		"gemini-3-flash-preview",
 		"gemini-3.1-flash-image",

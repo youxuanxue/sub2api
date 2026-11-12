@@ -133,14 +133,15 @@ const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 // Antigravity image requests serve Flash only. Pro image IDs must never remap
 // to Flash; Gemini Web provides the independently verified Pro path.
 // 2026-09-22：补回 gemini-3-flash→3.8 高流量别名。
-// 2026-09-22：裸名默认 wire 锁 high（非 medium）；-{low,medium,high} 为非公开
+// 2026-09-22：Flash 裸名默认 wire 锁 high；-{low,medium,high} 为非公开
 // wire 档位，由 AntigravityThinkingWireFloorEntries 注入 account floor。
-// 2026-10-16：gemini-4-argon 上游目录为 -low/-medium/-high（无 -tiered）；
-// 裸名同样锁 high，与 Flash 家族一致（官方 API 默认 medium 不覆盖 AG wire 约定）。
+// 2026-11-12：gemini-4-argon 与 gemini-4-carbon 的 low/medium/high token 单价相同，
+// 官方默认思考档是 medium。裸名默认改锁 medium；显式 thinkingLevel 仍选同名后缀。
 var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.7-flash":               "gemini-3.7-flash-high",
 	"gemini-3.8-flash":               "gemini-3.8-flash-high",
-	"gemini-4-argon":                 "gemini-4-argon-high",
+	"gemini-4-argon":                 "gemini-4-argon-medium",
+	"gemini-4-carbon":                "gemini-4-carbon-medium",
 	"gemini-3-flash":                 "gemini-3.8-flash-high",
 	"gemini-3-flash-preview":         "gemini-3.8-flash-high",
 	"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
@@ -182,6 +183,7 @@ var antigravityThinkingWireBases = []string{
 	"gemini-3.7-flash",
 	"gemini-3.8-flash",
 	"gemini-4-argon",
+	"gemini-4-carbon",
 }
 
 // AntigravityThinkingWireFloorEntries returns identity mappings for non-public

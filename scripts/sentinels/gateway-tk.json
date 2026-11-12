@@ -12590,6 +12590,7 @@
         "var geminiModelThinkingLevels = map[string][]string{",
         "\"gemini-3.8-flash\":      {\"low\", \"medium\", \"high\"},",
         "\"gemini-4-argon\":        {\"low\", \"medium\", \"high\"},",
+        "\"gemini-4-carbon\":       {\"low\", \"medium\", \"high\"},",
         "var geminiUnverifiedThinkingLevels = []string{\"low\", \"high\"}",
         "func geminiModelSupportsThinkingLevel(model, level string) bool"
       ],
