@@ -327,6 +327,21 @@ func ValidateHourSeal(root string, sourceHour, now time.Time, freshness time.Dur
 	return persisted, err
 }
 
+// InspectHour evaluates the existing ledger without opening a new capture runtime.
+// Maintenance must not manufacture a runtime receipt to make an hour sealable.
+func InspectHour(root string, sourceHour, now time.Time) (HourSeal, error) {
+	var seal HourSeal
+	err := withLedgerReadLock(root, func() error {
+		state, err := loadState(root)
+		if err != nil {
+			return err
+		}
+		seal, err = evaluateHour(state, sourceHour, now.UTC(), DefaultFreshness)
+		return err
+	})
+	return seal, err
+}
+
 func (l *Ledger) Health() (Health, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

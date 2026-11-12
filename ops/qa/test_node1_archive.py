@@ -90,6 +90,15 @@ class Node1ArchiveTest(unittest.TestCase):
 class SourceArchiveTest(unittest.TestCase):
     hour = dt.datetime(2026, 11, 11, 10, tzinfo=dt.timezone.utc)
 
+    def test_empty_source_hour_has_manifest_but_legacy_empty_hour_still_fails(self):
+        with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as node1:
+            result = archive.copy_hour(Path(source), Path(node1), 'prod', self.hour, 'old')
+            self.assertEqual(result['file_count'], 0)
+            self.assertEqual(result['total_bytes'], 0)
+            self.assertEqual(len(result['manifest_sha256']), 64)
+            with self.assertRaises(ValueError):
+                archive.copy_hour(Path(source), Path(node1), 'prod', self.hour)
+
     def write_source(self, root, content=b'fixture'):
         path = root / 'qa_blobs' / self.hour.strftime(archive.HOUR) / 'one.bin'
         path.parent.mkdir(parents=True, exist_ok=True)
