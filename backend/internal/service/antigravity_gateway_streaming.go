@@ -23,6 +23,9 @@ type antigravityStreamResult struct {
 	// truncated 表示上游在任何终止事件之前干净 EOF。判定与归因都归
 	// gemini_native_stream_truncation_tk.go 所有，这里只传递事实。
 	truncated bool
+	// modelBytesWritten 表示客户端已经收到可用输出（非空正文、工具或媒体）。
+	// 只缓冲过签名、空白 text 或 thought 时为 false，截断仍可换号。
+	modelBytesWritten bool
 }
 
 func (s *AntigravityGatewayService) observeAntigravityGeminiSSELine(c *gin.Context, line string) {
@@ -239,6 +242,46 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	lastWroteDataEvent := false
 
 	cw := newAntigravityClientWriter(c.Writer, flusher, "antigravity gemini")
+	// 签名、空白 text、thought 先扣住。出现可用输出或终态时按原顺序刷出；
+	// 流在此之前截断则整段丢弃，调用方换号。扣住期间不刷新 lastDataAt，
+	// 让已有空白心跳继续发给客户端。
+	var held []string
+	heldBytes := 0
+	modelBytesWritten := false
+	flushHeld := func() {
+		for _, item := range held {
+			if firstTokenMs == nil {
+				ms := int(time.Since(startTime).Milliseconds())
+				firstTokenMs = &ms
+			}
+			if !cw.Fprintf("data: %s\n\n", item) {
+				break
+			}
+			lastDataAt = time.Now()
+			lastWroteDataEvent = true
+			modelBytesWritten = true
+		}
+		held = nil
+		heldBytes = 0
+	}
+	writeModelPayload := func(payload string) {
+		if len(held) > 0 {
+			flushHeld()
+		}
+		if cw.Disconnected() {
+			return
+		}
+		if firstTokenMs == nil {
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
+		}
+		if !cw.Fprintf("data: %s\n\n", payload) {
+			return
+		}
+		lastDataAt = time.Now()
+		lastWroteDataEvent = true
+		modelBytesWritten = true
+	}
 
 	// 仅发送一次错误事件，避免多次写入导致协议混乱
 	errorEventSent := false
@@ -259,10 +302,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			}
 			if !ok {
 				return &antigravityStreamResult{
-					usage:            usage,
-					firstTokenMs:     firstTokenMs,
-					clientDisconnect: cw.Disconnected(),
-					truncated:        terminal.IsTruncated(),
+					usage:             usage,
+					firstTokenMs:      firstTokenMs,
+					clientDisconnect:  cw.Disconnected(),
+					truncated:         terminal.IsTruncated(),
+					modelBytesWritten: modelBytesWritten,
 				}, nil
 			}
 			if ev.err != nil {
@@ -277,8 +321,6 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				sendErrorEvent("stream_read_error")
 				return nil, ev.err
 			}
-
-			lastDataAt = time.Now()
 
 			line := ev.line
 			s.observeAntigravityGeminiSSELine(c, line)
@@ -325,34 +367,38 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 					}
 				}
 
-				if firstTokenMs == nil {
-					ms := int(time.Since(startTime).Milliseconds())
-					firstTokenMs = &ms
+				if !modelBytesWritten && inner != nil && geminiNativeEventHoldable(inner) && heldBytes+len(payload) <= geminiNativeHeldPrefixLimit {
+					held = append(held, payload)
+					heldBytes += len(payload)
+					continue
 				}
-
-				cw.Fprintf("data: %s\n\n", payload)
-				lastWroteDataEvent = true
+				writeModelPayload(payload)
 				continue
 			}
 
 			// Upstream follows each data event with a blank separator. The data
 			// branch already wrote "data: ...\n\n"; re-emitting that blank as a
 			// keepalive "\n" yields "\n\n\n" and breaks google-genai framing.
-			// Standalone empty lines (edge heartbeat before first content) still
-			// translate to geminiNativeSSEKeepaliveFrame.
+			// A held prefix does not count as a written data event, so its
+			// separator is forwarded as the whitespace keepalive. Standalone
+			// empty lines before first content use the same frame.
 			if trimmed == "" {
 				if lastWroteDataEvent {
 					lastWroteDataEvent = false
 					continue
 				}
-				cw.Fprintf("%s", geminiNativeSSEKeepaliveFrame)
+				if cw.Fprintf("%s", geminiNativeSSEKeepaliveFrame) {
+					lastDataAt = time.Now()
+				}
 				continue
 			}
 			lastWroteDataEvent = false
 
 			// Preserve upstream liveness without forwarding SSE control fields.
 			if isGeminiNativeSSEKeepalive(trimmed) {
-				cw.Fprintf("%s", geminiNativeSSEKeepaliveFrame)
+				if cw.Fprintf("%s", geminiNativeSSEKeepaliveFrame) {
+					lastDataAt = time.Now()
+				}
 			}
 			continue
 
@@ -381,6 +427,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				logger.LegacyPrintf("service.antigravity_gateway", "Client disconnected during keepalive ping (antigravity gemini), continuing to drain upstream for billing")
 				continue
 			}
+			lastDataAt = time.Now()
 		}
 	}
 }

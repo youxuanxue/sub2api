@@ -13,6 +13,24 @@ func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverE
 		googleError(c, http.StatusBadGateway, "Upstream request failed")
 		return
 	}
+	// 只写过空白心跳时响应已经提交成 200。换号耗尽后补 SSE 错误帧，
+	// 让 wire 200 仍然计入 SLA，而不是被记成 recovered。
+	if failoverErr.ClientErrorType == service.GeminiNativeStreamTruncatedCode &&
+		c != nil && c.Writer != nil && c.Writer.Written() {
+		message := failoverErr.ClientMessage
+		if message == "" {
+			message = service.GatewayFailoverClientMessage(failoverErr.StatusCode)
+		}
+		service.MarkOpsStreamErrorValue(c, service.OpsStreamError{
+			ErrType:         "upstream_error",
+			Code:            service.GeminiNativeStreamTruncatedCode,
+			Message:         message,
+			IntendedStatus:  http.StatusBadGateway,
+			CountTowardsSLA: true,
+		})
+		service.WriteGeminiNativeStreamTruncatedFrame(c)
+		return
+	}
 
 	statusCode := failoverErr.StatusCode
 	responseBody := failoverErr.ResponseBody

@@ -440,8 +440,8 @@ handleSuccess:
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnect = streamRes.clientDisconnect
-		// TK: 上游在任何终止事件之前干净 EOF 必须记 stream_truncated 并失败，
-		// 不能按 HTTP 200 + usage 0/0 伪成功收尾。字节已写出，禁止重放。
+		// TK: 上游在任何终止事件之前干净 EOF 必须失败，不能按 HTTP 200 伪成功收尾。
+		// 还没有可用输出时换号；正文、工具或媒体已经写出时记 stream_truncated，不重放。
 		if truncErr := finalizeAntigravityGeminiStreamTruncation(c, streamRes, account, requestID); truncErr != nil {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_truncated", prefix)
 			truncatedUsage := ClaudeUsage{}
