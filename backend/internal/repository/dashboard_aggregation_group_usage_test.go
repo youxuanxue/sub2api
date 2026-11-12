@@ -14,12 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func expectNoGroupUsageDirtyDays(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(`WITH claimed AS .*DELETE FROM usage_group_rollup_dirty_days`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(nil))
-}
-
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsNoopsAtCurrentDate(t *testing.T) {
 	setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
@@ -30,7 +24,6 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsNoopsAtCurrentDate(t
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
 			AddRow("2026-08-14", time.Unix(0, 0).UTC(), "Asia/Shanghai"))
-	expectNoGroupUsageDirtyDays(mock)
 	mock.ExpectCommit()
 
 	require.NoError(t, repo.SyncGroupUsageRollups(context.Background(), todayStart))
@@ -49,7 +42,6 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsRebuildsWhenTimezone
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
 			AddRow("2026-03-09", time.Unix(0, 0).UTC(), "Asia/Shanghai"))
-	expectNoGroupUsageDirtyDays(mock)
 	mock.ExpectQuery(`SELECT MIN\(created_at\) FROM usage_logs`).
 		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(retainedFrom))
 	mock.ExpectExec(`DELETE FROM usage_group_daily_rollups`).
@@ -79,7 +71,6 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsPublishesWatermarkLa
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
 			AddRow("2026-08-13", time.Unix(0, 0).UTC(), "Asia/Shanghai"))
-	expectNoGroupUsageDirtyDays(mock)
 	mock.ExpectQuery(`SELECT MIN\(created_at\) FROM usage_logs`).
 		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(retainedFrom))
 	mock.ExpectExec(`DELETE FROM usage_group_daily_rollups`).
@@ -107,7 +98,6 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsRejectsFutureWaterma
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
 			AddRow("2026-08-15", time.Unix(0, 0).UTC(), "Asia/Shanghai"))
-	expectNoGroupUsageDirtyDays(mock)
 	mock.ExpectRollback()
 
 	err := repo.SyncGroupUsageRollups(context.Background(), todayStart)
@@ -177,7 +167,6 @@ func TestDashboardAggregationRepositoryRecomputeRangeRebuildsGroupRollupsBeforeC
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
 			AddRow(startDate, time.Unix(0, 0).UTC(), "Asia/Shanghai"))
-	expectNoGroupUsageDirtyDays(mock)
 	mock.ExpectQuery(`SELECT MIN\(created_at\) FROM usage_logs`).
 		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(start))
 	mock.ExpectExec(`DELETE FROM usage_group_daily_rollups`).
@@ -221,7 +210,6 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsNonPartitionedInvalidates
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
 			AddRow(service.GroupUsageDate(todayStart), time.Unix(0, 0).UTC(), "Asia/Shanghai"))
-	expectNoGroupUsageDirtyDays(mock)
 	mock.ExpectCommit()
 
 	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))
@@ -273,7 +261,6 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionedSortsAndInvali
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
 			AddRow(service.GroupUsageDate(todayStart), time.Unix(0, 0).UTC(), "Asia/Shanghai"))
-	expectNoGroupUsageDirtyDays(mock)
 	mock.ExpectCommit()
 
 	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))

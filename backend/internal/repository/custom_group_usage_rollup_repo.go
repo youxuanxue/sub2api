@@ -39,15 +39,12 @@ func (r *usageLogRepository) readGroupUsageRollupSnapshot(ctx context.Context, t
 	if err := scanSingleRow(ctx, r.sql, `
 		SELECT
 			COUNT(*),
-			LEAST(MAX(closed_before), (
-				SELECT MIN(bucket_date) FROM usage_group_rollup_dirty_days
-				WHERE timezone_name = $1
-			))::text,
+			MAX(closed_before)::text,
 			MAX(retained_from),
 			MAX(timezone_name)
 		FROM usage_group_rollup_state
 		WHERE id = 1
-	`, []any{timezoneName}, &rowCount, &closedBefore, &retainedFrom, &stateTimezone); err != nil {
+	`, nil, &rowCount, &closedBefore, &retainedFrom, &stateTimezone); err != nil {
 		return groupUsageRollupSnapshot{}, fmt.Errorf("读取分组用量汇总水位: %w", err)
 	}
 	if rowCount != 1 || !closedBefore.Valid || !retainedFrom.Valid ||
@@ -70,19 +67,6 @@ func (r *usageLogRepository) readGroupUsageRollupSnapshot(ctx context.Context, t
 }
 
 func (r *usageLogRepository) getAllGroupUsageSummaryFromRollups(ctx context.Context, todayStart time.Time) (results []usagestats.GroupUsageSummary, err error) {
-	if db, ok := r.sql.(*sql.DB); ok {
-		tx, beginErr := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
-		if beginErr != nil {
-			return nil, beginErr
-		}
-		defer func() { _ = tx.Rollback() }()
-		scoped := &usageLogRepository{sql: tx}
-		results, err = scoped.getAllGroupUsageSummaryFromRollups(ctx, todayStart)
-		if err != nil {
-			return nil, err
-		}
-		return results, tx.Commit()
-	}
 	todayStart = service.GroupUsageTodayStart(todayStart)
 	yesterdayStart := service.GroupUsageYesterdayStart(todayStart)
 	timezoneName := service.GroupUsageTimezoneName()
@@ -214,22 +198,6 @@ func (r *dashboardAggregationRepository) syncGroupUsageRollupsInTx(ctx context.C
 
 	todayDate := service.GroupUsageDate(todayStart)
 	timezoneName := service.GroupUsageTimezoneName()
-	var dirtyDate sql.NullString
-	// Remove markers before the aggregation snapshot. Concurrent producers either
-	// commit before this DELETE (and are included) or retain a new dirty marker.
-	if err := scanSingleRow(ctx, r.sql, `
-		WITH claimed AS (
-			DELETE FROM usage_group_rollup_dirty_days
-			WHERE timezone_name = $1 AND bucket_date < $2::date
-			RETURNING bucket_date
-		)
-		SELECT MIN(bucket_date)::text FROM claimed
-	`, []any{timezoneName, todayDate}, &dirtyDate); err != nil {
-		return fmt.Errorf("领取分组用量脏日期: %w", err)
-	}
-	if dirtyDate.Valid && dirtyDate.String < closedBefore {
-		closedBefore = dirtyDate.String
-	}
 	timezoneChanged := stateTimezoneName != timezoneName
 	var closedTime time.Time
 	if !timezoneChanged {

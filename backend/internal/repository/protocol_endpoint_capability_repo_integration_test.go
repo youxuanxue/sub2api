@@ -54,7 +54,7 @@ WHERE id=$1`, accountID, legacyUpdatedAt)
 
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
-		clearAccountProtocolOutbox(t, integrationDB, accountID)
+		_, _ = integrationDB.ExecContext(cleanupCtx, "DELETE FROM scheduler_outbox WHERE account_id=$1", accountID)
 		_, _ = integrationDB.ExecContext(cleanupCtx, "DELETE FROM accounts WHERE id=$1", accountID)
 		_, _ = integrationDB.ExecContext(cleanupCtx, "DELETE FROM protocol_endpoint_capabilities WHERE capability_key=$1", identity.Key())
 	})
@@ -110,7 +110,8 @@ SET extra=jsonb_set(extra, '{supported_protocols}', '["messages"]'::jsonb, true)
     updated_at=$2
 WHERE id=$1`, accountID, legacyUpdatedAt)
 	require.NoError(t, err)
-	clearAccountProtocolOutbox(t, tx, accountID)
+	_, err = tx.ExecContext(ctx, "DELETE FROM scheduler_outbox WHERE account_id=$1", accountID)
+	require.NoError(t, err)
 
 	account := &service.Account{
 		ID:       accountID,
@@ -225,7 +226,8 @@ func TestProtocolEndpointCapabilityRepositorySharesOneRowAndPublishesEveryLinked
 		var projection []byte
 		require.NoError(t, tx.QueryRowContext(ctx, `SELECT extra->'supported_protocols' FROM accounts WHERE id=$1`, accountID).Scan(&projection))
 		require.JSONEq(t, `["messages","responses"]`, string(projection))
-		clearAccountProtocolOutbox(t, tx, accountID)
+		_, err = tx.ExecContext(ctx, "DELETE FROM scheduler_outbox WHERE account_id=$1", accountID)
+		require.NoError(t, err)
 	}
 
 	lease, acquired, err := repo.AcquireProbeLease(ctx, identity.Key(), "shared-probe", time.Now().UTC(), time.Minute)
@@ -422,11 +424,7 @@ WHERE id=$1`, []any{accountID}, &projection, &outboxCount))
 
 func clearAccountProtocolOutbox(t *testing.T, db protocolCapabilityTestQueryExecutor, accountID int64) {
 	t.Helper()
-	ctx := context.Background()
-	// These fixture events are consumed before resetting the publication baseline.
-	_, err := db.ExecContext(ctx, "UPDATE scheduler_outbox SET acknowledged_at=NOW() WHERE account_id=$1 AND acknowledged_at IS NULL", accountID)
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, "DELETE FROM scheduler_outbox WHERE account_id=$1", accountID)
+	_, err := db.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id=$1", accountID)
 	require.NoError(t, err)
 }
 

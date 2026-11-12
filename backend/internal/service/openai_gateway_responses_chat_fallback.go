@@ -232,7 +232,7 @@ func (s *OpenAIGatewayService) bufferStreamChatCompletionsAsResponses(
 			var failover *UpstreamFailoverError
 			if !errors.As(err, &failover) {
 				status, kind := openAIStreamFailedClientResponse(inBand.payload, extractOpenAISSEErrorMessage(inBand.payload), "upstream_error")
-				writeOpenAIResponsesFallbackError(c, status, kind, extractOpenAISSEErrorMessage(inBand.payload))
+				writeOpenAIResponsesFallbackErrorWithSource(c, status, kind, extractOpenAISSEErrorMessage(inBand.payload), inBand.payload)
 			}
 			return result, err
 		}
@@ -388,7 +388,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 					c.Writer.Flush()
 				} else {
 					status, kind := openAIStreamFailedClientResponse(inBand.payload, extractOpenAISSEErrorMessage(inBand.payload), "upstream_error")
-					writeOpenAIResponsesFallbackError(c, status, kind, extractOpenAISSEErrorMessage(inBand.payload))
+					writeOpenAIResponsesFallbackErrorWithSource(c, status, kind, extractOpenAISSEErrorMessage(inBand.payload), inBand.payload)
 				}
 			}
 		} else if outputStarted && !clientDisconnected && !errors.Is(scan.Err, context.Canceled) {

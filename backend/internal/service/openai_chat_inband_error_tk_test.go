@@ -79,3 +79,40 @@ func TestChatInBandErrorPreservesFailureAndUsage(t *testing.T) {
 		}
 	}
 }
+
+func TestChatInBandErrorRetainsRetryAdvice(t *testing.T) {
+	for _, path := range []string{"raw", "responses", "buffered", "messages"} {
+		for _, output := range []bool{false, true} {
+			t.Run(path+"/"+map[bool]string{false: "before", true: "after"}[output], func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				wire := ""
+				if output {
+					wire = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n"
+				}
+				wire += "data: {\"error\":{\"type\":\"invalid_request_error\",\"code\":\"invalid_request_error\",\"message\":\"invalid request\",\"headers\":{\"Retry-After\":13,\"authorization\":\"private-canary\"}}}\n\n"
+				resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(wire))}
+				svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig()}
+				account := rawChatCompletionsTestAccount()
+				var err error
+				switch path {
+				case "raw":
+					_, err = svc.streamRawChatCompletions(c, resp, account, "test", "test", "test", nil, nil, time.Now(), 0)
+				case "responses":
+					_, err = svc.streamChatCompletionsAsResponses(c, resp, "test", nil, nil, false, nil, "test", "test", nil, nil, time.Now(), account)
+				case "buffered":
+					_, err = svc.bufferStreamChatCompletionsAsResponses(c, resp, "test", "test", "test", nil, nil, time.Now(), account)
+				case "messages":
+					_, err = svc.streamChatCompletionsAsAnthropic(c, resp, account, "test", "test", "test", nil, nil, time.Now())
+				}
+				require.Error(t, err)
+				var failover *UpstreamFailoverError
+				require.False(t, errors.As(err, &failover), "invalid request must not retry another account")
+				require.Contains(t, rec.Body.String(), `"retry-after":"13"`)
+				require.NotContains(t, rec.Body.String(), "private-canary")
+				require.NotContains(t, rec.Body.String(), "response.completed")
+			})
+		}
+	}
+}

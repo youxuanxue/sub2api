@@ -7,7 +7,7 @@ revised_at: 2026-10-28
 
 # Approved docs index
 
-- approved：[网关错误、调度与安全边界修复](gateway-correctness-remediation-20261112.md)：Messages 取消误分类复用 #3161；Chat 流内错误、outbox/rollup 并发与安全边界的实施基线，不含合并或部署授权。
+- approved：[网关错误与局部安全修复](gateway-correctness-remediation-20261112.md)：Messages 取消误分类复用 #3161；保留 Chat 流内错误、隔离、脱敏与刷新失败拒签；撤出 outbox/rollup 重构，不含合并或部署授权。
 
 - [prod 应用机并行替换](design-prod-app-parallel-replacement.md)：取消原地 LUKS 搬盘；新旧并行、不中断请求、旧机保留；过渡期允许部分 QA 缺口。
 

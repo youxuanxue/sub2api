@@ -123,19 +123,11 @@ func TestGroupUsageRollupTriggerSerializesLateHistoricalInsertWithPublish(t *tes
 	require.Equal(t, "2020-01-02", closedBefore)
 }
 
-func TestGroupUsageRollupTriggerTracksInFlightCurrentInsertAcrossMidnight(t *testing.T) {
-	for _, partitioned := range []bool{false, true} {
-		t.Run(fmt.Sprintf("partitioned=%t", partitioned), func(t *testing.T) {
-			testGroupUsageInFlightCurrentInsert(t, partitioned)
-		})
-	}
-}
-
-func testGroupUsageInFlightCurrentInsert(t *testing.T, partitioned bool) {
+func TestGroupUsageRollupTriggerSerializesInsertTransactionAcrossMidnight(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	schema := createGroupUsageRollupTriggerTestSchema(t, ctx, partitioned)
+	schema := createGroupUsageRollupTriggerTestSchema(t, ctx, false)
 	seedTx := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
 	_, err := seedTx.ExecContext(ctx, `
 		INSERT INTO groups (id) VALUES (10);
@@ -172,17 +164,13 @@ func testGroupUsageInFlightCurrentInsert(t *testing.T, partitioned bool) {
 		insertResult <- insertErr
 	}()
 
-	select {
-	case err = <-insertResult:
-		require.NoError(t, err, "当前日 INSERT 不等待汇总状态锁")
-	case <-time.After(time.Second):
-		t.Fatal("current-day usage insert blocked behind rollup")
+	blocked, err := waitForGroupUsageRollupStateLock(ctx, insertBackendPID, insertResult)
+	if err != nil || !blocked {
+		_ = syncTx.Rollback()
+		_ = insertTx.Rollback()
+		require.NoError(t, err)
+		require.True(t, blocked, "跨越零点的在途写入必须与水位发布串行化")
 	}
-	// Model publication after midnight while the prior day's insert is still
-	// uncommitted: DELETE cannot see its marker, so that marker survives commit.
-	_, err = syncTx.ExecContext(ctx, `DELETE FROM usage_group_rollup_dirty_days
-		WHERE bucket_date < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date + 1`)
-	require.NoError(t, err)
 
 	_, err = syncTx.ExecContext(ctx, `
 		UPDATE usage_group_rollup_state
@@ -192,6 +180,12 @@ func testGroupUsageInFlightCurrentInsert(t *testing.T, partitioned bool) {
 	require.NoError(t, err)
 	require.NoError(t, syncTx.Commit())
 
+	select {
+	case err = <-insertResult:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal("等待跨零点写入完成超时")
+	}
 	require.NoError(t, insertTx.Commit())
 
 	var currentDate string
@@ -200,48 +194,11 @@ func testGroupUsageInFlightCurrentInsert(t *testing.T, partitioned bool) {
 	`).Scan(&currentDate))
 	var closedBefore string
 	err = integrationDB.QueryRowContext(ctx, fmt.Sprintf(
-		"SELECT LEAST(closed_before, (SELECT MIN(bucket_date) FROM %[1]s.usage_group_rollup_dirty_days WHERE timezone_name = 'Asia/Shanghai'))::text FROM %[1]s.usage_group_rollup_state WHERE id = 1",
+		"SELECT closed_before::text FROM %s.usage_group_rollup_state WHERE id = 1",
 		pq.QuoteIdentifier(schema),
 	)).Scan(&closedBefore)
 	require.NoError(t, err)
 	require.Equal(t, currentDate, closedBefore)
-}
-
-func TestGroupUsageRollupDirtyMarkerWaitsForInvisibleProducer(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	schema := createGroupUsageRollupTriggerTestSchema(t, ctx, false)
-	seed := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
-	require.NoError(t, setGroupUsageRollupTriggerTimeZone(ctx, seed, "Asia/Shanghai"))
-	_, err := seed.ExecContext(ctx, `INSERT INTO groups(id) VALUES(10); INSERT INTO users(id) VALUES(1);
-		INSERT INTO usage_logs VALUES(1,1,10,1.25,CURRENT_TIMESTAMP)`)
-	require.NoError(t, err)
-	require.NoError(t, seed.Commit())
-	producer := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
-	defer func() { _ = producer.Rollback() }()
-	require.NoError(t, setGroupUsageRollupTriggerTimeZone(ctx, producer, "Asia/Shanghai"))
-	_, err = producer.ExecContext(ctx, `INSERT INTO usage_logs VALUES(2,1,10,2.75,CURRENT_TIMESTAMP)`)
-	require.NoError(t, err)
-	builder := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
-	defer func() { _ = builder.Rollback() }()
-	var pid int
-	require.NoError(t, builder.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&pid))
-	claimed := make(chan error, 1)
-	go func() {
-		_, err := builder.ExecContext(ctx, `DELETE FROM usage_group_rollup_dirty_days`)
-		claimed <- err
-	}()
-	require.Eventually(t, func() bool {
-		var waiting bool
-		queryErr := integrationDB.QueryRowContext(ctx, `SELECT wait_event_type='Lock' FROM pg_stat_activity WHERE pid=$1`, pid).Scan(&waiting)
-		return queryErr == nil && waiting
-	}, time.Second, 10*time.Millisecond, "builder must wait for the invisible producer's marker update")
-	require.NoError(t, producer.Commit())
-	require.NoError(t, <-claimed)
-	var cost float64
-	require.NoError(t, builder.QueryRowContext(ctx, `SELECT SUM(actual_cost) FROM usage_logs`).Scan(&cost))
-	require.InDelta(t, 4, cost, 0.000001)
-	require.NoError(t, builder.Commit())
 }
 
 func TestGroupUsageRollupTriggerKeepsWatermarkForTodayInsert(t *testing.T) {
@@ -494,7 +451,6 @@ func createGroupUsageRollupTriggerTestSchema(t *testing.T, ctx context.Context, 
 	for _, migrationName := range []string{
 		"222_group_usage_daily_rollups.sql",
 		"223_group_usage_rollup_timezone.sql",
-		"tk_112_group_usage_rollup_dirty_days.sql",
 	} {
 		migrationSQL, readErr := migrations.FS.ReadFile(migrationName)
 		require.NoError(t, readErr)

@@ -1928,6 +1928,16 @@ func openAIClientErrorRetryAfter(errorValue gjson.Result) string {
 	return retryAfter
 }
 
+func openAIClientErrorBody(errType, message string, sources ...[]byte) gin.H {
+	body := gin.H{"type": errType, "message": message}
+	if len(sources) > 0 {
+		if retryAfter := openAIClientErrorRetryAfter(gjson.GetBytes(sources[0], "error")); retryAfter != "" {
+			body["headers"] = map[string]string{"retry-after": retryAfter}
+		}
+	}
+	return body
+}
+
 func sanitizeOpenAIResponseFailedEventForClient(payload []byte, eventType string, clientOutputStarted bool) ([]byte, bool) {
 	eventType = strings.TrimSpace(eventType)
 	isFailedEvent := eventType == "response.failed"

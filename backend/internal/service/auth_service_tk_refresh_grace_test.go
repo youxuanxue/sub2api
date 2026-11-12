@@ -215,26 +215,3 @@ func (c *statefulRefreshCache) ConsumeRefreshToken(ctx context.Context, tokenHas
 	delete(c.store, tokenHash)
 	return data, nil
 }
-
-func (c *statefulRefreshCache) ClaimRefreshToken(ctx context.Context, hash, claim string, _ time.Duration) (*RefreshTokenData, bool, error) {
-	data, err := c.GetRefreshToken(ctx, hash)
-	if err != nil {
-		return nil, false, err
-	}
-	if data.RotatedAt != nil {
-		return data, false, nil
-	}
-	now := time.Now()
-	data.RotatedAt, data.RotationClaim = &now, claim
-	_ = c.StoreRefreshToken(ctx, hash, data, tkRefreshRotationGrace)
-	return data, true, nil
-}
-
-func (c *statefulRefreshCache) CompleteRefreshTokenRotation(ctx context.Context, hash, claim, nextHash string, next *RefreshTokenData, result string, ttl time.Duration) (bool, error) {
-	data := c.store[hash]
-	if data == nil || data.RotationClaim != claim || data.RotationResult != "" {
-		return false, nil
-	}
-	data.RotationResult = result
-	return true, c.StoreRefreshToken(ctx, nextHash, next, ttl)
-}

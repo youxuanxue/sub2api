@@ -507,9 +507,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			message := extractOpenAISSEErrorMessage(inBandError.payload)
 			status, kind := openAIStreamFailedClientResponse(inBandError.payload, message, "upstream_error")
 			if !clientOutputStarted {
-				writeChatCompletionsError(c, status, kind, message)
+				writeChatCompletionsErrorWithSource(c, status, kind, message, inBandError.payload)
 			} else {
-				_, _ = fmt.Fprint(c.Writer, buildChatStreamErrorSSE(kind, message))
+				_, _ = fmt.Fprint(c.Writer, buildChatStreamErrorSSE(kind, message, inBandError.payload))
 				c.Writer.Flush()
 			}
 		}

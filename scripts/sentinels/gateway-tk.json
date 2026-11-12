@@ -20337,19 +20337,9 @@
       "rationale": "Raw Chat streams must not bypass the shared failure contract."
     },
     {
-      "path": "backend/internal/service/scheduler_snapshot_service.go",
-      "must_contain": ["BeginOutboxProjection", "ClaimPending", "Acknowledge(ctx, event.ID, event.ClaimToken)"],
-      "rationale": "Outbox delivery must remain durable and Redis-fenced; a diagnostic watermark is not an ACK."
-    },
-    {
-      "path": "backend/internal/repository/scheduler_projection_fence_tk.go",
-      "must_contain": ["execSchedulerPipeline", "c.rdb.Watch", "tx.TxPipelined", "errSchedulerProjectionFenced"],
-      "rationale": "New outbox owners atomically fence old Redis writes before connection-loss cancellation arrives."
-    },
-    {
       "path": "backend/internal/service/auth_service_tk_refresh_grace.go",
-      "must_contain": ["ClaimRefreshToken", "CompleteRefreshTokenRotation", "aead.Open", "aead.Seal"],
-      "rationale": "Refresh grace replays one encrypted successor instead of minting concurrent successors."
+      "must_contain": ["tkMarkRotatedWithGrace", "return ErrServiceUnavailable", "tkRefreshRotatedWithinGrace"],
+      "rationale": "Cache failure must stop refresh issuance without replacing the existing grace policy."
     },
     {
       "path": "backend/internal/service/openai_codex_fingerprint.go",
@@ -20372,14 +20362,9 @@
       "rationale": "In-band failures must preserve usage and semantic health classification across raw, converted, and buffered paths."
     },
     {
-      "path": "backend/internal/repository/scheduler_outbox_delivery_integration_test.go",
-      "must_contain": ["TestSchedulerOutboxDeliversSmallIDCommittedAfterLargeACK", "TestSchedulerOutboxExpiredClaimCannotACKNewOwner", "TestSchedulerOutboxDeliverySerializesWorkersAndCancelsOnConnectionLoss"],
-      "rationale": "Durable delivery and stale-projector fencing require real database and Redis concurrency regressions."
-    },
-    {
-      "path": "backend/internal/repository/refresh_token_rotation_integration_test.go",
-      "must_contain": ["TestRefreshRotationRealRedisPublishesOnceAndRevokesReplay"],
-      "rationale": "Single-successor publication and family revocation must remain covered against real Redis."
+      "path": "backend/internal/service/auth_service_refresh_rotation_failure_tk_test.go",
+      "must_contain": ["TestRefreshGraceCacheFailureDoesNotIssueTokens", "cleanup_failed", "require.Nil(t, pair)"],
+      "rationale": "Marking and indexing failures must not return tokens, including when best-effort cleanup also fails."
     }
   ]
 }

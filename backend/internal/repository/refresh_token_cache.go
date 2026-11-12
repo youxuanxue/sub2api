@@ -99,11 +99,57 @@ func (c *refreshTokenCache) ConsumeRefreshToken(ctx context.Context, tokenHash s
 }
 
 func (c *refreshTokenCache) DeleteUserRefreshTokens(ctx context.Context, userID int64) error {
-	return revokeRefreshTokenSetScript.Run(ctx, c.rdb, []string{userRefreshTokensKey(userID)}, refreshTokenKeyPrefix).Err()
+	// Get all token hashes for this user
+	tokenHashes, err := c.GetUserTokenHashes(ctx, userID)
+	if err != nil && err != redis.Nil {
+		return fmt.Errorf("get user token hashes: %w", err)
+	}
+
+	if len(tokenHashes) == 0 {
+		return nil
+	}
+
+	// Build keys to delete
+	keys := make([]string, 0, len(tokenHashes)+1)
+	for _, hash := range tokenHashes {
+		keys = append(keys, refreshTokenKey(hash))
+	}
+	keys = append(keys, userRefreshTokensKey(userID))
+
+	// Delete all keys in a pipeline
+	pipe := c.rdb.Pipeline()
+	for _, key := range keys {
+		pipe.Del(ctx, key)
+	}
+	_, err = pipe.Exec(ctx)
+	return err
 }
 
 func (c *refreshTokenCache) DeleteTokenFamily(ctx context.Context, familyID string) error {
-	return revokeRefreshTokenSetScript.Run(ctx, c.rdb, []string{tokenFamilyKey(familyID)}, refreshTokenKeyPrefix).Err()
+	// Get all token hashes in this family
+	tokenHashes, err := c.GetFamilyTokenHashes(ctx, familyID)
+	if err != nil && err != redis.Nil {
+		return fmt.Errorf("get family token hashes: %w", err)
+	}
+
+	if len(tokenHashes) == 0 {
+		return nil
+	}
+
+	// Build keys to delete
+	keys := make([]string, 0, len(tokenHashes)+1)
+	for _, hash := range tokenHashes {
+		keys = append(keys, refreshTokenKey(hash))
+	}
+	keys = append(keys, tokenFamilyKey(familyID))
+
+	// Delete all keys in a pipeline
+	pipe := c.rdb.Pipeline()
+	for _, key := range keys {
+		pipe.Del(ctx, key)
+	}
+	_, err = pipe.Exec(ctx)
+	return err
 }
 
 func (c *refreshTokenCache) AddToUserTokenSet(ctx context.Context, userID int64, tokenHash string, ttl time.Duration) error {

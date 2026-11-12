@@ -239,10 +239,11 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 				message := extractOpenAISSEErrorMessage(inBand.payload)
 				status, kind := openAIStreamFailedClientResponse(inBand.payload, message, "api_error")
 				if outputStage.semanticOutputReleased {
-					_, _ = fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE(kind, message))
+					_, _ = fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE(kind, message, inBand.payload))
 					c.Writer.Flush()
 				} else {
-					writeAnthropicError(c, status, kind, message)
+					payload, _ := json.Marshal(gin.H{"type": "error", "error": openAIClientErrorBody(kind, message, inBand.payload)})
+					tkWriteAnthropicErrorResponse(c, status, kind, message, payload)
 				}
 			}
 		}

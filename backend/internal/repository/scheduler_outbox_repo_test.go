@@ -20,11 +20,12 @@ func TestSchedulerOutboxRepositoryFirstCreatedAtAfter(t *testing.T) {
 	const expectedSQL = `
 		SELECT created_at
 		FROM scheduler_outbox
-		WHERE acknowledged_at IS NULL
-		ORDER BY created_at ASC
+		WHERE id > $1
+		ORDER BY id ASC
 		LIMIT 1
 	`
 	mock.ExpectQuery(regexp.QuoteMeta(expectedSQL)).
+		WithArgs(int64(42)).
 		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(createdAt))
 
 	got, ok, err := repo.FirstCreatedAtAfter(context.Background(), 42)
@@ -44,11 +45,12 @@ func TestSchedulerOutboxRepositoryFirstCreatedAtAfterReturnsNotFound(t *testing.
 	const expectedSQL = `
 		SELECT created_at
 		FROM scheduler_outbox
-		WHERE acknowledged_at IS NULL
-		ORDER BY created_at ASC
+		WHERE id > $1
+		ORDER BY id ASC
 		LIMIT 1
 	`
 	mock.ExpectQuery(regexp.QuoteMeta(expectedSQL)).
+		WithArgs(int64(42)).
 		WillReturnRows(sqlmock.NewRows([]string{"created_at"}))
 
 	got, ok, err := repo.FirstCreatedAtAfter(context.Background(), 42)
@@ -69,17 +71,17 @@ func TestSchedulerOutboxRepositoryDeleteConsumedUpToUsesBoundedCTE(t *testing.T)
 		WITH doomed AS (
 			SELECT id
 			FROM scheduler_outbox
-			WHERE acknowledged_at IS NOT NULL
-				AND acknowledged_at < NOW() - INTERVAL '10 seconds'
+			WHERE id <= $1
+				AND created_at < NOW() - INTERVAL '10 seconds'
 			ORDER BY id ASC
-			LIMIT $1
+			LIMIT $2
 		)
 		DELETE FROM scheduler_outbox o
 		USING doomed d
 		WHERE o.id = d.id
 	`
 	mock.ExpectExec(regexp.QuoteMeta(expectedSQL)).
-		WithArgs(5000).
+		WithArgs(int64(42), 5000).
 		WillReturnResult(sqlmock.NewResult(0, 17))
 
 	deleted, err := repo.DeleteConsumedUpTo(context.Background(), 42, 5000)
