@@ -38,6 +38,8 @@
 - `ops/qa/test_data_machine_coordinator.py`::`SourceCleanupTest.test_symlink_hour_never_deletes_outside_source` (AC-008)
 - `ops/qa/test_coordinator_host.py`::`RunnerTest.test_a_unreachable_does_not_block_b_cleanup_or_authorize_shared_drop` (AC-007)
 - `ops/qa/test_coordinator_host.py`::`RunnerTest.test_retired_source_stays_in_its_historical_hour` (AC-010)
+- `ops/qa/test_coordinator_host.py`::`RunnerTest.test_changed_seal_at_cleanup_revokes_shared_drop_authority` (AC-008, AC-009)
+- `ops/qa/test_coordinator_host.py`::`RunnerTest.test_completed_sweep_has_no_backlog_and_reopens_changed_membership_or_partition` (AC-007, AC-010)
 - `ops/qa/test_coordinator_host.py`::`RunnerTest.test_no_automatic_gap_policy_can_be_silently_enabled` (AC-003, AC-010)
 - `ops/qa/test_coordinator_host.py`::`InstallerTest.test_plan_does_not_write_units_or_enable_timers` (AC-010)
 - `ops/qa/test_source_worker.py`::`SourceWorkerTest.test_changed_capture_seal_cannot_authorize_cleanup` (AC-008)

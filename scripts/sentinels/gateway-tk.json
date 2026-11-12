@@ -20392,7 +20392,7 @@
     },
     {
       "path": "ops/qa/coordinator_host.py",
-      "must_contain": ["def participants(config, hour):", "StrictHostKeyChecking=yes", "cleanup-shared", "oldest_blocked_hour_utc"],
+      "must_contain": ["def participants(config, hour):", "StrictHostKeyChecking=yes", "cleanup-shared", "oldest_blocked_hour_utc", "plan[\"shared_partition_action\"] == \"delete\" and cleaned", "completed[hour.isoformat()] = plan[\"expected_sources\"]"],
       "rationale": "The data-machine runner owns historical source membership, pinned worker dispatch, independent cleanup and shared database cleanup with backlog evidence."
     },
     {
@@ -20407,7 +20407,7 @@
     },
     {
       "path": "ops/qa/test_coordinator_host.py",
-      "must_contain": ["test_a_unreachable_does_not_block_b_cleanup_or_authorize_shared_drop", "test_retired_source_stays_in_its_historical_hour", "test_database_write_defers_before_lock_or_native_execution_near_backup"],
+      "must_contain": ["test_a_unreachable_does_not_block_b_cleanup_or_authorize_shared_drop", "test_retired_source_stays_in_its_historical_hour", "test_database_write_defers_before_lock_or_native_execution_near_backup", "test_changed_seal_at_cleanup_revokes_shared_drop_authority", "test_completed_sweep_has_no_backlog_and_reopens_changed_membership_or_partition"],
       "rationale": "Runtime regression tests keep missing-source failures, historical membership and backup contention from broadening cleanup authority."
     }
   ]

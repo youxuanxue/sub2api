@@ -118,12 +118,17 @@ def run(config, *, apply=False):
         anchor = policy._hour(inspected["db_anchor_utc"])
         # Include a bounded rolling horizon for orphan hot files and for a
         # process that crashed after DB DROP but before a source cleanup retry.
-        hours = {policy._hour(value) for value in inspected["hours"]}
+        database_hours = {policy._hour(value) for value in inspected["hours"]}
+        hours = set(database_hours)
         hours.update(anchor - dt.timedelta(hours=offset) for offset in range(1, 49))
         pending = state / "pending.json"
         if pending.exists():
             hours.update(policy._hour(value) for value in json.loads(pending.read_text()))
-        selected = sorted(hour for hour in hours if participants(config, hour))
+        completed_path = state / "completed.json"
+        completed = json.loads(completed_path.read_text()) if completed_path.exists() else {}
+        selected = sorted(hour for hour in hours if participants(config, hour)
+                          and (hour in database_hours or completed.get(hour.isoformat()) !=
+                               sorted(source["id"] for source in participants(config, hour))))
         cursor = state / "cursor.json"
         offset = json.loads(cursor.read_text()).get("offset", 0) if cursor.exists() else 0
         limit = config.get("max_hours_per_run", 4)
@@ -173,12 +178,17 @@ def run(config, *, apply=False):
                 except (OSError, ValueError, subprocess.SubprocessError) as exc:
                     cleaned = False
                     result["errors"].append({"source_id": source["id"], "hour": hour.isoformat(), "operation": "cleanup", "error": str(exc)})
-            if plan["shared_partition_action"] == "delete":
+            # Cleanup revalidates each live seal. A failed revalidation must
+            # revoke shared DROP authority, even if archive succeeded earlier.
+            if plan["shared_partition_action"] == "delete" and cleaned:
                 try:
                     item["database"] = database(config, "cleanup-shared", "--plan", str(plan_path),
                         "--environment", config["environment"], "--sources", ",".join(plan["expected_sources"]), dry_run=not apply)
                     if cleaned:
                         incomplete.discard(hour)
+                        if apply:
+                            completed[hour.isoformat()] = plan["expected_sources"]
+                            archive.atomic_json(completed_path, completed)
                 except (OSError, ValueError, subprocess.SubprocessError) as exc:
                     result["errors"].append({"hour": hour.isoformat(), "operation": "cleanup-shared", "error": str(exc)})
             result["hours"].append(item)

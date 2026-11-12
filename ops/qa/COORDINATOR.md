@@ -95,6 +95,9 @@ PostgreSQL 可达路径和适当 TLS/认证，不复制应用 .env/cloud 凭据�
    确认无双 owner 后，才批准 `systemctl enable --now tokenkey-qa-coordinator.timer`。
 
 每轮最多 4 个小时，轮转处理防止一个旧缺口饿死其它小时；未完成小时记入 pending。
+完成小时及其历史参与源集合保存在 `completed.json`，避免重复处理和积压误报；参与源集合
+改变或数据库小时分区重新出现时重新核验。应用机清理中若 seal 变化或执行失败，共享分区
+保持 hold，不继续使用此前归档快照的删除授权。
 每 5 分钟在前次完成后重跑，长期积压应调整批次/带宽并观察磁盘，不能用删历史 source
 或复用全站 `hot_files_cleaned_at` 消除积压。计划、pending 与逐源完成记录为恢复依据，
 不要手工删除。native DB 维护复用 advisory lock、100ms lock timeout 与事务目录复核。

@@ -29,6 +29,77 @@ def config(root):
 
 
 class RunnerTest(unittest.TestCase):
+    def evidence(self, source, hour):
+        return {'schema_version': policy.SOURCE_SCHEMA, 'environment': 'prod', 'source_id': source['id'],
+                'window_start': hour.isoformat(), 'window_end': (hour + dt.timedelta(hours=1)).isoformat(),
+                'ok': True, 'file_count': 0, 'total_bytes': 0,
+                'manifest_sha256': 'a' * 64, 'seal_digest': 'b' * 64}
+
+    def test_changed_seal_at_cleanup_revokes_shared_drop_authority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cfg = config(Path(directory))
+            cleaned = []
+            def source_command(config, source, command, hour, **kwargs):
+                if command == 'archive':
+                    return self.evidence(source, hour)
+                if source['id'] == 'a':
+                    raise ValueError('capture seal changed since archive')
+                cleaned.append(source['id'])
+                return {'ok': True}
+            def database(config, phase, *args, **kwargs):
+                self.assertNotEqual(phase, 'cleanup-shared')
+                return {'db_anchor_utc': (HOUR + dt.timedelta(hours=26)).isoformat(), 'hours': [HOUR.isoformat()]}
+            with mock.patch.object(host.socket, 'gethostname', return_value='fixture-data'), \
+                 mock.patch.object(host, 'source_command', side_effect=source_command), \
+                 mock.patch.object(host, 'database', side_effect=database):
+                result = host.run(cfg, apply=True)
+            self.assertEqual(cleaned, ['b'])
+            self.assertFalse(result['ok'])
+            self.assertEqual(result['blocked_hours'], 1)
+
+    def test_completed_sweep_has_no_backlog_and_reopens_changed_membership_or_partition(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cfg = config(Path(directory))
+            for source in cfg['sources']:
+                source['active_from'] = (HOUR - dt.timedelta(hours=48)).isoformat()
+                source.pop('active_until')
+            dropped = set()
+            reappeared = []
+            cleanup_calls = []
+            def source_command(config, source, command, hour, **kwargs):
+                if command == 'archive':
+                    return self.evidence(source, hour)
+                cleanup_calls.append((source['id'], hour))
+                return {'ok': True}
+            def database(config, phase, *args, **kwargs):
+                if phase == 'inspect':
+                    return {'db_anchor_utc': HOUR.isoformat(), 'hours': reappeared}
+                if phase == 'cleanup-shared':
+                    dropped.add(json.loads(Path(args[1]).read_text())['window_start'])
+                return {'ok': True}
+            with mock.patch.object(host.socket, 'gethostname', return_value='fixture-data'), \
+                 mock.patch.object(host, 'source_command', side_effect=source_command), \
+                 mock.patch.object(host, 'database', side_effect=database):
+                for _ in range(24):
+                    result = host.run(cfg, apply=True)
+                self.assertEqual(len(dropped), 24)
+                self.assertEqual(result['blocked_hours'], 0)
+                self.assertIsNone(result['oldest_blocked_hour_utc'])
+                before = len(cleanup_calls)
+                host.run(cfg, apply=True)
+                self.assertEqual(len(cleanup_calls), before)
+                old_hour = HOUR - dt.timedelta(hours=48)
+                reappeared.append(old_hour.isoformat())
+                for _ in range(8):
+                    host.run(cfg, apply=True)
+                self.assertIn(('a', old_hour), cleanup_calls[before:])
+                reappeared.clear()
+                cfg['sources'][0]['id'] = 'replacement'
+                before = len(cleanup_calls)
+                for _ in range(24):
+                    host.run(cfg, apply=True)
+                self.assertIn(('replacement', old_hour), cleanup_calls[before:])
+
     def test_a_unreachable_does_not_block_b_cleanup_or_authorize_shared_drop(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
