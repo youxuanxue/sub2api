@@ -129,6 +129,24 @@ func TestApplyMoonshotK3DynamicToolsShape_LeavesOtherModels(t *testing.T) {
 	if string(got) != string(body) {
 		t.Fatalf("non-k3 body must be unchanged")
 	}
+	k30 := []byte(`{"model":"kimi-k30","messages":[{"role":"system","tools":[{"type":"function","function":{"name":"Calculator"}}]}]}`)
+	if got := applyMoonshotK3DynamicToolsShape("kimi-k30", k30); string(got) != string(k30) {
+		t.Fatalf("kimi-k30 must not be treated as k3, got %s", got)
+	}
+}
+
+func TestApplyMoonshotK3DynamicToolsShape_PromotesKimiK31Pro(t *testing.T) {
+	body := []byte(`{"model":"kimi-k3.1-pro","messages":[{"role":"user","content":"算 1+1"},{"role":"system","tools":[{"type":"function","function":{"name":"Calculator"}}]}]}`)
+	got := applyMoonshotK3DynamicToolsShape("kimi-k3.1-pro", body)
+	if gjson.GetBytes(got, "messages.#").Int() != 1 {
+		t.Fatalf("messages len=%d want 1", gjson.GetBytes(got, "messages.#").Int())
+	}
+	if gjson.GetBytes(got, "tools.0.function.name").String() != "Calculator" {
+		t.Fatalf("tools not promoted: %s", got)
+	}
+	if gjson.GetBytes(got, "tool_choice").String() != "required" {
+		t.Fatalf("tool_choice=%s want required", gjson.GetBytes(got, "tool_choice").Raw)
+	}
 }
 
 func TestForwardAsChatCompletionsDispatched_PromotesKimiK3DynamicTools(t *testing.T) {

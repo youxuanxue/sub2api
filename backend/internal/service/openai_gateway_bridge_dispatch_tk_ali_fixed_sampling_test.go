@@ -24,6 +24,7 @@ func TestIsNewAPIAliFixedSamplingModel(t *testing.T) {
 		{"Kimi-K3", true},
 		{"kimi-k3-preview", true},
 		{"kimi/kimi-k3", true},
+		{"kimi-k3.1-pro", false},
 		{"kimi-k2.5", false},
 		{"kimi-k2.6", false},
 		{"qwen-plus", false},
@@ -75,6 +76,14 @@ func TestApplyNewAPIAliFixedSamplingShape_LeavesOtherModels(t *testing.T) {
 	got := applyNewAPIAliFixedSamplingShape("kimi-k2.5", body)
 	if string(got) != string(body) {
 		t.Fatalf("non-k3 body must be unchanged")
+	}
+}
+
+func TestApplyNewAPIAliFixedSamplingShape_DoesNotPinKimiK31Pro(t *testing.T) {
+	body := []byte(`{"model":"kimi-k3.1-pro","temperature":0.6,"n":2,"messages":[{"role":"user","content":"hi"}]}`)
+	got := applyNewAPIAliFixedSamplingShape("kimi-k3.1-pro", body)
+	if string(got) != string(body) {
+		t.Fatalf("kimi-k3.1-pro sampling must stay client-authored, got %s", got)
 	}
 }
 

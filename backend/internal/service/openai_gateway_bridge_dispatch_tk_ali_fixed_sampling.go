@@ -54,5 +54,8 @@ func isNewAPIAliFixedSamplingModel(model string) bool {
 	if idx := strings.LastIndex(normalized, "/"); idx >= 0 {
 		normalized = normalized[idx+1:]
 	}
+	// kimi-k3.1-pro is the same public K3 family for tools and Volc limits, but
+	// this pin rewrites temperature to 1. Leave dotted ids out so a client
+	// temperature is still forwarded on the Volc path.
 	return normalized == "kimi-k3" || strings.HasPrefix(normalized, "kimi-k3-")
 }

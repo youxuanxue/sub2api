@@ -15,7 +15,8 @@ import (
 // Request side: one extractor reads every billed text protocol shape
 // (OpenAI chat, OpenAI responses, Anthropic messages, Gemini generateContent)
 // because the fields do not collide. Images, audio, video and file parts are
-// skipped, like the Kiro and Gemini Web native estimators.
+// skipped here, like the Kiro and Gemini Web native estimators. K3 data-URL
+// image tokens are added later by the owner (KimiK3ImageInputTokens).
 //
 // Output side: the extractor follows what the client actually received, so it
 // dispatches on the payload shape of one JSON body or one SSE data frame.
