@@ -83,6 +83,7 @@ subprocess.run(
     text=True,
 )
 shutil.copyfile(root / "deploy/domestic/bootstrap-host.sh", out / "bootstrap-host.sh")
+shutil.copyfile(root / "deploy/tencent/lock-down-sshd.sh", out / "lock-down-sshd.sh")
 shutil.copyfile(state / "images.json", out / "images.json")
 for artifact in out.iterdir():
     if artifact.is_file():

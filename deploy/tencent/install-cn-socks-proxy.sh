@@ -28,8 +28,8 @@ proxy_fw_rules() {
   done
   rules+=" /usr/sbin/iptables -A TK_CN_PROXY -j DROP;"
   rules+=" /usr/sbin/iptables -C INPUT -p tcp --dport 1080 -j TK_CN_PROXY 2>/dev/null || /usr/sbin/iptables -I INPUT 1 -p tcp --dport 1080 -j TK_CN_PROXY;"
-  rules+=" /usr/sbin/iptables -C INPUT -p tcp --dport 22 -j DROP 2>/dev/null || /usr/sbin/iptables -I INPUT 1 -p tcp --dport 22 -j DROP;"
-  rules+=" /usr/sbin/iptables -C INPUT -p tcp --dport 8080 -j DROP 2>/dev/null || /usr/sbin/iptables -I INPUT 1 -p tcp --dport 8080 -j DROP"
+  rules+=" /usr/sbin/iptables -C INPUT -p tcp --dport 22 -m conntrack --ctstate NEW -j DROP 2>/dev/null || /usr/sbin/iptables -I INPUT 1 -p tcp --dport 22 -m conntrack --ctstate NEW -j DROP;"
+  rules+=" /usr/sbin/iptables -C INPUT -p tcp --dport 8080 -m conntrack --ctstate NEW -j DROP 2>/dev/null || /usr/sbin/iptables -I INPUT 1 -p tcp --dport 8080 -m conntrack --ctstate NEW -j DROP"
   printf '%s' "$rules"
 }
 

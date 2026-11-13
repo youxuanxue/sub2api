@@ -19,6 +19,19 @@ require_empty_data_disk() {
   }
 }
 
+tokenkey_sshd_lockdown() {
+  local here candidate
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  for candidate in "$here/lock-down-sshd.sh" "$here/../tencent/lock-down-sshd.sh"; do
+    if [[ -f "$candidate" ]]; then
+      bash "$candidate"
+      return
+    fi
+  done
+  echo "missing lock-down-sshd.sh" >&2
+  return 1
+}
+
 bootstrap_host() {
   [[ $EUID == 0 ]] || { echo 'Run as root' >&2; exit 1; }
   device=${1:?Usage: bootstrap-host.sh /dev/verified-empty-data-disk}
@@ -50,7 +63,7 @@ bootstrap_host() {
   install -d -m 0700 /opt/tokenkey
   install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app
   install -d -m 0755 /var/lib/tokenkey/{postgres,redis,caddy/data,caddy/config,pgdump}
-  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../tencent/lock-down-sshd.sh"
+  tokenkey_sshd_lockdown
   echo 'Host bootstrap complete; application not started'
 }
 
