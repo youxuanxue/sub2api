@@ -3,7 +3,7 @@
   "platform": "tencent-lighthouse",
   "role": "prod-candidate",
   "notes": [
-    "Isolated app replacement candidate. DNS and the default prod resolver still use the old app host.",
+    "Pre-cutover candidate record for lhins-2kf31667. The live prod identity is deploy/tencent/candidate-usw-20261022.json; this file stays non-resolvable and is kept only for the candidate receipts.",
     "STAGE0_TARGET_MATRIX selects this contract only with the exact candidate SSM identity.",
     "QA capture is disabled; no archive timer is installed. Do not enable an archive writer before the singleton handoff.",
     "The Tencent image shares its filesystem UUID with other instances; SSM identity and hostname checks are also required."

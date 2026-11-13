@@ -46,7 +46,7 @@ prod 直接使用原生账号；旧中继 stub 已软删。
 | 美西出口 `usw-eval3` | na-siliconvalley-2 / `lhins-n1w2c5qr` | `43.162.116.209` | `10.4.0.5` | 2C2G / 40 GB SSD |
 | 美西出口 `usw-eval4` | na-siliconvalley-2 / `lhins-h12i2d2r` | `43.162.103.103` | `10.4.0.4` | 2C2G / 40 GB SSD |
 
-实例到期约 2026-11-21/22 UTC，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-22 用户决定按月自动续费；账户余额不足仍会停机）。SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
+实例到期约 2026-11-21/22 UTC，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-22 用户决定按月自动续费；账户余额不足仍会停机）。例外：旧应用机 `lhins-fcwpwymt` 自 2026-11-13 起为 `NOTIFY_AND_MANUAL_RENEW`，到期不续。SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
 SOCKS 仅监听各机私网 `:1080`。2026-11-13 核对：`usw-eval1..4` 云防火墙 1080 仍只放行旧应用机 `10.4.0.16`，没有新机 `10.4.0.9`。prod 活出口不含这四台，切流不受影响；若以后重新启用，须先追加 `10.4.0.9`。
 `usw-eval1..4` 曾承接原 `jp-*` 账号；2026-11-11 核对 prod 活配置已无该组，不能按历史表推断当前账号出口。
 prod 实际活出口为腾讯北京四台、阿里北京四台和 AWS Oregon 四台，存在 default 别名重复行；
