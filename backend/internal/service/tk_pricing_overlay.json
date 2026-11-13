@@ -29,7 +29,8 @@
     "gemini-web-pro-image": "gemini-3.1-flash-image",
     "gemini-web-nano-banana-pro": "gemini-3-pro-image",
     "gpt-6.1": "gpt-6.1-sol",
-    "gpt-image-2.6": "gpt-image-2.6-flare"
+    "gpt-image-2.6": "gpt-image-2.6-flare",
+    "qwen4.0-max": "qwen4.0-max-preview"
   },
   "_config": {
     "official_list_base_tax": {
@@ -10487,6 +10488,22 @@
     "cache_creation_input_token_cost": 2.2388059701492535e-06,
     "cache_read_input_token_cost": 2.238805970149254e-07,
     "source": "Alibaba DashScope qwen3.8-max official China-mainland (Beijing) list https://help.aliyun.com/zh/model-studio/qwen3-8-max, captured 2026-10-19: input ¥12/Mtok, output ¥36/Mtok (思维链+回答), 输入（缓存命中）¥1.5/Mtok, 显式缓存创建 ¥15/Mtok, 显式缓存命中 ¥1/Mtok; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. TK single cache_read field maps to 输入（缓存命中）¥1.5 (implicit hit / primary listed cache-hit); explicit-hit ¥1 is not separately modeled. Batch half-price and promo discounts not modeled."
+  },
+  "qwen4.0-max-preview": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761194032e-06,
+    "output_cost_per_token": 5.373134328358209e-06,
+    "cache_creation_input_token_cost": 2.2388059701492535e-06,
+    "cache_read_input_token_cost": 2.238805970149254e-07,
+    "max_input_tokens": 1000000,
+    "max_output_tokens": 393216,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_reasoning": true,
+    "source": "TEMPORARY customer list. Official pages captured 2026-11-13: https://help.aliyun.com/zh/model-studio/qwen4-max-preview states Model ID qwen4-max-preview (alias qwen4.0-max-preview) is Token Plan only and 不支持按量计费, context 1M, max output 393216 shared by reasoning and the answer; https://help.aliyun.com/zh/model-studio/model-pricing has no qwen4 token row; Token Plan models API on the plan host returned no price object. Until DashScope publishes a qwen4 token list, this row copies the current official 千问 Max Beijing list used by qwen3.8-max (input ¥12/Mtok, output ¥36/Mtok, 输入缓存命中 ¥1.5/Mtok, 显式缓存创建 ¥15/Mtok; CNY/USD=6.7). Preview Credits discounts stay upstream subscription accounting and are not applied here. Public catalog id qwen4.0-max aliases this owner."
   },
   "glm-5.3": {
     "litellm_provider": "zhipu",

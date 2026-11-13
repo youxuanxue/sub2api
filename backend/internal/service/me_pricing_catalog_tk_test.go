@@ -847,7 +847,9 @@ func TestBuildForUser_ChannelAndAccountHideLegacyTokenPlanAliases(t *testing.T) 
 				replacements[id] = true
 			}
 		}
-		replacements[replacement] = true
+		if isMePricingModelDisplayed(replacement) {
+			replacements[replacement] = true
+		}
 	}
 	channel := mkChannelWithModel(100, "legacy-channel",
 		[]AvailableGroupRef{{ID: 50, Platform: PlatformNewAPI}}, models)
@@ -866,10 +868,10 @@ func TestBuildForUser_ChannelAndAccountHideLegacyTokenPlanAliases(t *testing.T) 
 		require.True(t, replacements[model.ModelID], "legacy channel or account row leaked: %s", model.ModelID)
 		visible[model.ModelID] = true
 	}
-	require.True(t, visible["qwen3.7-plus"], "Ali Token Plan qwen-plus replacement stays selectable")
-	require.True(t, visible["qwen3.8-max"], "Ali Token Plan qwen-max replacement stays selectable")
-	require.False(t, visible["qwen-plus"], "legacy qwen-plus alias stays hidden")
-	require.False(t, visible["qwen-max"], "legacy qwen-max alias stays hidden")
+	require.True(t, visible["qwen4.0-max"], "public qwen4.0-max alias stays selectable")
+	require.False(t, visible["qwen4.0-max-preview"], "upstream qwen4.0-max-preview stays off the user menu")
+	require.False(t, visible["qwen-plus"], "withdrawn qwen-plus alias stays hidden")
+	require.False(t, visible["qwen-max"], "withdrawn qwen-max alias stays hidden")
 	require.False(t, visible["deepseek-flash"], "DeepSeek is not an Ali Token Plan alias")
 	require.False(t, visible["deepseek-chat"], "DeepSeek is not an Ali Token Plan alias")
 }

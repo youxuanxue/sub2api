@@ -7065,9 +7065,13 @@
         "TestNewAPIModelMappingPresetIDsForQianfanTokenPlanAccount",
         "TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides",
         "PAYG-only ch17 floor ids must not leak into Token Plan override",
-        "wan2.7-image"
+        "wan2.7-image",
+        "withdrawn qwen-plus alias is not a Token Plan preset",
+        "withdrawn qwen-max alias is not a Token Plan preset",
+        "upstream billing id is not a client mapping key",
+        "mapping[\"qwen4.0-max\"]"
       ],
-      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested."
+      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. qwen-plus and qwen-max stay off the Token Plan floor; qwen4.0-max maps to qwen4.0-max-preview without an identity key for the upstream id."
     },
     {
       "path": "backend/internal/service/tk_served_models_manifest_tk_test.go",
@@ -14318,7 +14322,11 @@
         "TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides",
         "PAYG-only ch17 floor ids must not leak into Token Plan override",
         "wan2.7-image",
-        "qwen-audio-3.0-tts-plus"
+        "qwen-audio-3.0-tts-plus",
+        "withdrawn qwen-plus alias is not a Token Plan preset",
+        "withdrawn qwen-max alias is not a Token Plan preset",
+        "upstream billing id is not a client mapping key",
+        "mapping[\"qwen4.0-max\"]"
       ],
       "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. Ali Token Plan floor must include priced TTS identity once manifested."
     },
