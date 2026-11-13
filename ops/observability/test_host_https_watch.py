@@ -112,13 +112,11 @@ class CoveragePlanTest(unittest.TestCase):
     def test_prod_pause_does_not_silence_other_observers_or_jobs(self):
         prod = self.config('prod', self.watch['hostname'])
         self.assertEqual(prod['paused_jobs'], self.watch['paused_jobs'])
-        self.assertEqual(
-            set(prod['paused_jobs']),
-            {
-                'tokenkey-pgdump',
-                'tokenkey-ghcr-prune-daily',
-            },
-        )
+        # ghcr-prune-daily is installed on the current app host, so only the
+        # retired pgdump job stays expected-paused.
+        self.assertEqual(set(prod['paused_jobs']), {'tokenkey-pgdump'})
+        self.assertIn('tokenkey-ghcr-prune-daily', prod['jobs'])
+        self.assertNotIn('tokenkey-ghcr-prune-daily', prod['paused_jobs'])
         self.assertIn('tokenkey-disk-metrics', prod['jobs'])
         self.assertNotIn('tokenkey-disk-metrics', prod['paused_jobs'])
         self.assertEqual(self.config('cn-prod', self.domestic['instance_name'])['paused_jobs'], {})

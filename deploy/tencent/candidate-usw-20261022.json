@@ -3,39 +3,37 @@
   "platform": "tencent-lighthouse",
   "role": "prod",
   "notes": [
-    "2026-10-22 cutover complete: this host is live prod (DNS A → 43.162.83.233).",
+    "2026-11 app-host cutover: this matrix points at the root-disk app host lhins-2kf31667 (2C8G, no LUKS). Merging this change IS the prod cutover; it requires separate cutover approval (docs/approved/design-prod-app-parallel-replacement.md).",
     "auto / default PROD_SSM_TARGET resolves here when deployable=true.",
-    "Layout converged 2026-10-22 (exception path): .env at /var/lib/tokenkey/.env; app/caddy tokenkey/tokenkey-caddy; Docker root kept at /srv/tokenkey-rehearsal/docker; PG/redis keep cutover names with postgres/redis aliases. Receipt: /var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json.",
-    "volume_mount keeps /srv/tokenkey-rehearsal (historical); /var/lib/tokenkey is a second mount of the same LUKS mapper.",
+    "Layout: plain ext4 root disk. Docker /var/lib/docker; business .env /var/lib/tokenkey/.env; Caddy /var/lib/tokenkey/caddy; app colors tokenkey-blue/tokenkey-green; tokenkey is the socat control alias. No PG/Redis server on this host (data machine below).",
+    "Previous app host lhins-fcwpwymt / mi-080ed76dc6d97d8b5 / 43.162.83.233 (4C16G, LUKS loop volume) is kept as rollback for 1 day after cutover, auto-renew already off, expires 2026-11-21T08:31Z. Retiring it destroys local QA history and needs separate approval.",
     "Tokyo i-045f062ce33e1a5af was retired and deleted 2026-10-23; its snapshots are deleted; never restore its S3 history chain as a writer.",
-    "Cutover receipt: docs/ops/reports/tencent-cutover-20261022.json",
-    "2026-10-29: tokenkey-disk-metrics.timer is installed and expected active. It checks root / and /var/lib/tokenkey at 85% alert / 80% recover."
+    "2026-11-13: tokenkey-disk-metrics.timer (root disk only; /var/lib/tokenkey is not a separate mount) and tokenkey-ghcr-prune-daily.timer are installed on this host."
   ],
   "target": {
     "resolvable": true,
     "deployable": true,
     "cutover_authorized": true,
     "cutover_completed": true,
-    "instance_name": "tokenkey-usw-rehearsal-20261021",
-    "computer_name": "tokenkey-usw-rehearsal-20261021",
-    "hostname": "VM-0-16-ubuntu",
-    "ssm_inventory_note": "SSM Name is tokenkey-usw-rehearsal-20261021; OS ComputerName is localhost.localdomain — match on Name",
-    "lighthouse_instance_id": "lhins-fcwpwymt",
-    "expected_ssm_instance_id": "mi-080ed76dc6d97d8b5",
+    "instance_name": "tokenkey-usw-app-20261111",
+    "computer_name": "tokenkey-usw-app-20261111",
+    "hostname": "tokenkey-usw-app-20261111",
+    "lighthouse_instance_id": "lhins-2kf31667",
+    "expected_ssm_instance_id": "mi-000c0168439c243a8",
     "ssm_region": "eu-west-2",
     "ssm_hybrid_role_name": "tokenkey-lightsail-ssm-hybrid",
-    "volume_platform": "tencent-luks",
-    "volume_mapper": "tokenkey_recovery",
-    "volume_mount": "/srv/tokenkey-rehearsal",
-    "formal_mount_intent": "/var/lib/tokenkey",
+    "volume_platform": "tencent-root",
+    "volume_root_uuid": "9842d3d6-a839-4127-bda7-f19137effe71",
+    "volume_mount": "/var/lib/tokenkey",
     "api_domain": "api.tokenkey.dev",
-    "public_ip": "43.162.83.233",
+    "public_ip": "43.162.126.44",
+    "private_ip": "10.4.0.9",
     "architecture": "amd64",
-    "purpose": "Live TokenKey prod after Tokyo→Tencent USW cutover 2026-10-22"
+    "purpose": "Live TokenKey prod app host after the 2026-11 single-node app replacement"
   },
   "host_watch": {
     "note": "Live prod host-watch owner (https-watch identity, customer domains, expected-paused timers, local QA jobs). Consumers: ops/observability/host_https_watch.py, install-host-https-watch.sh. Host watchers keep their installed copy until reinstalled.",
-    "hostname": "VM-0-16-ubuntu",
+    "hostname": "tokenkey-usw-app-20261111",
     "domains": [
       "tokenkey.dev",
       "api.tokenkey.dev",
@@ -43,8 +41,7 @@
       "api.callmodel.io"
     ],
     "paused_jobs": {
-      "tokenkey-pgdump": "Retired after pgBackRest latest and historical recovery acceptance; never installed on the Tencent host (verified not-found 2026-10-22); retained backups are not deleted.",
-      "tokenkey-ghcr-prune-daily": "Not installed on Tencent cutover host (verified not-found 2026-10-22); pause until separately installed."
+      "tokenkey-pgdump": "Retired after pgBackRest latest and historical recovery acceptance; never installed on the Tencent app hosts; retained backups are not deleted."
     },
     "local_qa_jobs": [
       "tokenkey-qa-provision",

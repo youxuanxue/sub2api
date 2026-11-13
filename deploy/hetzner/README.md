@@ -6,51 +6,48 @@
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
 切流回执：[`docs/ops/reports/tencent-cutover-20261022.json`](../../docs/ops/reports/tencent-cutover-20261022.json)
 
-## 2026-11-11 应用替换准备中（未切流）
+## 2026-11 prod 应用机单节点替换（本节随切流 PR 生效）
 
-prod 和 cn-prod 均已拆分应用机与独立数据机，并非整个站点只剩应用机。
-prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
-[`prod-target.json`](../domestic/prod-target.json)。本次仅替换 prod 应用机，两个站点的数据服务和 cn-prod 应用不迁移、不重启。
+prod 和 cn-prod 均已拆分应用机与独立数据机。prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；
+cn-prod 数据身份见 [`prod-target.json`](../domestic/prod-target.json)。本次只替换 prod 应用机，
+数据服务和 cn-prod 应用不迁移、不重启。
 
-原地 LUKS 搬盘已取消。新应用候选 `lhins-2kf31667` / `43.162.126.44` / `10.4.0.9`，
-SSM `mi-000c0168439c243a8`（eu-west-2），2C8G / 80 GB SSD，95 元/月自动续费。
-普通根盘 `/var/lib/docker`、`/var/lib/tokenkey`，不启动 PG/Redis 服务端。
-候选储存身份：[app-parallel-20261111.json](../tencent/app-parallel-20261111.json)；
-**该文件不改变默认 prod resolver**。DNS、CI 默认目标和 QA 归档 owner 仍是旧应用机。
-新机 QA capture 临时关闭，不能在旧归档 owner 停用前开启新归档。
+2026-11-13 用户决定优先降本：prod 只保留一台应用机，双节点 HA、双 A 记录与外部探测器暂缓。
+现网 prod 应用机为 `lhins-2kf31667` / `43.162.126.44` / `10.4.0.9`，SSM `mi-000c0168439c243a8`
+（eu-west-2），2C8G / 80 GB SSD / 200 Mbps 峰值，95 元/月自动续费。普通 ext4 根盘，无 LUKS，
+不运行 PG/Redis 服务端。身份由 [`candidate-usw-20261022.json`](../tencent/candidate-usw-20261022.json) 持有；
+`app-parallel-20261111.json` 只保留为切流前候选记录。
 
-旧应用机现为 4C16G / 180 GB SSD，355 元/月；旧机不停止、不销毁，LUKS 和历史 QA 保留。
-并行期间增加 95 元/月；只有另行授权退役旧机后，应用机月费才净减 260 元。
-验收、剩余门禁与回执见[批准方案](../../docs/approved/design-prod-app-parallel-replacement.md#实际证据)。
-
-2026-11-11 用户后续同意保留新旧双应用节点并演练摘机，取代最终退役旧应用机的目标；
-当前仍未切流，不能据此宣称 HA 已上线。入口接入方式、费用、多节点发布与 QA 集中管理
-边界见[后续决定](../../docs/approved/design-prod-app-parallel-replacement.md#2026-11-11-后续决定保留双应用节点)。
+旧应用机 `lhins-fcwpwymt` / `43.162.83.233` / `10.4.0.16`（4C16G，355 元/月，LUKS loop 卷）
+切流后保留 1 天作回退，自动续费已关，2026-11-21 08:31 UTC 到期。退还会销毁本地 LUKS 内的历史 QA，
+用户已接受丢失；退还本身仍须单独授权。轻量套餐不能原地降配，新机可原机升级到 4C8G / 4C16G（单向）。
+决定、阈值与门禁见[批准方案](../../docs/approved/design-prod-app-parallel-replacement.md)。
 
 ## 活舰队（prod-only，2026-10-22 切流起）
 
 | 节点 | 正式域名 | 公网 IP | 控制面身份 | 备注 |
 |------|----------|---------|------------|------|
-| **prod** | `api.tokenkey.dev` | `43.162.83.233` | Lighthouse `lhins-fcwpwymt` · SSM Hybrid `mi-080ed76dc6d97d8b5` · eu-west-2 | 腾讯美西 · timeline 2 · LUKS mapper；Stage0 例外布局（见下） |
+| **prod** | `api.tokenkey.dev` | `43.162.126.44` | Lighthouse `lhins-2kf31667` · SSM Hybrid `mi-000c0168439c243a8` · eu-west-2 | 腾讯美西 · 2C8G 普通根盘 · 仅应用（PG/Redis 在数据机） |
 
-四个长期正式域名 A 记录（TTL 300）指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。`api-cn.tokenkey.dev` 仍暂时指向同一地址，日后退役。国内长期入口 `api.galaxywaveai.com` 指向腾讯北京 `154.8.214.179`，站点见 [`deploy/domestic/README.md`](../domestic/README.md)。
+四个长期正式域名 A 记录（TTL 60，2026-11-13 起）指向 `43.162.126.44`：`tokenkey.dev` / `api.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。`api-cn.tokenkey.dev` 仍暂时指向同一地址，日后退役。国内长期入口 `api.galaxywaveai.com` 指向腾讯北京 `154.8.214.179`，站点见 [`deploy/domestic/README.md`](../domestic/README.md)。
 prod 直接使用原生账号；旧中继 stub 已软删。
 **Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已于 2026-10-23 完全退役**（实例、栈、VPC、卷、EIP、快照均已删；仅留 S3 历史链 `prod/postgres` timeline 1，只含数据库）。不能当作现网入口。
-**布局（2026-10-22 例外路径已收敛）：** LUKS 双挂仍在；Docker Root **例外**保留 `/srv/tokenkey-rehearsal/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`；网关容器 `tokenkey` / `tokenkey-caddy`；PG/Redis 名仍为 cutover 字面量但带 `postgres`/`redis` 网络别名；Redis 自 2026-10-22 起 AOF（everysec）持久化，数据在 `/srv/tokenkey-rehearsal/redis`。默认可 `deploy-stage0`。细则 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)；unlock [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
+**布局：** 普通根盘；Docker `/var/lib/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`；Caddy `/var/lib/tokenkey/caddy`；应用色 `tokenkey-blue` / `tokenkey-green`，`tokenkey` 为 socat 控制别名；数据客户端 `tokenkey-postgres-client` / `tokenkey-redis-client`。默认可 `deploy-stage0`。旧机的 LUKS 例外布局细则见 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)，只适用于旧机。
 历史数据从 S3 隔离归档读取。退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 
 ### 同机附属 / 代理验证资源
 
 | 角色 | 地域 / 实例 ID | 公网 IP | 私网 IP | 规格 |
 |---|---|---|---|---|
-| prod 旧应用机（仍接流） | na-siliconvalley-2 / `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | 4C16G / 180 GB SSD |
+| prod 应用机 | na-siliconvalley-2 / `lhins-2kf31667` | `43.162.126.44` | `10.4.0.9` | 2C8G / 80 GB SSD |
+| prod 旧应用机（切流后保留 1 天回退，11-21 到期） | na-siliconvalley-2 / `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | 4C16G / 180 GB SSD |
 | 美西出口 `usw-eval1` | na-siliconvalley-2 / `lhins-56ogvsid` | `43.162.90.151` | `10.4.0.2` | 2C2G / 40 GB SSD |
 | 美西出口 `usw-eval2` | na-siliconvalley-2 / `lhins-mtiwmfod` | `43.162.126.190` | `10.4.0.11` | 2C2G / 40 GB SSD |
 | 美西出口 `usw-eval3` | na-siliconvalley-2 / `lhins-n1w2c5qr` | `43.162.116.209` | `10.4.0.5` | 2C2G / 40 GB SSD |
 | 美西出口 `usw-eval4` | na-siliconvalley-2 / `lhins-h12i2d2r` | `43.162.103.103` | `10.4.0.4` | 2C2G / 40 GB SSD |
 
 实例到期约 2026-11-21/22 UTC，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-22 用户决定按月自动续费；账户余额不足仍会停机）。SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
-SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。
+SOCKS 仅监听各机私网 `:1080`。2026-11-13 核对：`usw-eval1..4` 云防火墙 1080 仍只放行旧应用机 `10.4.0.16`，没有新机 `10.4.0.9`。prod 活出口不含这四台，切流不受影响；若以后重新启用，须先追加 `10.4.0.9`。
 `usw-eval1..4` 曾承接原 `jp-*` 账号；2026-11-11 核对 prod 活配置已无该组，不能按历史表推断当前账号出口。
 prod 实际活出口为腾讯北京四台、阿里北京四台和 AWS Oregon 四台，存在 default 别名重复行；
 新应用候选已通过全部 16 条活配置的认证连通测试。Oregon 主机仍是保留的 AWS 计算依赖，不能描述成零 AWS。
@@ -131,7 +128,7 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
 | 项 | 值 |
 |----|-----|
-| 活入口 | 腾讯美西 prod `43.162.83.233`；正式域名 A 指向该 IP（Tokyo 已退役） |
+| 活入口 | 腾讯美西 prod `43.162.126.44`；正式域名 A 指向该 IP，TTL 60（旧机 `43.162.83.233` 仅作切流后回退） |
 | prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
 | 探针 / sync Caddy | prod 解析至腾讯 Hybrid `mi-*`（`resolve_prod_ssm_target.py`）；冻结/退役身份拒绝执行 |
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
