@@ -18193,7 +18193,7 @@
       "must_contain": [
         "terminal.ObserveEvent(rawBytes)",
         "if terminal.IsTruncated() && !geminiNativeStreamClientAborted(callerCtx) {",
-        "noteGeminiStreamDisruption(callerCtx, s.accountRepo, account)"
+        "noteGeminiStreamDisruptionWhenDelivered(callerCtx, s.accountRepo, account, usableWritten)"
       ],
       "rationale": "The truncation guard only holds while both injection points survive in handleNativeStreamingResponse: ObserveEvent feeds sawDataEvent, and dropping it would leave IsTruncated permanently false — a silently disarmed guard. Upstream changes this file often, so pin both lines."
     },
@@ -18535,9 +18535,9 @@
       "must_contain": [
         "antigravityRemoteFileRejected(account, action, body)",
         "noteGeminiG1CreditsExhausted(ctx, s.accountRepo, account)",
-        "noteGeminiStreamDisruption(ctx, s.accountRepo, account)"
+        "noteGeminiStreamDisruptionWhenDelivered(ctx, s.accountRepo, account, streamRes.modelBytesWritten)"
       ],
-      "rationale": "Antigravity OAuth native Gemini is governed and enters through ForwardGemini. Remote fileUri must be rejected there before any upstream call, and repeated stream truncation or G1 credit exhaustion must still reach the temp-unschedulable owner."
+      "rationale": "Antigravity OAuth native Gemini is governed and enters through ForwardGemini. Remote fileUri must be rejected there before any upstream call. G1 credit exhaustion still cools immediately. A truncation counts toward the ladder only after body, tool, or media was written; an empty-prefix failover must not."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",

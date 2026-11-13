@@ -3120,6 +3120,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 	var best geminiResponseSignal
 	var terminal geminiNativeStreamTerminalState
 	sawDataEvent := false
+	usableWritten := false
 	lastWroteDataEvent := false
 	fallback := &geminiSSEFallbackBody{}
 	estimateSeenText := ""
@@ -3146,6 +3147,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 				ensureClientStarted()
 				_, _ = io.WriteString(c.Writer, line)
 				flusher.Flush()
+				usableWritten = true
 			} else if strings.HasPrefix(trimmed, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
 				// Drop empty keepalives and OpenAI-style [DONE]. Gemini CLI /
@@ -3197,6 +3199,13 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 						firstOutputGuard.Commit()
 					}
 					ensureClientStarted()
+					classified := rawBytes
+					if len(classified) == 0 {
+						classified = []byte(rawToWrite)
+					}
+					if geminiPayloadDeliveredUsableOutput(classified) {
+						usableWritten = true
+					}
 
 					// Always emit a complete SSE frame. Pass-through of a single
 					// ReadString line can leave "data: ...\n" without the event
@@ -3258,7 +3267,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 		}
 		if err != nil {
 			if geminiUpstreamUnexpectedEOF(err) && !geminiNativeStreamClientAborted(callerCtx) {
-				noteGeminiStreamDisruption(callerCtx, s.accountRepo, account)
+				noteGeminiStreamDisruptionWhenDelivered(callerCtx, s.accountRepo, account, usableWritten)
 			}
 			if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
 				return nil, foErr
@@ -3283,7 +3292,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 	// Ops 侧完全无感，断流账号继续按健康参与候选评分。字节已写给客户端，所以
 	// 这里返回普通终止错误（不是 UpstreamFailoverError），禁止重放。
 	if terminal.IsTruncated() && !geminiNativeStreamClientAborted(callerCtx) {
-		noteGeminiStreamDisruption(callerCtx, s.accountRepo, account)
+		noteGeminiStreamDisruptionWhenDelivered(callerCtx, s.accountRepo, account, usableWritten)
 		ensureClientStarted()
 		_, _ = fmt.Fprint(c.Writer, geminiNativeSSEErrorFrame(http.StatusBadGateway, GeminiNativeStreamTruncatedCode))
 		flusher.Flush()

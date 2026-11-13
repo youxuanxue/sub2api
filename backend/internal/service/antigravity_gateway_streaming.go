@@ -319,7 +319,12 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 					return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, ev.err
 				}
 				sendErrorEvent("stream_read_error")
-				return nil, ev.err
+				return &antigravityStreamResult{
+					usage:             usage,
+					firstTokenMs:      firstTokenMs,
+					clientDisconnect:  cw.Disconnected(),
+					modelBytesWritten: modelBytesWritten,
+				}, ev.err
 			}
 
 			line := ev.line

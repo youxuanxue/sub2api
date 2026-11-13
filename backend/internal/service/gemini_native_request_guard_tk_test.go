@@ -40,14 +40,14 @@ func TestGeminiStreamDisruptionCoolsOnTheThirdEventInWindow(t *testing.T) {
 	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
 
 	noteGeminiStreamDisruptionAt(context.Background(), store, account, now)
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(10*time.Minute))
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(20*time.Second))
 	require.Zero(t, store.calls)
 
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(14*time.Minute))
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(40*time.Second))
 	require.Equal(t, 1, store.calls)
 	require.Contains(t, store.reason, "gemini stream truncated or disconnected repeatedly")
 	require.Contains(t, store.reason, "tier=0")
-	require.Equal(t, now.Add(14*time.Minute).Add(anthropicCooldownTierLadder[0]), store.until)
+	require.Equal(t, now.Add(40*time.Second).Add(anthropicCooldownTierLadder[0]), store.until)
 }
 
 func TestGeminiStreamDisruptionClimbsTheExistingCooldownLadder(t *testing.T) {
@@ -58,25 +58,26 @@ func TestGeminiStreamDisruptionClimbsTheExistingCooldownLadder(t *testing.T) {
 	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
 
 	noteGeminiStreamDisruptionAt(context.Background(), store, account, now)
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(time.Minute))
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(2*time.Minute))
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(20*time.Second))
+	tripped := now.Add(40 * time.Second)
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, tripped)
 	require.Equal(t, 1, store.calls)
-	require.Equal(t, now.Add(2*time.Minute).Add(anthropicCooldownTierLadder[0]), store.until)
+	require.Equal(t, tripped.Add(anthropicCooldownTierLadder[0]), store.until)
 
 	// Still inside the first cooldown: another full window must not climb.
-	base := now.Add(2 * time.Minute)
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, base.Add(5*time.Second))
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, base.Add(10*time.Second))
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, base.Add(15*time.Second))
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, tripped.Add(5*time.Second))
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, tripped.Add(10*time.Second))
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, tripped.Add(15*time.Second))
 	require.Equal(t, 1, store.calls)
 
-	second := base.Add(anthropicCooldownTierLadder[0]).Add(time.Minute)
+	second := tripped.Add(anthropicCooldownTierLadder[0]).Add(time.Second)
 	noteGeminiStreamDisruptionAt(context.Background(), store, account, second)
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, second.Add(time.Minute))
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, second.Add(2*time.Minute))
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, second.Add(20*time.Second))
+	climbed := second.Add(40 * time.Second)
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, climbed)
 	require.Equal(t, 2, store.calls)
 	require.Contains(t, store.reason, "tier=1")
-	require.Equal(t, second.Add(2*time.Minute).Add(anthropicCooldownTierLadder[1]), store.until)
+	require.Equal(t, climbed.Add(anthropicCooldownTierLadder[1]), store.until)
 }
 
 func TestGeminiStreamDisruptionLadderResetsAfterTheTierTTL(t *testing.T) {
@@ -86,17 +87,18 @@ func TestGeminiStreamDisruptionLadderResetsAfterTheTierTTL(t *testing.T) {
 	account := &Account{ID: 233}
 	now := time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC)
 	noteGeminiStreamDisruptionAt(context.Background(), store, account, now)
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(time.Minute))
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(2*time.Minute))
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(20*time.Second))
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(40*time.Second))
 	require.Equal(t, 1, store.calls)
 
 	later := now.Add(time.Duration(anthropicCooldownTierTTLMinutes)*time.Minute + time.Minute)
 	noteGeminiStreamDisruptionAt(context.Background(), store, account, later)
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, later.Add(time.Minute))
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, later.Add(2*time.Minute))
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, later.Add(20*time.Second))
+	resetAt := later.Add(40 * time.Second)
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, resetAt)
 	require.Equal(t, 2, store.calls)
 	require.Contains(t, store.reason, "tier=0")
-	require.Equal(t, later.Add(2*time.Minute).Add(anthropicCooldownTierLadder[0]), store.until)
+	require.Equal(t, resetAt.Add(anthropicCooldownTierLadder[0]), store.until)
 }
 
 func TestGeminiStreamDisruptionDropsEventsOutsideTheWindow(t *testing.T) {
@@ -107,9 +109,39 @@ func TestGeminiStreamDisruptionDropsEventsOutsideTheWindow(t *testing.T) {
 	now := time.Date(2026, 11, 12, 8, 0, 0, 0, time.UTC)
 
 	noteGeminiStreamDisruptionAt(context.Background(), store, account, now)
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(10*time.Minute))
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(30*time.Minute))
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(40*time.Second))
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(70*time.Second))
 	require.Zero(t, store.calls)
+}
+
+func TestGeminiStreamDisruptionIgnoresTruncationBeforeUsableOutput(t *testing.T) {
+	resetGeminiStreamDisruptionWindow()
+	t.Cleanup(resetGeminiStreamDisruptionWindow)
+	store := &geminiCooldownStub{}
+	account := &Account{ID: 529}
+	now := time.Date(2026, 11, 13, 1, 30, 0, 0, time.UTC)
+
+	for range 5 {
+		noteGeminiStreamDisruptionWhenDelivered(context.Background(), store, account, false)
+	}
+	require.Zero(t, store.calls)
+
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now)
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(20*time.Second))
+	require.Zero(t, store.calls)
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(40*time.Second))
+	require.Equal(t, 1, store.calls)
+	require.Contains(t, store.reason, "tier=0")
+}
+
+func TestGeminiPayloadDeliveredUsableOutput(t *testing.T) {
+	require.False(t, geminiPayloadDeliveredUsableOutput(nil))
+	require.False(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"thoughtSignature":"SIG"}]}}]}`)))
+	require.False(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"text":"  "}]}}]}`)))
+	require.False(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"thought":true,"text":"hmm"}]}}]}`)))
+	require.True(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"text":"answer"}]}}]}`)))
+	require.True(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"x"}}]}}]}`)))
+	require.True(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"abc"}}]}}]}`)))
 }
 
 func TestGeminiG1CreditsCoolsImmediately(t *testing.T) {
