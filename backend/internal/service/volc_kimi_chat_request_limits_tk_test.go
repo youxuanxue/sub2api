@@ -242,3 +242,31 @@ func TestVolcKimiUpstream400HidesSupplierRequestID(t *testing.T) {
 	opsMsg, _ := c.Get(OpsUpstreamErrorMessageKey)
 	require.Contains(t, opsMsg, "Request id: 021793796431474c", "ops keeps the supplier request id")
 }
+
+// /v1/responses raw chat fallback used to run KVV rejects only for the K3
+// family. kimi-k2.5 and the rest of kimi-* must get the same 400 here.
+func TestResponsesRawFallbackRejectsKimiKVVSampling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	account := &Account{ID: 7, Platform: "test", Type: AccountTypeAPIKey}
+	svc := &OpenAIGatewayService{}
+	for _, model := range []string{"kimi-k2.5", "kimi-k30", "kimi-k3.1-pro", "kimi-k3"} {
+		body := []byte(`{"model":"` + model + `","input":"hi","temperature":1.1}`)
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+		_, err := svc.forwardResponsesViaRawChatCompletions(context.Background(), c, account, body)
+		require.Error(t, err)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		require.Equal(t, "temperature", gjson.GetBytes(rec.Body.Bytes(), "error.param").String())
+	}
+	// moonshot-* stays outside the KVV table, so this request is not a sampling 400.
+	// The account has no key, so the fallback stops before any upstream call.
+	body := []byte(`{"model":"moonshot-v1-8k","input":"hi","temperature":1.1}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	_, err := svc.forwardResponsesViaRawChatCompletions(context.Background(), c, account, body)
+	require.Error(t, err)
+	require.NotEqual(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, err.Error(), "missing api_key")
+}

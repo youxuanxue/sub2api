@@ -103,7 +103,14 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	// 独立 Ollama Cloud token 钩子；chatReq.Model 已是模型映射后的 upstreamModel。
 	chatBody = clampOllamaCloudUpstreamMaxTokens(account, chatBody)
 	chatBody = ensureDeepSeekChatReasoningPlaceholders(account, chatBody)
-	if resolveMoonshotThinkingFamily(upstreamModel) == moonshotThinkingK3 {
+	// Chat completions and the bridge already reject KVV-illegal kimi-* shapes.
+	// This raw /v1/responses fallback has to do the same for every kimi-* id,
+	// not only the K3 family. Non-kimi models stay on the previous path.
+	if isKimiModel(upstreamModel) {
+		chatBody, err = applyMoonshotK3DynamicToolsShape(upstreamModel, chatBody)
+		if err != nil {
+			return nil, rejectOpenAIInvalidParameter(c, err)
+		}
 		chatBody, err = applyMoonshotThinkingShape(c, account, upstreamModel, chatBody)
 		if err != nil {
 			return nil, err
