@@ -697,7 +697,7 @@
         "isMoonshotDynamicToolSystemMessage",
         "\"tool_choice\", \"required\""
       ],
-      "rationale": "Owner for Moonshot-style dynamic tool injection (system message with tools and no usable content). Volc Agent Plan rejects that shape with missing content; promote legal tools to top-level, drop those system messages, and set tool_choice=required when the client omitted it so kimi-k3 Calculator admission probes invoke the tool across K3 supplies. Non-system tools, content plus tools, missing type/function/name, non-array tools, and duplicate function names return invalid_parameter before promotion. A blank function.name is still promoted so the later empty-name check can reject it."
+      "rationale": "Owner for Moonshot-style dynamic tool injection (system message with tools and no usable content). The check and promotion run for every public id starting with kimi-, including kimi-k3, kimi-k3-*, kimi-k3.1-pro, and the rest of kimi-*. Legal empty-content system tools are promoted to top-level and tool_choice=required is set when the client omitted it. Non-system tools, content plus tools, missing type/function/name, non-array tools, and duplicate function names return invalid_parameter before promotion. A blank function.name is still promoted so the later empty-name check can reject it."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_ali_fixed_sampling_test.go",

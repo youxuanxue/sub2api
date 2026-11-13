@@ -131,22 +131,21 @@ func TestApplyMoonshotK3DynamicToolsShape_KeepsExplicitToolChoice(t *testing.T) 
 }
 
 func TestApplyMoonshotK3DynamicToolsShape_LeavesOtherModels(t *testing.T) {
-	body := []byte(`{"model":"kimi-k2.5","messages":[{"role":"system","tools":[{"type":"function","function":{"name":"Calculator"}}]}]}`)
-	got, err := applyMoonshotK3DynamicToolsShape("kimi-k2.5", body)
+	body := []byte(`{"model":"moonshot-v1-8k","messages":[{"role":"user","content":"hi","tools":[{"type":"function","function":{"name":"Calculator"}}]}]}`)
+	got, err := applyMoonshotK3DynamicToolsShape("moonshot-v1-8k", body)
 	require.NoError(t, err)
-	if string(got) != string(body) {
-		t.Fatalf("non-k3 body must be unchanged")
+	require.JSONEq(t, string(body), string(got))
+}
+
+func TestApplyMoonshotK3DynamicToolsShape_CoversOtherKimiIDs(t *testing.T) {
+	for _, model := range []string{"kimi-k2.5", "kimi-k30", "kimi-k3.1-pro"} {
+		body := []byte(`{"model":"` + model + `","messages":[{"role":"system","tools":[{"type":"function","function":{"name":"Calculator"}}]},{"role":"user","content":"hi"}]}`)
+		got := mustApplyMoonshotK3DynamicTools(t, model, body)
+		require.Equal(t, "Calculator", gjson.GetBytes(got, "tools.0.function.name").String())
+		require.Equal(t, "required", gjson.GetBytes(got, "tool_choice").String())
+		userTools := []byte(`{"model":"` + model + `","messages":[{"role":"user","content":"hi","tools":[{"type":"function","function":{"name":"Calculator"}}]}]}`)
+		requireMoonshotK3DynamicToolsParam(t, model, userTools, "messages")
 	}
-	k30 := []byte(`{"model":"kimi-k30","messages":[{"role":"system","tools":[{"type":"function","function":{"name":"Calculator"}}]}]}`)
-	got, err = applyMoonshotK3DynamicToolsShape("kimi-k30", k30)
-	require.NoError(t, err)
-	if string(got) != string(k30) {
-		t.Fatalf("kimi-k30 must not be treated as k3, got %s", got)
-	}
-	userTools := []byte(`{"model":"kimi-k30","messages":[{"role":"user","content":"hi","tools":[{"type":"function","function":{"name":"Calculator"}}]}]}`)
-	got, err = applyMoonshotK3DynamicToolsShape("kimi-k30", userTools)
-	require.NoError(t, err)
-	require.JSONEq(t, string(userTools), string(got))
 }
 
 func TestApplyMoonshotK3DynamicToolsShape_PromotesKimiK31Pro(t *testing.T) {

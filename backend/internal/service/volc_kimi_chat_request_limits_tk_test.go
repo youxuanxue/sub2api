@@ -90,23 +90,25 @@ func TestVolcKimiRequestLimitsRejectUndeliverableFields(t *testing.T) {
 	require.ErrorAs(t, err, &otherInvalid)
 	require.Equal(t, "n", otherInvalid.Param)
 
-	// kimi-k3.1-pro is the same Volc K3 family. n=2 is rejected; an in-range
-	// temperature, including 0.6, 1.1 and 2.0, is forwarded and is not rewritten to 1.
+	// kimi-k3.1-pro and other kimi-* ids use the same KVV table. n=2, temperature
+	// 1.1 and 2.0 are rejected. A legal temperature stays client-authored.
 	_, err = applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","n":2}`))
 	var invalid *OpenAIInvalidParameterError
 	require.ErrorAs(t, err, &invalid)
 	require.Equal(t, "n", invalid.Param)
-	for _, tc := range []struct {
-		body string
-		temp float64
-	}{
-		{`{"model":"kimi-k3.1-pro","temperature":0.6,"messages":[{"role":"user","content":"hi"}]}`, 0.6},
-		{`{"model":"kimi-k3.1-pro","temperature":1.1,"messages":[{"role":"user","content":"hi"}]}`, 1.1},
-		{`{"model":"kimi-k3.1-pro","temperature":2.0,"messages":[{"role":"user","content":"hi"}]}`, 2},
-	} {
-		forwarded, ferr := applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(tc.body))
+	for _, model := range []string{"kimi-k3.1-pro", "kimi-k2.5", "kimi-k30"} {
+		for _, raw := range []string{`"temperature":1.1`, `"temperature":2.0`, `"top_p":0.8`, `"n":2`} {
+			_, ferr := applyMoonshotThinkingShape(nil, nil, model, []byte(`{"model":"`+model+`","messages":[{"role":"user","content":"hi"}],`+raw+`}`))
+			var rejected *OpenAIInvalidParameterError
+			require.ErrorAs(t, ferr, &rejected)
+		}
+		forwarded, ferr := applyMoonshotThinkingShape(nil, nil, model, []byte(`{"model":"`+model+`","temperature":0.6,"messages":[{"role":"user","content":"hi"}]}`))
 		require.NoError(t, ferr)
-		require.InDelta(t, tc.temp, gjson.GetBytes(forwarded, "temperature").Float(), 0.0001)
+		require.InDelta(t, 0.6, gjson.GetBytes(forwarded, "temperature").Float(), 0.0001)
+		_, ferr = applyMoonshotThinkingShape(nil, nil, model, []byte(`{"model":"`+model+`","messages":[{"role":"tool","content":"result"},{"role":"user","content":"hi"}]}`))
+		var orphan *OpenAIInvalidParameterError
+		require.ErrorAs(t, ferr, &orphan)
+		require.Equal(t, "messages", orphan.Param)
 	}
 }
 

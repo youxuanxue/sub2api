@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -43,12 +43,14 @@ Only the evidenced Volc Agent Plan endpoint identity and Kimi K3 family use this
 policy. The family is `kimi-k3`, `kimi-k3-*`, and `kimi-k3.*` (`kimi-k3.1-pro`
 included, `kimi-k30` excluded). `kimi-k3.1-pro` takes the same Volc normalizer,
 including `n=1`, and the same Moonshot dynamic-tool promotion. The DashScope
-sampling pin stays on `kimi-k3` and `kimi-k3-*` only (`kimi-k3.1-pro` is
-outside that set). On 2026-11-13 the user decided 「按照 KVV 要求」: an omitted
+sampling pin stays on `kimi-k3` and `kimi-k3-*` only. On 2026-11-13 the user
+decided 「按照 KVV 要求」, and then 「kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-*
+都需要生效」. The 400s for orphan tool messages, blank function names, KVV
+sampling values, and illegal dynamic tools therefore apply to every normalized
+id that starts with `kimi-`. `moonshot-*` is outside that set. An omitted
 `top_p` is still written as 0.95, and a legal client `temperature` may still
-be pinned to 1.0 for DashScope. A KVV-rejected sampling value is not rewritten
-into a legal one. `kimi-k3.1-pro` keeps the range check, so an in-range
-temperature, including 0.6, 1.1 and 2.0, is still forwarded unchanged.
+be pinned to 1.0, only on the DashScope pin's narrower set. A KVV-rejected
+sampling value is not rewritten into a legal one.
 Existing supplier recognition owns endpoint identification; names and
 account IDs are not selectors. Other suppliers retain their existing policy.
 
@@ -91,9 +93,10 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
 - Existing `auto`, `required`, `none` and ordinary tool round trips retain their
   existing behavior. This patch does not claim native allowed-tools support.
 - Moonshot dynamic tool injection is owned by `applyMoonshotK3DynamicToolsShape`.
-  The check runs for every `isMoonshotK3FamilyModel` request before promotion
-  and before account selection. Other models, including `kimi-k30`, are returned
-  unchanged. A `system` message whose content is absent, JSON null, an empty
+  The check runs for every `isKimiModel` request (`kimi-k3`, `kimi-k3-*`,
+  `kimi-k3.1-pro`, and the rest of `kimi-*`, including `kimi-k30` and
+  `kimi-k2.5`) before promotion and before account selection. `moonshot-*` is
+  returned unchanged. A `system` message whose content is absent, JSON null, an empty
   string, or whitespace only, and whose tools are legal, is still promoted to
   top-level `tools` and that message is dropped. Several such messages promote
   together. Distinct names still merge with top-level `tools`, including a
@@ -206,9 +209,10 @@ read 2026-11-04.
 - 2026-11-13 user decision 「按照 KVV 要求」 replaces the earlier choice to
   accept every in-range `temperature` and `top_p`. The fixed-value check is
   `rejectKimiK3FixedSampling`, called from `applyMoonshotThinkingShape` before
-  the account branch for `isNewAPIAliFixedSamplingModel` only (`kimi-k3` and
-  `kimi-k3-*`, not `kimi-k3.1-pro`). A non-matching account still returns 400
-  for these fields. Comparison uses a small float tolerance. Accepted values
+  the account branch for every `isKimiModel` id (`kimi-k3`, `kimi-k3-*`,
+  `kimi-k3.1-pro`, and the rest of `kimi-*`). A non-matching account still
+  returns 400 for these fields. Comparison uses a small float tolerance.
+  Accepted values
   are forwarded unchanged by the normalizer:
   omitted fields; `temperature` in `[0, 2]` except `1.1` and `2.0`
   (including 0, 0.6 and 1.0); `top_p` exactly 0.95; `presence_penalty` 0;
@@ -221,11 +225,10 @@ read 2026-11-04.
   It still writes `top_p` 0.95 when the client omitted it, and it may pin a
   legal `temperature` to 1.0. It must leave a rejected value in place so the
   bridge returns 400. The raw Chat path does not run the pin and returns the
-  same 400.
-- `kimi-k3.1-pro` keeps only the range check: `temperature` outside `[0, 2]`,
-  `top_p` outside `[0, 1]`, or a non-number returns 400 on that field.
-  In-range temperatures, including 0.6, 1.1 and 2.0, are forwarded unchanged.
-- `n` other than `1` returns 400 on `n`. Moonshot fixes K3 `n` at `1`; the
+  same 400. `kimi-k3.1-pro` and other `kimi-*` ids use this same table.
+  Their legal temperatures, including 0.6, stay as the client sent them
+  because the DashScope pin does not rewrite those ids.
+- `n` other than `1` returns 400 on `n` for every `kimi-*` id. Moonshot fixes K3 `n` at `1`; the
   supplier returned one choice for `n=2`.
 - `logprobs=true` or `top_logprobs>0` returns 400 on that field. Moonshot
   documents `logprobs` and `top_logprobs` (0 to 20). The supplier returned

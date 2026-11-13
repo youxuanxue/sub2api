@@ -21,7 +21,7 @@ import (
 // caller rejects the same shapes. A repeated function name is a 400. This path
 // does not silently drop the later declaration.
 func applyMoonshotK3DynamicToolsShape(model string, body []byte) ([]byte, error) {
-	if len(body) == 0 || !isMoonshotK3FamilyModel(model) {
+	if len(body) == 0 || !isKimiModel(model) {
 		return body, nil
 	}
 	messages := gjson.GetBytes(body, "messages")

@@ -3332,11 +3332,12 @@
       "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk.go",
       "must_contain": [
         "isNewAPIVolcEngineAgentPlanAccount(account)",
-        "normalizeVolcKimiChatRequest(body)",
+        "normalizeVolcKimiChatRequest(shaped)",
         "rejectUnreachableVolcKimiVideoURLs(ctx, shaped)",
-        "NormalizeMoonshotThinking(model, body)"
+        "NormalizeMoonshotThinking(model, body)",
+        "isKimiModel(model)"
       ],
-      "rationale": "The selected supplier, not the public Kimi model name alone, chooses thinking normalization."
+      "rationale": "The selected supplier, not the public Kimi model name alone, chooses thinking normalization. KVV rejects for orphan tools, blank function names, and fixed sampling run for every kimi-* id before that choice."
     },
     {
       "path": "backend/internal/service/volc_kimi_chat_request_limits_tk.go",

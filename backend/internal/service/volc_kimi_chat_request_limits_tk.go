@@ -33,11 +33,12 @@ func kimiK3FixedTemperatureAllowed(value gjson.Result) bool {
 	return !kimiK3Near(value.Num, 1.1) && !kimiK3Near(value.Num, 2)
 }
 
-// rejectKimiK3FixedSampling enforces the Moonshot KVV sampling table on
-// kimi-k3 and kimi-k3-*. kimi-k3.1-pro is not in that set and keeps the range
-// checks in validateVolcKimiRequestLimits. Accepted numbers are not rewritten.
+// rejectKimiK3FixedSampling enforces the Moonshot KVV sampling table on every
+// public id that starts with kimi-, including kimi-k3, kimi-k3-*,
+// kimi-k3.1-pro, and the rest of kimi-*. The DashScope pin stays narrower.
+// Accepted numbers are not rewritten.
 func rejectKimiK3FixedSampling(model string, body []byte) error {
-	if !isNewAPIAliFixedSamplingModel(model) {
+	if !isKimiModel(model) {
 		return nil
 	}
 	if err := volcKimiNumberInRange(body, "temperature", 0, 2); err != nil {

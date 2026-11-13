@@ -96,14 +96,25 @@ func applyMoonshotThinkingShape(c *gin.Context, account *Account, model string, 
 	// run before either the Volc normalizer or the other-supplier thinking path.
 	if err = rejectKimiK3FixedSampling(model, body); err != nil {
 		shaped = body
-	} else if isNewAPIVolcEngineAgentPlanAccount(account) && resolveMoonshotThinkingFamily(model) == moonshotThinkingK3 {
-		shaped, err = normalizeVolcKimiChatRequest(body)
+	} else if isKimiModel(model) {
+		// Orphan tool messages and blank function names are part of the same
+		// public KVV contract. They run for every kimi-* id. The Volc K3
+		// normalizer below repeats them and still owns content and thinking.
+		shaped, err = normalizeVolcKimiOrphanToolMessages(body)
 		if err == nil {
-			ctx := context.Background()
-			if c != nil && c.Request != nil {
-				ctx = c.Request.Context()
+			shaped, err = normalizeVolcKimiEmptyFunctionNames(shaped)
+		}
+		if err == nil && isNewAPIVolcEngineAgentPlanAccount(account) && resolveMoonshotThinkingFamily(model) == moonshotThinkingK3 {
+			shaped, err = normalizeVolcKimiChatRequest(shaped)
+			if err == nil {
+				ctx := context.Background()
+				if c != nil && c.Request != nil {
+					ctx = c.Request.Context()
+				}
+				err = rejectUnreachableVolcKimiVideoURLs(ctx, shaped)
 			}
-			err = rejectUnreachableVolcKimiVideoURLs(ctx, shaped)
+		} else if err == nil {
+			shaped, err = NormalizeMoonshotThinking(model, shaped)
 		}
 	} else {
 		shaped, err = NormalizeMoonshotThinking(model, body)
@@ -175,6 +186,14 @@ func normalizeMoonshotModelID(model string) string {
 func isMoonshotK3FamilyModel(model string) bool {
 	m := normalizeMoonshotModelID(model)
 	return m == "kimi-k3" || strings.HasPrefix(m, "kimi-k3-") || strings.HasPrefix(m, "kimi-k3.")
+}
+
+// isKimiModel reports every public id whose normalized name starts with
+// "kimi-", including kimi-k3, kimi-k3-*, kimi-k3.1-pro, and the rest of
+// kimi-*. A vendor prefix such as "moonshot/kimi-k2.5" still matches.
+// moonshot-* ids do not.
+func isKimiModel(model string) bool {
+	return strings.HasPrefix(normalizeMoonshotModelID(model), "kimi-")
 }
 
 func resolveMoonshotThinkingFamily(model string) moonshotThinkingFamily {
