@@ -226,22 +226,48 @@ func newAPIQianfanModelDisplayPresetIDs() []string {
 	)
 }
 
+func aliTokenPlanMappingKeyForbidden(key string) bool {
+	for _, forbidden := range aliTokenPlanForbiddenModelMappingKeys {
+		if key == forbidden {
+			return true
+		}
+	}
+	return false
+}
+
+// Upstream billing ids stay in the manifest so the public alias can resolve a
+// price, but they are not client mapping keys.
+func aliTokenPlanUpstreamOnlyModelID(key string) bool {
+	return key == "qwen4.0-max-preview"
+}
+
 func newAPIAliTokenPlanModelMappingPresetIDs() []string {
-	ids := tkServedModelsManifestPresetIDsForSelector(
+	raw := tkServedModelsManifestPresetIDsForSelector(
 		PlatformNewAPI,
 		newapiconstant.ChannelTypeAli,
 		newapiintegration.AliTokenPlanBaseURL,
 	)
-	seen := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
+	ids := make([]string, 0, len(raw)+1)
+	seen := make(map[string]struct{}, len(raw)+1)
+	for _, id := range raw {
+		if aliTokenPlanMappingKeyForbidden(id) || aliTokenPlanUpstreamOnlyModelID(id) {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
 		seen[id] = struct{}{}
+		ids = append(ids, id)
 	}
 	for alias := range newAPIAliTokenPlanModelAliases() {
+		if aliTokenPlanMappingKeyForbidden(alias) || aliTokenPlanUpstreamOnlyModelID(alias) {
+			continue
+		}
 		if _, exists := seen[alias]; exists {
 			continue
 		}
-		ids = append(ids, alias)
 		seen[alias] = struct{}{}
+		ids = append(ids, alias)
 	}
 	sort.Strings(ids)
 	return ids
@@ -288,6 +314,8 @@ func volcEngineAgentPlanMappingKeyForbidden(key string) bool {
 // and operator-withdrawn legacy aliases. Generic ch17 PAYG membership and billing
 // history remain independent; apply-accounts must not preserve these Plan extras.
 var aliTokenPlanForbiddenModelMappingKeys = []string{
+	"qwen-max",
+	"qwen-plus",
 	"qwen-turbo",
 	"qwen3-235b-a22b",
 	"qwen3-32b",
@@ -332,8 +360,6 @@ var aliTokenPlanForbiddenModelMappingKeys = []string{
 // PAYG aliases retain their original targets.
 func newAPIAliTokenPlanModelAliases() map[string]string {
 	return map[string]string{
-		"qwen-plus":   "qwen3.7-plus",
-		"qwen-max":    "qwen3.8-max",
 		"qwen4.0-max": "qwen4.0-max-preview",
 	}
 }

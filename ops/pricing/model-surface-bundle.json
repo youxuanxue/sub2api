@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "018a388c39051ecfa4fd460e9e28b4c2ff2b78c45ae269cca680fff1664474d8",
+  "floor_sha256": "9044a0c266515c6d895cf11ea38c1b72d9d19c55bbcc215d36981be795fc55fc",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -345,15 +345,12 @@
           "happyhorse-1.1-t2v": "happyhorse-1.1-t2v",
           "qwen-audio-3.0-tts-plus": "qwen-audio-3.0-tts-plus",
           "qwen-image-3.0-pro": "qwen-image-3.0-pro",
-          "qwen-max": "qwen3.8-max",
-          "qwen-plus": "qwen3.7-plus",
           "qwen3.6-flash": "qwen3.6-flash",
           "qwen3.7-max": "qwen3.7-max",
           "qwen3.7-plus": "qwen3.7-plus",
           "qwen3.8-flash": "qwen3.8-flash",
           "qwen3.8-max": "qwen3.8-max",
           "qwen4.0-max": "qwen4.0-max-preview",
-          "qwen4.0-max-preview": "qwen4.0-max-preview",
           "wan2.7-image": "wan2.7-image",
           "wan2.7-image-pro": "wan2.7-image-pro",
           "wan3.0-video": "wan3.0-video"
@@ -516,6 +513,8 @@
         "glm-5.1",
         "glm-5.2-fast-preview",
         "qwen-audio-3.0-realtime-plus",
+        "qwen-max",
+        "qwen-plus",
         "qwen-turbo",
         "qwen3-14b",
         "qwen3-235b-a22b",

@@ -15,8 +15,9 @@ import (
 func TestSettleBillingOnAccountServedModel_UsesAccountMappingSSOT(t *testing.T) {
 	t.Parallel()
 	account := aliTokenPlanAccountForBillingTest(t)
-	require.Equal(t, "qwen3.7-plus", settleBillingOnAccountServedModel(account, "qwen-plus", "qwen-plus"))
-	require.Equal(t, "qwen3.8-max", settleBillingOnAccountServedModel(account, "qwen-max", "qwen-max"))
+	require.Equal(t, "qwen4.0-max-preview", settleBillingOnAccountServedModel(account, "qwen4.0-max", "qwen4.0-max"))
+	require.Equal(t, "qwen-plus", settleBillingOnAccountServedModel(account, "qwen-plus", "qwen-plus"))
+	require.Equal(t, "qwen-max", settleBillingOnAccountServedModel(account, "qwen-max", "qwen-max"))
 	require.Equal(t, "claude-sonnet-4", settleBillingOnAccountServedModel(account, "claude-sonnet-4", "claude-sonnet-4"))
 
 	payg := &Account{
@@ -41,24 +42,17 @@ func TestGatewayRecordUsage_TokenPlanLegacyAliasBillsServedModel(t *testing.T) {
 	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, subRepo)
 	account := aliTokenPlanAccountForBillingTest(t)
 
-	expectedCost, err := svc.billingService.CalculateCost("qwen3.7-plus", UsageTokens{
+	expectedCost, err := svc.billingService.CalculateCost("qwen4.0-max-preview", UsageTokens{
 		InputTokens:  1000,
 		OutputTokens: 500,
 	}, 1.1)
 	require.NoError(t, err)
-	legacyCost, err := svc.billingService.CalculateCost("qwen-plus", UsageTokens{
-		InputTokens:  1000,
-		OutputTokens: 500,
-	}, 1.1)
-	require.NoError(t, err)
-	require.NotEqual(t, expectedCost.ActualCost, legacyCost.ActualCost,
-		"test must distinguish legacy vs served price cards")
 
 	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
 		Result: &ForwardResult{
-			RequestID:     "tokenplan-legacy-billing",
-			Model:         "qwen-plus",
-			UpstreamModel: "qwen3.7-plus",
+			RequestID:     "tokenplan-qwen4-billing",
+			Model:         "qwen4.0-max",
+			UpstreamModel: "qwen4.0-max-preview",
 			Usage: ClaudeUsage{
 				InputTokens:  1000,
 				OutputTokens: 500,
@@ -69,8 +63,8 @@ func TestGatewayRecordUsage_TokenPlanLegacyAliasBillsServedModel(t *testing.T) {
 		User:    &User{ID: 20},
 		Account: account,
 		ChannelUsageFields: ChannelUsageFields{
-			OriginalModel:      "qwen-plus",
-			ChannelMappedModel: "qwen-plus",
+			OriginalModel:      "qwen4.0-max",
+			ChannelMappedModel: "qwen4.0-max",
 			BillingModelSource: BillingModelSourceRequested,
 		},
 	})
@@ -90,25 +84,18 @@ func TestOpenAIRecordUsage_TokenPlanLegacyAliasBillsServedModel(t *testing.T) {
 	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
 	account := aliTokenPlanAccountForBillingTest(t)
 
-	expectedCost, err := svc.billingService.CalculateCost("qwen3.7-plus", UsageTokens{
+	expectedCost, err := svc.billingService.CalculateCost("qwen4.0-max-preview", UsageTokens{
 		InputTokens:  1000,
 		OutputTokens: 500,
 	}, 1.1)
 	require.NoError(t, err)
-	legacyCost, err := svc.billingService.CalculateCost("qwen-plus", UsageTokens{
-		InputTokens:  1000,
-		OutputTokens: 500,
-	}, 1.1)
-	require.NoError(t, err)
-	require.NotEqual(t, expectedCost.ActualCost, legacyCost.ActualCost,
-		"test must distinguish legacy vs served price cards")
 
 	err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
 		Result: &OpenAIForwardResult{
-			RequestID:     "tokenplan-openai-legacy-billing",
-			Model:         "qwen-plus",
-			BillingModel:  "qwen-plus",
-			UpstreamModel: "qwen3.7-plus",
+			RequestID:     "tokenplan-openai-qwen4-billing",
+			Model:         "qwen4.0-max",
+			BillingModel:  "qwen4.0-max",
+			UpstreamModel: "qwen4.0-max-preview",
 			Usage: OpenAIUsage{
 				InputTokens:  1000,
 				OutputTokens: 500,
@@ -119,8 +106,8 @@ func TestOpenAIRecordUsage_TokenPlanLegacyAliasBillsServedModel(t *testing.T) {
 		User:    &User{ID: 20},
 		Account: account,
 		ChannelUsageFields: ChannelUsageFields{
-			OriginalModel:      "qwen-plus",
-			ChannelMappedModel: "qwen-plus",
+			OriginalModel:      "qwen4.0-max",
+			ChannelMappedModel: "qwen4.0-max",
 			BillingModelSource: BillingModelSourceRequested,
 		},
 	})

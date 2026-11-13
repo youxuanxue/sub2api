@@ -48,9 +48,9 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 		require.NotContains(t, want, stale)
 	}
 	// PAYG-only ch17 floor ids must not leak into Token Plan override.
-	for _, legacy := range []string{"qwen-plus", "qwen-max"} {
-		require.Contains(t, want, legacy, "legacy DashScope aliases must be routable on Token Plan")
-	}
+	require.NotContains(t, want, "qwen-plus", "withdrawn qwen-plus alias is not a Token Plan preset")
+	require.NotContains(t, want, "qwen-max", "withdrawn qwen-max alias is not a Token Plan preset")
+	require.NotContains(t, want, "qwen4.0-max-preview", "upstream billing id is not a client mapping key")
 
 	got := NewAPIModelMappingPresetIDsForAccount(account)
 	require.Equal(t, want, got)
@@ -78,8 +78,9 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	paygMapping, ok := accountModelMappingForAccount(context.Background(), payg, nil, nil, nil)
 	require.True(t, ok)
 	require.Contains(t, paygMapping, "qwen3-8b")
-	require.Equal(t, "qwen3.7-plus", mapping["qwen-plus"])
-	require.Equal(t, "qwen3.8-max", mapping["qwen-max"])
+	require.NotContains(t, mapping, "qwen-plus")
+	require.NotContains(t, mapping, "qwen-max")
+	require.NotContains(t, mapping, "qwen4.0-max-preview")
 	for _, retired := range aliTokenPlanForbiddenModelMappingKeys {
 		require.NotContains(t, mapping, retired)
 		require.NotContains(t, got, retired)
@@ -92,24 +93,17 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	}
 	for alias, target := range newAPIAliTokenPlanModelAliases() {
 		require.Equal(t, target, mapping[alias])
-		if alias == "qwen-max" || alias == "qwen-plus" {
-			require.Equal(t, alias, paygMapping[alias], "hiding legacy names must not retarget or remove PAYG support")
-		} else {
-			require.NotContains(t, paygMapping, alias, "Ali Token Plan aliases must not leak into PAYG")
-		}
-		require.Contains(t, mapping, target, "alias target must be in the provider manifest")
+		require.NotContains(t, paygMapping, alias, "Ali Token Plan aliases must not leak into PAYG")
+		require.NotContains(t, mapping, target, "upstream billing id is not a client mapping key")
 		require.True(t, isTkCuratedNewAPIModelListed(alias), "pricing membership remains")
-		if alias == "qwen-max" || alias == "qwen-plus" {
-			require.False(t, isTkCuratedNewAPIModelDisplayed(alias), "legacy names must not be advertised")
-			require.NotContains(t, NewAPIModelDisplayIDsForAccount(account), alias)
-			require.NotContains(t, NewAPIModelDisplayIDsForAccount(payg), alias)
-		}
+		require.True(t, isTkCuratedNewAPIModelDisplayed(alias), "public alias stays advertised")
 	}
+	require.Equal(t, "qwen-max", paygMapping["qwen-max"], "PAYG keeps the legacy qwen-max identity")
+	require.Equal(t, "qwen-plus", paygMapping["qwen-plus"], "PAYG keeps the legacy qwen-plus identity")
 	require.True(t, isTkCuratedNewAPIModelDisplayed("qwen4.0-max"))
 	require.Contains(t, NewAPIModelDisplayIDsForAccount(account), "qwen4.0-max")
 	require.NotContains(t, NewAPIModelDisplayIDsForAccount(payg), "qwen4.0-max")
 	require.Equal(t, "qwen4.0-max-preview", mapping["qwen4.0-max"])
-	require.Equal(t, "qwen4.0-max-preview", mapping["qwen4.0-max-preview"])
 	require.NotEqual(t, want, NewAPIModelMappingPresetIDsForAccount(payg))
 }
 
@@ -210,6 +204,9 @@ func TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides(t *testing.T) 
 			for alias, target := range newAPIAliTokenPlanModelAliases() {
 				require.Equal(t, target, override.ModelMapping[alias])
 			}
+			require.NotContains(t, override.ModelMapping, "qwen-plus")
+			require.NotContains(t, override.ModelMapping, "qwen-max")
+			require.NotContains(t, override.ModelMapping, "qwen4.0-max-preview")
 			require.NotContains(t, override.ModelMapping, "qwen-audio-3.0-realtime-plus")
 		}
 		if override.ChannelType == newapiconstant.ChannelTypeBaiduV2 &&
