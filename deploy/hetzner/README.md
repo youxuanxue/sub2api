@@ -84,7 +84,7 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
 这里的 `cn-ip5` 是新机。上文已销毁的腾讯 `cn-ip5`（`192.144.148.117`）是另一台，名字重复使用了。
 
-装机入口是 [`deploy/tencent/install-cn-socks-proxy.sh`](../tencent/install-cn-socks-proxy.sh)。它负责安装 GOST、写入 `tokenkey-proxy` 和 `tokenkey-proxy-firewall` 两个 unit、配置 BBR，最后装主机告警并跑 `--verify` 验收；GOST 版本、校验和与 1080 端口的放行来源都写在这个脚本里。生成的 iptables 规则和 `cn-ip1..4` 现网逐字一致。每台 SOCKS 密码独立，只存在主机和 cn-prod `proxies` 表里。阿里云实例防火墙额外开了 TCP 1080/8080 全网，和腾讯 `cn-ip1..4` 的宽松规则保持一致。远程执行走阿里云「云助手」SWAS `RunCommand`，不走 TAT 或 SSM。
+装机入口是 [`deploy/tencent/install-cn-socks-proxy.sh`](../tencent/install-cn-socks-proxy.sh)。它负责安装 GOST、写入 `tokenkey-proxy` 和 `tokenkey-proxy-firewall` 两个 unit、配置 BBR、收紧 sshd，最后装主机告警并跑 `--verify` 验收。1080 的放行来源只在这个脚本的 `ALLOWED_SOURCES`。主机 iptables 只放行这些来源的 1080，并丢弃入站 22 和 8080。云防火墙要配成同一份 1080 来源名单，不要对 `0.0.0.0/0` 开放 22、8080 或 1080；系统重装不会清掉已有云防火墙，新建实例不能用控制台默认的公网 22。每台 SOCKS 密码独立，只存在主机和 cn-prod `proxies` 表里。远程执行走阿里云「云助手」SWAS `RunCommand`，不走 TAT 或 SSM。
 
 #### 代理主机告警（强制）
 

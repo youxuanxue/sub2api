@@ -2149,6 +2149,10 @@ done
 if [[ "${_host_syntax_ok}" == "true" ]]; then
   echo "  ok: standalone tokenkey-*.sh host scripts parse"
 fi
+if ! python3 -m unittest deploy.tencent.test_host_lockdown >/dev/null 2>&1; then
+  echo "  FAIL: host lockdown (re-run: python3 -m unittest deploy.tencent.test_host_lockdown -v)"
+  errors=$((errors + 1))
+fi
 
 # ---- sub2api: SSM host command script parses (deploy/sync primitives) --------
 # The jq `commands` array these scripts send to AWS-RunShellScript is joined and

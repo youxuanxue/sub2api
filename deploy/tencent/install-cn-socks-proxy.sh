@@ -9,7 +9,36 @@
 #
 # gost.json holds the per-node SOCKS credentials; generate it off-host, never commit it.
 # Idempotent: re-running re-applies units/firewall and skips a verified GOST binary.
+#
+# Cloud firewall is not changed here. A new instance must allow TCP 1080 only from
+# ALLOWED_SOURCES below, and must not publish 22 or 8080 to 0.0.0.0/0. The host
+# rules still enforce that if the cloud rules are looser.
 set -euo pipefail
+
+# Sources allowed to reach :1080. cn-prod dials the proxies' public IPs, so its
+# source is the public 154.8.214.179. 106.75.29.139 (retired UCloud cn-prod) is kept
+# to match cn-ip1..4 until the fleet-wide allowlist is changed in one place.
+ALLOWED_SOURCES=(43.162.83.233 43.162.126.44 154.8.214.179 106.75.29.139)
+
+proxy_fw_rules() {
+  local src rules
+  rules="/usr/sbin/iptables -N TK_CN_PROXY 2>/dev/null || true; /usr/sbin/iptables -F TK_CN_PROXY;"
+  for src in "${ALLOWED_SOURCES[@]}"; do
+    rules+=" /usr/sbin/iptables -A TK_CN_PROXY -s ${src}/32 -j ACCEPT;"
+  done
+  rules+=" /usr/sbin/iptables -A TK_CN_PROXY -j DROP;"
+  rules+=" /usr/sbin/iptables -C INPUT -p tcp --dport 1080 -j TK_CN_PROXY 2>/dev/null || /usr/sbin/iptables -I INPUT 1 -p tcp --dport 1080 -j TK_CN_PROXY;"
+  rules+=" /usr/sbin/iptables -C INPUT -p tcp --dport 22 -m conntrack --ctstate NEW -j DROP 2>/dev/null || /usr/sbin/iptables -I INPUT 1 -p tcp --dport 22 -m conntrack --ctstate NEW -j DROP;"
+  rules+=" /usr/sbin/iptables -C INPUT -p tcp --dport 8080 -m conntrack --ctstate NEW -j DROP 2>/dev/null || /usr/sbin/iptables -I INPUT 1 -p tcp --dport 8080 -m conntrack --ctstate NEW -j DROP"
+  printf '%s' "$rules"
+}
+
+if [[ "${TOKENKEY_PRINT_FW_RULES:-}" == 1 ]]; then
+  proxy_fw_rules
+  printf '\n'
+  exit 0
+fi
+
 [[ $EUID -eq 0 ]] || { echo "need root" >&2; exit 1; }
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -22,11 +51,6 @@ GOST_SHA256=1d8f971e9447cf4114fb1376b85c8c14e840db50ae8dbe895398a34e97c13e08
 GOST_URL="https://github.com/go-gost/gost/releases/download/v${GOST_VERSION}/gost_${GOST_VERSION}_linux_amd64.tar.gz"
 # GitHub downloads from mainland hosts can stall for minutes; allow a long budget.
 GOST_DOWNLOAD_MAX_TIME="${GOST_DOWNLOAD_MAX_TIME:-900}"
-
-# Sources allowed to reach :1080. cn-prod dials the proxies' public IPs, so its
-# source is the public 154.8.214.179. 106.75.29.139 (retired UCloud cn-prod) is kept
-# to match cn-ip1..4 until the fleet-wide allowlist is changed in one place.
-ALLOWED_SOURCES=(43.162.83.233 43.162.126.44 154.8.214.179 106.75.29.139)
 
 [[ -s "$GOST_JSON" ]] || { echo "missing gost.json: $GOST_JSON" >&2; exit 1; }
 [[ -s "$ALERT_ENV" ]] || { echo "missing host-alerts.env: $ALERT_ENV" >&2; exit 1; }
@@ -54,12 +78,8 @@ id tokenkey-proxy >/dev/null 2>&1 \
 install -d -m 0750 -o root -g tokenkey-proxy /etc/tokenkey-proxy
 install -m 0640 -o root -g tokenkey-proxy "$GOST_JSON" /etc/tokenkey-proxy/gost.json
 
-fw_rules="/usr/sbin/iptables -N TK_CN_PROXY 2>/dev/null || true; /usr/sbin/iptables -F TK_CN_PROXY;"
-for src in "${ALLOWED_SOURCES[@]}"; do
-  fw_rules+=" /usr/sbin/iptables -A TK_CN_PROXY -s ${src}/32 -j ACCEPT;"
-done
-fw_rules+=" /usr/sbin/iptables -A TK_CN_PROXY -j DROP;"
-fw_rules+=" /usr/sbin/iptables -C INPUT -p tcp --dport 1080 -j TK_CN_PROXY 2>/dev/null || /usr/sbin/iptables -I INPUT 1 -p tcp --dport 1080 -j TK_CN_PROXY"
+fw_rules="$(proxy_fw_rules)"
+bash "$HERE/lock-down-sshd.sh"
 
 cat > /etc/systemd/system/tokenkey-proxy-firewall.service <<UNIT
 [Unit]
