@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -43,8 +43,12 @@ Only the evidenced Volc Agent Plan endpoint identity and Kimi K3 family use this
 policy. The family is `kimi-k3`, `kimi-k3-*`, and `kimi-k3.*` (`kimi-k3.1-pro`
 included, `kimi-k30` excluded). `kimi-k3.1-pro` takes the same Volc normalizer,
 including `n=1`, and the same Moonshot dynamic-tool promotion. The DashScope
-sampling pin (temperature 1, top_p 0.95) stays on `kimi-k3` and `kimi-k3-*`
-only, so an in-range `kimi-k3.1-pro` temperature is still forwarded.
+sampling pin stays on `kimi-k3` and `kimi-k3-*` only (`kimi-k3.1-pro` is
+outside that set). On 2026-11-13 the user decided 「按照 KVV 要求」: an omitted
+`top_p` is still written as 0.95, and a legal client `temperature` may still
+be pinned to 1.0 for DashScope. A KVV-rejected sampling value is not rewritten
+into a legal one. `kimi-k3.1-pro` keeps the range check, so an in-range
+temperature, including 0.6, 1.1 and 2.0, is still forwarded unchanged.
 Existing supplier recognition owns endpoint identification; names and
 account IDs are not selectors. Other suppliers retain their existing policy.
 
@@ -86,19 +90,51 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   tool types, empty sets and legacy function API combinations fail explicitly.
 - Existing `auto`, `required`, `none` and ordinary tool round trips retain their
   existing behavior. This patch does not claim native allowed-tools support.
-- Moonshot dynamic tool injection (`system` message carrying `tools` without
-  usable content — absent, null, or empty/whitespace string) is promoted to
-  top-level `tools` before relay so Calculator-style admission probes do not
-  fail with missing `messages.content[.text]`.
+- Moonshot dynamic tool injection is owned by `applyMoonshotK3DynamicToolsShape`.
+  The check runs for every `isMoonshotK3FamilyModel` request before promotion
+  and before account selection. Other models, including `kimi-k30`, are returned
+  unchanged. A `system` message whose content is absent, JSON null, an empty
+  string, or whitespace only, and whose tools are legal, is still promoted to
+  top-level `tools` and that message is dropped. Several such messages promote
+  together. Distinct names still merge with top-level `tools`, including a
+  128-character name. When the client omitted `tool_choice`, the gateway still
+  sets `required`. A client-supplied `tool_choice` is kept. This keeps
+  Calculator-style admission probes from failing with missing
+  `messages.content[.text]`.
+  On 2026-11-13 the user decided 「按照 KVV 要求」to fix cases 4–8. These
+  requests return 400, `invalid_parameter`, before promotion and are not
+  forwarded. Callers that have a gin context write that 400 and stop, using the
+  same path as `applyMoonshotThinkingShape`. Client-visible text does not name
+  the supplier.
+  - Any non-system message (`user`, `assistant`, or another role) that has a
+    `tools` field: param `messages`.
+  - A system message that has `tools` and content outside the empty forms above
+    (a non-empty string, a non-empty array, or any other content): param
+    `messages`.
+  - A dynamic tool missing `type`, `function`, or `function.name`: param
+    `tools`. An empty or whitespace `function.name` is not this case. Promotion
+    still lifts it, and the empty-name check below returns 400 on param `tools`.
+  - A message `tools` value that is not an array (including an object), or an
+    array element that is not an object (including null): param `tools`.
+  - The same function name, compared after trimming whitespace, inside one
+    message, across messages, or between a dynamic tool and top-level `tools`:
+    param `tools`. The later declaration is not silently dropped.
 - 2026-10-23 cn-prod (Tencent Beijing) user 2 kimi-k3 400s, checked against the
   captured request shape and a direct replay on account 88:
   a plain object in `messages.content` (`{"key":"val"}`) is sent as its JSON
   text; one content part sent as an object (`{"type":"text","text":"hi"}`) is
   wrapped in an array. Both are 400 on the wire and 200 after this rewrite.
-  A `tool` message whose `tool_call_id` matches no assistant `tool_calls` id
-  becomes a user message and keeps its content (`tool_call_id is not found`
-  → 200). Function tools with an empty name are dropped; if none remain,
-  `tool_choice` is dropped with them (`function name is invalid` → 200).
+  A `tool` message whose `tool_call_id` is missing, blank, or matches no
+  assistant `tool_calls` id returns 400, `invalid_parameter`, param
+  `messages`. A tool message whose id matches is forwarded unchanged.
+  Historical `tool_calls` that lack `function.name` stay a 400; they are not
+  rewritten into a user message. A function tool whose `name` is empty or
+  whitespace returns 400, param `tools`. That check runs after Moonshot
+  dynamic-tool promotion, so a system message with empty content and
+  `function.name: ""` is still rejected once the tool is on top-level
+  `tools`. A non-empty name is unchanged. The previous rewrite (orphan tool
+  became a user message and returned 200; empty names were dropped and the
+  request continued) is retired by the 2026-11-13 decision 「按照 KVV 要求」.
   Matched tool results, string content, and content-part arrays stay as sent.
   An https `video_url` the gateway cannot fetch (captured Wikimedia webm from
   Beijing; the same unnamed InvalidParameter was reproduced with
@@ -167,13 +203,28 @@ read 2026-11-04.
   reasoning on, which was the observed bug. `none` combined with an explicit
   enabled switch returns 400 on `reasoning_effort`. `minimal` stays `low`.
   Other suppliers keep the historical `none`→`low` mapping.
-- `temperature` outside `[0, 2]`, `top_p` outside `[0, 1]`, or a non-number
-  returns 400 on that field. Moonshot documents K3 `temperature` as fixed at
-  `1.0` and `top_p` at `0.95` ("passing any other value returns an error").
-  This change rejects only values outside the OpenAI-compatible range. It
-  does not yet enforce Moonshot's fixed values, because in-range values
-  currently succeed on this supplier and tightening would break working
-  clients. That needs a separate decision.
+- 2026-11-13 user decision 「按照 KVV 要求」 replaces the earlier choice to
+  accept every in-range `temperature` and `top_p`. The fixed-value check is
+  `rejectKimiK3FixedSampling`, called from `applyMoonshotThinkingShape` before
+  the account branch for `isNewAPIAliFixedSamplingModel` only (`kimi-k3` and
+  `kimi-k3-*`, not `kimi-k3.1-pro`). A non-matching account still returns 400
+  for these fields. Comparison uses a small float tolerance. Accepted values
+  are forwarded unchanged by the normalizer:
+  omitted fields; `temperature` in `[0, 2]` except `1.1` and `2.0`
+  (including 0, 0.6 and 1.0); `top_p` exactly 0.95; `presence_penalty` 0;
+  `frequency_penalty` 0; `n` 1.
+  Rejected with 400 on that field: `temperature` 1.1 or 2.0, `temperature`
+  outside `[0, 2]` (including -0.1) or non-numeric; `top_p` other than 0.95
+  (including 0, 0.8 and 1) or non-numeric; `presence_penalty` or
+  `frequency_penalty` other than 0; `n` other than 1.
+  The DashScope pin runs before `applyMoonshotThinkingShape` on the bridge.
+  It still writes `top_p` 0.95 when the client omitted it, and it may pin a
+  legal `temperature` to 1.0. It must leave a rejected value in place so the
+  bridge returns 400. The raw Chat path does not run the pin and returns the
+  same 400.
+- `kimi-k3.1-pro` keeps only the range check: `temperature` outside `[0, 2]`,
+  `top_p` outside `[0, 1]`, or a non-number returns 400 on that field.
+  In-range temperatures, including 0.6, 1.1 and 2.0, are forwarded unchanged.
 - `n` other than `1` returns 400 on `n`. Moonshot fixes K3 `n` at `1`; the
   supplier returned one choice for `n=2`.
 - `logprobs=true` or `top_logprobs>0` returns 400 on that field. Moonshot

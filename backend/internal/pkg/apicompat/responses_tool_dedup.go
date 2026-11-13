@@ -7,17 +7,16 @@ import (
 
 // Tool-merge dedupe owner for Responses-shaped tool lists.
 //
-// Three merge points append one tool list onto another — the carrier lift in
-// internal/service/gateway_forward_as_responses.go, EffectiveResponsesTools in
-// this package, and the Moonshot K3 dynamic-tool promotion in
-// internal/service/openai_gateway_bridge_dispatch_tk_kimi_k3_dynamic_tools.go.
-// A client that declares a tool at the top level and again in the carrier (or a
-// system message) therefore used to reach the upstream with two entries of the
+// Two merge points append one tool list onto another — the carrier lift in
+// internal/service/gateway_forward_as_responses.go and EffectiveResponsesTools
+// in this package. A client that declares a tool at the top level and again in
+// the carrier therefore used to reach the upstream with two entries of the
 // same name. Observed symptoms: two `shell` entries when additional_tools
 // repeats a top-level tool, and two `web_search` entries at the Anthropic exit
 // where responses_to_anthropic_request.go maps {"type":"web_search"} onto
 // {"type":"web_search_20250305","name":"web_search"} beside a client function
-// of that name.
+// of that name. Moonshot K3 dynamic-tool promotion does not use this helper:
+// a repeated function name is rejected before promotion.
 //
 // Key shape mirrors grokResponsesToolDedupKey in
 // internal/service/openai_gateway_grok.go, the one merge point that already got

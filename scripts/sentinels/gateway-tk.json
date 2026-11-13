@@ -18228,7 +18228,7 @@
         "func ResponsesToolDedupKey(tool ResponsesTool) string {",
         "func AppendRawResponsesToolsDeduped(base []any, extra ...any) ([]any, bool) {"
       ],
-      "rationale": "Single dedupe owner for the three tool-merge points (carrier lift, EffectiveResponsesTools, Moonshot K3 promotion) that used a bare append and shipped two entries of one name upstream — observed as two `shell`, and two `web_search` at the Anthropic exit. Key shape is type+name, matching grokResponsesToolDedupKey; first writer wins so the client's own declaration survives."
+      "rationale": "Single dedupe owner for the carrier lift and EffectiveResponsesTools, which used a bare append and shipped two entries of one name upstream — observed as two `shell`, and two `web_search` at the Anthropic exit. Key shape is type+name, matching grokResponsesToolDedupKey; first writer wins so the client's own declaration survives. Moonshot K3 promotion does not call this helper: a repeated function name is rejected before promotion."
     },
     {
       "path": "backend/internal/service/openai_tool_corrector_gate_tk.go",

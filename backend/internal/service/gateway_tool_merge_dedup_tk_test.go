@@ -75,22 +75,14 @@ func TestLiftResponsesAdditionalTools_KeepsDistinctAndIgnoresAbsentCarrier(t *te
 	assert.Len(t, noCarrier["tools"].([]any), 1)
 }
 
-// The Moonshot K3 promotion lifts tools out of a dynamic system message. A
-// client that also declared the tool at top level used to get two copies.
-func TestApplyMoonshotK3DynamicToolsShape_DropsDuplicateDeclaration(t *testing.T) {
+// The Moonshot K3 promotion used to keep the first declaration and drop the
+// dynamic copy. A repeated function name is now a 400 before promotion.
+func TestApplyMoonshotK3DynamicToolsShape_RejectsDuplicateDeclaration(t *testing.T) {
 	model := moonshotK3DynamicToolsTestModel(t)
 	body := []byte(`{"model":"` + model + `","tools":[{"type":"function","function":{"name":"calc","description":"client calc"}}],` +
 		`"messages":[{"role":"system","tools":[{"type":"function","function":{"name":"calc","description":"dynamic calc"}}]},{"role":"user","content":"hi"}]}`)
 
-	out := applyMoonshotK3DynamicToolsShape(model, body)
-
-	tools := gjson.GetBytes(out, "tools").Array()
-	require.Len(t, tools, 1, "the same tool declared twice must be promoted once")
-	assert.Equal(t, "client calc", tools[0].Get("function.description").String())
-	// The dynamic system message is still consumed.
-	messages := gjson.GetBytes(out, "messages").Array()
-	require.Len(t, messages, 1)
-	assert.Equal(t, "user", messages[0].Get("role").String())
+	requireMoonshotK3DynamicToolsParam(t, model, body, "tools")
 }
 
 // Benign direction: a distinct dynamic tool is still promoted alongside the
@@ -100,7 +92,8 @@ func TestApplyMoonshotK3DynamicToolsShape_PromotesDistinctTool(t *testing.T) {
 	body := []byte(`{"model":"` + model + `","tools":[{"type":"function","function":{"name":"calc"}}],` +
 		`"messages":[{"role":"system","tools":[{"type":"function","function":{"name":"search"}}]},{"role":"user","content":"hi"}]}`)
 
-	out := applyMoonshotK3DynamicToolsShape(model, body)
+	out, err := applyMoonshotK3DynamicToolsShape(model, body)
+	require.NoError(t, err)
 
 	tools := gjson.GetBytes(out, "tools").Array()
 	require.Len(t, tools, 2)

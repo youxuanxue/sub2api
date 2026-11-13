@@ -52,22 +52,24 @@ func TestApplyNewAPIAliFixedSamplingShape_PinsTopP(t *testing.T) {
 }
 
 func TestApplyNewAPIAliFixedSamplingShape_RewritesInvalidClientSampling(t *testing.T) {
+	// 0.7 is still a legal temperature and may be pinned to 1.0. The other
+	// client values are KVV rejects and must stay illegal for the later 400.
 	body := []byte(`{"model":"kimi-k3","temperature":0.7,"top_p":0.8,"n":2,"presence_penalty":0.5,"frequency_penalty":0.5,"messages":[{"role":"user","content":"hi"}]}`)
 	got := applyNewAPIAliFixedSamplingShape("kimi-k3", body)
-	if gjson.GetBytes(got, "top_p").Float() != 0.95 {
-		t.Fatalf("top_p=%v want 0.95", gjson.GetBytes(got, "top_p").Float())
-	}
 	if gjson.GetBytes(got, "temperature").Float() != 1.0 {
 		t.Fatalf("temperature=%v want 1.0", gjson.GetBytes(got, "temperature").Float())
 	}
-	if gjson.GetBytes(got, "n").Int() != 1 {
-		t.Fatalf("n=%v want 1", gjson.GetBytes(got, "n").Int())
+	for _, path := range []string{"top_p", "n", "presence_penalty", "frequency_penalty"} {
+		if gjson.GetBytes(got, path).Raw != gjson.GetBytes(body, path).Raw {
+			t.Fatalf("%s rewritten from %s to %s", path, gjson.GetBytes(body, path).Raw, gjson.GetBytes(got, path).Raw)
+		}
 	}
-	if gjson.GetBytes(got, "presence_penalty").Float() != 0 {
-		t.Fatalf("presence_penalty=%v want 0", gjson.GetBytes(got, "presence_penalty").Float())
-	}
-	if gjson.GetBytes(got, "frequency_penalty").Float() != 0 {
-		t.Fatalf("frequency_penalty=%v want 0", gjson.GetBytes(got, "frequency_penalty").Float())
+	for _, raw := range []string{"1.1", "2.0", "2"} {
+		src := []byte(`{"model":"kimi-k3","temperature":` + raw + `}`)
+		kept := applyNewAPIAliFixedSamplingShape("kimi-k3", src)
+		if gjson.GetBytes(kept, "temperature").Raw != raw {
+			t.Fatalf("temperature %s rewritten to %s", raw, gjson.GetBytes(kept, "temperature").Raw)
+		}
 	}
 }
 

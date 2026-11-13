@@ -118,8 +118,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(upstreamBody, upstreamModel); normalized {
 		upstreamBody = normalizedBody
 	}
-	upstreamBody = applyMoonshotK3DynamicToolsShape(upstreamModel, upstreamBody)
 	var moonshotErr error
+	upstreamBody, moonshotErr = applyMoonshotK3DynamicToolsShape(upstreamModel, upstreamBody)
+	if moonshotErr != nil {
+		return nil, rejectOpenAIInvalidParameter(c, moonshotErr)
+	}
 	upstreamBody, moonshotErr = applyMoonshotThinkingShape(c, account, upstreamModel, upstreamBody)
 	if moonshotErr != nil {
 		return nil, moonshotErr

@@ -7,38 +7,30 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// applyNewAPIAliFixedSamplingShape pins DashScope/Moonshot fixed sampling params
-// for kimi-k3 before the new-api Ali adaptor runs.
+// applyNewAPIAliFixedSamplingShape prepares kimi-k3 sampling before the new-api
+// Ali adaptor runs.
 //
 // new-api relay/channel/ali.requestOpenAI2Ali rewrites missing/zero top_p to
-// 0.001. kimi-k3 rejects any top_p other than the server-fixed 0.95 (omit is
-// OK to DashScope directly, but the adaptor always injects a value). Live
-// 2026-09-01 probe: top_p=0.95 and temperature=1.0 succeed; 0.001/0.8/0.7 fail.
+// 0.001. kimi-k3 accepts only top_p 0.95, so an omitted top_p is still written
+// as 0.95. A client temperature that rejectKimiK3FixedSampling accepts may
+// still be pinned to 1.0 for DashScope.
+//
+// Values that decision rejects (temperature 1.1 or 2.0, any other top_p,
+// penalties other than 0, n other than 1, and out-of-range or non-numeric
+// sampling fields) are left unchanged. applyMoonshotThinkingShape then returns
+// 400. Rewriting them to a legal value here made the bridge answer 200.
 func applyNewAPIAliFixedSamplingShape(model string, body []byte) []byte {
 	if len(body) == 0 || !isNewAPIAliFixedSamplingModel(model) {
 		return body
 	}
 	shaped := body
-	if next, err := sjson.SetBytes(shaped, "top_p", 0.95); err == nil {
-		shaped = next
+	if !volcKimiFieldSet(gjson.GetBytes(shaped, "top_p")) {
+		if next, err := sjson.SetBytes(shaped, "top_p", 0.95); err == nil {
+			shaped = next
+		}
 	}
-	if gjson.GetBytes(shaped, "temperature").Exists() {
+	if temp := gjson.GetBytes(shaped, "temperature"); volcKimiFieldSet(temp) && kimiK3FixedTemperatureAllowed(temp) {
 		if next, err := sjson.SetBytes(shaped, "temperature", 1.0); err == nil {
-			shaped = next
-		}
-	}
-	if gjson.GetBytes(shaped, "n").Exists() {
-		if next, err := sjson.SetBytes(shaped, "n", 1); err == nil {
-			shaped = next
-		}
-	}
-	if gjson.GetBytes(shaped, "presence_penalty").Exists() {
-		if next, err := sjson.SetBytes(shaped, "presence_penalty", 0); err == nil {
-			shaped = next
-		}
-	}
-	if gjson.GetBytes(shaped, "frequency_penalty").Exists() {
-		if next, err := sjson.SetBytes(shaped, "frequency_penalty", 0); err == nil {
 			shaped = next
 		}
 	}

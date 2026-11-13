@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	newapitypes "github.com/QuantumNous/new-api/types"
@@ -261,27 +262,57 @@ func TestVolcKimiInboundMessageShapes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "ms://file-1", gjson.GetBytes(singleStringVideo, "messages.0.content.0.video_url.url").String())
 
-	orphan, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":"hi"},{"role":"tool","tool_call_id":"call_1","content":"result"}]}`))
-	require.NoError(t, err)
-	require.Equal(t, "user", gjson.GetBytes(orphan, "messages.1.role").String())
-	require.False(t, gjson.GetBytes(orphan, "messages.1.tool_call_id").Exists())
-	require.Equal(t, "result", gjson.GetBytes(orphan, "messages.1.content").String())
+	for _, orphanBody := range []string{
+		`{"messages":[{"role":"user","content":"hi"},{"role":"tool","tool_call_id":"call_1","content":"result"}]}`,
+		`{"messages":[{"role":"tool","content":"some tool result"},{"role":"user","content":"hello"}]}`,
+		`{"messages":[{"role":"tool","tool_call_id":"  ","content":"result"}]}`,
+	} {
+		_, err := normalizeVolcKimiChatRequest([]byte(orphanBody))
+		var invalid *OpenAIInvalidParameterError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, "messages", invalid.Param)
+		require.Equal(t, "invalid_parameter", invalid.Code)
+		require.NotContains(t, strings.ToLower(invalid.Message), "volc")
+	}
 
 	matched, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":"result"}]}`))
 	require.NoError(t, err)
 	require.Equal(t, "tool", gjson.GetBytes(matched, "messages.1.role").String())
 	require.Equal(t, "call_1", gjson.GetBytes(matched, "messages.1.tool_call_id").String())
 
-	empty, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"","parameters":{"type":"object"}}},{"type":"function","function":{"name":"  ","parameters":{"type":"object"}}}],"tool_choice":"required"}`))
-	require.NoError(t, err)
-	require.False(t, gjson.GetBytes(empty, "tools").Exists())
-	require.False(t, gjson.GetBytes(empty, "tool_choice").Exists())
+	for _, emptyBody := range []string{
+		`{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"","parameters":{"type":"object"}}},{"type":"function","function":{"name":"  ","parameters":{"type":"object"}}}],"tool_choice":"required"}`,
+		`{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"","parameters":{"type":"object"}}},{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":"auto"}`,
+	} {
+		_, err := normalizeVolcKimiChatRequest([]byte(emptyBody))
+		var invalid *OpenAIInvalidParameterError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, "tools", invalid.Param)
+		require.Equal(t, "invalid_parameter", invalid.Code)
+		require.NotContains(t, strings.ToLower(invalid.Message), "volc")
+	}
 
-	kept, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"","parameters":{"type":"object"}}},{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":"auto"}`))
+	kept, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":"auto"}`))
 	require.NoError(t, err)
 	require.EqualValues(t, 1, gjson.GetBytes(kept, "tools.#").Int())
 	require.Equal(t, "lookup", gjson.GetBytes(kept, "tools.0.function.name").String())
 	require.Equal(t, "auto", gjson.GetBytes(kept, "tool_choice").String())
+
+	// KVV empty name lives on a system message. Promotion runs first and the
+	// blank name must still be visible on top-level tools.
+	promotedEmpty, err := applyMoonshotK3DynamicToolsShape("kimi-k3", []byte(`{"model":"kimi-k3","messages":[{"role":"system","content":"","tools":[{"type":"function","function":{"name":""}}]},{"role":"user","content":"hello"}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "", gjson.GetBytes(promotedEmpty, "tools.0.function.name").String())
+	_, err = applyMoonshotThinkingShape(nil, account, "kimi-k3", promotedEmpty)
+	var invalid *OpenAIInvalidParameterError
+	require.ErrorAs(t, err, &invalid)
+	require.Equal(t, "tools", invalid.Param)
+
+	promotedNamed, err := applyMoonshotK3DynamicToolsShape("kimi-k3", []byte(`{"model":"kimi-k3","messages":[{"role":"system","content":"","tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]},{"role":"user","content":"hello"}]}`))
+	require.NoError(t, err)
+	named, err := applyMoonshotThinkingShape(nil, account, "kimi-k3", promotedNamed)
+	require.NoError(t, err)
+	require.Equal(t, "lookup", gjson.GetBytes(named, "tools.0.function.name").String())
 
 	other, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", []byte(`{"messages":[{"role":"user","content":{"key":"val"}}]}`))
 	require.NoError(t, err)

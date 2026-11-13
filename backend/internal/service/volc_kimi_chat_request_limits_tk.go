@@ -14,6 +14,60 @@ import (
 // benchmark, 2026-11-04). The public kimi-k3 surface follows Moonshot, which
 // rejects these values; see docs/approved/volc-kimi-chat-compatibility.md.
 // Valid values are forwarded unchanged.
+// kimiK3FixedSamplingEpsilon matches JSON numbers that round-trip through float64
+// (1.1, 2, 0.95) without treating a nearby distinct value as the same number.
+const kimiK3FixedSamplingEpsilon = 1e-6
+
+func kimiK3Near(got, want float64) bool {
+	return math.Abs(got-want) <= kimiK3FixedSamplingEpsilon
+}
+
+// kimiK3FixedTemperatureAllowed reports a client temperature the 2026-11-13 KVV
+// decision accepts for isNewAPIAliFixedSamplingModel. 1.1 and 2.0 are inside
+// [0, 2] and are still rejected. Other in-range numbers, including 0, 0.6 and
+// 1, are accepted and may be pinned to 1.0 for DashScope.
+func kimiK3FixedTemperatureAllowed(value gjson.Result) bool {
+	if value.Type != gjson.Number || value.Num < 0 || value.Num > 2 {
+		return false
+	}
+	return !kimiK3Near(value.Num, 1.1) && !kimiK3Near(value.Num, 2)
+}
+
+// rejectKimiK3FixedSampling enforces the Moonshot KVV sampling table on
+// kimi-k3 and kimi-k3-*. kimi-k3.1-pro is not in that set and keeps the range
+// checks in validateVolcKimiRequestLimits. Accepted numbers are not rewritten.
+func rejectKimiK3FixedSampling(model string, body []byte) error {
+	if !isNewAPIAliFixedSamplingModel(model) {
+		return nil
+	}
+	if err := volcKimiNumberInRange(body, "temperature", 0, 2); err != nil {
+		return err
+	}
+	if temp := gjson.GetBytes(body, "temperature"); volcKimiFieldSet(temp) && !kimiK3FixedTemperatureAllowed(temp) {
+		return newOpenAIInvalidParameterError("temperature", "temperature 1.1 and 2.0 are not accepted")
+	}
+	if topP := gjson.GetBytes(body, "top_p"); volcKimiFieldSet(topP) {
+		if topP.Type != gjson.Number || !kimiK3Near(topP.Num, 0.95) {
+			return newOpenAIInvalidParameterError("top_p", "top_p must be 0.95")
+		}
+	}
+	for _, path := range []string{"presence_penalty", "frequency_penalty"} {
+		value := gjson.GetBytes(body, path)
+		if !volcKimiFieldSet(value) {
+			continue
+		}
+		if value.Type != gjson.Number || !kimiK3Near(value.Num, 0) {
+			return newOpenAIInvalidParameterError(path, path+" must be 0")
+		}
+	}
+	if n := gjson.GetBytes(body, "n"); volcKimiFieldSet(n) {
+		if !volcKimiIsInteger(n) || n.Num != 1 {
+			return newOpenAIInvalidParameterError("n", "kimi-k3 supports only n=1")
+		}
+	}
+	return nil
+}
+
 func validateVolcKimiRequestLimits(body []byte) error {
 	if err := volcKimiNumberInRange(body, "temperature", 0, 2); err != nil {
 		return err

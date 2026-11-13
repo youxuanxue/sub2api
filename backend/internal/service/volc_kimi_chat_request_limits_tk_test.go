@@ -27,8 +27,16 @@ func TestVolcKimiRequestLimitsRejectUndeliverableFields(t *testing.T) {
 		{`"top_p":1.5`, "top_p"},
 		{`"top_p":"0.9"`, "top_p"},
 		{`"temperature":-0.1`, "temperature"},
+		{`"temperature":1.1`, "temperature"},
+		{`"temperature":2`, "temperature"},
+		{`"temperature":2.0`, "temperature"},
 		{`"temperature":2.1`, "temperature"},
 		{`"temperature":"hot"`, "temperature"},
+		{`"top_p":0`, "top_p"},
+		{`"top_p":0.8`, "top_p"},
+		{`"top_p":1`, "top_p"},
+		{`"presence_penalty":0.5`, "presence_penalty"},
+		{`"frequency_penalty":0.5`, "frequency_penalty"},
 		{`"n":2`, "n"},
 		{`"n":0`, "n"},
 		{`"n":1.5`, "n"},
@@ -58,7 +66,8 @@ func TestVolcKimiRequestLimitsRejectUndeliverableFields(t *testing.T) {
 		})
 	}
 	for _, field := range []string{
-		`"top_p":0`, `"top_p":1`, `"top_p":0.95`, `"temperature":0`, `"temperature":1`, `"temperature":2`,
+		`"top_p":0.95`, `"temperature":0`, `"temperature":0.6`, `"temperature":1`,
+		`"presence_penalty":0`, `"frequency_penalty":0`,
 		`"n":1`, `"logprobs":false`, `"top_logprobs":0`, `"max_tokens":1`, `"max_completion_tokens":131072`,
 		`"top_p":null`, `"temperature":null`, `"n":null`, `"logprobs":null`, `"max_tokens":null`,
 		`"prediction":{"type":"content","content":"OK"}`,
@@ -71,20 +80,63 @@ func TestVolcKimiRequestLimitsRejectUndeliverableFields(t *testing.T) {
 			require.JSONEq(t, string(body), string(got), "valid values must be forwarded unchanged")
 		})
 	}
-	// Supplier scope: other Kimi routes keep their existing behavior.
-	other, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", []byte(`{"n":2,"top_p":1.5}`))
-	require.NoError(t, err)
-	require.EqualValues(t, 2, gjson.GetBytes(other, "n").Int())
+	// Public kimi-k3 rejects KVV-illegal sampling even when the account is not
+	// the supplier that owns the rest of the normalizer. top_p is checked first.
+	_, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", []byte(`{"n":2,"top_p":1.5}`))
+	var otherInvalid *OpenAIInvalidParameterError
+	require.ErrorAs(t, err, &otherInvalid)
+	require.Equal(t, "top_p", otherInvalid.Param)
+	_, err = applyMoonshotThinkingShape(nil, nil, "kimi-k3", []byte(`{"model":"kimi-k3","n":2}`))
+	require.ErrorAs(t, err, &otherInvalid)
+	require.Equal(t, "n", otherInvalid.Param)
 
 	// kimi-k3.1-pro is the same Volc K3 family. n=2 is rejected; an in-range
-	// temperature is forwarded and is not rewritten to 1.
+	// temperature, including 0.6, 1.1 and 2.0, is forwarded and is not rewritten to 1.
 	_, err = applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","n":2}`))
 	var invalid *OpenAIInvalidParameterError
 	require.ErrorAs(t, err, &invalid)
 	require.Equal(t, "n", invalid.Param)
-	forwarded, err := applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","temperature":0.6,"messages":[{"role":"user","content":"hi"}]}`))
+	for _, tc := range []struct {
+		body string
+		temp float64
+	}{
+		{`{"model":"kimi-k3.1-pro","temperature":0.6,"messages":[{"role":"user","content":"hi"}]}`, 0.6},
+		{`{"model":"kimi-k3.1-pro","temperature":1.1,"messages":[{"role":"user","content":"hi"}]}`, 1.1},
+		{`{"model":"kimi-k3.1-pro","temperature":2.0,"messages":[{"role":"user","content":"hi"}]}`, 2},
+	} {
+		forwarded, ferr := applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(tc.body))
+		require.NoError(t, ferr)
+		require.InDelta(t, tc.temp, gjson.GetBytes(forwarded, "temperature").Float(), 0.0001)
+	}
+}
+
+func TestVolcKimiFixedSamplingSurvivesAliPin(t *testing.T) {
+	account := volcEnginePlanTestAccount()
+	illegal := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}],"temperature":1.1,"top_p":0.8,"n":2,"presence_penalty":0.5,"frequency_penalty":0.5}`)
+	pinned := applyNewAPIAliFixedSamplingShape("kimi-k3", illegal)
+	require.InDelta(t, 1.1, gjson.GetBytes(pinned, "temperature").Float(), kimiK3FixedSamplingEpsilon)
+	require.InDelta(t, 0.8, gjson.GetBytes(pinned, "top_p").Float(), kimiK3FixedSamplingEpsilon)
+	require.EqualValues(t, 2, gjson.GetBytes(pinned, "n").Int())
+	require.InDelta(t, 0.5, gjson.GetBytes(pinned, "presence_penalty").Float(), kimiK3FixedSamplingEpsilon)
+	require.InDelta(t, 0.5, gjson.GetBytes(pinned, "frequency_penalty").Float(), kimiK3FixedSamplingEpsilon)
+	_, err := applyMoonshotThinkingShape(nil, account, "kimi-k3", pinned)
+	var invalid *OpenAIInvalidParameterError
+	require.ErrorAs(t, err, &invalid)
+	require.Equal(t, "temperature", invalid.Param)
+
+	two := applyNewAPIAliFixedSamplingShape("kimi-k3", []byte(`{"model":"kimi-k3","temperature":2}`))
+	require.InDelta(t, 2, gjson.GetBytes(two, "temperature").Float(), kimiK3FixedSamplingEpsilon)
+	_, err = applyMoonshotThinkingShape(nil, account, "kimi-k3", two)
+	require.ErrorAs(t, err, &invalid)
+	require.Equal(t, "temperature", invalid.Param)
+
+	legal := applyNewAPIAliFixedSamplingShape("kimi-k3", []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}],"temperature":0.6}`))
+	require.InDelta(t, 1, gjson.GetBytes(legal, "temperature").Float(), kimiK3FixedSamplingEpsilon)
+	require.InDelta(t, 0.95, gjson.GetBytes(legal, "top_p").Float(), kimiK3FixedSamplingEpsilon)
+	got, err := applyMoonshotThinkingShape(nil, account, "kimi-k3", legal)
 	require.NoError(t, err)
-	require.InDelta(t, 0.6, gjson.GetBytes(forwarded, "temperature").Float(), 0.0001)
+	require.InDelta(t, 1, gjson.GetBytes(got, "temperature").Float(), kimiK3FixedSamplingEpsilon)
+	require.InDelta(t, 0.95, gjson.GetBytes(got, "top_p").Float(), kimiK3FixedSamplingEpsilon)
 }
 
 func TestVolcKimiReasoningEffortNoneDisablesThinking(t *testing.T) {
@@ -128,19 +180,27 @@ func TestVolcKimiReasoningEffortNoneDisablesThinking(t *testing.T) {
 func TestVolcKimiRequestLimitsForwardReturnsLocal400(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	account := volcAgentPlanKimiAccountForTest()
-	body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}],"n":2}`)
-	upstream := &httpUpstreamRecorder{}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	_, err := svc.ForwardAsChatCompletionsDispatched(context.Background(), c, account, body, "", "")
-	var invalid *OpenAIInvalidParameterError
-	require.ErrorAs(t, err, &invalid)
-	require.Nil(t, upstream.lastReq, "invalid request must not reach the supplier")
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Equal(t, "n", gjson.Get(rec.Body.String(), "error.param").String())
-	require.Equal(t, "invalid_parameter", gjson.Get(rec.Body.String(), "error.code").String())
+	for _, tc := range []struct{ body, param string }{
+		{`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}],"n":2}`, "n"},
+		{`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}],"temperature":1.1}`, "temperature"},
+		{`{"model":"kimi-k3","messages":[{"role":"tool","content":"some tool result"},{"role":"user","content":"hello"}]}`, "messages"},
+	} {
+		t.Run(tc.param, func(t *testing.T) {
+			body := []byte(tc.body)
+			upstream := &httpUpstreamRecorder{}
+			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+			_, err := svc.ForwardAsChatCompletionsDispatched(context.Background(), c, account, body, "", "")
+			var invalid *OpenAIInvalidParameterError
+			require.ErrorAs(t, err, &invalid)
+			require.Nil(t, upstream.lastReq, "invalid request must not reach the supplier")
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			require.Equal(t, tc.param, gjson.Get(rec.Body.String(), "error.param").String())
+			require.Equal(t, "invalid_parameter", gjson.Get(rec.Body.String(), "error.code").String())
+		})
+	}
 }
 
 const volcKimiUpstreamRequestIDMessage = "The parameter `max_tokens` specified in the request are not valid: must be positive. Request id: 021793796431474c0f0a8de5025091839561e6fd538adcb9e5394"

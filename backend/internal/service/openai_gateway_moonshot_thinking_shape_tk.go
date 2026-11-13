@@ -59,6 +59,21 @@ func writeOpenAIInvalidParameterError(c *gin.Context, err *OpenAIInvalidParamete
 	c.JSON(http.StatusBadRequest, gin.H{"error": payload})
 }
 
+// rejectOpenAIInvalidParameter writes an OpenAI 400 for a parameter error and
+// returns err so callers stop forwarding. applyMoonshotThinkingShape and the
+// Moonshot K3 dynamic-tool callers share this write.
+func rejectOpenAIInvalidParameter(c *gin.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	var inv *OpenAIInvalidParameterError
+	if errors.As(err, &inv) && c != nil {
+		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+		writeOpenAIInvalidParameterError(c, inv)
+	}
+	return err
+}
+
 type moonshotThinkingFamily int
 
 const (
@@ -76,7 +91,12 @@ const (
 func applyMoonshotThinkingShape(c *gin.Context, account *Account, model string, body []byte) ([]byte, error) {
 	var shaped []byte
 	var err error
-	if isNewAPIVolcEngineAgentPlanAccount(account) && resolveMoonshotThinkingFamily(model) == moonshotThinkingK3 {
+	// Sampling rejects follow the public model, not the selected account. The
+	// DashScope pin no longer rewrites KVV-illegal values, so this check has to
+	// run before either the Volc normalizer or the other-supplier thinking path.
+	if err = rejectKimiK3FixedSampling(model, body); err != nil {
+		shaped = body
+	} else if isNewAPIVolcEngineAgentPlanAccount(account) && resolveMoonshotThinkingFamily(model) == moonshotThinkingK3 {
 		shaped, err = normalizeVolcKimiChatRequest(body)
 		if err == nil {
 			ctx := context.Background()
@@ -91,12 +111,7 @@ func applyMoonshotThinkingShape(c *gin.Context, account *Account, model string, 
 	if err == nil {
 		return shaped, nil
 	}
-	var inv *OpenAIInvalidParameterError
-	if errors.As(err, &inv) && c != nil {
-		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
-		writeOpenAIInvalidParameterError(c, inv)
-	}
-	return body, err
+	return body, rejectOpenAIInvalidParameter(c, err)
 }
 
 // NormalizeMoonshotThinking coerces common SDK mistakes onto Moonshot's
