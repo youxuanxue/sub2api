@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	// 15 分钟内 3 次能罩住大约每 5 分钟一次的持续截断，又不会被单次断流触发。
-	geminiDisruptionWindow    = 15 * time.Minute
+	// 正文、工具或媒体已经写给客户端之后，1 分钟内满 3 次才冷却。
+	// 还没写出可用内容就换号的截断不进入这个窗口。
+	geminiDisruptionWindow    = 1 * time.Minute
 	geminiDisruptionThreshold = 3
 	// INSUFFICIENT_G1_CREDITS 是账号额度耗尽，立刻停这一档，不走截断阶梯。
 	geminiG1CreditsCooldown = 30 * time.Minute
@@ -37,10 +38,10 @@ type geminiDisruptionRecorder struct {
 	accounts map[int64]*geminiDisruptionState
 }
 
-// trip records one truncation. The 15-minute window must reach the threshold
-// before a cooldown is considered. Repeated trips inside the Anthropic tier
-// TTL climb anthropicCooldownTierLadder (30s, 2m, 10m). Events that arrive
-// while that cooldown is still in force do not climb or rewrite it.
+// trip records one delivered truncation. The 1-minute window must reach the
+// threshold before a cooldown is considered. Repeated trips inside the
+// Anthropic tier TTL climb anthropicCooldownTierLadder (30s, 2m, 10m). Events
+// that arrive while that cooldown is still in force do not climb or rewrite it.
 func (r *geminiDisruptionRecorder) trip(id int64, now time.Time) (apply bool, tierIndex int, cooldown time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -87,6 +88,25 @@ var geminiDisruptions = &geminiDisruptionRecorder{}
 
 func noteGeminiStreamDisruption(ctx context.Context, store geminiDisruptionStore, account *Account) {
 	noteGeminiStreamDisruptionAt(ctx, store, account, time.Now())
+}
+
+// noteGeminiStreamDisruptionWhenDelivered counts a truncation only after the
+// client has received usable output. An empty-prefix failover has not.
+func noteGeminiStreamDisruptionWhenDelivered(ctx context.Context, store geminiDisruptionStore, account *Account, delivered bool) {
+	if !delivered {
+		return
+	}
+	noteGeminiStreamDisruption(ctx, store, account)
+}
+
+// geminiPayloadDeliveredUsableOutput is the messages-compat counterpart of
+// antigravityStreamResult.modelBytesWritten: a holdable prefix (signature,
+// blank text, thought) is not body, tool, or media.
+func geminiPayloadDeliveredUsableOutput(payload []byte) bool {
+	if len(bytes.TrimSpace(payload)) == 0 {
+		return false
+	}
+	return !geminiNativeEventHoldable(payload)
 }
 
 func noteGeminiStreamDisruptionAt(ctx context.Context, store geminiDisruptionStore, account *Account, now time.Time) {
