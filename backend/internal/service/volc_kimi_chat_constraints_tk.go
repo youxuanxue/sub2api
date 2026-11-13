@@ -60,10 +60,12 @@ func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 // direct replay then accepted:
 //   - a JSON object in messages.content is either one content part (wrap it in
 //     an array) or an ordinary object (send its JSON text as a string);
-//   - a tool message whose tool_call_id is absent from assistant tool_calls
-//     becomes a user message, keeping its content;
-//   - function tools with an empty name are removed. If none remain, tool_choice
-//     is removed with them;
+//   - a tool message whose tool_call_id is missing, blank, or absent from
+//     assistant tool_calls returns 400 (param messages). A matched tool
+//     message is kept. Historical tool_calls that lack function.name stay a
+//     separate 400 and are not rewritten into a user message;
+//   - a function tool whose name is empty or whitespace returns 400 (param
+//     tools). Names are not dropped so the request can continue;
 //   - a string video_url becomes {"url": ...} (2026-11-05);
 //   - a text part with text "" is dropped (2026-11-06).
 //
@@ -355,31 +357,25 @@ func normalizeVolcKimiOrphanToolMessages(body []byte) ([]byte, error) {
 			continue
 		}
 		for _, call := range msg.Get("tool_calls").Array() {
+			// Count the id even when function.name is missing. That history is
+			// already rejected elsewhere; dropping the id here would rewrite a
+			// paired tool message into a user message and hide the 400.
 			id := strings.TrimSpace(call.Get("id").String())
 			if id != "" {
 				ids[id] = struct{}{}
 			}
 		}
 	}
-	shaped := body
-	var err error
-	for i, msg := range msgs.Array() {
+	for _, msg := range msgs.Array() {
 		if !strings.EqualFold(msg.Get("role").String(), "tool") {
 			continue
 		}
 		if _, ok := ids[strings.TrimSpace(msg.Get("tool_call_id").String())]; ok {
 			continue
 		}
-		shaped, err = sjson.SetBytes(shaped, fmt.Sprintf("messages.%d.role", i), "user")
-		if err != nil {
-			return nil, err
-		}
-		shaped, err = sjson.DeleteBytes(shaped, fmt.Sprintf("messages.%d.tool_call_id", i))
-		if err != nil {
-			return nil, err
-		}
+		return nil, newOpenAIInvalidParameterError("messages", "tool message requires a tool_call_id that matches an assistant tool call")
 	}
-	return shaped, nil
+	return body, nil
 }
 
 func normalizeVolcKimiEmptyFunctionNames(body []byte) ([]byte, error) {
@@ -387,37 +383,31 @@ func normalizeVolcKimiEmptyFunctionNames(body []byte) ([]byte, error) {
 	if !tools.IsArray() {
 		return body, nil
 	}
-	kept := make([]json.RawMessage, 0, len(tools.Array()))
-	dropped := false
 	for _, tool := range tools.Array() {
-		name := strings.TrimSpace(tool.Get("function.name").String())
-		if tool.Get("function").Exists() && name == "" {
-			dropped = true
+		if !volcKimiFunctionTool(tool) {
 			continue
 		}
-		kept = append(kept, json.RawMessage(tool.Raw))
-	}
-	if !dropped {
-		return body, nil
-	}
-	if len(kept) == 0 {
-		shaped, err := sjson.DeleteBytes(body, "tools")
-		if err != nil {
-			return nil, err
+		name := tool.Get("function.name")
+		// A missing name is a different check. Only a present blank name is rejected here.
+		if !name.Exists() || name.Type == gjson.Null {
+			continue
 		}
-		if gjson.GetBytes(shaped, "tool_choice").Exists() {
-			shaped, err = sjson.DeleteBytes(shaped, "tool_choice")
-			if err != nil {
-				return nil, err
-			}
+		if strings.TrimSpace(name.String()) == "" {
+			return nil, newOpenAIInvalidParameterError("tools", "function.name must not be empty")
 		}
-		return shaped, nil
 	}
-	encoded, err := json.Marshal(kept)
-	if err != nil {
-		return nil, err
+	return body, nil
+}
+
+func volcKimiFunctionTool(tool gjson.Result) bool {
+	if !tool.Get("function").Exists() {
+		return false
 	}
-	return sjson.SetRawBytes(body, "tools", encoded)
+	typ := tool.Get("type")
+	if !typ.Exists() || typ.Type == gjson.Null {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(typ.String()), "function")
 }
 
 func normalizeVolcKimiThinking(body []byte) ([]byte, error) {

@@ -59,6 +59,21 @@ func writeOpenAIInvalidParameterError(c *gin.Context, err *OpenAIInvalidParamete
 	c.JSON(http.StatusBadRequest, gin.H{"error": payload})
 }
 
+// rejectOpenAIInvalidParameter writes an OpenAI 400 for a parameter error and
+// returns err so callers stop forwarding. applyMoonshotThinkingShape and the
+// Moonshot K3 dynamic-tool callers share this write.
+func rejectOpenAIInvalidParameter(c *gin.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	var inv *OpenAIInvalidParameterError
+	if errors.As(err, &inv) && c != nil {
+		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+		writeOpenAIInvalidParameterError(c, inv)
+	}
+	return err
+}
+
 type moonshotThinkingFamily int
 
 const (
@@ -76,14 +91,30 @@ const (
 func applyMoonshotThinkingShape(c *gin.Context, account *Account, model string, body []byte) ([]byte, error) {
 	var shaped []byte
 	var err error
-	if isNewAPIVolcEngineAgentPlanAccount(account) && resolveMoonshotThinkingFamily(model) == moonshotThinkingK3 {
-		shaped, err = normalizeVolcKimiChatRequest(body)
+	// Sampling rejects follow the public model, not the selected account. The
+	// DashScope pin no longer rewrites KVV-illegal values, so this check has to
+	// run before either the Volc normalizer or the other-supplier thinking path.
+	if err = rejectKimiK3FixedSampling(model, body); err != nil {
+		shaped = body
+	} else if isKimiModel(model) {
+		// Orphan tool messages and blank function names are part of the same
+		// public KVV contract. They run for every kimi-* id. The Volc K3
+		// normalizer below repeats them and still owns content and thinking.
+		shaped, err = normalizeVolcKimiOrphanToolMessages(body)
 		if err == nil {
-			ctx := context.Background()
-			if c != nil && c.Request != nil {
-				ctx = c.Request.Context()
+			shaped, err = normalizeVolcKimiEmptyFunctionNames(shaped)
+		}
+		if err == nil && isNewAPIVolcEngineAgentPlanAccount(account) && resolveMoonshotThinkingFamily(model) == moonshotThinkingK3 {
+			shaped, err = normalizeVolcKimiChatRequest(shaped)
+			if err == nil {
+				ctx := context.Background()
+				if c != nil && c.Request != nil {
+					ctx = c.Request.Context()
+				}
+				err = rejectUnreachableVolcKimiVideoURLs(ctx, shaped)
 			}
-			err = rejectUnreachableVolcKimiVideoURLs(ctx, shaped)
+		} else if err == nil {
+			shaped, err = NormalizeMoonshotThinking(model, shaped)
 		}
 	} else {
 		shaped, err = NormalizeMoonshotThinking(model, body)
@@ -91,12 +122,7 @@ func applyMoonshotThinkingShape(c *gin.Context, account *Account, model string, 
 	if err == nil {
 		return shaped, nil
 	}
-	var inv *OpenAIInvalidParameterError
-	if errors.As(err, &inv) && c != nil {
-		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
-		writeOpenAIInvalidParameterError(c, inv)
-	}
-	return body, err
+	return body, rejectOpenAIInvalidParameter(c, err)
 }
 
 // NormalizeMoonshotThinking coerces common SDK mistakes onto Moonshot's
@@ -160,6 +186,14 @@ func normalizeMoonshotModelID(model string) string {
 func isMoonshotK3FamilyModel(model string) bool {
 	m := normalizeMoonshotModelID(model)
 	return m == "kimi-k3" || strings.HasPrefix(m, "kimi-k3-") || strings.HasPrefix(m, "kimi-k3.")
+}
+
+// isKimiModel reports every public id whose normalized name starts with
+// "kimi-", including kimi-k3, kimi-k3-*, kimi-k3.1-pro, and the rest of
+// kimi-*. A vendor prefix such as "moonshot/kimi-k2.5" still matches.
+// moonshot-* ids do not.
+func isKimiModel(model string) bool {
+	return strings.HasPrefix(normalizeMoonshotModelID(model), "kimi-")
 }
 
 func resolveMoonshotThinkingFamily(model string) moonshotThinkingFamily {

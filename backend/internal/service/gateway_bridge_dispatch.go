@@ -85,8 +85,11 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 	}
 	bridgeModel := gjson.GetBytes(body, "model").String()
 	body = applyNewAPIAliFixedSamplingShape(bridgeModel, body)
-	body = applyMoonshotK3DynamicToolsShape(bridgeModel, body)
 	var shapeErr error
+	body, shapeErr = applyMoonshotK3DynamicToolsShape(bridgeModel, body)
+	if shapeErr != nil {
+		return nil, rejectOpenAIInvalidParameter(c, shapeErr)
+	}
 	body, shapeErr = applyMoonshotThinkingShape(c, account, bridgeModel, body)
 	if shapeErr != nil {
 		return nil, shapeErr
