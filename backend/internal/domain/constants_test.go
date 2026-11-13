@@ -13,6 +13,7 @@ func TestDefaultAntigravityModelMapping_ConvergedPublicSurface(t *testing.T) {
 		"gemini-3.8-flash":               "gemini-3.8-flash-high",
 		"gemini-4-argon":                 "gemini-4-argon-medium",
 		"gemini-4-carbon":                "gemini-4-carbon-medium",
+		"gemini-4-hydrogen":              "gemini-4-hydrogen-medium",
 		"gemini-3-flash":                 "gemini-3.8-flash-high",
 		"gemini-3-flash-preview":         "gemini-3.8-flash-high",
 		"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
@@ -89,10 +90,14 @@ func TestDefaultAntigravityModelMapping_Gemini4ArgonAndClaude55Models(t *testing
 	if got := DefaultAntigravityModelMapping["gemini-4-carbon"]; got != "gemini-4-carbon-medium" {
 		t.Fatalf("public carbon alias = %q", got)
 	}
+	if got := DefaultAntigravityModelMapping["gemini-4-hydrogen"]; got != "gemini-4-hydrogen-medium" {
+		t.Fatalf("public hydrogen alias = %q", got)
+	}
 	floors := AntigravityThinkingWireFloorEntries()
 	for _, tier := range []string{
 		"gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high",
 		"gemini-4-carbon-low", "gemini-4-carbon-medium", "gemini-4-carbon-high",
+		"gemini-4-hydrogen-low", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-high", "gemini-4-hydrogen-xhigh",
 	} {
 		if floors[tier] != tier {
 			t.Fatalf("argon wire floor %s = %q", tier, floors[tier])

@@ -566,7 +566,8 @@
       "path": "frontend/src/composables/useModelWhitelist.ts",
       "must_contain": [
         "{ label: '4 Argon', from: 'gemini-4-argon', to: 'gemini-4-argon-medium'",
-        "{ label: '4 Carbon', from: 'gemini-4-carbon', to: 'gemini-4-carbon-medium'"
+        "{ label: '4 Carbon', from: 'gemini-4-carbon', to: 'gemini-4-carbon-medium'",
+        "{ label: '4 Hydrogen', from: 'gemini-4-hydrogen', to: 'gemini-4-hydrogen-medium'"
       ],
       "rationale": "Antigravity admin presets for Gemini 4 Argon and Carbon must default the bare name to -medium. Medium and high share the token price; medium is the official thinking default. Reverting the preset to -high would make newly applied account mappings spend extra thinking tokens with no rate benefit. Flash presets stay -high."
     },

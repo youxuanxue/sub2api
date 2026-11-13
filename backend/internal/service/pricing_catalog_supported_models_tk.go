@@ -195,6 +195,18 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	// Bare name maps to -medium. Activation stays targeted to advertising
 	// accounts. Native Gemini catalog stays off.
 	"gemini-4-carbon": {},
+	// gemini-4-hydrogen: 2026-11-13 direct daily-cloudcode fetchAvailableModels
+	// plus generateContent on schedulable Antigravity OAuth accounts.
+	// 233/244/292/529 (Ultra) and 268/291/294 (Pro) advertise
+	// low/medium/high/xhigh and gemini-4-hydrogen-high returns 200.
+	// 245/247/248/249/271/528 advertise only gemini-4-hydrogen-disabled and
+	// generateContent returns 404. 527 is disabled plus 403 verify-account.
+	// 275's prod-endpoint catalog omits Hydrogen; its 429 is not capability
+	// evidence. Bare name maps to -medium even though the official thinking
+	// default is high, because the four tiers share one token price.
+	// Tier wires, including xhigh, stay off this public list. Native Gemini
+	// catalog stays off. Do not apply the floor to the disabled accounts.
+	"gemini-4-hydrogen": {},
 	// Nano Banana 2 is Flash; Pro aliases belong to Gemini Web.
 	"nano-2":        {},
 	"nano-banana-2": {},

@@ -37,6 +37,7 @@ func TestGeminiThinkingLevelFromBody(t *testing.T) {
 		{"budget 24576", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":24576}}}`, "high"},
 		{"thinkingLevel wins over budget", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":24576,"thinkingLevel":"low"}}}`, "low"},
 		{"thinkingLevel medium", `{"generationConfig":{"thinkingConfig":{"thinkingLevel":"MEDIUM"}}}`, "medium"},
+		{"thinkingLevel xhigh", `{"generationConfig":{"thinkingConfig":{"thinkingLevel":"xhigh"}}}`, "xhigh"},
 		{"invalid json", `{"generationConfig":`, "high"},
 	}
 	for _, tt := range tests {

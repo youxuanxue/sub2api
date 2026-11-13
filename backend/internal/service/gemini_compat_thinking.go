@@ -133,6 +133,7 @@ var geminiModelThinkingLevels = map[string][]string{
 	"gemini-3.8-flash":      {"low", "medium", "high"},
 	"gemini-4-argon":        {"low", "medium", "high"},
 	"gemini-4-carbon":       {"low", "medium", "high"},
+	"gemini-4-hydrogen":     {"low", "medium", "high", "xhigh"},
 	"gemini-3.7-flash":      {"minimal", "low", "medium", "high"},
 	"gemini-3.6-flash":      {"minimal", "low", "medium", "high"},
 	"gemini-3.5-flash-lite": {"minimal", "low", "medium", "high"},

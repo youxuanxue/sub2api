@@ -6,6 +6,12 @@
 
 适用范围：原生流截断和 `unexpected EOF`。空前缀换号不计入阶梯。正文、工具或媒体已经写给客户端后，1 分钟内第 3 次才冷却，时长仍是 `anthropicCooldownTierLadder`（30 秒、2 分钟、10 分钟）。冷却未结束前不升档。`INSUFFICIENT_G1_CREDITS` 仍立刻临时停调度 30 分钟。
 
+## 2026-11-13 Gemini 4 Hydrogen 裸名映射 medium
+
+原话：「把能访问的这些账号的 model_mapping 加上 gemini-4-hydrogen-low、-medium、-high、-xhigh，裸名映射到 -medium。」
+
+适用范围：已实测能访问 Hydrogen 的 Antigravity 账号。四档 token 单价相同。官方默认思考档是 high，裸名仍锁 medium。档位 wire 不上公开目录。不能访问的账号不加这组映射。
+
 ## 2026-11-12 Gemini 截断冷却改走已有阶梯
 
 原话：「建议改一下：同一账号 15 分钟内第 3 次原生流截断或 unexpected EOF，临时移出调度 30 分钟。这个有已有的阶梯冷却策略，可以复用吗？直接冷却30分钟太狠了，对我们的池子不友好。INSUFFICIENT_G1_CREDITS 立刻停止调度30分钟。」

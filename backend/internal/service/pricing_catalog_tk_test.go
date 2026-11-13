@@ -921,6 +921,17 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		}
 	})
 
+	t.Run("gemini-4-hydrogen is published on antigravity at the standard rate surface", func(t *testing.T) {
+		_, inAG := supportedAntigravityCatalogModels["gemini-4-hydrogen"]
+		assert.True(t, inAG)
+		assert.True(t, isPublicCatalogModelSupported("antigravity", "gemini-4-hydrogen"))
+		assert.False(t, isPublicCatalogModelSupported("gemini", "gemini-4-hydrogen"))
+		for _, wire := range []string{"gemini-4-hydrogen-low", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-high", "gemini-4-hydrogen-xhigh", "gemini-4-hydrogen-disabled"} {
+			_, leaked := supportedAntigravityCatalogModels[wire]
+			assert.False(t, leaked, "tier wire %s must not join the public catalog", wire)
+		}
+	})
+
 	t.Run("grok-code-fast-1 is hidden from public grok catalog after canary 429", func(t *testing.T) {
 		_, inGrok := supportedGrokCatalogModels["grok-code-fast-1"]
 		assert.False(t, inGrok)
