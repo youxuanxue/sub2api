@@ -332,8 +332,9 @@ var aliTokenPlanForbiddenModelMappingKeys = []string{
 // PAYG aliases retain their original targets.
 func newAPIAliTokenPlanModelAliases() map[string]string {
 	return map[string]string{
-		"qwen-plus": "qwen3.7-plus",
-		"qwen-max":  "qwen3.8-max",
+		"qwen-plus":   "qwen3.7-plus",
+		"qwen-max":    "qwen3.8-max",
+		"qwen4.0-max": "qwen4.0-max-preview",
 	}
 }
 

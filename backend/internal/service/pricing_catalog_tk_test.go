@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -766,8 +765,10 @@ func TestPublicCatalog_HidesLegacyTokenPlanAliasesButKeepsPricing(t *testing.T) 
 	for legacy, replacement := range newAPIAliTokenPlanModelAliases() {
 		assert.True(t, s.IsModelPriced(legacy, PlatformNewAPI), "legacy %s retains PAYG catalog pricing; Token Plan billing settles on served model", legacy)
 		assert.Equal(t, isTkCuratedNewAPIModelDisplayed(legacy), visible[legacy], "scoped alias %s follows shared catalog display intent", legacy)
-		if strings.HasPrefix(legacy, "qwen") {
-			assert.True(t, visible[replacement], "replacement %s remains public", replacement)
+		if isTkCuratedNewAPIModelDisplayed(replacement) {
+			assert.True(t, visible[replacement], "displayed replacement %s remains public", replacement)
+		} else {
+			assert.False(t, visible[replacement], "non-displayed upstream id %s stays off the public catalog", replacement)
 		}
 	}
 }

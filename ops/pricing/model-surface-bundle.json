@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "0e579f4d8a20322d94fedabf4241083270a87f0b154cf6e3693aa4144479bbd9",
+  "floor_sha256": "018a388c39051ecfa4fd460e9e28b4c2ff2b78c45ae269cca680fff1664474d8",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -352,6 +352,8 @@
           "qwen3.7-plus": "qwen3.7-plus",
           "qwen3.8-flash": "qwen3.8-flash",
           "qwen3.8-max": "qwen3.8-max",
+          "qwen4.0-max": "qwen4.0-max-preview",
+          "qwen4.0-max-preview": "qwen4.0-max-preview",
           "wan2.7-image": "wan2.7-image",
           "wan2.7-image-pro": "wan2.7-image-pro",
           "wan3.0-video": "wan3.0-video"

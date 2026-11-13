@@ -213,6 +213,25 @@
         }
       ]
     },
+    "qwen4.0-max": {
+      "display": true,
+      "price_owner": "qwen4.0-max-preview",
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
+    },
+    "qwen4.0-max-preview": {
+      "display": false,
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
+    },
     "qwen3.6-flash": {
       "display": true,
       "channel_type": 17,

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
@@ -93,19 +92,24 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	}
 	for alias, target := range newAPIAliTokenPlanModelAliases() {
 		require.Equal(t, target, mapping[alias])
-		if strings.HasPrefix(alias, "qwen") {
+		if alias == "qwen-max" || alias == "qwen-plus" {
 			require.Equal(t, alias, paygMapping[alias], "hiding legacy names must not retarget or remove PAYG support")
 		} else {
 			require.NotContains(t, paygMapping, alias, "Ali Token Plan aliases must not leak into PAYG")
 		}
 		require.Contains(t, mapping, target, "alias target must be in the provider manifest")
-		if strings.HasPrefix(alias, "qwen") {
-			require.True(t, isTkCuratedNewAPIModelListed(alias), "legacy pricing membership remains")
+		require.True(t, isTkCuratedNewAPIModelListed(alias), "pricing membership remains")
+		if alias == "qwen-max" || alias == "qwen-plus" {
 			require.False(t, isTkCuratedNewAPIModelDisplayed(alias), "legacy names must not be advertised")
 			require.NotContains(t, NewAPIModelDisplayIDsForAccount(account), alias)
 			require.NotContains(t, NewAPIModelDisplayIDsForAccount(payg), alias)
 		}
 	}
+	require.True(t, isTkCuratedNewAPIModelDisplayed("qwen4.0-max"))
+	require.Contains(t, NewAPIModelDisplayIDsForAccount(account), "qwen4.0-max")
+	require.NotContains(t, NewAPIModelDisplayIDsForAccount(payg), "qwen4.0-max")
+	require.Equal(t, "qwen4.0-max-preview", mapping["qwen4.0-max"])
+	require.Equal(t, "qwen4.0-max-preview", mapping["qwen4.0-max-preview"])
 	require.NotEqual(t, want, NewAPIModelMappingPresetIDsForAccount(payg))
 }
 
