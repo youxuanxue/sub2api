@@ -629,11 +629,14 @@ func TestPricingService_GeminiFlashThinkingTiersUseBasePricing(t *testing.T) {
 		OutputCostPerToken:      7.5e-6,
 		CacheReadInputTokenCost: 0.15e-6,
 	}
-	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon"} {
+	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon", "gemini-4-hydrogen"} {
 		svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{baseModel: basePricing}}
 		tiers := []string{"", "-high", "-low", "-medium"}
 		if baseModel == "gemini-3.6-flash" {
 			tiers = append(tiers, "-tiered")
+		}
+		if baseModel == "gemini-4-hydrogen" {
+			tiers = append(tiers, "-xhigh")
 		}
 		for _, tier := range tiers {
 			model := baseModel + tier
@@ -648,7 +651,7 @@ func TestPricingService_GeminiFlashThinkingTiersUseBasePricing(t *testing.T) {
 func TestPricingService_GeminiFlashTierSpecificPricingTakesPrecedence(t *testing.T) {
 	basePricing := &LiteLLMModelPricing{InputCostPerToken: 1.5e-6}
 	tierPricing := &LiteLLMModelPricing{InputCostPerToken: 2e-6}
-	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon"} {
+	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon", "gemini-4-hydrogen"} {
 		t.Run(baseModel, func(t *testing.T) {
 			svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
 				baseModel:          basePricing,
@@ -718,6 +721,35 @@ func TestBillingService_Gemini4ArgonBillsStableStandardRate(t *testing.T) {
 		require.InDelta(t, 0.36, priority.CacheReadCost, 1e-9, model)
 		require.InDelta(t, 43.56, priority.TotalCost, 1e-9, model)
 	}
+}
+
+func TestBillingService_Gemini4HydrogenBillsStandardRate(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, nil)
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
+
+	for _, model := range []string{
+		"gemini-4-hydrogen",
+		"gemini-4-hydrogen-low",
+		"gemini-4-hydrogen-medium",
+		"gemini-4-hydrogen-high",
+		"gemini-4-hydrogen-xhigh",
+	} {
+		t.Run(model, func(t *testing.T) {
+			cost, err := svc.CalculateCost(model, tokens, 1)
+			require.NoError(t, err)
+			require.InDelta(t, 1.5, cost.InputCost, 1e-9)
+			require.InDelta(t, 7.5, cost.OutputCost, 1e-9)
+			require.InDelta(t, 0.075, cost.CacheReadCost, 1e-9)
+			require.InDelta(t, 9.075, cost.TotalCost, 1e-9)
+		})
+	}
+
+	priority, err := svc.CalculateCostWithServiceTier("gemini-4-hydrogen", tokens, 1, "priority")
+	require.NoError(t, err)
+	require.InDelta(t, 2.7, priority.InputCost, 1e-9)
+	require.InDelta(t, 13.5, priority.OutputCost, 1e-9)
+	require.InDelta(t, 0.135, priority.CacheReadCost, 1e-9)
+	require.InDelta(t, 16.335, priority.TotalCost, 1e-9)
 }
 
 func TestDefaultPricingIncludesGemini36FlashRates(t *testing.T) {

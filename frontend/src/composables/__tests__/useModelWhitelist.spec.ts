@@ -272,7 +272,8 @@ describe('useModelWhitelist', () => {
     // 未指定思考档时 Argon/Carbon 裸名落到 medium；tier 后缀本身由模型列表承载。
     expect(getPresetMappingsByPlatform('antigravity')).toEqual(expect.arrayContaining([
       expect.objectContaining({ from: 'gemini-4-argon', to: 'gemini-4-argon-medium' }),
-      expect.objectContaining({ from: 'gemini-4-carbon', to: 'gemini-4-carbon-medium' })
+      expect.objectContaining({ from: 'gemini-4-carbon', to: 'gemini-4-carbon-medium' }),
+      expect.objectContaining({ from: 'gemini-4-hydrogen', to: 'gemini-4-hydrogen-medium' })
     ]))
   })
 

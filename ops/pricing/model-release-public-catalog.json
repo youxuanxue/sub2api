@@ -93,6 +93,12 @@
       "notes": "public API id; Antigravity wire ids gemini-4-carbon-{low,medium,high}; bare name maps to medium; same Standard price as Argon"
     },
     {
+      "vendor": "google",
+      "model_id": "gemini-4-hydrogen",
+      "source_url": "https://aistudio.google.com/docs/pricing#gemini-4-hydrogen",
+      "notes": "public API id; Antigravity wires gemini-4-hydrogen-{low,medium,high,xhigh}; bare name maps to medium; Standard $1.50/$7.50/$0.075; Priority $2.70/$13.50/$0.135; Batch/Flex/Contributor not stored"
+    },
+    {
       "vendor": "doubao",
       "model_id": "doubao-seed-2.1-pro",
       "source_url": "https://seed.bytedance.com/zh/blog/seed2-1-officially-released-advancing-ai-productivity",

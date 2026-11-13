@@ -22,7 +22,8 @@ import (
 // 原生请求允许在已映射的思考档位之间切换；非档位映射与显式自映射保持优先。
 // Claude/OpenAI 兼容请求由 resolveGeminiThinkingVariantForLevel 保留显式映射。
 
-var geminiThinkingVariantSuffixes = []string{"-low", "-medium", "-high", "-tiered"}
+// -xhigh must precede -high: the shorter suffix is also a suffix of -xhigh.
+var geminiThinkingVariantSuffixes = []string{"-xhigh", "-low", "-medium", "-high", "-tiered"}
 
 const (
 	geminiThinkingBudgetLowMax    = 1024
@@ -77,6 +78,8 @@ func geminiThinkingPreferenceFromBody(body []byte) (level string, explicit bool)
 		return "medium", true
 	case "high":
 		return "high", true
+	case "xhigh":
+		return "xhigh", true
 	}
 	if tc.ThinkingBudget == nil {
 		// thinkingConfig present but neither level nor budget: leave the bare
@@ -117,6 +120,8 @@ func geminiThinkingLevelFromBody(body []byte) string {
 		return "medium"
 	case "high":
 		return "high"
+	case "xhigh":
+		return "xhigh"
 	}
 	if tc.ThinkingBudget == nil {
 		return "high"

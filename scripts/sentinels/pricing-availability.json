@@ -478,7 +478,9 @@
       "must_contain": [
         "Gemini 4 Argon Standard $4/$20 per 1M in/out from 2026-12-01",
         "\"gemini-4-carbon\": {",
-        "Gemini 4 Carbon Standard $4/$20 per 1M in/out from 2026-12-01"
+        "Gemini 4 Carbon Standard $4/$20 per 1M in/out from 2026-12-01",
+        "\"gemini-4-hydrogen\": {",
+        "Gemini 4 Hydrogen Standard $1.50/$7.50 per 1M in/out"
       ],
       "rationale": "The active overlay is the settlement owner. These source lines keep Argon and Carbon on the stable Standard card and keep Carbon as its own owner, so a merge cannot put the introductory $2/$10 rate back or bill Carbon through the Gemini 2.5 Flash family floor."
     },

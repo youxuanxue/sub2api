@@ -654,7 +654,7 @@ func mergeAntigravityThinkingWireFloor(out map[string]string, displaySet map[str
 	}
 	for wireID, target := range domain.AntigravityThinkingWireFloorEntries() {
 		base := wireID
-		for _, suffix := range []string{"-low", "-medium", "-high", "-tiered"} {
+		for _, suffix := range []string{"-xhigh", "-low", "-medium", "-high", "-tiered"} {
 			if strings.HasSuffix(wireID, suffix) {
 				base = strings.TrimSuffix(wireID, suffix)
 				break

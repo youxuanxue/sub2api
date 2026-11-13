@@ -254,4 +254,18 @@ func TestAntigravityPassthroughsInjectTierWiresNotBareNames(t *testing.T) {
 	for _, retired := range []string{"gemini-3.6-flash", "gemini-3.5-flash-lite"} {
 		require.NotContains(t, got, retired, "已退役的 %s 不得出现", retired)
 	}
+	require.NotContains(t, got, "gemini-4-hydrogen-high")
+}
+
+func TestAntigravityPassthroughsInjectHydrogenWiresOnlyWithBareName(t *testing.T) {
+	t.Parallel()
+	got := ensureAntigravityDefaultPassthroughs(map[string]string{
+		"gemini-4-hydrogen": "gemini-4-hydrogen-medium",
+	})
+	require.Equal(t, "gemini-4-hydrogen-medium", got["gemini-4-hydrogen"])
+	for _, wire := range []string{
+		"gemini-4-hydrogen-low", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-high", "gemini-4-hydrogen-xhigh",
+	} {
+		require.Equal(t, wire, got[wire])
+	}
 }

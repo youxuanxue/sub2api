@@ -4142,6 +4142,25 @@
     "input_cost_per_token_priority": 7.2e-06,
     "output_cost_per_token_priority": 3.6e-05
   },
+  "gemini-4-hydrogen": {
+    "cache_read_input_token_cost": 7.5e-08,
+    "input_cost_per_token": 1.5e-06,
+    "litellm_provider": "vertex_ai-language-models",
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 65536,
+    "max_tokens": 65536,
+    "mode": "chat",
+    "output_cost_per_reasoning_token": 7.5e-06,
+    "output_cost_per_token": 7.5e-06,
+    "source": "https://aistudio.google.com/docs/pricing#gemini-4-hydrogen Gemini 4 Hydrogen Standard $1.50/$7.50 per 1M in/out; cache read $0.075; Priority $2.70/$13.50/$0.135. Batch, Flex, and Contributor rates are not stored. No introductory window. Captured 2026-11-13.",
+    "supports_function_calling": true,
+    "supports_prompt_caching": true,
+    "supports_reasoning": true,
+    "supports_vision": true,
+    "cache_read_input_token_cost_priority": 1.35e-07,
+    "input_cost_per_token_priority": 2.7e-06,
+    "output_cost_per_token_priority": 1.35e-05
+  },
   "gemini-embedding-001": {
     "input_cost_per_token": 1.5e-07,
     "litellm_provider": "vertex_ai-embedding-models",
