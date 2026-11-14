@@ -8634,9 +8634,17 @@
     {
       "path": "backend/internal/handler/gateway_handler_tk_forward_error.go",
       "must_contain": [
-        "TkEnrichForbiddenMessage("
+        "TkEnrichForbiddenMessage(",
+        "service.TkIsKiroLegacyUnsupportedVersionMask(msg)"
       ],
-      "rationale": "Preserve the remaining handler behavior; availability observation is owned by protocol execution before handler failover."
+      "rationale": "Preserve the remaining handler behavior; availability observation is owned by protocol execution before handler failover. Anthropic-group enrich must skip Legacy Q version-mask copy via TkIsKiroLegacyUnsupportedVersionMask so the pin-death narrative never becomes the client-visible Messages body."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_forward_error_test.go",
+      "must_contain": [
+        "TestTkEnrichMappedUpstreamErrorMessage_SkipsKiroLegacyVersionMask"
+      ],
+      "rationale": "Regression: Anthropic enrich must not rewrite Legacy Q version-mask text into the client-visible error body."
     },
     {
       "path": "backend/internal/handler/client_closed_request_tk.go",
