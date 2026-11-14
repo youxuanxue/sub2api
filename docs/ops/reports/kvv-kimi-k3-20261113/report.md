@@ -1,0 +1,97 @@
+# Kimi K3 接口兼容性报告
+
+对照基准：[Moonshot Kimi Vendor Verifier](https://github.com/MoonshotAI/Kimi-Vendor-Verifier)（KVV）  
+核查对象：TokenKey 国内生产环境的 `kimi-k3` Chat Completions  
+核查时间：2026-11-13 晚间至 2026-11-14 12:51（北京时间）
+
+本报告核对 `kimi-k3` 的接口行为是否符合 KVV。它不是模型认证，也不包含答题准确率。OCRBench、MMMU Pro、AIME、BEAM 1M 和 `toolcall_thinking` 没有运行。
+
+全量契约于 2026-11-14 00:10 完成。当日 12:48 对当时未通过的项目又核了一次。下面的差异以这次复核为准；已经通过、且没有重跑的项目仍采用 00:10 的结果。
+
+## 结论
+
+思考开关、工具选择、回复格式、历史工具调用，以及纯文本和图像的 `prompt_tokens`，与 KVV 一致。KVV 不允许的采样参数、非法动态工具、没有配对的 `role=tool` 消息，都会返回 HTTP 400。同时给出 `thinking.effort` 和 `reasoning_effort` 时，以 `thinking.effort` 为准。本次覆盖的四类递归工具 schema 返回 HTTP 400，错误文案能看出是 schema 或 parameters 问题。
+
+仍有三处差异：
+
+1. 六个带工具声明的请求，流式 `prompt_tokens` 与 KVV 的期望区间不一致。回答内容没有因此判失败。
+2. schema 抽样中，非流式 `anyof_type_sibling` 发起了工具调用，但没有带回参数。同一用例的流式请求是通过的。
+3. 停词会截断思考文本。KVV 要求停词只截断最终正文，思考文本里应保留完整停词。
+
+## 覆盖范围
+
+思考、动态工具、工具选择、回复格式、停词和工具参数 schema，每条都分别用非流式和流式各请求一次。采样参数按思考开启和关闭各测一次，不区分流式。`prompt_tokens` 按 KVV 的做法只测流式。工具参数 schema 是抽样：开启思考，输出上限用 KVV 默认的 2048，合法样例最多 12 条，再加上 KVV 始终执行的补充校验，合计 88 项。
+
+| 项目 | 在核什么 | 结果 |
+| --- | --- | --- |
+| 思考、动态工具、工具选择、回复格式、停词 | 130 项 | 120 项与 KVV 一致，2 项停词不一致，8 项由 KVV 自己跳过 |
+| 采样参数，以及 128 字符的工具名 | 19 项 | 全部一致 |
+| 历史工具调用缺少函数名 | 3 项 | 全部一致 |
+| 流式 `prompt_tokens` | 75 项 | 69 项落在允许区间内，6 项带工具声明的请求不一致 |
+| 工具参数 schema | 88 项，抽样 | 87 项符合预期，1 项非流式请求没有返回参数 |
+
+120 和 87 不是 12:48 整套重跑的结果。00:10 已经通过的项目没有重跑；12:48 只重跑了当时未通过的项目，新通过的不再计为差异。
+
+## 已经对齐的行为
+
+- 不传可选参数，或只传 KVV 给出的默认参数，请求成功。
+- `temperature` 为 `1.1`、`2.0` 或 `-0.1`，`top_p` 为 `0.8`，`presence_penalty` 或 `frequency_penalty` 为 `0.5`，以及 `n=2`，都返回 HTTP 400。思考开启和关闭时都是这个结果。
+- 动态工具写在 `user` 或 `assistant` 消息上、system 消息同时有内容和动态工具、动态工具缺 `type` 或 `name`、`name` 为空、`tools` 不是数组、工具重名，都返回 HTTP 400。
+- `role=tool` 且没有匹配的 `tool_call_id` 时返回 HTTP 400。
+- 128 个字符的工具名可以调用。历史 `tool_calls` 缺少 `function.name` 时返回 HTTP 400。
+- 空内容的 system 消息可以携带动态工具；多条这类消息、与顶层工具并存、只给动态工具并指定 `tool_choice=required`，都可以调用。
+- `tool_choice` 的 `auto`、`required`、`none` 可用。非法取值和空工具列表会被拒绝。
+- `response_format` 的 `text`、`json_object`、`json_schema` 可用。缺字段或类型错误会被拒绝。
+- 纯文本和图像请求的 `prompt_tokens` 落在 KVV 允许区间内。允许区间是期望值到期望值加 3。
+- 同时发送 `thinking.effort=low` 和 `reasoning_effort=max` 时，非流式和流式都按 `low` 生效。
+- 无法展开的递归工具 schema 返回 HTTP 400，错误文案中出现 `schema` 或 `parameters`。非流式和流式都覆盖了 `recursion_required_self_reject`、`recursion_mutual_required_reject`、`recursion_min_items_reject`、`recursion_hidden_branch_reject`。
+
+## 仍有差异
+
+### 1. 带工具声明时，`prompt_tokens` 与 KVV 不一致
+
+纯文本和图像是对齐的。下面六组都是流式响应里的 `usage.prompt_tokens`。KVV 允许期望值到期望值加 3。
+
+| 请求形态 | 实际计数 | KVV 允许区间 | 相对允许区间 |
+| --- | ---: | --- | --- |
+| 声明了工具，且不调用工具 | 130 | 227–230 | 少 97–100 |
+| 显式指定不调用工具 | 127 | 209–212 | 少 82–85 |
+| 工具写在消息里，而不是顶层 `tools` | 236 | 258–261 | 少 22–25 |
+| 工具写在顶层 `tools` | 288 | 273–276 | 多 12–15 |
+| 对话中途加入工具 | 311 | 295–298 | 多 13–16 |
+| 连续几轮都带工具 | 319 | 304–307 | 多 12–15 |
+
+客户会看到的是用量数字，不是一份错误的回答。KVV 的期望值来自 Moonshot 标定的分词常数。TokenKey 返回的是这次请求计入的 `prompt_tokens`。表中前三种低于允许区间，后三种高于允许区间。按 `prompt_tokens` 展示用量或计费时，这六类请求会和 KVV 的常数有差。不带工具声明的文本和图像请求不受这六项影响。
+
+### 2. 一项工具调用没有返回参数
+
+schema 抽样在开启思考、`max_tokens=2048` 下进行。88 项里，87 项符合预期。
+
+非流式 `anyof_type_sibling` 返回了工具调用，但 `arguments` 是空的。KVV 要求参数能通过该用例的 schema。同一用例的流式请求返回了参数并通过校验。同一次复核里，`bound_min_items_conflict`、`anyof_all_branches_conflict`、`multi_type_items` 也都返回了符合 schema 的参数。
+
+这不是接口固定丢弃参数。调用方如果拿到没有参数的工具调用，应按空参数处理或再请求一次，不要把它看成 schema 被拒绝。
+
+### 3. 停词会截断思考文本
+
+用例要求正文恰好是 `<block>no</block>`，停词是 `</block>`。KVV 要求思考文本里出现完整的 `</block>`，正文停在 `<block>no`，结束原因为 `stop`。
+
+非流式的思考文本停在 `We need answer exactly <block>no`，流式停在 `We need answer user requests exactly <block>no`。两边都没有 `</block>`。检查在思考文本这一步已经失败，因此没有再核正文。
+
+客户会看到：只要停词出现在思考过程中，生成会在那里停下，思考文本里看不到完整的停词。KVV 希望停词只作用于最终给用户看的正文，思考过程完整保留。不使用 `stop`，或者停词不会出现在思考文本里的请求，不受这项影响。非流式和流式都是这个行为。
+
+## KVV 跳过、未计入失败的项目
+
+这 8 项出现在「思考、动态工具、工具选择、回复格式、停词」的 130 项里。跳过指令写在 KVV 自己的用例上，TokenKey 没有把它们改判为通过或失败。
+
+| 跳过项 | 数量 | 对客户的含义 |
+| --- | ---: | --- |
+| 思考长度是否随 effort 升高而变长 | 4 | KVV 暂时跳过。不同请求的思考长度波动大，不能稳定地断言 low、high、max 的长短顺序。effort 是否被接口接受，由另外已经执行并通过的用例覆盖。 |
+| `k3_features` 里的一条 `prompt_tokens` 对照 | 2 | KVV 把这条标成跳过，期望计数是 539，本次没有执行。它不算通过，也不算失败。已经执行的用量对照是单独的 `prompt_tokens` 项目：69 项在允许区间内，6 项见上文。 |
+| 按函数名指定 `tool_choice` | 2 | KVV 跳过，因为 Moonshot 当前会忽略 `{"type":"function","function":{"name":"..."}}`，而不是返回 400。TokenKey 对这种写法没有单独测量，因此不能把它写成拒绝或忽略。`auto`、`required`、`none` 和非法取值已经单独测过。 |
+
+## 范围
+
+- 只核接口契约，不核答题准确率、长上下文或 OCR。
+- schema 是抽样，不是 KVV 的全部 schema 语料。输出上限是 2048，合法样例最多 12 条。
+- 00:10 已经通过的项目，12:48 没有整套重跑。12:48 复核了当时未通过的停词、effort、六个工具用量，以及 schema 抽样里的 12 项。
+- 动态工具、停词、两套 effort 和 schema 抽样同时覆盖了非流式和流式。采样参数覆盖的是思考开启和关闭。`prompt_tokens` 只覆盖流式。
