@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -63,6 +64,22 @@ func TestTkHandleKiroQuotaLimit402_DisablesAccountAndAlerts(t *testing.T) {
 	require.Equal(t, tkKiroQuotaLimitIncidentReason, blocker.reasons[0])
 	require.Equal(t, []string{tkKiroQuotaLimitIncidentReason}, incidents.reasons)
 	require.Contains(t, incidents.details[0], "402")
+}
+
+func TestClassifyKiroMonthlyQuota402DisablesAccount(t *testing.T) {
+	raw := fmt.Errorf(`HTTP 402 from Kiro Runtime: {"message":"You have reached the limit.","reason":"MONTHLY_REQUEST_COUNT"}`)
+	_, classified := classifyKiroForwardError(raw, "claude-sonnet-5")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, classified, &failoverErr)
+	require.Equal(t, http.StatusPaymentRequired, failoverErr.StatusCode)
+
+	repo := &rateLimitAccountRepoStub{}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := newEdgeUS4KiroAccount()
+	shouldDisable := svc.HandleUpstreamError(context.Background(), account, failoverErr.StatusCode, nil, failoverErr.ResponseBody)
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Contains(t, repo.lastErrorMsg, "reached the limit")
 }
 
 func TestHandleUpstreamError_Kiro402ReachedLimitUsesDedicatedReason(t *testing.T) {
