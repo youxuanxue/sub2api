@@ -285,6 +285,13 @@ func isKiroEndpointQuotaExhaustedError(msg string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(msg)), "quota exhausted on")
 }
 
+// TkIsKiroLegacyUnsupportedVersionMask is the handler-safe wrapper around the
+// Kiro client detector so Anthropic enrich / passthrough guards share one
+// semantic (requires both "no longer supported" and "kiro").
+func TkIsKiroLegacyUnsupportedVersionMask(msg string) bool {
+	return kiroproto.IsKiroLegacyUnsupportedVersionMask([]byte(msg))
+}
+
 // classifyKiroLegacyUnsupportedVersionMask maps Legacy Q's version-update cover
 // story to account-scoped busy failover. Ops keeps the raw upstream string via
 // the observation + original err; ResponseBody is sanitized so Anthropic enrich

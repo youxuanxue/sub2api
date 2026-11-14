@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -13,8 +14,29 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTkEnrichMappedUpstreamErrorMessage_SkipsKiroLegacyVersionMask(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &GatewayHandler{}
+	c, _ := gin.CreateTestContext(nil)
+
+	base := "Upstream request failed"
+	kiroMask := []byte(`{"message":"This version of Kiro is no longer supported. Please update to the latest version of Kiro to continue."}`)
+	got := h.tkEnrichMappedUpstreamErrorMessage(c, service.PlatformAnthropic, http.StatusBadRequest, kiroMask, base)
+	require.Equal(t, base, got, "Kiro legacy version mask must not become Anthropic client copy")
+
+	otherNoLongerSupported := []byte(`{"error":{"message":"This API version is no longer supported"}}`)
+	got = h.tkEnrichMappedUpstreamErrorMessage(c, service.PlatformAnthropic, http.StatusBadRequest, otherNoLongerSupported, base)
+	require.Contains(t, got, "This API version is no longer supported",
+		"non-Kiro 'no longer supported' Anthropic upstream copy must still enrich")
+
+	normal := []byte(`{"error":{"message":"invalid_request_error: bad schema"}}`)
+	got = h.tkEnrichMappedUpstreamErrorMessage(c, service.PlatformAnthropic, http.StatusBadRequest, normal, base)
+	require.Contains(t, got, "bad schema")
+}
 
 // TestProtocolAvailabilityFailure_NilGuards proves the nil receivers must not panic
 // (callers in production share the helper across many handler paths; one
