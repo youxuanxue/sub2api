@@ -459,6 +459,15 @@ func isKiroMonthlyQuotaLimitBody(body []byte) bool {
 	return strings.Contains(lower, "reached the limit") || strings.Contains(lower, "monthly_request_count")
 }
 
+// IsKiroLegacyUnsupportedVersionMask reports the Legacy Q cover story for
+// quota/entitlement failures. Prod evidence: Runtime 429 → Q HTTP 400 with this
+// exact client-update copy. It is not a trustworthy signal that TokenKey's
+// compile-time Kiro pin is stale.
+func IsKiroLegacyUnsupportedVersionMask(body []byte) bool {
+	lower := strings.ToLower(string(body))
+	return strings.Contains(lower, "no longer supported") && strings.Contains(lower, "kiro")
+}
+
 func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, payload *KiroPayload, callback *KiroStreamCallback, endpoints []kiroEndpoint) error {
 	var lastErr error
 	for endpointIndex, ep := range endpoints {
@@ -512,9 +521,11 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 
 		if resp.StatusCode == 429 {
 			resp.Body.Close()
-			logWarnf("[KiroAPI] Endpoint %s quota exhausted (429), trying next...", ep.Name)
-			lastErr = fmt.Errorf("quota exhausted on %s", ep.Name)
-			continue
+			// Runtime 429 is account/endpoint quota. Legacy Q does not recover it:
+			// it answers HTTP 400 "This version of Kiro is no longer supported" and
+			// that mask both pollutes ops and can leak to Anthropic-shaped clients.
+			logWarnf("[KiroAPI] Endpoint %s quota exhausted (429); not falling through to legacy", ep.Name)
+			return fmt.Errorf("quota exhausted on %s", ep.Name)
 		}
 
 		if resp.StatusCode != 200 {
@@ -523,6 +534,12 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 			lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, ep.Name, string(errBody))
 			// A rejected image is request-scoped; another endpoint cannot fix it.
 			if resp.StatusCode == http.StatusBadRequest && IsUnsupportedImageFormatError(errBody) {
+				return lastErr
+			}
+			// Legacy Q (and occasionally other hosts) answer this version string as a
+			// mask for quota/entitlement failures. Do not keep probing siblings: the
+			// same mask would repeat, and the gateway must not surface the string.
+			if IsKiroLegacyUnsupportedVersionMask(errBody) {
 				return lastErr
 			}
 			// Monthly quota is an account limit. The legacy q host does not repeat

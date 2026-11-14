@@ -232,7 +232,7 @@ func (e *KiroInvalidRequestError) ClientMessage() string {
 		return TkClientFacingRequestTooLargeMessage
 	}
 	msg := sanitizeUpstreamErrorMessage(e.Message)
-	if TkLooksLikeUpstreamSupplierLeakMessage(msg) {
+	if kiroproto.IsKiroLegacyUnsupportedVersionMask([]byte(msg)) || TkLooksLikeUpstreamSupplierLeakMessage(msg) {
 		return "The request was rejected"
 	}
 	return msg
@@ -285,6 +285,36 @@ func isKiroEndpointQuotaExhaustedError(msg string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(msg)), "quota exhausted on")
 }
 
+// classifyKiroLegacyUnsupportedVersionMask maps Legacy Q's version-update cover
+// story to account-scoped busy failover. Ops keeps the raw upstream string via
+// the observation + original err; ResponseBody is sanitized so Anthropic enrich
+// / passthrough cannot echo the Kiro update copy to callers.
+func classifyKiroLegacyUnsupportedVersionMask(statusCode int, body []byte, rawMsg string) (*kiroForwardErrorObservation, error, bool) {
+	if !kiroproto.IsKiroLegacyUnsupportedVersionMask(body) && !kiroproto.IsKiroLegacyUnsupportedVersionMask([]byte(rawMsg)) {
+		return nil, nil, false
+	}
+	obsStatus := statusCode
+	if obsStatus == 0 {
+		obsStatus = http.StatusBadRequest
+	}
+	obs := &kiroForwardErrorObservation{
+		Kind:   "failover",
+		Reason: "legacy_version_mask",
+		Status: obsStatus,
+	}
+	return obs, &UpstreamFailoverError{
+		StatusCode:               http.StatusTooManyRequests,
+		ResponseBody:             append([]byte(nil), kiroTransportFailoverBody...),
+		ResponseHeaders:          http.Header{"Retry-After": []string{strconv.Itoa(KiroEndpointQuotaExhaustedRetryAfterSeconds())}},
+		RetryableOnSameAccount:   false,
+		SafeToFailoverAfterWrite: true,
+		Scope:                    GatewayFailureScopeAccount,
+		ClientStatusCode:         http.StatusTooManyRequests,
+		ClientErrorType:          "rate_limit_error",
+		ClientMessage:            TkClientFacingBusy429Message,
+	}, true
+}
+
 type kiroForwardErrorObservation struct {
 	Kind   string
 	Reason string
@@ -327,6 +357,9 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 		}
 	}
 	if statusCode, body, ok := parseKiroHTTPError(msg); ok {
+		if obs, classified, matched := classifyKiroLegacyUnsupportedVersionMask(statusCode, body, msg); matched {
+			return obs, classified
+		}
 		if invalid, matched := classifyKiroImageClientRejection(statusCode, body, msg, false); matched {
 			invalid.Body = msg
 			return nil, invalid
@@ -347,6 +380,9 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 		}
 	}
 	if statusCode, body, ok := parseKiroEventStreamError(msg); ok {
+		if obs, classified, matched := classifyKiroLegacyUnsupportedVersionMask(statusCode, body, msg); matched {
+			return obs, classified
+		}
 		if invalid, matched := classifyKiroImageClientRejection(statusCode, body, msg, true); matched {
 			invalid.Body = msg
 			return nil, invalid
