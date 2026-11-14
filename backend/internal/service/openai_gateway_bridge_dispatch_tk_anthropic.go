@@ -83,7 +83,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	if err != nil {
 		return nil, err
 	}
-	chatBody = applyNewAPIAnthropicThinkingTemperature(account, gjson.GetBytes(chatBody, "model").String(), chatBody)
+	chatModel := gjson.GetBytes(chatBody, "model").String()
+	// Pin after Anthropic→Chat conversion; sampling normalize owns Opus 5.5 /
+	// thinking temperature here (policy A), not validateClaude55Request.
+	chatBody = applyNewAPIAnthropicThinkingTemperature(account, chatModel, chatBody)
 	if strings.TrimSpace(in.APIKey) == "" {
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}

@@ -43,6 +43,10 @@ func TestClassifyOpsFinalClientValidationAPIErrorOwnedByClient(t *testing.T) {
 			message: "Invalid value for parameter 'temperature'",
 		},
 		{
+			name:    "temperature only allowed when thinking enabled",
+			message: "`temperature` may only be set to 1 when thinking is enabled. Please consult our documentation at https://docs.anthropic.com/",
+		},
+		{
 			name:    "request schema field validation",
 			message: "thinking.budget_tokens: Input should be greater than or equal to 1024",
 		},

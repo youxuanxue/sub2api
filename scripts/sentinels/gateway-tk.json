@@ -5020,15 +5020,25 @@
         "func newAPIClaudeRequestEnablesThinking",
         "account.ChannelType != newapiconstant.ChannelTypeAnthropic"
       ],
-      "rationale": "Opus 5.5 rejects a non-1 temperature once the new-api Claude adaptor turns reasoning_effort, reasoning.max_tokens, or a -thinking suffix into thinking.type=enabled. The helper must stay limited to Anthropic-channel Claude requests that carry those signals."
+      "rationale": "Anthropic rejects non-1 temperature when thinking is on. The helper pins temperature=1 for Anthropic-channel Claude requests that will think: Opus 5.5 (adaptive by default), -thinking suffix, reasoning_effort/reasoning.effort, reasoning.max_tokens, or thinking.type enabled/adaptive/between_tools. It must not reject the client; normalize outbound like new-api/LiteLLM."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic_thinking_temperature_test.go",
       "must_contain": [
         "TestApplyNewAPIAnthropicThinkingTemperature_PinsNonDefaultTemperature",
-        "TestApplyNewAPIAnthropicThinkingTemperature_LeavesUnconstrainedRequests"
+        "TestApplyNewAPIAnthropicThinkingTemperature_LeavesUnconstrainedRequests",
+        "opus55 default thinking without signal"
       ],
-      "rationale": "Regression for the thinking-temperature pin: reasoning_effort, reasoning.max_tokens, and -thinking set temperature to 1; already-1, no thinking signal, omitted temperature, non-Claude, and non-Anthropic channel stay unchanged."
+      "rationale": "Regression for the thinking-temperature pin: Opus 5.5 without thinking signals, reasoning_effort/reasoning.effort/max_tokens, thinking.type, and -thinking set temperature to 1; already-1, non-Opus without thinking signal, omitted temperature, non-Claude, and non-Anthropic channel stay unchanged."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_opus55_temperature_test.go",
+      "must_contain": [
+        "TestOpus55NonDefaultTemperature_NormalizedNotRejected",
+        "validateClaude55Request",
+        "applyNewAPIAnthropicThinkingTemperature"
+      ],
+      "rationale": "Opus 5.5 non-default temperature must pass validateClaude55Request and be pinned on the Anthropic newapi bridge; local client 400 for this sampling conflict is forbidden (policy A / open-source relay normalize)."
     },
     {
       "path": "backend/internal/service/openai_codex_transform.go",

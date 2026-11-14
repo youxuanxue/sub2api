@@ -99,7 +99,10 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 	if err != nil {
 		return nil, err
 	}
-	body = applyNewAPIAnthropicThinkingTemperature(account, gjson.GetBytes(body, "model").String(), body)
+	bridgeModel = gjson.GetBytes(body, "model").String()
+	// Normalize thinking/Opus 5.5 temperature here; do not validateClaude55Request
+	// first — that would reject Sonnet/Haiku non-1 temperature before the pin.
+	body = applyNewAPIAnthropicThinkingTemperature(account, bridgeModel, body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}

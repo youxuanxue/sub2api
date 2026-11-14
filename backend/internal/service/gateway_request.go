@@ -743,6 +743,9 @@ func validateClaude55Request(body []byte, model string) error {
 	case "any", "tool", "function", "custom", "namespace":
 		return fmt.Errorf("%s does not support forced tool_choice; use auto or none", modelName)
 	}
+	// Opus 5.5 non-default temperature is normalized on the newapi Anthropic
+	// bridge (applyNewAPIAnthropicThinkingTemperature), not rejected here —
+	// open-source relays pin/drop rather than fail the client.
 	if isSonnet55 || isHaiku55 || isClaude52 {
 		if temperature := gjson.GetBytes(body, "temperature"); temperature.Exists() && (temperature.Type != gjson.Number || temperature.Float() != 1) {
 			return fmt.Errorf("claude-sonnet-5-5 does not support non-default temperature")

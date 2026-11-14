@@ -28,6 +28,22 @@ func TestApplyNewAPIAnthropicThinkingTemperature_PinsNonDefaultTemperature(t *te
 			name: "thinking suffix",
 			body: `{"model":"claude-opus-5-5-thinking","temperature":0.7,"messages":[{"role":"user","content":"hi"}]}`,
 		},
+		{
+			name: "opus55 default thinking without signal",
+			body: `{"model":"claude-opus-5-5","temperature":0.2,"messages":[{"role":"user","content":"hi"}]}`,
+		},
+		{
+			name: "reasoning.effort xhigh",
+			body: `{"model":"claude-sonnet-4-5","temperature":0.3,"reasoning":{"effort":"xhigh"},"messages":[{"role":"user","content":"hi"}]}`,
+		},
+		{
+			name: "thinking.type adaptive",
+			body: `{"model":"claude-sonnet-4-5","temperature":0.4,"thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"hi"}]}`,
+		},
+		{
+			name: "reasoning_effort max",
+			body: `{"model":"claude-sonnet-4-5","temperature":0.5,"reasoning_effort":"max","messages":[{"role":"user","content":"hi"}]}`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -52,9 +68,9 @@ func TestApplyNewAPIAnthropicThinkingTemperature_LeavesUnconstrainedRequests(t *
 			body:    `{"model":"claude-opus-5-5","temperature":1,"reasoning_effort":"low","messages":[]}`,
 		},
 		{
-			name:    "no thinking signal",
+			name:    "non-opus without thinking signal",
 			account: anthropic,
-			body:    `{"model":"claude-opus-5-5","temperature":0.2,"messages":[]}`,
+			body:    `{"model":"claude-sonnet-4-5","temperature":0.2,"messages":[]}`,
 		},
 		{
 			name:    "temperature omitted",
