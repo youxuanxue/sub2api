@@ -55,7 +55,8 @@ class HostLockdownTest(unittest.TestCase):
             values = {}
             for line in completed.stdout.splitlines():
                 key, _, value = line.partition(" ")
-                values.setdefault(key, value)
+                # Linux sshd -T lowercases keys; macOS OpenSSH keeps mixed case.
+                values.setdefault(key.lower(), value)
             self.assertEqual(values["passwordauthentication"], "no")
             self.assertEqual(values["permitrootlogin"], "no")
             self.assertEqual(values["allowtcpforwarding"], "no")
