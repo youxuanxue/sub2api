@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -85,14 +84,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 		return nil, err
 	}
 	chatModel := gjson.GetBytes(chatBody, "model").String()
-	// Validate against the original Anthropic body: Chat conversion may drop
-	// thinking while keeping temperature, which would miss Claude 5.5 rules.
-	if account != nil && account.ChannelType == newapiconstant.ChannelTypeAnthropic {
-		if err := validateClaude55Request(body, chatModel); err != nil {
-			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-			return nil, err
-		}
-	}
+	// Pin after Anthropic→Chat conversion; sampling normalize owns Opus 5.5 /
+	// thinking temperature here (policy A), not validateClaude55Request.
 	chatBody = applyNewAPIAnthropicThinkingTemperature(account, chatModel, chatBody)
 	if strings.TrimSpace(in.APIKey) == "" {
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
