@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-14 Kimi 两套 effort 与递归 schema 文案
+
+原话：「1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。」
+
+适用范围：`kimi-k3` 家族的 effort。`thinking.effort` 存在且思考未关闭时，写入供应实际采用的 `reasoning_effort`，覆盖同时出现的 `reasoning_effort`。只带 `reasoning_effort` 的请求不变。递归工具 schema 的通用 400 句，仅在 `kimi-*` 且请求带了工具 `parameters` 时，给客户文案补上 `parameters schema`。状态码仍是 400。不停词适配，不改 `prompt_tokens`。
+
 ## 2026-11-13 Gemini 截断只计已经写出的内容
 
 原话：「改为：1. 还没写出可用内容、并且已经换号的截断不再计数。2. 已经把正文、工具或媒体写给客户端的截断仍计数，但改成 5 分钟内满 3 次才冷却。3. 冷却档位不变。」以及「继续从 5 分钟收窄到 1 分钟吧。」

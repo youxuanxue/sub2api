@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -79,6 +79,13 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   `thinking.type=enabled` so intensity probes observe reasoning content instead
   of silent 200s. Explicit `thinking.type=disabled` still wins over effort and
   strips `reasoning_effort` before relay (upstream rejects the combination).
+  On 2026-11-14 the user decided 「两套 effort 同时出现，同意建议」. When
+  `thinking.effort` is present and thinking is not disabled, that value wins:
+  it is written to `reasoning_effort` (the field this supply records in the
+  system prompt) and a conflicting client `reasoning_effort` is replaced.
+  `thinking.keep` and `thinking.type` stay. An unknown `thinking.effort` token
+  returns 400 on param `thinking.effort`. Disabled thinking still ignores
+  `thinking.effort`. A request that only sets `reasoning_effort` is unchanged.
   Anthropic-style `thinking.budget_tokens` is stripped before relay. Closing
   thinking must not silently become low effort. No response reasoning is hidden
   to fake success. Client-visible errors must not name the upstream supplier.
@@ -109,6 +116,12 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   forwarded. Callers that have a gin context write that 400 and stop, using the
   same path as `applyMoonshotThinkingShape`. Client-visible text does not name
   the supplier.
+  On 2026-11-14 the user decided 「8 项递归 schema 建议改下文案」. A kimi
+  request whose top-level `tools` include `function.parameters`, and whose
+  upstream 400 message is exactly “a parameter specified in the request is not
+  valid”, gets `: tool function parameters schema` appended on the client
+  wire. Ops keeps the original sentence. Other 400 text, requests without tool
+  parameters, and non-kimi models are unchanged. The status code stays 400.
   - Any non-system message (`user`, `assistant`, or another role) that has a
     `tools` field: param `messages`.
   - A system message that has `tools` and content outside the empty forms above

@@ -94,6 +94,9 @@ func applyMoonshotThinkingShape(c *gin.Context, account *Account, model string, 
 	// Sampling rejects follow the public model, not the selected account. The
 	// DashScope pin no longer rewrites KVV-illegal values, so this check has to
 	// run before either the Volc normalizer or the other-supplier thinking path.
+	if isKimiModel(model) {
+		noteKimiToolParametersRequest(c, model, body)
+	}
 	if err = rejectKimiK3FixedSampling(model, body); err != nil {
 		shaped = body
 	} else if isKimiModel(model) {
@@ -333,9 +336,15 @@ func normalizeMoonshotK3Thinking(body []byte) ([]byte, error) {
 		thinkingType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(shaped, "thinking.type").String()))
 		disabledIntent = thinkingType == "disabled"
 		// kimi-k3 has no thinking field; always-on reasoning is controlled only via
-		// reasoning_effort. Strip any thinking shape (including unsupported disable)
-		// instead of teaching the client with a local 400 — same AlwaysThinking SSOT
-		// as GLM-5.3 family.
+		// reasoning_effort. Copy thinking.effort onto that field before the strip
+		// so a conflicting reasoning_effort cannot win. Unknown effort still 400s.
+		if !disabledIntent {
+			var preferErr error
+			shaped, preferErr = preferKimiThinkingEffort(shaped, thinkingType)
+			if preferErr != nil {
+				return body, preferErr
+			}
+		}
 		next, err := sjson.DeleteBytes(shaped, "thinking")
 		if err != nil {
 			return body, err
@@ -370,6 +379,32 @@ func normalizeMoonshotK3Thinking(body []byte) ([]byte, error) {
 		return body, err
 	}
 	return next, nil
+}
+
+// preferKimiThinkingEffort makes an explicit thinking.effort win over
+// reasoning_effort. The K3 supply records reasoning_effort in the system
+// prompt, so the winning value is written there. Disabled thinking ignores
+// thinking.effort. A missing thinking.effort leaves reasoning_effort alone.
+func preferKimiThinkingEffort(body []byte, thinkingMode string) ([]byte, error) {
+	mode := strings.ToLower(strings.TrimSpace(thinkingMode))
+	if mode == "" {
+		mode = strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "thinking.type").String()))
+	}
+	if mode == "disabled" {
+		return body, nil
+	}
+	effort := strings.TrimSpace(gjson.GetBytes(body, "thinking.effort").String())
+	if effort == "" {
+		return body, nil
+	}
+	mapped := mapMoonshotK3ReasoningEffort(effort)
+	if mapped == "" {
+		return body, newOpenAIInvalidParameterError(
+			"thinking.effort",
+			"kimi-k3 thinking.effort must be one of: low, high, max",
+		)
+	}
+	return sjson.SetBytes(body, "reasoning_effort", mapped)
 }
 
 // mapMoonshotK3ReasoningEffort soft-maps common abandon/alias efforts onto the

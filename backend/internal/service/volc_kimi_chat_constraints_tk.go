@@ -484,6 +484,10 @@ func normalizeVolcKimiThinking(body []byte) ([]byte, error) {
 	}
 
 	shaped = promoteMoonshotNestedReasoningEffort(shaped)
+	shaped, err = preferKimiThinkingEffort(shaped, selected)
+	if err != nil {
+		return nil, err
+	}
 	shaped, err = normalizeVolcKimiReasoningEffort(shaped, selected)
 	return shaped, err
 }

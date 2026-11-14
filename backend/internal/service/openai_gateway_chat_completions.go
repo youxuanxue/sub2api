@@ -1247,6 +1247,7 @@ func writeChatCompletionsErrorWithSource(c *gin.Context, statusCode int, errType
 	} else {
 		message = public
 	}
+	message = TkRewriteKimiToolSchemaRejectMessage(c, statusCode, message)
 	MarkResponseCommitted(c)
 	c.JSON(statusCode, gin.H{
 		"error": openAIClientErrorBody(errType, message, source),
