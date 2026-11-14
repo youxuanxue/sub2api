@@ -163,6 +163,35 @@ func (d *terminalBodyDoer) Do(req *http.Request) (*http.Response, error) {
 // it may fall through to the officially transitional q host. This
 // is the regression test for the auth-error short-circuit that, before the fix,
 // returned immediately and would have surfaced a runtime-only 403 to the customer.
+func TestCallKiroAPI_Runtime429DoesNotFallThroughToLegacy(t *testing.T) {
+	doer := &hostStatusDoer{runtimeStatus: http.StatusTooManyRequests, runtimeBody: `{"message":"throttled"}`}
+	account := &Account{AccessToken: "tok", ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/x"}
+	err := CallKiroAPIWithDoer(doer, account, &KiroPayload{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "quota exhausted on Kiro Runtime") {
+		t.Fatalf("runtime 429 must surface as quota exhausted, got %v", err)
+	}
+	if len(doer.seen) != 1 || !strings.Contains(doer.seen[0], "kiro.dev") {
+		t.Fatalf("legacy host must not be called after runtime 429, saw %v", doer.seen)
+	}
+}
+
+func TestCallKiroAPI_LegacyVersionMaskDoesNotContinue(t *testing.T) {
+	doer := &hostStatusDoer{
+		runtimeStatus: http.StatusForbidden,
+		runtimeBody:   `{"__type":"AccessDeniedException"}`,
+		legacyStatus:  http.StatusBadRequest,
+		legacyBody:    `{"message":"This version of Kiro is no longer supported. Please update to the latest version of Kiro to continue."}`,
+	}
+	account := &Account{AccessToken: "tok", ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/x"}
+	err := CallKiroAPIWithDoer(doer, account, &KiroPayload{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("legacy version mask must surface, got %v", err)
+	}
+	if len(doer.seen) != 2 {
+		t.Fatalf("expected runtime + one legacy attempt, saw %v", doer.seen)
+	}
+}
+
 func TestCallKiroAPI_RuntimeMonthlyQuota402DoesNotFallThrough(t *testing.T) {
 	doer := &hostStatusDoer{runtimeStatus: http.StatusPaymentRequired, runtimeBody: `{"message":"You have reached the limit.","reason":"MONTHLY_REQUEST_COUNT"}`}
 	account := &Account{AccessToken: "tok", ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/x"}
@@ -242,6 +271,7 @@ type hostStatusDoer struct {
 	runtimeStatus int
 	runtimeBody   string
 	legacyStatus  int
+	legacyBody    string
 }
 
 func (d *hostStatusDoer) Do(req *http.Request) (*http.Response, error) {
@@ -255,7 +285,9 @@ func (d *hostStatusDoer) Do(req *http.Request) (*http.Response, error) {
 	}
 	status := d.legacyStatus
 	var body io.Reader = strings.NewReader(`{"ok":true}`)
-	if status == 0 || status == http.StatusOK {
+	if d.legacyBody != "" {
+		body = strings.NewReader(d.legacyBody)
+	} else if status == 0 || status == http.StatusOK {
 		status = http.StatusOK
 		body = bytes.NewReader(terminalEventStreamForTest("END_TURN"))
 	}

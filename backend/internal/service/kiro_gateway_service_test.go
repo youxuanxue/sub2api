@@ -1334,6 +1334,23 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	require.Equal(t, "10", quotaFailover.ResponseHeaders.Get("Retry-After"))
 }
 
+func TestClassifyKiroForwardError_LegacyVersionMaskNotClientVisible(t *testing.T) {
+	raw := `HTTP 400 from Kiro Legacy Q: {"message":"This version of Kiro is no longer supported. Please update to the latest version of Kiro to continue."}`
+	obs, classified := classifyKiroForwardError(fmt.Errorf("%s", raw), "claude-opus-4-1")
+	require.NotNil(t, obs)
+	require.Equal(t, "legacy_version_mask", obs.Reason)
+	require.Equal(t, http.StatusBadRequest, obs.Status)
+
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, classified, &failover)
+	require.Equal(t, http.StatusTooManyRequests, failover.ClientStatusCode)
+	require.Equal(t, TkClientFacingBusy429Message, failover.ClientMessage)
+	require.NotContains(t, string(failover.ResponseBody), "no longer supported")
+	require.NotContains(t, failover.ClientMessage, "Kiro")
+	require.True(t, failover.ShouldRetryNextAccount())
+	require.False(t, failover.RetryableOnSameAccount)
+}
+
 func TestClassifyKiroForwardError_AccessDeniedContinuesFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())

@@ -323,9 +323,12 @@
         "validKiroJSON(payloadBytes)",
         "eventstream.NewDecoder()",
         "!strings.HasPrefix(err.Error(), \"HTTP \") && (callback == nil || callback.ResetForRetry == nil || !callback.ResetForRetry())",
-        "non-string %s.%s"
+        "non-string %s.%s",
+        "func IsKiroLegacyUnsupportedVersionMask",
+        "quota exhausted (429); not falling through to legacy",
+        "IsKiroLegacyUnsupportedVersionMask(errBody)"
       ],
-      "rationale": "Streaming call entry + bounded AWS SDK EventStream decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for prod QA raw capture without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries. Profile rediscovery must obey consumer reset permission after in-band failures; known non-null content/stop fields cannot silently lose malformed values. A runtime HTTP 402 whose body is the monthly cap (reached the limit / MONTHLY_REQUEST_COUNT) must return immediately: falling through to the transitional q host replaces it with a version-gate 400 and leaves the exhausted account schedulable."
+      "rationale": "Streaming call entry + bounded AWS SDK EventStream decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for prod QA raw capture without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries. Profile rediscovery must obey consumer reset permission after in-band failures; known non-null content/stop fields cannot silently lose malformed values. A runtime HTTP 402 whose body is the monthly cap (reached the limit / MONTHLY_REQUEST_COUNT) must return immediately: falling through to the transitional q host replaces it with a version-gate 400 and leaves the exhausted account schedulable. Runtime HTTP 429 is account/endpoint quota and must return immediately without Legacy Q fallthrough; Legacy Q version-update cover story is recognized by IsKiroLegacyUnsupportedVersionMask so the client stops instead of treating it as a generic 400."
     },
     {
       "path": "backend/internal/integration/kiro/eventstream_delta_test.go",
@@ -399,9 +402,11 @@
         "TestCallKiroAPI_ResponseReadFailureDoesNotReplayCommittedConsumer",
         "TestCallKiroAPI_CanceledContextSkipsEndpointAttempts",
         "TestCallKiroAPI_RuntimeMonthlyQuota402DoesNotFallThrough",
-        "TestCallKiroAPI_RuntimeOther402StillFallsThrough"
+        "TestCallKiroAPI_RuntimeOther402StillFallsThrough",
+        "TestCallKiroAPI_Runtime429DoesNotFallThroughToLegacy",
+        "TestCallKiroAPI_LegacyVersionMaskDoesNotContinue"
       ],
-      "rationale": "Focused regression evidence for the truncated-response recovery contract: retry only after consumer reset, never replay committed output, and stop before dialing when the customer request is canceled. Monthly quota 402 must not fall through to the legacy host; a non-quota 402 still may."
+      "rationale": "Focused regression evidence for the truncated-response recovery contract: retry only after consumer reset, never replay committed output, and stop before dialing when the customer request is canceled. Monthly quota 402 must not fall through to the legacy host; a non-quota 402 still may. Runtime 429 and Legacy Q version-mask 400 must not continue the endpoint chain."
     },
     {
       "path": "backend/internal/integration/kiro/rest.go",
@@ -592,7 +597,8 @@
         "require.True(t, invalidRequestErr.ContextOverflow)",
         "require.Contains(t, invalidRequestErr.ClientMessage(), \"prompt is too long\")",
         "TestKiroGatewayService_Forward_ModelTemporarilyRestrictedTriggersFailoverAndModelCooldown",
-        "TestKiroConversationID_UsesResolvedSessionHeaders"
+        "TestKiroConversationID_UsesResolvedSessionHeaders",
+        "TestClassifyKiroForwardError_LegacyVersionMaskNotClientVisible"
       ],
       "rationale": "Wire regression coverage for normal tool calls, client-owned tool names, stop reasons, content filtering, incomplete streams, retry integrity and thinking side channels. Image format must be request-owned (no pool burn) while provider failures that only echo image text still failover. Quota-exhausted ClientMessage must assert the shared busy-429 SSOT. Local payload-overflow coverage is anchored on its outcome, not just the test name: ContextOverflow must stay set and the public copy must stay the actionable prompt-is-too-long text. An upstream merge that reverts the classification to a bare 413 request_too_large keeps this test compiling and passing on the old assertions, which is exactly how Claude Code regressed to rendering the model as unavailable (#2941)."
     },
@@ -837,9 +843,12 @@
         "type KiroModelTemporarilyRestrictedError",
         "func (e *KiroModelTemporarilyRestrictedError) Unwrap() error",
         "isKiroModelTemporarilyRestricted",
-        "kiroModelTemporarilyRestrictedReason"
+        "kiroModelTemporarilyRestrictedReason",
+        "func TkIsKiroLegacyUnsupportedVersionMask",
+        "func classifyKiroLegacyUnsupportedVersionMask",
+        "legacy_version_mask"
       ],
-      "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; CONTENT_FILTERED returns a typed client-owned error without creating upstream error context, while real transport/read/empty-response causes retain sanitized upstream evidence. The handler maps request-owned outcomes to 400 without cross-account failover. Image-client classification must match the primary upstream message only and must not mask provider exceptions (InternalServerException) or non-400 HTTP that only echo 'Image format is not supported.'. KiroEndpointQuotaExhaustedError.ClientMessage must return the shared busy-429 SSOT (not the legacy quota phrase) so wire bodies stay pool-agnostic. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause."
+      "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; CONTENT_FILTERED returns a typed client-owned error without creating upstream error context, while real transport/read/empty-response causes retain sanitized upstream evidence. The handler maps request-owned outcomes to 400 without cross-account failover. Image-client classification must match the primary upstream message only and must not mask provider exceptions (InternalServerException) or non-400 HTTP that only echo 'Image format is not supported.'. KiroEndpointQuotaExhaustedError.ClientMessage must return the shared busy-429 SSOT (not the legacy quota phrase) so wire bodies stay pool-agnostic. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause. Legacy Q version-update cover copy must classify to account-scoped busy 429 via classifyKiroLegacyUnsupportedVersionMask/TkIsKiroLegacyUnsupportedVersionMask so clients never see the pin-death narrative."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_kiro.go",

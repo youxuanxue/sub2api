@@ -63,7 +63,11 @@ func (h *GatewayHandler) tkEnrichMappedUpstreamErrorMessage(
 	}
 	if platform == service.PlatformAnthropic {
 		if msg := service.ExtractUpstreamErrorMessage(responseBody); msg != "" {
-			errMsg = msg
+			// Legacy Q's version-update cover story must never become Anthropic
+			// client copy even if a failover ResponseBody still carries it.
+			if !service.TkIsKiroLegacyUnsupportedVersionMask(msg) {
+				errMsg = msg
+			}
 		}
 		errMsg = service.TkEnrichClaudeIncidentMessage(errMsg, statusCode)
 	}
