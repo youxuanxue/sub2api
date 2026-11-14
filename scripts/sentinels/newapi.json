@@ -724,6 +724,7 @@
       "must_contain": [
         "func NormalizeMoonshotThinking(",
         "func applyMoonshotThinkingShape(",
+        "preferKimiThinkingEffort(",
         "func writeOpenAIInvalidParameterError(",
         "\"invalid_parameter\"",
         "thinking.type"
@@ -736,9 +737,11 @@
         "TestNormalizeMoonshotThinking_BoolToObject",
         "TestNormalizeMoonshotThinking_K3StripsThinkingKeepsEffort",
         "TestNormalizeMoonshotThinking_K3SoftRemapsDisableAndEffortAliases",
-        "TestApplyMoonshotThinkingShape_WritesParamError"
+        "TestApplyMoonshotThinkingShape_WritesParamError",
+        "TestApplyMoonshotThinkingShape_ThinkingEffortWinsWithoutVolcAccount",
+        "TestKimiToolSchemaRejectMessage"
       ],
-      "rationale": "Focused regressions for Moonshot thinking shape: bool coerce, k3 strip+effort keep, soft disable/effort aliases, and gin error envelope with error.param for unknown tokens."
+      "rationale": "Focused regressions for Moonshot thinking shape: bool coerce, k3 strip+effort keep, soft disable/effort aliases, gin error envelope with error.param for unknown tokens, thinking.effort winning over reasoning_effort, and the tool-schema 400 label."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",

@@ -154,6 +154,36 @@ func TestVolcKimiReasoningEffortMoonshotCompatible(t *testing.T) {
 		require.ErrorAs(t, err, &invalid)
 		require.Equal(t, "reasoning_effort", invalid.Param)
 	})
+	t.Run("thinking_effort_wins", func(t *testing.T) {
+		got, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3",
+			[]byte(`{"thinking":{"type":"enabled","keep":"all","effort":"low"},"reasoning_effort":"max"}`))
+		require.NoError(t, err)
+		require.Equal(t, "low", gjson.GetBytes(got, "reasoning_effort").String())
+		require.Equal(t, "low", gjson.GetBytes(got, "thinking.effort").String())
+		require.Equal(t, "enabled", gjson.GetBytes(got, "thinking.type").String())
+		require.Equal(t, "all", gjson.GetBytes(got, "thinking.keep").String())
+	})
+	t.Run("thinking_effort_alone_sets_reasoning_effort", func(t *testing.T) {
+		got, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3",
+			[]byte(`{"thinking":{"type":"enabled","effort":"highest"}}`))
+		require.NoError(t, err)
+		require.Equal(t, "max", gjson.GetBytes(got, "reasoning_effort").String())
+		require.Equal(t, "enabled", gjson.GetBytes(got, "thinking.type").String())
+	})
+	t.Run("disabled_ignores_thinking_effort", func(t *testing.T) {
+		got, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3",
+			[]byte(`{"thinking":{"type":"disabled","effort":"low"},"reasoning_effort":"max"}`))
+		require.NoError(t, err)
+		require.Equal(t, "disabled", gjson.GetBytes(got, "thinking.type").String())
+		require.False(t, gjson.GetBytes(got, "reasoning_effort").Exists())
+	})
+	t.Run("invalid_thinking_effort_400", func(t *testing.T) {
+		_, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3",
+			[]byte(`{"thinking":{"type":"enabled","effort":"banana"},"reasoning_effort":"max"}`))
+		var invalid *OpenAIInvalidParameterError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, "thinking.effort", invalid.Param)
+	})
 }
 
 func TestVolcKimiChatAllowedToolsEnvelope(t *testing.T) {

@@ -3310,6 +3310,7 @@
         "normalizeVolcKimiInboundMessages(body)",
         "normalizeVolcKimiThinking(shaped)",
         "normalizeVolcKimiReasoningEffort(shaped, selected)",
+        "preferKimiThinkingEffort(shaped, selected)",
         "normalizeVolcKimiAllowedTools(shaped)",
         "validateVolcKimiRequestLimits(body)",
         "normalizeChatToolConstraints(shaped)",
@@ -3335,9 +3336,28 @@
         "normalizeVolcKimiChatRequest(shaped)",
         "rejectUnreachableVolcKimiVideoURLs(ctx, shaped)",
         "NormalizeMoonshotThinking(model, body)",
-        "isKimiModel(model)"
+        "isKimiModel(model)",
+        "preferKimiThinkingEffort(",
+        "noteKimiToolParametersRequest(c, model, body)"
       ],
-      "rationale": "The selected supplier, not the public Kimi model name alone, chooses thinking normalization. KVV rejects for orphan tools, blank function names, and fixed sampling run for every kimi-* id before that choice."
+      "rationale": "The selected supplier, not the public Kimi model name alone, chooses thinking normalization. KVV rejects for orphan tools, blank function names, and fixed sampling run for every kimi-* id before that choice. An explicit thinking.effort replaces a conflicting reasoning_effort, and a kimi request that carries tool parameters is marked so the later generic schema 400 can be labeled."
+    },
+    {
+      "path": "backend/internal/service/kimi_tool_schema_reject_message_tk.go",
+      "must_contain": [
+        "func noteKimiToolParametersRequest(",
+        "func TkRewriteKimiToolSchemaRejectMessage(",
+        "kimiGenericParameterReject = \"a parameter specified in the request is not valid\"",
+        "kimiToolSchemaRejectSuffix = \": tool function parameters schema\""
+      ],
+      "rationale": "Only a kimi request that already carries top-level tool function parameters may append the schema cue, and only when the upstream 400 text is exactly that one sentence. Other 400s stay unchanged."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "TkRewriteKimiToolSchemaRejectMessage(c, statusCode, message)"
+      ],
+      "rationale": "Chat Completions client 400s must apply the kimi tool-schema label after product-name sanitization. Ops already stored the original sentence."
     },
     {
       "path": "backend/internal/service/volc_kimi_chat_request_limits_tk.go",
@@ -3369,6 +3389,7 @@
       "must_contain": [
         "func TestVolcKimiThinkingSwitchesAndSupplierScope(",
         "func TestVolcKimiReasoningEffortMoonshotCompatible(",
+        "thinking_effort_wins",
         "func TestVolcKimiToolSelectionPreservesSemantics(",
         "func TestVolcKimiChatAllowedToolsEnvelope(",
         "func TestVolcKimiForwardKeepsThinkingAndToolConstraints(",
@@ -17776,9 +17797,10 @@
     {
       "path": "backend/internal/handler/tk_newapi_relay_error.go",
       "must_contain": [
-        "payload.Message = tkSanitizeUpstreamProductWireMessage(c, nre.Err.StatusCode, payload.Type, payload.Message)"
+        "payload.Message = tkSanitizeUpstreamProductWireMessage(c, nre.Err.StatusCode, payload.Type, payload.Message)",
+        "service.TkRewriteKimiToolSchemaRejectMessage"
       ],
-      "rationale": "NewAPI relay JSON must not passthrough Agent Plan / Token Plan / vendor-docs prose on the wire."
+      "rationale": "NewAPI relay JSON must not passthrough Agent Plan / Token Plan / vendor-docs prose on the wire. After that sanitize, a kimi tool-schema 400 gets the parameters-schema cue on both chat and responses client errors."
     },
     {
       "path": "backend/internal/server/middleware/middleware.go",

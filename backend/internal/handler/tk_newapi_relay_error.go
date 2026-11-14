@@ -20,6 +20,7 @@ func TkTryWriteNewAPIRelayErrorJSON(c *gin.Context, err error, streamStarted boo
 	if c.Writer.Size() == writerSizeBeforeForward && !streamStarted {
 		payload := nre.Err.ToOpenAIError()
 		payload.Message = tkSanitizeUpstreamProductWireMessage(c, nre.Err.StatusCode, payload.Type, payload.Message)
+		payload.Message = service.TkRewriteKimiToolSchemaRejectMessage(c, nre.Err.StatusCode, payload.Message)
 		c.JSON(nre.Err.StatusCode, gin.H{"error": payload})
 	}
 	return true
@@ -37,6 +38,7 @@ func tkTryWriteResponsesRelayClientError(c *gin.Context, err error, streamStarte
 	if !ok {
 		return false
 	}
+	payload.Message = service.TkRewriteKimiToolSchemaRejectMessage(c, http.StatusBadRequest, payload.Message)
 	if streamStarted {
 		code := ""
 		if payload.Code != nil {

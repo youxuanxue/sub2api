@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -169,6 +170,48 @@ func TestNormalizeMoonshotThinking_RejectsStringThinking(t *testing.T) {
 	var inv *OpenAIInvalidParameterError
 	if !errors.As(err, &inv) || inv.Param != "thinking" {
 		t.Fatalf("want thinking invalid_parameter, got %v", err)
+	}
+}
+
+func TestApplyMoonshotThinkingShape_ThinkingEffortWinsWithoutVolcAccount(t *testing.T) {
+	got, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", []byte(`{"thinking":{"type":"enabled","keep":"all","effort":"low"},"reasoning_effort":"max"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gjson.GetBytes(got, "reasoning_effort").String() != "low" {
+		t.Fatalf("reasoning_effort=%q want low", gjson.GetBytes(got, "reasoning_effort").String())
+	}
+	if gjson.GetBytes(got, "thinking").Exists() {
+		t.Fatal("non-volc kimi-k3 still strips the thinking object")
+	}
+}
+
+func TestKimiToolSchemaRejectMessage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := []byte(`{"model":"kimi-k3","tools":[{"type":"function","function":{"name":"walle","parameters":{"type":"object"}}}],"messages":[{"role":"user","content":"hi"}]}`)
+	_, err := applyMoonshotThinkingShape(c, nil, "kimi-k3", body)
+	if err != nil {
+		t.Fatalf("shape: %v", err)
+	}
+	got := TkRewriteKimiToolSchemaRejectMessage(c, http.StatusBadRequest, "a parameter specified in the request is not valid")
+	if !strings.Contains(got, "parameters") || !strings.Contains(got, "schema") {
+		t.Fatalf("rewritten message=%q", got)
+	}
+	if TkRewriteKimiToolSchemaRejectMessage(c, http.StatusBadRequest, "temperature 1.1 and 2.0 are not accepted") != "temperature 1.1 and 2.0 are not accepted" {
+		t.Fatal("other 400 text must stay")
+	}
+
+	w2 := httptest.NewRecorder()
+	other, _ := gin.CreateTestContext(w2)
+	_, err = applyMoonshotThinkingShape(other, nil, "kimi-k3", []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatalf("shape without tools: %v", err)
+	}
+	plain := "a parameter specified in the request is not valid"
+	if TkRewriteKimiToolSchemaRejectMessage(other, http.StatusBadRequest, plain) != plain {
+		t.Fatal("requests without tool parameters must keep the upstream sentence")
 	}
 }
 
