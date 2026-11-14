@@ -163,6 +163,38 @@ func (d *terminalBodyDoer) Do(req *http.Request) (*http.Response, error) {
 // it may fall through to the officially transitional q host. This
 // is the regression test for the auth-error short-circuit that, before the fix,
 // returned immediately and would have surfaced a runtime-only 403 to the customer.
+func TestCallKiroAPI_RuntimeMonthlyQuota402DoesNotFallThrough(t *testing.T) {
+	doer := &hostStatusDoer{runtimeStatus: http.StatusPaymentRequired, runtimeBody: `{"message":"You have reached the limit.","reason":"MONTHLY_REQUEST_COUNT"}`}
+	account := &Account{AccessToken: "tok", ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/x"}
+	err := CallKiroAPIWithDoer(doer, account, &KiroPayload{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 402") || !strings.Contains(err.Error(), "reached the limit") {
+		t.Fatalf("monthly quota 402 must surface as-is, got %v", err)
+	}
+	if len(doer.seen) != 1 || !strings.Contains(doer.seen[0], "kiro.dev") {
+		t.Fatalf("legacy host must not be called, saw %v", doer.seen)
+	}
+}
+
+func TestCallKiroAPI_RuntimeMonthlyQuotaReasonAloneDoesNotFallThrough(t *testing.T) {
+	doer := &hostStatusDoer{runtimeStatus: http.StatusPaymentRequired, runtimeBody: `{"reason":"MONTHLY_REQUEST_COUNT"}`}
+	account := &Account{AccessToken: "tok", ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/x"}
+	err := CallKiroAPIWithDoer(doer, account, &KiroPayload{}, nil)
+	if err == nil || len(doer.seen) != 1 {
+		t.Fatalf("reason-only monthly quota must not fall through: calls=%v err=%v", doer.seen, err)
+	}
+}
+
+func TestCallKiroAPI_RuntimeOther402StillFallsThrough(t *testing.T) {
+	doer := &hostStatusDoer{runtimeStatus: http.StatusPaymentRequired, runtimeBody: `{"message":"card declined"}`, legacyStatus: http.StatusOK}
+	account := &Account{AccessToken: "tok", ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/x"}
+	if err := CallKiroAPIWithDoer(doer, account, &KiroPayload{}, nil); err != nil {
+		t.Fatalf("non-quota runtime 402 should still fall through: %v", err)
+	}
+	if len(doer.seen) < 2 || !strings.Contains(doer.seen[1], "amazonaws.com") {
+		t.Fatalf("expected a legacy attempt, saw %v", doer.seen)
+	}
+}
+
 func TestCallKiroAPI_Runtime403FallsThroughToLegacy(t *testing.T) {
 	doer := &recordingDoer{}
 	account := &Account{AccessToken: "tok", ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/x"}
@@ -200,6 +232,38 @@ func TestCallKiroAPI_LegacyAuthErrorStillShortCircuits(t *testing.T) {
 	if len(doer.seen) != 2 {
 		t.Fatalf("expected runtime + one legacy host then short-circuit, saw: %v", doer.seen)
 	}
+}
+
+// hostStatusDoer answers the runtime host with runtimeStatus/runtimeBody and
+// every later host with legacyStatus. legacyStatus 0 means 200 plus a terminal
+// event stream so a fall-through can succeed.
+type hostStatusDoer struct {
+	seen          []string
+	runtimeStatus int
+	runtimeBody   string
+	legacyStatus  int
+}
+
+func (d *hostStatusDoer) Do(req *http.Request) (*http.Response, error) {
+	d.seen = append(d.seen, req.URL.Host)
+	if strings.Contains(req.URL.Host, "kiro.dev") {
+		return &http.Response{
+			StatusCode: d.runtimeStatus,
+			Body:       io.NopCloser(strings.NewReader(d.runtimeBody)),
+			Header:     http.Header{},
+		}, nil
+	}
+	status := d.legacyStatus
+	var body io.Reader = strings.NewReader(`{"ok":true}`)
+	if status == 0 || status == http.StatusOK {
+		status = http.StatusOK
+		body = bytes.NewReader(terminalEventStreamForTest("END_TURN"))
+	}
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(body),
+		Header:     http.Header{},
+	}, nil
 }
 
 type legacy403Doer struct{ seen []string }

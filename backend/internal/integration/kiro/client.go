@@ -452,6 +452,13 @@ func CallKiroAPIWithDoerContext(ctx context.Context, doer HTTPDoer, account *Acc
 	return err
 }
 
+// isKiroMonthlyQuotaLimitBody reports the account-scoped monthly cap.
+// Prod returns {"message":"You have reached the limit.","reason":"MONTHLY_REQUEST_COUNT"}.
+func isKiroMonthlyQuotaLimitBody(body []byte) bool {
+	lower := strings.ToLower(string(body))
+	return strings.Contains(lower, "reached the limit") || strings.Contains(lower, "monthly_request_count")
+}
+
 func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, payload *KiroPayload, callback *KiroStreamCallback, endpoints []kiroEndpoint) error {
 	var lastErr error
 	for endpointIndex, ep := range endpoints {
@@ -518,11 +525,18 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 			if resp.StatusCode == http.StatusBadRequest && IsUnsupportedImageFormatError(errBody) {
 				return lastErr
 			}
-			// Auth/payment errors normally aren't retried across endpoints (the same
+			// Monthly quota is an account limit. The legacy q host does not repeat
+			// it: it answers HTTP 400 "This version of Kiro is no longer supported"
+			// and the 402 never reaches the scheduler stop. Return it here.
+			if resp.StatusCode == http.StatusPaymentRequired && isKiroMonthlyQuotaLimitBody(errBody) {
+				return lastErr
+			}
+			// Auth errors normally aren't retried across endpoints (the same
 			// token would be rejected everywhere). EXCEPTION: runtime.kiro.dev is a
 			// different gateway/entitlement domain than the transitional q host, so
-			// a 401/403/402 there does not imply q will reject the same token. Only
-			// the q-host auth/payment error short-circuits.
+			// a 401/403 there does not imply q will reject the same token. Only
+			// the q-host auth error short-circuits. A non-quota 402 still follows
+			// that host exception.
 			if resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 402 {
 				if !strings.Contains(ep.URL, ".kiro.dev") {
 					return lastErr
