@@ -13,7 +13,7 @@ Kiro 上游只返回 credits，不返回 Anthropic 式 `cache_read` / `cache_cre
 
 - **ADDED**：开关 `gateway.kiro_cache_billing.enabled`（默认 `true`；仅字面量 `false` 关闭）。
 - **ADDED**：按 `account_id + model + conversationId` 维护 prompt 前缀指纹；同会话次轮起，匹配前缀按 `cache_read` 计价。
-- **MODIFIED**：默认开启后 `Usage.InputTokens` 仅为非缓存余量。匹配前缀的 20% 记 `cache_read`，其余 80% 仍按输入价。达到 1024 token 的新后缀全部记 `cache_creation`，且不填 5m/1h 明细，结算走未知 TTL 的 1 小时写入价。
+- **MODIFIED**：默认开启后 `Usage.InputTokens` 仅为非缓存余量。匹配前缀的 10% 记 `cache_read`，其余 90% 仍按输入价。达到 1024 token 的新后缀全部记 `cache_creation`，且不填 5m/1h 明细，结算走未知 TTL 的 1 小时写入价。
 - **REMOVED**：无。显式关闭时行为与原来一致（cache 字段恒 0）。
 
 ## Scenarios
