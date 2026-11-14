@@ -418,7 +418,7 @@ func splitOracle(ctx context.Context, store CacheFingerprintStore, session strin
 		matched = 0
 	}
 	out.MatchedPrefixTokens = matched
-	out.CacheReadTokens = matched * 2000 / 10000
+	out.CacheReadTokens = matched * 1000 / 10000
 	if suffix := total - matched; total >= 1024 && suffix >= 1024 {
 		out.CacheCreationTokens = min(suffix*10000/10000, total-out.CacheReadTokens)
 	}

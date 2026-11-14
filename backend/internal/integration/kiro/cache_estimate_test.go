@@ -172,7 +172,7 @@ func TestEstimateCacheUsageSplit_InactiveSessionStaysInput(t *testing.T) {
 
 func TestCacheHaircuts(t *testing.T) {
 	for _, tc := range []struct{ tokens, read, creation int }{
-		{-1, 0, 0}, {0, 0, 0}, {1, 0, 1}, {1023, 204, 1023}, {1024, 204, 1024}, {2000, 400, 2000},
+		{-1, 0, 0}, {0, 0, 0}, {1, 0, 1}, {1023, 102, 1023}, {1024, 102, 1024}, {2000, 200, 2000},
 	} {
 		if read, creation := applyCacheReadHaircut(tc.tokens), applyCacheCreationHaircut(tc.tokens); read != tc.read || creation != tc.creation {
 			t.Fatalf("tokens=%d read=%d creation=%d want=%d,%d", tc.tokens, read, creation, tc.read, tc.creation)
