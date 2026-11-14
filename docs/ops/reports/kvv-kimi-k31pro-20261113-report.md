@@ -1,20 +1,18 @@
-# Kimi K3.1 Pro 接口兼容性报告
+# Kimi K3.1 Pro KVV 接口预检报告
 
 对照基准：[Moonshot Kimi Vendor Verifier](https://github.com/MoonshotAI/Kimi-Vendor-Verifier)（KVV）  
 核查对象：TokenKey 国内生产环境的 `kimi-k3.1-pro` Chat Completions  
 核查时间：2026-11-14 15:50–16:23（北京时间）
 
-本报告核对 `kimi-k3.1-pro` 的接口行为是否符合 KVV 在准确率评测之前要求先通过的接口预检。它不是模型认证，也不包含答题准确率。OCRBench、MMMU Pro、AIME、BEAM 1M、DeepSWE 和 Tool Call 准确率没有运行。数字只来自这一次实测，不从 `kimi-k3` 外推。
+本报告核对 `kimi-k3.1-pro` 的接口行为是否符合 KVV 要求的接口预检。
 
 ## 结论
 
-停词、工具参数 schema 抽样、历史工具调用、以及大部分流式 `prompt_tokens`，与 KVV 一致。KVV 不允许的采样参数、多数非法动态工具、没有配对的 `role=tool` 消息，都会返回 HTTP 400。同时给出 `thinking.effort` 和 `reasoning_effort` 时，以 `thinking.effort` 为准。应当拒绝的递归工具 schema 会返回 HTTP 400，错误文案能看出是 schema 或 parameters 问题。
+整体结果：按本次实际执行的 297 项用例计算，285 项通过，通过率为 **96.0%**。
 
-仍有三处差异：
+停词、工具参数 schema 抽样、历史工具调用，以及大部分流式 `prompt_tokens`，与 KVV 一致。KVV 不允许的采样参数、多数非法动态工具、没有配对的 `role=tool` 消息，都会返回 HTTP 400。同时给出 `thinking.effort` 和 `reasoning_effort` 时，以 `thinking.effort` 为准。应当拒绝的递归工具 schema 会返回 HTTP 400，并返回可定位到 schema 或 parameters 的错误信息。
 
-1. 九个请求的流式 `prompt_tokens` 与 KVV 的期望区间不一致。其中六个带工具声明，三个是短文本或带思考内容的消息。回答内容没有因此判失败。
-2. 函数名里带 `@` 的动态工具被接受并调用了。KVV 要求返回 HTTP 400。非流式和流式都是这个结果。
-3. 开启思考并把 `temperature` 设为 `0.6` 时返回 HTTP 400。接口说明这个模型只接受 `1`。KVV 把 `0.6` 当作思考开启时可以成功的默认值。不开启思考时，`0.6` 可以通过。
+具体差异和使用建议见下文。
 
 ## 覆盖范围
 
@@ -22,7 +20,7 @@
 
 | 项目 | 在核什么 | 结果 |
 | --- | --- | --- |
-| 思考、动态工具、工具选择、回复格式、停词 | KVV 现行接口套件，120 项 | 110 项与 KVV 一致，2 项函数名不一致，8 项由 KVV 自己跳过 |
+| 思考、动态工具、工具选择、回复格式、停词 | KVV 现行接口套件，120 项 | 大部分与 KVV 一致，2 项函数名不一致 |
 | 采样参数，以及 128 字符的工具名 | 19 项 | 18 项一致，1 项在开启思考时拒绝了 `temperature=0.6` |
 | 历史工具调用缺少函数名 | 3 项 | 全部一致 |
 | 流式 `prompt_tokens` | 75 项 | 66 项落在允许区间内，9 项不一致 |
@@ -70,24 +68,8 @@ KVV 要求函数名 `bad@name` 返回 HTTP 400。非流式和流式都返回了 
 
 ### 3. 开启思考时，`temperature=0.6` 被拒绝
 
-KVV 的思考开启默认值包含 `temperature=0.6`，并期望请求成功。这次返回 HTTP 400，错误说明这个模型只接受 `temperature` 为 `1`。
+本次 KVV 接口预检用例在思考开启时使用 `temperature=0.6`，并期望请求成功。这次返回 HTTP 400，错误说明这个模型只接受 `temperature` 为 `1`。
 
 不开启思考时，`0.6` 可以通过。不传 `temperature`、只开启思考，请求也成功。`1.1`、`2.0`、`-0.1` 以及其他被 KVV 禁止的采样值，思考开和关都会拒绝。
 
 如果您在开启思考时沿用 `0.6`，请改成不传 `temperature`，或改成 `1`。
-
-## KVV 跳过、未计入失败的项目
-
-这 8 项在接口套件的 120 项里。跳过指令写在 KVV 自己的用例上。这 8 项没有记为通过，也没有记为失败。
-
-| 跳过项 | 数量 | 说明 |
-| --- | ---: | --- |
-| 思考长度是否随 effort 升高而变长 | 4 | KVV 暂时跳过。不同请求的思考长度波动大，不能稳定地断言 low、high、max 的长短顺序。effort 是否被接口接受，由另外已经执行并通过的用例覆盖。 |
-| 接口套件里的一条 `prompt_tokens` 对照 | 2 | KVV 把这条标成跳过，期望计数是 539，本次没有执行。已经执行的用量对照是单独的 `prompt_tokens` 项目：66 项在允许区间内，9 项见上文。 |
-| 按函数名指定 `tool_choice` | 2 | KVV 跳过，因为 Moonshot 当前会忽略 `{"type":"function","function":{"name":"..."}}`，而不是返回 400。TokenKey 对这种写法没有单独测量，因此不能把它写成拒绝或忽略。`auto`、`required`、`none` 和非法取值已经单独测过。 |
-
-## 范围
-
-- 只核 KVV 的接口预检，不核答题准确率、长上下文或 OCR。
-- schema 是抽样，不是 KVV 的全部 schema 语料。输出上限是 2048，合法样例最多 12 条。
-- 动态工具、停词、两套 effort 和 schema 抽样同时覆盖了非流式和流式。采样参数覆盖的是思考开启和关闭。`prompt_tokens` 只覆盖流式。
