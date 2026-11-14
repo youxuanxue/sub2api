@@ -316,6 +316,8 @@
         "parseEventStream(resp.Body, callback, tools...)",
         "!errors.Is(err, ErrInvalidToolUse)",
         "IsUnsupportedImageFormatError(errBody)",
+        "func isKiroMonthlyQuotaLimitBody",
+        "isKiroMonthlyQuotaLimitBody(errBody)",
         "ErrInvalidEventStream",
         "maxKiroEventFrame",
         "validKiroJSON(payloadBytes)",
@@ -323,7 +325,7 @@
         "!strings.HasPrefix(err.Error(), \"HTTP \") && (callback == nil || callback.ResetForRetry == nil || !callback.ResetForRetry())",
         "non-string %s.%s"
       ],
-      "rationale": "Streaming call entry + bounded AWS SDK EventStream decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for prod QA raw capture without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries. Profile rediscovery must obey consumer reset permission after in-band failures; known non-null content/stop fields cannot silently lose malformed values."
+      "rationale": "Streaming call entry + bounded AWS SDK EventStream decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for prod QA raw capture without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries. Profile rediscovery must obey consumer reset permission after in-band failures; known non-null content/stop fields cannot silently lose malformed values. A runtime HTTP 402 whose body is the monthly cap (reached the limit / MONTHLY_REQUEST_COUNT) must return immediately: falling through to the transitional q host replaces it with a version-gate 400 and leaves the exhausted account schedulable."
     },
     {
       "path": "backend/internal/integration/kiro/eventstream_delta_test.go",
@@ -395,9 +397,11 @@
       "must_contain": [
         "TestCallKiroAPI_ResponseReadFailureFallsThroughWhenConsumerCanReset",
         "TestCallKiroAPI_ResponseReadFailureDoesNotReplayCommittedConsumer",
-        "TestCallKiroAPI_CanceledContextSkipsEndpointAttempts"
+        "TestCallKiroAPI_CanceledContextSkipsEndpointAttempts",
+        "TestCallKiroAPI_RuntimeMonthlyQuota402DoesNotFallThrough",
+        "TestCallKiroAPI_RuntimeOther402StillFallsThrough"
       ],
-      "rationale": "Focused regression evidence for the truncated-response recovery contract: retry only after consumer reset, never replay committed output, and stop before dialing when the customer request is canceled."
+      "rationale": "Focused regression evidence for the truncated-response recovery contract: retry only after consumer reset, never replay committed output, and stop before dialing when the customer request is canceled. Monthly quota 402 must not fall through to the legacy host; a non-quota 402 still may."
     },
     {
       "path": "backend/internal/integration/kiro/rest.go",
