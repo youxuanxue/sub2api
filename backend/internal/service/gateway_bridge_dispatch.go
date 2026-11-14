@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -99,7 +100,14 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 	if err != nil {
 		return nil, err
 	}
-	body = applyNewAPIAnthropicThinkingTemperature(account, gjson.GetBytes(body, "model").String(), body)
+	bridgeModel = gjson.GetBytes(body, "model").String()
+	if account != nil && account.ChannelType == newapiconstant.ChannelTypeAnthropic {
+		if err := validateClaude55Request(body, bridgeModel); err != nil {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return nil, err
+		}
+	}
+	body = applyNewAPIAnthropicThinkingTemperature(account, bridgeModel, body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}

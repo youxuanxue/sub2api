@@ -101,6 +101,7 @@ func tkOpsRequestParameterValidationMessage(lowerMessage string) bool {
 		strings.Contains(lowerMessage, "non-default") ||
 		strings.Contains(lowerMessage, "input should be") ||
 		strings.Contains(lowerMessage, "must be") ||
+		strings.Contains(lowerMessage, "may only be set") ||
 		strings.Contains(lowerMessage, "expected")
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -106,7 +107,16 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		}
 		return nil, err
 	}
-	body = applyNewAPIAnthropicThinkingTemperature(account, gjson.GetBytes(body, "model").String(), body)
+	bridgeModel = gjson.GetBytes(body, "model").String()
+	// Anthropic-channel Claude 5.5 sampling conflicts are client parameter errors
+	// (400 invalid_request_error), not platform/upstream faults.
+	if account != nil && account.ChannelType == newapiconstant.ChannelTypeAnthropic {
+		if err := validateClaude55Request(body, bridgeModel); err != nil {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return nil, err
+		}
+	}
+	body = applyNewAPIAnthropicThinkingTemperature(account, bridgeModel, body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
