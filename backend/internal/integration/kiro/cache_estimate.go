@@ -14,13 +14,16 @@ import (
 // full input. These knobs emulate Anthropic prefix-cache economics locally:
 //
 //   - MinCacheablePrefixTokens: Anthropic's practical minimum cacheable prefix.
-//   - CacheReadHaircut: attribute 60% of a matched prefix to cache_read.
-//   - CacheCreationHaircut: attribute 50% of a new cacheable suffix to creation.
+//   - CacheReadHaircut: attribute 20% of a matched prefix to cache_read.
+//     The other 80% stays input-priced.
+//   - CacheCreationHaircut: attribute 100% of a new cacheable suffix to creation.
+//     Settlement prices that aggregate at the unknown-TTL 1h write rate because
+//     Kiro does not fill the 5m/1h token buckets.
 //   - Default/Max TTL: 5m unless the request body asks for 1h cache_control.
 const (
 	MinCacheablePrefixTokens = 1024
-	CacheReadHaircutBPS      = 6000 // 60.00% in basis points
-	CacheCreationHaircutBPS  = 5000 // 50.00% in basis points
+	CacheReadHaircutBPS      = 2000  // 20.00% in basis points
+	CacheCreationHaircutBPS  = 10000 // 100.00% in basis points
 	DefaultCacheTTL          = 5 * time.Minute
 	MaxCacheTTL              = time.Hour
 )

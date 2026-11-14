@@ -197,6 +197,8 @@ func TestKiroGatewayService_Forward_CacheBilling_SecondTurnReadsPrefix(t *testin
 		Messages: []kiroproto.ClaudeMessage{{Role: "user", Content: large}},
 	})
 	require.Equal(t, total1*kiroproto.CacheCreationHaircutBPS/10000, result1.Usage.CacheCreationInputTokens)
+	require.Zero(t, result1.Usage.CacheCreation5mTokens)
+	require.Zero(t, result1.Usage.CacheCreation1hTokens)
 	require.Equal(t, total1, result1.Usage.InputTokens+result1.Usage.CacheReadInputTokens+result1.Usage.CacheCreationInputTokens)
 
 	for _, suffix := range []string{"continue " + large[:120], "continue " + large} {
@@ -226,6 +228,8 @@ func TestKiroGatewayService_Forward_CacheBilling_SecondTurnReadsPrefix(t *testin
 			require.Equal(t, "kiro-cache-estimated", result2.BillingTier)
 			require.Positive(t, result2.Usage.CacheReadInputTokens)
 			require.Equal(t, total1*kiroproto.CacheReadHaircutBPS/10000, result2.Usage.CacheReadInputTokens)
+			require.Zero(t, result2.Usage.CacheCreation5mTokens)
+			require.Zero(t, result2.Usage.CacheCreation1hTokens)
 			require.Equal(t, result2.Usage.InputTokens+result2.Usage.CacheReadInputTokens+result2.Usage.CacheCreationInputTokens,
 				kiroproto.EstimateInputTokens(&kiroproto.ClaudeRequest{
 					Model:  "claude-sonnet-4",
