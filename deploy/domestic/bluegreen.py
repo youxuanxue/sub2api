@@ -17,6 +17,8 @@ import re
 import shlex
 import shutil
 import subprocess
+import time
+import urllib.request
 
 try:
     from . import data_layout, post_release
@@ -476,6 +478,60 @@ def repin_env_image(image_id):
     env.chmod(0o600)
 
 
+# Private origin the cn-prod entry machine dials (10.2.4.7 -> app-a). It is a
+# socat forwarder pinned to one colour, because the gateway only listens on
+# loopback and Caddy cannot bind the host's private address from its bridge.
+# Recreating it cuts every stream that runs through it, so it is only switched
+# after the outgoing colour has fully drained: drain makes that colour's /health
+# return 503, the entry machine's health check stops sending app-a new requests,
+# and in_flight=0 then also means no stream is crossing the forwarder.
+ENTRY_ORIGIN = 'tokenkey-entry-origin'
+_ENTRY_ORIGIN_TARGET = re.compile(r'^TCP:(tokenkey(?:-blue|-green)?):8080$')
+
+
+def entry_origin_command(target):
+    return ['TCP-LISTEN:8080,fork,reuseaddr,keepalive', f'TCP:{target}:8080']
+
+
+def sync_entry_origin(target, wait=time.sleep):
+    """Point the entry machine's private origin at target, or do nothing.
+
+    Hosts without an entry origin are left alone. An origin this code did not
+    create (unexpected command) is refused rather than overwritten.
+    """
+    try:
+        current = inspect(ENTRY_ORIGIN)
+    except RuntimeError:
+        return False
+    cmd = current['Config'].get('Cmd') or []
+    if len(cmd) != 2 or cmd[0] != entry_origin_command(target)[0] or not _ENTRY_ORIGIN_TARGET.match(cmd[1]):
+        raise ValueError('unexpected entry origin container; refusing to replace it')
+    bindings = (current['HostConfig'].get('PortBindings') or {}).get('8080/tcp') or []
+    if len(bindings) != 1 or not bindings[0].get('HostIp') or bindings[0]['HostIp'] in ('0.0.0.0', '::'):
+        raise ValueError('entry origin must publish 8080 on one private address')
+    host_ip = bindings[0]['HostIp']
+    networks = list(current['NetworkSettings']['Networks'])
+    if len(networks) != 1:
+        raise ValueError('entry origin must sit on the one application network')
+    if cmd == entry_origin_command(target) and current['State'].get('Running'):
+        return True
+    run('docker', 'rm', '-f', ENTRY_ORIGIN)
+    run('docker', 'run', '-d', '--name', ENTRY_ORIGIN, '--restart', 'unless-stopped',
+        '--network', networks[0], '-p', f'{host_ip}:8080:8080',
+        '--memory', '32m', '--memory-swap', '32m', '--cpus', '0.5', '--pids-limit', '256',
+        '--security-opt', 'no-new-privileges', '--read-only',
+        current['Config']['Image'], *entry_origin_command(target))
+    for _ in range(30):
+        try:
+            with urllib.request.urlopen(f'http://{host_ip}:8080/health', timeout=3) as response:
+                if response.status == 200:
+                    return True
+        except OSError:
+            pass
+        wait(1)
+    raise RuntimeError('entry origin did not become healthy; inspect private host logs')
+
+
 def promote(args):
     state = args.state
     receipt = verify_receipt(state, args.receipt)
@@ -488,7 +544,11 @@ def promote(args):
     repin_env_image(inspect(target)['Image'])
     shell(state, f'wait_healthy {target}\nwait_ready {target}\n'
           f'commit_cutover {color}\nobserve_routed_health {color}\n'
-          f'drain_container {old}\ndocker stop -t 180 {old} >/dev/null')
+          f'drain_container {old}')
+    # After drain: see ENTRY_ORIGIN. A failure here leaves the drained old
+    # colour running and the release incomplete; Caddy already serves target.
+    sync_entry_origin(target)
+    shell(state, f'docker stop -t 180 {old} >/dev/null')
     write_private(state / 'completed.json', receipt | {'stage': 'complete'})
     post_release.finish(args, receipt, context, data=DATA, inspect=inspect, active_container=active_container)
     print(json.dumps({'stage': 'complete', 'active': target, 'previous': old,
@@ -553,7 +613,9 @@ def rollback(args):
     # or .env keeps naming the image we just rolled away from -- the same stale
     # pin this adapter now exists to prevent, only inverted.
     repin_env_image(inspect(old)['Image'])
-    shell(state, f'observe_routed_health {shlex.quote(old)}\ndrain_container {target}\ndocker stop -t 180 {target} >/dev/null')
+    shell(state, f'observe_routed_health {shlex.quote(old)}\ndrain_container {target}')
+    sync_entry_origin(old)
+    shell(state, f'docker stop -t 180 {target} >/dev/null')
     write_private(state / 'rolled-back.json', {'active': old, 'previous': target})
     print(json.dumps({'stage': 'rolled-back', 'active': old}))
 

@@ -540,7 +540,106 @@ class DomesticBluegreenTest(unittest.TestCase):
                 self.assertFalse((state / 'completed.json').exists())
             body = commands[0]
             self.assertLess(body.index('commit_cutover blue'), body.index('drain_container tokenkey'))
-            self.assertLess(body.index('observe_routed_health blue'), body.index('docker stop'))
+            # The old colour is stopped only after the entry origin moved, in a
+            # separate step; the cutover shell must not stop it.
+            self.assertNotIn('docker stop', body)
+
+    def test_promote_moves_entry_origin_after_drain_and_before_stop(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            receipt = {'old': 'tokenkey-green', 'target': 'tokenkey-blue', 'revision': 'reviewed'}
+            order = []
+            with patch.object(bg.post_release, 'configure', return_value={}), \
+                    patch.object(bg.post_release, 'finish'), \
+                    patch.object(bg, 'verify_receipt', return_value=receipt), \
+                    patch.object(bg, 'inspect', return_value={'Image': 'img'}), \
+                    patch.object(bg, 'repin_env_image'), patch.object(bg, 'run'), \
+                    patch.object(bg, 'shell', side_effect=lambda _s, body: order.append(body)), \
+                    patch.object(bg, 'sync_entry_origin',
+                                 side_effect=lambda target: order.append('origin->' + target)):
+                bg.promote(SimpleNamespace(state=state, receipt='hash'))
+            drain = next(i for i, b in enumerate(order) if 'drain_container tokenkey-green' in b)
+            origin = order.index('origin->tokenkey-blue')
+            stop = next(i for i, b in enumerate(order) if 'docker stop -t 180 tokenkey-green' in b)
+            self.assertLess(drain, origin)
+            self.assertLess(origin, stop)
+
+    def test_promote_failing_origin_keeps_old_colour_running(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            receipt = {'old': 'tokenkey-green', 'target': 'tokenkey-blue', 'revision': 'reviewed'}
+            bodies = []
+            with patch.object(bg.post_release, 'configure', return_value={}), \
+                    patch.object(bg, 'verify_receipt', return_value=receipt), \
+                    patch.object(bg, 'inspect', return_value={'Image': 'img'}), \
+                    patch.object(bg, 'repin_env_image'), patch.object(bg, 'run'), \
+                    patch.object(bg, 'shell', side_effect=lambda _s, body: bodies.append(body)), \
+                    patch.object(bg, 'sync_entry_origin', side_effect=RuntimeError('unhealthy')):
+                with self.assertRaises(RuntimeError):
+                    bg.promote(SimpleNamespace(state=state, receipt='hash'))
+            self.assertFalse(any('docker stop' in b for b in bodies))
+            self.assertFalse((state / 'completed.json').exists())
+
+
+class EntryOriginTest(unittest.TestCase):
+    def origin(self, target='tokenkey-green', host_ip='10.2.4.11', running=True):
+        return {'Config': {'Image': 'alpine/socat:1.8.0.0',
+                           'Cmd': ['TCP-LISTEN:8080,fork,reuseaddr,keepalive', f'TCP:{target}:8080']},
+                'HostConfig': {'PortBindings': {'8080/tcp': [{'HostIp': host_ip, 'HostPort': '8080'}]}},
+                'NetworkSettings': {'Networks': {'tokenkey_tokenkey-network': {}}},
+                'State': {'Running': running}}
+
+    def test_host_without_entry_origin_is_left_alone(self):
+        with patch.object(bg, 'inspect', side_effect=RuntimeError('no such container')), \
+                patch.object(bg, 'run') as run:
+            self.assertFalse(bg.sync_entry_origin('tokenkey-blue'))
+        run.assert_not_called()
+
+    def test_already_pointing_at_target_is_a_noop(self):
+        with patch.object(bg, 'inspect', return_value=self.origin('tokenkey-blue')), \
+                patch.object(bg, 'run') as run:
+            self.assertTrue(bg.sync_entry_origin('tokenkey-blue'))
+        run.assert_not_called()
+
+    def test_recreates_on_same_private_bind_and_network(self):
+        calls = []
+
+        class Ok:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        with patch.object(bg, 'inspect', return_value=self.origin('tokenkey-green')), \
+                patch.object(bg, 'run', side_effect=lambda *a: calls.append(a)), \
+                patch.object(bg.urllib.request, 'urlopen', return_value=Ok()) as urlopen:
+            self.assertTrue(bg.sync_entry_origin('tokenkey-blue', wait=lambda _s: None))
+        self.assertEqual(calls[0], ('docker', 'rm', '-f', 'tokenkey-entry-origin'))
+        started = calls[1]
+        self.assertIn('10.2.4.11:8080:8080', started)
+        self.assertIn('tokenkey_tokenkey-network', started)
+        self.assertEqual(started[-1], 'TCP:tokenkey-blue:8080')
+        self.assertEqual(urlopen.call_args.args[0], 'http://10.2.4.11:8080/health')
+
+    def test_refuses_unknown_or_public_origin(self):
+        foreign = self.origin()
+        foreign['Config']['Cmd'] = ['TCP-LISTEN:8080,fork', 'TCP:evil:8080']
+        public = self.origin(host_ip='0.0.0.0')
+        for container in (foreign, public):
+            with self.subTest(container=container['Config']['Cmd'][1]), \
+                    patch.object(bg, 'inspect', return_value=container), \
+                    patch.object(bg, 'run') as run:
+                with self.assertRaises(ValueError):
+                    bg.sync_entry_origin('tokenkey-blue')
+                run.assert_not_called()
+
+    def test_unhealthy_origin_fails_the_release(self):
+        with patch.object(bg, 'inspect', return_value=self.origin('tokenkey-green')), \
+                patch.object(bg, 'run'), \
+                patch.object(bg.urllib.request, 'urlopen', side_effect=OSError('refused')):
+            with self.assertRaises(RuntimeError):
+                bg.sync_entry_origin('tokenkey-blue', wait=lambda _s: None)
 
 
 class DomesticEnvRepinTest(unittest.TestCase):
@@ -613,10 +712,12 @@ class DomesticEnvRepinTest(unittest.TestCase):
                 patch.object(bg, 'run'), \
                 patch.object(bg, 'shell', side_effect=lambda *a: order.append(('cutover',))), \
                 patch.object(bg, 'write_private'), \
+                patch.object(bg, 'sync_entry_origin'), \
                 patch.object(bg.post_release, 'finish'):
             bg.promote(SimpleNamespace(state=state, receipt='hash'))
-        # A pin written after cutover would be lost if cutover raised.
-        self.assertEqual(order, [('repin', 'sha256:promoted'), ('cutover',)])
+        # A pin written after cutover would be lost if cutover raised. The
+        # second shell step is the deferred stop of the drained old colour.
+        self.assertEqual(order, [('repin', 'sha256:promoted'), ('cutover',), ('cutover',)])
 
 
 class DomesticRollbackRuntimeTest(unittest.TestCase):
