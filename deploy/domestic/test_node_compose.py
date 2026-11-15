@@ -149,3 +149,19 @@ class EntryCaddyTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ExternalNetworkTest(unittest.TestCase):
+    def test_app_a_declares_existing_bluegreen_network_external(self):
+        target = json.loads(node_compose.TARGET.read_text())
+        text = node_compose.render(node_compose.find_app(target, "app-a"), "512")
+        self.assertIn("networks:\n  tokenkey-network: !override\n    name: tokenkey_tokenkey-network\n    external: true\n", text)
+
+    def test_app_b_keeps_compose_owned_network(self):
+        target = json.loads(node_compose.TARGET.read_text())
+        self.assertNotIn("networks:", node_compose.render(node_compose.find_app(target, "app-b"), "512"))
+
+    def test_bad_network_name_refused(self):
+        with self.assertRaises(ValueError):
+            node_compose.render({"name": "app-x", "private_ip": "10.2.4.20", "memory_limit": "3g",
+                                 "external_network": "bad name"}, "512")

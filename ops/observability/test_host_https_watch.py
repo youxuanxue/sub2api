@@ -566,14 +566,15 @@ class CnProdMultiAppWatchTest(unittest.TestCase):
         self.assertEqual(legacy['node'], 'cn-prod')
         self.assertEqual(legacy['targets']['cn-prod'], self.domestic['public_origin'] + '/health')
 
-    def test_app_node_watches_local_health_and_qa_jobs(self):
+    def test_app_node_watches_local_health_and_declared_jobs(self):
         app = self.apps['app-b']
         config = self.config('cn-prod', node='app-b', host_ips=[app['private_ip']])
         self.assertEqual(config['node'], 'cn-prod-app-b')
         self.assertEqual(config['backends'], {'cn-prod-app-b:local': 'http://127.0.0.1:18080/health'})
         self.assertFalse(config['pool_alert'])
         self.assertEqual(config['targets'], {})
-        self.assertEqual(config['jobs'], ['tokenkey-disk-metrics'] + self.domestic['local_qa_jobs'])
+        # app-b runs no QA or disk-metrics timers yet (apps[].jobs = []).
+        self.assertEqual(config['jobs'], [])
         with self.assertRaisesRegex(ValueError, 'host identity'):
             self.config('cn-prod', node='app-b', host_ips=[self.apps['app-a']['private_ip']])
         with self.assertRaisesRegex(ValueError, 'unknown cn-prod app node'):
@@ -836,3 +837,14 @@ class CnProdPostgresCoverageTest(unittest.TestCase):
                     self.assertIn('tokenkey-postgres-backup', watch.backup_jobs(role, state))
             for job in watch.backup_jobs('cn-prod-data', state) + watch.backup_jobs('prod-data', state):
                 self.assertIn(job, watch.JOB_LIMITS)
+
+
+class AppNodeJobsTest(unittest.TestCase):
+    def test_app_jobs_override_and_default(self):
+        root = pathlib.Path(__file__).resolve().parents[2]
+        domestic = json.loads((root / "deploy/domestic/prod-target.json").read_text())
+        matrix = json.loads((root / "deploy/tencent/candidate-usw-20261022.json").read_text())
+        appb = watch.build_config("cn-prod", "x", matrix, domestic, node="app-b", host_ips=["10.2.4.13"])
+        self.assertEqual(appb["jobs"], [])
+        appa = watch.build_config("cn-prod", "x", matrix, domestic, node="app-a", host_ips=["10.2.4.11"])
+        self.assertEqual(appa["jobs"], ["tokenkey-disk-metrics"] + domestic["local_qa_jobs"])

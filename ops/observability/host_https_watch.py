@@ -72,7 +72,11 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict, *,
         config = {"node": "cn-prod-" + node, "targets": {},
                   "backends": {"cn-prod-" + node + ":local": APP_LOCAL_HEALTH},
                   "pool_alert": False,
-                  "jobs": ["tokenkey-disk-metrics"] + list(domestic.get("local_qa_jobs", [])),
+                  # apps[].jobs names the timers this node actually runs; app-b has
+                  # no QA or disk-metrics timers until the data-machine coordinator
+                  # lands, so it must not inherit app-a's list and alert at once.
+                  "jobs": list(app["jobs"]) if "jobs" in app
+                  else ["tokenkey-disk-metrics"] + list(domestic.get("local_qa_jobs", [])),
                   "paused_jobs": {}}
         # Only the host named by the top-level instance_id stays the mainland
         # observer of prod and the public origin; other nodes would repeat the

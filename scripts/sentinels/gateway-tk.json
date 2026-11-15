@@ -165,7 +165,8 @@
         "if fact[\"http_code\"] == 503:",
         "down = not any(fact[\"healthy\"] for fact in facts.values())",
         "result = tick_backends(backends, result, int(time.time()), probe_health, send,",
-        "result = tick_certs(certs, result, int(time.time()), cert_days_left, send,"
+        "result = tick_certs(certs, result, int(time.time()), cert_days_left, send,",
+        "\"jobs\": list(app[\"jobs\"]) if \"jobs\" in app"
       ],
       "must_not_contain": [
         "/reverse_proxy/upstreams"
@@ -179,7 +180,8 @@
         "def test_drain_503_shorter_than_fifteen_minutes_is_silent(self):",
         "def test_all_backends_down_alerts_immediately_even_while_draining(self):",
         "def test_short_certificate_alerts_daily_and_recovers(self):",
-        "def test_cn_prod_without_node_is_unchanged(self):"
+        "def test_cn_prod_without_node_is_unchanged(self):",
+        "def test_app_node_watches_local_health_and_declared_jobs(self):"
       ],
       "rationale": "Executable coverage for the entry role, drain grace, all-down alert, certificate expiry and unchanged legacy cn-prod config."
     },
@@ -20680,6 +20682,20 @@
         "TestNewAPIChatToAnthropicBridgePreservesCacheWrite"
       ],
       "rationale": "Regression coverage pins platform scope, pricing eligibility, 1024-token attribution, conservation, and bridge passthrough."
+    },
+    {
+      "path": "deploy/domestic/node_compose.py",
+      "must_contain": [
+        "network = app.get(\"external_network\")"
+      ],
+      "rationale": "app-a migrated from blue/green keeps its pre-existing Docker network as external; compose refuses to adopt it otherwise (M4, 2026-11-15)."
+    },
+    {
+      "path": "deploy/domestic/test_node_compose.py",
+      "must_contain": [
+        "def test_app_a_declares_existing_bluegreen_network_external(self):"
+      ],
+      "rationale": "Executable coverage for the external network override."
     }
   ]
 }
