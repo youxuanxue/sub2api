@@ -74,7 +74,7 @@
 | M2 | app-b：`node_compose.py --node app-b --diff /opt/tokenkey/compose.appb.yml` 必须为空，再改用 `compose.node.yml`；装看门狗（QA timer 待数据机协调器上线）。入口机：`entry_caddy.py --diff` 只差注释后入库，装看门狗 | 本节 |
 | M3 | 直连 app-a 的业务请求为 0 后，把 `public_origin` 改成入口机域名（2026-11-15 完成；IP 站点上只剩健康探测） | `prod-target.json` |
 | M4 | app-a 改为单容器 `tokenkey`，绑定 `10.2.4.11:8080`，停 socat 和 blue/green（2026-11-15 完成）。app-a 的 Caddy 改指 `tokenkey:8080`，M3 之后再关 80/443。Caddyfile 是单文件挂载，`sed -i` 后 `caddy reload` 仍读旧 inode，要从宿主文件 `caddy adapt` 后经 admin API `/load` 加载 | 设计文档 M4 |
-| M5 | 用当前版本原样滚动一遍演练 | `rolling.py` |
+| M5 | 以 1.8.378 作为第一次真实滚动发版，全程人工盯（2026-11-15 决定）。同版本原样滚动会被 `mode=skip` 跳过，起不到演练作用；smoke 失败只回滚单节点的演练暂不做 | `rolling.py` |
 | M6 | 连续两次真实滚动成功后删除 `bluegreen.py` 的 cn-prod 分支和 socat 代码 | PR |
 
 ### 加减应用机清单
