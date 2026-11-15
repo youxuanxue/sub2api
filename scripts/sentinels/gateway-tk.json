@@ -19485,7 +19485,7 @@
         "usageEstimatedOpsKind     = \"usage_estimated\"",
         "func (s *GatewayService) ApplyUsageEstimateFallback(",
         "func (s *OpenAIGatewayService) ApplyOpenAIUsageEstimateFallback(",
-        "forwardErr != nil || result.ClientDisconnect",
+        "forwardErr != nil || result.ImageCount > 0",
         "case account.Platform == PlatformKiro:",
         "case isGeminiWebAccount(account):",
         "if capture == nil || !capture.deliveredSuccess() || len(GetOpsStreamErrors(c)) > 0 {",
@@ -19497,6 +19497,17 @@
         "func releaseUsageEstimateCapture(c *gin.Context) {"
       ],
       "rationale": "Zero-usage estimate SSOT (docs/approved/usage-estimate-fallback-ssot.md, product decisions 2026-11-04/05). Single owner: real usage wins, empty output/errors/media/native estimators (Kiro, Gemini Web) are never estimated, one ops event + log per estimate, and only this owner's tier is persisted on the OpenAI RecordUsage path. The estimate is priced once: the same CostBreakdown becomes PrecomputedCost and the client usage.cost (R-001 parity). Both hooks release held client bytes at the choke point (defer releaseUsageEstimateCapture), so inline usage submission under the sync overflow policy never delays delivery."
+    },
+    {
+      "path": "backend/internal/service/usage_estimate_fallback_tk_test.go",
+      "must_contain": [
+        "func TestUsageEstimateClientDisconnectBillsDeliveredOutput(",
+        "func TestUsageEstimateClientDisconnectBeforeOutputRemainsUnestimated(",
+        "func TestUsageEstimateTextAdaptersCountCompatibilityFields(",
+        "ClientDisconnect: true",
+        "UsageEstimatedBillingTier"
+      ],
+      "rationale": "Lock the revenue leak boundary: a client disconnect after non-empty delivered output is estimated and tagged, while a disconnect before output remains unestimated. Keep compatibility-field coverage for reasoning, legacy function calls, structured tool results and server tool use."
     },
     {
       "path": "backend/internal/service/usage_estimate_capture_tk.go",

@@ -35,11 +35,12 @@ import (
 // Billing choke points call GatewayService.ApplyUsageEstimateFallback
 // (ForwardResult) or OpenAIGatewayService.ApplyOpenAIUsageEstimateFallback
 // (OpenAIForwardResult) right before the
-// RecordUsage task is submitted. A forward that returned an error, or whose
-// client disconnected, keeps the usage the upstream reported (partial
-// delivery is not a successful response). The delivered output comes from the
-// usage-estimate capture writer (usage_estimate_capture_tk.go), which also
-// writes the estimate back into the client-visible usage.
+// RecordUsage task is submitted. A forward that returned an error keeps the
+// usage the upstream reported. A client disconnect is estimated when the
+// capture writer confirms that non-empty output was delivered successfully
+// before the disconnect. The delivered output comes from the usage-estimate
+// capture writer (usage_estimate_capture_tk.go), which also writes the
+// estimate back into the client-visible usage.
 const (
 	// UsageEstimatedBillingTier stamps usage_logs.billing_tier for every
 	// estimate minted by this owner. It is a label only; it does not change
@@ -92,7 +93,7 @@ func openAIUsageHasBillableTokens(u OpenAIUsage) bool {
 // CostBreakdown becomes PrecomputedCost and the client usage.cost.
 func (s *GatewayService) ApplyUsageEstimateFallback(ctx context.Context, c *gin.Context, account *Account, result *ForwardResult, inboundBody []byte, forwardErr error) bool {
 	defer releaseUsageEstimateCapture(c)
-	if result == nil || forwardErr != nil || result.ClientDisconnect || result.ImageCount > 0 || result.AudioUsage != nil || claudeUsageHasBillableTokens(result.Usage) {
+	if result == nil || forwardErr != nil || result.ImageCount > 0 || result.AudioUsage != nil || claudeUsageHasBillableTokens(result.Usage) {
 		return false
 	}
 	return applyUsageEstimate(c, account, result.Model, result.UpstreamModel, result.RequestID, result.Stream, inboundBody, func(est usageEstimateTokens) *CostBreakdown {
@@ -107,7 +108,7 @@ func (s *GatewayService) ApplyUsageEstimateFallback(ctx context.Context, c *gin.
 // result type (OpenAI/Codex, newapi bridge and raw, Grok, OpenRouter, Volc).
 func (s *OpenAIGatewayService) ApplyOpenAIUsageEstimateFallback(ctx context.Context, c *gin.Context, account *Account, result *OpenAIForwardResult, inboundBody []byte, forwardErr error) bool {
 	defer releaseUsageEstimateCapture(c)
-	if result == nil || forwardErr != nil || result.ClientDisconnect || result.ImageCount > 0 || result.VideoCount > 0 || result.AudioUsage != nil || openAIUsageHasBillableTokens(result.Usage) {
+	if result == nil || forwardErr != nil || result.ImageCount > 0 || result.VideoCount > 0 || result.AudioUsage != nil || openAIUsageHasBillableTokens(result.Usage) {
 		return false
 	}
 	return applyUsageEstimate(c, account, result.Model, result.UpstreamModel, result.RequestID, result.Stream, inboundBody, func(est usageEstimateTokens) *CostBreakdown {

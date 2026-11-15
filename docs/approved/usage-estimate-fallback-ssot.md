@@ -1,7 +1,7 @@
 ---
 title: Zero-usage estimate fallback SSOT（usage 全 0 估算兜底单一事实源）
 status: approved
-approved_by: "product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); product owner (2026-11-05 conversation: 【usage 全 0 估算兜底】，应该全平台全模型统一吧？遵循 ssot 原则。); feng (2026-11-12 conversation: 对着 origin/main 检查 2 的用量问题，尽可能修复。)"
+approved_by: "product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); product owner (2026-11-05 conversation: 【usage 全 0 估算兜底】，应该全平台全模型统一吧？遵循 ssot 原则。); feng (2026-11-12 conversation: 对着 origin/main 检查 2 的用量问题，尽可能修复。); feng (2026-11-14 conversation: 安排增收专家 Agent 团处理计费估算与增收优化)"
 approved_at: 2026-11-05
 created: 2026-11-05
 authors: [claude]
@@ -22,7 +22,9 @@ records evidence and fills client usage. Protocol code only extracts text.
    input, image cache read, image output.
 2. The response must be a delivered success: HTTP status below 400, no in-band
    stream error (`error` / `response.failed` frame or a recorded ops stream
-   error), forward returned no error, client did not disconnect.
+   error), and forward returned no error. A client disconnect is eligible when
+   non-empty output was already delivered; a disconnect before any output is
+   not estimated.
 3. Delivered output must be non-empty. An empty answer (silent refusal class)
    is not estimated and keeps the existing refusal handling.
 4. Media results are never estimated (see per-modality table).
@@ -189,10 +191,14 @@ stable tool-template delta) stays as reported.
 `backend/internal/service/usage_estimate_fallback_tk_test.go`: zero usage per
 protocol and stream mode on both result types (billed, tagged, client usage
 equals billed, one event), chat stream ordering and in-place patch, real usage
-wins per bucket, empty output not estimated, errored/in-band-error/disconnect/
+wins per bucket, empty output not estimated, errored/in-band-error/empty-output/
 media/native-estimator skips, non-text routes not captured, held bytes count as
 written, content streams before usage, flushed JSON released, held body
-released at the choke point (estimated and real-usage cases), persistence on
-both RecordUsage paths, tier does not change price, client usage.cost equals
-billed cost, and the Volc raw Chat path end to end. Existing Kiro, Gemini Web
-and Grok missing-usage tests are unchanged.
+released at the choke point (estimated and real-usage cases), client
+disconnect after delivered output is estimated and tagged while an empty
+disconnect remains unestimated, persistence on both RecordUsage paths, tier
+does not change price, client usage.cost equals billed cost, and the Volc raw
+Chat path end to end. Text adapter coverage includes reasoning/function-call
+compatibility fields, structured tool results, server/MCP tool use, and Gemini
+code execution parts. Existing Kiro, Gemini Web and Grok missing-usage tests
+are unchanged.
