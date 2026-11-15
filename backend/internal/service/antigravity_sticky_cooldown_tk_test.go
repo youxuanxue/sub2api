@@ -203,6 +203,16 @@ func TestTkGoogle429CorroboratesAccountLimit(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "reset hint counts as account-scoped corroboration",
+			body: `{"error":{"message":"too many requests","details":[{"metadata":{"quotaResetDelay":"5s"}}]}}`,
+			want: true,
+		},
+		{
+			name: "retryDelay hint counts as account-scoped corroboration",
+			body: `{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"4s"}]}}`,
+			want: true,
+		},
+		{
 			name: "empty body",
 			body: "",
 			want: false,

@@ -41,6 +41,20 @@ var tkGoogle429CapacityReasons = []string{
 	"UNIFIED_CAPACITY_EXHAUSTED",
 }
 
+// tkGoogle429ResetHintFields are the places Google puts an explicit "retry after
+// this long" hint. A hint is account-scoped corroboration: the provider is
+// telling us this caller is over a limit and when it clears, which is exactly
+// the case where cooling the account is correct and useful.
+//
+// quotaResetDelay also covers the legacy envelope our own
+// ParseGeminiRateLimitResetTime consumes (details[].metadata.quotaResetDelay),
+// so an untyped 429 that still carries a reset hint keeps cooling as before.
+var tkGoogle429ResetHintFields = []string{
+	"metadata.quotaResetDelay",
+	"retryDelay",
+	"metadata.retryDelay",
+}
+
 // tkGoogle429CorroboratesAccountLimit reports whether a 429 carries provider
 // evidence that THIS account is over its own limit, as opposed to the request or
 // a pool shared by every account.
@@ -79,6 +93,16 @@ func tkGoogle429CorroboratesAccountLimit(body []byte) bool {
 		}
 		if reason == tkGoogle429AccountLimitReason {
 			return true
+		}
+	}
+	// No reason field (or only unknown reasons), but the provider may still have
+	// told us when this caller's limit clears. That is account-scoped evidence,
+	// and it is what lets the cooldown expire at the right moment.
+	for _, detail := range details.Array() {
+		for _, field := range tkGoogle429ResetHintFields {
+			if strings.TrimSpace(detail.Get(field).String()) != "" {
+				return true
+			}
 		}
 	}
 	return false
