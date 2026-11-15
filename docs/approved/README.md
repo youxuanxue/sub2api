@@ -9,7 +9,7 @@ revised_at: 2026-10-28
 
 - approved：[网关错误与局部安全修复](gateway-correctness-remediation-20261112.md)：Messages 取消误分类复用 #3161；保留 Chat 流内错误、隔离、脱敏与刷新失败拒签；撤出 outbox/rollup 重构，不含合并或部署授权。
 
-- [prod 应用机并行替换](design-prod-app-parallel-replacement.md)：取消原地 LUKS 搬盘；新旧并行、不中断请求、旧机保留；过渡期允许部分 QA 缺口。入口选型与预算见待批：[美西 prod 入口机 + 双应用机](design-prod-entry-multi-app.md)。
+- [prod 应用机并行替换](design-prod-app-parallel-replacement.md)：取消原地 LUKS 搬盘；新旧并行、不中断、旧机保留、QA 集中管理（保留，不删）。入口/HA/切流/脱离 LUKS 改由待批 [美西 prod 入口机 + 双应用机](design-prod-entry-multi-app.md) 接管并废止其 HA 入口验收条。
 
 - [未知 TTL 缓存创建量计费](cache-creation-unknown-ttl-billing.md)：已知 TTL 保留原价，结算时仍未知的差额按 1h；不追补旧账。
 

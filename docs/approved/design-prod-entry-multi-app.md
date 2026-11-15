@@ -6,15 +6,20 @@ approved_at: pending
 risk: high
 authors: [agent]
 created_at: 2026-11-15
-revised: 2026-11-15（按只读复审与用户确认：无热备入口、滚动不留蓝绿、候选机确认、QA>24h 接受丢失；纠正版本/配额/内存档）
+revised: 2026-11-15（复审修复：恢复 §3.5/§3.6；显式废止并行替换文档的 HA 入口验收；补证书离机备份契约与自洽载体清单）
 ---
 
 # 美西 prod 入口机 + 双应用机，旧应用机脱离 LUKS
 
 本文是**待审批**设计基线。落盘前只做了只读调研与复审；**本 PR 不购买资源，不改防火墙、容器、DNS、证书或线上流量**。
 用户批准（`approved_by` 非 pending）后才能执行阶段 A；购买入口机与切 DNS 仍须逐步口头/会话确认。
-取代 [prod 应用机并行替换](design-prod-app-parallel-replacement.md) 里「入口选型与预算待确认」的部分；
-该文档已批准的边界（不中断请求、验证失败不下线旧机、不可逆操作另行审批）继续有效。
+
+相对 [prod 应用机并行替换](design-prod-app-parallel-replacement.md)（#3155）：
+
+- **接管**：入口选型、预算、切流与发版形态（本文）。
+- **显式废止**该文档「两应用节点前需要独立高可用入口；双 A / 单机 Caddy 不作 HA 验收」及「不把单 Caddy 当等价 HA」——用户 2026-11-15 确认单入口机、无热备，入口故障靠重建。
+- **仍有效、不删除**：不中断请求、验证失败不下线旧机、不可逆操作另行审批、双应用机保留、QA 集中管理与 24h 丢失、候选准备证据。旧文档继续被舰队/QA/US 引用，本设计不归档也不删除它。
+
 参照 cn-prod 2026-11-15 的切换与滚动发版
 （[domestic README](../../deploy/domestic/README.md#入口机与多应用机2026-11-15-起)、
 [cn-prod 滚动发版](design-cn-prod-rolling-deploy.md)），
@@ -28,7 +33,7 @@ revised: 2026-11-15（按只读复审与用户确认：无热备入口、滚动�
 | 应用机终态 | 保留 4C16G 旧机并让它脱离 LUKS；另有 1 台 2C8G 不加密新应用机。不走 3×2C8G | 已 |
 | 新 2C8G 身份 | 就是现有候选机 `lhins-2kf31667`，不另买应用机 | 2026-11-15 确认 |
 | 入口 | 锐驰 2C4G 单入口机；**不买 CLB、不用 Cloudflare LB** | 已 |
-| 热备入口 | **同 cn-prod：不需要。** 切流稳定后关闭旧应用机公网 80/443；入口故障靠重建入口机（证书从控制面密文备份恢复）。不做「DNS 改回旧机」的热备路径，不维护旧机证书定期同步 | 2026-11-15 确认 |
+| 热备入口 / HA | **同 cn-prod：不需要热备入口。** 废止并行替换文档的「独立高可用入口」验收。切流稳定后关闭旧应用机公网 80/443；入口故障靠重建入口机（仅从离机密文证书备份恢复，§2.1）。不做 DNS 改回旧机，不维护旧机证书回推 | 2026-11-15 确认 |
 | 切流 | 逐域名切 DNS，`api-cn.tokenkey.dev` 先切；每步可改回旧机 IP（TTL 60） | 已 |
 | 发版 | **多应用机滚动，不留节点内蓝绿**；与 cn-prod 共用 `remote_exec` / `rolling` 实现，prod 先迁单容器布局再参数化路径；远程 TAT 为主、SSM 兜底 | 2026-11-15 确认 |
 | Caddyfile | 入口机用模板与渲染器生成，目录挂载（不用单文件挂载） | 已 |
@@ -68,8 +73,20 @@ revised: 2026-11-15（按只读复审与用户确认：无热备入口、滚动�
 - 载体：根盘文件 `/var/lib/tokenkey-validation/recovery-rebuild-20261108.luks`（64 GiB）→ `/dev/loop0` → LUKS2 → mapper `tokenkey_recovery`（ext4，63G，已用 21G），挂在 `/var/lib/tokenkey` 与 `/srv/tokenkey-rehearsal`。
 - 依赖链：`tokenkey-luks-unlock.service`（COS 取钥，`Before=docker.service`）；fstab / crypttab `noauto,nofail`；`daemon.json` `data-root=/srv/tokenkey-rehearsal/docker`；若干 docker drop-in 与 `tokenkey.service` 卷契约。主机 7 天未重启，无人值守重启从未验收。
 - 根盘：`/dev/vda2` 190.1 GB，已用 89.6 GB，可用 92.7 GB（其中 65G 是 LUKS 载体）。根盘 `/var/lib/docker` 几乎未用。挂载点下被遮住的根盘目录内容**未核实**。
-- 载体主要内容：`app/qa_blobs/` ~12.4G（仅近两日小时目录）；`docker/` ~7G（不复制，新 data-root 重拉）；`caddy/` 证书 notAfter **2027-02-06**；`.env` 34 键；QA ledger / logs / 遗留目录见初测清单。媒体文件 0。
-- **迁移时 `qa_blobs`：只复制保留期内（≤24h）小时目录；更早的接受丢失。**
+- 载体主要内容（2026-11-15 只读 `du`；媒体 png/jpg/mp4/webp = 0）：
+
+| 路径 | 大小 | 迁移 |
+|---|---|---|
+| `app/qa_blobs/` | ~12.4G（近两日小时目录） | 只复制 ≤24h；更早接受丢失 |
+| `app/logs/` | ~165M | 复制 |
+| `app/qa_capture_ledger/` | ~820K | 复制（协调器需要） |
+| `app/model_pricing.json`、`plugins/`、`pages/`、`qa_dlq/` | ~360K | 复制 |
+| `docker/` | ~7G | **不复制**；新 data-root 重拉 |
+| `qa-node1/` | ~1.6G（含 `.push-*` 暂存） | 复制；暂存可否弃由 QA 交接确认 |
+| `caddy/` | ~624K（证书 notAfter **2027-02-06**） | 复制到根盘；另做离机密文备份供入口机（§2.1） |
+| `.env` | 34 键 | 复制，root 0600 |
+| `dataplane-client/`、`https-watch/`、蓝绿状态文件等 | 各 ≤16K | 复制 |
+| `postgres-backup/`、`pgbackrest-conf/` 等遗留 | ≤12K | 复制保留，本次不清理 |
 
 ### 1.3 媒体存储不是阻断项
 
@@ -114,8 +131,10 @@ revised: 2026-11-15（按只读复审与用户确认：无热备入口、滚动�
 
 - 锐驰 2C4G（60 元/月），只跑 Caddy。新实例删默认公网 22，只开 80/443；注册 SSM Hybrid；确认 TAT Online；装 `https-watch`、`disk-metrics`、BBR、`lock-down-sshd.sh`。
 - 外部探测覆盖 5 域名与证书剩余天数（不可只装在入口机自己身上）。可放在旧应用机 `https-watch`，改测入口域名（须批准重装）。
-- **单点**：入口机故障时五域名不可用。恢复 = 同配置重建入口机 + 证书从控制面密文备份恢复（分钟级）。用户接受该 HA 边界，**不**保留旧机公网入口热备。
-- 证书：TLS-ALPN-01。切 DNS 前把旧机证书与 `data/legal` 密文拷到入口机；切后由入口机续期。旧机不再对外终止 TLS 后，无需证书回推。
+- **单点**：入口机故障时五域名不可用。恢复 = 同配置重建入口机 + **仅从离机密文证书备份**恢复（分钟级）。用户接受该 HA 边界，**不**保留旧机公网入口热备。
+- 证书：TLS-ALPN-01。
+  - **离机备份契约（无热备后的唯一恢复材料）**：切任一正式 DNS 前，把五域名证书与 `data/legal` 打成密文包离机存放（控制面/操作员 vault，路径实现期定，本设计锁定「必须有且可取回」）；入口机每次成功续期后更新同一备份；重建入口机只从该备份恢复，不依赖旧应用机公网 80/443。
+  - 切 DNS 前另将同一份材料装入入口机；切后由入口机自行续期。旧机不再对外终止 TLS，无需证书回推旧机。
 - Caddyfile **目录挂载**（cn-prod 踩过单文件挂载 `sed -i` 换 inode 读旧内容）。
 
 ### 2.2 多域名迁到入口机
@@ -174,11 +193,35 @@ PG：稳态约 75；滚动时一台摘流，无双色重叠。旧机脱离 LUKS 
 | L7 | 按滚动布局部署同 tag；loopback + 入口私网 Host 头烟测；真实授权核对 usage | 无 | 是 |
 | L8 | 恢复 QA；权重 0→1→2 | 旧机回流 | 是 |
 
-不可逆销毁载体/密钥（X1–X4）仍各自单独批准，条件见初测 §3.5–3.6（接流 ≥7 天等），本文不重复授权。
+（无 L9：不恢复旧机热备 Caddy。）
 
 ### 3.4 回退
 
-L1–L5 失败且旧机未重新接流：从备份恢复 LUKS 布局，2C8G 继续承载。L8 后回退会丢明文盘上新写入。不碰数据机。
+- **L1–L5 失败且旧机未重新接流**：停 docker；从 `pre-plain-<ts>/` 恢复系统文件；`systemctl enable --now tokenkey-luks-unlock.service`（COS 取钥、开 mapper、挂载）；启动 docker 与 `tokenkey.service`。载体上的旧 Docker Root/容器仍在。2C8G 继续承载。COS 取钥失败时按 [unlock contract](../ops/tencent-unlock-contract.md) 用操作员 vault 手动解锁。
+- **L6 起不来**：TAT/SSM 按上条恢复；仍不行用 Lighthouse VNC。
+- **L8 后出问题**：入口权重回 0；L8 之后明文盘新写入回退会丢，需记录。
+- 不碰数据机。
+
+### 3.5 旧 LUKS 载体与异机密钥的退役条件
+
+全部满足才进入 §3.6：
+
+1. 旧机在明文根盘上接流 ≥7 天，期间至少一次 L6 之外的重启或发版，未触发回退。
+2. 载体无仍需数据：L2/L3 清单与校验和核对通过；载体独有的 `qa_blobs` 小时均已过 24h；`qa-node1/.push-*` 已由 QA 交接确认；`.env` 在根盘，证书在入口机与离机备份各有可用副本。
+3. 无进程持有载体：`losetup -a` 空、mapper 不存在、`tokenkey-luks-unlock.service` disabled。
+4. 无其它副本：删前再查 `DescribeSnapshots`/`DescribeBlueprints`；无导出副本。
+5. 用户单独批准。
+
+### 3.6 不可逆步骤（各自单独批准，按此顺序）
+
+| 序 | 动作 | 前置 |
+|---|---|---|
+| X1 | 删除 `/var/lib/tokenkey-validation/recovery-rebuild-20261108.luks`（可先 `cryptsetup luksErase` 再删文件） | §3.5 全部满足 |
+| X2 | 删除 COS 自动解锁密钥对象并收回取钥权限（对象位置**未核实**，先查清） | X1 完成 |
+| X3 | 删除操作员 vault：`~/.local/state/tokenkey-luks-offhost-vault/recovery-luks.key.enc` 与 `~/.local/share/tokenkey-custody/luks-wrap-20261022.key` | X1 完成 |
+| X4 | 删除 `tokenkey-luks-unlock` unit/脚本、`pre-luks-underlay`、`pre-plain-<ts>/`、旧暂存 | X1 完成且确认不再回退 |
+
+先删密钥会在载体仍在时造成永久丢数；载体销毁后再删密钥。X1 之后更新舰队文档、unlock contract、data-plane-split 相关节与 `candidate-usw-20261022.json` 的 `volume_platform`（另开文档 PR）。
 
 ## 4. 切流与回退（用户无感）
 
