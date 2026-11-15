@@ -17120,10 +17120,11 @@
       "must_contain": [
         "func SetMaxInFlightRelay(n int)",
         "var InFlightGate = newInFlightGate()",
-        "if inflightRelay.Add(1) > limit {",
+        "if !admitInFlightRelay(limit) {",
         "stop := context.AfterFunc(c.Request.Context(), release)",
         "MarkIngressRejected(c, IngressRejectInFlightSaturated)",
-        "c.Header(\"Retry-After\", strconv.Itoa(inFlightRetryAfterSeconds))"
+        "c.Header(\"Retry-After\", strconv.Itoa(inFlightRetryAfterSeconds))",
+        "inflightRelay.CompareAndSwap(current, current+1)"
       ],
       "rationale": "The process-wide relay cap is the only thing that turns a traffic spike into fast-fail 503 instead of an OOM kill. The release must stay idempotent and also fire on request-context cancellation; a single leaked slot wedges the gate permanently. The ingress-reject mark is what keeps shed requests out of billing and out of ops error attribution."
     },
