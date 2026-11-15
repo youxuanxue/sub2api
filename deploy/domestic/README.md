@@ -40,6 +40,21 @@
 
 数据面切流之后，`compose.override.yml` 把 `postgres` 和 `redis` 放进 `local-data` profile，并清掉 `tokenkey` 对它们的 `depends_on`。只加 profile 时 `docker compose config` 会因依赖未定义而失败，蓝绿 `prepare` 读的就是这份 config。清掉依赖后，默认项目只剩网关和 Caddy，不会启动旧库。加上 `--profile local-data` 会把旧主库拉起来，和数据机写同一套 COS 仓库。这份 override 由 `prepare-runtime.py` 随发版铺到 `/opt/tokenkey/compose.override.yml`。2026-11-10 主机上的副本已经是这一版，`compose.yml + compose.override.yml + compose.local.yml` 只解析出 `tokenkey` 和 `caddy`，地址都是 `10.2.4.5`。
 
+## 入口机与多应用机（2026-11-15 起）
+
+| 角色 | 实例 | 私网 | 公网 | 说明 |
+|---|---|---|---|---|
+| 入口机 | `lhins-j89o28j0` | `10.2.4.7` | `154.8.185.224` | Caddy 终止 `api.galaxywaveai.com` 的 TLS，按 3:1 分发到两台应用机；公网只开 80/443 |
+| app-a | `lhins-6qmb3fd6` | `10.2.4.11` | `154.8.214.179` | 4C16G，蓝绿发布；私网入口 `tokenkey-entry-origin`（`10.2.4.11:8080`，云防火墙只放行 `10.2.4.7`） |
+| app-b | `lhins-0kxx7cco` | `10.2.4.13` | `82.156.89.64` | 2C4G，无公网入站；网关直接监听 `10.2.4.13:8080`，同样只放行 `10.2.4.7`；本机覆盖在 `/opt/tokenkey/compose.appb.yml` |
+
+- 入口机健康检查每 3 秒访问各节点 `/health`，连续 2 次失败即摘除。蓝绿 drain 让旧色 `/health` 返回 503，入口机先停止给 app-a 派新请求，再由 `bluegreen.py` 把 `tokenkey-entry-origin` 切到新色，最后才停旧色。
+- app-a 网关只听 loopback，Caddy 在 Docker 网桥里绑不到宿主私网地址，所以私网入口用一个 socat 容器。不要往 app-a 的 Caddyfile 里加 `10.2.4.11` 站点，`caddy reload` 会因 `cannot assign requested address` 失败。
+- 入口机 Caddyfile 在 `/var/lib/tokenkey/caddy/etc/Caddyfile`，挂载的是目录而不是单个文件：单文件挂载在 `sed -i` 换 inode 后会继续读旧内容。
+- 证书是 2026-11-15 从 app-a 复制的同一张（有效期至 2027-01-21），入口机之后用 TLS-ALPN-01 自行续期。DNS 切到入口机后，app-a 上 `api.galaxywaveai.com` 站点续期会失败，属预期，切流稳定后删掉该站点。
+- 每加一台应用机，要同时：数据机 `dataplane_source_acl.py --phase add-source`、云防火墙 5432/6379、8 台出口机 `proxy_source_add.py` 与阿里云 1080 规则、入口机后端列表。
+- 目标形态是多应用机滚动部署，蓝绿只是过渡。
+
 ## 首次安装与配置 owner
 
 > 本节记录 UCloud 首发时的安装流程；腾讯北京迁机按 host-replacement 技能执行，不重跑本节。
