@@ -131,9 +131,6 @@ func TestNewAPIChatToAnthropicBridgePreservesCacheWrite(t *testing.T) {
 			require.NotNil(t, result)
 			require.Equal(t, 20, result.Usage.CacheReadInputTokens)
 			wantWrite := 9
-			if details[0] == '"' {
-				wantWrite = 9
-			}
 			if bytes.Contains([]byte(details), []byte("cache_creation_tokens")) {
 				wantWrite = 7
 			}

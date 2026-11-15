@@ -99,7 +99,7 @@ func (s *OpenAIGatewayService) ApplyUpstreamCacheReadWriteAttribution(account *A
 	}
 	model := result.BillingModel
 	if model == "" {
-		model = result.Model
+		model = forwardResultBillingModel(result.Model, result.UpstreamModel)
 	}
 	ApplyOpenAIUpstreamCacheReadWriteAttribution(s.billingService, account, model, &result.Usage)
 }
