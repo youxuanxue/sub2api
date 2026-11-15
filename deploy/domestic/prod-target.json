@@ -47,7 +47,8 @@
       "public_ip": "154.8.214.179",
       "weight": 3,
       "memory_limit": "3g",
-      "ssm_instance_id": "mi-06568963b4b3c3239"
+      "ssm_instance_id": "mi-06568963b4b3c3239",
+      "external_network": "tokenkey_tokenkey-network"
     }
   ]
 }

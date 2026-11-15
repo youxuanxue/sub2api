@@ -20682,6 +20682,20 @@
         "TestNewAPIChatToAnthropicBridgePreservesCacheWrite"
       ],
       "rationale": "Regression coverage pins platform scope, pricing eligibility, 1024-token attribution, conservation, and bridge passthrough."
+    },
+    {
+      "path": "deploy/domestic/node_compose.py",
+      "must_contain": [
+        "network = app.get(\"external_network\")"
+      ],
+      "rationale": "app-a migrated from blue/green keeps its pre-existing Docker network as external; compose refuses to adopt it otherwise (M4, 2026-11-15)."
+    },
+    {
+      "path": "deploy/domestic/test_node_compose.py",
+      "must_contain": [
+        "def test_app_a_declares_existing_bluegreen_network_external(self):"
+      ],
+      "rationale": "Executable coverage for the external network override."
     }
   ]
 }

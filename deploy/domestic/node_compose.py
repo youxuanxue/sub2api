@@ -91,6 +91,20 @@ def render(app: dict, max_in_flight: str | None = None) -> str:
         "    environment:",
     ]
     lines += [f"      {key}: {_quote(value)}" for key, value in env.items()]
+    # A host migrated from the blue/green layout already owns the Docker
+    # network (created outside compose, no compose label). Compose refuses to
+    # adopt it, so such a node declares it external instead of recreating it
+    # under the remaining containers (app-a, 2026-11-15 M4).
+    network = app.get("external_network")
+    if network is not None:
+        if not isinstance(network, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,62}", network):
+            raise ValueError("external_network must be a docker network name")
+        lines += [
+            "networks:",
+            "  tokenkey-network: !override",
+            f"    name: {network}",
+            "    external: true",
+        ]
     return "\n".join(lines) + "\n"
 
 
