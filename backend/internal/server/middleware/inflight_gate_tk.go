@@ -90,6 +90,26 @@ func InFlightRelayRejectedCount() uint64 { return inflightRelayRejected.Load() }
 // checks can recognize it in a handler chain.
 var InFlightGate = newInFlightGate()
 
+// admitInFlightRelay takes one slot if the gauge is below limit.
+//
+// It uses compare-and-swap rather than Add-then-rollback. Add(1) followed by
+// Add(-1) on overflow never admits more than limit requests, but it transiently
+// publishes a value above the limit. Concurrent observers (/health/inflight and
+// the drain probe) can read that value, and a concurrent request whose Add lands
+// on the inflated gauge is rejected even though a slot is actually free. CAS
+// keeps the gauge strictly bounded: it never exceeds limit at any instant.
+func admitInFlightRelay(limit int64) bool {
+	for {
+		current := inflightRelay.Load()
+		if current >= limit {
+			return false
+		}
+		if inflightRelay.CompareAndSwap(current, current+1) {
+			return true
+		}
+	}
+}
+
 func newInFlightGate() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limit := maxInFlightRelay.Load()
@@ -99,8 +119,7 @@ func newInFlightGate() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if inflightRelay.Add(1) > limit {
-			inflightRelay.Add(-1)
+		if !admitInFlightRelay(limit) {
 			inflightRelayRejected.Add(1)
 			writeInFlightRejection(c)
 			c.Abort()

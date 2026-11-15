@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -425,6 +426,82 @@ func TestInFlightGateConcurrentAdmissionNeverExceedsLimit(t *testing.T) {
 	}
 	if rejected == 0 {
 		t.Fatalf("%d concurrent requests against limit %d must shed at least one; the gate never engaged", total, limit)
+	}
+	if got := InFlightRelayCount(); got != 0 {
+		t.Fatalf("expected all slots returned, got %d", got)
+	}
+}
+
+// TestInFlightGateGaugeNeverExceedsLimit guards the invariant that admission is
+// strictly bounded at every instant, not just after rejected requests unwind.
+//
+// A naive Add(1)-then-Add(-1) on overflow publishes a value above the limit for
+// a moment. /health/inflight and the blue/green drain probe read that gauge from
+// another goroutine, so a transient overshoot is observable and would make
+// "in_flight_relay > max" a real reading. It also made the concurrency test
+// flaky under -race. Compare-and-swap admission is what keeps this exact.
+func TestInFlightGateGaugeNeverExceedsLimit(t *testing.T) {
+	resetInFlightGateForTest(t)
+	const limit = 4
+	SetMaxInFlightRelay(limit)
+
+	release := make(chan struct{})
+	entered := make(chan struct{}, limit)
+
+	router := gin.New()
+	router.Use(InFlightGate)
+	router.POST("/v1/messages", func(c *gin.Context) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-release
+		c.String(http.StatusOK, "ok")
+	})
+
+	// Saturate, then hammer far past the limit while a separate goroutine samples
+	// the gauge as fast as it can. Any sample above limit fails the invariant.
+	var wg sync.WaitGroup
+	for i := 0; i < 64; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+		}()
+	}
+
+	stop := make(chan struct{})
+	var overshoot int64
+	var sampleWG sync.WaitGroup
+	sampleWG.Add(1)
+	go func() {
+		defer sampleWG.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if current := InFlightRelayCount(); current > limit {
+				atomic.AddInt64(&overshoot, 1)
+			}
+		}
+	}()
+
+	// Wait until the gate is actually engaged before releasing, so the sampler
+	// overlaps the admission/rejection window rather than idle time.
+	deadline := time.Now().Add(3 * time.Second)
+	for InFlightRelayCount() < limit && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+	close(stop)
+	sampleWG.Wait()
+	close(release)
+	wg.Wait()
+
+	if got := atomic.LoadInt64(&overshoot); got != 0 {
+		t.Fatalf("gauge exceeded limit %d in %d samples; admission must not publish an over-limit value", limit, got)
 	}
 	if got := InFlightRelayCount(); got != 0 {
 		t.Fatalf("expected all slots returned, got %d", got)
