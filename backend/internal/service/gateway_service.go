@@ -1034,6 +1034,35 @@ func (s *GatewayService) BindStickySession(ctx context.Context, groupID *int64, 
 	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, stickySessionTTL)
 }
 
+// RebindStickySessionAfterFailover re-pins a session onto the account that
+// actually served the request after a failover switch.
+//
+// failoverFromAccountID is the account the session was bound to before the
+// switch (0 when nothing was bound). The binding is only overwritten when it
+// still points at that failed account, or when nothing is bound. This keeps a
+// concurrent turn that already re-bound the session onto a healthy account from
+// having its affinity stolen, and makes repeated calls idempotent.
+//
+// Rationale: the cooled-account path drops the binding so the retry can leave the
+// pin. Re-pinning immediately afterwards is what bounds the cost of that repair —
+// exactly one turn pays for a cross-account cache miss, then prefix-cache reuse
+// resumes against the new account. Without it the session would stay
+// affinity-less and re-select, possibly missing the cache, on every later turn.
+func (s *GatewayService) RebindStickySessionAfterFailover(ctx context.Context, groupID *int64, sessionHash string, failoverFromAccountID, servingAccountID int64) error {
+	if sessionHash == "" || servingAccountID <= 0 || s.cache == nil {
+		return nil
+	}
+	if failoverFromAccountID == servingAccountID {
+		return nil
+	}
+	scopedGroupID := derefGroupID(groupID)
+	if bound, err := s.cache.GetSessionAccountID(ctx, scopedGroupID, sessionHash); err == nil && bound > 0 &&
+		bound != failoverFromAccountID && bound != servingAccountID {
+		return nil
+	}
+	return s.cache.SetSessionAccountID(ctx, scopedGroupID, sessionHash, servingAccountID, stickySessionTTL)
+}
+
 // bindGatewayStickySessionDuringSelection preserves the normal eager sticky
 // behavior unless a profit gate is installed. Profit-controlled requests bind
 // only after the terminal post-slot check, otherwise a rejected candidate could
