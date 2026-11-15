@@ -154,15 +154,13 @@ func (r *UniversalRoutingResolver) withRequestProfile(ctx context.Context, shape
 	if err != nil {
 		return ctx
 	}
-	if shape != ShapeGemini {
-		ctx = WithThinkingEnabled(ctx, gatewayRequestThinkingEnabled(metadata, string(inbound)), false)
-	} else {
-		ctx = withAntigravityNativeThinking(ctx, body)
-	}
-	return WithProtocolRouting(ctx, router, request)
+	return attachProtocolRoutingRequest(ctx, router, shape, request, body, metadata)
 }
 
-func (r *UniversalRoutingResolver) attachCandidateCanonicalRequest(ctx context.Context, request protocolrouter.CanonicalRequest) context.Context {
+// attachCandidateCanonicalRequest binds an already parsed request when no
+// protocol request is routed yet. It shares attachProtocolRoutingRequest with
+// withRequestProfile so thinking metadata is derived the same way.
+func (r *UniversalRoutingResolver) attachCandidateCanonicalRequest(ctx context.Context, shape UniversalShape, request protocolrouter.CanonicalRequest, body []byte) context.Context {
 	if r == nil {
 		return ctx
 	}
@@ -172,7 +170,18 @@ func (r *UniversalRoutingResolver) attachCandidateCanonicalRequest(ctx context.C
 	if router == nil {
 		return ctx
 	}
-	ctx = WithThinkingEnabled(ctx, gatewayRequestThinkingEnabled(request.Body(), string(request.InboundProtocol())), false)
+	return attachProtocolRoutingRequest(ctx, router, shape, request, body, gatewayRequestRoutingMetadata(body))
+}
+
+// attachProtocolRoutingRequest is the single owner of the thinking metadata +
+// protocol routing binding for a canonical request. metadata is the
+// gatewayRequestRoutingMetadata projection of body.
+func attachProtocolRoutingRequest(ctx context.Context, router *protocolrouter.Router, shape UniversalShape, request protocolrouter.CanonicalRequest, body, metadata []byte) context.Context {
+	if shape != ShapeGemini {
+		ctx = WithThinkingEnabled(ctx, gatewayRequestThinkingEnabled(metadata, string(request.InboundProtocol())), false)
+	} else {
+		ctx = withAntigravityNativeThinking(ctx, body)
+	}
 	return WithProtocolRouting(ctx, router, request)
 }
 

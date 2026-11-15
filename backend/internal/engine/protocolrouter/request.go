@@ -106,7 +106,6 @@ func (r CanonicalRequest) ResponsesPath() ResponsesPathKind { return r.responses
 func (r CanonicalRequest) Profile() RequestProfile          { return r.profile }
 func (r CanonicalRequest) Digest() RequestDigest            { return r.digest }
 func (r CanonicalRequest) Body() []byte                     { return append([]byte(nil), r.body...) }
-func (r CanonicalRequest) BodyJSONValidated() bool          { return r.bodyJSONValidated }
 
 // BodyEquals reports whether body is the exact document already stored on the
 // request. Callers use it to skip a second full unmarshal of a body that

@@ -59,3 +59,22 @@ func TestPrepareCandidateRequestAttachesCanonicalRequestForLaterReuse(t *testing
 	require.True(t, ok)
 	require.Equal(t, first.Digest(), second.Digest())
 }
+
+func TestPrepareCandidateRequestKeepsAlreadyRoutedRequestAuthoritative(t *testing.T) {
+	group := grp(10, PlatformOpenAI, 1, false)
+	r, _, key := globalCandidateFixture([]Group{group}, []Account{globalCandidateAccount(1, 1, group.ID)})
+	routedBody := []byte(`{"model":"gpt-5.4","stream":true,"messages":[{"role":"user","content":"routed"}]}`)
+	candidateBody := []byte(`{"model":"gpt-5.4","stream":true,"messages":[{"role":"user","content":"candidate copy"}]}`)
+
+	routedCtx := r.WithRequest(context.Background(), ShapeOpenAIChat, "/v1/chat/completions", "gpt-5.4", routedBody)
+	routed, ok := ProtocolRoutingRequest(routedCtx)
+	require.True(t, ok)
+
+	ctx, state, err := r.PrepareCandidateRequest(routedCtx, key, ShapeOpenAIChat, "/v1/chat/completions", "gpt-5.4", candidateBody, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	require.True(t, state.requestProfileValid)
+	got, ok := ProtocolRoutingRequest(ctx)
+	require.True(t, ok)
+	require.Equal(t, routed.Digest(), got.Digest())
+}

@@ -200,6 +200,8 @@ func (p *PromptEstimate) CacheUsageSplit(ctx context.Context, store CacheFingerp
 		for i := range blocks {
 			hexes[i] = blocks[i].fingerprintHex
 		}
+		// A failed batch read is a cache miss: retrying key by key would multiply
+		// round trips against a Redis that is already failing.
 		if storedCounts, err := batchStore.GetMany(ctx, sessionKey, hexes); err == nil && len(storedCounts) == len(blocks) {
 			for i := len(blocks) - 1; i >= 0; i-- {
 				if blocks[i].cumTokens < MinCacheablePrefixTokens || storedCounts[i] <= 0 {
@@ -208,8 +210,6 @@ func (p *PromptEstimate) CacheUsageSplit(ctx context.Context, store CacheFingerp
 				matchedCum = storedCounts[i]
 				break
 			}
-		} else {
-			matchedCum = p.matchCachePrefixSingle(ctx, store, sessionKey, blocks)
 		}
 	} else {
 		matchedCum = p.matchCachePrefixSingle(ctx, store, sessionKey, blocks)
@@ -287,9 +287,10 @@ func (p *PromptEstimate) CommitCacheFingerprints(ctx context.Context, store Cach
 				entries = append(entries, CacheFingerprintEntry{FingerprintHex: b.fingerprintHex, Tokens: b.cumTokens})
 			}
 		}
-		if err := batchStore.PutMany(ctx, sessionKey, entries, ttl); err == nil {
-			return
-		}
+		// Best effort like the per-key path: a failed batch write is dropped, not
+		// retried key by key against a failing store.
+		_ = batchStore.PutMany(ctx, sessionKey, entries, ttl)
+		return
 	}
 	for _, b := range blocks {
 		if b.cumTokens > 0 {

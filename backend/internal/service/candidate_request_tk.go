@@ -270,7 +270,11 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 		state.requestProfile, state.requestProfileValid = canonical.Profile(), true
 	} else {
 		if parsed, ok := candidateCanonicalRequest(shape, path, model, body); ok {
-			ctx = r.attachCandidateCanonicalRequest(ctx, parsed)
+			// An already routed request stays authoritative (pathContext prefers the
+			// routed body); only bind when nothing is routed yet.
+			if _, routed := ProtocolRoutingRequest(ctx); !routed {
+				ctx = r.attachCandidateCanonicalRequest(ctx, shape, parsed, body)
+			}
 			state.requestProfile, state.requestProfileValid = parsed.Profile(), true
 		}
 	}
