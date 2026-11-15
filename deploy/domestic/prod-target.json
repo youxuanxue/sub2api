@@ -37,7 +37,8 @@
       "env": {
         "GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED": "true",
         "GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED": "false"
-      }
+      },
+      "jobs": []
     },
     {
       "name": "app-a",
