@@ -660,6 +660,7 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	responseValue := s.sanitizeQABodyMemo(input.ResponseBody, preserveThinking, redactionMemo)
 	requestValue = redactionBodyValue(requestValue)
 	responseValue = redactionBodyValue(responseValue)
+	requestSHA := trajectory.SHA256Hex(requestValue)
 
 	chunks := make([]map[string]any, 0, min(len(input.StreamChunks), maxCapturedSSEChunks))
 	remaining := s.bodyMaxBytes
@@ -692,7 +693,7 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 		requestPayload["capture"] = input.RequestCapture
 		// Same semantics as qa_records.request_sha256: saved, redacted value,
 		// NOT the full inbound request. Preserve the existing column contract.
-		requestPayload["saved_body_sha256"] = trajectory.SHA256Hex(requestValue)
+		requestPayload["saved_body_sha256"] = requestSHA
 		requestPayload["saved_body_bytes"] = len(redactionValueString(requestValue))
 	}
 	if len(input.UpstreamRequestBody) > 0 {
@@ -747,7 +748,6 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	}
 	defer func() { _ = enc.Close() }()
 	compressed := enc.EncodeAll(raw, make([]byte, 0, len(raw)))
-	requestSHA := trajectory.SHA256Hex(requestValue)
 	responseSHA := trajectory.SHA256Hex(responseValue)
 	return compressed, requestSHA, responseSHA, dedupeTags(input.Tags), nil
 }

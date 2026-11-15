@@ -36,6 +36,12 @@ func prepareGatewayMessagesExecution(
 }
 
 func (h *GatewayHandler) tkAttachMessagesProtocolRouting(c *gin.Context, model string, stream bool, body []byte) error {
+	// Admission already parsed this exact document; reuse it unless the handler
+	// changed model, stream or body.
+	if existing, ok := service.ReuseParsedCanonicalRequest(c.Request.Context(), protocolrouter.ProtocolMessages, protocolrouter.ResponsesPathNone, model, stream, body); ok {
+		c.Request = c.Request.WithContext(service.WithProtocolRouting(c.Request.Context(), h.protocolRouter, existing))
+		return nil
+	}
 	canonicalRequest, err := newCanonicalProtocolRequest(
 		protocolrouter.ProtocolMessages,
 		protocolrouter.ResponsesPathNone,

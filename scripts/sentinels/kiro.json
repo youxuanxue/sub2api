@@ -257,7 +257,11 @@
       "must_contain": [
         "func NewKiroCacheFingerprintStore",
         "kiro_cache_fp:",
-        "NewMemoryCacheFingerprintStore"
+        "NewMemoryCacheFingerprintStore",
+        "func (s *kiroCacheFingerprintStore) GetMany",
+        "s.rdb.MGet(ctx, keys...)",
+        "func (s *kiroCacheFingerprintStore) PutMany",
+        "remaining[i].Val() > ttl"
       ],
       "rationale": "Production Redis fingerprint store for multi-replica Kiro cache_read billing. Losing NewKiroCacheFingerprintStore or the kiro_cache_fp key prefix silently falls back to per-process memory (or nothing) and multi-instance cache_read attribution collapses to ~0 while billing_tier still looks enabled."
     },
@@ -535,7 +539,10 @@
         "unmatched := total - matchedCum",
         "applyCacheCreationHaircut(unmatched)",
         "func (p *PromptEstimate) CacheUsageSplit",
-        "func (p *PromptEstimate) CommitCacheFingerprints"
+        "func (p *PromptEstimate) CommitCacheFingerprints",
+        "store.(CacheFingerprintBatchStore)",
+        "batchStore.GetMany(ctx, sessionKey, hexes)",
+        "_ = batchStore.PutMany(ctx, sessionKey, entries, ttl)"
       ],
       "rationale": "Per-request owner of Kiro prompt-side token work. Input totals and cumulative prefix counts share content-only segment counts, while fingerprint bytes remain compatible. Cache splitting applies Option B read and newly written suffix creation attribution. Package-level estimation and commit helpers delegate here."
     },

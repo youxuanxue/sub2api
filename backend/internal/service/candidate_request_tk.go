@@ -269,7 +269,14 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 		canonical.InboundProtocol() == canonicalInbound && canonical.ResponsesPath() == canonicalPath && canonical.BodyEquals(body) {
 		state.requestProfile, state.requestProfileValid = canonical.Profile(), true
 	} else {
-		state.requestProfile, state.requestProfileValid = candidateRequestProfile(shape, path, model, body)
+		if parsed, ok := candidateCanonicalRequest(shape, path, model, body); ok {
+			// An already routed request stays authoritative (pathContext prefers the
+			// routed body); only bind when nothing is routed yet.
+			if _, routed := ProtocolRoutingRequest(ctx); !routed {
+				ctx = r.attachCandidateCanonicalRequest(ctx, shape, parsed, body)
+			}
+			state.requestProfile, state.requestProfileValid = parsed.Profile(), true
+		}
 	}
 	ctx = context.WithValue(ctx, candidateRequestContextKey{}, state)
 	nextBody, owner, err := r.candidateOpenAI.authorizeResponsesContinuation(ctx, key, eligible, body)

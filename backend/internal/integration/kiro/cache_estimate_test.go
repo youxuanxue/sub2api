@@ -4,13 +4,123 @@ package kiro
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 )
 
+type countingBatchStore struct {
+	CacheFingerprintStore
+	getManyCalls int
+	putManyCalls int
+}
+
+func (s *countingBatchStore) GetMany(ctx context.Context, sessionKey string, fingerprints []string) ([]int, error) {
+	s.getManyCalls++
+	values := make([]int, len(fingerprints))
+	for i, fingerprint := range fingerprints {
+		tokens, ok, err := s.Get(ctx, sessionKey, fingerprint)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			values[i] = tokens
+		}
+	}
+	return values, nil
+}
+
+func (s *countingBatchStore) PutMany(ctx context.Context, sessionKey string, entries []CacheFingerprintEntry, ttl time.Duration) error {
+	s.putManyCalls++
+	for _, entry := range entries {
+		if err := s.Put(ctx, sessionKey, entry.FingerprintHex, entry.Tokens, ttl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type failingBatchStore struct {
+	singleCalls int
+}
+
+func (s *failingBatchStore) Get(context.Context, string, string) (int, bool, error) {
+	s.singleCalls++
+	return 0, false, nil
+}
+
+func (s *failingBatchStore) Put(context.Context, string, string, int, time.Duration) error {
+	s.singleCalls++
+	return nil
+}
+
+func (s *failingBatchStore) GetMany(context.Context, string, []string) ([]int, error) {
+	return nil, errors.New("redis down")
+}
+
+func (s *failingBatchStore) PutMany(context.Context, string, []CacheFingerprintEntry, time.Duration) error {
+	return errors.New("redis down")
+}
+
+func TestPromptEstimateBatchFailureDoesNotFallBackPerKey(t *testing.T) {
+	store := &failingBatchStore{}
+	ctx := context.Background()
+	session := CacheSessionKey(42, "claude-sonnet-4-6", "batch-fail")
+	req := &ClaudeRequest{
+		Model:    "claude-sonnet-4-6",
+		System:   largePrompt(200),
+		Messages: []ClaudeMessage{{Role: "user", Content: largePrompt(100)}},
+	}
+	est := PreparePromptEstimate(req)
+	got := est.CacheUsageSplit(ctx, store, session)
+	if got.CacheReadTokens != 0 || got.Total() != EstimateInputTokens(req) {
+		t.Fatalf("split=%+v, want full input on batch read failure", got)
+	}
+	est.CommitCacheFingerprints(ctx, store, session, DefaultCacheTTL)
+	if store.singleCalls != 0 {
+		t.Fatalf("per-key calls=%d after batch failure, want 0", store.singleCalls)
+	}
+}
+
 func largePrompt(n int) string {
 	return strings.Repeat("alpha beta gamma delta ", n)
+}
+
+func TestPromptEstimateUsesOneBatchReadAndWritePerTurn(t *testing.T) {
+	store := &countingBatchStore{CacheFingerprintStore: NewMemoryCacheFingerprintStore()}
+	ctx := context.Background()
+	session := CacheSessionKey(42, "claude-sonnet-4-6", "batch")
+	first := &ClaudeRequest{
+		Model:  "claude-sonnet-4-6",
+		System: largePrompt(200),
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: largePrompt(100)},
+		},
+	}
+	firstSplit := PreparePromptEstimate(first)
+	wantFirst := EstimateInputTokens(first)
+	if got := firstSplit.CacheUsageSplit(ctx, store, session); got.Total() != wantFirst {
+		t.Fatalf("first split=%+v total=%d", got, wantFirst)
+	}
+	firstSplit.CommitCacheFingerprints(ctx, store, session, DefaultCacheTTL)
+	if store.getManyCalls != 1 || store.putManyCalls != 1 {
+		t.Fatalf("first calls get_many=%d put_many=%d, want 1,1", store.getManyCalls, store.putManyCalls)
+	}
+
+	second := &ClaudeRequest{
+		Model:  first.Model,
+		System: first.System,
+		Messages: append(append([]ClaudeMessage(nil), first.Messages...),
+			ClaudeMessage{Role: "user", Content: "continue " + largePrompt(20)}),
+	}
+	got := PreparePromptEstimate(second).CacheUsageSplit(ctx, store, session)
+	if got.CacheReadTokens <= 0 || got.Total() != EstimateInputTokens(second) {
+		t.Fatalf("second split=%+v total=%d", got, EstimateInputTokens(second))
+	}
+	if store.getManyCalls != 2 {
+		t.Fatalf("get_many calls=%d, want 2", store.getManyCalls)
+	}
 }
 
 func TestEstimateCacheUsageSplit_FirstTurnNoRead(t *testing.T) {

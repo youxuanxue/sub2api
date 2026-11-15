@@ -38,6 +38,16 @@ type CacheUsageSplit struct {
 	MatchedPrefixTokens int // pre-haircut matched prefix (observability)
 }
 
+type CacheFingerprintEntry struct {
+	FingerprintHex string
+	Tokens         int
+}
+
+type CacheFingerprintBatchStore interface {
+	GetMany(ctx context.Context, sessionKey string, fingerprintHexes []string) ([]int, error)
+	PutMany(ctx context.Context, sessionKey string, entries []CacheFingerprintEntry, ttl time.Duration) error
+}
+
 // Total returns Input + Creation + Read.
 func (s CacheUsageSplit) Total() int {
 	return s.InputTokens + s.CacheCreationTokens + s.CacheReadTokens

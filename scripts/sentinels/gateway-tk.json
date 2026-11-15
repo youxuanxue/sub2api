@@ -3641,7 +3641,8 @@
       "path": "backend/internal/service/universal_candidate_eligibility.go",
       "must_contain": [
         "protocolrouter.ParseCanonicalRequest",
-        "gatewayRequestThinkingEnabled(metadata, string(inbound))",
+        "func attachProtocolRoutingRequest(",
+        "gatewayRequestThinkingEnabled(metadata, string(request.InboundProtocol()))",
         "group.IsSubscriptionType() != best.group.IsSubscriptionType()",
         "ErrUniversalCapacityUnavailable",
         "Diag     *CandidateCapacityDiag",
@@ -18358,7 +18359,8 @@
       "must_contain": [
         "RequestCapture:             requestCapture",
         "requestPayload[\"capture\"] = input.RequestCapture",
-        "requestPayload[\"saved_body_sha256\"] = trajectory.SHA256Hex(requestValue)"
+        "requestSHA := trajectory.SHA256Hex(requestValue)",
+        "requestPayload[\"saved_body_sha256\"] = requestSHA"
       ],
       "rationale": "Persist wire completeness separately from bounded redacted QA body hashes so matching prefixes cannot imply equal full requests."
     },

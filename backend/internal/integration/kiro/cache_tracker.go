@@ -78,6 +78,49 @@ func (s *MemoryCacheFingerprintStore) Put(_ context.Context, sessionKey, fingerp
 	return nil
 }
 
+func (s *MemoryCacheFingerprintStore) GetMany(_ context.Context, sessionKey string, fingerprintHexes []string) ([]int, error) {
+	out := make([]int, len(fingerprintHexes))
+	if s == nil {
+		return out, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pruneLocked(sessionKey, time.Now())
+	byFP := s.data[sessionKey]
+	for i, fingerprintHex := range fingerprintHexes {
+		if entry, ok := byFP[fingerprintHex]; ok {
+			out[i] = entry.tokens
+		}
+	}
+	return out, nil
+}
+
+func (s *MemoryCacheFingerprintStore) PutMany(_ context.Context, sessionKey string, entries []CacheFingerprintEntry, ttl time.Duration) error {
+	if s == nil || sessionKey == "" || ttl <= 0 {
+		return nil
+	}
+	now := time.Now()
+	expires := now.Add(ttl)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	byFP := s.data[sessionKey]
+	if byFP == nil {
+		byFP = make(map[string]memoryFingerprintEntry)
+		s.data[sessionKey] = byFP
+	}
+	for _, entry := range entries {
+		if entry.FingerprintHex == "" || entry.Tokens <= 0 {
+			continue
+		}
+		if existing, ok := byFP[entry.FingerprintHex]; ok && existing.expiresAt.After(expires) {
+			byFP[entry.FingerprintHex] = memoryFingerprintEntry{tokens: entry.Tokens, expiresAt: existing.expiresAt}
+			continue
+		}
+		byFP[entry.FingerprintHex] = memoryFingerprintEntry{tokens: entry.Tokens, expiresAt: expires}
+	}
+	return nil
+}
+
 func (s *MemoryCacheFingerprintStore) pruneLocked(sessionKey string, now time.Time) {
 	byFP, ok := s.data[sessionKey]
 	if !ok {

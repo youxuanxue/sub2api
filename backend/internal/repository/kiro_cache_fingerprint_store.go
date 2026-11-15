@@ -47,6 +47,31 @@ func (s *kiroCacheFingerprintStore) Get(ctx context.Context, sessionKey, fingerp
 	return tokens, true, nil
 }
 
+func (s *kiroCacheFingerprintStore) GetMany(ctx context.Context, sessionKey string, fingerprintHexes []string) ([]int, error) {
+	out := make([]int, len(fingerprintHexes))
+	if s == nil || s.rdb == nil || sessionKey == "" || len(fingerprintHexes) == 0 {
+		return out, nil
+	}
+	keys := make([]string, len(fingerprintHexes))
+	for i, fingerprintHex := range fingerprintHexes {
+		keys[i] = s.key(sessionKey, fingerprintHex)
+	}
+	values, err := s.rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+	for i, value := range values {
+		raw, ok := value.(string)
+		if !ok {
+			continue
+		}
+		if tokens, parseErr := strconv.Atoi(raw); parseErr == nil && tokens > 0 {
+			out[i] = tokens
+		}
+	}
+	return out, nil
+}
+
 func (s *kiroCacheFingerprintStore) Put(ctx context.Context, sessionKey, fingerprintHex string, tokens int, ttl time.Duration) error {
 	if s == nil || s.rdb == nil || sessionKey == "" || fingerprintHex == "" || tokens <= 0 || ttl <= 0 {
 		return nil
@@ -58,4 +83,46 @@ func (s *kiroCacheFingerprintStore) Put(ctx context.Context, sessionKey, fingerp
 		ttl = remaining
 	}
 	return s.rdb.Set(ctx, key, strconv.Itoa(tokens), ttl).Err()
+}
+
+func (s *kiroCacheFingerprintStore) PutMany(ctx context.Context, sessionKey string, entries []kiroproto.CacheFingerprintEntry, ttl time.Duration) error {
+	if s == nil || s.rdb == nil || sessionKey == "" || ttl <= 0 || len(entries) == 0 {
+		return nil
+	}
+	filtered := make([]kiroproto.CacheFingerprintEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.FingerprintHex != "" && entry.Tokens > 0 {
+			filtered = append(filtered, entry)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	keys := make([]string, len(filtered))
+	for i, entry := range filtered {
+		keys[i] = s.key(sessionKey, entry.FingerprintHex)
+	}
+	remaining := make([]*redis.DurationCmd, len(keys))
+	if _, err := s.rdb.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+		for i, key := range keys {
+			remaining[i] = pipe.TTL(ctx, key)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	effectiveTTL := make([]time.Duration, len(filtered))
+	for i := range filtered {
+		effectiveTTL[i] = ttl
+		if err := remaining[i].Err(); err == nil && remaining[i].Val() > ttl {
+			effectiveTTL[i] = remaining[i].Val()
+		}
+	}
+	_, err := s.rdb.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+		for i, entry := range filtered {
+			pipe.Set(ctx, keys[i], strconv.Itoa(entry.Tokens), effectiveTTL[i])
+		}
+		return nil
+	})
+	return err
 }
