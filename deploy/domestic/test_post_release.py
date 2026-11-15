@@ -153,13 +153,16 @@ class PostReleaseTest(unittest.TestCase):
             self.finish(context)
         self.assertEqual(self.events, [])
 
-    def test_rejects_aws_domain_http_and_credentials_in_url(self):
+    def test_rejects_old_ip_aws_domain_http_and_credentials_in_url(self):
         expected = pr.read_json(pr.asset_source('prod-target.json'))['public_origin']
-        for url in ['https://api-cn.tokenkey.dev', 'https://api.galaxywaveai.com']:
+        # Since M3 the origin is the entry domain; the old static IP and the
+        # AWS fallback domain must both be refused.
+        for url in ['https://api-cn.tokenkey.dev', 'https://154.8.214.179']:
             with self.subTest(url=url), self.assertRaisesRegex(ValueError, 'public_origin is ' + expected):
                 self.args.public_url = url
                 self.configure()
-        for url in ['http://154.8.214.179', 'https://user:pass@154.8.214.179', 'https://127.0.0.1']:
+        for url in ['http://api.galaxywaveai.com', 'https://user:pass@api.galaxywaveai.com',
+                    'https://api.galaxywaveai.com:8443', 'https://127.0.0.1']:
             with self.subTest(url=url), self.assertRaises(ValueError):
                 self.args.public_url = url
                 self.configure()
@@ -167,7 +170,7 @@ class PostReleaseTest(unittest.TestCase):
     def test_rejects_other_public_ip_before_pinning_release(self):
         self.args.public_url = 'https://8.8.8.8'  # valid global IP, not this deployment
         expected = pr.read_json(pr.asset_source('prod-target.json'))['public_origin']
-        with self.assertRaisesRegex(ValueError, 'domestic target manifest public_origin ' + expected):
+        with self.assertRaisesRegex(ValueError, 'domestic target manifest public_origin is ' + expected):
             self.configure()
         self.assertFalse((self.state / 'post-release').exists())
 

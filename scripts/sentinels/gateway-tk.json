@@ -12296,7 +12296,8 @@
         "timestamp(cutover_at) + 300 - time.time()",
         "execute(planner + ['gate', *evaluations])",
         "read_json(notice).get('status') == 'sent'",
-        "str(directory / 'notify-feishu-release.sh')"
+        "str(directory / 'notify-feishu-release.sh')",
+        "# public_origin is the checked entrance. Since M3 (2026-11-15) it is the"
       ],
       "rationale": "Domestic promotion must keep pinned evidence, delayed shared verification and the shared Feishu sender, with acknowledged-delivery deduplication. These anchors pair with behavioral regressions; they do not replace runtime checks."
     },
@@ -12309,7 +12310,8 @@
         "def test_rejects_wrong_revision_failed_smoke_or_wrong_candidate_before_mutation(",
         "def test_rejects_inactive_release_and_pinned_evidence_drift(",
         "def test_rejects_other_public_ip_before_pinning_release(",
-        "def test_rejects_pinned_target_manifest_drift_before_probing_or_sending("
+        "def test_rejects_pinned_target_manifest_drift_before_probing_or_sending(",
+        "def test_rejects_old_ip_aws_domain_http_and_credentials_in_url(self):"
       ],
       "rationale": "Keep executable release notification contracts in the domestic preflight gate: verify before sending, retry failed delivery, suppress duplicates and reject stale or failed evidence."
     },

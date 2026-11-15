@@ -690,7 +690,7 @@ class DeployViaSsmTest(unittest.TestCase):
             "--postcheck-plan",
             "/private/post-plan.json",
             "--public-url",
-            "https://api.galaxywaveai.com",
+            "https://154.8.214.179",
         )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("public_origin", proc.stderr)

@@ -72,8 +72,8 @@
 |---|---|---|
 | M1 | 带新镜像正常发一次版（仍是蓝绿，app-b 手工换同一镜像） | 下文蓝绿流程 |
 | M2 | app-b：`node_compose.py --node app-b --diff /opt/tokenkey/compose.appb.yml` 必须为空，再改用 `compose.node.yml`；装看门狗（QA timer 待数据机协调器上线）。入口机：`entry_caddy.py --diff` 只差注释后入库，装看门狗 | 本节 |
-| M3 | app-a 公网直连连续 6h 为 0 后，把 `public_origin` 改成域名 | `prod-target.json` |
-| M4 | app-a 改为单容器 `tokenkey`，绑定 `10.2.4.11:8080`，停 socat、green、Caddy，云防火墙关闭 80/443 | 设计文档 M4 |
+| M3 | 直连 app-a 的业务请求为 0 后，把 `public_origin` 改成入口机域名（2026-11-15 完成；IP 站点上只剩健康探测） | `prod-target.json` |
+| M4 | app-a 改为单容器 `tokenkey`，绑定 `10.2.4.11:8080`，停 socat 和 blue/green（2026-11-15 完成）。app-a 的 Caddy 改指 `tokenkey:8080`，M3 之后再关 80/443。Caddyfile 是单文件挂载，`sed -i` 后 `caddy reload` 仍读旧 inode，要从宿主文件 `caddy adapt` 后经 admin API `/load` 加载 | 设计文档 M4 |
 | M5 | 用当前版本原样滚动一遍演练 | `rolling.py` |
 | M6 | 连续两次真实滚动成功后删除 `bluegreen.py` 的 cn-prod 分支和 socat 代码 | PR |
 

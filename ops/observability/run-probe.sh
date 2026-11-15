@@ -403,7 +403,13 @@ from urllib.parse import urlsplit
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     target = json.load(handle)
-host = urlsplit(str(target.get("public_origin") or "")).hostname or ""
+# SSH recovery targets the app host itself, never the entry domain (M3).
+host = ""
+for app in target.get("apps") or []:
+    if app.get("lighthouse_instance_id") == target.get("instance_id"):
+        host = str(app.get("public_ip") or "")
+if not host:
+    host = urlsplit(str(target.get("public_origin") or "")).hostname or ""
 print(host)
 PY
       )

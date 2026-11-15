@@ -266,8 +266,9 @@ class OriginGuardTest(unittest.TestCase):
         self.assertIsNone(refuse_aws_cutover_domain(origin))
 
     def test_host_header_for_ip_origin(self) -> None:
-        origin = cn_prod_public_origin()
-        self.assertEqual(resolve_host_header(origin), cn_prod_host_header_default())
+        # public_origin is a domain since M3; the IP path still needs a Host header.
+        self.assertEqual(resolve_host_header("https://154.8.214.179"), cn_prod_host_header_default())
+        self.assertIsNone(resolve_host_header(cn_prod_public_origin()))
         self.assertIsNone(resolve_host_header("https://example.com"))
 
     def test_env_base_url_overrides_prod_target(self) -> None:

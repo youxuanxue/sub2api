@@ -4,7 +4,6 @@ Runs on the domestic host. No AWS target resolution and no second webhook sender
 """
 from datetime import datetime
 import hashlib
-import ipaddress
 import json
 import os
 from pathlib import Path
@@ -63,21 +62,15 @@ def configure(args, receipt, inspect):
     url = urlsplit(args.public_url)
     if url.scheme != 'https' or url.username or url.password or url.query or url.fragment or url.path not in ('', '/'):
         raise ValueError('public-url must be an HTTPS origin')
-    # public_origin is the checked entrance. A hostname such as
-    # api.galaxywaveai.com or api-cn.tokenkey.dev, or any other global IP,
-    # cannot stand in for that check.
+    # public_origin is the checked entrance. Since M3 (2026-11-15) it is the
+    # entry machine's domain; any other host or IP cannot stand in for it.
     domestic = read_json(asset_source('prod-target.json'))
-    try:
-        host_ip = ipaddress.ip_address(url.hostname)
-    except ValueError:
-        raise ValueError(
-            'domestic public-url must use its public static IP on 443; public_origin is '
-            + domestic['public_origin'].rstrip('/')) from None
-    if not host_ip.is_global or url.port not in (None, 443):
-        raise ValueError('domestic public-url must use its public static IP on 443')
+    if url.port not in (None, 443):
+        raise ValueError('domestic public-url must use 443; public_origin is '
+                         + domestic['public_origin'].rstrip('/'))
     if args.public_url.rstrip('/') != domestic['public_origin'].rstrip('/'):
         raise ValueError(
-            'public-url does not match the domestic target manifest public_origin '
+            'public-url does not match the domestic target manifest public_origin is '
             + domestic['public_origin'].rstrip('/'))
     old, target = inspect(receipt['old']), inspect(receipt['target'])
     labels = [item['Config']['Labels'] for item in (old, target)]
