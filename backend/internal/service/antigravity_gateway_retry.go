@@ -1232,10 +1232,11 @@ func (s *AntigravityGatewayService) setModelRateLimitAndClearSession(p *handleMo
 
 	s.setAntigravityModelRateLimits(p.ctx, s.accountRepo, p.account, info.ModelName, p.prefix, p.statusCode, resetAt, false)
 
-	// 清除粘性会话绑定
-	if p.cache != nil && p.sessionHash != "" {
-		_ = p.cache.DeleteSessionAccountID(p.ctx, p.groupID, p.sessionHash)
-	}
+	// 清除粘性会话绑定：冷却的账号会被调度器拒绝，绑定留着只会把后续请求
+	// 反复钉在同一个账号上。走与 429 兜底分支相同的带归属校验的清理，
+	// 避免并发请求刚写入的健康绑定被误删。重绑由 handler 的
+	// RebindStickySessionAfterFailover 负责。
+	s.tkDropStickyForUnusableAccount(p.ctx, p.groupID, p.sessionHash, p.account)
 }
 
 // updateAccountModelRateLimitInCache 立即更新 Redis 中账号的模型限流状态
@@ -1317,6 +1318,27 @@ func (s *AntigravityGatewayService) handleUpstreamError(
 			// 极少数情况下无法映射（理论上不应发生：能转发成功说明映射已通过），
 			// 保持旧行为作为兜底，避免完全丢失模型级限流记录。
 			modelKey = resolveAntigravityModelKey(requestedModel)
+		}
+		// TK: a 429 that cools this account for the model leaves the sticky
+		// binding pointing at an account the scheduler now refuses. Drop it so the
+		// next turn re-selects instead of replaying into the same cooled account.
+		// Re-binding onto the healthy successor happens in
+		// tkRebindStickyAfterFailover, so one cross-account turn is the most any
+		// caller pays in lost prompt-cache reuse. Covers both the model-key branch
+		// below and the account-level fallback after it.
+		s.tkDropStickyForUnusableAccount(ctx, groupID, sessionHash, account)
+		// TK: an uncorroborated 429 costs every account in the failover chain one
+		// model cooldown, so a single content-triggered rejection can cool the whole
+		// group (maxAccountSwitchesGemini is 3 → up to 4 accounts per request).
+		// Only cool the account when the provider itself says this account hit a
+		// rate limit; otherwise the 429 is request/content-scoped and rotating to a
+		// peer is the correct response. The existing RATE_LIMIT_EXCEEDED paths above
+		// still cool immediately in that case.
+		if !tkGoogle429CorroboratesAccountLimit(body) {
+			logger.LegacyPrintf("service.antigravity_gateway",
+				"%s status=429 no_account_limit_evidence account=%d cooling=skipped reason=uncorroborated",
+				prefix, account.ID)
+			return nil
 		}
 		if modelKey != "" {
 			ra := s.resolveResetTime(resetAt, defaultDur)

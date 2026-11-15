@@ -858,6 +858,18 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
 		}
+		if err == nil && fs.SwitchCount > 0 {
+			// A failover switch served this turn from a different account than the
+			// one the session was pinned to. Re-pin onto the successor so prompt-cache
+			// reuse resumes immediately: the cooled-account repair drops the binding,
+			// and without this the session would stay affinity-less and re-select on
+			// every later turn. Bounded cost: one cross-account turn per cooldown.
+			if rebindErr := h.gatewayService.RebindStickySessionAfterFailover(
+				c.Request.Context(), apiKey.GroupID, sessionKey, sessionBoundAccountID, account.ID,
+			); rebindErr != nil {
+				reqLog.Warn("gemini.rebind_sticky_after_failover_failed", zap.Int64("account_id", account.ID), zap.Error(rebindErr))
+			}
+		}
 		if err != nil {
 			var mediaErr *service.AntigravityInlineMediaError
 			if errors.As(err, &mediaErr) && !c.Writer.Written() {
