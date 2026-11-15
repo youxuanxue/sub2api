@@ -525,6 +525,16 @@ class PreflightRefusalTest(RollingTestBase):
         self.a.containers = {"tokenkey-blue": "running", "tokenkey-green": "exited", "tokenkey": "running"}
         self.assertRefused("M4")
 
+    def test_stopped_bluegreen_containers_do_not_block_rolling(self):
+        # Stopped blue/green are rollback material, not an unfinished migration.
+        self.a.containers = {"tokenkey-blue": "exited", "tokenkey-green": "exited", "tokenkey": "running"}
+        self.assertEqual(rolling.layout_errors(self.a.node, self.a.probe({})), [])
+
+    def test_running_caddy_fallback_does_not_block_rolling(self):
+        # app-a keeps tokenkey-caddy running as the direct-site rollback after M4.
+        self.a.containers = {"tokenkey-caddy": "running", "tokenkey": "running"}
+        self.assertEqual(rolling.layout_errors(self.a.node, self.a.probe({})), [])
+
     def test_socat_tokenkey_is_refused(self):
         self.a.socat = True
         self.assertRefused("socat forwarder")

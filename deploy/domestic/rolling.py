@@ -684,9 +684,18 @@ def migration_hint(node) -> str:
 def layout_errors(node, facts: dict) -> list[str]:
     errs = []
     hint = migration_hint(node)
-    stale = [n for n in FORBIDDEN_CONTAINERS if n in (facts.get("containers") or {})]
+    # Only a RUNNING blue/green or proxy container means migration is unfinished.
+    # Stopped containers are rollback material: compose up never touches them, and
+    # they hold neither the port nor the container name. app-a keeps tokenkey-blue
+    # and tokenkey-green stopped after M4 for exactly that reason (2026-11-15).
+    # tokenkey-caddy is app-a's direct-site fallback. After M4 the cloud
+    # firewall closes 80/443, so it serves nothing reachable from outside, and
+    # rolling only runs `up -d --no-deps tokenkey`, which never touches it.
+    # Keeping it running is the one-step rollback for the direct sites.
+    blocking = tuple(n for n in FORBIDDEN_CONTAINERS if n != "tokenkey-caddy")
+    stale = [n for n in blocking if (facts.get("containers") or {}).get(n) == "running"]
     if stale:
-        errs.append(f"blue/green or proxy containers still present: {', '.join(stale)}; {hint}")
+        errs.append(f"blue/green or proxy containers still running: {', '.join(stale)}; {hint}")
     c = facts.get("container")
     if c is None:
         errs.append(f"no '{CONTAINER}' container; {hint}")
