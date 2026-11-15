@@ -70,6 +70,8 @@
   `compose.local.yml`；环境文件 `.env` 权限 0600。Caddyfile 位于
   `/var/lib/tokenkey/caddy/Caddyfile`。
 
+**数据库密码只有一个来源。** 共享 `compose.yml` 用 `DATABASE_PASSWORD=${POSTGRES_PASSWORD}`，所以 `.env` 的 `POSTGRES_PASSWORD` 必须等于数据机实际接受的密码。蓝绿候选从线上容器继承密钥，`.env` 漂移不会在蓝绿里暴露，只会在新节点或从 compose 重建时以 `password authentication failed` 出现（2026-11-15 app-b 首次启动即如此；当日已把 cn-prod `.env` 的 `POSTGRES_PASSWORD` 收敛到线上值，备份为 `.env.before-pgpw-converge-*`）。`bluegreen.py prepare` 现在比较 compose 渲染出的 `DATABASE_PASSWORD`/`REDIS_PASSWORD` 与线上容器，不一致就拒绝，报错只给键名不给值。轮换数据库密码时必须同时改数据机、`.env` 的 `POSTGRES_PASSWORD` 和 `DATABASE_PASSWORD`。
+
 首次 `up -d tokenkey` 后，通过受限 SSH tunnel 初始化管理员、关闭公开注册、关闭
 `backend_mode_enabled`（否则普通客户不能登录），再启动 Caddy。后续升级必须走共享 drain
 与健康检查契约，不把首次安装步骤作为强制重启生产服务的升级脚本。

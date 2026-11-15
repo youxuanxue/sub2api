@@ -258,6 +258,37 @@ class DomesticBluegreenTest(unittest.TestCase):
         self.assertEqual(app['environment']['DATABASE_HOST'], 'postgres')
         self.assertEqual(app['ports'][0]['published'], '18082')
 
+    def test_candidate_refuses_when_compose_credentials_drift_from_live(self):
+        """A drifted .env must stop prepare, not be papered over by inheritance.
+
+        The candidate inherits secrets from the live container, so a stale .env
+        would otherwise only fail on the next node or rebuild that reads compose.
+        The error names the key but never the value.
+        """
+        volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
+        for key in ('DATABASE_PASSWORD', 'REDIS_PASSWORD'):
+            with self.subTest(key=key):
+                current = fixture()
+                current['Config']['Env'].append(f'{key}=live-secret')
+                service = {'volumes': volumes, 'mem_limit': '3g', 'memswap_limit': '3g',
+                           'environment': self._compose_env(**{key: 'stale-secret'})}
+                with self.assertRaises(ValueError) as caught:
+                    bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-green')
+                self.assertIn(key, str(caught.exception))
+                self.assertNotIn('live-secret', str(caught.exception))
+                self.assertNotIn('stale-secret', str(caught.exception))
+
+    def test_candidate_accepts_matching_credentials(self):
+        volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
+        current = fixture()
+        current['Config']['Env'] += ['DATABASE_PASSWORD=same', 'REDIS_PASSWORD=same-r']
+        service = {'volumes': volumes, 'mem_limit': '3g', 'memswap_limit': '3g',
+                   'environment': self._compose_env(DATABASE_PASSWORD='same',
+                                                    REDIS_PASSWORD='same-r')}
+        app = bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-green')[
+            'services']['tokenkey-green']
+        self.assertEqual(app['environment']['DATABASE_PASSWORD'], 'same')
+
     def test_data_plane_cutover_endpoints_reach_the_new_color(self):
         # After the data-plane cutover the live color still carries the old
         # same-host addresses; the new color must take the ones from .env.

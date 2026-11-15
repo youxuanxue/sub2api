@@ -178,6 +178,33 @@ CONFIG_ENV_KEYS = (
 )
 
 
+# Credentials the candidate inherits from the live container but that compose
+# also renders. The candidate keeps the live value (that is how secrets stay on
+# the host), so a drifted .env is invisible to blue/green and only surfaces when
+# something rebuilds from compose: 2026-11-15 cn-prod's .env POSTGRES_PASSWORD
+# no longer matched the data machine, compose maps DATABASE_PASSWORD from it, and
+# a second app node built from the same files failed authentication. Refuse to
+# prepare while they disagree, so the drift is fixed in .env instead of being
+# carried forward by inheritance.
+CREDENTIAL_PARITY_KEYS = (
+    'DATABASE_PASSWORD',
+    'REDIS_PASSWORD',
+)
+
+
+def _require_credential_parity(service_env, live_env):
+    drifted = [
+        key for key in CREDENTIAL_PARITY_KEYS
+        if key in service_env and key in live_env
+        and str(service_env[key]) != live_env[key]
+    ]
+    if drifted:
+        raise ValueError(
+            'compose-rendered credentials differ from the live container: '
+            + ', '.join(drifted)
+            + '; fix /opt/tokenkey/.env before prepare (values not shown)')
+
+
 def _required_env(service_env, keys, label):
     missing = [
         key for key in keys
@@ -201,6 +228,7 @@ def candidate_compose(service, current, image, target):
     _required_env(service_env, POOL_ENV_KEYS, 'pool')
     _required_env(service_env, QA_ENV_KEYS, 'qa')
     _required_env(service_env, CONFIG_ENV_KEYS, 'config')
+    _require_credential_parity(service_env, env)
     if str(service_env['QA_CAPTURE_ENABLED']).strip().lower() != 'true':
         raise ValueError('domestic QA capture must stay enabled')
     for key in POOL_ENV_KEYS + CONFIG_ENV_KEYS:
