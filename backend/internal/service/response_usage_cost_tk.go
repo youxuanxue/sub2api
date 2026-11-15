@@ -160,6 +160,7 @@ func (s *GatewayService) previewClaudeClientUsageCost(
 		// Media/image paths are out of v1 scope for response cost.
 		return nil
 	}
+	s.ApplyUpstreamCacheReadWriteAttribution(account, model, &usage)
 
 	snap, _ := responseUsageCostBillingFromContext(c)
 	pricingAt := snap.PricingAt
@@ -224,6 +225,7 @@ func (s *OpenAIGatewayService) previewOpenAIClientUsageCost(
 	if result.ImageCount > 0 || result.VideoCount > 0 || result.WebSearchCalls > 0 || result.AudioUsage != nil || result.SearchCount > 0 {
 		return nil
 	}
+	s.ApplyUpstreamCacheReadWriteAttribution(account, result)
 	apiKey := getAPIKeyFromContext(c)
 	if apiKey == nil || apiKey.User == nil || apiKey.Group == nil {
 		return nil

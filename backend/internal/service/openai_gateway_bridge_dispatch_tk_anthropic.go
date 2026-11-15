@@ -181,7 +181,14 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	}
 
 	if handleErr == nil && result != nil {
-		result.Usage = openAIUsageFromNewAPIDTO(out.Usage)
+		bridgeUsage := openAIUsageFromNewAPIDTO(out.Usage)
+		if bridgeUsage.CacheReadInputTokens == 0 {
+			bridgeUsage.CacheReadInputTokens = result.Usage.CacheReadInputTokens
+		}
+		if bridgeUsage.CacheCreationInputTokens == 0 {
+			bridgeUsage.CacheCreationInputTokens = result.Usage.CacheCreationInputTokens
+		}
+		result.Usage = bridgeUsage
 	}
 
 	return result, handleErr
@@ -602,6 +609,11 @@ func convertBufferedChatCompletionsToAnthropicSSE(
 			usage = OpenAIUsage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens}
 			if chunk.Usage.PromptTokensDetails != nil {
 				usage.CacheReadInputTokens = chunk.Usage.PromptTokensDetails.CachedTokens
+				if chunk.Usage.PromptTokensDetails.CacheWriteTokens > 0 {
+					usage.CacheCreationInputTokens = chunk.Usage.PromptTokensDetails.CacheWriteTokens
+				} else if chunk.Usage.PromptTokensDetails.CacheCreationTokens > 0 {
+					usage.CacheCreationInputTokens = chunk.Usage.PromptTokensDetails.CacheCreationTokens
+				}
 			}
 		}
 	}
@@ -682,6 +694,11 @@ func convertBufferedChatCompletionsToAnthropicJSON(
 			usage = OpenAIUsage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens}
 			if chunk.Usage.PromptTokensDetails != nil {
 				usage.CacheReadInputTokens = chunk.Usage.PromptTokensDetails.CachedTokens
+				if chunk.Usage.PromptTokensDetails.CacheWriteTokens > 0 {
+					usage.CacheCreationInputTokens = chunk.Usage.PromptTokensDetails.CacheWriteTokens
+				} else if chunk.Usage.PromptTokensDetails.CacheCreationTokens > 0 {
+					usage.CacheCreationInputTokens = chunk.Usage.PromptTokensDetails.CacheCreationTokens
+				}
 			}
 		}
 	}
@@ -712,15 +729,20 @@ func convertBufferedChatCompletionsToAnthropicJSON(
 		stopReason = "tool_use"
 	}
 
+	anthropicInputTokens := usage.InputTokens - usage.CacheReadInputTokens - usage.CacheCreationInputTokens
+	if anthropicInputTokens < 0 {
+		anthropicInputTokens = 0
+	}
 	resp := apicompat.AnthropicResponse{
 		ID:   fmt.Sprintf("msg_bridge_%d", time.Now().UnixNano()),
 		Type: "message", Role: "assistant",
 		Content: content, Model: originalModel,
 		StopReason: apicompat.AnthropicStopReasonPtr(stopReason),
 		Usage: apicompat.AnthropicUsage{
-			InputTokens:          usage.InputTokens,
-			OutputTokens:         usage.OutputTokens,
-			CacheReadInputTokens: usage.CacheReadInputTokens,
+			InputTokens:              anthropicInputTokens,
+			OutputTokens:             usage.OutputTokens,
+			CacheCreationInputTokens: usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     usage.CacheReadInputTokens,
 		},
 	}
 	c.JSON(http.StatusOK, resp)
@@ -847,11 +869,20 @@ func tkBridgeFinalizeChatToAnthStream(st *tkBridgeChatToAnthState, usage OpenAIU
 		stopReason = "tool_use"
 	}
 
+	anthropicInputTokens := usage.InputTokens - usage.CacheReadInputTokens - usage.CacheCreationInputTokens
+	if anthropicInputTokens < 0 {
+		anthropicInputTokens = 0
+	}
 	events = append(events,
 		apicompat.AnthropicStreamEvent{
 			Type:  "message_delta",
 			Delta: &apicompat.AnthropicDelta{StopReason: stopReason},
-			Usage: &apicompat.AnthropicUsage{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens},
+			Usage: &apicompat.AnthropicUsage{
+				InputTokens:              anthropicInputTokens,
+				OutputTokens:             usage.OutputTokens,
+				CacheCreationInputTokens: usage.CacheCreationInputTokens,
+				CacheReadInputTokens:     usage.CacheReadInputTokens,
+			},
 		},
 		apicompat.AnthropicStreamEvent{Type: "message_stop"},
 	)

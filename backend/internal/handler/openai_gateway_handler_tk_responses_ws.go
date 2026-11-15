@@ -241,6 +241,7 @@ func (h *OpenAIGatewayHandler) tkWSAfterTurnSubmitUsage(in tkWSAfterTurnUsageInp
 	if in.Result == nil {
 		return
 	}
+	h.gatewayService.ApplyUpstreamCacheReadWriteAttribution(in.Account, in.Result)
 	in.APIKey, in.Subscription = snapshotCandidateBilling(in.C.Request.Context(), in.APIKey, in.Subscription)
 	in.TurnMapping = service.CandidateChannelMapping(in.C.Request.Context(), in.TurnMapping)
 	in.Result.BillingModel = openAIWSTurnBillingModel(in.Result, in.TurnMapping, in.TurnRequestedModel, in.TurnUpstreamModel)

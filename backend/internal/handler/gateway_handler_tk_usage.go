@@ -80,6 +80,11 @@ func (h *GatewayHandler) tkSubmitClaudeGatewayForwardUsage(in tkClaudeGatewayFor
 	if in.Result == nil {
 		return
 	}
+	model := in.Result.UpstreamModel
+	if model == "" {
+		model = in.Result.Model
+	}
+	h.gatewayService.ApplyUpstreamCacheReadWriteAttribution(in.Account, model, &in.Result.Usage)
 	h.gatewayService.ApplyUsageEstimateFallback(in.C.Request.Context(), in.C, in.Account, in.Result, in.Body, in.ForwardErr)
 	in.APIKey, in.Subscription = snapshotCandidateBilling(in.C.Request.Context(), in.APIKey, in.Subscription)
 	userAgent := in.C.GetHeader("User-Agent")

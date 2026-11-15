@@ -38,6 +38,7 @@ func (h *OpenAIGatewayHandler) tkSubmitHTTPForwardUsage(res *service.OpenAIForwa
 	if res == nil {
 		return
 	}
+	h.gatewayService.ApplyUpstreamCacheReadWriteAttribution(in.Account, res)
 	h.gatewayService.ApplyOpenAIUsageEstimateFallback(in.C.Request.Context(), in.C, in.Account, res, in.Body, in.ForwardErr)
 	stampOpenAIRequestedReasoningEffortFromBody(res, in.C, in.Body)
 	in.APIKey, in.Subscription = snapshotCandidateBilling(in.C.Request.Context(), in.APIKey, in.Subscription)
@@ -103,6 +104,7 @@ type tkOpenAISimpleUsageSubmitInput struct {
 }
 
 func (h *OpenAIGatewayHandler) tkSubmitOpenAISimpleForwardUsage(in tkOpenAISimpleUsageSubmitInput) {
+	h.gatewayService.ApplyUpstreamCacheReadWriteAttribution(in.Account, in.Result)
 	stampOpenAIRequestedReasoningEffort(in.Result, in.C)
 	in.APIKey, in.Subscription = snapshotCandidateBilling(in.C.Request.Context(), in.APIKey, in.Subscription)
 	in.ChannelMapping = service.CandidateChannelMapping(in.C.Request.Context(), in.ChannelMapping)
