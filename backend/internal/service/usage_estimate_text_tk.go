@@ -44,6 +44,15 @@ func usageEstimateRequestText(body []byte) string {
 		usageEstimateContentText(msg.Get("content"), add)
 		if rc := msg.Get("reasoning_content"); rc.Type == gjson.String {
 			add(rc.String())
+			if rc.String() == "" {
+				add(msg.Get("reasoning").String())
+			}
+		} else {
+			add(msg.Get("reasoning").String())
+		}
+		if fc := msg.Get("function_call"); fc.Exists() {
+			add(fc.Get("name").String())
+			add(fc.Get("arguments").String())
 		}
 		msg.Get("tool_calls").ForEach(func(_, call gjson.Result) bool {
 			add(call.Get("function.name").String())
@@ -106,31 +115,46 @@ func usageEstimateContentText(content gjson.Result, add func(string)) {
 		content.ForEach(func(_, part gjson.Result) bool {
 			add(part.Get("text").String())
 			add(part.Get("thinking").String())
-			if part.Get("type").String() == "tool_use" {
+			switch part.Get("type").String() {
+			case "tool_use":
+				add(part.Get("name").String())
+				if in := part.Get("input"); in.Exists() {
+					add(in.Raw)
+				}
+			case "tool_result":
+				usageEstimateContentText(part.Get("content"), add)
+			case "server_tool_use", "mcp_tool_use":
 				add(part.Get("name").String())
 				if in := part.Get("input"); in.Exists() {
 					add(in.Raw)
 				}
 			}
-			if part.Get("type").String() == "tool_result" {
-				usageEstimateContentText(part.Get("content"), add)
-			}
 			return true
 		})
+	case content.IsObject():
+		add(content.Raw)
 	}
 }
 
 func usageEstimateGeminiPartText(part gjson.Result, add func(string)) {
 	add(strings.TrimSpace(part.Get("text").String()))
-	for _, key := range []string{"functionCall", "functionResponse"} {
+	for _, key := range []string{"functionCall", "functionResponse", "executableCode", "codeExecutionResult"} {
 		if node := part.Get(key); node.Exists() {
-			add(strings.TrimSpace(node.Get("name").String()))
-			if key == "functionCall" {
+			switch key {
+			case "functionCall":
+				add(strings.TrimSpace(node.Get("name").String()))
 				if args := node.Get("args"); args.Exists() {
 					add(args.Raw)
 				}
-			} else if resp := node.Get("response"); resp.Exists() {
-				add(resp.Raw)
+			case "functionResponse":
+				add(strings.TrimSpace(node.Get("name").String()))
+				if resp := node.Get("response"); resp.Exists() {
+					add(resp.Raw)
+				}
+			case "executableCode":
+				add(node.Get("code").String())
+			case "codeExecutionResult":
+				add(node.Get("output").String())
 			}
 		}
 	}
@@ -211,11 +235,18 @@ func usageEstimateChatOutputText(payload gjson.Result) string {
 			if !node.Exists() {
 				continue
 			}
-			parts = append(parts, node.Get("reasoning_content").String(), node.Get("content").String())
+			reasoningContent := node.Get("reasoning_content").String()
+			parts = append(parts, reasoningContent, node.Get("content").String())
+			if reasoningContent == "" {
+				parts = append(parts, node.Get("reasoning").String())
+			}
 			node.Get("tool_calls").ForEach(func(_, call gjson.Result) bool {
 				parts = append(parts, call.Get("function.name").String(), call.Get("function.arguments").String())
 				return true
 			})
+			if fc := node.Get("function_call"); fc.Exists() {
+				parts = append(parts, fc.Get("name").String(), fc.Get("arguments").String())
+			}
 		}
 		return true
 	})
@@ -235,6 +266,8 @@ func usageEstimateGeminiOutputText(payload gjson.Result) string {
 					_, _ = b.WriteString(args.Raw)
 				}
 			}
+			_, _ = b.WriteString(part.Get("executableCode.code").String())
+			_, _ = b.WriteString(part.Get("codeExecutionResult.output").String())
 			return true
 		})
 		return true

@@ -350,6 +350,79 @@ func TestUsageEstimateEmptyOutputIsNotEstimated(t *testing.T) {
 	}
 }
 
+func TestUsageEstimateClientDisconnectBillsDeliveredOutput(t *testing.T) {
+	for _, useOpenAI := range []bool{false, true} {
+		t.Run(map[bool]string{false: "claude", true: "openai"}[useOpenAI], func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			r := gin.New()
+			r.Use(WithUsageEstimateCapture(func(c *gin.Context) { c.Next() }))
+			var billed bool
+			var tier string
+			var ctx *gin.Context
+			r.POST("/v1/chat/completions", func(c *gin.Context) {
+				ctx = c
+				body, _ := io.ReadAll(c.Request.Body)
+				c.Writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = c.Writer.WriteString(zeroUsageCases[1].response)
+				if useOpenAI {
+					result := &OpenAIForwardResult{Model: "m", Stream: true, ClientDisconnect: true}
+					billed = (&OpenAIGatewayService{}).ApplyOpenAIUsageEstimateFallback(context.Background(), c, estimateTestAccount(), result, body, nil)
+					tier = result.BillingTier
+				} else {
+					result := &ForwardResult{Model: "m", Stream: true, ClientDisconnect: true}
+					billed = (&GatewayService{}).ApplyUsageEstimateFallback(context.Background(), c, estimateTestAccount(), result, body, nil)
+					tier = result.BillingTier
+				}
+			})
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(zeroUsageCases[1].request)))
+			require.True(t, billed)
+			require.Equal(t, UsageEstimatedBillingTier, tier)
+			require.Len(t, usageEstimatedEvents(ctx), 1)
+		})
+	}
+}
+
+func TestUsageEstimateClientDisconnectBeforeOutputRemainsUnestimated(t *testing.T) {
+	for _, useOpenAI := range []bool{false, true} {
+		t.Run(map[bool]string{false: "claude", true: "openai"}[useOpenAI], func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			r := gin.New()
+			r.Use(WithUsageEstimateCapture(func(c *gin.Context) { c.Next() }))
+			var billed bool
+			var ctx *gin.Context
+			r.POST("/v1/chat/completions", func(c *gin.Context) {
+				ctx = c
+				body, _ := io.ReadAll(c.Request.Body)
+				c.Writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = c.Writer.WriteString("data: {\"choices\":[{\"delta\":{}}]}\n\n")
+				if useOpenAI {
+					billed = (&OpenAIGatewayService{}).ApplyOpenAIUsageEstimateFallback(context.Background(), c, estimateTestAccount(), &OpenAIForwardResult{Model: "m", Stream: true, ClientDisconnect: true}, body, nil)
+				} else {
+					billed = (&GatewayService{}).ApplyUsageEstimateFallback(context.Background(), c, estimateTestAccount(), &ForwardResult{Model: "m", Stream: true, ClientDisconnect: true}, body, nil)
+				}
+			})
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(zeroUsageCases[1].request)))
+			require.False(t, billed)
+			require.Empty(t, usageEstimatedEvents(ctx))
+		})
+	}
+}
+
+func TestUsageEstimateTextAdaptersCountCompatibilityFields(t *testing.T) {
+	request := []byte(`{"messages":[{"role":"user","reasoning":"think","function_call":{"name":"legacy","arguments":"{\"x\":1}"},"content":[{"type":"tool_result","content":{"status":"ok","value":"done"}},{"type":"server_tool_use","name":"search","input":{"q":"weather"}}]}]}`)
+	got := usageEstimateRequestText(request)
+	require.Contains(t, got, "think")
+	require.Contains(t, got, "legacy")
+	require.Contains(t, got, `{"status":"ok","value":"done"}`)
+	require.Contains(t, got, "search")
+	require.Contains(t, got, `{"q":"weather"}`)
+
+	output := usageEstimateChatOutputText(gjson.Parse(`{"choices":[{"delta":{"reasoning":"thinking","function_call":{"name":"legacy","arguments":"{\"x\":1}"}}}]}`))
+	require.Equal(t, "thinkinglegacy{\"x\":1}", output)
+}
+
 func TestUsageEstimateSkipsErrorsDisconnectsMediaAndNativeEstimators(t *testing.T) {
 	tc := zeroUsageCases[1]
 	// Forward returned an error with a partial result.
