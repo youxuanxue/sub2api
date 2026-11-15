@@ -12246,7 +12246,10 @@
       "path": "deploy/domestic/test_bluegreen.py",
       "must_contain": [
         "def test_candidate_enables_capture_without_s3_upload(",
-        "def test_candidate_rejects_capture_off_archive_upload_and_s3("
+        "def test_candidate_rejects_capture_off_archive_upload_and_s3(",
+        "def test_promote_moves_entry_origin_after_drain_and_before_stop(self):",
+        "def test_promote_failing_origin_keeps_old_colour_running(self):",
+        "def test_refuses_unknown_or_public_origin(self):"
       ],
       "rationale": "Domestic blue/green must prove capture is forced on while QA archive and S3 storage are rejected."
     },
@@ -17265,7 +17268,12 @@
         "'DATABASE_HOST',",
         "'DATABASE_PORT',",
         "'REDIS_HOST',",
-        "'REDIS_PORT',"
+        "'REDIS_PORT',",
+        "ENTRY_ORIGIN = 'tokenkey-entry-origin'",
+        "def sync_entry_origin(target, wait=time.sleep):",
+        "    sync_entry_origin(target)\n    shell(state, f'docker stop -t 180 {old} >/dev/null')",
+        "    sync_entry_origin(old)\n    shell(state, f'docker stop -t 180 {target} >/dev/null')",
+        "raise ValueError('entry origin must publish 8080 on one private address')"
       ],
       "rationale": "cn-prod candidates inherit env from the live color; only CONFIG_ENV_KEYS are refreshed from compose. Without these the first release after the data-plane cutover would carry the old same-host addresses."
     },
