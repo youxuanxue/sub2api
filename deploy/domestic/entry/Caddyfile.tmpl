@@ -1,0 +1,56 @@
+# cn-prod entry machine (lhins-j89o28j0). Rendered by
+# deploy/domestic/entry_caddy.py from prod-target.json; do not edit on the host.
+# Mounted as a directory (/var/lib/tokenkey/caddy/etc): a single-file mount keeps
+# reading the old inode after an in-place rewrite.
+# Design: docs/approved/design-cn-prod-rolling-deploy.md
+{
+	email admin@cn.tokenkey.dev
+}
+
+# One backend pool. /health owns drain: a draining node answers 503 and is
+# removed after two 3s checks, before the rolling deploy waits for in-flight.
+(tk_backends) {
+	reverse_proxy {
+		to {{BACKENDS}}
+		lb_policy weighted_round_robin {{WEIGHTS}}
+		flush_interval -1
+		health_uri /health
+		health_interval 3s
+		health_timeout 2s
+		health_passes 2
+		health_fails 2
+		lb_try_duration 30s
+		lb_try_interval 500ms
+		header_up -CF-Connecting-IP
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+		transport http {
+			dial_timeout 3s
+			keepalive 120s
+			keepalive_idle_conns 64
+			compression off
+		}
+	}
+}
+
+{{DOMAIN}} {
+	tls {
+		protocols tls1.2 tls1.3
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			email admin@cn.tokenkey.dev
+			disable_http_challenge
+		}
+	}
+	import tk_backends
+	request_body {
+		max_size 100MB
+	}
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+}

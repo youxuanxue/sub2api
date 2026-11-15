@@ -10,8 +10,8 @@ egress hosts), fall back to the same sysctl probe via a live-prod SSM hop
 (run-probe --target prod; the resolver picks the Tencent USW host).
 
 Coverage limit (fail closed, never silent): since 2026-10-22 the production
-egress fleet is Tencent Lighthouse (usw-eval1..4 on private 10.4.0.x, cn-ip1..5
-public). The repo records no machine-readable SSM/SSH identity for those hosts
+egress fleet is Aliyun SWAS (cn-ip9..12) plus AWS Oregon (or-1..4); the
+Tencent usw-eval1..4 / cn-ip1..4 hosts were destroyed on 2026-11-15). The repo records no machine-readable SSM/SSH identity for those hosts
 (see the fleet table in deploy/hetzner/README.md), so this checker cannot reach
 them. Any active proxy that is not a Lightsail instance is reported as an
 explicit "not covered" failure with that pointer, and the run exits non-zero.
@@ -44,8 +44,8 @@ PROXY_LINE_RE = re.compile(r"^\{.*\}$")
 
 FLEET_README = "deploy/hetzner/README.md"
 UNCOVERED_REASON = (
-    "is not covered: no Lightsail instance has that IP, and Tencent egress "
-    "(usw-eval1..4 / cn-ip1..5) has no machine-readable SSM/SSH identity in the "
+    "is not covered: no Lightsail instance has that IP, and the egress fleet "
+    "(Aliyun cn-ip9..12 / AWS or-1..4) has no machine-readable SSM/SSH identity in the "
     f"repo. Verify on the host with `deploy/host/ensure-tokenkey-bbr.sh --check`; "
     f"fleet inventory: {FLEET_README}"
 )

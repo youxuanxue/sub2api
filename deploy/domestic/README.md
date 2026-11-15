@@ -45,15 +45,52 @@
 | 角色 | 实例 | 私网 | 公网 | 说明 |
 |---|---|---|---|---|
 | 入口机 | `lhins-j89o28j0` | `10.2.4.7` | `154.8.185.224` | Caddy 终止 `api.galaxywaveai.com` 的 TLS，按 3:1 分发到两台应用机；公网只开 80/443 |
-| app-a | `lhins-6qmb3fd6` | `10.2.4.11` | `154.8.214.179` | 4C16G，蓝绿发布；私网入口 `tokenkey-entry-origin`（`10.2.4.11:8080`，云防火墙只放行 `10.2.4.7`） |
-| app-b | `lhins-0kxx7cco` | `10.2.4.13` | `82.156.89.64` | 2C4G，无公网入站；网关直接监听 `10.2.4.13:8080`，同样只放行 `10.2.4.7`；本机覆盖在 `/opt/tokenkey/compose.appb.yml` |
+| app-a | `lhins-6qmb3fd6` | `10.2.4.11` | `154.8.214.179` | 4C16G，蓝绿发布（M4 后改单容器）；私网入口 `tokenkey-entry-origin`（`10.2.4.11:8080`，云防火墙只放行 `10.2.4.7`） |
+| app-b | `lhins-0kxx7cco` | `10.2.4.13` | `82.156.89.64` | 2C4G，无公网入站；网关直接监听 `10.2.4.13:8080`，同样只放行 `10.2.4.7`；本机覆盖在 `/opt/tokenkey/compose.appb.yml`（M2 后改为渲染的 `compose.node.yml`） |
 
-- 入口机健康检查每 3 秒访问各节点 `/health`，连续 2 次失败即摘除。蓝绿 drain 让旧色 `/health` 返回 503，入口机先停止给 app-a 派新请求，再由 `bluegreen.py` 把 `tokenkey-entry-origin` 切到新色，最后才停旧色。
-- app-a 网关只听 loopback，Caddy 在 Docker 网桥里绑不到宿主私网地址，所以私网入口用一个 socat 容器。不要往 app-a 的 Caddyfile 里加 `10.2.4.11` 站点，`caddy reload` 会因 `cannot assign requested address` 失败。
-- 入口机 Caddyfile 在 `/var/lib/tokenkey/caddy/etc/Caddyfile`，挂载的是目录而不是单个文件：单文件挂载在 `sed -i` 换 inode 后会继续读旧内容。
+节点身份只看 [`prod-target.json`](prod-target.json) 的 `entry` 与 `apps[]`。`apps[]` 的顺序就是滚动顺序，小机器在前当金丝雀。设计见 [cn-prod 多应用机滚动发版](../../docs/approved/design-cn-prod-rolling-deploy.md)。
+
+- 入口机健康检查每 3 秒访问各节点 `/health`，连续 2 次失败即摘除。drain 让节点 `/health` 返回 503，入口机先停派新请求，节点再等在途请求清零。
+- 发版改为逐台滚动（`rolling.py`，M4 完成后启用）。在此之前仍按下文蓝绿只发 app-a，app-b 手工换成同一镜像。app-a 网关只听 loopback，私网入口靠 socat 容器 `tokenkey-entry-origin`；不要往 app-a 的 Caddyfile 里加 `10.2.4.11` 站点，`caddy reload` 会因 `cannot assign requested address` 失败。
+- 入口机 Caddyfile 在 `/var/lib/tokenkey/caddy/etc/Caddyfile`，挂载的是目录而不是单个文件：单文件挂载在 `sed -i` 换 inode 后会继续读旧内容。入库模板为 [`entry/Caddyfile.tmpl`](entry/Caddyfile.tmpl)，`python3 entry_caddy.py --diff <线上文件>` 只读比对（忽略注释和空白），`--out PATH` 渲染。`to` 列表按私网 IP 排序，权重跟随各自节点。
+- 应用机的节点覆盖由 `python3 node_compose.py --node app-b --out /opt/tokenkey/compose.node.yml` 渲染：`<private_ip>:8080` 与 `127.0.0.1:18080`、`memory_limit`、`TOKENKEY_NODE_NAME=cn-prod-<name>`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS`（取自 `compose.override.yml`）和节点 `env`。`--diff EXISTING` 只读，有差异时退出码 1。
 - 证书是 2026-11-15 从 app-a 复制的同一张（有效期至 2027-01-21），入口机之后用 TLS-ALPN-01 自行续期。DNS 切到入口机后，app-a 上 `api.galaxywaveai.com` 站点续期会失败，属预期，切流稳定后删掉该站点。
-- 每加一台应用机，要同时：数据机 `dataplane_source_acl.py --phase add-source`、云防火墙 5432/6379、8 台出口机 `proxy_source_add.py` 与阿里云 1080 规则、入口机后端列表。
-- 目标形态是多应用机滚动部署，蓝绿只是过渡。
+
+### 看门狗
+
+| 主机 | 安装参数 | 监控内容 |
+|---|---|---|
+| 入口机 | `WATCH_ROLE=cn-prod-entry` | `https://<entry.domain>/health`；证书剩余不足 20 天；每个 `apps[]` 节点直接探测 `http://<private_ip>:8080/health`，503 持续超过 15 分钟告警，全部不健康立即告警 |
+| app-a | `WATCH_ROLE=cn-prod WATCH_NODE=app-a` | 本机 `127.0.0.1:18080/health`、QA timer、磁盘，并保留对 prod 与 `public_origin` 的观测 |
+| app-b | `WATCH_ROLE=cn-prod WATCH_NODE=app-b` | 本机 `127.0.0.1:18080/health`、QA timer、磁盘 |
+
+带 `WATCH_NODE` 或入口机角色时，installer 用 `hostname -I` 核对 `prod-target.json` 的私网 IP。不带 `WATCH_NODE` 的 `cn-prod` 配置保持不变。三台都读 `/opt/tokenkey/host-alerts.env`。
+
+### 迁移步骤
+
+| # | 动作 | 入口 |
+|---|---|---|
+| M1 | 带新镜像正常发一次版（仍是蓝绿，app-b 手工换同一镜像） | 下文蓝绿流程 |
+| M2 | app-b：`node_compose.py --node app-b --diff /opt/tokenkey/compose.appb.yml` 必须为空，再改用 `compose.node.yml`；装看门狗（QA timer 待数据机协调器上线）。入口机：`entry_caddy.py --diff` 只差注释后入库，装看门狗 | 本节 |
+| M3 | app-a 公网直连连续 6h 为 0 后，把 `public_origin` 改成域名 | `prod-target.json` |
+| M4 | app-a 改为单容器 `tokenkey`，绑定 `10.2.4.11:8080`，停 socat、green、Caddy，云防火墙关闭 80/443 | 设计文档 M4 |
+| M5 | 用当前版本原样滚动一遍演练 | `rolling.py` |
+| M6 | 连续两次真实滚动成功后删除 `bluegreen.py` 的 cn-prod 分支和 socat 代码 | PR |
+
+### 加减应用机清单
+
+加一台（减一台反向执行，先从入口机摘除再停机）：
+
+1. `prod-target.json` 的 `apps[]` 追加节点（`name`、`lighthouse_instance_id`、`private_ip`、`public_ip`、`weight`、`memory_limit`，可选 `env`）。
+2. 数据机 `dataplane_source_acl.py --phase add-source`；云防火墙放行 5432/6379。
+3. 8 台出口机 `proxy_source_add.py`，阿里云 1080 规则。
+4. 新机 `/opt/tokenkey/.env` 的凭据与线上一致（`POSTGRES_PASSWORD` 见下文），用 `node_compose.py --out` 写 `compose.node.yml`，以 drain 状态起容器，跑 smoke 后再放行。
+5. 入口机 `entry_caddy.py --diff` 确认只多出新节点，`--out` 写入后 `caddy reload`。
+6. 装 QA timer（见「QA 归档」）与看门狗（`WATCH_NODE=<name>`），并重装入口机看门狗，让它探测新节点。
+
+### QA 归档
+
+app-a 的 `tokenkey-qa-provision/cleanup/archive` 由 `ops/qa/local_maintenance_host.py install --include-node1-archive --node1-environment cn-prod` 安装，归档走 v1 站点路径 `qa-raw/cn-prod/<小时>`，cleanup 用该路径的回执做删除门禁。app-b 不能照抄同一条命令：两台写同一个 v1 小时会互相冲突。`node1_archive.py --source-id cn-prod-app-b` 已能写隔离的 v2 路径，但现有 cleanup 拒绝把单源 v2 回执当删除凭据，所以 app-b 目前只能靠 `ops/qa/COORDINATOR.md` 的数据机协调器加 `force_retention.py` 方案。2026-11-15 用户已同意采用该方案，延后实施；在此之前 app-b 只抓取不清理（约 22MB/小时，根盘余 41G）。
 
 ## 首次安装与配置 owner
 

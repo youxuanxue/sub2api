@@ -44,21 +44,17 @@ prod 直接使用原生账号；旧中继 stub 已软删。
 | 角色 | 地域 / 实例 ID | 公网 IP | 私网 IP | 规格 |
 |---|---|---|---|---|
 | prod 旧应用机（仍接流） | na-siliconvalley-2 / `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | 4C16G / 180 GB SSD |
-| 美西出口 `usw-eval1` | na-siliconvalley-2 / `lhins-56ogvsid` | `43.162.90.151` | `10.4.0.2` | 2C2G / 40 GB SSD |
-| 美西出口 `usw-eval2` | na-siliconvalley-2 / `lhins-mtiwmfod` | `43.162.126.190` | `10.4.0.11` | 2C2G / 40 GB SSD |
-| 美西出口 `usw-eval3` | na-siliconvalley-2 / `lhins-n1w2c5qr` | `43.162.116.209` | `10.4.0.5` | 2C2G / 40 GB SSD |
-| 美西出口 `usw-eval4` | na-siliconvalley-2 / `lhins-h12i2d2r` | `43.162.103.103` | `10.4.0.4` | 2C2G / 40 GB SSD |
 
 实例到期约 2026-11-21/22 UTC，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-22 用户决定按月自动续费；账户余额不足仍会停机）。SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
 SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。
-`usw-eval1..4` 曾承接原 `jp-*` 账号；2026-11-11 核对 prod 活配置已无该组，不能按历史表推断当前账号出口。
+`usw-eval1..4`（`lhins-56ogvsid` / `lhins-mtiwmfod` / `lhins-n1w2c5qr` / `lhins-h12i2d2r`）已于 2026-11-15 07:40 UTC 隔离、08:20 UTC 经用户批准销毁（`TerminateInstances`），usw-eval1 的 SSM 注册 `mi-0ed39350eef156e4a` 同时注销：prod、cn-prod `proxies` 均无引用，退还前 1080 无连接。
 prod 实际活出口为腾讯北京四台、阿里北京四台和 AWS Oregon 四台，存在 default 别名重复行；
 新应用候选已通过全部 16 条活配置的认证连通测试。Oregon 主机仍是保留的 AWS 计算依赖，不能描述成零 AWS。
 活绑定以 prod / cn-prod `proxies` 为准。
 
 #### 国内出口 `cn-ip9..12`（阿里云北京轻量 SWAS，公网 SOCKS，2026-11-15 起）
 
-原腾讯北京锐驰出口 `cn-ip1..4`（`lhins-a3h0vmh0` / `lhins-lqhqjbke` / `lhins-bg2vs1uo` / `lhins-0ds0p3c2`）已于 2026-11-15 迁走全部账号并进入退还流程（`IsolateInstances` 后 `SHUTDOWN`，按天折算退款）。退还目的是腾出腾讯北京锐驰配额，供后续入口机与应用机使用。
+原腾讯北京锐驰出口 `cn-ip1..4`（`lhins-a3h0vmh0` / `lhins-lqhqjbke` / `lhins-bg2vs1uo` / `lhins-0ds0p3c2`）已于 2026-11-15 迁走全部账号，02:02 UTC 隔离，08:05 UTC 经用户批准销毁（`TerminateInstances`）。prod `cn-ip1..4`（id 14–17）与 cn-prod `ip1..4`（id 2–5）已于 08:02 UTC 软删。退还目的是腾出腾讯北京锐驰配额，供后续入口机与应用机使用。
 
 阿里云主账号 `1598035194530033`，套餐 `swas.s.c2m1s30b1.linux`（2C1G / 30 GB ESSD / 200 Mbps 峰值 / 不限流量，40 元/台/月），到期 **2026-12-15**，自动续费。
 

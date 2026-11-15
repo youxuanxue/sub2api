@@ -54,7 +54,7 @@ class CoveragePlanTest(unittest.TestCase):
         # install-proxy-host-alerts.sh and disk-metrics already read it, or the
         # dry-run fails and the timer is never enabled.
         source = (pathlib.Path(__file__).resolve().parent / 'install-host-https-watch.sh').read_text()
-        self.assertIn("if role=='cn-prod' or role.endswith('-data'):"
+        self.assertIn("if role in ('cn-prod','cn-prod-entry') or role.endswith('-data'):"
                       "command+=['--env-file','/opt/tokenkey/host-alerts.env']", source)
         self.assertNotIn('/etc/tokenkey/host-alerts.env', source)
 
@@ -531,6 +531,181 @@ class HostJobWatchTest(unittest.TestCase):
         self.assertFalse(watch.job_fact(running, timer, 1200, (300, 60))["healthy"])
         self.assertFalse(watch.job_fact({"ActiveState": "inactive", "Result": "success"}, timer, 1100, (300, 60))["healthy"])
 
+
+
+
+class CnProdMultiAppWatchTest(unittest.TestCase):
+    """docs/approved/design-cn-prod-rolling-deploy.md §6."""
+
+    def setUp(self):
+        root = pathlib.Path(__file__).resolve().parents[2]
+        self.prod_matrix = json.loads((root / 'deploy/tencent/candidate-usw-20261022.json').read_text())
+        self.domestic = json.loads((root / 'deploy/domestic/prod-target.json').read_text())
+        self.apps = {app['name']: app for app in self.domestic['apps']}
+
+    def config(self, role, **kwargs):
+        return watch.build_config(role, kwargs.pop('hostname', 'VM-any'), self.prod_matrix,
+                                  self.domestic, **kwargs)
+
+    def test_entry_watches_public_domain_cert_and_every_private_backend(self):
+        entry = self.domestic['entry']
+        config = self.config('cn-prod-entry', host_ips=['10.0.0.9', entry['private_ip']])
+        self.assertEqual(config['targets'], {'cn-prod-entry': 'https://' + entry['domain'] + '/health'})
+        self.assertEqual(entry['domain'], 'api.galaxywaveai.com')
+        self.assertEqual(config['certs'], {entry['domain']: 20})
+        self.assertEqual(config['backends'], {
+            name: 'http://' + app['private_ip'] + ':8080/health' for name, app in self.apps.items()})
+        self.assertTrue(config['pool_alert'])
+        self.assertEqual(config['jobs'], [])
+        with self.assertRaisesRegex(ValueError, 'host identity'):
+            self.config('cn-prod-entry', host_ips=[self.apps['app-b']['private_ip']])
+
+    def test_cn_prod_without_node_is_unchanged(self):
+        legacy = self.config('cn-prod', hostname=self.domestic['instance_name'])
+        self.assertNotIn('backends', legacy)
+        self.assertEqual(legacy['node'], 'cn-prod')
+        self.assertEqual(legacy['targets']['cn-prod'], self.domestic['public_origin'] + '/health')
+
+    def test_app_node_watches_local_health_and_qa_jobs(self):
+        app = self.apps['app-b']
+        config = self.config('cn-prod', node='app-b', host_ips=[app['private_ip']])
+        self.assertEqual(config['node'], 'cn-prod-app-b')
+        self.assertEqual(config['backends'], {'cn-prod-app-b:local': 'http://127.0.0.1:18080/health'})
+        self.assertFalse(config['pool_alert'])
+        self.assertEqual(config['targets'], {})
+        self.assertEqual(config['jobs'], ['tokenkey-disk-metrics'] + self.domestic['local_qa_jobs'])
+        with self.assertRaisesRegex(ValueError, 'host identity'):
+            self.config('cn-prod', node='app-b', host_ips=[self.apps['app-a']['private_ip']])
+        with self.assertRaisesRegex(ValueError, 'unknown cn-prod app node'):
+            self.config('cn-prod', node='app-z', host_ips=[app['private_ip']])
+        with self.assertRaisesRegex(ValueError, 'only to the cn-prod role'):
+            self.config('prod', node='app-b')
+
+    def test_primary_app_keeps_the_mainland_observer_targets(self):
+        app = self.apps['app-a']
+        self.assertEqual(app['lighthouse_instance_id'], self.domestic['instance_id'])
+        config = self.config('cn-prod', node='app-a', host_ips=[app['private_ip']])
+        legacy = self.config('cn-prod', hostname=self.domestic['instance_name'])
+        self.assertEqual(config['targets'], legacy['targets'])
+        self.assertEqual(config['backends'], {'cn-prod-app-a:local': 'http://127.0.0.1:18080/health'})
+
+    def test_backend_urls_must_be_private_or_loopback_http(self):
+        watch.validate_backend_url('a', 'http://10.2.4.13:8080/health')
+        watch.validate_backend_url('a', 'http://127.0.0.1:18080/health')
+        for bad in ('http://154.8.214.179:8080/health', 'https://10.2.4.13:8080/health',
+                    'http://10.2.4.13/health', 'http://example.com:8080/health',
+                    'http://10.2.4.13:8080/other'):
+            with self.subTest(url=bad), self.assertRaises(ValueError):
+                watch.validate_backend_url('a', bad)
+
+
+def fact(code):
+    return {'healthy': code == 200, 'http_code': code, 'error': '' if code == 200 else f'HTTPError: {code}'}
+
+
+class BackendDrainWatchTest(unittest.TestCase):
+    def run_ticks(self, codes_by_tick, backends=('app-a', 'app-b'), pool_alert=True, step=120):
+        sent, state = [], {}
+        urls = {name: f'http://10.2.4.{i}:8080/health' for i, name in enumerate(backends, 11)}
+        for index, codes in enumerate(codes_by_tick):
+            by_url = {urls[name]: fact(code) for name, code in zip(backends, codes)}
+            state = watch.tick_backends(urls, state, 1000 + index * step, by_url.__getitem__,
+                                        sent.append, 'cn-prod-entry', pool_alert)
+        return sent, state
+
+    def test_drain_503_shorter_than_fifteen_minutes_is_silent(self):
+        # A 10-minute drain (5 ticks of 2 minutes) never alerts.
+        sent, _ = self.run_ticks([(503, 200)] * 6 + [(200, 200)])
+        self.assertEqual(sent, [])
+
+    def test_503_longer_than_fifteen_minutes_alerts_once_then_recovers(self):
+        ticks = [(503, 200)] * 9 + [(200, 200)]  # 16 minutes of 503
+        sent, _ = self.run_ticks(ticks)
+        self.assertEqual(len(sent), 2)
+        self.assertIn('后端节点不健康', sent[0])
+        self.assertIn('app-a', sent[0])
+        self.assertIn('后端节点已恢复', sent[1])
+
+    def test_non_drain_failure_alerts_after_two_observations(self):
+        sent, _ = self.run_ticks([(0, 200), (0, 200)])
+        self.assertEqual(len(sent), 1)
+        self.assertIn('HTTP：0', sent[0])
+
+    def test_all_backends_down_alerts_immediately_even_while_draining(self):
+        sent, state = self.run_ticks([(503, 503)])
+        self.assertEqual(len(sent), 1)
+        self.assertIn('全部后端不健康', sent[0])
+        sent, state = self.run_ticks([(503, 503), (503, 503), (200, 503)])
+        self.assertEqual(len(sent), 2)
+        self.assertIn('入口机后端已恢复', sent[1])
+
+    def test_app_node_local_probe_has_no_pool_alert(self):
+        sent, _ = self.run_ticks([(503,)], backends=('cn-prod-app-b:local',), pool_alert=False)
+        self.assertEqual(sent, [])
+
+    def test_gap_in_observations_restarts_the_drain_clock(self):
+        # 7 observations 11 minutes apart: each gap restarts the drain clock.
+        sent, _ = self.run_ticks([(503, 200)] * 7, step=660)
+        self.assertEqual(sent, [])
+
+
+class CertExpiryWatchTest(unittest.TestCase):
+    def test_short_certificate_alerts_daily_and_recovers(self):
+        sent, state = [], {}
+        answers = iter([
+            {'ok': True, 'days_left': 19.5, 'error': ''},
+            {'ok': True, 'days_left': 19.4, 'error': ''},
+            {'ok': True, 'days_left': 19.3, 'error': ''},
+            {'ok': True, 'days_left': 89.0, 'error': ''},
+        ])
+        for now in (1000, 1120, 1240, 1360):
+            state = watch.tick_certs({'api.galaxywaveai.com': 20}, state, now,
+                                     lambda host: next(answers), sent.append, 'cn-prod-entry')
+        self.assertEqual(len(sent), 2)
+        self.assertIn('剩余：19.4 天', sent[0])
+        self.assertIn('证书已续期', sent[1])
+
+    def test_handshake_failure_is_reported(self):
+        sent, state = [], {}
+        failure = {'ok': False, 'days_left': None, 'error': 'SSLCertVerificationError: x'}
+        for now in (1000, 1120):
+            state = watch.tick_certs({'h': 20}, state, now, lambda host: failure, sent.append)
+        self.assertEqual(len(sent), 1)
+        self.assertIn('SSLCertVerificationError', sent[0])
+
+    def test_cert_days_left_reads_the_verified_leaf(self):
+        import https_health
+        import ssl as ssl_module
+
+        class TLS:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def getpeercert(self):
+                return {'notAfter': 'Jan 21 00:00:00 2027 GMT'}
+
+        class Context:
+            def wrap_socket(self, raw, server_hostname):
+                assert server_hostname == 'api.galaxywaveai.com'
+                return TLS()
+
+        with patch.object(https_health.ssl, 'create_default_context', return_value=Context()):
+            result = https_health.cert_days_left(
+                'api.galaxywaveai.com', connect=lambda addr, timeout: TLS(),
+                now=ssl_module.cert_time_to_seconds('Jan 01 00:00:00 2027 GMT'))
+        self.assertEqual(result, {'host': 'api.galaxywaveai.com', 'ok': True, 'days_left': 20.0, 'error': ''})
+        failed = https_health.cert_days_left('h', connect=lambda addr, timeout: (_ for _ in ()).throw(OSError('down')))
+        self.assertFalse(failed['ok'])
+
+
+class EntryInstallerTest(unittest.TestCase):
+    def test_installer_allows_entry_role_and_node_identity(self):
+        source = (pathlib.Path(__file__).resolve().parent / 'install-host-https-watch.sh').read_text()
+        self.assertIn("if role not in ('prod','cn-prod','prod-data','cn-prod-data','cn-prod-entry'):", source)
+        self.assertIn("config=build_config(role,socket.gethostname(),prod_matrix,domestic,node=node,host_ips=host_ips)", source)
 
 if __name__ == "__main__":
     unittest.main()

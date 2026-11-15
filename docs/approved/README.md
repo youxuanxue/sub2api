@@ -66,7 +66,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 ## TokenKey SSOT 导航
 
-国内 prod（现腾讯北京；UCloud 段为首发历史）的授权范围、首次初始化和发布边界：[国内部署契约](design-domestic-cluster.md)。
+国内 prod（现腾讯北京；UCloud 段为首发历史）的授权范围、首次初始化和发布边界：[国内部署契约](design-domestic-cluster.md)。2026-11-15 起 cn-prod 为入口机加多应用机，发版改为逐台滚动：[cn-prod 多应用机滚动发版](design-cn-prod-rolling-deploy.md)。
 
 本节只提供契约入口；规则、实现 owner 和验收状态在链接目标维护。
 

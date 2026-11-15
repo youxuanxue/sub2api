@@ -1,0 +1,84 @@
+name: cn-prod rolling deploy
+# Contract: docs/approved/design-cn-prod-rolling-deploy.md §4/§5.
+# Rolls the prewarmed image across cn-prod app nodes one at a time (app-b first).
+# Prewarm is distribute-cn-image.yml; this workflow never pulls images.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag X.Y.Z (already prewarmed on every app node)
+        required: true
+        type: string
+      revision:
+        description: Full 40-hex commit sha of the release
+        required: true
+        type: string
+      confirm:
+        description: Type rolling-cn-prod-<tag> to deploy
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: cn-prod-deploy
+  cancel-in-progress: false
+jobs:
+  rolling:
+    runs-on: ubuntu-latest
+    # 2 nodes x (10 min drain + up/smoke/traffic) plus rollback headroom.
+    timeout-minutes: 75
+    environment: tencent-ops
+    env:
+      INPUT_TAG: ${{ inputs.tag }}
+      INPUT_REVISION: ${{ inputs.revision }}
+      INPUT_CONFIRM: ${{ inputs.confirm }}
+    steps:
+      # Trusted default-branch code only; tencent-ops is limited to main.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
+          if [[ ! "$INPUT_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::revision must be the full 40-hex commit sha" >&2
+            exit 1
+          fi
+          if [[ "$INPUT_CONFIRM" != "rolling-cn-prod-${INPUT_TAG}" ]]; then
+            echo "::error::confirm must be rolling-cn-prod-${INPUT_TAG}" >&2
+            exit 1
+          fi
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install tccli
+        run: python3 -m pip install 'tccli==3.1.198.1'
+      - name: Plan (read-only)
+        env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          python3 deploy/domestic/rolling.py plan \
+            --tag "$INPUT_TAG" --revision "$INPUT_REVISION" \
+            --receipt-out cn-rolling-plan.json 2>&1 | tee cn-rolling-plan.log
+      - name: Deploy
+        env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          python3 deploy/domestic/rolling.py deploy \
+            --tag "$INPUT_TAG" --revision "$INPUT_REVISION" \
+            --confirm "$INPUT_CONFIRM" \
+            --receipt-out cn-rolling-receipt.json 2>&1 | tee cn-rolling-deploy.log
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: cn-rolling-deploy-receipts
+          path: |
+            cn-rolling-*.json
+            cn-rolling-*.log
+          if-no-files-found: warn
+          retention-days: 30

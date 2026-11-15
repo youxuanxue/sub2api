@@ -6,6 +6,7 @@ import argparse
 import concurrent.futures
 import fcntl
 import json
+import ipaddress
 import os
 import sys
 import subprocess
@@ -14,18 +15,72 @@ import time
 from datetime import datetime
 from urllib.parse import urlparse
 
-from https_health import probe_health
+from https_health import cert_days_left, probe_health
 from feishu_delivery import _atomic_write, post_feishu
 
 
-def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict) -> dict:
+# cn-prod multi-app layout (docs/approved/design-cn-prod-rolling-deploy.md).
+# A rolling deploy keeps one node at /health 503 for up to 10 minutes, so a
+# 503 only alerts after it has lasted longer than that.
+DRAIN_GRACE_SECONDS = 15 * 60
+CERT_MIN_DAYS = 20
+APP_LOCAL_HEALTH = "http://127.0.0.1:18080/health"
+
+
+def domestic_app(domestic: dict, name: str) -> dict:
+    for app in domestic.get("apps", []):
+        if app.get("name") == name:
+            return app
+    raise ValueError("unknown cn-prod app node: " + str(name))
+
+
+def _require_private_ip(expected: str, host_ips) -> None:
+    # Lighthouse hosts keep their image hostnames; the private IP in
+    # prod-target.json is the identity remote_exec checks as well.
+    if not expected or expected not in set(host_ips or ()):
+        raise ValueError("host identity mismatch")
+
+
+def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict, *,
+                 node: str = "", host_ips=()) -> dict:
     """One coverage plan for the mainland observer and independent prod watch.
 
     ``prod_matrix`` is the live prod matrix (deploy/tencent/candidate-usw-20261022.json);
     its ``host_watch`` block owns watch identity, domains and expected-paused jobs.
+    ``node`` names a cn-prod ``apps[]`` entry; ``host_ips`` are this host's
+    addresses (``hostname -I``) and prove that identity.
     """
-    if role not in ("prod", "cn-prod", "prod-data", "cn-prod-data"):
-        raise ValueError("WATCH_ROLE must be prod, cn-prod, prod-data or cn-prod-data")
+    if role not in ("prod", "cn-prod", "prod-data", "cn-prod-data", "cn-prod-entry"):
+        raise ValueError("WATCH_ROLE must be prod, cn-prod, prod-data, cn-prod-data or cn-prod-entry")
+    if node and role != "cn-prod":
+        raise ValueError("WATCH_NODE applies only to the cn-prod role")
+    if role == "cn-prod-entry":
+        entry = domestic["entry"]
+        _require_private_ip(entry.get("private_ip", ""), host_ips)
+        return {
+            "node": role,
+            "targets": {"cn-prod-entry": "https://" + entry["domain"] + "/health"},
+            "certs": {entry["domain"]: CERT_MIN_DAYS},
+            "backends": {app["name"]: "http://" + app["private_ip"] + ":8080/health"
+                         for app in domestic["apps"]},
+            "pool_alert": True,
+            "jobs": [], "paused_jobs": {},
+        }
+    if node:
+        app = domestic_app(domestic, node)
+        _require_private_ip(app.get("private_ip", ""), host_ips)
+        config = {"node": "cn-prod-" + node, "targets": {},
+                  "backends": {"cn-prod-" + node + ":local": APP_LOCAL_HEALTH},
+                  "pool_alert": False,
+                  "jobs": ["tokenkey-disk-metrics"] + list(domestic.get("local_qa_jobs", [])),
+                  "paused_jobs": {}}
+        # Only the host named by the top-level instance_id stays the mainland
+        # observer of prod and the public origin; other nodes would repeat the
+        # same alerts.
+        if app.get("lighthouse_instance_id") == domestic.get("instance_id"):
+            config["targets"] = build_config("cn-prod", domestic["instance_name"],
+                                             prod_matrix, domestic)["targets"]
+        return config
     watch = prod_matrix["host_watch"]
     allowed = {
         "prod": watch["hostname"],
@@ -65,7 +120,7 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict) ->
     return {"node": role, "targets": targets, "jobs": jobs, "paused_jobs": paused}
 
 
-def next_state(previous: dict, healthy: bool, now: int) -> tuple[dict, str]:
+def next_state(previous: dict, healthy: bool, now: int, repeat: int = 1800) -> tuple[dict, str]:
     state = dict(previous)
     failures = int(state.get("failures", 0))
     if now - int(state.get("observed_at", now)) > 600:
@@ -75,7 +130,7 @@ def next_state(previous: dict, healthy: bool, now: int) -> tuple[dict, str]:
     if healthy and active:
         return state, "recovered"
     if not healthy and state["failures"] >= 2:
-        if not active or now - int(state.get("sent_at", 0)) >= 1800:
+        if not active or now - int(state.get("sent_at", 0)) >= repeat:
             return state, "unhealthy"
     return state, ""
 
@@ -94,6 +149,89 @@ def tick(targets: dict, previous: dict, now: int, probe, send, node="unknown") -
                  f"HTTP：{fact['http_code']}\n原因：{fact.get('error') or ('健康检查通过' if fact['healthy'] else '健康检查失败')}")
             updated.update(active=action == "unhealthy", sent_at=now)
         state[name] = updated
+    return state
+
+
+def backend_state(previous: dict, fact: dict, now: int) -> tuple[dict, str]:
+    """Drain-aware state for a private /health target.
+
+    503 is what drain answers, so it alerts only after DRAIN_GRACE_SECONDS.
+    Any other failure uses the usual two consecutive observations.
+    """
+    state = dict(previous)
+    if now - int(state.get("observed_at", now)) > 600:
+        state.pop("unhealthy_since", None)
+        state["failures"] = 0
+    healthy = fact["healthy"]
+    state.update(observed_at=now, failures=0 if healthy else int(state.get("failures", 0)) + 1,
+                 http_code=fact["http_code"], reason=fact.get("error", ""))
+    active = bool(state.get("active", False))
+    if healthy:
+        state.pop("unhealthy_since", None)
+        return state, "recovered" if active else ""
+    since = int(state.setdefault("unhealthy_since", now))
+    if fact["http_code"] == 503:
+        due = now - since >= DRAIN_GRACE_SECONDS
+    else:
+        due = state["failures"] >= 2
+    if due and (not active or now - int(state.get("sent_at", 0)) >= 1800):
+        return state, "unhealthy"
+    return state, ""
+
+
+def tick_backends(backends: dict, previous: dict, now: int, probe, send, node="unknown",
+                  pool_alert=False) -> dict:
+    state = dict(previous)
+    if not backends:
+        return state
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+        facts = dict(zip(backends, pool.map(probe, backends.values())))
+    for name, fact in facts.items():
+        key = "backend:" + name
+        updated, action = backend_state(previous.get(key, {}), fact, now)
+        updated["url"] = backends[name]
+        if action:
+            since = updated.get("unhealthy_since", now)
+            label = "🔴 后端节点不健康" if action == "unhealthy" else "✅ 后端节点已恢复"
+            send(f"{label} ({action})\n探测节点：{node}\n后端：{name}\n地址：{backends[name]}\n"
+                 f"HTTP：{fact['http_code']}\n持续：{(now - since) // 60} 分钟\n"
+                 f"原因：{fact.get('error') or '健康检查通过'}")
+            updated.update(active=action == "unhealthy", sent_at=now)
+        state[key] = updated
+    if pool_alert:
+        # Every backend down means the entry has nowhere to send traffic; no
+        # drain grace and no second observation.
+        down = not any(fact["healthy"] for fact in facts.values())
+        prior = dict(previous.get("pool", {}))
+        prior.update(observed_at=now, failures=int(down))
+        if down and (not prior.get("active") or now - int(prior.get("sent_at", 0)) >= 1800):
+            send(f"🔴 P0 入口机全部后端不健康\n探测节点：{node}\n"
+                 + "\n".join(f"{name}：HTTP {fact['http_code']} {fact.get('error', '')}"
+                             for name, fact in facts.items()))
+            prior.update(active=True, sent_at=now)
+        elif not down and prior.get("active"):
+            send(f"✅ 入口机后端已恢复\n探测节点：{node}")
+            prior.update(active=False, sent_at=now)
+        state["pool"] = prior
+    return state
+
+
+def tick_certs(certs: dict, previous: dict, now: int, check, send, node="unknown") -> dict:
+    """Alert once a day while a public certificate is close to expiry."""
+    state = dict(previous)
+    for host, min_days in certs.items():
+        key = "cert:" + host
+        fact = check(host)
+        healthy = fact["ok"] and fact["days_left"] >= min_days
+        updated, action = next_state(previous.get(key, {}), healthy, now, repeat=86400)
+        updated.update(days_left=fact["days_left"], reason=fact["error"])
+        if action:
+            label = "🔴 证书即将过期或无法校验" if action == "unhealthy" else "✅ 证书已续期"
+            detail = (f"剩余：{fact['days_left']} 天（阈值 {min_days} 天）" if fact["ok"]
+                      else "原因：" + fact["error"])
+            send(f"{label} ({action})\n探测节点：{node}\n域名：{host}\n{detail}")
+            updated.update(active=action == "unhealthy", sent_at=now)
+        state[key] = updated
     return state
 
 
@@ -333,6 +471,19 @@ def backup_jobs(node_role, state: Path) -> list:
     return []
 
 
+def validate_backend_url(name: str, url: str) -> None:
+    """Plain HTTP is allowed only to loopback or private IP literals."""
+    parsed = urlparse(url)
+    try:
+        address = ipaddress.ip_address(parsed.hostname or "")
+    except ValueError:
+        address = None
+    if (not name or parsed.scheme != "http" or parsed.path != "/health" or parsed.query
+            or parsed.fragment or parsed.username or parsed.password or parsed.port is None
+            or address is None or not (address.is_loopback or address.is_private)):
+        raise ValueError("backends require http://<private-or-loopback-ip>:<port>/health")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -349,12 +500,21 @@ def main() -> None:
         raise ValueError("unknown host job")
     if not isinstance(paused, dict) or any(name not in jobs or not isinstance(reason, str) or not reason.strip() for name, reason in paused.items()):
         raise ValueError("paused jobs require a monitored job and an explicit reason")
-    if not isinstance(targets, dict) or len(targets) > 16 or not (targets or jobs):
+    backends = config.get("backends", {})
+    certs = config.get("certs", {})
+    if not isinstance(backends, dict) or not isinstance(certs, dict):
+        raise ValueError("backends and certs must be objects")
+    if not isinstance(targets, dict) or len(targets) + len(backends) > 16 or not (targets or jobs or backends):
         raise ValueError("watch requires at most sixteen targets and at least one target or job")
     for name, url in targets.items():
         parsed = urlparse(url)
         if not name or parsed.scheme != "https" or parsed.path != "/health" or parsed.query or parsed.fragment or not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("watch requires HTTPS /health URLs without credentials")
+    for name, url in backends.items():
+        validate_backend_url(name, url)
+    for host, days in certs.items():
+        if not host or "/" in host or type(days) is not int or not 1 <= days <= 90:
+            raise ValueError("cert checks require a host name and 1-90 days")
     args.state.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with args.state.with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -376,6 +536,10 @@ def main() -> None:
                             signing_secret=env["TOKENKEY_FEISHU_WEBHOOK_SECRET"])
 
         result = tick(targets, previous, int(time.time()), probe_health, send, config.get("node", os.uname().nodename))
+        result = tick_backends(backends, result, int(time.time()), probe_health, send,
+                               config.get("node", os.uname().nodename), bool(config.get("pool_alert")))
+        result = tick_certs(certs, result, int(time.time()), cert_days_left, send,
+                            config.get("node", os.uname().nodename))
         result = tick_jobs(jobs, result, int(time.time()),
                            lambda name: probe_job(name, expected_paused=name in paused),
                            send, config.get("node", os.uname().nodename))

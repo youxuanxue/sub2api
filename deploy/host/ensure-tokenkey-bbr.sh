@@ -6,7 +6,7 @@
 #   - deploy/hetzner/render-prod-bootstrap.sh (prod bootstrap renderer)
 #   - ops/stage0/sync-host-bbr-via-ssm.sh (live prod heal; `prod` resolves the
 #     Tencent USW SSM Hybrid mi-* host via resolve_prod_ssm_target.py)
-#   - admin/proxies egress hosts. Tencent usw-eval1..4 / cn-ip1..5 are not
+#   - admin/proxies egress hosts. Aliyun cn-ip9..12 / AWS or-1..4 are not
 #     SSM-managed: run `--check` / `--apply` on the host itself (fleet:
 #     deploy/hetzner/README.md). scripts/checks/proxy_bbr_live.py only reaches
 #     legacy Lightsail egress and fails closed for every other proxy host.

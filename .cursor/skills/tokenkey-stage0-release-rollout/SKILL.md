@@ -63,6 +63,7 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
   `promote --public-url` 必须等于 `deploy/domestic/prod-target.json` 的 `public_origin`。这是当前公网验收入口，不是北京网卡地址，也不是 `api.galaxywaveai.com` 或 `api-cn.tokenkey.dev`。`post_release.py` 在切流前拒绝域名和其他公网 IP。
   `api.galaxywaveai.com` 和 `154.8.214.179` 共用一条 `reverse_proxy`。切流换北京活动容器时，这个域名、静态 IP，以及转到这台机器的 `public_origin` 一起换版本。发版不改 DNS，也不把该域名写成 `public_origin` 或 `SERVER_FRONTEND_URL`。`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役，不能当作国内长期入口。
   `operation=replay` 只准备美西，不能用来切北京。
+  以上是 cn-prod 蓝绿流程。M4 完成后改用 `deploy/domestic/rolling.py` 逐台滚动，见[多应用机滚动发版设计](../../../docs/approved/design-cn-prod-rolling-deploy.md)。
 
 ## 故障速查
 
