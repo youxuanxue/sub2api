@@ -188,3 +188,44 @@ func TestIsLoopbackRemote(t *testing.T) {
 		}
 	}
 }
+
+// TestHealthInflight_ReportsRelayGateTelemetry proves the drain probe exposes
+// the relay gate as separate fields. Deployment drain keeps using in_flight
+// (every accepted request); in_flight_relay reports only gated admissions, so
+// widening the gate's coverage can never make in_flight=0 unreachable.
+func TestHealthInflight_ReportsRelayGateTelemetry(t *testing.T) {
+	resetDrainForTest(t)
+	previous := middleware.MaxInFlightRelay()
+	middleware.SetMaxInFlightRelay(0)
+	t.Cleanup(func() { middleware.SetMaxInFlightRelay(previous) })
+
+	r := newCommonRouter(t)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, newLoopbackRequest(http.MethodGet, "/health/inflight"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 got %d body=%s", w.Code, w.Body.String())
+	}
+	got := decodeJSON(t, w.Body.Bytes())
+
+	if v, ok := got["in_flight_relay_max"]; !ok || v.(float64) != 0 {
+		t.Fatalf("expected in_flight_relay_max=0 when disabled, got %v (present=%v)", v, ok)
+	}
+	if v, ok := got["in_flight_relay"]; !ok || v.(float64) != 0 {
+		t.Fatalf("expected in_flight_relay=0 with no relay traffic, got %v (present=%v)", v, ok)
+	}
+	if _, ok := got["in_flight_rejected"]; !ok {
+		t.Fatal("expected in_flight_rejected field so operators can tell shedding from a dead gate")
+	}
+
+	middleware.SetMaxInFlightRelay(37)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, newLoopbackRequest(http.MethodGet, "/health/inflight"))
+	got = decodeJSON(t, w.Body.Bytes())
+	if v, _ := got["in_flight_relay_max"].(float64); v != 37 {
+		t.Fatalf("expected in_flight_relay_max=37 after configuration, got %v", got["in_flight_relay_max"])
+	}
+	// Drain semantics are unchanged: a configured gate alone must not move in_flight.
+	if v, _ := got["in_flight"].(float64); v != 0 {
+		t.Fatalf("gate configuration must not perturb drain in_flight, got %v", got["in_flight"])
+	}
+}

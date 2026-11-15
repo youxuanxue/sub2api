@@ -93,6 +93,15 @@ class PoolEnvProbeSSOTTest(unittest.TestCase):
             "cn-prod must default proxy exit probes to the domestic builtin chain",
         )
 
+    def test_relay_gate_cap_is_declared_and_propagated(self):
+        text = OVERRIDE.read_text()
+        self.assertRegex(
+            text,
+            r'(?m)^\s*GATEWAY_MAX_IN_FLIGHT_REQUESTS:\s*"[1-9][0-9]*"\s*$',
+            "cn-prod must ship a non-zero relay concurrency cap, not the disabled default",
+        )
+        self.assertIn('GATEWAY_MAX_IN_FLIGHT_REQUESTS', bg.CONFIG_ENV_KEYS)
+
 
 class LocalDataProfileTest(unittest.TestCase):
     def _config(self, *extra: str) -> dict:
@@ -130,6 +139,20 @@ class LocalDataProfileTest(unittest.TestCase):
         self.assertEqual(doc["services"]["postgres"].get("profiles"), ["local-data"])
         self.assertEqual(doc["services"]["redis"].get("profiles"), ["local-data"])
         self.assertEqual(doc["services"]["tokenkey"].get("depends_on") or {}, {})
+
+    def test_memory_cap_applies_to_the_gateway_only(self):
+        """The cap must not leak onto Caddy, the retired local servers, or any
+        other service: those have their own memory needs and, for PG/Redis, live
+        on the data machine."""
+        doc = self._config("--profile", "local-data")
+        tokenkey = doc["services"]["tokenkey"]
+        self.assertEqual(tokenkey["mem_limit"], str(3 * 1024 * 1024 * 1024))
+        self.assertEqual(tokenkey["memswap_limit"], str(3 * 1024 * 1024 * 1024))
+        # memswap == mem: no extra swap for this cgroup.
+        self.assertEqual(tokenkey["mem_limit"], tokenkey["memswap_limit"])
+        for other in ("caddy", "postgres", "redis"):
+            self.assertNotIn("mem_limit", doc["services"][other], other)
+            self.assertNotIn("memswap_limit", doc["services"][other], other)
 
 
 if __name__ == "__main__":

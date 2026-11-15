@@ -173,6 +173,29 @@ func TestLoadMinOutputTokensFromEnv(t *testing.T) {
 	require.Equal(t, 16, cfg.Gateway.MinOutputTokens)
 }
 
+func TestLoadMaxInFlightRequests(t *testing.T) {
+	// The default is a shipped, non-zero cap: leaving it at 0 would mean the
+	// gate is off on every deployment that does not opt in.
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, 512, cfg.Gateway.MaxInFlightRequests)
+
+	// Env is the deployment-visible knob (compose passes it through).
+	resetViperWithJWTSecret(t)
+	t.Setenv("GATEWAY_MAX_IN_FLIGHT_REQUESTS", "37")
+	cfg, err = Load()
+	require.NoError(t, err)
+	require.Equal(t, 37, cfg.Gateway.MaxInFlightRequests)
+
+	// 0 disables the gate; it must survive unmarshal as 0, not fall back to 512.
+	resetViperWithJWTSecret(t)
+	t.Setenv("GATEWAY_MAX_IN_FLIGHT_REQUESTS", "0")
+	cfg, err = Load()
+	require.NoError(t, err)
+	require.Zero(t, cfg.Gateway.MaxInFlightRequests)
+}
+
 func TestLoadGeminiSameAccountRetries(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	cfg, err := Load()

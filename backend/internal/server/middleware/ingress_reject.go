@@ -29,6 +29,9 @@ const (
 	IngressRejectInvalidAuthRateLimited IngressRejectReason = "invalid_auth_rate_limited"
 	IngressRejectAPIKeyAuthOverloaded   IngressRejectReason = "api_key_auth_overloaded"
 	IngressRejectModelNotAllowed        IngressRejectReason = "model_not_allowed"
+	// IngressRejectInFlightSaturated is the process-wide relay concurrency cap.
+	// It is a capacity rejection (retryable), never a client fault.
+	IngressRejectInFlightSaturated IngressRejectReason = "in_flight_saturated"
 )
 
 const ingressRejectReasonContextKey = "ingress_reject_reason"

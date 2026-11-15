@@ -282,6 +282,13 @@ ensure_profile_environment() {
   env_set GATEWAY_IMAGE_CONCURRENCY_ENABLED "${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-false}"
   env_default GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS "${GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS:-8}"
   env_default GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE "${GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE:-reject}"
+
+  # Process-wide relay concurrency cap. Sheds new relay requests with 503 +
+  # Retry-After once the cap is reached, so a traffic spike cannot drive the
+  # process (and the host) into the OOM killer. Paired with the per-container
+  # mem_limit above: the cap keeps admitted requests inside it instead of
+  # letting the cgroup kill every one of them. 0 disables the gate.
+  env_default GATEWAY_MAX_IN_FLIGHT_REQUESTS "${GATEWAY_MAX_IN_FLIGHT_REQUESTS:-512}"
 }
 
 compose_bg() {
@@ -660,6 +667,7 @@ services:
       - GATEWAY_IMAGE_CONCURRENCY_ENABLED=${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-}
       - GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS=${GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS:-}
       - GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE=${GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE:-}
+      - GATEWAY_MAX_IN_FLIGHT_REQUESTS=${GATEWAY_MAX_IN_FLIGHT_REQUESTS:-}
       # Empty keeps app defaults (effort auto/medium; scaffold on). Host .env may pin either knob.
       - SUB2API_IMAGES_REASONING_EFFORT=${SUB2API_IMAGES_REASONING_EFFORT:-}
       - SUB2API_IMAGES_PROMPT_SCAFFOLD=${SUB2API_IMAGES_PROMPT_SCAFFOLD:-}
@@ -744,6 +752,7 @@ services:
       - GATEWAY_IMAGE_CONCURRENCY_ENABLED=${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-}
       - GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS=${GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS:-}
       - GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE=${GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE:-}
+      - GATEWAY_MAX_IN_FLIGHT_REQUESTS=${GATEWAY_MAX_IN_FLIGHT_REQUESTS:-}
       # Empty keeps app defaults (effort auto/medium; scaffold on). Host .env may pin either knob.
       - SUB2API_IMAGES_REASONING_EFFORT=${SUB2API_IMAGES_REASONING_EFFORT:-}
       - SUB2API_IMAGES_PROMPT_SCAFFOLD=${SUB2API_IMAGES_PROMPT_SCAFFOLD:-}
