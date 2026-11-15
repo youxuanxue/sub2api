@@ -3,6 +3,12 @@
 
 `deploy_via_ssm.sh candidate-smoke` runs this on the host after `prepare`.
 It does not change the public route. Failed cases stay in the report.
+
+Single-container mode (`--container tokenkey --port 18080 --revision SHA`) is
+used by rolling.py on app nodes. With `--expect-draining` the node was started
+behind the start-draining marker, so /health must be 503 "draining" and the
+Docker healthcheck (which probes /health) cannot be healthy yet; process
+liveness is checked instead. Blue/green mode is unchanged.
 """
 from __future__ import annotations
 
@@ -62,6 +68,68 @@ def evaluate(receipt: dict, inspected: dict, responses: dict[str, tuple[int, str
     return {"revision": revision, "container_id": inspected["Id"], "cases": cases}
 
 
+def evaluate_single(container: str, port: int, revision: str, inspected: dict,
+                    responses: dict[str, tuple[int, str]], expect_draining: bool) -> dict:
+    health_code, health_body = responses[f"http://127.0.0.1:{port}/health"]
+    live_code, _ = responses[f"http://127.0.0.1:{port}/health/live"]
+    settings_code, settings_body = responses[f"http://127.0.0.1:{port}/api/v1/settings/public"]
+    label = (inspected.get("Config", {}).get("Labels", {}) or {}).get("org.opencontainers.image.revision", "")
+    state = inspected.get("State") or {}
+    compact = health_body.replace(" ", "")
+    if expect_draining:
+        health_ok = health_code == 503 and '"status":"draining"' in compact
+    else:
+        health_ok = health_code == 200 and '"status":"ok"' in compact
+    docker_health = (state.get("Health") or {}).get("Status") or "none"
+    cases = [
+        {
+            "case": f"{container} /health on 127.0.0.1:{port} ({'draining' if expect_draining else 'serving'})",
+            "passed": health_ok,
+            "http": health_code,
+            "body": health_body[:200],
+        },
+        {
+            "case": f"{container} /health/live on 127.0.0.1:{port}",
+            "passed": live_code == 200,
+            "http": live_code,
+        },
+        {
+            "case": f"{container} /api/v1/settings/public on 127.0.0.1:{port}",
+            "passed": settings_code == 200 and settings_body.lstrip().startswith("{"),
+            "http": settings_code,
+            "body": settings_body[:200],
+        },
+        {
+            "case": f"{container} image revision",
+            "passed": bool(revision) and label == revision,
+            "revision": label,
+        },
+        {
+            # Docker's HEALTHCHECK probes /health, which is 503 while drained.
+            "case": f"{container} process running",
+            "passed": state.get("Running") is True and not state.get("Restarting")
+            and (expect_draining or docker_health in ("healthy", "none")),
+            "health": docker_health,
+            "restart_count": inspected.get("RestartCount", 0),
+        },
+    ]
+    return {"revision": revision, "container_id": inspected["Id"], "container": container,
+            "draining": expect_draining, "cases": cases}
+
+
+def probe_single(container: str, port: int, revision: str, expect_draining: bool) -> dict:
+    inspected = _inspect(container)
+    responses = {
+        url: _http_get(url)
+        for url in (
+            f"http://127.0.0.1:{port}/health",
+            f"http://127.0.0.1:{port}/health/live",
+            f"http://127.0.0.1:{port}/api/v1/settings/public",
+        )
+    }
+    return evaluate_single(container, port, revision, inspected, responses, expect_draining)
+
+
 def report_passed(report: dict) -> bool:
     cases = report.get("cases") or []
     return bool(cases) and all(case.get("passed") is True for case in cases)
@@ -113,10 +181,24 @@ def write_report(report: dict, out: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="probe a prepared cn-prod candidate")
-    parser.add_argument("--state", type=Path, required=True)
+    parser.add_argument("--state", type=Path, help="blue/green release state dir")
+    parser.add_argument("--container", help="single-container mode: container name")
+    parser.add_argument("--port", type=int, help="single-container mode: loopback port")
+    parser.add_argument("--revision", help="single-container mode: expected image revision")
+    parser.add_argument("--expect-draining", action="store_true",
+                        help="single-container mode: node started drained (/health 503)")
     parser.add_argument("--out", type=Path, default=SMOKE_PATH)
     args = parser.parse_args(argv)
-    report = load_and_probe(args.state)
+    if args.container:
+        if args.state or not args.port or not args.revision:
+            parser.error("--container needs --port and --revision, and excludes --state")
+        report = probe_single(args.container, args.port, args.revision, args.expect_draining)
+    elif args.state:
+        if args.port or args.revision or args.expect_draining:
+            parser.error("--port/--revision/--expect-draining need --container")
+        report = load_and_probe(args.state)
+    else:
+        parser.error("one of --state or --container is required")
     sys.stdout.write(write_report(report, args.out))
     return 0 if report_passed(report) else 1
 

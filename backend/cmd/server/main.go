@@ -202,6 +202,8 @@ func runMainServer() {
 	defer pollCancel()
 	service.StartClaudeStatusPoller(pollCtx)
 
+	installTKDrainControls()
+
 	// 启动服务器
 	go func() {
 		if err := app.Server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

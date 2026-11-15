@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import ssl
+import time
 import sys
 import urllib.error
 import urllib.request
@@ -55,6 +57,24 @@ def probe_health(url: str, *, timeout_sec: float = 8.0, opener=None) -> dict:
             "body_prefix": "",
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+
+def cert_days_left(host: str, *, port: int = 443, timeout_sec: float = 8.0, now: float | None = None,
+                   connect=None) -> dict:
+    """Days until the verified leaf certificate served for ``host`` expires.
+
+    The handshake uses the default trust store and SNI, so an untrusted or
+    mismatched certificate is a failure rather than a day count.
+    """
+    open_conn = connect or socket.create_connection
+    try:
+        with open_conn((host, port), timeout=timeout_sec) as raw:
+            with ssl.create_default_context().wrap_socket(raw, server_hostname=host) as tls:
+                not_after = tls.getpeercert()["notAfter"]
+        days = (ssl.cert_time_to_seconds(not_after) - (time.time() if now is None else now)) / 86400
+        return {"host": host, "ok": True, "days_left": round(days, 2), "error": ""}
+    except Exception as exc:  # noqa: BLE001
+        return {"host": host, "ok": False, "days_left": None, "error": f"{type(exc).__name__}: {exc}"}
 
 
 def main(argv: list[str] | None = None) -> int:

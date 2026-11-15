@@ -20,7 +20,8 @@ set -euo pipefail
 # 43.162.126.44 (parallel candidate). 106.75.29.139 (retired UCloud cn-prod,
 # destroyed 2026-10-27) is deliberately absent: it can no longer originate
 # traffic, and keeping it in the allowlist keeps a dead source authorized.
-ALLOWED_SOURCES=(43.162.83.233 43.162.126.44 154.8.214.179)
+# 82.156.89.64 is cn-prod app-b's public egress (added on the hosts 2026-11-15).
+ALLOWED_SOURCES=(43.162.83.233 43.162.126.44 154.8.214.179 82.156.89.64)
 
 proxy_fw_rules() {
   local src rules

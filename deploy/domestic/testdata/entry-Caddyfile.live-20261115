@@ -1,0 +1,54 @@
+# cn-prod entry machine. Terminates TLS for api.galaxywaveai.com and spreads
+# requests across app nodes over the private network. Health checks own drain:
+# a node whose /health returns non-200 (draining or down) leaves rotation.
+{
+	email admin@cn.tokenkey.dev
+}
+
+(tk_backends) {
+	reverse_proxy {
+		to 10.2.4.11:8080 10.2.4.13:8080
+		# app-a 4C16G : app-b 2C4G
+		lb_policy weighted_round_robin 3 1
+		flush_interval -1
+		health_uri /health
+		health_interval 3s
+		health_timeout 2s
+		health_passes 2
+		health_fails 2
+		lb_try_duration 30s
+		lb_try_interval 500ms
+		header_up -CF-Connecting-IP
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+		transport http {
+			dial_timeout 3s
+			keepalive 120s
+			keepalive_idle_conns 64
+			compression off
+		}
+	}
+}
+
+api.galaxywaveai.com {
+	tls {
+		protocols tls1.2 tls1.3
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			email admin@cn.tokenkey.dev
+			disable_http_challenge
+		}
+	}
+	import tk_backends
+	request_body {
+		max_size 100MB
+	}
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+}
+

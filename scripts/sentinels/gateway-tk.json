@@ -132,7 +132,7 @@
     {
       "path": "ops/observability/host_https_watch.py",
       "must_contain": [
-        "def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict) -> dict:",
+        "def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict, *,",
         "if role == \"cn-prod\":",
         "targets[\"cn-prod\"] = domestic[\"public_origin\"].rstrip(\"/\") + \"/health\"",
         "if not healthy and state[\"failures\"] >= 2:",
@@ -155,13 +155,43 @@
       "rationale": "Prod and domestic health probes retain two-failure alerting and observer attribution. physical_backup_fact keeps its advisory band gated on per-reason evidence: a bootstrapping non-primary repository is a warning, while a degraded receipt without evidence stays a fault. Coverage anchors added 2026-11-03 after three live blind spots: (1) cn-prod's job list must come from domestic local_qa_jobs, not a hardcoded single entry that predated tokenkey-qa-archive; (2) the pgBackRest auto-discovery must branch on cn-prod as well as prod — gating on node == \"prod\" alone left cn-prod's own backup/archive-check/recovery unwatched while archive_check.json existed there; (3) the cn- prefixed unit names and the qa-archive / node1-db-mirror limits are the only registration these jobs have, and node1_alert.py reads the same table so both alert paths share one definition of healthy. Deleting any of them returns a running backup path to silence."
     },
     {
+      "path": "ops/observability/host_https_watch.py",
+      "must_contain": [
+        "DRAIN_GRACE_SECONDS = 15 * 60",
+        "CERT_MIN_DAYS = 20",
+        "\"targets\": {\"cn-prod-entry\": \"https://\" + entry[\"domain\"] + \"/health\"},",
+        "\"backends\": {app[\"name\"]: \"http://\" + app[\"private_ip\"] + \":8080/health\"",
+        "APP_LOCAL_HEALTH = \"http://127.0.0.1:18080/health\"",
+        "if fact[\"http_code\"] == 503:",
+        "down = not any(fact[\"healthy\"] for fact in facts.values())",
+        "result = tick_backends(backends, result, int(time.time()), probe_health, send,",
+        "result = tick_certs(certs, result, int(time.time()), cert_days_left, send,"
+      ],
+      "must_not_contain": [
+        "/reverse_proxy/upstreams"
+      ],
+      "rationale": "cn-prod multi-app watch (docs/approved/design-cn-prod-rolling-deploy.md §6): the entry machine probes the public domain from prod-target.json entry.domain, its certificate (<20 days alerts), and every apps[] private /health directly. A drain 503 alerts only after 15 minutes (rolling drain waits up to 10); all backends unhealthy alerts at once. Caddy admin /reverse_proxy/upstreams has no health field and must not be the signal."
+    },
+    {
+      "path": "ops/observability/test_host_https_watch.py",
+      "must_contain": [
+        "def test_entry_watches_public_domain_cert_and_every_private_backend(self):",
+        "def test_drain_503_shorter_than_fifteen_minutes_is_silent(self):",
+        "def test_all_backends_down_alerts_immediately_even_while_draining(self):",
+        "def test_short_certificate_alerts_daily_and_recovers(self):",
+        "def test_cn_prod_without_node_is_unchanged(self):"
+      ],
+      "rationale": "Executable coverage for the entry role, drain grace, all-down alert, certificate expiry and unchanged legacy cn-prod config."
+    },
+    {
       "path": "ops/observability/install-host-https-watch.sh",
       "must_contain": [
-        "config=build_config(role,socket.gethostname(),prod_matrix,domestic)",
-        "if role=='cn-prod' or role.endswith('-data'):command+=['--env-file','/opt/tokenkey/host-alerts.env']",
-        "OnUnitActiveSec=2min"
+        "config=build_config(role,socket.gethostname(),prod_matrix,domestic,node=node,host_ips=host_ips)",
+        "if role in ('cn-prod','cn-prod-entry') or role.endswith('-data'):command+=['--env-file','/opt/tokenkey/host-alerts.env']",
+        "OnUnitActiveSec=2min",
+        "if role not in ('prod','cn-prod','prod-data','cn-prod-data','cn-prod-entry'):raise SystemExit('unsupported WATCH_ROLE: '+role)"
       ],
-      "rationale": "The installer must consume the tested coverage owner and existing host-local credentials, including UCloud."
+      "rationale": "The installer must consume the tested coverage owner and existing host-local credentials, including UCloud. cn-prod-entry and WATCH_NODE prove host identity by private IP (hostname -I) against prod-target.json."
     },
     {
       "path": "ops/observability/test_host_https_watch.py",

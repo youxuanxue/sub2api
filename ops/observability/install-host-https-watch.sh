@@ -10,11 +10,17 @@ from host_https_watch import build_config
 prod_matrix=json.loads((root/'candidate-usw-20261022.json').read_text())
 domestic=json.loads((root/'prod-target.json').read_text())
 role=os.environ.get('WATCH_ROLE','')
-config=build_config(role,socket.gethostname(),prod_matrix,domestic)
+# Roles: prod, cn-prod, prod-data, cn-prod-data, cn-prod-entry. WATCH_NODE
+# names a cn-prod apps[] entry (app-a/app-b); it and cn-prod-entry prove the
+# host by its private IP from `hostname -I`, not by the image hostname.
+if role not in ('prod','cn-prod','prod-data','cn-prod-data','cn-prod-entry'):raise SystemExit('unsupported WATCH_ROLE: '+role)
+node=os.environ.get('WATCH_NODE','')
+host_ips=subprocess.run(['hostname','-I'],capture_output=True,text=True,check=True).stdout.split() if (node or role=='cn-prod-entry') else []
+config=build_config(role,socket.gethostname(),prod_matrix,domestic,node=node,host_ips=host_ips)
 files=['host_https_watch.py','https_health.py','feishu_delivery.py']
 for file in files:
     if not (root/file).is_file():raise SystemExit('missing companion: '+file)
-print(json.dumps({'role':role,**config,'apply':os.environ.get('APPLY')=='yes-host-https-watch'}))
+print(json.dumps({'role':role,'watch_node':node,**config,'apply':os.environ.get('APPLY')=='yes-host-https-watch'}))
 if os.environ.get('APPLY')!='yes-host-https-watch':raise SystemExit(0)
 os.umask(0o077)
 # Immutable bundles keep an existing timer on its previous complete code until
@@ -41,7 +47,7 @@ for file in files:shutil.copy2(root/file,base/file)
 command=['/usr/bin/python3',str(base/'host_https_watch.py'),'--config',str(base/'config.json'),'--state','/var/lib/tokenkey/https-watch/state.json']
 # Hosts without the app .env (cn-prod, data machines) keep the Feishu pair in
 # the same host-alerts.env that install-proxy-host-alerts.sh / disk-metrics use.
-if role=='cn-prod' or role.endswith('-data'):command+=['--env-file','/opt/tokenkey/host-alerts.env']
+if role in ('cn-prod','cn-prod-entry') or role.endswith('-data'):command+=['--env-file','/opt/tokenkey/host-alerts.env']
 # Validate credentials and probe every target without sending a test message.
 check=subprocess.run(command+['--dry-run'],capture_output=True,text=True)
 if check.returncode:raise SystemExit('dry-run failed; timer not enabled')

@@ -107,5 +107,55 @@ class CandidateSmokeTest(unittest.TestCase):
             self.assertEqual(out.stat().st_mode & 0o777, 0o600)
 
 
+def single_responses(health_code: int, health_body: str) -> dict:
+    return {
+        "http://127.0.0.1:18080/health": (health_code, health_body),
+        "http://127.0.0.1:18080/health/live": (200, '{"status":"alive"}'),
+        "http://127.0.0.1:18080/api/v1/settings/public": (200, '{"code":0}'),
+    }
+
+
+def single_inspected(health: str = "starting", running: bool = True) -> dict:
+    data = inspected(health=health)
+    data["State"]["Running"] = running
+    return data
+
+
+class SingleContainerSmokeTest(unittest.TestCase):
+    def test_drained_node_passes_with_503_draining_and_unhealthy_docker_health(self) -> None:
+        report = candidate_smoke.evaluate_single(
+            "tokenkey", 18080, REVISION, single_inspected(health="unhealthy"),
+            single_responses(503, '{"status":"draining"}'), expect_draining=True)
+        self.assertTrue(report_passed(report), report)
+        self.assertEqual(len(report["cases"]), 5)
+
+    def test_drained_node_fails_when_health_is_200(self) -> None:
+        report = candidate_smoke.evaluate_single(
+            "tokenkey", 18080, REVISION, single_inspected(),
+            single_responses(200, '{"status":"ok"}'), expect_draining=True)
+        self.assertFalse(report_passed(report))
+
+    def test_serving_node_needs_200_ok(self) -> None:
+        report = candidate_smoke.evaluate_single(
+            "tokenkey", 18080, REVISION, single_inspected(health="healthy"),
+            single_responses(200, '{"status":"ok"}'), expect_draining=False)
+        self.assertTrue(report_passed(report))
+
+    def test_stopped_container_and_wrong_revision_fail(self) -> None:
+        report = candidate_smoke.evaluate_single(
+            "tokenkey", 18080, "0" * 40, single_inspected(running=False),
+            single_responses(503, '{"status":"draining"}'), expect_draining=True)
+        failed = {c["case"] for c in report["cases"] if not c["passed"]}
+        self.assertEqual(failed, {"tokenkey image revision", "tokenkey process running"})
+
+    def test_cli_modes_are_exclusive(self) -> None:
+        with self.assertRaises(SystemExit):
+            candidate_smoke.main(["--container", "tokenkey", "--port", "18080"])
+        with self.assertRaises(SystemExit):
+            candidate_smoke.main(["--state", "/tmp/x", "--port", "18080"])
+        with self.assertRaises(SystemExit):
+            candidate_smoke.main([])
+
+
 if __name__ == "__main__":
     unittest.main()
