@@ -21,6 +21,10 @@ fi
 
 [[ $EUID -eq 0 ]] || { echo "need root" >&2; exit 1; }
 if command -v sshd >/dev/null 2>&1; then
+  # Ubuntu 24.04 boots with socket-activated ssh, so systemd has not created the
+  # privilege-separation directory yet. `sshd -t` fails without it, and under
+  # `set -e` that aborts the caller mid-install (gost never gets installed).
+  install -d -m 0755 /run/sshd
   sshd -t
 fi
 if systemctl is-active --quiet ssh 2>/dev/null; then

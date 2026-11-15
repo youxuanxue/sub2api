@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 LOCK = ROOT / "deploy/tencent/lock-down-sshd.sh"
 INSTALL = ROOT / "deploy/tencent/install-cn-socks-proxy.sh"
-SOURCES = ("43.162.83.233", "43.162.126.44", "154.8.214.179", "106.75.29.139")
+SOURCES = ("43.162.83.233", "43.162.126.44", "154.8.214.179")
 
 
 class HostLockdownTest(unittest.TestCase):
@@ -72,6 +72,8 @@ class HostLockdownTest(unittest.TestCase):
             self.assertIn(f"--dport {port} -m conntrack --ctstate NEW -j DROP", rules)
             self.assertNotIn(f"--dport {port} -j DROP", rules)
         self.assertNotIn("0.0.0.0/0", rules)
+        # Retired UCloud cn-prod (destroyed 2026-10-27) must not remain authorized.
+        self.assertNotIn("106.75.29.139", rules)
         for script in (
             ROOT / "deploy/tencent/bootstrap-prod-app.sh",
             ROOT / "deploy/tencent/install-cn-socks-proxy.sh",
