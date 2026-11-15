@@ -9,7 +9,7 @@ revised_at: 2026-10-28
 
 - approved：[网关错误与局部安全修复](gateway-correctness-remediation-20261112.md)：Messages 取消误分类复用 #3161；保留 Chat 流内错误、隔离、脱敏与刷新失败拒签；撤出 outbox/rollup 重构，不含合并或部署授权。
 
-- [prod 应用机并行替换](design-prod-app-parallel-replacement.md)：取消原地 LUKS 搬盘；新旧并行、不中断请求、旧机保留；过渡期允许部分 QA 缺口。
+- [prod 应用机并行替换](design-prod-app-parallel-replacement.md)：取消原地 LUKS 搬盘；新旧并行、不中断、旧机保留、QA 集中管理（保留，不删）。入口/HA/切流/脱离 LUKS 改由 [美西 prod 入口机 + 双应用机](design-prod-entry-multi-app.md) 接管并废止其 HA 入口验收条。
 
 - [未知 TTL 缓存创建量计费](cache-creation-unknown-ttl-billing.md)：已知 TTL 保留原价，结算时仍未知的差额按 1h；不追补旧账。
 
@@ -66,7 +66,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 ## TokenKey SSOT 导航
 
-国内 prod（现腾讯北京；UCloud 段为首发历史）的授权范围、首次初始化和发布边界：[国内部署契约](design-domestic-cluster.md)。2026-11-15 起 cn-prod 为入口机加多应用机，发版改为逐台滚动：[cn-prod 多应用机滚动发版](design-cn-prod-rolling-deploy.md)。
+国内 prod（现腾讯北京；UCloud 段为首发历史）的授权范围、首次初始化和发布边界：[国内部署契约](design-domestic-cluster.md)。2026-11-15 起 cn-prod 为入口机加多应用机，发版改为逐台滚动：[cn-prod 多应用机滚动发版](design-cn-prod-rolling-deploy.md)。美西 prod 同构方案：[入口机 + 双应用机 + 脱离 LUKS](design-prod-entry-multi-app.md)。
 
 本节只提供契约入口；规则、实现 owner 和验收状态在链接目标维护。
 
