@@ -93,10 +93,11 @@ var InFlightGate = newInFlightGate()
 // admitInFlightRelay takes one slot if the gauge is below limit.
 //
 // It uses compare-and-swap rather than Add-then-rollback. Add(1) followed by
-// Add(-1) on overflow transiently publishes a value above the limit, which any
-// concurrent observer (including /health/inflight and the drain probe) can read,
-// and which let a concurrent admission briefly overshoot. CAS keeps the gauge
-// strictly bounded: it never exceeds limit at any instant.
+// Add(-1) on overflow never admits more than limit requests, but it transiently
+// publishes a value above the limit. Concurrent observers (/health/inflight and
+// the drain probe) can read that value, and a concurrent request whose Add lands
+// on the inflated gauge is rejected even though a slot is actually free. CAS
+// keeps the gauge strictly bounded: it never exceeds limit at any instant.
 func admitInFlightRelay(limit int64) bool {
 	for {
 		current := inflightRelay.Load()
