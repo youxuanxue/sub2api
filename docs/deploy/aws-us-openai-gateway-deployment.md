@@ -49,10 +49,9 @@ host scripts 生成。修改这些源文件后运行生成脚本及 `--check`，
 `ops/stage0/deploy_via_ssm_bluegreen.sh`。不要通过 CFN `ImageTag` 更新或单容器
 `docker compose up` 另建发布路径；基础设施更新与应用切换是不同操作。
 
-`tokenkey-qa-maintenance.sh` 是目标 QA lifecycle owner。
-`tokenkey-qa-boundary.sh` 是 transition-only 工件；single-owner activation 前的行为、
-激活 receipt 与回滚约束只在 [`ops/qa/README.md`](../../ops/qa/README.md) 维护。
-旧 stale-cleanup 和 export-orphan 工件不再打包。应用回滚不等于 QA 控制面回滚。
+QA S3 的宿主脚本（`tokenkey-qa-maintenance.sh`、`tokenkey-qa-boundary.sh`）
+已于 2026-11-08 随 QA S3 退役一并删除；现行 QA 路径见
+[`ops/qa/README.md`](../../ops/qa/README.md)。应用回滚不等于 QA 控制面回滚。
 
 ## 架构演进
 
