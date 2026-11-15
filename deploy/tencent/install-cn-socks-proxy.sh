@@ -16,9 +16,11 @@
 set -euo pipefail
 
 # Sources allowed to reach :1080. cn-prod dials the proxies' public IPs, so its
-# source is the public 154.8.214.179. 106.75.29.139 (retired UCloud cn-prod) is kept
-# to match cn-ip1..4 until the fleet-wide allowlist is changed in one place.
-ALLOWED_SOURCES=(43.162.83.233 43.162.126.44 154.8.214.179 106.75.29.139)
+# source is the public 154.8.214.179; prod uses 43.162.83.233 (live) and
+# 43.162.126.44 (parallel candidate). 106.75.29.139 (retired UCloud cn-prod,
+# destroyed 2026-10-27) is deliberately absent: it can no longer originate
+# traffic, and keeping it in the allowlist keeps a dead source authorized.
+ALLOWED_SOURCES=(43.162.83.233 43.162.126.44 154.8.214.179)
 
 proxy_fw_rules() {
   local src rules

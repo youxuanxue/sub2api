@@ -40,15 +40,19 @@ func EstimateInputTokens(requestBody []byte) int {
 		return 0
 	}
 	parts := make([]string, 0, 8)
+	root := gjson.ParseBytes(requestBody)
+	if request := root.Get("request"); request.IsObject() {
+		root = request
+	}
 
-	gjson.GetBytes(requestBody, "systemInstruction.parts").ForEach(func(_, part gjson.Result) bool {
+	root.Get("systemInstruction.parts").ForEach(func(_, part gjson.Result) bool {
 		if t := strings.TrimSpace(part.Get("text").String()); t != "" {
 			parts = append(parts, t)
 		}
 		return true
 	})
 
-	gjson.GetBytes(requestBody, "contents").ForEach(func(_, content gjson.Result) bool {
+	root.Get("contents").ForEach(func(_, content gjson.Result) bool {
 		content.Get("parts").ForEach(func(_, part gjson.Result) bool {
 			if t := strings.TrimSpace(part.Get("text").String()); t != "" {
 				parts = append(parts, t)
@@ -74,7 +78,7 @@ func EstimateInputTokens(requestBody []byte) int {
 		return true
 	})
 
-	gjson.GetBytes(requestBody, "tools").ForEach(func(_, tool gjson.Result) bool {
+	root.Get("tools").ForEach(func(_, tool gjson.Result) bool {
 		decls := tool.Get("functionDeclarations")
 		if !decls.Exists() {
 			// Some payloads nest under tools[].functionDeclarations already handled;
@@ -85,7 +89,11 @@ func EstimateInputTokens(requestBody []byte) int {
 			if desc := strings.TrimSpace(tool.Get("description").String()); desc != "" {
 				parts = append(parts, desc)
 			}
-			if schema := tool.Get("parameters"); schema.Exists() {
+			schema := tool.Get("parameters")
+			if !schema.Exists() {
+				schema = tool.Get("parametersJsonSchema")
+			}
+			if schema.Exists() {
 				parts = append(parts, schema.Raw)
 			}
 			return true
@@ -97,7 +105,11 @@ func EstimateInputTokens(requestBody []byte) int {
 			if desc := strings.TrimSpace(decl.Get("description").String()); desc != "" {
 				parts = append(parts, desc)
 			}
-			if schema := decl.Get("parameters"); schema.Exists() {
+			schema := decl.Get("parameters")
+			if !schema.Exists() {
+				schema = decl.Get("parametersJsonSchema")
+			}
+			if schema.Exists() {
 				parts = append(parts, schema.Raw)
 			}
 			return true
@@ -127,6 +139,12 @@ func EstimateOutputTokens(responseBody []byte) int {
 				if args := fc.Get("args"); args.Exists() {
 					parts = append(parts, args.Raw)
 				}
+			}
+			if code := part.Get("executableCode.code"); code.Exists() {
+				parts = append(parts, code.String())
+			}
+			if output := part.Get("codeExecutionResult.output"); output.Exists() {
+				parts = append(parts, output.String())
 			}
 			return true
 		})

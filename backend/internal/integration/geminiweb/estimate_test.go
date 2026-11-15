@@ -52,3 +52,26 @@ func TestEstimateInputIncludesToolDeclarations(t *testing.T) {
 	got := EstimateInputTokens(req)
 	require.Greater(t, got, tokenestimate.Count("call tool"))
 }
+
+func TestEstimateInputUnwrapsRequestAndCountsParametersJsonSchema(t *testing.T) {
+	req := []byte(`{
+		"request":{
+			"contents":[{"parts":[{"text":"wrapped prompt"}]}],
+			"tools":[{"functionDeclarations":[{"name":"lookup","description":"find stuff","parametersJsonSchema":{"type":"object","properties":{"q":{"type":"string"}}}}]}]
+		}
+	}`)
+	got := EstimateInputTokens(req)
+	want := tokenestimate.Count("wrapped prompt\nlookup\nfind stuff\n{\"type\":\"object\",\"properties\":{\"q\":{\"type\":\"string\"}}}")
+	require.Equal(t, want, got)
+}
+
+func TestEstimateOutputCountsCodeExecutionParts(t *testing.T) {
+	resp := []byte(`{
+		"candidates":[{"content":{"parts":[
+			{"executableCode":{"language":"PYTHON","code":"print(2 + 2)"}},
+			{"codeExecutionResult":{"outcome":"OUTCOME_OK","output":"4"}}
+		]}}]
+	}`)
+	got := EstimateOutputTokens(resp)
+	require.Equal(t, tokenestimate.Count("print(2 + 2)\n4"), got)
+}
