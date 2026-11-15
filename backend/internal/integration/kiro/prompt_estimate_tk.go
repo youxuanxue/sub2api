@@ -195,22 +195,24 @@ func (p *PromptEstimate) CacheUsageSplit(ctx context.Context, store CacheFingerp
 	}
 
 	matchedCum := 0
-	for i := len(blocks) - 1; i >= 0; i-- {
-		b := blocks[i]
-		if b.cumTokens < MinCacheablePrefixTokens {
-			continue
+	if batchStore, ok := store.(CacheFingerprintBatchStore); ok {
+		hexes := make([]string, len(blocks))
+		for i := range blocks {
+			hexes[i] = blocks[i].fingerprintHex
 		}
-		tokens, ok, err := store.Get(ctx, sessionKey, b.fingerprintHex)
-		if err != nil || !ok {
-			continue
-		}
-		// Prefer the stored token count when present; fall back to current estimate.
-		if tokens > 0 {
-			matchedCum = tokens
+		if storedCounts, err := batchStore.GetMany(ctx, sessionKey, hexes); err == nil && len(storedCounts) == len(blocks) {
+			for i := len(blocks) - 1; i >= 0; i-- {
+				if blocks[i].cumTokens < MinCacheablePrefixTokens || storedCounts[i] <= 0 {
+					continue
+				}
+				matchedCum = storedCounts[i]
+				break
+			}
 		} else {
-			matchedCum = b.cumTokens
+			matchedCum = p.matchCachePrefixSingle(ctx, store, sessionKey, blocks)
 		}
-		break
+	} else {
+		matchedCum = p.matchCachePrefixSingle(ctx, store, sessionKey, blocks)
 	}
 
 	if matchedCum > 0 {
@@ -247,6 +249,24 @@ func (p *PromptEstimate) CacheUsageSplit(ctx context.Context, store CacheFingerp
 	return split
 }
 
+func (p *PromptEstimate) matchCachePrefixSingle(ctx context.Context, store CacheFingerprintStore, sessionKey string, blocks []cachePrefixBlock) int {
+	for i := len(blocks) - 1; i >= 0; i-- {
+		b := blocks[i]
+		if b.cumTokens < MinCacheablePrefixTokens {
+			continue
+		}
+		tokens, ok, err := store.Get(ctx, sessionKey, b.fingerprintHex)
+		if err != nil || !ok {
+			continue
+		}
+		if tokens > 0 {
+			return tokens
+		}
+		return b.cumTokens
+	}
+	return 0
+}
+
 // CommitCacheFingerprints is the package-level CommitCacheFingerprints for the
 // bound request, reusing prefix blocks already built by CacheUsageSplit.
 func (p *PromptEstimate) CommitCacheFingerprints(ctx context.Context, store CacheFingerprintStore, sessionKey string, ttl time.Duration) {
@@ -259,10 +279,21 @@ func (p *PromptEstimate) CommitCacheFingerprints(ctx context.Context, store Cach
 	if ttl > MaxCacheTTL {
 		ttl = MaxCacheTTL
 	}
-	for _, b := range p.prefixBlocks() {
-		if b.cumTokens <= 0 {
-			continue
+	blocks := p.prefixBlocks()
+	if batchStore, ok := store.(CacheFingerprintBatchStore); ok {
+		entries := make([]CacheFingerprintEntry, 0, len(blocks))
+		for _, b := range blocks {
+			if b.cumTokens > 0 {
+				entries = append(entries, CacheFingerprintEntry{FingerprintHex: b.fingerprintHex, Tokens: b.cumTokens})
+			}
 		}
-		_ = store.Put(ctx, sessionKey, b.fingerprintHex, b.cumTokens, ttl)
+		if err := batchStore.PutMany(ctx, sessionKey, entries, ttl); err == nil {
+			return
+		}
+	}
+	for _, b := range blocks {
+		if b.cumTokens > 0 {
+			_ = store.Put(ctx, sessionKey, b.fingerprintHex, b.cumTokens, ttl)
+		}
 	}
 }

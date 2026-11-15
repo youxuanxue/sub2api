@@ -36,6 +36,28 @@ func prepareGatewayMessagesExecution(
 }
 
 func (h *GatewayHandler) tkAttachMessagesProtocolRouting(c *gin.Context, model string, stream bool, body []byte) error {
+	if existing, ok := service.ProtocolRoutingRequest(c.Request.Context()); ok {
+		profile := existing.Profile()
+		if existing.Matches(protocolrouter.CanonicalRequestInput{
+			InboundProtocol: protocolrouter.ProtocolMessages,
+			ResponsesPath:   protocolrouter.ResponsesPathNone,
+			RequestedModel:  model,
+			Profile: protocolrouter.RequestProfile{
+				Stream:       stream,
+				Tools:        profile.Tools,
+				ToolChoice:   profile.ToolChoice,
+				ContentKinds: profile.ContentKinds,
+				Continuation: profile.Continuation,
+				Reasoning:    profile.Reasoning,
+				PromptCache:  profile.PromptCache,
+			},
+			BodyJSONValidated: existing.BodyJSONValidated(),
+			Body:              body,
+		}) {
+			c.Request = c.Request.WithContext(service.WithProtocolRouting(c.Request.Context(), h.protocolRouter, existing))
+			return nil
+		}
+	}
 	canonicalRequest, err := newCanonicalProtocolRequest(
 		protocolrouter.ProtocolMessages,
 		protocolrouter.ResponsesPathNone,

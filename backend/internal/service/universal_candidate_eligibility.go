@@ -162,6 +162,20 @@ func (r *UniversalRoutingResolver) withRequestProfile(ctx context.Context, shape
 	return WithProtocolRouting(ctx, router, request)
 }
 
+func (r *UniversalRoutingResolver) attachCandidateCanonicalRequest(ctx context.Context, request protocolrouter.CanonicalRequest) context.Context {
+	if r == nil {
+		return ctx
+	}
+	r.mu.RLock()
+	router := r.router
+	r.mu.RUnlock()
+	if router == nil {
+		return ctx
+	}
+	ctx = WithThinkingEnabled(ctx, gatewayRequestThinkingEnabled(request.Body(), string(request.InboundProtocol())), false)
+	return WithProtocolRouting(ctx, router, request)
+}
+
 func candidateCanonicalProtocol(shape UniversalShape, path string) (protocolrouter.Protocol, protocolrouter.ResponsesPathKind, bool) {
 	switch shape {
 	case ShapeAnthropicMessages:
@@ -187,24 +201,32 @@ func candidateCanonicalProtocol(shape UniversalShape, path string) (protocolrout
 }
 
 func candidateRequestProfile(shape UniversalShape, path, model string, body []byte) (protocolrouter.RequestProfile, bool) {
+	request, ok := candidateCanonicalRequest(shape, path, model, body)
+	if !ok {
+		return protocolrouter.RequestProfile{}, false
+	}
+	return request.Profile(), true
+}
+
+func candidateCanonicalRequest(shape UniversalShape, path, model string, body []byte) (protocolrouter.CanonicalRequest, bool) {
 	inbound, responsesPath, ok := candidateCanonicalProtocol(shape, path)
 	if !ok || shape == ShapeAnthropicCountTokens {
-		return protocolrouter.RequestProfile{}, false
+		return protocolrouter.CanonicalRequest{}, false
 	}
 	streamRes := gjson.GetBytes(body, "stream")
 	if streamRes.Exists() && streamRes.Type != gjson.True && streamRes.Type != gjson.False && streamRes.Type != gjson.Null {
-		return protocolrouter.RequestProfile{}, false
+		return protocolrouter.CanonicalRequest{}, false
 	}
 	typeRes := gjson.GetBytes(body, "type")
 	if typeRes.Exists() && typeRes.Type != gjson.String && typeRes.Type != gjson.Null {
-		return protocolrouter.RequestProfile{}, false
+		return protocolrouter.CanonicalRequest{}, false
 	}
 	stream := streamRes.Bool() || typeRes.String() == "response.create" || strings.Contains(path, ":streamGenerateContent")
 	request, err := protocolrouter.ParseCanonicalRequest(inbound, responsesPath, model, stream, body)
 	if err != nil {
-		return protocolrouter.RequestProfile{}, false
+		return protocolrouter.CanonicalRequest{}, false
 	}
-	return request.Profile(), true
+	return request, true
 }
 
 func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context, userID int64, eligible []Group, model string, shape UniversalShape, evaluate groupCandidateEvaluator) (*Group, error) {

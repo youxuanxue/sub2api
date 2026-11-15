@@ -3,6 +3,7 @@
 package service
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -40,4 +41,21 @@ func TestPrepareCandidateIngressReusesCanonicalRequestProfileAndDigest(t *testin
 	require.Equal(t, expected.Digest(), state.current.ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue).request.Digest())
 	require.True(t, state.requestProfileValid)
 	require.Equal(t, expected.Profile(), state.requestProfile)
+}
+
+func TestPrepareCandidateRequestAttachesCanonicalRequestForLaterReuse(t *testing.T) {
+	group := grp(10, PlatformOpenAI, 1, false)
+	r, _, key := globalCandidateFixture([]Group{group}, []Account{globalCandidateAccount(1, 1, group.ID)})
+	body := []byte(`{"model":"gpt-5.4","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+
+	ctx, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/chat/completions", "gpt-5.4", body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	first, ok := ProtocolRoutingRequest(ctx)
+	require.True(t, ok)
+
+	reused := r.WithRequestProfile(ctx, ShapeOpenAIChat, "/v1/chat/completions", "gpt-5.4", body, state.requestProfile)
+	second, ok := ProtocolRoutingRequest(reused)
+	require.True(t, ok)
+	require.Equal(t, first.Digest(), second.Digest())
 }
