@@ -1028,6 +1028,29 @@ echo passed
             self.assertEqual(block.count("memswap_limit: ${TOKENKEY_APP_MEMORY_LIMIT:-8g}"), 1, msg=service)
             self.assertEqual(block.count("- GOMEMLIMIT=${TOKENKEY_APP_GOMEMLIMIT:-6GiB}"), 1, msg=service)
 
+    def test_relay_gate_cap_reaches_both_colors(self) -> None:
+        """The gate env must be mapped in both colour blocks and defaulted in .env.
+
+        A colour that starts without the key falls back to the app default; a
+        colour that starts with an empty value would silently disable the gate,
+        because compose maps ${GATEWAY_MAX_IN_FLIGHT_REQUESTS:-} to "". The
+        env_default line is what keeps a fresh host from taking that path.
+        """
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+        for service in ("tokenkey-blue", "tokenkey-green"):
+            block = _bluegreen_service_block(remote, service)
+            self.assertEqual(
+                block.count("- GATEWAY_MAX_IN_FLIGHT_REQUESTS=${GATEWAY_MAX_IN_FLIGHT_REQUESTS:-}"),
+                1,
+                msg=service,
+            )
+        self.assertIn(
+            'env_default GATEWAY_MAX_IN_FLIGHT_REQUESTS "${GATEWAY_MAX_IN_FLIGHT_REQUESTS:-512}"',
+            remote,
+        )
+
     def test_image_quality_env_reaches_both_colors_from_host_dotenv_only(self) -> None:
         for instance_id, extra in ((_PROD_IID, None),):
             with self.subTest(instance_id=instance_id):

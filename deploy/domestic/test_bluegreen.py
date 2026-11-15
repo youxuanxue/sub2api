@@ -42,6 +42,7 @@ class DomesticBluegreenTest(unittest.TestCase):
         values.update({
             'QA_CAPTURE_ENABLED': 'true',
             'SECURITY_PROXY_PROBE_PRESET': 'domestic',
+            'GATEWAY_MAX_IN_FLIGHT_REQUESTS': '512',
             'DATABASE_HOST': 'postgres',
             'DATABASE_PORT': '5432',
             'REDIS_HOST': 'redis',
@@ -182,6 +183,7 @@ class DomesticBluegreenTest(unittest.TestCase):
     def test_candidate_preserves_runtime_and_reuses_only_private_network(self):
         current = fixture()
         service = {'image': 'old',
+                   'mem_limit': '3g', 'memswap_limit': '3g',
                    'environment': {'JWT_SECRET': 'stale', **self._compose_env()},
                    'depends_on': {'postgres': {}}, 'ports': ['18080:8080'],
                    'networks': {'old': {}}, 'volumes': [{'source': '/var/lib/tokenkey/app',
@@ -202,11 +204,44 @@ class DomesticBluegreenTest(unittest.TestCase):
         self.assertEqual(set(actual['services']), {'tokenkey-blue'})
         self.assertEqual(service['image'], 'old')
 
+    def test_candidate_carries_the_compose_memory_cap_not_the_live_hostconfig(self):
+        """Both colours must be capped during the blue/green overlap.
+
+        The candidate's HostConfig is built from compose, not inherited from the
+        routed colour: an inherited (or absent) cap would let the two processes
+        together exhaust the host exactly when a release is serving traffic from
+        both.
+        """
+        current = fixture()
+        # The live colour was started before the cap existed.
+        current['HostConfig'] = {'RestartPolicy': {'Name': 'unless-stopped'}, 'Memory': 0}
+        volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
+        service = {'volumes': volumes, 'mem_limit': '3g', 'memswap_limit': '3g',
+                   'environment': self._compose_env()}
+        app = bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-green')[
+            'services']['tokenkey-green']
+        self.assertEqual(app['mem_limit'], '3g')
+        self.assertEqual(app['memswap_limit'], '3g')
+
+    def test_candidate_refuses_to_start_uncapped(self):
+        """An override without a cap must fail closed, not silently serve uncapped."""
+        volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
+        for broken in (
+            {'volumes': volumes, 'environment': self._compose_env()},
+            {'volumes': volumes, 'mem_limit': '', 'memswap_limit': '3g',
+             'environment': self._compose_env()},
+            {'volumes': volumes, 'mem_limit': '3g',
+             'environment': self._compose_env()},
+        ):
+            with self.subTest(service=broken), self.assertRaisesRegex(
+                    ValueError, 'refusing an uncapped candidate'):
+                bg.candidate_compose(broken, fixture(), 'sha256:new', 'tokenkey-blue')
+
     def test_candidate_overlays_pool_env_from_compose_not_secrets(self):
         current = fixture()
         volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
         service = {
-            'volumes': volumes,
+            'volumes': volumes, 'mem_limit': '3g', 'memswap_limit': '3g',
             'environment': {
                 **self._compose_env(GOMEMLIMIT='2GiB'),
                 'JWT_SECRET': 'stale-must-not-win',
@@ -228,8 +263,9 @@ class DomesticBluegreenTest(unittest.TestCase):
         # same-host addresses; the new color must take the ones from .env.
         current = fixture()
         volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
-        service = {'volumes': volumes, 'environment': self._compose_env(
-            DATABASE_HOST='10.2.4.5', REDIS_HOST='10.2.4.5')}
+        service = {'volumes': volumes, 'mem_limit': '3g', 'memswap_limit': '3g',
+                   'environment': self._compose_env(
+                       DATABASE_HOST='10.2.4.5', REDIS_HOST='10.2.4.5')}
         app = bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-green')[
             'services']['tokenkey-green']
         self.assertEqual(app['environment']['DATABASE_HOST'], '10.2.4.5')
@@ -307,6 +343,7 @@ class DomesticBluegreenTest(unittest.TestCase):
         current = fixture()
         service = {
             'volumes': [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}],
+            'mem_limit': '3g', 'memswap_limit': '3g',
             'environment': self._compose_env(),
         }
         app = bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-blue')[

@@ -284,6 +284,19 @@ gateway:
   # Max request body size in bytes (default: 256MB)
   # 请求体最大字节数（默认 256MB）
   max_body_size: 268435456
+  # Process-wide relay concurrency cap. Applies to the gateway relay routes
+  # (/v1/*, /v1beta/*, /responses, /chat/completions, /backend-api/codex,
+  # /antigravity/*, /openrouter/*, ...). Over the cap a new relay request is
+  # rejected immediately with HTTP 503 + Retry-After instead of queueing, so a
+  # traffic spike sheds new work while admitted requests (including SSE streams)
+  # finish and the process stays inside its container memory limit.
+  # /health*, /api/v1/settings/public, the panel/admin plane and static assets
+  # are never gated. The counter is process-local, so every app node enforces
+  # its own cap. Set 0 or a negative value to disable the gate (rollback).
+  # 进程级在途 relay 请求上限；超限立即 503 + Retry-After（不排队）。
+  # 仅作用于网关 relay 入口，/health*、公开设置、管理面与静态资源不受影响；
+  # 计数为进程本地（每节点自我保护）。0 或负数关闭闸门（回滚开关）。
+  max_in_flight_requests: 512
   # Per-instance ingress allocation budget. Unreferenced intermediates are released after each phase.
   # Final bodies (and still-referenced preread buffers) remain charged until the handler returns.
   # Include all concurrent long-lived requests and upload/decode workspace; see EDGE_SECURITY.md.

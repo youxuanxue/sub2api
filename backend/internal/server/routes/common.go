@@ -42,6 +42,12 @@ func RegisterCommonRoutes(r *gin.Engine) {
 		c.JSON(http.StatusOK, gin.H{
 			"in_flight": middleware.InFlightCount(),
 			"draining":  middleware.IsDraining(),
+			// Relay gate telemetry. in_flight_relay excludes probes and control
+			// plane, so deployment drain (in_flight) keeps reflecting every
+			// accepted request while the gate reports only gated admissions.
+			"in_flight_relay":     middleware.InFlightRelayCount(),
+			"in_flight_relay_max": middleware.MaxInFlightRelay(),
+			"in_flight_rejected":  middleware.InFlightRelayRejectedCount(),
 		})
 	})
 

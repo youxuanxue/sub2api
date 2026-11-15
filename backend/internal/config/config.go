@@ -1257,6 +1257,14 @@ type GatewayConfig struct {
 	GeminiCachedContentMaxTTLSeconds int `mapstructure:"gemini_cached_content_max_ttl_seconds"`
 	// ConnectionPoolIsolation: 上游连接池隔离策略（proxy/account/account_proxy）
 	ConnectionPoolIsolation string `mapstructure:"connection_pool_isolation"`
+	// MaxInFlightRequests caps concurrent relay requests for this process.
+	// The gate is process-local on purpose: each app node protects its own
+	// memory, and a Redis-wide counter would either fail open (gate gone during
+	// a Redis blip) or fail closed (Redis latency becomes gateway downtime).
+	// Overflow fails fast with 503 + Retry-After instead of queueing, so an
+	// overload spike sheds new work and lets admitted requests finish.
+	// 0 or a negative value disables the gate (rollback switch).
+	MaxInFlightRequests int `mapstructure:"max_in_flight_requests"`
 	// ForceCodexCLI: 强制将 OpenAI `/v1/responses` 请求按 Codex CLI 处理。
 	// 用于网关未透传/改写 User-Agent 时的兼容兜底（默认关闭，避免影响其他客户端）。
 	ForceCodexCLI bool `mapstructure:"force_codex_cli"`
@@ -2920,6 +2928,13 @@ func setDefaults() {
 	viper.SetDefault("gateway.gemini_debug_response_headers", false)
 	viper.SetDefault("gateway.gemini_cached_content_max_ttl_seconds", 86400)
 	viper.SetDefault("gateway.connection_pool_isolation", ConnectionPoolIsolationAccountProxy)
+	// Process-local relay concurrency cap. 0 (or negative) disables the gate,
+	// which is the documented rollback switch. 512 leaves ~50x headroom over the
+	// largest in-flight count ever observed on this fleet (single digits to low
+	// tens of long streams) while still bounding goroutine stacks, socket
+	// buffers and SSE queues to roughly 50 MiB at ~100 KiB per request — well
+	// inside the non-heap headroom of a 3 GiB container with GOMEMLIMIT=2GiB.
+	viper.SetDefault("gateway.max_in_flight_requests", 512)
 	// HTTP 上游连接池配置（针对 5000+ 并发用户优化）
 	viper.SetDefault("gateway.max_idle_conns", 2560)          // 最大空闲连接总数（高并发场景可调大）
 	viper.SetDefault("gateway.max_idle_conns_per_host", 120)  // 每主机最大空闲连接（HTTP/2 场景默认）

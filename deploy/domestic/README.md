@@ -50,7 +50,7 @@
 - `prepare-runtime.py STATE_DIR` 从共享 Stage0 Compose/Caddy 模板生成本机受保护 bundle，
   重用已存在的 secrets，不在 stdout 输出配置或密钥。`STATE_DIR/images.json` 必须来自
   已校验的 amd64 镜像，包含各服务的 `source` digest、`config` digest、归档 `sha256` 与本地 `tag`。
-- `compose.override.yml` 打开 QA capture，不配置 QA S3 上传，并将应用池对齐 **O 8C/8G**
+- `compose.override.yml` 打开 QA capture，不配置 QA S3 上传，并将应用池对齐当前宿主规格（**4C16G**，2026-11-14 升级）。同一份 override 还设置应用容器的硬内存上限（`mem_limit`/`memswap_limit`，默认 3g，`TOKENKEY_APP_MEMORY_LIMIT` 可覆盖）与全局在途闸门 `GATEWAY_MAX_IN_FLIGHT_REQUESTS`（默认 512，0 为关闭）。美西 prod 的容器上限走另一份 compose（`docker-compose.bluegreen.yml`，默认 8g），两站机制不同，不要互相套用
   （`GOMEMLIMIT=2GiB`、DB open/idle `40/10`、Redis pool/idle `96/8`；内存档未变，
   仅主机从 4C 升到 8C）。蓝绿 `prepare` 会用该文件解析出的池参数，以及
   `QA_CAPTURE_ENABLED=true`，覆盖候选容器

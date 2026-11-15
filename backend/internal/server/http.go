@@ -52,6 +52,10 @@ func ProvideRouter(
 
 	r := gin.New()
 	r.Use(middleware2.Recovery())
+	// Process-local relay concurrency cap (gateway.max_in_flight_requests).
+	// Configured here, once, before any route is registered: the gate handler
+	// itself is mounted per relay route by the terminal-route registrar.
+	middleware2.SetMaxInFlightRelay(cfg.Gateway.MaxInFlightRequests)
 	// TK: 未配置 trusted_proxies 时默认信任 loopback + 私网网段，使 c.ClientIP()
 	// 在 Caddy/nginx/Docker 反代后正确解析真实客户端（Wei-Shaw/sub2api#1326 / #2410）。
 	// 详见 http_tk_trusted_proxies.go。

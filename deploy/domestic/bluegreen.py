@@ -164,6 +164,11 @@ QA_ENV_KEYS = (
 # declares an app env key that none of these three tuples claims.
 CONFIG_ENV_KEYS = (
     'SECURITY_PROXY_PROBE_PRESET',
+    # Process-wide relay concurrency cap (gateway.max_in_flight_requests). A new
+    # colour inherits the live container env, so without this entry every
+    # promote would silently serve with the inherited value instead of the
+    # override's cap — the same drift class as SECURITY_PROXY_PROBE_PRESET.
+    'GATEWAY_MAX_IN_FLIGHT_REQUESTS',
     # Data plane endpoints (design-data-plane-split.md). Without these a color
     # promoted after the cutover would inherit the old same-host addresses.
     'DATABASE_HOST',
@@ -227,6 +232,15 @@ def candidate_compose(service, current, image, target):
         candidate.pop(key, None)
     candidate.update(image=image, container_name=target, pull_policy='never',
                      environment=env, networks=['existing'])
+    # Hard memory cap. compose.override.yml owns it, so a candidate always takes
+    # the override's value rather than inheriting an uncapped or stale
+    # HostConfig from the live colour. This is what keeps a spike during the
+    # blue/green overlap from OOM-killing the host: both colours are capped.
+    for key in ('mem_limit', 'memswap_limit'):
+        value = service.get(key)
+        if value is None or not str(value).strip():
+            raise ValueError(f'compose service missing {key}; refusing an uncapped candidate')
+        candidate[key] = value
     # Runtime environment may contain literal dollar signs. Compose must not
     # reinterpret any existing secret/config value as a new interpolation.
     candidate['environment'] = {k: v.replace('$', '$$') for k, v in env.items()}

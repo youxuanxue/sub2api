@@ -2168,7 +2168,7 @@
         "builtin && len(names) > 0",
         "return len(calls) == 0"
       ],
-      "rationale": "Chat\u2192Gemini keys tool history by the original call ID. Builtin tools cannot mix with function declarations."
+      "rationale": "Chat→Gemini keys tool history by the original call ID. Builtin tools cannot mix with function declarations."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
@@ -2221,7 +2221,7 @@
         "adapterID: AdapterMessagesToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesMessagesToGemini",
         "preserves: preservesResponsesToGemini"
       ],
-      "rationale": "Messages function tools use preservesMessagesToGemini. Responses\u2192Gemini uses Chat admission, not a text-only gate."
+      "rationale": "Messages function tools use preservesMessagesToGemini. Responses→Gemini uses Chat admission, not a text-only gate."
     },
     {
       "path": "backend/internal/engine/protocolrouter/gemini_messages_tools.go",
@@ -17109,9 +17109,34 @@
     {
       "path": "backend/internal/server/routes/gateway_terminal_routes.go",
       "must_contain": [
+        "chain = append(chain, middleware2.InFlightGate, handlers[len(handlers)-1])",
+        "if len(handlers) == 0 {",
         "group.Handlers = append(gin.HandlersChain{handler.TerminalOutcomeMiddleware(r.sink, policy.kind)}, group.Handlers...)"
       ],
-      "rationale": "Terminal collector must wrap inherited auth/routing middleware so early Gin Abort cannot hide typed empty-pool outcomes."
+      "rationale": "Relay admission must run immediately before the business handler so it is uniformly post-auth: some groups carry apiKeyAuth on the group while root/codex pass it per route. Prepending the gate to the group chain would let unauthenticated callers hold every slot with invalid keys and turn the capacity gate into the outage. The terminal collector still wraps the inherited chain on the group so early Gin Abort cannot hide typed empty-pool outcomes. Dropping either leaves the other silently degraded after an upstream merge."
+    },
+    {
+      "path": "backend/internal/server/middleware/inflight_gate_tk.go",
+      "must_contain": [
+        "func SetMaxInFlightRelay(n int)",
+        "var InFlightGate = newInFlightGate()",
+        "if inflightRelay.Add(1) > limit {",
+        "stop := context.AfterFunc(c.Request.Context(), release)",
+        "MarkIngressRejected(c, IngressRejectInFlightSaturated)",
+        "c.Header(\"Retry-After\", strconv.Itoa(inFlightRetryAfterSeconds))"
+      ],
+      "rationale": "The process-wide relay cap is the only thing that turns a traffic spike into fast-fail 503 instead of an OOM kill. The release must stay idempotent and also fire on request-context cancellation; a single leaked slot wedges the gate permanently. The ingress-reject mark is what keeps shed requests out of billing and out of ops error attribution."
+    },
+    {
+      "path": "backend/internal/server/middleware/inflight_gate_tk_test.go",
+      "must_contain": [
+        "func TestInFlightGateReleasesOnPanic(t *testing.T)",
+        "func TestInFlightGateReleasesOnClientDisconnect(t *testing.T)",
+        "func TestInFlightGateCountsStreamedResponsesUntilWritten(t *testing.T)",
+        "func TestInFlightGateAdmitsUpToLimitThenRejectsWithRetryAfter(t *testing.T)",
+        "func TestInFlightGateDisabledAllowsEverythingAndDoesNotCount(t *testing.T)"
+      ],
+      "rationale": "Protect the gate's dangerous paths: every exit (panic, disconnect, streamed completion) must return the slot, SSE must hold it until the body is written, overflow must fail fast, and 0 must disable the gate for rollback."
     },
     {
       "path": "backend/internal/server/routes/gateway_terminal_routes_test.go",
@@ -20450,82 +20475,151 @@
     },
     {
       "path": "ops/qa/coordinator_host.py",
-      "must_contain": ["def participants(config, hour):", "StrictHostKeyChecking=yes", "hour + dt.timedelta(hours=25) > anchor", "oldest_blocked_hour_utc", "completed[hour.isoformat()] = plan[\"expected_sources\"]"],
+      "must_contain": [
+        "def participants(config, hour):",
+        "StrictHostKeyChecking=yes",
+        "hour + dt.timedelta(hours=25) > anchor",
+        "oldest_blocked_hour_utc",
+        "completed[hour.isoformat()] = plan[\"expected_sources\"]"
+      ],
       "rationale": "The archive runner owns historical membership and pinned dispatch only within retention; independent host expiry must not be coupled to archive availability."
     },
     {
       "path": "ops/qa/source_worker.py",
-      "must_contain": ["def seal(config, hour):", "capture changed while archiving", "legacy QA service is still busy", "require_retained_hour()"],
+      "must_contain": [
+        "def seal(config, hour):",
+        "capture changed while archiving",
+        "legacy QA service is still busy",
+        "require_retained_hour()"
+      ],
       "rationale": "The archive worker rejects changed seals, competing owners and archive completion after the approved expiry deadline."
     },
     {
       "path": "backend/internal/observability/qa/lifecycle/shared_cleanup.go",
-      "must_contain": ["func RunSharedCleanup(", "shared QA cleanup requires the exact historical source set", "completion.SealDigest", "func RunSharedRetention(", "dropFixedAgeHour(ctx, conn, control, child, result.RetentionBoundary, time.Now)"],
+      "must_contain": [
+        "func RunSharedCleanup(",
+        "shared QA cleanup requires the exact historical source set",
+        "completion.SealDigest",
+        "func RunSharedRetention(",
+        "dropFixedAgeHour(ctx, conn, control, child, result.RetentionBoundary, time.Now)"
+      ],
       "rationale": "Receipt-based cleanup remains strict; explicit independent retention reuses bounded, transactional fixed-age QA DROP without claiming all disks clean."
     },
     {
       "path": "ops/qa/test_coordinator_host.py",
-      "must_contain": ["test_a_unreachable_does_not_block_b_archive_and_never_dispatches_cleanup", "test_retired_source_stays_in_its_historical_hour", "test_database_write_defers_before_lock_or_native_execution_near_backup", "test_expired_hours_are_delegated_to_independent_retention_not_rearchived", "test_completed_archive_is_not_repeated_and_membership_change_reopens_it", "test_independent_retention_units_for_both_roles_without_activation"],
+      "must_contain": [
+        "test_a_unreachable_does_not_block_b_archive_and_never_dispatches_cleanup",
+        "test_retired_source_stays_in_its_historical_hour",
+        "test_database_write_defers_before_lock_or_native_execution_near_backup",
+        "test_expired_hours_are_delegated_to_independent_retention_not_rearchived",
+        "test_completed_archive_is_not_repeated_and_membership_change_reopens_it",
+        "test_independent_retention_units_for_both_roles_without_activation"
+      ],
       "rationale": "Runtime tests pin independent expiry installation, retained-hour archive scope, historical membership and backup contention."
     },
     {
       "path": "ops/qa/force_retention.py",
-      "must_contain": ["hour + dt.timedelta(hours=25) <= now", "source_cleanup.remove_hour(target_root, relative)", "\"expire-shared\", dry_run=not apply", "archive_verified", "host_lock\"] + \".retention\""],
+      "must_contain": [
+        "hour + dt.timedelta(hours=25) <= now",
+        "source_cleanup.remove_hour(target_root, relative)",
+        "\"expire-shared\", dry_run=not apply",
+        "archive_verified",
+        "host_lock\"] + \".retention\""
+      ],
       "rationale": "Approved loss-tolerant expiry must run locally without archive locks or evidence, stay within exact QA hour trees and never claim archive success."
     },
     {
       "path": "ops/qa/test_force_retention.py",
-      "must_contain": ["test_one_day_boundary_dry_run_and_offline_cleanup", "test_boundary_one_second_before_deadline_keeps_entire_hour", "test_symlink_does_not_escape_and_does_not_block_other_hours", "test_full_disk_audit_failure_does_not_block_reclamation", "test_data_retention_uses_native_expiry_without_archive_or_coordinator_lock"],
+      "must_contain": [
+        "test_one_day_boundary_dry_run_and_offline_cleanup",
+        "test_boundary_one_second_before_deadline_keeps_entire_hour",
+        "test_symlink_does_not_escape_and_does_not_block_other_hours",
+        "test_full_disk_audit_failure_does_not_block_reclamation",
+        "test_data_retention_uses_native_expiry_without_archive_or_coordinator_lock"
+      ],
       "rationale": "Behavioral regressions cover offline expiry, exact deadline, containment, ENOSPC and independent locks on both host roles."
     },
     {
       "path": "ops/qa/test_local_maintenance_integration.py",
-      "must_contain": ["test_independent_shared_retention_drops_without_sources_and_preserves_recent_and_business_data", "source_unavailable_after_retention"],
+      "must_contain": [
+        "test_independent_shared_retention_drops_without_sources_and_preserves_recent_and_business_data",
+        "source_unavailable_after_retention"
+      ],
       "rationale": "Real PostgreSQL proves expiry works without source evidence and preserves recent QA, business tables and disk-completion boundaries."
     },
     {
       "path": "backend/internal/service/openai_chat_stream_error_tk.go",
-      "must_contain": ["detectChatStreamError", "sanitizeOpenAIResponseFailedEventForClient", "openAIStreamFailedEventShouldFailover"],
+      "must_contain": [
+        "detectChatStreamError",
+        "sanitizeOpenAIResponseFailedEventForClient",
+        "openAIStreamFailedEventShouldFailover"
+      ],
       "rationale": "Chat HTTP 200 errors share the existing semantic failover owner and safe public envelope."
     },
     {
       "path": "backend/internal/service/openai_gateway_cc_pipeline.go",
-      "must_contain": ["detectChatStreamError"],
+      "must_contain": [
+        "detectChatStreamError"
+      ],
       "rationale": "Converted Chat streams must consume the shared in-band error detector."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
-      "must_contain": ["detectChatStreamError", "handleChatStreamFailure"],
+      "must_contain": [
+        "detectChatStreamError",
+        "handleChatStreamFailure"
+      ],
       "rationale": "Raw Chat streams must not bypass the shared failure contract."
     },
     {
       "path": "backend/internal/service/auth_service_tk_refresh_grace.go",
-      "must_contain": ["tkMarkRotatedWithGrace", "return ErrServiceUnavailable", "tkRefreshRotatedWithinGrace"],
+      "must_contain": [
+        "tkMarkRotatedWithGrace",
+        "return ErrServiceUnavailable",
+        "tkRefreshRotatedWithinGrace"
+      ],
       "rationale": "Cache failure must stop refresh issuance without replacing the existing grace policy."
     },
     {
       "path": "backend/internal/service/openai_codex_fingerprint.go",
-      "must_contain": ["resolveGatewayCodexFingerprintIDs", "sub2api:codex-tenant-session:v1:key:"],
+      "must_contain": [
+        "resolveGatewayCodexFingerprintIDs",
+        "sub2api:codex-tenant-session:v1:key:"
+      ],
       "rationale": "Session/full convergence preserves authenticated tenant separation without changing installation identity."
     },
     {
       "path": "backend/internal/securityaudit/prompt_types.go",
-      "must_contain": ["FullPrompt", "json:\"-\""],
+      "must_contain": [
+        "FullPrompt",
+        "json:\"-\""
+      ],
       "rationale": "Legacy internal raw prompt fields must never become API output again."
     },
     {
       "path": "backend/internal/service/openai_error_envelope_tk_test.go",
-      "must_contain": ["TestOpenAIClientErrorEnvelopePreservesRetryAfter", "TestOpenAIClientErrorEnvelopeDropsSafetyDiagnostics", "TestOpenAIClientErrorEnvelopeDropsUnknownNestedMetadata"],
+      "must_contain": [
+        "TestOpenAIClientErrorEnvelopePreservesRetryAfter",
+        "TestOpenAIClientErrorEnvelopeDropsSafetyDiagnostics",
+        "TestOpenAIClientErrorEnvelopeDropsUnknownNestedMetadata"
+      ],
       "rationale": "Error privacy must not silently remove retry advice, and retry compatibility must not restore private diagnostics."
     },
     {
       "path": "backend/internal/service/openai_chat_inband_error_tk_test.go",
-      "must_contain": ["TestChatInBandErrorPreservesFailureAndUsage", "TestChatInBandErrorPreservesSemanticStatusWithoutDiagnostics"],
+      "must_contain": [
+        "TestChatInBandErrorPreservesFailureAndUsage",
+        "TestChatInBandErrorPreservesSemanticStatusWithoutDiagnostics"
+      ],
       "rationale": "In-band failures must preserve usage and semantic health classification across raw, converted, and buffered paths."
     },
     {
       "path": "backend/internal/service/auth_service_refresh_rotation_failure_tk_test.go",
-      "must_contain": ["TestRefreshGraceCacheFailureDoesNotIssueTokens", "cleanup_failed", "require.Nil(t, pair)"],
+      "must_contain": [
+        "TestRefreshGraceCacheFailureDoesNotIssueTokens",
+        "cleanup_failed",
+        "require.Nil(t, pair)"
+      ],
       "rationale": "Marking and indexing failures must not return tokens, including when best-effort cleanup also fails."
     },
     {
