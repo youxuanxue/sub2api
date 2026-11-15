@@ -20516,6 +20516,26 @@
       "path": "backend/internal/service/auth_service_refresh_rotation_failure_tk_test.go",
       "must_contain": ["TestRefreshGraceCacheFailureDoesNotIssueTokens", "cleanup_failed", "require.Nil(t, pair)"],
       "rationale": "Marking and indexing failures must not return tokens, including when best-effort cleanup also fails."
+    },
+    {
+      "path": "backend/internal/service/cache_read_write_attribution_tk.go",
+      "must_contain": [
+        "MinAttributedCacheWriteTokens",
+        "ModelDistinguishesCacheReadAndWrite",
+        "shouldAttributeUpstreamCacheWrite",
+        "ApplyOpenAIUpstreamCacheReadWriteAttribution",
+        "ApplyClaudeUpstreamCacheReadWriteAttribution"
+      ],
+      "rationale": "Official cache read/write eligibility and token attribution must remain one shared owner across upstream protocols."
+    },
+    {
+      "path": "backend/internal/service/cache_read_write_attribution_tk_test.go",
+      "must_contain": [
+        "TestApplyOpenAIUpstreamCacheReadWriteAttribution",
+        "TestApplyClaudeUpstreamCacheReadWriteAttribution",
+        "TestNewAPIChatToAnthropicBridgePreservesCacheWrite"
+      ],
+      "rationale": "Regression coverage pins platform scope, pricing eligibility, 1024-token attribution, conservation, and bridge passthrough."
     }
   ]
 }
