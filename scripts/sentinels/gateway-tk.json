@@ -20698,6 +20698,44 @@
         "def test_app_a_declares_existing_bluegreen_network_external(self):"
       ],
       "rationale": "Executable coverage for the external network override."
+    },
+    {
+      "path": "backend/internal/service/antigravity_sticky_cooldown_tk.go",
+      "must_contain": [
+        "func (s *AntigravityGatewayService) tkDropStickyForUnusableAccount(",
+        "func (s *AntigravityGatewayService) tkRebindStickyAfterFailover(",
+        "if !s.tkStickyBoundTo(ctx, groupID, sessionHash, account.ID) {",
+        "bound != previousAccountID"
+      ],
+      "rationale": "Keep cooling and sticky affinity consistent: drop a binding only when it still points at the cooled account, and re-pin onto the successor after a failover switch so at most one turn pays a cross-account cache miss. Dropping unconditionally would let a concurrent turn lose a healthy binding; skipping the rebind would leave the session affinity-less and re-selecting on every later turn."
+    },
+    {
+      "path": "backend/internal/service/antigravity_429_evidence_tk.go",
+      "must_contain": [
+        "func tkGoogle429CorroboratesAccountLimit(",
+        "reason == tkGoogle429AccountLimitReason",
+        "if containsStringFold(tkGoogle429CapacityReasons, reason) {"
+      ],
+      "rationale": "Only cool an account when Google structurally corroborates an account-scoped limit (RATE_LIMIT_EXCEEDED / QuotaFailure). Shared-capacity reasons and evidence-free 429s must fail over without cooling: a cool is applied per account while the cause is per request, so an uncorroborated cool spreads across the failover chain and removes accounts that could serve the next request."
+    },
+    {
+      "path": "backend/internal/service/antigravity_sticky_cooldown_tk_test.go",
+      "must_contain": [
+        "TestStickyCooldownHelpersLeaveHealthyPathUntouched",
+        "TestTkGoogle429CorroboratesAccountLimit",
+        "require.Equal(t, 0, cache.setCalls)",
+        "require.Equal(t, 0, cache.deleteCalls)"
+      ],
+      "rationale": "Assert the healthy path never touches the sticky cache (the basis for claiming steady-state cache behaviour is unchanged) and pin the corroboration matrix so an evidence-free 429 can never start cooling accounts again."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_retry.go",
+      "must_contain": [
+        "s.tkDropStickyForUnusableAccount(ctx, groupID, sessionHash, account)",
+        "if !tkGoogle429CorroboratesAccountLimit(body) {",
+        "s.tkDropStickyForUnusableAccount(p.ctx, p.groupID, p.sessionHash, p.account)"
+      ],
+      "rationale": "Anchor the two injections that stop a cooled account from being replayed: the 429 branch must consult the corroboration predicate before cooling, and the model-rate-limit path must use the ownership-checked drop instead of an unconditional delete."
     }
   ]
 }
