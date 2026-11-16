@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -294,6 +295,64 @@ func TestCodexDirectImagesEmptyResponseFails(t *testing.T) {
 		_, err := parseCodexDirectImagesResponse([]byte(body))
 		require.Error(t, err)
 	}
+}
+
+func TestCodexDirectImagesStreamingCompactsPrettyUsageJSON(t *testing.T) {
+	// Codex Direct may split pretty-printed completed JSON across multiple SSE
+	// data: fields. The rewrite path joins those lines (retaining newlines) and
+	// must compact before writing so line-oriented clients see one valid payload.
+	upstreamStream := "" +
+		"data: {\"type\":\"image_generation.completed\",\n" +
+		"data: \"b64_json\":\"aGVsbG8=\",\"output_format\":\"png\",\"size\":\"1024x1024\",\n" +
+		"data: \"usage\":{\n" +
+		"data:   \"input_tokens\":140,\n" +
+		"data:   \"input_tokens_details\":{\"image_tokens\":1,\"text_tokens\":139},\n" +
+		"data:   \"output_tokens\":515,\n" +
+		"data:   \"output_tokens_details\":{\"image_tokens\":515,\"text_tokens\":0},\n" +
+		"data:   \"total_tokens\":655\n" +
+		"data: }}\n\n"
+	body := []byte(`{"model":"gpt-image-2","prompt":"edit","images":[{"image_url":"data:image/png;base64,AA=="}],"stream":true}`)
+	c, rec := newOpenAIImagesTestContext(t, body)
+	c.Request.URL.Path = "/v1/images/edits"
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Type": {"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamStream)),
+	}}
+	svc := newOpenAIImagesTestService(upstream)
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+	result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.ImageCount)
+
+	wire := rec.Body.String()
+	require.Contains(t, wire, "event: image_edit.completed\n")
+	var dataLine string
+	for _, line := range strings.Split(wire, "\n") {
+		if strings.HasPrefix(line, "data: ") {
+			require.Empty(t, dataLine, "SSE must keep the completed payload on one data line")
+			dataLine = strings.TrimPrefix(line, "data: ")
+		}
+	}
+	require.NotEmpty(t, dataLine)
+	require.NotContains(t, dataLine, "\n")
+	require.True(t, json.Valid([]byte(dataLine)), "line-oriented SSE clients must see valid JSON")
+	require.Equal(t, "image_edit.completed", gjson.Get(dataLine, "type").String())
+	require.Equal(t, int64(655), gjson.Get(dataLine, "usage.total_tokens").Int())
+	require.Equal(t, "aGVsbG8=", gjson.Get(dataLine, "b64_json").String())
+}
+
+func TestCompactOpenAIImagesSSEDataPayload(t *testing.T) {
+	pretty := []byte("{\n  \"type\": \"image_edit.completed\",\n  \"usage\": {\n    \"total_tokens\": 1\n  }\n}")
+	got := compactOpenAIImagesSSEDataPayload(pretty)
+	require.True(t, json.Valid(got))
+	require.NotContains(t, string(got), "\n")
+	require.Equal(t, int64(1), gjson.GetBytes(got, "usage.total_tokens").Int())
+
+	require.Equal(t, []byte("[DONE]"), compactOpenAIImagesSSEDataPayload([]byte("[DONE]")))
+	require.Equal(t, []byte("not-json"), compactOpenAIImagesSSEDataPayload([]byte("not-json")))
 }
 
 func TestCodexDirectImagesAccountTestAndWhitelist(t *testing.T) {

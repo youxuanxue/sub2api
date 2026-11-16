@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -1179,11 +1180,27 @@ func (s *OpenAIGatewayService) writeOpenAIImagesStreamEvent(c *gin.Context, flus
 			return err
 		}
 	}
+	// SSE data fields are line-oriented. Pretty-printed upstream JSON (common in
+	// Codex Direct image_*.completed usage blocks) must be compacted so the first
+	// embedded newline does not truncate the frame for spec-compliant parsers.
+	payload = compactOpenAIImagesSSEDataPayload(payload)
 	if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", payload); err != nil {
 		return err
 	}
 	flusher.Flush()
 	return nil
+}
+
+func compactOpenAIImagesSSEDataPayload(payload []byte) []byte {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 || string(trimmed) == "[DONE]" || !json.Valid(trimmed) {
+		return payload
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, trimmed); err != nil {
+		return payload
+	}
+	return compact.Bytes()
 }
 
 func (s *OpenAIGatewayService) tryWriteOpenAIImagesStreamEvent(
