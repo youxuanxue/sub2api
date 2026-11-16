@@ -550,6 +550,22 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 			return float64(*systemMetrics.ConcurrencyQueueDepth), true
 		}
 		return 0, false
+	case "db_unavailable_count":
+		if systemMetrics == nil || systemMetrics.DBOK == nil {
+			return 0, false
+		}
+		if !*systemMetrics.DBOK {
+			return 1, true
+		}
+		return 0, true
+	case "redis_unavailable_count":
+		if systemMetrics == nil || systemMetrics.RedisOK == nil {
+			return 0, false
+		}
+		if !*systemMetrics.RedisOK {
+			return 1, true
+		}
+		return 0, true
 	case "group_available_accounts":
 		if groupID == nil || *groupID <= 0 {
 			return 0, false

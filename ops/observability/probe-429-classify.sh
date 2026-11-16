@@ -29,8 +29,9 @@ SELECT row_to_json(t) FROM (
          -- error_message is the sanitized public copy and is identical for an
          -- empty pool and a real upstream limit, so it cannot tell them apart.
          -- These two can: error_phase (routing vs upstream) plus the internal
-         -- upstream_error_message ("No available accounts..." = local pool,
-         -- "Resource has been exhausted..." = the Google upstream quota reply).
+         -- upstream_error_message. No available accounts means local pool
+         -- exhaustion; Resource has been exhausted means upstream quota.
+         -- upstream quota reply.
          -- Do NOT triage on error_type: the universal ingress hardcodes
          -- rate_limit_error for an empty pool (universal_routing_tk.go) while
          -- the per-platform handlers annotate api_error, so error_type encodes
