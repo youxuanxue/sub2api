@@ -19,8 +19,17 @@ scope: ".github/workflows/deploy-stage0.yml + scripts/checks/bluegreen-migration
 
 # Cloud-Agent-Driven Stage0 Blue/Green Deployment Workflow
 
-Gateway production release stays on `deploy-stage0.yml` and the blue/green SSM
-owner in this document. The 2026-09-10
+> **2026-11-16 superseded default-path note:** production and cn-prod now run
+> entry + multiple single-container app nodes + a data machine. Normal releases use
+> `prod-rolling-deploy.yml` and `cn-prod-rolling-deploy.yml`; see
+> `design-prod-entry-multi-app.md` and `design-cn-prod-rolling-deploy.md`.
+> This document remains the approved contract for the recovery-only / legacy
+> `deploy-stage0.yml` blue-green path. References below to this workflow being the
+> primary release path describe the pre-rolling baseline.
+
+Historically, gateway production release moved to `deploy-stage0.yml` and the
+blue/green SSM owner in this document. After the rolling migration it is retained
+only for legacy recovery. The 2026-09-10
 [component release revision](prod-component-release.md) and its Bundle Worker
 selection are archived and superseded by [qa-raw-only](qa-raw-only.md). They do
 not select a worker and do not gate gateway cutover. QA maintenance follows

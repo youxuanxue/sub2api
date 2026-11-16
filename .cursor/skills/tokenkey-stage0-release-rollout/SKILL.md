@@ -1,17 +1,19 @@
 ---
 name: tokenkey-stage0-release-rollout
 description: >-
-  Drive TokenKey Stage0 release, Tencent USW prod deploy, Tencent Beijing cn-prod SSM deploy,
-  smoke, rollback, and release-risk checks. Use for release tagging,
-  deploy-stage0, cn-prod deploy_via_ssm, structured smoke, or post-release
-  OAuth checks.
+  Drive TokenKey Stage0 release and rolling deploys to Tencent USW prod and
+  Tencent Beijing cn-prod, including warm, smoke, legacy recovery, rollback, and
+  release-risk checks. Use for release tagging, prod/cn-prod rolling deploy,
+  image distribution, structured smoke, or post-release OAuth checks.
 ---
 
 # TokenKey：Stage0 release → prod / cn-prod rollout → 真实测试
 
 适用于本仓库（TokenKey fork of sub2api）。权威纪律见根目录 `CLAUDE.md`。  
 现网舰队 / prod 发版入口：[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)（**prod-only**）。  
-Tencent Beijing cn-prod：[`deploy/domestic/README.md`](../../../deploy/domestic/README.md)（**SSM Hybrid 默认**，禁止常规发版开 SSH/离线 scp）。
+Tencent Beijing cn-prod：[`deploy/domestic/README.md`](../../../deploy/domestic/README.md)
+（当前为入口机 + 多应用机 + 数据机；日常发版走 rolling，SSM/TAT 仅是远程执行通道，
+禁止常规发版开 SSH/离线 scp）。
 
 ## 确定性基线（机械化 vs 真判断）
 
@@ -25,8 +27,9 @@ release、目标解析、canary 选择、rollout、smoke/post-check verdict 均�
 
 1. `operation=check`：只读对比 prev release tag → HEAD（`git log/diff` + deploy 契约文件），不 bump/tag/deploy。
 2. `operation=release` + `target=prod`：`bash scripts/release-bump-and-tag.sh`（worktree 隔离）→
-   watch `release.yml` → warm（可选：`dispatch-prod-deploy.sh --operation warm`）→
-   `dispatch-prod-deploy.sh --operation deploy` → CI `tk_post_deploy_smoke: OK`。
+   watch `release.yml` → `dispatch-prod-deploy.sh --operation warm --revision FULL_SHA` →
+   `dispatch-prod-deploy.sh --operation deploy --revision FULL_SHA` →
+   prod rolling workflow smoke 验收。warm/deploy 都必须传完整 40 位 revision。
 3. 两阶段实测：`ops/observability/run-post-release-check.sh` + `scripts/release_post_check.py`
    （`--phase immediate` / `--phase delayed`；禁止模型自造 verdict）。
    Workflow 步骤名与 Summary 标题必须对齐：`Check PR hooks immediately`、
@@ -41,28 +44,27 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 
 ## Jobs / OPC 默认部署顺序
 
-**默认 `target=prod`：** release build → prod upgrade + full smoke → post-release checks。
+**默认 `target=prod`：** release build → warm every prod app node → rolling deploy + smoke
+→ post-release checks。
 
 例外：
 
 - `target=prod`：只发版/部署腾讯美西 prod（**默认路径**）。
-- `target=cn-prod`：复用同一 GHCR 包，经 `deploy/domestic/deploy_via_ssm.sh`
-  `pull --tag X.Y.Z --revision FULL_SHA` → `sync-controls` → `prepare` → `candidate-smoke --state <prepare state>`。
-  postcheck plan 用 `scripts/release_post_check.py plan` 生成后经 `put-file` 送到 `/private/post-plan.json`，
-  再 `promote --state … --receipt <prepared.json sha256> --postcheck-plan /private/post-plan.json`。
-  `promote` 的公网入口固定为 `prod-target.json` 的 `public_origin`。不要再写候选烟测脚本或 promote 包装脚本。
-  禁止手写 `base64 -d > ...`：2026-10-25 这样一条笔误（`> bash`，远端 cwd 为 `/usr/bin`）
-  把 `/usr/bin/bash` truncate 成 0 字节，服务未断但主机 bash-shebang 告警 job 全挂约 9 小时。
-  preflight 门禁 `cn-prod remote file transfer` 守这条。
-  Release 成功后，等待对应 release run 触发的 `distribute-cn-image.yml` 成功（私有 S3 + SSM 预下载）；
-  不以 Release 构建绿灯代替分发绿灯。`pull` 先核对主机上的
-  `tokenkey-domestic/tokenkey:TAG-SHORT`；预下载回执记下的 image id 一致就跳过 S3，本机不需要 boto3。
-  该 tag 不在主机上、或回执对不上时才渲染 S3。初始化权限与保留期见国内 README。
-  `--transport ghcr` 为显式备用路径，S3 缺失/失败不自动降级。
-  **禁止**默认走运维机 `crane`/`docker save` + 开放 cn-prod SSH 22；运维机搬运离线 tar 仅恢复；CI 校验归档经私有 S3 + SSM 分发是默认路径。
-  `promote --public-url` 必须等于 `deploy/domestic/prod-target.json` 的 `public_origin`。2026-11-15 M3 起它是入口机域名 `https://api.galaxywaveai.com`，不再是 app-a 的静态 IP；`api-cn.tokenkey.dev` 仍指向美西，不能当作国内入口。
+- `target=cn-prod`：复用同一 GHCR 包。`distribute-cn-image.yml` 的 AWS publish job
+  上传/校验私有 S3 归档，随后独立的 `tencent-ops` warm job 按 `prod-target.json`
+  的 `apps[]` 顺序预下载；warm 固定 `--channel tat`，不能选 `auto`。
+  Release 与分发都成功后，用
+  `bash scripts/stage0/dispatch-prod-deploy.sh --operation cn-deploy --tag X.Y.Z --revision FULL_SHA`
+  触发 `cn-prod-rolling-deploy.yml`。rolling 逐台 drain、换镜像、健康检查和回流，
+  公网入口继续保持 `https://api.galaxywaveai.com`，发版不改 DNS 或 `public_origin`。
+  `api-cn.tokenkey.dev` 仍指向美西，不能当作国内入口。
+- **恢复路径**：`deploy-stage0.yml` 已降为 recovery-only / legacy blue-green；
+  仅当 rolling 不可用、需要旧布局恢复或经单独批准时，使用
+  `dispatch-prod-deploy.sh --operation legacy-deploy|replay|smoke-only`。
+  cn-prod 的 `deploy_via_ssm.sh pull → sync-controls → prepare → candidate-smoke → promote`
+  同样是恢复/兼容流程，不是日常入口。禁止手写 `base64 -d > ...`；送文件只用 `put-file`。
+  2026-10-25 手写传输把 `/usr/bin/bash` truncate 成 0 字节的教训仍由 preflight 守门。
   `operation=replay` 只准备美西，不能用来切北京。
-  以上是 cn-prod 蓝绿流程。M4 完成后改用 `deploy/domestic/rolling.py` 逐台滚动，见[多应用机滚动发版设计](../../../docs/approved/design-cn-prod-rolling-deploy.md)。
 
 ## 故障速查
 

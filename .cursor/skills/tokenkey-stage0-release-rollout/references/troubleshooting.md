@@ -12,12 +12,15 @@
 | `tag already exists on origin` | 升 `VERSION` 再打新 tag，或仅 dispatch deploy 已有 tag。 |
 | deploy 报单架构 manifest | 重新跑 `release.yml` 且 `simple_release=false`；prod 都不要 override。 |
 | 误 dispatch 了一个多余 prod deploy run | release 不再自动 queue，多出来的一定是手动重复 dispatch；取消多余 run、watch 留下的那个即可。 |
-| prod workflow `tag must match X.Y.Z, got: v…` | 本地入口已修：`dispatch-prod-deploy.sh` 经 `normalize-deploy-tag.sh` 剥 `v`。若仍出现，说明绕过了这些入口（手写 `gh workflow run … -f tag=v…`）；改传裸 `X.Y.Z` 或走脚本重试。 |
+| prod/cn-prod rolling `revision must be the full 40-hex commit sha` | `dispatch-prod-deploy.sh --operation deploy\|cn-deploy\|warm` 必须传完整 40 位 revision；不要手写 workflow dispatch，也不要用短 SHA。 |
+| prod/cn-prod rolling `tag must match X.Y.Z, got: v…` | 本地入口已修：`dispatch-prod-deploy.sh` 经 `normalize-deploy-tag.sh` 剥 `v`。若仍出现，说明绕过了这些入口（手写 `gh workflow run … -f tag=v…`）；改传裸 `X.Y.Z` 或走脚本重试。 |
+| prod rolling 报目标 `not prewarmed` 或 receipt 不匹配 | 先对同一 tag/revision 重跑 `dispatch-prod-deploy.sh --operation warm`，确认每台 `apps[]` 都有 `/var/lib/tokenkey/image-distribution/TAG-REVISION.json`；不要绕过 rolling 的 prewarm 门禁。 |
+| cn-prod 分发 warm job 报 `auto`/SSM 凭据错误 | 分发 workflow 必须固定 `--channel tat`。AWS publish job 与 Tencent warm job 已拆分；Tencent job 不应持有 AWS 凭据，`auto` 会尝试 SSM 并失败。改回 `--channel tat`，不需要补 AWS key。 |
 | `gh run watch` 被工具超时打断 | 用同一 run id 再执行 `gh run watch <id> --exit-status` 接到终态。 |
 | 发版后 tick 报 `No such container: tokenkey` | 先确认在用新版 `ops/observability/probe-post-release-tick.sh`；它默认 `CONTAINER=auto` 会解析 prod blue/green active container。不要手工猜 `tokenkey-green`；若仍失败，看 tick stdout 的 `container_resolution`。 |
 | `TK_SMOKE_GITHUB_ENV=prod` 报 `unexpected gh variables response` | 旧版 `load_smoke_github_env.py` 对单页 gh api 响应断言成 list 的 bug，已修；若复现先 `gh api repos/{owner}/{repo}/environments/prod/variables` 看原始形状。 |
 | prod `Deploy via SSM Run-Command` 报 `AccessDenied(ssm:SendCommand)` | 先 `python3 ops/stage0/resolve_prod_ssm_target.py --format json`，以返回的 `instance_id`（现网为腾讯 Hybrid `mi-*`）和 `ssm_region` 核对 OIDC/SSM 权限；身份见舰队清单；`aws` / `aws-fresh` / `hetzner` 均已退役并失败关闭，不要钉死。 |
-| cn-prod 发版误走运维机 `crane`/scp + 开放 SSH 22 | 改走 `deploy/domestic/deploy_via_ssm.sh`（SSM Hybrid）；CI 私有 S3 归档 + SSM 是默认分发；运维机搬运 tar 仅恢复路径，见 `deploy/domestic/README.md`。 |
+| cn-prod 发版误走运维机 `crane`/scp + 开放 SSH 22 | 日常发布走 `cn-prod-rolling-deploy.yml`；镜像分发由 `distribute-cn-image.yml` 的 AWS publish + Tencent warm 完成。`deploy_via_ssm.sh` 和离线 tar 仅恢复路径，见 `deploy/domestic/README.md`。 |
 | cn-prod 同时有两个色在 running，外加一个名为 `tokenkey` 的容器 | 都是**设计行为**，不是迁机残留或半截发版。`remediate-newapi-nonstream-timeout.sh` 收尾会重建旧色（"so both sides carry ${WANT_TIMEOUT}"），让两色带同一预算；`tokenkey` 是该脚本的 `sync_gemini_web_control_alias` 起的 socat 别名（私网内 `tokenkey:8080 → 活动色:8080`，不发布宿主端口），给写死按主机名访问网关的组件用。不要清理。 |
 | cn-prod `prepare` 报 `candidate name ... is the routed color` | 候选色推断与 Caddy 实际路由冲突，说明路由或活动色判断有问题。查 `/var/lib/tokenkey/caddy/Caddyfile` 的 `reverse_proxy`，不要绕过该守卫。 |
 | cn-prod `prepare` 报候选色 running 容器 `still serving N request(s)` / `drain state could not be read` / `restarting\|paused` | 候选色（非路由色）上的容器无法证明空闲，守卫拒绝回收。`still serving` 等它排空再重试；读不到 `/health/inflight` 先查该容器为何不响应。空闲且未被路由的 running 容器会被自动回收（打印 `reclaimed_candidate_name`），已停止的残留同样自动回收，都不需要人工 `docker rm`。 |

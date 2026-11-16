@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Canonical prod Stage0 dispatch — deploy-stage0.yml + warm-image-stage0.yml.
+# Canonical prod/cn-prod Stage0 dispatch — rolling deploy + warm workflows.
 #
 # Usage:
 #   bash scripts/stage0/dispatch-prod-deploy.sh \
-#     --operation deploy|replay|smoke-only|warm --tag 1.2.3 \
+#     --operation deploy|cn-deploy|replay|smoke-only|warm|legacy-deploy --tag 1.2.3 \
+#     --revision FULL_SHA \
 #     [--replay-receipt SHA] [--replace-receipt SHA] [--ssot-models IDS] \
 #     [--simple-release-override true|false] [--ref REF]
 #
@@ -21,6 +22,7 @@ cd "$REPO_ROOT"
 
 OPERATION=""
 TAG=""
+REVISION=""
 REPLAY_RECEIPT=""
 REPLACE_RECEIPT=""
 SSOT_MODELS=""
@@ -28,7 +30,7 @@ SIMPLE_OVERRIDE=""
 WORKFLOW_REF=""
 
 usage() {
-  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -36,6 +38,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --operation) OPERATION="${2:-}"; shift 2 ;;
     --tag) TAG="${2:-}"; shift 2 ;;
+    --revision) REVISION="${2:-}"; shift 2 ;;
     --replay-receipt) REPLAY_RECEIPT="${2:-}"; shift 2 ;;
     --replace-receipt) REPLACE_RECEIPT="${2:-}"; shift 2 ;;
     --ssot-models) SSOT_MODELS="${2:-}"; shift 2 ;;
@@ -55,9 +58,9 @@ if [[ -z "${OPERATION}" || -z "${TAG}" ]]; then
 fi
 
 case "${OPERATION}" in
-  deploy|replay|smoke-only|warm) ;;
+  deploy|cn-deploy|replay|smoke-only|warm|legacy-deploy) ;;
   *)
-    echo "dispatch-prod-deploy: unsupported operation=${OPERATION} (want deploy|replay|smoke-only|warm)" >&2
+    echo "dispatch-prod-deploy: unsupported operation=${OPERATION} (want deploy|cn-deploy|replay|smoke-only|warm|legacy-deploy)" >&2
     exit 1
     ;;
 esac
@@ -72,8 +75,8 @@ if [[ -n "${SIMPLE_OVERRIDE}" ]]; then
   esac
 fi
 
-if [[ "${OPERATION}" != "deploy" && -n "${REPLAY_RECEIPT}" ]]; then
-  echo "dispatch-prod-deploy: --replay-receipt is only valid with --operation deploy (promote path)" >&2
+if [[ "${OPERATION}" != "legacy-deploy" && -n "${REPLAY_RECEIPT}" ]]; then
+  echo "dispatch-prod-deploy: --replay-receipt is only valid with --operation legacy-deploy (promote path)" >&2
   exit 1
 fi
 if [[ "${OPERATION}" != "replay" && -n "${REPLACE_RECEIPT}" ]]; then
@@ -85,7 +88,7 @@ if [[ "${OPERATION}" != "smoke-only" && -n "${SSOT_MODELS}" ]]; then
   exit 1
 fi
 if [[ "${OPERATION}" == "warm" && ( -n "${REPLAY_RECEIPT}" || -n "${REPLACE_RECEIPT}" || -n "${SSOT_MODELS}" ) ]]; then
-  echo "dispatch-prod-deploy: warm only accepts --tag / --simple-release-override / --ref" >&2
+  echo "dispatch-prod-deploy: warm only accepts --tag / --revision / --simple-release-override / --ref" >&2
   exit 1
 fi
 
@@ -94,21 +97,50 @@ if ! TAG="$(bash ops/stage0/normalize-deploy-tag.sh "${TAG}")"; then
   exit 1
 fi
 
+if [[ "${OPERATION}" == "deploy" || "${OPERATION}" == "cn-deploy" || "${OPERATION}" == "warm" ]]; then
+  if [[ ! "${REVISION}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "dispatch-prod-deploy: --revision FULL_SHA (40 lowercase hex chars) is required with --operation ${OPERATION}" >&2
+    exit 1
+  fi
+fi
+
 WORKFLOW=""
 GH_ARGS=()
 case "${OPERATION}" in
   warm)
     WORKFLOW="warm-image-stage0.yml"
-    GH_ARGS=(workflow run "${WORKFLOW}" -f "tag=${TAG}")
+    GH_ARGS=(
+      workflow run "${WORKFLOW}"
+      -f "tag=${TAG}"
+      -f "revision=${REVISION}"
+    )
     if [[ -n "${SIMPLE_OVERRIDE}" ]]; then
       GH_ARGS+=(-f "simple_release_override=${SIMPLE_OVERRIDE}")
     fi
     ;;
-  *)
+  deploy)
+    WORKFLOW="prod-rolling-deploy.yml"
+    GH_ARGS=(
+      workflow run "${WORKFLOW}"
+      -f "tag=${TAG}"
+      -f "revision=${REVISION}"
+      -f "confirm=rolling-prod-${TAG}"
+    )
+    ;;
+  cn-deploy)
+    WORKFLOW="cn-prod-rolling-deploy.yml"
+    GH_ARGS=(
+      workflow run "${WORKFLOW}"
+      -f "tag=${TAG}"
+      -f "revision=${REVISION}"
+      -f "confirm=rolling-cn-prod-${TAG}"
+    )
+    ;;
+  legacy-deploy|replay|smoke-only)
     WORKFLOW="deploy-stage0.yml"
     GH_ARGS=(
       workflow run "${WORKFLOW}"
-      -f "operation=${OPERATION}"
+      -f "operation=$([[ "${OPERATION}" == "legacy-deploy" ]] && printf deploy || printf %s "${OPERATION}")"
       -f "tag=${TAG}"
     )
     if [[ -n "${REPLAY_RECEIPT}" ]]; then
@@ -130,5 +162,5 @@ if [[ -n "${WORKFLOW_REF}" ]]; then
   GH_ARGS+=(--ref "${WORKFLOW_REF}")
 fi
 
-echo "dispatch-prod-deploy: workflow=${WORKFLOW} op=${OPERATION} tag=${TAG} ref=${WORKFLOW_REF:-default}"
+echo "dispatch-prod-deploy: workflow=${WORKFLOW} op=${OPERATION} tag=${TAG} revision=${REVISION:-n/a} ref=${WORKFLOW_REF:-default}"
 gh "${GH_ARGS[@]}"

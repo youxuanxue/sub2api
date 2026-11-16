@@ -23,7 +23,15 @@ concurrency:
   group: cn-prod-deploy
   cancel-in-progress: false
 jobs:
+  approval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: prod
+    steps:
+      - name: Release approval gate
+        run: echo "cn-prod rolling deploy approved by the prod Environment reviewer"
   rolling:
+    needs: approval
     runs-on: ubuntu-latest
     # 2 nodes x (10 min drain + up/smoke/traffic) plus rollback headroom.
     timeout-minutes: 75

@@ -4,4 +4,7 @@
 
 共享 compose、Caddy 与宿主脚本位于 `stage0/`。修改其嵌入源后运行 `bash deploy/aws/stage0/build-cfn.sh`，使用 `--check` 核对产物。
 
-应用镜像发布使用 `scripts/stage0/dispatch-prod-deploy.sh`；Caddy 配置热更新使用 `ops/stage0/sync_caddyfile_via_ssm.sh`。恢复流程见 [AWS DR](RUNBOOK-disaster-recovery.md)。
+应用镜像日常发布使用 `scripts/stage0/dispatch-prod-deploy.sh --operation deploy --tag X.Y.Z --revision FULL_SHA`
+触发 `prod-rolling-deploy.yml`，发布前先以同一 revision 执行 `--operation warm`。
+旧 `deploy-stage0.yml` / 节点内蓝绿仅保留为 recovery-only。Caddy 配置热更新使用
+`ops/stage0/sync_caddyfile_via_ssm.sh`。恢复流程见 [AWS DR](RUNBOOK-disaster-recovery.md)。

@@ -156,15 +156,19 @@ prod 的日常发布入口是 `.github/workflows/prod-rolling-deploy.yml`，确�
 绕过 rolling 矩阵。
 
 ```bash
-# GitHub Actions: prod-rolling-deploy.yml
-# workflow_dispatch inputs:
-#   tag=X.Y.Z
-#   confirm=rolling-prod-X.Y.Z
+# Canonical dispatch (normal path):
+bash scripts/stage0/dispatch-prod-deploy.sh \
+  --operation warm --tag X.Y.Z --revision FULL_SHA
+bash scripts/stage0/dispatch-prod-deploy.sh \
+  --operation deploy --tag X.Y.Z --revision FULL_SHA
+# deploy derives confirm=rolling-prod-X.Y.Z and runs prod-rolling-deploy.yml
 ```
 
-`scripts/stage0/dispatch-prod-deploy.sh` 与节点内蓝绿实现仍保留为兼容/恢复路径，
-只用于 rolling 不可用、需要恢复旧布局或经过单独批准的故障处理。它不再是正常
-发布入口，不能借此绕过入口机、多应用机和单容器布局门禁。
+日常发布入口是上面的 `dispatch-prod-deploy.sh --operation warm|deploy`
+（cn-prod 对应 `cn-deploy`，同样要求完整 40 位 revision）。
+`legacy-deploy|replay|smoke-only` 与节点内蓝绿实现才是兼容/恢复路径，
+只用于 rolling 不可用、需要恢复旧布局或经过单独批准的故障处理；
+不能借此绕过入口机、多应用机和单容器布局门禁。
 
 ## 开放运维项（非过程史）
 

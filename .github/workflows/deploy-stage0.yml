@@ -48,7 +48,7 @@ permissions:
 
 # Queue concurrent prod deploy requests; do not cancel an in-flight run.
 concurrency:
-  group: deploy-stage0-prod
+  group: prod-deploy
   cancel-in-progress: false
 
 jobs:

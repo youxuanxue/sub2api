@@ -1257,11 +1257,15 @@
       "path": "scripts/stage0/dispatch-prod-deploy.sh",
       "must_contain": [
         "normalize-deploy-tag.sh",
-        "deploy-stage0.yml",
+        "WORKFLOW=\"prod-rolling-deploy.yml\"",
+        "WORKFLOW=\"cn-prod-rolling-deploy.yml\"",
+        "legacy-deploy",
         "warm-image-stage0.yml",
+        "-f \"revision=${REVISION}\"",
+        "confirm=rolling-prod-${TAG}",
         "-f \"tag=${TAG}\""
       ],
-      "rationale": "Canonical prod dispatch entry must normalize tags before workflow_dispatch; bypassing it with raw gh -f tag=v… reopens the recurring canary/prod format failure."
+      "rationale": "Canonical dispatch must normalize tags, require full revision, derive confirm, and keep the old blue/green workflow only as an explicit legacy recovery path."
     },
     {
       "path": "ops/stage0/test_prod_replay.py",
@@ -18050,9 +18054,20 @@
         "want .github/workflows/release.yml",
         "run-id: ${{ github.event_name == 'workflow_dispatch' && inputs.release_run_id || github.event.workflow_run.id }}",
         "python3 deploy/domestic/image_distribution.py publish",
-        "bash deploy/domestic/deploy_via_ssm.sh pull"
+        "python3 deploy/domestic/warm_fanout.py render-all",
+        "name: cn-image-render",
+        "retention-days: 1",
+        "needs: publish",
+        "environment: tencent-ops",
+        "ref: ${{ needs.publish.outputs.source_sha }}",
+        "python3 deploy/domestic/warm_fanout.py dispatch-rendered",
+        "deploy/domestic/prod-target.json",
+        "--transport s3",
+        "--channel tat",
+        "--render-file cn-image-render/cn-image-render.json",
+        "cn-image-warm.json"
       ],
-      "rationale": "Distribute only successful release artifacts using trusted main code and prewarm without promotion; workflow_dispatch may backfill only from a successful Release run id."
+      "rationale": "Keep the AWS publish job separate from the tencent-ops warm job; the short-lived render artifact carries per-node scripts, while only the Tencent job receives TAT credentials and no AWS secret is exposed. Both render and dispatch must force TAT: auto would select SSM for cn-prod app-a, but the Tencent-only job has no AWS credentials."
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
@@ -20705,12 +20720,25 @@
     {
       "path": ".github/workflows/prod-rolling-deploy.yml",
       "must_contain": [
+        "environment: prod",
         "- name: Plan (prepares remote helpers)",
         "python3 deploy/domestic/rolling.py plan \\",
         "if [[ \"$INPUT_CONFIRM\" != \"rolling-prod-${INPUT_TAG}\" ]]; then",
         "--confirm \"$INPUT_CONFIRM\" \\"
       ],
-      "rationale": "The prod rolling dispatch keeps its confirm phrase tied to prod and names the plan step accurately: rolling.py plan installs remote helpers, so it is not read-only."
+      "rationale": "The prod rolling job owns the prod Environment so required reviewers and the AWS OIDC claim stay together; its confirm phrase stays tied to prod and the plan step names that remote helpers are installed."
+    },
+    {
+      "path": "deploy/domestic/warm_fanout.py",
+      "must_contain": [
+        "def warm_all(",
+        "def render_all(",
+        "def load_render(",
+        "def choose_channel(",
+        "def build_ghcr_script(",
+        "payload[\"outcome\"] = \"failed\""
+      ],
+      "rationale": "Warm fanout is the single fail-stop path for rendering and dispatching all apps[] in order, validating artifact identity, and persisting the exact image-distribution receipt rolling.py requires."
     },
     {
       "path": "deploy/tencent/prepare_single_container.py",

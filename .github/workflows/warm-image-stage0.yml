@@ -1,25 +1,23 @@
 name: Stage0 Warm Image
 
-# Pre-pulls a released image tag onto the prod Stage0 host BEFORE a deploy, so
-# that deploy-stage0.yml's in-band `docker compose pull` collapses to a ~3s
-# manifest no-op instead of paying the full cold pull (~150s measured on the
-# former arm64 prod host, 2026-06-13) on its critical path.
+# Pre-warms a released image tag on every prod app node BEFORE a rolling deploy.
+# It writes the per-node image-distribution receipt that rolling.py requires.
 #
-# Read-only: it runs ops/stage0/warm_pull_via_ssm.sh, which only `docker pull`s
-# the new tag — it never edits .env, restarts, drains, or swaps the running
-# container. Safe to dispatch at any time against live prod.
+# Read-only with respect to the running service: it only pulls, tags, and writes
+# the local image receipt. It never edits .env, restarts, drains, or swaps the
+# running container.
 #
-# Driven by the tokenkey-stage0-release-rollout skill: dispatched (and its prod
-# Environment approval auto-approved via gh, since the warm is read-only) right
-# before the prod deploy so the layers are on disk by deploy time. Mirrors
-# deploy-stage0.yml's prod resolve path (resolve_prod_ssm_target + the shared
-# validate-deploy-tag / verify_ghcr_manifest gates) so the two never diverge.
+# Driven by tokenkey-stage0-release-rollout: dispatch before prod rolling deploy.
 
 on:
   workflow_dispatch:
     inputs:
       tag:
         description: "Released image tag without leading v (e.g. 1.8.0). Must already exist on GHCR."
+        required: true
+        type: string
+      revision:
+        description: "Full 40-hex commit sha of the release."
         required: true
         type: string
       simple_release_override:
@@ -43,9 +41,10 @@ concurrency:
 jobs:
   warm:
     runs-on: ubuntu-latest
-    # Bound to a cold image pull on a slow link; far below the 6h default so a
-    # hung describe-stacks / SSM poll can't hold the concurrency lock for hours.
-    timeout-minutes: 15
+    # Two app nodes warmed sequentially via warm_fanout (default remote timeout
+    # 1200s each). Keep the job budget above one cold multi-node pass, and far
+    # below the 6h default so a hung poll cannot hold the concurrency lock.
+    timeout-minutes: 30
     # Same prod Environment binding as deploy-stage0.yml: required for the
     # OIDC sub claim (IAM trust in cicd-oidc.yaml). The rollout skill
     # auto-approves the pending deployment via gh because the warm is read-only.
@@ -54,14 +53,14 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       INPUT_TAG: ${{ inputs.tag }}
+      INPUT_REVISION: ${{ inputs.revision }}
       INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
 
-      - name: Validate tag + resolve stack name
-        id: stack
+      - name: Validate inputs
         run: |
           set -euo pipefail
           # Tag-format gate: single source of truth shared with the deploy
@@ -71,8 +70,10 @@ jobs:
             echo "::error::AWS_OIDC_ROLE_ARN repo variable not set; configure per docs/approved/deploy-stage0-workflow.md §5"
             exit 1
           fi
-          NAME="${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}"
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          if [[ ! "$INPUT_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::revision must be the full 40-hex commit sha" >&2
+            exit 1
+          fi
 
       - name: Verify GHCR multi-arch manifest
         # Shared gate with deploy-stage0.yml: never warm a tag the deploy would
@@ -87,46 +88,36 @@ jobs:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Resolve target instance
-        id: instance
+      - name: Warm every prod app node
         env:
-          STACK_NAME: ${{ steps.stack.outputs.name }}
-          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
+          STAGE0_SSM_OUTPUT_DIR: .
         run: |
           set -euo pipefail
-          RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
-            --target "${PROD_SSM_TARGET}" \
-            --stack "$STACK_NAME" \
-            --format json \
-            --github-output "$GITHUB_OUTPUT")"
-          python3 -c '
-          import json, sys
-          d = json.loads(sys.argv[1])
-          for key in ("id", "ssm_region", "target"):
-            if not d.get(key):
-              raise SystemExit(f"::error::missing {key} in resolve_prod_ssm_target output")
-          print(
-              "warming %s on instance=%s (env=prod target=%s ssm_region=%s stack=%s)"
-              % (sys.argv[2], d["id"], d["target"], d["ssm_region"], sys.argv[3])
-          )
-          ' "$RESOLVED_JSON" "$INPUT_TAG" "$STACK_NAME"
-
-      - name: Warm image via SSM Run-Command
-        env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
-          STAGE0_SSM_OUTPUT_DIR: .
-        run: bash ops/stage0/warm_pull_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "warm-image env=prod"
+          python3 deploy/domestic/warm_fanout.py warm-all \
+            --manifest deploy/tencent/candidate-usw-20261022.json \
+            --tag "$INPUT_TAG" \
+            --revision "$INPUT_REVISION" \
+            --transport ghcr \
+            --channel auto \
+            --repository "ghcr.io/${GITHUB_REPOSITORY,,}" \
+            --receipt-out prod-warm-receipt.json
 
       - name: Job summary
         if: always()
-        env:
-          STACK_NAME: ${{ steps.stack.outputs.name }}
         run: |
           {
             echo "### Stage0 Warm Image"
             echo "- tag: \`$INPUT_TAG\`"
-            echo "- stack: \`$STACK_NAME\`"
-            echo "- effect: image layers pre-pulled on the prod host (read-only; no deploy)"
-            echo "- next: run Stage0 Deploy for the same tag — its in-band pull is now a no-op"
+            echo "- revision: \`$INPUT_REVISION\`"
+            echo "- effect: image pre-pulled on every prod app node (read-only; no deploy)"
+            echo "- receipt: \`prod-warm-receipt.json\`"
+            echo "- next: dispatch prod rolling deploy with the same tag and revision"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: prod-warm-receipt
+          path: prod-warm-receipt.json
+          if-no-files-found: warn
+          retention-days: 30

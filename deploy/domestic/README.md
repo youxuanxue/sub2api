@@ -1,6 +1,14 @@
 # 腾讯北京 cn-prod（domestic）
 
-当前应用在腾讯北京 `tokenkey-cn-prod`（`lhins-6qmb3fd6`，`154.8.214.179`）。该实例与 `cn-ip1..4` 到期 **2026-11-22**，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是 `https://api.galaxywaveai.com`，它和静态 IP 共用 `(tk_upstream)`，站点定义在 [`Caddyfile`](Caddyfile)。`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前不要把它解析到北京，也不要写成 `public_origin` 或 `SERVER_FRONTEND_URL`。发版身份仍以 [`prod-target.json`](prod-target.json) 为准。下面的表是 2026-10-14 首次上线记录。
+当前站点是腾讯北京 `tokenkey-cn-prod`，已采用入口机 + 多应用机 + 数据机的生产布局。
+`lhins-6qmb3fd6`（`154.8.214.179`）只是历史 app-a 身份，当前节点、私网和数据面
+以 [`prod-target.json`](prod-target.json) 的 `entry`、`apps[]` 和数据机配置为准。
+原始实例与 `cn-ip1..4` 到期 **2026-11-22**，续费标志
+`NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）；到期自动扣费，账户余额不足仍会停机。
+UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
+`https://api.galaxywaveai.com`，站点定义在 [`entry/Caddyfile.tmpl`](entry/Caddyfile.tmpl)。
+`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前不要把它解析到北京，也不要写成
+`public_origin` 或 `SERVER_FRONTEND_URL`。下面的表是 2026-10-14 首次上线记录。
 
 逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。2026-11-09 停写窗口之后，`tokenkey-cn-postgres-backup` 和 `tokenkey-cn-postgres-archive-check` 在数据机 `VM-4-5-ubuntu`（`10.2.4.5`）上跑，应用机上的对应 timer 已停用。数据机上的 `tokenkey-cn-backup-identity.timer`（15min）运行 `cn_backup_identity.py`，读数据机 root-only `/etc/tokenkey/cos-backup.env`，重写 `/etc/tokenkey/pgbackrest-cos/pgbackrest.conf`；由 `ops/stage0/install-data-machine-identity.sh` 安装。轮换 COS 密钥只改数据机上的这一个文件。2026-11-08 起唯一仓库是北京 COS `repo2`（`tokenkey-cnprod-backup-bj-1320330536` `/cn-prod/postgres`），东京 AWS `repo1` 停写、对象保留待清理；详见[设计](../../docs/approved/design-tencent-cos-backup-node1-qa.md#2026-11-08-决定停写-aws-repo1cos-为唯一-repository)。备份验收到此为止，不再另开恢复机，也不从东京仓库再导一份库。
 
@@ -146,12 +154,28 @@ cn-prod 的正常发布入口是 `deploy/domestic/rolling.py`，按 `prod-target
 `apps[]` 顺序逐台执行 drain、换镜像、私网健康检查和回流。入口机继续把请求分给
 另一台应用机，因此发布过程不需要节点内蓝绿。
 
+Release 后的 `distribute-cn-image.yml` 分两段执行：`publish` 在 AWS OIDC 身份下上传
+并校验私有 S3 工件、渲染每节点预下载脚本；`tencent-ops` job 只持腾讯凭据，按
+`apps[]` 顺序通过 TAT 预下载到每个节点。warm 固定 `--channel tat`，不使用 `auto`：
+app-a 仍带 SSM Hybrid 身份，`auto` 会选中 AWS SSM，而腾讯 job 没有 AWS 凭据。
+任一节点失败都停止后续节点，且不触碰正在服务的容器。
+
+分发和每个节点预下载回执齐全后，用同一工作流入口切流：
+
+```bash
+bash scripts/stage0/dispatch-prod-deploy.sh \
+  --operation cn-deploy --tag X.Y.Z --revision FULL_SHA
+```
+
+`cn-prod-rolling-deploy.yml` 的审批 job 使用 `prod` Environment，执行 job 使用
+`tencent-ops`；输入 tag 是裸 `X.Y.Z`，revision 必须是已审完整 40 位 SHA。
+
 `deploy_via_ssm.sh` 与 `bluegreen.py` 仍保留为迁移过渡和恢复路径。它们只能用于
 尚未完成单容器迁移的节点、恢复旧布局，或经单独批准的故障处理；不能作为已收敛
 节点的日常发布入口。连续两次真实 rolling 发布成功并有完整 receipt 前，不能删除
 这些兼容代码。
 
-## SSM 蓝绿升级（兼容/恢复）
+## SSM 蓝绿升级（仅兼容/恢复）
 
 与 probe 相同：经 `prod-target.json` 的 SSM Hybrid 身份下发，**不要**为常规发版开放
 SSH 22 或从运维机 scp 离线 tar。入口脚本：
@@ -251,12 +275,22 @@ python3 deploy/domestic/image_distribution_lifecycle.py --apply
 
 独立 `distribute-cn-image.yml` 由成功 Release 的 workflow_run 触发，使用默认分支代码
 与已有 main OIDC 信任，不开放其它 tag/branch 信任。下载的版本/revision 仅作数据，
-先与当前 git tag 核对；不 checkout 或执行该标签的脚本。正式切流审批保持原流程。
+先与当前 git tag 核对；不 checkout 或执行该标签的脚本。
+
+`publish` 只使用 AWS OIDC/S3 权限，把校验后的归档写入私有前缀，并由
+`warm_fanout.py render-all` 按 `apps[]` 生成每节点的短期签名脚本。render artifact
+含短期签名 URL，只保留 1 天且从不打印；publish receipt 保留 7 天。`warm` job 使用
+`tencent-ops` Environment，只使用腾讯 TAT 凭据，校验 render artifact 后逐节点执行
+`warm_fanout.py dispatch-rendered --channel tat`，任一节点失败即 fail-stop 并写失败
+receipt。正式 rolling 发布仍由 `cn-prod-rolling-deploy.yml` 的 `prod` 审批 job
+放行，分发成功不等于发布成功，也不表示已切流。
+
 S3 对象保留 30 天，非当前版本 7 天；过期版本可显式 GHCR 直拉。
 CI 分发失败明确使独立分发 workflow 失败，但不撤销已构建镜像或操作正在服务的容器。
-归档下载限速 512 KiB/s；预下载复用主机部署锁。锁忙时任务失败可重试。
+归档下载限速 512 KiB/s；预下载复用共享 host deploy lock。锁忙时任务失败可重试。
 预下载成功只表示镜像就绪，不表示候选烟测或线上发布成功。
-成功回执在 CI artifact 和主机 `/var/lib/tokenkey/image-distribution/`，均不含签名 URL。
+成功回执在 CI artifact 和主机 `/var/lib/tokenkey/image-distribution/`；节点回执不含
+签名 URL，`rolling.py` 还要求其 `image_id` 与本地不可变 tag 完全一致。
 导入开销发生在 Docker daemon；下载进程 nice/ionice 不等于 daemon 资源限制。
 
 ### 恢复：离线 tar + 受限 SSH（非默认）

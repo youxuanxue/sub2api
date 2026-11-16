@@ -27,7 +27,8 @@ jobs:
   rolling:
     runs-on: ubuntu-latest
     timeout-minutes: 75
-    environment: tencent-ops
+    # prod owns required reviewers and the AWS OIDC subject used below.
+    environment: prod
     env:
       INPUT_TAG: ${{ inputs.tag }}
       INPUT_REVISION: ${{ inputs.revision }}
