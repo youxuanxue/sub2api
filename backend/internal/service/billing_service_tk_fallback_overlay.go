@@ -109,7 +109,11 @@ func (s *BillingService) tkResolveFallbackOverlayPricing(modelLower string) *Mod
 		return s.fallbackPrices["kimi-k2"]
 	}
 
-	// MiniMax M 系列（M3 / M2.7 / M2.5 / M2.1 / M2；含 highspeed 变体）
+	// MiniMax M 系列（M3.1-Flash / M3 / M2.7 / M2.5 / M2.1 / M2；含 highspeed 变体）
+	// most-specific-first：minimax-m3.1-flash 必须在 minimax-m3 宽匹配之前。
+	if strings.Contains(modelLower, "minimax-m3.1-flash") || strings.Contains(modelLower, "minimax-m3-1-flash") {
+		return s.fallbackPrices["minimax-m3.1-flash"]
+	}
 	if strings.Contains(modelLower, "minimax-m3") {
 		return s.fallbackPrices["minimax-m3"]
 	}

@@ -494,6 +494,12 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 	// Source: https://platform.minimax.io/docs/guides/pricing-paygo
 	// 注意：MiniMax M3 在 >512K context 时价格翻倍，本兜底采用 ≤512K 标准 tier（保守口径，对用户有利）。
 	// 如需支持长上下文 multiplier，可后续参考 GPT-5.4 模式扩展 LongContextXxx 字段。
+	s.fallbackPrices["minimax-m3.1-flash"] = &ModelPricing{
+		InputPricePerToken:     0.15e-6, // $0.15 per MTok flat Flash SKU
+		OutputPricePerToken:    0.60e-6,
+		CacheReadPricePerToken: 0.015e-6,
+		SupportsCacheBreakdown: false,
+	}
 	s.fallbackPrices["minimax-m3"] = &ModelPricing{
 		InputPricePerToken:     0.60e-6, // $0.60 per MTok (≤512K standard tier, 含 50% 永久折扣前原价 $1.20)
 		OutputPricePerToken:    2.40e-6,

@@ -138,6 +138,10 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			mapping := nvidiaBuildModelMapping(account)
 			return mapping, len(mapping) > 0
 		}
+		if isNewAPIMiniMaxCNAccount(account) {
+			mapping := miniMaxCNModelMapping(account)
+			return mapping, len(mapping) > 0
+		}
 		if account.ChannelType == newapiconstant.ChannelTypeVertexAi {
 			mapping, _ := vertexModelMappingForAccount(account)
 			return mapping, len(mapping) > 0

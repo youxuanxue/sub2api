@@ -987,6 +987,8 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 	t.Run("minimax long-tail vendor follows manifest display", func(t *testing.T) {
 		assert.Equal(t, isTkCuratedNewAPIModelDisplayed("minimax-m3") && isCatalogModelRecommended("minimax-m3"),
 			isPublicCatalogModelSupported("minimax", "minimax-m3"))
+		assert.Equal(t, isTkCuratedNewAPIModelDisplayed("minimax-m3.1-flash") && isCatalogModelRecommended("minimax-m3.1-flash"),
+			isPublicCatalogModelSupported("minimax", "minimax-m3.1-flash"))
 		assert.False(t, isPublicCatalogModelSupported("minimax", "minimax-m2.7"),
 			"withdrawn minimax id stays off public catalog")
 	})

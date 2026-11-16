@@ -134,6 +134,12 @@ func accountModelMappingOverrideAccounts() []*Account {
 		{
 			Platform:    PlatformNewAPI,
 			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeOpenAI,
+			Credentials: map[string]any{"base_url": newapiintegration.MiniMaxCNBaseURL},
+		},
+		{
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
 			ChannelType: newapiconstant.ChannelTypeVolcEngine,
 			Credentials: map[string]any{
 				"base_url": newapiintegration.VolcEngineAgentPlanBaseURL,
@@ -192,6 +198,9 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 	}
 
 	if isNewAPINVIDIABuildAccount(account) {
+		return tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
+	}
+	if isNewAPIMiniMaxCNAccount(account) {
 		return tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
 	}
 	if account.ChannelType == newapiconstant.ChannelTypeVertexAi {
@@ -253,6 +262,9 @@ func NewAPIModelDisplayIDsForAccount(account *Account) []string {
 	}
 
 	if isNewAPINVIDIABuildAccount(account) {
+		return tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
+	}
+	if isNewAPIMiniMaxCNAccount(account) {
 		return tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {

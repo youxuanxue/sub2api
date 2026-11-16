@@ -214,6 +214,7 @@ func manifestScopeKeysForTest(entry tkServedModelsOwnerEntryForTest) []string {
 func manifestScopeKeyForTest(scope tkServedModelsOwnerScopeForTest) string {
 	// Keep recognition aligned with production manifestScopeKey (same integration helpers).
 	if !newapiintegration.IsNVIDIABuildBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsMiniMaxCNBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsVolcEngineAgentPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanTokenPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
