@@ -50,9 +50,9 @@ func TestComputeGatewayInFlightUsagePercent_TakesHottestNode(t *testing.T) {
 		gatewayInFlightGauge: stubGatewayInFlightGauge{count: 100, max: 512}, // ~19.5%
 	}
 
-	quiet, err := json.Marshal(gatewayInFlightSample{Count: 50, Max: 512, TS: time.Now().Unix()})
+	quiet, err := json.Marshal(gatewayInFlightSample{Count: 50, Max: 512, TS: time.Now().Unix(), Node: "app-a"})
 	require.NoError(t, err)
-	hot, err := json.Marshal(gatewayInFlightSample{Count: 480, Max: 512, TS: time.Now().Unix()})
+	hot, err := json.Marshal(gatewayInFlightSample{Count: 480, Max: 512, TS: time.Now().Unix(), Node: "app-b"})
 	require.NoError(t, err)
 	require.NoError(t, rdb.Set(context.Background(), gatewayInFlightSampleKey("app-a"), quiet, time.Minute).Err())
 	require.NoError(t, rdb.Set(context.Background(), gatewayInFlightSampleKey("app-b"), hot, time.Minute).Err())
@@ -60,6 +60,10 @@ func TestComputeGatewayInFlightUsagePercent_TakesHottestNode(t *testing.T) {
 	pct, ok := svc.computeGatewayInFlightUsagePercent(context.Background())
 	require.True(t, ok)
 	require.InDelta(t, 93.75, pct, 0.01)
+
+	cause := svc.gatewayInFlightHotCause(context.Background())
+	require.Contains(t, cause, "app-b")
+	require.Contains(t, cause, "480/512")
 }
 
 func TestPublishGatewayInFlight_SkipsWhenGateDisabled(t *testing.T) {

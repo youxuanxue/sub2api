@@ -18,6 +18,15 @@ func (s *OpsAlertEvaluatorService) tkAttachAlertCardDimensions(
 	scopeGroupID *int64,
 	dimensions map[string]any,
 ) map[string]any {
+	if rule != nil && strings.TrimSpace(rule.MetricType) == OpsAlertMetricGatewayInFlightUsagePercent {
+		if cause := s.gatewayInFlightHotCause(ctx); cause != "" {
+			if dimensions == nil {
+				dimensions = map[string]any{}
+			}
+			dimensions["top_cause"] = cause
+		}
+		return dimensions
+	}
 	if extra := s.computeUserVisibleFailureDimensions(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID); len(extra) > 0 {
 		if dimensions == nil {
 			dimensions = map[string]any{}

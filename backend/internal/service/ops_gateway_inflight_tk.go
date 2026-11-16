@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 )
 
 // OpsAlertMetricGatewayInFlightUsagePercent is the multi-app fan-in of each
@@ -29,9 +29,15 @@ type GatewayInFlightGauge interface {
 }
 
 type gatewayInFlightSample struct {
-	Count int64 `json:"count"`
-	Max   int   `json:"max"`
-	TS    int64 `json:"ts"`
+	Count int64  `json:"count"`
+	Max   int    `json:"max"`
+	TS    int64  `json:"ts"`
+	Node  string `json:"node,omitempty"`
+}
+
+type gatewayInFlightReading struct {
+	Percent  float64
+	HotLabel string
 }
 
 // SetGatewayInFlightGauge attaches the process-local relay gauge used to
@@ -41,6 +47,14 @@ func (s *OpsAlertEvaluatorService) SetGatewayInFlightGauge(gauge GatewayInFlight
 		return
 	}
 	s.gatewayInFlightGauge = gauge
+}
+
+func gatewayInFlightNodeName() string {
+	host, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(host)
 }
 
 func (s *OpsAlertEvaluatorService) publishGatewayInFlight(ctx context.Context) {
@@ -56,6 +70,7 @@ func (s *OpsAlertEvaluatorService) publishGatewayInFlight(ctx context.Context) {
 		Count: s.gatewayInFlightGauge.Count(),
 		Max:   max,
 		TS:    time.Now().UTC().Unix(),
+		Node:  gatewayInFlightNodeName(),
 	}
 	if sample.Count < 0 {
 		sample.Count = 0
@@ -64,7 +79,7 @@ func (s *OpsAlertEvaluatorService) publishGatewayInFlight(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	key := gatewayInFlightKeyPrefix + strings.TrimSpace(s.instanceID)
+	key := gatewayInFlightSampleKey(s.instanceID)
 	if key == gatewayInFlightKeyPrefix {
 		return
 	}
@@ -72,18 +87,43 @@ func (s *OpsAlertEvaluatorService) publishGatewayInFlight(ctx context.Context) {
 }
 
 func (s *OpsAlertEvaluatorService) computeGatewayInFlightUsagePercent(ctx context.Context) (float64, bool) {
-	if s == nil {
+	reading, ok := s.readGatewayInFlightUsage(ctx)
+	if !ok {
 		return 0, false
 	}
+	return reading.Percent, true
+}
 
-	maxPct := 0.0
+func (s *OpsAlertEvaluatorService) gatewayInFlightHotCause(ctx context.Context) string {
+	reading, ok := s.readGatewayInFlightUsage(ctx)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(reading.HotLabel)
+}
+
+func (s *OpsAlertEvaluatorService) readGatewayInFlightUsage(ctx context.Context) (gatewayInFlightReading, bool) {
+	if s == nil {
+		return gatewayInFlightReading{}, false
+	}
+
+	var best gatewayInFlightReading
 	found := false
 
-	if s.gatewayInFlightGauge != nil {
-		if pct, ok := gatewayInFlightUsagePercent(s.gatewayInFlightGauge.Count(), s.gatewayInFlightGauge.Max()); ok {
-			maxPct = pct
+	consider := func(node string, count int64, max int) {
+		pct, ok := gatewayInFlightUsagePercent(count, max)
+		if !ok {
+			return
+		}
+		label := formatGatewayInFlightHotLabel(node, count, max, pct)
+		if !found || pct > best.Percent {
+			best = gatewayInFlightReading{Percent: pct, HotLabel: label}
 			found = true
 		}
+	}
+
+	if s.gatewayInFlightGauge != nil {
+		consider(gatewayInFlightNodeName(), s.gatewayInFlightGauge.Count(), s.gatewayInFlightGauge.Max())
 	}
 
 	if s.redisClient != nil {
@@ -96,19 +136,17 @@ func (s *OpsAlertEvaluatorService) computeGatewayInFlightUsagePercent(ctx contex
 			for _, key := range keys {
 				raw, err := s.redisClient.Get(ctx, key).Bytes()
 				if err != nil {
-					if err == redis.Nil {
-						continue
-					}
 					continue
 				}
 				var sample gatewayInFlightSample
 				if err := json.Unmarshal(raw, &sample); err != nil {
 					continue
 				}
-				if pct, ok := gatewayInFlightUsagePercent(sample.Count, sample.Max); ok && (!found || pct > maxPct) {
-					maxPct = pct
-					found = true
+				node := strings.TrimSpace(sample.Node)
+				if node == "" {
+					node = strings.TrimPrefix(key, gatewayInFlightKeyPrefix)
 				}
+				consider(node, sample.Count, sample.Max)
 			}
 			cursor = next
 			if cursor == 0 {
@@ -118,9 +156,9 @@ func (s *OpsAlertEvaluatorService) computeGatewayInFlightUsagePercent(ctx contex
 	}
 
 	if !found {
-		return 0, false
+		return gatewayInFlightReading{}, false
 	}
-	return maxPct, true
+	return best, true
 }
 
 func gatewayInFlightUsagePercent(count int64, max int) (float64, bool) {
@@ -135,6 +173,14 @@ func gatewayInFlightUsagePercent(count int64, max int) (float64, bool) {
 		pct = 0
 	}
 	return pct, true
+}
+
+func formatGatewayInFlightHotLabel(node string, count int64, max int, pct float64) string {
+	node = strings.TrimSpace(node)
+	if node == "" {
+		node = "unknown-node"
+	}
+	return fmt.Sprintf("%s · in-flight %d/%d (%.1f%%)", node, count, max, pct)
 }
 
 func gatewayInFlightSampleKey(instanceID string) string {
