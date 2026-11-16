@@ -244,8 +244,12 @@ class ArchiveProgressTest(unittest.TestCase):
                 self.assertEqual(archive.run(args), 2)
             summary = json.loads(stdout.getvalue())
             self.assertFalse(summary['ok'])
-            self.assertEqual(summary['failed'], [{'window_start': hour.isoformat(),
-                                                  'error': 'fixture failure'}])
+            self.assertEqual(summary['failed'], [{
+                'window_start': hour.isoformat(),
+                'error': 'fixture failure',
+                'failure_class': 'gateway_qa_archive_failed',
+            }])
+            self.assertEqual(summary['failure_class'], 'gateway_qa_archive_failed')
             self.assertEqual(len(summary['completed']), 1)
             events = [json.loads(line) for line in stderr.getvalue().splitlines()]
             self.assertEqual([event['phase'] for event in events],

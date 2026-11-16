@@ -54,8 +54,9 @@ class CoveragePlanTest(unittest.TestCase):
         # install-proxy-host-alerts.sh and disk-metrics already read it, or the
         # dry-run fails and the timer is never enabled.
         source = (pathlib.Path(__file__).resolve().parent / 'install-host-https-watch.sh').read_text()
-        self.assertIn("if role in ('cn-prod','cn-prod-entry') or role.endswith('-data'):"
-                      "command+=['--env-file','/opt/tokenkey/host-alerts.env']", source)
+        self.assertIn("role in ('cn-prod','cn-prod-entry','prod-entry') or role.endswith('-data')", source)
+        self.assertIn("/opt/tokenkey/host-alerts.env", source)
+        self.assertIn("/var/lib/tokenkey/host-alerts.env", source)
         self.assertNotIn('/etc/tokenkey/host-alerts.env', source)
 
     def test_data_roles_refuse_the_app_host_and_each_other(self):
@@ -466,6 +467,29 @@ class HostHTTPSWatchTest(unittest.TestCase):
 
 
 class HostJobWatchTest(unittest.TestCase):
+    def test_archive_alert_names_the_owner_from_failure_category(self):
+        sent = []
+        bad_node1 = lambda _: {
+            "healthy": False,
+            "category": "node1_unreachable",
+            "reason": "node1 unreachable",
+        }
+        state = watch.tick_jobs(["tokenkey-qa-archive"], {}, 1000, bad_node1, sent.append)
+        watch.tick_jobs(["tokenkey-qa-archive"], state, 1120, bad_node1, sent.append)
+        self.assertIn("运维处理：node1 无法连接", sent[-1])
+        self.assertIn("责任方：运维", sent[-1])
+
+        sent.clear()
+        bad_gateway = lambda _: {
+            "healthy": False,
+            "category": "gateway_qa_archive_failed",
+            "reason": "gateway QA archive failed",
+        }
+        state = watch.tick_jobs(["tokenkey-qa-archive"], {}, 1000, bad_gateway, sent.append)
+        watch.tick_jobs(["tokenkey-qa-archive"], state, 1120, bad_gateway, sent.append)
+        self.assertIn("网关 QA 归档失败", sent[-1])
+        self.assertIn("责任方：TokenKey 网关 QA 归档", sent[-1])
+
     def test_job_failure_alert_and_recovery_are_deduplicated(self):
         name = "tokenkey-pgdump"
         sent = []
@@ -559,6 +583,21 @@ class CnProdMultiAppWatchTest(unittest.TestCase):
         self.assertEqual(config['jobs'], [])
         with self.assertRaisesRegex(ValueError, 'host identity'):
             self.config('cn-prod-entry', host_ips=[self.apps['app-b']['private_ip']])
+
+    def test_prod_entry_watches_matrix_domains_certs_and_every_private_backend(self):
+        entry = self.prod_matrix['entry']
+        apps = {app['name']: app for app in self.prod_matrix['apps']}
+        config = self.config('prod-entry', host_ips=['10.4.0.1', entry['private_ip']])
+        self.assertEqual(config['targets'], {'prod-entry': 'https://' + entry['domain'] + '/health'})
+        self.assertEqual(entry['domain'], 'api.tokenkey.dev')
+        self.assertEqual(config['certs'], {domain: 20 for domain in entry['domains']})
+        self.assertIn('api-cn.tokenkey.dev', config['certs'])
+        self.assertEqual(config['backends'], {
+            name: 'http://' + app['private_ip'] + ':8080/health' for name, app in apps.items()})
+        self.assertTrue(config['pool_alert'])
+        self.assertEqual(config['jobs'], [])
+        with self.assertRaisesRegex(ValueError, 'host identity'):
+            self.config('prod-entry', host_ips=[apps['app-cand']['private_ip']])
 
     def test_cn_prod_without_node_is_unchanged(self):
         legacy = self.config('cn-prod', hostname=self.domestic['instance_name'])
@@ -705,7 +744,10 @@ class CertExpiryWatchTest(unittest.TestCase):
 class EntryInstallerTest(unittest.TestCase):
     def test_installer_allows_entry_role_and_node_identity(self):
         source = (pathlib.Path(__file__).resolve().parent / 'install-host-https-watch.sh').read_text()
-        self.assertIn("if role not in ('prod','cn-prod','prod-data','cn-prod-data','cn-prod-entry'):", source)
+        self.assertIn(
+            "if role not in ('prod','cn-prod','prod-data','cn-prod-data','cn-prod-entry','prod-entry'):",
+            source)
+        self.assertIn("role.endswith('-entry')", source)
         self.assertIn("config=build_config(role,socket.gethostname(),prod_matrix,domestic,node=node,host_ips=host_ips)", source)
 
 if __name__ == "__main__":
@@ -744,6 +786,72 @@ class QaCleanupBacklogTest(unittest.TestCase):
     def test_unparseable_hour_is_reported(self):
         p = self.write({"oldest_receipt_blocked_hour_utc": "not-a-time"})
         self.assertFalse(watch.qa_cleanup_backlog_fact(p, 0)["healthy"])
+        self.assertEqual(
+            watch.qa_cleanup_backlog_fact(p, 0)["category"],
+            "gateway_qa_archive_failed",
+        )
+
+    def test_cleanup_backlog_uses_archive_failure_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cleanup = pathlib.Path(directory) / "cleanup.json"
+            archive = pathlib.Path(directory) / "last-run.json"
+            cleanup.write_text(json.dumps({
+                "ok": True,
+                "result": {
+                    "cleanup": {
+                        "oldest_receipt_blocked_hour_utc": "2026-11-14T00:00:00+00:00",
+                        "receipt_blocked_hours": 12,
+                    },
+                },
+            }))
+            archive.write_text(json.dumps({
+                "observed_at": "2026-11-16T00:00:00+00:00",
+                "failure_class": "node1_unreachable",
+            }))
+            now = watch.datetime.fromisoformat("2026-11-16T01:00:00+00:00").timestamp()
+            fact = watch.qa_cleanup_backlog_fact_for_archive(cleanup, now, archive)
+            self.assertEqual(fact["category"], "node1_unreachable")
+
+    def test_cleanup_backlog_does_not_duplicate_node1_alert(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cleanup = pathlib.Path(directory) / "cleanup.json"
+            archive_root = pathlib.Path(directory) / "receipts"
+            archive = archive_root / "prod" / "last-run.json"
+            archive.parent.mkdir(parents=True)
+            cleanup.write_text(json.dumps({
+                "ok": True,
+                "result": {
+                    "cleanup": {
+                        "oldest_receipt_blocked_hour_utc": "2026-11-14T00:00:00+00:00",
+                        "receipt_blocked_hours": 12,
+                    },
+                },
+            }))
+            archive.write_text(json.dumps({
+                "observed_at": watch.datetime.now().astimezone().isoformat(),
+                "failure_class": "node1_unreachable",
+            }))
+            completed = int(watch.time.monotonic() * 1_000_000)
+            def systemd(command, **_):
+                active = "active" if command[2].endswith(".timer") else "inactive"
+                return SimpleNamespace(stdout="\n".join([
+                    f"ActiveState={active}",
+                    "UnitFileState=enabled",
+                    "Result=success",
+                    "ExecMainStartTimestampMonotonic=0",
+                    f"ExecMainExitTimestampMonotonic={completed}",
+                ]))
+            original_cleanup = watch.QA_CLEANUP_RECEIPT
+            original_archive = watch.QA_ARCHIVE_RECEIPTS
+            try:
+                watch.QA_CLEANUP_RECEIPT = cleanup
+                watch.QA_ARCHIVE_RECEIPTS = archive_root
+                with patch.object(watch.subprocess, "run", side_effect=systemd):
+                    fact = watch.probe_job("tokenkey-qa-cleanup", environment="prod")
+            finally:
+                watch.QA_CLEANUP_RECEIPT = original_cleanup
+                watch.QA_ARCHIVE_RECEIPTS = original_archive
+            self.assertTrue(fact["healthy"])
 
     def test_receipt_path_matches_the_host_runner(self):
         root = pathlib.Path(__file__).resolve().parents[2]
@@ -799,6 +907,36 @@ class QaArchiveCoverageTest(unittest.TestCase):
         config = watch.build_config('cn-prod', bad['instance_name'], self.prod_matrix, bad)
         jobs = config['jobs']
         self.assertTrue(any(name not in watch.JOB_LIMITS for name in jobs))
+
+    def test_archive_failure_is_routed_to_node1_operations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            receipt = pathlib.Path(directory) / "last-run.json"
+            receipt.write_text(json.dumps({
+                "observed_at": "2026-11-16T00:00:00+00:00",
+                "failure_class": "node1_unreachable",
+            }))
+            now = watch.datetime.fromisoformat("2026-11-16T00:30:00+00:00").timestamp()
+            fact = watch.qa_archive_failure_fact(receipt, now, {"healthy": False, "reason": "service failed: exit-code"})
+            self.assertEqual(fact["category"], "node1_unreachable")
+            self.assertIn("node1 unreachable", fact["reason"])
+
+    def test_archive_protocol_failure_is_kept_with_the_gateway(self):
+        with tempfile.TemporaryDirectory() as directory:
+            receipt = pathlib.Path(directory) / "last-run.json"
+            receipt.write_text(json.dumps({
+                "observed_at": "2026-11-16T00:00:00+00:00",
+                "failure_class": "gateway_qa_archive_failed",
+            }))
+            now = watch.datetime.fromisoformat("2026-11-16T00:30:00+00:00").timestamp()
+            fact = watch.qa_archive_failure_fact(receipt, now, {"healthy": False, "reason": "service failed: exit-code"})
+            self.assertEqual(fact["category"], "gateway_qa_archive_failed")
+            self.assertIn("gateway QA archive failed", fact["reason"])
+
+    def test_archive_probe_uses_explicit_environment(self):
+        source = (pathlib.Path(__file__).resolve().parents[2] /
+                  "ops/observability/host_https_watch.py").read_text()
+        self.assertIn('environment = "cn-prod"', source)
+        self.assertIn("QA_ARCHIVE_RECEIPTS / environment /", source)
 
 
 class CnProdPostgresCoverageTest(unittest.TestCase):

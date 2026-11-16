@@ -75,9 +75,66 @@ RESULT_PREFIX = "ROLLING_RESULT "
 
 EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_WARN = 0, 1, 2, 3
 
+# Layout kinds (docs/approved/design-prod-entry-multi-app.md §5):
+# single-container = rolling-ready (cn-prod today). stage0-bluegreen = prod
+# transitional; operator plan/deploy must refuse until apps are single-container.
+LAYOUT_SINGLE = "single-container"
+LAYOUT_BLUEGREEN = "stage0-bluegreen"
+
+
+@dataclass(frozen=True)
+class Layout:
+    kind: str
+    root: Path
+    controls: Path
+
 
 class RollingError(Exception):
     """Refusal or failure with an operator-facing message (never secrets)."""
+
+
+def layout_for_manifest(manifest: dict) -> Layout:
+    """Resolve host paths from the fleet manifest without touching live hosts."""
+    raw = manifest.get("layout")
+    if raw is None:
+        # cn-prod manifests shipped before the layout field: single-container.
+        return Layout(LAYOUT_SINGLE, Path("/opt/tokenkey"),
+                      Path("/opt/tokenkey/releases/artifacts-rolling"))
+    if not isinstance(raw, dict):
+        raise RollingError("manifest.layout must be an object")
+    kind = raw.get("kind")
+    if kind not in (LAYOUT_SINGLE, LAYOUT_BLUEGREEN):
+        raise RollingError(f"unsupported layout.kind: {kind!r}")
+    root = Path(raw.get("root") or (
+        "/opt/tokenkey" if kind == LAYOUT_SINGLE else "/var/lib/tokenkey"))
+    controls = Path(raw.get("controls") or (str(root) + "/releases/artifacts-rolling"))
+    return Layout(kind, root, controls)
+
+
+def require_rolling_layout(manifest: dict) -> Layout:
+    """Gate plan/deploy: only single-container fleets may roll."""
+    layout = layout_for_manifest(manifest)
+    if layout.kind != LAYOUT_SINGLE:
+        raise RollingError(
+            f"layout.kind={layout.kind!r} is not rolling-ready; "
+            "migrate apps to single-container (Phase C) before rolling "
+            "(design-prod-entry-multi-app.md §5)")
+    for app in manifest.get("apps") or []:
+        if not isinstance(app, dict):
+            continue
+        mem = app.get("memory_limit")
+        if not mem:
+            raise RollingError(f"apps[].memory_limit required for rolling ({app.get('name')})")
+    return layout
+
+
+def apply_layout(layout: Layout) -> None:
+    """Bind module paths for host-side agent helpers (tests patch ROOT)."""
+    global ROOT, CONTROLS, AGENT_PATH, SMOKE_PATH
+    ROOT = layout.root
+    CONTROLS = layout.controls
+    AGENT_PATH = CONTROLS / "rolling.py"
+    SMOKE_PATH = CONTROLS / "candidate_smoke.py"
 
 
 # --------------------------------------------------------------------------
@@ -1235,11 +1292,16 @@ def main(argv: list[str] | None = None, *, executor: Executor | None = None,
         argv.insert(0, "plan")
     args = build_parser().parse_args(argv)
     try:
+        try:
+            from deploy.domestic import remote_exec  # type: ignore
+        except ImportError:
+            import remote_exec  # type: ignore
+        raw_manifest = json.loads(Path(args.manifest).read_text())
+        if args.command in ("plan", "deploy"):
+            apply_layout(require_rolling_layout(raw_manifest))
+        else:
+            apply_layout(layout_for_manifest(raw_manifest))
         if nodes is None or entry is None:
-            try:
-                from deploy.domestic import remote_exec  # type: ignore
-            except ImportError:
-                import remote_exec  # type: ignore
             nodes = remote_exec.app_nodes(args.manifest)
             entry = remote_exec.load_nodes(args.manifest)["entry"]
         executor = executor or RemoteExecExecutor(args.via)

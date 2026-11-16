@@ -66,8 +66,9 @@ err() { echo "[fetch-prod-logs] error: $*" >&2; }
 log() { echo "[fetch-prod-logs] $*"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=scripts/lib/gh-workflow-artifact.sh
-source "$SCRIPT_DIR/lib/gh-workflow-artifact.sh"
+source "$REPO_ROOT/scripts/lib/gh-workflow-artifact.sh"
 
 validate_env() {
   local ok=0

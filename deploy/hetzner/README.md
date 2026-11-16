@@ -6,51 +6,41 @@
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
 切流回执：[`docs/ops/reports/tencent-cutover-20261022.json`](../../docs/ops/reports/tencent-cutover-20261022.json)
 
-## 2026-11-11 应用替换准备中（未切流）
+## 2026-11-15/16 入口机 + 双应用机（已切 DNS）
 
-prod 和 cn-prod 均已拆分应用机与独立数据机，并非整个站点只剩应用机。
+prod 与 cn-prod 均为「入口机 + 多应用机 + 独立数据机」。设计见
+[`design-prod-entry-multi-app.md`](../../docs/approved/design-prod-entry-multi-app.md)
+与 [`design-cn-prod-rolling-deploy.md`](../../docs/approved/design-cn-prod-rolling-deploy.md)。
+
 prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
-[`prod-target.json`](../domestic/prod-target.json)。本次仅替换 prod 应用机，两个站点的数据服务和 cn-prod 应用不迁移、不重启。
+[`prod-target.json`](../domestic/prod-target.json)。
 
-原地 LUKS 搬盘已取消。新应用候选 `lhins-2kf31667` / `43.162.126.44` / `10.4.0.9`，
-SSM `mi-000c0168439c243a8`（eu-west-2），2C8G / 80 GB SSD，95 元/月自动续费。
-普通根盘 `/var/lib/docker`、`/var/lib/tokenkey`，不启动 PG/Redis 服务端。
+| 角色 | 实例 | 公网 IP | 私网 | SSM (eu-west-2) | 备注 |
+|---|---|---|---|---|---|
+| **prod 入口** | `lhins-3am1i23j` | `43.162.119.210` | `10.4.0.8` | `mi-026982f3622163a1b` | Caddy 终止五域名 TLS；WRR `10.4.0.16:8080`×2 + `10.4.0.9:8080`×1；公网只开 80/443 |
+| prod 应用（旧） | `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | `mi-080ed76dc6d97d8b5` | 4C16G / LUKS；蓝绿+`tokenkey-entry-origin`；**公网 80/443 已关**（2026-11-16），仅入口 `/32` 打 8080 |
+| prod 应用（候选） | `lhins-2kf31667` | `43.162.126.44` | `10.4.0.9` | `mi-000c0168439c243a8` | 2C8G 明文根盘；同样经 `entry-origin` 接入口 |
+| prod 数据 | `lhins-p43i2kxh` | — | `10.4.0.3` | `mi-044ba9da6453c1557` | PG/Redis |
+
+五域名 A（TTL 60）均指向入口 `43.162.119.210`：`tokenkey.dev` / `api.tokenkey.dev` /
+`api-cn.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。国内入口
+`api.galaxywaveai.com` → 腾讯北京入口 `154.8.185.224`（`10.2.4.7`），见
+[`deploy/domestic/README.md`](../domestic/README.md)。
+
 候选储存身份：[app-parallel-20261111.json](../tencent/app-parallel-20261111.json)；
-**该文件不改变默认 prod resolver**。DNS、CI 默认目标和 QA 归档 owner 仍是旧应用机。
-新机 QA capture 临时关闭，不能在旧归档 owner 停用前开启新归档。
+**默认 CI/`resolve_prod_ssm_target` 仍解析旧应用机**，入口与候选须显式指定。
+发版仍为节点内蓝绿（Stage0）。阶段 C 代码侧：矩阵已标
+`layout.kind=stage0-bluegreen` + `apps[].memory_limit`，`rolling.py` plan/deploy
+对 prod 蓝绿布局直接拒绝；**现网单容器迁移仍须单独批准**，未执行。
+旧机脱离 LUKS 是阶段 D（须 ≥24h 稳定 + 单台门禁 + 再批准）。
+舰队矩阵形状门禁：`python3 deploy/tencent/check_prod_fleet_matrix.py`。
 
-旧应用机现为 4C16G / 180 GB SSD，355 元/月；旧机不停止、不销毁，LUKS 和历史 QA 保留。
-并行期间增加 95 元/月；只有另行授权退役旧机后，应用机月费才净减 260 元。
-验收、剩余门禁与回执见[批准方案](../../docs/approved/design-prod-app-parallel-replacement.md#实际证据)。
-
-2026-11-11 用户后续同意保留新旧双应用节点并演练摘机，取代最终退役旧应用机的目标；
-当前仍未切流，不能据此宣称 HA 已上线。入口接入方式、费用、多节点发布与 QA 集中管理
-边界见[后续决定](../../docs/approved/design-prod-app-parallel-replacement.md#2026-11-11-后续决定保留双应用节点)。
-
-## 活舰队（prod-only，2026-10-22 切流起）
-
-| 节点 | 正式域名 | 公网 IP | 控制面身份 | 备注 |
-|------|----------|---------|------------|------|
-| **prod** | `api.tokenkey.dev` | `43.162.83.233` | Lighthouse `lhins-fcwpwymt` · SSM Hybrid `mi-080ed76dc6d97d8b5` · eu-west-2 | 腾讯美西 · timeline 2 · LUKS mapper；Stage0 例外布局（见下） |
-
-四个长期正式域名 A 记录（TTL 300）指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。`api-cn.tokenkey.dev` 仍暂时指向同一地址，日后退役。国内长期入口 `api.galaxywaveai.com` 指向腾讯北京 `154.8.214.179`，站点见 [`deploy/domestic/README.md`](../domestic/README.md)。
-prod 直接使用原生账号；旧中继 stub 已软删。
 **Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已于 2026-10-23 完全退役**（实例、栈、VPC、卷、EIP、快照均已删；仅留 S3 历史链 `prod/postgres` timeline 1，只含数据库）。不能当作现网入口。
-**布局（2026-10-22 例外路径已收敛）：** LUKS 双挂仍在；Docker Root **例外**保留 `/srv/tokenkey-rehearsal/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`；网关容器 `tokenkey` / `tokenkey-caddy`；PG/Redis 名仍为 cutover 字面量但带 `postgres`/`redis` 网络别名；Redis 自 2026-10-22 起 AOF（everysec）持久化，数据在 `/srv/tokenkey-rehearsal/redis`。默认可 `deploy-stage0`。细则 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)；unlock [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
-历史数据从 S3 隔离归档读取。退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
+旧应用机布局例外：LUKS 双挂；Docker Root 保留 `/srv/tokenkey-rehearsal/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`。细则 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)；unlock [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
 
-### 同机附属 / 代理验证资源
-
-| 角色 | 地域 / 实例 ID | 公网 IP | 私网 IP | 规格 |
-|---|---|---|---|---|
-| prod 旧应用机（仍接流） | na-siliconvalley-2 / `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | 4C16G / 180 GB SSD |
-
-实例到期约 2026-11-21/22 UTC，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-22 用户决定按月自动续费；账户余额不足仍会停机）。SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
-SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。
-`usw-eval1..4`（`lhins-56ogvsid` / `lhins-mtiwmfod` / `lhins-n1w2c5qr` / `lhins-h12i2d2r`）已于 2026-11-15 07:40 UTC 隔离、08:20 UTC 经用户批准销毁（`TerminateInstances`），usw-eval1 的 SSM 注册 `mi-0ed39350eef156e4a` 同时注销：prod、cn-prod `proxies` 均无引用，退还前 1080 无连接。
-prod 实际活出口为腾讯北京四台、阿里北京四台和 AWS Oregon 四台，存在 default 别名重复行；
-新应用候选已通过全部 16 条活配置的认证连通测试。Oregon 主机仍是保留的 AWS 计算依赖，不能描述成零 AWS。
-活绑定以 prod / cn-prod `proxies` 为准。
+SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
+SOCKS 仅监听各机私网 `:1080`；放行来源见下方 `ALLOWED_SOURCES`（**应用机公网 IP**，不是入口 IP）。
+`usw-eval1..4` 已于 2026-11-15 销毁。Oregon 主机仍是保留的 AWS 计算依赖。活绑定以 prod / cn-prod `proxies` 为准。
 
 #### 国内出口 `cn-ip9..12`（阿里云北京轻量 SWAS，公网 SOCKS，2026-11-15 起）
 
@@ -67,7 +57,7 @@ prod 实际活出口为腾讯北京四台、阿里北京四台和 AWS Oregon 四
 
 迁移方式是换绑：在两个站点各新增 `cn-ip9..12` 记录，再把 `cn-ip1..4` 的账号分批改绑过去，旧记录不删不改 host，随时可回滚。迁移后已验证：两端 `cn-ip1..4` 绑定为 0，新代理承接真实流量，代理相关错误为 0。
 
-**1080 放行来源**（唯一 owner 是 `deploy/tencent/install-cn-socks-proxy.sh` 的 `ALLOWED_SOURCES`）：`43.162.83.233`（prod 现役）、`43.162.126.44`（prod 并行候选）、`154.8.214.179`（cn-prod）。UCloud `106.75.29.139` 已于 2026-10-27 销毁，不再放行。云防火墙要与这份名单一致，不要对 `0.0.0.0/0` 开放 22、8080 或 1080；新建实例必须先删掉控制台默认的公网 22 规则。
+**1080 放行来源**（唯一 owner 是 `deploy/tencent/install-cn-socks-proxy.sh` 的 `ALLOWED_SOURCES`）：`43.162.83.233`（prod 旧应用机）、`43.162.126.44`（prod 候选应用机）、`154.8.214.179`（cn-prod app-a）。入口机公网 IP **不要**加入此名单。UCloud `106.75.29.139` 已于 2026-10-27 销毁，不再放行。云防火墙要与这份名单一致，不要对 `0.0.0.0/0` 开放 22、8080 或 1080；新建实例必须先删掉控制台默认的公网 22 规则。
 
 #### 历史出口（已退役）
 
@@ -128,16 +118,16 @@ prod 实际活出口为腾讯北京四台、阿里北京四台和 AWS Oregon 四
 - 活 prod 身份：`../tencent/candidate-usw-20261022.json`（`deployable=true` 时由 `resolve_prod_ssm_target` 解析）。
 - 宿主 watcher owner：`../tencent/candidate-usw-20261022.json` 的 `host_watch`（`hostname` / `domains` / `paused_jobs` / `local_qa_jobs`）。
 - Tokyo 已于 2026-10-23 完全退役（实例/栈/VPC/卷/快照已删，仅留 S3 历史链），`aws-fresh` 解析路径与 `fresh-migration-20261015.json` 已删除（[runbook](../../docs/ops/tokyo-retirement-runbook.md)）。
-- watcher 不随仓库合并更新：主机按安装时的内容寻址副本运行（`/usr/local/lib/tokenkey/https-watch/<hash>/config.json`）。改 `host_watch` 后须**经审批**重装：把 `install-host-https-watch.sh`、`host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、`deploy/tencent/candidate-usw-20261022.json`、`deploy/domestic/prod-target.json` 按 basename 放进 `WATCH_BUNDLE_DIR`，先不带 `APPLY` 跑一遍（只核身份并打印配置），与现装 config 比对后再以 `APPLY=yes-host-https-watch` 安装；prod 与 cn-prod（`WATCH_ROLE=cn-prod`）都要装。2026-10-22 起 `local_qa_jobs` 新增 `tokenkey-qa-provision`（迁机漏装）；provision 已于 2026-10-22 13:29 UTC 补装（[runbook §8](../../docs/ops/tokyo-retirement-runbook.md#8-迁机漏装tokenkey-qa-provision已补装-2026-10-22)）；prod watcher 已于 2026-10-22 15:24 UTC 重装纳入（bundle `95998671d971c8ce`）。
+- watcher 不随仓库合并更新：主机按安装时的内容寻址副本运行（`/usr/local/lib/tokenkey/https-watch/<hash>/config.json`）。改 `host_watch` / `entry` / `apps` 后须**经审批**重装：把 `install-host-https-watch.sh`、`host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、`deploy/tencent/candidate-usw-20261022.json`、`deploy/domestic/prod-target.json` 按 basename 放进 `WATCH_BUNDLE_DIR`，先不带 `APPLY` 跑一遍（只核身份并打印配置），与现装 config 比对后再以 `APPLY=yes-host-https-watch` 安装。角色：旧应用机 `WATCH_ROLE=prod`；**入口机** `WATCH_ROLE=prod-entry`（私网身份 + 五域名证书 + 两台 `:8080`，凭据 `/var/lib/tokenkey/host-alerts.env`）；cn-prod 见 domestic README。2026-11-16 入口机已装 `prod-entry`。2026-10-22 起 `local_qa_jobs` 新增 `tokenkey-qa-provision`；prod 旧机 watcher bundle `95998671d971c8ce`（domains 增补后需再重装才含 `api-cn`）。
 - 换机流程：[host replacement](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 
 ## 现网不变量
 
 | 项 | 值 |
 |----|-----|
-| 活入口 | 腾讯美西 prod `43.162.83.233`；正式域名 A 指向该 IP（Tokyo 已退役） |
+| 活入口 | 腾讯美西入口机 `43.162.119.210`（`lhins-3am1i23j` / `mi-026982f3622163a1b`）；五域名 A 指向该 IP。旧应用机公网 80/443 已关 |
 | prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
-| 探针 / sync Caddy | prod 解析至腾讯 Hybrid `mi-*`（`resolve_prod_ssm_target.py`）；冻结/退役身份拒绝执行 |
+| 探针 / sync Caddy | 默认仍解析旧应用机 Hybrid `mi-080ed76…`（`resolve_prod_ssm_target.py`）；入口/候选须显式 `INSTANCE_ID`；冻结/退役身份拒绝执行 |
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
 
