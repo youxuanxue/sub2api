@@ -55,7 +55,7 @@ func TestValidateOpsAlertRulePayloadGatewayInFlightAccepted(t *testing.T) {
 		"name":        json.RawMessage(`"inflight"`),
 		"metric_type": json.RawMessage(`"gateway_inflight_usage_percent"`),
 		"operator":    json.RawMessage(`">="`),
-		"threshold":   json.RawMessage(`80`),
+		"threshold":   json.RawMessage(`95`),
 	})
 	require.NoError(t, err)
 	require.Equal(t, "gateway_inflight_usage_percent", got.MetricType)

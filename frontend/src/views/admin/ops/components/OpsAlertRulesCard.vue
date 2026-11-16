@@ -176,7 +176,7 @@ const metricDefinitions = computed(() => {
       label: t('admin.ops.alertRules.metrics.gatewayInflightUsage'),
       description: t('admin.ops.alertRules.metricDescriptions.gatewayInflightUsage'),
       recommendedOperator: '>=',
-      recommendedThreshold: 80,
+      recommendedThreshold: 95,
       unit: '%'
     },
     {
