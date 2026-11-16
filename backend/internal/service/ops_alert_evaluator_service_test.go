@@ -121,6 +121,57 @@ func TestComputeGroupAvailableRatio(t *testing.T) {
 	})
 }
 
+func TestComputeRuleMetric_DataDependencyAvailability(t *testing.T) {
+	t.Parallel()
+
+	dbDown := false
+	redisUp := true
+	systemMetrics := &OpsSystemMetricsSnapshot{
+		DBOK:    &dbDown,
+		RedisOK: &redisUp,
+	}
+	svc := &OpsAlertEvaluatorService{}
+
+	dbValue, dbOK := svc.computeRuleMetric(
+		context.Background(),
+		&OpsAlertRule{MetricType: "db_unavailable_count"},
+		systemMetrics,
+		time.Time{},
+		time.Time{},
+		"",
+		nil,
+		1,
+	)
+	require.True(t, dbOK)
+	require.Equal(t, 1.0, dbValue)
+
+	redisValue, redisMetricOK := svc.computeRuleMetric(
+		context.Background(),
+		&OpsAlertRule{MetricType: "redis_unavailable_count"},
+		systemMetrics,
+		time.Time{},
+		time.Time{},
+		"",
+		nil,
+		1,
+	)
+	require.True(t, redisMetricOK)
+	require.Equal(t, 0.0, redisValue)
+
+	missingValue, missingOK := svc.computeRuleMetric(
+		context.Background(),
+		&OpsAlertRule{MetricType: "db_unavailable_count"},
+		&OpsSystemMetricsSnapshot{},
+		time.Time{},
+		time.Time{},
+		"",
+		nil,
+		1,
+	)
+	require.False(t, missingOK)
+	require.Zero(t, missingValue)
+}
+
 func TestCountAccountsByCondition(t *testing.T) {
 	t.Parallel()
 

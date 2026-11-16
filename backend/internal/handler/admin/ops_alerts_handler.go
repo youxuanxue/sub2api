@@ -23,6 +23,8 @@ var validOpsAlertMetricTypes = []string{
 	"cpu_usage_percent",
 	"memory_usage_percent",
 	"concurrency_queue_depth",
+	"db_unavailable_count",
+	"redis_unavailable_count",
 	// pool_load_rate is evaluator-supported (first switch) and offered by the
 	// admin UI metric registry, but was missing here — so creating/editing a
 	// pool_load_rate rule via the API was rejected with 400 even though the UI

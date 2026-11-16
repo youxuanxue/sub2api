@@ -32,6 +32,22 @@ func TestValidateOpsAlertRulePayloadPoolLoadRateAccepted(t *testing.T) {
 	require.Equal(t, "pool_load_rate", got.MetricType)
 }
 
+func TestValidateOpsAlertRulePayloadDataDependencyMetricsAccepted(t *testing.T) {
+	t.Parallel()
+
+	for _, metricType := range []string{"db_unavailable_count", "redis_unavailable_count"} {
+		got, err := validateOpsAlertRulePayload(map[string]json.RawMessage{
+			"name":        json.RawMessage(`"data dependency"`),
+			"metric_type": json.RawMessage(`"` + metricType + `"`),
+			"operator":    json.RawMessage(`">="`),
+			"threshold":   json.RawMessage(`1`),
+		})
+		require.NoError(t, err, metricType)
+		require.Equal(t, metricType, got.MetricType)
+		require.False(t, isPercentOrRateMetric(metricType))
+	}
+}
+
 func TestValidateOpsAlertRulePayloadProxyUnreachableAccepted(t *testing.T) {
 	raw := map[string]json.RawMessage{
 		"name":        opsAlertRawMsg(t, "代理出口不可达"),
