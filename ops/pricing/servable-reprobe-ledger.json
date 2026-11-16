@@ -117,37 +117,37 @@
     {
       "platform": "gemini",
       "model": "gemini-3.7-flash",
-      "reason": "2026-11-16 reviewed withdrawal: AG Ultra catalogs have no 3.7 wires; Google-Vertex group 16 accounts are unschedulable (billing 403). Keep priced for settlement; do not advertise on public catalog."
+      "reason": "Reviewed withdrawal: AG Ultra catalogs have no 3.7 wires; Google-Vertex group 16 accounts are unschedulable (billing 403). Keep priced for settlement; do not advertise on public catalog."
     },
     {
       "platform": "gemini",
       "model": "gemini-3-pro-image",
-      "reason": "2026-11-16 reviewed withdrawal: gateway returns Unsupported model even when bound to gemini-web accounts with explicit mapping; no successful usage in 7d. Keep priced for settlement; do not advertise on public catalog."
+      "reason": "Reviewed withdrawal: gateway returns Unsupported model even when bound to gemini-web accounts with explicit mapping; empty recent successful usage. Keep priced for settlement; do not advertise on public catalog."
     },
     {
       "platform": "gemini",
       "model": "veo-3.1-generate-001",
-      "reason": "2026-11-16 reviewed withdrawal: Google-Vertex (group 16) pool has zero schedulable accounts (billing disabled 403). Keep priced for settlement; do not advertise on public catalog."
+      "reason": "Reviewed withdrawal: Google-Vertex (group 16) pool has zero schedulable accounts (billing disabled 403). Keep priced for settlement; do not advertise on public catalog."
     },
     {
       "platform": "antigravity",
       "model": "gemini-3.7-flash",
-      "reason": "2026-11-16 reviewed withdrawal from AG defaults and account mappings; Ultra has no 3.7 wires and literal probes 404. Mirror gemini catalog retirement."
+      "reason": "Reviewed withdrawal from AG defaults and account mappings; Ultra has no 3.7 wires and literal probes 404. Mirror gemini catalog retirement."
     },
     {
       "platform": "antigravity",
       "model": "gemini-3-flash-preview",
-      "reason": "2026-11-16 reviewed withdrawal: literal Ultra generateContent returns Google 404 NOT_FOUND; was remap-only alias to gemini-3.8-flash-high. Use gemini-3-flash."
+      "reason": "Reviewed withdrawal: literal Ultra generateContent returns Google 404 NOT_FOUND; was remap-only alias to gemini-3.8-flash-high. Use gemini-3-flash."
     },
     {
       "platform": "antigravity",
       "model": "gemini-3.1-flash-image-preview",
-      "reason": "2026-11-16 reviewed withdrawal: literal Ultra generateContent returns Google 404 NOT_FOUND; was remap-only alias to gemini-3.1-flash-image."
+      "reason": "Reviewed withdrawal: literal Ultra generateContent returns Google 404 NOT_FOUND; was remap-only alias to gemini-3.1-flash-image."
     },
     {
       "platform": "gemini",
       "model": "gemini-3-flash-preview",
-      "reason": "2026-11-16 reviewed withdrawal: mirror antigravity evidence; preview id is not a servable upstream wire."
+      "reason": "Reviewed withdrawal: mirror antigravity evidence; preview id is not a servable upstream wire."
     }
   ],
   "probe_candidates": [
