@@ -55,6 +55,14 @@ class RemoteError(RuntimeError):
     pass
 
 
+class Node1ConnectivityError(RemoteError):
+    """The archive host or its SSH path did not accept a probe."""
+
+
+class Node1ArchiveError(RemoteError):
+    """Node1 answered, but the archive protocol or payload was rejected."""
+
+
 def ssh_command(key: Path, jump: str, target: str) -> list[str]:
     """ssh argv that routes through the jump host with this key only.
 
@@ -131,7 +139,8 @@ def _read_probe(command: list[str], script: str, operation: str) -> subprocess.C
               file=sys.stderr, flush=True)
         if attempt < attempts:
             time.sleep(2 * attempt)
-    raise RemoteError(f"node1 {operation} probe failed after {attempts} attempts: {error}")
+    raise Node1ConnectivityError(
+        f"node1 {operation} probe failed after {attempts} attempts: {error}")
 
 
 def remote_capacity(key: Path, jump: str, target: str, remote_root: str) -> dict:
@@ -155,7 +164,8 @@ printf '{{"total_bytes":%s,"free_bytes":%s,"qa_used_bytes":%s}}\\n' "$total" "$f
     try:
         return json.loads(result.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError) as exc:
-        raise RemoteError(f"node1 capacity probe returned no JSON: {result.stdout[-300:]}") from exc
+        raise Node1ArchiveError(
+            f"node1 capacity probe returned no JSON: {result.stdout[-300:]}") from exc
 
 
 def remote_manifest_digest(key: Path, jump: str, target: str, remote_dir: str) -> str:
@@ -183,7 +193,7 @@ def remote_manifest_digest(key: Path, jump: str, target: str, remote_dir: str) -
     if answer == "ABSENT":
         return ""
     if len(answer) != 64 or not all(c in "0123456789abcdef" for c in answer):
-        raise RemoteError(f"node1 returned an unusable manifest digest: {answer[:80]!r}")
+        raise Node1ArchiveError(f"node1 returned an unusable manifest digest: {answer[:80]!r}")
     return answer
 
 
@@ -196,7 +206,7 @@ def push_directory(staging: Path, *, key: Path, jump: str, target: str,
     and whichever consumed the archive bytes first would win.
     """
     if not staging.is_dir() or staging.is_symlink():
-        raise RemoteError(f"staging directory is not a real directory: {staging}")
+        raise Node1ArchiveError(f"staging directory is not a real directory: {staging}")
 
     tar = ["nice", "-n", "19", "ionice", "-c3",
            "tar", "-C", str(staging), "-cf", "-", "."]
@@ -231,16 +241,17 @@ def push_directory(staging: Path, *, key: Path, jump: str, target: str,
 
     sender_stderr = sender.stderr.read().decode(errors="replace") if sender.stderr else ""
     if sender.returncode:
-        raise RemoteError(f"tar failed while reading {staging}: {sender_stderr[-600:]}")
+        raise Node1ArchiveError(f"tar failed while reading {staging}: {sender_stderr[-600:]}")
     if receiver.returncode:
-        raise RemoteError("node1 rejected the stream: "
-                          f"{(receiver.stderr or receiver.stdout)[-600:]}")
+        raise Node1ArchiveError("node1 rejected the stream: "
+                                f"{(receiver.stderr or receiver.stdout)[-600:]}")
     try:
         summary = json.loads(receiver.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError) as exc:
-        raise RemoteError(f"node1 returned no JSON summary: {receiver.stdout[-300:]}") from exc
+        raise Node1ArchiveError(
+            f"node1 returned no JSON summary: {receiver.stdout[-300:]}") from exc
     if summary.get("ok") is not True:
-        raise RemoteError(f"node1 reported failure: {summary.get('error', summary)}")
+        raise Node1ArchiveError(f"node1 reported failure: {summary.get('error', summary)}")
     return summary
 
 
