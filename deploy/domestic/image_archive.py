@@ -135,8 +135,16 @@ def content_aligned(image, receipt, config=None):
 
 
 def _persist_warm(saved, receipt, *, image_id, local_tag, cached):
+    # architecture is required by warm_fanout.validate_receipt (and matches the
+    # GHCR warm receipt shape). Hosts already refuse non-amd64 in check_loaded;
+    # omitting it made distribute-cn-image fail after a successful host warm.
     result = {k: receipt[k] for k in ('tag', 'revision', 'source_digest', 'archive_sha256', 'bytes')}
-    result.update(image_id=image_id, local_tag=local_tag, cached=cached)
+    result.update(
+        architecture='amd64',
+        image_id=image_id,
+        local_tag=local_tag,
+        cached=cached,
+    )
     temporary = saved.with_suffix('.tmp')
     temporary.write_text(json.dumps(result, indent=2) + '\n')
     temporary.replace(saved)

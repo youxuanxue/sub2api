@@ -160,11 +160,13 @@ class ArchiveTests(unittest.TestCase):
     def test_warm_downloads_verifies_loads_and_caches_without_service_mutation(self):
         result, calls = self.host_run()
         self.assertEqual(result['local_tag'], archive.identity(TAG, REV))
+        self.assertEqual(result['architecture'], 'amd64')
         self.assertFalse(result['cached'])
         self.assertEqual([cmd[:2] for cmd in calls if cmd[0] == 'docker'], [['docker', 'load'], ['docker', 'tag']])
         # Same content already present under a different docker ID (GHCR vs load).
         cached, calls = self.host_run(existing_id='sha256:ghcr-manifest-id')
         self.assertTrue(cached['cached'])
+        self.assertEqual(cached['architecture'], 'amd64')
         self.assertEqual(cached['image_id'], 'sha256:ghcr-manifest-id')
         self.assertEqual([cmd[0] for cmd in calls], ['mountpoint'])
         self.assertEqual(list((Path(self.temp.name) / 'data/image-distribution').glob('warm-*')), [])
