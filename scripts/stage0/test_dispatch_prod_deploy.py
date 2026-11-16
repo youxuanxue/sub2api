@@ -63,20 +63,46 @@ class DispatchProdDeployTest(unittest.TestCase):
     def _gh_args(self) -> str:
         return self.gh_log.read_text()
 
-    def test_deploy_strips_leading_v(self) -> None:
-        proc = self._run("--operation", "deploy", "--tag", "v1.8.243")
+    def test_deploy_dispatches_rolling_with_derived_confirm(self) -> None:
+        revision = "a" * 40
+        proc = self._run(
+            "--operation", "deploy", "--tag", "v1.8.243", "--revision", revision
+        )
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
-        self.assertIn("workflow=deploy-stage0.yml", proc.stdout)
+        self.assertIn("workflow=prod-rolling-deploy.yml", proc.stdout)
         self.assertIn("tag=1.8.243", proc.stdout)
-        self.assertIn("operation=deploy", self._gh_args())
+        self.assertIn(f"revision={revision}", self._gh_args())
+        self.assertIn("confirm=rolling-prod-1.8.243", self._gh_args())
+        self.assertNotIn("operation=", self._gh_args())
         self.assertIn("tag=1.8.243", self._gh_args())
         self.assertNotIn("tag=v1.8.243", self._gh_args())
 
+    def test_cn_deploy_dispatches_cn_rolling(self) -> None:
+        revision = "c" * 40
+        proc = self._run(
+            "--operation", "cn-deploy", "--tag", "1.8.243", "--revision", revision
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertIn("workflow=cn-prod-rolling-deploy.yml", proc.stdout)
+        self.assertIn(f"revision={revision}", self._gh_args())
+        self.assertIn("confirm=rolling-cn-prod-1.8.243", self._gh_args())
+        self.assertNotIn("operation=", self._gh_args())
+
+    def test_deploy_requires_full_revision(self) -> None:
+        proc = self._run("--operation", "deploy", "--tag", "1.8.243")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("--revision", proc.stderr)
+        self.assertFalse(self.gh_log.exists())
+
     def test_warm_dispatches_warm_workflow(self) -> None:
-        proc = self._run("--operation", "warm", "--tag", "1.2.3")
+        revision = "d" * 40
+        proc = self._run(
+            "--operation", "warm", "--tag", "1.2.3", "--revision", revision
+        )
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         self.assertIn("workflow=warm-image-stage0.yml", proc.stdout)
         self.assertIn("tag=1.2.3", self._gh_args())
+        self.assertIn(f"revision={revision}", self._gh_args())
         self.assertNotIn("operation=", self._gh_args())
 
     def test_replay_replace_receipt(self) -> None:
@@ -87,12 +113,19 @@ class DispatchProdDeployTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         self.assertIn(f"replace_receipt={receipt}", self._gh_args())
 
-    def test_deploy_replay_receipt_for_promote(self) -> None:
+    def test_legacy_deploy_replay_receipt_for_promote(self) -> None:
         receipt = "b" * 64
         proc = self._run(
-            "--operation", "deploy", "--tag", "1.2.3", "--replay-receipt", receipt
+            "--operation",
+            "legacy-deploy",
+            "--tag",
+            "1.2.3",
+            "--replay-receipt",
+            receipt,
         )
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertIn("workflow=deploy-stage0.yml", proc.stdout)
+        self.assertIn("operation=deploy", self._gh_args())
         self.assertIn(f"replay_receipt={receipt}", self._gh_args())
 
     def test_rejects_replay_receipt_on_replay(self) -> None:
@@ -104,14 +137,23 @@ class DispatchProdDeployTest(unittest.TestCase):
         self.assertFalse(self.gh_log.exists())
 
     def test_rejects_malformed_tag(self) -> None:
-        proc = self._run("--operation", "deploy", "--tag", "vv1.2.3")
+        proc = self._run(
+            "--operation", "deploy", "--tag", "vv1.2.3", "--revision", "e" * 40
+        )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("invalid --tag", proc.stderr)
         self.assertFalse(self.gh_log.exists())
 
     def test_workflow_ref(self) -> None:
         proc = self._run(
-            "--operation", "deploy", "--tag", "1.2.3", "--ref", "chore/drain-fix"
+            "--operation",
+            "deploy",
+            "--tag",
+            "1.2.3",
+            "--revision",
+            "f" * 40,
+            "--ref",
+            "chore/drain-fix",
         )
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         self.assertIn("--ref chore/drain-fix", self._gh_args())

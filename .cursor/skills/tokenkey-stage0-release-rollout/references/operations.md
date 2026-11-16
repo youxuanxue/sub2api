@@ -10,14 +10,15 @@
 |---|---|
 | `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
 | `operation=replay` | **仅允许 `target=prod`**：以 `STAGE0_BLUEGREEN_STAGE=prepare` 部署 inactive color，再用测试 universal key 对该候选执行完整用例。请求并发与间隔由 host runner 固定；每条用例均生成结果，停止时保留剩余义务。不得调用 promote、Caddy reload；回执交用户审核，不是切流授权。 |
-| `target=prod` | release（必要时 bump/tag/build）→ `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy --tag …`（绑定 **`prod`** Environment）→ prod smoke → **默认** Account model_mapping check。 |
-| `target=cn-prod` | 不走 `dispatch-prod-deploy.sh`。Release 与 `distribute-cn-image.yml` 都成功后，`deploy_via_ssm.sh pull` → `sync-controls` → `prepare` → `candidate-smoke` → `put-file` plan → `promote`。`prepare` 不切流。`promote` 使用 `prod-target.json` 的 `public_origin`，不能改成 `api.galaxywaveai.com`。该域名和北京静态 IP 共用一条 `reverse_proxy`，切流时一起换版本。发版不改 DNS，也不改 `public_origin`。`api-cn.tokenkey.dev` 仍暂时指向美西，日后退役，不能当作国内长期入口。`replay` 不能用来切北京。 |
+| `target=prod` | release（必要时 bump/tag/build）→ `dispatch-prod-deploy.sh --operation warm --revision FULL_SHA` → `dispatch-prod-deploy.sh --operation deploy --tag X.Y.Z --revision FULL_SHA`（绑定 **`prod`** Environment）→ rolling smoke → **默认** Account model_mapping check。 |
+| `target=cn-prod` | Release 与 `distribute-cn-image.yml` 都成功后，走 `dispatch-prod-deploy.sh --operation cn-deploy --tag X.Y.Z --revision FULL_SHA` 触发 `cn-prod-rolling-deploy.yml`。分发先 AWS publish，再由独立 `tencent-ops` warm job 按 `apps[]` 顺序预下载，固定 `--channel tat`。rolling 不切 DNS，公网入口仍是 `prod-target.json` 的 `public_origin`（`https://api.galaxywaveai.com`）。`api-cn.tokenkey.dev` 仍暂时指向美西，不能当作国内长期入口。`replay` 不能用来切北京。旧 `deploy_via_ssm.sh` 链路只作恢复/兼容。 |
 | `account_model_mapping_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `manage-account-model-mapping-runtime.py check-accounts --json --target <本次发版目标>`（`--target all` 一次覆盖两地），只读 diff 该目标显式 `model_mapping` 与 Go SSOT floor/policy metadata。**发哪个目标就要有哪个目标的证据**：cn-prod 不能用美西结果代替。cn-prod 身份取自 `deploy/domestic/prod-target.json`，是一等目标，不要用 `--prod-instance-id` 旁路（那样回执 label 仍是 `prod`，与真 prod 无法区分）。violation 或 SSM/OIDC 失败记 **yellow**，不 rollback 镜像。`account_model_mapping_check=false` 跳过。|
 
 ### 回放与审核
 
 用户说“回放 / 只部署 prod，不切流”时，使用 `operation=replay target=prod`。
 必要时先完成 release/build，再 `bash scripts/stage0/dispatch-prod-deploy.sh --operation replay --tag X.Y.Z`。
+这是旧 `deploy-stage0.yml` 的 recovery/replay 路径，不是 prod 日常 rolling。
 已有同 tag 且指纹一致的 prepared candidate 直接复用。仅 ops 验证器变更时可从通过
 preflight 的版本化工作区运行同一个 `scripts/stage0/replay-prod-release.py`，验证已有镜像。
 

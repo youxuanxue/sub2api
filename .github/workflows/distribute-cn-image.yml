@@ -14,23 +14,33 @@ on:
 permissions:
   contents: read
   actions: read
-  packages: read
-  id-token: write
 concurrency:
   group: cn-prod-image-distribution
   cancel-in-progress: false
 jobs:
-  prewarm:
+  publish:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      id-token: write
+    outputs:
+      source_sha: ${{ steps.repo.outputs.sha }}
+      tag: ${{ steps.source.outputs.tag }}
+      revision: ${{ steps.source.outputs.revision }}
     steps:
       # Trusted default-branch code only; the downloaded artifact is validated data.
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.repository.default_branch }}
+      - name: Record trusted default-branch revision
+        id: repo
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Require referenced Release run succeeded
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -93,20 +103,79 @@ jobs:
           python3 deploy/domestic/image_distribution.py publish \
             --tag "$RELEASE_TAG" --revision "$RELEASE_REVISION" \
             --repository "ghcr.io/${GITHUB_REPOSITORY,,}" > cn-image-publish.json
-      - name: Prewarm cn-prod through SSM
+      - name: Render per-node private S3 prewarm scripts
         env:
           RELEASE_TAG: ${{ steps.source.outputs.tag }}
           RELEASE_REVISION: ${{ steps.source.outputs.revision }}
-          CN_PROD_SSM_TIMEOUT_SECONDS: '1260'
-          CN_PROD_SSM_EXECUTION_TIMEOUT: '1200'
         run: |
           set -euo pipefail
-          bash deploy/domestic/deploy_via_ssm.sh pull \
-            --tag "$RELEASE_TAG" --revision "$RELEASE_REVISION" > cn-image-warm.json
+          python3 deploy/domestic/warm_fanout.py render-all \
+            --manifest deploy/domestic/prod-target.json \
+            --tag "$RELEASE_TAG" \
+            --revision "$RELEASE_REVISION" \
+            --transport s3 \
+            --channel tat \
+            --render-out "cn-image-render.json"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: cn-image-distribution-receipts
-          path: cn-image-*.json
+          name: cn-image-publish-receipts
+          path: cn-image-publish.json
+          if-no-files-found: warn
+          retention-days: 7
+      - uses: actions/upload-artifact@v7
+        if: success()
+        with:
+          name: cn-image-render
+          path: cn-image-render.json
+          if-no-files-found: error
+          # The file contains short-lived presigned URLs and is never printed.
+          retention-days: 1
+
+  warm:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: tencent-ops
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      # Pin the execution code to the same trusted default-branch revision.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.publish.outputs.source_sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Tencent remote execution CLI
+        run: python3 -m pip install 'tccli==3.1.198.1'
+      - uses: actions/download-artifact@v8
+        with:
+          name: cn-image-render
+          path: cn-image-render
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+      - name: Prewarm every cn-prod app node
+        env:
+          RELEASE_TAG: ${{ needs.publish.outputs.tag }}
+          RELEASE_REVISION: ${{ needs.publish.outputs.revision }}
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          python3 deploy/domestic/warm_fanout.py dispatch-rendered \
+            --manifest deploy/domestic/prod-target.json \
+            --tag "$RELEASE_TAG" \
+            --revision "$RELEASE_REVISION" \
+            --transport s3 \
+            --channel tat \
+            --render-file cn-image-render/cn-image-render.json \
+            --receipt-out cn-image-warm.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: cn-image-warm-receipt
+          path: cn-image-warm.json
           if-no-files-found: warn
           retention-days: 7

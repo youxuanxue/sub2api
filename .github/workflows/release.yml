@@ -454,8 +454,8 @@ jobs:
                 disable_web_page_preview: true
               }')"
 
-  # release.yml builds multi-arch images; tokenkey-stage0-release-rollout
-  # dispatches deploy-stage0.yml for prod after a successful build.
+  # release.yml builds multi-arch images. Normal prod/cn-prod release uses the
+  # rolling workflows; deploy-stage0.yml is retained for legacy recovery.
 
   sync-version-file:
     needs: [release]

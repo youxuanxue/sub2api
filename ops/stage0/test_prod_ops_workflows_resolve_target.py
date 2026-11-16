@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prod ops workflows must resolve the control plane via resolve_prod_ssm_target."""
+"""Prod ops workflows must use cutover-aware resolvers where they target one host."""
 from __future__ import annotations
 
 import pathlib
@@ -10,7 +10,6 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 # Host-mutating / warm paths that must follow the cutover-aware resolver.
 _PROD_RESOLVE_WORKFLOWS = (
-    "warm-image-stage0.yml",
     "ops-stage0-pg-dump-refresh.yml",
     "sync-docs-to-pages.yml",
 )
@@ -31,6 +30,16 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
                     "Outputs[?OutputKey==`InstanceId`].OutputValue",
                     text,
                 )
+
+    def test_warm_workflow_warms_every_app_node(self) -> None:
+        text = (WORKFLOWS / "warm-image-stage0.yml").read_text(encoding="utf-8")
+        self.assertIn("revision:", text)
+        self.assertIn("python3 deploy/domestic/warm_fanout.py warm-all", text)
+        self.assertIn("deploy/tencent/candidate-usw-20261022.json", text)
+        self.assertIn("--transport ghcr", text)
+        self.assertIn("--channel auto", text)
+        self.assertIn("--receipt-out prod-warm-receipt.json", text)
+        self.assertIn("prod-warm-receipt.json", text)
 
     def test_feishu_sync_region_default_matches_other_prod_workflows(self) -> None:
         # AWS_REGION only scopes OIDC credentials; the SSM call must take the
