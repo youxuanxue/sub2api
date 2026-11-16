@@ -50,10 +50,29 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict, *,
     ``node`` names a cn-prod ``apps[]`` entry; ``host_ips`` are this host's
     addresses (``hostname -I``) and prove that identity.
     """
-    if role not in ("prod", "cn-prod", "prod-data", "cn-prod-data", "cn-prod-entry"):
-        raise ValueError("WATCH_ROLE must be prod, cn-prod, prod-data, cn-prod-data or cn-prod-entry")
+    if role not in ("prod", "cn-prod", "prod-data", "cn-prod-data",
+                    "cn-prod-entry", "prod-entry"):
+        raise ValueError(
+            "WATCH_ROLE must be prod, cn-prod, prod-data, cn-prod-data, "
+            "cn-prod-entry or prod-entry")
     if node and role != "cn-prod":
         raise ValueError("WATCH_NODE applies only to the cn-prod role")
+    if role == "prod-entry":
+        entry = prod_matrix["entry"]
+        _require_private_ip(entry.get("private_ip", ""), host_ips)
+        domains = list(entry.get("domains") or prod_matrix["host_watch"]["domains"])
+        primary = entry.get("domain") or prod_matrix["target"]["api_domain"]
+        if primary not in domains:
+            domains = [primary] + domains
+        return {
+            "node": role,
+            "targets": {"prod-entry": "https://" + primary + "/health"},
+            "certs": {domain: CERT_MIN_DAYS for domain in domains},
+            "backends": {app["name"]: "http://" + app["private_ip"] + ":8080/health"
+                         for app in prod_matrix["apps"]},
+            "pool_alert": True,
+            "jobs": [], "paused_jobs": {},
+        }
     if role == "cn-prod-entry":
         entry = domestic["entry"]
         _require_private_ip(entry.get("private_ip", ""), host_ips)

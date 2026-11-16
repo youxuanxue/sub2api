@@ -2153,6 +2153,12 @@ if ! python3 -m unittest deploy.tencent.test_host_lockdown >/dev/null 2>&1; then
   echo "  FAIL: host lockdown (re-run: python3 -m unittest deploy.tencent.test_host_lockdown -v)"
   errors=$((errors + 1))
 fi
+# Prod entry+apps matrix shape (layout/memory_limit/entry/apps) must stay
+# rolling/watch-ready; do not leave this as a README-only manual step.
+if ! python3 -m unittest deploy.tencent.test_check_prod_fleet_matrix >/dev/null 2>&1; then
+  echo "  FAIL: prod fleet matrix (re-run: python3 -m unittest deploy.tencent.test_check_prod_fleet_matrix -v)"
+  errors=$((errors + 1))
+fi
 
 # ---- sub2api: SSM host command script parses (deploy/sync primitives) --------
 # The jq `commands` array these scripts send to AWS-RunShellScript is joined and

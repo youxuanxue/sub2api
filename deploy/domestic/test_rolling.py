@@ -579,6 +579,50 @@ class PureHelperTest(unittest.TestCase):
         self.assertEqual(rolling.classify(f(NEW_ID, 503), NEW_ID), "resume-smoke")
         self.assertEqual(rolling.classify(f(OLD_ID, 0, False), NEW_ID), "stuck")
 
+    def test_layout_defaults_to_single_container(self):
+        lay = rolling.layout_for_manifest({"apps": [{"name": "a", "memory_limit": "3g"}]})
+        self.assertEqual(lay.kind, rolling.LAYOUT_SINGLE)
+        self.assertEqual(lay.root, Path("/opt/tokenkey"))
+        rolling.require_rolling_layout({"apps": [{"name": "a", "memory_limit": "3g"}]})
+
+    def test_layout_cn_prod_manifest_is_rolling_ready(self):
+        manifest = json.loads((Path(__file__).resolve().parent / "prod-target.json").read_text())
+        lay = rolling.require_rolling_layout(manifest)
+        self.assertEqual(lay.kind, rolling.LAYOUT_SINGLE)
+        self.assertEqual(lay.root, Path("/opt/tokenkey"))
+
+    def test_layout_prod_bluegreen_matrix_is_refused(self):
+        matrix = Path(__file__).resolve().parents[1] / "tencent" / "candidate-usw-20261022.json"
+        manifest = json.loads(matrix.read_text())
+        self.assertEqual(rolling.layout_for_manifest(manifest).kind, rolling.LAYOUT_BLUEGREEN)
+        with self.assertRaises(rolling.RollingError) as ctx:
+            rolling.require_rolling_layout(manifest)
+        self.assertIn("not rolling-ready", str(ctx.exception))
+        self.assertIn("Phase C", str(ctx.exception))
+
+    def test_layout_missing_memory_limit_is_refused(self):
+        with self.assertRaises(rolling.RollingError) as ctx:
+            rolling.require_rolling_layout({
+                "layout": {"kind": "single-container"},
+                "apps": [{"name": "a"}],
+            })
+        self.assertIn("memory_limit", str(ctx.exception))
+
+    def test_apply_layout_rebounds_module_paths(self):
+        orig_root, orig_controls = rolling.ROOT, rolling.CONTROLS
+        try:
+            rolling.apply_layout(rolling.Layout(
+                rolling.LAYOUT_BLUEGREEN,
+                Path("/var/lib/tokenkey"),
+                Path("/var/lib/tokenkey/releases/artifacts-rolling"),
+            ))
+            self.assertEqual(rolling.ROOT, Path("/var/lib/tokenkey"))
+            self.assertEqual(rolling.CONTROLS, Path("/var/lib/tokenkey/releases/artifacts-rolling"))
+            self.assertEqual(rolling.AGENT_PATH, Path("/var/lib/tokenkey/releases/artifacts-rolling/rolling.py"))
+        finally:
+            rolling.apply_layout(rolling.Layout(
+                rolling.LAYOUT_SINGLE, orig_root, orig_controls))
+
 
 class AgentHostTest(unittest.TestCase):
     """Host-side .env rewrite keeps 0600 and only touches TOKENKEY_IMAGE."""

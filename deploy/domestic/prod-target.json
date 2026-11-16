@@ -19,6 +19,11 @@
   "data_ssm_region": "eu-west-2",
   "data_ssm_instance_id": "mi-084a456b3dee71bb4",
   "tat_region": "ap-beijing",
+  "layout": {
+    "kind": "single-container",
+    "root": "/opt/tokenkey",
+    "controls": "/opt/tokenkey/releases/artifacts-rolling"
+  },
   "entry": {
     "name": "entry",
     "lighthouse_instance_id": "lhins-j89o28j0",

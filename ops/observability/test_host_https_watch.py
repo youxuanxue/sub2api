@@ -54,8 +54,9 @@ class CoveragePlanTest(unittest.TestCase):
         # install-proxy-host-alerts.sh and disk-metrics already read it, or the
         # dry-run fails and the timer is never enabled.
         source = (pathlib.Path(__file__).resolve().parent / 'install-host-https-watch.sh').read_text()
-        self.assertIn("if role in ('cn-prod','cn-prod-entry') or role.endswith('-data'):"
-                      "command+=['--env-file','/opt/tokenkey/host-alerts.env']", source)
+        self.assertIn("role in ('cn-prod','cn-prod-entry','prod-entry') or role.endswith('-data')", source)
+        self.assertIn("/opt/tokenkey/host-alerts.env", source)
+        self.assertIn("/var/lib/tokenkey/host-alerts.env", source)
         self.assertNotIn('/etc/tokenkey/host-alerts.env', source)
 
     def test_data_roles_refuse_the_app_host_and_each_other(self):
@@ -560,6 +561,21 @@ class CnProdMultiAppWatchTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'host identity'):
             self.config('cn-prod-entry', host_ips=[self.apps['app-b']['private_ip']])
 
+    def test_prod_entry_watches_matrix_domains_certs_and_every_private_backend(self):
+        entry = self.prod_matrix['entry']
+        apps = {app['name']: app for app in self.prod_matrix['apps']}
+        config = self.config('prod-entry', host_ips=['10.4.0.1', entry['private_ip']])
+        self.assertEqual(config['targets'], {'prod-entry': 'https://' + entry['domain'] + '/health'})
+        self.assertEqual(entry['domain'], 'api.tokenkey.dev')
+        self.assertEqual(config['certs'], {domain: 20 for domain in entry['domains']})
+        self.assertIn('api-cn.tokenkey.dev', config['certs'])
+        self.assertEqual(config['backends'], {
+            name: 'http://' + app['private_ip'] + ':8080/health' for name, app in apps.items()})
+        self.assertTrue(config['pool_alert'])
+        self.assertEqual(config['jobs'], [])
+        with self.assertRaisesRegex(ValueError, 'host identity'):
+            self.config('prod-entry', host_ips=[apps['app-cand']['private_ip']])
+
     def test_cn_prod_without_node_is_unchanged(self):
         legacy = self.config('cn-prod', hostname=self.domestic['instance_name'])
         self.assertNotIn('backends', legacy)
@@ -705,7 +721,10 @@ class CertExpiryWatchTest(unittest.TestCase):
 class EntryInstallerTest(unittest.TestCase):
     def test_installer_allows_entry_role_and_node_identity(self):
         source = (pathlib.Path(__file__).resolve().parent / 'install-host-https-watch.sh').read_text()
-        self.assertIn("if role not in ('prod','cn-prod','prod-data','cn-prod-data','cn-prod-entry'):", source)
+        self.assertIn(
+            "if role not in ('prod','cn-prod','prod-data','cn-prod-data','cn-prod-entry','prod-entry'):",
+            source)
+        self.assertIn("role.endswith('-entry')", source)
         self.assertIn("config=build_config(role,socket.gethostname(),prod_matrix,domestic,node=node,host_ips=host_ips)", source)
 
 if __name__ == "__main__":

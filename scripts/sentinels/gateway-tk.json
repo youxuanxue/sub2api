@@ -160,6 +160,7 @@
         "DRAIN_GRACE_SECONDS = 15 * 60",
         "CERT_MIN_DAYS = 20",
         "\"targets\": {\"cn-prod-entry\": \"https://\" + entry[\"domain\"] + \"/health\"},",
+        "\"targets\": {\"prod-entry\": \"https://\" + primary + \"/health\"},",
         "\"backends\": {app[\"name\"]: \"http://\" + app[\"private_ip\"] + \":8080/health\"",
         "APP_LOCAL_HEALTH = \"http://127.0.0.1:18080/health\"",
         "if fact[\"http_code\"] == 503:",
@@ -177,6 +178,7 @@
       "path": "ops/observability/test_host_https_watch.py",
       "must_contain": [
         "def test_entry_watches_public_domain_cert_and_every_private_backend(self):",
+        "def test_prod_entry_watches_matrix_domains_certs_and_every_private_backend(self):",
         "def test_drain_503_shorter_than_fifteen_minutes_is_silent(self):",
         "def test_all_backends_down_alerts_immediately_even_while_draining(self):",
         "def test_short_certificate_alerts_daily_and_recovers(self):",
@@ -189,11 +191,12 @@
       "path": "ops/observability/install-host-https-watch.sh",
       "must_contain": [
         "config=build_config(role,socket.gethostname(),prod_matrix,domestic,node=node,host_ips=host_ips)",
-        "if role in ('cn-prod','cn-prod-entry') or role.endswith('-data'):command+=['--env-file','/opt/tokenkey/host-alerts.env']",
+        "role in ('cn-prod','cn-prod-entry','prod-entry') or role.endswith('-data')",
+        "/var/lib/tokenkey/host-alerts.env",
         "OnUnitActiveSec=2min",
-        "if role not in ('prod','cn-prod','prod-data','cn-prod-data','cn-prod-entry'):raise SystemExit('unsupported WATCH_ROLE: '+role)"
+        "if role not in ('prod','cn-prod','prod-data','cn-prod-data','cn-prod-entry','prod-entry'):raise SystemExit('unsupported WATCH_ROLE: '+role)"
       ],
-      "rationale": "The installer must consume the tested coverage owner and existing host-local credentials, including UCloud. cn-prod-entry and WATCH_NODE prove host identity by private IP (hostname -I) against prod-target.json."
+      "rationale": "The installer must consume the tested coverage owner and existing host-local credentials, including UCloud. *-entry and WATCH_NODE prove host identity by private IP (hostname -I) against the fleet matrix."
     },
     {
       "path": "ops/observability/test_host_https_watch.py",
