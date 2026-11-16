@@ -517,6 +517,7 @@ export default {
           cpu: 'CPU 使用率 (%)',
           memory: '内存使用率 (%)',
           queueDepth: '并发排队深度',
+          gatewayInflightUsage: '网关 in-flight 占用率 (%)',
           groupAvailableAccounts: '分组可用账号数',
           groupAvailableRatio: '分组可用比例 (%)',
           groupRateLimitRatio: '分组限流比例 (%)',
@@ -535,6 +536,8 @@ export default {
           cpu: '当前实例 CPU 使用率（0~100）。',
           memory: '当前实例内存使用率（0~100）。',
           queueDepth: '统计窗口内并发队列排队深度（等待中的请求数）。',
+          gatewayInflightUsage:
+            '各应用机网关 relay in-flight 相对 max_in_flight_requests（默认 512）的占用率，取多节点最大值。≥80% 为扩容前瞻，≥95% 临近本机 503 甩载。',
           groupAvailableAccounts: '指定分组中当前可用账号数量（需要 group_id 过滤）。',
           groupAvailableRatio: '指定分组中可用账号占比（0~100，需要 group_id 过滤）。',
           groupRateLimitRatio: '指定分组中账号被限流的比例（0~100，需要 group_id 过滤）。',

@@ -517,6 +517,7 @@ export default {
           cpu: 'CPU Usage (%)',
           memory: 'Memory Usage (%)',
           queueDepth: 'Concurrency Queue Depth',
+          gatewayInflightUsage: 'Gateway In-Flight Usage (%)',
           groupAvailableAccounts: 'Group Available Accounts',
           groupAvailableRatio: 'Group Available Ratio (%)',
           groupRateLimitRatio: 'Group Rate Limit Ratio (%)',
@@ -535,6 +536,8 @@ export default {
           cpu: 'Current instance CPU usage (0-100).',
           memory: 'Current instance memory usage (0-100).',
           queueDepth: 'Concurrency queue depth within the window (queued requests).',
+          gatewayInflightUsage:
+            'Max across app nodes of relay in-flight / max_in_flight_requests (default 512). ≥80% is the scale-out leading signal; ≥95% means the process-local 503 shed gate is about to trip.',
           groupAvailableAccounts: 'Number of available accounts in the selected group (requires group_id).',
           groupAvailableRatio: 'Available account ratio in the selected group (0-100, requires group_id).',
           groupRateLimitRatio: 'Rate-limited account ratio in the selected group (0-100, requires group_id).',

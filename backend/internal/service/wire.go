@@ -701,9 +701,11 @@ func ProvideOpsAlertEvaluatorService(
 	cfg *config.Config,
 	proxyRepo ProxyRepository,
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,
+	gatewayInFlightGauge GatewayInFlightGauge,
 ) *OpsAlertEvaluatorService {
 	svc := NewOpsAlertEvaluatorService(opsService, opsRepo, emailService, redisClient, cfg, proxyRepo)
 	svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)
+	svc.SetGatewayInFlightGauge(gatewayInFlightGauge)
 	svc.Start()
 	return svc
 }

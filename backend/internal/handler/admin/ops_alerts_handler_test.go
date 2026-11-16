@@ -48,6 +48,20 @@ func TestValidateOpsAlertRulePayloadDataDependencyMetricsAccepted(t *testing.T) 
 	}
 }
 
+func TestValidateOpsAlertRulePayloadGatewayInFlightAccepted(t *testing.T) {
+	t.Parallel()
+
+	got, err := validateOpsAlertRulePayload(map[string]json.RawMessage{
+		"name":        json.RawMessage(`"inflight"`),
+		"metric_type": json.RawMessage(`"gateway_inflight_usage_percent"`),
+		"operator":    json.RawMessage(`">="`),
+		"threshold":   json.RawMessage(`80`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "gateway_inflight_usage_percent", got.MetricType)
+	require.True(t, isPercentOrRateMetric("gateway_inflight_usage_percent"))
+}
+
 func TestValidateOpsAlertRulePayloadProxyUnreachableAccepted(t *testing.T) {
 	raw := map[string]json.RawMessage{
 		"name":        opsAlertRawMsg(t, "代理出口不可达"),

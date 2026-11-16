@@ -70,6 +70,11 @@ type OpsAlertEvaluatorService struct {
 
 	proxyUnreachableMu   sync.Mutex
 	proxyUnreachableSnap proxyUnreachableSnapshot
+
+	// Optional process-local relay in-flight gauge. Every node publishes to
+	// Redis; the leader evaluates max usage across live samples so multi-app
+	// fleets page on the hottest node, not only the evaluator leader.
+	gatewayInFlightGauge GatewayInFlightGauge
 }
 
 // SetAnthropicUpstreamErrorCounterCache attaches the anthropic upstream-error
@@ -200,6 +205,10 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 			runtimeCfg = loaded
 		}
 	}
+
+	// Publish before the leader lock so every app node contributes a sample
+	// even when it skips evaluation.
+	s.publishGatewayInFlight(ctx)
 
 	release, ok := s.tryAcquireLeaderLock(ctx, runtimeCfg.DistributedLock)
 	if !ok {
@@ -550,6 +559,8 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 			return float64(*systemMetrics.ConcurrencyQueueDepth), true
 		}
 		return 0, false
+	case OpsAlertMetricGatewayInFlightUsagePercent:
+		return s.computeGatewayInFlightUsagePercent(ctx)
 	case "db_unavailable_count":
 		if systemMetrics == nil || systemMetrics.DBOK == nil {
 			return 0, false
