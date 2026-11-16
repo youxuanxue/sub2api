@@ -59,6 +59,8 @@ def _run_sync(kind: str = "prod", extra_env: dict[str, str] | None = None):
     env.pop("GLOBAL_SITE_DOMAIN", None)
     env.pop("MAIN_GATEWAY_ALLOWED_CIDR", None)
     env.pop("ACME_EMAIL", None)
+    env.pop("PROD_CADDY_ROLE", None)
+    env.pop("PROD_FLEET_MATRIX", None)
     env.update(extra_env or {})
     proc = subprocess.run(
         ["bash", str(_SCRIPT), kind, "i-0stub", "probe"],
@@ -188,20 +190,25 @@ class CaddyTemplateSingleUpstreamTest(unittest.TestCase):
                 self.assertEqual(len(self._BLOCK.findall(out.read_text())), 1)
 
 
-class SyncCaddyfileBlueGreenTest(unittest.TestCase):
-    """Production blue/green sync preserves the active upstream."""
+class SyncCaddyfileUpstreamPolicyTest(unittest.TestCase):
+    """Production app sync preserves blue/green; entry sync preserves WRR."""
 
-    def _rewrite(self, kind: str, color: str, body: str):
+    def _rewrite(self, kind: str, color: str, body: str, role: str = "app"):
         with tempfile.TemporaryDirectory() as tmp:
             d = pathlib.Path(tmp)
             (d / "active-color").write_text(color)
             (d / "Caddyfile.new").write_text(body)
-            script = _host_script(kind).replace("/var/lib/tokenkey/active-color", str(d / "active-color"))
+            proc, params = _run_sync(kind, {"PROD_CADDY_ROLE": role})
+            self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+            assert params is not None
+            script = _ssm_script_body(params).replace(
+                "/var/lib/tokenkey/active-color", str(d / "active-color"))
             proc = _run_fragment(
                 script,
-                'if [ -r ' + str(d / "active-color"),
+                'if [ "$CADDY_ROLE" = entry ]; then\n'
+                '  echo "entry Caddy sync keeps the matrix-weighted upstream pool"',
                 "\necho === validate rendered config",
-                f'sudo() {{ "$@"; }}\nCADDY_DIR={d}\nKIND={kind}',
+                f'sudo() {{ "$@"; }}\nCADDY_DIR={d}\nKIND={kind}\nCADDY_ROLE={role}',
             )
             return proc, (d / "Caddyfile.new").read_text()
 
@@ -266,6 +273,19 @@ class SyncCaddyfileBlueGreenTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0, f"must refuse two blocks: {proc.stdout}")
         self.assertIn("reverse_proxy a:1", rendered, "original must survive a refused rewrite")
 
+    def test_entry_pool_is_not_rewritten_to_active_color(self) -> None:
+        body = (
+            "api.x {\n"
+            "\treverse_proxy 10.4.0.16:8080 10.4.0.9:8080 {\n"
+            "\t\tlb_policy weighted_round_robin 2 1\n"
+            "\t}\n"
+            "}\n"
+        )
+        proc, rendered = self._rewrite("prod", "blue\n", body, role="entry")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(rendered, body)
+        self.assertIn("entry Caddy sync keeps the matrix-weighted upstream pool", proc.stdout)
+
 
 class SyncCaddyfileRenderTest(unittest.TestCase):
     def test_ssm_commands_are_single_bash_c_for_dash_hybrid(self) -> None:
@@ -319,6 +339,67 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         self.assertIn("tokenkey-legal.tgz.b64", joined)
         self.assertIn("write legal pages", joined)
         self.assertNotIn("data/status/index.html", joined)
+
+    def test_entry_ships_matrix_and_skips_single_upstream_rewrite(self) -> None:
+        proc, params = _run_sync("prod", {"PROD_CADDY_ROLE": "entry"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert params is not None
+        joined = _ssm_script_body(params)
+        parsed = subprocess.run(
+            ["bash", "-n"], input=joined, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(parsed.returncode, 0, msg=parsed.stderr)
+        self.assertIn("CADDY_ROLE='entry'", joined)
+        self.assertIn("PROD_FLEET_MATRIX=/tmp/tokenkey-prod-fleet-matrix.json", joined)
+        self.assertIn("entry fleet matrix shipped", joined)
+        self.assertIn('PROD_CADDY_ROLE="$CADDY_ROLE"', joined)
+        self.assertIn("entry Caddy sync keeps the matrix-weighted upstream pool", joined)
+        self.assertIn("entry Caddyfile WRR pool missing after sync", joined)
+
+    def test_entry_requires_existing_explicit_matrix(self) -> None:
+        proc, params = _run_sync(
+            "prod",
+            {
+                "PROD_CADDY_ROLE": "entry",
+                "PROD_FLEET_MATRIX": "/definitely/missing/matrix.json",
+            },
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIsNone(params)
+        self.assertIn("missing PROD_FLEET_MATRIX", proc.stderr)
+
+    def test_rejects_unknown_caddy_role(self) -> None:
+        proc, params = _run_sync("prod", {"PROD_CADDY_ROLE": "edge"})
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIsNone(params)
+        self.assertIn("PROD_CADDY_ROLE must be app or entry", proc.stderr)
+
+    def test_container_directory_mount_resolves_to_caddyfile(self) -> None:
+        script = _host_script("prod")
+        with tempfile.TemporaryDirectory() as tmp:
+            source = pathlib.Path(tmp) / "formal-caddy"
+            source.mkdir()
+            live = source / "Caddyfile"
+            live.write_text("api.x {\n}\n")
+            proc = _run_fragment(
+                script,
+                "if docker inspect tokenkey-caddy >/dev/null 2>&1; then",
+                "BACKUP=${LIVE}.before-$TS",
+                prelude=(
+                    f"CADDY_DIR={shlex.quote(tmp)}\n"
+                    f"LIVE={shlex.quote(str(pathlib.Path(tmp) / 'fallback'))}\n"
+                    "docker() { case \"$*\" in "
+                    "inspect\\ tokenkey-caddy) return 0 ;; "
+                    "*/etc/caddy/Caddyfile*) printf '%s' \"$MOUNT_SOURCE\" ;; "
+                    "*/data*) printf '%s' \"$DATA_SOURCE\" ;; "
+                    "*) return 1 ;; esac; }\n"
+                    f"MOUNT_SOURCE={shlex.quote(str(source))}\n"
+                    f"DATA_SOURCE={shlex.quote(str(pathlib.Path(tmp) / 'data'))}"
+                ),
+                epilogue='printf "%s" "$LIVE"',
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertEqual(proc.stdout.strip().splitlines()[-1], str(live))
 
     def test_prod_candidate_persists_domain_and_phase_before_render(self) -> None:
         proc, params = _run_sync(

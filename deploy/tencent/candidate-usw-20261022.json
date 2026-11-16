@@ -2,6 +2,9 @@
   "schema_version": 1,
   "platform": "tencent-lighthouse",
   "role": "prod",
+  "tat_region": "na-siliconvalley",
+  "ssm_region": "eu-west-2",
+  "rolling_confirm_site": "prod",
   "notes": [
     "2026-10-22 cutover complete: this matrix row is the default Stage0 deploy target (old app).",
     "2026-11-15/16: public DNS moved to entry 43.162.119.210; see entry/apps below. Default resolve_prod_ssm_target still returns this old app mi-* until CI is widened.",
@@ -11,10 +14,10 @@
     "Tokyo i-045f062ce33e1a5af was retired and deleted 2026-10-23; its snapshots are deleted; never restore its S3 history chain as a writer.",
     "Cutover receipt: docs/ops/reports/tencent-cutover-20261022.json",
     "2026-10-29: tokenkey-disk-metrics.timer is installed and expected active. It checks root / and /var/lib/tokenkey at 85% alert / 80% recover.",
-    "Phase C: layout.kind=stage0-bluegreen documents current prod apps; rolling plan/deploy must refuse until single-container migration is approved and done."
+    "2026-11-16 Phase C code/matrix converged: target is single tokenkey on private:8080 + loopback:18080; layout.kind=single-container; rolling plan/deploy is unlocked (confirm rolling-prod-<tag>). Live closure still requires both hosts' layout checks and a complete rolling receipt. Stopped blue/green remains rollback material. Phase D (old LUKS exit) is still gated."
   ],
   "layout": {
-    "kind": "stage0-bluegreen",
+    "kind": "single-container",
     "root": "/var/lib/tokenkey",
     "controls": "/var/lib/tokenkey/releases/artifacts-rolling"
   },
@@ -35,22 +38,24 @@
   },
   "apps": [
     {
-      "name": "app-old",
-      "lighthouse_instance_id": "lhins-fcwpwymt",
-      "private_ip": "10.4.0.16",
-      "public_ip": "43.162.83.233",
-      "ssm_instance_id": "mi-080ed76dc6d97d8b5",
-      "weight": 2,
-      "memory_limit": "8g"
-    },
-    {
       "name": "app-cand",
       "lighthouse_instance_id": "lhins-2kf31667",
       "private_ip": "10.4.0.9",
       "public_ip": "43.162.126.44",
       "ssm_instance_id": "mi-000c0168439c243a8",
       "weight": 1,
-      "memory_limit": "3g"
+      "memory_limit": "3g",
+      "external_network": "tokenkey_tokenkey-network"
+    },
+    {
+      "name": "app-old",
+      "lighthouse_instance_id": "lhins-fcwpwymt",
+      "private_ip": "10.4.0.16",
+      "public_ip": "43.162.83.233",
+      "ssm_instance_id": "mi-080ed76dc6d97d8b5",
+      "weight": 2,
+      "memory_limit": "8g",
+      "external_network": "tokenkey_tokenkey-network"
     }
   ],
   "target": {

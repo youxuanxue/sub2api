@@ -14,12 +14,19 @@
 #   API_CN_DOMAIN       optional CN machine host, e.g. api-cn.tokenkey.dev
 #                       Reuses @machine allowlist; non-machine → SITE_DOMAIN.
 #                       Requires SITE_DOMAIN.
+#   PROD_CADDY_ROLE     app (default) or entry. App hosts keep tokenkey:8080;
+#                       entry renders the private apps[] pool from the fleet matrix.
+#   PROD_FLEET_MATRIX   prod fleet matrix for entry mode
+#                       (default: deploy/tencent/candidate-usw-20261022.json).
 #
 # Public status.tokenkey.dev is Better Stack Free (not a Caddy vhost).
 # Public /privacy and /terms are static files under the apex vhost (/data/legal).
 #
 # Usage:
 #   API_DOMAIN=api.tokenkey.dev ACME_EMAIL=ops@example.com \
+#     bash deploy/aws/stage0/render-prod-caddyfile.sh template out
+#   API_DOMAIN=api.tokenkey.dev ACME_EMAIL=ops@example.com \
+#     PROD_CADDY_ROLE=entry \
 #     bash deploy/aws/stage0/render-prod-caddyfile.sh template out
 
 set -euo pipefail
@@ -28,6 +35,81 @@ template="${1:?template path}"
 output="${2:?output path}"
 
 : "${API_DOMAIN:?API_DOMAIN required}"
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${script_dir}/../../.." && pwd)"
+caddy_role="${PROD_CADDY_ROLE:-app}"
+case "${caddy_role}" in
+  app)
+    caddy_upstream_target="tokenkey:8080"
+    caddy_upstream_weights=""
+    caddy_dial_timeout="5s"
+    ;;
+  entry)
+    matrix="${PROD_FLEET_MATRIX:-${repo_root}/deploy/tencent/candidate-usw-20261022.json}"
+    [[ -f "${matrix}" ]] || {
+      echo "PROD_FLEET_MATRIX is required for entry mode: ${matrix}" >&2
+      exit 1
+    }
+    entry_pool="$(
+      python3 - "${matrix}" <<'PY'
+import ipaddress
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    data = json.load(open(path, encoding="utf-8"))
+except (OSError, ValueError) as error:
+    raise SystemExit(f"invalid PROD_FLEET_MATRIX: {error}")
+apps = data.get("apps")
+if not isinstance(apps, list) or len(apps) < 2:
+    raise SystemExit("PROD_FLEET_MATRIX apps[] must contain at least two private backends")
+
+pool = []
+seen = set()
+for app in apps:
+    if not isinstance(app, dict):
+        raise SystemExit("PROD_FLEET_MATRIX apps[] entries must be objects")
+    raw_ip = app.get("private_ip")
+    if not isinstance(raw_ip, str):
+        raise SystemExit(f"PROD_FLEET_MATRIX app {app.get('name', '<unnamed>')} lacks private_ip")
+    try:
+        address = ipaddress.ip_address(raw_ip)
+    except ValueError:
+        raise SystemExit(f"PROD_FLEET_MATRIX invalid private_ip: {raw_ip}")
+    if not address.is_private or address.is_loopback:
+        raise SystemExit(f"PROD_FLEET_MATRIX requires private app IPs, got {raw_ip}")
+    if address in seen:
+        raise SystemExit(f"PROD_FLEET_MATRIX duplicate private_ip: {raw_ip}")
+    weight = app.get("weight")
+    if type(weight) is not int or not 1 <= weight <= 100:
+        raise SystemExit(
+            f"PROD_FLEET_MATRIX app {app.get('name', raw_ip)} weight must be an integer 1-100"
+        )
+    seen.add(address)
+    pool.append((weight, address))
+
+# Keep output stable and aligned with the live entry Caddyfile: higher weight
+# first, then private IP. apps[] remains the rolling order, not the pool order.
+pool.sort(key=lambda item: (-item[0], item[1]))
+print(" ".join(f"{address}:8080" for _, address in pool) + "|" +
+      " ".join(str(weight) for weight, _ in pool))
+PY
+    )" || exit 1
+    caddy_upstream_target="${entry_pool%%|*}"
+    caddy_upstream_weights="${entry_pool#*|}"
+    [[ -n "${caddy_upstream_target}" && -n "${caddy_upstream_weights}" ]] || {
+      echo "entry mode produced an empty upstream pool" >&2
+      exit 1
+    }
+    caddy_dial_timeout="3s"
+    ;;
+  *)
+    echo "PROD_CADDY_ROLE must be app or entry" >&2
+    exit 1
+    ;;
+esac
 
 site_domain="${SITE_DOMAIN:-}"
 global_site_domain="${GLOBAL_SITE_DOMAIN:-}"
@@ -87,7 +169,8 @@ if [[ -n "${api_cn_domain}" && -z "${site_domain}" ]]; then
 fi
 
 tmp="$(mktemp)"
-trap 'rm -f "${tmp}"' EXIT
+policy_tmp="$(mktemp)"
+trap 'rm -f "${tmp}" "${policy_tmp}"' EXIT
 
 export API_DOMAIN ACME_EMAIL
 export SITE_DOMAIN="${site_domain}"
@@ -95,7 +178,10 @@ export GLOBAL_SITE_DOMAIN="${global_site_domain}"
 export GLOBAL_REDIRECT_STATUS="${global_redirect_status}"
 export API_ALIAS_DOMAIN="${api_alias_domain}"
 export API_CN_DOMAIN="${api_cn_domain}"
-envsubst '$API_DOMAIN $ACME_EMAIL $SITE_DOMAIN $GLOBAL_SITE_DOMAIN $GLOBAL_REDIRECT_STATUS $API_ALIAS_DOMAIN $API_CN_DOMAIN' < "${template}" > "${tmp}"
+export CADDY_UPSTREAM_TARGET="${caddy_upstream_target}"
+export CADDY_UPSTREAM_WEIGHTS="${caddy_upstream_weights}"
+export CADDY_DIAL_TIMEOUT="${caddy_dial_timeout}"
+envsubst '$API_DOMAIN $ACME_EMAIL $SITE_DOMAIN $GLOBAL_SITE_DOMAIN $GLOBAL_REDIRECT_STATUS $API_ALIAS_DOMAIN $API_CN_DOMAIN $CADDY_UPSTREAM_TARGET $CADDY_UPSTREAM_WEIGHTS $CADDY_DIAL_TIMEOUT' < "${template}" > "${tmp}"
 
 strip_render_markers() {
   sed \
@@ -112,7 +198,11 @@ strip_render_markers() {
     -e '/^# BEGIN_API_ALIAS_VHOST$/d' \
     -e '/^# END_API_ALIAS_VHOST$/d' \
     -e '/^# BEGIN_API_CN_VHOST$/d' \
-    -e '/^# END_API_CN_VHOST$/d'
+    -e '/^# END_API_CN_VHOST$/d' \
+    -e '/^# BEGIN_UPSTREAM_APP_POLICY$/d' \
+    -e '/^# END_UPSTREAM_APP_POLICY$/d' \
+    -e '/^# BEGIN_UPSTREAM_ENTRY_POLICY$/d' \
+    -e '/^# END_UPSTREAM_ENTRY_POLICY$/d'
 }
 
 strip_block() {
@@ -122,6 +212,14 @@ strip_block() {
   local end="$4"
   sed "/^# ${begin}\$/,/^# ${end}\$/d" "${src}" > "${dest}"
 }
+
+if [[ "${caddy_role}" == app ]]; then
+  strip_block "${tmp}" "${policy_tmp}" "BEGIN_UPSTREAM_ENTRY_POLICY" "END_UPSTREAM_ENTRY_POLICY"
+else
+  strip_block "${tmp}" "${policy_tmp}" "BEGIN_UPSTREAM_APP_POLICY" "END_UPSTREAM_APP_POLICY"
+fi
+mv "${policy_tmp}" "${tmp}"
+policy_tmp=""
 
 if [[ -z "${site_domain}" ]]; then
   no_apex="$(mktemp)"

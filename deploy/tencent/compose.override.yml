@@ -1,0 +1,40 @@
+# Prod USW single-container override. Merge with deploy/aws/stage0/docker-compose.yml
+# as compose.yml under /var/lib/tokenkey (Phase C). Keep GOMEMLIMIT / pool sizes in
+# .env so old (8g) and cand (3g) hosts can differ without forking this file.
+services:
+  tokenkey:
+    pull_policy: never
+    mem_limit: ${TOKENKEY_APP_MEMORY_LIMIT:-3g}
+    memswap_limit: ${TOKENKEY_APP_MEMORY_LIMIT:-3g}
+    environment:
+      QA_CAPTURE_ENABLED: "true"
+      GOMEMLIMIT: "${GOMEMLIMIT:-2GiB}"
+      GATEWAY_MAX_IN_FLIGHT_REQUESTS: "512"
+      DATABASE_MAX_OPEN_CONNS: "${DATABASE_MAX_OPEN_CONNS:-50}"
+      DATABASE_MAX_IDLE_CONNS: "${DATABASE_MAX_IDLE_CONNS:-10}"
+      REDIS_POOL_SIZE: "${REDIS_POOL_SIZE:-256}"
+      REDIS_MIN_IDLE_CONNS: "${REDIS_MIN_IDLE_CONNS:-10}"
+      DATABASE_HOST: "${DATABASE_HOST:-postgres}"
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+      REDIS_HOST: "${REDIS_HOST:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+    logging:
+      options:
+        max-size: "20m"
+        max-file: "3"
+    depends_on: !reset {}
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    pull_policy: never
+    logging:
+      options:
+        max-size: "20m"
+        max-file: "3"
+  postgres:
+    profiles: ["local-data"]
+    image: ${POSTGRES_IMAGE:-postgres:18-alpine}
+    pull_policy: never
+  redis:
+    profiles: ["local-data"]
+    image: ${REDIS_IMAGE:-redis:8-alpine}
+    pull_policy: never

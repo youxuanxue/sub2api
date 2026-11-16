@@ -36,8 +36,16 @@ def main() -> int:
             errors.append("layout.root must be an absolute path")
         if kind == "stage0-bluegreen" and root != "/var/lib/tokenkey":
             errors.append("stage0-bluegreen layout.root must be /var/lib/tokenkey")
-        if kind == "single-container" and root != "/opt/tokenkey":
-            errors.append("single-container layout.root must be /opt/tokenkey")
+        # cn-prod uses /opt/tokenkey; USW prod keeps /var/lib/tokenkey (LUKS).
+        if kind == "single-container" and root not in ("/opt/tokenkey", "/var/lib/tokenkey"):
+            errors.append(
+                "single-container layout.root must be /opt/tokenkey or /var/lib/tokenkey")
+        if data.get("tat_region") in ("", None):
+            errors.append("tat_region required for rolling remote_exec")
+        if data.get("ssm_region") in ("", None) and not (
+                isinstance(data.get("data_machine"), dict)
+                and data["data_machine"].get("ssm_region")):
+            errors.append("ssm_region required (top-level or data_machine)")
     entry = data.get("entry")
     if not isinstance(entry, dict):
         errors.append("missing entry object")

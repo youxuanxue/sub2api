@@ -31,6 +31,14 @@ class RenderProdBootstrapTests(unittest.TestCase):
         self.assertIn("scsi-0HC_Volume_", body)
         self.assertIn("/var/lib/tokenkey", body)
         self.assertIn("HETZNER_PROD_BOOTSTRAP", body)
+        self.assertIn("CADDY_RENDER_GZB64=", body)
+        self.assertIn("render-prod-caddyfile.sh", body)
+        self.assertIn("PROD_CADDY_ROLE=app", body)
+        self.assertNotIn(
+            "envsubst '${API_DOMAIN} ${ACME_EMAIL} ${MAIN_GATEWAY_ALLOWED_CIDR}'",
+            body,
+        )
+        self.assertNotIn("${CADDY_UPSTREAM_TARGET}", body)
         self.assertIn("tokenkey/hetzner/prod/stage0/env-secrets-backup", body)
         self.assertIn("tokenkey-pgdump.timer", body)
         self.assertIn("tokenkey-disk-metrics.timer", body)

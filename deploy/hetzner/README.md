@@ -18,8 +18,8 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 | 角色 | 实例 | 公网 IP | 私网 | SSM (eu-west-2) | 备注 |
 |---|---|---|---|---|---|
 | **prod 入口** | `lhins-3am1i23j` | `43.162.119.210` | `10.4.0.8` | `mi-026982f3622163a1b` | Caddy 终止五域名 TLS；WRR `10.4.0.16:8080`×2 + `10.4.0.9:8080`×1；公网只开 80/443 |
-| prod 应用（旧） | `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | `mi-080ed76dc6d97d8b5` | 4C16G / LUKS；蓝绿+`tokenkey-entry-origin`；**公网 80/443 已关**（2026-11-16），仅入口 `/32` 打 8080 |
-| prod 应用（候选） | `lhins-2kf31667` | `43.162.126.44` | `10.4.0.9` | `mi-000c0168439c243a8` | 2C8G 明文根盘；同样经 `entry-origin` 接入口 |
+| prod 应用（旧） | `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | `mi-080ed76dc6d97d8b5` | 4C16G / LUKS；Phase C 单容器 `tokenkey`（`:8080`/`:18080`）；**公网 80/443 已关**，仅入口 `/32` 打 8080 |
+| prod 应用（候选） | `lhins-2kf31667` | `43.162.126.44` | `10.4.0.9` | `mi-000c0168439c243a8` | 2C8G 明文根盘；Phase C 单容器同形 |
 | prod 数据 | `lhins-p43i2kxh` | — | `10.4.0.3` | `mi-044ba9da6453c1557` | PG/Redis |
 
 五域名 A（TTL 60）均指向入口 `43.162.119.210`：`tokenkey.dev` / `api.tokenkey.dev` /
@@ -29,10 +29,12 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 
 候选储存身份：[app-parallel-20261111.json](../tencent/app-parallel-20261111.json)；
 **默认 CI/`resolve_prod_ssm_target` 仍解析旧应用机**，入口与候选须显式指定。
-发版仍为节点内蓝绿（Stage0）。阶段 C 代码侧：矩阵已标
-`layout.kind=stage0-bluegreen` + `apps[].memory_limit`，`rolling.py` plan/deploy
-对 prod 蓝绿布局直接拒绝；**现网单容器迁移仍须单独批准**，未执行。
-旧机脱离 LUKS 是阶段 D（须 ≥24h 稳定 + 单台门禁 + 再批准）。
+**2026-11-16 Phase C 的代码与矩阵已收敛**：目标布局为两台单容器
+`tokenkey`，矩阵 `layout.kind=single-container`；日常发版走 `rolling.py` +
+`prod-rolling-deploy.yml`（确认词 `rolling-prod-<tag>`，默认 `--via ssm`）。
+线上最终收口仍以两台应用机的真实布局检查和完整 rolling receipt 为准；
+`prepare_single_container.py` 仅作历史/重铺参考。旧机脱离 LUKS 是阶段 D
+（须 ≥24h 稳定 + 单台门禁 + 再批准）。
 舰队矩阵形状门禁：`python3 deploy/tencent/check_prod_fleet_matrix.py`。
 
 **Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已于 2026-10-23 完全退役**（实例、栈、VPC、卷、EIP、快照均已删；仅留 S3 历史链 `prod/postgres` timeline 1，只含数据库）。不能当作现网入口。
@@ -57,7 +59,7 @@ SOCKS 仅监听各机私网 `:1080`；放行来源见下方 `ALLOWED_SOURCES`（
 
 迁移方式是换绑：在两个站点各新增 `cn-ip9..12` 记录，再把 `cn-ip1..4` 的账号分批改绑过去，旧记录不删不改 host，随时可回滚。迁移后已验证：两端 `cn-ip1..4` 绑定为 0，新代理承接真实流量，代理相关错误为 0。
 
-**1080 放行来源**（唯一 owner 是 `deploy/tencent/install-cn-socks-proxy.sh` 的 `ALLOWED_SOURCES`）：`43.162.83.233`（prod 旧应用机）、`43.162.126.44`（prod 候选应用机）、`154.8.214.179`（cn-prod app-a）。入口机公网 IP **不要**加入此名单。UCloud `106.75.29.139` 已于 2026-10-27 销毁，不再放行。云防火墙要与这份名单一致，不要对 `0.0.0.0/0` 开放 22、8080 或 1080；新建实例必须先删掉控制台默认的公网 22 规则。
+**1080 放行来源**（唯一 owner 是 `deploy/tencent/install-cn-socks-proxy.sh` 的 `ALLOWED_SOURCES`）：`43.162.83.233`（prod 旧应用机）、`43.162.126.44`（prod 候选应用机）、`154.8.214.179`（cn-prod app-a）、`82.156.89.64`（cn-prod app-b）。入口机公网 IP **不要**加入此名单。UCloud `106.75.29.139` 已于 2026-10-27 销毁，不再放行。云防火墙要与这份名单一致，不要对 `0.0.0.0/0` 开放 22、8080 或 1080；新建实例必须先删掉控制台默认的公网 22 规则。
 
 #### 历史出口（已退役）
 
@@ -127,11 +129,16 @@ SOCKS 仅监听各机私网 `:1080`；放行来源见下方 `ALLOWED_SOURCES`（
 |----|-----|
 | 活入口 | 腾讯美西入口机 `43.162.119.210`（`lhins-3am1i23j` / `mi-026982f3622163a1b`）；五域名 A 指向该 IP。旧应用机公网 80/443 已关 |
 | prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
-| 探针 / sync Caddy | 默认仍解析旧应用机 Hybrid `mi-080ed76…`（`resolve_prod_ssm_target.py`）；入口/候选须显式 `INSTANCE_ID`；冻结/退役身份拒绝执行 |
+| 探针 / sync Caddy | 默认仍解析旧应用机 Hybrid `mi-080ed76…`（`resolve_prod_ssm_target.py`）；入口机同步须显式 `INSTANCE_ID` + `PROD_CADDY_ROLE=entry`，候选应用机显式 `INSTANCE_ID`；冻结/退役身份拒绝执行 |
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
 
-Stage0 单后端 Caddy 只由 `/health` 主动检查决定摘除与恢复；禁止被动冷却，避免客户端上传断连或单次业务 5xx 让其他请求等待。正式 prod 的源是 `deploy/aws/stage0/Caddyfile`；新机 prod 复用同一 Caddy 源文件。修改时同时重生成 Hetzner bootstrap，`scripts/checks/caddyfile-syntax.sh` 校验 Caddy 解析后的健康策略；运行中主机通过 `ops/stage0/sync_caddyfile_via_ssm.sh` 热更新，单纯发布应用镜像不会刷新 Caddyfile。
+正式 prod 的 Caddy 源是 `deploy/aws/stage0/Caddyfile`，同一模板按角色渲染两套策略：
+应用机 `PROD_CADDY_ROLE=app` 保持单容器 `tokenkey:8080`，只由 `/health` 主动检查决定摘除与恢复；
+入口机 `PROD_CADDY_ROLE=entry` 从活矩阵生成两台应用机的私网 WRR 池（当前 `10.4.0.16`×2 +
+`10.4.0.9`×1），3s 健康检查、连续 2 次失败摘除。两种策略都禁止被动冷却。修改模板时同时
+重生成 Hetzner bootstrap，`scripts/checks/caddyfile-syntax.sh` 校验 Caddy 解析后的健康策略；
+运行中主机通过 `ops/stage0/sync_caddyfile_via_ssm.sh` 热更新，单纯发布应用镜像不会刷新 Caddyfile。
 
 旧主机均不再提供服务或回滚写库；历史整库保留在 S3 独立归档前缀。只有上表 prod 接收网关流量。
 
@@ -140,13 +147,24 @@ Stage0 单后端 Caddy 只由 `/health` 主动检查决定摘除与恢复；禁�
 生产目标解析由 `ops/stage0/resolve_prod_ssm_target.py` 持有；共享部署文件位于 `deploy/aws/stage0/`。
 换机编排：[host replacement](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 
-## 日常发版
+## 日常发版与恢复
+
+prod 的日常发布入口是 `.github/workflows/prod-rolling-deploy.yml`，确认词为
+`rolling-prod-<tag>`。它调用 `deploy/domestic/rolling.py`，按矩阵逐台 drain、
+换镜像、健康检查和回流，入口机持续承担公网流量。不要把旧 Stage0 蓝绿脚本作为
+日常 prod 发布入口，也不要用 `resolve_prod_ssm_target.py` 默认的旧应用机身份
+绕过 rolling 矩阵。
 
 ```bash
-bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
+# GitHub Actions: prod-rolling-deploy.yml
+# workflow_dispatch inputs:
+#   tag=X.Y.Z
+#   confirm=rolling-prod-X.Y.Z
 ```
 
-日常发版仅 prod。2026-10-22 起已在腾讯机走完首次蓝绿（`tokenkey` 旧名现为 socat 控制代理，活动色 `tokenkey-blue/green`）。共享 compose、Caddy、QA 和 SSM 实现仍由现网使用；pgdump 转入历史恢复保留。
+`scripts/stage0/dispatch-prod-deploy.sh` 与节点内蓝绿实现仍保留为兼容/恢复路径，
+只用于 rolling 不可用、需要恢复旧布局或经过单独批准的故障处理。它不再是正常
+发布入口，不能借此绕过入口机、多应用机和单容器布局门禁。
 
 ## 开放运维项（非过程史）
 
@@ -159,7 +177,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
 4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本 Lightsail 代理已于 2026-10-23 删除；
    新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
-5. **告警**：腾讯机上备份/归档 timer 已装；`tokenkey-https-watch.timer` 已接到飞书（cn-prod `/health` + 备份/archive/qa-cleanup）。Stage0 布局已按例外路径收敛；日常发版走下方 `dispatch-prod-deploy.sh`。
+5. **告警**：腾讯机上备份/归档 timer 已装；`tokenkey-https-watch.timer` 已接到飞书（cn-prod `/health` + 备份/archive/qa-cleanup）。Stage0 布局已按例外路径收敛；日常发版走上方 `prod-rolling-deploy.yml`。
 
 ## AWS 残留与环境变量
 
@@ -191,7 +209,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 通过 `run-probe --script ops/stage0/retire_dormant_media_storage_remote.sh`
 附带 `--with ops/stage0/retire_dormant_media_storage.py` 和 prod 矩阵，追加 `--env APPLY=yes-retire-dormant-media` 前必须确认 image offload 未启用、
 无显式 image storage 设置和视频任务。只删已知休眠默认值，自定义配置拒绝处理。
-运行容器的旧环境变量在下一次正常蓝绿发布时消失；此入口不重启容器。
+运行容器的旧环境变量在下一次正常 rolling 发版或经批准的蓝绿恢复时消失；此入口不重启容器。
 
 ## QA 与备份排队、旧 AWS 定时任务收尾
 
@@ -203,7 +221,7 @@ QA S3 退役（2026-11-08）后，旧 maintenance/boundary 宿主脚本已从仓
 单元与 `/usr/local/bin/tokenkey-qa-{maintenance,boundary}.sh` 留待单独的主机清理；清理前保持 mask，
 `local_maintenance_host.py` 的 `require_legacy_paused()` 会在它们被意外启用时拒绝运行本地 QA 任务。
 
-普通蓝绿发布不再注入 telemetry 的 AWS 桶/region 默认值，telemetry 默认关闭。
+普通 rolling 发版与经批准的蓝绿恢复都不再注入 telemetry 的 AWS 桶/region 默认值，telemetry 默认关闭。
 显式 opt-in 和主机已有配置继续保留；此变更不等于已清理运行容器中的休眠变量，也不表示
 telemetry 已支持 Hetzner 存储。需要启用该能力时必须单独验收其存储契约。
 

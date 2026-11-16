@@ -148,6 +148,38 @@
         "internal500CounterCache, escalationSlotCache, tlsFingerprintProfileService"
       ],
       "rationale": "Generated production DI evidence that the Antigravity VALIDATION_REQUIRED counter reaches RateLimitService. The penalty ladder degrades fail-open by design: with a nil counter it silently falls back to the pre-fix single 30-minute cooldown, so a Wire regeneration that drops this argument compiles, passes every unit test (the ladder tests inject their own stub), and leaves production back on the infinite-replay behaviour with no visible signal. Provider declarations in service/wire.go alone do not prove the deployed graph wired it. escalationSlotCache 是三条渐进惩罚阶梯共用的升级槽位（service.EscalationSlotCache）：必须是同一个实例同时注入 RateLimitService 与 AntigravityGatewayService，否则阶梯各自守卫失效，一次故障事件的并发请求会把冷却档整体跳过、账号直接永久禁用。丢掉这行会让所有阶梯 fail open 退回无守卫语义且编译通过。 internal500CounterCache 也必须到达 RateLimitService：管理员清理路径要清 INTERNAL 500 阶梯，而递增侧的 owner 在 AntigravityGatewayService，依赖方向不可反向调用。同一个实例同时注入两处（见下方 NewAntigravityGatewayService 锚点），否则清理清的是另一份计数器。"
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": [
+        "gatewayInFlightGauge := server.ProvideGatewayInFlightGauge()",
+        "opsAlertEvaluatorService := service.ProvideOpsAlertEvaluatorService(opsService, opsRepository, emailService, redisClient, configConfig, proxyRepository, anthropicUpstreamErrorCounterCache, gatewayInFlightGauge)"
+      ],
+      "rationale": "Multi-app gateway in-flight Feishu P0 needs the process-local relay gauge injected into OpsAlertEvaluatorService. Dropping the Wire argument compiles and leaves every node unable to publish samples, so the capacity P0 silently evaluates only the leader's local gauge (or nothing)."
+    },
+    {
+      "path": "backend/internal/service/ops_alert_evaluator_service.go",
+      "must_contain": [
+        "s.publishGatewayInFlight(ctx)"
+      ],
+      "rationale": "Every app node must publish its in-flight sample before the evaluator leader lock. Removing this call keeps the P0 metric leader-local and hides saturated non-leader app nodes."
+    },
+    {
+      "path": "backend/internal/service/ops_gateway_inflight_tk.go",
+      "must_contain": [
+        "OpsAlertMetricGatewayInFlightUsagePercent = \"gateway_inflight_usage_percent\"",
+        "func (s *OpsAlertEvaluatorService) publishGatewayInFlight(ctx context.Context)",
+        "func (s *OpsAlertEvaluatorService) readGatewayInFlightUsage(ctx context.Context) (gatewayInFlightReading, bool)"
+      ],
+      "rationale": "Owner of the multi-app in-flight fan-in metric used by the OPC Feishu P0 seed."
+    },
+    {
+      "path": "backend/internal/service/ops_gateway_inflight_tk_test.go",
+      "must_contain": [
+        "func TestComputeGatewayInFlightUsagePercent_TakesHottestNode",
+        "require.Contains(t, cause, \"app-b\")"
+      ],
+      "rationale": "Regression that the evaluator pages on the hottest app node and names it for the Feishu 主因 line."
     }
   ]
 }
