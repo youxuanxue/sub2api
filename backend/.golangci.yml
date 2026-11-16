@@ -62,6 +62,10 @@ linters:
             - "**/internal/service/**"
             - "!**/internal/service/ops_aggregation_service.go"
             - "!**/internal/service/ops_alert_evaluator_service.go"
+            # TK: multi-app gateway in-flight fan-in publishes/scans Redis samples
+            # for the capacity alert metric (same evaluator redis client).
+            - "!**/internal/service/ops_gateway_inflight_tk.go"
+            - "!**/internal/service/ops_gateway_inflight_tk_test.go"
             - "!**/internal/service/ops_cleanup_service.go"
             - "!**/internal/service/ops_metrics_collector.go"
             - "!**/internal/service/ops_scheduled_report_service.go"

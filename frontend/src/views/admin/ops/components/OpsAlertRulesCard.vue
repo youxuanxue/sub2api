@@ -171,6 +171,15 @@ const metricDefinitions = computed(() => {
       recommendedThreshold: 10
     },
     {
+      type: 'gateway_inflight_usage_percent',
+      group: 'system',
+      label: t('admin.ops.alertRules.metrics.gatewayInflightUsage'),
+      description: t('admin.ops.alertRules.metricDescriptions.gatewayInflightUsage'),
+      recommendedOperator: '>=',
+      recommendedThreshold: 95,
+      unit: '%'
+    },
+    {
       type: 'pool_load_rate',
       group: 'system',
       label: t('admin.ops.alertRules.metrics.poolLoadRate'),

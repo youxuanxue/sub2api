@@ -23,6 +23,7 @@ var validOpsAlertMetricTypes = []string{
 	"cpu_usage_percent",
 	"memory_usage_percent",
 	"concurrency_queue_depth",
+	"gateway_inflight_usage_percent",
 	"db_unavailable_count",
 	"redis_unavailable_count",
 	// pool_load_rate is evaluator-supported (first switch) and offered by the
@@ -102,6 +103,7 @@ func isPercentOrRateMetric(metricType string) bool {
 		"upstream_error_rate",
 		"cpu_usage_percent",
 		"memory_usage_percent",
+		"gateway_inflight_usage_percent",
 		"pool_load_rate",
 		"group_available_ratio",
 		"group_rate_limit_ratio",

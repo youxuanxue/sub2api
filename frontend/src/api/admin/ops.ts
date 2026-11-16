@@ -724,6 +724,7 @@ export type MetricType =
   | 'cpu_usage_percent'
   | 'memory_usage_percent'
   | 'concurrency_queue_depth'
+  | 'gateway_inflight_usage_percent'
   | 'pool_load_rate'
   | 'proxy_unreachable_count'
   | 'routing_capacity_rejection_count'

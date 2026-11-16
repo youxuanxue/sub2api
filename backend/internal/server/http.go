@@ -24,6 +24,7 @@ import (
 var ProviderSet = wire.NewSet(
 	ProvideRouter,
 	ProvideHTTPServer,
+	ProvideGatewayInFlightGauge,
 )
 
 // ProvideRouter 提供路由器
