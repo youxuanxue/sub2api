@@ -311,8 +311,8 @@ export interface MediaModelPresentation {
 /** Presentation-only entries keyed by canonical model_id. */
 export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   // ── image (seedream honor NO advanced params per adaptor) ──
-  // Imagen rows removed: Google image surface converged to gemini-3-pro-image /
-  // gemini-3.1-flash-image (Vertex video remains veo-3.1-generate-001 only).
+  // Imagen rows removed. Google native image surface is gemini-3.1-flash-image
+  // only; gemini-3-pro-image / veo-3.1-generate-001 are catalog-withdrawn.
   {
     modelId: 'seedream-4-0-250828',
     aliasIds: ['doubao-seedream-4-0-250828'],
