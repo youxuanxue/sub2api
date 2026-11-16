@@ -16,15 +16,15 @@
 #      means the sync does not depend on a CFN stack update having already
 #      propagated the new blob to Parameter Store.
 #   2. On the host: write it to caddy/Caddyfile.template, derive the render vars
-#      (same set as boot UserData), then `envsubst` — matching the UserData
-#      "envsubst < caddy/Caddyfile.template > caddy/Caddyfile" line:
+#      (same set as boot UserData), then run render-prod-caddyfile.sh:
 #        - API_DOMAIN / ACME_EMAIL: sourced from /var/lib/tokenkey/.env (the
 #          boot UserData persists both there).
-#      On hosts carrying /var/lib/tokenkey/active-color, rewrite the rendered
+#      App hosts carrying /var/lib/tokenkey/active-color rewrite the rendered
 #      canonical upstream from
 #      tokenkey:8080 to tokenkey-${active}:8080 so directive hot-sync never
 #      preserves the active color so hot-sync never disables blue/green.
-#      Hosts with no active-color keep the legacy tokenkey:8080 upstream.
+#      Entry hosts instead render the private multi-app WRR pool and do not
+#      apply the single-upstream active-color rewrite.
 #   3. Validate the rendered config in a throwaway caddy:2-alpine container.
 #   4. Apply IN PLACE (`cat new > Caddyfile`, NOT mv): the compose mount binds
 #      the single FILE, so replacing the inode via mv would leave the running
@@ -60,6 +60,10 @@
 #                                     drops that vhost from the rendered Caddyfile.
 #   ACME_EMAIL                        optional override when host .env has an
 #                                     empty ACME_EMAIL= (console-adopted hosts).
+#   PROD_CADDY_ROLE                   app (default) or entry. Entry renders the
+#                                     private apps[] pool from the fleet matrix.
+#   PROD_FLEET_MATRIX                 prod fleet matrix for entry mode
+#                                     (default: deploy/tencent/candidate-usw-20261022.json).
 #   STAGE0_SSM_TIMEOUT_SECONDS        SSM poll timeout (default 240)
 #   STAGE0_SSM_OUTPUT_DIR             where to drop ssm-params/stdout/stderr
 
@@ -90,6 +94,24 @@ fi
 if [[ ! -f "${CADDY_SRC}" ]]; then
   echo "sync_caddyfile_via_ssm: missing ${CADDY_SRC}" >&2
   exit 1
+fi
+
+CADDY_ROLE="${PROD_CADDY_ROLE:-app}"
+case "${CADDY_ROLE}" in
+  app|entry) ;;
+  *)
+    echo "sync_caddyfile_via_ssm: PROD_CADDY_ROLE must be app or entry (got '${CADDY_ROLE}')" >&2
+    exit 1
+    ;;
+esac
+
+FLEET_MATRIX=""
+if [[ "${CADDY_ROLE}" == entry ]]; then
+  FLEET_MATRIX="${PROD_FLEET_MATRIX:-${REPO_ROOT}/deploy/tencent/candidate-usw-20261022.json}"
+  if [[ ! -f "${FLEET_MATRIX}" ]]; then
+    echo "sync_caddyfile_via_ssm: missing PROD_FLEET_MATRIX ${FLEET_MATRIX}" >&2
+    exit 1
+  fi
 fi
 
 APPLY_GLOBAL_PROFILE=false
@@ -166,11 +188,15 @@ fi
 # embeds cleanly in the SSM command array.
 CADDY_B64="$(base64 < "${CADDY_SRC}" | tr -d '\n')"
 RENDER_SCRIPT_B64=""
+FLEET_MATRIX_B64=""
 # Public /privacy /terms HTML is shipped as a gzipped tar via SSM chunks (same
 # pattern as deploy_via_ssm_bluegreen.sh) into the existing Caddy data volume.
 LEGAL_CHUNKS_JSON='[]'
 if [[ "${KIND}" == prod ]]; then
   RENDER_SCRIPT_B64="$(base64 < "${REPO_ROOT}/deploy/aws/stage0/render-prod-caddyfile.sh" | tr -d '\n')"
+  if [[ "${CADDY_ROLE}" == entry ]]; then
+    FLEET_MATRIX_B64="$(base64 < "${FLEET_MATRIX}" | tr -d '\n')"
+  fi
   LEGAL_DIR="${REPO_ROOT}/deploy/aws/stage0/legal-page"
   if [[ -f "${LEGAL_DIR}/privacy.html" && -f "${LEGAL_DIR}/terms.html" ]]; then
     LEGAL_TAR_B64="$(
@@ -198,8 +224,10 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 jq -n \
   --arg b64 "${CADDY_B64}" \
   --arg render_b64 "${RENDER_SCRIPT_B64}" \
+  --arg fleet_matrix_b64 "${FLEET_MATRIX_B64}" \
   --argjson legal_chunks "${LEGAL_CHUNKS_JSON}" \
   --arg kind "${KIND}" \
+  --arg caddy_role "${CADDY_ROLE}" \
   --arg apply_global_profile "${APPLY_GLOBAL_PROFILE}" \
   --arg global_site_phase "${TARGET_GLOBAL_SITE_PHASE}" \
   --arg global_site_domain "${TARGET_GLOBAL_SITE_DOMAIN}" \
@@ -216,6 +244,7 @@ jq -n \
         [
           "set -euo pipefail",
           ("KIND=" + ($kind | @sh)),
+          ("CADDY_ROLE=" + ($caddy_role | @sh)),
           ("APPLY_GLOBAL_PROFILE=" + ($apply_global_profile | @sh)),
           ("TARGET_GLOBAL_SITE_PHASE=" + ($global_site_phase | @sh)),
           ("TARGET_GLOBAL_SITE_DOMAIN=" + ($global_site_domain | @sh)),
@@ -226,16 +255,20 @@ jq -n \
           ("TARGET_ACME_EMAIL=" + ($acme_email | @sh)),
           "CADDY_DIR=/var/lib/tokenkey/caddy",
           "LIVE=$CADDY_DIR/Caddyfile",
+          "PROD_FLEET_MATRIX=/tmp/tokenkey-prod-fleet-matrix.json",
           "LEGAL_DIR=$CADDY_DIR/data/legal",
           "ENV_FILE=/var/lib/tokenkey/.env",
           "TS=$(date +%Y%m%d-%H%M%S)",
           "ENV_BACKUP=$ENV_FILE.before-caddy-sync-$TS",
-          "# Layout-exception hosts (Tencent USW) bind-mount formal/caddy/Caddyfile.cutover",
-          "# and formal/caddy-data; prefer the inodes the running container maps.",
+          "# Layout-exception hosts (Tencent USW) bind-mount formal/caddy/ or a",
+          "# Caddyfile within it; prefer the inodes the running container maps.",
           "if docker inspect tokenkey-caddy >/dev/null 2>&1; then",
           "  LIVE_FROM_MOUNT=$(docker inspect tokenkey-caddy --format \"{{range .Mounts}}{{if eq .Destination \\\"/etc/caddy/Caddyfile\\\"}}{{.Source}}{{end}}{{end}}\")",
           "  DATA_FROM_MOUNT=$(docker inspect tokenkey-caddy --format \"{{range .Mounts}}{{if eq .Destination \\\"/data\\\"}}{{.Source}}{{end}}{{end}}\")",
-          "  if [ -n \"$LIVE_FROM_MOUNT\" ] && [ -f \"$LIVE_FROM_MOUNT\" ]; then LIVE=$LIVE_FROM_MOUNT; echo \"live Caddyfile from container mount: $LIVE\"; fi",
+          "  if [ -n \"$LIVE_FROM_MOUNT\" ]; then",
+          "    if [ -d \"$LIVE_FROM_MOUNT\" ]; then LIVE_FROM_MOUNT=$LIVE_FROM_MOUNT/Caddyfile; fi",
+          "    if [ -f \"$LIVE_FROM_MOUNT\" ]; then LIVE=$LIVE_FROM_MOUNT; echo \"live Caddyfile from container mount: $LIVE\"; fi",
+          "  fi",
           "  if [ -n \"$DATA_FROM_MOUNT\" ] && [ -d \"$DATA_FROM_MOUNT\" ]; then LEGAL_DIR=$DATA_FROM_MOUNT/legal; echo \"legal dir from container mount: $LEGAL_DIR\"; fi",
           "fi",
           "BACKUP=${LIVE}.before-$TS",
@@ -273,14 +306,20 @@ jq -n \
           ("printf '\''%s'\'' \"" + $b64 + "\" | base64 -d | sudo tee \"$CADDY_DIR/Caddyfile.template\" >/dev/null"),
           "if [ \"$KIND\" = prod ]; then",
           ("  printf '\''%s'\'' \"" + $render_b64 + "\" | base64 -d > /tmp/render-prod-caddyfile.sh"),
+          "  if [ \"$CADDY_ROLE\" = entry ]; then",
+          ("    printf '\''%s'\'' \"" + $fleet_matrix_b64 + "\" | base64 -d > \"$PROD_FLEET_MATRIX\""),
+          "    echo \"entry fleet matrix shipped to $PROD_FLEET_MATRIX\"",
+          "  fi",
           "  chmod +x /tmp/render-prod-caddyfile.sh",
           "  site_domain=\"${SITE_DOMAIN:-}\"",
           "  if [ -z \"$site_domain\" ] && case \"$API_DOMAIN\" in api.*) true;; *) false;; esac; then site_domain=\"${API_DOMAIN#api.}\"; fi",
           "  if [ \"$site_domain\" = \"$API_DOMAIN\" ]; then site_domain=; fi",
           "  export SITE_DOMAIN=\"$site_domain\"",
-          "  bash /tmp/render-prod-caddyfile.sh \"$CADDY_DIR/Caddyfile.template\" \"$CADDY_DIR/Caddyfile.new\"",
+          "  PROD_CADDY_ROLE=\"$CADDY_ROLE\" PROD_FLEET_MATRIX=\"$PROD_FLEET_MATRIX\" bash /tmp/render-prod-caddyfile.sh \"$CADDY_DIR/Caddyfile.template\" \"$CADDY_DIR/Caddyfile.new\"",
           "fi",
-          "if [ -r /var/lib/tokenkey/active-color ]; then ACTIVE_COLOR=\"$(sed -n '\''1p'\'' /var/lib/tokenkey/active-color | tr -d '\''[:space:]'\'')\"; case \"$ACTIVE_COLOR\" in blue|green) UPSTREAM=\"tokenkey-$ACTIVE_COLOR:8080\"; sudo awk -v upstream=\"$UPSTREAM\" '\''/^[[:space:]]*reverse_proxy[[:space:]]+/ && $0 ~ /\\{[[:space:]]*$/ { count += 1; if (count == 1) { match($0, /[^[:space:]]/); indent = RSTART > 1 ? substr($0, 1, RSTART - 1) : \"\"; print indent \"reverse_proxy \" upstream \" {\" } else { print }; next } { print } END { if (count != 1) exit 7 }'\'' \"$CADDY_DIR/Caddyfile.new\" | sudo tee \"$CADDY_DIR/Caddyfile.rewritten\" >/dev/null; sudo mv \"$CADDY_DIR/Caddyfile.rewritten\" \"$CADDY_DIR/Caddyfile.new\"; echo \"blue/green active upstream preserved ($KIND): $UPSTREAM\" ;; *) echo \"::error::invalid active-color for blue/green Caddy sync: ${ACTIVE_COLOR:-<empty>}\"; exit 1 ;; esac; fi",
+          "if [ \"$CADDY_ROLE\" = entry ]; then",
+          "  echo \"entry Caddy sync keeps the matrix-weighted upstream pool\"",
+          "elif [ -r /var/lib/tokenkey/active-color ]; then ACTIVE_COLOR=\"$(sed -n '\''1p'\'' /var/lib/tokenkey/active-color | tr -d '\''[:space:]'\'')\"; case \"$ACTIVE_COLOR\" in blue|green) UPSTREAM=\"tokenkey-$ACTIVE_COLOR:8080\"; sudo awk -v upstream=\"$UPSTREAM\" '\''/^[[:space:]]*reverse_proxy[[:space:]]+/ && $0 ~ /\\{[[:space:]]*$/ { count += 1; if (count == 1) { match($0, /[^[:space:]]/); indent = RSTART > 1 ? substr($0, 1, RSTART - 1) : \"\"; print indent \"reverse_proxy \" upstream \" {\" } else { print }; next } { print } END { if (count != 1) exit 7 }'\'' \"$CADDY_DIR/Caddyfile.new\" | sudo tee \"$CADDY_DIR/Caddyfile.rewritten\" >/dev/null; sudo mv \"$CADDY_DIR/Caddyfile.rewritten\" \"$CADDY_DIR/Caddyfile.new\"; echo \"blue/green active upstream preserved ($KIND): $UPSTREAM\" ;; *) echo \"::error::invalid active-color for blue/green Caddy sync: ${ACTIVE_COLOR:-<empty>}\"; exit 1 ;; esac; fi",
           "echo === validate rendered config in throwaway caddy container ===",
           "sudo docker run --rm -v \"$CADDY_DIR/Caddyfile.new\":/tmp/Caddyfile:ro caddy:2-alpine caddy validate --config /tmp/Caddyfile --adapter caddyfile"
         ]
@@ -309,6 +348,7 @@ jq -n \
           "echo === verify ===",
           "sudo docker inspect tokenkey-caddy --format '\''caddy state={{.State.Status}} running={{.State.Running}}'\''",
           "grep -nE '\''lb_try_duration|handle /privacy|root \\* /data/legal|header Content-Type application/json'\'' \"$LIVE\" || true",
+          "if [ \"$CADDY_ROLE\" = entry ]; then grep -q '\''lb_policy weighted_round_robin'\'' \"$LIVE\" || { echo \"::error::entry Caddyfile WRR pool missing after sync\"; exit 1; }; fi",
           "if grep -nE '\''^[[:space:]]*encode[[:space:]]+(zstd[[:space:]]+gzip|gzip[[:space:]]+zstd)[[:space:]]*$'\'' \"$LIVE\"; then echo \"::error::live Caddyfile still has shorthand encode (buffers SSE)\"; exit 1; fi",
           "grep -q '\''header Content-Type application/json'\'' \"$LIVE\" || { echo \"::error::prod encode Content-Type whitelist missing after sync\"; exit 1; }",
           "trap - ERR",

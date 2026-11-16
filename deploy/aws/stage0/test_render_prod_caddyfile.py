@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import subprocess
@@ -14,7 +15,8 @@ _TEMPLATE = _HERE / "Caddyfile"
 _RENDER = _HERE / "render-prod-caddyfile.sh"
 
 
-def _render(
+def _render_proc(
+    output: pathlib.Path,
     *,
     api_domain: str,
     site_domain: str = "",
@@ -23,7 +25,9 @@ def _render(
     global_site_phase: str = "disabled",
     api_alias_domain: str = "",
     api_cn_domain: str = "",
-) -> str:
+    caddy_role: str = "app",
+    fleet_matrix: str = "",
+) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
         "API_DOMAIN": api_domain,
@@ -33,16 +37,46 @@ def _render(
         "GLOBAL_SITE_PHASE": global_site_phase,
         "API_ALIAS_DOMAIN": api_alias_domain,
         "API_CN_DOMAIN": api_cn_domain,
+        "PROD_CADDY_ROLE": caddy_role,
     }
+    env.pop("PROD_FLEET_MATRIX", None)
+    if fleet_matrix:
+        env["PROD_FLEET_MATRIX"] = fleet_matrix
+    return subprocess.run(
+        ["bash", str(_RENDER), str(_TEMPLATE), str(output)],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _render(
+    *,
+    api_domain: str,
+    site_domain: str = "",
+    acme_email: str = "ops@example.com",
+    global_site_domain: str = "",
+    global_site_phase: str = "disabled",
+    api_alias_domain: str = "",
+    api_cn_domain: str = "",
+    caddy_role: str = "app",
+    fleet_matrix: str = "",
+) -> str:
     with tempfile.NamedTemporaryFile("w+", suffix=".caddy", delete=False) as tmp:
         out_path = pathlib.Path(tmp.name)
     try:
-        proc = subprocess.run(
-            ["bash", str(_RENDER), str(_TEMPLATE), str(out_path)],
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
+        proc = _render_proc(
+            out_path,
+            api_domain=api_domain,
+            site_domain=site_domain,
+            acme_email=acme_email,
+            global_site_domain=global_site_domain,
+            global_site_phase=global_site_phase,
+            api_alias_domain=api_alias_domain,
+            api_cn_domain=api_cn_domain,
+            caddy_role=caddy_role,
+            fleet_matrix=fleet_matrix,
         )
         if proc.returncode != 0:
             raise AssertionError(proc.stderr or proc.stdout)
@@ -97,6 +131,59 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertNotRegex(rendered, r"(?m)^us4\\.tokenkey\\.dev \\{")
         self.assertNotIn("@machine {", rendered)
         self.assertIn("import tokenkey_reverse_proxy", rendered)
+
+    def test_entry_mode_renders_private_weighted_pool(self) -> None:
+        rendered = _render(
+            api_domain="api.tokenkey.dev",
+            global_site_domain="callmodel.io",
+            global_site_phase="live",
+            api_alias_domain="api.callmodel.io",
+            api_cn_domain="api-cn.tokenkey.dev",
+            caddy_role="entry",
+        )
+        self.assertIn("reverse_proxy 10.4.0.16:8080 10.4.0.9:8080 {", rendered)
+        self.assertIn("lb_policy weighted_round_robin 2 1", rendered)
+        self.assertIn("health_interval 3s", rendered)
+        self.assertIn("health_timeout 2s", rendered)
+        self.assertIn("health_passes 2", rendered)
+        self.assertIn("health_fails 2", rendered)
+        self.assertIn("lb_try_interval 500ms", rendered)
+        self.assertIn("dial_timeout 3s", rendered)
+        self.assertNotIn("reverse_proxy tokenkey:8080", rendered)
+        self.assertEqual(rendered.count("(tokenkey_reverse_proxy)"), 1)
+        self.assertNotIn("BEGIN_UPSTREAM", rendered)
+
+    def test_entry_mode_refuses_invalid_matrix_pools(self) -> None:
+        matrix_path = _HERE.parents[2] / "deploy/tencent/candidate-usw-20261022.json"
+        base = json.loads(matrix_path.read_text())
+        cases = {
+            "public ip": lambda data: data["apps"][0].update(private_ip="43.162.126.44"),
+            "duplicate ip": lambda data: data["apps"][1].update(
+                private_ip=data["apps"][0]["private_ip"]
+            ),
+            "missing weight": lambda data: data["apps"][0].pop("weight"),
+            "zero weight": lambda data: data["apps"][0].update(weight=0),
+            "one backend": lambda data: data.update(apps=data["apps"][:1]),
+        }
+        for name, mutate in cases.items():
+            data = json.loads(json.dumps(base))
+            mutate(data)
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                matrix = pathlib.Path(tmp) / "matrix.json"
+                matrix.write_text(json.dumps(data))
+                with tempfile.NamedTemporaryFile("w+", suffix=".caddy", delete=False) as out:
+                    out_path = pathlib.Path(out.name)
+                try:
+                    proc = _render_proc(
+                        out_path,
+                        api_domain="api.tokenkey.dev",
+                        caddy_role="entry",
+                        fleet_matrix=str(matrix),
+                    )
+                finally:
+                    out_path.unlink(missing_ok=True)
+                self.assertNotEqual(proc.returncode, 0, proc.stdout)
+                self.assertIn("PROD_FLEET_MATRIX", proc.stderr)
 
     def test_explicit_site_domain_override(self) -> None:
         rendered = _render(api_domain="api.custom.example", site_domain="custom.example")

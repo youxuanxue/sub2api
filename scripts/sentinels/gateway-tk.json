@@ -20703,6 +20703,79 @@
       "rationale": "Executable coverage for the external network override."
     },
     {
+      "path": ".github/workflows/prod-rolling-deploy.yml",
+      "must_contain": [
+        "- name: Plan (prepares remote helpers)",
+        "python3 deploy/domestic/rolling.py plan \\",
+        "if [[ \"$INPUT_CONFIRM\" != \"rolling-prod-${INPUT_TAG}\" ]]; then",
+        "--confirm \"$INPUT_CONFIRM\" \\"
+      ],
+      "rationale": "The prod rolling dispatch keeps its confirm phrase tied to prod and names the plan step accurately: rolling.py plan installs remote helpers, so it is not read-only."
+    },
+    {
+      "path": "deploy/tencent/prepare_single_container.py",
+      "must_contain": [
+        "def assert_target_host(private_ip: str) -> None:",
+        "if private_ip not in output.split():",
+        "if args.apply:\n        assert_target_host(app[\"private_ip\"])",
+        "ROOT.mkdir(parents=True, exist_ok=True)"
+      ],
+      "rationale": "Phase C apply may write /var/lib/tokenkey only after hostname -I proves the current app host owns the matrix private_ip; dry-run remains host-independent."
+    },
+    {
+      "path": "deploy/tencent/test_prepare_single_container.py",
+      "must_contain": [
+        "def test_apply_refuses_wrong_host_before_writing_root(self):",
+        "run.assert_called_once_with(",
+        "self.assertFalse(mod.ROOT.exists())"
+      ],
+      "rationale": "Regression pins the fail-closed ordering: a mismatched app host is refused before ROOT is created and no Docker path is invoked."
+    },
+    {
+      "path": "deploy/aws/stage0/render-prod-caddyfile.sh",
+      "must_contain": [
+        "caddy_role=\"${PROD_CADDY_ROLE:-app}\"",
+        "PROD_FLEET_MATRIX is required for entry mode",
+        "apps[] must contain at least two private backends",
+        "weight must be an integer 1-100"
+      ],
+      "rationale": "The canonical prod renderer keeps app and entry roles explicit; entry mode derives a validated private multi-app WRR pool from the fleet matrix."
+    },
+    {
+      "path": "deploy/aws/stage0/test_render_prod_caddyfile.py",
+      "must_contain": [
+        "def test_entry_mode_renders_private_weighted_pool(self) -> None:",
+        "self.assertIn(\"lb_policy weighted_round_robin 2 1\", rendered)"
+      ],
+      "rationale": "Executable coverage keeps the prod entry backend pool private, ordered by matrix weight, and distinct from the app single-upstream mode."
+    },
+    {
+      "path": "ops/stage0/sync_caddyfile_via_ssm.sh",
+      "must_contain": [
+        "entry Caddy sync keeps the matrix-weighted upstream pool",
+        "\"PROD_FLEET_MATRIX=/tmp/tokenkey-prod-fleet-matrix.json\"",
+        "entry Caddyfile WRR pool missing after sync",
+        "\"if [ \\\"$CADDY_ROLE\\\" = entry ]; then\""
+      ],
+      "rationale": "Prod entry hot-sync ships the fleet matrix, skips the blue/green single-upstream rewrite, and verifies the weighted pool is still live."
+    },
+    {
+      "path": "ops/stage0/test_sync_caddyfile_via_ssm.py",
+      "must_contain": [
+        "def test_entry_ships_matrix_and_skips_single_upstream_rewrite(self) -> None:",
+        "def test_entry_pool_is_not_rewritten_to_active_color(self) -> None:"
+      ],
+      "rationale": "Executable coverage pins entry matrix transport and the negative active-color rewrite behavior."
+    },
+    {
+      "path": "deploy/tencent/candidate-usw-20261022.json",
+      "must_contain": [
+        "\"kind\": \"single-container\"",
+        "\"rolling_confirm_site\": \"prod\""
+      ],
+      "rationale": "Prod Phase C unlocks rolling only for single-container layout and uses the prod confirmation site; live closure remains a separate acceptance step."
+    },
+    {
       "path": "backend/internal/service/antigravity_sticky_cooldown_tk.go",
       "must_contain": [
         "func (s *AntigravityGatewayService) tkDropStickyForUnusableAccount(",

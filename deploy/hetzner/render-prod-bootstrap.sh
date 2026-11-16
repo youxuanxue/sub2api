@@ -17,6 +17,7 @@ fi
 for f in \
   "${STAGE0}/docker-compose.yml" \
   "${STAGE0}/Caddyfile" \
+  "${STAGE0}/render-prod-caddyfile.sh" \
   "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh" \
   "${STAGE0}/tokenkey-ghcr-prune-daily.sh" \
   "${STAGE0}/tokenkey-pgdump.sh" \
@@ -43,6 +44,7 @@ PY
 
 compose_b64="$(b64_gzip "${STAGE0}/docker-compose.yml")"
 caddy_b64="$(b64_gzip "${STAGE0}/Caddyfile")"
+caddy_render_b64="$(b64_gzip "${STAGE0}/render-prod-caddyfile.sh")"
 prune_b64="$(b64_gzip "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh")"
 ghcr_daily_b64="$(b64_gzip "${STAGE0}/tokenkey-ghcr-prune-daily.sh")"
 pgdump_b64="$(b64_gzip "${STAGE0}/tokenkey-pgdump.sh")"
@@ -232,6 +234,7 @@ LAUNCH_HEAD
 cat >>"${OUT}.tmp" <<LAUNCH_EMBED
 COMPOSE_GZB64='${compose_b64}'
 CADDY_GZB64='${caddy_b64}'
+CADDY_RENDER_GZB64='${caddy_render_b64}'
 PRUNE_B64='${prune_b64}'
 GHCR_DAILY_B64='${ghcr_daily_b64}'
 PGDUMP_B64='${pgdump_b64}'
@@ -244,8 +247,17 @@ LAUNCH_EMBED
 cat >>"${OUT}.tmp" <<'LAUNCH_TAIL'
 printf '%s' "$COMPOSE_GZB64" | base64 -d | gunzip > /var/lib/tokenkey/docker-compose.yml
 printf '%s' "$CADDY_GZB64" | base64 -d | gunzip > /var/lib/tokenkey/caddy/Caddyfile.template
-envsubst '${API_DOMAIN} ${ACME_EMAIL} ${MAIN_GATEWAY_ALLOWED_CIDR}' \
-  < /var/lib/tokenkey/caddy/Caddyfile.template > /var/lib/tokenkey/caddy/Caddyfile
+printf '%s' "$CADDY_RENDER_GZB64" | base64 -d | gunzip > /var/lib/tokenkey/caddy/render-prod-caddyfile.sh
+chmod 0755 /var/lib/tokenkey/caddy/render-prod-caddyfile.sh
+PROD_CADDY_ROLE=app \
+SITE_DOMAIN="${SITE_DOMAIN:-}" \
+GLOBAL_SITE_DOMAIN="${GLOBAL_SITE_DOMAIN:-}" \
+GLOBAL_SITE_PHASE="${GLOBAL_SITE_PHASE:-disabled}" \
+API_ALIAS_DOMAIN="${API_ALIAS_DOMAIN:-}" \
+API_CN_DOMAIN="${API_CN_DOMAIN:-}" \
+  bash /var/lib/tokenkey/caddy/render-prod-caddyfile.sh \
+    /var/lib/tokenkey/caddy/Caddyfile.template \
+    /var/lib/tokenkey/caddy/Caddyfile
 
 printf '%s' "$PRUNE_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 chmod +x /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh

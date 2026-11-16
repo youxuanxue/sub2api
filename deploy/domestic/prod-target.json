@@ -19,6 +19,7 @@
   "data_ssm_region": "eu-west-2",
   "data_ssm_instance_id": "mi-084a456b3dee71bb4",
   "tat_region": "ap-beijing",
+  "rolling_confirm_site": "cn-prod",
   "layout": {
     "kind": "single-container",
     "root": "/opt/tokenkey",
@@ -43,7 +44,9 @@
         "GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED": "true",
         "GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED": "false"
       },
-      "jobs": []
+      "jobs": [
+        "tokenkey-disk-metrics"
+      ]
     },
     {
       "name": "app-a",

@@ -62,7 +62,7 @@
 }
 
 (tokenkey_reverse_proxy) {
-	reverse_proxy tokenkey:8080 {
+	reverse_proxy ${CADDY_UPSTREAM_TARGET} {
 		flush_interval -1
 		# Active health 走 /health（drain-aware）：SIGUSR1 → /health=503 →
 		# Caddy active 立刻把 upstream 摘除，发版排空窗口期间 0 新流量打到老
@@ -70,6 +70,7 @@
 		# 避免 drain 触发 docker 自动 restart；Caddy active health 没有 auto-
 		# restart 副作用，只决定要不要继续转发，所以 drain-aware 是正确选择。
 		health_uri /health
+# BEGIN_UPSTREAM_APP_POLICY
 		health_interval 5s
 		health_timeout 3s
 		# Single-backend health policy: only /health may remove the active app.
@@ -79,13 +80,25 @@
 		# Keep bounded retries for actual downtime and active-health recovery.
 		lb_try_duration 30s
 		lb_try_interval 1s
+# END_UPSTREAM_APP_POLICY
+# BEGIN_UPSTREAM_ENTRY_POLICY
+		# Entry machine pool: apps[] weights decide traffic share. Two failed
+		# 3s /health checks remove a draining node before rolling waits on it.
+		lb_policy weighted_round_robin ${CADDY_UPSTREAM_WEIGHTS}
+		health_interval 3s
+		health_timeout 2s
+		health_passes 2
+		health_fails 2
+		lb_try_duration 30s
+		lb_try_interval 500ms
+# END_UPSTREAM_ENTRY_POLICY
 		header_up -CF-Connecting-IP
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto {scheme}
 		header_up X-Forwarded-Host {host}
 		transport http {
-			dial_timeout 5s
+			dial_timeout ${CADDY_DIAL_TIMEOUT}
 			keepalive 120s
 			keepalive_idle_conns 64
 			compression off

@@ -130,6 +130,33 @@ class ManifestTest(unittest.TestCase):
         with self.assertRaisesRegex(rx.RemoteExecError, "tat_region"):
             rx.load_nodes(self.write(data))
 
+    def test_prod_data_machine_nested_flattens(self):
+        data = {
+            "schema_version": 1,
+            "tat_region": "na-siliconvalley",
+            "ssm_region": "eu-west-2",
+            "entry": {"name": "entry", "lighthouse_instance_id": "lhins-entry",
+                      "private_ip": "10.4.0.8", "ssm_instance_id": "mi-" + "a" * 17},
+            "apps": [
+                {"name": "app-cand", "lighthouse_instance_id": "lhins-cand",
+                 "private_ip": "10.4.0.9", "ssm_instance_id": "mi-" + "b" * 17},
+                {"name": "app-old", "lighthouse_instance_id": "lhins-old",
+                 "private_ip": "10.4.0.16", "ssm_instance_id": "mi-" + "c" * 17},
+            ],
+            "data_machine": {
+                "lighthouse_instance_id": "lhins-data",
+                "private_ip": "10.4.0.3",
+                "expected_ssm_instance_id": "mi-" + "d" * 17,
+                "ssm_region": "eu-west-2",
+            },
+        }
+        nodes = rx.load_nodes(self.write(data))
+        self.assertEqual(nodes["data"].private_ip, "10.4.0.3")
+        self.assertEqual(nodes["data"].ssm_instance_id, "mi-" + "d" * 17)
+        self.assertEqual(nodes["app-cand"].tat_region, "na-siliconvalley")
+        self.assertEqual([n.name for n in rx.app_nodes(self.write(data))],
+                         ["app-cand", "app-old"])
+
     def test_rejects_duplicate_ip_and_bad_ip(self):
         apps = [dict(MANIFEST["apps"][0]), dict(MANIFEST["apps"][1], private_ip="10.2.4.13")]
         with self.assertRaisesRegex(rx.RemoteExecError, "unique"):
