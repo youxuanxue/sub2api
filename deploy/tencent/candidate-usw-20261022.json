@@ -3,13 +3,55 @@
   "platform": "tencent-lighthouse",
   "role": "prod",
   "notes": [
-    "2026-10-22 cutover complete: this host is live prod (DNS A → 43.162.83.233).",
+    "2026-10-22 cutover complete: this matrix row is the default Stage0 deploy target (old app).",
+    "2026-11-15/16: public DNS moved to entry 43.162.119.210; see entry/apps below. Default resolve_prod_ssm_target still returns this old app mi-* until CI is widened.",
     "auto / default PROD_SSM_TARGET resolves here when deployable=true.",
     "Layout converged 2026-10-22 (exception path): .env at /var/lib/tokenkey/.env; app/caddy tokenkey/tokenkey-caddy; Docker root kept at /srv/tokenkey-rehearsal/docker; PG/redis keep cutover names with postgres/redis aliases. Receipt: /var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json.",
     "volume_mount keeps /srv/tokenkey-rehearsal (historical); /var/lib/tokenkey is a second mount of the same LUKS mapper.",
     "Tokyo i-045f062ce33e1a5af was retired and deleted 2026-10-23; its snapshots are deleted; never restore its S3 history chain as a writer.",
     "Cutover receipt: docs/ops/reports/tencent-cutover-20261022.json",
-    "2026-10-29: tokenkey-disk-metrics.timer is installed and expected active. It checks root / and /var/lib/tokenkey at 85% alert / 80% recover."
+    "2026-10-29: tokenkey-disk-metrics.timer is installed and expected active. It checks root / and /var/lib/tokenkey at 85% alert / 80% recover.",
+    "Phase C: layout.kind=stage0-bluegreen documents current prod apps; rolling plan/deploy must refuse until single-container migration is approved and done."
+  ],
+  "layout": {
+    "kind": "stage0-bluegreen",
+    "root": "/var/lib/tokenkey",
+    "controls": "/var/lib/tokenkey/releases/artifacts-rolling"
+  },
+  "entry": {
+    "name": "entry",
+    "lighthouse_instance_id": "lhins-3am1i23j",
+    "private_ip": "10.4.0.8",
+    "public_ip": "43.162.119.210",
+    "ssm_instance_id": "mi-026982f3622163a1b",
+    "domain": "api.tokenkey.dev",
+    "domains": [
+      "tokenkey.dev",
+      "api.tokenkey.dev",
+      "api-cn.tokenkey.dev",
+      "callmodel.io",
+      "api.callmodel.io"
+    ]
+  },
+  "apps": [
+    {
+      "name": "app-old",
+      "lighthouse_instance_id": "lhins-fcwpwymt",
+      "private_ip": "10.4.0.16",
+      "public_ip": "43.162.83.233",
+      "ssm_instance_id": "mi-080ed76dc6d97d8b5",
+      "weight": 2,
+      "memory_limit": "8g"
+    },
+    {
+      "name": "app-cand",
+      "lighthouse_instance_id": "lhins-2kf31667",
+      "private_ip": "10.4.0.9",
+      "public_ip": "43.162.126.44",
+      "ssm_instance_id": "mi-000c0168439c243a8",
+      "weight": 1,
+      "memory_limit": "3g"
+    }
   ],
   "target": {
     "resolvable": true,
@@ -31,14 +73,15 @@
     "api_domain": "api.tokenkey.dev",
     "public_ip": "43.162.83.233",
     "architecture": "amd64",
-    "purpose": "Live TokenKey prod after Tokyo→Tencent USW cutover 2026-10-22"
+    "purpose": "Live TokenKey prod app node (old) after Tokyo→Tencent USW cutover 2026-10-22; public edge is entry/"
   },
   "host_watch": {
-    "note": "Live prod host-watch owner (https-watch identity, customer domains, expected-paused timers, local QA jobs). Consumers: ops/observability/host_https_watch.py, install-host-https-watch.sh. Host watchers keep their installed copy until reinstalled.",
+    "note": "Live prod host-watch owner (https-watch identity, customer domains, expected-paused timers, local QA jobs). Consumers: ops/observability/host_https_watch.py, install-host-https-watch.sh. Host watchers keep their installed copy until reinstalled. prod-entry reads entry/apps on this matrix.",
     "hostname": "VM-0-16-ubuntu",
     "domains": [
       "tokenkey.dev",
       "api.tokenkey.dev",
+      "api-cn.tokenkey.dev",
       "callmodel.io",
       "api.callmodel.io"
     ],

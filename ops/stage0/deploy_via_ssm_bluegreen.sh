@@ -972,6 +972,11 @@ preserve_target_cutover() {
   if ! sync_gemini_web_control_alias "${color}"; then
     echo "::warning::gemini-web control alias sync failed during preserve_target color=${color}"
   fi
+  # Entry-machine private origin (tokenkey-entry-origin) must follow the active
+  # color; leave hosts without that forwarder alone.
+  if ! sync_entry_origin "${color}"; then
+    echo "::warning::entry-origin sync failed during preserve_target color=${color}"
+  fi
 }
 
 preserve_unconfirmed_reload() {
@@ -1043,6 +1048,17 @@ commit_cutover() {
       fi
       echo "::warning::gemini-web control alias sync failed color=${color}; Workers may report session_poll_failed until repaired"
     fi
+    # Multi-app entry dials <private_ip>:8080 via tokenkey-entry-origin. A
+    # blue/green cutover that leaves that socat on the drained color makes the
+    # node look dead to the entry health checker (2026-11-16 prod incident).
+    if ! sync_entry_origin "${color}"; then
+      if sudo docker inspect tokenkey-entry-origin >/dev/null 2>&1; then
+        echo "::error::entry-origin sync failed while tokenkey-entry-origin is present; deploy must not report success"
+        CUTOVER_COMMITTED=1
+        return 1
+      fi
+      echo "::warning::entry-origin sync failed color=${color}; host has no entry-origin (single-node layout)"
+    fi
     CUTOVER_COMMITTED=1
     return 0
   else
@@ -1081,6 +1097,55 @@ write_active_color() {
   printf '%s\n' "${color}" | sudo tee "${tmp}" >/dev/null
   sudo mv "${tmp}" "${ACTIVE_FILE}"
   log "active-color=${color}"
+}
+
+# Retarget the entry-machine private origin (socat published on one private
+# host IP:8080) at the active color. No-op when the forwarder is absent so
+# single-node Stage0 hosts stay unchanged. Mirrors deploy/domestic/bluegreen.py
+# sync_entry_origin, embedded for the SSM payload path.
+sync_entry_origin() {
+  local color="$1" target host_ip network image desired current running bindings
+  target="$(color_container "${color}")"
+  if ! sudo docker inspect tokenkey-entry-origin >/dev/null 2>&1; then
+    echo "entry-origin: absent; skip"
+    return 0
+  fi
+  sudo docker inspect "${target}" >/dev/null
+  desired="TCP:${target}:8080"
+  current="$(sudo docker inspect tokenkey-entry-origin --format '{{json .Config.Cmd}}' 2>/dev/null || true)"
+  running="$(sudo docker inspect tokenkey-entry-origin --format '{{.State.Running}}' 2>/dev/null || true)"
+  if [[ "${running}" == "true" && "${current}" == *"${desired}"* ]]; then
+    echo "entry-origin: already proxies ${desired}"
+    return 0
+  fi
+  # Refuse unexpected listen/publish shapes rather than overwrite a foreign container.
+  echo "${current}" | grep -q 'TCP-LISTEN:8080' \
+    || { echo "::error::entry-origin unexpected Cmd=${current}"; return 1; }
+  bindings="$(sudo docker inspect tokenkey-entry-origin --format '{{json (index .HostConfig.PortBindings "8080/tcp")}}')"
+  host_ip="$(sudo docker inspect tokenkey-entry-origin --format '{{(index (index .HostConfig.PortBindings "8080/tcp") 0).HostIp}}')"
+  [[ -n "${host_ip}" && "${host_ip}" != "0.0.0.0" && "${host_ip}" != "::" ]] \
+    || { echo "::error::entry-origin must publish 8080 on one private address; bindings=${bindings}"; return 1; }
+  network="$(sudo docker inspect tokenkey-entry-origin --format '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}}{{end}}')"
+  [[ -n "${network}" ]] || { echo "::error::entry-origin missing application network"; return 1; }
+  image="$(sudo docker inspect tokenkey-entry-origin --format '{{.Config.Image}}')"
+  sudo docker rm -f tokenkey-entry-origin >/dev/null
+  sudo docker run -d --name tokenkey-entry-origin --restart unless-stopped \
+    --network "${network}" -p "${host_ip}:8080:8080" \
+    --memory 32m --memory-swap 32m --cpus 0.5 --pids-limit 256 \
+    --security-opt no-new-privileges --read-only \
+    "${image}" \
+    TCP-LISTEN:8080,fork,reuseaddr,keepalive "TCP:${target}:8080" >/dev/null
+  local i code
+  for i in $(seq 1 30); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://${host_ip}:8080/health" || true)"
+    if [[ "${code}" == "200" ]]; then
+      echo "tk_entry_origin: OK color=${color} target=${target} host_ip=${host_ip}"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "::error::entry-origin did not become healthy on ${host_ip}:8080 after retarget to ${target}"
+  return 1
 }
 
 # Point Docker DNS name `tokenkey` at the active app color for Gemini Web Workers

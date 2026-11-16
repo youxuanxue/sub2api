@@ -30,6 +30,11 @@ def _render(instance_id: str = _PROD_IID, tag: str = "1.8.99", env_extra: dict |
         "STAGE0_RENDER_ONLY": "1",
         "STAGE0_SSM_OUTPUT_DIR": str(out_dir),
     }
+    # Operator shells often leave STAGE0_BLUEGREEN_* set; never inherit them into
+    # refusal cases (promote-without-receipt, invalid stage, replace receipt).
+    for key in list(env):
+        if key.startswith("STAGE0_BLUEGREEN_"):
+            env.pop(key, None)
     if env_extra:
         env.update(env_extra)
     proc = subprocess.run(
@@ -227,6 +232,10 @@ sync_gemini_web_control_alias() {{
   printf '%s\\n' "$1" >> "$SYNC_ALIAS_LOG"
   [ "$SYNC_ALIAS_FAILS" = 0 ] || return 1
 }}
+sync_entry_origin() {{
+  printf 'origin:%s\\n' "$1" >> "$SYNC_ALIAS_LOG"
+  [ "$SYNC_ORIGIN_FAILS" = 0 ] || return 1
+}}
 sudo() {{
   if [ "$1" = mv ] && [ "$ACTIVE_RESTORE_FAILS" = 1 ]; then return 1; fi
   if [ "$1" = sh ]; then
@@ -244,6 +253,10 @@ sudo() {{
       [ "$WORKER_PRESENT" = 1 ] && return 0
       return 1
     fi
+    if [ "$2" = inspect ] && [ "$3" = tokenkey-entry-origin ]; then
+      [ "$ORIGIN_PRESENT" = 1 ] && return 0
+      return 1
+    fi
     return 0
   fi
   command "$@"
@@ -256,7 +269,9 @@ ROUTE_SWITCHED=0
 RELOAD_COUNT=0
 SH_WRITE_COUNT=0
 SYNC_ALIAS_FAILS=0
+SYNC_ORIGIN_FAILS=0
 WORKER_PRESENT=0
+ORIGIN_PRESENT=0
 ROLLBACK_RELOAD_FAILS={1 if rollback_reload_fails else 0}
 LIVE_WRITE_FAILS={1 if live_write_fails else 0}
 TARGET_RELOAD_FAILS={1 if target_reload_fails else 0}
@@ -281,6 +296,8 @@ def _run_commit_cutover_success(
     *,
     sync_alias_fails: bool = False,
     worker_present: bool = False,
+    sync_origin_fails: bool = False,
+    origin_present: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], str]:
     """Exercise the durable-commit success branch with a recording sync stub."""
     function = "\n".join((
@@ -309,10 +326,18 @@ sync_gemini_web_control_alias() {{
   printf '%s\\n' "$1" >> "$SYNC_ALIAS_LOG"
   [ "$SYNC_ALIAS_FAILS" = 0 ] || return 1
 }}
+sync_entry_origin() {{
+  printf 'origin:%s\\n' "$1" >> "$SYNC_ALIAS_LOG"
+  [ "$SYNC_ORIGIN_FAILS" = 0 ] || return 1
+}}
 sudo() {{
   if [ "$1" = docker ]; then
     if [ "$2" = inspect ] && [ "$3" = tokenkey-gemini-web ]; then
       [ "$WORKER_PRESENT" = 1 ] && return 0
+      return 1
+    fi
+    if [ "$2" = inspect ] && [ "$3" = tokenkey-entry-origin ]; then
+      [ "$ORIGIN_PRESENT" = 1 ] && return 0
       return 1
     fi
     return 0
@@ -325,7 +350,9 @@ ACTIVE_FILE={shlex.quote(str(active))}
 CUTOVER_COMMITTED=0
 ROUTE_SWITCHED=0
 SYNC_ALIAS_FAILS={1 if sync_alias_fails else 0}
+SYNC_ORIGIN_FAILS={1 if sync_origin_fails else 0}
 WORKER_PRESENT={1 if worker_present else 0}
+ORIGIN_PRESENT={1 if origin_present else 0}
 commit_cutover green
 rc=$?
 printf 'rc=%s committed=%s live=%s active=%s\\n' "$rc" "$CUTOVER_COMMITTED" "$(cat "$LIVE_CADDY")" "$(cat "$ACTIVE_FILE")"
@@ -1087,9 +1114,13 @@ echo passed
         preserve = _extract_shell_function(remote, "preserve_target_cutover")
         success_branch = function.index('if write_active_color "${color}" && record_cutover; then')
         self.assertIn("sync_gemini_web_control_alias", function[success_branch:])
+        self.assertIn("sync_entry_origin", function[success_branch:])
         self.assertIn("sync_gemini_web_control_alias", preserve)
+        self.assertIn("sync_entry_origin", preserve)
         self.assertIn("tokenkey-gemini-web", function[success_branch:])
+        self.assertIn("tokenkey-entry-origin", function[success_branch:])
         self.assertIn("sync_gemini_web_control_alias", remote)
+        self.assertIn("sync_entry_origin", remote)
         # SSM primary path embeds the socat proxy; keep markers aligned with host script.
         sync_fn = _extract_shell_function(remote, "sync_gemini_web_control_alias")
         for marker in (
@@ -1099,10 +1130,21 @@ echo passed
             "tk_gemini_web_control_alias",
         ):
             self.assertIn(marker, sync_fn)
+        origin_fn = _extract_shell_function(remote, "sync_entry_origin")
+        for marker in (
+            "tokenkey-entry-origin",
+            "TCP-LISTEN:8080,fork,reuseaddr,keepalive",
+            "tk_entry_origin",
+        ):
+            self.assertIn(marker, origin_fn)
         durable_commit = function.index("CUTOVER_COMMITTED=1", success_branch)
         self.assertLess(success_branch, durable_commit)
         self.assertLess(
             function.index("sync_gemini_web_control_alias"),
+            function.rindex("CUTOVER_COMMITTED=1"),
+        )
+        self.assertLess(
+            function.index("sync_entry_origin"),
             function.rindex("CUTOVER_COMMITTED=1"),
         )
         self.assertLess(
@@ -1114,7 +1156,8 @@ echo passed
         ok, sync_log = _run_commit_cutover_success(remote)
         self.assertEqual(ok.returncode, 0, msg=ok.stderr)
         self.assertIn("rc=0 committed=1", ok.stdout)
-        self.assertEqual(sync_log, "green")
+        self.assertIn("green", sync_log.splitlines()[0])
+        self.assertIn("origin:green", sync_log)
 
         worker_fail, _ = _run_commit_cutover_success(
             remote, sync_alias_fails=True, worker_present=True
@@ -1122,12 +1165,20 @@ echo passed
         self.assertEqual(worker_fail.returncode, 0, msg=worker_fail.stderr)
         self.assertIn("rc=1 committed=1", worker_fail.stdout)
 
+        origin_fail, origin_log = _run_commit_cutover_success(
+            remote, sync_origin_fails=True, origin_present=True
+        )
+        self.assertEqual(origin_fail.returncode, 0, msg=origin_fail.stderr)
+        self.assertIn("rc=1 committed=1", origin_fail.stdout)
+        self.assertIn("origin:green", origin_log)
+
         warn_only, sync_log_warn = _run_commit_cutover_success(
             remote, sync_alias_fails=True, worker_present=False
         )
         self.assertEqual(warn_only.returncode, 0, msg=warn_only.stderr)
         self.assertIn("rc=0 committed=1", warn_only.stdout)
-        self.assertEqual(sync_log_warn, "green")
+        self.assertIn("green", sync_log_warn.splitlines()[0])
+        self.assertIn("origin:green", sync_log_warn)
 
         live_write_failed = _run_commit_cutover_record_failure(
             remote, live_write_fails=True
