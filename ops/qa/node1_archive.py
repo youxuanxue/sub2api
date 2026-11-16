@@ -45,6 +45,13 @@ import node1_remote
 HOUR = "%Y/%m/%d/%H"
 SCHEMA = "qa-node1-hour-v1"
 SOURCE_SCHEMA = "qa-node1-source-hour-v2"
+
+
+def archive_failure_class(exc: BaseException) -> str:
+    """Map an archive failure to the team that can act on it."""
+    if isinstance(exc, node1_remote.Node1ConnectivityError):
+        return "node1_unreachable"
+    return "gateway_qa_archive_failed"
 SOURCE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 
 
@@ -593,13 +600,24 @@ def run(args: argparse.Namespace) -> int:
             else:
                 result["completed"].append(copy_hour(source, node1, args.environment, hour, **source_options))
         except Exception as exc:
-            result["failed"].append({"window_start": hour.isoformat(), "error": str(exc)})
+            result["failed"].append({
+                "window_start": hour.isoformat(),
+                "error": str(exc),
+                "failure_class": archive_failure_class(exc),
+            })
             log_progress(args.environment, hour, "failed",
                          elapsed_seconds=round(time.monotonic() - started, 3))
         else:
             log_progress(args.environment, hour, "complete",
                          elapsed_seconds=round(time.monotonic() - started, 3))
     result["ok"] = not result["failed"]
+    if result["failed"]:
+        classes = {item["failure_class"] for item in result["failed"]}
+        result["failure_class"] = (
+            "node1_unreachable" if "node1_unreachable" in classes
+            else "gateway_qa_archive_failed"
+        )
+    result["observed_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
     atomic_json(node1 / "receipts" / namespace / "last-run.json", result)
     # The cleanup container bind-mounts node1_root itself, so a 0700 root hides
     # every receipt below it. After the 2026-11-08 prod rebuild the root came

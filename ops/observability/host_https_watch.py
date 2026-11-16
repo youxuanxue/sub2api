@@ -365,6 +365,7 @@ def physical_backup_fact(path: Path, now: float) -> dict:
 QA_CLEANUP_RECEIPT = Path("/var/lib/tokenkey/qa-local/cleanup.json")
 QA_CLEANUP_MAX_BLOCKED_AGE = 24 * 3600
 QA_COORDINATOR_RECEIPT = Path("/var/lib/tokenkey/qa-coordinator/last-run.json")
+QA_ARCHIVE_RECEIPTS = Path("/var/lib/tokenkey/qa-node1/receipts")
 
 
 def qa_coordinator_fact(path: Path, now: float) -> dict | None:
@@ -381,7 +382,34 @@ def qa_coordinator_fact(path: Path, now: float) -> dict | None:
     return None
 
 
+def archive_failure_category(path: Path, now: float) -> str:
+    try:
+        receipt = json.loads(path.read_text())
+        observed = datetime.fromisoformat(
+            receipt["observed_at"].replace("Z", "+00:00")).timestamp()
+        if now - observed > 2 * 3600 or observed > now + 60:
+            raise ValueError("archive receipt is stale")
+        category = receipt.get("failure_class")
+        if category in {"node1_unreachable", "gateway_qa_archive_failed"}:
+            return category
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    return "gateway_qa_archive_failed"
+
+
 def qa_cleanup_backlog_fact(path: Path, now: float) -> dict | None:
+    return _qa_cleanup_backlog_fact(path, now)
+
+
+def qa_cleanup_backlog_fact_for_archive(
+    path: Path, now: float, archive_receipt: Path,
+) -> dict | None:
+    return _qa_cleanup_backlog_fact(path, now, archive_receipt)
+
+
+def _qa_cleanup_backlog_fact(
+    path: Path, now: float, archive_receipt: Path | None = None,
+) -> dict | None:
     """Return an unhealthy fact when the oldest receipt-blocked hour is too old."""
     try:
         receipt = json.loads(path.read_text())
@@ -394,16 +422,38 @@ def qa_cleanup_backlog_fact(path: Path, now: float) -> dict | None:
     try:
         stamp = datetime.fromisoformat(oldest.replace("Z", "+00:00")).timestamp()
     except ValueError:
-        return {"healthy": False, "reason": "invalid oldest_receipt_blocked_hour_utc"}
+        return {
+            "healthy": False,
+            "category": "gateway_qa_archive_failed",
+            "reason": "invalid oldest_receipt_blocked_hour_utc",
+        }
     age = now - stamp
     if age <= QA_CLEANUP_MAX_BLOCKED_AGE:
         return None
     blocked = cleanup.get("receipt_blocked_hours", 0)
+    category = archive_failure_category(archive_receipt, now) if archive_receipt else "gateway_qa_archive_failed"
     return {"healthy": False,
+            "category": category,
             "reason": f"node1 archive behind: oldest unarchived hour {oldest} is {int(age // 3600)}h old ({blocked} hours held back)"}
 
 
-def probe_job(name: str, *, expected_paused=False) -> dict:
+def qa_archive_failure_fact(path: Path, now: float, base: dict) -> dict:
+    """Use the archive runner's receipt to route the failure to its owner."""
+    category = archive_failure_category(path, now)
+    if category == "node1_unreachable":
+        return {
+            "healthy": False,
+            "category": category,
+            "reason": "node1 unreachable: SSH/jump connection failed; ask operations to restore node1 connectivity",
+        }
+    return {
+        "healthy": False,
+        "category": category,
+        "reason": "gateway QA archive failed: node1 answered, but archive transfer or verification failed",
+    }
+
+
+def probe_job(name: str, *, expected_paused=False, environment="prod") -> dict:
     if name == "tokenkey-postgres-recovery":
         return physical_backup_fact(Path("/var/lib/tokenkey/postgres-backup/health.json"), time.time())
     def properties(unit):
@@ -416,9 +466,24 @@ def probe_job(name: str, *, expected_paused=False) -> dict:
     # Linux monotonic() shares systemd's CLOCK_MONOTONIC; /proc/uptime is
     # truncated to centiseconds and includes suspend time (CLOCK_BOOTTIME).
     fact = job_fact(service, timer, time.monotonic(), JOB_LIMITS[name], expected_paused=expected_paused)
+    if name == "tokenkey-qa-archive" and not fact["healthy"] and not expected_paused:
+        fact = qa_archive_failure_fact(
+            QA_ARCHIVE_RECEIPTS / environment / "last-run.json",
+            time.time(),
+            fact,
+        )
     if name == "tokenkey-qa-cleanup" and fact["healthy"] and not expected_paused:
-        backlog = qa_cleanup_backlog_fact(QA_CLEANUP_RECEIPT, time.time())
+        backlog = qa_cleanup_backlog_fact_for_archive(
+            QA_CLEANUP_RECEIPT,
+            time.time(),
+            QA_ARCHIVE_RECEIPTS / environment / "last-run.json",
+        )
         if backlog is not None:
+            # The archive job owns the root-cause alert. Do not page again
+            # for cleanup backlog when the latest archive run cannot reach
+            # node1.
+            if backlog.get("category") == "node1_unreachable":
+                return fact
             return backlog
     if name == "tokenkey-qa-coordinator" and fact["healthy"] and not expected_paused:
         backlog = qa_coordinator_fact(QA_COORDINATOR_RECEIPT, time.time())
@@ -438,8 +503,18 @@ def tick_jobs(jobs, previous, now, probe, send, node="unknown"):
         key = "job:" + name
         updated, action = next_state(previous.get(key, {}), fact["healthy"], now)
         updated["reason"] = fact["reason"]
+        updated["category"] = fact.get("category", "")
         if action:
-            send(f"TokenKey host job {action}: {node}/{name}; {fact['reason']}.")
+            if fact.get("category") == "node1_unreachable":
+                label = "🔴 运维处理：node1 无法连接"
+                owner = "责任方：运维；请恢复 node1 或其 SSH/jump 连接"
+            elif fact.get("category") == "gateway_qa_archive_failed":
+                label = "🔴 网关 QA 归档失败"
+                owner = "责任方：TokenKey 网关 QA 归档"
+            else:
+                label = f"TokenKey host job {action}"
+                owner = ""
+            send(f"{label}: {node}/{name}; {fact['reason']}. {owner}")
             updated.update(active=action == "unhealthy", sent_at=now)
         warning = fact["healthy"] and fact.get("severity") == "warning"
         if warning and (not updated.get("warning_sent_at")
@@ -544,8 +619,13 @@ def main() -> None:
                                config.get("node", os.uname().nodename), bool(config.get("pool_alert")))
         result = tick_certs(certs, result, int(time.time()), cert_days_left, send,
                             config.get("node", os.uname().nodename))
+        environment = "cn-prod" if config.get("node", "").startswith("cn-prod") else "prod"
         result = tick_jobs(jobs, result, int(time.time()),
-                           lambda name: probe_job(name, expected_paused=name in paused),
+                           lambda name: probe_job(
+                               name,
+                               expected_paused=name in paused,
+                               environment=environment,
+                           ),
                            send, config.get("node", os.uname().nodename))
         if not args.dry_run:
             _atomic_write(args.state, json.dumps(result, sort_keys=True) + "\n")
