@@ -8,14 +8,10 @@ unless every app node has the exact local tag plus image-distribution receipt.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import hashlib
 import json
-import os
 import re
-import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable

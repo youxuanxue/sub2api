@@ -41,9 +41,10 @@ concurrency:
 jobs:
   warm:
     runs-on: ubuntu-latest
-    # Bound to a cold image pull on a slow link; far below the 6h default so a
-    # hung describe-stacks / SSM poll can't hold the concurrency lock for hours.
-    timeout-minutes: 15
+    # Two app nodes warmed sequentially via warm_fanout (default remote timeout
+    # 1200s each). Keep the job budget above one cold multi-node pass, and far
+    # below the 6h default so a hung poll cannot hold the concurrency lock.
+    timeout-minutes: 30
     # Same prod Environment binding as deploy-stage0.yml: required for the
     # OIDC sub claim (IAM trust in cicd-oidc.yaml). The rollout skill
     # auto-approves the pending deployment via gh because the warm is read-only.

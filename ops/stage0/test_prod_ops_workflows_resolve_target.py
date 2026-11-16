@@ -40,6 +40,8 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
         self.assertIn("--channel auto", text)
         self.assertIn("--receipt-out prod-warm-receipt.json", text)
         self.assertIn("prod-warm-receipt.json", text)
+        # Multi-node sequential warm needs headroom beyond the old single-host 15m.
+        self.assertRegex(text, r"timeout-minutes:\s*(2[5-9]|[3-9]\d|[1-9]\d{2,})\b")
 
     def test_feishu_sync_region_default_matches_other_prod_workflows(self) -> None:
         # AWS_REGION only scopes OIDC credentials; the SSM call must take the
