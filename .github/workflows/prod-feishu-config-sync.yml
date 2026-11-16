@@ -1,4 +1,4 @@
-name: Prod Feishu Config Sync
+name: Prod Feishu Config Watchdog
 
 on:
   schedule:
@@ -8,25 +8,26 @@ on:
 permissions:
   contents: read
   id-token: write
+  issues: write
 
 concurrency:
-  group: prod-feishu-config-sync
-  cancel-in-progress: false
+  group: prod-feishu-config-watchdog
+  cancel-in-progress: true
 
 jobs:
-  sync:
+  check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: prod
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
       TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
       TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
-      - name: Validate alert configuration
+      - name: Validate watchdog configuration
         run: |
           set -euo pipefail
           for key in OIDC_ROLE_ARN TK_FEISHU_WEBHOOK_URL TK_FEISHU_SIGNING_SECRET; do
@@ -40,5 +41,24 @@ jobs:
         with:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      - name: Sync and verify production alert configuration
-        run: bash ops/stage0/sync-feishu-config.sh prod
+      - name: Probe production alert configuration
+        id: probe
+        run: |
+          set +e
+          bash ops/observability/run-probe.sh \
+            --target prod \
+            --script ops/observability/probe-alert-config.sh \
+            --comment "daily Feishu alert configuration watchdog" \
+            > probe-alert-config.json
+          rc=$?
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Report configuration drift
+        if: always()
+        run: |
+          python3 ops/observability/check_feishu_config.py \
+            --probe-file probe-alert-config.json \
+            --probe-exit-code "${{ steps.probe.outputs.exit_code }}"
+      - name: Fail when the production probe failed
+        if: always() && steps.probe.outputs.exit_code != '0'
+        run: exit 1
