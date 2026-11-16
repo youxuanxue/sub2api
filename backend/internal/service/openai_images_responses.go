@@ -1193,7 +1193,10 @@ func (s *OpenAIGatewayService) writeOpenAIImagesStreamEvent(c *gin.Context, flus
 
 func compactOpenAIImagesSSEDataPayload(payload []byte) []byte {
 	trimmed := bytes.TrimSpace(payload)
-	if len(trimmed) == 0 || string(trimmed) == "[DONE]" || !json.Valid(trimmed) {
+	// Only embedded newlines break line-oriented SSE parsers. Already-single-line
+	// payloads (the sjson hot path, including multi-MB b64_json) must not pay for
+	// a full json.Valid + Compact rewrite on every partial/completed event.
+	if len(trimmed) == 0 || !bytes.Contains(trimmed, []byte{'\n'}) || string(trimmed) == "[DONE]" || !json.Valid(trimmed) {
 		return payload
 	}
 	var compact bytes.Buffer

@@ -351,6 +351,9 @@ func TestCompactOpenAIImagesSSEDataPayload(t *testing.T) {
 	require.NotContains(t, string(got), "\n")
 	require.Equal(t, int64(1), gjson.GetBytes(got, "usage.total_tokens").Int())
 
+	already := []byte(`{"type":"image_edit.completed","usage":{"total_tokens":1},"b64_json":"AA=="}`)
+	require.Same(t, &already[0], &compactOpenAIImagesSSEDataPayload(already)[0], "single-line payloads must skip Compact")
+
 	require.Equal(t, []byte("[DONE]"), compactOpenAIImagesSSEDataPayload([]byte("[DONE]")))
 	require.Equal(t, []byte("not-json"), compactOpenAIImagesSSEDataPayload([]byte("not-json")))
 }
