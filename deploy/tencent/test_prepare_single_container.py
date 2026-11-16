@@ -6,10 +6,12 @@ import importlib.util
 import contextlib
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent
 MOD_PATH = ROOT / "prepare_single_container.py"
@@ -48,6 +50,29 @@ class PrepareSingleContainerTest(unittest.TestCase):
     def test_unknown_node_is_refused(self):
         with self.assertRaises(SystemExit):
             load_module().main(["--node", "app-x", "--dry-run"])
+
+    def test_apply_refuses_wrong_host_before_writing_root(self):
+        mod = load_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            original = mod.ROOT
+            try:
+                mod.ROOT = Path(tmp) / "tokenkey"
+                mismatch = subprocess.CompletedProcess(
+                    ["hostname", "-I"],
+                    0,
+                    stdout="10.4.0.16 127.0.0.1\n",
+                    stderr="",
+                )
+                with mock.patch("subprocess.run", return_value=mismatch) as run:
+                    with self.assertRaises(SystemExit) as refused:
+                        mod.main(["--node", "app-cand", "--apply"])
+                self.assertIn("10.4.0.9", str(refused.exception))
+                self.assertFalse(mod.ROOT.exists())
+                run.assert_called_once_with(
+                    ["hostname", "-I"], check=True, capture_output=True, text=True
+                )
+            finally:
+                mod.ROOT = original
 
 
 if __name__ == "__main__":

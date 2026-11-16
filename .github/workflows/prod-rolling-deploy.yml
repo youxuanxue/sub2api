@@ -57,7 +57,7 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
           aws-region: eu-west-2
-      - name: Plan (read-only)
+      - name: Plan (prepares remote helpers)
         run: |
           set -euo pipefail
           python3 deploy/domestic/rolling.py plan \

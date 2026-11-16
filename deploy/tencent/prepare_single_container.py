@@ -48,6 +48,24 @@ def render_node(node: str, out: Path) -> None:
     )
 
 
+def assert_target_host(private_ip: str) -> None:
+    import subprocess
+
+    try:
+        output = subprocess.run(
+            ["hostname", "-I"], check=True, capture_output=True, text=True
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise SystemExit(
+            f"cannot verify host identity for {private_ip}: hostname -I failed: {exc}"
+        ) from exc
+    if private_ip not in output.split():
+        raise SystemExit(
+            f"refused: hostname -I does not include target {private_ip}: "
+            f"{output.split()}"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     import subprocess
     import tempfile
@@ -65,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
     app = load_app(args.node)
     if not app.get("external_network"):
         raise SystemExit(f"{args.node}: external_network required in matrix")
+    if args.apply:
+        assert_target_host(app["private_ip"])
     scratch = Path(tempfile.mkdtemp(prefix="phase-c-prepare-"))
     generated = scratch / "compose.node.yml"
     render_node(args.node, generated)
