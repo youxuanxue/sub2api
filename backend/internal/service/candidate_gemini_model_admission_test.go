@@ -16,10 +16,7 @@ import (
 func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
-	// 2026-10-23: 原先还有一个 gemini-3.5-flash-lite 样本，测「别名 → 3.6-flash」。
-	// 两者已整体退役，而 gemini-only 的其余模型都是 embedding/image/video，不走
-	// generateContent，不存在同形替代，故该槽位随退役移除。
-	for _, model := range []string{"gemini-3-flash-preview"} {
+	for _, model := range []string{"gemini-3-flash"} {
 		for _, inbound := range []struct {
 			name, path, body string
 			shape            UniversalShape
@@ -50,19 +47,14 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 					require.NoError(t, err, "account %d", accounts[i].ID)
 					require.Equal(t, protocolrouter.ProtocolGeminiGenerateContent, plan.TargetProtocol())
 					if i == 0 {
-						want := map[string]string{
-							"gemini-3-flash-preview": "gemini-3.8-flash",
-						}[model]
-						require.Equal(t, want, plan.ResolvedModel())
-						// 端点按「映射后模型」的 global 可用性走：global-only 的
-						// 必须落 global，多区域可用的听账号配置。
-						if vertexModelUsesGlobalLocation(want) {
+						require.Equal(t, "gemini-3-flash", plan.ResolvedModel())
+						if vertexModelUsesGlobalLocation(plan.ResolvedModel()) {
 							require.Contains(t, plan.Endpoint(), "/locations/global/")
 						} else {
 							require.NotContains(t, plan.Endpoint(), "/locations/global/")
 						}
 					} else {
-						require.Equal(t, "gemini-3.8-flash-high", plan.ResolvedModel())
+						require.Equal(t, "gemini-3-flash", plan.ResolvedModel())
 					}
 				}
 				group, err := resolver.Resolve(ctx, universalKey(334), inbound.shape, model, "")
@@ -71,12 +63,8 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 				accounts[0].Schedulable = false
 				wireCandidateTestResolver(resolver, gateway, accounts)
 				group, err = resolver.Resolve(ctx, universalKey(334), inbound.shape, model, "")
-				if model == "gemini-3.5-flash-lite" {
-					require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
-				} else {
-					require.NoError(t, err)
-					require.Equal(t, int64(21), group.ID, "Antigravity remains a legal fallback")
-				}
+				require.NoError(t, err)
+				require.Equal(t, int64(21), group.ID, "Antigravity remains a legal fallback")
 				accounts[1].Schedulable = false
 				wireCandidateTestResolver(resolver, gateway, accounts)
 				_, err = resolver.Resolve(ctx, universalKey(334), inbound.shape, model, "")
@@ -90,10 +78,7 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	pricing := &PricingService{useActiveRegistry: true}
-	// 2026-10-23: 样本从 3.5-flash-lite 换成 gemini-3-flash —— 前者与其上游
-	// 3.6-flash 已整体退役。这里验证的是「兼容别名按重映射目标计价」这个机制，
-	// 不是具体模型清单，所以换一个仍在供应的别名即可。
-	for _, model := range []string{"gemini-3-flash-preview", "gemini-3-flash"} {
+	for _, model := range []string{"gemini-3-flash"} {
 		entry := pricing.GetModelPricing(model)
 		require.NotNil(t, entry)
 		require.False(t, tkIsEffectivelyUnpriced(entry))
@@ -101,18 +86,10 @@ func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
 		require.Equal(t, "gemini", presentationVendorForServable(model, "gemini"))
 		require.Contains(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), model)
 	}
-	// Compatibility aliases must bill at the remapped target list price.
-	preview, wire38 := pricing.GetModelPricing("gemini-3-flash-preview"), pricing.GetModelPricing("gemini-3.8-flash")
-	require.NotNil(t, wire38)
-	require.Equal(t, wire38.InputCostPerToken, preview.InputCostPerToken)
-	require.Equal(t, wire38.OutputCostPerToken, preview.OutputCostPerToken)
-	require.Equal(t, wire38.CacheReadInputTokenCost, preview.CacheReadInputTokenCost)
-	bare := pricing.GetModelPricing("gemini-3-flash")
-	require.NotNil(t, bare)
-	require.Equal(t, wire38.InputCostPerToken, bare.InputCostPerToken)
-	require.Equal(t, wire38.OutputCostPerToken, bare.OutputCostPerToken)
-	require.Equal(t, wire38.CacheReadInputTokenCost, bare.CacheReadInputTokenCost)
-	// 退役后不得再出现在公开目录或计价面。
+	for _, withdrawn := range []string{"gemini-3-flash-preview", "gemini-3.7-flash", "veo-3.1-generate-001"} {
+		require.False(t, isPublicCatalogModelSupported("gemini", withdrawn))
+		require.False(t, isPublicCatalogModelSupported(PlatformAntigravity, withdrawn))
+	}
 	for _, retired := range []string{"gemini-3.6-flash", "gemini-3.5-flash-lite"} {
 		require.False(t, isPublicCatalogModelSupported("gemini", retired))
 		require.False(t, isPublicCatalogModelSupported(PlatformAntigravity, retired))
@@ -123,23 +100,23 @@ func TestCandidateEligibilityGeminiNativeActivationScope(t *testing.T) {
 	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
 	wantVertex := map[string]string{
-		"gemini-3-flash-preview": "gemini-3.8-flash",
-		"gemini-3-flash":         "gemini-3.8-flash",
+		"gemini-3-flash": "gemini-3-flash",
 	}
-	for _, model := range []string{"gemini-3-flash-preview", "gemini-3-flash"} {
+	for _, model := range []string{"gemini-3-flash"} {
 		require.Equal(t, wantVertex[model], floor.NewAPIChannelTypes["41"][model])
 		for profile, mapping := range floor.VertexCapabilityProfiles {
 			require.Equal(t, wantVertex[model], mapping[model], "profile %s", profile)
 		}
-		require.Equal(t, "gemini-3.8-flash-high", floor.Platforms[PlatformAntigravity][model])
-		// Converged Google text aliases are also on the Gemini floor (traffic aliases).
-		require.Equal(t, wantVertex[model], floor.Platforms[PlatformGemini][model])
+		require.Equal(t, "gemini-3-flash", floor.Platforms[PlatformAntigravity][model])
+		require.Equal(t, "gemini-3.8-flash", floor.Platforms[PlatformGemini][model],
+			"native Gemini floor keeps traffic alias onto 3.8 when servable")
 		require.Contains(t, AccountModelMappingPresetIDs(context.Background(), PlatformGemini, 0, nil), model)
 	}
+	require.NotContains(t, floor.NewAPIChannelTypes["41"], "gemini-3-flash-preview")
 }
 
 func TestCandidateEligibilityGeminiNativeEdgeMapping(t *testing.T) {
-	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.5-flash-lite"} {
+	for _, model := range []string{"gemini-3-flash", "gemini-3.5-flash-lite", "gemini-3-flash-preview"} {
 		t.Run(model, func(t *testing.T) {
 			resolver, _, _, _ := candidateGoogleFixture(t)
 			account := &Account{ID: 5, Platform: PlatformAntigravity, Type: AccountTypeOAuth,
@@ -149,7 +126,8 @@ func TestCandidateEligibilityGeminiNativeEdgeMapping(t *testing.T) {
 				[]byte(`{"contents":[{"role":"user","parts":[{"text":"OK"}]}]}`))
 			plan, governed, err := protocolPlanForAccount(ctx, account, model)
 			require.True(t, governed)
-			if model == "gemini-3.5-flash-lite" {
+			switch model {
+			case "gemini-3.5-flash-lite", "gemini-3-flash-preview":
 				require.Error(t, err)
 				return
 			}

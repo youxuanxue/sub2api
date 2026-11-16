@@ -195,20 +195,17 @@ var claudeModels = []modelDef{
 }
 
 // Antigravity 支持的 Gemini 模型（与 domain.DefaultAntigravityModelMapping 公共
-// request surface 对齐：3.7/3.8 Flash + 4 Argon 文本 + Flash 图片 + 高流量兼容别名）。
-// 3.6 Flash / Pro image 等已从默认 listing 与 DefaultAntigravityModelMapping 撤回。
+// request surface 对齐：3.8 Flash + 4 Argon 文本 + Flash 图片 + 高流量兼容别名）。
+// 3.6/3.7 Flash、preview 别名与 Pro image 等已从默认 listing 撤回。
 var geminiModels = []modelDef{
-	{ID: "gemini-3.7-flash", DisplayName: "Gemini 3.7 Flash", CreatedAt: "2026-08-15T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3.8-flash", DisplayName: "Gemini 3.8 Flash", CreatedAt: "2026-09-01T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-4-argon", DisplayName: "Gemini 4 Argon", CreatedAt: "2026-10-16T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-4-carbon", DisplayName: "Gemini 4 Carbon", CreatedAt: "2026-11-10T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-4-hydrogen", DisplayName: "Gemini 4 Hydrogen", CreatedAt: "2026-11-13T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3-flash", DisplayName: "Gemini 3 Flash", CreatedAt: "2025-06-01T00:00:00Z", IsReasoning: true},
-	{ID: "gemini-3-flash-preview", DisplayName: "Gemini 3 Flash Preview", CreatedAt: "2025-06-01T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3.1-flash-image", DisplayName: "Gemini 3.1 Flash Image", CreatedAt: "2026-02-19T00:00:00Z"},
 	{ID: "nano-2", DisplayName: "Nano Banana 2", CreatedAt: "2026-09-17T00:00:00Z"},
 	{ID: "nano-banana-2", DisplayName: "Nano Banana 2", CreatedAt: "2026-09-17T00:00:00Z"},
-	{ID: "gemini-3.1-flash-image-preview", DisplayName: "Gemini 3.1 Flash Image Preview", CreatedAt: "2026-02-19T00:00:00Z"},
 }
 
 // ========== Claude API 格式 (/v1/models) ==========

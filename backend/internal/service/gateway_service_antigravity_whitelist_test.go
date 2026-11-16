@@ -57,7 +57,7 @@ func TestGatewayService_isModelSupportedByAccount_AntigravityNoMapping(t *testin
 	// 默认映射中的模型应该被支持（Google 收敛面 + 高流量别名）
 	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3.8-flash"))
 	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3-flash"))
-	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3-flash-preview"))
+	require.False(t, svc.isModelSupportedByAccount(account, "gemini-3-flash-preview"))
 	require.False(t, svc.isModelSupportedByAccount(account, "gemini-3.5-flash-lite"))
 	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3.1-flash-image"))
 

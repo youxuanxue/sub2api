@@ -32,17 +32,14 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 
 	// Converged Google public request surface advertised by /antigravity models.
 	for _, id := range []string{
-		"gemini-3.7-flash",
 		"gemini-3.8-flash",
 		"gemini-4-argon",
 		"gemini-4-carbon",
 		"gemini-4-hydrogen",
 		"gemini-3-flash",
-		"gemini-3-flash-preview",
 		"gemini-3.1-flash-image",
 		"nano-2",
 		"nano-banana-2",
-		"gemini-3.1-flash-image-preview",
 	} {
 		if _, ok := byID[id]; !ok {
 			t.Fatalf("DefaultModels missing converged id %q", id)
