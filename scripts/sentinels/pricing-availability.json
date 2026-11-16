@@ -75,14 +75,15 @@
         "!isNewAPILongTailCatalogVendor(m.Vendor) || !isTkCuratedNewAPIModelDisplayed(m.ModelID)",
         "\"gemini-3.8-flash\":",
         "\"gemini-embedding-001\":",
-        "\"gemini-3-pro-image\":",
         "\"nano-2\":",
         "\"nano-banana-2\":",
         "\"gemini-4-argon\":"
       ],
-      "rationale": "Embedding visibility follows the reviewed manifest across NewAPI providers instead of hiding approved non-DashScope models. 2026-09-18 converge: gemini-3.8-flash + embedding retained; Imagen/2.5/Claude dropped from native allowlists. 2026-10-22: gemini-4-argon was removed from the Antigravity public allowlist after an SSOT canary 404; 2026-10-30 it is published again, because that 404 was explained -- upstream ships two catalog tiers and only the non-advertising accounts 404. Its mapping floor is activated per-account, so the allowlist entry is now required rather than forbidden. grok-code-fast-1 stays hidden after upstream 429/reprobe_required. nano-banana-2 is the Antigravity/Studio marketing alias of gemini-3.1-flash-image and must stay in the AG servable allowlist.",
+      "rationale": "Embedding visibility follows the reviewed manifest across NewAPI providers instead of hiding approved non-DashScope models. 2026-09-18 converge: gemini-3.8-flash + embedding retained; Imagen/2.5/Claude dropped from native allowlists. 2026-10-22: gemini-4-argon was removed from the Antigravity public allowlist after an SSOT canary 404; 2026-10-30 it is published again, because that 404 was explained -- upstream ships two catalog tiers and only the non-advertising accounts 404. Its mapping floor is activated per-account, so the allowlist entry is now required rather than forbidden. grok-code-fast-1 stays hidden after upstream 429/reprobe_required. nano-banana-2 is the Antigravity/Studio marketing alias of gemini-3.1-flash-image and must stay in the AG servable allowlist. gemini-3-pro-image and veo-3.1-generate-001 left the native Gemini allowlist after unschedulable Vertex/Gemini Web capacity review; keep priced for settlement and operator-hide via catalogWithdrawnModelIDs.",
       "must_not_contain": [
-        "\"grok-code-fast-1\":"
+        "\"grok-code-fast-1\":",
+        "\"gemini-3-pro-image\":",
+        "\"veo-3.1-generate-001\":"
       ]
     },
     {

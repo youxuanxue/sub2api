@@ -311,8 +311,8 @@ export interface MediaModelPresentation {
 /** Presentation-only entries keyed by canonical model_id. */
 export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   // ── image (seedream honor NO advanced params per adaptor) ──
-  // Imagen rows removed: Google image surface converged to gemini-3-pro-image /
-  // gemini-3.1-flash-image (Vertex video remains veo-3.1-generate-001 only).
+  // Imagen rows removed. Google native image surface is gemini-3.1-flash-image
+  // only; gemini-3-pro-image / veo-3.1-generate-001 are catalog-withdrawn.
   {
     modelId: 'seedream-4-0-250828',
     aliasIds: ['doubao-seedream-4-0-250828'],
@@ -432,36 +432,15 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     flatImageBilling: true,
     imageParameters: 'capabilities',
   },
-  {
-    modelId: 'gemini-3-pro-image',
-    // Antigravity OAuth remaps Pro → 3.1-flash-image (true Pro wire id 404,
-    // 2026-09-17 us4). nano-pro stays as the marketing alias for that path;
-    // newapi/TokenSea can still serve true gemini-3-pro-image.
-    aliasIds: ['gemini-3-pro-image-preview', 'nano-banana-pro-preview', 'nano-pro'],
-    displayName: 'Nano Banana Pro (Gemini 3 Pro Image)',
-    qualityBadge: 'ultra',
-    qualityBadgeKey: 'studio.badge.ultra',
-    vendorLabel: GEMINI,
-    modality: 'image',
-    supportedParams: [],
-    flatImageBilling: true,
-    imageParameters: 'capabilities',
-  },
+  // gemini-3-pro-image / veo-3.1-generate-001 withdrawn from Studio presentation
+  // when native Gemini public allowlist dropped them (unschedulable Vertex /
+  // Gemini Web capacity). Settlement pricing remains; restore presentation
+  // only with a matching allowlist + schedulable pool.
   // gpt-image-* membership comes from account model_mapping /v1/models — no
   // curated presentation required. buildMediaPresentationForCatalogRow supplies
   // capability-owned parameters when a gpt-image id is served.
 
   // ── video ──
-  {
-    modelId: 'veo-3.1-generate-001',
-    displayName: 'Veo 3.1',
-    qualityBadge: 'cinematic',
-    qualityBadgeKey: 'studio.badge.cinematic',
-    vendorLabel: VERTEX,
-    modality: 'video',
-    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage', 'generateAudio'],
-    videoDurations: [4, 6, 8],
-  },
   {
     modelId: 'grok-imagine-video',
     displayName: 'Grok Imagine Video',

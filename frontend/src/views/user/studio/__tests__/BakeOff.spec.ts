@@ -93,20 +93,20 @@ const baseProps = {
   gatewayBase: 'https://api.example.com',
   userId: 42,
   availableIds: new Set([
-    'gemini-3-pro-image',
     'gemini-3.1-flash-image',
     'seedream-4-0-250828',
+    'wan2.7-image',
   ]),
   priceMap: new Map([
-    ['gemini-3-pro-image', { perImage: 0.134, billingMode: 'image' }],
     ['gemini-3.1-flash-image', { perImage: 0.0672, billingMode: 'image' }],
     ['seedream-4-0-250828', { perImage: 0.0299, billingMode: 'image' }],
+    ['wan2.7-image', { perImage: 0.02, billingMode: 'image' }],
   ]),
   balance: 100,
   keyId: 1,
   keys: [{ id: 1, key: 'sk-test' }],
   rateMultiplier: 1,
-  capabilityModels: ['gemini-3-pro-image', 'gemini-3.1-flash-image', 'seedream-4-0-250828'].map(id => ({
+  capabilityModels: ['gemini-3.1-flash-image', 'seedream-4-0-250828', 'wan2.7-image'].map(id => ({
     id, protocols: ['openai'], modalities: ['image'], routes: [], selected_group: { id: 1, name: 'fixture', platform: 'openai' },
     image_generation: [{ endpoint: id.startsWith('gemini') ? '/v1/chat/completions' : '/v1/images/generations', aspect_ratios: id.startsWith('gemini') ? ['1:1'] : [], counts: [1], input_image: false, soft_aspect_ratio: false }],
   })) as APIKeyCapabilityModel[],
@@ -260,9 +260,7 @@ describe('BakeOff image routing', () => {
     await flushPromises()
 
     const requests = vi.mocked(playground.gatewayGenerateImage).mock.calls.map(([, , model, prompt, plan, options]) => buildImageRequest(model, prompt, plan, options))
-    for (const model of ['gemini-3.1-flash-image', 'gemini-3-pro-image']) {
-      expect(requests).toContainEqual({ endpoint: '/v1/chat/completions', body: { model, messages: [{ role: 'user', content: 'a red apple' }], stream: false, extra_body: { google: { image_config: { aspect_ratio: '1:1' } } } } })
-    }
+    expect(requests).toContainEqual({ endpoint: '/v1/chat/completions', body: { model: 'gemini-3.1-flash-image', messages: [{ role: 'user', content: 'a red apple' }], stream: false, extra_body: { google: { image_config: { aspect_ratio: '1:1' } } } } })
     expect(requests).toContainEqual({ endpoint: '/v1/images/generations', body: { model: 'seedream-4-0-250828', prompt: 'a red apple', size: '2048x2048' } })
     expect(vi.mocked(playground.gatewayGenerateImage).mock.calls[0][6]).toMatchObject({ studioSource: 'studio.bakeoff.image' })
     expect(libraryMock.addImages).toHaveBeenCalled()
@@ -272,9 +270,9 @@ describe('BakeOff image routing', () => {
     const wrapper = mount(BakeOff, {
       props: {
         ...baseProps,
-        availableIds: new Set(['gemini-3-pro-image', 'grok-imagine-image']),
+        availableIds: new Set(['gemini-3.1-flash-image', 'grok-imagine-image']),
         priceMap: new Map([
-          ['gemini-3-pro-image', { perImage: 0.02, billingMode: 'image' }],
+          ['gemini-3.1-flash-image', { perImage: 0.02, billingMode: 'image' }],
           ['grok-imagine-image', { perImage: 0.02, billingMode: 'image' }],
         ]),
       },

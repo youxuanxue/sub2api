@@ -161,6 +161,14 @@ var catalogWithdrawnModelIDs = func() map[string]struct{} {
 		"grok-imagine-image-quality":   {},
 		"grok-imagine-video":           {},
 		"grok-latest":                  {},
+		// Operator hide (2026-11-16): unschedulable / unservable Google surface.
+		// Keep priced for settlement; restore when Vertex/Gemini Web capacity returns
+		// or AG Ultra re-advertises the wires. Evidence in
+		// ops/pricing/servable-reprobe-ledger.json structurally_gone.
+		"gemini-3.7-flash":       {},
+		"gemini-3-pro-image":     {},
+		"veo-3.1-generate-001":   {},
+		"gemini-3-flash-preview": {},
 	}
 	for _, withdrawal := range catalogModelWithdrawals {
 		for _, id := range withdrawal.ModelIDs {

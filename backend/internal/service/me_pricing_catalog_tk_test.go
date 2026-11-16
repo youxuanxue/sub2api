@@ -1252,15 +1252,15 @@ func TestBuildForUser_AccountWhitelist_NewapiVertexUsesPresetCatalog(t *testing.
 	gNewapi := mkGroupForMe(50, "vertex-video", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "vertex-key", ptrI(50))
 	vertexIDs := NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi)
-	vertexVideoID := firstIDContainingForMePricingTest(t, vertexIDs, "veo")
+	vertexTextID := firstIDContainingForMePricingTest(t, vertexIDs, "gemini-3.8-flash")
 	offChannelID := firstNewAPIModelIDForMePricingTest(t, newapiconstant.ChannelTypeAli)
 	vertex := mkAccountWithWhitelist(12, "vertex-sa", "newapi", newapiconstant.ChannelTypeVertexAi, []string{
-		vertexVideoID,
+		vertexTextID,
 		offChannelID,
 	})
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicVideoCatalogModel(vertexVideoID, "vertex_ai", 0.6),
+			mkPublicCatalogModel(vertexTextID, "vertex_ai", 0.0003, 0.0025, 0),
 			mkPublicCatalogModel(offChannelID, "Alibaba", 0.0012, 0.0024, 0),
 		},
 	}
@@ -1273,24 +1273,22 @@ func TestBuildForUser_AccountWhitelist_NewapiVertexUsesPresetCatalog(t *testing.
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
 	require.Len(t, resp.Models, 1,
-		"Vertex ch41 must use the Gemini/Vertex preset catalog: non-Vertex ids are off-channel, while paid-gate-proven video is displayed")
-	assert.Equal(t, vertexVideoID, resp.Models[0].ModelID)
-	assert.Equal(t, "video", resp.Models[0].BillingMode)
-	require.NotNil(t, resp.Models[0].YourPrice.PerSecond)
-	assert.InDelta(t, 0.6, *resp.Models[0].YourPrice.PerSecond, 1e-9)
+		"Vertex ch41 must use the Gemini/Vertex preset catalog: non-Vertex ids are off-channel, while paid-gate-proven text is displayed")
+	assert.Equal(t, vertexTextID, resp.Models[0].ModelID)
+	assert.Equal(t, "token", resp.Models[0].BillingMode)
 }
 
 func TestBuildForUser_AuthorizedGroupsIndexIncludesProvisionedNewapiVertexVideo(t *testing.T) {
 	gOpenAI := mkGroupForMe(30, "gpt", "openai", 1.0)
-	gNewapi := mkGroupForMe(50, "vertex-video", "newapi", 1.0)
+	gNewapi := mkGroupForMe(50, "vertex-text", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
-	vertexVideoID := firstIDContainingForMePricingTest(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), "veo")
+	vertexTextID := firstIDContainingForMePricingTest(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), "gemini-3.8-flash")
 	vertex := mkAccountWithWhitelist(12, "vertex-sa", "newapi", newapiconstant.ChannelTypeVertexAi, []string{
-		vertexVideoID,
+		vertexTextID,
 	})
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicVideoCatalogModel(vertexVideoID, "vertex_ai", 0.6),
+			mkPublicCatalogModel(vertexTextID, "vertex_ai", 0.0003, 0.0025, 0),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -1301,9 +1299,9 @@ func TestBuildForUser_AuthorizedGroupsIndexIncludesProvisionedNewapiVertexVideo(
 	)
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
-	groups := resp.AuthorizedGroupsByModel[vertexVideoID]
+	groups := resp.AuthorizedGroupsByModel[vertexTextID]
 	require.Len(t, groups, 1,
-		"Studio universal key entitlements should advertise Vertex video after the paid gate proves it is provisioned")
+		"Studio universal key entitlements should advertise Vertex text after the paid gate proves it is provisioned")
 	assert.Equal(t, int64(50), groups[0].ID)
 	assert.Equal(t, "newapi", groups[0].Platform)
 }
@@ -1311,11 +1309,11 @@ func TestBuildForUser_AuthorizedGroupsIndexIncludesProvisionedNewapiVertexVideo(
 func TestBuildForUser_AccountWhitelist_NewapiUnknownChannelHidden(t *testing.T) {
 	gNewapi := mkGroupForMe(50, "unknown-newapi", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "unknown-key", ptrI(50))
-	vertexVideoID := firstIDContainingForMePricingTest(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), "veo")
-	unknown := mkAccountWithWhitelist(12, "moonshot", "newapi", 25, []string{vertexVideoID})
+	vertexTextID := firstIDContainingForMePricingTest(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), "gemini-3.8-flash")
+	unknown := mkAccountWithWhitelist(12, "moonshot", "newapi", 25, []string{vertexTextID})
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicVideoCatalogModel(vertexVideoID, "vertex_ai", 0.6),
+			mkPublicCatalogModel(vertexTextID, "vertex_ai", 0.0003, 0.0025, 0),
 		},
 	}
 	svc := newServiceWithAccounts(

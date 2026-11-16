@@ -121,7 +121,7 @@ func TestIsModelRateLimited(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "gemini-3-flash-preview",
+			requestedModel: "gemini-3.8-flash",
 			expected:       true,
 		},
 		{
@@ -136,7 +136,7 @@ func TestIsModelRateLimited(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "gemini-3-flash-preview",
+			requestedModel: "gemini-3-flash",
 			expected:       true,
 		},
 		{
@@ -325,7 +325,7 @@ func TestIsModelRateLimited_OpenAIImageGenerationIntentBlocksTextModelImageTool(
 	require.True(t, account.isModelRateLimitedWithContext(WithOpenAIImageGenerationIntent(context.Background()), "gpt-5.4"))
 }
 
-func TestIsModelRateLimited_Antigravity_PreviewAliasUsesHighWireKey(t *testing.T) {
+func TestIsModelRateLimited_Antigravity_BareFlashHonoursHighWireKey(t *testing.T) {
 	account := &Account{
 		Platform: PlatformAntigravity,
 		Extra: map[string]any{
@@ -337,8 +337,8 @@ func TestIsModelRateLimited_Antigravity_PreviewAliasUsesHighWireKey(t *testing.T
 			},
 		},
 	}
-	if !account.isModelRateLimitedWithContext(context.Background(), "gemini-3-flash-preview") {
-		t.Fatal("expected preview alias to honour high wire rate-limit key")
+	if !account.isModelRateLimitedWithContext(context.Background(), "gemini-3.8-flash") {
+		t.Fatal("expected 3.8 bare name to honour high wire rate-limit key")
 	}
 }
 
@@ -465,7 +465,7 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "gemini-3-flash-preview",
+			requestedModel: "gemini-3-flash",
 			minExpected:    9 * time.Minute,
 			maxExpected:    11 * time.Minute,
 		},
@@ -609,8 +609,8 @@ func TestAntigravityImageModelRateLimitStaysOffGeminiFamily(t *testing.T) {
 	imageKeys := antigravityModelRateLimitKeys(nil, "gemini-3.1-flash-image")
 	require.Equal(t, []string{"gemini-3.1-flash-image"}, imageKeys)
 
-	textKeys := antigravityModelRateLimitKeys(nil, "gemini-3-flash-preview")
-	require.Equal(t, []string{"gemini-3-flash-preview", antigravityGeminiModelRateLimitKey}, textKeys)
+	textKeys := antigravityModelRateLimitKeys(nil, "gemini-3-flash")
+	require.Equal(t, []string{"gemini-3-flash", antigravityGeminiModelRateLimitKey}, textKeys)
 
 	future := time.Now().Add(10 * time.Minute).Format(time.RFC3339)
 	account := &Account{
@@ -623,7 +623,7 @@ func TestAntigravityImageModelRateLimitStaysOffGeminiFamily(t *testing.T) {
 	}
 	// Use catalog aliases that DefaultAntigravityModelMapping still accepts.
 	require.False(t, account.isModelRateLimitedWithContext(context.Background(), "gemini-3.1-flash-image"))
-	require.True(t, account.isModelRateLimitedWithContext(context.Background(), "gemini-3-flash-preview"))
+	require.True(t, account.isModelRateLimitedWithContext(context.Background(), "gemini-3-flash"))
 }
 
 func TestIsAnthropicFableModel(t *testing.T) {

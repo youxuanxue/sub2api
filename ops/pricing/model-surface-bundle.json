@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "9044a0c266515c6d895cf11ea38c1b72d9d19c55bbcc215d36981be795fc55fc",
+  "floor_sha256": "ab675633e8f6989e4e961c2095c9430a31a43e9462dfe16e06c2e3818c3173cf",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -18,10 +18,8 @@
         "claude-sonnet-5": "claude-sonnet-5"
       },
       "antigravity": {
-        "gemini-3-flash": "gemini-3.8-flash-high",
-        "gemini-3-flash-preview": "gemini-3.8-flash-high",
+        "gemini-3-flash": "gemini-3-flash",
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
-        "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
         "gemini-3.8-flash": "gemini-3.8-flash-high",
         "gemini-3.8-flash-high": "gemini-3.8-flash-high",
         "gemini-3.8-flash-low": "gemini-3.8-flash-low",
@@ -70,13 +68,8 @@
       "gemini": {
         "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
-        "gemini-3-pro-image": "gemini-3-pro-image",
-        "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
-        "gemini-embedding-001": "gemini-embedding-001",
-        "nano-banana-pro": "gemini-3-pro-image",
-        "nano-pro": "gemini-3-pro-image",
-        "veo-3.1-generate-001": "veo-3.1-generate-001"
+        "gemini-embedding-001": "gemini-embedding-001"
       },
       "gemini_web": {
         "gemini-3-flash": "gemini-3.8-flash",
@@ -279,12 +272,9 @@
         "moonshot-v1-auto": "moonshot-v1-auto"
       },
       "41": {
-        "gemini-3-flash": "gemini-3.8-flash",
-        "gemini-3-flash-preview": "gemini-3.8-flash",
-        "gemini-3.7-flash": "gemini-3.7-flash",
+        "gemini-3-flash": "gemini-3-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
-        "gemini-embedding-001": "gemini-embedding-001",
-        "veo-3.1-generate-001": "veo-3.1-generate-001"
+        "gemini-embedding-001": "gemini-embedding-001"
       },
       "43": {
         "deepseek-chat": "deepseek-chat",
@@ -458,36 +448,24 @@
     ],
     "vertex_capability_profiles": {
       "core-imagen-ultra": {
-        "gemini-3-flash": "gemini-3.8-flash",
-        "gemini-3-flash-preview": "gemini-3.8-flash",
-        "gemini-3.7-flash": "gemini-3.7-flash",
+        "gemini-3-flash": "gemini-3-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
-        "gemini-embedding-001": "gemini-embedding-001",
-        "veo-3.1-generate-001": "veo-3.1-generate-001"
+        "gemini-embedding-001": "gemini-embedding-001"
       },
       "core-pro": {
-        "gemini-3-flash": "gemini-3.8-flash",
-        "gemini-3-flash-preview": "gemini-3.8-flash",
-        "gemini-3.7-flash": "gemini-3.7-flash",
+        "gemini-3-flash": "gemini-3-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
-        "gemini-embedding-001": "gemini-embedding-001",
-        "veo-3.1-generate-001": "veo-3.1-generate-001"
+        "gemini-embedding-001": "gemini-embedding-001"
       },
       "core-pro-imagen-fast-standard": {
-        "gemini-3-flash": "gemini-3.8-flash",
-        "gemini-3-flash-preview": "gemini-3.8-flash",
-        "gemini-3.7-flash": "gemini-3.7-flash",
+        "gemini-3-flash": "gemini-3-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
-        "gemini-embedding-001": "gemini-embedding-001",
-        "veo-3.1-generate-001": "veo-3.1-generate-001"
+        "gemini-embedding-001": "gemini-embedding-001"
       },
       "core-pro-imagen-standard": {
-        "gemini-3-flash": "gemini-3.8-flash",
-        "gemini-3-flash-preview": "gemini-3.8-flash",
-        "gemini-3.7-flash": "gemini-3.7-flash",
+        "gemini-3-flash": "gemini-3-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
-        "gemini-embedding-001": "gemini-embedding-001",
-        "veo-3.1-generate-001": "veo-3.1-generate-001"
+        "gemini-embedding-001": "gemini-embedding-001"
       }
     },
     "antigravity_group_scopes": [
@@ -567,16 +545,22 @@
       ],
       "antigravity": [
         "gemini-2.5-flash-image-preview",
+        "gemini-3-flash-preview",
         "gemini-3-pro-high",
         "gemini-3-pro-image",
         "gemini-3-pro-image-preview",
         "gemini-3-pro-low",
         "gemini-3-pro-preview",
+        "gemini-3.1-flash-image-preview",
         "gemini-3.1-pro-high",
         "gemini-3.1-pro-preview",
         "gemini-3.5-flash-lite",
         "gemini-3.6-flash",
         "gemini-3.6-flash-tiered",
+        "gemini-3.7-flash",
+        "gemini-3.7-flash-high",
+        "gemini-3.7-flash-low",
+        "gemini-3.7-flash-medium",
         "gemini-web-nano-banana-pro",
         "nano-banana-pro",
         "nano-banana-pro-preview",

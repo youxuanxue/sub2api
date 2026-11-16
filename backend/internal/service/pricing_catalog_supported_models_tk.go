@@ -106,17 +106,18 @@ var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
 // An empty set preserves the existing passthrough/canonical fallback.
 var supportedGeminiCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin gemini
-	"gemini-3-pro-image":     {}, // Verified Gemini Web direct Pro, not Antigravity.
-	"gemini-3-flash":         {},
-	"gemini-3-flash-preview": {},
+	"gemini-3-flash": {},
+	// 2026-11-16: gemini-3-flash-preview withdrawn — literal upstream 404; use gemini-3-flash.
 	// 2026-10-23 退役：3.6-flash 仅剩账号 74（newapi/ch41）单账号支撑，
 	// 容量不足以保证体验；AG 侧裸名 last_seen_ok_at 恒为 NULL（从未成功）、
 	// -tiered 自 10-09 起 404。3.5-flash-lite 的唯一上游就是 3.6-flash，
 	// 30 天内仅 3 次且全走已死的 -tiered，随之退役。
-	"gemini-3.7-flash":     {},
+	// 2026-11-16 退役：gemini-3.7-flash / gemini-3-pro-image / veo-3.1-generate-001
+	// 已从公开目录撤下。证据：AG Ultra 无 3.7 wire；Gemini Web Pro 网关
+	// Unsupported model；Google-Vertex(group 16) 全号 billing 403 且不可调度。
+	// 结算价目保留，不进 servable allowlist。
 	"gemini-3.8-flash":     {},
 	"gemini-embedding-001": {},
-	"veo-3.1-generate-001": {},
 	// servable-allowlist:end gemini
 }
 
@@ -125,10 +126,10 @@ var supportedGeminiCatalogModels = map[string]struct{}{
 // an empty set preserves the existing passthrough/canonical fallback.
 var supportedAntigravityCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin antigravity
-	"gemini-3-flash":                 {},
-	"gemini-3-flash-preview":         {},
-	"gemini-3.1-flash-image":         {},
-	"gemini-3.1-flash-image-preview": {},
+	"gemini-3-flash":         {},
+	"gemini-3.1-flash-image": {},
+	// 2026-11-16: gemini-3-flash-preview / gemini-3.1-flash-image-preview withdrawn —
+	// literal upstream 404 on Ultra; were remap-only aliases.
 	// gemini-3.7-flash: retired from the Antigravity surface 2026-10-23. Upstream
 	// replaced it with 3.8 and no longer serves any 3.7 tier wire. Evidence, all
 	// from live prod:
@@ -148,10 +149,8 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	// Probe while those cooldowns are live and you only see the empty pool, so
 	// the upstream 404 is visible only after they expire.
 	//
-	// Antigravity only. gemini-3.7-flash stays in supportedGeminiCatalogModels
-	// because newapi/Vertex still serves it (model_availability status=ok).
-	// Domain wire defaults and pricing overlay rows stay so existing mappings
-	// keep billing correctly.
+	// Antigravity only. gemini-3.7-flash left both AG and Gemini public catalogs
+	// on 2026-11-16 (Vertex pool unschedulable; AG Ultra has no 3.7 wires).
 	"gemini-3.8-flash": {},
 	// gemini-4-argon: published 2026-10-30 after the per-account split that the
 	// previous note was waiting on was finally explained. Upstream ships TWO

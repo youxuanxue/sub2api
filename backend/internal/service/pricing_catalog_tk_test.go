@@ -324,7 +324,7 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	for _, m := range filtered.Data {
 		filteredByID[m.ModelID] = m
 	}
-	require.Contains(t, filteredByID, "veo-3.1-generate-001", "paid-gate-proven Veo must remain in public pricing")
+	require.NotContains(t, filteredByID, "veo-3.1-generate-001", "2026-11-16: Vertex pool unschedulable; Veo withdrawn from public catalog")
 	if isCatalogModelRecommended("grok-imagine-image") {
 		require.Contains(t, filteredByID, "grok-imagine-image", "paid-gate-proven Grok image must remain in public pricing")
 	} else {
@@ -1057,7 +1057,7 @@ func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T
 	// class as the gpt-5.6 display gap, on the antigravity surface).
 	in := &PublicCatalogResponse{Object: "list", Data: []PublicCatalogModel{
 		{ModelID: "gemini-3.1-flash-image", Vendor: "vertex_ai-language-models"},         // antigravity-exclusive, mirror-vendored
-		{ModelID: "gemini-3-pro-image", Vendor: "vertex_ai-language-models"},             // Gemini Web Pro
+		{ModelID: "gemini-3-pro-image", Vendor: "vertex_ai-language-models"},             // withdrawn 2026-11-16
 		{ModelID: "gemini-3.8-flash", Vendor: "vertex_ai-language-models"},               // DUAL-listed (gemini + antigravity)
 		{ModelID: "imagen-4.0-generate-001", Vendor: "vertex_ai"},                        // empirically served but withdrawn from recommendations
 		{ModelID: "gemini-9-experimental-unlisted", Vendor: "vertex_ai-language-models"}, // in NO allowlist -> dropped
@@ -1073,10 +1073,9 @@ func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T
 	m, ok := byID["gemini-3.1-flash-image"]
 	require.True(t, ok, "antigravity-exclusive gemini-* must survive the public filter")
 	assert.Equal(t, "antigravity", m.Vendor, "re-attributed to antigravity vendor")
-	// Gemini Web Pro remains in the Gemini catalog, without AG attribution
-	m, ok = byID["gemini-3-pro-image"]
-	require.True(t, ok)
-	assert.Equal(t, "vertex_ai-language-models", m.Vendor)
+	// Gemini Web Pro withdrawn from public catalog (Unsupported model / empty pool)
+	_, ok = byID["gemini-3-pro-image"]
+	assert.False(t, ok, "gemini-3-pro-image withdrawn from public catalog")
 	// dual-listed: survives, vendor NOT changed (genuinely Vertex-served too)
 	m, ok = byID["gemini-3.8-flash"]
 	require.True(t, ok, "dual-listed gemini survives")

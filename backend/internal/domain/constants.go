@@ -132,25 +132,22 @@ const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 //
 // Antigravity image requests serve Flash only. Pro image IDs must never remap
 // to Flash; Gemini Web provides the independently verified Pro path.
-// 2026-09-22：补回 gemini-3-flash→3.8 高流量别名。
-// 2026-09-22：Flash 裸名默认 wire 锁 high；-{low,medium,high} 为非公开
+// 2026-11-16：gemini-3-flash 改为自身映射（Ultra catalog 有该字面量 ID）。
+// 2026-09-22：3.8 Flash 裸名默认 wire 锁 high；-{low,medium,high} 为非公开
 // wire 档位，由 AntigravityThinkingWireFloorEntries 注入 account floor。
 // 2026-11-12：gemini-4-argon 与 gemini-4-carbon 的 low/medium/high token 单价相同，
 // 官方默认思考档是 medium。裸名默认改锁 medium；显式 thinkingLevel 仍选同名后缀。
 // 2026-11-13：gemini-4-hydrogen 的四档 token 单价相同。官方默认思考档是 high，
 // 裸名仍锁 medium（与 Argon/Carbon 同一条用户体验决定）；显式档位含 xhigh。
 var DefaultAntigravityModelMapping = map[string]string{
-	"gemini-3.7-flash":               "gemini-3.7-flash-high",
-	"gemini-3.8-flash":               "gemini-3.8-flash-high",
-	"gemini-4-argon":                 "gemini-4-argon-medium",
-	"gemini-4-carbon":                "gemini-4-carbon-medium",
-	"gemini-4-hydrogen":              "gemini-4-hydrogen-medium",
-	"gemini-3-flash":                 "gemini-3.8-flash-high",
-	"gemini-3-flash-preview":         "gemini-3.8-flash-high",
-	"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
-	"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
-	"nano-2":                         "gemini-3.1-flash-image",
-	"nano-banana-2":                  "gemini-3.1-flash-image",
+	"gemini-3.8-flash":       "gemini-3.8-flash-high",
+	"gemini-4-argon":         "gemini-4-argon-medium",
+	"gemini-4-carbon":        "gemini-4-carbon-medium",
+	"gemini-4-hydrogen":      "gemini-4-hydrogen-medium",
+	"gemini-3-flash":         "gemini-3-flash", // upstream advertises this literal id on Ultra
+	"gemini-3.1-flash-image": "gemini-3.1-flash-image",
+	"nano-2":                 "gemini-3.1-flash-image",
+	"nano-banana-2":          "gemini-3.1-flash-image",
 }
 
 // antigravityThinkingWireBases lists public Gemini families whose AG upstream
@@ -183,7 +180,7 @@ var antigravityThinkingWireBases = []string{
 	// bare name, while -tiered has returned 404 model_not_found since 10-09.
 	// Native newapi serving is retired in the same change (single-account
 	// capacity), so there is nothing left for these wires to select.
-	"gemini-3.7-flash",
+	// 2026-11-16: gemini-3.7-flash retired from AG defaults/public surface.
 	"gemini-3.8-flash",
 	"gemini-4-argon",
 	"gemini-4-carbon",
@@ -222,6 +219,16 @@ var antigravityStructuralDeadModelMappingKeys = map[string]struct{}{
 	"gemini-3.6-flash-tiered": {},
 	"gemini-3.6-flash":        {},
 	"gemini-3.5-flash-lite":   {},
+	// 2026-11-16: gemini-3.7-flash family no longer served on AG Ultra; keep
+	// stale account mappings from being reintroduced.
+	"gemini-3.7-flash":        {},
+	"gemini-3.7-flash-high":   {},
+	"gemini-3.7-flash-low":    {},
+	"gemini-3.7-flash-medium": {},
+	// 2026-11-16: preview aliases 404 as literal upstream ids; clients must use
+	// gemini-3-flash / gemini-3.1-flash-image (or 3.8-flash-* wires).
+	"gemini-3-flash-preview":         {},
+	"gemini-3.1-flash-image-preview": {},
 	// PR #921 inventory + 2026-06-22 live snapshot: these are stale request aliases
 	// in persisted antigravity account mappings. Keep them in this deadlist, not
 	// in DefaultAntigravityModelMapping or canonical account mappings.

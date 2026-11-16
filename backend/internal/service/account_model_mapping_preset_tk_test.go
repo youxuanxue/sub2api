@@ -25,7 +25,10 @@ func TestAccountModelMappingPresetIDs_NewAPIVertexUsesSharedFloor(t *testing.T) 
 	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeVertexAi, nil)
 	require.ElementsMatch(t, vertexSharedModelMappingPresetIDs(), ids)
 	require.Subset(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), ids)
-	require.Equal(t, "gemini-3.8-flash", vertexSharedModelMappingPreset()["gemini-3-flash-preview"])
+	require.Equal(t, "gemini-3-flash", vertexSharedModelMappingPreset()["gemini-3-flash"])
+	require.NotContains(t, ids, "gemini-3-flash-preview")
+	require.NotContains(t, ids, "gemini-3.7-flash")
+	require.NotContains(t, ids, "veo-3.1-generate-001")
 	require.NotContains(t, ids, "imagen-4.0-generate-001")
 }
 

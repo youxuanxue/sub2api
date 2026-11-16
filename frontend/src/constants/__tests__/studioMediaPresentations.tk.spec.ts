@@ -385,8 +385,8 @@ describe('video durations (per-model discrete, never a footgun)', () => {
     expect(videoDurationDefault([])).toBe(VIDEO_DURATION_DEFAULT)
   })
 
-  it('paid-gate-proven Veo/Grok and Seedance use documented discrete seconds', () => {
-    expect(byId('veo-3.1-generate-001').videoDurations).toEqual([4, 6, 8])
+  it('paid-gate-proven Grok/Seedance use documented discrete seconds; Veo left Studio', () => {
+    expect(byId('veo-3.1-generate-001')).toBeUndefined()
     expect(byId('grok-imagine-video').videoDurations).toEqual([5])
     expect(byId('veo-3.1-fast-generate-001')).toBeUndefined()
     expect(byId('doubao-seedance-1-0-pro-250528').videoDurations).toEqual([5, 10])

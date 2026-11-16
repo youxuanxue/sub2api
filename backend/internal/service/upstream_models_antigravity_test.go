@@ -232,7 +232,7 @@ func TestConfiguredUpstreamModelsForCapabilitySyncSkipsInjectedAntigravityPassth
 		}},
 	}
 	// 运行时补齐的默认透传仍可调用（存量账号兼容）。
-	require.True(t, account.IsModelSupported("gemini-3.7-flash-medium"))
+	require.True(t, account.IsModelSupported("gemini-3.8-flash-medium"))
 
 	got := configuredUpstreamModelsForCapabilitySync(account)
 	require.ElementsMatch(t, []string{"gemini-3.8-flash-high", "gemini-3.8-flash-tiered", "gemini-3.6-flash-low"}, got)
