@@ -21,22 +21,18 @@ const (
 
 // vertexSharedModelMappingIDs is the converged Vertex ch41 public request surface.
 // Profile extras stay empty until a named capability is re-verified.
+// 2026-11-16: drop 3.7 / preview / veo — Vertex pool unschedulable and preview
+// literal 404; public advertising uses catalogWithdrawnModelIDs + allowlists.
 var vertexSharedModelMappingIDs = []string{
 	"gemini-3-flash",
-	"gemini-3-flash-preview",
-	"gemini-3.7-flash",
 	"gemini-3.8-flash",
 	"gemini-embedding-001",
-	"veo-3.1-generate-001",
 }
 
 var vertexSharedModelMapping = map[string]string{
-	"gemini-3.7-flash":       "gemini-3.7-flash",
-	"gemini-3.8-flash":       "gemini-3.8-flash",
-	"gemini-3-flash":         "gemini-3.8-flash",
-	"gemini-3-flash-preview": "gemini-3.8-flash",
-	"gemini-embedding-001":   "gemini-embedding-001",
-	"veo-3.1-generate-001":   "veo-3.1-generate-001",
+	"gemini-3.8-flash":     "gemini-3.8-flash",
+	"gemini-3-flash":       "gemini-3-flash",
+	"gemini-embedding-001": "gemini-embedding-001",
 }
 
 var vertexCapabilityProfileExtraIDs = map[string][]string{

@@ -42,6 +42,13 @@ func TestCatalogLifecycleWithdrawalFacts(t *testing.T) {
 	// Operator-hidden while sole Grok account is unschedulable (see catalogWithdrawnModelIDs).
 	require.False(t, isCatalogModelRecommended("grok-4.5"))
 	require.False(t, isCatalogModelRecommended("grok-imagine-image"))
+	// Operator-hidden 2026-11-16: Vertex/Gemini Web unschedulable or AG preview 404.
+	require.False(t, isCatalogModelRecommended("gemini-3.7-flash"))
+	require.False(t, isCatalogModelRecommended("gemini-3-pro-image"))
+	require.False(t, isCatalogModelRecommended("veo-3.1-generate-001"))
+	require.False(t, isCatalogModelRecommended("gemini-3-flash-preview"))
+	require.True(t, isCatalogModelRecommended("gemini-3-flash"))
+	require.True(t, isCatalogModelRecommended("gemini-3.8-flash"))
 	// Unsourced NewAPI long-tail: display=false in tk_served_models.json.
 	// glm-5.1 and kimi-k2.6 were sole-supplied by the Baidu Qianfan Token Plan.
 	// That subscription was not renewed (operator decision 2026-10-25), so both

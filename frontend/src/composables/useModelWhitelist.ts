@@ -337,11 +337,8 @@ const newapiPresetMappings = [
 
 const geminiPresetMappings = [
   { label: '3.8 Flash', from: 'gemini-3.8-flash', to: 'gemini-3.8-flash', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
-  { label: '3.7 Flash', from: 'gemini-3.7-flash', to: 'gemini-3.7-flash', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
-  { label: '3-Flash→3.8', from: 'gemini-3-flash', to: 'gemini-3.8-flash', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' },
-  { label: 'Preview→3.8', from: 'gemini-3-flash-preview', to: 'gemini-3.8-flash', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' },
-  { label: 'Embedding', from: 'gemini-embedding-001', to: 'gemini-embedding-001', color: 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800/50 dark:text-slate-300' },
-  { label: 'Veo 3.1', from: 'veo-3.1-generate-001', to: 'veo-3.1-generate-001', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' }
+  { label: '3-Flash', from: 'gemini-3-flash', to: 'gemini-3-flash', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' },
+  { label: 'Embedding', from: 'gemini-embedding-001', to: 'gemini-embedding-001', color: 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800/50 dark:text-slate-300' }
 ]
 
 const grokPresetMappings = [
@@ -374,8 +371,7 @@ const antigravityPresetMappings = [
   { label: '4 Carbon', from: 'gemini-4-carbon', to: 'gemini-4-carbon-medium', color: 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-400' },
   { label: '4 Hydrogen', from: 'gemini-4-hydrogen', to: 'gemini-4-hydrogen-medium', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { label: '3.8 Flash', from: 'gemini-3.8-flash', to: 'gemini-3.8-flash-high', color: 'bg-lime-100 text-lime-700 hover:bg-lime-200 dark:bg-lime-900/30 dark:text-lime-400' },
-  { label: '3-Flash→3.8', from: 'gemini-3-flash', to: 'gemini-3.8-flash-high', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
-  { label: 'Preview→3.8', from: 'gemini-3-flash-preview', to: 'gemini-3.8-flash-high', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
+  { label: '3-Flash', from: 'gemini-3-flash', to: 'gemini-3-flash', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
   { label: '3.1 Flash Image', from: 'gemini-3.1-flash-image', to: 'gemini-3.1-flash-image', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
   { label: 'nano-2→3.1', from: 'nano-2', to: 'gemini-3.1-flash-image', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
   { label: 'nano-banana-2→3.1', from: 'nano-banana-2', to: 'gemini-3.1-flash-image', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
