@@ -1104,7 +1104,9 @@ write_active_color() {
 # single-node Stage0 hosts stay unchanged. Mirrors deploy/domestic/bluegreen.py
 # sync_entry_origin, embedded for the SSM payload path.
 sync_entry_origin() {
-  local color="$1" target host_ip network image desired current running bindings
+  # Keep behavioral parity with deploy/domestic/bluegreen.py sync_entry_origin:
+  # refuse foreign Cmd shapes, require exactly one app network, then recreate.
+  local color="$1" target host_ip network image desired current running bindings network_count
   target="$(color_container "${color}")"
   if ! sudo docker inspect tokenkey-entry-origin >/dev/null 2>&1; then
     echo "entry-origin: absent; skip"
@@ -1114,17 +1116,24 @@ sync_entry_origin() {
   desired="TCP:${target}:8080"
   current="$(sudo docker inspect tokenkey-entry-origin --format '{{json .Config.Cmd}}' 2>/dev/null || true)"
   running="$(sudo docker inspect tokenkey-entry-origin --format '{{.State.Running}}' 2>/dev/null || true)"
-  if [[ "${running}" == "true" && "${current}" == *"${desired}"* ]]; then
+  if [[ "${running}" == "true" \
+      && "${current}" == *'"TCP-LISTEN:8080,fork,reuseaddr,keepalive"'* \
+      && "${current}" == *'"'"${desired}"'"'* ]]; then
     echo "entry-origin: already proxies ${desired}"
     return 0
   fi
-  # Refuse unexpected listen/publish shapes rather than overwrite a foreign container.
-  echo "${current}" | grep -q 'TCP-LISTEN:8080' \
+  # Refuse unexpected listen/target shapes rather than overwrite a foreign container.
+  echo "${current}" | grep -Fq '"TCP-LISTEN:8080,fork,reuseaddr,keepalive"' \
     || { echo "::error::entry-origin unexpected Cmd=${current}"; return 1; }
+  echo "${current}" | grep -Eq '"TCP:tokenkey(-blue|-green)?:8080"' \
+    || { echo "::error::entry-origin unexpected Cmd target=${current}"; return 1; }
   bindings="$(sudo docker inspect tokenkey-entry-origin --format '{{json (index .HostConfig.PortBindings "8080/tcp")}}')"
   host_ip="$(sudo docker inspect tokenkey-entry-origin --format '{{(index (index .HostConfig.PortBindings "8080/tcp") 0).HostIp}}')"
   [[ -n "${host_ip}" && "${host_ip}" != "0.0.0.0" && "${host_ip}" != "::" ]] \
     || { echo "::error::entry-origin must publish 8080 on one private address; bindings=${bindings}"; return 1; }
+  network_count="$(sudo docker inspect tokenkey-entry-origin --format '{{len .NetworkSettings.Networks}}')"
+  [[ "${network_count}" == "1" ]] \
+    || { echo "::error::entry-origin must sit on one application network; count=${network_count}"; return 1; }
   network="$(sudo docker inspect tokenkey-entry-origin --format '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}}{{end}}')"
   [[ -n "${network}" ]] || { echo "::error::entry-origin missing application network"; return 1; }
   image="$(sudo docker inspect tokenkey-entry-origin --format '{{.Config.Image}}')"

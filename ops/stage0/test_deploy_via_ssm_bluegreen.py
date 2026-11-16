@@ -572,6 +572,100 @@ class BlueGreenRenderTest(unittest.TestCase):
                 self.assertNotEqual(damaged.returncode, 0)
                 self.assertNotIn("deployment-started", damaged.stdout)
 
+    def test_sync_entry_origin_parity_with_domestic_owner(self) -> None:
+        """Exercise the real shell body with fake docker (not commit stubs)."""
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        function = "\n".join((
+            _extract_shell_function(remote, "color_container"),
+            _extract_shell_function(remote, "sync_entry_origin"),
+        ))
+        listen = "TCP-LISTEN:8080,fork,reuseaddr,keepalive"
+        cases = (
+            # absent forwarder: no-op success
+            ("absent", True, "absent; skip", None, None, "1", "10.4.0.16"),
+            # already on target and running: skip recreate
+            ("already", True, "already proxies",
+             f'["{listen}","TCP:tokenkey-green:8080"]', "true", "1", "10.4.0.16"),
+            # retarget blue→green happy path
+            ("retarget", True, "tk_entry_origin: OK",
+             f'["{listen}","TCP:tokenkey-blue:8080"]', "true", "1", "10.4.0.16"),
+            # foreign listen Cmd must refuse
+            ("foreign-cmd", False, "unexpected Cmd",
+             '["TCP-LISTEN:9999","TCP:tokenkey-blue:8080"]', "true", "1", "10.4.0.16"),
+            # foreign target must refuse
+            ("foreign-target", False, "unexpected Cmd target",
+             f'["{listen}","TCP:redis:8080"]', "true", "1", "10.4.0.16"),
+            # multi-network must refuse
+            ("multi-net", False, "one application network",
+             f'["{listen}","TCP:tokenkey-blue:8080"]', "true", "2", "10.4.0.16"),
+            # public bind must refuse
+            ("public-bind", False, "one private address",
+             f'["{listen}","TCP:tokenkey-blue:8080"]', "true", "1", "0.0.0.0"),
+        )
+        for name, ok, needle, cmd, running, net_count, host_ip in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                root = pathlib.Path(tmp)
+                ops = root / "ops.log"
+                # Quoting note: go-template --format strings use {{ }}; in an
+                # f-string each brace doubles, so {{{{…}}}} becomes {{…}}.
+                script = f"""set -euo pipefail
+{function}
+die() {{ echo "$*" >&2; exit 1; }}
+ORIGIN_PRESENT={"0" if name == "absent" else "1"}
+ORIGIN_CMD={shlex.quote(cmd or "[]")}
+ORIGIN_RUNNING={shlex.quote(running or "false")}
+ORIGIN_NET_COUNT={shlex.quote(net_count)}
+ORIGIN_HOST_IP={shlex.quote(host_ip)}
+OPS_LOG={shlex.quote(str(ops))}
+sudo() {{
+  if [ "$1" != docker ]; then echo "unexpected sudo: $*" >&2; return 1; fi
+  shift
+  if [ "$1" = inspect ] && {{ [ "$2" = tokenkey-green ] || [ "$2" = tokenkey-blue ]; }}; then
+    return 0
+  fi
+  if [ "$1" = inspect ] && [ "$2" = tokenkey-entry-origin ]; then
+    if [ "$#" -eq 2 ]; then
+      [ "$ORIGIN_PRESENT" = 1 ] && return 0
+      return 1
+    fi
+    fmt="${{4:-}}"
+    case "$fmt" in
+      '{{{{json .Config.Cmd}}}}') printf '%s\\n' "$ORIGIN_CMD" ;;
+      '{{{{.State.Running}}}}') printf '%s\\n' "$ORIGIN_RUNNING" ;;
+      '{{{{json (index .HostConfig.PortBindings "8080/tcp")}}}}')
+        printf '[{{"HostIp":"%s","HostPort":"8080"}}]\\n' "$ORIGIN_HOST_IP" ;;
+      '{{{{(index (index .HostConfig.PortBindings "8080/tcp") 0).HostIp}}}}')
+        printf '%s\\n' "$ORIGIN_HOST_IP" ;;
+      '{{{{len .NetworkSettings.Networks}}}}') printf '%s\\n' "$ORIGIN_NET_COUNT" ;;
+      '{{{{range $k, $_ := .NetworkSettings.Networks}}}}{{{{$k}}}}{{{{end}}}}')
+        printf 'tokenkey_net\\n' ;;
+      '{{{{.Config.Image}}}}') printf 'alpine/socat\\n' ;;
+      *) echo "unexpected format: $fmt" >&2; return 1 ;;
+    esac
+    return 0
+  fi
+  if [ "$1" = rm ] && [ "$2" = -f ] && [ "$3" = tokenkey-entry-origin ]; then
+    echo rm >> "$OPS_LOG"; return 0
+  fi
+  if [ "$1" = run ]; then
+    echo run >> "$OPS_LOG"; return 0
+  fi
+  echo "unexpected docker: $*" >&2; return 1
+}}
+curl() {{ echo 200; }}
+sleep() {{ :; }}
+sync_entry_origin green
+"""
+                result = subprocess.run(["bash"], input=script, capture_output=True, text=True)
+                combined = result.stdout + result.stderr
+                self.assertEqual(result.returncode == 0, ok, msg=combined)
+                self.assertIn(needle, combined)
+                if name == "retarget":
+                    self.assertEqual(ops.read_text().splitlines(), ["rm", "run"])
+                if name == "already":
+                    self.assertFalse(ops.exists())
+
     def test_drain_requires_verified_zero_before_stopping(self) -> None:
         proc, _, remote = _render()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
@@ -1134,6 +1228,8 @@ echo passed
         for marker in (
             "tokenkey-entry-origin",
             "TCP-LISTEN:8080,fork,reuseaddr,keepalive",
+            "TCP:tokenkey(-blue|-green)?:8080",
+            "len .NetworkSettings.Networks",
             "tk_entry_origin",
         ):
             self.assertIn(marker, origin_fn)
