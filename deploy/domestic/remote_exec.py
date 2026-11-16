@@ -140,6 +140,24 @@ def _check_region(value: object, where: str) -> str:
     return value  # type: ignore[return-value]
 
 
+def _flatten_data_machine(data: dict, manifest: Path) -> None:
+    """Accept prod nested data_machine{} by projecting to the flat cn-prod keys."""
+    nested = data.get("data_machine")
+    if not isinstance(nested, dict):
+        return
+    mapping = (
+        ("lighthouse_instance_id", "data_lighthouse_instance_id"),
+        ("private_ip", "data_private_ip"),
+        ("expected_ssm_instance_id", "data_ssm_instance_id"),
+        ("ssm_region", "data_ssm_region"),
+    )
+    for src, dest in mapping:
+        if dest not in data and nested.get(src) not in (None, ""):
+            data[dest] = nested[src]
+    if "ssm_region" not in data and nested.get("ssm_region"):
+        data["ssm_region"] = nested["ssm_region"]
+
+
 def load_nodes(manifest: Path = DEFAULT_MANIFEST) -> dict[str, Node]:
     """Return nodes keyed 'entry', each apps[].name, and 'data'."""
     try:
@@ -147,6 +165,7 @@ def load_nodes(manifest: Path = DEFAULT_MANIFEST) -> dict[str, Node]:
     except (OSError, ValueError) as exc:
         raise RemoteExecError(f"{manifest}: cannot read manifest: {exc}") from exc
     _require(isinstance(data, dict), f"{manifest}: manifest must be a JSON object")
+    _flatten_data_machine(data, manifest)
 
     tat_region = _check_region(data.get("tat_region"), f"{manifest}: tat_region")
     ssm_region = data.get("ssm_region")

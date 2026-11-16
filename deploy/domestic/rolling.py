@@ -58,7 +58,12 @@ IMAGE_RECEIPTS = Path("/var/lib/tokenkey/image-distribution")
 COMPOSE_FILES = ("compose.yml", "compose.override.yml", "compose.local.yml", "compose.node.yml")
 FORBIDDEN_CONTAINERS = ("tokenkey-blue", "tokenkey-green", "tokenkey-entry-origin", "tokenkey-caddy")
 CREDENTIAL_PARITY_KEYS = ("DATABASE_PASSWORD", "REDIS_PASSWORD")
-MIGRATION_STEP = {"app-b": "M2", "app-a": "M4"}
+MIGRATION_STEP = {
+    "app-b": "M2",
+    "app-a": "M4",
+    "app-cand": "Phase-C",
+    "app-old": "Phase-C",
+}
 
 LEASE_TTL = 30 * 60
 DRAIN_SETTLE = 10
@@ -76,8 +81,8 @@ RESULT_PREFIX = "ROLLING_RESULT "
 EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_WARN = 0, 1, 2, 3
 
 # Layout kinds (docs/approved/design-prod-entry-multi-app.md §5):
-# single-container = rolling-ready (cn-prod today). stage0-bluegreen = prod
-# transitional; operator plan/deploy must refuse until apps are single-container.
+# single-container = rolling-ready (cn-prod + prod after Phase C).
+# stage0-bluegreen remains a refuse gate for any leftover transitional host.
 LAYOUT_SINGLE = "single-container"
 LAYOUT_BLUEGREEN = "stage0-bluegreen"
 
@@ -126,6 +131,25 @@ def require_rolling_layout(manifest: dict) -> Layout:
         if not mem:
             raise RollingError(f"apps[].memory_limit required for rolling ({app.get('name')})")
     return layout
+
+
+def rolling_confirm_site(manifest: dict) -> str:
+    """Confirm token site segment: rolling-<site>-<tag>.
+
+    Explicit ``rolling_confirm_site`` wins; else ``role`` when it is prod/cn-prod;
+    cn-prod manifests without either keep the historical ``cn-prod`` default.
+    """
+    explicit = manifest.get("rolling_confirm_site")
+    if isinstance(explicit, str) and re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", explicit):
+        return explicit
+    role = manifest.get("role")
+    if role in ("prod", "cn-prod"):
+        return role
+    return "cn-prod"
+
+
+def confirm_phrase(manifest: dict, tag: str) -> str:
+    return f"rolling-{rolling_confirm_site(manifest)}-{tag}"
 
 
 def apply_layout(layout: Layout) -> None:
@@ -1310,8 +1334,9 @@ def main(argv: list[str] | None = None, *, executor: Executor | None = None,
         if args.command == "status":
             return cmd_status(remote, nodes, entry)
         tag, revision = normalize_tag(args.tag), require_revision(args.revision)
-        if args.command == "deploy" and args.confirm != f"rolling-cn-prod-{tag}":
-            raise RollingError(f"deploy needs --confirm rolling-cn-prod-{tag}")
+        want_confirm = confirm_phrase(raw_manifest, tag)
+        if args.command == "deploy" and args.confirm != want_confirm:
+            raise RollingError(f"deploy needs --confirm {want_confirm}")
     except RollingError as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return EXIT_USAGE if "--confirm" in str(exc) or "must be" in str(exc) else EXIT_FAIL

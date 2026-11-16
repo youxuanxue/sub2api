@@ -27,13 +27,21 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 TARGET = HERE / "prod-target.json"
 OVERRIDE = HERE / "compose.override.yml"
-NODE_NAME_PREFIX = "cn-prod-"
 ENV_KEY = re.compile(r"[A-Z][A-Z0-9_]*\Z")
 MEMORY = re.compile(r"[1-9][0-9]*[mg]\Z")
 
 
 def load_target(path: Path = TARGET) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def node_name_prefix(target: dict) -> str:
+    """TOKENKEY_NODE_NAME prefix: prod- / cn-prod- from role or rolling_confirm_site."""
+    for key in ("rolling_confirm_site", "role"):
+        value = target.get(key)
+        if value in ("prod", "cn-prod"):
+            return value + "-"
+    return "cn-prod-"
 
 
 def find_app(target: dict, name: str) -> dict:
@@ -56,7 +64,7 @@ def _quote(value: str) -> str:
     return json.dumps(str(value))
 
 
-def render(app: dict, max_in_flight: str | None = None) -> str:
+def render(app: dict, max_in_flight: str | None = None, *, prefix: str = "cn-prod-") -> str:
     name = app.get("name", "")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", name):
         raise ValueError("invalid app name")
@@ -68,7 +76,7 @@ def render(app: dict, max_in_flight: str | None = None) -> str:
         raise ValueError("memory_limit must look like 3g or 512m")
     env = {
         "GATEWAY_MAX_IN_FLIGHT_REQUESTS": max_in_flight or default_max_in_flight(),
-        "TOKENKEY_NODE_NAME": NODE_NAME_PREFIX + name,
+        "TOKENKEY_NODE_NAME": prefix + name,
     }
     extra = app.get("env", {}) or {}
     if not isinstance(extra, dict):
@@ -80,7 +88,7 @@ def render(app: dict, max_in_flight: str | None = None) -> str:
             raise ValueError(f"app env must not override {key}")
         env[key] = value
     lines = [
-        f"# Rendered by deploy/domestic/node_compose.py for {NODE_NAME_PREFIX}{name}; do not edit on the host.",
+        f"# Rendered by deploy/domestic/node_compose.py for {prefix}{name}; do not edit on the host.",
         "services:",
         "  tokenkey:",
         f"    mem_limit: {memory}",
@@ -169,7 +177,8 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--out", type=Path)
     group.add_argument("--diff", type=Path, metavar="EXISTING")
     args = parser.parse_args(argv)
-    text = render(find_app(load_target(args.target), args.node))
+    target = load_target(args.target)
+    text = render(find_app(target, args.node), prefix=node_name_prefix(target))
     if args.out:
         write_private(args.out, text)
         print(json.dumps({"node": args.node, "written": str(args.out)}))

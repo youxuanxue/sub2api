@@ -45,13 +45,13 @@
 | 角色 | 实例 | 私网 | 公网 | 说明 |
 |---|---|---|---|---|
 | 入口机 | `lhins-j89o28j0` | `10.2.4.7` | `154.8.185.224` | Caddy 终止 `api.galaxywaveai.com` 的 TLS，按 3:1 分发到两台应用机；公网只开 80/443 |
-| app-a | `lhins-6qmb3fd6` | `10.2.4.11` | `154.8.214.179` | 4C16G，蓝绿发布（M4 后改单容器）；私网入口 `tokenkey-entry-origin`（`10.2.4.11:8080`，云防火墙只放行 `10.2.4.7`） |
-| app-b | `lhins-0kxx7cco` | `10.2.4.13` | `82.156.89.64` | 2C4G，无公网入站；网关直接监听 `10.2.4.13:8080`，同样只放行 `10.2.4.7`；本机覆盖在 `/opt/tokenkey/compose.appb.yml`（M2 后改为渲染的 `compose.node.yml`） |
+| app-a | `lhins-6qmb3fd6` | `10.2.4.11` | `154.8.214.179` | 4C16G，单容器 `tokenkey`，私网 `10.2.4.11:8080`；云防火墙只放行入口 `10.2.4.7` |
+| app-b | `lhins-0kxx7cco` | `10.2.4.13` | `82.156.89.64` | 2C4G，单容器 `tokenkey`，无公网入站；监听 `10.2.4.13:8080`，同样只放行 `10.2.4.7` |
 
 节点身份只看 [`prod-target.json`](prod-target.json) 的 `entry` 与 `apps[]`。`apps[]` 的顺序就是滚动顺序，小机器在前当金丝雀。设计见 [cn-prod 多应用机滚动发版](../../docs/approved/design-cn-prod-rolling-deploy.md)。
 
 - 入口机健康检查每 3 秒访问各节点 `/health`，连续 2 次失败即摘除。drain 让节点 `/health` 返回 503，入口机先停派新请求，节点再等在途请求清零。
-- 发版改为逐台滚动（`rolling.py`，M4 完成后启用）。在此之前仍按下文蓝绿只发 app-a，app-b 手工换成同一镜像。app-a 网关只听 loopback，私网入口靠 socat 容器 `tokenkey-entry-origin`；不要往 app-a 的 Caddyfile 里加 `10.2.4.11` 站点，`caddy reload` 会因 `cannot assign requested address` 失败。
+- 日常发版由 `rolling.py` 逐台 drain、换镜像、健康检查和回流，入口机持续把新流量分给另一台。节点内蓝绿与 `tokenkey-entry-origin` socat 仅保留为旧布局迁移和故障恢复路径，不再作为正常发布路径。
 - 入口机 Caddyfile 在 `/var/lib/tokenkey/caddy/etc/Caddyfile`，挂载的是目录而不是单个文件：单文件挂载在 `sed -i` 换 inode 后会继续读旧内容。入库模板为 [`entry/Caddyfile.tmpl`](entry/Caddyfile.tmpl)，`python3 entry_caddy.py --diff <线上文件>` 只读比对（忽略注释和空白），`--out PATH` 渲染。`to` 列表按私网 IP 排序，权重跟随各自节点。
 - 应用机的节点覆盖由 `python3 node_compose.py --node app-b --out /opt/tokenkey/compose.node.yml` 渲染：`<private_ip>:8080` 与 `127.0.0.1:18080`、`memory_limit`、`TOKENKEY_NODE_NAME=cn-prod-<name>`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS`（取自 `compose.override.yml`）和节点 `env`。`--diff EXISTING` 只读，有差异时退出码 1。
 - 证书是 2026-11-15 从 app-a 复制的同一张（有效期至 2027-01-21），入口机之后用 TLS-ALPN-01 自行续期。DNS 切到入口机后，app-a 上 `api.galaxywaveai.com` 站点续期会失败，属预期，切流稳定后删掉该站点。
@@ -62,7 +62,7 @@
 |---|---|---|
 | 入口机 | `WATCH_ROLE=cn-prod-entry` | `https://<entry.domain>/health`；证书剩余不足 20 天；每个 `apps[]` 节点直接探测 `http://<private_ip>:8080/health`，503 持续超过 15 分钟告警，全部不健康立即告警 |
 | app-a | `WATCH_ROLE=cn-prod WATCH_NODE=app-a` | 本机 `127.0.0.1:18080/health`、QA timer、磁盘，并保留对 prod 与 `public_origin` 的观测 |
-| app-b | `WATCH_ROLE=cn-prod WATCH_NODE=app-b` | 本机 `127.0.0.1:18080/health`、QA timer、磁盘 |
+| app-b | `WATCH_ROLE=cn-prod WATCH_NODE=app-b` | 本机 `127.0.0.1:18080/health`、磁盘；QA timer 待数据机协调器 |
 
 带 `WATCH_NODE` 或入口机角色时，installer 用 `hostname -I` 核对 `prod-target.json` 的私网 IP。不带 `WATCH_NODE` 的 `cn-prod` 配置保持不变。三台都读 `/opt/tokenkey/host-alerts.env`。
 
@@ -71,10 +71,10 @@
 | # | 动作 | 入口 |
 |---|---|---|
 | M1 | 带新镜像正常发一次版（仍是蓝绿，app-b 手工换同一镜像） | 下文蓝绿流程 |
-| M2 | app-b：`node_compose.py --node app-b --diff /opt/tokenkey/compose.appb.yml` 必须为空，再改用 `compose.node.yml`；装看门狗（QA timer 待数据机协调器上线）。入口机：`entry_caddy.py --diff` 只差注释后入库，装看门狗 | 本节 |
+| M2 | app-b 已改用渲染的 `compose.node.yml` 并装看门狗；QA timer 待数据机协调器上线。入口机 `entry_caddy.py --diff` 差异审核后入库并装看门狗 | 本节 |
 | M3 | 直连 app-a 的业务请求为 0 后，把 `public_origin` 改成入口机域名（2026-11-15 完成；IP 站点上只剩健康探测） | `prod-target.json` |
 | M4 | app-a 改为单容器 `tokenkey`，绑定 `10.2.4.11:8080`，停 socat 和 blue/green（2026-11-15 完成）。app-a 的 Caddy 改指 `tokenkey:8080`，M3 之后再关 80/443。Caddyfile 是单文件挂载，`sed -i` 后 `caddy reload` 仍读旧 inode，要从宿主文件 `caddy adapt` 后经 admin API `/load` 加载 | 设计文档 M4 |
-| M5 | 以 1.8.378 作为第一次真实滚动发版，全程人工盯（2026-11-15 决定）。同版本原样滚动会被 `mode=skip` 跳过，起不到演练作用；smoke 失败只回滚单节点的演练暂不做 | `rolling.py` |
+| M5 | 至少完成两次真实 rolling 发版并保留完整 receipt；同版本原样滚动会被 `mode=skip` 跳过，起不到演练作用 | `rolling.py` |
 | M6 | 连续两次真实滚动成功后删除 `bluegreen.py` 的 cn-prod 分支和 socat 代码 | PR |
 
 ### 加减应用机清单
@@ -140,7 +140,18 @@ SSH 只用于一次性 agent bootstrap 或 UHost 控制台不可用时的恢复�
 [`deploy/tencent/lock-down-sshd.sh`](../tencent/lock-down-sshd.sh)：关掉密码登录、root
 登录和 TCP 转发，并锁定 root 密码。云防火墙不开放公网 22。
 
-## SSM 蓝绿升级（默认）
+## 发布路径：rolling 默认，蓝绿仅兼容/恢复
+
+cn-prod 的正常发布入口是 `deploy/domestic/rolling.py`，按 `prod-target.json` 的
+`apps[]` 顺序逐台执行 drain、换镜像、私网健康检查和回流。入口机继续把请求分给
+另一台应用机，因此发布过程不需要节点内蓝绿。
+
+`deploy_via_ssm.sh` 与 `bluegreen.py` 仍保留为迁移过渡和恢复路径。它们只能用于
+尚未完成单容器迁移的节点、恢复旧布局，或经单独批准的故障处理；不能作为已收敛
+节点的日常发布入口。连续两次真实 rolling 发布成功并有完整 receipt 前，不能删除
+这些兼容代码。
+
+## SSM 蓝绿升级（兼容/恢复）
 
 与 probe 相同：经 `prod-target.json` 的 SSM Hybrid 身份下发，**不要**为常规发版开放
 SSH 22 或从运维机 scp 离线 tar。入口脚本：

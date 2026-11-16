@@ -591,14 +591,32 @@ class PureHelperTest(unittest.TestCase):
         self.assertEqual(lay.kind, rolling.LAYOUT_SINGLE)
         self.assertEqual(lay.root, Path("/opt/tokenkey"))
 
-    def test_layout_prod_bluegreen_matrix_is_refused(self):
+    def test_layout_prod_matrix_is_rolling_ready(self):
         matrix = Path(__file__).resolve().parents[1] / "tencent" / "candidate-usw-20261022.json"
         manifest = json.loads(matrix.read_text())
-        self.assertEqual(rolling.layout_for_manifest(manifest).kind, rolling.LAYOUT_BLUEGREEN)
+        lay = rolling.require_rolling_layout(manifest)
+        self.assertEqual(lay.kind, rolling.LAYOUT_SINGLE)
+        self.assertEqual(lay.root, Path("/var/lib/tokenkey"))
+
+    def test_layout_bluegreen_manifest_is_refused(self):
         with self.assertRaises(rolling.RollingError) as ctx:
-            rolling.require_rolling_layout(manifest)
+            rolling.require_rolling_layout({
+                "layout": {
+                    "kind": "stage0-bluegreen",
+                    "root": "/var/lib/tokenkey",
+                    "controls": "/var/lib/tokenkey/releases/artifacts-rolling",
+                },
+                "apps": [{"name": "a", "memory_limit": "3g"}],
+            })
         self.assertIn("not rolling-ready", str(ctx.exception))
         self.assertIn("Phase C", str(ctx.exception))
+
+    def test_confirm_phrase_is_site_aware(self):
+        cn = json.loads((Path(__file__).resolve().parent / "prod-target.json").read_text())
+        self.assertEqual(rolling.confirm_phrase(cn, TAG), f"rolling-cn-prod-{TAG}")
+        prod = json.loads((Path(__file__).resolve().parents[1] / "tencent" /
+                           "candidate-usw-20261022.json").read_text())
+        self.assertEqual(rolling.confirm_phrase(prod, TAG), f"rolling-prod-{TAG}")
 
     def test_layout_missing_memory_limit_is_refused(self):
         with self.assertRaises(rolling.RollingError) as ctx:
