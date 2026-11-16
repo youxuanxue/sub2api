@@ -11,10 +11,13 @@ The same file runs in two roles:
 
 * operator / CI side: `plan` (default), `deploy`, `status`. Remote work goes
   through an Executor that wraps remote_exec.run/put_file.
-* host side: `agent <op>`. Shipped to /opt/tokenkey/releases/artifacts-rolling/
-  and verified by sha256 before every call. Host code uses argv lists (no
-  shell), never prints environment values and never reads .env beyond the
-  TOKENKEY_IMAGE line.
+* host side: `agent [--root PATH --controls PATH] <op>`. Shipped under the
+  fleet's ``layout.controls`` (cn-prod default ``/opt/tokenkey/...``; prod
+  Phase C ``/var/lib/tokenkey/...``) and verified by sha256 before every
+  call. Operator always passes ``--root`` / ``--controls`` from the
+  manifest so the host process does not fall back to the cn-prod default
+  ``ROOT``. Host code uses argv lists (no shell), never prints environment
+  values and never reads .env beyond the TOKENKEY_IMAGE line.
 
 Stdlib only.
 """
@@ -606,6 +609,12 @@ def agent_lease(args) -> dict:
 
 def build_agent_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rolling.py agent")
+    # Operator Remote.script always passes both; without them the module
+    # defaults (cn-prod /opt/tokenkey) remain for local unit helpers.
+    parser.add_argument("--root", type=Path, default=None,
+                        help="compose/.env root from manifest.layout.root")
+    parser.add_argument("--controls", type=Path, default=None,
+                        help="artifacts dir from manifest.layout.controls")
     sub = parser.add_subparsers(dest="op", required=True)
     p = sub.add_parser("probe")
     p.add_argument("--tag")
@@ -651,6 +660,12 @@ AGENT_OPS = {"probe": agent_probe, "vitals": agent_vitals, "signal": agent_signa
 
 def agent_main(argv: list[str]) -> int:
     args = build_agent_parser().parse_args(argv)
+    if (args.root is None) ^ (args.controls is None):
+        sys.stderr.write("rolling agent: --root and --controls must be passed together\n")
+        return EXIT_USAGE
+    if args.root is not None and args.controls is not None:
+        # kind only gates operator plan/deploy; host path binding needs root/controls.
+        apply_layout(Layout(LAYOUT_SINGLE, args.root, args.controls))
     for name in ("tag", "revision"):
         if getattr(args, name, None):
             (normalize_tag if name == "tag" else require_revision)(getattr(args, name))
@@ -707,7 +722,14 @@ class Remote:
 
     def script(self, op: str, *args: str) -> str:
         q = shlex.quote
-        argv = ["python3", str(AGENT_PATH), "agent", op, *args]
+        # Pass the operator-side layout so the host agent rebinds ROOT/CONTROLS
+        # instead of the module default (/opt/tokenkey). Prod Phase C roots at
+        # /var/lib/tokenkey; without these flags probe reports false "missing".
+        argv = [
+            "python3", str(AGENT_PATH), "agent",
+            "--root", str(ROOT), "--controls", str(CONTROLS),
+            op, *args,
+        ]
         return "\n".join([
             "set -euo pipefail",
             f"printf '%s  %s\\n' {q(self.agent_sha)} {q(str(AGENT_PATH))} {q(self.smoke_sha)} {q(str(SMOKE_PATH))}"

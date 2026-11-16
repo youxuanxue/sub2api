@@ -177,7 +177,13 @@ class FakeExecutor:
             return Result("tat", "Success", 0, "", "")
         argv = shlex.split(lines[-1])
         assert argv[:3] == ["python3", str(rolling.AGENT_PATH), "agent"], argv
-        out = self.hosts[node.name].handle(argv[3], argv[4:])
+        rest = argv[3:]
+        # Operator always ships --root/--controls before the subcommand.
+        assert rest[:4] == [
+            "--root", str(rolling.ROOT), "--controls", str(rolling.CONTROLS),
+        ], rest
+        rest = rest[4:]
+        out = self.hosts[node.name].handle(rest[0], rest[1:])
         return Result("tat", "Success", 0, rolling.RESULT_PREFIX + json.dumps(out), "")
 
     def put_file(self, node, local, remote, *, mode="600"):
@@ -219,7 +225,10 @@ class HappyPathTest(RollingTestBase):
             self.assertEqual(host.image_id, NEW_ID)
             self.assertEqual(host.health, 200)
             self.assertEqual([op for op in host.ops if op in steps], steps)
-        names = [n for n, s in self.executor.scripts if "agent drain" in s]
+        # Layout flags sit between `agent` and the subcommand (`agent --root … drain`).
+        names = [n for n, s in self.executor.scripts
+                 if any(ln.startswith("python3 ") and ln.rstrip().endswith(" drain")
+                        for ln in s.splitlines())]
         self.assertEqual(names, ["app-b", "app-a"])
         r = self.receipt_json()
         self.assertEqual(r["outcome"], "success")
@@ -641,6 +650,31 @@ class PureHelperTest(unittest.TestCase):
             rolling.apply_layout(rolling.Layout(
                 rolling.LAYOUT_SINGLE, orig_root, orig_controls))
 
+    def test_remote_script_passes_layout_root_and_controls(self):
+        orig_root, orig_controls = rolling.ROOT, rolling.CONTROLS
+        try:
+            rolling.apply_layout(rolling.Layout(
+                rolling.LAYOUT_SINGLE,
+                Path("/var/lib/tokenkey"),
+                Path("/var/lib/tokenkey/releases/artifacts-rolling"),
+            ))
+            remote = rolling.Remote(
+                executor=type("E", (), {})(),  # unused for script()
+                agent_src=Path(__file__),
+                smoke_src=Path(__file__),
+            )
+            script = remote.script("probe", "--tag", TAG, "--revision", REV)
+            line = [ln for ln in script.splitlines() if ln.startswith("python3 ")][-1]
+            argv = shlex.split(line)
+            self.assertEqual(argv[3:7], [
+                "--root", "/var/lib/tokenkey",
+                "--controls", "/var/lib/tokenkey/releases/artifacts-rolling",
+            ])
+            self.assertEqual(argv[7], "probe")
+        finally:
+            rolling.apply_layout(rolling.Layout(
+                rolling.LAYOUT_SINGLE, orig_root, orig_controls))
+
 
 class AgentHostTest(unittest.TestCase):
     """Host-side .env rewrite keeps 0600 and only touches TOKENKEY_IMAGE."""
@@ -669,6 +703,39 @@ class AgentHostTest(unittest.TestCase):
                 self.assertEqual(env.stat().st_mode & 0o777, 0o600)
             finally:
                 rolling.ROOT = orig
+
+    def test_agent_main_applies_layout_root_before_probe(self):
+        """Prod Phase C regression: agent must not keep the /opt/tokenkey default."""
+        root = Path("/var/lib/tokenkey")
+        controls = Path("/var/lib/tokenkey/releases/artifacts-rolling")
+        seen: dict = {}
+        orig_layout = rolling.Layout(rolling.LAYOUT_SINGLE, rolling.ROOT, rolling.CONTROLS)
+        orig_probe = rolling.AGENT_OPS["probe"]
+
+        def fake_probe(args):
+            seen["root"] = rolling.ROOT
+            seen["controls"] = rolling.CONTROLS
+            return {"ok": True}
+
+        rolling.AGENT_OPS["probe"] = fake_probe
+        try:
+            code = rolling.agent_main([
+                "--root", str(root), "--controls", str(controls),
+                "probe",
+            ])
+            self.assertEqual(code, 0)
+            self.assertEqual(seen["root"], root)
+            self.assertEqual(seen["controls"], controls)
+        finally:
+            rolling.AGENT_OPS["probe"] = orig_probe
+            rolling.apply_layout(orig_layout)
+
+    def test_agent_main_rejects_root_without_controls(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = rolling.agent_main(["--root", "/var/lib/tokenkey", "probe"])
+        self.assertEqual(code, rolling.EXIT_USAGE)
+        self.assertIn("--root and --controls must be passed together", err.getvalue())
 
 
 if __name__ == "__main__":
