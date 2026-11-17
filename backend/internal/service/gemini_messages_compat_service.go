@@ -4032,7 +4032,12 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 						// 单个 block 时保留所有内容（包括空白）
 						// 多个 blocks 时过滤掉空白
 						if singleBlock || strings.TrimSpace(text) != "" {
-							parts = append(parts, map[string]any{"text": text})
+							part := map[string]any{"text": text}
+							if lastThinkingSignature != "" {
+								part["thoughtSignature"] = lastThinkingSignature
+								lastThinkingSignature = ""
+							}
+							parts = append(parts, part)
 						}
 					}
 				case "tool_use":

@@ -8,9 +8,9 @@ import (
 )
 
 func TestConvertClaudeMessagesToGeminiContents_PropagatesThinkingSignatureToToolUse(t *testing.T) {
-	// When Claude Messages contains a thinking block with signature followed by tool_use,
-	// convertClaudeMessagesToGeminiContents must attach that signature to the functionCall part
-	// rather than falling back to geminiDummyThoughtSignature.
+	// TK keeps Claude thinking as a Gemini thought part (unlike upstream #8545 which
+	// drops thinking and only stamps the next part). The following tool_use without
+	// its own signature must still receive the real thoughtSignature, not the dummy.
 	messages := []any{
 		map[string]any{
 			"role": "user",
@@ -51,17 +51,20 @@ func TestConvertClaudeMessagesToGeminiContents_PropagatesThinkingSignatureToTool
 	require.NoError(t, err)
 	require.Len(t, contents, 3)
 
-	// Turn 0: user
-	// Turn 1: model with functionCall
 	modelTurn, ok := contents[1].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "model", modelTurn["role"])
 
 	parts, ok := modelTurn["parts"].([]any)
 	require.True(t, ok)
-	require.Len(t, parts, 1)
+	require.Len(t, parts, 2)
 
-	fnPart, ok := parts[0].(map[string]any)
+	thoughtPart, ok := parts[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, true, thoughtPart["thought"])
+	assert.Equal(t, "sig_real_from_upstream_999", thoughtPart["thoughtSignature"])
+
+	fnPart, ok := parts[1].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "sig_real_from_upstream_999", fnPart["thoughtSignature"])
 	assert.NotEqual(t, geminiDummyThoughtSignature, fnPart["thoughtSignature"])
@@ -72,8 +75,9 @@ func TestConvertClaudeMessagesToGeminiContents_PropagatesThinkingSignatureToTool
 }
 
 func TestConvertClaudeMessagesToGeminiContents_PropagatesThinkingSignatureToText(t *testing.T) {
-	// When an assistant message contains thinking with signature followed by text,
-	// the text part must carry thoughtSignature.
+	// TK keeps the thinking block. The following text part also receives the
+	// carried thoughtSignature so Gemini multi-turn continuity is not lost when
+	// clients omit a separate thought continuum.
 	messages := []any{
 		map[string]any{
 			"role": "assistant",
@@ -100,9 +104,14 @@ func TestConvertClaudeMessagesToGeminiContents_PropagatesThinkingSignatureToText
 	require.True(t, ok)
 	parts, ok := modelTurn["parts"].([]any)
 	require.True(t, ok)
-	require.Len(t, parts, 1)
+	require.Len(t, parts, 2)
 
-	textPart, ok := parts[0].(map[string]any)
+	thoughtPart, ok := parts[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, true, thoughtPart["thought"])
+	assert.Equal(t, "sig_text_thought_777", thoughtPart["thoughtSignature"])
+
+	textPart, ok := parts[1].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "The answer is 42.", textPart["text"])
 	assert.Equal(t, "sig_text_thought_777", textPart["thoughtSignature"])
