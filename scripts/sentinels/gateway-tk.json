@@ -20766,6 +20766,30 @@
         "func TestIllegalArgonBudgetDoesNotResolveToHighVariant(t *testing.T)"
       ],
       "rationale": "Behavioral guards that illegal argon budgets are dropped (not rewritten to high) and cannot resolve to -high variants after clamp."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_stream_truncation_tk.go",
+      "must_contain": [
+        "func geminiPayloadStartsVisibleTTFT(payload []byte) bool",
+        "func geminiNativePartIsVisibleOutput(part gjson.Result) bool",
+        "if part.Get(\"thought\").Bool() {"
+      ],
+      "rationale": "Visible TTFT owner for Gemini/AG native streams: first non-thought usable output only. Upstream merge that drops this helper restores keepalive/thought-as-TTFT mis-metering."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_streaming.go",
+      "must_contain": [
+        "if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT([]byte(payload)) {",
+        "if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT(inner) {"
+      ],
+      "rationale": "AG Gemini stream must record first_token_ms only via geminiPayloadStartsVisibleTTFT so thought-hold flushes and keepalives cannot start TTFT."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT(classified) {"
+      ],
+      "rationale": "Gemini messages/native compat stream must share the visible TTFT helper; reverting to any-data-frame TTFT reintroduces thought-as-first-token."
     }
   ]
 }
