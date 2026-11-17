@@ -191,7 +191,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if facts, ok := result.ProtocolRouteFacts(); ok {
 		input.UpstreamEndpoint = facts.UpstreamEndpoint()
 		result.UpstreamEndpoint = facts.UpstreamEndpoint()
-		result.UpstreamModel = facts.ResolvedModel()
+		result.UpstreamModel = preferUsageUpstreamModel(result.UpstreamModel, facts.ResolvedModel())
 	}
 	// 成功响应清零累计 403 计数。必须覆盖阶梯递增侧的全部 platform
 	// （UsesOpenAI403Ladder），而不只是 openai：CN 供应商与 OpenCodeGo 同样会被
