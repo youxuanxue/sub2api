@@ -31,23 +31,26 @@ class CoveragePlanTest(unittest.TestCase):
                 for domain in self.watch['domains']:
                     self.assertIn('https://' + domain + '/health', targets.values())
         cn = self.config('cn-prod', self.domestic['instance_name'])
-        # cn-prod runs the same local QA jobs as prod, carried by its own
-        # domestic config rather than a single hardcoded entry that predated
-        # tokenkey-qa-archive.
+        # Site-wide cn-prod role (no WATCH_NODE) follows domestic local_qa_jobs.
+        # Per-app WATCH_NODE configs use apps[].jobs (retention after coordinator cutover).
         self.assertEqual(set(cn['jobs']),
-                         {'tokenkey-disk-metrics', 'tokenkey-qa-provision',
-                          'tokenkey-qa-cleanup', 'tokenkey-qa-archive'})
+                         {'tokenkey-disk-metrics', 'tokenkey-qa-retention'})
 
     def test_data_machines_watch_only_their_own_jobs(self):
         # After the data-plane split the data machine owns pgBackRest; its
-        # watcher probes no public targets and runs no QA jobs.
-        for role, host in (('prod-data', self.watch['data_hostname']),
-                           ('cn-prod-data', self.domestic['data_instance_name'])):
+        # watcher probes no public targets. cn-prod data also watches explicit
+        # data_qa_jobs after the coordinator cutover; prod-data stays disk-only
+        # until it registers its own list.
+        for role, host, jobs in (
+                ('prod-data', self.watch['data_hostname'], ['tokenkey-disk-metrics']),
+                ('cn-prod-data', self.domestic['data_instance_name'],
+                 ['tokenkey-disk-metrics', 'tokenkey-qa-coordinator', 'tokenkey-qa-retention']),
+        ):
             with self.subTest(role=role):
                 config = self.config(role, host)
                 self.assertEqual(config['node'], role)
                 self.assertEqual(config['targets'], {})
-                self.assertEqual(config['jobs'], ['tokenkey-disk-metrics'])
+                self.assertEqual(config['jobs'], jobs)
 
     def test_installer_points_non_app_hosts_at_host_alerts_env(self):
         # The data machine has no app .env; its Feishu pair must sit where
@@ -98,7 +101,7 @@ class CoveragePlanTest(unittest.TestCase):
         # The archive push (tar stream to node1) must be monitored on both
         # hosts; it went unmonitored in production until 2026-11-03.
         self.assertIn('tokenkey-qa-archive', prod['jobs'])
-        self.assertIn('tokenkey-qa-archive',
+        self.assertIn('tokenkey-qa-retention',
                       self.config('cn-prod', self.domestic['instance_name'])['jobs'])
         # Retired Tokyo identity is not an accepted prod watch host.
         with self.assertRaisesRegex(ValueError, 'host identity'):
@@ -888,8 +891,10 @@ class QaArchiveCoverageTest(unittest.TestCase):
                                        self.prod_matrix, self.domestic)['jobs']
         cn_jobs = watch.build_config('cn-prod', self.domestic['instance_name'],
                                      self.prod_matrix, self.domestic)['jobs']
+        # prod still owns v1 archive; cn-prod cut over to retention (+ data coordinator).
         self.assertIn('tokenkey-qa-archive', prod_jobs)
-        self.assertIn('tokenkey-qa-archive', cn_jobs)
+        self.assertIn('tokenkey-qa-retention', cn_jobs)
+        self.assertNotIn('tokenkey-qa-archive', cn_jobs)
 
     def test_cn_prod_jobs_come_from_its_own_config_not_a_hardcoded_list(self):
         # Hardcoding cn-prod to exactly one job meant adding a second job
@@ -985,4 +990,9 @@ class AppNodeJobsTest(unittest.TestCase):
         appb = watch.build_config("cn-prod", "x", matrix, domestic, node="app-b", host_ips=["10.2.4.13"])
         self.assertEqual(appb["jobs"], ["tokenkey-disk-metrics", "tokenkey-qa-retention"])
         appa = watch.build_config("cn-prod", "x", matrix, domestic, node="app-a", host_ips=["10.2.4.11"])
-        self.assertEqual(appa["jobs"], ["tokenkey-disk-metrics"] + domestic["local_qa_jobs"])
+        self.assertEqual(appa["jobs"], ["tokenkey-disk-metrics", "tokenkey-qa-retention"])
+        data = watch.build_config(
+            "cn-prod-data", domestic["data_instance_name"], matrix, domestic)
+        self.assertEqual(
+            data["jobs"],
+            ["tokenkey-disk-metrics", "tokenkey-qa-coordinator", "tokenkey-qa-retention"])

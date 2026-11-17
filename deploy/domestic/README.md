@@ -70,8 +70,9 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 | 主机 | 安装参数 | 监控内容 |
 |---|---|---|
 | 入口机 | `WATCH_ROLE=cn-prod-entry` | `https://<entry.domain>/health`；证书剩余不足 20 天；每个 `apps[]` 节点直接探测 `http://<private_ip>:8080/health`，503 持续超过 15 分钟告警，全部不健康立即告警 |
-| app-a | `WATCH_ROLE=cn-prod WATCH_NODE=app-a` | 本机 `127.0.0.1:18080/health`、QA timer、磁盘，并保留对 prod 与 `public_origin` 的观测 |
-| app-b | `WATCH_ROLE=cn-prod WATCH_NODE=app-b` | 本机 `127.0.0.1:18080/health`、磁盘、`tokenkey-qa-retention`；node1 归档仍待数据机协调器 |
+| app-a | `WATCH_ROLE=cn-prod WATCH_NODE=app-a` | 本机 `127.0.0.1:18080/health`、磁盘、`tokenkey-qa-retention`；并保留对 prod 与 `public_origin` 的观测 |
+| app-b | `WATCH_ROLE=cn-prod WATCH_NODE=app-b` | 本机 `127.0.0.1:18080/health`、磁盘、`tokenkey-qa-retention` |
+| 数据机 | `WATCH_ROLE=cn-prod-data` | 磁盘、`tokenkey-qa-coordinator`、`tokenkey-qa-retention`，以及本机 pgBackRest 证据文件触发的备份 jobs |
 
 带 `WATCH_NODE` 或入口机角色时，installer 用 `hostname -I` 核对 `prod-target.json` 的私网 IP。不带 `WATCH_NODE` 的 `cn-prod` 配置保持不变。三台都读 `/opt/tokenkey/host-alerts.env`。
 
@@ -80,7 +81,7 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 | # | 动作 | 入口 |
 |---|---|---|
 | M1 | 带新镜像正常发一次版（仍是蓝绿，app-b 手工换同一镜像） | 下文蓝绿流程 |
-| M2 | app-b 已改用渲染的 `compose.node.yml` 并装看门狗；`tokenkey-qa-retention` 已启用（2026-11-17），node1 协调器归档仍待。入口机 `entry_caddy.py --diff` 差异审核后入库并装看门狗 | 本节 |
+| M2 | app-b 已改用渲染的 `compose.node.yml` 并装看门狗；三机 `tokenkey-qa-retention` 与 data `tokenkey-qa-coordinator` 已启用（2026-11-17）。node1 不可达时协调器只记 pending/告警，不阻塞 retention。入口机看门狗按 `cn-prod-entry` 安装 | 本节 |
 | M3 | 直连 app-a 的业务请求为 0 后，把 `public_origin` 改成入口机域名（2026-11-15 完成；IP 站点上只剩健康探测） | `prod-target.json` |
 | M4 | app-a 改为单容器 `tokenkey`，绑定 `10.2.4.11:8080`，停 socat 和 blue/green（2026-11-15 完成）。app-a 的 Caddy 改指 `tokenkey:8080`，M3 之后再关 80/443。Caddyfile 是单文件挂载，`sed -i` 后 `caddy reload` 仍读旧 inode，要从宿主文件 `caddy adapt` 后经 admin API `/load` 加载 | 设计文档 M4 |
 | M5 | ✅ 至少两次真实换版本 rolling + 完整 receipt：`1.8.378` [run 43720169759](https://github.com/youxuanxue/sub2api/actions/runs/43720169759)、`1.8.380` [run 43982380290](https://github.com/youxuanxue/sub2api/actions/runs/43982380290)（app-a/app-b 均为 `mode=full`/`outcome=rolled`）。同版本原样滚动会被 `mode=skip` 跳过 | `rolling.py` |
@@ -97,22 +98,19 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 5. 入口机 `entry_caddy.py --diff` 确认只多出新节点，`--out` 写入后 `caddy reload`。
 6. 装 QA timer（见「QA 归档」）与看门狗（`WATCH_NODE=<name>`），并重装入口机看门狗，让它探测新节点。
 
-### QA 归档
+### QA 归档（数据机协调器 · 2026-11-17 已交接）
 
-app-a 的 `tokenkey-qa-provision/cleanup/archive` 由 `ops/qa/local_maintenance_host.py install --include-node1-archive --node1-environment cn-prod` 安装，归档走 v1 站点路径 `qa-raw/cn-prod/<小时>`，cleanup 用该路径的回执做删除门禁。app-b 不能照抄同一条命令：两台写同一个 v1 小时会互相冲突。`node1_archive.py --source-id cn-prod-app-b` 已能写隔离的 v2 路径，但现有 cleanup 拒绝把单源 v2 回执当删除凭据。
+cn-prod 已切到 `ops/qa/COORDINATOR.md` 路径，不再跑应用机 v1 `provision/cleanup/archive`：
 
-2026-11-17：app-b 已启用独立 `tokenkey-qa-retention`（小时结束 +24h 接受丢失），清掉积压过期小时并写入 `apps[].jobs`；bundle 在 `/var/lib/tokenkey/qa-retention-bootstrap`（含 `source_id=cn-prod-app-b`）。数据机协调器（v2）推进中：已轮换并下发 `qa-app` SSH 公钥到 app-a/app-b；**私网 22 仍不通**（data→apps 超时），需云防火墙仅放行 `10.2.4.5`→应用机 `:22` 后才能装 data coordinator。PG EnvironmentFile 与 timer 启用仍未做。
+| 主机 | bundle / 要点 |
+|---|---|
+| app-a | source `ce91ce7ee87925712507`（`source_id=cn-prod-app-a`）；v1 timers 已停；`tokenkey-qa-retention` 已启用 |
+| app-b | source `229d76e166be3062d24d`（`source_id=cn-prod-app-b`）；`tokenkey-qa-retention` 已启用 |
+| data | coordinator `e9795f9a278425bc383d`；`PGHOST=10.2.4.5`；`tokenkey-qa-coordinator` + `tokenkey-qa-retention` 已启用 |
 
-#### 数据机 QA 协调器就绪清单（未 apply）
+矩阵：`apps[].jobs` 含 `tokenkey-qa-retention`；`data_qa_jobs` 含 coordinator + retention。data→apps 私网 `:22` 已放行（仅 `10.2.4.5/32`）。
 
-按 `ops/qa/COORDINATOR.md` 顺序；本段只记就绪条件，**不**代替安装：
-
-1. 应用机 source config（root 0600）+ 固定 binary SHA；app-a / app-b 的 `source_id` 隔离。
-2. 数据机 config 引用两台 worker 路径；`active_from` 已核对；PG* EnvironmentFile 只读核验指向 cn-prod 库。
-3. **云防火墙**：仅私网放行 data `10.2.4.5` → app-a/app-b `:22`（公网 22 继续关闭）。
-4. 先 plan 安装 source，再 plan 安装 data；交接前停旧 provision/cleanup/archive timer（capture 不停）。
-5. 受控单轮 `coordinator_host.py --apply` + `force_retention.py --apply` 验收副作用。
-6. 矩阵登记 `data_qa_jobs` / 应用机 `tokenkey-qa-retention` 后重装 host watcher，再启用 timer。
+**node1**：主 jump `180.76.181.161` 与 WG peers 现网不可达时，协调器 archive 失败并记 pending；retention 仍按「满 24h 可丢」独立清理热数据。恢复 node1 后只需再跑受控 `--apply` 核 seal，不必重装 units。
 
 ## 首次安装与配置 owner
 
