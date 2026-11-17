@@ -14,6 +14,8 @@
 #   bash ops/observability/run-probe.sh \
 #       --target prod | cn-prod | prod-data | cn-prod-data \
 #       --script ops/observability/probe-caps.sh \
+#       [--node app-old|app-a|…]   single apps[] node (host-local diagnosis)
+#       [--all-apps]               fan-out to every apps[] node with SSM (default for prod|cn-prod)
 #       [--env KEY=VAL ...] \
 #       [--with PATH ...]   upload additional local files to /tmp/<basename> on remote
 #       [--remote-path /tmp/script-name.sh] \
@@ -22,6 +24,10 @@
 #       [--timeout-seconds 120]
 #       [--compressed-output] integrity-checked gzip transport for large stdout
 #       [--describe-script]  print the registered companion/verdict contract and exit
+#
+# Multi-app (2026-11-17): bare --target prod|cn-prod fans out to all apps[] that
+# declare ssm_instance_id. Pass --node to pin one host. Missing SSM on any app
+# fails closed so a single-host probe cannot look like a fleet diagnosis.
 #
 # Probe contracts (ops/observability/probe-contracts.json):
 #   Optional for delivery. Registered scripts auto-upload companions and expose a
@@ -89,22 +95,27 @@ TIMEOUT_SECONDS=120
 EXPECTED_INSTANCE_ID=""
 DESCRIBE_SCRIPT=0
 COMPRESSED_OUTPUT=0
+NODE=""
+ALL_APPS=0
 declare -a ENVS=()
 declare -a WITH_FILES=()
+declare -a PASSTHRU=()
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
-    --target) TARGET="${2:-}"; shift 2 ;;
-    --script) SCRIPT_PATH="${2:-}"; shift 2 ;;
-    --env) ENVS+=("${2:-}"); shift 2 ;;
-    --with) WITH_FILES+=("${2:-}"); shift 2 ;;
-    --remote-path) REMOTE_PATH="${2:-}"; shift 2 ;;
-    --comment) COMMENT="${2:-}"; shift 2 ;;
-    --expected-instance-id) EXPECTED_INSTANCE_ID="${2:-}"; shift 2 ;;
-    --timeout-seconds) TIMEOUT_SECONDS="${2:-}"; shift 2 ;;
-    --describe-script) DESCRIBE_SCRIPT=1; shift ;;
-    --compressed-output) COMPRESSED_OUTPUT=1; shift ;;
+    --target) TARGET="${2:-}"; PASSTHRU+=("--target" "${2:-}"); shift 2 ;;
+    --script) SCRIPT_PATH="${2:-}"; PASSTHRU+=("--script" "${2:-}"); shift 2 ;;
+    --env) ENVS+=("${2:-}"); PASSTHRU+=("--env" "${2:-}"); shift 2 ;;
+    --with) WITH_FILES+=("${2:-}"); PASSTHRU+=("--with" "${2:-}"); shift 2 ;;
+    --remote-path) REMOTE_PATH="${2:-}"; PASSTHRU+=("--remote-path" "${2:-}"); shift 2 ;;
+    --comment) COMMENT="${2:-}"; PASSTHRU+=("--comment" "${2:-}"); shift 2 ;;
+    --expected-instance-id) EXPECTED_INSTANCE_ID="${2:-}"; PASSTHRU+=("--expected-instance-id" "${2:-}"); shift 2 ;;
+    --timeout-seconds) TIMEOUT_SECONDS="${2:-}"; PASSTHRU+=("--timeout-seconds" "${2:-}"); shift 2 ;;
+    --node) NODE="${2:-}"; shift 2 ;;
+    --all-apps) ALL_APPS=1; shift ;;
+    --describe-script) DESCRIBE_SCRIPT=1; PASSTHRU+=("--describe-script"); shift ;;
+    --compressed-output) COMPRESSED_OUTPUT=1; PASSTHRU+=("--compressed-output"); shift ;;
     *) echo "[run-probe] ERROR: unknown arg: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
@@ -136,6 +147,59 @@ if [ "$DESCRIBE_SCRIPT" = "0" ]; then
     *) echo "[run-probe] ERROR: --target must be 'prod', 'cn-prod', 'prod-data' or 'cn-prod-data', got: $TARGET" >&2
        exit 1 ;;
   esac
+fi
+
+if [ -n "$NODE" ] && [ "$ALL_APPS" = "1" ]; then
+  echo "[run-probe] ERROR: --node and --all-apps are mutually exclusive" >&2
+  exit 1
+fi
+if [ "$TARGET" = "prod-data" ] || [ "$TARGET" = "cn-prod-data" ]; then
+  if [ -n "$NODE" ] || [ "$ALL_APPS" = "1" ]; then
+    echo "[run-probe] ERROR: --node/--all-apps apply only to prod|cn-prod app fleets, not data machines" >&2
+    exit 1
+  fi
+fi
+
+# Multi-app fan-out: bare prod|cn-prod defaults to every SSM-capable apps[] node.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+FLEET_RESOLVE="${RUN_PROBE_FLEET_RESOLVE:-$REPO_ROOT/ops/observability/fleet_app_target.py}"
+if [ "$DESCRIBE_SCRIPT" = "0" ] && { [ "$TARGET" = "prod" ] || [ "$TARGET" = "cn-prod" ]; }     && [ -z "${RUN_PROBE_SINGLE_NODE:-}" ]; then
+  if [ -z "$NODE" ]; then
+    ALL_APPS=1
+  fi
+  if [ "$ALL_APPS" = "1" ]; then
+    FLEET_ERR=$(mktemp)
+    set +e
+    APPS_JSON=$(python3 "$FLEET_RESOLVE" --site "$TARGET" --list 2>"$FLEET_ERR")
+    LIST_RC=$?
+    set -e
+    if [ "$LIST_RC" -ne 0 ]; then
+      echo "[run-probe] ERROR: fleet_app_target --list failed for $TARGET" >&2
+      cat "$FLEET_ERR" >&2 || true
+      rm -f "$FLEET_ERR"
+      exit "$LIST_RC"
+    fi
+    rm -f "$FLEET_ERR"
+    APP_NAMES=$(python3 -c 'import json,sys; print("\n".join(a["name"] for a in json.load(sys.stdin)))' <<<"$APPS_JSON")
+    if [ -z "$APP_NAMES" ]; then
+      echo "[run-probe] ERROR: fleet_app_target returned no apps for $TARGET" >&2
+      exit 1
+    fi
+    FANOUT_RC=0
+    while IFS= read -r app_name; do
+      [ -n "$app_name" ] || continue
+      echo "[run-probe] === fan-out site=$TARGET node=$app_name ===" >&2
+      set +e
+      RUN_PROBE_SINGLE_NODE=1 bash "$REPO_ROOT/ops/observability/run-probe.sh" \
+          "${PASSTHRU[@]}" --node "$app_name"
+      NODE_RC=$?
+      set -e
+      if [ "$NODE_RC" -ne 0 ]; then
+        FANOUT_RC="$NODE_RC"
+      fi
+    done <<<"$APP_NAMES"
+    exit "$FANOUT_RC"
+  fi
 fi
 
 # Default remote path to /tmp/<basename>
@@ -224,25 +288,25 @@ fi
 # Resolve REGION + INSTANCE_ID per target shape
 REGION=""
 INSTANCE_ID=""
-if [ "$TARGET" = "prod" ]; then
-  # Same resolver as deploy-stage0 / feishu sync: auto → Tencent USW mi-*; fails closed otherwise.
-  RESOLVE_PROD="${RUN_PROBE_RESOLVE_PROD:-$REPO_ROOT/ops/stage0/resolve_prod_ssm_target.py}"
+if [ "$TARGET" = "prod" ] || { [ "$TARGET" = "cn-prod" ] && [ -n "$NODE" ]; }; then
+  # Multi-app: --node selects apps[].ssm_instance_id. Bare site already fan-out above.
+  if [ -z "$NODE" ]; then
+    echo "[run-probe] ERROR: internal: expected --node after fan-out gate" >&2
+    exit 1
+  fi
   PYERR=$(mktemp)
-  # Honor PROD_SSM_TARGET explicitly; bare --format kv defaults to auto and
-  # fails closed on flip-param AccessDenied after Wave B (#2574 / #2576).
-  if ! RES_LINES=$(python3 "${RESOLVE_PROD}" \
-      --target "${PROD_SSM_TARGET:-auto}" --format kv 2>"$PYERR"); then
-    echo "[run-probe] ERROR: resolve_prod_ssm_target failed" >&2
+  if ! RES_LINES=$(python3 "$FLEET_RESOLVE" --site "$TARGET" --node "$NODE" --format kv 2>"$PYERR"); then
+    echo "[run-probe] ERROR: fleet_app_target failed for site=$TARGET node=$NODE" >&2
     cat "$PYERR" >&2
     rm -f "$PYERR"
     exit 2
   fi
   rm -f "$PYERR"
-  # kv lines: instance_id=... ssm_region=...
-  INSTANCE_ID="$(printf '%s\n' "${RES_LINES}" | awk -F= '$1=="instance_id" {print $2; exit}')"
+  INSTANCE_ID="$(printf '%s\n' "${RES_LINES}" | awk -F= '$1=="ssm_instance_id" {print $2; exit}')"
   REGION="$(printf '%s\n' "${RES_LINES}" | awk -F= '$1=="ssm_region" {print $2; exit}')"
-  if [ -z "${REGION:-}" ]; then
-    echo "[run-probe] ERROR: resolve_prod_ssm_target returned empty ssm_region" >&2
+  echo "[run-probe] resolved site=$TARGET node=$NODE region=$REGION instance_id=$INSTANCE_ID" >&2
+  if [ -z "${REGION:-}" ] || [ -z "${INSTANCE_ID:-}" ]; then
+    echo "[run-probe] ERROR: fleet_app_target returned empty region/instance" >&2
     exit 2
   fi
 fi
@@ -323,7 +387,8 @@ print(json.dumps({"commands": ["set -u", sys.argv[1]],
 PY
 )
 
-if [ "$TARGET" = "cn-prod" ]; then
+if [ "$TARGET" = "cn-prod" ] && [ -z "${INSTANCE_ID:-}" ]; then
+  # Legacy single-manifest path. Multi-app --node already set INSTANCE_ID above.
   # cn-prod is an independent Docker/Postgres host. Prefer its outbound
   # AWS SSM Hybrid agent so a changing operator IP never becomes a probe input.
   UCLOUD_MANIFEST="$REPO_ROOT/deploy/domestic/prod-target.json"

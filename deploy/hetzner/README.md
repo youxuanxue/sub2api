@@ -28,11 +28,12 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 [`deploy/domestic/README.md`](../domestic/README.md)。
 
 候选储存身份：[app-parallel-20261111.json](../tencent/app-parallel-20261111.json)；
-**默认 CI/`resolve_prod_ssm_target` 仍解析旧应用机**，入口与候选须显式指定。
+**主机诊断**：`run-probe.sh --target prod` 默认按 `apps[]` **扇出**到每台有
+`ssm_instance_id` 的应用机；单台用 `--node app-old|app-cand`。不要再把
+`resolve_prod_ssm_target` 的单机默认当成「整站诊断」。
 **2026-11-16 Phase C 的代码与矩阵已收敛**：目标布局为两台单容器
 `tokenkey`，矩阵 `layout.kind=single-container`；日常发版走 `rolling.py` +
 `prod-rolling-deploy.yml`（确认词 `rolling-prod-<tag>`，默认 `--via ssm`）。
-线上最终收口仍以两台应用机的真实布局检查和完整 rolling receipt 为准；
 `prepare_single_container.py` 仅作历史/重铺参考。旧机脱离 LUKS 是阶段 D
 （须 ≥24h 稳定 + 单台门禁 + 再批准）。
 舰队矩阵形状门禁：`python3 deploy/tencent/check_prod_fleet_matrix.py`。
