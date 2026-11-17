@@ -22,6 +22,9 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      # Pricing registry CAS + redis PUBLISH run on the data machine (PG/Redis),
+      # not an app node. Multi-app fleets refuse a silent single-app default.
+      PROD_SSM_NODE: data
     steps:
       - uses: actions/checkout@v6
         with:
