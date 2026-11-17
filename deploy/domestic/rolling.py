@@ -72,6 +72,8 @@ LEASE_TTL = 30 * 60
 DRAIN_SETTLE = 10
 DRAIN_MAX = 600
 DRAIN_INTERVAL = 5
+# After DRAIN_MAX, force-proceed only while already 503 and leftovers are small.
+FORCE_DRAIN_MAX_IN_FLIGHT = 10
 TRAFFIC_WINDOW = 120
 CPU_LIMIT = 70.0
 MEM_LIMIT = 60.0
@@ -996,10 +998,11 @@ class Stop(Exception):
 
 class Roller:
     def __init__(self, remote: Remote, nodes: list, entry, tag: str, revision: str,
-                 *, holder: str = "", take_over: bool = False):
+                 *, holder: str = "", take_over: bool = False, drain_max_wait: int = DRAIN_MAX):
         self.remote, self.nodes, self.entry = remote, nodes, entry
         self.tag, self.revision = tag, revision
         self.holder, self.take_over = holder, take_over
+        self.drain_max_wait = drain_max_wait
         self.ltag = local_tag(tag, revision)
 
     # remote shorthands
@@ -1122,10 +1125,30 @@ class Roller:
 
         if mode in ("full", "resume-swap"):
             t = time.monotonic()
-            d = self._call(node, "drain", timeout=DRAIN_SETTLE + DRAIN_MAX + 120)
-            rep.step("drain", d.get("drained") is True and d.get("health") == 503, t,
-                     in_flight=d.get("in_flight"), health=d.get("health"), tries=d.get("tries"))
-            if not (d.get("drained") and d.get("health") == 503):
+            drain_wait = self.drain_max_wait
+            d = self._call(node, "drain", "--max-wait", str(drain_wait),
+                           timeout=DRAIN_SETTLE + drain_wait + 120)
+            drained_ok = d.get("drained") is True and d.get("health") == 503
+            # Drain waited drain_wait: force only if already out of rotation (/health=503)
+            # and remaining in_flight is within FORCE_DRAIN_MAX_IN_FLIGHT. Larger leftovers
+            # abort (USR2 back) so we do not drop a busy node's streams.
+            forced = False
+            inflight = d.get("in_flight")
+            if (not drained_ok and d.get("health") == 503
+                    and isinstance(inflight, int) and not isinstance(inflight, bool)
+                    and 0 < inflight <= FORCE_DRAIN_MAX_IN_FLIGHT):
+                forced = True
+                log(f"{node.name}: drain timed out with in_flight={inflight}; "
+                    f"force-proceeding (≤{FORCE_DRAIN_MAX_IN_FLIGHT}; leftovers dropped on recreate)")
+                rep.warnings.append(
+                    f"forced drain with in_flight={inflight} after {drain_wait}s")
+            elif not drained_ok and d.get("health") == 503 and isinstance(inflight, int) and inflight > FORCE_DRAIN_MAX_IN_FLIGHT:
+                log(f"{node.name}: drain timed out with in_flight={inflight} > "
+                    f"{FORCE_DRAIN_MAX_IN_FLIGHT}; refusing force-proceed")
+            rep.step("drain", drained_ok or forced, t,
+                     in_flight=inflight, health=d.get("health"), tries=d.get("tries"),
+                     forced=forced)
+            if not drained_ok and not forced:
                 self.abort_drain(node, rep, d)
             try:
                 t = time.monotonic()
@@ -1191,7 +1214,7 @@ class Roller:
         if rel.get("health") != 200:
             manual.insert(0, f"{node.name} still answers /health={rel.get('health')}: "
                              f"send `docker kill -s USR2 {CONTAINER}` by hand")
-        raise Stop(f"drain not complete within {DRAIN_MAX}s (in_flight={d.get('in_flight')}); "
+        raise Stop(f"drain not complete within {self.drain_max_wait}s (in_flight={d.get('in_flight')}); "
                    "node left on the old image", EXIT_FAIL, manual)
 
     def rollback(self, node, rep: NodeReport, old: dict, project: str, reason: str) -> None:
@@ -1208,7 +1231,8 @@ class Roller:
             t = time.monotonic()
             vit = self._call(node, "vitals", timeout=60)
             if vit.get("running"):
-                d = self._call(node, "drain", timeout=DRAIN_SETTLE + DRAIN_MAX + 120)
+                d = self._call(node, "drain", "--max-wait", str(self.drain_max_wait),
+                               timeout=DRAIN_SETTLE + self.drain_max_wait + 120)
                 rep.step("rollback-drain", bool(d.get("drained")), t, in_flight=d.get("in_flight"))
                 if not d.get("drained"):
                     raise _Failed(f"new container did not drain (in_flight={d.get('in_flight')}); "
@@ -1326,6 +1350,8 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "deploy":
             p.add_argument("--confirm", default="")
             p.add_argument("--take-over", action="store_true")
+            p.add_argument("--drain-max-wait", type=int, default=DRAIN_MAX,
+                           help=f"seconds to wait for in_flight=0 before force-proceed (default {DRAIN_MAX})")
     return parser
 
 
@@ -1364,7 +1390,8 @@ def main(argv: list[str] | None = None, *, executor: Executor | None = None,
         return EXIT_USAGE if "--confirm" in str(exc) or "must be" in str(exc) else EXIT_FAIL
     run = Run(tag, revision, args.command, target_local_tag=local_tag(tag, revision))
     roller = Roller(remote, nodes, entry, tag, revision,
-                    holder=default_holder(), take_over=getattr(args, "take_over", False))
+                    holder=default_holder(), take_over=getattr(args, "take_over", False),
+                    drain_max_wait=getattr(args, "drain_max_wait", DRAIN_MAX))
     run.holder = roller.holder if args.command == "deploy" else None
     try:
         code = cmd_plan(roller, run) if args.command == "plan" else roller.roll(run)

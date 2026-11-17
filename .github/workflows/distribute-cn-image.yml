@@ -5,7 +5,9 @@ on:
     types: [completed]
   # Backfill / retry after a failed publish (e.g. verify_archive bug on 1.8.310).
   # Always runs default-branch code; only the release-run artifact supplies tag/revision.
-  # transport=ghcr: skip COS (US→Beijing upload is UserNetworkTooSlow); nodes pull GHCR via TAT.
+  # Default transport=prod: export on a prod host → Beijing COS → cn warm (avoids GHA→Beijing).
+  # transport=s3: legacy crane publish on the GHA runner (often UserNetworkTooSlow to COS).
+  # transport=ghcr: skip COS; cn nodes docker pull GHCR via TAT (emergency only).
   workflow_dispatch:
     inputs:
       release_run_id:
@@ -13,13 +15,14 @@ on:
         required: true
         type: string
       transport:
-        description: s3 = COS publish+warm; ghcr = nodes docker pull GHCR (no COS upload)
+        description: prod = prod docker→COS (standard); s3 = GHA crane→COS; ghcr = pull GHCR
         required: true
         type: choice
         options:
+          - prod
           - s3
           - ghcr
-        default: s3
+        default: prod
 permissions:
   contents: read
   actions: read
@@ -40,6 +43,7 @@ jobs:
       source_sha: ${{ steps.repo.outputs.sha }}
       tag: ${{ steps.source.outputs.tag }}
       revision: ${{ steps.source.outputs.revision }}
+      transport: ${{ steps.transport.outputs.transport }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -80,17 +84,24 @@ jobs:
         run: |
           python3 deploy/domestic/image_distribution.py resolve \
             --source-file release-source/cn-image-source.json --github-output "$GITHUB_OUTPUT"
+      - name: Resolve transport
+        id: transport
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "transport=${{ inputs.transport }}" >> "$GITHUB_OUTPUT"
+          else
+            # Release-triggered runs use the standard prod→COS path.
+            echo "transport=prod" >> "$GITHUB_OUTPUT"
+          fi
 
   publish:
     needs: resolve
     if: >-
-      needs.resolve.result == 'success' && (
-        github.event_name == 'workflow_run' ||
-        inputs.transport == 's3'
-      )
+      needs.resolve.result == 'success' &&
+      needs.resolve.outputs.transport == 's3'
     runs-on: ubuntu-latest
-    # First COS publish of a multi-arch gateway image can exceed the old 25m
-    # budget (v1.8.381 timed out mid-upload with an empty receipt).
+    # Legacy GHA→COS path; prefer publish-from-prod. Kept for emergency backfill.
     timeout-minutes: 60
     environment: tencent-ops
     permissions:
@@ -117,14 +128,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish verified cn-prod image archive
+      - name: Publish verified cn-prod image archive (legacy GHA crane)
         env:
           RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
           RELEASE_REVISION: ${{ needs.resolve.outputs.revision }}
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
-          # Belt-and-suspenders with s3_client BotocoreConfig: COS rejects
-          # botocore flexible-checksum / aws-chunked UploadPart bodies.
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
         run: |
@@ -160,12 +169,129 @@ jobs:
           name: cn-image-render
           path: cn-image-render.json
           if-no-files-found: error
-          # The file contains short-lived presigned URLs and is never printed.
+          retention-days: 1
+
+  publish-from-prod:
+    needs: resolve
+    if: >-
+      needs.resolve.result == 'success' &&
+      needs.resolve.outputs.transport == 'prod'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: tencent-ops
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      AWS_REGION: eu-west-2
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Require AWS OIDC role for prod SSM
+        run: |
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set" >&2
+            exit 1
+          fi
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Publish from prod host to Beijing COS
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_REVISION: ${{ needs.resolve.outputs.revision }}
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.repository_owner }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          set -euo pipefail
+          REPO="ghcr.io/${GITHUB_REPOSITORY,,}"
+          chmod +x deploy/domestic/probe_publish_cn_from_prod.sh
+          bash ops/observability/run-probe.sh --target prod --node app-cand \
+            --script deploy/domestic/probe_publish_cn_from_prod.sh \
+            --with deploy/domestic/image_distribution.py \
+            --with deploy/domestic/image_archive.py \
+            --with deploy/domestic/image-distribution.json \
+            --env "RELEASE_TAG=${RELEASE_TAG}" \
+            --env "RELEASE_REVISION=${RELEASE_REVISION}" \
+            --env "GHCR_REPOSITORY=${REPO}" \
+            --env "TENCENTCLOUD_SECRET_ID=${TENCENTCLOUD_SECRET_ID}" \
+            --env "TENCENTCLOUD_SECRET_KEY=${TENCENTCLOUD_SECRET_KEY}" \
+            --env "GHCR_TOKEN=${GHCR_TOKEN}" \
+            --env "GHCR_USER=${GHCR_USER}" \
+            --timeout-seconds 2400 \
+            --comment "publish ${RELEASE_TAG} from prod to Beijing COS" \
+            | tee cn-image-publish.log
+          # Last JSON object from publish-docker stdout becomes the receipt.
+          python3 - <<'PY'
+          import json, pathlib, re
+          text = pathlib.Path("cn-image-publish.log").read_text()
+          objs = []
+          decoder = json.JSONDecoder()
+          for match in re.finditer(r"\{", text):
+              try:
+                  obj, _ = decoder.raw_decode(text[match.start():])
+              except json.JSONDecodeError:
+                  continue
+              if isinstance(obj, dict) and "archive_sha256" in obj:
+                  objs.append(obj)
+          if not objs:
+              raise SystemExit("publish-from-prod produced no archive receipt JSON")
+          pathlib.Path("cn-image-publish.json").write_text(json.dumps(objs[-1], sort_keys=True) + "\n")
+          print(json.dumps(objs[-1], sort_keys=True))
+          PY
+      - name: Render per-node private COS prewarm scripts
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_REVISION: ${{ needs.resolve.outputs.revision }}
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q boto3
+          python3 deploy/domestic/warm_fanout.py render-all \
+            --manifest deploy/domestic/prod-target.json \
+            --tag "$RELEASE_TAG" \
+            --revision "$RELEASE_REVISION" \
+            --transport s3 \
+            --channel tat \
+            --render-out "cn-image-render.json"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: cn-image-publish-receipts
+          path: |
+            cn-image-publish.json
+            cn-image-publish.log
+          if-no-files-found: warn
+          retention-days: 7
+      - uses: actions/upload-artifact@v7
+        if: success()
+        with:
+          name: cn-image-render
+          path: cn-image-render.json
+          if-no-files-found: error
           retention-days: 1
 
   warm:
-    needs: [resolve, publish]
-    if: needs.publish.result == 'success'
+    needs: [resolve, publish, publish-from-prod]
+    if: >-
+      always() &&
+      needs.resolve.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish-from-prod.result == 'success') &&
+      needs.resolve.outputs.transport != 'ghcr'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: tencent-ops

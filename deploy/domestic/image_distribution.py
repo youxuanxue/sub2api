@@ -164,21 +164,55 @@ def retag_archive(source, target, tag):
             output.addfile(member, handle)
 
 
-def publish(client, bucket, tag, revision, repository):
-    import time
-
-    key = prefix(tag, revision)
+def _registry_digest_and_manifest(repository, tag):
     source = f'{repository}:{tag}'
-    t0 = time.monotonic()
-    def phase(name):
-        print(f'[publish] {name} +{time.monotonic() - t0:.1f}s', flush=True)
-
-    phase(f'digest {source}')
-    digest = subprocess.check_output(['crane', 'digest', '--platform=linux/amd64', source], text=True).strip()
+    digest = subprocess.check_output(
+        ['crane', 'digest', '--platform=linux/amd64', source], text=True).strip()
     raw = subprocess.check_output(['crane', 'manifest', f'{repository}@{digest}'])
     # crane adds a newline when printing a manifest; keep registry bytes exact.
     if 'sha256:' + hashlib.sha256(raw).hexdigest() != digest:
         raw = raw.rstrip(b'\n')
+    return digest, raw
+
+
+def _finalize_publish(client, bucket, key, archive, receipt, digest, phase):
+    config = verify_archive(archive, receipt)
+    receipt['diff_ids'] = list(config['rootfs']['diff_ids'])
+    phase(f'cos multipart upload bytes={receipt["bytes"]} sha={receipt["archive_sha256"][:12]}')
+    immutable_put_file(client, bucket, f'{key}/{receipt["archive_sha256"]}.tar', archive)
+    # Manifest is the completion marker, written last.
+    body = (json.dumps(receipt, sort_keys=True) + '\n').encode()
+    try:
+        immutable_put(client, bucket, f'{key}/manifest.json', body)
+    except ValueError:
+        # Same archive already completed (e.g. older receipt without optional
+        # diff_ids). Never overwrite; reuse the published completion marker.
+        existing = json.loads(
+            client.get_object(Bucket=bucket, Key=f'{key}/manifest.json')['Body'].read())
+        validate_receipt(existing, tag=receipt['tag'], revision=receipt['revision'], digest=digest)
+        if existing.get('archive_sha256') != receipt['archive_sha256']:
+            raise ValueError('immutable S3 object conflicts with this artifact') from None
+        phase('reuse existing manifest')
+        return existing
+    phase('done')
+    return receipt
+
+
+def publish(client, bucket, tag, revision, repository):
+    """Legacy CI path: crane pull on the runner, then upload to Beijing COS.
+
+    Prefer :func:`publish_from_docker` on a prod host (standard path).
+    """
+    import time
+
+    key = prefix(tag, revision)
+    t0 = time.monotonic()
+
+    def phase(name):
+        print(f'[publish] {name} +{time.monotonic() - t0:.1f}s', flush=True)
+
+    phase(f'digest {repository}:{tag}')
+    digest, raw = _registry_digest_and_manifest(repository, tag)
     archive_tag = f'tokenkey-domestic/archive:{digest.removeprefix("sha256:")}'
     with tempfile.TemporaryDirectory(prefix='cn-image-') as temp:
         archive = Path(temp) / 'image.tar'
@@ -193,29 +227,57 @@ def publish(client, bucket, tag, revision, repository):
         retag_archive(original, archive, archive_tag)
         with archive.open('rb') as handle:
             archive_sha = sha256(handle)
-        receipt = {'schema_version': 1, 'tag': tag, 'revision': revision, 'source_digest': digest,
-                       'archive_tag': archive_tag, 'archive_sha256': archive_sha,
-                       'bytes': archive.stat().st_size, 'manifest_raw': raw.decode(), 'manifest': json.loads(raw)}
-        config = verify_archive(archive, receipt)
-        receipt['diff_ids'] = list(config['rootfs']['diff_ids'])
-        phase(f'cos multipart upload bytes={receipt["bytes"]} sha={archive_sha[:12]}')
-        immutable_put_file(client, bucket, f'{key}/{archive_sha}.tar', archive)
-        # Manifest is the completion marker, written last.
-        body = (json.dumps(receipt, sort_keys=True) + '\n').encode()
-        try:
-            immutable_put(client, bucket, f'{key}/manifest.json', body)
-        except ValueError:
-            # Same archive already completed (e.g. older receipt without optional
-            # diff_ids). Never overwrite; reuse the published completion marker.
-            existing = json.loads(
-                client.get_object(Bucket=bucket, Key=f'{key}/manifest.json')['Body'].read())
-            validate_receipt(existing, tag, revision, digest)
-            if existing.get('archive_sha256') != archive_sha:
-                raise ValueError('immutable S3 object conflicts with this artifact') from None
-            phase('reuse existing manifest')
-            return existing
-    phase('done')
-    return receipt
+        receipt = {
+            'schema_version': 1, 'tag': tag, 'revision': revision, 'source_digest': digest,
+            'archive_tag': archive_tag, 'archive_sha256': archive_sha,
+            'bytes': archive.stat().st_size, 'manifest_raw': raw.decode(),
+            'manifest': json.loads(raw), 'publish_source': 'crane-ci',
+        }
+        return _finalize_publish(client, bucket, key, archive, receipt, digest, phase)
+
+
+def publish_from_docker(client, bucket, tag, revision, repository, image_ref=''):
+    """Standard path: export a local docker image (on prod) and upload to Beijing COS.
+
+    Registry digest/manifest still come from crane for provenance. Archive bytes
+    come from ``docker save`` of the local image (pull ``repository@digest`` first
+    when the ref is missing). Upload egress is from the prod host, not GHA→Beijing.
+    """
+    import time
+
+    key = prefix(tag, revision)
+    t0 = time.monotonic()
+
+    def phase(name):
+        print(f'[publish-docker] {name} +{time.monotonic() - t0:.1f}s', flush=True)
+
+    phase(f'digest {repository}:{tag}')
+    digest, raw = _registry_digest_and_manifest(repository, tag)
+    archive_tag = f'tokenkey-domestic/archive:{digest.removeprefix("sha256:")}'
+    local = image_ref or f'{repository}@{digest}'
+    phase(f'ensure local image {local}')
+    inspect = subprocess.run(
+        ['docker', 'image', 'inspect', local], capture_output=True, text=True, check=False)
+    if inspect.returncode != 0:
+        phase(f'docker pull {repository}@{digest}')
+        subprocess.run(['docker', 'pull', f'{repository}@{digest}'], check=True)
+        local = f'{repository}@{digest}'
+    with tempfile.TemporaryDirectory(prefix='cn-image-') as temp:
+        archive = Path(temp) / 'image.tar'
+        original = Path(temp) / 'original.tar'
+        phase(f'docker save {local}')
+        subprocess.run(['docker', 'save', '-o', str(original), local], check=True)
+        phase(f'retag bytes={original.stat().st_size}')
+        retag_archive(original, archive, archive_tag)
+        with archive.open('rb') as handle:
+            archive_sha = sha256(handle)
+        receipt = {
+            'schema_version': 1, 'tag': tag, 'revision': revision, 'source_digest': digest,
+            'archive_tag': archive_tag, 'archive_sha256': archive_sha,
+            'bytes': archive.stat().st_size, 'manifest_raw': raw.decode(),
+            'manifest': json.loads(raw), 'publish_source': 'prod-docker',
+        }
+        return _finalize_publish(client, bucket, key, archive, receipt, digest, phase)
 
 
 def render(client, bucket, tag, revision, digest=''):
@@ -256,13 +318,21 @@ def resolve_source(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['publish', 'render', 'resolve'])
+    parser.add_argument(
+        'action',
+        choices=['publish', 'publish-docker', 'render', 'resolve'],
+        help='publish=legacy GHA crane; publish-docker=standard prod docker save→COS',
+    )
     parser.add_argument('--tag')
     parser.add_argument('--revision')
     parser.add_argument('--source-file', type=Path)
     parser.add_argument('--github-output', type=Path)
     parser.add_argument('--digest', default='')
     parser.add_argument('--repository', default='ghcr.io/youxuanxue/sub2api')
+    parser.add_argument(
+        '--image', default='',
+        help='local docker ref for publish-docker (default: repository@amd64 digest)',
+    )
     args = parser.parse_args()
     if args.action == 'resolve':
         if not args.source_file or not args.github_output:
@@ -272,13 +342,19 @@ def main():
             handle.write(output)
         return
     if not args.tag or not args.revision:
-        parser.error('publish/render require --tag and --revision')
+        parser.error('publish/publish-docker/render require --tag and --revision')
     identity(args.tag, args.revision)
     config = settings()
     client = s3_client(config)
     if args.action == 'publish':
         result = publish(client, config['bucket'], args.tag, args.revision, args.repository)
-        print(json.dumps({k: result[k] for k in ('tag', 'revision', 'source_digest', 'archive_sha256', 'bytes')}))
+        print(json.dumps({k: result[k] for k in ('tag', 'revision', 'source_digest', 'archive_sha256', 'bytes',
+                                                   'publish_source') if k in result}))
+    elif args.action == 'publish-docker':
+        result = publish_from_docker(
+            client, config['bucket'], args.tag, args.revision, args.repository, args.image)
+        print(json.dumps({k: result[k] for k in ('tag', 'revision', 'source_digest', 'archive_sha256', 'bytes',
+                                                   'publish_source') if k in result}))
     else:
         print(render(client, config['bucket'], args.tag, args.revision, args.digest))
 

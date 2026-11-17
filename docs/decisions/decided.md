@@ -1,5 +1,17 @@
 # 已决定
 
+## 2026-11-17 cn-prod 镜像标准路径：prod 导出 → 北京 COS → 同城拉取
+
+原话：「北京的镜像应该从 prod 导出上传到 北京 cos，再从北京 cos 拉下来使用。这条变为标准路径」
+
+适用范围：cn-prod 镜像分发。默认不再从美西 GHA 直传 COS，也不以 GHCR 跨境 pull 为主路径。标准顺序：prod 已有该 tag/revision 镜像 → 在 prod 导出并上传北京 COS → cn-prod 各应用机同城 COS warm → rolling。GHA→COS / `transport=ghcr` 仅作应急回退。见 `docs/approved/design-cn-image-cos.md`、`cn-prod-image-distribution.md`。
+
+## 2026-11-17 cn-prod rolling：drain 超时强排（有上限）
+
+原话：「应该超时强排吧」；后续收紧：「强排应该有限制：超时（10分钟）且 in-flight 不超过 10 才强排」
+
+适用范围：cn-prod `rolling.py`。`in_flight` 等满 `DRAIN_MAX`（10min）后：仅当 `/health=503` 且 `0 < in_flight ≤ 10` 时强排继续；未进 503，或 `in_flight > 10`，仍 abort（USR2 放回旧容器）。写入 `docs/approved/design-cn-prod-rolling-deploy.md` §4。
+
 ## 2026-11-17 cn-prod 镜像分发改腾讯 COS
 
 原话：「Tokyo 镜像分发桶 → COS。同意。请继续。务必精简、高效，不要复杂化。」
