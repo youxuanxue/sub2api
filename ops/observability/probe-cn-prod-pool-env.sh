@@ -13,8 +13,8 @@ CADDY_FILE="${CADDY_FILE:-/var/lib/tokenkey/caddy/Caddyfile}"
 APPLY="${APPLY:-}"
 
 export WANT_GOMEM="2GiB"
-export WANT_DB_OPEN="40"
-export WANT_DB_IDLE="10"
+export WANT_DB_OPEN="80"
+export WANT_DB_IDLE="20"
 export WANT_REDIS_POOL="96"
 export WANT_REDIS_IDLE="8"
 export OVERRIDE CADDY_FILE APPLY

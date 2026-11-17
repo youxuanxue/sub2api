@@ -1,0 +1,8 @@
+{
+  "phase": "client_host_monitor_peaks",
+  "host": "tk-cn-loadtest",
+  "samples": 268,
+  "loadavg1_peak": 9.26,
+  "loadavg1_p95": 7.76,
+  "mem_available_kb_min": 5754260
+}

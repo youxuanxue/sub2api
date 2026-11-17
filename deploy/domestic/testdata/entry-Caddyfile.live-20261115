@@ -8,8 +8,8 @@
 (tk_backends) {
 	reverse_proxy {
 		to 10.2.4.11:8080 10.2.4.13:8080
-		# app-a 4C16G : app-b 2C4G
-		lb_policy weighted_round_robin 3 1
+		# app-a 4C16G : app-b 4C8G (equal weight after 2026-11-17 resize)
+		lb_policy weighted_round_robin 1 1
 		flush_interval -1
 		health_uri /health
 		health_interval 3s

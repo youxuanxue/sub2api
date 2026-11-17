@@ -55,7 +55,7 @@
       "lighthouse_instance_id": "lhins-6qmb3fd6",
       "private_ip": "10.2.4.11",
       "public_ip": "154.8.214.179",
-      "weight": 3,
+      "weight": 1,
       "memory_limit": "3g",
       "ssm_instance_id": "mi-06568963b4b3c3239",
       "external_network": "tokenkey_tokenkey-network"

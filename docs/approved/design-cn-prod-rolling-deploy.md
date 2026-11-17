@@ -6,23 +6,25 @@ approved_at: 2026-11-15
 risk: high
 authors: [agent]
 created_at: 2026-11-15
-revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切通道、容量门槛与名单脚本；补启动即 drain、卡死恢复与锁）
+revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切通道、容量门槛与名单脚本；补启动即 drain、卡死恢复与锁）；2026-11-17（现网拓扑/容量与 `deploy/domestic` SSOT 对齐：app-b 4C8G、WRR 1:1、池 80、PG 400）
 ---
 
 # cn-prod 多应用机滚动发版
 
 ## 背景
 
-2026-11-15 cn-prod 已切到「入口机 + 两台应用机 + 数据机」：
+2026-11-15 cn-prod 已切到「入口机 + 两台应用机 + 数据机」。**现网拓扑（2026-11-17）**以 `deploy/domestic/prod-target.json` + `deploy/domestic/README.md` + `compose.override.yml` 为准：
 
-| 角色 | 实例 | 私网 | 现状 |
+| 角色 | 实例 | 私网 | 现状（2026-11-17） |
 |---|---|---|---|
-| 入口机 | `lhins-j89o28j0` | `10.2.4.7` | Caddy 终止 `api.galaxywaveai.com` TLS，`weighted_round_robin 3 1`，主动健康检查 3s，连续 2 次失败摘除，`lb_try_duration 30s` |
-| app-a | `lhins-6qmb3fd6` | `10.2.4.11` | 4C16G，仍是单机蓝绿，私网入口靠 socat 容器 `tokenkey-entry-origin` |
-| app-b | `lhins-0kxx7cco` | `10.2.4.13` | 2C4G，单容器 `tokenkey` 直接监听 `10.2.4.13:8080`，主机上手写 `compose.appb.yml` |
-| 数据机 | `lhins-odyx5eis` | `10.2.4.5` | PG `max_connections=200`，当前 23 条连接；源 ACL 已含 `.11` 与 `.13` |
+| 入口机 | `lhins-j89o28j0` | `10.2.4.7` | Caddy 终止 `api.galaxywaveai.com` TLS，`weighted_round_robin 1 1`，主动健康检查 3s，连续 2 次失败摘除，`lb_try_duration 30s` |
+| app-a | `lhins-6qmb3fd6` | `10.2.4.11` | 4C16G（`bundle_rs_mc_lg16_01`），单容器 `tokenkey`，监听 `10.2.4.11:8080` |
+| app-b | `lhins-0kxx7cco` | `10.2.4.13` | 4C8G（`bundle_rs_mc_lg8_01`，由 2C4G 升配），单容器 `tokenkey`，监听 `10.2.4.13:8080` |
+| 数据机 | `lhins-odyx5eis` | `10.2.4.5` | PG `max_connections=400`（2026-11-17 由 200 升，见审批）；源 ACL 已含 `.11` 与 `.13` |
 
-要解决的问题：
+> 历史快照（2026-11-15 设计批准时）：入口 WRR 曾为 `3 1`；app-a 仍蓝绿+socat；app-b 为 2C4G 手写 `compose.appb.yml`；PG `max_connections=200`。下文迁移步骤（M1–M6）描述的是当时要解决的问题，不是今日现状。
+
+要解决的问题（2026-11-15 批准时）：
 
 - 发版只认 `prod-target.json` 里的一台应用机。下次发版 app-b 会落后一个版本，同时按权重接 1/4 流量。
 - 入口机和 app-b 没有看门狗。app-a 的看门狗测 `https://154.8.214.179/health`，这条是 app-a 直连，不经过入口机。
@@ -48,12 +50,12 @@ revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切�
 "entry": {"lighthouse_instance_id": "lhins-j89o28j0", "private_ip": "10.2.4.7"},
 "apps": [
   {"name": "app-b", "lighthouse_instance_id": "lhins-0kxx7cco", "private_ip": "10.2.4.13", "weight": 1},
-  {"name": "app-a", "lighthouse_instance_id": "lhins-6qmb3fd6", "private_ip": "10.2.4.11", "weight": 3,
+  {"name": "app-a", "lighthouse_instance_id": "lhins-6qmb3fd6", "private_ip": "10.2.4.11", "weight": 1,
    "ssm_instance_id": "mi-06568963b4b3c3239"}
 ]
 ```
 
-- `apps[]` 的顺序就是滚动顺序，小机器在前当金丝雀。
+- `apps[]` 的顺序就是滚动顺序，金丝雀位在前（app-b）。权重现网为 1:1（2026-11-17；此前 app-a 权重 3）。
 - `public_origin` 改成域名后，`host_https_watch.py` 就改测入口机，代码不用动。不过这一步要等 app-a 直连流量归零后再做（见 M3）。
 - 加减应用机仍按 README 的清单逐项执行，不另写名单同步脚本。
 
@@ -128,8 +130,9 @@ revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切�
 
 ## 容量核算
 
-- 两台应用机各配 `DATABASE_MAX_OPEN_CONNS=40`，合计最多 80 条，PG 上限 200，当前 23 条。prod 的 50 条另算，在 prod 数据机上，不占这里的额度。
-- app-b 是 4G 内存，`memory_limit` 3g，实测只用 139MiB。M4 期间 app-b 单独承接全部流量，按 app-a 当前 CPU 23%（4 核）折算，2 核大约 46%（推测）。M4 要选在低峰执行，执行前再按前置检查的阈值确认一次。
+**现网（2026-11-17）**：两台应用机各配 `DATABASE_MAX_OPEN_CONNS=80` / idle=20（`compose.override.yml`），合计最多 160 open；数据机 PG `max_connections=400`。`GATEWAY_MAX_IN_FLIGHT_REQUESTS=512`，`REDIS_POOL_SIZE=96`。prod 的池另算，在 prod 数据机上。依据：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-20261117.md`、`docs/ops/approvals/cn-prod-pg-max-connections-200-to-400.md`。
+
+历史（2026-11-15 设计时）：各机 open=40 合计 80、PG 上限 200；app-b 仍是 2C4G/`memory_limit` 3g。M4 期间 app-b 单独承接全部流量须低峰执行——该迁移步骤已完成，数值勿当作今日 SSOT。
 
 ## 不变量
 

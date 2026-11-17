@@ -114,13 +114,14 @@ class EntryCaddyTest(unittest.TestCase):
         self.assertIn('to 10.2.4.13:8080 10.2.4.15:8080', rendered)
         self.assertIn('lb_policy weighted_round_robin 1 2', rendered)
 
-    def test_live_order_puts_heavier_app_a_first_while_apps_order_is_rolling_order(self):
+    def test_live_order_puts_app_a_first_while_apps_order_is_rolling_order(self):
         # apps[] is rolling order (app-b first). The live entry lists app-a
         # first; Caddy weights are positional, so the renderer sorts by the
         # private IP to keep the to/weight pairs and the live file aligned.
+        # After 2026-11-17 app-b resize both apps are weight 1.
         rendered = entry_caddy.normalized(entry_caddy.render(self.target))
         self.assertIn('to 10.2.4.11:8080 10.2.4.13:8080', rendered)
-        self.assertIn('lb_policy weighted_round_robin 3 1', rendered)
+        self.assertIn('lb_policy weighted_round_robin 1 1', rendered)
 
     def test_invalid_targets_are_refused(self):
         for mutate in (lambda t: t['apps'].clear(),
@@ -141,10 +142,10 @@ class EntryCaddyTest(unittest.TestCase):
             code, out = run(entry_caddy.main, ['--diff', str(live)])
             self.assertEqual((code, json.loads(out)), (0, {'equivalent': True}))
             self.assertEqual(live.read_bytes(), before)
-            live.write_text(LIVE_ENTRY.replace('weighted_round_robin 3 1', 'weighted_round_robin 1 1'))
+            live.write_text(LIVE_ENTRY.replace('weighted_round_robin 1 1', 'weighted_round_robin 3 1'))
             code, out = run(entry_caddy.main, ['--diff', str(live)])
             self.assertEqual(code, 1)
-            self.assertIn('weighted_round_robin 3 1', out)
+            self.assertIn('weighted_round_robin 1 1', out)
 
 
 if __name__ == '__main__':
