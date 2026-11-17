@@ -17,16 +17,35 @@ func TestChatToMessagesToolsAndCachePlan(t *testing.T) {
 	require.Equal(t, ProtocolMessages, plan.TargetProtocol())
 }
 
+func TestChatToMessagesAdmitsImageAndReasoningEffort(t *testing.T) {
+	for name, body := range map[string]string{
+		"reasoning_effort": `{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"high"}`,
+		"https_image":      `{"model":"claude-fable-5","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.com/image.png"}}]}]}`,
+		"data_image":       `{"model":"claude-fable-5","messages":[{"role":"user","content":[{"type":"text","text":"what"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AQID"}}]}]}`,
+		"image_and_effort": `{"model":"claude-fable-5","reasoning_effort":"medium","messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"https://example.com/a.png"}}]}]}`,
+		"thinking_only":    `{"model":"claude-fable-5","thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"hello"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req, err := ParseCanonicalRequest(ProtocolChatCompletions, ResponsesPathNone, "claude-fable-5", true, []byte(body))
+			require.NoError(t, err)
+			plan, err := New(allTestAdapters()).Plan(req, testAccount(t, ProtocolMessages))
+			require.NoError(t, err)
+			require.Equal(t, AdapterChatToMessages, plan.AdapterID())
+		})
+	}
+}
+
 func TestChatToMessagesRejectsUnsupportedSemantics(t *testing.T) {
 	for name, extra := range map[string]string{
 		"strict tool":       `"tools":[{"type":"function","function":{"name":"lookup","strict":true}}]`,
 		"hosted tool":       `"tools":[{"type":"web_search"}]`,
 		"named undeclared":  `"tool_choice":{"type":"function","function":{"name":"missing"}}`,
 		"structured output": `"response_format":{"type":"json_schema"}`,
-		"reasoning":         `"reasoning_effort":"high"`,
+		"thinking+effort":   `"thinking":{"type":"adaptive"},"reasoning_effort":"high"`,
 		"prompt cache key":  `"prompt_cache_key":"session"`,
 		"continuation":      `"previous_response_id":"resp_1"`,
 		"legacy function":   `"functions":[{"name":"lookup"}]`,
+		"root reasoning":    `"reasoning":{"effort":"high"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			body := []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],` + extra + `}`)
@@ -40,7 +59,6 @@ func TestChatToMessagesRejectsUnsupportedSemantics(t *testing.T) {
 		"orphan result":     `[{"role":"tool","tool_call_id":"call_missing","content":"result"}]`,
 		"invalid arguments": `[{"role":"assistant","tool_calls":[{"id":"call_a","type":"function","function":{"name":"lookup","arguments":"invalid"}}]}]`,
 		"missing result":    `[{"role":"assistant","tool_calls":[{"id":"call_a","type":"function","function":{"name":"lookup","arguments":"{}"}}]}]`,
-		"image":             `[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.com/image.png"}}]}]`,
 		"invalid cache":     `[{"role":"user","content":[{"type":"text","text":"hello","cache_control":{"type":"ephemeral","ttl":"2h"}}]}]`,
 		"conflicting cache": `[{"role":"user","cache_control":{"type":"ephemeral","ttl":"5m"},"content":[{"type":"text","text":"hello","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]`,
 	} {

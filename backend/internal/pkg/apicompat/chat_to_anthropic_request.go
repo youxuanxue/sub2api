@@ -88,7 +88,7 @@ func hasChatMessageCache(messages []ChatMessage) bool {
 	return false
 }
 
-func chatAnthropicTextBlocks(raw json.RawMessage) ([]AnthropicContentBlock, error) {
+func chatAnthropicContentBlocks(raw json.RawMessage) ([]AnthropicContentBlock, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, nil
 	}
@@ -105,10 +105,24 @@ func chatAnthropicTextBlocks(raw json.RawMessage) ([]AnthropicContentBlock, erro
 	}
 	blocks := make([]AnthropicContentBlock, 0, len(parts))
 	for _, part := range parts {
-		if part.Type != "text" || strings.TrimSpace(part.Text) == "" {
-			return nil, fmt.Errorf("messages cache conversion requires nonempty text blocks")
+		switch part.Type {
+		case "text":
+			if strings.TrimSpace(part.Text) == "" {
+				return nil, fmt.Errorf("messages conversion requires nonempty text blocks")
+			}
+			blocks = append(blocks, AnthropicContentBlock{Type: "text", Text: part.Text, CacheControl: part.CacheControl})
+		case "image_url":
+			if part.ImageURL == nil || strings.TrimSpace(part.ImageURL.URL) == "" || isEmptyBase64DataURI(part.ImageURL.URL) {
+				return nil, fmt.Errorf("messages conversion requires a nonempty image_url")
+			}
+			src := anthropicImageSourceFromURL(part.ImageURL.URL)
+			if src == nil {
+				return nil, fmt.Errorf("messages conversion requires data-URI or http(s) image_url")
+			}
+			blocks = append(blocks, AnthropicContentBlock{Type: "image", Source: src, CacheControl: part.CacheControl})
+		default:
+			return nil, fmt.Errorf("messages conversion does not preserve content part %q", part.Type)
 		}
-		blocks = append(blocks, AnthropicContentBlock{Type: "text", Text: part.Text, CacheControl: part.CacheControl})
 	}
 	return blocks, nil
 }
@@ -120,7 +134,7 @@ func chatCacheAwareAnthropicMessages(req *ChatCompletionsRequest) (json.RawMessa
 	}
 	var messages []AnthropicMessage
 	for _, m := range req.Messages {
-		blocks, err := chatAnthropicTextBlocks(m.Content)
+		blocks, err := chatAnthropicContentBlocks(m.Content)
 		if err != nil {
 			return nil, nil, err
 		}

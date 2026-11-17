@@ -21,7 +21,9 @@ func freshChatToResponsesPreservation(req CanonicalRequest) bool {
 }
 
 func freshChatToMessagesPreservation(req CanonicalRequest) bool {
-	if req.profile.ContentKinds != ContentText || req.profile.Continuation != ContinuationNone ||
+	allowed := ContentText | ContentImage
+	if req.profile.ContentKinds == 0 || req.profile.ContentKinds&^allowed != 0 ||
+		req.profile.Continuation != ContinuationNone ||
 		req.profile.PromptCache == PromptCacheKey {
 		return false
 	}
@@ -33,7 +35,7 @@ func freshChatToMessagesPreservation(req CanonicalRequest) bool {
 	if json.Unmarshal(req.body, &chat) != nil || apicompat.ValidateChatToAnthropic(&chat) != nil {
 		return false
 	}
-	return req.profile.Reasoning == ReasoningNone || (len(chat.Thinking) > 0 && string(chat.Thinking) != "null" && chat.ReasoningEffort == "")
+	return true
 }
 
 func TestChatPreservationMemoMatchesFreshComputation(t *testing.T) {

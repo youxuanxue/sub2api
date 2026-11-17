@@ -85,7 +85,7 @@ func ValidateChatToAnthropic(req *ChatCompletionsRequest) error {
 		default:
 			return invalid
 		}
-		blocks, err := chatAnthropicTextBlocks(message.Content)
+		blocks, err := chatAnthropicContentBlocks(message.Content)
 		if err != nil {
 			return invalid
 		}
