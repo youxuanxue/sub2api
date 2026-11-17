@@ -159,7 +159,7 @@ Design baselines: `docs/approved/design-data-layer-prod-export-canary.md`,
 | Identity | `ops/archive/cos_archive_identity.py`（AWS 目的地 fail-closed） |
 | host-config 上传 | `python3 ops/archive/upload_host_config.py --file … --label …`（默认 plan；`--apply` 才写） |
 | promote / export | 已接同一 COS identity；export 远端主机需 `/etc/tokenkey/cos-archive.env` |
-| canary | **未接 COS**：生产入口对 AWS staging fail-closed，禁止半截写入 |
-| 凭据 | `TK_COS_ARCHIVE_CREDENTIALS` 或 `/etc/tokenkey/cos-archive.env`（`secretId`/`secretKey`；勿进 Git） |
+| canary | 已接同一 COS identity（前缀 `prod/ops-archive-export/archive-canary`）；默认 `PROD_SSM_NODE=data` |
+| 凭据 | 复用 backup CAM：prod data 已装 `/etc/tokenkey/cos-archive.env`（root 0600；与 `cos-backup.env` 同密钥，不新建子用户）。控制器可用 `TK_COS_ARCHIVE_CREDENTIALS` |
 
 历史 AWS CFN `tokenkey-stage0-archive` 仅作风控收尸（30 天自删，实例角色只读），不再作为新写入目的地。

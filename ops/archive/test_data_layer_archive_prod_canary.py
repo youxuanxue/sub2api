@@ -25,7 +25,7 @@ import data_layer_archive_rehearsal as rehearsal  # noqa: E402
 
 
 _INSTANCE_ID = "i-0123456789abcdef0"
-_STAGING_BASE = "s3://test-backups/prod/pgdump/archive-canary"
+_STAGING_BASE = "s3://tokenkey-prod-ops-archive-1320330536/prod/ops-archive-export/archive-canary"
 _HOLD_STARTED_AT = "2026-07-21T02:30:00.000000Z"
 
 
@@ -685,9 +685,10 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             ]
         )
 
-    def test_run_canary_refuses_aws_backup_stack_destination(self) -> None:
-        # design-cos-object-archive: canary stays fail-closed on AWS until
-        # explicitly rewired to cos-archive.json (no half-wired S3 writes).
+    def test_run_canary_refuses_aws_bucket_even_with_cos_settings_override(
+        self,
+    ) -> None:
+        # design-cos-object-archive: staging must be the approved COS bucket.
         args = argparse.Namespace(
             confirm=canary.PROD_CONFIRMATION,
             table="ops_system_logs",
@@ -703,30 +704,73 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             cleanup_hold_receipt="/tmp/tokenkey-prod-canary-hold.json",
             seed=7,
         )
-        with mock.patch.object(
-            canary, "_prod_instance", return_value=_INSTANCE_ID
-        ), mock.patch.object(
-            canary, "_stack_output", return_value="tokenkey-prod-archive-682751977094"
-        ), mock.patch.object(
-            canary, "_stack_parameter", return_value="7"
-        ), mock.patch.object(
-            canary.cleanup_hold,
-            "verify_receipt_for_instance",
-            return_value={"hold_started_at": _HOLD_STARTED_AT},
-        ), mock.patch.object(
-            canary.cleanup_hold,
-            "verify",
-            return_value={
-                "instance_id": _INSTANCE_ID,
-                "server_clock": "2026-07-21T03:00:00Z",
-                "no_cleanup_after_hold": True,
-            },
-        ), mock.patch.object(
-            canary, "stage_remote_bundle"
-        ) as stage:
-            with self.assertRaisesRegex(canary.CanaryError, "approved COS bucket"):
-                canary.run_canary(args)
-        stage.assert_not_called()
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = pathlib.Path(tmp) / "cos-archive.json"
+            settings.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "bucket": "tokenkey-prod-archive-682751977094",
+                        "region": "us-east-1",
+                        "endpoint": "s3.amazonaws.com",
+                        "prefixes": {
+                            "ops_archive": "prod/ops-archive",
+                            "ops_archive_export": "prod/ops-archive-export",
+                            "host_config": "prod/host-config",
+                        },
+                        "expire_days": {
+                            "ops_archive": 400,
+                            "ops_archive_export": 7,
+                            "host_config": 90,
+                        },
+                        "forbidden_aws_buckets": [
+                            "tokenkey-prod-archive-682751977094",
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.dict(
+                "os.environ", {"TK_COS_ARCHIVE_SETTINGS": str(settings)}
+            ), mock.patch.object(
+                canary, "_prod_instance", return_value=_INSTANCE_ID
+            ), mock.patch.object(
+                canary.cleanup_hold,
+                "verify_receipt_for_instance",
+                return_value={"hold_started_at": _HOLD_STARTED_AT},
+            ), mock.patch.object(
+                canary.cleanup_hold,
+                "verify",
+                return_value={
+                    "instance_id": _INSTANCE_ID,
+                    "server_clock": "2026-07-21T03:00:00Z",
+                    "no_cleanup_after_hold": True,
+                },
+            ), mock.patch.object(
+                canary, "stage_remote_bundle"
+            ) as stage:
+                with self.assertRaisesRegex(
+                    canary.CanaryError, "must not be AWS|forbidden AWS|endpoint"
+                ):
+                    canary.run_canary(args)
+            stage.assert_not_called()
+
+    def test_remote_host_command_loads_cos_credentials(self) -> None:
+        script = canary._remote_host_command(
+            table="ops_system_logs",
+            as_of="2026-07-21T03:00:00Z",
+            instance_id=_INSTANCE_ID,
+            staging_s3_base_uri=_STAGING_BASE,
+            bundle_s3_uri=f"{_STAGING_BASE}/control/{'a' * 64}.tar.gz",
+            bundle_sha256="a" * 64,
+            hold_started_at=_HOLD_STARTED_AT,
+            timeout_seconds=20,
+            max_rows=1_000,
+            max_logical_bytes=16 * 1024 * 1024,
+        )
+        self.assertIn("/etc/tokenkey/cos-archive.env", script)
+        self.assertIn("cos.na-siliconvalley.myqcloud.com", script)
+        self.assertNotIn("amazonaws.com", script)
 
     def test_us039_committed_download_binds_manifest_checksum(self) -> None:
         as_of = "2026-07-21T03:00:00Z"
