@@ -32,13 +32,13 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 `ssm_instance_id` 的应用机；单台用 `--node app-old|app-cand`。不要再把
 `resolve_prod_ssm_target` 的单机默认当成「整站诊断」（改 resolver 默认另批）。
 **2026-11-16 Phase C 代码/矩阵已收敛；2026-11-17 线上布局收口完成**：两台均为单容器
-`tokenkey:1.8.380-894f4f18d`（`private:8080` + `loopback:18080`→200）。
+（`private:8080` + `loopback:18080`→200）。
 2026-11-17：prod 两台应用机与 cn-prod app-a 上已停用的 `tokenkey-blue/green/caddy`
 容器已删除（仅在确认 `tokenkey` healthy 后 `docker rm`；未动 `*-client`）。
 矩阵 `layout.kind=single-container`；
 日常发版走 `rolling.py` + `prod-rolling-deploy.yml`（确认词 `rolling-prod-<tag>`，
-默认 `--via ssm`）。prod rolling receipt：[run 43978840514](https://github.com/youxuanxue/sub2api/actions/runs/43978840514)
-（当时两台已在目标 tag，节点 `mode=skip`；下一次真换版本才会走 full drain/repin）。
+默认 `--via ssm`）。**真换版本 rolling receipt**：[run 44058916390](https://github.com/youxuanxue/sub2api/actions/runs/44058916390)
+（`1.8.381`；`app-cand`/`app-old` 均为 `mode=full` / `outcome=rolled`）。
 `prepare_single_container.py` 仅作历史/重铺参考。旧机脱离 LUKS 是阶段 D
 （须 ≥24h 稳定 + 单台门禁 + 再批准）。
 舰队矩阵形状门禁：`python3 deploy/tencent/check_prod_fleet_matrix.py`。
@@ -193,7 +193,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
 4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本 Lightsail 代理已于 2026-10-23 删除；
    新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
-   AWS 冷归档桶 `tokenkey-prod-archive-682751977094` 已设 30 天过期；东京 physical-backup 桶已不存在（`HeadBucket` 404）。
+   AWS 冷归档桶 `tokenkey-prod-archive-682751977094` lifecycle 30 天自删已启用；东京 physical-backup 与 `cfn-deploy` 镜像桶已不存在（`HeadBucket` 404）。
 5. **告警**：腾讯机上备份/QA retention/coordinator timer 已装；`tokenkey-https-watch.timer` 已接到飞书。Stage0 布局已按例外路径收敛；日常发版走上方 `prod-rolling-deploy.yml`。
 
 ## AWS 残留与环境变量
@@ -211,7 +211,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 | Tokyo EC2 / `aws-fresh` | **已清** | resolver 失败关闭 |
 | `deploy/aws/stage0/` 路径名 | **必须留** | 共享 compose/Caddy/QA owner；迁路径要同步引用与 sentinel |
 | 供应商 AWS 协议（Kiro/Bedrock 等） | **必须留** | 模型能力，不是基础设施残留 |
-| `deploy_via_ssm_bluegreen.sh` | **应急 stub** | 日常走 rolling；workflow 默认拒绝；全文删除另 PR（测试/SSOT 依赖面大） |
+| `deploy_via_ssm_bluegreen.sh` | **已退役入口** | live `layout.kind=single-container` 默认 exit 2；仅 `STAGE0_ALLOW_LEGACY_BLUEGREEN=1` 应急。正文与契约测试刻意保留，**不再单列开放债** |
 
 | 类别 | 当前用途 / owner | 清理条件 |
 |---|---|---|
@@ -219,7 +219,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 | QA raw archive | QA S3 已于 2026-11-08 退役；仓库模板与恢复 CLI 已删除 | CFN `tokenkey-prod-qa-raw-archive`=`DELETE_COMPLETE`（2026-11-09）；桶 `HeadBucket` 404；主机 maintenance/boundary 脚本与 unit 已不存在（2026-11-17 核对）。见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界) |
 | 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
-| 历史 / 休眠 S3 桶 | 见下方「2026-11-17 桶盘点」；Tokyo `cfn-deploy` 镜像中转已改 COS；AWS `archive` 30 天自删收尾 | 休眠桶已按批准销毁；Tokyo 镜像桶确认无新写后可删 |
+| 历史 / 休眠 S3 桶 | 见下方「2026-11-17 桶盘点」；Tokyo `cfn-deploy` 镜像中转已改 COS；AWS `archive` 已开 30 天过期 | 休眠桶与 Tokyo 镜像桶已清；`archive` 桶待对象过期后自然空桶再删 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
 | 第三方 AWS 协议 | Kiro/Bedrock 的 AWS endpoint、SDK/SigV4、S3 兼容客户端 | 属模型供应商/协议能力，不能随基础设施迁移删除 |
 
@@ -242,7 +242,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 
 账户 `682751977094`。此前已 404：**physical-backup**、**qa-raw(-archive)**、**telemetry**。
 
-**本轮已销毁**（`HeadBucket` 404；SSM 恢复材料未动）：
+**已销毁**（`HeadBucket` 404；SSM 恢复材料未动）：
 
 | 桶 | 说明 |
 |---|---|
@@ -250,15 +250,15 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 | `tokenkey-prod-media-682751977094` | 休眠媒体（2 个 `public/` 对象 + 版本残留已清） |
 | `tokenkey-prod-cfn-deploy-682751977094-us-east-1` | 美东 CFN/hotfix 残留 |
 | `tokenkey-prod-pgdump-682751977094` | 7 个旧逻辑 dump（最新 2026-10-20）；保留 `/tokenkey/hetzner/*/stage0/pgdump-storage-recovery` 与 `/tokenkey/prod/stage0/pgdump.b64` |
+| `tokenkey-prod-cfn-deploy-682751977094-ap-northeast-1` | 东京镜像中转；cn-prod 已改北京 COS（[design-cn-image-cos](../../docs/approved/design-cn-image-cos.md)）。2026-11-17 核对 `HeadBucket` 404 |
 
-**仍保留**：
+**仍保留（自删进行中）**：
 
 | 桶 | 区域 | 角色 |
 |---|---|---|
-| `tokenkey-prod-archive-682751977094` | us-east-1 | **收尾中**：全桶 30 天自删；**新对象归档禁止写入**。活目的地见腾讯 COS `tokenkey-prod-ops-archive-1320330536`（[design-cos-object-archive](../../docs/approved/design-cos-object-archive.md)） |
-| `tokenkey-prod-cfn-deploy-682751977094-ap-northeast-1` | ap-northeast-1 | **收尾中**：cn-prod 镜像分发已改北京 COS `tokenkey-cnprod-images-bj-1320330536`（[design-cn-image-cos](../../docs/approved/design-cn-image-cos.md)）。确认无新写入后可删 |
+| `tokenkey-prod-archive-682751977094` | us-east-1 | lifecycle `expire-all-30d` **已启用**（2026-11-17 核对）；**禁止新写**。最新对象约 2026-11-15（`host-config/prod-entry-…`），按 LastModified+30d 过期。活目的地：腾讯 COS `tokenkey-prod-ops-archive-1320330536`（[design-cos-object-archive](../../docs/approved/design-cos-object-archive.md)）。空桶后再删桶本身 |
 
-后续债（不与删桶同 PR）：Hybrid/OIDC/SecureString 换腾讯 TAT 控制面；`deploy/aws/stage0/` 路径改名（须同步 sentinel/引用）。
+后续债（不与本收口同 PR）：Hybrid/OIDC/SecureString 换腾讯 TAT 控制面；`deploy/aws/stage0/` 路径改名（须同步 sentinel/引用）。
 
 ## QA 与备份排队、旧 AWS 定时任务收尾
 
