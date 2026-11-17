@@ -10,7 +10,7 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 `api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前不要把它解析到北京，也不要写成
 `public_origin` 或 `SERVER_FRONTEND_URL`。下面的表是 2026-10-14 首次上线记录。
 
-逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。2026-11-09 停写窗口之后，`tokenkey-cn-postgres-backup` 和 `tokenkey-cn-postgres-archive-check` 在数据机 `VM-4-5-ubuntu`（`10.2.4.5`）上跑，应用机上的对应 timer 已停用。数据机上的 `tokenkey-cn-backup-identity.timer`（15min）运行 `cn_backup_identity.py`，读数据机 root-only `/etc/tokenkey/cos-backup.env`，重写 `/etc/tokenkey/pgbackrest-cos/pgbackrest.conf`；由 `ops/stage0/install-data-machine-identity.sh` 安装。轮换 COS 密钥只改数据机上的这一个文件。2026-11-08 起唯一仓库是北京 COS `repo2`（`tokenkey-cnprod-backup-bj-1320330536` `/cn-prod/postgres`），东京 AWS `repo1` 停写、对象保留待清理；详见[设计](../../docs/approved/design-tencent-cos-backup-node1-qa.md#2026-11-08-决定停写-aws-repo1cos-为唯一-repository)。备份验收到此为止，不再另开恢复机，也不从东京仓库再导一份库。
+逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。2026-11-09 停写窗口之后，`tokenkey-cn-postgres-backup` 和 `tokenkey-cn-postgres-archive-check` 在数据机 `VM-4-5-ubuntu`（`10.2.4.5`）上跑，应用机上的对应 timer 已停用。数据机上的 `tokenkey-cn-backup-identity.timer`（15min）运行 `cn_backup_identity.py`，读数据机 root-only `/etc/tokenkey/cos-backup.env`，重写 `/etc/tokenkey/pgbackrest-cos/pgbackrest.conf`；由 `ops/stage0/install-data-machine-identity.sh` 安装。轮换 COS 密钥只改数据机上的这一个文件。2026-11-08 起唯一仓库是北京 COS `repo2`（`tokenkey-cnprod-backup-bj-1320330536` `/cn-prod/postgres`），东京 AWS `repo1` 已停写且桶/栈已清理（2026-11 核对 `HeadBucket` 404）；详见[设计](../../docs/approved/design-tencent-cos-backup-node1-qa.md#2026-11-08-决定停写-aws-repo1cos-为唯一-repository)。备份验收到此为止，不再另开恢复机，也不从东京仓库再导一份库。
 
 审批范围和费用见 [design-domestic-cluster.md](../../docs/approved/design-domestic-cluster.md)。
 这是独立于美西 prod 的国内站点，不使用 Hetzner dispatcher 或美西数据库；只读观测通过独立注册的 AWS SSM Hybrid agent 下发。
@@ -70,7 +70,7 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 |---|---|---|
 | 入口机 | `WATCH_ROLE=cn-prod-entry` | `https://<entry.domain>/health`；证书剩余不足 20 天；每个 `apps[]` 节点直接探测 `http://<private_ip>:8080/health`，503 持续超过 15 分钟告警，全部不健康立即告警 |
 | app-a | `WATCH_ROLE=cn-prod WATCH_NODE=app-a` | 本机 `127.0.0.1:18080/health`、QA timer、磁盘，并保留对 prod 与 `public_origin` 的观测 |
-| app-b | `WATCH_ROLE=cn-prod WATCH_NODE=app-b` | 本机 `127.0.0.1:18080/health`、磁盘；QA timer 待数据机协调器 |
+| app-b | `WATCH_ROLE=cn-prod WATCH_NODE=app-b` | 本机 `127.0.0.1:18080/health`、磁盘、`tokenkey-qa-retention`；node1 归档仍待数据机协调器 |
 
 带 `WATCH_NODE` 或入口机角色时，installer 用 `hostname -I` 核对 `prod-target.json` 的私网 IP。不带 `WATCH_NODE` 的 `cn-prod` 配置保持不变。三台都读 `/opt/tokenkey/host-alerts.env`。
 
@@ -79,7 +79,7 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 | # | 动作 | 入口 |
 |---|---|---|
 | M1 | 带新镜像正常发一次版（仍是蓝绿，app-b 手工换同一镜像） | 下文蓝绿流程 |
-| M2 | app-b 已改用渲染的 `compose.node.yml` 并装看门狗；QA timer 待数据机协调器上线。入口机 `entry_caddy.py --diff` 差异审核后入库并装看门狗 | 本节 |
+| M2 | app-b 已改用渲染的 `compose.node.yml` 并装看门狗；`tokenkey-qa-retention` 已启用（2026-11-17），node1 协调器归档仍待。入口机 `entry_caddy.py --diff` 差异审核后入库并装看门狗 | 本节 |
 | M3 | 直连 app-a 的业务请求为 0 后，把 `public_origin` 改成入口机域名（2026-11-15 完成；IP 站点上只剩健康探测） | `prod-target.json` |
 | M4 | app-a 改为单容器 `tokenkey`，绑定 `10.2.4.11:8080`，停 socat 和 blue/green（2026-11-15 完成）。app-a 的 Caddy 改指 `tokenkey:8080`，M3 之后再关 80/443。Caddyfile 是单文件挂载，`sed -i` 后 `caddy reload` 仍读旧 inode，要从宿主文件 `caddy adapt` 后经 admin API `/load` 加载 | 设计文档 M4 |
 | M5 | 至少完成两次真实 rolling 发版并保留完整 receipt；同版本原样滚动会被 `mode=skip` 跳过，起不到演练作用 | `rolling.py` |
@@ -98,7 +98,9 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 
 ### QA 归档
 
-app-a 的 `tokenkey-qa-provision/cleanup/archive` 由 `ops/qa/local_maintenance_host.py install --include-node1-archive --node1-environment cn-prod` 安装，归档走 v1 站点路径 `qa-raw/cn-prod/<小时>`，cleanup 用该路径的回执做删除门禁。app-b 不能照抄同一条命令：两台写同一个 v1 小时会互相冲突。`node1_archive.py --source-id cn-prod-app-b` 已能写隔离的 v2 路径，但现有 cleanup 拒绝把单源 v2 回执当删除凭据，所以 app-b 目前只能靠 `ops/qa/COORDINATOR.md` 的数据机协调器加 `force_retention.py` 方案。2026-11-15 用户已同意采用该方案，延后实施；在此之前 app-b 只抓取不清理（约 22MB/小时，根盘余 41G）。
+app-a 的 `tokenkey-qa-provision/cleanup/archive` 由 `ops/qa/local_maintenance_host.py install --include-node1-archive --node1-environment cn-prod` 安装，归档走 v1 站点路径 `qa-raw/cn-prod/<小时>`，cleanup 用该路径的回执做删除门禁。app-b 不能照抄同一条命令：两台写同一个 v1 小时会互相冲突。`node1_archive.py --source-id cn-prod-app-b` 已能写隔离的 v2 路径，但现有 cleanup 拒绝把单源 v2 回执当删除凭据。
+
+2026-11-17：app-b 已启用独立 `tokenkey-qa-retention`（小时结束 +24h 接受丢失），清掉积压过期小时并写入 `apps[].jobs`；bundle 在 `/var/lib/tokenkey/qa-retention-bootstrap`。数据机协调器（v2 归档）仍按 [`COORDINATOR.md`](../../ops/qa/COORDINATOR.md) 单独交接，未安装。
 
 ## 首次安装与配置 owner
 

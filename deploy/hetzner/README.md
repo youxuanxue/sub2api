@@ -99,7 +99,7 @@ SOCKS 仅监听各机私网 `:1080`；放行来源见下方 `ALLOWED_SOURCES`（
 | 活仓库 | pgBackRest `repo2`：COS `tokenkey-prod-backup-usw-1320330536`（`cos.na-siliconvalley.myqcloud.com`）`/prod/postgres` |
 | 配置渲染 | 数据机上的 `tokenkey-backup-identity.timer`（15min）→ `tencent_backup_identity.py refresh`，读数据机 root-only `/etc/tokenkey/cos-backup.env`，重写 `/etc/tokenkey/pgbackrest-cos/pgbackrest.conf`（`root:postgres 0640`，容器只读挂载）。由 `ops/stage0/install-data-machine-identity.sh` 安装。应用机上的 identity timer 停用；不读 AWS 会话、不调 STS |
 | 备份/检查 | 数据机上的 `tokenkey-postgres-backup.timer`（偶数小时 :30 UTC）和 `tokenkey-postgres-archive-check.timer`（5min）。应用机上这两项已停用 |
-| 已停写（保留待清理） | AWS `s3://tokenkey-prod-physical-backup-682751977094-us-east-1/candidates/tencent-usw-20261022/postgres`（timeline 2）与同桶 Tokyo 历史 `prod/postgres` |
+| 已停写并清理 | AWS physical-backup 桶/栈已删：CFN `tokenkey-prod-physical-backups`=`DELETE_COMPLETE`（2026-11-11）；`tokenkey-prod-physical-backup-682751977094-us-east-1` 与 cn-prod 对应桶 `HeadBucket` 404（2026-11-17 核对）。活链只在 COS `repo2` |
 
 ### 日本出口代理（已关停 · 2026-10-23 删除）
 
@@ -120,7 +120,7 @@ SOCKS 仅监听各机私网 `:1080`；放行来源见下方 `ALLOWED_SOURCES`（
 - 活 prod 身份：`../tencent/candidate-usw-20261022.json`（`deployable=true` 时由 `resolve_prod_ssm_target` 解析）。
 - 宿主 watcher owner：`../tencent/candidate-usw-20261022.json` 的 `host_watch`（`hostname` / `domains` / `paused_jobs` / `local_qa_jobs`）。
 - Tokyo 已于 2026-10-23 完全退役（实例/栈/VPC/卷/快照已删，仅留 S3 历史链），`aws-fresh` 解析路径与 `fresh-migration-20261015.json` 已删除（[runbook](../../docs/ops/tokyo-retirement-runbook.md)）。
-- watcher 不随仓库合并更新：主机按安装时的内容寻址副本运行（`/usr/local/lib/tokenkey/https-watch/<hash>/config.json`）。改 `host_watch` / `entry` / `apps` 后须**经审批**重装：把 `install-host-https-watch.sh`、`host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、`deploy/tencent/candidate-usw-20261022.json`、`deploy/domestic/prod-target.json` 按 basename 放进 `WATCH_BUNDLE_DIR`，先不带 `APPLY` 跑一遍（只核身份并打印配置），与现装 config 比对后再以 `APPLY=yes-host-https-watch` 安装。角色：旧应用机 `WATCH_ROLE=prod`；**入口机** `WATCH_ROLE=prod-entry`（私网身份 + 五域名证书 + 两台 `:8080`，凭据 `/var/lib/tokenkey/host-alerts.env`）；cn-prod 见 domestic README。2026-11-16 入口机已装 `prod-entry`。2026-10-22 起 `local_qa_jobs` 新增 `tokenkey-qa-provision`；prod 旧机 watcher bundle `95998671d971c8ce`（domains 增补后需再重装才含 `api-cn`）。
+- watcher 不随仓库合并更新：主机按安装时的内容寻址副本运行（`/usr/local/lib/tokenkey/https-watch/<hash>/config.json`）。改 `host_watch` / `entry` / `apps` 后须**经审批**重装：把 `install-host-https-watch.sh`、`host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、`deploy/tencent/candidate-usw-20261022.json`、`deploy/domestic/prod-target.json` 按 basename 放进 `WATCH_BUNDLE_DIR`，先不带 `APPLY` 跑一遍（只核身份并打印配置），与现装 config 比对后再以 `APPLY=yes-host-https-watch` 安装。角色：旧应用机 `WATCH_ROLE=prod`；**入口机** `WATCH_ROLE=prod-entry`（私网身份 + 五域名证书 + 两台 `:8080`，凭据 `/var/lib/tokenkey/host-alerts.env`）；cn-prod 见 domestic README。2026-11-16 入口机已装 `prod-entry`；旧应用机现役 bundle `7f26612ffe8ef4ba`（`cn-prod` 目标已是 `https://api.galaxywaveai.com/health`，与 main 矩阵 `build_config(prod)` 一致，2026-11-17 核对无需重装）。
 - 换机流程：[host replacement](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 
 ## 现网不变量
@@ -191,7 +191,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 | 类别 | 当前用途 / owner | 清理条件 |
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | 腾讯美西 prod/出口机与北京 cn-prod 远程执行、参数与 GHCR 身份；`ops/stage0/resolve_prod_ssm_target.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
-| QA raw archive | QA S3 已于 2026-11-08 退役；仓库模板与恢复 CLI 已删除，历史对象按七天生命周期到期 | 删除 `tokenkey-prod-qa-raw-archive` CFN 栈（含桶、KMS、恢复角色）由单独收尾执行，见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界) |
+| QA raw archive | QA S3 已于 2026-11-08 退役；仓库模板与恢复 CLI 已删除 | CFN `tokenkey-prod-qa-raw-archive`=`DELETE_COMPLETE`（2026-11-09）；桶 `HeadBucket` 404；主机 maintenance/boundary 脚本与 unit 已不存在（2026-11-17 核对）。见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界) |
 | 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
 | 历史 archive / dormant media 桶 | 历史数据与停用配置；媒体默认不启用 S3，只有显式 opt-in | 资产销毁另行审批，不能把停用 bucket 描述成现网迁移对象 |
