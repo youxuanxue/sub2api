@@ -1377,8 +1377,8 @@ func TestHandleGeminiStreamingResponse_VisibleTTFTIgnoresThoughtHoldAndKeepalive
 	gin.SetMode(gin.TestMode)
 	svc := newAntigravityTestService(&config.Config{
 		Gateway: config.GatewayConfig{
-			MaxLineSize:              defaultMaxLineSize,
-			StreamKeepaliveInterval:  1, // seconds; ticker fires while thought is held
+			MaxLineSize:               defaultMaxLineSize,
+			StreamKeepaliveInterval:   1, // seconds; ticker fires while thought is held
 			StreamDataIntervalTimeout: 30,
 		},
 	})
