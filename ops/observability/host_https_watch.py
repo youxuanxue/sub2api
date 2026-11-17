@@ -34,6 +34,13 @@ def domestic_app(domestic: dict, name: str) -> dict:
     raise ValueError("unknown cn-prod app node: " + str(name))
 
 
+def prod_app(prod_matrix: dict, name: str) -> dict:
+    for app in prod_matrix.get("apps", []):
+        if app.get("name") == name:
+            return app
+    raise ValueError("unknown prod app node: " + str(name))
+
+
 def _require_private_ip(expected: str, host_ips) -> None:
     # Lighthouse hosts keep their image hostnames; the private IP in
     # prod-target.json is the identity remote_exec checks as well.
@@ -47,7 +54,7 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict, *,
 
     ``prod_matrix`` is the live prod matrix (deploy/tencent/candidate-usw-20261022.json);
     its ``host_watch`` block owns watch identity, domains and expected-paused jobs.
-    ``node`` names a cn-prod ``apps[]`` entry; ``host_ips`` are this host's
+    ``node`` names a prod or cn-prod ``apps[]`` entry; ``host_ips`` are this host's
     addresses (``hostname -I``) and prove that identity.
     """
     if role not in ("prod", "cn-prod", "prod-data", "cn-prod-data",
@@ -55,8 +62,8 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict, *,
         raise ValueError(
             "WATCH_ROLE must be prod, cn-prod, prod-data, cn-prod-data, "
             "cn-prod-entry or prod-entry")
-    if node and role != "cn-prod":
-        raise ValueError("WATCH_NODE applies only to the cn-prod role")
+    if node and role not in ("prod", "cn-prod"):
+        raise ValueError("WATCH_NODE applies only to the prod or cn-prod role")
     if role == "prod-entry":
         entry = prod_matrix["entry"]
         _require_private_ip(entry.get("private_ip", ""), host_ips)
@@ -86,23 +93,41 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict, *,
             "jobs": [], "paused_jobs": {},
         }
     if node:
-        app = domestic_app(domestic, node)
+        if role == "prod":
+            app = prod_app(prod_matrix, node)
+            prefix = "prod-"
+            default_jobs = ["tokenkey-disk-metrics"] + list(
+                prod_matrix.get("host_watch", {}).get("local_qa_jobs", []))
+            # target.lighthouse_instance_id is the cutover-era primary app row.
+            primary = app.get("lighthouse_instance_id") == prod_matrix.get("target", {}).get(
+                "lighthouse_instance_id")
+        else:
+            app = domestic_app(domestic, node)
+            prefix = "cn-prod-"
+            default_jobs = ["tokenkey-disk-metrics"] + list(domestic.get("local_qa_jobs", []))
+            primary = app.get("lighthouse_instance_id") == domestic.get("instance_id")
         _require_private_ip(app.get("private_ip", ""), host_ips)
-        config = {"node": "cn-prod-" + node, "targets": {},
-                  "backends": {"cn-prod-" + node + ":local": APP_LOCAL_HEALTH},
+        label = prefix + node
+        config = {"node": label, "targets": {},
+                  "backends": {label + ":local": APP_LOCAL_HEALTH},
                   "pool_alert": False,
-                  # apps[].jobs names the timers this node actually runs. app-b keeps
-                  # an explicit list (disk metrics + qa-retention) and must not
-                  # inherit app-a's provision/cleanup/archive timers.
-                  "jobs": list(app["jobs"]) if "jobs" in app
-                  else ["tokenkey-disk-metrics"] + list(domestic.get("local_qa_jobs", [])),
+                  # apps[].jobs names the timers this node actually runs.
+                  "jobs": list(app["jobs"]) if "jobs" in app else default_jobs,
                   "paused_jobs": {}}
-        # Only the host named by the top-level instance_id stays the mainland
-        # observer of prod and the public origin; other nodes would repeat the
-        # same alerts.
-        if app.get("lighthouse_instance_id") == domestic.get("instance_id"):
-            config["targets"] = build_config("cn-prod", domestic["instance_name"],
-                                             prod_matrix, domestic)["targets"]
+        # Only the primary app keeps the cross-site peer observer targets;
+        # other nodes would repeat the same alerts.
+        if primary:
+            site_host = (prod_matrix["host_watch"]["hostname"] if role == "prod"
+                         else domestic["instance_name"])
+            site = build_config(role, site_host, prod_matrix, domestic)
+            config["targets"] = site["targets"]
+            if role == "prod":
+                # Expected-paused units must remain in jobs so accidental resume
+                # still alerts (main() refuses paused names outside jobs).
+                config["paused_jobs"] = dict(site["paused_jobs"])
+                for name in config["paused_jobs"]:
+                    if name not in config["jobs"]:
+                        config["jobs"].append(name)
         return config
     watch = prod_matrix["host_watch"]
     allowed = {
@@ -132,9 +157,7 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict, *,
         targets["prod:cn-domain"] = "https://" + domestic["fallback_domain"] + "/health"
         targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
     if role == "cn-prod":
-        # cn-prod runs the same local QA jobs as prod (provision/cleanup/
-        # archive); it just has its own host, so its own config carries the
-        # list rather than hardcoding one job that predates qa-archive.
+        # Site-wide cn-prod (no WATCH_NODE) follows domestic local_qa_jobs.
         jobs = ["tokenkey-disk-metrics"] + list(domestic.get("local_qa_jobs", []))
     else:
         jobs = ["tokenkey-pgdump", "tokenkey-disk-metrics", "tokenkey-ghcr-prune-daily"]
