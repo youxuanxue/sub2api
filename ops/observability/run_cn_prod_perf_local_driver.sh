@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
-# Local driver: source TK_FULLTEST_KEY and SSM-deliver pool perf to cn-prod app-a.
-# Never echo the key. Live traffic requires APPROVE in this script's env below.
+# Historical local driver (2026-11-17 200/400 formal run): sources TK_FULLTEST_KEY
+# and SSM-delivers pool perf onto cn-prod **app-a** (same host as the gateway).
+#
+# Prefer the dedicated Beijing loadtest CVM for new capacity runs (especially
+# 600/800): app-host client contaminates CPU/loadavg and contradicts
+# docs/decisions/decided.md + deploy/domestic/README.md (ins-7ltl2zv3,
+# expire_after=2026-11-19). Keep this script for replaying the app-host method
+# only. Never echo the key. Live traffic requires APPROVE below.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
+
+if [ "${ALLOW_APP_HOST_PERF_CLIENT:-}" != "yes" ]; then
+  echo '{"phase":"loadtest_blocked","error":"app-host client discouraged after 2026-11-17; use dedicated loadtest CVM, or set ALLOW_APP_HOST_PERF_CLIENT=yes to override","will_not_send_traffic":true}' >&2
+  exit 2
+fi
 
 # Pull only the key via non-interactive zsh — bash `source ~/.zshrc` can hang
 # on zsh-only startup hooks. Never print the value.

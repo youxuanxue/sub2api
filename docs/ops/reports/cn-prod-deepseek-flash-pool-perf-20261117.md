@@ -219,12 +219,17 @@ bash ops/observability/run-probe.sh \
   --script ops/observability/probe-cn-prod-deepseek-pool-slots.sh \
   --expected-instance-id mi-084a456b3dee71bb4
 
-# 应用机正式压测（本机 driver；密钥来自 TK_FULLTEST_KEY，不打印）
+# 历史：应用机同机 client（200/400 正式跑用过；会污染主机 CPU）。
+# 须显式 ALLOW_APP_HOST_PERF_CLIENT=yes。密钥来自 TK_FULLTEST_KEY，不打印。
+ALLOW_APP_HOST_PERF_CLIENT=yes \
 OUT_DIR=/tmp/tpm-recipe1/cn-prod-remote-$(date +%Y%m%d-%H%M%S) \
   bash ops/observability/run_cn_prod_perf_local_driver.sh
+
+# 新容量阶梯（600/800）：在专用压测机 ins-7ltl2zv3 上跑 recipe1，
+# 不要再用上面的 app-host driver（见 decided.md / README 临时压测 client 行）。
 ```
 
-driver 内默认：`MODEL=deepseek-flash`，`PERF_STEPS=200,400`，`POOL_SLOTS=1045`，`APPROVE=yes-formal-tpm-loadtest`。
+app-host driver 默认：`MODEL=deepseek-flash`，`PERF_STEPS=200,400`，`POOL_SLOTS=1045`，`APPROVE=yes-formal-tpm-loadtest`。
 
 ---
 

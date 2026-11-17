@@ -58,8 +58,7 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 | 数据机 | `lhins-odyx5eis` | `10.2.4.5` | （无公网业务入口） | PG `max_connections=400`（2026-11-17）、Redis；见 `dataplane-cutover-data.sh` 期望值 |
 | 临时压测 client | `ins-7ltl2zv3`（CVM，非 Lighthouse） | `172.21.0.17` | `192.144.136.234` | 北京按量 `SA2.LARGE8` 4C8G；tag `expire_after=2026-11-19`；**勿销毁**（Agent B 压测用）；不进 `apps[]` |
 
-节点身份只看 [`prod-target.json`](prod-target.json) 的 `entry` 与 `apps[]`。`apps[]` 的顺序就是滚动顺序，小机器在前当金丝雀。设计见 [cn-prod 多应用机滚动发版](../../docs/approved/design-cn-prod-rolling-deploy.md)。应用池现网：`DATABASE_MAX_OPEN_CONNS=80` / idle=20、`REDIS_POOL_SIZE=96`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS=512`（`compose.override.yml`）。
-
+节点身份只看 [`prod-target.json`](prod-target.json) 的 `entry` 与 `apps[]`。`apps[]` 的顺序就是滚动顺序，金丝雀位在前（现为 app-b；两机都是 4C 后不再按「更小规格」理解）。设计见 [cn-prod 多应用机滚动发版](../../docs/approved/design-cn-prod-rolling-deploy.md)。应用池现网：`DATABASE_MAX_OPEN_CONNS=80` / idle=20、`REDIS_POOL_SIZE=96`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS=512`（`compose.override.yml`）。
 - 入口机健康检查每 3 秒访问各节点 `/health`，连续 2 次失败即摘除。drain 让节点 `/health` 返回 503，入口机先停派新请求，节点再等在途请求清零。
 - 日常发版由 `rolling.py` 逐台 drain、换镜像、健康检查和回流，入口机持续把新流量分给另一台。**M6 起节点内蓝绿与 `tokenkey-entry-origin` socat 代码已删除**；若主机上仍有停用的 blue/green/socat 容器，只作历史残骸，rolling 会拒绝把它们当成在服布局。
 - 入口机 Caddyfile 在 `/var/lib/tokenkey/caddy/etc/Caddyfile`，挂载的是目录而不是单个文件：单文件挂载在 `sed -i` 换 inode 后会继续读旧内容。入库模板为 [`entry/Caddyfile.tmpl`](entry/Caddyfile.tmpl)，`python3 entry_caddy.py --diff <线上文件>` 只读比对（忽略注释和空白），`--out PATH` 渲染。`to` 列表按私网 IP 排序，权重跟随各自节点。
