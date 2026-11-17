@@ -18052,11 +18052,14 @@
         "Require referenced Release run succeeded",
         "want .github/workflows/release.yml",
         "run-id: ${{ github.event_name == 'workflow_dispatch' && inputs.release_run_id || github.event.workflow_run.id }}",
+        "default: prod",
+        "publish-from-prod:",
+        "probe_publish_cn_from_prod.sh",
         "python3 deploy/domestic/image_distribution.py publish",
         "python3 deploy/domestic/warm_fanout.py render-all",
         "name: cn-image-render",
         "retention-days: 1",
-        "needs: [resolve, publish]",
+        "needs: [resolve, publish, publish-from-prod]",
         "environment: tencent-ops",
         "ref: ${{ needs.resolve.outputs.source_sha }}",
         "python3 deploy/domestic/warm_fanout.py dispatch-rendered",
@@ -18069,7 +18072,7 @@
         "transport=ghcr",
         "warm-ghcr:"
       ],
-      "rationale": "cn-prod image distribution resolves trusted default-branch SHA first, then publishes to Beijing COS (or skips COS via transport=ghcr) and warms via TAT under tencent-ops. warm jobs must pin checkout to needs.resolve.outputs.source_sha; both render and dispatch must force TAT (auto would select SSM for app-a)."
+      "rationale": "cn-prod image distribution resolves trusted default-branch SHA first; standard path exports from prod to Beijing COS (publish-from-prod), with legacy GHA crane publish and transport=ghcr as fallbacks. warm jobs pin checkout to needs.resolve.outputs.source_sha and force TAT (auto would select SSM for app-a)."
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",

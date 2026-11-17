@@ -326,6 +326,7 @@ class DistributionTests(unittest.TestCase):
                  patch.object(distribution.subprocess, 'run', side_effect=pull):
                 published = distribution.publish(client, 'bucket', TAG, REV, 'ghcr.io/example/app')
             self.assertEqual(client.puts[-1], distribution.prefix(TAG, REV) + '/manifest.json')
+            self.assertEqual(published.get('publish_source'), 'crane-ci')
             script = distribution.render(client, 'bucket', TAG, REV, receipt['source_digest'])
             self.assertEqual(client.signed_key, distribution.prefix(TAG, REV) + '/' + published['archive_sha256'] + '.tar')
             # Execute the generated Python bootstrap, replacing only host-side warm.
@@ -333,10 +334,35 @@ class DistributionTests(unittest.TestCase):
             bootstrap = '\n'.join(lines[3:-2])
             namespace = {}
             exec(bootstrap, namespace)  # noqa: S102 - execute our generated bootstrap against an in-memory fixture
-            self.assertEqual(namespace['request']['receipt'], published)
+            # publish adds publish_source; warm receipt from S3 is the stored object.
+            self.assertEqual(namespace['request']['receipt']['archive_sha256'], published['archive_sha256'])
             self.assertEqual(namespace['request']['url'], 'https://private.invalid/signed')
             with self.assertRaises(ValueError):
                 distribution.render(client, 'bucket', TAG, REV, 'sha256:' + '0' * 64)
+
+    def test_publish_from_docker_uses_docker_save(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / 'source.tar'
+            receipt = make_archive(source)
+            client = MemoryS3()
+            calls = []
+
+            def run(args, **kwargs):
+                calls.append(args)
+                if args[:2] == ['docker', 'image']:
+                    return subprocess.CompletedProcess(args, 0, '', '')
+                if args[:2] == ['docker', 'save']:
+                    Path(args[args.index('-o') + 1]).write_bytes(source.read_bytes())
+                    return subprocess.CompletedProcess(args, 0)
+                raise AssertionError(args)
+
+            with patch.object(distribution.subprocess, 'check_output', side_effect=[receipt['source_digest'], receipt['manifest_raw'].encode() + b'\n']), \
+                 patch.object(distribution.subprocess, 'run', side_effect=run):
+                published = distribution.publish_from_docker(
+                    client, 'bucket', TAG, REV, 'ghcr.io/example/app', 'local/app:tag')
+            self.assertEqual(published.get('publish_source'), 'prod-docker')
+            self.assertTrue(any(c[:2] == ['docker', 'save'] for c in calls))
+            self.assertEqual(client.puts[-1], distribution.prefix(TAG, REV) + '/manifest.json')
 
     def _publish_with_fixture(self, client, source, receipt):
         def pull(args, **kwargs):

@@ -6,7 +6,7 @@ approved_at: 2026-11-15
 risk: high
 authors: [agent]
 created_at: 2026-11-15
-revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切通道、容量门槛与名单脚本；补启动即 drain、卡死恢复与锁）；2026-11-17（现网拓扑/容量与 `deploy/domestic` SSOT 对齐：app-b 4C8G、WRR 1:1、池 80、PG 400）
+revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切通道、容量门槛与名单脚本；补启动即 drain、卡死恢复与锁）；2026-11-17（现网拓扑/容量与 `deploy/domestic` SSOT 对齐：app-b 4C8G、WRR 1:1、池 80、PG 400）；2026-11-17（drain 超时强排：503 且 in_flight≤10，见 decided.md）
 ---
 
 # cn-prod 多应用机滚动发版
@@ -80,13 +80,13 @@ revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切�
 
 ```
 1. USR1 → /health 返回 503；等 10s（入口机 3s×2 摘除，再留余量）
-2. 等本机 /health/inflight 中 in_flight=0（最长 10min，与现行 drain 一致）
+2. 等本机 /health/inflight 中 in_flight=0（最长 10min）。超时后仅当 `/health` 仍为 503 **且** `0 < in_flight ≤ 10` 时**强排继续**（compose recreate 丢掉残留）；未进 503，或 `in_flight > 10`，abort 并 USR2 放回旧容器。
 3. .env 写入新 TOKENKEY_IMAGE，宿主写标记文件 start-draining → docker compose up -d tokenkey
 4. 容器 healthy（进程存活即可，/health 仍是 503）→ 在本机 127.0.0.1:18080 跑 candidate_smoke
 5. USR2 → /health 返回 200 → 120s 内本机网关日志出现非健康检查请求，判定已回流
 ```
 
-- **失败处理**：第 3、4 步失败时，先对新容器 drain，再用旧镜像以 drain 状态起容器，跑 smoke，然后 USR2。之后停止整个滚动，已完成的节点保持新版。第 5 步 120s 内没看到流量，只停止滚动、告警，不回滚，因为这台节点本身是健康的。
+- **失败处理**：第 2 步超时：503 且 in_flight≤10 → 强排进第 3 步（告警 `forced drain`）；否则 abort。第 3、4 步失败时，先对新容器 drain，再用旧镜像以 drain 状态起容器，跑 smoke，然后 USR2。之后停止整个滚动，已完成的节点保持新版。第 5 步 120s 内没看到流量，只停止滚动、告警，不回滚，因为这台节点本身是健康的。
 - **卡死恢复**：续跑时如果发现某个节点处于 draining（`/health` 返回 503），按它当前的 image id 处理：已是目标版本就从第 4 步继续；还是旧版本就从第 3 步继续。不会因为「有节点不健康」而拒绝续跑。
 - **前置检查**：
   - 其余节点 `/health` 都是 200；

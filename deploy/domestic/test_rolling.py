@@ -226,10 +226,13 @@ class HappyPathTest(RollingTestBase):
             self.assertEqual(host.health, 200)
             self.assertEqual([op for op in host.ops if op in steps], steps)
         # Layout flags sit between `agent` and the subcommand (`agent --root … drain`).
-        names = [n for n, s in self.executor.scripts
-                 if any(ln.startswith("python3 ") and ln.rstrip().endswith(" drain")
-                        for ln in s.splitlines())]
-        self.assertEqual(names, ["app-b", "app-a"])
+        # First drain per node defines roll order (argv may include --max-wait).
+        drain_order = []
+        for n, s in self.executor.scripts:
+            if any(ln.startswith("python3 ") and " drain" in ln for ln in s.splitlines()):
+                if n not in drain_order:
+                    drain_order.append(n)
+        self.assertEqual(drain_order, ["app-b", "app-a"])
         r = self.receipt_json()
         self.assertEqual(r["outcome"], "success")
         self.assertEqual([(n["name"], n["before_image_id"], n["after_image_id"], n["outcome"]) for n in r["nodes"]],
@@ -308,19 +311,60 @@ class ConfirmTest(RollingTestBase):
 
 
 class DrainTimeoutTest(RollingTestBase):
-    def test_drain_timeout_releases_old_and_stops_before_any_change(self):
+    def test_drain_timeout_force_proceeds_when_inflight_within_cap(self):
+        """Timeout + 503 + in_flight≤FORCE_DRAIN_MAX_IN_FLIGHT → force-proceed."""
+        self.b.drain_ok = False  # fake returns in_flight=4
+        self.assertEqual(self.deploy(), 0, self.out + self.err)
+        self.assertEqual(self.b.image_id, NEW_ID)
+        self.assertEqual(self.b.pin, NEW_REF)
+        self.assertEqual(self.b.health, 200)
+        self.assertIn("repin", self.b.ops)
+        self.assertIn("force-proceeding", self.out)
+        node = self.receipt_json()["nodes"][0]
+        self.assertEqual(node["outcome"], "rolled")
+        self.assertTrue(any("forced drain" in w for w in node.get("warnings") or []))
+        drain_steps = [s for s in node["steps"] if s.get("step") == "drain"]
+        self.assertTrue(drain_steps and drain_steps[0].get("forced") is True)
+
+    def test_drain_timeout_aborts_when_inflight_above_cap(self):
         self.b.drain_ok = False
+        orig = self.b.handle
+
+        def handle(op, argv):
+            result = orig(op, argv)
+            if op == "drain":
+                result = {**result, "health": 503, "drained": False,
+                          "in_flight": rolling.FORCE_DRAIN_MAX_IN_FLIGHT + 1}
+            return result
+
+        self.b.handle = handle
         self.assertEqual(self.deploy(), 1)
         self.assertEqual(self.b.image_id, OLD_ID)
         self.assertEqual(self.b.pin, OLD_REF)
-        self.assertEqual(self.b.health, 200)
         self.assertNotIn("repin", self.b.ops)
-        self.assertNotIn("drain", self.a.ops)
+        self.assertIn("refusing force-proceed", self.out)
         r = self.receipt_json()
         self.assertEqual(r["nodes"][0]["outcome"], "drain-timeout")
-        self.assertTrue(r["manual_steps"])
         self.assertIn("drain not complete", self.out)
-        self.assertEqual(self.entry.ops[-1], "release")
+
+    def test_drain_timeout_aborts_when_not_draining(self):
+        self.b.drain_ok = False
+        orig = self.b.handle
+
+        def handle(op, argv):
+            result = orig(op, argv)
+            if op == "drain":
+                result = {**result, "health": 200, "drained": False}
+            return result
+
+        self.b.handle = handle
+        self.assertEqual(self.deploy(), 1)
+        self.assertEqual(self.b.image_id, OLD_ID)
+        self.assertEqual(self.b.pin, OLD_REF)
+        self.assertNotIn("repin", self.b.ops)
+        r = self.receipt_json()
+        self.assertEqual(r["nodes"][0]["outcome"], "drain-timeout")
+        self.assertIn("drain not complete", self.out)
 
 
 class SmokeFailureTest(RollingTestBase):
