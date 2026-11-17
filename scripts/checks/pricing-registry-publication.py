@@ -91,6 +91,10 @@ def validate_publication_boundary(root: pathlib.Path) -> list[str]:
     else:
         if "git checkout --detach origin/main" not in publisher_text:
             errors.append("publisher must detach onto freshly fetched origin/main")
+        # Multi-app fleets refuse a silent single-app default; pricing settings +
+        # redis PUBLISH live on the data machine.
+        if "PROD_SSM_NODE: data" not in publisher_text:
+            errors.append("publisher must pin PROD_SSM_NODE: data for multi-app fleets")
 
     forbidden_deploy = (
         "manage-overlay-runtime.py sync-runtime",
