@@ -73,13 +73,14 @@
       "path": "backend/internal/service/pricing_catalog_supported_models_tk.go",
       "must_contain": [
         "!isNewAPILongTailCatalogVendor(m.Vendor) || !isTkCuratedNewAPIModelDisplayed(m.ModelID)",
+        "\"gemini-3-flash\":",
         "\"gemini-3.8-flash\":",
         "\"gemini-embedding-001\":",
         "\"nano-2\":",
         "\"nano-banana-2\":",
         "\"gemini-4-argon\":"
       ],
-      "rationale": "Embedding visibility follows the reviewed manifest across NewAPI providers instead of hiding approved non-DashScope models. 2026-09-18 converge: gemini-3.8-flash + embedding retained; Imagen/2.5/Claude dropped from native allowlists. 2026-10-22: gemini-4-argon was removed from the Antigravity public allowlist after an SSOT canary 404; 2026-10-30 it is published again, because that 404 was explained -- upstream ships two catalog tiers and only the non-advertising accounts 404. Its mapping floor is activated per-account, so the allowlist entry is now required rather than forbidden. grok-code-fast-1 stays hidden after upstream 429/reprobe_required. nano-banana-2 is the Antigravity/Studio marketing alias of gemini-3.1-flash-image and must stay in the AG servable allowlist. gemini-3-pro-image and veo-3.1-generate-001 left the native Gemini allowlist after unschedulable Vertex/Gemini Web capacity review; keep priced for settlement and operator-hide via catalogWithdrawnModelIDs.",
+      "rationale": "Embedding visibility follows the reviewed manifest across NewAPI providers instead of hiding approved non-DashScope models. 2026-09-18 converge: gemini-3.8-flash + embedding retained; Imagen/2.5/Claude dropped from native allowlists. 2026-10-22: gemini-4-argon was removed from the Antigravity public allowlist after an SSOT canary 404; 2026-10-30 it is published again, because that 404 was explained -- upstream ships two catalog tiers and only the non-advertising accounts 404. Its mapping floor is activated per-account, so the allowlist entry is now required rather than forbidden. grok-code-fast-1 stays hidden after upstream 429/reprobe_required. nano-banana-2 is the Antigravity/Studio marketing alias of gemini-3.1-flash-image and must stay in the AG servable allowlist. gemini-3-pro-image and veo-3.1-generate-001 left the native Gemini allowlist after unschedulable Vertex/Gemini Web capacity review; keep priced for settlement and operator-hide via catalogWithdrawnModelIDs. 2026-11-17: gemini-3-flash is a first-class public catalog/pricing owner (AG Ultra literal), not only a traffic alias onto 3.8; keep it in the servable allowlist.",
       "must_not_contain": [
         "\"grok-code-fast-1\":",
         "\"gemini-3-pro-image\":",
@@ -1024,6 +1025,41 @@
         "do not restore it to the servable allowlist or the derived account model_mapping floor."
       ],
       "rationale": "The durable structurally_gone ledger entry is the only authority that stops servable-allowlist refresh from restoring retired spark. A dated or account-specific reason is rejected by the ledger validator, so this anchor keeps the durable wording."
+    },
+    {
+      "path": "backend/internal/service/tk_pricing_overlay.json",
+      "must_contain": [
+        "\"gemini-3-flash\": {",
+        "\"gemini-3-flash-preview\": \"gemini-3-flash\""
+      ],
+      "must_not_contain": [
+        "\"gemini-3-flash\": \"gemini-3.8-flash\""
+      ],
+      "rationale": "gemini-3-flash is a public pricing owner for the AG Ultra literal id; preview settles onto gemini-3-flash. Restoring the old alias onto gemini-3.8-flash would hide the public id from /pricing while traffic floors still remap."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
+      "must_contain": [
+        "\"gemini-3-flash\":         \"gemini-3.8-flash\"",
+        "\"gemini-3-flash-preview\": \"gemini-3-flash\""
+      ],
+      "rationale": "Gemini API/Vertex traffic floor still forwards public gemini-3-flash onto 3.8 wire capacity, while preview settlement/traffic aliases onto the public gemini-3-flash owner."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_tk_test.go",
+      "must_contain": [
+        "byID[\"gemini-3-flash\"]",
+        "AG Ultra literal gemini-3-flash must be a public catalog owner"
+      ],
+      "rationale": "Converged Antigravity public catalog must list gemini-3-flash as its own priced row, matching 3.8 rates."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_tk_overlay_test.go",
+      "must_contain": [
+        "alias == \"gemini-3-flash\"",
+        "gemini-3-flash must not remain a pricing alias"
+      ],
+      "rationale": "Overlay regression: gemini-3-flash must be self-priced, not declared as a registry alias onto gemini-3.8-flash."
     }
   ]
 }

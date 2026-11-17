@@ -582,10 +582,14 @@ func TestPricingCatalogService_AntigravityConvergedSurfaceSurfaces(t *testing.T)
 		byID[m.ModelID] = m
 	}
 
-	flash, ok := byID["gemini-3.8-flash"]
+	flash38, ok := byID["gemini-3.8-flash"]
 	require.True(t, ok, "converged Google text id must surface")
 	// Dual-listed on gemini + antigravity; presentation keeps original vendor.
-	assert.NotEqual(t, "", flash.Vendor)
+	assert.NotEqual(t, "", flash38.Vendor)
+	flash3, ok := byID["gemini-3-flash"]
+	require.True(t, ok, "AG Ultra literal gemini-3-flash must be a public catalog owner, not only a pricing alias")
+	assert.InDelta(t, flash38.Pricing.InputPer1KTokens, flash3.Pricing.InputPer1KTokens, 1e-12)
+	assert.InDelta(t, flash38.Pricing.OutputPer1KTokens, flash3.Pricing.OutputPer1KTokens, 1e-12)
 	img, ok := byID["gemini-3.1-flash-image"]
 	require.True(t, ok, "antigravity-exclusive image id must surface")
 	assert.Equal(t, "antigravity", img.Vendor)
