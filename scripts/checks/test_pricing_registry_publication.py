@@ -92,6 +92,12 @@ class PricingRegistryPublicationGateTest(unittest.TestCase):
         self.assertTrue(any("freshly fetched origin/main" in error for error in errors), errors)
         self.assertTrue(any("sync-runtime" in error for error in errors), errors)
 
+    def test_rejects_missing_prod_ssm_node_data(self) -> None:
+        workflow = ".github/workflows/pricing-registry-publish.yml"
+        self._replace(workflow, "      PROD_SSM_NODE: data\n", "")
+        errors = CHECK.validate_publication_boundary(self.root)
+        self.assertTrue(any("PROD_SSM_NODE: data" in error for error in errors), errors)
+
     def test_rejects_deploy_price_write(self) -> None:
         deploy = self.root / ".github/workflows/deploy-stage0.yml"
         with deploy.open("a", encoding="utf-8") as handle:
