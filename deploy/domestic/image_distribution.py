@@ -35,24 +35,34 @@ def endpoint_url(config=None):
     return f"https://{cfg['bucket']}.{cfg['endpoint']}"
 
 
-def s3_client(config=None):
-    """boto3 S3 client pinned to the COS bucket (virtual-hosted endpoint)."""
-    import boto3
+def _botocore_config():
+    """COS-safe botocore Config; older prod hosts lack checksum kwargs (<1.36)."""
     from botocore.config import Config as BotocoreConfig
 
-    cfg = config or settings()
     # botocore 1.36+ defaults to flexible checksums / aws-chunked bodies. COS
     # rejects UploadPart without Content-Length (MissingContentLength) and the
     # old single put_object path can hang for tens of minutes on the same path.
+    try:
+        return BotocoreConfig(
+            request_checksum_calculation='when_required',
+            response_checksum_validation='when_required',
+        )
+    except TypeError:
+        # Ubuntu distro botocore on prod app hosts (e.g. 1.34.x) predates these.
+        return BotocoreConfig()
+
+
+def s3_client(config=None):
+    """boto3 S3 client pinned to the COS bucket (virtual-hosted endpoint)."""
+    import boto3
+
+    cfg = config or settings()
     kwargs = {
         'region_name': cfg['region'],
         'endpoint_url': endpoint_url(cfg),
         # endpoint_url already embeds `{bucket}.cos...` (virtual-hosted). Do not
         # also set addressing_style=virtual or boto3 doubles the bucket hostname.
-        'config': BotocoreConfig(
-            request_checksum_calculation='when_required',
-            response_checksum_validation='when_required',
-        ),
+        'config': _botocore_config(),
     }
     # Prefer tencent-ops secrets; fall back to standard AWS env for local tooling.
     key = (os.environ.get('TENCENTCLOUD_SECRET_ID') or os.environ.get('AWS_ACCESS_KEY_ID') or '').strip()
@@ -237,11 +247,13 @@ def publish(client, bucket, tag, revision, repository):
 
 
 def publish_from_docker(client, bucket, tag, revision, repository, image_ref=''):
-    """Standard path: export a local docker image (on prod) and upload to Beijing COS.
+    """Standard path: on a prod host, crane-legacy export + upload to Beijing COS.
 
-    Registry digest/manifest still come from crane for provenance. Archive bytes
-    come from ``docker save`` of the local image (pull ``repository@digest`` first
-    when the ref is missing). Upload egress is from the prod host, not GHA→Beijing.
+    Modern ``docker save`` emits OCI layouts with directory members that fail
+    ``verify_archive`` (legacy-only). Prod still has fast GHCR access, so archive
+    bytes come from ``crane pull --format=legacy`` of ``repository@digest``.
+    The win vs GHA is COS upload egress from the USW prod host. Optional
+    ``image_ref`` only asserts a local warm already landed (advisory).
     """
     import time
 
@@ -254,19 +266,21 @@ def publish_from_docker(client, bucket, tag, revision, repository, image_ref='')
     phase(f'digest {repository}:{tag}')
     digest, raw = _registry_digest_and_manifest(repository, tag)
     archive_tag = f'tokenkey-domestic/archive:{digest.removeprefix("sha256:")}'
-    local = image_ref or f'{repository}@{digest}'
-    phase(f'ensure local image {local}')
-    inspect = subprocess.run(
-        ['docker', 'image', 'inspect', local], capture_output=True, text=True, check=False)
-    if inspect.returncode != 0:
-        phase(f'docker pull {repository}@{digest}')
-        subprocess.run(['docker', 'pull', f'{repository}@{digest}'], check=True)
-        local = f'{repository}@{digest}'
+    if image_ref:
+        phase(f'advisory local inspect {image_ref}')
+        inspect = subprocess.run(
+            ['docker', 'image', 'inspect', image_ref], capture_output=True, text=True, check=False)
+        if inspect.returncode != 0:
+            phase(f'advisory local image missing; continuing with crane pull')
     with tempfile.TemporaryDirectory(prefix='cn-image-') as temp:
         archive = Path(temp) / 'image.tar'
         original = Path(temp) / 'original.tar'
-        phase(f'docker save {local}')
-        subprocess.run(['docker', 'save', '-o', str(original), local], check=True)
+        # Same legacy layout as CI publish(); egress is still from this prod host.
+        phase(f'crane pull legacy {repository}@{digest}')
+        subprocess.run(
+            ['crane', 'pull', f'{repository}@{digest}', str(original), '--format=legacy'],
+            check=True,
+        )
         phase(f'retag bytes={original.stat().st_size}')
         retag_archive(original, archive, archive_tag)
         with archive.open('rb') as handle:
@@ -321,7 +335,7 @@ def main():
     parser.add_argument(
         'action',
         choices=['publish', 'publish-docker', 'render', 'resolve'],
-        help='publish=legacy GHA crane; publish-docker=standard prod docker save→COS',
+        help='publish=legacy GHA crane; publish-docker=standard prod crane-legacy→COS',
     )
     parser.add_argument('--tag')
     parser.add_argument('--revision')
