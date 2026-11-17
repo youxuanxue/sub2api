@@ -91,9 +91,9 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict, *,
         config = {"node": "cn-prod-" + node, "targets": {},
                   "backends": {"cn-prod-" + node + ":local": APP_LOCAL_HEALTH},
                   "pool_alert": False,
-                  # apps[].jobs names the timers this node actually runs. app-b has
-                  # disk metrics but no QA timers until the data-machine coordinator
-                  # lands, so it must not inherit app-a's full list.
+                  # apps[].jobs names the timers this node actually runs. app-b keeps
+                  # an explicit list (disk metrics + qa-retention) and must not
+                  # inherit app-a's provision/cleanup/archive timers.
                   "jobs": list(app["jobs"]) if "jobs" in app
                   else ["tokenkey-disk-metrics"] + list(domestic.get("local_qa_jobs", [])),
                   "paused_jobs": {}}

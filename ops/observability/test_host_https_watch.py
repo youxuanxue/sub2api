@@ -612,8 +612,8 @@ class CnProdMultiAppWatchTest(unittest.TestCase):
         self.assertEqual(config['backends'], {'cn-prod-app-b:local': 'http://127.0.0.1:18080/health'})
         self.assertFalse(config['pool_alert'])
         self.assertEqual(config['targets'], {})
-        # app-b runs disk metrics but no QA timers yet (apps[].jobs is explicit).
-        self.assertEqual(config['jobs'], ['tokenkey-disk-metrics'])
+        # app-b runs disk metrics + independent QA retention (apps[].jobs is explicit).
+        self.assertEqual(config['jobs'], ['tokenkey-disk-metrics', 'tokenkey-qa-retention'])
         with self.assertRaisesRegex(ValueError, 'host identity'):
             self.config('cn-prod', node='app-b', host_ips=[self.apps['app-a']['private_ip']])
         with self.assertRaisesRegex(ValueError, 'unknown cn-prod app node'):
@@ -983,6 +983,6 @@ class AppNodeJobsTest(unittest.TestCase):
         domestic = json.loads((root / "deploy/domestic/prod-target.json").read_text())
         matrix = json.loads((root / "deploy/tencent/candidate-usw-20261022.json").read_text())
         appb = watch.build_config("cn-prod", "x", matrix, domestic, node="app-b", host_ips=["10.2.4.13"])
-        self.assertEqual(appb["jobs"], ["tokenkey-disk-metrics"])
+        self.assertEqual(appb["jobs"], ["tokenkey-disk-metrics", "tokenkey-qa-retention"])
         appa = watch.build_config("cn-prod", "x", matrix, domestic, node="app-a", host_ips=["10.2.4.11"])
         self.assertEqual(appa["jobs"], ["tokenkey-disk-metrics"] + domestic["local_qa_jobs"])

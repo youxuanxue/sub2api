@@ -137,7 +137,7 @@ AWS repo1 仍是 prod 唯一经过恢复验证的链。
 | 运行时配置 | 只渲染 `repo2-*`，无任何 `repo1-*`、AWS endpoint 或 STS token |
 | 身份刷新 | prod `tencent_backup_identity.py`、cn-prod `cn_backup_identity.py` 不再读 `/root/.aws/credentials`、不调 STS；缺 COS 凭据即失败并保留现配置，绝不回退 AWS |
 | runner | `PRIMARY_REPO = 2`；配置里没有 repo2 时写 `primary_repository_missing` 硬故障回执，不备份其他仓库 |
-| AWS 对象 | 原样保留（不 expire、不删）；桶/角色清理是单独的 infra 步骤 |
+| AWS 对象 | 停写后原样保留；桶/栈清理为单独 infra 步骤。2026-11-11 CFN `tokenkey-prod-physical-backups`=`DELETE_COMPLETE`；2026-11-17 核对 prod/cn physical-backup 桶 `HeadBucket` 404 |
 
 **为什么保持 repo2，不改成 repo1。** pgBackRest 不在仓库内记录编号：`archive.info` /
 `backup.info` 只记 stanza 与 PG system-id/版本，编号只是配置键（`repoN-*`）和 `--repo=N`

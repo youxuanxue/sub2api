@@ -45,7 +45,8 @@
         "GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED": "false"
       },
       "jobs": [
-        "tokenkey-disk-metrics"
+        "tokenkey-disk-metrics",
+        "tokenkey-qa-retention"
       ]
     },
     {
