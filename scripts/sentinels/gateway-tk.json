@@ -20790,6 +20790,37 @@
         "if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT(classified) {"
       ],
       "rationale": "Gemini messages/native compat stream must share the visible TTFT helper; reverting to any-data-frame TTFT reintroduces thought-as-first-token."
+    },
+    {
+      "path": "backend/internal/service/gateway_usage_billing.go",
+      "must_contain": [
+        "preferUsageUpstreamModel(result.UpstreamModel, facts.ResolvedModel())"
+      ],
+      "rationale": "Anthropic/generic usage must keep the AG/Gemini thinking-tier wire in upstream_model when ProtocolRouteFacts only carries the Plan floor; reverting to facts.ResolvedModel() alone makes usage_logs disagree with model_mapping_chain."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_usage.go",
+      "must_contain": [
+        "preferUsageUpstreamModel(result.UpstreamModel, facts.ResolvedModel())"
+      ],
+      "rationale": "OpenAI usage path shares the same ProtocolRouteFacts overwrite; keep the thinking-tier prefer helper so Gemini-family wires are not flattened to the schedule floor."
+    },
+    {
+      "path": "backend/internal/service/usage_upstream_model_tk.go",
+      "must_contain": [
+        "func preferUsageUpstreamModel(",
+        "sameGeminiThinkingFamily("
+      ],
+      "rationale": "Owner for usage upstream_model vs Plan floor preference on Gemini thinking-tier remaps."
+    },
+    {
+      "path": "backend/internal/service/usage_upstream_model_tk_test.go",
+      "must_contain": [
+        "func TestPreferUsageUpstreamModel_ThinkingTierWireWinsOverPlanFloor(t *testing.T)",
+        "high wire over medium floor",
+        "non-gemini disagreement keeps plan SSOT"
+      ],
+      "rationale": "Positive thinking-tier wire win and negative non-Gemini Plan-SSOT regression for preferUsageUpstreamModel."
     }
   ]
 }
