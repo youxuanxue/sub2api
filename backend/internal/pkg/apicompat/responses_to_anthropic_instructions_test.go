@@ -8,6 +8,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestResponsesToAnthropicRequest_DefaultMaxTokens(t *testing.T) {
+	out, err := ResponsesToAnthropicRequest(&ResponsesRequest{
+		Model: "claude-sonnet-4-20250514",
+		Input: json.RawMessage(`"hello"`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, ResponsesToAnthropicDefaultMaxTokens, out.MaxTokens,
+		"omitted max_output_tokens must not fall back to the old 8192 truncation default (#8844)")
+
+	explicit := 2048
+	out, err = ResponsesToAnthropicRequest(&ResponsesRequest{
+		Model:           "claude-sonnet-4-20250514",
+		Input:           json.RawMessage(`"hello"`),
+		MaxOutputTokens: &explicit,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2048, out.MaxTokens, "explicit max_output_tokens must win")
+}
+
 func TestResponsesToAnthropicRequest_Instructions(t *testing.T) {
 	t.Run("instructions_becomes_system", func(t *testing.T) {
 		req := &ResponsesRequest{

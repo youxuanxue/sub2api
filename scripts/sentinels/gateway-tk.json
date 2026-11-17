@@ -1484,6 +1484,42 @@
       "rationale": "Chat/Responses image_url http(s) values must map to Anthropic source.type=url; data-URI-only conversion silently drops remote images."
     },
     {
+      "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",
+      "must_contain": [
+        "const ResponsesToAnthropicDefaultMaxTokens = 64000",
+        "out.MaxTokens = ResponsesToAnthropicDefaultMaxTokens"
+      ],
+      "rationale": "Responses→Anthropic must default omitted max_output_tokens to 64000 (Antigravity compat cap); the old 8192 default truncated long Codex/AG outputs (#8844)."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/responses_to_anthropic_instructions_test.go",
+      "must_contain": [
+        "TestResponsesToAnthropicRequest_DefaultMaxTokens"
+      ],
+      "rationale": "Regression for Responses→Anthropic default max_tokens=64000 when max_output_tokens is omitted."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/responses_stream_event_wire.go",
+      "must_contain": [
+        "m[\"encrypted_function_args\"] = json.RawMessage(item.EncryptedFunctionArgs)"
+      ],
+      "rationale": "function_call wire must preserve sealed encrypted_function_args (including explicit null/[]); dropping them makes Codex treat sealed args as plaintext (#8582)."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/types.go",
+      "must_contain": [
+        "o.Type == \"message\" || o.Type == \"function_call\" || o.Type == \"tool_search_call\""
+      ],
+      "rationale": "Non-stream ResponsesOutput.MarshalJSON must route function_call through responsesItemWire so encrypted_function_args survives buffered rebuilds (#8582)."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/responses_stream_event_wire_test.go",
+      "must_contain": [
+        "TestWire_FunctionCallPreservesEncryptedFunctionArgs"
+      ],
+      "rationale": "Regression for stream/non-stream function_call encrypted_function_args preservation."
+    },
+    {
       "path": "backend/internal/pkg/apicompat/chat_to_anthropic_request.go",
       "must_contain": [
         "func pinAnthropicThinkingTemperature(",

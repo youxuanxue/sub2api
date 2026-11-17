@@ -1993,6 +1993,53 @@
         "tokenkey_status": "fixed_in_tokenkey",
         "rationale": "AG native Gemini/Claude/compat streaming now shares the first-output budget used by Anthropic/Gemini compat paths, so hung AG upstream can failover instead of client 499."
       }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8844",
+      "summary": "Responses→Anthropic default max_tokens raised from 8192 to 64000 so Codex/AG long outputs are not truncated when max_output_tokens is omitted.",
+      "fixed_by": [
+        "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",
+        "backend/internal/pkg/apicompat/responses_to_anthropic_instructions_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/pkg/apicompat/responses_to_anthropic_request.go:ResponsesToAnthropicDefaultMaxTokens = 64000",
+        "backend/internal/pkg/apicompat/responses_to_anthropic_request.go:out.MaxTokens = ResponsesToAnthropicDefaultMaxTokens",
+        "backend/internal/pkg/apicompat/responses_to_anthropic_instructions_test.go:TestResponsesToAnthropicRequest_DefaultMaxTokens"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Default aligns with Antigravity compat cap; explicit client max_output_tokens still wins."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8582",
+      "summary": "responsesItemWire now preserves encrypted_function_args on function_call items; MarshalJSON routes function_call through the same wire helper.",
+      "fixed_by": [
+        "backend/internal/pkg/apicompat/responses_stream_event_wire.go",
+        "backend/internal/pkg/apicompat/types.go",
+        "backend/internal/pkg/apicompat/responses_stream_event_wire_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/pkg/apicompat/responses_stream_event_wire.go:m[\"encrypted_function_args\"] = json.RawMessage(item.EncryptedFunctionArgs)",
+        "backend/internal/pkg/apicompat/types.go:o.Type == \"message\" || o.Type == \"function_call\" || o.Type == \"tool_search_call\"",
+        "backend/internal/pkg/apicompat/responses_stream_event_wire_test.go:TestWire_FunctionCallPreservesEncryptedFunctionArgs"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Stream and non-stream rebuild keep sealed-call markers including explicit null/[]."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8567",
+      "judgment": {
+        "impact": "needs_review",
+        "tokenkey_status": "needs_tokenkey_review",
+        "rationale": "Failed-request input billing conflicts with approved usage-estimate-fallback-ssot.md (success-only; forwardErr disables estimate). Needs an approved SSOT delta before implementation; do not piggyback on zero-usage estimate."
+      }
     }
   ]
 }

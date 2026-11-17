@@ -465,10 +465,11 @@ type ResponsesOutput struct {
 	Action *WebSearchAction `json:"action,omitempty"`
 }
 
-// MarshalJSON keeps message and tool_search_call items consistent with their
-// streamed representation. Other output types retain their default encoding.
+// MarshalJSON keeps message, function_call, and tool_search_call items
+// consistent with their streamed representation (including sealed-call
+// encrypted_function_args). Other output types retain their default encoding.
 func (o ResponsesOutput) MarshalJSON() ([]byte, error) {
-	if o.Type == "message" || o.Type == "tool_search_call" {
+	if o.Type == "message" || o.Type == "function_call" || o.Type == "tool_search_call" {
 		return json.Marshal(responsesItemWire(&o))
 	}
 	type responsesOutputAlias ResponsesOutput

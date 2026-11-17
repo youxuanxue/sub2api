@@ -9,6 +9,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 )
 
+// ResponsesToAnthropicDefaultMaxTokens is used when Responses clients omit
+// max_output_tokens. Keep aligned with Antigravity's compat cap (64000).
+const ResponsesToAnthropicDefaultMaxTokens = 64000
+
 // ResponsesToAnthropicRequest converts a Responses API request into an
 // Anthropic Messages request. This is the reverse of AnthropicToResponses and
 // enables Anthropic platform groups to accept OpenAI Responses API requests
@@ -41,8 +45,11 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 		out.MaxTokens = *req.MaxOutputTokens
 	}
 	if out.MaxTokens == 0 {
-		// Anthropic requires max_tokens; default to a sensible value.
-		out.MaxTokens = 8192
+		// Anthropic requires max_tokens. Codex / Responses clients often omit
+		// max_output_tokens; the old 8192 default truncated long AG/Claude
+		// outputs (Wei-Shaw/sub2api#8844). Prefer the common 64k capability
+		// ceiling; explicit client values still win above.
+		out.MaxTokens = ResponsesToAnthropicDefaultMaxTokens
 	}
 
 	// Convert tools
