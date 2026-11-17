@@ -130,9 +130,9 @@ cn-prod `proxies` **无** `or-*`，仅 Aliyun `ip5..8` + `cn-ip9..12`。Oregon *
 名称含 uk/us 不代表物理地域。BBR 验收：`python3 scripts/checks/check-host-bbr-ssot.py --live`。
 
 - 活 prod 身份：`../tencent/candidate-usw-20261022.json`（`deployable=true` 时由 `resolve_prod_ssm_target` 解析）。
-- 宿主 watcher owner：`../tencent/candidate-usw-20261022.json` 的 `host_watch`（`hostname` / `domains` / `paused_jobs` / `local_qa_jobs`）。
+- 宿主 watcher owner：`../tencent/candidate-usw-20261022.json` 的 `host_watch`（`hostname` / `domains` / `paused_jobs` / `local_qa_jobs` / `data_qa_jobs`）。
 - Tokyo 已于 2026-10-23 完全退役（实例/栈/VPC/卷/快照已删，仅留 S3 历史链），`aws-fresh` 解析路径与 `fresh-migration-20261015.json` 已删除（[runbook](../../docs/ops/tokyo-retirement-runbook.md)）。
-- watcher 不随仓库合并更新：主机按安装时的内容寻址副本运行（`/usr/local/lib/tokenkey/https-watch/<hash>/config.json`）。改 `host_watch` / `entry` / `apps` 后须**经审批**重装：把 `install-host-https-watch.sh`、`host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、`deploy/tencent/candidate-usw-20261022.json`、`deploy/domestic/prod-target.json` 按 basename 放进 `WATCH_BUNDLE_DIR`，先不带 `APPLY` 跑一遍（只核身份并打印配置），与现装 config 比对后再以 `APPLY=yes-host-https-watch` 安装。角色：旧应用机 `WATCH_ROLE=prod`；**入口机** `WATCH_ROLE=prod-entry`（私网身份 + 五域名证书 + 两台 `:8080`，凭据 `/var/lib/tokenkey/host-alerts.env`）；cn-prod 见 domestic README。2026-11-16 入口机已装 `prod-entry`；旧应用机现役 bundle `7f26612ffe8ef4ba`（`cn-prod` 目标已是 `https://api.galaxywaveai.com/health`，与 main 矩阵 `build_config(prod)` 一致，2026-11-17 核对无需重装）。
+- watcher 不随仓库合并更新：主机按安装时的内容寻址副本运行（`/usr/local/lib/tokenkey/https-watch/<hash>/config.json`）。改 `host_watch` / `entry` / `apps` 后须**经审批**重装：把 `install-host-https-watch.sh`、`host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、`deploy/tencent/candidate-usw-20261022.json`、`deploy/domestic/prod-target.json` 按 basename 放进 `WATCH_BUNDLE_DIR`，先不带 `APPLY` 跑一遍（只核身份并打印配置），与现装 config 比对后再以 `APPLY=yes-host-https-watch` 安装。角色：旧应用机 `WATCH_ROLE=prod`；**入口机** `WATCH_ROLE=prod-entry`（私网身份 + 五域名证书 + 两台 `:8080`，凭据 `/var/lib/tokenkey/host-alerts.env`）；数据机 `WATCH_ROLE=prod-data`；cn-prod 见 domestic README。2026-11-16 入口机已装 `prod-entry`；2026-11-17 QA 协调器交接后已重装旧应用机 / 数据机 watcher（jobs 含 `tokenkey-qa-retention`；data 另含 `tokenkey-qa-coordinator`）。
 - 换机流程：[host replacement](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 
 ## 现网不变量
@@ -185,15 +185,17 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 ## 开放运维项（非过程史）
 
 1. **账号**：prod 原生账号承接请求；错误、不可调度状态由运营处理，不自动恢复中继或旧副本。
-2. **QA**：capture 沿现有配置；QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 每 4h（主机定时器 `tokenkey-qa-archive`）。
-   旧 `tokenkey-qa-maintenance`/`tokenkey-qa-boundary` 已从仓库与 watcher 删除，主机上已 mask 的单元
-   留待单独清理。巡检见 [QA 运维入口](../../ops/qa/README.md)。
+2. **QA**（2026-11-17 已交接数据机协调器）：capture 沿现有配置；QA S3 已退役。应用机跑独立 `tokenkey-qa-retention`（满 24h 可丢）；
+   数据机跑 `tokenkey-qa-coordinator` + retention。旧 app-old v1 `provision/cleanup/archive` 已停用。
+   node1 jump 不可达时协调器只记 pending/告警，不阻塞 retention。巡检见 [QA 运维入口](../../ops/qa/README.md) /
+   [COORDINATOR.md](../../ops/qa/COORDINATOR.md)。
 3. **监控**：腾讯机无 EBS/DLM；Tokyo 已退役，快照已全部删除（见 [runbook](../../docs/ops/tokyo-retirement-runbook.md)）。宿主 HTTPS/job watcher 读取暂停 owner，
-   要求所列 timer 停用且 service 不在运行；意外恢复会告警。其他任务（含 `local_qa_jobs`）按成功时效监控。
+   要求所列 timer 停用且 service 不在运行；意外恢复会告警。其他任务（含 `local_qa_jobs` / `data_qa_jobs`）按成功时效监控。
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
 4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本 Lightsail 代理已于 2026-10-23 删除；
    新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
-5. **告警**：腾讯机上备份/归档 timer 已装；`tokenkey-https-watch.timer` 已接到飞书（cn-prod `/health` + 备份/archive/qa-cleanup）。Stage0 布局已按例外路径收敛；日常发版走上方 `prod-rolling-deploy.yml`。
+   AWS 冷归档桶 `tokenkey-prod-archive-682751977094` 已设 30 天过期；东京 physical-backup 桶已不存在（`HeadBucket` 404）。
+5. **告警**：腾讯机上备份/QA retention/coordinator timer 已装；`tokenkey-https-watch.timer` 已接到飞书。Stage0 布局已按例外路径收敛；日常发版走上方 `prod-rolling-deploy.yml`。
 
 ## AWS 残留与环境变量
 
