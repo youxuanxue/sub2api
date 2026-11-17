@@ -511,6 +511,11 @@ func TestVolcKimiDropsEmptyTextParts(t *testing.T) {
 		{"whitespace kept", `{"messages":[{"role":"user","content":[{"type":"text","text":" "},{"type":"text","text":"hi"}]}]}`, "messages.0.content", `[{"type":"text","text":" "},{"type":"text","text":"hi"}]`},
 		{"string content untouched", `{"messages":[{"role":"user","content":""}]}`, "messages.0.content", `""`},
 		{"single object part wrapped then dropped", `{"messages":[{"role":"system","content":{"type":"text","text":""}},{"role":"user","content":"hi"}]}`, "messages.0.content", `""`},
+		// cn-prod 2026-11-17 tokensea_online: type=text with no text field → Volc
+		// "missing messages.content.text"; drop like empty text.
+		{"missing text field", `{"messages":[{"role":"user","content":[{"type":"text"},{"type":"text","text":"hi"}]}]}`, "messages.0.content", `[{"type":"text","text":"hi"}]`},
+		{"null text field", `{"messages":[{"role":"user","content":[{"type":"text","text":null},{"type":"image_url","image_url":{"url":"data:image/png;base64,AA=="}}]}]}`, "messages.0.content", `[{"type":"image_url","image_url":{"url":"data:image/png;base64,AA=="}}]`},
+		{"only missing text part", `{"messages":[{"role":"user","content":[{"type":"text"}]},{"role":"user","content":"hi"}]}`, "messages.0.content", `""`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
