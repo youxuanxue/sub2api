@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-17 cn-prod 镜像分发改腾讯 COS
+
+原话：「Tokyo 镜像分发桶 → COS。同意。请继续。务必精简、高效，不要复杂化。」
+
+适用范围：cn-prod 镜像中转从 Tokyo AWS `cfn-deploy` 改为北京 COS；publish/warm 用既有 `tencent-ops` 凭据。不改 prod GHCR 路径、不搬历史对象。设计见 `docs/approved/design-cn-image-cos.md`。
+
 ## 2026-11-17 cn-prod 压测扩容准备（800 并发前）
 
 原话：「1、开个专用的压测机。临时用2天。2、还是维持2台应用机，但是 app-a 和 app-b 都使用 4C 的吧，先升级一下？3、同意：DATABASE_MAX_OPEN_CONNS 40→80/应用，并上调数据机 max_connections」
@@ -16,7 +22,7 @@
 
 原话：「核心是『以后凡是对象归档都别再落 AWS』。」「对的。确认。」
 
-适用范围：ops 冷数据 promote/export、host-config 等对象归档的**新写入**只允许腾讯 COS；禁止再落到 AWS S3。不覆盖 Oregon 出口、镜像分发、供应商 AWS。pgBackRest/QA 既有 COS/本地契约不变。设计见 `docs/approved/design-cos-object-archive.md`（2026-11-17 乔布斯复审后批准）。
+适用范围：ops 冷数据 promote/export、host-config 等对象归档的**新写入**只允许腾讯 COS；禁止再落到 AWS S3。不覆盖 Oregon 出口、供应商 AWS；镜像分发另见上条。pgBackRest/QA 既有 COS/本地契约不变。设计见 `docs/approved/design-cos-object-archive.md`（2026-11-17 乔布斯复审后批准）。
 
 ## 2026-11-17 AG/Gemini 用量 TTFT：硬编码 visible，thought-only 显示 —
 

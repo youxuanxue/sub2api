@@ -264,20 +264,23 @@ class MemoryS3:
 
     def __init__(self):
         self.objects = {}
+        self.meta = {}
         self.puts = []
 
     def put_object(self, **kwargs):
         key = kwargs['Key']
-        if kwargs['IfNoneMatch'] != '*':
-            raise AssertionError('must be conditional')
         if key in self.objects:
             raise ClientError('PreconditionFailed')
         self.puts.append(key)
         self.objects[key] = kwargs['Body']
+        self.meta[key] = dict(kwargs.get('Metadata') or {})
 
     def head_object(self, **kwargs):
-        body = self.objects[kwargs['Key']]
-        return {'ContentLength': len(body), 'ChecksumSHA256': base64.b64encode(hashlib.sha256(body).digest()).decode()}
+        key = kwargs['Key']
+        if key not in self.objects:
+            raise ClientError('404')
+        body = self.objects[key]
+        return {'ContentLength': len(body), 'Metadata': dict(self.meta.get(key) or {})}
 
     def get_object(self, **kwargs):
         return {'Body': io.BytesIO(self.objects[kwargs['Key']])}
@@ -391,6 +394,41 @@ class DistributionTests(unittest.TestCase):
         result = desired_rules([other])
         self.assertEqual(result, [other, RULE])
         self.assertEqual(desired_rules(result), result)
+
+    def test_settings_require_cos_endpoint(self):
+        cfg = distribution.settings()
+        self.assertEqual(cfg['bucket'], 'tokenkey-cnprod-images-bj-1320330536')
+        self.assertEqual(cfg['region'], 'ap-beijing')
+        self.assertIn('cos.ap-beijing', cfg['endpoint'])
+        self.assertNotIn('amazonaws.com', cfg['endpoint'])
+        self.assertTrue(
+            distribution.endpoint_url(cfg).startswith(
+                'https://tokenkey-cnprod-images-bj-1320330536.cos.ap-beijing'
+            )
+        )
+
+    def test_immutable_put_reuses_identical_object(self):
+        calls = []
+
+        class FakeClient:
+            exceptions = SimpleNamespace(ClientError=type('ClientError', (Exception,), {}))
+
+            def head_object(self, **kwargs):
+                calls.append(('head', kwargs['Key']))
+                if calls.count(('head', kwargs['Key'])) == 1:
+                    err = self.exceptions.ClientError()
+                    err.response = {'Error': {'Code': '404'}}
+                    raise err
+                return {'ContentLength': 3, 'Metadata': dict(getattr(self, '_meta', {}))}
+
+            def put_object(self, **kwargs):
+                calls.append(('put', kwargs['Key'], kwargs['Body']))
+                self._meta = dict(kwargs.get('Metadata') or {})
+
+        client = FakeClient()
+        distribution.immutable_put(client, 'bucket', 'k', b'abc')
+        distribution.immutable_put(client, 'bucket', 'k', b'abc')
+        self.assertEqual([c[0] for c in calls], ['head', 'put', 'head', 'head'])
 
 
 if __name__ == '__main__':

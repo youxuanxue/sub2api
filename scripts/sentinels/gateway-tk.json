@@ -17972,7 +17972,7 @@
         "--render-file cn-image-render/cn-image-render.json",
         "cn-image-warm.json"
       ],
-      "rationale": "Keep the AWS publish job separate from the tencent-ops warm job; the short-lived render artifact carries per-node scripts, while only the Tencent job receives TAT credentials and no AWS secret is exposed. Both render and dispatch must force TAT: auto would select SSM for cn-prod app-a, but the Tencent-only job has no AWS credentials."
+      "rationale": "cn-prod image distribution publishes to Beijing COS and warms via TAT under tencent-ops (no AWS OIDC). The short-lived render artifact carries per-node scripts; both render and dispatch must force TAT (auto would select SSM for app-a)."
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",

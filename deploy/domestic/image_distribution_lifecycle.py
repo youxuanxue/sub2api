@@ -8,7 +8,6 @@ from image_distribution import settings
 RULE = {
     'ID': 'cn-prod-release-images', 'Status': 'Enabled',
     'Filter': {'Prefix': 'cn-prod/images/'}, 'Expiration': {'Days': 30},
-    'NoncurrentVersionExpiration': {'NoncurrentDays': 7},
     'AbortIncompleteMultipartUpload': {'DaysAfterInitiation': 1},
 }
 
@@ -21,9 +20,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
-    import boto3
+    from image_distribution import s3_client
+
     config = settings()
-    client = boto3.client('s3', region_name=config['region'])
+    client = s3_client(config)
     try:
         response = client.get_bucket_lifecycle_configuration(Bucket=config['bucket'])
         current = response['Rules']

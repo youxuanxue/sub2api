@@ -7,9 +7,11 @@ risk: high
 
 # cn-prod 镜像预下载
 
+> **存储目的地（2026-11-17）** 以 [`design-cn-image-cos.md`](design-cn-image-cos.md) 为准：北京 COS，不再写 Tokyo AWS。本文其余预下载/rolling 边界仍有效。
+
 ## 审批范围
 
-将已验证的私有 S3 中转纳入发布流水线，去掉运维电脑下载/上传环节。
+将已验证的私有对象存储中转纳入发布流水线，去掉运维电脑下载/上传环节。
 复用 GHCR 同一构建的 amd64 镜像，不另行构建国内镜像。预下载只把已验证镜像导入
 每个应用节点，不重启正在服务的容器，不改入口路由、网关、数据库或 Redis。
 预下载完成后，正式流量切换仍由独立的 cn-prod rolling 审批与执行 job 负责。
@@ -17,15 +19,14 @@ prod 分发保持原路径。
 
 ## 契约与 owner
 
-- `image-distribution.json` 持有现有私有桶和区域；`image-distribution-policy.yaml`
-  只授予 CI 镜像目录读写及既有 cn-prod SSM 兼容路径操作，不扩展 OIDC 信任域。
-  `distribute-cn-image.yml` 默认在 Release `workflow_run` 成功后跑主分支代码，复用既有
-  main OIDC 信任；也允许 `workflow_dispatch` 传入已成功 Release 的 `release_run_id`
-  做回补/重试。两种触发都只 checkout default_branch，只从该成功 run 的
-  `cn-image-source` artifact 读 tag/revision 并与 git tag 核对；不执行发布 ref 的代码。
-  workflow 拆成 `publish` 与 `warm` 两个凭据边界：`publish` 只在 AWS OIDC 下上传 S3
-  并渲染节点脚本；`warm` 使用 `tencent-ops` Environment 和腾讯 TAT 凭据，不依赖 AWS
-  凭据。render artifact 含短期签名 URL，保留 1 天且从不打印；publish receipt 保留 7 天。
+- `image-distribution.json` 持有 COS 桶/region/endpoint；`distribute-cn-image.yml`
+  默认在 Release `workflow_run` 成功后跑主分支代码。也允许 `workflow_dispatch`
+  传入已成功 Release 的 `release_run_id` 做回补/重试。两种触发都只 checkout
+  default_branch，只从该成功 run 的 `cn-image-source` artifact 读 tag/revision 并与
+  git tag 核对；不执行发布 ref 的代码。
+  `publish` 与 `warm` 均使用 `tencent-ops` Environment 的腾讯凭据：`publish` 写 COS
+  并渲染节点脚本；`warm` 经 TAT 预下载。不再使用 AWS OIDC。render artifact 含短期
+  签名 URL，保留 1 天且从不打印；publish receipt 保留 7 天。
 - `image_distribution.py` 按源 amd64 manifest digest 用 `crane pull --format=legacy`
   下载（docker-save，便于主机 `docker load`），只将归档内加载标签改为专用 digest
   标签。receipt 保留 registry 压缩 manifest 作 provenance；legacy 归档内层是

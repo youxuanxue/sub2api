@@ -24,15 +24,17 @@ class ReleaseWorkflowCredentialBoundaryTest(unittest.TestCase):
         self.assertIn("    environment: tencent-ops", text)
         self.assertIn("TENCENTCLOUD_SECRET_ID", text)
 
-    def test_cn_distribution_splits_aws_publish_from_tencent_warm(self):
+    def test_cn_distribution_uses_tencent_cos_for_publish_and_warm(self):
         text = (WORKFLOWS / "distribute-cn-image.yml").read_text()
         publish, warm = text.split("  warm:\n", 1)
         self.assertIn("  publish:\n", publish)
-        self.assertIn("id-token: write", publish)
+        self.assertIn("environment: tencent-ops", publish)
+        self.assertIn("TENCENTCLOUD_SECRET_ID", publish)
+        self.assertNotIn("id-token: write", publish)
+        self.assertNotIn("configure-aws-credentials", publish)
         self.assertIn("python3 deploy/domestic/warm_fanout.py render-all", publish)
         self.assertIn("name: cn-image-render", publish)
         self.assertIn("retention-days: 1", publish)
-        self.assertNotIn("TENCENTCLOUD_SECRET", publish)
         self.assertIn("--channel tat", publish)
         self.assertNotIn("--channel auto", publish)
 
