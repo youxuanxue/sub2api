@@ -13,7 +13,7 @@ Convention:
 - **Version-only drift** (wire HTTP identity moved, TLS runtime projection
   unchanged) → bump the single compile owner
   `backend/internal/pkg/kiro/constants.go` `DefaultKiroCLIVersion`, refresh
-  `deploy/aws/stage0/tk_canonical_kiro_cli.json` via `emit-profile`, add **one
+  `deploy/stage0/tk_canonical_kiro_cli.json` via `emit-profile`, add **one
   row here** and stop. Record the runtime digest so the next reader can tell at a
   glance whether a `tls_fingerprint_profiles` migration was required.
 - **TLS runtime field change** (digest differs) → additionally add a forward

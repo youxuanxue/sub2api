@@ -2,7 +2,7 @@
 # ensure-tokenkey-bbr.sh — idempotent TokenKey host BBR enablement.
 #
 # SSOT for TokenKey host TCP congestion control (bbr + fq). Consumed by:
-#   - deploy/aws/stage0/stage0-ec2-bootstrap.sh (historical EC2 bootstrap; compact inline)
+#   - deploy/stage0/stage0-ec2-bootstrap.sh (historical EC2 bootstrap; compact inline)
 #   - deploy/hetzner/render-prod-bootstrap.sh (prod bootstrap renderer)
 #   - ops/stage0/sync-host-bbr-via-ssm.sh (live prod heal; `prod` resolves the
 #     Tencent USW SSM Hybrid mi-* host via resolve_prod_ssm_target.py)

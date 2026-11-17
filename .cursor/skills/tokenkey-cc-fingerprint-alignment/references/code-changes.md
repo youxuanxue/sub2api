@@ -12,12 +12,12 @@ bash ops/anthropic/capture-cc-fingerprint.sh emit-edits
 
 单一真值源 + 守卫自动生成，**人手只碰 1 个字段**：
 
-1. 按 `emit-edits` 更新 `deploy/aws/stage0/anthropic-http-mimicry-baselines.json` 的 `cc_version`（唯一手改源）。
+1. 按 `emit-edits` 更新 `deploy/stage0/anthropic-http-mimicry-baselines.json` 的 `cc_version`（唯一手改源）。
 2. 跑 `python3 scripts/sentinels/check-cc-version-sync.py --write` —— 自动重写全部 8 份副本：
    - 4 个 Go 编译默认值：`constants.go` 的 `CLICurrentVersion` + `DefaultHeaders["User-Agent"]`、
      `identity_service.go` 的 `defaultFingerprint.UserAgent`、
      `identity_service_tk_canonical_http.go` 的 `DefaultClaudeCodeUserAgentVersion`。
-   - 2 个死快照：`ops/stage0/smoke_lib.sh`、`deploy/aws/stage0/tk_canonical_cc_oauth.json` 的 `observed.user_agent`。
+   - 2 个死快照：`ops/stage0/smoke_lib.sh`、`deploy/stage0/tk_canonical_cc_oauth.json` 的 `observed.user_agent`。
    - 1 个 go:embed 镜像（load-bearing，reconciler 自愈目标）：`backend/internal/baseline/anthropic-http-mimicry-baselines.json`
      与 deploy 源 byte-identical 同步。
 3. **不写**独立 spec-delta（纯版本 bump 没有行为变更意图）。记录由提交信息
@@ -33,7 +33,7 @@ bash ops/anthropic/capture-cc-fingerprint.sh emit-edits
 
 `--write` 只同步版本字符串，**不碰 beta 列表**。beta 真变了才手改，且必须有真实抓包证据：
 
-- `deploy/aws/stage0/anthropic-http-mimicry-baselines.json` 的 `sonnet_opus` / `haiku` 数组。
+- `deploy/stage0/anthropic-http-mimicry-baselines.json` 的 `sonnet_opus` / `haiku` 数组。
 - `backend/internal/pkg/claude/constants.go` 的 beta 常量 + `HaikuBetaHeader` / `FullClaudeCode*MimicryBetas()`。
 - claude 包对应单测。
 - 若新增 load-bearing 面：`scripts/sentinels/gateway-tk.json`。

@@ -1,4 +1,4 @@
-# Merge with ../aws/stage0/docker-compose.yml. Supply immutable local image tags
+# Merge with ../stage0/docker-compose.yml. Supply immutable local image tags
 # only after verifying the source manifest and archive checksums.
 services:
   tokenkey:

@@ -56,7 +56,7 @@ env = {
     "TZ": "Asia/Shanghai",
 }
 (out / ".env").write_text("".join(k + "=" + v + "\n" for k, v in env.items()))
-shutil.copyfile(root / "deploy/aws/stage0/docker-compose.yml", out / "compose.yml")
+shutil.copyfile(root / "deploy/stage0/docker-compose.yml", out / "compose.yml")
 shutil.copyfile(
     root / "deploy/domestic/compose.override.yml", out / "compose.override.yml"
 )
@@ -73,8 +73,8 @@ render_env.update(
 subprocess.run(
     [
         "bash",
-        str(root / "deploy/aws/stage0/render-prod-caddyfile.sh"),
-        str(root / "deploy/aws/stage0/Caddyfile"),
+        str(root / "deploy/stage0/render-prod-caddyfile.sh"),
+        str(root / "deploy/stage0/Caddyfile"),
         str(out / "Caddyfile"),
     ],
     check=True,

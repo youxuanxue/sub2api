@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[2] / 'deploy/aws/stage0/tokenkey-prune-ghcr-app-tags.sh'
+SCRIPT = Path(__file__).resolve().parents[2] / 'deploy/stage0/tokenkey-prune-ghcr-app-tags.sh'
 
 
 class PruneDotenvTest(unittest.TestCase):

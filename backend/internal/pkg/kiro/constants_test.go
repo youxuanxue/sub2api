@@ -47,7 +47,7 @@ func canonicalKiroProfilePath(t *testing.T) string {
 		t.Fatal(err)
 	}
 	for {
-		candidate := filepath.Join(dir, "deploy", "aws", "stage0", "tk_canonical_kiro_cli.json")
+		candidate := filepath.Join(dir, "deploy", "stage0", "tk_canonical_kiro_cli.json")
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}

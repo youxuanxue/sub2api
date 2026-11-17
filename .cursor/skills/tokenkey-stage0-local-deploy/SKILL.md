@@ -6,7 +6,7 @@ description: >-
 
 # TokenKey：本地 Stage0 栈
 
-本地 Docker Compose 验证，栈 owner 为 `deploy/aws/stage0/docker-compose.yml`，配置生成唯一入口 `deploy/aws/stage0/local-bootstrap.sh`。线上发布用 `tokenkey-stage0-release-rollout`；本流程不 bump/tag。
+本地 Docker Compose 验证，栈 owner 为 `deploy/stage0/docker-compose.yml`，配置生成唯一入口 `deploy/stage0/local-bootstrap.sh`。线上发布用 `tokenkey-stage0-release-rollout`；本流程不 bump/tag。
 
 ## 前置与状态边界
 
@@ -22,7 +22,7 @@ bootstrap 子进程不导出父 shell 变量；同一 shell 设置：
 export REPO_ROOT="$(git rev-parse --show-toplevel)"
 export TOKENKEY_STAGE0_LOCAL_ROOT="${TOKENKEY_STAGE0_LOCAL_ROOT:-$REPO_ROOT/.cache/tokenkey-stage0-local}"
 export TOKENKEY_NEWAPI_PARENT="${TOKENKEY_NEWAPI_PARENT:-$(dirname "$REPO_ROOT")}"
-bash deploy/aws/stage0/local-bootstrap.sh
+bash deploy/stage0/local-bootstrap.sh
 ```
 
 bootstrap 保留已有 `.env`，按需重写 Caddyfile/override；`--dry-run` 可预览。非默认布局覆盖上述变量；本地 build 的上下文须含 sibling `sub2api/` 与 `new-api/`。

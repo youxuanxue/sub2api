@@ -53,8 +53,8 @@ majority.
 - `backend/internal/pkg/claude/constants.go` — `CLICurrentVersion`, `DefaultHeaders["User-Agent"]`, cc-version / capture-date comments + haiku A/B note
 - `backend/internal/service/identity_service.go` — `defaultFingerprint.UserAgent`
 - `backend/internal/service/identity_service_tk_canonical_http.go` — `DefaultClaudeCodeUserAgentVersion`
-- `deploy/aws/stage0/anthropic-http-mimicry-baselines.json` — `cc_version` (runtime truth source)
-- `deploy/aws/stage0/tk_canonical_cc_oauth.json` — `observed.user_agent` + capture-range note in `description` (auto-regen via `check-cc-version-sync.py --write`)
+- `deploy/stage0/anthropic-http-mimicry-baselines.json` — `cc_version` (runtime truth source)
+- `deploy/stage0/tk_canonical_cc_oauth.json` — `observed.user_agent` + capture-range note in `description` (auto-regen via `check-cc-version-sync.py --write`)
 - `ops/anthropic/test_capture_cc_fingerprint.py` — `canonical_http.default_version` baseline assertion
 - `ops/stage0/smoke_lib.sh` — `smoke_default_claude_user_agent` default UA (auto-regen)
 

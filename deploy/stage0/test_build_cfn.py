@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Size gates for deploy/aws/stage0/build-cfn.sh outputs (stdlib-only)."""
+"""Size gates for deploy/stage0/build-cfn.sh outputs (stdlib-only)."""
 from __future__ import annotations
 
 import base64
@@ -13,8 +13,8 @@ import subprocess
 import tempfile
 import unittest
 
-_REPO = pathlib.Path(__file__).resolve().parents[3]
-STAGE0 = _REPO / "deploy/aws/stage0"
+_REPO = pathlib.Path(__file__).resolve().parents[2]
+STAGE0 = _REPO / "deploy/stage0"
 CFN_MAIN = _REPO / "deploy/aws/cloudformation/stage0-single-ec2.yaml"
 
 EC2_USERDATA_LIMIT = 16384
@@ -67,7 +67,7 @@ class BuildCfnSizeTest(unittest.TestCase):
                                     ((STAGE0 / "Caddyfile").read_bytes(), None)):
             with self.subTest(over_limit=over_limit), tempfile.TemporaryDirectory() as directory:
                 root = pathlib.Path(directory)
-                stage0 = root / "deploy/aws/stage0"
+                stage0 = root / "deploy/stage0"
                 shutil.copytree(STAGE0, stage0)
                 cfn = root / "template.yaml"
                 shutil.copy2(CFN_MAIN, cfn)
@@ -189,7 +189,7 @@ class BuildCfnSizeTest(unittest.TestCase):
         # preflight suites never observe a temporarily tampered canonical source.
         with tempfile.TemporaryDirectory() as temp_dir:
             fixture_root = pathlib.Path(temp_dir)
-            stage0_copy = fixture_root / "deploy/aws/stage0"
+            stage0_copy = fixture_root / "deploy/stage0"
             cfn_copy = fixture_root / "deploy/aws/cloudformation/stage0-single-ec2.yaml"
             shutil.copytree(STAGE0, stage0_copy)
             cfn_copy.parent.mkdir(parents=True)
@@ -234,7 +234,7 @@ class BuildCfnSizeTest(unittest.TestCase):
     def test_prod_pg_owner_drift_requires_regeneration(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            stage0_copy = root / "deploy/aws/stage0"
+            stage0_copy = root / "deploy/stage0"
             shutil.copytree(STAGE0, stage0_copy)
             cfn = root / "deploy/aws/cloudformation/stage0-single-ec2.yaml"
             cfn.parent.mkdir(parents=True)

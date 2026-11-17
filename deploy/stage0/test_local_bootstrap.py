@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke tests for deploy/aws/stage0/local-bootstrap.sh — verify idempotency,
+"""Smoke tests for deploy/stage0/local-bootstrap.sh — verify idempotency,
 that the .env is never overwritten when it already exists (preserves
 POSTGRES_PASSWORD across runs), and that --dry-run writes nothing.
 
@@ -14,14 +14,14 @@ import tempfile
 import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve()
-_REPO_ROOT = _SCRIPT.parents[3]
+_REPO_ROOT = _SCRIPT.parents[2]
 
 
 def _run(env: dict[str, str], *args: str) -> subprocess.CompletedProcess:
     merged = os.environ.copy()
     merged.update(env)
     return subprocess.run(
-        ["bash", str(_REPO_ROOT / "deploy/aws/stage0/local-bootstrap.sh"), *args],
+        ["bash", str(_REPO_ROOT / "deploy/stage0/local-bootstrap.sh"), *args],
         env=merged, capture_output=True, text=True, check=False,
     )
 

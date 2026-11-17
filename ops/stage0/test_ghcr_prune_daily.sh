@@ -3,8 +3,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DAILY="${ROOT}/deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh"
-BOOTSTRAP="${ROOT}/deploy/aws/stage0/stage0-ec2-bootstrap.sh"
+DAILY="${ROOT}/deploy/stage0/tokenkey-ghcr-prune-daily.sh"
+BOOTSTRAP="${ROOT}/deploy/stage0/stage0-ec2-bootstrap.sh"
 PROD_SYNC="${ROOT}/ops/stage0/sync-ghcr-prune-timer-via-ssm.sh"
 CFN="${ROOT}/deploy/aws/cloudformation/stage0-single-ec2.yaml"
 

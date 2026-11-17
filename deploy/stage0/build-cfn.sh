@@ -5,13 +5,13 @@
 # into CloudFormation SSM Parameter values; regenerate thin EC2 UserData launcher.
 #
 # Usage:
-#   bash deploy/aws/stage0/build-cfn.sh                    # in-place rewrite
-#   bash deploy/aws/stage0/build-cfn.sh --check            # diff-only, exit 1 if drift
+#   bash deploy/stage0/build-cfn.sh                    # in-place rewrite
+#   bash deploy/stage0/build-cfn.sh --check            # diff-only, exit 1 if drift
 # =============================================================================
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${HERE}/../../.." && pwd)"
+REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 COMPOSE_SRC="${HERE}/docker-compose.yml"
 PROD_PG_SRC="${HERE}/docker-compose.prod-pg.yml"
 CADDY_SRC="${HERE}/Caddyfile"
@@ -87,7 +87,7 @@ rendered, count = re.subn(pattern, lambda m: m[1] + payload + m[2], source, flag
 if count != 1:
     raise SystemExit("missing/duplicate prod PG overlay markers")
 if mode == "check" and rendered != source:
-    raise SystemExit("prod PG overlay drift: run bash deploy/aws/stage0/build-cfn.sh")
+    raise SystemExit("prod PG overlay drift: run bash deploy/stage0/build-cfn.sh")
 if mode != "check" and rendered != source:
     bootstrap.write_text(rendered)
 PYPG
@@ -236,7 +236,7 @@ if [[ "${mode}" == "check" ]]; then
       }
     ' "${CFN_FILE}"
   }
-  report() { echo "  drift: ${1} embed no longer decodes to its source — run: bash deploy/aws/stage0/build-cfn.sh" >&2; drift=1; }
+  report() { echo "  drift: ${1} embed no longer decodes to its source — run: bash deploy/stage0/build-cfn.sh" >&2; drift=1; }
 
   # gzip+base64 payloads (the version-fragile ones):
   committed_value COMPOSE_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${COMPOSE_SRC}" || report compose

@@ -1,7 +1,7 @@
 name: Legacy pg_dump Refresh (retired prod is rejected)
 
 # Historical fallback only; the host retirement marker prevents reactivation.
-# Shared script owner: deploy/aws/stage0/tokenkey-pgdump.sh; host bootstrap
+# Shared script owner: deploy/stage0/tokenkey-pgdump.sh; host bootstrap
 # consumers include historical Hetzner bootstrap; the path does not identify the live cloud.
 
 on:
@@ -93,5 +93,5 @@ jobs:
             echo "- ssm command id: \`${CMD_ID:-none}\`"
             echo "- cadence: every 2 hours"
             echo "- retention: newest 6 local rolling files by default; off-box policy is independent"
-            echo "- source: \`${GITHUB_SHA}\` (deploy/aws/stage0/tokenkey-pgdump.sh)"
+            echo "- source: \`${GITHUB_SHA}\` (deploy/stage0/tokenkey-pgdump.sh)"
           } >> "$GITHUB_STEP_SUMMARY"

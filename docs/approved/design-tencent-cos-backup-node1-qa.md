@@ -182,7 +182,7 @@ AWS repo1 仍是 prod 唯一经过恢复验证的链。
 ### prod COS 真实恢复证据（2026-11-08）
 
 在独立数据机 `lhins-rbjrqukb`（Lighthouse `tokenkey-usw-data-20261108`，na-siliconvalley-2，私网 10.4.0.17）上完成。
-镜像由 `deploy/aws/stage0/postgres-backup/Dockerfile` 构建，pgBackRest 2.58.0、PostgreSQL 18.6，与 prod `tk-archive-standby` 相同。
+镜像由 `deploy/stage0/postgres-backup/Dockerfile` 构建，pgBackRest 2.58.0、PostgreSQL 18.6，与 prod `tk-archive-standby` 相同。
 命令经腾讯 TAT 下发。恢复容器以 `--user 70:70` 运行，配置只读挂载，`listen_addresses` 为空，`archive_mode=off`；结束后删除沙箱。
 prod 只承受两次只读查询。
 

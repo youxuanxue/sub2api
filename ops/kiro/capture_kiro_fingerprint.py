@@ -22,7 +22,7 @@ from typing import Any
 
 SCHEMA_VERSION = 3
 REPO_ROOT = Path(__file__).resolve().parents[2]
-KIRO_TLS_PROFILE_JSON = REPO_ROOT / "deploy/aws/stage0/tk_canonical_kiro_cli.json"
+KIRO_TLS_PROFILE_JSON = REPO_ROOT / "deploy/stage0/tk_canonical_kiro_cli.json"
 KIRO_HTTP_OWNER_GO = REPO_ROOT / "backend/internal/pkg/kiro/constants.go"
 KIRO_PROFILE_NAME = "tk_canonical_kiro_cli"
 DEFAULT_AUTH_CACHE = Path.home() / ".aws/sso/cache/kiro-auth-token.json"

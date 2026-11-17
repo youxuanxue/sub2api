@@ -117,7 +117,7 @@ Regular risk — TLS/HTTP fingerprint alignment (\`tokenkey-cc-fingerprint-align
 
 ## Validation
 - [ ] \`bash ops/anthropic/capture-cc-fingerprint.sh capture\` → \`check-tls\` green
-- [ ] Update \`deploy/aws/stage0/tk_canonical_cc_oauth.json\` + \`manage-anthropic-config.py plan/apply/verify\`
+- [ ] Update \`deploy/stage0/tk_canonical_cc_oauth.json\` + \`manage-anthropic-config.py plan/apply/verify\`
 - [ ] \`./scripts/preflight.sh\`
 
 \`\`\`text

@@ -11,7 +11,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = REPO_ROOT / "scripts" / "sentinels" / "cc-geo-stego-static.json"
 CLI_VERSION_GO = REPO_ROOT / "backend/internal/pkg/claude/constants.go"
-BASELINES = REPO_ROOT / "deploy/aws/stage0/anthropic-http-mimicry-baselines.json"
+BASELINES = REPO_ROOT / "deploy/stage0/anthropic-http-mimicry-baselines.json"
 
 
 def read_cli_version() -> str:

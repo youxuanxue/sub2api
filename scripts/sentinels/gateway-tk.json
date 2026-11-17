@@ -224,7 +224,7 @@
       "rationale": "Keep executable coverage, body validation, alert/recovery and retry regressions in the existing host watch test owner. After 2026-11-17 coordinator cutover, both prod and cn-prod assert retention (not v1 archive) on app hosts; data_qa_jobs cover coordinator+retention on data machines. JOB_LIMITS still keep historical v1 names."
     },
     {
-      "path": "deploy/aws/stage0/tokenkey-pgdump.sh",
+      "path": "deploy/stage0/tokenkey-pgdump.sh",
       "must_contain": [
         "python3 /usr/local/lib/tokenkey/pgdump_storage.py --upload",
         "local copy kept; no AWS fallback",
@@ -4240,7 +4240,7 @@
         "middleware.SetDrain(true)",
         "TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS"
       ],
-      "rationale": "Zero-downtime release plumbing: SIGUSR1 flips middleware.SetDrain(true) so /health returns 503 and Caddy's active health check (probing /health, drain-aware) immediately detaches the upstream, while the env-tunable TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS (default 120s) extends http.Server.Shutdown so in-flight SSE streams finish naturally. Removing any of these silently reintroduces the 'docker compose up -d --no-deps tokenkey kills live SSE' release-disruption symptom that this PR is built to fix (deploy/aws/stage0/docker-compose.yml stop_grace_period=180s + ops/stage0/deploy_via_ssm.sh pre-drain loop depend on the SIGUSR1 contract)."
+      "rationale": "Zero-downtime release plumbing: SIGUSR1 flips middleware.SetDrain(true) so /health returns 503 and Caddy's active health check (probing /health, drain-aware) immediately detaches the upstream, while the env-tunable TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS (default 120s) extends http.Server.Shutdown so in-flight SSE streams finish naturally. Removing any of these silently reintroduces the 'docker compose up -d --no-deps tokenkey kills live SSE' release-disruption symptom that this PR is built to fix (deploy/stage0/docker-compose.yml stop_grace_period=180s + ops/stage0/deploy_via_ssm.sh pre-drain loop depend on the SIGUSR1 contract)."
     },
     {
       "path": "backend/internal/server/http.go",
@@ -6358,7 +6358,7 @@
       "rationale": "Gateway must call context-aware mimicry getters so runtime manifest overrides compile-time FullClaudeCode*MimicryBetas after cc patch capture."
     },
     {
-      "path": "deploy/aws/stage0/anthropic-http-mimicry-baselines.json",
+      "path": "deploy/stage0/anthropic-http-mimicry-baselines.json",
       "must_contain": [
         "\"sonnet_opus\"",
         "\"haiku\"",
@@ -6416,7 +6416,7 @@
         "func FullClaudeCodeHaikuMimicryBetas()",
         "func JoinBetaHeader("
       ],
-      "rationale": "OAuth Claude Code mimicry beta registry: Sonnet/Opus and Haiku sets must stay aligned with real cc CLI traffic (latest cc capture; version single-sourced in deploy/aws/stage0/anthropic-http-mimicry-baselines.json). Dropping thinking-token-count / structured-outputs or reverting Haiku to the legacy claude-code + extended-cache-ttl set re-opens third-party cohort signals on OAuth subscriptions."
+      "rationale": "OAuth Claude Code mimicry beta registry: Sonnet/Opus and Haiku sets must stay aligned with real cc CLI traffic (latest cc capture; version single-sourced in deploy/stage0/anthropic-http-mimicry-baselines.json). Dropping thinking-token-count / structured-outputs or reverting Haiku to the legacy claude-code + extended-cache-ttl set re-opens third-party cohort signals on OAuth subscriptions."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_kiro.go",
@@ -16792,7 +16792,7 @@
       "rationale": "Focused unit tests lock stream vs nonstream first-output budgets, forbid ResponseHeaderTimeout from redefining either, and cover NewAPI promotion parity with OpenAI (large body / high effort → NewAPI high-latency knobs)."
     },
     {
-      "path": "deploy/aws/stage0/docker-compose.yml",
+      "path": "deploy/stage0/docker-compose.yml",
       "must_contain": [
         "GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT:-0}",
         "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-600}"
@@ -17289,7 +17289,7 @@
       "rationale": "QA S3 retired 2026-11-08; prod cut over to data-machine coordinator + independent one-day retention (2026-11-17). host_watch.local_qa_jobs and data_qa_jobs must stay registered so watcher probes the live timers; v1 cleanup/archive literals must not reappear as expected-running jobs."
     },
     {
-      "path": "deploy/aws/stage0/stage0-ec2-bootstrap.sh",
+      "path": "deploy/stage0/stage0-ec2-bootstrap.sh",
       "must_contain": [
         "systemctl enable --now tokenkey-disk-metrics.timer"
       ],
@@ -20770,7 +20770,7 @@
       "rationale": "Regression pins the fail-closed ordering: a mismatched app host is refused before ROOT is created and no Docker path is invoked."
     },
     {
-      "path": "deploy/aws/stage0/render-prod-caddyfile.sh",
+      "path": "deploy/stage0/render-prod-caddyfile.sh",
       "must_contain": [
         "caddy_role=\"${PROD_CADDY_ROLE:-app}\"",
         "PROD_FLEET_MATRIX is required for entry mode",
@@ -20780,7 +20780,7 @@
       "rationale": "The canonical prod renderer keeps app and entry roles explicit; entry mode derives a validated private multi-app WRR pool from the fleet matrix."
     },
     {
-      "path": "deploy/aws/stage0/test_render_prod_caddyfile.py",
+      "path": "deploy/stage0/test_render_prod_caddyfile.py",
       "must_contain": [
         "def test_entry_mode_renders_private_weighted_pool(self) -> None:",
         "self.assertIn(\"lb_policy weighted_round_robin 2 1\", rendered)"

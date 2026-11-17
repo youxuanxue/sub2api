@@ -5,7 +5,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
-STAGE0="${REPO_ROOT}/deploy/aws/stage0"
+STAGE0="${REPO_ROOT}/deploy/stage0"
 OUT="${OUT:-${HERE}/generated-prod-user-data.sh}"
 
 mode="apply"

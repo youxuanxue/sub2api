@@ -16,7 +16,7 @@ if [[ ! "$INSTANCE_ID" =~ ^(i|mi)-[a-zA-Z0-9]+$ ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/docker-compose.yml"
+COMPOSE_SRC="${SCRIPT_DIR}/../../deploy/stage0/docker-compose.yml"
 [[ -f "$COMPOSE_SRC" ]] || { echo "missing $COMPOSE_SRC" >&2; exit 1; }
 
 # Remote script refuses a compose that still names the Tencent data containers.

@@ -45,7 +45,7 @@ if [[ "${INSTANCE_ID}" != "${EXPECTED_PROD}" && "${TOKENKEY_ALLOW_NONPROD_PG_TUN
   exit 2
 fi
 
-OVERLAY_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/docker-compose.prod-pg.yml"
+OVERLAY_SRC="${SCRIPT_DIR}/../../deploy/stage0/docker-compose.prod-pg.yml"
 [[ -f "${OVERLAY_SRC}" ]] || { echo "missing ${OVERLAY_SRC}" >&2; exit 1; }
 OVERLAY_B64="$(base64 < "${OVERLAY_SRC}" | tr -d '\n')"
 

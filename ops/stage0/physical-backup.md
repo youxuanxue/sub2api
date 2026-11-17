@@ -65,7 +65,7 @@
 `--repo-path` 必填，现网活链为 `/candidates/tencent-usw-20261022/postgres`。
 
 ```bash
-docker build --platform linux/amd64 -t tokenkey-postgres-backup:dev deploy/aws/stage0/postgres-backup
+docker build --platform linux/amd64 -t tokenkey-postgres-backup:dev deploy/stage0/postgres-backup
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go -C backend build -trimpath -ldflags='-s -w' \
   -o /tmp/backup-billing-check ./cmd/backup-billing-check
 docker save --output /tmp/postgres-backup.tar tokenkey-postgres-backup:dev

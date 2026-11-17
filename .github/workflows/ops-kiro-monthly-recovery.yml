@@ -103,7 +103,7 @@ jobs:
             --with ops/stage0/probe_kiro_upstream_models.sh \
             --with ops/kiro/probe_runtime_gateway.py \
             --with backend/internal/pkg/kiro/constants.go \
-            --with deploy/aws/stage0/tk_canonical_kiro_cli.json \
+            --with deploy/stage0/tk_canonical_kiro_cli.json \
             --env TARGET_NAME="$TARGET" \
             --env MODE="$MODE" \
             --env MODEL="$MODEL" \

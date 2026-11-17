@@ -15,8 +15,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 RETIRED = (
-    "deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh",
-    "deploy/aws/stage0/tokenkey-qa-export-orphan.py",
+    "deploy/stage0/tokenkey-qa-stale-cleanup.sh",
+    "deploy/stage0/tokenkey-qa-export-orphan.py",
     "ops/stage0/sync-qa-stale-cleanup-timer-via-ssm.sh",  # script-ref-allow-missing: retired deletion owner
     "ops/qa/prod_qa_stale_cleanup.py",  # script-ref-allow-missing: retired deletion owner
     "ops/qa/test_prod_qa_stale_cleanup.py",  # script-ref-allow-missing: retired deletion owner
@@ -41,10 +41,10 @@ RETIRED = (
     "backend/internal/observability/qa/archive/store.go",
     "backend/internal/observability/qa/archive/reconciler.go",
     "backend/internal/observability/qa/archive/gap_decision.go",
-    "deploy/aws/stage0/tokenkey-qa-maintenance.sh",
-    "deploy/aws/stage0/tokenkey-qa-boundary.sh",
-    "deploy/aws/stage0/qa-runtime.sh",
-    "deploy/aws/stage0/qa-runtime-compose.yml",
+    "deploy/stage0/tokenkey-qa-maintenance.sh",
+    "deploy/stage0/tokenkey-qa-boundary.sh",
+    "deploy/stage0/qa-runtime.sh",
+    "deploy/stage0/qa-runtime-compose.yml",
     "deploy/aws/cloudformation/stage0-qa-raw-archive.yaml",
     "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh",  # script-ref-allow-missing: retired QA S3 owner
     "ops/stage0/sync-qa-boundary-timer-via-ssm.sh",  # script-ref-allow-missing: retired QA S3 owner
@@ -109,12 +109,12 @@ REQUIRED = {
 
 FORBIDDEN_TEXT = {
     "scripts/preflight.sh": ("qa-lifecycle-ssot.py --quiet",),
-    "deploy/aws/stage0/stage0-ec2-bootstrap.sh": (
+    "deploy/stage0/stage0-ec2-bootstrap.sh": (
         "qa_exports_tmp",
         "qa-export-orphan",
         "qa-stale-cleanup",
     ),
-    "deploy/aws/stage0/build-cfn.sh": ("QA_CLEANUP", "QA_EXPORT_ORPHAN"),
+    "deploy/stage0/build-cfn.sh": ("QA_CLEANUP", "QA_EXPORT_ORPHAN"),
     "deploy/aws/cloudformation/stage0-single-ec2.yaml": (
         "qa-stale-cleanup.gzip.b64",
         "qa-export-orphan.gzip.b64",
@@ -516,8 +516,8 @@ def self_test() -> int:
             ("Makefile", "test: src/api/__tests__/qaBundle.spec.ts\n"),
             (".cursor/skills/release/references/tools.md", "Run deploy-qa-bundle.yml\n"),
             ("deploy/aws/README.md", "Dispatch deploy-qa-bundle.yml\n"),
-            ("deploy/aws/stage0/legal-page/privacy.html", "Authorized users can view and export their QA history."),
-            ("deploy/aws/stage0/legal-page/privacy.html", "经授权的用户可查看、导出自己的 QA 历史"),
+            ("deploy/stage0/legal-page/privacy.html", "Authorized users can view and export their QA history."),
+            ("deploy/stage0/legal-page/privacy.html", "经授权的用户可查看、导出自己的 QA 历史"),
         ):
             target = fixture / rel
             original = target.read_text() if target.exists() else None

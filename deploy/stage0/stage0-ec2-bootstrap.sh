@@ -1,6 +1,6 @@
 #!/bin/bash
 # tokenkey Stage 0 EC2 bootstrap — fetched from SSM at first boot (see stage0-ec2-userdata-launcher.sub.sh).
-# Regenerated into SSM by deploy/aws/stage0/build-cfn.sh. Requires TK_* env vars from the launcher.
+# Regenerated into SSM by deploy/stage0/build-cfn.sh. Requires TK_* env vars from the launcher.
 set -euxo pipefail
 
 : "${TK_API_DOMAIN:?}"

@@ -10,7 +10,7 @@ baseline without grepping the codebase. The two MUST stay in lockstep,
 otherwise the JSON becomes misleading documentation.
 
 Reads:
-  - deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json
+  - deploy/stage0/anthropic-oauth-stability-baselines-tiered.json
       policy.cooldown_ladder_seconds  (e.g. [30, 120, 600])
       policy.cooldown_tier_ttl_minutes (e.g. 30)
   - backend/internal/service/ratelimit_service.go
@@ -46,7 +46,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BASELINE_JSON = (
     REPO_ROOT
     / "deploy"
-    / "aws"
     / "stage0"
     / "anthropic-oauth-stability-baselines-tiered.json"
 )

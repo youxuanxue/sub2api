@@ -99,7 +99,7 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
                     "pinned": "2.1.220",
                     "upstream_latest": "2.1.226",
                     "status": "drift",
-                    "pin_path": "deploy/aws/stage0/anthropic-http-mimicry-baselines.json",
+                    "pin_path": "deploy/stage0/anthropic-http-mimicry-baselines.json",
                     "skill": "tokenkey-cc-fingerprint-alignment",
                     "upstream_sources": {},
                     "drift": True,

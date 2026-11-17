@@ -36,7 +36,7 @@ class HostBbrSsotTests(unittest.TestCase):
         self.assertTrue((REPO / "ops/observability/probe-list-proxies.sh").is_file())
 
     def test_ec2_section_is_compact_not_full_script(self) -> None:
-        body = (REPO / "deploy/aws/stage0/stage0-ec2-bootstrap.sh").read_text(encoding="utf-8")
+        body = (REPO / "deploy/stage0/stage0-ec2-bootstrap.sh").read_text(encoding="utf-8")
         section = self.mod._ec2_bbr_section(body)
         self.assertIsNotNone(section)
         self.assertNotIn("<<'BBREOF'", section)

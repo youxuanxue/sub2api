@@ -9,7 +9,7 @@ import (
 )
 
 // Codex CLI (hyper 1.x / h2 0.4) HTTP/2 preface captured from real codex 0.167.0
-// against a local capture endpoint (deploy/aws/stage0/tk_canonical_codex_cli.json):
+// against a local capture endpoint (deploy/stage0/tk_canonical_codex_cli.json):
 //
 //	SETTINGS ENABLE_PUSH=0, INITIAL_WINDOW_SIZE=2097152, MAX_FRAME_SIZE=16384,
 //	MAX_HEADER_LIST_SIZE=16384; WINDOW_UPDATE(conn)=5177345.

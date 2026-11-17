@@ -3,7 +3,7 @@
 
 SSOT: deploy/host/ensure-tokenkey-bbr.sh
 Static consumers (preflight default):
-  - deploy/aws/stage0/stage0-ec2-bootstrap.sh (compact apply; keep ≤3 SSM parts)
+  - deploy/stage0/stage0-ec2-bootstrap.sh (compact apply; keep ≤3 SSM parts)
   - deploy/hetzner/render-prod-bootstrap.sh (b64_gzip embed + install)
   - ops/stage0/sync-host-bbr-via-ssm.sh (live prod heal via SSM; `prod` uses the resolver)
   - scripts/checks/proxy_bbr_live.py + ops/observability/probe-list-proxies.sh
@@ -29,7 +29,7 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 SSOT = REPO / "deploy/host/ensure-tokenkey-bbr.sh"
-EC2_BOOTSTRAP = REPO / "deploy/aws/stage0/stage0-ec2-bootstrap.sh"
+EC2_BOOTSTRAP = REPO / "deploy/stage0/stage0-ec2-bootstrap.sh"
 HETZNER_PROD = REPO / "deploy/hetzner/render-prod-bootstrap.sh"
 SYNC = REPO / "ops/stage0/sync-host-bbr-via-ssm.sh"
 PROXY_LIVE = REPO / "scripts/checks/proxy_bbr_live.py"

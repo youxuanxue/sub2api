@@ -4,9 +4,9 @@
 //
 // Single-source discipline (CLAUDE.md §10, memory "anthropic tier baseline 单一源"):
 // the JSON files here are byte-copies of the canonical sources under
-// deploy/aws/stage0/. go:embed cannot reach outside the backend module, so a copy
+// deploy/stage0/. go:embed cannot reach outside the backend module, so a copy
 // is unavoidable — scripts/sentinels/check-tier-baseline-embed.py asserts the copy
-// stays semantically identical to deploy/aws/stage0/ in preflight + CI.
+// stays semantically identical to deploy/stage0/ in preflight + CI.
 package baseline
 
 import _ "embed"

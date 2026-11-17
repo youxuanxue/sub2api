@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behavior tests for deploy/aws/stage0/render-prod-caddyfile.sh."""
+"""Behavior tests for deploy/stage0/render-prod-caddyfile.sh."""
 
 from __future__ import annotations
 
@@ -154,7 +154,7 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertNotIn("BEGIN_UPSTREAM", rendered)
 
     def test_entry_mode_refuses_invalid_matrix_pools(self) -> None:
-        matrix_path = _HERE.parents[2] / "deploy/tencent/candidate-usw-20261022.json"
+        matrix_path = _HERE.parents[1] / "deploy/tencent/candidate-usw-20261022.json"
         base = json.loads(matrix_path.read_text())
         cases = {
             "public ip": lambda data: data["apps"][0].update(private_ip="43.162.126.44"),

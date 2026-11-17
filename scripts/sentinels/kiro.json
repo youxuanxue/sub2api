@@ -956,7 +956,7 @@
       "rationale": "Load-bearing QA evidence for the kiro TLS-fingerprint gate (matches the *_tk_*.go hotspot rule). Guards the default-on/opt-out behavior and the by-name canonical-profile resolution; losing it removes the regression guard that keeps kiro from silently reverting to a Go-default JA3 or wearing the wrong (cc) fingerprint."
     },
     {
-      "path": "deploy/aws/stage0/tk_canonical_kiro_cli.json",
+      "path": "deploy/stage0/tk_canonical_kiro_cli.json",
       "must_contain": [
         "\"name\": \"tk_canonical_kiro_cli\"",
         "\"shuffle_extensions\": true",

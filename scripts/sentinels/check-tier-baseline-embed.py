@@ -2,7 +2,7 @@
 """
 check-tier-baseline-embed.py — verify the embedded Anthropic tier/stub baselines
 under backend/internal/baseline/ stay SEMANTICALLY IDENTICAL to the canonical
-sources under deploy/aws/stage0/.
+sources under deploy/stage0/.
 
 Why this exists (CLAUDE.md §10, memory "anthropic tier baseline 单一源"):
   The backend now embeds the tier baseline (and the stub-pool policy) so the
@@ -10,15 +10,15 @@ Why this exists (CLAUDE.md §10, memory "anthropic tier baseline 单一源"):
   desired account config WITHOUT an operator laptop / SSM round-trip. `go:embed`
   cannot reach outside the backend Go module, so the JSON had to be COPIED into
   backend/internal/baseline/. A copy is a divergence risk: if someone edits the
-  deploy/aws/stage0 source (or the embedded copy) without updating the other, the
+  deploy/stage0 source (or the embedded copy) without updating the other, the
   UI/reconciler would silently apply a stale tier baseline while the Python
   fleet pipeline applies the new one. This sentinel makes that drift a hard
   preflight + CI failure instead of a silent split-brain.
 
 Compared pairs (semantic JSON equality — key order / whitespace ignored):
-  deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json
+  deploy/stage0/anthropic-oauth-stability-baselines-tiered.json
     == backend/internal/baseline/anthropic-oauth-stability-baselines-tiered.json
-  deploy/aws/stage0/anthropic-http-mimicry-baselines.json
+  deploy/stage0/anthropic-http-mimicry-baselines.json
     == backend/internal/baseline/anthropic-http-mimicry-baselines.json
 
 Third assertion (migration immutability):
@@ -51,7 +51,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DEPLOY_DIR = REPO_ROOT / "deploy" / "aws" / "stage0"
+DEPLOY_DIR = REPO_ROOT / "deploy" / "stage0"
 EMBED_DIR = REPO_ROOT / "backend" / "internal" / "baseline"
 MIGRATION_PATH = (
     REPO_ROOT / "backend" / "migrations" / "tk_012_create_tiers_and_account_tier_id.sql"
@@ -271,7 +271,7 @@ def main() -> int:
     if ok_all:
         if not args.quiet:
             for name, _ in results[: len(PAIRS)]:
-                print(f"OK: embedded {name} matches deploy/aws/stage0 source")
+                print(f"OK: embedded {name} matches deploy/stage0 source")
             print("OK: tk_012 migration seed matches its frozen original (immutable)")
         return 0
 
@@ -295,16 +295,16 @@ def main() -> int:
         if all(ok for _, ok in results[: len(PAIRS)]):
             return 1
 
-    print("FAIL: embedded anthropic baseline DRIFT vs deploy/aws/stage0 source", file=sys.stderr)
+    print("FAIL: embedded anthropic baseline DRIFT vs deploy/stage0 source", file=sys.stderr)
     for name, ok in results:
         if not ok:
             print(
-                f"  {name}: backend/internal/baseline/ != deploy/aws/stage0/",
+                f"  {name}: backend/internal/baseline/ != deploy/stage0/",
                 file=sys.stderr,
             )
     print(
-        "Fix: re-copy the deploy/aws/stage0 source into backend/internal/baseline/ "
-        "(they must be byte-for-byte semantically identical). The deploy/aws/stage0 "
+        "Fix: re-copy the deploy/stage0 source into backend/internal/baseline/ "
+        "(they must be byte-for-byte semantically identical). The deploy/stage0 "
         "JSON is the canonical source; the embedded copy exists only because "
         "go:embed cannot reach outside the backend module.",
         file=sys.stderr,

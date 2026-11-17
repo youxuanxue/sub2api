@@ -14,7 +14,7 @@ Convention:
   third-party echo service.
 - The capture is mechanical: `bash ops/openai/capture-codex-fingerprint.sh
   tls-capture --samples 3` writes an ignored bundle under `.codex_tls/` and runs
-  `tls-check` against `deploy/aws/stage0/tk_canonical_codex_cli.json`. The
+  `tls-check` against `deploy/stage0/tk_canonical_codex_cli.json`. The
   runtime digest is the SHA-256 of the shared runtime projection
   (`ops/kiro/capture_kiro_fingerprint.py`, extensions sorted because rustls
   shuffles them).

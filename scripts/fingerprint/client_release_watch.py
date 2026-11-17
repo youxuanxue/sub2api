@@ -33,7 +33,7 @@ _GH_RELEASES = "https://api.github.com/repos/{repo}/releases/latest"
 _NPM_LATEST = "https://registry.npmjs.org/{package}/latest"
 _BREW_CASK = "https://formulae.brew.sh/api/cask/{name}.json"
 
-CC_BASELINE_JSON = REPO_ROOT / "deploy/aws/stage0/anthropic-http-mimicry-baselines.json"
+CC_BASELINE_JSON = REPO_ROOT / "deploy/stage0/anthropic-http-mimicry-baselines.json"
 CLAUDE_CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/claude/constants.go"
 ANTIGRAVITY_OAUTH_GO = REPO_ROOT / "backend/internal/pkg/antigravity/oauth.go"
 KIRO_CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/kiro/constants.go"

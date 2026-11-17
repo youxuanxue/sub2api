@@ -4,10 +4,10 @@
 #
 # Why: deploy_via_ssm.sh prunes GHCR tags at deploy time only; without a daily timer
 # stale tags pile up between deploys (2026-08 disk-full incident on us3/us4/us6).
-# New prod boots get the timer from deploy/aws/stage0/stage0-ec2-bootstrap.sh.
+# New prod boots get the timer from deploy/stage0/stage0-ec2-bootstrap.sh.
 # This one-shot backfills LIVE hosts provisioned before the timer landed.
 #
-# SSOT for the script body: deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh
+# SSOT for the script body: deploy/stage0/tokenkey-ghcr-prune-daily.sh
 #
 # Usage:
 #   bash ops/stage0/sync-ghcr-prune-timer-via-ssm.sh <instance-id> [comment]
@@ -36,7 +36,7 @@ stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GHCR_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh"
+GHCR_SRC="${SCRIPT_DIR}/../../deploy/stage0/tokenkey-ghcr-prune-daily.sh"
 [[ -f "${GHCR_SRC}" ]] || { echo "missing ${GHCR_SRC}" >&2; exit 1; }
 
 GHCR_SH_B64="$(base64 <"${GHCR_SRC}" | tr -d '\n')"

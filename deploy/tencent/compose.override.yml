@@ -1,4 +1,4 @@
-# Prod USW single-container override. Merge with deploy/aws/stage0/docker-compose.yml
+# Prod USW single-container override. Merge with deploy/stage0/docker-compose.yml
 # as compose.yml under /var/lib/tokenkey (Phase C). Keep GOMEMLIMIT / pool sizes in
 # .env so old (8g) and cand (3g) hosts can differ without forking this file.
 services:

@@ -20,9 +20,9 @@
 #   TOKENKEY_IMAGE              default = "ghcr.io/youxuanxue/sub2api:latest"
 #
 # Usage:
-#   bash deploy/aws/stage0/local-bootstrap.sh           # bootstrap (idempotent)
-#   bash deploy/aws/stage0/local-bootstrap.sh --reset   # wipe + bootstrap
-#   bash deploy/aws/stage0/local-bootstrap.sh --dry-run # list actions only
+#   bash deploy/stage0/local-bootstrap.sh           # bootstrap (idempotent)
+#   bash deploy/stage0/local-bootstrap.sh --reset   # wipe + bootstrap
+#   bash deploy/stage0/local-bootstrap.sh --dry-run # list actions only
 #
 # Output: human-friendly status lines on stdout, prefixed with [local-bootstrap].
 #         No secrets are printed; only paths and admin email.
@@ -236,7 +236,7 @@ echo
 echo "Next steps:"
 echo "  export REPO_ROOT=\"$REPO_ROOT\""
 echo "  export TOKENKEY_STAGE0_LOCAL_ROOT=\"$TOKENKEY_STAGE0_LOCAL_ROOT\""
-echo "  docker compose -f \"\$REPO_ROOT/deploy/aws/stage0/docker-compose.yml\" \\"
+echo "  docker compose -f \"\$REPO_ROOT/deploy/stage0/docker-compose.yml\" \\"
 echo "                 -f \"\$TOKENKEY_STAGE0_LOCAL_ROOT/docker-compose.override.yml\" \\"
 echo "                 --env-file \"\$TOKENKEY_STAGE0_LOCAL_ROOT/.env\" \\"
 echo "                 config --quiet && pull && up -d"
