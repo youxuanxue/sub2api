@@ -36,7 +36,7 @@ if [[ -n "${TOKENKEY_PROD_INSTANCE_ID:-}" ]]; then
     REGION="$(PYTHONPATH="$SCRIPT_DIR" python3 -c 'import sys; from ssm_execution import region_for_instance_id; print(region_for_instance_id(sys.argv[1]))' "$EXPECTED_PROD")"
   fi
 else
-  IDENTITY="$(python3 "${SCRIPT_DIR}/resolve_prod_ssm_target.py" --format json)"
+  IDENTITY="$(python3 "${SCRIPT_DIR}/resolve_prod_ssm_target.py" --node "${PROD_SSM_NODE:-data}" --format json)"
   EXPECTED_PROD="$(jq -er .instance_id <<<"$IDENTITY")"
   REGION="$(jq -er .ssm_region <<<"$IDENTITY")"
 fi

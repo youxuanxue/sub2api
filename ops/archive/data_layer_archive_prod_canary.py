@@ -29,6 +29,7 @@ from collections.abc import Callable, Iterable
 from typing import Any
 from urllib.parse import urlparse
 
+import cos_archive_identity as cos_archive
 import data_layer_archive_cleanup_hold as cleanup_hold
 import data_layer_archive_cleanup_hold_remote as cleanup_hold_remote
 import data_layer_archive_rehearsal as rehearsal
@@ -460,6 +461,8 @@ def _collect_prod_candidates(
 
 
 def _s3_location(uri: str) -> tuple[str, str]:
+    if not isinstance(uri, str):
+        raise CanaryError(f"invalid S3 URI: {uri!r}")
     parsed = urlparse(uri)
     key = parsed.path.lstrip("/").rstrip("/")
     if (
@@ -803,6 +806,7 @@ def _ssm_region(instance_id: str) -> str:
 
 
 def _remote_bundle_sources() -> dict[str, bytes]:
+    root = pathlib.Path(__file__).resolve().parent
     return {
         "data_layer_archive_prod_canary.py": pathlib.Path(__file__).read_bytes(),
         "data_layer_archive_rehearsal.py": pathlib.Path(rehearsal.__file__).read_bytes(),
@@ -810,6 +814,8 @@ def _remote_bundle_sources() -> dict[str, bytes]:
         "data_layer_archive_cleanup_hold_remote.py": pathlib.Path(
             cleanup_hold_remote.__file__
         ).read_bytes(),
+        "cos_archive_identity.py": (root / "cos_archive_identity.py").read_bytes(),
+        "cos-archive.json": (root / "cos-archive.json").read_bytes(),
     }
 
 
@@ -1238,7 +1244,17 @@ def run_canary(args: argparse.Namespace) -> dict[str, Any]:
         raise CanaryError(
             "production canary staging requires the approved 7-day retention"
         )
-    staging_base = _validated_staging_base(f"s3://{bucket}/{S3_KEY_BASE}")
+    staging_candidate = f"s3://{bucket}/{S3_KEY_BASE}"
+    try:
+        # COS-only archive writes (design-cos-object-archive). Canary is not yet
+        # rewired to the COS identity; refuse AWS leftovers instead of half-wiring.
+        cos_archive.refuse_aws_destination(staging_candidate)
+    except cos_archive.CosArchiveError as exc:
+        raise CanaryError(
+            "archive canary staging is not on the approved COS bucket "
+            f"(wire to cos-archive.json before use): {exc}"
+        ) from exc
+    staging_base = _validated_staging_base(staging_candidate)
     remote_bundle = stage_remote_bundle(staging_base)
     remote_script = _remote_host_command(
         table=request["table"],

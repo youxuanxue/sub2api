@@ -22,11 +22,9 @@ import data_layer_archive_rehearsal as rehearsal  # noqa: E402
 
 
 _BATCH_ID = "prod-export-20260722T112823.174855Z-8a928e2ea2c9"
-_STAGING_PREFIX = (
-    "s3://test-backups/prod/pgdump/archive-export/"
-    f"{_BATCH_ID}"
-)
-_ARCHIVE_PREFIX = f"s3://test-archive/prod/ops-archive/{_BATCH_ID}"
+_COS_BUCKET = "tokenkey-prod-ops-archive-1320330536"
+_STAGING_PREFIX = f"s3://{_COS_BUCKET}/prod/ops-archive-export/{_BATCH_ID}"
+_ARCHIVE_PREFIX = f"s3://{_COS_BUCKET}/prod/ops-archive/{_BATCH_ID}"
 
 
 def _sample_manifest() -> dict[str, object]:
@@ -78,18 +76,41 @@ def _sample_promote_receipt() -> dict[str, object]:
 
 
 class PromoteBatchTest(unittest.TestCase):
-    def test_plan_is_offline_and_names_archive_contract(self) -> None:
-        with mock.patch.object(canary, "_stack_output") as stack_output:
-            stack_output.side_effect = lambda stack, key: {
-                (canary.BACKUP_STACK, "BucketName"): "test-backups",
-                (promote.ARCHIVE_STACK, "BucketName"): "test-archive",
-                (promote.ARCHIVE_STACK, "ArchiveS3Uri"): "s3://test-archive/prod/ops-archive",
-            }[(stack, key)]
-            plan = promote.build_plan(batch_id=_BATCH_ID)
+    def test_plan_is_offline_and_names_cos_archive_contract(self) -> None:
+        plan = promote.build_plan(batch_id=_BATCH_ID)
         self.assertFalse(plan["execution_authorized"])
-        self.assertEqual(plan["archive_standard_days"], 90)
+        self.assertEqual(plan["archive_backend"], "tencent-cos")
+        self.assertEqual(plan["archive_standard_days"], 400)
         self.assertEqual(plan["archive_expire_days"], 400)
         self.assertEqual(plan["archive_s3_prefix"], _ARCHIVE_PREFIX)
+        self.assertEqual(plan["staging_s3_prefix"], _STAGING_PREFIX)
+
+    def test_plan_refuses_if_settings_point_at_aws(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "cos-archive.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "bucket": "tokenkey-prod-archive-682751977094",
+                        "region": "us-east-1",
+                        "endpoint": "cos.na-siliconvalley.myqcloud.com",
+                        "prefixes": {
+                            "ops_archive": "prod/ops-archive",
+                            "ops_archive_export": "prod/ops-archive-export",
+                            "host_config": "prod/host-config",
+                        },
+                        "expire_days": {
+                            "ops_archive": 400,
+                            "ops_archive_export": 7,
+                            "host_config": 90,
+                        },
+                        "forbidden_aws_buckets": ["tokenkey-prod-archive-682751977094"],
+                    }
+                )
+            )
+            with mock.patch.dict("os.environ", {"TK_COS_ARCHIVE_SETTINGS": str(path)}):
+                with self.assertRaisesRegex(promote.PromoteError, "forbidden AWS"):
+                    promote.build_plan(batch_id=_BATCH_ID)
 
     def test_promote_refuses_invalid_confirmation(self) -> None:
         with self.assertRaisesRegex(promote.PromoteError, "confirmation token"):
@@ -103,39 +124,30 @@ class PromoteBatchTest(unittest.TestCase):
 
         def command_runner(args: list[str]) -> str:
             calls.append(args)
-            if len(args) >= 3 and args[0:3] == ["aws", "s3api", "head-object"]:
+            if "head-object" in args:
+                key = args[args.index("--key") + 1]
+                sha = manifest_sha256 if key.endswith("manifest.json") else "a" * 64
                 return json.dumps(
                     {
                         "ContentLength": 128,
                         "ServerSideEncryption": "AES256",
-                        "Metadata": {"sha256": "a" * 64},
+                        "Metadata": {"sha256": sha},
                     }
                 )
-            if args[:3] == ["aws", "s3", "cp"]:
+            if "cp" in args:
                 return ""
             raise AssertionError(f"unexpected command: {args}")
 
-        with mock.patch.object(canary, "_stack_output") as stack_output, mock.patch.object(
-            canary, "_head_s3_object", side_effect=lambda uri, **kwargs: {
-                "uri": uri,
-                "bytes": 128,
-                "sha256": kwargs["expected_sha256"],
-                "server_side_encryption": "AES256",
-            }
-        ), mock.patch.object(
+        with mock.patch.object(
             promote, "_download_manifest", return_value=(manifest, manifest_bytes, manifest_sha256)
         ), mock.patch.object(
-            promote, "build_plan",
+            promote,
+            "build_plan",
             return_value={
                 "staging_s3_prefix": _STAGING_PREFIX,
                 "archive_s3_prefix": _ARCHIVE_PREFIX,
             },
         ):
-            stack_output.side_effect = lambda stack, key: {
-                (canary.BACKUP_STACK, "BucketName"): "test-backups",
-                (promote.ARCHIVE_STACK, "BucketName"): "test-archive",
-                (promote.ARCHIVE_STACK, "ArchiveS3Uri"): "s3://test-archive/prod/ops-archive",
-            }[(stack, key)]
             receipt = promote.promote_batch(
                 batch_id=_BATCH_ID,
                 confirmation=promote.PROMOTE_CONFIRMATION,
@@ -143,8 +155,9 @@ class PromoteBatchTest(unittest.TestCase):
             )
         self.assertTrue(receipt["manifest_promoted_last"])
         self.assertEqual(receipt["manifest_sha256"], manifest_sha256)
-        cp_targets = [args[-1] for args in calls if args[:3] == ["aws", "s3", "cp"]]
+        cp_targets = [args[-1] for args in calls if "cp" in args]
         self.assertEqual(cp_targets[-1], f"{_ARCHIVE_PREFIX}/manifest.json")
+        self.assertTrue(any("--endpoint-url" in args for args in calls if "cp" in args))
 
     def test_promote_ledger_skips_already_promoted_batches(self) -> None:
         export_ledger = {

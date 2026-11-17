@@ -14,7 +14,7 @@ if [[ -z "${TK_FEISHU_WEBHOOK_URL:-}" || -z "${TK_FEISHU_SIGNING_SECRET:-}" ]]; 
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-resolved="$(python3 "$ROOT/ops/stage0/resolve_prod_ssm_target.py" --format json)"
+resolved="$(python3 "$ROOT/ops/stage0/resolve_prod_ssm_target.py" --node "${PROD_SSM_NODE:-app-old}" --format json)"
 INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$resolved")"
 REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$resolved")"
 [[ -n "$INSTANCE_ID" && -n "$REGION" ]] || { echo "prod resolver returned an incomplete identity" >&2; exit 1; }

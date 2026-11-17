@@ -59,11 +59,15 @@ class RunProbeValidationTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("mutually exclusive", proc.stderr)
 
-    def test_bare_cn_prod_fanout_fails_closed_without_app_b_ssm(self) -> None:
+    def test_bare_cn_prod_fanout_lists_both_apps_with_ssm(self) -> None:
+        # 2026-11-17: app-b carries Hybrid SSM; bare cn-prod must fan out, not
+        # fail-closed for a missing id. Delivery may still exit non-zero without
+        # live AWS; this check only asserts the fan-out gate ran for both apps.
         existing = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
         proc = _run("--target", "cn-prod", "--script", str(existing), "--all-apps")
-        self.assertEqual(proc.returncode, 2)
-        self.assertIn("app-b", proc.stderr)
+        self.assertIn("fan-out site=cn-prod node=app-a", proc.stderr)
+        self.assertIn("fan-out site=cn-prod node=app-b", proc.stderr)
+        self.assertNotIn("has no ssm_instance_id", proc.stderr)
 
     def test_unknown_arg_rejected(self) -> None:
         proc = _run("--bogus")

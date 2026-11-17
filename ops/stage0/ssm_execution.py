@@ -62,11 +62,14 @@ def _resolve_mod():
 
 
 def resolve_prod_identity() -> tuple[str, str]:
-    """Return ``(instance_id, ssm_region)`` via cutover-aware resolve_prod_ssm_target."""
+    """Return ``(instance_id, ssm_region)`` via cutover-aware resolve_prod_ssm_target.
+
+    Multi-app fleets require ``PROD_SSM_NODE`` (entry|app-old|app-cand|data).
+    """
     mod = _resolve_mod()
     mode = mod.resolve_mode("auto")
     if mode == "tencent-usw-candidate":
-        outputs = mod.resolve_tencent_usw_candidate(mod.TENCENT_USW_MATRIX)
+        outputs = mod.resolve_tencent_usw_candidate(mod.TENCENT_USW_MATRIX, node="")
     elif mode == "aws-fresh":
         outputs = mod.resolve_fresh_aws()  # fails: retired
     elif mode == "aws":

@@ -61,6 +61,7 @@ INSTANCE_ID=""
 EDGE_LABEL="prod"
 if [ "$TARGET" = "prod" ]; then
   RESOLVED_JSON="$(python3 "$REPO_ROOT/ops/stage0/resolve_prod_ssm_target.py" \
+    --node "${PROD_SSM_NODE:-app-old}" \
     --target "${PROD_SSM_TARGET:-auto}" \
     --format json)"
   INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"

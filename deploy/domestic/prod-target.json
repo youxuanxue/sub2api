@@ -38,6 +38,7 @@
       "lighthouse_instance_id": "lhins-0kxx7cco",
       "private_ip": "10.2.4.13",
       "public_ip": "82.156.89.64",
+      "ssm_instance_id": "mi-00a738270d1d7bd48",
       "weight": 1,
       "memory_limit": "3g",
       "env": {

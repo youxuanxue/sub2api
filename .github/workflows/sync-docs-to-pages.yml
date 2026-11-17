@@ -49,6 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
+            --node app-old \
             --target "${PROD_SSM_TARGET}" \
             --stack "$STACK_NAME" \
             --format json \
