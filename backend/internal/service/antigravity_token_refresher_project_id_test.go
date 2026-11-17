@@ -77,3 +77,65 @@ func TestFinalizeAntigravityRefreshCredentials_FreshProjectID(t *testing.T) {
 	require.Equal(t, "new-project", creds["project_id"])
 	require.False(t, errors.Is(err, errAntigravityOAuthMissingProjectID))
 }
+
+func TestFinalizeAntigravityRefreshCredentials_FallbackCredentialSkipsQuarantine(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		ID:       3,
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":  "old",
+			"refresh_token": "old-ref",
+			antigravityProjectIDFallbackCredentialKey: "fallback-project",
+		},
+	}
+	require.True(t, AntigravityOAuthProjectIDReady(account))
+
+	creds, err := finalizeAntigravityRefreshCredentials(account, &AntigravityTokenInfo{
+		AccessToken:      "new",
+		RefreshToken:     "new-ref",
+		ProjectIDMissing: true,
+	}, map[string]any{
+		"access_token":  "new",
+		"refresh_token": "new-ref",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "fallback-project", creds[antigravityProjectIDFallbackCredentialKey])
+	require.True(t, AntigravityOAuthProjectIDReady(&Account{
+		Platform: PlatformAntigravity, Type: AccountTypeOAuth, Credentials: creds,
+	}))
+}
+
+func TestFinalizeAntigravityRefreshCredentials_FallbackExtraSkipsQuarantine(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		ID:       4,
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":  "old",
+			"refresh_token": "old-ref",
+		},
+		Extra: map[string]any{
+			antigravityProjectIDFallbackCredentialKey: "extra-fallback",
+		},
+	}
+	require.True(t, AntigravityOAuthProjectIDReady(account))
+
+	creds, err := finalizeAntigravityRefreshCredentials(account, &AntigravityTokenInfo{
+		AccessToken:      "new",
+		RefreshToken:     "new-ref",
+		ProjectIDMissing: true,
+	}, map[string]any{
+		"access_token":  "new",
+		"refresh_token": "new-ref",
+	})
+	require.NoError(t, err)
+	require.True(t, AntigravityOAuthProjectIDReady(&Account{
+		Platform: PlatformAntigravity, Type: AccountTypeOAuth,
+		Credentials: creds, Extra: account.Extra,
+	}))
+}

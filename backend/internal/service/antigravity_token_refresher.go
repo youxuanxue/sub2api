@@ -112,13 +112,34 @@ func finalizeAntigravityRefreshCredentials(account *Account, tokenInfo *Antigrav
 		}
 	}
 
-	// LoadCodeAssist 失败可能是临时网络问题。有旧 project_id 时保留旧值并继续；
-	// 从未拿到过 project_id 时，token 虽已更新但仍不可调度——返回不可重试错误，
+	// LoadCodeAssist 失败可能是临时网络问题。有旧 project_id / antigravity_project_id
+	// fallback 时保留并继续；dispatchable project id 仍缺失时返回不可重试错误，
 	// 由 TokenRefreshService 写入 status=error（missing_project_id:）。
+	// Quarantine must share AntigravityOAuthProjectIDReady with admission.
 	if tokenInfo != nil && tokenInfo.ProjectIDMissing {
-		if pid, _ := newCredentials["project_id"].(string); strings.TrimSpace(pid) != "" {
+		view := &Account{
+			Platform:    PlatformAntigravity,
+			Type:        AccountTypeOAuth,
+			Credentials: newCredentials,
+		}
+		if account != nil {
+			view.ID = account.ID
+			view.Extra = account.Extra
+			// Preserve credential/Extra fallback keys MergeCredentials may not
+			// have copied when the refresh payload omitted them.
+			if view.Credentials == nil {
+				view.Credentials = map[string]any{}
+			}
+			if _, ok := view.Credentials[antigravityProjectIDFallbackCredentialKey]; !ok {
+				if fb := strings.TrimSpace(account.GetCredential(antigravityProjectIDFallbackCredentialKey)); fb != "" {
+					view.Credentials[antigravityProjectIDFallbackCredentialKey] = fb
+					newCredentials[antigravityProjectIDFallbackCredentialKey] = fb
+				}
+			}
+		}
+		if AntigravityOAuthProjectIDReady(view) {
 			if account != nil {
-				log.Printf("[AntigravityTokenRefresher] Account %d: LoadCodeAssist 临时失败，保留旧 project_id", account.ID)
+				log.Printf("[AntigravityTokenRefresher] Account %d: LoadCodeAssist 临时失败，保留既有 project_id/fallback", account.ID)
 			}
 			return newCredentials, nil
 		}

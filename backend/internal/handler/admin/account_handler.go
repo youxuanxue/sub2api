@@ -1449,9 +1449,11 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 				}
 				errored, getErr := h.adminService.GetAccount(ctx, updatedAccount.ID)
 				if getErr != nil {
-					return updatedAccount, "", fmt.Errorf("%s", missingMsg)
+					// Credentials already persisted; surface quarantine via warning
+					// rather than HTTP error so operators do not retry blindly.
+					return updatedAccount, "missing_project_id", nil
 				}
-				return errored, "", fmt.Errorf("%s", missingMsg)
+				return errored, "missing_project_id", nil
 			}
 			return updatedAccount, "missing_project_id_temporary", nil
 		}
@@ -1548,11 +1550,19 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 	}
 	h.scheduleProtocolCapabilityProbes(updatedAccount)
 
-	if warning == "missing_project_id_temporary" {
+	switch warning {
+	case "missing_project_id_temporary":
 		response.Success(c, gin.H{
 			"account": h.buildAccountResponseWithRuntime(c.Request.Context(), updatedAccount),
 			"message": "Token refreshed successfully, but project_id could not be retrieved (will retry automatically)",
 			"warning": "missing_project_id_temporary",
+		})
+		return
+	case "missing_project_id":
+		response.Success(c, gin.H{
+			"account": h.buildAccountResponseWithRuntime(c.Request.Context(), updatedAccount),
+			"message": "Token refreshed successfully, but project_id is still missing; account marked error/unschedulable",
+			"warning": "missing_project_id",
 		})
 		return
 	}

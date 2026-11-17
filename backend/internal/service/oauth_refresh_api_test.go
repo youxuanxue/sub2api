@@ -138,6 +138,11 @@ func (e *refreshAPIExecutorStub) Refresh(_ context.Context, _ *Account) (map[str
 		e.onRefresh()
 	}
 	if e.err != nil {
+		// Antigravity missing_project_id returns rotated credentials with the
+		// non-retryable error so OAuthRefreshAPI can persist-then-quarantine.
+		if e.credentials != nil {
+			return e.credentials, e.err
+		}
 		return nil, e.err
 	}
 	return e.credentials, nil
@@ -392,6 +397,40 @@ func TestRefreshIfNeeded_RefreshError(t *testing.T) {
 	require.Contains(t, err.Error(), "invalid_grant")
 	require.Equal(t, 0, repo.updateCalls)   // no DB update on refresh error
 	require.Equal(t, 1, cache.releaseCalls) // lock still released via defer
+}
+
+func TestRefreshIfNeeded_AntigravityMissingProjectIDPersistsThenErrors(t *testing.T) {
+	account := &Account{
+		ID:       66,
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
+		Credentials: map[string]any{
+			"access_token":  "old",
+			"refresh_token": "old-ref",
+		},
+	}
+	repo := &refreshAPIAccountRepo{account: account}
+	cache := &refreshAPICacheStub{lockResult: true}
+	executor := &refreshAPIExecutorStub{
+		needsRefresh: true,
+		credentials: map[string]any{
+			"access_token":  "rotated",
+			"refresh_token": "rotated-ref",
+		},
+		err: errAntigravityOAuthMissingProjectID,
+	}
+
+	api := NewOAuthRefreshAPI(repo, cache)
+	result, err := api.RefreshIfNeeded(context.Background(), account, executor, 3*time.Minute)
+
+	require.ErrorIs(t, err, errAntigravityOAuthMissingProjectID)
+	require.NotNil(t, result)
+	require.True(t, result.Refreshed)
+	require.Equal(t, "rotated", result.NewCredentials["access_token"])
+	require.Equal(t, 1, repo.updateCredentialsCalls)
+	require.Equal(t, "rotated", repo.account.Credentials["access_token"])
+	require.Equal(t, 1, cache.releaseCalls)
 }
 
 func TestRefreshIfNeeded_DBUpdateError(t *testing.T) {
