@@ -3991,6 +3991,7 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 		case []any:
 			// 如果只有一个 block，不过滤空白（让上游 API 报错）
 			singleBlock := len(content) == 1
+			var lastThinkingSignature string
 
 			for _, block := range content {
 				bm, ok := block.(map[string]any)
@@ -4012,11 +4013,15 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 					}
 					if strings.TrimSpace(thought) == "" {
 						droppedThinking = true
+						if sig, _ := bm["signature"].(string); strings.TrimSpace(sig) != "" {
+							lastThinkingSignature = strings.TrimSpace(sig)
+						}
 						continue
 					}
 					part := map[string]any{"thought": true, "text": thought}
 					if sig, _ := bm["signature"].(string); strings.TrimSpace(sig) != "" {
 						part["thoughtSignature"] = strings.TrimSpace(sig)
+						lastThinkingSignature = strings.TrimSpace(sig)
 					}
 					parts = append(parts, part)
 					continue
@@ -4038,6 +4043,10 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 					}
 					signature, _ := bm["signature"].(string)
 					signature = strings.TrimSpace(signature)
+					if signature == "" && lastThinkingSignature != "" {
+						signature = lastThinkingSignature
+						lastThinkingSignature = ""
+					}
 					if signature == "" {
 						signature = geminiDummyThoughtSignature
 					}

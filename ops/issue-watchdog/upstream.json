@@ -1530,9 +1530,9 @@
     {
       "upstream": "Wei-Shaw/sub2api#8393",
       "judgment": {
-        "impact": "high",
-        "tokenkey_status": "unresolved_in_tokenkey",
-        "rationale": "2026-10-30真实quota：PRO账号233/294的Argon与Flash重置窗口不同，Argon变体共享窗口；当前调度仍统一antigravity:gemini family。历史429不足以证明具体误伤，但scope机制存在缺口。菜单下架而mapping可访问符合预期。建议基于有时效的真实quota证据拆PRO Argon子家族，unknown保持保守；方案待审，不改线上。"
+        "impact": "medium",
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "2026-11-17 revisit: Pro Argon sub-family keys shipped (antigravity_argon_quota_scope_tk.go). Ultra/shared-pool and residual family cool from corroborated 429s remain; no longer fully unresolved."
       }
     },
     {
@@ -2040,6 +2040,318 @@
         "tokenkey_status": "needs_tokenkey_review",
         "rationale": "Failed-request input billing conflicts with approved usage-estimate-fallback-ssot.md (success-only; forwardErr disables estimate). Needs an approved SSOT delta before implementation; do not piggyback on zero-usage estimate."
       }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8847",
+      "summary": "Gemini 4 Argon/Carbon/Hydrogen billed at stable standard rates in TokenKey pricing; non-zero unit tests cover wire aliases.",
+      "fixed_by": [
+        "backend/internal/service/pricing_service_test.go",
+        "backend/internal/service/pricing_catalog_supported_models_tk.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/pricing_service_test.go:func TestBillingService_Gemini4ArgonBillsStableStandardRate",
+        "backend/internal/service/pricing_service_test.go:func TestBillingService_Gemini4HydrogenBillsStandardRate",
+        "backend/internal/service/pricing_catalog_supported_models_tk.go:\"gemini-4-argon\": {}",
+        "backend/internal/service/pricing_catalog_supported_models_tk.go:\"gemini-4-carbon\": {}",
+        "backend/internal/service/pricing_catalog_supported_models_tk.go:\"gemini-4-hydrogen\": {}"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-17 triage: upstream #8847 reports Sub2API billing 0 for Argon/Carbon/Hydrogen. TokenKey prices these models via catalog+overlay and TestBillingService_Gemini4Argon*/Hydrogen* assert non-zero stable rates. Remaining risk is unpublished pricing registry on a given env, not missing code."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8821",
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "intentional_policy",
+        "rationale": "2026-11-17 triage: request to avoid hard-coded DeepSeek prices. TokenKey already owns prices in pricing SSOT/overlay/registry, not gateway hard-codes."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8782",
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "2026-11-17 triage: DeepSeek family/application tool APIs are outside TokenKey's newapi curated serving path; not a gateway parity task for current prod/cn-prod surfaces."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8620",
+      "judgment": {
+        "impact": "unknown_low_signal",
+        "tokenkey_status": "not_prioritized",
+        "rationale": "2026-11-17 triage: OpenAI 'downgrade/intelligence' complaint without reproducible gateway contract. Fingerprint/TLS work continues under client-release and openai fingerprint skills; not tracked as a discrete unresolved defect."
+      }
+    },
+    {
+      "summary": "Anthropic API-key account probe omits Claude Code identity, system, metadata, temperature, and cache_control.",
+      "fixed_by": [
+        "backend/internal/service/account_test_service_anthropic_probe_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/account_test_service_anthropic_probe_test.go:func TestClaudeAccountConnection_APIKeyOmitsClaudeCodeIdentity",
+        "backend/internal/service/account_test_service_anthropic_probe_test.go:require.False(t, gjson.GetBytes(body, \"temperature\").Exists())",
+        "backend/internal/service/account_test_service_anthropic_probe_test.go:require.False(t, gjson.GetBytes(body, \"system\").Exists())"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-17 triage: API-key connection test no longer injects Claude Code identity or temperature; unit test locks the contract. OAuth createTestPayload temperature for opus-4-8 remains a separate open item (#8625)."
+      },
+      "upstream": "Wei-Shaw/sub2api#8525"
+    },
+    {
+      "summary": "OpenAI response.failed/error envelopes drop misalignment/steer/detailed_explanation before client writeback.",
+      "fixed_by": [
+        "backend/internal/service/openai_error_envelope_tk_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_error_envelope_tk_test.go:func TestOpenAIClientErrorEnvelopeDropsSafetyDiagnostics",
+        "backend/internal/service/openai_gateway_response_handling.go:case \"misalignment\", \"steer\", \"detailed_explanation\":"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-17 triage: client-visible safety diagnostics are stripped by sanitizeOpenAIResponseFailedEventForClient. Shared OAuth sticky/session reuse is a separate product concern, not the reported cross-user summary leak."
+      },
+      "upstream": "Wei-Shaw/sub2api#8617"
+    },
+    {
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "2026-11-17 triage: meme/complaint thread about AG lottery; no reproducible gateway contract."
+      },
+      "upstream": "Wei-Shaw/sub2api#8696"
+    },
+    {
+      "judgment": {
+        "impact": "unknown_low_signal",
+        "tokenkey_status": "not_prioritized",
+        "rationale": "2026-11-17 triage: anecdotal AG slowness thread. Prod shows real AG 429/499 pressure; track via first-output budget (#8733 shipped) and bare-429 evidence paths, not this issue."
+      },
+      "upstream": "Wei-Shaw/sub2api#8755"
+    },
+    {
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "not_prioritized",
+        "rationale": "2026-11-17 triage: feature request for Claude reset-count UI like Codex; admin UX, not gateway correctness. Fable recovery bug is tracked as #8777."
+      },
+      "upstream": "Wei-Shaw/sub2api#8841"
+    },
+    {
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "2026-11-17 triage: admin usage-bar auto-refresh UX; no gateway/billing contract impact for prod/cn-prod serving."
+      },
+      "upstream": "Wei-Shaw/sub2api#8854"
+    },
+    {
+      "judgment": {
+        "impact": "low",
+        "tokenkey_status": "not_prioritized",
+        "rationale": "2026-11-17 triage: micro perf copy in stripOpenAIResponsesInputNamespaces; no prod evidence of CPU saturation from this path. Defer."
+      },
+      "upstream": "Wei-Shaw/sub2api#8869"
+    },
+    {
+      "judgment": {
+        "impact": "low",
+        "tokenkey_status": "not_prioritized",
+        "rationale": "2026-11-17 triage: duplicate JSON validate on /v1/responses; micro-opt without prod evidence. Defer."
+      },
+      "upstream": "Wei-Shaw/sub2api#8865"
+    },
+    {
+      "judgment": {
+        "impact": "low",
+        "tokenkey_status": "not_prioritized",
+        "rationale": "2026-11-17 triage: cache_control precheck thinking perf regression claim; no TK prod CPU evidence. Defer."
+      },
+      "upstream": "Wei-Shaw/sub2api#8861"
+    },
+    {
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "2026-11-17 triage: upstream unit-test goroutine leak in billing memory tests; CI hygiene, not runtime serving."
+      },
+      "upstream": "Wei-Shaw/sub2api#8595"
+    },
+    {
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "2026-11-17 triage: Grok free-quota test race in upstream CI; not a TK prod defect."
+      },
+      "upstream": "Wei-Shaw/sub2api#8593"
+    },
+    {
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "not_prioritized",
+        "rationale": "2026-11-17 triage: FAQ about 100% quota vs remaining points; product semantics question, no concrete gateway bug."
+      },
+      "upstream": "Wei-Shaw/sub2api#8612"
+    },
+    {
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "2026-11-17 triage: GIF output capability/account entitlement question; not a TK gateway defect."
+      },
+      "upstream": "Wei-Shaw/sub2api#8725"
+    },
+    {
+      "judgment": {
+        "impact": "unknown_low_signal",
+        "tokenkey_status": "not_prioritized",
+        "rationale": "2026-11-17 triage: user group disabled with remaining balance; ops/config/group state, no reproducible gateway code defect for TK."
+      },
+      "upstream": "Wei-Shaw/sub2api#8846"
+    },
+    {
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "not_prioritized",
+        "rationale": "2026-11-17 triage: per-account force HTTP/1.1 for DeepSeek; TK DeepSeek/newapi path not showing this as a prod incident. Revisit if DeepSeek stream resets appear in ops_error_logs."
+      },
+      "upstream": "Wei-Shaw/sub2api#8848"
+    },
+    {
+      "judgment": {
+        "impact": "high",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-17 fix/upstream-p0-gateway: Fable 7d_oi recovery: ClearModelRateLimit + recoverAnthropicFableWindowLimit on active/passive usage sample; unit tests green."
+      },
+      "upstream": "Wei-Shaw/sub2api#8777"
+    },
+    {
+      "judgment": {
+        "impact": "high",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-17 fix/upstream-p0-gateway: normalizeCodexPageContext generalizes to ide_* / ide_context namespaces so standalone function_call_output without call_id is rewritten; tests cover ide_context."
+      },
+      "upstream": "Wei-Shaw/sub2api#8857"
+    },
+    {
+      "judgment": {
+        "impact": "high",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-17 fix/upstream-p0-gateway: Same page-context owner now covers remaining namespaced function_call_output variants beyond Desktop apps_*; included with #8857 fix."
+      },
+      "upstream": "Wei-Shaw/sub2api#8635"
+    },
+    {
+      "judgment": {
+        "impact": "high",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-17 fix/upstream-p0-gateway: RewriteCompositeRequestModel + adaptThinkingToClaude55 rewrite thinking before Claude 5.5 validate; bedrock path shares adapter; unit tests green."
+      },
+      "upstream": "Wei-Shaw/sub2api#8853"
+    },
+    {
+      "judgment": {
+        "impact": "high",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-17 fix/upstream-p0-gateway: ApplyNativeToolSearch on Codex Messages→Responses when supports_search_tool; tool_search_call↔ToolSearch round-trip in ResponsesToAnthropic/stream; tests green."
+      },
+      "upstream": "Wei-Shaw/sub2api#8802"
+    },
+    {
+      "judgment": {
+        "impact": "high",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-17 fix/upstream-p0-gateway: readOpenAICompatBufferedTerminal observes output_item.done via openAICompatOutputSlots and rebuilds empty terminal output (web_search/hosted items); hosted-items tests green."
+      },
+      "upstream": "Wei-Shaw/sub2api#8815"
+    },
+    {
+      "judgment": {
+        "impact": "high",
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "2026-11-17: Dual-use strip (#8824) and Pi neutralize (#8791) shipped; uncorroborated AG 429 skips account cool (tkGoogle429CorroboratesAccountLimit). Remaining Hermes reports: /antigravity/v1/messages web_search deletion and Responses effort low→high inversion still need code verification/fix. Prod still sees AG RESOURCE_EXHAUSTED final 429."
+      },
+      "upstream": "Wei-Shaw/sub2api#8851"
+    },
+    {
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "unresolved_in_tokenkey",
+        "rationale": "2026-11-17: AG Pro Gemini/Argon usage showing 0% — quota summary endpoint/UA order vs generation daily endpoint. Related #8588/#8605; upstream open #8583/#8578. Ops visibility impact for AG pool management."
+      },
+      "upstream": "Wei-Shaw/sub2api#8850"
+    },
+    {
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "unresolved_in_tokenkey",
+        "rationale": "2026-11-17: same AG quota endpoint mismatch family as #8850; keep until daily-first quota reader is verified in TK."
+      },
+      "upstream": "Wei-Shaw/sub2api#8588"
+    },
+    {
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "unresolved_in_tokenkey",
+        "rationale": "2026-11-17: AG 400 User location is not supported is not in googleGatewayFailureSemantic AccountFault set (only invalid project / model capability). shouldFailoverUpstreamError status-only path excludes 400. Add location FAILED_PRECONDITION as account-scoped failover."
+      },
+      "upstream": "Wei-Shaw/sub2api#8732"
+    },
+    {
+      "judgment": {
+        "impact": "high",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-17 fix/upstream-p0-gateway: IsSignedThinkingModel + PreserveThinkingSignatures for Gemini/Claude; tool_use signature→reasoning envelope; lastThinkingSignature carry on AG/Gemini paths; tests green."
+      },
+      "upstream": "Wei-Shaw/sub2api#8544"
+    },
+    {
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "unresolved_in_tokenkey",
+        "rationale": "2026-11-17: scheduled OpenAI OAuth tests can SetError on early 401 without refresh, stranding refreshable accounts. Upstream open #8856. Ops impact on auto account health."
+      },
+      "upstream": "Wei-Shaw/sub2api#8855"
+    },
+    {
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "2026-11-17: API-key probe omits temperature (#8525). OAuth/Claude-Code createTestPayload still hardcodes temperature:1 which breaks models rejecting temperature (e..g. opus-4-8). Finish by model-capability gated omission."
+      },
+      "upstream": "Wei-Shaw/sub2api#8625"
+    },
+    {
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "2026-11-17: AG Requested entity was not found is AccountFault via isAntigravityModelUnavailableError and retries. Codex prompt-policy / usage-policy false-positive failover still needs explicit confirmation; do not close whole issue."
+      },
+      "upstream": "Wei-Shaw/sub2api#8679"
+    },
+    {
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "2026-11-17: UpdateLastUsed no longer rewrites full sched:acc JSON (#1723 anchors). Remaining omit-expanded-groups write amp is upstream open #8845; prioritize only if Redis AOF/replica pressure returns on TK fleets."
+      },
+      "upstream": "Wei-Shaw/sub2api#8842"
+    },
+    {
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "2026-11-17: TK already skips cooling on uncorroborated AG 429 (tkGoogle429CorroboratesAccountLimit) and Pro Argon uses separate sub-family (#8393 owner). Upstream #8836 model-only cool is alternate design; keep as parity lead until prod AG final-429 rates drop."
+      },
+      "upstream": "Wei-Shaw/sub2api#8836"
     }
   ]
 }

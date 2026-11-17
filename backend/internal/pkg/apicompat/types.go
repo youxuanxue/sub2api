@@ -89,6 +89,9 @@ type AnthropicContentBlock struct {
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   json.RawMessage `json:"content,omitempty"` // string or []AnthropicContentBlock
 	IsError   bool            `json:"is_error,omitempty"`
+
+	// type=tool_reference (inside a ToolSearch tool_result)
+	ToolName string `json:"tool_name,omitempty"`
 }
 
 func (b AnthropicContentBlock) MarshalJSON() ([]byte, error) {
@@ -371,6 +374,8 @@ type ResponsesTool struct {
 	Description string          `json:"description,omitempty"`
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 	Strict      *bool           `json:"strict,omitempty"`
+	// type=tool_search: "client" means the caller executes the search.
+	Execution string `json:"execution,omitempty"`
 
 	// type=namespace 的子工具列表（tools 与 children 二选一，语义相同）。
 	Tools    []ResponsesTool `json:"tools,omitempty"`
@@ -421,6 +426,16 @@ type ResponsesResponse struct {
 
 	// Error is present when status="failed"
 	Error *ResponsesError `json:"error,omitempty"`
+
+	// RenderCustomToolCalls is set on an output rebuilt from stream events, where
+	// the accumulator has always handed custom_tool_call items to the converters
+	// as tool calls. An output the upstream delivered keeps them unrendered.
+	RenderCustomToolCalls bool `json:"-"`
+
+	// XAIServerSideSearch is set with RenderCustomToolCalls when the upstream is
+	// xAI. A custom_tool_call that IsServerSideSearchCall then stays in the
+	// output but is not rendered as a tool call, because xAI runs it itself.
+	XAIServerSideSearch bool `json:"-"`
 }
 
 // ResponsesError describes an error in a failed response.

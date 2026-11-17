@@ -23,7 +23,7 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 	isHaiku55 := claude.IsHaiku55(req.Model)
 	isFableOrMythos52 := claude.IsFable52(req.Model) || claude.IsMythos52(req.Model)
 	isAdaptiveModel := isOpus55 || isSonnet55 || isHaiku55 || isFableOrMythos52
-	system, messages, err := convertResponsesInputToAnthropic(req.Instructions, req.Input, isAdaptiveModel)
+	system, messages, err := convertResponsesInputToAnthropic(req.Instructions, req.Input, isAdaptiveModel || IsSignedThinkingModel(req.Model))
 	if err != nil {
 		return nil, err
 	}
@@ -215,6 +215,7 @@ func convertResponsesInputToAnthropic(instructions string, inputRaw json.RawMess
 
 	var messages []AnthropicMessage
 
+	var lastReasoningSignature string
 	for _, item := range items {
 		switch {
 		case item.Role == "system" || item.Role == "developer":
@@ -230,11 +231,13 @@ func convertResponsesInputToAnthropic(instructions string, inputRaw json.RawMess
 				input = json.RawMessage(item.Arguments)
 			}
 			block := AnthropicContentBlock{
-				Type:  "tool_use",
-				ID:    ResponsesCallIDToAnthropic(item.CallID),
-				Name:  item.Name,
-				Input: input,
+				Type:      "tool_use",
+				ID:        ResponsesCallIDToAnthropic(item.CallID),
+				Name:      item.Name,
+				Input:     input,
+				Signature: lastReasoningSignature,
 			}
+			lastReasoningSignature = ""
 			blockJSON, _ := json.Marshal([]AnthropicContentBlock{block})
 			messages = append(messages, AnthropicMessage{
 				Role:    "assistant",
@@ -242,6 +245,7 @@ func convertResponsesInputToAnthropic(instructions string, inputRaw json.RawMess
 			})
 
 		case item.Type == "function_call_output":
+			lastReasoningSignature = ""
 			// function_call_output → user message with tool_result block
 			contentJSON := responsesFunctionOutputToAnthropicContent(item)
 			block := AnthropicContentBlock{
@@ -258,7 +262,7 @@ func convertResponsesInputToAnthropic(instructions string, inputRaw json.RawMess
 		case item.Type == "reasoning":
 			// Only decode marked Anthropic bridge envelopes, not arbitrary
 			// OpenAI ciphertext. The upstream remains responsible for signature validation.
-			if preserveThinking && strings.HasPrefix(item.EncryptedContent, anthropicThinkingEnvelopePrefix) {
+			if (preserveThinking || strings.HasPrefix(item.EncryptedContent, anthropicThinkingEnvelopePrefix)) && strings.HasPrefix(item.EncryptedContent, anthropicThinkingEnvelopePrefix) {
 				raw, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(item.EncryptedContent, anthropicThinkingEnvelopePrefix))
 				if err != nil {
 					return nil, nil, fmt.Errorf("invalid Anthropic thinking envelope: %w", err)
@@ -270,6 +274,7 @@ func convertResponsesInputToAnthropic(instructions string, inputRaw json.RawMess
 				if (block.Type != "thinking" || block.Signature == "") && (block.Type != "redacted_thinking" || block.Data == "") {
 					return nil, nil, fmt.Errorf("invalid Anthropic signed thinking block")
 				}
+				lastReasoningSignature = block.Signature
 				content, err := json.Marshal([]AnthropicContentBlock{block})
 				if err != nil {
 					return nil, nil, err
