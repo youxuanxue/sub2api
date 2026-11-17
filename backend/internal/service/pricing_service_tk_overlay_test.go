@@ -793,6 +793,18 @@ func TestTKPricingOverlay_GeminiTrafficAliasesSharePriceOwner(t *testing.T) {
 	require.NoError(t, err)
 	for alias, target := range geminiTrafficAliases {
 		owner, declared := tkPricingRegistryAliasOwner(alias)
+		if alias == "gemini-3-flash" {
+			// Public catalog owner (AG Ultra literal id); Gemini/Gemini Web floors
+			// may still traffic-remap, but settlement keys on the self-priced row.
+			require.False(t, declared, "gemini-3-flash must not remain a pricing alias")
+			got := svc.GetModelPricing(alias)
+			want := svc.GetModelPricing(target)
+			require.NotNil(t, got)
+			require.NotNil(t, want)
+			require.InDelta(t, want.InputCostPerToken, got.InputCostPerToken, 1e-18)
+			require.InDelta(t, want.OutputCostPerToken, got.OutputCostPerToken, 1e-18)
+			continue
+		}
 		require.True(t, declared, alias)
 		require.Equal(t, target, owner)
 		require.Equal(t, svc.GetModelPricing(target), svc.GetModelPricing(alias), "all billing fields must use target owner: %s", alias)
