@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -388,16 +388,29 @@ Whitespace text (`" "`) and string content `""` returned 200. Two captured
 failing bodies were replayed: as sent they returned 400, and with only the
 empty part removed, or with the parts merged into one string, they returned 200.
 
-Behavior: `normalizeVolcKimiMessageContents` drops text parts whose text is
-exactly `""` in every role. If no parts remain, the content becomes `""`.
+Behavior: `normalizeVolcKimiMessageContents` drops text parts that carry no
+input in every role: `text` exactly `""`, `text` null, or the `text` field
+absent (`{"type":"text"}`). If no parts remain, the content becomes `""`.
 The part contributes no input, so the request means the same thing. Other
-parts, part order and whitespace text are kept. Bodies without empty parts
-are forwarded byte-for-byte. Other suppliers are unchanged.
+parts, part order and whitespace text are kept. String content `""` (including
+assistant+tool_calls) is left unchanged — Volc accepts it. Bodies without
+droppable parts are forwarded byte-for-byte. Other suppliers are unchanged.
+Does not change KVV dynamic-tools promotion, sampling rejects, or blank
+function-name checks.
 
-Not covered: the remaining failures with no empty part. Direct replay of
-captured large bodies from this group (318 or 64 tools, 58 to 131 messages)
-returned 200 with the same thinking/effort shape, so their cause is still
-open. `tool_choice:"required"` with no tools is also an unnamed upstream 400
-(4 sampled requests); it is not rewritten here.
+## 2026-11-17: missing / null text field on type=text parts
+
+Evidence: cn-prod after 1.8.381 cutover (`2026-11-17T13:02:37Z`). User 2
+`tokensea_online` (`api_key_id=4`, UA `Go-http-client/2.0`) kept high kimi
+success volume, but a burst of final 400s returned Volc
+`missing messages.content.text`. Same error class existed before cutover
+(~56 in the prior hours). QA blob for `b8729397-…` (187 messages, 29 tools)
+had a user content part `{"type":"text"}` with no `text` key; companion
+empty-string assistant+tool_calls turns are not the Volc trigger (string
+`""` stays 200 per the 2026-11-06 controls).
+
+Behavior: same owner as empty text parts — treat missing/null `text` like
+`text:""` and drop the part. Not a KVV conflict: KVV empty system string
+content and tool promotion are untouched.
 
 Test: `TestVolcKimiDropsEmptyTextParts`.

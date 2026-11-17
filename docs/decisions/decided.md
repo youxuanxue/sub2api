@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-17 cn-prod tokensea missing text part 网关兼容
+
+原话：「请修复。」（前置：「建议网关修复。另外，网关修复之后，和 kvv 冲突吗？」已确认与 KVV 不冲突。）
+
+适用范围：Volc Agent Plan kimi 入站。`dropVolcKimiEmptyTextParts` 在已有 `text:""` 丢弃之外，再丢弃 `type=text` 且 `text` 缺失/null 的 part（Volc `missing messages.content.text`）。不改字符串 `content:""`、不改 KVV 动态 tools / sampling。见 `docs/approved/volc-kimi-chat-compatibility.md`。
+
 ## 2026-11-17 cn-prod 镜像标准路径：prod 导出 → 北京 COS → 同城拉取
 
 原话：「北京的镜像应该从 prod 导出上传到 北京 cos，再从北京 cos 拉下来使用。这条变为标准路径」
