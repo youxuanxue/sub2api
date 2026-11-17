@@ -6,6 +6,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/tidwall/sjson"
 )
 
 // WithResolvedTargetPlatform stores the concrete provider chosen for a request
@@ -47,6 +48,18 @@ func WithCompositeRouteDecision(ctx context.Context, decision CompositeRouteDeci
 		ctx = context.WithValue(ctx, ctxkey.CompositeRouteSource, source)
 	}
 	return ctx
+}
+
+// RewriteCompositeRequestModel puts a composite route's upstream model into the
+// request body at modelPath. The client chose its thinking mode for the model
+// it asked for, so a mode the upstream model rejects becomes the nearest mode
+// it accepts. The body is returned unchanged when it cannot be rewritten.
+func RewriteCompositeRequestModel(body []byte, modelPath, upstreamModel string) []byte {
+	rewritten, err := sjson.SetBytes(body, modelPath, upstreamModel)
+	if err != nil {
+		return body
+	}
+	return adaptThinkingToClaude55(rewritten, upstreamModel)
 }
 
 func ResolvedUpstreamModelFromContext(ctx context.Context) (string, bool) {

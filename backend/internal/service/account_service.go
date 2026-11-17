@@ -107,6 +107,9 @@ type AccountRepository interface {
 	ClearRateLimit(ctx context.Context, id int64) error
 	ClearAntigravityQuotaScopes(ctx context.Context, id int64) error
 	ClearModelRateLimits(ctx context.Context, id int64) error
+	// ClearModelRateLimit 只清除指定 scope 的模型级限流，用于单个模型窗口恢复后
+	// 定向解封，不影响其他模型与并发生效的限流。
+	ClearModelRateLimit(ctx context.Context, id int64, scope string) error
 	// ClearObservedUsageWindows removes provider-observed usage/window Extra gauges
 	// (SSOT: ObservedUsageWindowExtraKeys). Does not touch local billing counters.
 	ClearObservedUsageWindows(ctx context.Context, id int64) error

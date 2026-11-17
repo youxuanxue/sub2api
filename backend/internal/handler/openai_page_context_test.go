@@ -23,6 +23,31 @@ func pageContextRequest(t *testing.T, items ...any) []byte {
 	return body
 }
 
+func TestNormalizeCodexStandaloneIdeContext(t *testing.T) {
+	// VSCode Codex ide_context injects a named agent output without call_id
+	// (upstream #8857). HTTP Responses validation would 400 without conversion.
+	body := pageContextRequest(t,
+		pageContextItem("ide_context", `{"workspaceRoot":"/tmp/demo","openFiles":["main.go"]}`),
+		map[string]any{"role": "user", "content": "hello"},
+	)
+	h := &OpenAIGatewayHandler{}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	require.False(t, h.validateFunctionCallOutputRequest(c, body, zap.NewNop()))
+	require.Contains(t, w.Body.String(), "function_call_output requires call_id")
+
+	got, changed := normalizeCodexPageContext(body)
+	require.True(t, changed)
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	require.True(t, h.validateFunctionCallOutputRequest(c, got, zap.NewNop()))
+	item := gjson.GetBytes(got, "input.0")
+	require.Equal(t, "message", item.Get("type").String())
+	require.Equal(t, "user", item.Get("role").String())
+	require.Contains(t, item.Get("content.0.text").String(), "ide_context")
+	require.Contains(t, item.Get("content.0.text").String(), "workspaceRoot")
+}
+
 func TestNormalizeCodexPageContextFirstMessage(t *testing.T) {
 	open := `{"page_id":null}`
 	selected := "Companion Page snapshot part 1 of 1:\n" + `{"page_id":null,"document_view":null}`

@@ -58,6 +58,9 @@ func (r *rateLimitClearRepoStub) ClearModelRateLimits(ctx context.Context, id in
 	r.clearModelRateLimitCalls++
 	return r.clearModelRateLimitErr
 }
+func (r *rateLimitClearRepoStub) ClearModelRateLimit(ctx context.Context, id int64, scope string) error {
+	return nil
+}
 func (r *rateLimitClearRepoStub) ClearObservedUsageWindows(ctx context.Context, id int64) error {
 	r.clearObservedUsageCalls++
 	if r.clearObservedUsageErr != nil {
