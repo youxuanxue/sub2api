@@ -28,8 +28,8 @@ func TestNormalizeAntigravityNativeGeminiRequest_ArgonLegalBudgetToLevel(t *test
 
 	require.False(t, gjson.GetBytes(out, thinkingBudgetPath).Exists())
 	require.Equal(t, "medium", gjson.GetBytes(out, thinkingLevelPath).String())
-	require.Equal(t, int64(antigravityGeminiArgonMaxOutputTokensCap), gjson.GetBytes(out, generationMaxOutputPath).Int(),
-		"thinkingConfig + unset maxOutputTokens injects argon hard cap")
+	require.False(t, gjson.GetBytes(out, generationMaxOutputPath).Exists(),
+		"unset maxOutputTokens must not be injected (open-source omit semantics)")
 }
 
 func TestNormalizeAntigravityNativeGeminiRequest_ArgonClampsOversizedMaxOutputTokens(t *testing.T) {
@@ -40,11 +40,12 @@ func TestNormalizeAntigravityNativeGeminiRequest_ArgonClampsOversizedMaxOutputTo
 	require.Equal(t, int64(antigravityGeminiArgonMaxOutputTokensCap), gjson.GetBytes(out, generationMaxOutputPath).Int())
 }
 
-func TestNormalizeAntigravityNativeGeminiRequest_ArgonInjectsCapWhenThinkingUnsetMax(t *testing.T) {
+func TestNormalizeAntigravityNativeGeminiRequest_ArgonDoesNotInjectCapWhenThinkingUnsetMax(t *testing.T) {
 	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"thinkingConfig":{"thinkingLevel":"medium"}}}`)
 	out := normalizeAntigravityNativeGeminiRequest("gemini-4-argon-medium", body)
 
-	require.Equal(t, int64(antigravityGeminiArgonMaxOutputTokensCap), gjson.GetBytes(out, generationMaxOutputPath).Int())
+	require.False(t, gjson.GetBytes(out, generationMaxOutputPath).Exists(),
+		"thinkingConfig alone must not invent maxOutputTokens")
 	require.Equal(t, "medium", gjson.GetBytes(out, thinkingLevelPath).String())
 }
 
@@ -84,7 +85,8 @@ func TestNormalizeAntigravityNativeGeminiRequest_ArgonKeepsLevelDropsBudget(t *t
 	out := normalizeAntigravityNativeGeminiRequest("gemini-4-argon", body)
 	require.Equal(t, "low", gjson.GetBytes(out, thinkingLevelPath).String())
 	require.False(t, gjson.GetBytes(out, thinkingBudgetPath).Exists())
-	require.Equal(t, int64(antigravityGeminiArgonMaxOutputTokensCap), gjson.GetBytes(out, generationMaxOutputPath).Int())
+	require.False(t, gjson.GetBytes(out, generationMaxOutputPath).Exists(),
+		"dropping budget must not invent maxOutputTokens")
 }
 
 func TestAntigravityGeminiMaxOutputTokensCapForModel(t *testing.T) {

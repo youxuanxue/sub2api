@@ -25,10 +25,10 @@ const (
 	antigravityGeminiArgonMaxOutputTokensCap = 8192
 
 	// When true, unset maxOutputTokens + present thinkingConfig on a capped
-	// model injects the hard cap as a safety overlay. Flip to false to require
-	// an explicit client maxOutputTokens (hard clamp of oversized values still
-	// applies when the field is set).
-	antigravityGeminiInjectMaxOutputTokensWhenThinking = true
+	// model injects the hard cap as a safety overlay. Kept false to match
+	// open-source relay practice (omit → upstream default) while still hard-
+	// clamping oversized explicit maxOutputTokens.
+	antigravityGeminiInjectMaxOutputTokensWhenThinking = false
 )
 
 const (
