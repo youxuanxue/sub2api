@@ -7,6 +7,9 @@ name: Stage0 Warm Image
 # the local image receipt. It never edits .env, restarts, drains, or swaps the
 # running container.
 #
+# Default remote channel is TAT on tencent-ops (mirrors cn-prod warm-ghcr).
+# SSM remains an emergency path outside this workflow (see deploy/hetzner/README.md).
+#
 # Driven by tokenkey-stage0-release-rollout: dispatch before prod rolling deploy.
 
 on:
@@ -28,7 +31,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
   packages: read
 
 # Warm is idempotent and read-only, but serialize per host so two concurrent
@@ -45,13 +47,10 @@ jobs:
     # 1200s each). Keep the job budget above one cold multi-node pass, and far
     # below the 6h default so a hung poll cannot hold the concurrency lock.
     timeout-minutes: 30
-    # Same prod Environment binding as deploy-stage0.yml: required for the
-    # OIDC sub claim (IAM trust in cicd-oidc.yaml). The rollout skill
-    # auto-approves the pending deployment via gh because the warm is read-only.
-    environment: prod
+    # Execution uses Tencent TAT credentials (same shape as distribute-cn warm).
+    # Approval for the subsequent rolling deploy stays on the prod Environment.
+    environment: tencent-ops
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       INPUT_TAG: ${{ inputs.tag }}
       INPUT_REVISION: ${{ inputs.revision }}
       INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
@@ -66,10 +65,6 @@ jobs:
           # Tag-format gate: single source of truth shared with the deploy
           # workflows (prevents regex/message drift).
           bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
-          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
-            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set; configure per docs/approved/deploy-stage0-workflow.md §5"
-            exit 1
-          fi
           if [[ ! "$INPUT_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::revision must be the full 40-hex commit sha" >&2
             exit 1
@@ -82,15 +77,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
 
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
+      - uses: actions/setup-python@v6
         with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          python-version: '3.12'
+
+      - name: Install tccli
+        run: python3 -m pip install 'tccli==3.1.198.1'
 
       - name: Warm every prod app node
         env:
-          STAGE0_SSM_OUTPUT_DIR: .
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
         run: |
           set -euo pipefail
           python3 deploy/domestic/warm_fanout.py warm-all \
@@ -98,7 +95,7 @@ jobs:
             --tag "$INPUT_TAG" \
             --revision "$INPUT_REVISION" \
             --transport ghcr \
-            --channel auto \
+            --channel tat \
             --repository "ghcr.io/${GITHUB_REPOSITORY,,}" \
             --receipt-out prod-warm-receipt.json
 
@@ -109,6 +106,7 @@ jobs:
             echo "### Stage0 Warm Image"
             echo "- tag: \`$INPUT_TAG\`"
             echo "- revision: \`$INPUT_REVISION\`"
+            echo "- channel: tat (tencent-ops)"
             echo "- effect: image pre-pulled on every prod app node (read-only; no deploy)"
             echo "- receipt: \`prod-warm-receipt.json\`"
             echo "- next: dispatch prod rolling deploy with the same tag and revision"

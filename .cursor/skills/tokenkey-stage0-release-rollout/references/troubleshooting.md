@@ -15,6 +15,7 @@
 | prod/cn-prod rolling `revision must be the full 40-hex commit sha` | `dispatch-prod-deploy.sh --operation deploy\|cn-deploy\|warm` 必须传完整 40 位 revision；不要手写 workflow dispatch，也不要用短 SHA。 |
 | prod/cn-prod rolling `tag must match X.Y.Z, got: v…` | 本地入口已修：`dispatch-prod-deploy.sh` 经 `normalize-deploy-tag.sh` 剥 `v`。若仍出现，说明绕过了这些入口（手写 `gh workflow run … -f tag=v…`）；改传裸 `X.Y.Z` 或走脚本重试。 |
 | prod rolling 报目标 `not prewarmed` 或 receipt 不匹配 | 先对同一 tag/revision 重跑 `dispatch-prod-deploy.sh --operation warm`，确认每台 `apps[]` 都有 `/var/lib/tokenkey/image-distribution/TAG-REVISION.json`；不要绕过 rolling 的 prewarm 门禁。 |
+| prod warm/rolling TAT `AuthFailure` / `UnauthorizedOperation`（na-siliconvalley） | 日常路径已固定 TAT + `tencent-ops`。先核对 `TENCENTCLOUD_*` 对美西 TAT/CAM，不要回退成半吊 AWS OIDC 默认。SSM 应急见 `deploy/hetzner/README.md`。 |
 | cn-prod 分发 warm job 报 `auto`/SSM 凭据错误 | 分发 workflow 必须固定 `--channel tat`。AWS publish job 与 Tencent warm job 已拆分；Tencent job 不应持有 AWS 凭据，`auto` 会尝试 SSM 并失败。改回 `--channel tat`，不需要补 AWS key。 |
 | `gh run watch` 被工具超时打断 | 用同一 run id 再执行 `gh run watch <id> --exit-status` 接到终态。 |
 | 发版后 tick 报 `No such container: tokenkey` | 先确认在用新版 `ops/observability/probe-post-release-tick.sh`；它默认 `CONTAINER=auto` 会解析 prod blue/green active container。不要手工猜 `tokenkey-green`；若仍失败，看 tick stdout 的 `container_resolution`。 |

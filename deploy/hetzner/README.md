@@ -37,7 +37,7 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 容器已删除（仅在确认 `tokenkey` healthy 后 `docker rm`；未动 `*-client`）。
 矩阵 `layout.kind=single-container`；
 日常发版走 `rolling.py` + `prod-rolling-deploy.yml`（确认词 `rolling-prod-<tag>`，
-默认 `--via ssm`）。**真换版本 rolling receipt**：[run 44058916390](https://github.com/youxuanxue/sub2api/actions/runs/44058916390)
+默认 `--via tat` / `tencent-ops`；SSM 仅应急）。**真换版本 rolling receipt**：[run 44058916390](https://github.com/youxuanxue/sub2api/actions/runs/44058916390)
 （`1.8.381`；`app-cand`/`app-old` 均为 `mode=full` / `outcome=rolled`）。
 `prepare_single_container.py` 仅作历史/重铺参考。旧机脱离 LUKS 是阶段 D
 （须 ≥24h 稳定 + 单台门禁 + 再批准）。
@@ -162,13 +162,17 @@ cn-prod `proxies` **无** `or-*`，仅 Aliyun `ip5..8` + `cn-ip9..12`。Oregon *
 ## 日常发版与恢复
 
 prod 的日常发布入口是 `.github/workflows/prod-rolling-deploy.yml`，确认词为
-`rolling-prod-<tag>`。它调用 `deploy/domestic/rolling.py`，按矩阵逐台 drain、
-换镜像、健康检查和回流，入口机持续承担公网流量。不要把旧 Stage0 蓝绿脚本作为
-日常 prod 发布入口，也不要用 `resolve_prod_ssm_target.py` 默认的旧应用机身份
-绕过 rolling 矩阵。
+`rolling-prod-<tag>`。形状与 cn-prod 对齐：`prod` Environment 只做审批门，
+执行 job 在 `tencent-ops` 上用 TAT（`--via tat`，区域 `na-siliconvalley`）驱动
+`deploy/domestic/rolling.py`，按矩阵逐台 drain、换镜像、健康检查和回流。
+入口机持续承担公网流量。warm（`warm-image-stage0.yml`）同样在 `tencent-ops`
+上固定 `--channel tat`，不再依赖 AWS OIDC 作为默认路径。
+
+不要把旧 Stage0 蓝绿脚本作为日常 prod 发布入口，也不要用
+`resolve_prod_ssm_target.py` 默认的旧应用机身份绕过 rolling 矩阵。
 
 ```bash
-# Canonical dispatch (normal path):
+# Canonical dispatch (normal path — TAT):
 bash scripts/stage0/dispatch-prod-deploy.sh \
   --operation warm --tag X.Y.Z --revision FULL_SHA
 bash scripts/stage0/dispatch-prod-deploy.sh \
@@ -176,11 +180,20 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 # deploy derives confirm=rolling-prod-X.Y.Z and runs prod-rolling-deploy.yml
 ```
 
+**SSM 应急路径**（仅 TAT/CAM 不可用且已单独批准时）：本地持有 AWS OIDC/Hybrid
+凭据后，对同一 tag/revision 显式走 `--via ssm` / `--channel ssm`（例如
+`python3 deploy/domestic/rolling.py deploy --manifest deploy/tencent/candidate-usw-20261022.json --via ssm ...`，
+或 `warm_fanout.py warm-all ... --channel ssm`）。不要把 SSM 写回 workflow 默认，
+也不要在 `tencent-ops` job 上半吊着 AWS OIDC。
+
 日常发布入口是上面的 `dispatch-prod-deploy.sh --operation warm|deploy`
 （cn-prod 对应 `cn-deploy`，同样要求完整 40 位 revision）。
 `legacy-deploy|replay|smoke-only` 与节点内蓝绿实现才是兼容/恢复路径，
 只用于 rolling 不可用、需要恢复旧布局或经过单独批准的故障处理；
 不能借此绕过入口机、多应用机和单容器布局门禁。
+
+发版前须确认 `tencent-ops` 的 `TENCENTCLOUD_*` 对美西 `na-siliconvalley` TAT/CAM
+可用；权限未核通时 CI 绿也不可当作已能发版。
 
 ## 开放运维项（非过程史）
 
@@ -205,7 +218,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 
 | 类别 | 状态 | 动作 |
 |---|---|---|
-| SSM Hybrid / OIDC / Parameter Store | **必须留** | 美西+北京远程执行与 GHCR 身份仍靠它；换发布控制面之前不删 |
+| SSM Hybrid / OIDC / Parameter Store | **保留作应急/旁路** | prod/cn-prod 日常 warm+rolling 已默认 TAT；SSM/OIDC 仍服务诊断、部分 ops workflow、GHCR 身份与应急 `--via ssm` |
 | Oregon 保留计算 | **必须留** | 2026-11-17：prod `or-1..4` 合计 124 live accounts；cn-prod 无 Oregon 行 |
 | 旧 physical-backup CFN/S3 | **已清** | 2026-11 核对 `DELETE_COMPLETE` / `HeadBucket` 404 |
 | Tokyo EC2 / `aws-fresh` | **已清** | resolver 失败关闭 |
