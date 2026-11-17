@@ -103,8 +103,9 @@ prod_compose_ok() {
 }
 cn_compose_file() { docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$app"; }
 cn_override_ok() {
+  # M6: rolling reads compose.override.yml directly; bluegreen.py controls are gone.
   grep -q 'DATABASE_HOST: "${DATABASE_HOST:-postgres}"' "$ROOT/compose.override.yml" \
-    && grep -q "'DATABASE_HOST'," "$ROOT/releases/artifacts-ssm/bluegreen.py"
+    && grep -q 'REDIS_HOST: "${REDIS_HOST:-redis}"' "$ROOT/compose.override.yml"
 }
 
 env_set() { # KEY VALUE: replace or append in ENV_FILE, keeping its mode
@@ -196,7 +197,7 @@ phase_check() {
     prod_compose_ok && ok "bluegreen compose reads DATABASE_HOST/REDIS_HOST from .env" \
       || bad "bluegreen compose hardcodes the local hosts; deploy a release that contains #3114 first"
   else
-    cn_override_ok && ok "compose.override and bluegreen.py carry the data-plane keys" || bad "cn-prod controls predate #3114; run sync-controls"
+    cn_override_ok && ok "compose.override carries the data-plane keys" || bad "cn-prod compose.override predate #3114; refresh from repo"
     [ -f "$(cn_compose_file)" ] && ok "live compose $(cn_compose_file)" || bad "live compose file missing"
   fi
   local busy="" t

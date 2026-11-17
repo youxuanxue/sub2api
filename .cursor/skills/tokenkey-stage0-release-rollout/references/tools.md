@@ -13,7 +13,7 @@
 | **prod / cn-prod rolling / warm dispatch** | 机械 | `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy\|cn-deploy\|warm --tag X.Y.Z\|vX.Y.Z --revision FULL_SHA`（入口剥 `v`；`deploy`→`prod-rolling-deploy.yml`，`cn-deploy`→`cn-prod-rolling-deploy.yml`，`warm`→`warm-image-stage0.yml`。三个操作都要求完整 40 位 revision；不要手写 `gh workflow run`） |
 | **prod legacy / replay / smoke-only dispatch** | 机械 | `bash scripts/stage0/dispatch-prod-deploy.sh --operation legacy-deploy\|replay\|smoke-only --tag X.Y.Z\|vX.Y.Z`（旧 `deploy-stage0.yml`，仅 recovery-only / legacy blue-green；`replay` 不切流） |
 | **cn-prod image distribution** | 机械 | Release 成功后由 `distribute-cn-image.yml` 执行 AWS `publish` + Tencent `tencent-ops` warm；warm 固定 `--channel tat`，按 `prod-target.json` 的 `apps[]` 顺序预下载。AWS publish job 不持有腾讯密钥，腾讯 warm job 不持有 AWS 凭据。 |
-| **cn-prod SSM blue-green recovery** | 机械 + 判断 | `deploy/domestic/deploy_via_ssm.sh pull\|sync-controls\|prepare …` 然后 `candidate-smoke` / `promote`。仅恢复或旧布局，不是日常发布；身份读 `deploy/domestic/prod-target.json`，送文件只用 `put-file`，**不要**开 SSH 或 scp 离线 tar。 |
+| **cn-prod SSM pull / put-file** | 机械 | `deploy/domestic/deploy_via_ssm.sh pull` 预热镜像；`put-file` 应急传文件。M6 后蓝绿 prepare/promote 已删；日常发版用 `rolling.py`。身份读 `deploy/domestic/prod-target.json`，**不要**开 SSH 或 scp 离线 tar。 |
 | release.yml 恢复 dispatch（skip-ci 误伤等） | 机械 | `gh workflow run release.yml -f tag=vX.Y.Z -f simple_release=false`（**git tag 形态，带 `v`**）+ `gh run watch --exit-status` |
 | watch workflow run | 机械 | `gh run watch --exit-status` |
 | **prod pricing registry runtime audit** | 机械 | `ops-daily-diagnostics.yml` 经 `ops/observability/prod-config-audit.sh` 只读执行 `ops/pricing/manage-overlay-runtime.py check`；价格发布独立由 registry 合并到 protected main 后触发 `pricing-registry-publish.yml` |

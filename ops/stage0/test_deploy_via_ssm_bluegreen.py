@@ -29,6 +29,7 @@ def _render(instance_id: str = _PROD_IID, tag: str = "1.8.99", env_extra: dict |
         **os.environ,
         "STAGE0_RENDER_ONLY": "1",
         "STAGE0_SSM_OUTPUT_DIR": str(out_dir),
+        "STAGE0_ALLOW_LEGACY_BLUEGREEN": "1",
     }
     # Operator shells often leave STAGE0_BLUEGREEN_* set; never inherit them into
     # refusal cases (promote-without-receipt, invalid stage, replace receipt).
@@ -109,6 +110,7 @@ def _run_with_fake_aws(
             "AWS_REGION": "us-east-1",
             "GITHUB_OUTPUT": str(github_output),
             "STAGE0_SSM_OUTPUT_DIR": str(out_dir),
+            "STAGE0_ALLOW_LEGACY_BLUEGREEN": "1",
         }
         proc = subprocess.run(
             ["bash", str(_SCRIPT), "1.8.99", _PROD_IID],
@@ -539,6 +541,15 @@ TAG=1.8.99
 
 
 class BlueGreenRenderTest(unittest.TestCase):
+    def test_live_single_container_matrix_refuses_without_allow(self) -> None:
+        proc, params, remote = _render(env_extra={"STAGE0_ALLOW_LEGACY_BLUEGREEN": "0"})
+        # Explicit 0 still blocks; only the string "1" unlocks emergency recovery.
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertIn("retired for live prod", proc.stderr)
+        self.assertIn("prod-rolling-deploy.yml", proc.stderr)
+        self.assertIsNone(params)
+        self.assertIsNone(remote)
+
     def test_ssm_transport_fits_limit_and_restores_exact_host_script(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
                 proc, params, remote = _render()

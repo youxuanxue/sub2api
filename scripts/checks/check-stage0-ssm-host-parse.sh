@@ -133,7 +133,11 @@ check_one() {
 }
 
 check_one "deploy_via_ssm.sh"               deploy    bash "${OPS}/deploy_via_ssm.sh" 1.0.0 i-0stub probe
-check_one "deploy_via_ssm_bluegreen.sh"     bgdeploy  bash "${OPS}/deploy_via_ssm_bluegreen.sh" 1.0.0 i-0stub probe
+# M6: live single-container refuses bluegreen unless ALLOW=1; parse gate still
+# needs a full stub render of the host script.
+check_one "deploy_via_ssm_bluegreen.sh"     bgdeploy  \
+  env STAGE0_ALLOW_LEGACY_BLUEGREEN=1 \
+  bash "${OPS}/deploy_via_ssm_bluegreen.sh" 1.0.0 i-0stub probe
 check_one "warm_pull_via_ssm.sh"            warm      bash "${OPS}/warm_pull_via_ssm.sh" 1.0.0 i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh prod"  sync-prod bash "${OPS}/sync_caddyfile_via_ssm.sh" prod i-0stub probe
 check_one "sync_docs_pages.sh"              sync-docs bash "${OPS}/sync_docs_pages.sh" i-0stub ops/stage0/fixtures/sync_docs_page_sample.md

@@ -59,7 +59,7 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 节点身份只看 [`prod-target.json`](prod-target.json) 的 `entry` 与 `apps[]`。`apps[]` 的顺序就是滚动顺序，小机器在前当金丝雀。设计见 [cn-prod 多应用机滚动发版](../../docs/approved/design-cn-prod-rolling-deploy.md)。
 
 - 入口机健康检查每 3 秒访问各节点 `/health`，连续 2 次失败即摘除。drain 让节点 `/health` 返回 503，入口机先停派新请求，节点再等在途请求清零。
-- 日常发版由 `rolling.py` 逐台 drain、换镜像、健康检查和回流，入口机持续把新流量分给另一台。节点内蓝绿与 `tokenkey-entry-origin` socat 仅保留为旧布局迁移和故障恢复路径，不再作为正常发布路径。
+- 日常发版由 `rolling.py` 逐台 drain、换镜像、健康检查和回流，入口机持续把新流量分给另一台。**M6 起节点内蓝绿与 `tokenkey-entry-origin` socat 代码已删除**；若主机上仍有停用的 blue/green/socat 容器，只作历史残骸，rolling 会拒绝把它们当成在服布局。
 - 入口机 Caddyfile 在 `/var/lib/tokenkey/caddy/etc/Caddyfile`，挂载的是目录而不是单个文件：单文件挂载在 `sed -i` 换 inode 后会继续读旧内容。入库模板为 [`entry/Caddyfile.tmpl`](entry/Caddyfile.tmpl)，`python3 entry_caddy.py --diff <线上文件>` 只读比对（忽略注释和空白），`--out PATH` 渲染。`to` 列表按私网 IP 排序，权重跟随各自节点。
 - 应用机的节点覆盖由 `python3 node_compose.py --node app-b --out /opt/tokenkey/compose.node.yml` 渲染：`<private_ip>:8080` 与 `127.0.0.1:18080`、`memory_limit`、`TOKENKEY_NODE_NAME=cn-prod-<name>`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS`（取自 `compose.override.yml`）和节点 `env`。`--diff EXISTING` 只读，有差异时退出码 1。
 - 证书是 2026-11-15 从 app-a 复制的同一张（有效期至 2027-01-21），入口机之后用 TLS-ALPN-01 自行续期。DNS 切到入口机后，app-a 上 `api.galaxywaveai.com` 站点续期会失败，属预期，切流稳定后删掉该站点。
@@ -82,8 +82,8 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 | M2 | app-b 已改用渲染的 `compose.node.yml` 并装看门狗；`tokenkey-qa-retention` 已启用（2026-11-17），node1 协调器归档仍待。入口机 `entry_caddy.py --diff` 差异审核后入库并装看门狗 | 本节 |
 | M3 | 直连 app-a 的业务请求为 0 后，把 `public_origin` 改成入口机域名（2026-11-15 完成；IP 站点上只剩健康探测） | `prod-target.json` |
 | M4 | app-a 改为单容器 `tokenkey`，绑定 `10.2.4.11:8080`，停 socat 和 blue/green（2026-11-15 完成）。app-a 的 Caddy 改指 `tokenkey:8080`，M3 之后再关 80/443。Caddyfile 是单文件挂载，`sed -i` 后 `caddy reload` 仍读旧 inode，要从宿主文件 `caddy adapt` 后经 admin API `/load` 加载 | 设计文档 M4 |
-| M5 | 至少完成两次真实 rolling 发版并保留完整 receipt；同版本原样滚动会被 `mode=skip` 跳过，起不到演练作用 | `rolling.py` |
-| M6 | 连续两次真实滚动成功后删除 `bluegreen.py` 的 cn-prod 分支和 socat 代码 | PR |
+| M5 | ✅ 至少两次真实换版本 rolling + 完整 receipt：`1.8.378` [run 43720169759](https://github.com/youxuanxue/sub2api/actions/runs/43720169759)、`1.8.380` [run 43982380290](https://github.com/youxuanxue/sub2api/actions/runs/43982380290)（app-a/app-b 均为 `mode=full`/`outcome=rolled`）。同版本原样滚动会被 `mode=skip` 跳过 | `rolling.py` |
+| M6 | ✅ 删除 `bluegreen.py` / socat entry-origin / `post_release` 蓝绿发版路径；`deploy_via_ssm.sh` 仅保留 `pull`/`put-file`；timeout remediate 改单容器 | 本 PR |
 
 ### 加减应用机清单
 
@@ -132,7 +132,7 @@ app-a 的 `tokenkey-qa-provision/cleanup/archive` 由 `ops/qa/local_maintenance_
   `compose.local.yml`；环境文件 `.env` 权限 0600。Caddyfile 位于
   `/var/lib/tokenkey/caddy/Caddyfile`。
 
-**数据库密码只有一个来源。** 共享 `compose.yml` 用 `DATABASE_PASSWORD=${POSTGRES_PASSWORD}`，所以 `.env` 的 `POSTGRES_PASSWORD` 必须等于数据机实际接受的密码。蓝绿候选从线上容器继承密钥，`.env` 漂移不会在蓝绿里暴露，只会在新节点或从 compose 重建时以 `password authentication failed` 出现（2026-11-15 app-b 首次启动即如此；当日已把 cn-prod `.env` 的 `POSTGRES_PASSWORD` 收敛到线上值，备份为 `.env.before-pgpw-converge-*`）。`bluegreen.py prepare` 现在比较 compose 渲染出的 `DATABASE_PASSWORD`/`REDIS_PASSWORD` 与线上容器，不一致就拒绝，报错只给键名不给值。轮换数据库密码时必须同时改数据机、`.env` 的 `POSTGRES_PASSWORD` 和 `DATABASE_PASSWORD`。
+**数据库密码只有一个来源。** 共享 `compose.yml` 用 `DATABASE_PASSWORD=${POSTGRES_PASSWORD}`，所以 `.env` 的 `POSTGRES_PASSWORD` 必须等于数据机实际接受的密码。M6 后 rolling 在换镜像前核对 compose 渲染出的 `DATABASE_PASSWORD`/`REDIS_PASSWORD` 与线上容器（`rolling.py` credential parity），不一致就拒绝，报错只给键名不给值。`.env` 漂移会在 `compose up` 重建时以 `password authentication failed` 暴露（2026-11-15 app-b 首次启动即如此；当日已把 cn-prod `.env` 的 `POSTGRES_PASSWORD` 收敛到线上值）。轮换数据库密码时必须同时改数据机、`.env` 的 `POSTGRES_PASSWORD` 和 `DATABASE_PASSWORD`。
 
 首次 `up -d tokenkey` 后，通过受限 SSH tunnel 初始化管理员、关闭公开注册、关闭
 `backend_mode_enabled`（否则普通客户不能登录），再启动 Caddy。后续升级必须走共享 drain
@@ -152,7 +152,7 @@ SSH 只用于一次性 agent bootstrap 或 UHost 控制台不可用时的恢复�
 [`deploy/tencent/lock-down-sshd.sh`](../tencent/lock-down-sshd.sh)：关掉密码登录、root
 登录和 TCP 转发，并锁定 root 密码。云防火墙不开放公网 22。
 
-## 发布路径：rolling 默认，蓝绿仅兼容/恢复
+## 发布路径：rolling（M6 起唯一）
 
 cn-prod 的正常发布入口是 `deploy/domestic/rolling.py`，按 `prod-target.json` 的
 `apps[]` 顺序逐台执行 drain、换镜像、私网健康检查和回流。入口机继续把请求分给
@@ -174,57 +174,19 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 `cn-prod-rolling-deploy.yml` 的审批 job 使用 `prod` Environment，执行 job 使用
 `tencent-ops`；输入 tag 是裸 `X.Y.Z`，revision 必须是已审完整 40 位 SHA。
 
-`deploy_via_ssm.sh` 与 `bluegreen.py` 仍保留为迁移过渡和恢复路径。它们只能用于
-尚未完成单容器迁移的节点、恢复旧布局，或经单独批准的故障处理；不能作为已收敛
-节点的日常发布入口。连续两次真实 rolling 发布成功并有完整 receipt 前，不能删除
-这些兼容代码。
+`deploy_via_ssm.sh` 在 M6 后只保留 `pull`（镜像落地）与 `put-file`（应急传文件）。蓝绿 `prepare`/`promote`/`candidate-smoke`/`sync-controls` 已删除；误调用会以 exit 2 拒绝并指向 `rolling.py`。
 
-## SSM 蓝绿升级（仅兼容/恢复）
+## 镜像 pull（rolling 前置）
 
-与 probe 相同：经 `prod-target.json` 的 SSM Hybrid 身份下发，**不要**为常规发版开放
-SSH 22 或从运维机 scp 离线 tar。入口脚本：
+日常发版仍由 `cn-prod-rolling-deploy.yml` 驱动；需要手动预热时：
 
 ```bash
-# 1) Release 成功后 distribute-cn-image.yml 自动上传并预下载；重复调用复用已验证镜像
-# 运维机需现有 AWS 短期身份。主机上已有同一 tokenkey-domestic/tokenkey:TAG-SHORT
-# 且预下载回执的 image id 一致时，pull 不再渲染 S3，本机不需要 boto3。镜像不在或回执对不上时，
-# S3 render 需要 boto3（入口自动挑选能 import 的 python3，也可设 CN_PROD_PYTHON3）。
-# revision 是已审完整源码 SHA
-bash deploy/domestic/deploy_via_ssm.sh pull --tag 1.8.306 --revision REVIEWED_FULL_SHA
-# 可选：--digest sha256:… 再校验 amd64 manifest digest（不是 multiarch index）
-# 显式备用路径；旧版本没有 S3 工件时也走此入口
-bash deploy/domestic/deploy_via_ssm.sh pull --transport ghcr --tag 1.8.306 --digest sha256:AMD64_OR_INDEX_DIGEST
-# GHCR 可用 CN_PROD_SSM_DRY_RUN=1 打印脚本；S3 不打印含签名 URL 的脚本
-
-# 2) 同步 bluegreen 控制文件到 /opt/tokenkey/releases/artifacts-ssm/
-bash deploy/domestic/deploy_via_ssm.sh sync-controls
-
-# 3) prepare（不切公网流量）；revision 为已审完整源码 SHA
-bash deploy/domestic/deploy_via_ssm.sh prepare \
-  --tag 1.8.306 \
-  --revision REVIEWED_FULL_SHA \
-  --image tokenkey-domestic/tokenkey:1.8.306-SHORTSHA
-
-# 4) 候选实测。--state 用 prepare 回执里的 state，不要另写烟测脚本。
-bash deploy/domestic/deploy_via_ssm.sh candidate-smoke \
-  --state /opt/tokenkey/releases/1.8.306-SHORTSHA
+bash deploy/domestic/deploy_via_ssm.sh pull --tag 1.8.380 --revision REVIEWED_FULL_SHA
+# 显式 GHCR 备用
+bash deploy/domestic/deploy_via_ssm.sh pull --transport ghcr --tag 1.8.380 --digest sha256:AMD64_OR_INDEX_DIGEST
 ```
 
-`bluegreen.py` 仍是国内主机适配入口。Caddy 站点可以是 `api-cn.tokenkey.dev`，也可以是北京静态 IP `154.8.214.179`（`https://` 与 `:443` 写法同样接受）。`/var/lib/tokenkey` 可以是独立挂载，也可以直接在根文件系统上；根盘用该目录与 `/` 的设备是否相同来识别，不会把普通目录伪装成 mountpoint。
-从共享 `deploy_via_ssm_bluegreen.sh` 提取健康检查、Caddy 切流、观察与 drain，未复制实现。切流后的本机健康观察使用 Caddy 里的那个站点名，因此静态 IP 站点不会再拿 `api-cn.tokenkey.dev` 去对本地证书。
-候选实测是 `deploy_via_ssm.sh candidate-smoke`。它在主机上跑已同步的
-`candidate_smoke.py`，对候选 loopback（blue 18081、green 18082）请求 `/health` 和
-`/api/v1/settings/public`，把结果写到 `/private/candidate-smoke.json`。任一用例失败时
-命令非 0，失败用例仍留在文件里。`promote` 使用清单里的 `public_origin`，传入其他 URL
-会在下发前拒绝。
-
-`--state` 是 `prepare` 实际写入的目录，形如 `/opt/tokenkey/releases/<version>-<shortsha>`；
-`prepare` 的回执里有 `state` 字段，直接取那个值，不要照抄本文的示例版本号。
-
-`--postcheck-plan` 必须由生成器产出，**不要手写**。它同时被两个阶段消费：`configure()`
-校验 `range`，切流后 `finish()` 还要读 `changes` 拼发版说明。手写一份只带 `range` 的
-plan 能通过切流前校验，却会让通知阶段抛 `KeyError`（2026-10-23 cn-prod 1.8.318 踩过）。
-`configure()` 现在会在切流前就拒绝缺 `changes` 的 plan。
+## 应急 put-file
 
 送文件到主机**只用** `deploy_via_ssm.sh put-file`，不要手写 `base64 -d > ...` 一行流。
 2026-10-25 发版时一条手写传输里的 `> bash` 笔误把重定向打到远端 cwd（`/usr/bin`），
@@ -238,112 +200,12 @@ plan 能通过切流前校验，却会让通知阶段抛 `KeyError`（2026-10-23
 覆盖，要覆盖得显式加 `--force`；内容相同的重复 put 直接放过（幂等）。
 
 ```bash
-# 1) 在仓库侧生成 plan（revision 用完整 SHA，与 prepare 的 --revision 一致）
-python3 scripts/release_post_check.py plan \
-  --live LIVE_FULL_SHA --new NEW_FULL_SHA > /tmp/post-plan.json
 
-# 2) plan 是数据，用 put-file 送到主机。上一版文件还在且内容不同时加 --force。
 bash deploy/domestic/deploy_via_ssm.sh put-file \
-  --local /tmp/post-plan.json --remote /private/post-plan.json
 
-# 3) 切流。receipt 用 prepare 回执的 receipt_sha256。public-url 取自 prod-target.json。
-bash deploy/domestic/deploy_via_ssm.sh promote \
   --state /opt/tokenkey/releases/1.8.306-SHORTSHA \
   --receipt PREPARED_RECEIPT_SHA256 \
-  --postcheck-plan /private/post-plan.json
 ```
-
-`candidate-smoke` 写出的报告形态是 `{"revision","container_id","cases":[{"case","passed"}]}`。
-`container_id` 是 `docker inspect` 的 `Id`。上游 429/限流不在这四条控制面检查里；
-那种失败按故障速查对候选定点复测，复测结论留在证据里，不删分母。
-
-### 私有 S3 分发初始化
-
-发布包含此变更的版本前执行一次。现有桶和地域以 `image-distribution.json` 为准；
-不得替换整个桶策略或删除其它生命周期规则。以下操作只管理分发目录权限/保留期限，
-不更新主机、数据库、网关或 Docker daemon。先跑 preflight。
-
-```bash
-bucket=$(python3 -c 'import json; print(json.load(open("deploy/domestic/image-distribution.json"))["bucket"])')
-region=$(python3 -c 'import json; print(json.load(open("deploy/domestic/image-distribution.json"))["region"])')
-role_arn=$(gh variable get AWS_OIDC_ROLE_ARN -R youxuanxue/sub2api)
-instance=$(python3 -c 'import json; print(json.load(open("deploy/domestic/prod-target.json"))["ssm_instance_id"])')
-ssm_region=$(python3 -c 'import json; print(json.load(open("deploy/domestic/prod-target.json"))["ssm_region"])')
-aws cloudformation deploy --region "$region" --stack-name tokenkey-cn-image-distribution \
-  --template-file deploy/domestic/image-distribution-policy.yaml --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides RunnerRoleName="${role_arn##*/}" BucketName="$bucket" \
-    ManagedInstanceId="$instance" SsmRegion="$ssm_region"
-python3 deploy/domestic/image_distribution_lifecycle.py
-python3 deploy/domestic/image_distribution_lifecycle.py --apply
-```
-
-独立 `distribute-cn-image.yml` 由成功 Release 的 workflow_run 触发，使用默认分支代码
-与已有 main OIDC 信任，不开放其它 tag/branch 信任。下载的版本/revision 仅作数据，
-先与当前 git tag 核对；不 checkout 或执行该标签的脚本。
-
-`publish` 只使用 AWS OIDC/S3 权限，把校验后的归档写入私有前缀，并由
-`warm_fanout.py render-all` 按 `apps[]` 生成每节点的短期签名脚本。render artifact
-含短期签名 URL，只保留 1 天且从不打印；publish receipt 保留 7 天。`warm` job 使用
-`tencent-ops` Environment，只使用腾讯 TAT 凭据，校验 render artifact 后逐节点执行
-`warm_fanout.py dispatch-rendered --channel tat`，任一节点失败即 fail-stop 并写失败
-receipt。正式 rolling 发布仍由 `cn-prod-rolling-deploy.yml` 的 `prod` 审批 job
-放行，分发成功不等于发布成功，也不表示已切流。
-
-S3 对象保留 30 天，非当前版本 7 天；过期版本可显式 GHCR 直拉。
-CI 分发失败明确使独立分发 workflow 失败，但不撤销已构建镜像或操作正在服务的容器。
-归档下载限速 512 KiB/s；预下载复用共享 host deploy lock。锁忙时任务失败可重试。
-预下载成功只表示镜像就绪，不表示候选烟测或线上发布成功。
-成功回执在 CI artifact 和主机 `/var/lib/tokenkey/image-distribution/`；节点回执不含
-签名 URL，`rolling.py` 还要求其 `image_id` 与本地不可变 tag 完全一致。
-导入开销发生在 Docker daemon；下载进程 nice/ionice 不等于 daemon 资源限制。
-
-### 恢复：离线 tar + 受限 SSH（非默认）
-
-仅当主机无法 `docker pull` GHCR 或 SSM Hybrid 不可用时使用。临时放行运维出口 `/32`，
-scp 已校验的 amd64 archive → `docker load` → 绑定本地 tag，完成立即移除 SSH 规则。
-不得把动态运维出口固化为长期防火墙规则。
-
-prepare 只启动候选；复用当前应用环境、数据挂载和实际 Docker 网络，数据库/Redis 不重建。
-解析后的 Compose 挂载必须与现网实际源目录、目标和读写模式一致，且 `/app/data` 仍绑定
-国内数据盘；配置漂移时在创建候选前拒绝执行。
-候选管理端口仅监听 loopback（blue 18081、green 18082），正式入口仍由 Caddy 决定。
-切流前实测候选，promote 对容器身份、配置和回执重新核验后热切；健康观察和旧容器
-`draining=true, in_flight=0` 验证通过才 stop 旧容器。失败保留新旧容器供诊断。
-旧容器和镜像保留，`rollback --state ... --receipt ...` 重启旧进程、确认健康、恢复原路由，
-再排空候选。旧进程若因发布中断仍运行在 drain 状态，先验证在途归零再停止、启动，
-避免 `docker start` 对运行中容器无效。所有操作均使用共享 host lock；运行文件和含环境变量的 Compose 为 0600。
-后续轮次若候选颜色名称已存在，先核对其是否仍承担回退义务；入口不会自动删除旧候选。
-Docker 的 `unless-stopped` 重启策略负责活动容器重启；原单容器 Compose 不再作为应用升级入口。
-切流前用 `scripts/release_post_check.py plan --live OLD_SHA --new NEW_SHA` 生成计划，
-两端传实际镜像完整源码 SHA。候选实测由 `candidate-smoke` 写入
-`/private/candidate-smoke.json`，失败用例保留。计划经 `put-file` 落盘；仅恢复路径才用受限 SSH。`promote`
-在切流前核对源码/容器身份及全部用例通过，并固化控制脚本与证据哈希。
-`--public-url` 必须与 `prod-target.json` 中的 `public_origin` 一致，该清单也供公网监控使用，
-并随发布证据固化哈希；填入其他公网 IP 会在切流前拒绝。原国内域名已指向美西 prod，不能用
-域名的健康响应代替 cn-prod 验证。
-
-切流和 drain 完成后，`promote` 自动调用共享 probe/evaluator 做立即检查，并等待至真实
-切流后至少五分钟再检查累计流量、HTTP/带内最终 5xx 与 panic；同时核对当前活动容器及
-公网健康。两阶段 gate 通过后，自动复用 `notify-feishu-release.sh` 向现有 prod 飞书群发
-**cn-prod** 上线卡片。卡片中的环境、旧/新版本、静态 IP 入口和切流时间来自本次证据，
-补发不会把当前发送时间写成上线时间。通知密钥仅从本机 root-only
-`/opt/tokenkey/host-alerts.env` 读取，不经过远程投递参数、仓库或输出。
-
-验证结果和通知回执保存在 `STATE/post-release/`。通知失败只警告并记录失败状态，不回滚
-健康应用，也不伪装成发送成功。`notification.json` 的 `status=sent` 表示飞书 HTTP/API
-确认接收；不等同所有群成员已读。失败/缺配置可用同一状态重试：
-
-```bash
-python3 bluegreen.py notify --state /opt/tokenkey/releases/1.8.306-2d4b4cdbf \
-  --receipt PREPARED_RECEIPT_SHA256 \
-  --postcheck-plan /private/post-plan.json \
-  --smoke-report /private/candidate-smoke.json \
-  --public-url https://CN_PROD_STATIC_IP
-```
-
-`notify` 不切流或重启，拒绝对已非当前健康活动版本发成功通知；已确认成功的同次发布不再
-重复发送。网络超时可能存在“飞书已接收但本机没收到确认”的不确定性，人工补发前核对群。
-若 postcheck 本身失败，保留已切流现场并非零退出，不发成功通知；先排查再决定恢复或重试。
 
 ## 初始化与隔离
 
