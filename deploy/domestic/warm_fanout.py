@@ -451,9 +451,8 @@ def main(
                     args.repository, normalized, args.revision, args.digest
                 )
             else:
-                import boto3
                 config = image_distribution.settings()
-                client = boto3.client("s3", region_name=config["region"])
+                client = image_distribution.s3_client(config)
 
                 def script_for(_node: remote_exec.Node) -> str:
                     return image_distribution.render(

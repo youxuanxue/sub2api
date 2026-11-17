@@ -1,4 +1,5 @@
 {
-  "bucket": "tokenkey-prod-cfn-deploy-682751977094-ap-northeast-1",
-  "region": "ap-northeast-1"
+  "bucket": "tokenkey-cnprod-images-bj-1320330536",
+  "region": "ap-beijing",
+  "endpoint": "cos.ap-beijing.myqcloud.com"
 }

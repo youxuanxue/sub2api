@@ -101,7 +101,7 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 
 app-a 的 `tokenkey-qa-provision/cleanup/archive` 由 `ops/qa/local_maintenance_host.py install --include-node1-archive --node1-environment cn-prod` 安装，归档走 v1 站点路径 `qa-raw/cn-prod/<小时>`，cleanup 用该路径的回执做删除门禁。app-b 不能照抄同一条命令：两台写同一个 v1 小时会互相冲突。`node1_archive.py --source-id cn-prod-app-b` 已能写隔离的 v2 路径，但现有 cleanup 拒绝把单源 v2 回执当删除凭据。
 
-2026-11-17：app-b 已启用独立 `tokenkey-qa-retention`（小时结束 +24h 接受丢失），清掉积压过期小时并写入 `apps[].jobs`；bundle 在 `/var/lib/tokenkey/qa-retention-bootstrap`。数据机协调器（v2 归档）仍按 [`COORDINATOR.md`](../../ops/qa/COORDINATOR.md) 单独交接，未安装。
+2026-11-17：app-b 已启用独立 `tokenkey-qa-retention`（小时结束 +24h 接受丢失），清掉积压过期小时并写入 `apps[].jobs`；bundle 在 `/var/lib/tokenkey/qa-retention-bootstrap`（含 `source_id=cn-prod-app-b`）。数据机协调器（v2）推进中：已轮换并下发 `qa-app` SSH 公钥到 app-a/app-b；**私网 22 仍不通**（data→apps 超时），需云防火墙仅放行 `10.2.4.5`→应用机 `:22` 后才能装 data coordinator。PG EnvironmentFile 与 timer 启用仍未做。
 
 #### 数据机 QA 协调器就绪清单（未 apply）
 
@@ -109,9 +109,10 @@ app-a 的 `tokenkey-qa-provision/cleanup/archive` 由 `ops/qa/local_maintenance_
 
 1. 应用机 source config（root 0600）+ 固定 binary SHA；app-a / app-b 的 `source_id` 隔离。
 2. 数据机 config 引用两台 worker 路径；`active_from` 已核对；PG* EnvironmentFile 只读核验指向 cn-prod 库。
-3. 先 plan 安装 source，再 plan 安装 data；交接前停旧 provision/cleanup/archive timer（capture 不停）。
-4. 受控单轮 `coordinator_host.py --apply` + `force_retention.py --apply` 验收副作用。
-5. 矩阵登记 `data_qa_jobs` / 应用机 `tokenkey-qa-retention` 后重装 host watcher，再启用 timer。
+3. **云防火墙**：仅私网放行 data `10.2.4.5` → app-a/app-b `:22`（公网 22 继续关闭）。
+4. 先 plan 安装 source，再 plan 安装 data；交接前停旧 provision/cleanup/archive timer（capture 不停）。
+5. 受控单轮 `coordinator_host.py --apply` + `force_retention.py --apply` 验收副作用。
+6. 矩阵登记 `data_qa_jobs` / 应用机 `tokenkey-qa-retention` 后重装 host watcher，再启用 timer。
 
 ## 首次安装与配置 owner
 
@@ -134,7 +135,7 @@ app-a 的 `tokenkey-qa-provision/cleanup/archive` 由 `ops/qa/local_maintenance_
   优先链（ipip → ip9 → qq-ip2city → ipify），避免默认境外 `ip-api.com` 在国内 SOCKS
   上出现数秒假延迟。显式 `security.proxy_probe.urls` 仍优先于 preset。
   `compose.local.yml` 只将管理端口绑定到主机 loopback。
-- 默认由 CI 上传同一 GHCR 构建的 amd64 归档到私有 S3，经 SSM 预下载并校验导入。
+- 默认由 CI 上传同一 GHCR 构建的 amd64 归档到北京 COS，经 TAT 预下载并校验导入。
   分发契约见 [cn-prod-image-distribution.md](../../docs/approved/cn-prod-image-distribution.md)。
   `pull_policy: never` 防止启动时漂移；GHCR 直拉是显式备用路径。
 - 主机运行目录 `/opt/tokenkey`，Compose 文件依次为 `compose.yml`、`compose.override.yml`、
@@ -169,7 +170,7 @@ cn-prod 的正常发布入口是 `deploy/domestic/rolling.py`，按 `prod-target
 另一台应用机，因此发布过程不需要节点内蓝绿。
 
 Release 后的 `distribute-cn-image.yml` 分两段执行：`publish` 在 AWS OIDC 身份下上传
-并校验私有 S3 工件、渲染每节点预下载脚本；`tencent-ops` job 只持腾讯凭据，按
+并校验 COS 工件、渲染每节点预下载脚本；`publish`/`warm` 均在 `tencent-ops` 下持腾讯凭据，按
 `apps[]` 顺序通过 TAT 预下载到每个节点。warm 固定 `--channel tat`，不使用 `auto`：
 app-a 仍带 SSM Hybrid 身份，`auto` 会选中 AWS SSM，而腾讯 job 没有 AWS 凭据。
 任一节点失败都停止后续节点，且不触碰正在服务的容器。

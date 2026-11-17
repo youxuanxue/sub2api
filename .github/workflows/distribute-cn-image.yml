@@ -24,11 +24,11 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    environment: tencent-ops
     permissions:
       contents: read
       actions: read
       packages: read
-      id-token: write
     outputs:
       source_sha: ${{ steps.repo.outputs.sha }}
       tag: ${{ steps.source.outputs.tag }}
@@ -90,23 +90,23 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
-          aws-region: ap-northeast-1
       - name: Publish verified cn-prod image archive
         env:
           RELEASE_TAG: ${{ steps.source.outputs.tag }}
           RELEASE_REVISION: ${{ steps.source.outputs.revision }}
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
         run: |
           set -euo pipefail
           python3 deploy/domestic/image_distribution.py publish \
             --tag "$RELEASE_TAG" --revision "$RELEASE_REVISION" \
             --repository "ghcr.io/${GITHUB_REPOSITORY,,}" > cn-image-publish.json
-      - name: Render per-node private S3 prewarm scripts
+      - name: Render per-node private COS prewarm scripts
         env:
           RELEASE_TAG: ${{ steps.source.outputs.tag }}
           RELEASE_REVISION: ${{ steps.source.outputs.revision }}
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
         run: |
           set -euo pipefail
           python3 deploy/domestic/warm_fanout.py render-all \

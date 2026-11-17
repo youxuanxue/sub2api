@@ -218,7 +218,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 | QA raw archive | QA S3 已于 2026-11-08 退役；仓库模板与恢复 CLI 已删除 | CFN `tokenkey-prod-qa-raw-archive`=`DELETE_COMPLETE`（2026-11-09）；桶 `HeadBucket` 404；主机 maintenance/boundary 脚本与 unit 已不存在（2026-11-17 核对）。见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界) |
 | 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
-| 历史 / 休眠 S3 桶 | 见下方「2026-11-17 桶盘点」；Tokyo `cfn-deploy`（cn-prod 镜像）仍活；AWS `archive` 已改 30 天自删收尾 | 休眠桶已按批准销毁；**禁止**删 Tokyo 镜像桶 |
+| 历史 / 休眠 S3 桶 | 见下方「2026-11-17 桶盘点」；Tokyo `cfn-deploy` 镜像中转已改 COS；AWS `archive` 30 天自删收尾 | 休眠桶已按批准销毁；Tokyo 镜像桶确认无新写后可删 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
 | 第三方 AWS 协议 | Kiro/Bedrock 的 AWS endpoint、SDK/SigV4、S3 兼容客户端 | 属模型供应商/协议能力，不能随基础设施迁移删除 |
 
@@ -255,7 +255,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 | 桶 | 区域 | 角色 |
 |---|---|---|
 | `tokenkey-prod-archive-682751977094` | us-east-1 | **收尾中**：全桶 30 天自删；**新对象归档禁止写入**。活目的地见腾讯 COS `tokenkey-prod-ops-archive-1320330536`（[design-cos-object-archive](../../docs/approved/design-cos-object-archive.md)） |
-| `tokenkey-prod-cfn-deploy-682751977094-ap-northeast-1` | ap-northeast-1 | **活**：`deploy/domestic/image-distribution.json` 的 cn-prod 镜像分发桶（`cn-prod/images/*`）；含历史 `tokyo-precutover`/`ops` 前缀。**不可当残留删** |
+| `tokenkey-prod-cfn-deploy-682751977094-ap-northeast-1` | ap-northeast-1 | **收尾中**：cn-prod 镜像分发已改北京 COS `tokenkey-cnprod-images-bj-1320330536`（[design-cn-image-cos](../../docs/approved/design-cn-image-cos.md)）。确认无新写入后可删 |
 
 后续债（不与删桶同 PR）：Hybrid/OIDC/SecureString 换腾讯 TAT 控制面；`deploy/aws/stage0/` 路径改名（须同步 sentinel/引用）。
 

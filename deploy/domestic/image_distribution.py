@@ -19,7 +19,40 @@ ROOT = Path(__file__).resolve().parent
 
 
 def settings():
-    return json.loads((ROOT / 'image-distribution.json').read_text())
+    document = json.loads((ROOT / 'image-distribution.json').read_text())
+    endpoint = document.get('endpoint')
+    if not isinstance(document.get('bucket'), str) or not document['bucket']:
+        raise ValueError('image-distribution bucket missing')
+    if not isinstance(document.get('region'), str) or not document['region']:
+        raise ValueError('image-distribution region missing')
+    if not isinstance(endpoint, str) or not endpoint or 'amazonaws.com' in endpoint.lower():
+        raise ValueError('image-distribution endpoint must be Tencent COS (not AWS)')
+    return document
+
+
+def endpoint_url(config=None):
+    cfg = config or settings()
+    return f"https://{cfg['bucket']}.{cfg['endpoint']}"
+
+
+def s3_client(config=None):
+    """boto3 S3 client pinned to the COS bucket (virtual-hosted endpoint)."""
+    import boto3
+
+    cfg = config or settings()
+    kwargs = {
+        'region_name': cfg['region'],
+        'endpoint_url': endpoint_url(cfg),
+    }
+    # Prefer tencent-ops secrets; fall back to standard AWS env for local tooling.
+    key = (os.environ.get('TENCENTCLOUD_SECRET_ID') or os.environ.get('AWS_ACCESS_KEY_ID') or '').strip()
+    secret = (
+        os.environ.get('TENCENTCLOUD_SECRET_KEY') or os.environ.get('AWS_SECRET_ACCESS_KEY') or ''
+    ).strip()
+    if key and secret:
+        kwargs['aws_access_key_id'] = key
+        kwargs['aws_secret_access_key'] = secret
+    return boto3.client('s3', **kwargs)
 
 
 def prefix(tag, revision):
@@ -29,17 +62,29 @@ def prefix(tag, revision):
 
 def immutable_put(client, bucket, key, body):
     """Conditional creation: retries may reuse identical bytes, never overwrite."""
-    checksum = base64.b64encode(hashlib.sha256(body).digest()).decode()
+    digest_hex = hashlib.sha256(body).hexdigest()
     try:
-        client.put_object(Bucket=bucket, Key=key, Body=body, ServerSideEncryption='AES256',
-                          ChecksumSHA256=checksum, IfNoneMatch='*')
+        head = client.head_object(Bucket=bucket, Key=key)
     except client.exceptions.ClientError as error:
-        if error.response['Error']['Code'] != 'PreconditionFailed':
+        code = error.response['Error']['Code']
+        if code not in {'404', 'NoSuchKey', 'NotFound'}:
             raise
-    head = client.head_object(Bucket=bucket, Key=key, ChecksumMode='ENABLED')
-    if head['ContentLength'] != len(body) or head.get('ChecksumSHA256') != checksum:
+    else:
+        meta = head.get('Metadata') or {}
+        if head['ContentLength'] == len(body) and meta.get('sha256') == digest_hex:
+            return
         raise ValueError('immutable S3 object conflicts with this artifact')
-
+    client.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=body,
+        ServerSideEncryption='AES256',
+        Metadata={'sha256': digest_hex},
+    )
+    head = client.head_object(Bucket=bucket, Key=key)
+    meta = head.get('Metadata') or {}
+    if head['ContentLength'] != len(body) or meta.get('sha256') != digest_hex:
+        raise ValueError('immutable S3 object conflicts with this artifact')
 
 def retag_archive(source, target, tag):
     """Only change Docker's load tag; registry config/layer bytes stay exact."""
@@ -155,15 +200,13 @@ def main():
     if not args.tag or not args.revision:
         parser.error('publish/render require --tag and --revision')
     identity(args.tag, args.revision)
-    import boto3
     config = settings()
-    client = boto3.client('s3', region_name=config['region'])
+    client = s3_client(config)
     if args.action == 'publish':
         result = publish(client, config['bucket'], args.tag, args.revision, args.repository)
         print(json.dumps({k: result[k] for k in ('tag', 'revision', 'source_digest', 'archive_sha256', 'bytes')}))
     else:
         print(render(client, config['bucket'], args.tag, args.revision, args.digest))
-
 
 if __name__ == '__main__':
     main()
