@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-17 AG/Gemini 用量 TTFT：硬编码 visible，thought-only 显示 —
+
+原话：「同意。」（针对：AG/Gemini 先硬编码 visible、不做配置开关；thought-only 终态继续 null→「—」。）
+
+适用范围：用量「首内容」列与 AG/Gemini 原生流 `first_token_ms`。keepalive/纯 thought 不计 TTFT；无可见内容不硬凑时间。见 PR #3243。
+
 ## 2026-11-17 AG argon maxOutputTokens：只钳显式超大、不默认注入
 
 原话：「若要对齐开源精神又留安全网：更干净的是 只钳非法/超大、不默认注入。」
