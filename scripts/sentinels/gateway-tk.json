@@ -18020,17 +18020,20 @@
         "python3 deploy/domestic/warm_fanout.py render-all",
         "name: cn-image-render",
         "retention-days: 1",
-        "needs: publish",
+        "needs: [resolve, publish]",
         "environment: tencent-ops",
-        "ref: ${{ needs.publish.outputs.source_sha }}",
+        "ref: ${{ needs.resolve.outputs.source_sha }}",
         "python3 deploy/domestic/warm_fanout.py dispatch-rendered",
         "deploy/domestic/prod-target.json",
         "--transport s3",
         "--channel tat",
         "--render-file cn-image-render/cn-image-render.json",
-        "cn-image-warm.json"
+        "cn-image-warm.json",
+        "needs: resolve",
+        "transport=ghcr",
+        "warm-ghcr:"
       ],
-      "rationale": "cn-prod image distribution publishes to Beijing COS and warms via TAT under tencent-ops (no AWS OIDC). The short-lived render artifact carries per-node scripts; both render and dispatch must force TAT (auto would select SSM for app-a)."
+      "rationale": "cn-prod image distribution resolves trusted default-branch SHA first, then publishes to Beijing COS (or skips COS via transport=ghcr) and warms via TAT under tencent-ops. warm jobs must pin checkout to needs.resolve.outputs.source_sha; both render and dispatch must force TAT (auto would select SSM for app-a)."
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
