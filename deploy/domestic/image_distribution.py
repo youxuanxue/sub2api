@@ -38,11 +38,20 @@ def endpoint_url(config=None):
 def s3_client(config=None):
     """boto3 S3 client pinned to the COS bucket (virtual-hosted endpoint)."""
     import boto3
+    from botocore.config import Config as BotocoreConfig
 
     cfg = config or settings()
+    # botocore 1.36+ defaults to flexible checksums / aws-chunked bodies. COS
+    # rejects UploadPart without Content-Length (MissingContentLength) and the
+    # old single put_object path can hang for tens of minutes on the same path.
     kwargs = {
         'region_name': cfg['region'],
         'endpoint_url': endpoint_url(cfg),
+        'config': BotocoreConfig(
+            request_checksum_calculation='when_required',
+            response_checksum_validation='when_required',
+            s3={'addressing_style': 'virtual'},
+        ),
     }
     # Prefer tencent-ops secrets; fall back to standard AWS env for local tooling.
     key = (os.environ.get('TENCENTCLOUD_SECRET_ID') or os.environ.get('AWS_ACCESS_KEY_ID') or '').strip()

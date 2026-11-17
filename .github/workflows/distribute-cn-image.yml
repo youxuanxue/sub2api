@@ -98,6 +98,10 @@ jobs:
           RELEASE_REVISION: ${{ steps.source.outputs.revision }}
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          # Belt-and-suspenders with s3_client BotocoreConfig: COS rejects
+          # botocore flexible-checksum / aws-chunked UploadPart bodies.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
         run: |
           set -euo pipefail
           python3 deploy/domestic/image_distribution.py publish \

@@ -4,6 +4,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -416,6 +417,40 @@ class DistributionTests(unittest.TestCase):
                 'https://tokenkey-cnprod-images-bj-1320330536.cos.ap-beijing'
             )
         )
+
+    def test_s3_client_disables_flexible_checksums_for_cos(self):
+        captured = {}
+
+        class FakeBoto3:
+            def client(self, service, **kwargs):
+                captured['service'] = service
+                captured['kwargs'] = kwargs
+                return SimpleNamespace(name='s3')
+
+        class FakeBotocoreConfig:
+            def __init__(self, **kwargs):
+                captured['botocore'] = kwargs
+
+        with patch.dict(sys.modules, {
+            'boto3': FakeBoto3(),
+            'botocore': SimpleNamespace(),
+            'botocore.config': SimpleNamespace(Config=FakeBotocoreConfig),
+        }), patch.dict(os.environ, {
+            'TENCENTCLOUD_SECRET_ID': 'id',
+            'TENCENTCLOUD_SECRET_KEY': 'secret',
+        }, clear=False):
+            # Re-import path uses runtime imports inside s3_client.
+            client = distribution.s3_client({
+                'bucket': 'tokenkey-cnprod-images-bj-1320330536',
+                'region': 'ap-beijing',
+                'endpoint': 'cos.ap-beijing.myqcloud.com',
+            })
+        self.assertEqual(client.name, 's3')
+        self.assertEqual(captured['service'], 's3')
+        self.assertEqual(captured['botocore']['request_checksum_calculation'], 'when_required')
+        self.assertEqual(captured['botocore']['response_checksum_validation'], 'when_required')
+        self.assertEqual(captured['botocore']['s3'], {'addressing_style': 'virtual'})
+        self.assertTrue(captured['kwargs']['endpoint_url'].startswith('https://tokenkey-cnprod-images-bj'))
 
     def test_immutable_put_reuses_identical_object(self):
         calls = []
