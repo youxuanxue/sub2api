@@ -310,6 +310,27 @@ func TestVolcKimiInboundMessageShapes(t *testing.T) {
 	require.Equal(t, "tool", gjson.GetBytes(matched, "messages.1.role").String())
 	require.Equal(t, "call_1", gjson.GetBytes(matched, "messages.1.tool_call_id").String())
 
+	// cn-prod 2026-11-17: Claude-Code-style trajectories insert assistant text
+	// between tool_calls and tool results; Volc 400s until those turns are dropped.
+	interleaved := []byte(`{"messages":[{"role":"system","content":"s"},{"role":"user","content":"u"},{"role":"assistant","content":null,"tool_calls":[{"id":"Bash_0_a","type":"function","function":{"name":"Bash","arguments":"{}"}}]},{"role":"assistant","content":"progress"},{"role":"tool","tool_call_id":"Bash_0_a","content":"ok"},{"role":"assistant","content":null,"tool_calls":[{"id":"Bash_0_b","type":"function","function":{"name":"Bash","arguments":"{}"}}]},{"role":"assistant","content":"more"},{"role":"tool","tool_call_id":"Bash_0_b","content":"ok2"}]}`)
+	fixed, err := normalizeVolcKimiChatRequest(interleaved)
+	require.NoError(t, err)
+	require.EqualValues(t, 6, gjson.GetBytes(fixed, "messages.#").Int())
+	require.Equal(t, "assistant", gjson.GetBytes(fixed, "messages.2.role").String())
+	require.Equal(t, "Bash_0_a", gjson.GetBytes(fixed, "messages.2.tool_calls.0.id").String())
+	require.Equal(t, "tool", gjson.GetBytes(fixed, "messages.3.role").String())
+	require.Equal(t, "Bash_0_a", gjson.GetBytes(fixed, "messages.3.tool_call_id").String())
+	require.Equal(t, "assistant", gjson.GetBytes(fixed, "messages.4.role").String())
+	require.Equal(t, "Bash_0_b", gjson.GetBytes(fixed, "messages.4.tool_calls.0.id").String())
+	require.Equal(t, "tool", gjson.GetBytes(fixed, "messages.5.role").String())
+
+	// Ordinary assistant text outside a tool round-trip must stay.
+	plain := []byte(`{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello"},{"role":"user","content":"next"}]}`)
+	keptPlain, err := normalizeVolcKimiChatRequest(plain)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, gjson.GetBytes(keptPlain, "messages.#").Int())
+	require.Equal(t, "hello", gjson.GetBytes(keptPlain, "messages.1.content").String())
+
 	for _, emptyBody := range []string{
 		`{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"","parameters":{"type":"object"}}},{"type":"function","function":{"name":"  ","parameters":{"type":"object"}}}],"tool_choice":"required"}`,
 		`{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"","parameters":{"type":"object"}}},{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":"auto"}`,

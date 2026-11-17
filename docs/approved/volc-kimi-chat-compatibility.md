@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -151,6 +151,15 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   `tools`. A non-empty name is unchanged. The previous rewrite (orphan tool
   became a user message and returned 200; empty names were dropped and the
   request continued) is retired by the 2026-11-13 decision 「按照 KVV 要求」.
+  On 2026-11-17 cn-prod `tokensea_online` (user 2) live ablation showed Volc
+  400 `InvalidParameter` when an assistant text turn was inserted between
+  `assistant.tool_calls` and the matching `tool` result(s). Tool schemas alone
+  (including Workflow) replayed 200. The gateway drops those interleaved
+  assistant-without-`tool_calls` messages before relay; ordinary assistant
+  text outside a tool round-trip is unchanged. The client-visible
+  `: tool function parameters schema` suffix remains a heuristic for the
+  generic upstream sentence when tools are present and is not proof of schema
+  recursion.
   Matched tool results, string content, and content-part arrays stay as sent.
   An https `video_url` the gateway cannot fetch (captured Wikimedia webm from
   Beijing; the same unnamed InvalidParameter was reproduced with
