@@ -847,6 +847,8 @@
         "kiroproto.ErrInvalidEventStream",
         "invalid_event_stream",
         "func kiroJSONForbiddenFailover",
+        "func kiroJSONForbiddenFailoverMessage",
+        "extractUpstreamErrorMessage(body)",
         "type KiroModelTemporarilyRestrictedError",
         "func (e *KiroModelTemporarilyRestrictedError) Unwrap() error",
         "isKiroModelTemporarilyRestricted",
@@ -855,7 +857,7 @@
         "func classifyKiroLegacyUnsupportedVersionMask",
         "legacy_version_mask"
       ],
-      "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; CONTENT_FILTERED returns a typed client-owned error without creating upstream error context, while real transport/read/empty-response causes retain sanitized upstream evidence. The handler maps request-owned outcomes to 400 without cross-account failover. Image-client classification must match the primary upstream message only and must not mask provider exceptions (InternalServerException) or non-400 HTTP that only echo 'Image format is not supported.'. KiroEndpointQuotaExhaustedError.ClientMessage must return the shared busy-429 SSOT (not the legacy quota phrase) so wire bodies stay pool-agnostic. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause. Legacy Q version-update cover copy must classify to account-scoped busy 429 via classifyKiroLegacyUnsupportedVersionMask/TkIsKiroLegacyUnsupportedVersionMask so clients never see the pin-death narrative."
+      "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; CONTENT_FILTERED returns a typed client-owned error without creating upstream error context, while real transport/read/empty-response causes retain sanitized upstream evidence. The handler maps request-owned outcomes to 400 without cross-account failover. Image-client classification must match the primary upstream message only and must not mask provider exceptions (InternalServerException) or non-400 HTTP that only echo 'Image format is not supported.'. KiroEndpointQuotaExhaustedError.ClientMessage must return the shared busy-429 SSOT (not the legacy quota phrase) so wire bodies stay pool-agnostic. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause. Legacy Q version-update cover copy must classify to account-scoped busy 429 via classifyKiroLegacyUnsupportedVersionMask/TkIsKiroLegacyUnsupportedVersionMask so clients never see the pin-death narrative. kiroJSONForbiddenFailoverMessage must keep extractUpstreamErrorMessage(body) so JSON 403 rewrite preserves the live upstream sentence; rewriting everything to generic upstream forbidden breaks tkMaybeRefreshKiroInvalidBearer403 and permanently SetErrors OAuth accounts that still have monthly credits (prod 2026-11-16)."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_kiro.go",

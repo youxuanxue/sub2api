@@ -4829,9 +4829,11 @@
         "TestRateLimitService_OAuth401_KiroValidTokenForceRefreshesInsteadOfSetError",
         "TestRateLimitService_OAuth403_KiroInvalidBearerForceRefreshesWithoutExpiry",
         "TestRateLimitService_OAuth403_KiroInvalidBearerInvalidGrantSetsError",
-        "TestRateLimitService_OAuth403_KiroNonBearerStillSetErrors"
+        "TestRateLimitService_OAuth403_KiroNonBearerStillSetErrors",
+        "TestRateLimitService_OAuth403_KiroInvalidBearerSurvivesClassifyRewrite",
+        "TestRateLimitService_OAuth403_KiroGenericUpstreamForbiddenStillSetErrors"
       ],
-      "rationale": "Anthropic OAuth 401 remains immediate SetError + P0 (no token-expiry branch, no temp cooldown). OpenAI and other OAuth platforms keep valid-token first-strike disable + expired-token cooldown via tkDisableIfOAuth401OnValidToken. Kiro adds focused auth-reject refresh coverage: still-valid 401 and invalid-bearer 403 force-refresh through OAuthRefreshAPI.RefreshNow; invalid_grant still SetErrors; non-bearer 403 does not refresh and keeps the pre-existing auth-error behavior."
+      "rationale": "Anthropic OAuth 401 remains immediate SetError + P0 (no token-expiry branch, no temp cooldown). OpenAI and other OAuth platforms keep valid-token first-strike disable + expired-token cooldown via tkDisableIfOAuth401OnValidToken. Kiro adds focused auth-reject refresh coverage: still-valid 401 and invalid-bearer 403 force-refresh through OAuthRefreshAPI.RefreshNow; invalid_grant still SetErrors; non-bearer 403 does not refresh and keeps the pre-existing auth-error behavior. SurvivesClassifyRewrite guards the classify→HandleUpstreamError bridge so JSON 403 rewrite cannot strip bearer markers into generic upstream forbidden (prod 2026-11-16 false permanent disable)."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_burst.go",
