@@ -58,11 +58,10 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
   触发 `cn-prod-rolling-deploy.yml`。rolling 逐台 drain、换镜像、健康检查和回流，
   公网入口继续保持 `https://api.galaxywaveai.com`，发版不改 DNS 或 `public_origin`。
   `api-cn.tokenkey.dev` 仍指向美西，不能当作国内入口。
-- **恢复路径**：`deploy-stage0.yml` 已降为 recovery-only / legacy blue-green；
-  仅当 rolling 不可用、需要旧布局恢复或经单独批准时，使用
-  `dispatch-prod-deploy.sh --operation legacy-deploy|replay|smoke-only`。
-  cn-prod 在 M6 后只有 `deploy_via_ssm.sh pull` / `put-file`；蓝绿 prepare/promote
-  已删除，恢复也走 rolling 或经批准的手工单容器操作。禁止手写 `base64 -d > ...`。
+- **恢复路径**：prod/cn-prod 日常只走 rolling。`legacy-deploy` 与
+  `deploy_via_ssm_bluegreen.sh` 在 live `layout.kind=single-container` 下默认拒绝；
+  仅批准应急时可设 `STAGE0_ALLOW_LEGACY_BLUEGREEN=1`。`replay`/`smoke-only` 仍可用。
+  cn-prod 蓝绿 prepare/promote 已删。禁止手写 `base64 -d > ...`。
   2026-10-25 手写传输把 `/usr/bin/bash` truncate 成 0 字节的教训仍由 preflight 守门。
   `operation=replay` 只准备美西，不能用来切北京。
 
