@@ -350,8 +350,6 @@ class DistributionTests(unittest.TestCase):
 
             def run(args, **kwargs):
                 calls.append(args)
-                if args[:2] == ['docker', 'image']:
-                    return subprocess.CompletedProcess(args, 0, '', '')
                 if args[:2] == ['crane', 'pull'] and '--format=legacy' in args:
                     Path(args[3]).write_bytes(source.read_bytes())
                     return subprocess.CompletedProcess(args, 0)
@@ -361,9 +359,10 @@ class DistributionTests(unittest.TestCase):
                  patch.object(distribution.subprocess, 'run', side_effect=run):
                 published = distribution.publish_from_docker(
                     client, 'bucket', TAG, REV, 'ghcr.io/example/app', 'local/app:tag')
-            self.assertEqual(published.get('publish_source'), 'prod-docker')
+            self.assertEqual(published.get('publish_source'), 'prod-crane')
             self.assertTrue(any(c[:2] == ['crane', 'pull'] and '--format=legacy' in c for c in calls))
             self.assertFalse(any(c[:2] == ['docker', 'save'] for c in calls))
+            self.assertFalse(any(c[:2] == ['docker', 'image'] for c in calls))
             self.assertEqual(client.puts[-1], distribution.prefix(TAG, REV) + '/manifest.json')
 
     def _publish_with_fixture(self, client, source, receipt):
@@ -483,6 +482,41 @@ class DistributionTests(unittest.TestCase):
             'tokenkey-cnprod-images-bj-1320330536.tokenkey-cnprod-images-bj',
             captured['kwargs']['endpoint_url'],
         )
+
+    def test_s3_client_falls_back_when_botocore_rejects_checksum_kwargs(self):
+        """prod Ubuntu botocore (e.g. 1.34.x) raises TypeError on checksum kwargs."""
+        captured = {'calls': 0}
+
+        class FakeBoto3:
+            def client(self, service, **kwargs):
+                captured['service'] = service
+                captured['kwargs'] = kwargs
+                return SimpleNamespace(name='s3')
+
+        class OldBotocoreConfig:
+            def __init__(self, **kwargs):
+                captured['calls'] += 1
+                if 'request_checksum_calculation' in kwargs or 'response_checksum_validation' in kwargs:
+                    raise TypeError("Got unexpected keyword argument 'request_checksum_calculation'")
+                captured['botocore'] = kwargs
+
+        with patch.dict(sys.modules, {
+            'boto3': FakeBoto3(),
+            'botocore': SimpleNamespace(),
+            'botocore.config': SimpleNamespace(Config=OldBotocoreConfig),
+        }), patch.dict(os.environ, {
+            'TENCENTCLOUD_SECRET_ID': 'id',
+            'TENCENTCLOUD_SECRET_KEY': 'secret',
+        }, clear=False):
+            client = distribution.s3_client({
+                'bucket': 'tokenkey-cnprod-images-bj-1320330536',
+                'region': 'ap-beijing',
+                'endpoint': 'cos.ap-beijing.myqcloud.com',
+            })
+        self.assertEqual(client.name, 's3')
+        self.assertEqual(captured['calls'], 2)
+        self.assertEqual(captured['botocore'], {})
+        self.assertTrue(captured['kwargs']['endpoint_url'].startswith('https://tokenkey-cnprod-images-bj'))
 
     def test_immutable_put_reuses_identical_object(self):
         calls = []
