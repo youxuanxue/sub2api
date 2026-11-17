@@ -8,9 +8,11 @@
   "ssm_region": "eu-west-2",
   "ssm_instance_id": "mi-06568963b4b3c3239",
   "local_qa_jobs": [
-    "tokenkey-qa-provision",
-    "tokenkey-qa-cleanup",
-    "tokenkey-qa-archive"
+    "tokenkey-qa-retention"
+  ],
+  "data_qa_jobs": [
+    "tokenkey-qa-coordinator",
+    "tokenkey-qa-retention"
   ],
   "data_instance_name": "VM-4-5-ubuntu",
   "data_lighthouse_instance_id": "lhins-odyx5eis",
@@ -58,7 +60,11 @@
       "weight": 1,
       "memory_limit": "3g",
       "ssm_instance_id": "mi-06568963b4b3c3239",
-      "external_network": "tokenkey_tokenkey-network"
+      "external_network": "tokenkey_tokenkey-network",
+      "jobs": [
+        "tokenkey-disk-metrics",
+        "tokenkey-qa-retention"
+      ]
     }
   ]
 }
