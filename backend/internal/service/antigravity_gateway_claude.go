@@ -147,6 +147,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		return nil, candidateTransportFailure(ctx, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries"), err)
 	}
 	resp := result.resp
+	stashAntigravityFirstOutput(c, result)
 	defer func() { _ = resp.Body.Close() }()
 	replayUpstream := func() (*antigravityRetryLoopResult, error) {
 		return s.antigravityRetryLoop(antigravityRetryLoopParams{

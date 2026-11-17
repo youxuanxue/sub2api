@@ -1867,6 +1867,132 @@
         "tokenkey_status": "outside_tokenkey_runtime",
         "rationale": "Proposal about OpenAI 'Device limit reached' policy with no reproducible error code in TK prod; nothing to match on in gateway."
       }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8791",
+      "summary": "Antigravity NeutralizeSystemIdentity: Pi coding-agent opener rewritten to generic AI agent; Dual-use strip runs via StripUpstreamTriggerSentences before identity rewrite.",
+      "fixed_by": [
+        "backend/internal/pkg/antigravity/request_transformer.go",
+        "backend/internal/pkg/antigravity/upstream_trigger_filter.go",
+        "backend/internal/pkg/antigravity/attribution_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/pkg/antigravity/request_transformer.go:running|operating|working) inside pi",
+        "backend/internal/pkg/antigravity/request_transformer.go:StripUpstreamTriggerSentences(stripClaudeAttribution(text))",
+        "backend/internal/pkg/antigravity/upstream_trigger_filter.go:func StripUpstreamTriggerSentences(text string) string",
+        "backend/internal/pkg/antigravity/attribution_test.go:name: \"pi opener\"",
+        "backend/internal/pkg/antigravity/attribution_test.go:name: \"dual-use trigger sentence\""
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Pi opener + Dual-use mid-prompt strip land in NeutralizeSystemIdentity; unit tests cover both positive and mid-sentence Dual-use removal."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8824",
+      "summary": "Antigravity strips Claude Code Dual-use security-tools trigger sentence that caused fake RESOURCE_EXHAUSTED 429.",
+      "fixed_by": [
+        "backend/internal/pkg/antigravity/upstream_trigger_filter.go",
+        "backend/internal/pkg/antigravity/request_transformer.go",
+        "backend/internal/pkg/antigravity/attribution_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/pkg/antigravity/upstream_trigger_filter.go:Dual-use security tools",
+        "backend/internal/pkg/antigravity/upstream_trigger_filter.go:Wei-Shaw/sub2api#8824",
+        "backend/internal/pkg/antigravity/request_transformer.go:StripUpstreamTriggerSentences(stripClaudeAttribution(text))",
+        "backend/internal/pkg/antigravity/attribution_test.go:name: \"dual-use trigger sentence\""
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Known Dual-use content-gate fragment stripped only on Antigravity forward path."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3219",
+      "summary": "GenerateSessionHash anchors sticky key on first user/message text; late ephemeral cache_control breakpoints after the first non-system message are ignored so multi-turn no longer rotates accounts.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/generate_session_hash_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service.go:func appendFirstMessageTextFromRaw(builder *strings.Builder, raw []byte)",
+        "backend/internal/service/gateway_service.go:afterAnchor := extractCacheableTextFromMessagesRaw",
+        "backend/internal/service/gateway_service.go:if afterAnchor {",
+        "backend/internal/service/generate_session_hash_test.go:TestGenerateSessionHash_ContinuousConversation_HashStableAcrossRounds",
+        "backend/internal/service/generate_session_hash_test.go:TestGenerateSessionHash_LateEphemeralBreakpointFallsBackToFirstMessage"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "First-message sticky + skip late ephemeral breakpoints; regression tests assert multi-turn hash stability and first-message change starts a new session."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8805",
+      "summary": "Same sticky first-message anchor fix as #3219 (late cache_control breakpoint rotation).",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/generate_session_hash_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service.go:func appendFirstMessageTextFromRaw(builder *strings.Builder, raw []byte)",
+        "backend/internal/service/generate_session_hash_test.go:TestGenerateSessionHash_LateEphemeralBreakpointFallsBackToFirstMessage"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Same owner as #3219."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8807",
+      "summary": "Same sticky first-message anchor fix as #3219.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/generate_session_hash_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service.go:func appendFirstMessageTextFromRaw(builder *strings.Builder, raw []byte)",
+        "backend/internal/service/generate_session_hash_test.go:TestGenerateSessionHash_ContinuousConversation_HashStableAcrossRounds"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Same owner as #3219."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8733",
+      "summary": "Antigravity OAuth streaming arms shared streamFirstOutputGuard in antigravityRetryLoop; stream handlers WatchClose/Commit and map pre-Commit body close to account failover.",
+      "fixed_by": [
+        "backend/internal/service/antigravity_gateway_retry.go",
+        "backend/internal/service/antigravity_gateway_streaming.go",
+        "backend/internal/service/antigravity_gateway_gemini.go",
+        "backend/internal/service/antigravity_gateway_claude.go",
+        "backend/internal/service/antigravity_gateway_compat.go",
+        "backend/internal/service/stream_first_output_budget_tk_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/antigravity_gateway_retry.go:if p.clientStream {",
+        "backend/internal/service/antigravity_gateway_retry.go:armStreamFirstOutputGuard(base, budget)",
+        "backend/internal/service/antigravity_gateway_retry.go:func stashAntigravityFirstOutput(c *gin.Context, result *antigravityRetryLoopResult)",
+        "backend/internal/service/antigravity_gateway_streaming.go:firstOutputGuard.WatchClose(resp.Body)",
+        "backend/internal/service/antigravity_gateway_streaming.go:antigravityStreamFirstOutputFailoverIfBudgetFired(c)",
+        "backend/internal/service/stream_first_output_budget_tk_test.go:TestAntigravityBodyStreamFirstOutputHighEffort"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "AG native Gemini/Claude/compat streaming now shares the first-output budget used by Anthropic/Gemini compat paths, so hung AG upstream can failover instead of client 499."
+      }
     }
   ]
 }

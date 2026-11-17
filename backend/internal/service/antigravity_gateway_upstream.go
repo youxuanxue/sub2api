@@ -165,6 +165,10 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp *http.Response, startTime time.Time) *antigravityStreamResult {
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
+	firstOutputGuard := antigravityFirstOutputGuardFromContext(c)
+	if firstOutputGuard != nil && resp != nil && resp.Body != nil {
+		firstOutputGuard.WatchClose(resp.Body)
+	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -270,6 +274,7 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 			if firstTokenMs == nil && len(line) > 0 {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
+				firstOutputGuard.Commit()
 			}
 
 			// 尝试从 message_delta 或 message_stop 事件提取 usage

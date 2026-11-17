@@ -185,6 +185,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, candidateTransportFailure(ctx, s.writeGoogleError(c, http.StatusBadGateway, "Upstream request failed after retries"), err)
 	}
 	resp := result.resp
+	stashAntigravityFirstOutput(c, result)
 	defer func() {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()

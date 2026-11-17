@@ -72,6 +72,18 @@ func TestStreamFirstOutputGuardCommitDisarms(t *testing.T) {
 	require.False(t, guard.BudgetFired(ctx, parent))
 }
 
+func TestAntigravityBodyStreamFirstOutputHighEffort(t *testing.T) {
+	require.False(t, antigravityBodyStreamFirstOutputHighEffort(nil))
+	require.True(t, antigravityBodyStreamFirstOutputHighEffort([]byte(
+		`{"generationConfig":{"thinkingConfig":{"thinkingLevel":"high"}}}`)))
+	require.True(t, antigravityBodyStreamFirstOutputHighEffort([]byte(
+		`{"request":{"generationConfig":{"thinkingConfig":{"thinkingBudget":9000}}}}`)))
+	require.True(t, antigravityBodyStreamFirstOutputHighEffort([]byte(
+		`{"request":{"generationConfig":{"thinkingConfig":{"thinkingLevel":"HIGH"}}}}`)))
+	require.False(t, antigravityBodyStreamFirstOutputHighEffort([]byte(
+		`{"request":{"generationConfig":{"thinkingConfig":{"thinkingBudget":100}}}}`)))
+}
+
 func TestAnthropicAndGeminiBodyHighEffort(t *testing.T) {
 	require.False(t, anthropicBodyStreamFirstOutputHighEffort(nil))
 	require.True(t, anthropicBodyStreamFirstOutputHighEffort([]byte(`{"thinking":{"type":"adaptive"}}`)))

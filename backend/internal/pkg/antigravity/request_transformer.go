@@ -320,19 +320,21 @@ func filterOpenCodePrompt(text string) string {
 }
 
 // The patterns are anchored at the start of a system block on purpose, so user
-// instructions that merely mention Claude, GPT or their vendors are left untouched.
+// instructions that merely mention Claude, GPT, Pi or their vendors are left untouched.
 var systemIdentityOpeners = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^[ \t\r\n]*You are a Claude agent, built on Anthropic'?s Claude Agent SDK\.?`),
 	regexp.MustCompile(`(?i)^[ \t\r\n]*You are Claude Code, Anthropic'?s official CLI for Claude\.?`),
 	regexp.MustCompile(`(?i)^[ \t\r\n]*You are Codex,? (?:a coding agent |an agent )?based on GPT-[0-9]+(?:\.[0-9]+)*(?:-[a-z0-9]+)*\.?`),
 	regexp.MustCompile(`(?i)^[ \t\r\n]*You are GPT-[0-9]+(?:\.[0-9]+)*(?:-[a-z0-9]+)* running in the Codex CLI\.?`),
+	// Pi coding agent (Wei-Shaw/sub2api#8791 / upstream PR #8793).
+	regexp.MustCompile(`(?i)^[ \t\r\n]*You are (?:an? )?(?:expert )?coding (?:assistant|agent) (?:running|operating|working) inside pi(?:,? a coding agent harness)?\.?`),
 }
 
 // NeutralizeSystemIdentity removes leading client attribution and rewrites a
 // leading vendor identity sentence, preserving the rest of the system block.
 // Only Antigravity forwarding should use this; native Anthropic may require attribution.
 func NeutralizeSystemIdentity(text string) string {
-	text = stripClaudeAttribution(text)
+	text = StripUpstreamTriggerSentences(stripClaudeAttribution(text))
 	for _, re := range systemIdentityOpeners {
 		if loc := re.FindStringIndex(text); loc != nil {
 			if strings.HasPrefix(text[loc[1]:], ",") {
