@@ -2633,7 +2633,16 @@
         "firstOutputGuard.Commit()",
         "antigravityStreamFirstOutputFailoverIfBudgetFired(c)"
       ],
-      "rationale": "AG Gemini/Claude streaming must WatchClose the upstream body, Commit on first useful/thinking frame, and map pre-Commit body close to first-output failover."
+      "rationale": "AG Gemini/Claude streaming must WatchClose the upstream body, Commit on first useful/thinking frame (including held thought prefixes), and map pre-Commit body close to first-output failover."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat_stream.go",
+      "must_contain": [
+        "firstOutputGuard.WatchClose(resp.Body)",
+        "firstOutputGuard.Commit()",
+        "antigravityStreamFirstOutputFailoverIfBudgetFired(c)"
+      ],
+      "rationale": "Chat/Responses→AG compat streaming must share the same first-output WatchClose/Commit/failover wiring as native AG streams; arming in the retry loop alone is not enough."
     },
     {
       "path": "backend/internal/service/stream_first_output_budget_tk_test.go",

@@ -386,6 +386,10 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				if !modelBytesWritten && inner != nil && geminiNativeEventHoldable(inner) && heldBytes+len(payload) <= geminiNativeHeldPrefixLimit {
 					held = append(held, payload)
 					heldBytes += len(payload)
+					// Held thought/signature still proves upstream liveness; disarm
+					// first-output so long reasoning is not failed over mid-hold.
+					// Truncation with only held bytes still switches accounts.
+					firstOutputGuard.Commit()
 					continue
 				}
 				writeModelPayload(payload)
