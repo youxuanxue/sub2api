@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "ab675633e8f6989e4e961c2095c9430a31a43e9462dfe16e06c2e3818c3173cf",
+  "floor_sha256": "c927847abb0932fed9f6e29b795ea59383360a62218e579e3d8d51fe8e264552",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -313,6 +313,14 @@
       }
     },
     "account_overrides": [
+      {
+        "platform": "newapi",
+        "channel_type": 1,
+        "base_url": "https://api.minimaxi.com",
+        "model_mapping": {
+          "minimax-m3.1-flash": "MiniMax-M3.1-Flash"
+        }
+      },
       {
         "platform": "newapi",
         "channel_type": 1,

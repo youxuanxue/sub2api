@@ -1298,6 +1298,30 @@
       "rationale": "Guards NVIDIA namespace translation, manifest coverage, bundle export and isolation from other ch1 providers."
     },
     {
+      "path": "backend/internal/integration/newapi/minimax.go",
+      "must_contain": [
+        "MiniMaxCNBaseURL",
+        "IsMiniMaxCNBaseURL"
+      ],
+      "rationale": "MiniMax CN shares ch1 with OpenAI-compatible providers; the exact api.minimaxi.com selector isolates its mapping floor from api.minimax.io / other ch1 hosts."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_minimax_tk.go",
+      "must_contain": [
+        "miniMaxCNModelTargets",
+        "miniMaxCNModelMapping",
+        "NewAPIModelMappingPresetIDsForAccount"
+      ],
+      "rationale": "MiniMax CN wire targets are projected through manifest intent into the activation bundle, preserving canonical public pricing IDs."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_minimax_tk_test.go",
+      "must_contain": [
+        "TestMiniMaxCNMappingScope"
+      ],
+      "rationale": "Guards MiniMax CN wire translation, manifest coverage, bundle export and isolation from other ch1 providers."
+    },
+    {
       "path": "backend/internal/service/sticky_session_context.go",
       "must_contain": [
         "applyStickyToNewAPIBridge",
@@ -1321,13 +1345,14 @@
       "must_contain": [
         "accountModelMappingOverrideAccounts",
         "isNewAPINVIDIABuildAccount",
+        "isNewAPIMiniMaxCNAccount",
         "NewAPIModelDisplayIDsForAccount",
         "tkServedModelsManifestPresetIDsForSelector",
         "isNewAPIXRTokenAccount",
         "isNewAPIAliTokenPlanAccount",
         "isNewAPIQianfanTokenPlanAccount"
       ],
-      "rationale": "Agent Plan admin preset, model-surface account override, and default probe model derive from the platform/channel/base_url property selector, not an account-id registry or channel-wide preset. isNewAPIXRTokenAccount is the ch54 XRToken selector; isNewAPIAliTokenPlanAccount / isNewAPIQianfanTokenPlanAccount keep MaaS Token Plan and Qianfan Token Plan Person floors off the bare ch17/ch46 PAYG presets."
+      "rationale": "Agent Plan admin preset, model-surface account override, and default probe model derive from the platform/channel/base_url property selector, not an account-id registry or channel-wide preset. isNewAPIMiniMaxCNAccount keeps api.minimaxi.com off the bare ch1 OpenAI preset; isNewAPIXRTokenAccount is the ch54 XRToken selector; isNewAPIAliTokenPlanAccount / isNewAPIQianfanTokenPlanAccount keep MaaS Token Plan and Qianfan Token Plan Person floors off the bare ch17/ch46 PAYG presets."
     },
     {
       "path": "backend/internal/service/account_test_service_tk_newapi_volcagentplan.go",
@@ -1362,9 +1387,10 @@
         "newAPIQianfanTokenPlanModelMappingPresetIDs",
         "IsAliTokenPlanBaseURL",
         "IsNVIDIABuildBaseURL",
+        "IsMiniMaxCNBaseURL",
         "IsQianfanTokenPlanBaseURL"
       ],
-      "rationale": "Property-scoped manifest projections keep Agent Plan, Qianfan PAYG/Token Plan, Ali Token Plan, and XRToken mapping/display menus aligned with the schema-v3 channel/base-URL scopes. One model may belong to multiple property scopes without a second model-id registry. Losing IsAliTokenPlanBaseURL / IsQianfanTokenPlanBaseURL in manifestScopeKey silently drops Token Plan property floors back into bare channel presets."
+      "rationale": "Property-scoped manifest projections keep Agent Plan, Qianfan PAYG/Token Plan, Ali Token Plan, MiniMax CN, and XRToken mapping/display menus aligned with the schema-v3 channel/base-URL scopes. One model may belong to multiple property scopes without a second model-id registry. Losing IsAliTokenPlanBaseURL / IsQianfanTokenPlanBaseURL / IsMiniMaxCNBaseURL in manifestScopeKey silently drops those property floors back into bare channel presets."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_volcagentplan.go",

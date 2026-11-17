@@ -830,6 +830,20 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 
 		// ---- MiniMax M 系列 ----
 		{
+			name:              "minimax m3.1 flash",
+			model:             "minimax-m3.1-flash",
+			expectedInput:     0.15e-6,
+			expectedOutput:    floatPtr(0.60e-6),
+			expectedCacheRead: floatPtr(0.015e-6),
+		},
+		{
+			name:              "minimax m3.1 flash wire id",
+			model:             "MiniMax-M3.1-Flash",
+			expectedInput:     0.15e-6,
+			expectedOutput:    floatPtr(0.60e-6),
+			expectedCacheRead: floatPtr(0.015e-6),
+		},
+		{
 			name:              "minimax m3",
 			model:             "minimax-m3",
 			expectedInput:     0.60e-6,

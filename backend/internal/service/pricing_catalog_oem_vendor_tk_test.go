@@ -29,6 +29,7 @@ func TestPublicCatalog_PlanSuppliedModelsKeepOEMVendor(t *testing.T) {
 		"qwen3.7-plus":        "dashscope",
 		"doubao-seed-2.1-pro": "volcengine", // ByteDance OEM / Ark native
 		"minimax-m3":          "minimax",
+		"minimax-m3.1-flash":  "minimax",
 	}
 	for id, want := range cases {
 		got, ok := byID[id]

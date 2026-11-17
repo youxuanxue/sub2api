@@ -169,6 +169,7 @@ func manifestEntryScopeKeys(e tkServedModelsManifestEntry) []string {
 
 func manifestScopeKey(scope tkServedModelsManifestScope) string {
 	if !newapiintegration.IsNVIDIABuildBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsMiniMaxCNBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsVolcEngineAgentPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanTokenPlanBaseURL(scope.ChannelType, scope.BaseURL) &&

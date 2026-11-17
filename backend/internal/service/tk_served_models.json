@@ -634,6 +634,15 @@
         }
       ]
     },
+    "minimax-m3.1-flash": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 1,
+          "base_url": "https://api.minimaxi.com"
+        }
+      ]
+    },
     "ernie-4.5-turbo-vl-32k": {
       "display": false,
       "scopes": [
