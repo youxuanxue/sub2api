@@ -29,24 +29,34 @@ class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
     def test_dry_run_before_mutate(self) -> None:
         text = SCRIPT.read_text(encoding="utf-8")
         apply_at = text.index('APPLY" != "$EXPECT_APPLY"')
-        backup_at = text.index("=== backup ===")
+        cn_single = text.index('HOST_KIND" = cn-single')
+        backup_at = text.index("=== backup ===", cn_single)
         cutover_call = text.index('commit_cutover "$INACTIVE"')
-        self.assertLess(apply_at, backup_at)
+        self.assertLess(apply_at, cn_single)
+        self.assertLess(cn_single, backup_at)
         self.assertLess(backup_at, cutover_call)
+
+    def test_cn_single_path_drains_then_recreates_tokenkey(self) -> None:
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("HOST_KIND=cn-single", text)
+        self.assertIn("cn-prod blue/green+socat remediate retired at M6", text)
+        self.assertIn("drain tokenkey before recreate", text)
+        self.assertIn("up -d --no-deps --force-recreate --timeout 60 tokenkey", text)
+        self.assertNotIn("bring_up_inactive_cn", text)
+        self.assertNotIn("cn-prod-bluegreen", text)
 
     def test_refuses_active_drain_before_cutover(self) -> None:
         text = SCRIPT.read_text(encoding="utf-8")
-        # Live upstream must stay serving until Caddy cutover; USR1 only on standby.
+        # AWS blue/green: live upstream stays serving until Caddy cutover; USR1 only on standby.
         bring_up = text.index("bring up inactive")
         cutover = text.index("=== cutover to")
         drain = text.index("drain standby")
         self.assertLess(bring_up, cutover)
         self.assertLess(cutover, drain)
-        # No USR1 against the pre-cutover active path.
-        pre = text[:cutover]
+        # No USR1 against the pre-cutover active path on the aws branch.
+        pre = text[bring_up:cutover]
         self.assertNotIn('docker kill -s USR1 "$ACTIVE_CTR"', pre)
         self.assertIn('docker kill -s USR1 "$name"', text[drain:])
-
     def test_want_timeout_matches_ssot_default_and_max(self) -> None:
         text = SCRIPT.read_text(encoding="utf-8")
         # MODE=nonstream keeps the SSOT-owned default and max.

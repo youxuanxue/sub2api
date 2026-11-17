@@ -43,6 +43,27 @@ APPROVED_REPLAY="${STAGE0_BLUEGREEN_APPROVED_REPLAY:-}"
 REPLACE_RECEIPT="${STAGE0_BLUEGREEN_REPLACE_RECEIPT:-}"
 WAIT_PHASE="${STAGE0_BLUEGREEN_WAIT_PHASE:-complete}"
 DEPLOY_TOKEN="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PROD_MATRIX="${REPO_ROOT}/deploy/tencent/candidate-usw-20261022.json"
+
+# M6 (prod, 2026-11-17): live USW fleet is single-container + rolling. Node-local
+# blue/green and socat are retired with cn-prod M6. Emergency only:
+# STAGE0_ALLOW_LEGACY_BLUEGREEN=1.
+if [[ "${STAGE0_ALLOW_LEGACY_BLUEGREEN:-}" != "1" && -f "${PROD_MATRIX}" ]]; then
+  LAYOUT_KIND="$(python3 - "${PROD_MATRIX}" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+print(str((data.get("layout") or {}).get("kind") or ""))
+PY
+)"
+  if [[ "${LAYOUT_KIND}" == "single-container" ]]; then
+    echo "stage0_deploy_via_ssm_bluegreen: retired for live prod (layout.kind=single-container)" >&2
+    echo "  use prod-rolling-deploy.yml / rolling.py; set STAGE0_ALLOW_LEGACY_BLUEGREEN=1 only for approved emergency recovery" >&2
+    exit 2
+  fi
+fi
+
 case "${WAIT_PHASE}" in complete|cutover) ;; *) echo "invalid blue/green wait phase" >&2; exit 1 ;; esac
 if [[ "${WAIT_PHASE}" = cutover && "${STAGE}" = prepare ]]; then
   echo "early cutover observation requires deploy or promote stage" >&2

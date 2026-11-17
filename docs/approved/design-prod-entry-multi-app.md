@@ -147,7 +147,10 @@ revised: 2026-11-15（复审修复后用户批准；恢复 §3.5/§3.6；显式�
 
 ### 2.3 应用机私网入口
 
-每台应用机：单容器 `tokenkey` 监听 `<private_ip>:8080`（与 cn-prod 终态一致）。过渡期可用 `tokenkey-entry-origin` socat 跟随活动色，**滚动实现就绪后去掉 socat/蓝绿**。
+每台应用机：单容器 `tokenkey` 监听 `<private_ip>:8080`（与 cn-prod 终态一致）。
+**2026-11-17 M6**：滚动已就绪，节点内 socat/蓝绿发版路径退役（与 cn-prod M6 对齐）；
+`deploy_via_ssm_bluegreen.sh` / `legacy-deploy` 默认失败关闭，仅
+`STAGE0_ALLOW_LEGACY_BLUEGREEN=1` 可应急。
 不往应用机 Caddyfile 加私网站点。
 
 ### 2.4 应用机规格与连接预算

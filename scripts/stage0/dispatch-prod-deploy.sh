@@ -137,6 +137,13 @@ case "${OPERATION}" in
     )
     ;;
   legacy-deploy|replay|smoke-only)
+    # M6 (prod): live fleet is single-container rolling. legacy blue/green stays
+    # behind an explicit emergency unlock only.
+    if [[ "${OPERATION}" == "legacy-deploy" && "${STAGE0_ALLOW_LEGACY_BLUEGREEN:-}" != "1" ]]; then
+      echo "dispatch-prod-deploy: legacy-deploy retired for live prod; use --operation deploy (rolling)" >&2
+      echo "  set STAGE0_ALLOW_LEGACY_BLUEGREEN=1 only for approved emergency recovery" >&2
+      exit 2
+    fi
     WORKFLOW="deploy-stage0.yml"
     GH_ARGS=(
       workflow run "${WORKFLOW}"

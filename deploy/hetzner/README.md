@@ -28,11 +28,13 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 [`deploy/domestic/README.md`](../domestic/README.md)。
 
 候选储存身份：[app-parallel-20261111.json](../tencent/app-parallel-20261111.json)；
-**默认 CI/`resolve_prod_ssm_target` 仍解析旧应用机**，入口与候选须显式指定。
-**2026-11-16 Phase C 的代码与矩阵已收敛**：目标布局为两台单容器
-`tokenkey`，矩阵 `layout.kind=single-container`；日常发版走 `rolling.py` +
-`prod-rolling-deploy.yml`（确认词 `rolling-prod-<tag>`，默认 `--via ssm`）。
-线上最终收口仍以两台应用机的真实布局检查和完整 rolling receipt 为准；
+**默认 CI/`resolve_prod_ssm_target` 仍解析旧应用机**，入口与候选须显式指定（改默认另批）。
+**2026-11-16 Phase C 代码/矩阵已收敛；2026-11-17 线上布局收口完成**：两台均为单容器
+`tokenkey:1.8.380-894f4f18d`（`private:8080` + `loopback:18080`→200；停用的
+`tokenkey-blue/green/caddy` 仍留作回滚材料）。矩阵 `layout.kind=single-container`；
+日常发版走 `rolling.py` + `prod-rolling-deploy.yml`（确认词 `rolling-prod-<tag>`，
+默认 `--via ssm`）。prod rolling receipt：[run 43978840514](https://github.com/youxuanxue/sub2api/actions/runs/43978840514)
+（当时两台已在目标 tag，节点 `mode=skip`；下一次真换版本才会走 full drain/repin）。
 `prepare_single_container.py` 仅作历史/重铺参考。旧机脱离 LUKS 是阶段 D
 （须 ≥24h 稳定 + 单台门禁 + 再批准）。
 舰队矩阵形状门禁：`python3 deploy/tencent/check_prod_fleet_matrix.py`。
