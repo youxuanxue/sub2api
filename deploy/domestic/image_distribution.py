@@ -60,18 +60,28 @@ def prefix(tag, revision):
     return f'cn-prod/images/{tag}/{revision}'
 
 
-def immutable_put(client, bucket, key, body):
-    """Conditional creation: retries may reuse identical bytes, never overwrite."""
-    digest_hex = hashlib.sha256(body).hexdigest()
+def _head_or_none(client, bucket, key):
     try:
-        head = client.head_object(Bucket=bucket, Key=key)
+        return client.head_object(Bucket=bucket, Key=key)
     except client.exceptions.ClientError as error:
         code = error.response['Error']['Code']
         if code not in {'404', 'NoSuchKey', 'NotFound'}:
             raise
-    else:
-        meta = head.get('Metadata') or {}
-        if head['ContentLength'] == len(body) and meta.get('sha256') == digest_hex:
+        return None
+
+
+def _assert_immutable_head(head, size, digest_hex):
+    meta = head.get('Metadata') or {}
+    if head['ContentLength'] != size or meta.get('sha256') != digest_hex:
+        raise ValueError('immutable S3 object conflicts with this artifact')
+
+
+def immutable_put(client, bucket, key, body):
+    """Conditional creation: retries may reuse identical bytes, never overwrite."""
+    digest_hex = hashlib.sha256(body).hexdigest()
+    head = _head_or_none(client, bucket, key)
+    if head is not None:
+        if head['ContentLength'] == len(body) and (head.get('Metadata') or {}).get('sha256') == digest_hex:
             return
         raise ValueError('immutable S3 object conflicts with this artifact')
     client.put_object(
@@ -81,10 +91,52 @@ def immutable_put(client, bucket, key, body):
         ServerSideEncryption='AES256',
         Metadata={'sha256': digest_hex},
     )
-    head = client.head_object(Bucket=bucket, Key=key)
-    meta = head.get('Metadata') or {}
-    if head['ContentLength'] != len(body) or meta.get('sha256') != digest_hex:
+    _assert_immutable_head(client.head_object(Bucket=bucket, Key=key), len(body), digest_hex)
+
+
+def _transfer_config():
+    """Parallel multipart beats a single overseas put_object for ~100MB+ archives."""
+    from boto3.s3.transfer import TransferConfig
+
+    return TransferConfig(
+        multipart_threshold=8 * 1024 * 1024,
+        multipart_chunksize=8 * 1024 * 1024,
+        max_concurrency=16,
+        use_threads=True,
+    )
+
+
+def immutable_put_file(client, bucket, key, path):
+    """Stream a local file with multipart upload; same immutability as immutable_put."""
+    path = Path(path)
+    size = path.stat().st_size
+    with path.open('rb') as handle:
+        digest_hex = sha256(handle)
+    head = _head_or_none(client, bucket, key)
+    if head is not None:
+        if head['ContentLength'] == size and (head.get('Metadata') or {}).get('sha256') == digest_hex:
+            return digest_hex
         raise ValueError('immutable S3 object conflicts with this artifact')
+    extra = {
+        'ServerSideEncryption': 'AES256',
+        'Metadata': {'sha256': digest_hex},
+    }
+    # Prefer upload_file (multipart). MemoryS3 / tiny fakes may only expose put_object.
+    if hasattr(client, 'upload_file'):
+        upload_kwargs = {'ExtraArgs': extra}
+        try:
+            upload_kwargs['Config'] = _transfer_config()
+        except ImportError:
+            # Unit fixtures do not install boto3; production CI installs it.
+            pass
+        client.upload_file(str(path), bucket, key, **upload_kwargs)
+    else:
+        client.put_object(Bucket=bucket, Key=key, Body=path.read_bytes(), **{
+            'ServerSideEncryption': extra['ServerSideEncryption'],
+            'Metadata': extra['Metadata'],
+        })
+    _assert_immutable_head(client.head_object(Bucket=bucket, Key=key), size, digest_hex)
+    return digest_hex
 
 def retag_archive(source, target, tag):
     """Only change Docker's load tag; registry config/layer bytes stay exact."""
@@ -103,8 +155,15 @@ def retag_archive(source, target, tag):
 
 
 def publish(client, bucket, tag, revision, repository):
+    import time
+
     key = prefix(tag, revision)
     source = f'{repository}:{tag}'
+    t0 = time.monotonic()
+    def phase(name):
+        print(f'[publish] {name} +{time.monotonic() - t0:.1f}s', flush=True)
+
+    phase(f'digest {source}')
     digest = subprocess.check_output(['crane', 'digest', '--platform=linux/amd64', source], text=True).strip()
     raw = subprocess.check_output(['crane', 'manifest', f'{repository}@{digest}'])
     # crane adds a newline when printing a manifest; keep registry bytes exact.
@@ -117,8 +176,10 @@ def publish(client, bucket, tag, revision, repository):
         # legacy = docker-save: uncompressed layer tars (diff_ids). Receipt still
         # records the registry compressed manifest for provenance; verify_archive
         # checks config digest + diff_ids, not registry layer blob sizes.
+        phase(f'crane pull {digest}')
         subprocess.run(['crane', 'pull', f'{repository}@{digest}', str(original),
                         '--format=legacy'], check=True)
+        phase(f'retag bytes={original.stat().st_size}')
         retag_archive(original, archive, archive_tag)
         with archive.open('rb') as handle:
             archive_sha = sha256(handle)
@@ -127,7 +188,8 @@ def publish(client, bucket, tag, revision, repository):
                        'bytes': archive.stat().st_size, 'manifest_raw': raw.decode(), 'manifest': json.loads(raw)}
         config = verify_archive(archive, receipt)
         receipt['diff_ids'] = list(config['rootfs']['diff_ids'])
-        immutable_put(client, bucket, f'{key}/{archive_sha}.tar', archive.read_bytes())
+        phase(f'cos multipart upload bytes={receipt["bytes"]} sha={archive_sha[:12]}')
+        immutable_put_file(client, bucket, f'{key}/{archive_sha}.tar', archive)
         # Manifest is the completion marker, written last.
         body = (json.dumps(receipt, sort_keys=True) + '\n').encode()
         try:
@@ -140,7 +202,9 @@ def publish(client, bucket, tag, revision, repository):
             validate_receipt(existing, tag, revision, digest)
             if existing.get('archive_sha256') != archive_sha:
                 raise ValueError('immutable S3 object conflicts with this artifact') from None
+            phase('reuse existing manifest')
             return existing
+    phase('done')
     return receipt
 
 

@@ -275,6 +275,16 @@ class MemoryS3:
         self.objects[key] = kwargs['Body']
         self.meta[key] = dict(kwargs.get('Metadata') or {})
 
+    def upload_file(self, filename, bucket, key, ExtraArgs=None, Config=None, Callback=None):
+        del bucket, Config, Callback
+        body = Path(filename).read_bytes()
+        self.put_object(
+            Key=key,
+            Body=body,
+            ServerSideEncryption=(ExtraArgs or {}).get('ServerSideEncryption'),
+            Metadata=dict((ExtraArgs or {}).get('Metadata') or {}),
+        )
+
     def head_object(self, **kwargs):
         key = kwargs['Key']
         if key not in self.objects:
@@ -429,6 +439,20 @@ class DistributionTests(unittest.TestCase):
         distribution.immutable_put(client, 'bucket', 'k', b'abc')
         distribution.immutable_put(client, 'bucket', 'k', b'abc')
         self.assertEqual([c[0] for c in calls], ['head', 'put', 'head', 'head'])
+
+    def test_immutable_put_file_streams_via_upload_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'archive.tar'
+            path.write_bytes(b'legacy-archive-bytes')
+            client = MemoryS3()
+            digest = distribution.immutable_put_file(client, 'bucket', 'archive.tar', path)
+            self.assertEqual(digest, hashlib.sha256(b'legacy-archive-bytes').hexdigest())
+            self.assertEqual(client.objects['archive.tar'], b'legacy-archive-bytes')
+            self.assertEqual(client.meta['archive.tar']['sha256'], digest)
+            # Identical retry is a no-op.
+            again = distribution.immutable_put_file(client, 'bucket', 'archive.tar', path)
+            self.assertEqual(again, digest)
+            self.assertEqual(client.puts, ['archive.tar'])
 
 
 if __name__ == '__main__':
