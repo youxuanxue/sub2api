@@ -24,11 +24,11 @@ from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 
 _SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = next(
-    (parent for parent in _SCRIPT_PATH.parents if (parent / "deploy/aws/stage0/tk_canonical_kiro_cli.json").is_file()),
+    (parent for parent in _SCRIPT_PATH.parents if (parent / "deploy/stage0/tk_canonical_kiro_cli.json").is_file()),
     _SCRIPT_PATH.parent,
 )
 DEFAULT_TOKEN_CACHE = Path.home() / ".aws/sso/cache/kiro-auth-token.json"
-DEFAULT_CLI_PROFILE = REPO_ROOT / "deploy/aws/stage0/tk_canonical_kiro_cli.json"
+DEFAULT_CLI_PROFILE = REPO_ROOT / "deploy/stage0/tk_canonical_kiro_cli.json"
 RUNTIME_ENDPOINT = "https://runtime.us-east-1.kiro.dev"
 MANAGEMENT_ENDPOINT = "https://management.us-east-1.kiro.dev"
 LEGACY_Q_ENDPOINT = "https://q.us-east-1.amazonaws.com"

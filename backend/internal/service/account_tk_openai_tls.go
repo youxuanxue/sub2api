@@ -3,7 +3,7 @@ package service
 // CanonicalCodexCLITLSProfileName is the seeded TLS template captured from the
 // real Codex CLI (Rust reqwest + rustls). It pairs with the codex_* User-Agent /
 // originator that OpenAI OAuth egress already sends. Source of truth:
-// deploy/aws/stage0/tk_canonical_codex_cli.json → migration tk_109.
+// deploy/stage0/tk_canonical_codex_cli.json → migration tk_109.
 const CanonicalCodexCLITLSProfileName = "tk_canonical_codex_cli"
 
 // isOpenAIOAuthTLSFingerprintEnabled is opt-in (default OFF) for OpenAI

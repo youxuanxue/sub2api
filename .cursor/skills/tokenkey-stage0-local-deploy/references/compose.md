@@ -4,19 +4,19 @@
 # 若未导出 REPO_ROOT / TOKENKEY_STAGE0_LOCAL_ROOT：见 SKILL.md「启动或日常复用」
 
 docker compose \
-  -f "${REPO_ROOT}/deploy/aws/stage0/docker-compose.yml" \
+  -f "${REPO_ROOT}/deploy/stage0/docker-compose.yml" \
   -f "${TOKENKEY_STAGE0_LOCAL_ROOT}/docker-compose.override.yml" \
   --env-file "${TOKENKEY_STAGE0_LOCAL_ROOT}/.env" \
   config --quiet
 
 docker compose \
-  -f "${REPO_ROOT}/deploy/aws/stage0/docker-compose.yml" \
+  -f "${REPO_ROOT}/deploy/stage0/docker-compose.yml" \
   -f "${TOKENKEY_STAGE0_LOCAL_ROOT}/docker-compose.override.yml" \
   --env-file "${TOKENKEY_STAGE0_LOCAL_ROOT}/.env" \
   pull
 
 docker compose \
-  -f "${REPO_ROOT}/deploy/aws/stage0/docker-compose.yml" \
+  -f "${REPO_ROOT}/deploy/stage0/docker-compose.yml" \
   -f "${TOKENKEY_STAGE0_LOCAL_ROOT}/docker-compose.override.yml" \
   --env-file "${TOKENKEY_STAGE0_LOCAL_ROOT}/.env" \
   up -d

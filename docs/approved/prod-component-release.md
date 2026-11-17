@@ -32,7 +32,7 @@ cannot advance the baseline. Runtime drift invalidates reuse of this evidence.
 
 `tokenkey-qa-runtime` is a stopped Docker container, not a second gateway process.
 It pins an immutable local image and a configuration snapshot rendered from
-`deploy/aws/stage0/qa-runtime-compose.yml`. The installer obtains the data network
+`deploy/stage0/qa-runtime-compose.yml`. The installer obtains the data network
 from PostgreSQL, without consulting the active gateway color. Timer invocations
 use that network, immutable image ID, and configuration, with the existing resource
 limits and local mounts. Gateway replacement does not replace this pin.

@@ -101,7 +101,7 @@ n=$(wc -l < "$TEST_CALLS")
             self.assertIn('did not become ready', result.stderr)
 
     def test_redis_startup_passes_persistence_flags_and_literal_password(self):
-        source = Path(__file__).resolve().parents[2] / 'deploy/aws/stage0/docker-compose.yml'
+        source = Path(__file__).resolve().parents[2] / 'deploy/stage0/docker-compose.yml'
         command = yaml.safe_load(source.read_text())['services']['redis']['command']
         # Compose unescapes $$ before invoking the shell; never interpolate secrets into its source.
         command = [part.replace('$$', '$') for part in command]

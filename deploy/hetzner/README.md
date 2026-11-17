@@ -145,7 +145,7 @@ cn-prod `proxies` **无** `or-*`，仅 Aliyun `ip5..8` + `cn-ip9..12`。Oregon *
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
 
-正式 prod 的 Caddy 源是 `deploy/aws/stage0/Caddyfile`，同一模板按角色渲染两套策略：
+正式 prod 的 Caddy 源是 `deploy/stage0/Caddyfile`，同一模板按角色渲染两套策略：
 应用机 `PROD_CADDY_ROLE=app` 保持单容器 `tokenkey:8080`，只由 `/health` 主动检查决定摘除与恢复；
 入口机 `PROD_CADDY_ROLE=entry` 从活矩阵生成两台应用机的私网 WRR 池（当前 `10.4.0.16`×2 +
 `10.4.0.9`×1），3s 健康检查、连续 2 次失败摘除。两种策略都禁止被动冷却。修改模板时同时
@@ -156,7 +156,7 @@ cn-prod `proxies` **无** `or-*`，仅 Aliyun `ip5..8` + `cn-ip9..12`。Oregon *
 
 ## 文件
 
-生产目标解析由 `ops/stage0/resolve_prod_ssm_target.py` 持有；共享部署文件位于 `deploy/aws/stage0/`。
+生产目标解析由 `ops/stage0/resolve_prod_ssm_target.py` 持有；共享部署文件位于 `deploy/stage0/`。
 换机编排：[host replacement](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 
 ## 日常发版与恢复
@@ -222,7 +222,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 | Oregon 保留计算 | **必须留** | 2026-11-17：prod `or-1..4` 合计 124 live accounts；cn-prod 无 Oregon 行 |
 | 旧 physical-backup CFN/S3 | **已清** | 2026-11 核对 `DELETE_COMPLETE` / `HeadBucket` 404 |
 | Tokyo EC2 / `aws-fresh` | **已清** | resolver 失败关闭 |
-| `deploy/aws/stage0/` 路径名 | **必须留** | 共享 compose/Caddy/QA owner；迁路径要同步引用与 sentinel |
+| `deploy/stage0/` 共享 owner | **已迁出 `deploy/aws/`** | 共享 compose/Caddy/QA/fingerprint；路径不再暗示 AWS 部署面 |
 | 供应商 AWS 协议（Kiro/Bedrock 等） | **必须留** | 模型能力，不是基础设施残留 |
 | `deploy_via_ssm_bluegreen.sh` | **已退役入口** | live `layout.kind=single-container` 默认 exit 2；仅 `STAGE0_ALLOW_LEGACY_BLUEGREEN=1` 应急。正文与契约测试刻意保留，**不再单列开放债** |
 
@@ -233,7 +233,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 | 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
 | 历史 / 休眠 S3 桶 | 见下方「2026-11-17 桶盘点」；Tokyo `cfn-deploy` 镜像中转已改 COS；AWS `archive` 已开 30 天过期 | 休眠桶与 Tokyo 镜像桶已清；`archive` 桶待对象过期后自然空桶再删 |
-| 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
+| 共享运行文件目录 | `deploy/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 直接消费 | 共享 owner；目录名不再含 `aws/`；改路径须同步引用、生成产物和 sentinel |
 | 第三方 AWS 协议 | Kiro/Bedrock 的 AWS endpoint、SDK/SigV4、S3 兼容客户端 | 属模型供应商/协议能力，不能随基础设施迁移删除 |
 
 | 变量 | 语义 |
@@ -271,7 +271,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 |---|---|---|
 | `tokenkey-prod-archive-682751977094` | us-east-1 | lifecycle `expire-all-30d` **已启用**（2026-11-17 核对）；**禁止新写**。最新对象约 2026-11-15（`host-config/prod-entry-…`），按 LastModified+30d 过期。活目的地：腾讯 COS `tokenkey-prod-ops-archive-1320330536`（[design-cos-object-archive](../../docs/approved/design-cos-object-archive.md)）。空桶后再删桶本身 |
 
-后续债（不与本收口同 PR）：Hybrid/OIDC/SecureString 换腾讯 TAT 控制面；`deploy/aws/stage0/` 路径改名（须同步 sentinel/引用）。
+后续债（不与本收口同 PR）：Hybrid/OIDC/SecureString 换腾讯 TAT 控制面。共享 Stage0 路径已迁至 `deploy/stage0/`。
 
 ## QA 与备份排队、旧 AWS 定时任务收尾
 

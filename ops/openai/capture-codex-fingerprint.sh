@@ -10,7 +10,7 @@
 #   * TLS / HTTP-2 wire (tls-*): the real codex talks to a LOCAL CONNECT+TLS
 #     capture endpoint (throwaway CODEX_HOME, dummy key, per-run local CA; CONNECT
 #     is answered locally, nothing leaves the machine) and the ClientHello /
-#     SETTINGS are diffed against deploy/aws/stage0/tk_canonical_codex_cli.json.
+#     SETTINGS are diffed against deploy/stage0/tk_canonical_codex_cli.json.
 #     Owner: codex_tls_fingerprint.py (reuses the ops/kiro ClientHello engine).
 #
 # This shell is only a thin dispatcher.

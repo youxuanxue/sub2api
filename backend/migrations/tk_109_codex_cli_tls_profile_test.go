@@ -14,7 +14,7 @@ func TestMigrationTK109SeedsCodexCLITLSProfileFromCanonicalJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	sql := string(content)
-	raw, err := os.ReadFile("../../deploy/aws/stage0/tk_canonical_codex_cli.json")
+	raw, err := os.ReadFile("../../deploy/stage0/tk_canonical_codex_cli.json")
 	if err != nil {
 		t.Fatal(err)
 	}

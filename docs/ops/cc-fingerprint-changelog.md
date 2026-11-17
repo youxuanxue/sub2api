@@ -6,7 +6,7 @@ Single rolling log of cc fingerprint alignments produced by
 Convention (see the skill §4.1/§4.2):
 
 - **Pure UA / version bump** (no TLS ja3 change, no actionable beta-set change) →
-  **no standalone doc**. The commit message + `deploy/aws/stage0/anthropic-http-mimicry-baselines.json`
+  **no standalone doc**. The commit message + `deploy/stage0/anthropic-http-mimicry-baselines.json`
   `cc_version` + the `.tls_list/*-cc-capture.bundle.json` capture bundle already are
   the record. Add **one row here** and stop.
 - **A real decision** (new/removed beta token, ja3 / TLS profile change, stainless

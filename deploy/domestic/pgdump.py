@@ -36,7 +36,7 @@ def probe(action, request=None):
                    '--script', str(script), '--env', 'APPLY=yes-cn-pgdump', '--timeout-seconds', '2100',
                    '--with', str(REPO/'deploy/domestic/pgdump_remote.py'),
                    '--with', str(REPO/'deploy/domestic/data_layout.py'),
-                   '--with', str(REPO/'deploy/aws/stage0/tokenkey-pgdump.sh')]
+                   '--with', str(REPO/'deploy/stage0/tokenkey-pgdump.sh')]
         if request is not None:
             command += ['--with', str(payload)]
         result = subprocess.run(command, cwd=REPO, capture_output=True, text=True)

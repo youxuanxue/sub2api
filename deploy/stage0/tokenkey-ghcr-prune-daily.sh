@@ -1,7 +1,7 @@
 #!/bin/bash
 # Daily GHCR app-tag prune + dangling Docker image cleanup.
 # Invoked by tokenkey-ghcr-prune-daily.timer on the prod host.
-# SSOT: deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh
+# SSOT: deploy/stage0/tokenkey-ghcr-prune-daily.sh
 set -euo pipefail
 
 install_ghcr_prune_daily_units() {

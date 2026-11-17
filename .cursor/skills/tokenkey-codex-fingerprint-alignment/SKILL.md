@@ -8,7 +8,7 @@ description: Align TokenKey OpenAI Codex fingerprint versions and TLS profile wi
 两条证据线，都由 `ops/openai/capture-codex-fingerprint.sh` 分发：
 
 - HTTP 身份：读取本机 `codex --version` 与 native binary strings，对齐版本 owner（`capture_codex_fingerprint.py`）。
-- TLS / HTTP-2 wire：真实 `codex exec` 连本地 CONNECT+TLS 采集端点（临时 `CODEX_HOME`、dummy key、每次新建本地 CA；CONNECT 只接受 `chatgpt.com` 且本地应答，不出网、不用真实 token），对比 `deploy/aws/stage0/tk_canonical_codex_cli.json`（`codex_tls_fingerprint.py`，ClientHello 解析、JA3 与 runtime digest 复用 `ops/kiro`）。只需 `openssl`，无需 mitmproxy 或登录。
+- TLS / HTTP-2 wire：真实 `codex exec` 连本地 CONNECT+TLS 采集端点（临时 `CODEX_HOME`、dummy key、每次新建本地 CA；CONNECT 只接受 `chatgpt.com` 且本地应答，不出网、不用真实 token），对比 `deploy/stage0/tk_canonical_codex_cli.json`（`codex_tls_fingerprint.py`，ClientHello 解析、JA3 与 runtime digest 复用 `ops/kiro`）。只需 `openssl`，无需 mitmproxy 或登录。
 
 ## 修改边界
 

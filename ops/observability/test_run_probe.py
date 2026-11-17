@@ -120,7 +120,7 @@ class RunProbeValidationTest(unittest.TestCase):
     def test_kiro_upstream_models_contract_ships_cli_identity_and_catalog_verdicts(self) -> None:
         contract_path = pathlib.Path(__file__).resolve().parent / "probe-contracts.json"
         contract = json.loads(contract_path.read_text(encoding="utf-8"))["probe_kiro_upstream_models.sh"]
-        self.assertIn("deploy/aws/stage0/tk_canonical_kiro_cli.json", contract["companions"])
+        self.assertIn("deploy/stage0/tk_canonical_kiro_cli.json", contract["companions"])
         for verdict in (
             "catalog_snapshot",
             "catalog_unavailable",

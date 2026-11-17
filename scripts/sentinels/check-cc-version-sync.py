@@ -4,7 +4,7 @@ check-cc-version-sync.py — keep the Claude Code CLI version string in lockstep
 across every place that carries it, with a single source of truth.
 
 Source of truth (the ONE field a cc patch bump should edit):
-  deploy/aws/stage0/anthropic-http-mimicry-baselines.json  ->  cc_version
+  deploy/stage0/anthropic-http-mimicry-baselines.json  ->  cc_version
 
 This is the value `manage-anthropic-config.py sync-runtime` pushes to the live
 fleet, so it is the authoritative cc version. Every other copy must agree with
@@ -32,7 +32,7 @@ for the dead snapshots, which needs no embed. check mode still runs in preflight
          DefaultClaudeCodeUserAgentVersion = "X.Y.Z"
 
 2. Pure dead snapshots — compared, and AUTO-REGENERATED with --write:
-     - deploy/aws/stage0/tk_canonical_cc_oauth.json   observed.user_agent
+     - deploy/stage0/tk_canonical_cc_oauth.json   observed.user_agent
      - ops/stage0/smoke_lib.sh                        smoke_default_claude_user_agent default
 
 3. Embedded go:embed mirror — byte-compared to the source JSON, and AUTO-COPIED
@@ -72,14 +72,14 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SOURCE_JSON = REPO_ROOT / "deploy" / "aws" / "stage0" / "anthropic-http-mimicry-baselines.json"
+SOURCE_JSON = REPO_ROOT / "deploy" / "stage0" / "anthropic-http-mimicry-baselines.json"
 
 CONSTANTS_GO = REPO_ROOT / "backend" / "internal" / "pkg" / "claude" / "constants.go"
 IDENTITY_GO = REPO_ROOT / "backend" / "internal" / "service" / "identity_service.go"
 CANONICAL_HTTP_GO = (
     REPO_ROOT / "backend" / "internal" / "service" / "identity_service_tk_canonical_http.go"
 )
-CANONICAL_TLS_JSON = REPO_ROOT / "deploy" / "aws" / "stage0" / "tk_canonical_cc_oauth.json"
+CANONICAL_TLS_JSON = REPO_ROOT / "deploy" / "stage0" / "tk_canonical_cc_oauth.json"
 SMOKE_LIB_SH = REPO_ROOT / "ops" / "stage0" / "smoke_lib.sh"
 EMBEDDED_JSON = (
     REPO_ROOT / "backend" / "internal" / "baseline" / "anthropic-http-mimicry-baselines.json"

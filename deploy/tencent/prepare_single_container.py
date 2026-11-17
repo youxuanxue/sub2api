@@ -23,7 +23,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 MATRIX = HERE / "candidate-usw-20261022.json"
-COMPOSE_SRC = REPO / "deploy" / "aws" / "stage0" / "docker-compose.yml"
+COMPOSE_SRC = REPO / "deploy" / "stage0" / "docker-compose.yml"
 OVERRIDE_SRC = HERE / "compose.override.yml"
 LOCAL_SRC = HERE / "compose.local.yml"
 NODE_COMPOSE = REPO / "deploy" / "domestic" / "node_compose.py"

@@ -113,7 +113,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 ### 现状
 
-两站的 Postgres 基本还是安装默认值。仓库里已有调优文件 `deploy/aws/stage0/docker-compose.prod-pg.yml`（`shared_buffers` 1GB、`jit` off 等），但两站都没用上：prod 的 PG 容器启动命令只有 `postgres`，参数散落在数据目录的 `postgresql.conf` 和 `postgresql.auto.conf` 里；cn-prod 只用命令行 `-c` 设了归档相关的四项。
+两站的 Postgres 基本还是安装默认值。仓库里已有调优文件 `deploy/stage0/docker-compose.prod-pg.yml`（`shared_buffers` 1GB、`jit` off 等），但两站都没用上：prod 的 PG 容器启动命令只有 `postgres`，参数散落在数据目录的 `postgresql.conf` 和 `postgresql.auto.conf` 里；cn-prod 只用命令行 `-c` 设了归档相关的四项。
 
 2026-11-08 只读实测（prod 的统计从 11-08 15:04 重启后开始，约 6.4 小时；cn-prod 从 10-22 开始，约 17 天）：
 

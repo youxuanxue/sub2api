@@ -40,7 +40,7 @@ aws cloudformation deploy \
 `/var/log/tokenkey-bootstrap.log` 并验证 `/health`。首次管理账号和网关配置按
 管理后台及接入指南完成。生产 `.env`、数据库密码、JWT/TOTP 密钥不入库。
 
-CFN payload 由 `deploy/aws/stage0/build-cfn.sh` 从 canonical compose、Caddy 和
+CFN payload 由 `deploy/stage0/build-cfn.sh` 从 canonical compose、Caddy 和
 host scripts 生成。修改这些源文件后运行生成脚本及 `--check`，不手改内嵌 payload。
 
 ## 应用与 QA 生命周期边界

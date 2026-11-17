@@ -19,7 +19,7 @@ claude update   # 或 npm i -g @anthropic-ai/claude-code@<ver>
 bash ops/anthropic/capture-cc-fingerprint.sh check env --static
 bash ops/anthropic/capture-cc-fingerprint.sh check
 bash ops/anthropic/capture-cc-fingerprint.sh emit-edits
-# 按 emit-edits 更新 deploy/aws/stage0/anthropic-http-mimicry-baselines.json cc_version
+# 按 emit-edits 更新 deploy/stage0/anthropic-http-mimicry-baselines.json cc_version
 python3 scripts/sentinels/check-cc-version-sync.py --write
 python3 scripts/sentinels/check-cc-version-sync.py --quiet
 python3 ops/anthropic/test_capture_cc_fingerprint.py StaticVersionTests

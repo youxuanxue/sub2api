@@ -7,7 +7,7 @@ cd "$REPO_ROOT"
 # We validate all load-bearing Caddyfile sources used by local/stage0 deploy flows.
 FILES=(
   "deploy/Caddyfile"
-  "deploy/aws/stage0/Caddyfile"
+  "deploy/stage0/Caddyfile"
 )
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -88,7 +88,7 @@ adapt_with_caddy() {
     -v "$file:/work/Caddyfile:ro" \
     "$CADDY_IMAGE" \
     caddy adapt --config /work/Caddyfile --adapter caddyfile > "$adapted"
-  if [[ "$source" == deploy/aws/stage0/* ]]; then
+  if [[ "$source" == deploy/stage0/* ]]; then
     python3 "$REPO_ROOT/scripts/checks/caddy-health-policy.py" "$adapted"
   fi
 }
@@ -113,9 +113,9 @@ if [ -z "$_ref" ]; then
   echo "FAIL: $_owner has no encode block (SSOT owner)" >&2
   failures=$((failures + 1))
 else
-  _got="$(caddy_normalize_encode_block "$REPO_ROOT/deploy/aws/stage0/Caddyfile")"
+  _got="$(caddy_normalize_encode_block "$REPO_ROOT/deploy/stage0/Caddyfile")"
   if [ "$_got" != "$_ref" ]; then
-    echo "FAIL: deploy/aws/stage0/Caddyfile encode block drifts from deploy/Caddyfile (SSOT)" >&2
+    echo "FAIL: deploy/stage0/Caddyfile encode block drifts from deploy/Caddyfile (SSOT)" >&2
     failures=$((failures + 1))
   fi
 fi
@@ -130,13 +130,13 @@ for rel in "${FILES[@]}"; do
     continue
   fi
 
-  # Full rel path in the name — deploy/Caddyfile and deploy/aws/stage0/Caddyfile
+  # Full rel path in the name — deploy/Caddyfile and deploy/stage0/Caddyfile
   # share a basename, and a collision here would let one render overwrite the
   # other before its (now concurrent) adapt reads it.
   rendered="$WORK_DIR/.caddy-$(echo "$rel" | tr '/' '_').rendered"
-  if [ "$rel" = "deploy/aws/stage0/Caddyfile" ]; then
+  if [ "$rel" = "deploy/stage0/Caddyfile" ]; then
     API_DOMAIN="api.example.com" ACME_EMAIL="ops@example.com" \
-      bash "$REPO_ROOT/deploy/aws/stage0/render-prod-caddyfile.sh" "$src" "$rendered"
+      bash "$REPO_ROOT/deploy/stage0/render-prod-caddyfile.sh" "$src" "$rendered"
   else
     render_template "$src" "$rendered"
   fi

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behavior tests for deploy/aws/stage0/legal-page production assets."""
+"""Behavior tests for deploy/stage0/legal-page production assets."""
 
 from __future__ import annotations
 

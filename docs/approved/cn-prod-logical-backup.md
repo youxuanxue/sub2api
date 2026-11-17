@@ -37,7 +37,7 @@ risk: high
 >
 > **文末步骤不再执行。** 下面是 2026-10-19 的逻辑 dump 说明。逻辑 dump 已于 2026-10-23 停止。不要再按这些步骤跑 `tokenkey-pgdump.sh`。现行备份是 pgBackRest，监控是 `ops-cn-backup-watch.yml`。
 
-Reuse `deploy/aws/stage0/tokenkey-pgdump.sh` for the independent domestic
+Reuse `deploy/stage0/tokenkey-pgdump.sh` for the independent domestic
 PostgreSQL database, including usage details. No database restart, gateway
 cutover, production restore or change to AWS prod backup frequency is required.
 

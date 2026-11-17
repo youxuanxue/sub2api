@@ -46,7 +46,7 @@ latest_dump="$(find /var/lib/tokenkey/pgdump -maxdepth 1 -type f -name 'tokenkey
 #
 # Why not collapse this to a constant now that no host uses pgdump: three
 # bootstrap scripts (deploy/hetzner/render-prod-bootstrap.sh,
-# deploy/aws/stage0/stage0-ec2-bootstrap.sh, deploy/hetzner/generated-prod-user-data.sh)
+# deploy/stage0/stage0-ec2-bootstrap.sh, deploy/hetzner/generated-prod-user-data.sh)
 # still install tokenkey-pgdump.timer when TOKENKEY_ENABLE_LEGACY_PGDUMP=true
 # and no pgdump-retired.json marker exists. Retirement here is achieved by NOT
 # installing it, not by a repo-wide flag -- prod carries no retired marker at

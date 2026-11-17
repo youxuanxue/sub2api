@@ -163,7 +163,7 @@ stage_artifacts() {
     "systemctl stop docker",
     "rewrite /etc/docker/daemon.json data-root",
     "rename tk-archive-standby in this window",
-    "drop stock deploy/aws/stage0/docker-compose.yml unchanged (DATABASE_HOST=postgres would miss live PG name)"
+    "drop stock deploy/stage0/docker-compose.yml unchanged (DATABASE_HOST=postgres would miss live PG name)"
   ],
   "window_must": [
     "stop only app+caddy (+redis if required)",

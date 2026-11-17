@@ -14,7 +14,7 @@ Two lanes are recorded per ClientHello:
 * ``wss``   — the Responses WebSocket upgrade (no ALPN, HTTP/1.1 Upgrade). The
   endpoint answers 426 so codex falls back to HTTPS in the same run.
 
-Committed baseline = ``deploy/aws/stage0/tk_canonical_codex_cli.json`` (the
+Committed baseline = ``deploy/stage0/tk_canonical_codex_cli.json`` (the
 runtime fields are seeded into ``tls_fingerprint_profiles`` by the latest
 ``tk_canonical_codex_cli`` migration). ClientHello parsing, GREASE handling,
 JA3 and the runtime projection/digest are shared with the Kiro engine
@@ -61,7 +61,7 @@ import mitm_kiro_http_logger as kiro_hello  # noqa: E402  (shared ClientHello ex
 
 SCHEMA_VERSION = 1
 PROFILE_NAME = "tk_canonical_codex_cli"
-CODEX_TLS_PROFILE_JSON = REPO_ROOT / "deploy/aws/stage0/tk_canonical_codex_cli.json"
+CODEX_TLS_PROFILE_JSON = REPO_ROOT / "deploy/stage0/tk_canonical_codex_cli.json"
 MIGRATIONS_DIR = REPO_ROOT / "backend/migrations"
 DEFAULT_OUT_DIR = REPO_ROOT / ".codex_tls"
 CAPTURE_HOST = "chatgpt.com"
@@ -685,7 +685,7 @@ def decide(bundle: dict[str, Any], committed: dict[str, Any] | None) -> dict[str
     }
     if runtime_diffs or committed_digest != obs["runtime_digest"]:
         result.update(verdict="tls_drift", exit_code=EXIT_DRIFT, migration_required=True, actions=[
-            "emit-profile --bundle <bundle> to refresh deploy/aws/stage0/tk_canonical_codex_cli.json",
+            "emit-profile --bundle <bundle> to refresh deploy/stage0/tk_canonical_codex_cli.json",
             "add a NEW forward migration updating tls_fingerprint_profiles row tk_canonical_codex_cli (never edit a published migration)",
             "append a docs/ops/codex-fingerprint-changelog.md row with the new runtime digest",
         ])

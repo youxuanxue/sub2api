@@ -26,12 +26,12 @@ class CaptureCCFingerprintTest(unittest.TestCase):
         # keeps == cc_version in the source JSON. Assert that invariant rather than
         # hard-coding the patch — so a cc bump never has to touch this test.
         source_cc = json.loads(
-            (mod.REPO_ROOT / "deploy/aws/stage0/anthropic-http-mimicry-baselines.json")
+            (mod.REPO_ROOT / "deploy/stage0/anthropic-http-mimicry-baselines.json")
             .read_text(encoding="utf-8")
         )["cc_version"]
         self.assertEqual(baseline["canonical_http"]["default_version"], source_cc)
         source_stainless = json.loads(
-            (mod.REPO_ROOT / "deploy/aws/stage0/tk_canonical_cc_oauth.json")
+            (mod.REPO_ROOT / "deploy/stage0/tk_canonical_cc_oauth.json")
             .read_text(encoding="utf-8")
         )["observed"]["stainless_package_version"]
         self.assertEqual(baseline["mimic_http"]["stainless_package_version"], source_stainless)
@@ -163,7 +163,7 @@ class TLSObservedFromPcapTests(unittest.TestCase):
             ]
         )
         source_cc = json.loads(
-            (mod.REPO_ROOT / "deploy/aws/stage0/anthropic-http-mimicry-baselines.json")
+            (mod.REPO_ROOT / "deploy/stage0/anthropic-http-mimicry-baselines.json")
             .read_text(encoding="utf-8")
         )["cc_version"]
         observed = mod.tls_observed_from_tshark_tsv(

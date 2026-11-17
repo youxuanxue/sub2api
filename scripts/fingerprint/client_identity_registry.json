@@ -14,7 +14,7 @@
       "skill": "tokenkey-cc-fingerprint-alignment",
       "pin_reader": "claude-code",
       "compile_owner": {
-        "path": "deploy/aws/stage0/anthropic-http-mimicry-baselines.json",
+        "path": "deploy/stage0/anthropic-http-mimicry-baselines.json",
         "symbol": "cc_version"
       },
       "runtime_identity": {

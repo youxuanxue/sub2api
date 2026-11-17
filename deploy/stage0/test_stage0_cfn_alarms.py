@@ -6,7 +6,7 @@ import pathlib
 import re
 import unittest
 
-CFN = pathlib.Path(__file__).resolve().parents[1] / "cloudformation/stage0-single-ec2.yaml"
+CFN = pathlib.Path(__file__).resolve().parents[2] / "deploy/aws/cloudformation/stage0-single-ec2.yaml"
 
 
 class Stage0CfnAlarmsTest(unittest.TestCase):
@@ -50,7 +50,7 @@ class Stage0CfnAlarmsTest(unittest.TestCase):
         self.assertIn("TreatMissingData: notBreaching", body)
 
     def test_sync_script_alarm_contract_matches_cfn(self) -> None:
-        script_path = pathlib.Path(__file__).resolve().parents[3] / "ops/stage0/sync-instance-cpu-alarm.sh"
+        script_path = pathlib.Path(__file__).resolve().parents[2] / "ops/stage0/sync-instance-cpu-alarm.sh"
         script = script_path.read_text(encoding="utf-8")
         for needle in (
             "--period 300",
@@ -64,7 +64,7 @@ class Stage0CfnAlarmsTest(unittest.TestCase):
             self.assertIn(needle, script, f"sync script missing {needle!r}")
 
     def test_root_disk_sync_script_alarm_contract_matches_cfn(self) -> None:
-        script_path = pathlib.Path(__file__).resolve().parents[3] / "ops/stage0/sync-instance-root-disk-alarm.sh"
+        script_path = pathlib.Path(__file__).resolve().parents[2] / "ops/stage0/sync-instance-root-disk-alarm.sh"
         script = script_path.read_text(encoding="utf-8")
         for needle in (
             "--period 300",

@@ -96,7 +96,7 @@ reviewed installer 生成，当前 `PHASES` 不包含 archive，因此本次代�
 [node1 QA](../../docs/approved/design-tencent-cos-backup-node1-qa.md#node1-qa)。
 
 已删除（仓库内不再有执行入口）：网关 `--qa-maintenance` / `--qa-boundary` / single-owner 子命令、
-`backend/cmd/qa-archive` 恢复 CLI、`deploy/aws/stage0/tokenkey-qa-maintenance.sh` 等 raw 宿主脚本、
+`backend/cmd/qa-archive` 恢复 CLI、`deploy/stage0/tokenkey-qa-maintenance.sh` 等 raw 宿主脚本、
 `stage0-qa-raw-archive.yaml` CloudFormation 模板、Phase 2 live health 与 raw archive IAM 巡检。
 数据库中 S3 段与 gap 回执表已无代码读写，由后续迁移删除（须先把主机上的 `qa-local-maintenance`
 换成不再 JOIN 段表的构建）；`qa_archive_shards`

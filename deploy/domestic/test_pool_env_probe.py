@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OVERRIDE = ROOT / "deploy/domestic/compose.override.yml"
 PROBE = ROOT / "ops/observability/probe-cn-prod-pool-env.sh"
 TARGET = ROOT / "deploy/domestic/prod-target.json"
-BASE = ROOT / "deploy/aws/stage0/docker-compose.yml"
+BASE = ROOT / "deploy/stage0/docker-compose.yml"
 
 KEYS = {
     "GOMEMLIMIT": "WANT_GOMEM",

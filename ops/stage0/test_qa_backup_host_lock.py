@@ -83,7 +83,7 @@ class HostLockTests(unittest.TestCase):
         dumps = self.root / "pgdump"
         dumps.mkdir()
         # Redirect fixed host paths only; execute the real dump and lease code.
-        body = (ROOT / "deploy/aws/stage0/tokenkey-pgdump.sh").read_text()
+        body = (ROOT / "deploy/stage0/tokenkey-pgdump.sh").read_text()
         body = body.replace("DUMP_DIR=/var/lib/tokenkey/pgdump", f"DUMP_DIR={dumps}")
         body = body.replace("/var/lib/tokenkey/.env", str(self.root / "absent.env"))
         body = body.replace("/etc/tokenkey/pgdump-storage.json", str(self.root / "absent-storage.json"))

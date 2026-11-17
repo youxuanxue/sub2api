@@ -68,7 +68,7 @@ RPO/RTO 按用户要求后续运维处理，本期不作恢复能力承诺，不
 使用 UCloud 官方 CLI 和本机 `tokenkey-domestic` profile。云密钥、供应商密钥、账号密码和
 完整导入结果只写本机 0700 目录下的 0600 文件，不写仓库、命令输出或 PR。
 
-复用 `deploy/aws/stage0/docker-compose.yml`，国内 override 关闭 QA capture 和 telemetry。
+复用 `deploy/stage0/docker-compose.yml`，国内 override 关闭 QA capture 和 telemetry。
 发布复用与 AWS prod 相同的已发布 amd64 GHCR 包（固定 digest / version label）。默认经
 AWS SSM Hybrid 在主机上 `docker pull`（入口 `deploy/domestic/deploy_via_ssm.sh`，身份读
 `deploy/domestic/prod-target.json`）；仅当 GHCR 拉取或 SSM 不可用时，才走运维机校验 archive

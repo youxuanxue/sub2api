@@ -27,7 +27,7 @@ stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PG_DUMP_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-pgdump.sh"
+PG_DUMP_SRC="${SCRIPT_DIR}/../../deploy/stage0/tokenkey-pgdump.sh"
 [[ -f "${PG_DUMP_SRC}" ]] || { echo "missing ${PG_DUMP_SRC}" >&2; exit 1; }
 
 # Encode each payload to single-line base64 so embedding into the JSON command
@@ -96,7 +96,7 @@ jq -n \
       "echo --- timer unit definition ---",
       "sudo systemctl cat tokenkey-pgdump.timer --no-pager || true",
       ("echo --- in-place sync trace ---"),
-      ("echo Live tokenkey-pgdump.{sh,service,timer} now match deploy/aws/stage0/tokenkey-pgdump.sh@" + $sha + " on $(hostname)")
+      ("echo Live tokenkey-pgdump.{sh,service,timer} now match deploy/stage0/tokenkey-pgdump.sh@" + $sha + " on $(hostname)")
     ]
   }' > "${params_file}"
 

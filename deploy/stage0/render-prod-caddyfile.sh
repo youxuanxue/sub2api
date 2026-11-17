@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Render deploy/aws/stage0/Caddyfile template → final prod Caddyfile.
+# Render deploy/stage0/Caddyfile template → final prod Caddyfile.
 #
 # Env:
 #   API_DOMAIN   (required) machine/API host, e.g. api.tokenkey.dev
@@ -24,10 +24,10 @@
 #
 # Usage:
 #   API_DOMAIN=api.tokenkey.dev ACME_EMAIL=ops@example.com \
-#     bash deploy/aws/stage0/render-prod-caddyfile.sh template out
+#     bash deploy/stage0/render-prod-caddyfile.sh template out
 #   API_DOMAIN=api.tokenkey.dev ACME_EMAIL=ops@example.com \
 #     PROD_CADDY_ROLE=entry \
-#     bash deploy/aws/stage0/render-prod-caddyfile.sh template out
+#     bash deploy/stage0/render-prod-caddyfile.sh template out
 
 set -euo pipefail
 
@@ -37,7 +37,7 @@ output="${2:?output path}"
 : "${API_DOMAIN:?API_DOMAIN required}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "${script_dir}/../../.." && pwd)"
+repo_root="$(cd "${script_dir}/../.." && pwd)"
 caddy_role="${PROD_CADDY_ROLE:-app}"
 case "${caddy_role}" in
   app)

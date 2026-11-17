@@ -49,7 +49,7 @@ bash ops/fingerprint/capture-all-fingerprints.sh \
 
 - Claude Code：遵循 `tokenkey-cc-fingerprint-alignment` 的 TLS/HTTP 分轨规则。
 - Kiro CLI：遵循 `tokenkey-kiro-fingerprint-alignment`；真实 bundle 刷新
-  `deploy/aws/stage0/tk_canonical_kiro_cli.json`，HTTP 只改唯一 CLI owner，随后完成
+  `deploy/stage0/tk_canonical_kiro_cli.json`，HTTP 只改唯一 CLI owner，随后完成
   TokenKey/uTLS replay semantic gate 与 DB parity 投影。不得恢复替代客户端模式。
 - Antigravity：遵循其真实 HTTP evidence skill。
 - Codex、Gemini CLI、Grok CLI：各走对应单平台 skill 与唯一 pin owner。

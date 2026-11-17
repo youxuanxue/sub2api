@@ -5,7 +5,7 @@ import argparse
 import json
 import sys
 
-# usw matches deploy/aws/stage0/docker-compose.yml. domestic matches
+# usw matches deploy/stage0/docker-compose.yml. domestic matches
 # deploy/domestic/compose.override.yml (smaller disk). Callers pass layout;
 # an absent layout stays usw so the existing prod probe does not go quiet.
 LOG_POLICIES = {

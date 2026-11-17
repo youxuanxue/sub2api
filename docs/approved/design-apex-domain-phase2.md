@@ -101,8 +101,8 @@ api_base_url = https://api.tokenkey.dev   # 显式，不留空
 
 | 面 | 改动 |
 | --- | --- |
-| `deploy/aws/stage0/Caddyfile` + render / sync / CFN blob | apex serve；api.* path 分流 |
-| `deploy/aws/stage0/test_render_prod_caddyfile.py` | 阶段二 Caddy 形状断言 |
+| `deploy/stage0/Caddyfile` + render / sync / CFN blob | apex serve；api.* path 分流 |
+| `deploy/stage0/test_render_prod_caddyfile.py` | 阶段二 Caddy 形状断言 |
 | `frontend/index.html` | `canonical`、`og:url`、社交图 → `tokenkey.dev` |
 | `deploy/aws/README.md` | 新增「阶段二」runbook（与阶段一对称） |
 

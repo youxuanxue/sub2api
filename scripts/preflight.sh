@@ -452,7 +452,7 @@ if command -v python3 >/dev/null 2>&1; then
     _archive_rehearsal_spawn_if_needed
     _bg_spawn anthropic_unittest \
         python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic
-    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/hetzner; do
+    for _det_dir in ops/observability ops/stage0 scripts deploy/stage0 deploy/hetzner; do
         _bg_spawn "det_$(echo "$_det_dir" | tr '/' '_')" \
             env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
             python3 ./scripts/preflight/discover.py "$_det_dir"
@@ -1541,7 +1541,7 @@ fi
 # baseline/) so the in-process ApplyTier UI action and the per-node config
 # reconciler derive desired account config without an operator laptop / SSM
 # round-trip. go:embed cannot reach outside the backend module, so those JSONs
-# are COPIES of the canonical deploy/aws/stage0 sources. This guard makes any
+# are COPIES of the canonical deploy/stage0 sources. This guard makes any
 # drift between copy and source a hard failure (single-source discipline,
 # CLAUDE.md §10 / memory "anthropic tier baseline 单一源").
 echo ""
@@ -1556,7 +1556,7 @@ elif ! python3 ./scripts/sentinels/check-tier-baseline-embed.py --quiet; then
     # check-tier-baseline-embed.py already printed the actionable failure.
     errors=$((errors + 1))
 else
-    echo "  ok: embedded tier/stub baselines match deploy/aws/stage0 sources"
+    echo "  ok: embedded tier/stub baselines match deploy/stage0 sources"
 fi
 
 # ---- sub2api: cc version string single-source -------------------------------
@@ -2129,7 +2129,7 @@ fi # preflight gate
 if _preflight_selected 'standalone host script syntax (tokenkey-*.sh)'; then
 echo "=== sub2api: standalone host script syntax (tokenkey-*.sh) ==="
 _host_syntax_ok=true
-for _host_script in ./deploy/aws/stage0/tokenkey-*.sh; do
+for _host_script in ./deploy/stage0/tokenkey-*.sh; do
   [ -e "${_host_script}" ] || continue
   if ! bash -n "${_host_script}"; then
     echo "  FAIL: ${_host_script} has bash syntax errors"
@@ -2439,7 +2439,7 @@ fi
 fi # preflight gate
 if _preflight_selected 'ghcr-prune-daily timer contract'; then
 echo "=== sub2api: ghcr-prune-daily timer contract ==="
-if ! bash ./deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh --selftest || ! bash ./ops/stage0/test_ghcr_prune_daily.sh; then
+if ! bash ./deploy/stage0/tokenkey-ghcr-prune-daily.sh --selftest || ! bash ./ops/stage0/test_ghcr_prune_daily.sh; then
   echo "  FAIL: production GHCR prune timer contract"
   errors=$((errors + 1))
 fi
@@ -2543,7 +2543,7 @@ fi # preflight gate
 if _preflight_selected 'pgdump timer cadence parity'; then
 echo "=== sub2api: pgdump timer cadence parity ==="
 _pgdump_reference="$(grep -m1 'OnCalendar=' ops/stage0/pg_dump_refresh_via_ssm.sh 2>/dev/null)"
-for _pgdump_source in deploy/aws/stage0/stage0-ec2-bootstrap.sh deploy/hetzner/render-prod-bootstrap.sh; do
+for _pgdump_source in deploy/stage0/stage0-ec2-bootstrap.sh deploy/hetzner/render-prod-bootstrap.sh; do
     _pgdump_calendar="$(awk '/tokenkey-pgdump\.timer/{f=1} f&&/OnCalendar=/{print; exit}' "$_pgdump_source" 2>/dev/null)"
     if [ -z "$_pgdump_reference" ] || [ "$_pgdump_calendar" != "$_pgdump_reference" ]; then
         echo "  FAIL: pgdump timer cadence drift in $_pgdump_source"
@@ -2823,7 +2823,7 @@ echo ""
 fi # preflight gate
 if _preflight_selected 'anthropic tier baseline single-source'; then
 echo "=== sub2api: anthropic tier baseline single-source ==="
-if [ -f ./deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql ]; then
+if [ -f ./deploy/stage0/anthropic-oauth-stability-tiered-apply-template.sql ]; then
     echo "  FAIL: retired SQL apply template reappeared — tier baseline values must"
     echo "        live only in anthropic-oauth-stability-baselines-tiered.json; the"
     echo "        orchestrator renders SQL from it via the guard's generate_sql."
@@ -3103,7 +3103,7 @@ else
     # CalledProcessError. The background spawn strips these vars at the boundary
     # so the suites behave identically inside the hook and standalone.
     _det_baseline_failed=0
-    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/hetzner; do
+    for _det_dir in ops/observability ops/stage0 scripts deploy/stage0 deploy/hetzner; do
         _det_key="det_$(echo "$_det_dir" | tr '/' '_')"
         if ! _preflight_selected "bg:$_det_key"; then continue; fi
         _bg_rc=1
@@ -3149,7 +3149,7 @@ echo "=== sub2api: CloudFormation resource dependencies ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for CFN dependency check)"
     errors=$((errors + 1))
-elif ! python3 ./deploy/aws/stage0/cfn-resource-dependencies.py; then
+elif ! python3 ./deploy/stage0/cfn-resource-dependencies.py; then
     errors=$((errors + 1))
 fi
 
@@ -3324,18 +3324,18 @@ fi
 fi # preflight gate
 if _preflight_selected 'stage0 CFN base64 drift'; then
 echo "=== sub2api: stage0 CFN base64 drift ==="
-if [ ! -x ./deploy/aws/stage0/build-cfn.sh ]; then
-    echo "  FAIL: deploy/aws/stage0/build-cfn.sh missing or not executable"
+if [ ! -x ./deploy/stage0/build-cfn.sh ]; then
+    echo "  FAIL: deploy/stage0/build-cfn.sh missing or not executable"
     errors=$((errors + 1))
-elif ! bash ./deploy/aws/stage0/build-cfn.sh --check >/dev/null 2>&1; then
+elif ! bash ./deploy/stage0/build-cfn.sh --check >/dev/null 2>&1; then
     echo "  FAIL: deploy/aws/cloudformation/stage0-single-ec2.yaml carries stale gzip|base64"
-    echo "        — run: bash deploy/aws/stage0/build-cfn.sh && git add deploy/aws/cloudformation/"
+    echo "        — run: bash deploy/stage0/build-cfn.sh && git add deploy/aws/cloudformation/"
     errors=$((errors + 1))
 else
     echo "  ok: stage0 CFN gzip|base64 segments in sync with sources"
-    if ! python3 ./deploy/aws/stage0/test_build_cfn.py >/dev/null 2>&1; then
+    if ! python3 ./deploy/stage0/test_build_cfn.py >/dev/null 2>&1; then
         echo "  FAIL: stage0 EC2 UserData / bootstrap SSM size gate"
-        echo "        — run: python3 deploy/aws/stage0/test_build_cfn.py"
+        echo "        — run: python3 deploy/stage0/test_build_cfn.py"
         errors=$((errors + 1))
     else
         echo "  ok: stage0 EC2 UserData under 16 KiB (launcher + SSM bootstrap split)"

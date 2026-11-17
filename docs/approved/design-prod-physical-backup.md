@@ -118,7 +118,7 @@ risk: high
 
 ## 参考与当前验证状态
 
-- 当前契约：[生产 compose](../../deploy/aws/stage0/docker-compose.yml)、[旧恢复演练](design-fleet-pgdump-restore-canary.md)、[恢复实现](../../ops/stage0/pgdump_restore_canary.py)。
+- 当前契约：[生产 compose](../../deploy/stage0/docker-compose.yml)、[旧恢复演练](design-fleet-pgdump-restore-canary.md)、[恢复实现](../../ops/stage0/pgdump_restore_canary.py)。
 - 官方能力：[pgBackRest 配置](https://pgbackrest.org/configuration.html)（块增量、bundle、S3、retention 与 WAL 队列语义）、[用户指南](https://pgbackrest.org/user-guide.html)（恢复、PITR、链清理）、[发布记录](https://pgbackrest.org/release.html)（PostgreSQL 18 支持）、[PostgreSQL WAL 配置](https://www.postgresql.org/docs/18/runtime-config-wal.html)（archive_mode 重启要求、archive_timeout）。
 - 实现与操作入口：[生产变更单](../../ops/stage0/physical-backup.md)。镜像保持现网 PostgreSQL 18.6、UID 70 与基础摘要，架构与目标主机一致（Tokyo 时期 ARM64，腾讯美西现网 amd64）；固定 pgBackRest 2.58.0。
 - 已运行的原型：真实 PostgreSQL + TLS MinIO，完成全量、两次增量、同一命名点的全量/增量恢复、缺失 WAL、损坏 bundle 和仓库不可达测试。发现原生 verify 不检查所有备份间 WAL 缺口，增加按当前单 timeline 连续 WAL 名称范围检查；timeline/segment-size 改变时拒绝宣称健康。

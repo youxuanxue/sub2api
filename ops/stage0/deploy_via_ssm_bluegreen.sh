@@ -254,7 +254,7 @@ assert_post_cutover_environment() {
   assert_edge_profile_environment
 }
 
-# Host contract for the canonical prod edge (deploy/aws/stage0/Caddyfile rendered by
+# Host contract for the canonical prod edge (deploy/stage0/Caddyfile rendered by
 # render-prod-caddyfile.sh). The 2026-11-08 data-disk rebuild left .env without
 # ACME_EMAIL / GLOBAL_SITE_* / API_ALIAS_DOMAIN / API_CN_DOMAIN and a hand-written
 # Caddyfile that proxied every host straight to the gateway. 1.8.354 then cut over

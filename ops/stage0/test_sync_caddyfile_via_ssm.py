@@ -159,8 +159,8 @@ class CaddyTemplateSingleUpstreamTest(unittest.TestCase):
     _BLOCK = re.compile(r"^[ \t]*reverse_proxy[ \t]+.*\{[ \t]*$", re.MULTILINE)
 
     def test_prod_template_renders_one_upstream_block_in_every_phase(self) -> None:
-        render = self._REPO / "deploy/aws/stage0/render-prod-caddyfile.sh"
-        template = self._REPO / "deploy/aws/stage0/Caddyfile"
+        render = self._REPO / "deploy/stage0/render-prod-caddyfile.sh"
+        template = self._REPO / "deploy/stage0/Caddyfile"
         phases = [
             {"API_DOMAIN": "api.x.dev", "SITE_DOMAIN": "", "GLOBAL_SITE_PHASE": "disabled"},
             {"API_DOMAIN": "api.tokenkey.dev", "GLOBAL_SITE_PHASE": "disabled"},

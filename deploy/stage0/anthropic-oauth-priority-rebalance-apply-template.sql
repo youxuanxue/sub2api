@@ -12,7 +12,7 @@
 -- Usage (psql):
 --   \set account_name 'en-ld-ec2-16-1-b'
 --   \set new_priority 22
---   \i deploy/aws/stage0/anthropic-oauth-priority-rebalance-apply-template.sql
+--   \i deploy/stage0/anthropic-oauth-priority-rebalance-apply-template.sql
 --
 -- Caller responsibility (Python orchestrator):
 --   - choose new_priority within the same stability tier band

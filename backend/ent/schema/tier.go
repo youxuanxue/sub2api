@@ -19,7 +19,7 @@ import (
 // TLS 绑定等），而不再把这些值逐个拷贝到账号上。改一行 tier 经
 // Redis pub/sub 秒级 fan-out 到所有引用账号（账号零写）。
 //
-// 权威源是 git JSON（backend/internal/baseline + deploy/aws/stage0，sentinel
+// 权威源是 git JSON（backend/internal/baseline + deploy/stage0，sentinel
 // 锁定相等）；本表是 git 的「投影」，由 ops/anthropic Python 流水线同步进各节点
 // （prod + edge）。UI 可编辑（应急/本地），流水线每次运行会重断言。
 type Tier struct {

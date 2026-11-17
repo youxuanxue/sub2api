@@ -5,7 +5,7 @@
 #
 # Why this exists (2026-06-17 prod P0): an unbounded in-RAM qa export drove an
 # 8 GiB box with NO swap into a page-cache-thrash half-deadlock that needed a
-# reboot. #811 added two defenses to deploy/aws/stage0/stage0-ec2-bootstrap.sh:
+# reboot. #811 added two defenses to deploy/stage0/stage0-ec2-bootstrap.sh:
 #   (1) a /swapfile release valve + vm.swappiness/vfs_cache_pressure sysctl
 #   (2) root/data disk metrics plus memory/disk Feishu alerts embedded in
 #       tokenkey-disk-metrics.sh
@@ -17,7 +17,7 @@
 # independent of that feature.
 #
 # Single source of truth: both payloads are EXTRACTED from
-# deploy/aws/stage0/stage0-ec2-bootstrap.sh at run time (the swap block between
+# deploy/stage0/stage0-ec2-bootstrap.sh at run time (the swap block between
 # its "1b. swap"/"2a. attach" markers, and the tokenkey-disk-metrics.sh heredoc
 # body). There is NO second copy of the swap/alert logic to drift — a future
 # bootstrap edit is automatically what this pushes. Empty extraction = hard fail.
@@ -59,7 +59,7 @@ if [[ ! "$INSTANCE_ID" =~ ^i-[a-zA-Z0-9]+$ ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BOOTSTRAP_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/stage0-ec2-bootstrap.sh"
+BOOTSTRAP_SRC="${SCRIPT_DIR}/../../deploy/stage0/stage0-ec2-bootstrap.sh"
 [[ -f "${BOOTSTRAP_SRC}" ]] || { echo "missing ${BOOTSTRAP_SRC}" >&2; exit 1; }
 
 # --- extract the canonical swap block (between the bootstrap markers) ---------
@@ -123,7 +123,7 @@ jq -n \
       "echo --- run disk-metrics once now to surface metric + arm alert ---",
       "sudo /usr/local/bin/tokenkey-disk-metrics.sh || true",  # preflight-allow: swallow — best-effort surface; the 5-min timer reruns it regardless
       "echo --- in-place sync trace ---",
-      ("echo Live /swapfile + root/data metrics + pressure alerts now match deploy/aws/stage0/stage0-ec2-bootstrap.sh@" + $sha + " on $(hostname)")
+      ("echo Live /swapfile + root/data metrics + pressure alerts now match deploy/stage0/stage0-ec2-bootstrap.sh@" + $sha + " on $(hostname)")
     ]
   }' > "${params_file}"
 

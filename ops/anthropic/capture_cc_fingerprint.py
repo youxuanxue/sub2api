@@ -52,8 +52,8 @@ _BETA_CONST_MAP: dict[str, str] | None = None
 CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/claude/constants.go"
 IDENTITY_CANONICAL_GO = REPO_ROOT / "backend/internal/service/identity_service_tk_canonical_http.go"
 IDENTITY_GO = REPO_ROOT / "backend/internal/service/identity_service.go"
-TLS_PROFILE_JSON = REPO_ROOT / "deploy/aws/stage0/tk_canonical_cc_oauth.json"
-BASELINES_JSON = REPO_ROOT / "deploy/aws/stage0/anthropic-http-mimicry-baselines.json"
+TLS_PROFILE_JSON = REPO_ROOT / "deploy/stage0/tk_canonical_cc_oauth.json"
+BASELINES_JSON = REPO_ROOT / "deploy/stage0/anthropic-http-mimicry-baselines.json"
 # Single declared source for the CC system-prompt anchors (shared with the
 # guard scripts/sentinels/check-cc-system-prompt.py). Only the stable identity
 # anchors + billing prefix are tracked — the full prompt is dynamic.
@@ -957,7 +957,7 @@ def format_diff_report(rows: list[DiffRow], *, capture_path: str = "") -> str:
     tls_mismatch = any(r.field.startswith("tls.") and r.status == "mismatch" for r in rows)
     if tls_mismatch:
         lines.append("")
-        lines.append("action_tls: ja3 changed — update deploy/aws/stage0/tk_canonical_cc_oauth.json")
+        lines.append("action_tls: ja3 changed — update deploy/stage0/tk_canonical_cc_oauth.json")
         lines.append("  then apply the reviewed runtime fingerprint update on prod.")
     return "\n".join(lines)
 
@@ -1225,7 +1225,7 @@ def write_tls_drift_spec(
             "## Background",
             "",
             "Daily `sessionStart` hook captured real cc TLS ClientHello and found",
-            "ja3 drift vs `deploy/aws/stage0/tk_canonical_cc_oauth.json`.",
+            "ja3 drift vs `deploy/stage0/tk_canonical_cc_oauth.json`.",
             "",
             "## Delta",
             "",
@@ -1570,7 +1570,7 @@ def cmd_diff_static(_args: argparse.Namespace) -> int:
         return 2
     if any(r.status == "mismatch" for r in rows):
         print("\nfollow skill: tokenkey-cc-fingerprint-alignment (version-only path)")
-        print("  edit cc_version in deploy/aws/stage0/anthropic-http-mimicry-baselines.json")
+        print("  edit cc_version in deploy/stage0/anthropic-http-mimicry-baselines.json")
         print("  python3 scripts/sentinels/check-cc-version-sync.py --write")
         print("  bash ops/anthropic/capture-cc-fingerprint.sh emit-edits")
         return 1

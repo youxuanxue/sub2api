@@ -65,7 +65,7 @@ OPENAI_FIRST_OUTPUT_GO = (
 COMPOSE_INJECT = STAGE0 / "deploy_via_ssm_bluegreen.sh"
 CONFIG_EXAMPLE = REPO_ROOT / "deploy" / "config.example.yaml"
 REMEDIATE = REPO_ROOT / "ops" / "observability" / "remediate-first-output-timeouts.sh"
-STAGE0_COMPOSE = REPO_ROOT / "deploy" / "aws" / "stage0" / "docker-compose.yml"
+STAGE0_COMPOSE = REPO_ROOT / "deploy" / "stage0" / "docker-compose.yml"
 NEWAPI_NONSTREAM_REMEDIATE = (
     REPO_ROOT / "ops" / "observability" / "remediate-newapi-nonstream-timeout.sh"
 )

@@ -12,7 +12,7 @@ import re
 import sys
 
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 CFN_DIR = REPO_ROOT / "deploy/aws/cloudformation"
 SECTION_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]*):(?:\s.*)?$")
 RESOURCE_RE = re.compile(r"^  ([A-Za-z][A-Za-z0-9]*):(?:\s.*)?$")

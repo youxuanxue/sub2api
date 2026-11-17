@@ -80,7 +80,7 @@ REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 
 
 case "${KIND}" in
-  prod) CADDY_SRC="${REPO_ROOT}/deploy/aws/stage0/Caddyfile" ;;
+  prod) CADDY_SRC="${REPO_ROOT}/deploy/stage0/Caddyfile" ;;
   *)
     echo "sync_caddyfile_via_ssm: first arg must be 'prod' (got '${KIND}')" >&2
     exit 1
@@ -193,11 +193,11 @@ FLEET_MATRIX_B64=""
 # pattern as deploy_via_ssm_bluegreen.sh) into the existing Caddy data volume.
 LEGAL_CHUNKS_JSON='[]'
 if [[ "${KIND}" == prod ]]; then
-  RENDER_SCRIPT_B64="$(base64 < "${REPO_ROOT}/deploy/aws/stage0/render-prod-caddyfile.sh" | tr -d '\n')"
+  RENDER_SCRIPT_B64="$(base64 < "${REPO_ROOT}/deploy/stage0/render-prod-caddyfile.sh" | tr -d '\n')"
   if [[ "${CADDY_ROLE}" == entry ]]; then
     FLEET_MATRIX_B64="$(base64 < "${FLEET_MATRIX}" | tr -d '\n')"
   fi
-  LEGAL_DIR="${REPO_ROOT}/deploy/aws/stage0/legal-page"
+  LEGAL_DIR="${REPO_ROOT}/deploy/stage0/legal-page"
   if [[ -f "${LEGAL_DIR}/privacy.html" && -f "${LEGAL_DIR}/terms.html" ]]; then
     LEGAL_TAR_B64="$(
       COPYFILE_DISABLE=1 tar -C "${LEGAL_DIR}" -czf - privacy.html terms.html shared.css lang.js \

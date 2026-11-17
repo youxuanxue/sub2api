@@ -141,7 +141,7 @@ revised: 2026-11-15（复审修复后用户批准；恢复 §3.5/§3.6；显式�
 
 站点：`tokenkey.dev`、`callmodel.io`、`api.tokenkey.dev`、`api.callmodel.io`、`api-cn.tokenkey.dev`（以线上 Caddyfile 为准）。
 
-- 复用 `deploy/aws/stage0/Caddyfile` 与渲染器；增加「后端列表 + 权重」：上游改为两台应用机私网 8080，`lb_policy weighted_round_robin 2 1`，`health_interval 3s`，`health_fails 2`；保留 `lb_try_duration 30s` 等。
+- 复用 `deploy/stage0/Caddyfile` 与渲染器；增加「后端列表 + 权重」：上游改为两台应用机私网 8080，`lb_policy weighted_round_robin 2 1`，`health_interval 3s`，`health_fails 2`；保留 `lb_try_duration 30s` 等。
 - 只用主动健康检查。`PROD_EDGE_REQUIRED_ENV` 与 `import tokenkey_api_machine` 门禁对入口机生效。
 - 客户端 IP：入口机写 `X-Forwarded-For`/`X-Real-IP`，删 `CF-Connecting-IP`。应用机 8080 只放行入口机私网 /32。经 socat 后网关记录的 IP **未核实**，切流前用测试请求实测。
 

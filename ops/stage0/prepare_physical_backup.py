@@ -100,7 +100,7 @@ def main() -> None:
         ):
             shutil.copy2(source / name, root / name)
         shutil.copy2(
-            source.parents[1] / "deploy/aws/stage0/docker-compose.prod-pg.yml",
+            source.parents[1] / "deploy/stage0/docker-compose.prod-pg.yml",
             root / "docker-compose.prod-pg.yml",
         )
         shutil.copy2(args.billing_check, root / "backup-billing-check")

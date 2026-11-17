@@ -23,7 +23,7 @@ real kiro-cli
 
 - HTTP owner：`backend/internal/pkg/kiro/constants.go`，由
   `backend/internal/integration/kiro/headers.go` 的所有请求路径消费。
-- TLS capture owner：`deploy/aws/stage0/tk_canonical_kiro_cli.json`。
+- TLS capture owner：`deploy/stage0/tk_canonical_kiro_cli.json`。
 - Runtime DB owner：同名 `tls_fingerprint_profiles` row；daily parity 只证明
   `production_configured`，不冒充 live wire。
 - `backend/migrations/tk_014_seed_kiro_ide_tls_template.sql` 只是不可变迁移历史；

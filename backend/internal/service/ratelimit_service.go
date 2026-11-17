@@ -140,7 +140,7 @@ var openAI403EscalationSlotPlaceholder = time.Duration(openAI403CooldownMinutesD
 // Tier 2+ (third+ hit):          10 min — persistent failure, back off hard
 //
 // Owned here so check-anthropic-baseline-sync.py can parse the live values
-// against deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json.
+// against deploy/stage0/anthropic-oauth-stability-baselines-tiered.json.
 // Companion functions that apply the ladder live in
 // ratelimit_service_tk_anthropic_ladder.go.
 var anthropicCooldownTierLadder = []time.Duration{

@@ -8,7 +8,7 @@ import (
 
 func TestAntigravityCLIProfile_BuildClientHelloSpec(t *testing.T) {
 	t.Parallel()
-	// Values from deploy/aws/stage0/tk_canonical_antigravity_cli.json
+	// Values from deploy/stage0/tk_canonical_antigravity_cli.json
 	// (local agy 1.2.2 mitm ClientHello capture, 2026-09-18).
 	profile := &Profile{
 		Name:                "tk_canonical_antigravity_cli",
