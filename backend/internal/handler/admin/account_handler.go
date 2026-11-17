@@ -1428,7 +1428,9 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 			}
 		}
 
-		// 如果 project_id 获取失败，更新凭证但不标记为 error
+		// project_id 获取失败：先落盘已旋转的 token。若仍无任何 project_id，
+		// 记 status=error（missing_project_id:），避免空心账号继续可调度；若保留了
+		// 旧 project_id，仅返回 temporary warning。
 		if tokenInfo.ProjectIDMissing {
 			updatedAccount, updateErr := h.adminService.UpdateAccount(ctx, account.ID, &service.UpdateAccountInput{
 				Credentials: newCredentials,
@@ -1440,6 +1442,17 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 			service.AfterAccountCommit(ctx, func(committed context.Context) {
 				h.adminService.EnsureAntigravityPrivacy(committed, updatedAccount)
 			})
+			if !service.AntigravityOAuthProjectIDReady(updatedAccount) {
+				const missingMsg = "missing_project_id: antigravity OAuth account has no project_id after refresh"
+				if setErr := h.adminService.SetAccountError(ctx, updatedAccount.ID, missingMsg); setErr != nil {
+					return nil, "", fmt.Errorf("failed to set missing_project_id error: %w", setErr)
+				}
+				errored, getErr := h.adminService.GetAccount(ctx, updatedAccount.ID)
+				if getErr != nil {
+					return updatedAccount, "", fmt.Errorf("%s", missingMsg)
+				}
+				return errored, "", fmt.Errorf("%s", missingMsg)
+			}
 			return updatedAccount, "missing_project_id_temporary", nil
 		}
 
