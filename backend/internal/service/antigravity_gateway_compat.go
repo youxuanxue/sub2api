@@ -256,6 +256,7 @@ func (s *AntigravityGatewayService) forwardAntigravityCompat(
 	if err != nil {
 		return nil, s.handleAntigravityCompatTransportError(c, err)
 	}
+	stashAntigravityFirstOutput(c, result)
 
 	return s.consumeAntigravityCompatResponse(ctx, c, account, call, result.resp)
 }

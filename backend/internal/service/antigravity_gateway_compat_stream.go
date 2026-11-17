@@ -324,6 +324,10 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveIn
 	c *gin.Context, resp *http.Response, startTime time.Time, originalModel string,
 	adapter antigravityCompatStreamAdapter, prefix string, interval, maxPreContentWait time.Duration,
 ) (*antigravityStreamResult, error) {
+	firstOutputGuard := antigravityFirstOutputGuardFromContext(c)
+	if firstOutputGuard != nil && resp != nil && resp.Body != nil {
+		firstOutputGuard.WatchClose(resp.Body)
+	}
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
 		return nil, errors.New("streaming not supported")
@@ -399,11 +403,22 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveIn
 				return finishAntigravityCompatStream(c, session)
 			}
 			if event.err != nil {
+				if !session.hasMeaningfulData() {
+					if foErr := antigravityStreamFirstOutputFailoverIfBudgetFired(c); foErr != nil {
+						return session.collectResult(false), foErr
+					}
+				}
 				return s.handleAntigravityCompatReadError(c, session, event.err, maxLineSize, prefix)
 			}
 			resetAntigravityCompatTimer(timeoutTimer, timeout)
 			s.observeAntigravityGeminiSSELine(c, event.line)
 			session.consume(event.line)
+			// Thinking-only frames are not "meaningful" for terminal success, but
+			// they still disarm the shared first-output budget (same as Gemini
+			// Messages compat) so long AG reasoning does not time out the attempt.
+			if session.hasMeaningfulData() || session.processor.HasContent() {
+				firstOutputGuard.Commit()
+			}
 
 		case <-timeoutCh:
 			if writer.Disconnected() {

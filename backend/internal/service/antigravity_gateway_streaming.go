@@ -132,6 +132,10 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
 	}
+	firstOutputGuard := antigravityFirstOutputGuardFromContext(c)
+	if firstOutputGuard != nil && resp != nil && resp.Body != nil {
+		firstOutputGuard.WatchClose(resp.Body)
+	}
 	c.Status(resp.StatusCode)
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -280,6 +284,9 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		lastDataAt = time.Now()
 		lastWroteDataEvent = true
 		modelBytesWritten = true
+		// Thinking frames also disarm the first-output budget so long reasoning
+		// does not trigger silent AG account failover (same policy as Gemini compat).
+		firstOutputGuard.Commit()
 	}
 
 	// 仅发送一次错误事件，避免多次写入导致协议混乱
@@ -309,6 +316,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				}, nil
 			}
 			if ev.err != nil {
+				if !modelBytesWritten {
+					if foErr := antigravityStreamFirstOutputFailoverIfBudgetFired(c); foErr != nil {
+						return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, foErr
+					}
+				}
 				if disconnect, handled := handleStreamReadError(ev.err, cw.Disconnected(), "antigravity gemini"); handled {
 					return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: disconnect}, nil
 				}
@@ -374,6 +386,10 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				if !modelBytesWritten && inner != nil && geminiNativeEventHoldable(inner) && heldBytes+len(payload) <= geminiNativeHeldPrefixLimit {
 					held = append(held, payload)
 					heldBytes += len(payload)
+					// Held thought/signature still proves upstream liveness; disarm
+					// first-output so long reasoning is not failed over mid-hold.
+					// Truncation with only held bytes still switches accounts.
+					firstOutputGuard.Commit()
 					continue
 				}
 				writeModelPayload(payload)
@@ -1164,6 +1180,10 @@ func (c *antigravityClaudeStreamCommit) flush(extra []byte, onWrite func()) {
 
 // handleClaudeStreamingResponse 处理 Claude 流式响应（Gemini SSE → Claude SSE 转换）
 func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (*antigravityStreamResult, error) {
+	firstOutputGuard := antigravityFirstOutputGuardFromContext(c)
+	if firstOutputGuard != nil && resp != nil && resp.Body != nil {
+		firstOutputGuard.WatchClose(resp.Body)
+	}
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -1274,6 +1294,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
+		firstOutputGuard.Commit()
 	}
 
 	// 仅发送一次错误事件，避免多次写入导致协议混乱
@@ -1331,6 +1352,11 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: false}, nil
 			}
 			if ev.err != nil {
+				if firstTokenMs == nil {
+					if foErr := antigravityStreamFirstOutputFailoverIfBudgetFired(c); foErr != nil {
+						return &antigravityStreamResult{usage: finishUsage(), firstTokenMs: firstTokenMs}, foErr
+					}
+				}
 				if disconnect, handled := handleStreamReadError(ev.err, cw.Disconnected(), "antigravity claude"); handled {
 					return &antigravityStreamResult{usage: finishUsage(), firstTokenMs: firstTokenMs, clientDisconnect: disconnect}, nil
 				}

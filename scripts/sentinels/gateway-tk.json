@@ -2617,6 +2617,58 @@
       "rationale": "Gemini Messages / native streaming must share the universal first-output SSOT: resolve+arm per attempt, WatchClose upstream body, and Size-aware failover. Upstream merges that rewrite Gemini streaming loops must not silently drop this wiring."
     },
     {
+      "path": "backend/internal/service/antigravity_gateway_retry.go",
+      "must_contain": [
+        "if p.clientStream {",
+        "armStreamFirstOutputGuard(base, budget)",
+        "func stashAntigravityFirstOutput(c *gin.Context, result *antigravityRetryLoopResult)",
+        "func antigravityStreamFirstOutputFailoverIfBudgetFired(c *gin.Context) error"
+      ],
+      "rationale": "Antigravity OAuth streaming must arm the shared first-output budget inside antigravityRetryLoop and stash the guard for stream handlers. Losing this wiring restores hung-AG → client 499 with no account failover (Wei-Shaw/sub2api#8733)."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_streaming.go",
+      "must_contain": [
+        "firstOutputGuard.WatchClose(resp.Body)",
+        "firstOutputGuard.Commit()",
+        "antigravityStreamFirstOutputFailoverIfBudgetFired(c)"
+      ],
+      "rationale": "AG Gemini/Claude streaming must WatchClose the upstream body, Commit on first useful/thinking frame (including held thought prefixes), and map pre-Commit body close to first-output failover."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat_stream.go",
+      "must_contain": [
+        "firstOutputGuard.WatchClose(resp.Body)",
+        "firstOutputGuard.Commit()",
+        "antigravityStreamFirstOutputFailoverIfBudgetFired(c)"
+      ],
+      "rationale": "Chat/Responses→AG compat streaming must share the same first-output WatchClose/Commit/failover wiring as native AG streams; arming in the retry loop alone is not enough."
+    },
+    {
+      "path": "backend/internal/service/stream_first_output_budget_tk_test.go",
+      "must_contain": [
+        "func TestAntigravityBodyStreamFirstOutputHighEffort(t *testing.T)"
+      ],
+      "rationale": "AG v1internal envelope high-effort detection must stay covered so long-thinking AG streams keep the high-effort first-output budget."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "func appendFirstMessageTextFromRaw(builder *strings.Builder, raw []byte)",
+        "messageText, afterAnchor := extractCacheableTextFromMessagesRaw(parsed.MessagesRaw())",
+        "if afterAnchor {"
+      ],
+      "rationale": "Sticky session hash must anchor on the first non-system/developer message and ignore late ephemeral cache_control breakpoints that move each Claude Code turn. Restoring full-message digest or late-breakpoint hashing rotates accounts every round (Wei-Shaw/sub2api#3219 / #8805 / #8807)."
+    },
+    {
+      "path": "backend/internal/service/generate_session_hash_test.go",
+      "must_contain": [
+        "TestGenerateSessionHash_ContinuousConversation_HashStableAcrossRounds",
+        "TestGenerateSessionHash_LateEphemeralBreakpointFallsBackToFirstMessage"
+      ],
+      "rationale": "Regression coverage for first-message sticky stability and late ephemeral breakpoint skip."
+    },
+    {
       "path": "backend/internal/service/stream_first_output_budget_tk.go",
       "must_contain": [
         "defaultStreamFirstOutputTimeout           = 120 * time.Second",

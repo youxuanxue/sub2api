@@ -17,9 +17,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // antigravityRetryLoopParams 重试循环的参数
@@ -54,7 +56,10 @@ type antigravityRetryLoopParams struct {
 
 // antigravityRetryLoopResult 重试循环的结果
 type antigravityRetryLoopResult struct {
-	resp *http.Response
+	resp             *http.Response
+	firstOutputGuard *streamFirstOutputGuard
+	streamAttemptCtx context.Context
+	callerCtx        context.Context
 }
 
 // resolveAntigravityForwardBaseURL 解析转发用 base URL。
@@ -502,6 +507,24 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 	// never set this key, so enabledCreditTypes / requestType were invisible).
 	setOpsUpstreamRequestBody(p.c, p.body)
 
+	callerCtx := p.ctx
+	streamAttemptCtx := p.ctx
+	var firstOutputGuard *streamFirstOutputGuard
+	if p.clientStream {
+		// Stall before first useful SSE used to wait for the client timeout and
+		// die as 499 with no failover (Wei-Shaw/sub2api#8733). Arm the shared
+		// first-output budget so a hung AG upstream can switch accounts.
+		cfg := (*config.Config)(nil)
+		if s.settingService != nil {
+			cfg = s.settingService.cfg
+		}
+		highEffort := antigravityBodyStreamFirstOutputHighEffort(p.body)
+		budget := resolveStreamFirstOutputTimeout(cfg, highEffort)
+		RecordOpsFirstOutputBudget(p.c, p.account, budget, streamFirstOutputBudgetReason(highEffort))
+		base := context.WithoutCancel(p.ctx)
+		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
+	}
+
 	// 预检查：模型限流 + overages 启用 + 积分未耗尽 → 直接注入 AI Credits
 	overagesInjected := false
 	modelUnavailable := p.account.antigravityModelCapabilityUnavailable(p.ctx, p.requestedModel)
@@ -570,14 +593,20 @@ urlFallbackLoop:
 		allAttemptsInternal500 := true // 追踪本轮所有 attempt 是否全部命中 INTERNAL 500
 		for attempt := 1; attempt <= antigravityMaxRetries; attempt++ {
 			select {
-			case <-p.ctx.Done():
-				logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled error=%v", p.prefix, p.ctx.Err())
-				return nil, p.ctx.Err()
+			case <-streamAttemptCtx.Done():
+				if foErr := streamFirstOutputFailoverIfBudgetFired(p.c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+					return nil, foErr
+				}
+				logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled error=%v", p.prefix, streamAttemptCtx.Err())
+				return nil, streamAttemptCtx.Err()
 			default:
 			}
 
-			upstreamReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, p.body)
+			upstreamReq, err := antigravity.NewAPIRequestWithURL(streamAttemptCtx, baseURL, p.action, p.accessToken, p.body)
 			if err != nil {
+				if foErr := streamFirstOutputFailoverIfBudgetFired(p.c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+					return nil, foErr
+				}
 				return nil, err
 			}
 			boundURL, err := url.Parse(protocolExecutionURL(p.ctx, upstreamReq.URL.String()))
@@ -593,6 +622,9 @@ urlFallbackLoop:
 				err = errors.New("upstream returned nil response")
 			}
 			if err != nil {
+				if foErr := streamFirstOutputFailoverIfBudgetFired(p.c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+					return nil, foErr
+				}
 				safeErr := sanitizeUpstreamErrorMessage(err.Error())
 				appendOpsUpstreamError(p.c, OpsUpstreamErrorEvent{
 					ProxyID:            opsUpstreamProxyID(p.account),
@@ -611,9 +643,12 @@ urlFallbackLoop:
 				}
 				if attempt < antigravityMaxRetries {
 					logger.LegacyPrintf("service.antigravity_gateway", "%s status=request_failed retry=%d/%d error=%v", p.prefix, attempt, antigravityMaxRetries, err)
-					if !s.waitRetryBackoff(p.ctx, attempt) {
+					if !s.waitRetryBackoff(streamAttemptCtx, attempt) {
+						if foErr := streamFirstOutputFailoverIfBudgetFired(p.c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+							return nil, foErr
+						}
 						logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled_during_backoff", p.prefix)
-						return nil, p.ctx.Err()
+						return nil, streamAttemptCtx.Err()
 					}
 					continue
 				}
@@ -687,9 +722,12 @@ urlFallbackLoop:
 							Detail:             getUpstreamDetail(respBody),
 						})
 						logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d retry=%d/%d body=%s", p.prefix, resp.StatusCode, attempt, antigravityMaxRetries, truncateForLog(respBody, 200))
-						if !s.waitRetryBackoff(p.ctx, attempt) {
+						if !s.waitRetryBackoff(streamAttemptCtx, attempt) {
+							if foErr := streamFirstOutputFailoverIfBudgetFired(p.c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+								return nil, foErr
+							}
 							logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled_during_backoff", p.prefix)
-							return nil, p.ctx.Err()
+							return nil, streamAttemptCtx.Err()
 						}
 						continue
 					}
@@ -724,9 +762,12 @@ urlFallbackLoop:
 							Detail:             getUpstreamDetail(respBody),
 						})
 						logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d retry=%d/%d body=%s", p.prefix, resp.StatusCode, attempt, antigravityMaxRetries, truncateForLog(respBody, 500))
-						if !s.waitRetryBackoff(p.ctx, attempt) {
+						if !s.waitRetryBackoff(streamAttemptCtx, attempt) {
+							if foErr := streamFirstOutputFailoverIfBudgetFired(p.c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+								return nil, foErr
+							}
 							logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled_during_backoff", p.prefix)
-							return nil, p.ctx.Err()
+							return nil, streamAttemptCtx.Err()
 						}
 						// 追踪 INTERNAL 500：非匹配的 attempt 清除标记
 						if !isAntigravityInternalServerError(resp.StatusCode, respBody) {
@@ -769,7 +810,101 @@ urlFallbackLoop:
 		}
 	}
 
-	return &antigravityRetryLoopResult{resp: resp}, nil
+	return &antigravityRetryLoopResult{
+		resp:             resp,
+		firstOutputGuard: firstOutputGuard,
+		streamAttemptCtx: streamAttemptCtx,
+		callerCtx:        callerCtx,
+	}, nil
+}
+
+// antigravityBodyStreamFirstOutputHighEffort inspects both the native Gemini
+// shape and the v1internal {"request":...} envelope AG forwards upstream.
+func antigravityBodyStreamFirstOutputHighEffort(body []byte) bool {
+	if geminiBodyStreamFirstOutputHighEffort(body) {
+		return true
+	}
+	if len(body) == 0 {
+		return false
+	}
+	req := gjson.GetBytes(body, "request")
+	if !req.Exists() {
+		return false
+	}
+	if req.Get("generationConfig.thinkingConfig.thinkingBudget").Int() >= 8000 {
+		return true
+	}
+	level := strings.ToLower(strings.TrimSpace(req.Get("generationConfig.thinkingConfig.thinkingLevel").String()))
+	return level == "high"
+}
+
+const (
+	antigravityFirstOutputGuardKey      = "ag_first_output_guard"
+	antigravityFirstOutputAttemptCtxKey = "ag_first_output_attempt_ctx"
+	antigravityFirstOutputCallerCtxKey  = "ag_first_output_caller_ctx"
+)
+
+func stashAntigravityFirstOutput(c *gin.Context, result *antigravityRetryLoopResult) {
+	if c == nil || result == nil || result.firstOutputGuard == nil {
+		return
+	}
+	c.Set(antigravityFirstOutputGuardKey, result.firstOutputGuard)
+	if result.streamAttemptCtx != nil {
+		c.Set(antigravityFirstOutputAttemptCtxKey, result.streamAttemptCtx)
+	}
+	if result.callerCtx != nil {
+		c.Set(antigravityFirstOutputCallerCtxKey, result.callerCtx)
+	}
+}
+
+func antigravityFirstOutputGuardFromContext(c *gin.Context) *streamFirstOutputGuard {
+	if c == nil {
+		return nil
+	}
+	if v, ok := c.Get(antigravityFirstOutputGuardKey); ok {
+		if g, ok := v.(*streamFirstOutputGuard); ok {
+			return g
+		}
+	}
+	return nil
+}
+
+func antigravityFirstOutputAttemptCtxFromContext(c *gin.Context) context.Context {
+	if c == nil {
+		return nil
+	}
+	if v, ok := c.Get(antigravityFirstOutputAttemptCtxKey); ok {
+		if ctx, ok := v.(context.Context); ok {
+			return ctx
+		}
+	}
+	return nil
+}
+
+func antigravityFirstOutputCallerCtxFromContext(c *gin.Context) context.Context {
+	if c == nil {
+		return nil
+	}
+	if v, ok := c.Get(antigravityFirstOutputCallerCtxKey); ok {
+		if ctx, ok := v.(context.Context); ok {
+			return ctx
+		}
+	}
+	if c.Request != nil {
+		return c.Request.Context()
+	}
+	return nil
+}
+
+// antigravityStreamFirstOutputFailoverIfBudgetFired maps a pre-Commit body
+// close (WatchClose after budget) to account failover for AG streaming paths.
+func antigravityStreamFirstOutputFailoverIfBudgetFired(c *gin.Context) error {
+	return streamFirstOutputFailoverIfBudgetFired(
+		c,
+		antigravityFirstOutputGuardFromContext(c),
+		antigravityFirstOutputAttemptCtxFromContext(c),
+		antigravityFirstOutputCallerCtxFromContext(c),
+	)
 }
 
 // shouldRetryAntigravityError 判断是否应该重试
