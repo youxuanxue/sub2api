@@ -20738,6 +20738,32 @@
         "Mirror deploy/domestic/bluegreen.py"
       ],
       "rationale": "After M6, cn-prod timeout remediate must drain/recreate the single tokenkey container and refuse leftover blue/green or entry-origin socat layout."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gemini_thinking_clamp_tk.go",
+      "must_contain": [
+        "func normalizeAntigravityNativeGeminiRequest(model string, body []byte) []byte",
+        "antigravityGeminiArgonMaxOutputTokensCap = 8192",
+        "antigravityGeminiThinkingBudgetMax = 65535",
+        "logAntigravityGeminiThinkingRewrite(model, \"drop_illegal_budget\""
+      ],
+      "rationale": "AG Gemini native thinkingBudget clamp + argon maxOutputTokens hard-cap owner. Upstream merge that drops this companion restores illegal budget→400 and 65536 thinking runaway on ForwardGemini."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "body = normalizeAntigravityNativeGeminiRequest(originalModel, body)",
+        "mappedModel, variantResolved := resolveGeminiThinkingVariant(account, originalModel, body)"
+      ],
+      "rationale": "ForwardGemini must normalize thinkingBudget / argon maxOutputTokens BEFORE resolveGeminiThinkingVariant so oversized budgets cannot boost argon via budget>8192→high. Companion compile-clean alone would not catch a dropped call site."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gemini_thinking_clamp_tk_test.go",
+      "must_contain": [
+        "func TestNormalizeAntigravityNativeGeminiRequest_ArgonIllegalBudgetDroppedNotBoosted(t *testing.T)",
+        "func TestIllegalArgonBudgetDoesNotResolveToHighVariant(t *testing.T)"
+      ],
+      "rationale": "Behavioral guards that illegal argon budgets are dropped (not rewritten to high) and cannot resolve to -high variants after clamp."
     }
   ]
 }
