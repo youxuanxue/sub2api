@@ -180,6 +180,36 @@ func TestGeminiForwardNative_StreamPromptBlockedMarksContentPolicy(t *testing.T)
 	require.Empty(t, upstreamErrorEventsFromContext(t, c))
 }
 
+func TestGeminiForwardNative_VisibleTTFTSkipsThoughtAndKeepalive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := ": keepalive\n\n" +
+		`data: {"candidates":[{"content":{"parts":[{"thought":true,"text":"plan"}]}}],"usageMetadata":{"promptTokenCount":2,"thoughtsTokenCount":1}}` + "\n\n" +
+		`data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1,"thoughtsTokenCount":1}}` + "\n\n"
+	svc := newGeminiSignalService("text/event-stream", body)
+	c, rec := newGeminiNativeTestContext(t)
+
+	result, err := svc.ForwardNative(context.Background(), c, geminiSignalTestAccount(),
+		"gemini-3.7-flash", "streamGenerateContent", true, geminiSignalTestRequest())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.FirstTokenMs, "visible text must record first_token_ms")
+	require.Contains(t, rec.Body.String(), `"text":"ok"`)
+	require.Equal(t, 1+1, result.Usage.OutputTokens)
+}
+
+func TestGeminiForwardNative_ThoughtOnlyLeavesNilFirstToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := `data: {"candidates":[{"content":{"parts":[{"thought":true,"text":"only thinking"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"thoughtsTokenCount":4}}` + "\n\n"
+	svc := newGeminiSignalService("text/event-stream", body)
+	c, _ := newGeminiNativeTestContext(t)
+
+	result, err := svc.ForwardNative(context.Background(), c, geminiSignalTestAccount(),
+		"gemini-3.7-flash", "streamGenerateContent", true, geminiSignalTestRequest())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Nil(t, result.FirstTokenMs, "thought-only stream must not record visible first_token_ms")
+}
+
 func TestGeminiForwardNative_EmptyStreamMarksUpstreamFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := newGeminiSignalService("text/event-stream", "")

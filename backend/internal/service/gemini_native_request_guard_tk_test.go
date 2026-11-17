@@ -144,6 +144,20 @@ func TestGeminiPayloadDeliveredUsableOutput(t *testing.T) {
 	require.True(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"abc"}}]}}]}`)))
 }
 
+func TestGeminiPayloadStartsVisibleTTFT(t *testing.T) {
+	require.False(t, geminiPayloadStartsVisibleTTFT(nil))
+	require.False(t, geminiPayloadStartsVisibleTTFT([]byte(`{"candidates":[{"content":{"parts":[{"thoughtSignature":"SIG"}]}}]}`)))
+	require.False(t, geminiPayloadStartsVisibleTTFT([]byte(`{"candidates":[{"content":{"parts":[{"text":"  "}]}}]}`)))
+	require.False(t, geminiPayloadStartsVisibleTTFT([]byte(`{"candidates":[{"content":{"parts":[{"thought":true,"text":"hmm"}]}}]}`)))
+	require.False(t, geminiPayloadStartsVisibleTTFT([]byte(`{"usageMetadata":{"promptTokenCount":1}}`)))
+	require.False(t, geminiPayloadStartsVisibleTTFT([]byte(`{"candidates":[{"finishReason":"STOP"}]}`)))
+	require.True(t, geminiPayloadStartsVisibleTTFT([]byte(`{"candidates":[{"content":{"parts":[{"text":"answer"}]}}]}`)))
+	require.True(t, geminiPayloadStartsVisibleTTFT([]byte(`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"x"}}]}}]}`)))
+	require.True(t, geminiPayloadStartsVisibleTTFT([]byte(`{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"abc"}}]}}]}`)))
+	// Mixed thought + visible text counts (visible part present).
+	require.True(t, geminiPayloadStartsVisibleTTFT([]byte(`{"candidates":[{"content":{"parts":[{"thought":true,"text":"hmm"},{"text":"hi"}]}}]}`)))
+}
+
 func TestGeminiG1CreditsCoolsImmediately(t *testing.T) {
 	store := &geminiCooldownStub{}
 	account := &Account{ID: 292}

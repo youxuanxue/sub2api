@@ -249,11 +249,9 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	heldBytes := 0
 	modelBytesWritten := false
 	flushHeld := func() {
+		// Held thought/signature prefixes are flushed for wire order but must
+		// not start visible TTFT; keepalive already never reaches here.
 		for _, item := range held {
-			if firstTokenMs == nil {
-				ms := int(time.Since(startTime).Milliseconds())
-				firstTokenMs = &ms
-			}
 			if !cw.Fprintf("data: %s\n\n", item) {
 				break
 			}
@@ -271,7 +269,8 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		if cw.Disconnected() {
 			return
 		}
-		if firstTokenMs == nil {
+		// Visible TTFT: first non-thought text/tool/media only.
+		if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT([]byte(payload)) {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
@@ -563,8 +562,8 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 				continue
 			}
 
-			// 记录首 token 时间
-			if firstTokenMs == nil {
+			// Visible TTFT for non-stream collect: skip thought-only prefixes.
+			if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT(inner) {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
 			}
