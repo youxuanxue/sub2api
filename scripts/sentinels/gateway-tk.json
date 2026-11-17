@@ -3357,9 +3357,11 @@
         "video_url is not reachable; provide a video URL this service can access",
         "func wrapVolcKimiStringVideoURLs(",
         "func dropVolcKimiEmptyTextParts(",
-        "shaped, err = dropVolcKimiEmptyTextParts(shaped)"
+        "shaped, err = dropVolcKimiEmptyTextParts(shaped)",
+        "func dropVolcKimiInterleavedAssistantText(",
+        "shaped, err = dropVolcKimiInterleavedAssistantText(shaped)"
       ],
-      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire."
+      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. Interleaved assistant text between tool_calls and tool results is dropped before Volc InvalidParameter 400."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
@@ -3433,11 +3435,12 @@
         "func TestVolcKimiChatAllowedToolsEnvelope(",
         "func TestVolcKimiForwardKeepsThinkingAndToolConstraints(",
         "func TestVolcKimiInboundMessageShapes(",
+        "Claude-Code-style trajectories insert assistant text",
         "func TestVolcKimiVideoURLPreflight(",
         "func TestVolcKimiHTTPVideoProbe(",
         "func TestVolcKimiDropsEmptyTextParts("
       ],
-      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface."
+      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface and interleaved-assistant drop for Volc tool round-trips."
     },
     {
       "path": "backend/internal/pkg/httputil/body.go",

@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-17 cn-prod tokensea interleaved assistant 网关兼容
+
+原话：「查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。」
+
+适用范围：已判定 `rt@tk.com` / `tokensea_online` 为真实业务流量。对 `kimi-*` 在转发前丢弃夹在 `assistant.tool_calls` 与对应 `tool` 结果之间的无 `tool_calls` assistant 文本；普通非 tool round-trip 的 assistant 文本不动。契约记入 `docs/approved/volc-kimi-chat-compatibility.md`。
+
 ## 2026-11-15 美西 prod 入口机 + 多应用机
 
 原话：「1-2 确认。4 确认接受丢失。3 同 cn-prod 一样，不需要热备入口？请安全推进，不要影响线上用户流量和请求。」
