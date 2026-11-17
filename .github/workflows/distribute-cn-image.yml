@@ -218,7 +218,8 @@ jobs:
       inputs.transport == 'ghcr' &&
       needs.resolve.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Beijing→GHCR can be slow; app-b 1.8.381 hit the old 20m TAT budget mid-pull.
+    timeout-minutes: 90
     environment: tencent-ops
     permissions:
       contents: read
@@ -263,6 +264,7 @@ jobs:
             --channel tat \
             --repository "$REPO" \
             --digest "$DIGEST" \
+            --timeout 3600 \
             --receipt-out cn-image-warm.json
       - uses: actions/upload-artifact@v7
         if: always()
