@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -344,6 +345,70 @@ func TestRateLimitService_OAuth403_KiroNonBearerStillSetErrors(t *testing.T) {
 	require.Equal(t, 0, repo.updateCredentialsCalls)
 	require.Equal(t, 1, repo.setErrorCalls)
 	require.Equal(t, 0, repo.tempCalls)
+}
+
+// Regression for 2026-11-16 prod: classify rewrote invalid-bearer Legacy Q 403s
+// into {"error":{"message":"upstream forbidden"}}, so HandleUpstreamError skipped
+// force-refresh and permanently SetError accounts that still had credits.
+func TestRateLimitService_OAuth403_KiroInvalidBearerSurvivesClassifyRewrite(t *testing.T) {
+	_, classified := classifyKiroForwardError(
+		fmt.Errorf(`HTTP 403 from Kiro Legacy Q: {"message":"The bearer token included in the request is invalid.","reason":null}`),
+		"claude-sonnet-4-5",
+	)
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, classified, &failover)
+
+	account := newKiroOAuth401Account(727, time.Now().Add(2*time.Hour))
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	executor := &refreshAPIExecutorStub{
+		needsRefresh: false,
+		credentials: map[string]any{
+			"access_token":  "new-at",
+			"refresh_token": "new-rt",
+			"expires_at":    time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	service.SetKiroOAuthRefreshExecutor(executor)
+
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		failover.StatusCode,
+		http.Header{},
+		failover.ResponseBody,
+	)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, executor.refreshCalls)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 1, repo.clearErrorCalls)
+}
+
+func TestRateLimitService_OAuth403_KiroGenericUpstreamForbiddenStillSetErrors(t *testing.T) {
+	account := newKiroOAuth401Account(728, time.Now().Add(2*time.Hour))
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	executor := &refreshAPIExecutorStub{
+		needsRefresh: false,
+		credentials:  map[string]any{"access_token": "new-at"},
+	}
+	service.SetKiroOAuthRefreshExecutor(executor)
+
+	// Pre-fix rewritten body shape: no bearer markers → still permanent disable.
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"error":{"type":"permission_error","message":"upstream forbidden"}}`),
+	)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, executor.refreshCalls)
+	require.Equal(t, 1, repo.setErrorCalls)
 }
 
 func newKiroOAuth401Account(id int64, expiresAt time.Time) *Account {

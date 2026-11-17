@@ -708,16 +708,17 @@ func isKiroInvalidModelError(msg string) bool {
 // {"__type":"AccessDeniedException"}, which fail looksLikeStructuredErrorJSON
 // and stop the chat-completions loop on that account. HTML and empty 403s stay
 // on the fail-fast path.
+//
+// Preserve the upstream sentence when present. cn-prod/prod 2026-11-16 showed
+// invalid-bearer Legacy Q bodies being rewritten to a generic
+// "upstream forbidden", which made tkMaybeRefreshKiroInvalidBearer403 miss and
+// permanently SetError accounts that still had monthly credits.
 func kiroJSONForbiddenFailover(statusCode int, rawMsg string, body []byte) (*kiroForwardErrorObservation, error, bool) {
 	trimmed := bytes.TrimSpace(body)
 	if statusCode != http.StatusForbidden || len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {
 		return nil, nil, false
 	}
-	message := "upstream forbidden"
-	if strings.Contains(strings.ToLower(rawMsg), "accessdeniedexception") ||
-		strings.Contains(strings.ToLower(string(trimmed)), "accessdeniedexception") {
-		message = "AccessDeniedException"
-	}
+	message := kiroJSONForbiddenFailoverMessage(rawMsg, trimmed)
 	wrapped, err := json.Marshal(map[string]any{
 		"error": map[string]string{
 			"type":    "permission_error",
@@ -735,6 +736,19 @@ func kiroJSONForbiddenFailover(statusCode int, rawMsg string, body []byte) (*kir
 		StatusCode:   statusCode,
 		ResponseBody: wrapped,
 	}, true
+}
+
+func kiroJSONForbiddenFailoverMessage(rawMsg string, body []byte) string {
+	lowerRaw := strings.ToLower(rawMsg)
+	lowerBody := strings.ToLower(string(body))
+	if strings.Contains(lowerRaw, "accessdeniedexception") ||
+		strings.Contains(lowerBody, "accessdeniedexception") {
+		return "AccessDeniedException"
+	}
+	if original := strings.TrimSpace(extractUpstreamErrorMessage(body)); original != "" {
+		return original
+	}
+	return "upstream forbidden"
 }
 
 func parseKiroHTTPError(msg string) (int, []byte, bool) {

@@ -1386,7 +1386,18 @@ func TestClassifyKiroForwardError_AccessDeniedContinuesFailover(t *testing.T) {
 	)
 	var messageFailover *UpstreamFailoverError
 	require.ErrorAs(t, messageOnly, &messageFailover)
-	require.JSONEq(t, `{"error":{"type":"permission_error","message":"upstream forbidden"}}`, string(messageFailover.ResponseBody))
+	require.JSONEq(t, `{"error":{"type":"permission_error","message":"User is not authorized to perform kiro:GenerateAssistantResponse"}}`, string(messageFailover.ResponseBody))
+
+	_, invalidBearer := classifyKiroForwardError(
+		fmt.Errorf(`HTTP 403 from Kiro Legacy Q: {"message":"The bearer token included in the request is invalid.","reason":null}`),
+		"claude-sonnet-4-5",
+	)
+	var bearerFailover *UpstreamFailoverError
+	require.ErrorAs(t, invalidBearer, &bearerFailover)
+	require.Equal(t, http.StatusForbidden, bearerFailover.StatusCode)
+	require.JSONEq(t, `{"error":{"type":"permission_error","message":"The bearer token included in the request is invalid."}}`, string(bearerFailover.ResponseBody))
+	require.True(t, tkIsKiroInvalidBearer403("", bearerFailover.ResponseBody),
+		"rewritten 403 body must still match the invalid-bearer refresh classifier")
 }
 
 func TestClassifyKiroForwardError_TransportFailureTriggersFailover(t *testing.T) {
