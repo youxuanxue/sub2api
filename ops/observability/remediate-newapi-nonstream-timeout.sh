@@ -94,27 +94,39 @@ if [ -f /var/lib/tokenkey/docker-compose.bluegreen.yml ]; then
   ENV_FILE="${ROOT}/.env"
   COMPOSE_BG="${ROOT}/docker-compose.bluegreen.yml"
 elif [ -f /opt/tokenkey/compose.yml ]; then
-  HOST_KIND=cn
+  # M6: cn-prod is single-container tokenkey. Leftover blue/green+socat is refuse.
   ROOT=/opt/tokenkey
   ENV_FILE="${ROOT}/.env"
   COMPOSE_BG="${ROOT}/compose.yml"
+  if [ -r "$ACTIVE_FILE" ] || sudo docker inspect tokenkey-blue >/dev/null 2>&1 \
+      || sudo docker inspect tokenkey-green >/dev/null 2>&1 \
+      || sudo docker inspect tokenkey-entry-origin >/dev/null 2>&1; then
+    echo "::error::cn-prod blue/green+socat remediate retired at M6; refuse leftover layout"
+    exit 1
+  fi
+  HOST_KIND=cn-single
+  ACTIVE=single
+  INACTIVE=single
+  ACTIVE_CTR=tokenkey
+  INACTIVE_CTR=tokenkey
 else
   echo "::error::unknown host layout (neither aws bluegreen nor cn compose.yml)"
   exit 1
 fi
 
-[[ -r "$ACTIVE_FILE" ]] || { echo "::error::missing $ACTIVE_FILE"; exit 1; }
-[[ -f "$LIVE_CADDY" ]] || { echo "::error::missing $LIVE_CADDY"; exit 1; }
+if [ "$HOST_KIND" = aws ]; then
+  [[ -r "$ACTIVE_FILE" ]] || { echo "::error::missing $ACTIVE_FILE"; exit 1; }
+  [[ -f "$LIVE_CADDY" ]] || { echo "::error::missing $LIVE_CADDY"; exit 1; }
+  ACTIVE="$(sed -n '1p' "$ACTIVE_FILE" | tr -d '[:space:]')"
+  case "$ACTIVE" in
+    blue) INACTIVE=green ;;
+    green) INACTIVE=blue ;;
+    *) echo "::error::invalid active-color=$ACTIVE"; exit 1 ;;
+  esac
+  ACTIVE_CTR="tokenkey-${ACTIVE}"
+  INACTIVE_CTR="tokenkey-${INACTIVE}"
+fi
 [[ -f "$ENV_FILE" ]] || { echo "::error::missing $ENV_FILE"; exit 1; }
-
-ACTIVE="$(sed -n '1p' "$ACTIVE_FILE" | tr -d '[:space:]')"
-case "$ACTIVE" in
-  blue) INACTIVE=green ;;
-  green) INACTIVE=blue ;;
-  *) echo "::error::invalid active-color=$ACTIVE"; exit 1 ;;
-esac
-ACTIVE_CTR="tokenkey-${ACTIVE}"
-INACTIVE_CTR="tokenkey-${INACTIVE}"
 
 upsert_env() {
   local key="$1" val="$2"
@@ -281,17 +293,81 @@ echo "=== before .env ==="
 sudo awk -v k="$KEY" -F= '$1==k {print}' "$ENV_FILE" || echo "(missing)"
 echo "=== before active container env ==="
 container_key_env "$ACTIVE_CTR" || echo "(missing on $ACTIVE_CTR)"
-echo "=== before inactive container env ==="
-container_key_env "$INACTIVE_CTR" 2>/dev/null || echo "(missing/stopped on $INACTIVE_CTR)"
-echo "=== before caddy upstream ==="
-sudo grep -nE 'reverse_proxy[[:space:]]+tokenkey' "$LIVE_CADDY" | head -5
-echo "=== inflight active (must stay serving until cutover) ==="
+if [ "$HOST_KIND" = aws ]; then
+  echo "=== before inactive container env ==="
+  container_key_env "$INACTIVE_CTR" 2>/dev/null || echo "(missing/stopped on $INACTIVE_CTR)"
+  echo "=== before caddy upstream ==="
+  sudo grep -nE 'reverse_proxy[[:space:]]+tokenkey' "$LIVE_CADDY" | head -5
+  echo "=== inflight active (must stay serving until cutover) ==="
+else
+  echo "=== inflight tokenkey (single-container) ==="
+fi
 sudo docker exec "$ACTIVE_CTR" wget -q -T 3 -O - http://localhost:8080/health/inflight 2>/dev/null || true
 echo
 
 if [ "$APPLY" != "$EXPECT_APPLY" ]; then
   echo "=== dry-run ==="
   echo "{\"apply\":false,\"mode\":\"${MODE}\",\"key\":\"${KEY}\",\"host_kind\":\"${HOST_KIND}\",\"active\":\"${ACTIVE}\",\"inactive\":\"${INACTIVE}\",\"want\":${WANT_TIMEOUT}}"
+  exit 0
+fi
+
+
+if [ "$HOST_KIND" = cn-single ]; then
+  echo "=== backup ==="
+  ts="$(date +%Y%m%d-%H%M%S)"
+  sudo cp -a "$ENV_FILE" "${ENV_FILE}.before-${MODE}-timeout-${ts}"
+  sudo cp -a "$COMPOSE_BG" "${COMPOSE_BG}.before-${MODE}-timeout-${ts}"
+  for extra in "$ROOT/compose.override.yml" "$ROOT/compose.node.yml" "$ROOT/compose.local.yml"; do
+    [ -f "$extra" ] && sudo cp -a "$extra" "${extra}.before-${MODE}-timeout-${ts}" || true
+  done
+
+  echo "=== upsert .env ==="
+  upsert_env "$KEY" "$WANT_TIMEOUT"
+  sudo awk -v k="$KEY" -F= '$1==k {print}' "$ENV_FILE"
+
+  echo "=== patch compose fallbacks ==="
+  patch_compose_fallback "$COMPOSE_BG"
+  for extra in "$ROOT/compose.override.yml" "$ROOT/compose.node.yml"; do
+    patch_compose_fallback "$extra"
+  done
+
+  echo "=== drain tokenkey before recreate ==="
+  sudo docker kill -s USR1 tokenkey 2>/dev/null || true
+  for i in $(seq 1 90); do
+    body="$(sudo docker exec tokenkey wget -q -T 3 -O - http://localhost:8080/health/inflight 2>/dev/null || true)"
+    n="$(printf '%s' "$body" | sed -n 's/.*"in_flight":\([0-9]*\).*/\1/p')"
+    if printf '%s' "$body" | grep -q '"draining":true'; then d=true; else d=false; fi
+    echo "drain: draining=$d in_flight=${n:-?} try=$i/90"
+    [ "$d" = true ] && [ "${n:-1}" = 0 ] && break
+    sleep 2
+  done
+
+  echo "=== recreate tokenkey ==="
+  cd "$ROOT"
+  COMPOSE_FILES=(-f compose.yml)
+  [ -f compose.override.yml ] && COMPOSE_FILES+=(-f compose.override.yml)
+  [ -f compose.local.yml ] && COMPOSE_FILES+=(-f compose.local.yml)
+  [ -f compose.node.yml ] && COMPOSE_FILES+=(-f compose.node.yml)
+  sudo docker compose --project-directory "$ROOT" --env-file .env "${COMPOSE_FILES[@]}" \
+    up -d --no-deps --force-recreate --timeout 60 tokenkey
+
+  wait_healthy tokenkey || {
+    echo "::error::tokenkey not healthy after recreate"
+    sudo docker logs tokenkey --since 3m 2>&1 | tail -60 || true
+    exit 1
+  }
+  health_http_ok tokenkey || {
+    echo "::error::tokenkey /health not HTTP 200"
+    exit 1
+  }
+  got="$(container_key_env tokenkey || true)"
+  echo "tokenkey env: $got"
+  if [ "$got" != "${KEY}=${WANT_TIMEOUT}" ]; then
+    echo "::error::tokenkey missing ${KEY}=${WANT_TIMEOUT} (got ${got:-empty})"
+    exit 1
+  fi
+  echo "=== done (cn-single) ==="
+  printf '%s\n' "{\"apply\":true,\"mode\":\"${MODE}\",\"key\":\"${KEY}\",\"host_kind\":\"cn-single\",\"want\":${WANT_TIMEOUT},\"container\":\"tokenkey\"}"
   exit 0
 fi
 
@@ -329,83 +405,8 @@ bring_up_inactive_aws() {
   sudo docker compose --project-name tokenkey --env-file .env -f docker-compose.bluegreen.yml \
     up -d --no-deps --force-recreate --timeout 60 "$INACTIVE_CTR"
 }
-
-bring_up_inactive_cn() {
-  # Mirror deploy/domestic/bluegreen.py candidate_compose: clone the live
-  # container identity onto the standby color with the alternate host port
-  # (blue=18081, green=18082) and an explicit timeout override.
-  local work compose_out
-  work="${ROOT}/.remediate-${MODE}-${WANT_TIMEOUT}-${ts}"
-  sudo mkdir -p "$work"
-  compose_out="${work}/compose.json"
-  sudo python3 - "$ACTIVE_CTR" "$INACTIVE_CTR" "$compose_out" "$KEY" "$WANT_TIMEOUT" <<'PY'
-import json, pathlib, subprocess, sys
-active, target, dst, key, want = sys.argv[1:6]
-insp = json.loads(subprocess.check_output(["docker", "inspect", active], text=True))[0]
-env = dict(item.split("=", 1) for item in insp["Config"]["Env"])
-env[key] = want
-# Compose must not re-interpolate literal dollars from secrets/config.
-env = {k: v.replace("$", "$$") for k, v in env.items()}
-networks = insp["NetworkSettings"]["Networks"]
-if len(networks) != 1:
-    raise SystemExit(f"expected one app network, got {list(networks)}")
-net_name = next(iter(networks))
-published = "18081" if target.endswith("blue") else "18082"
-# Prefer the live image id so standby matches serving bits exactly.
-image = insp["Image"]
-mounts = []
-for m in insp["Mounts"]:
-    item = {
-        "type": m["Type"].lower(),
-        "source": m["Source"],
-        "target": m["Destination"],
-    }
-    if not m.get("RW", True):
-        item["read_only"] = True
-    mounts.append(item)
-svc = {
-    "image": image,
-    "container_name": target,
-    "pull_policy": "never",
-    "restart": "unless-stopped",
-    "environment": env,
-    "volumes": mounts,
-    "ports": [{
-        "target": 8080,
-        "published": published,
-        "host_ip": "127.0.0.1",
-        "protocol": "tcp",
-    }],
-    "networks": ["existing"],
-}
-# Preserve healthcheck from the live container when present.
-hc = insp["Config"].get("Healthcheck")
-if hc:
-    svc["healthcheck"] = {
-        "test": hc.get("Test") or ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/health"],
-        "interval": "10s",
-        "timeout": "5s",
-        "retries": 12,
-        "start_period": "40s",
-    }
-doc = {
-    "services": {target: svc},
-    "networks": {"existing": {"external": True, "name": net_name}},
-}
-pathlib.Path(dst).write_text(json.dumps(doc, indent=2) + "\n")
-print(f"wrote {dst} service={target} published={published} image={image[:19]}…")
-PY
-  sudo docker rm -f "$INACTIVE_CTR" >/dev/null 2>&1 || true
-  sudo docker compose -p cn-prod-bluegreen --project-directory "$work" \
-    -f "$compose_out" up -d --no-deps --timeout 60 "$INACTIVE_CTR"
-}
-
 echo "=== bring up inactive ${INACTIVE_CTR} (live ${ACTIVE_CTR} untouched) ==="
-if [ "$HOST_KIND" = aws ]; then
-  bring_up_inactive_aws
-else
-  bring_up_inactive_cn
-fi
+bring_up_inactive_aws
 
 wait_healthy "$INACTIVE_CTR" || {
   echo "::error::inactive not healthy"
@@ -471,72 +472,9 @@ drain_standby() {
 drain_standby "$OLD_CTR" 180
 
 echo "=== recreate previous color ${OLD_CTR} so both sides carry ${WANT_TIMEOUT} ==="
-if [ "$HOST_KIND" = aws ]; then
-  cd "$ROOT"
-  sudo docker compose --project-name tokenkey --env-file .env -f docker-compose.bluegreen.yml \
-    up -d --no-deps --force-recreate --timeout 60 "$OLD_CTR"
-else
-  # Rebuild the drained previous color from the now-serving container identity.
-  work="${ROOT}/.remediate-${MODE}-${WANT_TIMEOUT}-${ts}"
-  old_compose="${work}/compose-old.json"
-  sudo python3 - "$NEW_ACTIVE_CTR" "$OLD_CTR" "$old_compose" "$KEY" "$WANT_TIMEOUT" <<'PY'
-import json, pathlib, subprocess, sys
-active, target, dst, key, want = sys.argv[1:6]
-insp = json.loads(subprocess.check_output(["docker", "inspect", active], text=True))[0]
-env = dict(item.split("=", 1) for item in insp["Config"]["Env"])
-env[key] = want
-env = {k: v.replace("$", "$$") for k, v in env.items()}
-networks = insp["NetworkSettings"]["Networks"]
-if len(networks) != 1:
-    raise SystemExit(f"expected one app network, got {list(networks)}")
-net_name = next(iter(networks))
-published = "18081" if target.endswith("blue") else "18082"
-image = insp["Image"]
-mounts = []
-for m in insp["Mounts"]:
-    item = {
-        "type": m["Type"].lower(),
-        "source": m["Source"],
-        "target": m["Destination"],
-    }
-    if not m.get("RW", True):
-        item["read_only"] = True
-    mounts.append(item)
-svc = {
-    "image": image,
-    "container_name": target,
-    "pull_policy": "never",
-    "restart": "unless-stopped",
-    "environment": env,
-    "volumes": mounts,
-    "ports": [{
-        "target": 8080,
-        "published": published,
-        "host_ip": "127.0.0.1",
-        "protocol": "tcp",
-    }],
-    "networks": ["existing"],
-}
-hc = insp["Config"].get("Healthcheck")
-if hc:
-    svc["healthcheck"] = {
-        "test": hc.get("Test") or ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/health"],
-        "interval": "10s",
-        "timeout": "5s",
-        "retries": 12,
-        "start_period": "40s",
-    }
-doc = {
-    "services": {target: svc},
-    "networks": {"existing": {"external": True, "name": net_name}},
-}
-pathlib.Path(dst).write_text(json.dumps(doc, indent=2) + "\n")
-print(f"wrote {dst} service={target} published={published}")
-PY
-  sudo docker rm -f "$OLD_CTR" >/dev/null 2>&1 || true
-  sudo docker compose -p cn-prod-bluegreen --project-directory "$work" \
-    -f "$old_compose" up -d --no-deps --timeout 60 "$OLD_CTR"
-fi
+cd "$ROOT"
+sudo docker compose --project-name tokenkey --env-file .env -f docker-compose.bluegreen.yml \
+  up -d --no-deps --force-recreate --timeout 60 "$OLD_CTR"
 
 wait_healthy "$OLD_CTR" || echo "::warning::old color not healthy yet (non-serving); inspect later"
 old_got="$(container_key_env "$OLD_CTR" || true)"

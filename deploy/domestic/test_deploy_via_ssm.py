@@ -47,20 +47,9 @@ class DeployViaSsmTest(unittest.TestCase):
             json.dumps(manifest, indent=2) + "\n"
         )
 
-        # Minimal control files for sync-controls.
-        for name, body in (
-            ("bluegreen.py", "print('bluegreen')\n"),
-            ("candidate_smoke.py", "print('candidate')\n"),
-            ("data_layout.py", "print('layout')\n"),
-            ("post_release.py", "print('post')\n"),
-            ("prod-target.json", json.dumps(manifest) + "\n"),
-        ):
-            (self.repo / "deploy/domestic" / name).write_text(body)
-        (self.repo / "ops/stage0/deploy_via_ssm_bluegreen.sh").write_text("#!/bin/bash\n")
-        (self.repo / "scripts/release_post_check.py").write_text("print(1)\n")
-        (self.repo / "ops/observability/probe-post-release-tick.sh").write_text("#!/bin/bash\n")
-        (self.repo / "ops/lib/resolve_app_container.py").write_text("print(1)\n")
-        (self.repo / "ops/stage0/notify-feishu-release.sh").write_text("#!/bin/bash\n")
+        # put-file payload for identity / land-file tests (M6: no bluegreen bundle).
+        self.put_src = self.repo / "sample-put.sh"
+        self.put_src.write_text("#!/bin/bash\necho ok\n")
 
         self.fakebin = self.repo / "fakebin"
         self.fakebin.mkdir()
@@ -521,25 +510,35 @@ class DeployViaSsmTest(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertEqual(result.stdout, "")
 
-    def test_prepare_requires_full_revision(self) -> None:
-        proc = self._run(
-            "prepare",
-            "--tag",
-            "1.8.306",
-            "--revision",
-            "abc",
-            "--image",
-            "tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf",
-        )
-        self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("40-char", proc.stderr)
 
-    def test_sync_controls_sends_bundle(self) -> None:
-        proc = self._run("sync-controls")
+    def test_retired_bluegreen_actions_refuse(self) -> None:
+        for action in ("sync-controls", "prepare", "candidate-smoke", "promote"):
+            with self.subTest(action=action):
+                if self.aws_log.exists():
+                    self.aws_log.write_text("")
+                proc = self._run(action)
+                self.assertEqual(proc.returncode, 2, msg=proc.stderr + proc.stdout)
+                self.assertIn("retired at M6", proc.stderr)
+                self.assertFalse(
+                    self.aws_log.exists() and "send-command" in self.aws_log.read_text(),
+                    msg="retired actions must not reach SSM send-command",
+                )
+    def _put_file(self) -> subprocess.CompletedProcess[str]:
+        return self._run(
+            "put-file",
+            "--local",
+            str(self.put_src),
+            "--remote",
+            "/var/lib/tokenkey/sample-put.sh",
+            "--force",
+        )
+
+    def test_put_file_sends_ssm(self) -> None:
+        proc = self._put_file()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         log = self.aws_log.read_text()
         self.assertIn("send-command", log)
-        self.assertIn("cn-prod-deploy sync-controls", log)
+        self.assertIn("cn-prod-deploy put-file", log)
 
     def _rewrite_ssm_name(self, name: str) -> None:
         describe = self.repo / "ssm-describe.json"
@@ -549,13 +548,13 @@ class DeployViaSsmTest(unittest.TestCase):
 
     def test_identity_accepts_registered_beijing_name(self) -> None:
         self._rewrite_ssm_name("tokenkey-cn-prod")
-        proc = self._run("sync-controls")
+        proc = self._put_file()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         self.assertIn("send-command", self.aws_log.read_text())
 
     def test_identity_rejects_unregistered_name_before_send(self) -> None:
         self._rewrite_ssm_name("other-host")
-        proc = self._run("sync-controls")
+        proc = self._put_file()
         self.assertEqual(proc.returncode, 2)
         self.assertIn("SSM identity not ready", proc.stderr)
         self.assertNotIn("send-command", self.aws_log.read_text())
@@ -586,129 +585,6 @@ class DeployViaSsmTest(unittest.TestCase):
         )
         self.assertNotIn("send-command", self.aws_log.read_text())
 
-    def test_prepare_rejects_image_tag_mismatch(self) -> None:
-        proc = self._run(
-            "prepare",
-            "--tag",
-            "1.8.306",
-            "--revision",
-            "2d4b4cdbf8fbae7d1cf888d5c47b6a584ad6d2bd",
-            "--image",
-            "tokenkey-domestic/tokenkey:1.8.306-deadbeef0",
-        )
-        self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("must be tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf", proc.stderr)
-
-    def test_prepare_dry_run_quotes_shared_source(self) -> None:
-        env = {
-            **os.environ,
-            "PATH": f"{self.fakebin}:{os.environ.get('PATH', '')}",
-            "CN_PROD_SSM_DRY_RUN": "1",
-        }
-        proc = subprocess.run(
-            [
-                "bash",
-                "deploy/domestic/deploy_via_ssm.sh",
-                "prepare",
-                "--tag",
-                "1.8.306",
-                "--revision",
-                "2d4b4cdbf8fbae7d1cf888d5c47b6a584ad6d2bd",
-                "--image",
-                "tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf",
-            ],
-            cwd=self.repo,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
-        self.assertIn(
-            "--shared-source '/opt/tokenkey/releases/artifacts-ssm/deploy_via_ssm_bluegreen.sh'",
-            proc.stdout,
-        )
-        self.assertIn("--revision '2d4b4cdbf8fbae7d1cf888d5c47b6a584ad6d2bd'", proc.stdout)
-
-    def _dry_run(self, *args: str) -> subprocess.CompletedProcess[str]:
-        env = {
-            **os.environ,
-            "PATH": f"{self.fakebin}:{os.environ.get('PATH', '')}",
-            "CN_PROD_SSM_DRY_RUN": "1",
-        }
-        return subprocess.run(
-            ["bash", "deploy/domestic/deploy_via_ssm.sh", *args],
-            cwd=self.repo,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-    def test_candidate_smoke_dry_run_invokes_synced_script(self) -> None:
-        state = "/opt/tokenkey/releases/1.8.306-2d4b4cdbf"
-        proc = self._dry_run("candidate-smoke", "--state", state)
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
-        self.assertIn("/opt/tokenkey/releases/artifacts-ssm/candidate_smoke.py", proc.stdout)
-        self.assertIn(f"--state '{state}'", proc.stdout)
-        self.assertIn("--out '/private/candidate-smoke.json'", proc.stdout)
-        self.assertNotIn("base64 -d", proc.stdout)
-        self.assertNotIn("send-command", self.aws_log.read_text())
-
-    def test_candidate_smoke_rejects_reconstructed_state(self) -> None:
-        proc = self._dry_run("candidate-smoke", "--state", "/opt/tokenkey/releases/RELEASE")
-        self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("--state must be", proc.stderr)
-
-    def test_promote_dry_run_uses_manifest_origin(self) -> None:
-        state = "/opt/tokenkey/releases/1.8.337-4529659c8"
-        receipt = "c02501b6371a83172929ff0ebcc1566f4dacec011b4fa720b9b09befa7f9d858"
-        origin = json.loads((self.repo / "deploy/domestic/prod-target.json").read_text())["public_origin"]
-        proc = self._dry_run(
-            "promote",
-            "--state",
-            state,
-            "--receipt",
-            receipt,
-            "--postcheck-plan",
-            "/private/post-plan.json",
-        )
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
-        self.assertIn("/opt/tokenkey/releases/artifacts-ssm/bluegreen.py' promote", proc.stdout)
-        self.assertIn(f"--public-url '{origin}'", proc.stdout)
-        self.assertIn("--smoke-report '/private/candidate-smoke.json'", proc.stdout)
-        self.assertIn(f"{state}/post-release/summary.md", proc.stdout)
-        self.assertNotIn("base64 -d", proc.stdout)
-
-    def test_promote_rejects_a_different_public_url(self) -> None:
-        proc = self._run(
-            "promote",
-            "--state",
-            "/opt/tokenkey/releases/1.8.337-4529659c8",
-            "--receipt",
-            "c02501b6371a83172929ff0ebcc1566f4dacec011b4fa720b9b09befa7f9d858",
-            "--postcheck-plan",
-            "/private/post-plan.json",
-            "--public-url",
-            "https://154.8.214.179",
-        )
-        self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("public_origin", proc.stderr)
-        self.assertNotIn("send-command", self.aws_log.read_text())
-
-    def test_promote_extends_execution_timeout_for_the_delayed_check(self) -> None:
-        proc = self._run(
-            "promote",
-            "--state",
-            "/opt/tokenkey/releases/1.8.337-4529659c8",
-            "--receipt",
-            "c02501b6371a83172929ff0ebcc1566f4dacec011b4fa720b9b09befa7f9d858",
-            "--postcheck-plan",
-            "/private/post-plan.json",
-        )
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
-        params = json.loads(self.ssm_parameters.read_text())
-        self.assertEqual(params["executionTimeout"], ["1800"])
 
 
 if __name__ == "__main__":

@@ -9,11 +9,13 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from deploy.domestic import bluegreen as bg
+from deploy.domestic import node_compose
 
 ROOT = Path(__file__).resolve().parents[2]
 OVERRIDE = ROOT / "deploy/domestic/compose.override.yml"
 PROBE = ROOT / "ops/observability/probe-cn-prod-pool-env.sh"
+TARGET = ROOT / "deploy/domestic/prod-target.json"
+BASE = ROOT / "deploy/aws/stage0/docker-compose.yml"
 
 KEYS = {
     "GOMEMLIMIT": "WANT_GOMEM",
@@ -44,29 +46,42 @@ def probe_want_values(text: str) -> dict[str, str]:
     return values
 
 
+def compose_env(**extra: str) -> dict[str, str]:
+    env = os.environ.copy()
+    env.update({
+        "JWT_SECRET": "dummy-jwt",
+        "TOTP_ENCRYPTION_KEY": "dummy-totp",
+        "POSTGRES_PASSWORD": "dummy-pg",
+        "TOKENKEY_IMAGE": "tokenkey:local",
+        "POSTGRES_IMAGE": "postgres:18-alpine",
+        "REDIS_IMAGE": "redis:8-alpine",
+        "CADDY_IMAGE": "caddy:2",
+        "DATABASE_HOST": "10.2.4.5",
+        "REDIS_HOST": "10.2.4.5",
+        **extra,
+    })
+    return env
+
+
 class PoolEnvProbeSSOTTest(unittest.TestCase):
     def test_probe_want_exports_match_compose_override(self):
         override = override_pool_values(OVERRIDE.read_text())
         probe = probe_want_values(PROBE.read_text())
         self.assertEqual(probe, override)
 
-    def test_bluegreen_pool_env_keys_match_probe_ssot(self):
-        self.assertEqual(set(bg.POOL_ENV_KEYS), set(KEYS))
-
     def test_probe_documents_compose_override_as_ssot(self):
         text = PROBE.read_text()
         self.assertIn("deploy/domestic/compose.override.yml", text)
         self.assertIn("SSOT", text)
 
-    def test_every_override_app_env_key_propagates_through_bluegreen(self):
-        """An override key that no *_ENV_KEYS tuple claims never reaches a new color.
+    def test_override_app_env_reaches_compose_config(self):
+        """Rolling reads compose as SSOT; every override env key must render.
 
-        candidate_compose() inherits the candidate environment from the live
-        container so secrets stay on the host, then overlays only the keys named
-        in POOL_ENV_KEYS / QA_ENV_KEYS / CONFIG_ENV_KEYS. When
-        SECURITY_PROXY_PROBE_PRESET was added to the override alone, every
-        promote produced a color without it and nothing failed
-        (found 2026-10-23, cn-prod 1.8.318). Keep that silent path closed.
+        Pre-M6 blue/green inherited live-container env and overlayed only named
+        tuples. After M6 the single container reads compose directly, so a key
+        present in override but missing from `docker compose config` would
+        silently never reach the gateway (same class of bug as
+        SECURITY_PROXY_PROBE_PRESET on 2026-10-23).
         """
         text = OVERRIDE.read_text()
         service = re.search(r'(?ms)^  tokenkey:\n(.*?)(?=^  \S|\Z)', text)
@@ -75,15 +90,20 @@ class PoolEnvProbeSSOTTest(unittest.TestCase):
         self.assertIsNotNone(environment, "tokenkey service must declare environment")
         declared = set(re.findall(r'(?m)^\s*([A-Z][A-Z0-9_]*):\s', environment.group(1)))
         self.assertIn("SECURITY_PROXY_PROBE_PRESET", declared)
-        propagated = set(bg.POOL_ENV_KEYS) | set(bg.QA_ENV_KEYS) | set(bg.CONFIG_ENV_KEYS)
-        missing = declared - propagated
-        self.assertEqual(
-            missing, set(),
-            "compose.override.yml declares app env not propagated by blue/green: "
-            + ", ".join(sorted(missing))
-            + ". Add each to POOL_ENV_KEYS, QA_ENV_KEYS or CONFIG_ENV_KEYS in "
-              "deploy/domestic/bluegreen.py, or the next promote serves without it.",
+
+        proc = subprocess.run(
+            ["docker", "compose", "-f", str(BASE), "-f", str(OVERRIDE), "config", "--format", "json"],
+            env=compose_env(),
+            capture_output=True,
+            text=True,
+            check=False,
         )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        rendered = json.loads(proc.stdout)["services"]["tokenkey"]["environment"]
+        if isinstance(rendered, list):
+            rendered = dict(item.split("=", 1) for item in rendered if "=" in item)
+        missing = sorted(k for k in declared if k not in rendered)
+        self.assertEqual(missing, [], f"override env missing from compose config: {missing}")
 
     def test_compose_override_sets_domestic_proxy_probe_preset(self):
         text = OVERRIDE.read_text()
@@ -93,34 +113,27 @@ class PoolEnvProbeSSOTTest(unittest.TestCase):
             "cn-prod must default proxy exit probes to the domestic builtin chain",
         )
 
-    def test_relay_gate_cap_is_declared_and_propagated(self):
+    def test_relay_gate_cap_is_declared_and_in_node_compose(self):
         text = OVERRIDE.read_text()
         self.assertRegex(
             text,
             r'(?m)^\s*GATEWAY_MAX_IN_FLIGHT_REQUESTS:\s*"[1-9][0-9]*"\s*$',
             "cn-prod must ship a non-zero relay concurrency cap, not the disabled default",
         )
-        self.assertIn('GATEWAY_MAX_IN_FLIGHT_REQUESTS', bg.CONFIG_ENV_KEYS)
+        want = node_compose.default_max_in_flight(OVERRIDE)
+        apps = json.loads(TARGET.read_text())["apps"]
+        rendered = node_compose.render(apps[0], max_in_flight=want)
+        self.assertIn(f'GATEWAY_MAX_IN_FLIGHT_REQUESTS: "{want}"', rendered)
 
 
 class LocalDataProfileTest(unittest.TestCase):
     def _config(self, *extra: str) -> dict:
-        env = os.environ.copy()
-        env.update({
-            "JWT_SECRET": "dummy-jwt",
-            "TOTP_ENCRYPTION_KEY": "dummy-totp",
-            "POSTGRES_PASSWORD": "dummy-pg",
-            "TOKENKEY_IMAGE": "tokenkey:local",
-            "POSTGRES_IMAGE": "postgres:18-alpine",
-            "REDIS_IMAGE": "redis:8-alpine",
-            "CADDY_IMAGE": "caddy:2",
-            "DATABASE_HOST": "10.2.4.5",
-            "REDIS_HOST": "10.2.4.5",
-        })
-        base = ROOT / "deploy/aws/stage0/docker-compose.yml"
         proc = subprocess.run(
-            ["docker", "compose", "-f", str(base), "-f", str(OVERRIDE), *extra, "config", "--format", "json"],
-            env=env, capture_output=True, text=True, check=False,
+            ["docker", "compose", "-f", str(BASE), "-f", str(OVERRIDE), *extra, "config", "--format", "json"],
+            env=compose_env(),
+            capture_output=True,
+            text=True,
+            check=False,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(proc.stdout)

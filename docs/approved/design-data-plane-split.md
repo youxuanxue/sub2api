@@ -219,7 +219,7 @@ cn-prod 数据机：`lhins-odyx5eis`，私网 `10.2.4.5`，2026-11-09 开通，�
 都走正常发布。默认值保持现状，所以发布后行为不变。第 1、2、4 项已在 #3114 合并；第 5 项由 #3116 完成，备份监控由 #3117 完成。
 
 1. prod 部署模板把两个 Host 改成 `${DATABASE_HOST:-tokenkey-postgres}` 这类写法，`ops/stage0/test_deploy_via_ssm_bluegreen.py` 同步改。
-2. cn-prod 在 `compose.override.yml` 声明两个 Host，取值来自 `.env`，默认值为现值；`bluegreen.py` 把它们列入要传播的键，否则候选色会继承旧值。漏列时 `test_pool_env_probe.py` 会失败。cn-prod 的 Redis 密码不变，候选色照旧从现役容器继承，不进 override。
+2. cn-prod 在 `compose.override.yml` 声明两个 Host，取值来自 `.env`，默认值为现值；M6 后 rolling 单容器直接读 compose，漏列时 `test_pool_env_probe.py` 的 compose-config 断言会失败。cn-prod 的 Redis 密码不变，不进 override。
 3. （已完成，2026-11-09 核对）prod 现网 Caddyfile 补上和 cn-prod 相同的健康检查和 `lb_try_duration 30s` / `lb_try_interval 1s`。这是停写窗口第 2 步的前提：没有它，Caddy 指向未启动的新色时请求会立刻失败。蓝绿渲染（`render_caddy_with_upstream`）只改上游地址那一行，所以补上的参数会保留到后续发布；改动同时入仓。`caddy validate` 后 `caddy reload`，用户无感。
 4. `deploy/tencent/tencent_pgbackrest.py` 和 `deploy/domestic/cn_pgbackrest.py` 支持在数据机上运行，容器名和主机角色按新布局。
 5. 运维探针继续在应用机上执行，经数据面客户端容器连数据机（#3116）。`ops/lib/resolve-app-container.sh` 的 SQL 和 redis-cli 入口新增候选 `tokenkey-postgres-client` / `tokenkey-redis-client`，约 70 个探针不用改。规则仍是只能有一个在运行：旧库和客户端同时运行时判为不唯一，探针直接失败。pgBackRest 只解析真库容器。客户端由 #3116 的安装脚本安装，带确认口令；它从现役色读数据机地址和密码。仍读本机的两项：容量探针对数据目录跑 `df`、日常诊断 tail PG/Redis 日志。切流后这两项要到数据机上看。
@@ -280,7 +280,7 @@ cn-prod 注意：据 `deploy/hetzner/README.md` 2026-11-06 的记录，腾讯北
 窗口前提（`PHASE=check` 全部通过才允许 apply）：
 - prod 主机上的 `docker-compose.bluegreen.yml` 必须由含 #3114 的版本渲染。1.8.355 渲染出的那份把 `DATABASE_HOST=tokenkey-postgres` 写死了，只改 `.env` 不会生效。所以窗口前要先正常发一版。
 - prod 的新 Redis 密码要从托管桶放到应用机的 `/var/lib/tokenkey/dataplane-redis-password`，权限 0600。cn-prod 沿用现有密码。
-- cn-prod 的 override 和 `bluegreen.py` 已同步到 main（2026-11-09 核对）。
+- cn-prod 的 override 已同步到 main（2026-11-09 核对；M6 后不再经 `bluegreen.py` 传播）。
 
 apply 的顺序：
 

@@ -61,8 +61,8 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 - **恢复路径**：`deploy-stage0.yml` 已降为 recovery-only / legacy blue-green；
   仅当 rolling 不可用、需要旧布局恢复或经单独批准时，使用
   `dispatch-prod-deploy.sh --operation legacy-deploy|replay|smoke-only`。
-  cn-prod 的 `deploy_via_ssm.sh pull → sync-controls → prepare → candidate-smoke → promote`
-  同样是恢复/兼容流程，不是日常入口。禁止手写 `base64 -d > ...`；送文件只用 `put-file`。
+  cn-prod 在 M6 后只有 `deploy_via_ssm.sh pull` / `put-file`；蓝绿 prepare/promote
+  已删除，恢复也走 rolling 或经批准的手工单容器操作。禁止手写 `base64 -d > ...`。
   2026-10-25 手写传输把 `/usr/bin/bash` truncate 成 0 字节的教训仍由 preflight 守门。
   `operation=replay` 只准备美西，不能用来切北京。
 

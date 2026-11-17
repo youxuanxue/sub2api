@@ -12163,19 +12163,9 @@
     {
       "path": "scripts/checks/caddyfile-syntax.sh",
       "must_contain": [
-        "python3 -m unittest deploy/domestic/test_runtime.py deploy/domestic/test_bluegreen.py deploy/domestic/test_post_release.py deploy/domestic/test_deploy_via_ssm.py deploy/domestic/test_data_layout.py deploy/domestic/test_pgdump.py deploy/domestic/test_image_distribution.py deploy/domestic/test_candidate_smoke.py"
+        "python3 -m unittest deploy/domestic/test_runtime.py deploy/domestic/test_deploy_via_ssm.py deploy/domestic/test_data_layout.py deploy/domestic/test_pgdump.py deploy/domestic/test_image_distribution.py deploy/domestic/test_candidate_smoke.py"
       ],
-      "rationale": "Keep domestic ingress, blue/green, root-disk layout, image-warm, and candidate-smoke regressions in the existing Docker/Caddy preflight and CI gate; syntax-only adaptation misses alias bypasses and interrupted-drain rollback failures."
-    },
-    {
-      "path": "deploy/domestic/deploy_via_ssm.sh",
-      "must_contain": [
-        "candidate-smoke|promote)",
-        "smoke_script = controls + \"/candidate_smoke.py\"",
-        "promote_script = controls + \"/bluegreen.py\"",
-        "--public-url must equal manifest public_origin"
-      ],
-      "rationale": "cn-prod candidate checks and cutover stay on deploy_via_ssm subcommands. The synced candidate_smoke.py writes the report; promote calls the synced bluegreen.py and refuses a public URL other than the manifest origin."
+      "rationale": "Keep domestic ingress, rolling/SSM, root-disk layout, image-warm, and candidate-smoke regressions in the existing Docker/Caddy preflight and CI gate; syntax-only adaptation misses alias bypasses and interrupted-drain rollback failures."
     },
     {
       "path": "deploy/domestic/candidate_smoke.py",
@@ -12187,27 +12177,6 @@
         "container_id"
       ],
       "rationale": "The prepared candidate is probed on its loopback color port. The smoke report keeps docker inspect Id and failed cases so promote can reject a bad candidate."
-    },
-    {
-      "path": "deploy/domestic/bluegreen.py",
-      "must_contain": [
-        "STATIC_SITE_IP = '154.8.214.179'",
-        "def domestic_site_host(caddy):",
-        "data_layout.require_directory(DATA)",
-        "def reclaim_candidate_name(target, routed):",
-        "if target == routed:",
-        "if requests != 0:",
-        "reclaim_candidate_name(target, old)"
-      ],
-      "rationale": "Beijing serves the static IP site and keeps /var/lib/tokenkey on the root disk. A later edit must not require a dedicated mountpoint or the api-cn.tokenkey.dev site label. reclaim_candidate_name must keep deciding on ROUTED-ness, not run state: cn-prod has two legitimate steady states that leave a container on the candidate name -- promote() keeps the outgoing color exited for rollback, and remediate-newapi-nonstream-timeout.sh deliberately recreates the previous color so both sides carry the new budget. Refusing every running container blocked all cn-prod releases after any budget remediation; dropping the routed-color or in_flight checks would instead cut live traffic or truncate a draining response."
-    },
-    {
-      "path": "deploy/domestic/test_bluegreen.py",
-      "must_contain": [
-        "def test_route_resolution_accepts_beijing_static_ip_site(",
-        "def test_env_get_follows_the_live_caddy_site("
-      ],
-      "rationale": "Domestic cutover must keep accepting the Beijing static IP site and must read that site name back for the local health check."
     },
     {
       "path": "deploy/domestic/data_layout.py",
@@ -12233,94 +12202,6 @@
         "if completed.returncode == 32 and _same_root_device(path):"
       ],
       "rationale": "The S3 warm payload executes image_archive.py alone, so its root-disk acceptance must stay aligned with data_layout.py."
-    },
-    {
-      "path": "deploy/domestic/bluegreen.py",
-      "must_contain": [
-        "shared_library(args.shared_source)",
-        "receipt = verify_receipt(state, args.receipt)",
-        "context = post_release.configure(args, receipt, inspect)",
-        "post_release.finish(args, receipt, context, data=DATA, inspect=inspect, active_container=active_container)",
-        "if configured_mounts != actual_mounts:",
-        "if inflight['draining']:",
-        "commit_cutover {color}",
-        "drain_container {old}",
-        "fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)",
-        "def reclaim_candidate_name(target, routed):",
-        "if target == routed:",
-        "if requests != 0:",
-        "reclaim_candidate_name(target, old)"
-      ],
-      "rationale": "Domestic SSH release must retain shared cutover/drain, receipt verification, mount isolation, host serialization and the verified release notification call; upstream/refactors must not replace it with a Compose restart or silently omit notifications. reclaim_candidate_name must keep deciding on ROUTED-ness, not run state: cn-prod has two legitimate steady states that leave a container on the candidate name -- promote() keeps the outgoing color exited for rollback, and remediate-newapi-nonstream-timeout.sh deliberately recreates the previous color so both sides carry the new budget. Refusing every running container blocked all cn-prod releases after any budget remediation; dropping the routed-color or in_flight checks would instead cut live traffic or truncate a draining response."
-    },
-    {
-      "path": "deploy/domestic/bluegreen.py",
-      "must_contain": [
-        "domestic QA capture must stay enabled",
-        "domestic QA archive upload must stay disabled",
-        "domestic QA archive storage must not be s3",
-        "env['QA_CAPTURE_ENABLED'] = 'true'",
-        "def reclaim_candidate_name(target, routed):",
-        "if target == routed:",
-        "if requests != 0:",
-        "reclaim_candidate_name(target, old)"
-      ],
-      "rationale": "cn-prod candidates must keep local QA capture on and refuse QA archive and S3 storage. The telemetry archive env is gone (2026-11-08 用户决定保持关闭并删除代码) and must not return. Reverting the overlay to capture-disabled or copying a prod archive env would upload or drop capture without a gateway code change. reclaim_candidate_name must keep deciding on ROUTED-ness, not run state: cn-prod has two legitimate steady states that leave a container on the candidate name -- promote() keeps the outgoing color exited for rollback, and remediate-newapi-nonstream-timeout.sh deliberately recreates the previous color so both sides carry the new budget. Refusing every running container blocked all cn-prod releases after any budget remediation; dropping the routed-color or in_flight checks would instead cut live traffic or truncate a draining response.",
-      "must_not_contain": [
-        "TELEMETRY_ARCHIVE_"
-      ]
-    },
-    {
-      "path": "deploy/domestic/test_bluegreen.py",
-      "must_contain": [
-        "def test_candidate_rejects_mount_drift_before_starting(",
-        "def test_invalid_smoke_context_prevents_any_cutover(",
-        "def test_rollback_recovers_running_old_after_interrupted_drain(",
-        "def test_failed_reload_restores_candidate_route_without_stopping_either(",
-        "def test_promote_executes_shared_cutover_and_verified_drain("
-      ],
-      "rationale": "Execute the shared shell with deterministic Docker/Caddy state to cover actual promotion, drain recovery and failed reload; mocked shell ordering alone cannot prove the lifecycle contract."
-    },
-    {
-      "path": "deploy/domestic/test_bluegreen.py",
-      "must_contain": [
-        "def test_candidate_enables_capture_without_s3_upload(",
-        "def test_candidate_rejects_capture_off_archive_upload_and_s3(",
-        "def test_promote_moves_entry_origin_after_drain_and_before_stop(self):",
-        "def test_promote_failing_origin_keeps_old_colour_running(self):",
-        "def test_refuses_unknown_or_public_origin(self):"
-      ],
-      "rationale": "Domestic blue/green must prove capture is forced on while QA archive and S3 storage are rejected."
-    },
-    {
-      "path": "deploy/domestic/post_release.py",
-      "must_contain": [
-        "def configure(args, receipt, inspect):",
-        "domestic = read_json(asset_source('prod-target.json'))",
-        "if args.public_url.rstrip('/') != domestic['public_origin'].rstrip('/'):",
-        "def finish(args, receipt, context, *, data, inspect, active_container):",
-        "verify_assets(directory, context)",
-        "timestamp(cutover_at) + 300 - time.time()",
-        "execute(planner + ['gate', *evaluations])",
-        "read_json(notice).get('status') == 'sent'",
-        "str(directory / 'notify-feishu-release.sh')",
-        "# public_origin is the checked entrance. Since M3 (2026-11-15) it is the"
-      ],
-      "rationale": "Domestic promotion must keep pinned evidence, delayed shared verification and the shared Feishu sender, with acknowledged-delivery deduplication. These anchors pair with behavioral regressions; they do not replace runtime checks."
-    },
-    {
-      "path": "deploy/domestic/test_post_release.py",
-      "must_contain": [
-        "def test_notifies_only_after_both_checks_and_five_minutes_then_deduplicates(",
-        "def test_red_evaluation_never_sends(",
-        "def test_failed_delivery_can_be_retried_without_cutover(",
-        "def test_rejects_wrong_revision_failed_smoke_or_wrong_candidate_before_mutation(",
-        "def test_rejects_inactive_release_and_pinned_evidence_drift(",
-        "def test_rejects_other_public_ip_before_pinning_release(",
-        "def test_rejects_pinned_target_manifest_drift_before_probing_or_sending(",
-        "def test_rejects_old_ip_aws_domain_http_and_credentials_in_url(self):"
-      ],
-      "rationale": "Keep executable release notification contracts in the domestic preflight gate: verify before sending, retry failed delivery, suppress duplicates and reject stale or failed evidence."
     },
     {
       "path": "backend/internal/service/data_lifecycle_policy_tk_test.go",
@@ -17304,27 +17185,12 @@
       "rationale": "Regression test for the prod data-plane endpoint hook: both colors must take the .env-backed host and port."
     },
     {
-      "path": "deploy/domestic/bluegreen.py",
-      "must_contain": [
-        "'DATABASE_HOST',",
-        "'DATABASE_PORT',",
-        "'REDIS_HOST',",
-        "'REDIS_PORT',",
-        "ENTRY_ORIGIN = 'tokenkey-entry-origin'",
-        "def sync_entry_origin(target, wait=time.sleep):",
-        "    sync_entry_origin(target)\n    shell(state, f'docker stop -t 180 {old} >/dev/null')",
-        "    sync_entry_origin(old)\n    shell(state, f'docker stop -t 180 {target} >/dev/null')",
-        "raise ValueError('entry origin must publish 8080 on one private address')"
-      ],
-      "rationale": "cn-prod candidates inherit env from the live color; only CONFIG_ENV_KEYS are refreshed from compose. Without these the first release after the data-plane cutover would carry the old same-host addresses."
-    },
-    {
       "path": "deploy/domestic/compose.override.yml",
       "must_contain": [
         "DATABASE_HOST: \"${DATABASE_HOST:-postgres}\"",
         "REDIS_HOST: \"${REDIS_HOST:-redis}\""
       ],
-      "rationale": "Source of the cn-prod data-plane endpoints propagated by bluegreen.CONFIG_ENV_KEYS."
+      "rationale": "cn-prod compose.override.yml remains the app env SSOT for rolling single-container renders; pool/probe keys must stay aligned with ops/observability/probe-cn-prod-pool-env.sh."
     },
     {
       "path": "ops/qa/local_maintenance_host.py",
@@ -18009,7 +17875,7 @@
         "profiles: [\"local-data\"]",
         "depends_on: !reset {}"
       ],
-      "rationale": "After the data-plane cutover a plain compose up must not start the retired cn-prod primary, and clearing depends_on is what keeps docker compose config valid for bluegreen prepare. A profile without the reset makes the project fail closed in the wrong place."
+      "rationale": "cn-prod compose.override.yml remains the app env SSOT for rolling single-container renders; pool/probe keys must stay aligned with ops/observability/probe-cn-prod-pool-env.sh."
     },
     {
       "path": "deploy/domestic/test_pool_env_probe.py",
@@ -20840,6 +20706,35 @@
         "s.tkDropStickyForUnusableAccount(p.ctx, p.groupID, p.sessionHash, p.account)"
       ],
       "rationale": "Anchor the two injections that stop a cooled account from being replayed: the 429 branch must consult the corroboration predicate before cooling, and the model-rate-limit path must use the ownership-checked drop instead of an unconditional delete."
+    },
+    {
+      "path": "deploy/domestic/deploy_via_ssm.sh",
+      "must_contain": [
+        "sync-controls|prepare|candidate-smoke|promote)",
+        "retired at M6",
+        "use rolling.py / cn-prod-rolling-deploy.yml",
+        "pull|put-file)"
+      ],
+      "must_not_contain": [
+        "promote_script = controls + \"/bluegreen.py\"",
+        "python3 bluegreen.py prepare"
+      ],
+      "rationale": "M6 retires cn-prod blue/green+socat controls. deploy_via_ssm must keep only pull/put-file and refuse prepare/promote/candidate-smoke/sync-controls so operators cannot cut traffic through the deleted path."
+    },
+    {
+      "path": "ops/observability/remediate-newapi-nonstream-timeout.sh",
+      "must_contain": [
+        "HOST_KIND=cn-single",
+        "cn-prod blue/green+socat remediate retired at M6",
+        "drain tokenkey before recreate",
+        "up -d --no-deps --force-recreate --timeout 60 tokenkey"
+      ],
+      "must_not_contain": [
+        "bring_up_inactive_cn",
+        "cn-prod-bluegreen",
+        "Mirror deploy/domestic/bluegreen.py"
+      ],
+      "rationale": "After M6, cn-prod timeout remediate must drain/recreate the single tokenkey container and refuse leftover blue/green or entry-origin socat layout."
     }
   ]
 }

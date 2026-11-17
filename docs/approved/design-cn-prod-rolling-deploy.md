@@ -124,7 +124,7 @@ revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切�
 | M3 | 观测 app-a 公网直连请求，连续 6h 为 0 后把 `public_origin` 改成域名。11-15 实测直连仍有，正在逐步减少 | 改回 IP |
 | M4 | app-a 改为单容器：green 走 drain（这段时间 app-b 单独承接，实测在途 3 个、CPU 8%）→ 停 socat → 以 drain 状态起 `tokenkey`，绑定 `10.2.4.11:8080` → smoke → USR2 → 停 green 和 Caddy → 云防火墙关闭 80/443 | 开启 80/443，起 Caddy、green、socat，入口机自动回流 |
 | M5 | 用当前版本原样滚动一遍，作为演练 | 不改版本，失败就停 |
-| M6 | 连续两次真实滚动发版成功后，删除 `bluegreen.py` 的 cn-prod 分支和 socat 相关代码 | revert |
+| M6 | ✅ 连续两次真实滚动成功后，删除 `bluegreen.py` 的 cn-prod 分支和 socat 相关代码（2026-11-17） | revert |
 
 ## 容量核算
 
