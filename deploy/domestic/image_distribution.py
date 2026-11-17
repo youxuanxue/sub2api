@@ -47,10 +47,11 @@ def s3_client(config=None):
     kwargs = {
         'region_name': cfg['region'],
         'endpoint_url': endpoint_url(cfg),
+        # endpoint_url already embeds `{bucket}.cos...` (virtual-hosted). Do not
+        # also set addressing_style=virtual or boto3 doubles the bucket hostname.
         'config': BotocoreConfig(
             request_checksum_calculation='when_required',
             response_checksum_validation='when_required',
-            s3={'addressing_style': 'virtual'},
         ),
     }
     # Prefer tencent-ops secrets; fall back to standard AWS env for local tooling.

@@ -449,8 +449,12 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(captured['service'], 's3')
         self.assertEqual(captured['botocore']['request_checksum_calculation'], 'when_required')
         self.assertEqual(captured['botocore']['response_checksum_validation'], 'when_required')
-        self.assertEqual(captured['botocore']['s3'], {'addressing_style': 'virtual'})
+        self.assertNotIn('s3', captured['botocore'])
         self.assertTrue(captured['kwargs']['endpoint_url'].startswith('https://tokenkey-cnprod-images-bj'))
+        self.assertNotIn(
+            'tokenkey-cnprod-images-bj-1320330536.tokenkey-cnprod-images-bj',
+            captured['kwargs']['endpoint_url'],
+        )
 
     def test_immutable_put_reuses_identical_object(self):
         calls = []
