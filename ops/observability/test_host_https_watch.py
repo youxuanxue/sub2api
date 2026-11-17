@@ -623,8 +623,9 @@ class CnProdMultiAppWatchTest(unittest.TestCase):
             self.config('cn-prod', node='app-b', host_ips=[self.apps['app-a']['private_ip']])
         with self.assertRaisesRegex(ValueError, 'unknown cn-prod app node'):
             self.config('cn-prod', node='app-z', host_ips=[app['private_ip']])
-        with self.assertRaisesRegex(ValueError, 'only to the cn-prod role'):
-            self.config('prod', node='app-b')
+        with self.assertRaisesRegex(ValueError, 'only to the prod or cn-prod role'):
+            self.config('prod-data', node='app-b',
+                        hostname=self.prod_matrix['host_watch']['data_hostname'])
 
     def test_primary_app_keeps_the_mainland_observer_targets(self):
         app = self.apps['app-a']
@@ -633,6 +634,36 @@ class CnProdMultiAppWatchTest(unittest.TestCase):
         legacy = self.config('cn-prod', hostname=self.domestic['instance_name'])
         self.assertEqual(config['targets'], legacy['targets'])
         self.assertEqual(config['backends'], {'cn-prod-app-a:local': 'http://127.0.0.1:18080/health'})
+
+    def test_prod_app_nodes_mirror_cn_prod_watch_symmetry(self):
+        apps = {app['name']: app for app in self.prod_matrix['apps']}
+        old = apps['app-old']
+        cand = apps['app-cand']
+        self.assertEqual(old['lighthouse_instance_id'],
+                         self.prod_matrix['target']['lighthouse_instance_id'])
+        primary = self.config('prod', node='app-old', host_ips=[old['private_ip']])
+        legacy = self.config('prod', hostname=self.prod_matrix['host_watch']['hostname'])
+        self.assertEqual(primary['node'], 'prod-app-old')
+        self.assertEqual(primary['targets'], legacy['targets'])
+        self.assertEqual(primary['paused_jobs'], legacy['paused_jobs'])
+        self.assertEqual(primary['backends'],
+                         {'prod-app-old:local': 'http://127.0.0.1:18080/health'})
+        self.assertEqual(primary['jobs'][:2],
+                         ['tokenkey-disk-metrics', 'tokenkey-qa-retention'])
+        self.assertEqual(set(primary['jobs']) & set(primary['paused_jobs']),
+                         set(primary['paused_jobs']))
+        self.assertEqual(set(primary['paused_jobs']),
+                         {'tokenkey-pgdump', 'tokenkey-ghcr-prune-daily'})
+        secondary = self.config('prod', node='app-cand', host_ips=[cand['private_ip']])
+        self.assertEqual(secondary['node'], 'prod-app-cand')
+        self.assertEqual(secondary['targets'], {})
+        self.assertEqual(secondary['paused_jobs'], {})
+        self.assertEqual(secondary['jobs'],
+                         ['tokenkey-disk-metrics', 'tokenkey-qa-retention'])
+        with self.assertRaisesRegex(ValueError, 'host identity'):
+            self.config('prod', node='app-cand', host_ips=[old['private_ip']])
+        with self.assertRaisesRegex(ValueError, 'unknown prod app node'):
+            self.config('prod', node='app-z', host_ips=[cand['private_ip']])
 
     def test_backend_urls_must_be_private_or_loopback_http(self):
         watch.validate_backend_url('a', 'http://10.2.4.13:8080/health')

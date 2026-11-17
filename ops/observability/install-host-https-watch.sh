@@ -11,8 +11,9 @@ prod_matrix=json.loads((root/'candidate-usw-20261022.json').read_text())
 domestic=json.loads((root/'prod-target.json').read_text())
 role=os.environ.get('WATCH_ROLE','')
 # Roles: prod, cn-prod, prod-data, cn-prod-data, cn-prod-entry, prod-entry.
-# WATCH_NODE names a cn-prod apps[] entry (app-a/app-b); it and *-entry roles
-# prove the host by its private IP from `hostname -I`, not by the image hostname.
+# WATCH_NODE names a prod or cn-prod apps[] entry (app-old/app-cand, app-a/app-b);
+# it and *-entry roles prove the host by private IP from `hostname -I`, not by
+# the image hostname. Primary app keeps site-wide peer targets; others are local.
 if role not in ('prod','cn-prod','prod-data','cn-prod-data','cn-prod-entry','prod-entry'):raise SystemExit('unsupported WATCH_ROLE: '+role)
 node=os.environ.get('WATCH_NODE','')
 host_ips=subprocess.run(['hostname','-I'],capture_output=True,text=True,check=True).stdout.split() if (node or role.endswith('-entry')) else []

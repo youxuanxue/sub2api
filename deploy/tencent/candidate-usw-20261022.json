@@ -6,16 +6,17 @@
   "ssm_region": "eu-west-2",
   "rolling_confirm_site": "prod",
   "notes": [
-    "2026-10-22 cutover complete: this matrix row is the default Stage0 deploy target (old app).",
-    "2026-11-15/16: public DNS moved to entry 43.162.119.210; see entry/apps below. Default resolve_prod_ssm_target still returns this old app mi-* until CI is widened.",
-    "auto / default PROD_SSM_TARGET resolves here when deployable=true.",
+    "2026-10-22 cutover complete: this matrix is the default Stage0 site when deployable=true; app selection requires --node (see resolve note below).",
+    "2026-11-15/16: public DNS moved to entry 43.162.119.210; see entry/apps below.",
+    "auto / default PROD_SSM_TARGET selects tencent-usw when deployable=true; with apps[] present resolve_prod_ssm_target requires explicit --node / PROD_SSM_NODE (no silent single-app default). Fleet-wide diagnosis uses run-probe --all-apps.",
     "Layout converged 2026-10-22 (exception path): .env at /var/lib/tokenkey/.env; app/caddy tokenkey/tokenkey-caddy; Docker root kept at /srv/tokenkey-rehearsal/docker; PG/redis keep cutover names with postgres/redis aliases. Receipt: /var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json.",
     "volume_mount keeps /srv/tokenkey-rehearsal (historical); /var/lib/tokenkey is a second mount of the same LUKS mapper.",
     "Tokyo i-045f062ce33e1a5af was retired and deleted 2026-10-23; its snapshots are deleted; never restore its S3 history chain as a writer.",
     "Cutover receipt: docs/ops/reports/tencent-cutover-20261022.json",
     "2026-10-29: tokenkey-disk-metrics.timer is installed and expected active. It checks root / and /var/lib/tokenkey at 85% alert / 80% recover.",
     "2026-11-16 Phase C code/matrix converged: target is single tokenkey on private:8080 + loopback:18080; layout.kind=single-container; rolling plan/deploy is unlocked (confirm rolling-prod-<tag>).",
-    "2026-11-17: stopped tokenkey-blue/green/caddy rollback containers removed on both apps (tokenkey healthy). resolve_prod_ssm_target requires --node when apps[] present. Phase D (old LUKS exit) is still gated."
+    "2026-11-17: stopped tokenkey-blue/green/caddy rollback containers removed on both apps (tokenkey healthy). Phase D (old LUKS exit) is still gated.",
+    "2026-11-17: host_watch local_qa_jobs/data_qa_jobs cut over to retention/coordinator; WATCH_NODE=app-old|app-cand installs per-app watchers (cand was previously unwatched)."
   ],
   "layout": {
     "kind": "single-container",
@@ -46,7 +47,11 @@
       "ssm_instance_id": "mi-000c0168439c243a8",
       "weight": 1,
       "memory_limit": "3g",
-      "external_network": "tokenkey_tokenkey-network"
+      "external_network": "tokenkey_tokenkey-network",
+      "jobs": [
+        "tokenkey-disk-metrics",
+        "tokenkey-qa-retention"
+      ]
     },
     {
       "name": "app-old",
@@ -56,7 +61,11 @@
       "ssm_instance_id": "mi-080ed76dc6d97d8b5",
       "weight": 2,
       "memory_limit": "8g",
-      "external_network": "tokenkey_tokenkey-network"
+      "external_network": "tokenkey_tokenkey-network",
+      "jobs": [
+        "tokenkey-disk-metrics",
+        "tokenkey-qa-retention"
+      ]
     }
   ],
   "target": {
@@ -82,7 +91,7 @@
     "purpose": "Live TokenKey prod app node (old) after Tokyo→Tencent USW cutover 2026-10-22; public edge is entry/"
   },
   "host_watch": {
-    "note": "Live prod host-watch owner (https-watch identity, customer domains, expected-paused timers, local QA jobs). Consumers: ops/observability/host_https_watch.py, install-host-https-watch.sh. Host watchers keep their installed copy until reinstalled. prod-entry reads entry/apps on this matrix.",
+    "note": "Live prod host-watch owner (https-watch identity, customer domains, expected-paused timers, local/data QA jobs). Consumers: ops/observability/host_https_watch.py, install-host-https-watch.sh. Per-app install: WATCH_ROLE=prod WATCH_NODE=app-old|app-cand (apps[].jobs). Host watchers keep their installed copy until reinstalled. prod-entry reads entry/apps on this matrix.",
     "hostname": "VM-0-16-ubuntu",
     "domains": [
       "tokenkey.dev",
