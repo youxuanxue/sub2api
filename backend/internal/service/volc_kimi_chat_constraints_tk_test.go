@@ -324,6 +324,16 @@ func TestVolcKimiInboundMessageShapes(t *testing.T) {
 	require.Equal(t, "Bash_0_b", gjson.GetBytes(fixed, "messages.4.tool_calls.0.id").String())
 	require.Equal(t, "tool", gjson.GetBytes(fixed, "messages.5.role").String())
 
+	// Consecutive interleaved assistant texts in one tool round-trip are all dropped.
+	multiInterleaved := []byte(`{"messages":[{"role":"user","content":"u"},{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"Bash","arguments":"{}"}}]},{"role":"assistant","content":"a"},{"role":"assistant","content":"b"},{"role":"tool","tool_call_id":"c1","content":"ok"}]}`)
+	multiFixed, err := normalizeVolcKimiChatRequest(multiInterleaved)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, gjson.GetBytes(multiFixed, "messages.#").Int())
+	require.Equal(t, "assistant", gjson.GetBytes(multiFixed, "messages.1.role").String())
+	require.Equal(t, "c1", gjson.GetBytes(multiFixed, "messages.1.tool_calls.0.id").String())
+	require.Equal(t, "tool", gjson.GetBytes(multiFixed, "messages.2.role").String())
+	require.Equal(t, "c1", gjson.GetBytes(multiFixed, "messages.2.tool_call_id").String())
+
 	// Ordinary assistant text outside a tool round-trip must stay.
 	plain := []byte(`{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello"},{"role":"user","content":"next"}]}`)
 	keptPlain, err := normalizeVolcKimiChatRequest(plain)
