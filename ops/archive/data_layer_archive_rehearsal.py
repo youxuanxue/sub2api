@@ -1141,7 +1141,8 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             "max_rows": (1, 10_000),
             "statement_timeout_seconds": (1, 30),
         }
-        staging_marker = "/prod/pgdump/archive-canary/"
+        staging_marker = "/prod/ops-archive-export/archive-canary/"
+        staging_marker_legacy = "/prod/pgdump/archive-canary/"
         continuation_key = "more_cold_rows_after_sample"
         first_key_name = "sample_first_key"
         last_key_name = "sample_last_key"
@@ -1261,7 +1262,7 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             raise RehearsalError("production archive query_elapsed_ms is invalid")
         staging_prefix = manifest.get("staging_s3_prefix")
         accepted_markers = [staging_marker]
-        if mode == PROD_EXPORT_MODE:
+        if mode in (PROD_EXPORT_MODE, PROD_CANARY_MODE):
             accepted_markers.append(staging_marker_legacy)
         if (
             not isinstance(staging_prefix, str)

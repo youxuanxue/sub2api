@@ -35,13 +35,14 @@ import data_layer_archive_cleanup_hold_remote as cleanup_hold_remote
 import data_layer_archive_rehearsal as rehearsal
 
 
-PROD_REGION = "us-east-1"
+PROD_REGION = "us-east-1"  # historical AWS S3 region; COS region comes from cos-archive.json
 PROD_STACK = rehearsal.PROD_CANARY_STACK
-BACKUP_STACK = "tokenkey-stage0-backups"
+BACKUP_STACK = "tokenkey-stage0-backups"  # retired for canary staging; kept for plan provenance
 BACKUP_BUCKET_OUTPUT = "BucketName"
 BACKUP_RETENTION_DAYS = 7
 PROD_CONFIRMATION = "tokenkey-prod-archive-export-only-v1"
-S3_KEY_BASE = "prod/pgdump/archive-canary"
+# Under the COS ops-archive-export prefix (7-day). Same bucket as break-glass export.
+S3_KEY_BASE = "prod/ops-archive-export/archive-canary"
 AWS_COMMAND_TIMEOUT_SECONDS = 300
 SSM_PARAMETERS_MAX_BYTES = 20 * 1024
 OPS_RETENTION_DAYS = 30
@@ -61,6 +62,99 @@ CommandRunner = Callable[[list[str]], str]
 
 class CanaryError(rehearsal.RehearsalError):
     """Fail-closed production canary error."""
+
+
+def _controller_cos_runner(*, lazy: bool = False) -> CommandRunner:
+    """aws CLI runner pinned to COS endpoint + archive credentials.
+
+    ``lazy=True`` defers credential load until the first aws invocation so tests
+    that mock the download helper do not need a real credentials file.
+    """
+
+    def build() -> CommandRunner:
+        try:
+            settings = cos_archive.load_settings()
+            env = cos_archive.aws_cli_env()
+        except cos_archive.CosArchiveError as exc:
+            raise CanaryError(str(exc)) from exc
+        region = str(settings["region"])
+
+        def run(argv: list[str]) -> str:
+            out = list(argv)
+            if "--region" in out:
+                idx = out.index("--region")
+                if idx + 1 < len(out):
+                    out[idx + 1] = region
+            out = cos_archive.inject_endpoint(out, settings)
+            try:
+                completed = subprocess.run(
+                    out,
+                    capture_output=True,
+                    text=True,
+                    timeout=AWS_COMMAND_TIMEOUT_SECONDS,
+                    check=False,
+                    env=env,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise CanaryError(f"command timed out: {out[0]}") from exc
+            except OSError as exc:
+                raise CanaryError(f"command unavailable: {out[0]}") from exc
+            if completed.returncode != 0:
+                detail = (completed.stderr or completed.stdout or "command failed").strip()
+                raise CanaryError(f"command failed ({out[0]}): {detail[:400]}")
+            return completed.stdout
+
+        return run
+
+    if not lazy:
+        return build()
+    cached: CommandRunner | None = None
+
+    def lazy_run(argv: list[str]) -> str:
+        nonlocal cached
+        if cached is None:
+            cached = build()
+        return cached(argv)
+
+    return lazy_run
+
+
+def _remote_cos_aws_prelude() -> list[str]:
+    """Bash lines that load host COS credentials before any aws s3 call."""
+    try:
+        settings = cos_archive.load_settings()
+        endpoint = cos_archive.endpoint_url(settings)
+    except cos_archive.CosArchiveError as exc:
+        raise CanaryError(str(exc)) from exc
+    region = str(settings["region"])
+    parser = (
+        "import json,pathlib,shlex,sys\n"
+        "raw=pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')\n"
+        "sid=sk=''\n"
+        "if raw.lstrip().startswith('{'):\n"
+        " p=json.loads(raw); sid=str(p.get('secretId') or p.get('SecretId') or ''); "
+        "sk=str(p.get('secretKey') or p.get('SecretKey') or '')\n"
+        "else:\n"
+        " for line in raw.splitlines():\n"
+        "  if '=' not in line or line.strip().startswith('#'): continue\n"
+        "  k,v=line.split('=',1); k=k.strip(); v=v.strip().strip(chr(34)).strip(chr(39))\n"
+        "  if k in {'secretId','SecretId','tencent_SecretId'}: sid=v\n"
+        "  elif k in {'secretKey','SecretKey','tencent_SecretKey'}: sk=v\n"
+        "if not sid or not sk: raise SystemExit('cos archive credentials incomplete')\n"
+        "print('export AWS_ACCESS_KEY_ID='+shlex.quote(sid))\n"
+        "print('export AWS_SECRET_ACCESS_KEY='+shlex.quote(sk))\n"
+        "print('unset AWS_SESSION_TOKEN')\n"
+    )
+    return [
+        'CRED="${TK_COS_ARCHIVE_CREDENTIALS:-/etc/tokenkey/cos-archive.env}"',
+        'if [[ ! -f "$CRED" ]]; then',
+        '  echo "cos archive credentials missing on host: $CRED" >&2',
+        "  exit 2",
+        "fi",
+        f"eval \"$(python3 -c {shlex.quote(parser)} \"$CRED\")\"",
+        f"export AWS_DEFAULT_REGION={shlex.quote(region)}",
+        f"export TK_COS_ARCHIVE_ENDPOINT={shlex.quote(endpoint)}",
+    ]
 
 
 def _canonical_timestamp(value: str) -> str:
@@ -129,19 +223,24 @@ def build_plan(
         max_rows=max_rows,
         max_logical_bytes=max_logical_bytes,
     )
+    try:
+        settings = cos_archive.load_settings()
+    except cos_archive.CosArchiveError as exc:
+        raise CanaryError(str(exc)) from exc
     return {
         "schema_version": rehearsal.SCHEMA_VERSION,
         "mode": "prod_archive_export_canary_plan",
         "environment": "prod",
-        "region": PROD_REGION,
+        "region": settings["region"],
+        "archive_backend": "tencent-cos",
+        "archive_bucket": settings["bucket"],
         "stack": PROD_STACK,
-        "backup_stack": BACKUP_STACK,
         "source_container": rehearsal.PROD_CANARY_CONTAINER,
         "source_database": rehearsal.PROD_CANARY_DATABASE,
         "retention_days": OPS_RETENTION_DAYS,
         "lock_timeout_ms": LOCK_TIMEOUT_MS,
         "staging_key_base": S3_KEY_BASE,
-        "staging_retention_days": BACKUP_RETENTION_DAYS,
+        "staging_retention_days": int(settings["expire_days"]["ops_archive_export"]),
         "source_mutated": False,
         "deletion_authorized": False,
         "execution_authorized": False,
@@ -482,6 +581,10 @@ def _validated_staging_base(uri: str) -> str:
     bucket, key = _s3_location(uri)
     if key != S3_KEY_BASE:
         raise CanaryError(f"S3 staging key must be exactly {S3_KEY_BASE}")
+    try:
+        cos_archive.refuse_aws_destination(f"s3://{bucket}/{key}")
+    except cos_archive.CosArchiveError as exc:
+        raise CanaryError(str(exc)) from exc
     return f"s3://{bucket}/{key}"
 
 
@@ -718,7 +821,10 @@ def host_export(
             max_rows=max_rows,
             max_logical_bytes=max_logical_bytes,
         )
-        uploaded = upload_committed_batch(sealed["batch_dir"])
+        uploaded = upload_committed_batch(
+            sealed["batch_dir"],
+            command_runner=cos_archive.wrap_runner(_command_output),
+        )
         return {
             **uploaded,
             "canary": sealed["canary"],
@@ -792,9 +898,14 @@ def _stack_parameter(stack: str, parameter_key: str) -> str:
 
 def _prod_instance() -> str:
     # Import lazily: the uploaded remote bundle does not need workstation routing.
+    # Ops archive reads tokenkey-postgres on the data machine after the data-plane
+    # split; multi-app fleets refuse a silent app default, so pin data unless the
+    # operator already set PROD_SSM_NODE.
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "stage0"))
     import ssm_execution
 
+    if not (os.environ.get("PROD_SSM_NODE") or "").strip():
+        os.environ["PROD_SSM_NODE"] = "data"
     return ssm_execution.resolve_prod_instance()
 
 
@@ -925,6 +1036,9 @@ def _remote_host_command(
     )
     names = sorted(_remote_bundle_sources())
     cleanup_paths = " ".join(f'"$WORK/{name}"' for name in names)
+    settings = cos_archive.load_settings()
+    endpoint = cos_archive.endpoint_url(settings)
+    region = str(settings["region"])
     lines = [
         "set -euo pipefail",
         'WORK="$(mktemp -d /tmp/tokenkey-prod-archive-canary.XXXXXX)"',
@@ -934,14 +1048,17 @@ def _remote_host_command(
         '  rmdir "$WORK" 2>/dev/null || true',  # preflight-allow: swallow
         "}",
         "trap cleanup EXIT",
-        f"aws s3 cp --region {PROD_REGION} --only-show-errors "
+        *_remote_cos_aws_prelude(),
+        "aws s3 cp "
+        f"--endpoint-url {shlex.quote(endpoint)} "
+        f"--region {shlex.quote(region)} --only-show-errors "
         f"{shlex.quote(bundle_s3_uri)} \"$ARCHIVE\"",
         'ACTUAL_SHA256="$(sha256sum "$ARCHIVE" | awk \'{print $1}\')"',
         f'test "$ACTUAL_SHA256" = {shlex.quote(bundle_sha256)}',
         'tar -xzf "$ARCHIVE" -C "$WORK"',
         'rm -f "$ARCHIVE"',
+        f'PYTHONPATH="$WORK" {rendered_args}',
     ]
-    lines.append(f'PYTHONPATH="$WORK" {rendered_args}')
     return "\n".join(lines)
 
 
@@ -1194,6 +1311,7 @@ def restore_committed_batch(
     seed: int,
     timeout_seconds: int,
     expected_manifest_sha256: str,
+    command_runner: CommandRunner | None = None,
 ) -> dict[str, Any]:
     rehearsal._postgres_dsn_info(target_dsn, target=True)
     batch_dir = _download_committed_batch(
@@ -1201,6 +1319,7 @@ def restore_committed_batch(
         batch_id,
         evidence_root,
         expected_manifest_sha256=expected_manifest_sha256,
+        command_runner=command_runner or _controller_cos_runner(lazy=True),
     )
     verification = rehearsal.verify_batch(batch_dir)
     restored = rehearsal.restore_postgres_random(
@@ -1238,24 +1357,21 @@ def run_canary(args: argparse.Namespace) -> dict[str, Any]:
     hold_verification = cleanup_hold.verify(args.cleanup_hold_receipt)
     if hold_verification.get("instance_id") != instance_id:
         raise CanaryError("cleanup hold verification reached a different instance")
-    bucket = _stack_output(BACKUP_STACK, BACKUP_BUCKET_OUTPUT)
-    retention_days = _stack_parameter(BACKUP_STACK, "RetentionDays")
-    if retention_days != str(BACKUP_RETENTION_DAYS):
+    try:
+        settings = cos_archive.load_settings()
+    except cos_archive.CosArchiveError as exc:
+        raise CanaryError(str(exc)) from exc
+    retention_days = int(settings["expire_days"]["ops_archive_export"])
+    if retention_days != BACKUP_RETENTION_DAYS:
         raise CanaryError(
             "production canary staging requires the approved 7-day retention"
         )
-    staging_candidate = f"s3://{bucket}/{S3_KEY_BASE}"
-    try:
-        # COS-only archive writes (design-cos-object-archive). Canary is not yet
-        # rewired to the COS identity; refuse AWS leftovers instead of half-wiring.
-        cos_archive.refuse_aws_destination(staging_candidate)
-    except cos_archive.CosArchiveError as exc:
-        raise CanaryError(
-            "archive canary staging is not on the approved COS bucket "
-            f"(wire to cos-archive.json before use): {exc}"
-        ) from exc
-    staging_base = _validated_staging_base(staging_candidate)
-    remote_bundle = stage_remote_bundle(staging_base)
+    staging_base = _validated_staging_base(
+        f"s3://{settings['bucket']}/{S3_KEY_BASE}"
+    )
+    remote_bundle = stage_remote_bundle(
+        staging_base, command_runner=_controller_cos_runner()
+    )
     remote_script = _remote_host_command(
         table=request["table"],
         as_of=request["as_of"],
@@ -1286,6 +1402,7 @@ def run_canary(args: argparse.Namespace) -> dict[str, Any]:
         seed=args.seed,
         timeout_seconds=args.timeout_seconds,
         expected_manifest_sha256=upload["manifest_sha256"],
+        command_runner=_controller_cos_runner(lazy=True),
     )
     return {
         **restored,

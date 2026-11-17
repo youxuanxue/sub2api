@@ -42,104 +42,6 @@ class ExportError(canary.CanaryError):
     """Fail-closed production batch export error."""
 
 
-def _controller_cos_runner(*, lazy: bool = False) -> canary.CommandRunner:
-    """aws CLI runner pinned to COS endpoint + archive credentials.
-
-    ``lazy=True`` defers credential load until the first aws invocation so tests
-    that mock the download helper do not need a real credentials file.
-    """
-
-    def build() -> canary.CommandRunner:
-        try:
-            settings = cos_archive.load_settings()
-            env = cos_archive.aws_cli_env()
-        except cos_archive.CosArchiveError as exc:
-            raise ExportError(str(exc)) from exc
-        region = str(settings["region"])
-
-        def run(argv: list[str]) -> str:
-            out = list(argv)
-            if "--region" in out:
-                idx = out.index("--region")
-                if idx + 1 < len(out):
-                    out[idx + 1] = region
-            out = cos_archive.inject_endpoint(out, settings)
-            try:
-                completed = subprocess.run(
-                    out,
-                    capture_output=True,
-                    text=True,
-                    timeout=canary.AWS_COMMAND_TIMEOUT_SECONDS,
-                    check=False,
-                    env=env,
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise ExportError(f"command timed out: {out[0]}") from exc
-            except OSError as exc:
-                raise ExportError(f"command unavailable: {out[0]}") from exc
-            if completed.returncode != 0:
-                detail = (completed.stderr or completed.stdout or "command failed").strip()
-                raise ExportError(f"command failed ({out[0]}): {detail[:400]}")
-            return completed.stdout
-
-        return run
-
-    if not lazy:
-        return build()
-    cached: canary.CommandRunner | None = None
-
-    def lazy_run(argv: list[str]) -> str:
-        nonlocal cached
-        if cached is None:
-            cached = build()
-        return cached(argv)
-
-    return lazy_run
-
-
-def _remote_cos_aws_prelude() -> list[str]:
-    """Bash lines that load host COS credentials before any aws s3 call.
-
-    Endpoint/region are baked from controller settings at render time. Secrets
-    stay on the host file; parsing is inlined so the control bundle is not
-    required before the first COS download.
-    """
-    try:
-        settings = cos_archive.load_settings()
-        endpoint = cos_archive.endpoint_url(settings)
-    except cos_archive.CosArchiveError as exc:
-        raise ExportError(str(exc)) from exc
-    region = str(settings["region"])
-    parser = (
-        "import json,pathlib,shlex,sys\n"
-        "raw=pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')\n"
-        "sid=sk=''\n"
-        "if raw.lstrip().startswith('{'):\n"
-        " p=json.loads(raw); sid=str(p.get('secretId') or p.get('SecretId') or ''); "
-        "sk=str(p.get('secretKey') or p.get('SecretKey') or '')\n"
-        "else:\n"
-        " for line in raw.splitlines():\n"
-        "  if '=' not in line or line.strip().startswith('#'): continue\n"
-        "  k,v=line.split('=',1); k=k.strip(); v=v.strip().strip(chr(34)).strip(chr(39))\n"
-        "  if k in {'secretId','SecretId','tencent_SecretId'}: sid=v\n"
-        "  elif k in {'secretKey','SecretKey','tencent_SecretKey'}: sk=v\n"
-        "if not sid or not sk: raise SystemExit('cos archive credentials incomplete')\n"
-        "print('export AWS_ACCESS_KEY_ID='+shlex.quote(sid))\n"
-        "print('export AWS_SECRET_ACCESS_KEY='+shlex.quote(sk))\n"
-        "print('unset AWS_SESSION_TOKEN')\n"
-    )
-    return [
-        'CRED="${TK_COS_ARCHIVE_CREDENTIALS:-/etc/tokenkey/cos-archive.env}"',
-        'if [[ ! -f "$CRED" ]]; then',
-        '  echo "cos archive credentials missing on host: $CRED" >&2',
-        "  exit 2",
-        "fi",
-        f"eval \"$(python3 -c {shlex.quote(parser)} \"$CRED\")\"",
-        f"export AWS_DEFAULT_REGION={shlex.quote(region)}",
-        f"export TK_COS_ARCHIVE_ENDPOINT={shlex.quote(endpoint)}",
-    ]
-
-
 def _canonical_json(value: Any) -> str:
     return rehearsal._canonical_json(value)
 
@@ -505,7 +407,7 @@ def stage_remote_bundle(
     command_runner: canary.CommandRunner | None = None,
 ) -> dict[str, Any]:
     staging_base = _validated_staging_base(staging_s3_base_uri)
-    runner = command_runner or _controller_cos_runner()
+    runner = command_runner or canary._controller_cos_runner()
     settings = cos_archive.load_settings()
     import gzip
     import io
@@ -623,7 +525,7 @@ def _remote_host_command(
         '  rmdir "$WORK" 2>/dev/null || true',  # preflight-allow: swallow
         "}",
         "trap cleanup EXIT",
-        *_remote_cos_aws_prelude(),
+        *canary._remote_cos_aws_prelude(),
         "aws s3 cp "
         f"--endpoint-url {shlex.quote(endpoint)} "
         f"--region {shlex.quote(region)} --only-show-errors "
@@ -806,7 +708,7 @@ def run_export_batch(args: argparse.Namespace) -> dict[str, Any]:
         upload["batch_id"],
         evidence_root,
         expected_manifest_sha256=upload["manifest_sha256"],
-        command_runner=_controller_cos_runner(lazy=True),
+        command_runner=canary._controller_cos_runner(lazy=True),
     )
     verification = rehearsal.verify_batch(batch_dir)
     restore_result: dict[str, Any] | None = None
