@@ -50,6 +50,21 @@ class RunProbeValidationTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("--target and --script are required", proc.stderr)
 
+    def test_node_and_all_apps_are_mutual_exclusive(self) -> None:
+        existing = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
+        proc = _run(
+            "--target", "prod", "--script", str(existing),
+            "--node", "app-old", "--all-apps",
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("mutually exclusive", proc.stderr)
+
+    def test_bare_cn_prod_fanout_fails_closed_without_app_b_ssm(self) -> None:
+        existing = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
+        proc = _run("--target", "cn-prod", "--script", str(existing), "--all-apps")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("app-b", proc.stderr)
+
     def test_unknown_arg_rejected(self) -> None:
         proc = _run("--bogus")
         self.assertEqual(proc.returncode, 1)
@@ -185,6 +200,8 @@ class RunProbeUCloudTest(unittest.TestCase):
                 "UCLOUD_SSH_STRICT_HOST_KEY_CHECKING": "no",
                 "UCLOUD_SSH_KNOWN_HOSTS": "",
                 "UCLOUD_SSM_INSTANCE_ID": "",
+                # Legacy SSH recovery path: skip multi-app fan-out.
+                "RUN_PROBE_SINGLE_NODE": "1",
             }
         )
         probe = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
@@ -233,6 +250,7 @@ class RunProbeUCloudTest(unittest.TestCase):
                 "UCLOUD_SSH_STRICT_HOST_KEY_CHECKING": "no",
                 "UCLOUD_SSH_KNOWN_HOSTS": "",
                 "UCLOUD_SSM_INSTANCE_ID": "",
+                "RUN_PROBE_SINGLE_NODE": "1",
             }
         )
         probe = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
@@ -300,6 +318,8 @@ class RunProbeUCloudSSMTest(unittest.TestCase):
                 "UCLOUD_SSM_INSTANCE_ID": "mi-0123456789abcdef0",
                 "UCLOUD_SSM_REGION": "eu-west-2",
                 "SSM_FIXTURE_NAME": ssm_name,
+                # Legacy manifest SSM path (pre-fan-out single host).
+                "RUN_PROBE_SINGLE_NODE": "1",
             }
         )
         probe = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
@@ -565,20 +585,21 @@ class RunProbePollingTest(unittest.TestCase):
         compressed_output: bool = False,
         companions: tuple[pathlib.Path, ...] = (),
     ) -> subprocess.CompletedProcess[str]:
-        resolve_stub = self.bin_dir / "resolve_prod_ssm_target.py"
+        fleet_stub = self.bin_dir / "fleet_app_target.py"
         self._write_executable(
-            resolve_stub,
+            fleet_stub,
             textwrap.dedent(
                 """\
                 #!/usr/bin/env python3
                 import sys
-                # run-probe passes --target <PROD_SSM_TARGET|auto> --format kv
-                if "--format" in sys.argv and "kv" in sys.argv:
-                    print("target=aws")
-                    print("instance_id=i-0123456789abcdef1")
+                if "--node" in sys.argv and "--format" in sys.argv and "kv" in sys.argv:
+                    print("name=app-old")
                     print("ssm_region=us-east-1")
+                    print("ssm_instance_id=i-0123456789abcdef1")
+                    print("private_ip=10.4.0.16")
+                    print("lighthouse_instance_id=lhins-test")
                     raise SystemExit(0)
-                raise SystemExit("unexpected resolve stub args: " + " ".join(sys.argv[1:]))
+                raise SystemExit("unexpected fleet stub args: " + " ".join(sys.argv[1:]))
                 """
             ),
         )
@@ -592,12 +613,14 @@ class RunProbePollingTest(unittest.TestCase):
                 "FAKE_AWS_SCENARIO": scenario,
                 "FAKE_DATE_STATE": str(self.date_state),
                 "FAKE_DATE_STEP": str(date_step),
-                "RUN_PROBE_RESOLVE_PROD": str(resolve_stub),
+                "RUN_PROBE_FLEET_RESOLVE": str(fleet_stub),
             }
         )
         args = [
             "--target",
             "prod",
+            "--node",
+            "app-old",
             "--script",
             str(self.probe),
             "--timeout-seconds",

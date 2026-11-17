@@ -28,7 +28,9 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 [`deploy/domestic/README.md`](../domestic/README.md)。
 
 候选储存身份：[app-parallel-20261111.json](../tencent/app-parallel-20261111.json)；
-**默认 CI/`resolve_prod_ssm_target` 仍解析旧应用机**，入口与候选须显式指定（改默认另批）。
+**主机诊断**：`run-probe.sh --target prod` 默认按 `apps[]` **扇出**到每台有
+`ssm_instance_id` 的应用机；单台用 `--node app-old|app-cand`。不要再把
+`resolve_prod_ssm_target` 的单机默认当成「整站诊断」（改 resolver 默认另批）。
 **2026-11-16 Phase C 代码/矩阵已收敛；2026-11-17 线上布局收口完成**：两台均为单容器
 `tokenkey:1.8.380-894f4f18d`（`private:8080` + `loopback:18080`→200；停用的
 `tokenkey-blue/green/caddy` 仍留作回滚材料）。矩阵 `layout.kind=single-container`；

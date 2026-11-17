@@ -142,7 +142,9 @@ app-a 的 `tokenkey-qa-provision/cleanup/archive` 由 `ops/qa/local_maintenance_
 
 远程运维身份只读 [`prod-target.json`](prod-target.json) 的 `ssm_instance_id` 和
 `ssm_region`。agent 由主机主动通过 HTTPS 连接 AWS SSM；billing/usage/error probe 通过
-`run-probe.sh --target cn-prod` 下发，不依赖运维机公网 IP，也不需要开放公网 SSH 22。
+`run-probe.sh --target cn-prod` 默认按 `apps[]` 扇出（每台须有 `ssm_instance_id`）；
+单台用 `--node app-a|app-b`。当前 app-b 尚未登记 Hybrid，裸扇出会失败关闭——先
+`--node app-a`，或给 app-b 装 SSM 并写入矩阵。不依赖运维机公网 IP，也不需要开放公网 SSH 22。
 
 SSH 只用于一次性 agent bootstrap 或 UHost 控制台不可用时的恢复。需要临时 SSH 时只放行
 当前出口 `/32`，完成操作立即移除；不得把动态运维出口固化为长期防火墙规则。日常 probe
