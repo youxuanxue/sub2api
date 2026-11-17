@@ -324,8 +324,10 @@ still constrains the admitted routes before this comparison, as specified by the
 same candidate policy. Each registry entry names its target protocol,
 allowed Responses paths, model policy, feature constraints, endpoint/profile
 resolver, one route adapter, and one transport. Conversion routes are
-deny-by-default and open only for semantics proven lossless by adapter contract
-tests.
+deny-by-default and open only for semantics proven by adapter contract tests:
+either lossless identity, or a documented Anthropic-native-equivalent mapping
+(for example Chat `reasoning_effort` → Messages `thinking` /
+`output_config.effort`, matching open-source relays).
 
 For one account, a route is legal only when:
 

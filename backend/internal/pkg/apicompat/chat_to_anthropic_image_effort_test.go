@@ -56,3 +56,20 @@ func TestValidateChatToAnthropic_RejectsThinkingWithReasoningEffort(t *testing.T
 	}
 	require.Error(t, ValidateChatToAnthropic(&req))
 }
+
+func TestChatCompletionsToAnthropicRequest_PinsTemperatureWhenThinking(t *testing.T) {
+	temp := 0.2
+	req := ChatCompletionsRequest{
+		Model:           "claude-opus-5-5",
+		MaxTokens:       intPtr(128),
+		Temperature:     &temp,
+		ReasoningEffort: "high",
+		Messages:        []ChatMessage{{Role: "user", Content: json.RawMessage(`"hi"`)}},
+	}
+	out, err := ChatCompletionsToAnthropicRequest(&req)
+	require.NoError(t, err)
+	require.NotNil(t, out.Thinking)
+	require.Equal(t, "adaptive", out.Thinking.Type)
+	require.NotNil(t, out.Temperature)
+	require.InDelta(t, 1.0, *out.Temperature, 1e-9)
+}

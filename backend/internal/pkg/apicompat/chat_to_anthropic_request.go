@@ -68,7 +68,28 @@ func ChatCompletionsToAnthropicRequest(req *ChatCompletionsRequest) (*AnthropicR
 	if req.MaxCompletionTokens != nil && *req.MaxCompletionTokens > 0 {
 		out.MaxTokens = *req.MaxCompletionTokens
 	}
+	// Align with new-api / LiteLLM / applyNewAPIAnthropicThinkingTemperature:
+	// Anthropic rejects non-1 temperature when thinking is enabled (Opus 5.5
+	// adaptive is on by default after conversion). Pin outbound sampling
+	// instead of failing the Chat client.
+	pinAnthropicThinkingTemperature(out)
 	return out, nil
+}
+
+func pinAnthropicThinkingTemperature(out *AnthropicRequest) {
+	if out == nil || out.Thinking == nil {
+		return
+	}
+	switch out.Thinking.Type {
+	case "enabled", "adaptive", "between_tools":
+	default:
+		return
+	}
+	if out.Temperature == nil || *out.Temperature == 1 {
+		return
+	}
+	one := 1.0
+	out.Temperature = &one
 }
 
 func hasChatMessageCache(messages []ChatMessage) bool {
