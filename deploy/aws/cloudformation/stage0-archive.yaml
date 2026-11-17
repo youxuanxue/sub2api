@@ -1,9 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   tokenkey Stage 0 long-term ops archive bucket — standalone stack (does not
-  modify the live prod instance stack). Holds promoted export batches under
-  prod/ops-archive/{batch_id}/ with Standard storage then Glacier transition.
-  Staging remains on tokenkey-stage0-backups (7-day pgdump lifecycle).
+  modify the live prod instance stack). Historically held promoted export
+  batches under prod/ops-archive/{batch_id}/ and raw telemetry. Live DB backup
+  is on Tencent COS (pgBackRest); this AWS bucket is wind-down only with a
+  short whole-bucket expiry. Staging remains on tokenkey-stage0-backups.
 
 Parameters:
   ProjectName:
@@ -12,30 +13,14 @@ Parameters:
   Environment:
     Type: String
     Default: prod
-  ArchiveGlacierTransitionDay:
-    Type: Number
-    Default: 91
-    MinValue: 2
-    MaxValue: 365
-    Description: Day count when objects transition to Glacier Flexible Retrieval.
   ArchiveExpireDays:
     Type: Number
-    Default: 400
-    MinValue: 91
-    MaxValue: 3650
-    Description: Days after upload when archive objects expire permanently.
-  RawTelemetryGlacierTransitionDay:
-    Type: Number
-    Default: 8
-    MinValue: 2
-    MaxValue: 30
-    Description: Day count when raw telemetry moves out of Standard storage (expiry is always at least 90 days later).
-  RawTelemetryExpireDays:
-    Type: Number
-    Default: 120
-    MinValue: 120
-    MaxValue: 730
-    Description: Days after upload when replayable raw telemetry expires (minimum preserves Glacier's 90-day storage window).
+    Default: 30
+    MinValue: 1
+    MaxValue: 365
+    Description: >
+      Days after upload when ALL objects in this bucket expire permanently
+      (wind-down; live archive/backup paths use COS).
   AppInstanceRoleArn:
     Type: String
     Description: >
@@ -62,24 +47,11 @@ Resources:
         Status: Suspended
       LifecycleConfiguration:
         Rules:
-          - Id: tier-and-expire-ops-archive
+          - Id: expire-all-30d
             Status: Enabled
-            Prefix: !Sub '${Environment}/ops-archive/'
-            Transitions:
-              - TransitionInDays: !Ref ArchiveGlacierTransitionDay
-                StorageClass: GLACIER
             ExpirationInDays: !Ref ArchiveExpireDays
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 7
-          - Id: tier-and-expire-raw-telemetry
-            Status: Enabled
-            Prefix: !Sub '${Environment}/raw-telemetry/'
-            Transitions:
-              - TransitionInDays: !Ref RawTelemetryGlacierTransitionDay
-                StorageClass: GLACIER
-            ExpirationInDays: !Ref RawTelemetryExpireDays
-            AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 1
 
   OpsArchiveBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -113,14 +85,14 @@ Resources:
             Action:
               - 's3:GetObject'
               - 's3:GetObjectVersion'
-              - 's3:DeleteObject'
-              - 's3:DeleteObjectVersion'
             Resource: !Sub '${OpsArchiveBucket.Arn}/${Environment}/raw-telemetry/*'
           - Sid: AllowAppInstanceRoleGetOpsArchive
             Effect: Allow
             Principal:
               AWS: !Ref AppInstanceRoleArn
-            Action: 's3:GetObject'
+            Action:
+              - 's3:GetObject'
+              - 's3:GetObjectVersion'
             Resource: !Sub '${OpsArchiveBucket.Arn}/${Environment}/ops-archive/*'
           - Sid: AllowAppInstanceRoleListArchive
             Effect: Allow
@@ -135,20 +107,8 @@ Resources:
 
 Outputs:
   BucketName:
-    Description: Long-term ops archive bucket name.
+    Description: Ops archive bucket name
     Value: !Ref OpsArchiveBucket
   ArchiveS3Uri:
-    Description: Canonical base URI for promoted export batches.
+    Description: Base S3 URI for promoted ops-archive batches
     Value: !Sub 's3://${OpsArchiveBucket}/${Environment}/ops-archive'
-  ArchiveGlacierTransitionDay:
-    Description: Day when objects transition to Glacier (Standard window ends the day before).
-    Value: !Ref ArchiveGlacierTransitionDay
-  ArchiveExpireDays:
-    Description: Total retention before lifecycle expiry (contract).
-    Value: !Ref ArchiveExpireDays
-  RawTelemetryS3Uri:
-    Description: Canonical base URI for asynchronous raw telemetry shadow objects.
-    Value: !Sub 's3://${OpsArchiveBucket}/${Environment}/raw-telemetry'
-  RawTelemetryExpireDays:
-    Description: Total retention before raw telemetry lifecycle expiry.
-    Value: !Ref RawTelemetryExpireDays

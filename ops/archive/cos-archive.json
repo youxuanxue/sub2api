@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "bucket": "tokenkey-prod-ops-archive-1320330536",
+  "region": "na-siliconvalley",
+  "endpoint": "cos.na-siliconvalley.myqcloud.com",
+  "prefixes": {
+    "ops_archive": "prod/ops-archive",
+    "ops_archive_export": "prod/ops-archive-export",
+    "host_config": "prod/host-config"
+  },
+  "expire_days": {
+    "ops_archive": 400,
+    "ops_archive_export": 7,
+    "host_config": 90
+  },
+  "forbidden_aws_buckets": [
+    "tokenkey-prod-archive-682751977094",
+    "tokenkey-prod-pgdump-682751977094",
+    "tokenkey-cn-prod-pgdump-682751977094"
+  ]
+}

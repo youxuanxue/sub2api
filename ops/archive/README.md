@@ -147,12 +147,17 @@ First-time canary or legacy-scope export mechanics: CLI `--help` on
 Design baselines: `docs/approved/design-data-layer-prod-export-canary.md`,
 `docs/approved/design-prod-archive-bucket.md`.
 
-Long-term archive bucket CFN (once per account):
+## 对象归档目的地（2026-11-17）
 
-```bash
-aws cloudformation deploy \
-  --region us-east-1 \
-  --stack-name tokenkey-stage0-archive \
-  --template-file deploy/aws/cloudformation/stage0-archive.yaml \
-  --parameter-overrides AppInstanceRoleArn=<prod InstanceRole ARN>
-```
+新对象归档 **只允许腾讯 COS**，见
+[`docs/approved/design-cos-object-archive.md`](../../docs/approved/design-cos-object-archive.md)。
+
+| 项 | 值 |
+|---|---|
+| 桶 | `tokenkey-prod-ops-archive-1320330536`（美西） |
+| 设置 | `ops/archive/cos-archive.json` |
+| Identity | `ops/archive/cos_archive_identity.py`（AWS 目的地 fail-closed） |
+| host-config 上传 | `python3 ops/archive/upload_host_config.py --file … --label …`（默认 plan；`--apply` 才写） |
+| 凭据 | `TK_COS_ARCHIVE_CREDENTIALS` 或 `/etc/tokenkey/cos-archive.env`（`secretId`/`secretKey`；勿进 Git） |
+
+历史 AWS CFN `tokenkey-stage0-archive` 仅作风控收尸（30 天自删），不再作为新写入目的地。

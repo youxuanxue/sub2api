@@ -32,8 +32,10 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 `ssm_instance_id` 的应用机；单台用 `--node app-old|app-cand`。不要再把
 `resolve_prod_ssm_target` 的单机默认当成「整站诊断」（改 resolver 默认另批）。
 **2026-11-16 Phase C 代码/矩阵已收敛；2026-11-17 线上布局收口完成**：两台均为单容器
-`tokenkey:1.8.380-894f4f18d`（`private:8080` + `loopback:18080`→200；停用的
-`tokenkey-blue/green/caddy` 仍留作回滚材料）。矩阵 `layout.kind=single-container`；
+`tokenkey:1.8.380-894f4f18d`（`private:8080` + `loopback:18080`→200）。
+2026-11-17：prod 两台应用机与 cn-prod app-a 上已停用的 `tokenkey-blue/green/caddy`
+容器已删除（仅在确认 `tokenkey` healthy 后 `docker rm`；未动 `*-client`）。
+矩阵 `layout.kind=single-container`；
 日常发版走 `rolling.py` + `prod-rolling-deploy.yml`（确认词 `rolling-prod-<tag>`，
 默认 `--via ssm`）。prod rolling receipt：[run 43978840514](https://github.com/youxuanxue/sub2api/actions/runs/43978840514)
 （当时两台已在目标 tag，节点 `mode=skip`；下一次真换版本才会走 full drain/repin）。
@@ -47,6 +49,9 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
 SOCKS 仅监听各机私网 `:1080`；放行来源见下方 `ALLOWED_SOURCES`（**应用机公网 IP**，不是入口 IP）。
 `usw-eval1..4` 已于 2026-11-15 销毁。Oregon 主机仍是保留的 AWS 计算依赖。活绑定以 prod / cn-prod `proxies` 为准。
+**2026-11-17 核实**：prod 仍有 active `or-1..4`（SOCKS `35.160.218.198` / `54.186.89.199` / `35.165.11.247` / `32.191.95.59`），
+`live_accounts` 分别为 32 / 31 / 28 / 33（合计 124）；fallback/backup 引用为 0。
+cn-prod `proxies` **无** `or-*`，仅 Aliyun `ip5..8` + `cn-ip9..12`。Oregon **不可退役**。
 
 #### 国内出口 `cn-ip9..12`（阿里云北京轻量 SWAS，公网 SOCKS，2026-11-15 起）
 
@@ -92,7 +97,10 @@ SOCKS 仅监听各机私网 `:1080`；放行来源见下方 `ALLOWED_SOURCES`（
 安装 owner：[`deploy/tencent/proxy-host-alerts.md`](../tencent/proxy-host-alerts.md)。凭据仅主机 `/opt/tokenkey/host-alerts.env`，不进 git。  
 另有 prod 应用侧 `proxy_unreachable_count` P0（网关拨测），不能替代本机 timer。
 
-活舰队矩阵：[`deploy/tencent/candidate-usw-20261022.json`](../tencent/candidate-usw-20261022.json)（`deployable=true`；`resolve_prod_ssm_target.py --target auto` → 本机）。
+活舰队矩阵：[`deploy/tencent/candidate-usw-20261022.json`](../tencent/candidate-usw-20261022.json)
+（`deployable=true`）。`resolve_prod_ssm_target.py` 在有 `apps[]` 时**必须**显式
+`--node entry|app-old|app-cand|data`（或 `PROD_SSM_NODE`）；不再静默默认旧应用机。
+整站诊断用 `run-probe --all-apps`。
 
 ### 活物理备份仓库（2026-11-08 起 COS 唯一）
 
@@ -133,7 +141,7 @@ SOCKS 仅监听各机私网 `:1080`；放行来源见下方 `ALLOWED_SOURCES`（
 |----|-----|
 | 活入口 | 腾讯美西入口机 `43.162.119.210`（`lhins-3am1i23j` / `mi-026982f3622163a1b`）；五域名 A 指向该 IP。旧应用机公网 80/443 已关 |
 | prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
-| 探针 / sync Caddy | 默认仍解析旧应用机 Hybrid `mi-080ed76…`（`resolve_prod_ssm_target.py`）；入口机同步须显式 `INSTANCE_ID` + `PROD_CADDY_ROLE=entry`，候选应用机显式 `INSTANCE_ID`；冻结/退役身份拒绝执行 |
+| 探针 / sync Caddy | `resolve_prod_ssm_target.py --node app-old|app-cand|entry`（无默认）；入口机同步也可显式 `INSTANCE_ID` + `PROD_CADDY_ROLE=entry`；冻结/退役身份拒绝执行 |
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
 
@@ -192,13 +200,25 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 计算节点迁移完成不等于整个系统零 AWS。以下为保留依赖与清理边界；不要按文件名或
 `AWS_*` 前缀批量删除。历史审批文档记录当时的架构，现网执行以本文件和目标矩阵为准。
 
+### 2026-11-17 清点（可清 vs 必须留）
+
+| 类别 | 状态 | 动作 |
+|---|---|---|
+| SSM Hybrid / OIDC / Parameter Store | **必须留** | 美西+北京远程执行与 GHCR 身份仍靠它；换发布控制面之前不删 |
+| Oregon 保留计算 | **必须留** | 2026-11-17：prod `or-1..4` 合计 124 live accounts；cn-prod 无 Oregon 行 |
+| 旧 physical-backup CFN/S3 | **已清** | 2026-11 核对 `DELETE_COMPLETE` / `HeadBucket` 404 |
+| Tokyo EC2 / `aws-fresh` | **已清** | resolver 失败关闭 |
+| `deploy/aws/stage0/` 路径名 | **必须留** | 共享 compose/Caddy/QA owner；迁路径要同步引用与 sentinel |
+| 供应商 AWS 协议（Kiro/Bedrock 等） | **必须留** | 模型能力，不是基础设施残留 |
+| `deploy_via_ssm_bluegreen.sh` | **应急 stub** | 日常走 rolling；workflow 默认拒绝；全文删除另 PR（测试/SSOT 依赖面大） |
+
 | 类别 | 当前用途 / owner | 清理条件 |
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | 腾讯美西 prod/出口机与北京 cn-prod 远程执行、参数与 GHCR 身份；`ops/stage0/resolve_prod_ssm_target.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
 | QA raw archive | QA S3 已于 2026-11-08 退役；仓库模板与恢复 CLI 已删除 | CFN `tokenkey-prod-qa-raw-archive`=`DELETE_COMPLETE`（2026-11-09）；桶 `HeadBucket` 404；主机 maintenance/boundary 脚本与 unit 已不存在（2026-11-17 核对）。见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界) |
 | 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
-| 历史 archive / dormant media 桶 | 历史数据与停用配置；媒体默认不启用 S3，只有显式 opt-in | 资产销毁另行审批，不能把停用 bucket 描述成现网迁移对象 |
+| 历史 / 休眠 S3 桶 | 见下方「2026-11-17 桶盘点」；Tokyo `cfn-deploy`（cn-prod 镜像）仍活；AWS `archive` 已改 30 天自删收尾 | 休眠桶已按批准销毁；**禁止**删 Tokyo 镜像桶 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
 | 第三方 AWS 协议 | Kiro/Bedrock 的 AWS endpoint、SDK/SigV4、S3 兼容客户端 | 属模型供应商/协议能力，不能随基础设施迁移删除 |
 
@@ -213,11 +233,31 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 | `QA_*` | QA 独立迁移契约；不得因网关迁完而直接切换默认值 |
 | `QA_ARCHIVE_*` | QA S3 归档 2026-11-08 退役；prod 蓝绿发布不再注入或校验这些键，compose 也不再传入容器（网关缺省关闭归档）。node1 副本由主机定时器 `tokenkey-qa-archive` 负责 |
 
-媒体默认 AWS 坐标清理：`ops/stage0/retire_dormant_media_storage.py` 默认 plan；
-通过 `run-probe --script ops/stage0/retire_dormant_media_storage_remote.sh`
-附带 `--with ops/stage0/retire_dormant_media_storage.py` 和 prod 矩阵，追加 `--env APPLY=yes-retire-dormant-media` 前必须确认 image offload 未启用、
-无显式 image storage 设置和视频任务。只删已知休眠默认值，自定义配置拒绝处理。
-运行容器的旧环境变量在下一次正常 rolling 发版或经批准的蓝绿恢复时消失；此入口不重启容器。
+媒体默认 AWS 坐标清理入口：`ops/stage0/retire_dormant_media_storage.py`（plan 默认；
+`APPLY=yes-retire-dormant-media` 才写主机 `.env`，不重启容器）。2026-11-17 现网已是
+`DRIVER=local`，无需 APPLY（见下方 QA 收尾节）。
+
+### 2026-11-17 桶盘点与销毁（用户批准）
+
+账户 `682751977094`。此前已 404：**physical-backup**、**qa-raw(-archive)**、**telemetry**。
+
+**本轮已销毁**（`HeadBucket` 404；SSM 恢复材料未动）：
+
+| 桶 | 说明 |
+|---|---|
+| `tokenkey-cn-prod-pgdump-682751977094` | 空桶 |
+| `tokenkey-prod-media-682751977094` | 休眠媒体（2 个 `public/` 对象 + 版本残留已清） |
+| `tokenkey-prod-cfn-deploy-682751977094-us-east-1` | 美东 CFN/hotfix 残留 |
+| `tokenkey-prod-pgdump-682751977094` | 7 个旧逻辑 dump（最新 2026-10-20）；保留 `/tokenkey/hetzner/*/stage0/pgdump-storage-recovery` 与 `/tokenkey/prod/stage0/pgdump.b64` |
+
+**仍保留**：
+
+| 桶 | 区域 | 角色 |
+|---|---|---|
+| `tokenkey-prod-archive-682751977094` | us-east-1 | **收尾中**：全桶 30 天自删；**新对象归档禁止写入**。活目的地见腾讯 COS `tokenkey-prod-ops-archive-1320330536`（[design-cos-object-archive](../../docs/approved/design-cos-object-archive.md)） |
+| `tokenkey-prod-cfn-deploy-682751977094-ap-northeast-1` | ap-northeast-1 | **活**：`deploy/domestic/image-distribution.json` 的 cn-prod 镜像分发桶（`cn-prod/images/*`）；含历史 `tokyo-precutover`/`ops` 前缀。**不可当残留删** |
+
+后续债（不与删桶同 PR）：Hybrid/OIDC/SecureString 换腾讯 TAT 控制面；`deploy/aws/stage0/` 路径改名（须同步 sentinel/引用）。
 
 ## QA 与备份排队、旧 AWS 定时任务收尾
 
@@ -225,9 +265,15 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 provision/cleanup 持独占锁；备份完成本地文件后立即解锁，上传不阻塞 QA。本地 QA 最多等待 600 秒，
 备份最多等待 2400 秒；超时任务失败，不跳过数据库短锁超时。
 
-QA S3 退役（2026-11-08）后，旧 maintenance/boundary 宿主脚本已从仓库删除。主机上已 mask 的
-单元与 `/usr/local/bin/tokenkey-qa-{maintenance,boundary}.sh` 留待单独的主机清理；清理前保持 mask，
-`local_maintenance_host.py` 的 `require_legacy_paused()` 会在它们被意外启用时拒绝运行本地 QA 任务。
+QA S3 退役（2026-11-08）后，旧 maintenance/boundary 宿主脚本已从仓库删除。
+**2026-11-17 主机核对（prod `app-old`/`app-cand`，cn-prod `app-a`/`app-b`）**：
+`tokenkey-qa-maintenance`/`boundary` 的 unit、mask 链接与 `/usr/local/bin` 脚本均已不存在（A 收尾完成）。
+现行本地 QA 单元（`provision`/`cleanup`/`archive` 或 cn `retention`）保留，不是残留。
+
+媒体默认 AWS 坐标（B）：2026-11-17 plan 在 prod 两台应用机均见
+`MEDIA_STORAGE_DRIVER=local` 且 `BUCKET`/`REGION` 为空，**不是**休眠 S3 三元组；
+`retire_dormant_media_storage.py` 正确返回 `custom_or_partial_media_configuration`，**无需 APPLY**。
+（同日修复该脚本在 run-probe `/tmp` 交付下 `Path.parents[1]` 误抛错，否则 plan 无法到达配置裁决。）
 
 普通 rolling 发版与经批准的蓝绿恢复都不再注入 telemetry 的 AWS 桶/region 默认值，telemetry 默认关闭。
 显式 opt-in 和主机已有配置继续保留；此变更不等于已清理运行容器中的休眠变量，也不表示

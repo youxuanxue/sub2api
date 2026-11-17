@@ -32,6 +32,9 @@ python3 ops/stage0/preserve_legacy_pgdump.py --bucket "$LEGACY_BUCKET" \
 该工具仅支持当前账户的专用 prod pgdump 桶；移除自动过期不恢复此前已到期数据，
 不设置第 30 天自动删除。保留至少 30 天，届时检查物理链/恢复能力并另行决定清理。
 保留所有恢复密钥/SSM 路径；不能只保留密文却删除解密材料。
+**2026-11-17**：用户批准后已销毁 `tokenkey-prod-pgdump-682751977094` 与空的
+`tokenkey-cn-prod-pgdump-682751977094`；SSM 恢复参数仍在。主恢复路径继续是 pgBackRest。
+详见 [舰队 AWS 残留](../../deploy/hetzner/README.md#2026-11-17-桶盘点与销毁用户批准)。
 
 将 `retire_pgdump.py`、同目录 `postgres_backup.py` 与已 apply 的保留回执经 run-probe 投递到 prod，
 指定 resolver 确认的 hostname 与当前 watcher config 路径：

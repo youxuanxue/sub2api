@@ -26,22 +26,27 @@ CloudFormationLoader.add_multi_constructor("!", _cloudformation_tag)
 
 
 class Stage0ArchiveContractTest(unittest.TestCase):
-    def test_raw_telemetry_has_lifecycle_and_instance_role_access(self) -> None:
+    def test_whole_bucket_expires_in_thirty_days_without_glacier(self) -> None:
         template = yaml.load(TEMPLATE.read_text(encoding="utf-8"), Loader=CloudFormationLoader)
         params = template["Parameters"]
-        transition = params["RawTelemetryGlacierTransitionDay"]
-        expiry = params["RawTelemetryExpireDays"]
-        self.assertEqual(transition["Default"], 8)
-        self.assertEqual(expiry["Default"], 120)
-        self.assertGreaterEqual(expiry["MinValue"] - transition["MaxValue"], 90)
+        expiry = params["ArchiveExpireDays"]
+        self.assertEqual(expiry["Default"], 30)
+        self.assertEqual(expiry["MinValue"], 1)
+        self.assertNotIn("ArchiveGlacierTransitionDay", params)
+        self.assertNotIn("RawTelemetryExpireDays", params)
 
         bucket = template["Resources"]["OpsArchiveBucket"]["Properties"]
         rules = bucket["LifecycleConfiguration"]["Rules"]
-        raw = next(rule for rule in rules if rule["Id"] == "tier-and-expire-raw-telemetry")
-        self.assertEqual(raw["Status"], "Enabled")
-        self.assertEqual(raw["Prefix"], "${Environment}/raw-telemetry/")
-        self.assertEqual(raw["ExpirationInDays"], "RawTelemetryExpireDays")
+        self.assertEqual(len(rules), 1)
+        rule = rules[0]
+        self.assertEqual(rule["Id"], "expire-all-30d")
+        self.assertEqual(rule["Status"], "Enabled")
+        self.assertEqual(rule["ExpirationInDays"], "ArchiveExpireDays")
+        self.assertNotIn("Transitions", rule)
+        self.assertNotIn("Prefix", rule)
 
+    def test_raw_telemetry_instance_role_access_unchanged(self) -> None:
+        template = yaml.load(TEMPLATE.read_text(encoding="utf-8"), Loader=CloudFormationLoader)
         statements = template["Resources"]["OpsArchiveBucketPolicy"]["Properties"]["PolicyDocument"]["Statement"]
         write = next(statement for statement in statements if statement["Sid"] == "AllowAppInstanceRolePutArchive")
         self.assertEqual(write["Action"], "s3:PutObject")

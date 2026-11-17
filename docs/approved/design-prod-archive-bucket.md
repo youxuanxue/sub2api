@@ -10,10 +10,15 @@ related_prs: [1401, 1653]
 
 # 生产 ops 长期 archive bucket 与 promote
 
+> **存储目的地（2026-11-17）**：新对象归档禁止落 AWS，改腾讯 COS。见 pending
+> [design-cos-object-archive.md](design-cos-object-archive.md)。本文保留 **promote/export
+> 证据语义与历史 S3 契约**；未批准 COS 设计前不得新写 AWS archive。
+
 ## 决策
 
 export staging（`tokenkey-stage0-backups` / `prod/pgdump/archive-export/`）仅 **7 天**
-周转；长期归档使用 **独立 S3 桶**，一条 canonical promote 路径。ops 分区回收前 export/promote
+周转；长期归档使用 **独立对象桶**，一条 canonical promote 路径（历史实现为 AWS S3；
+新目的地见 COS 设计）。ops 分区回收前 export/promote
 证据须齐全（`drop_ready` 仍不授权删除）；steady state 下 physical DROP 由 `OpsCleanupService`
 执行；终态与 re-export 例外路径见 `ops/archive/README.md`。
 

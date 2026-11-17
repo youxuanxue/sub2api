@@ -40,9 +40,15 @@ def prod_identity(candidates=None):
     could never pass. The Tencent matrix is the resolver's live-prod contract.
     """
     explicit = os.environ.get("TK_TENCENT_PROD_MATRIX", "").strip()
-    paths = [Path(explicit)] if explicit else [
-        _HERE / MATRIX_NAME, _HERE.parents[1] / "deploy" / "tencent" / MATRIX_NAME]
-    for path in paths if candidates is None else candidates:
+    if candidates is None:
+        paths = [Path(explicit)] if explicit else [_HERE / MATRIX_NAME]
+        # Repo checkout: ops/stage0 → deploy/tencent. run-probe ships the matrix
+        # next to this file under /tmp, where Path.parents[1] does not exist.
+        if len(_HERE.parents) > 1:
+            paths.append(_HERE.parents[1] / "deploy" / "tencent" / MATRIX_NAME)
+    else:
+        paths = list(candidates)
+    for path in paths:
         try:
             target = json.loads(path.read_text())["target"]
         except (OSError, ValueError, KeyError, TypeError):

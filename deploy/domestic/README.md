@@ -102,6 +102,16 @@ app-a 的 `tokenkey-qa-provision/cleanup/archive` 由 `ops/qa/local_maintenance_
 
 2026-11-17：app-b 已启用独立 `tokenkey-qa-retention`（小时结束 +24h 接受丢失），清掉积压过期小时并写入 `apps[].jobs`；bundle 在 `/var/lib/tokenkey/qa-retention-bootstrap`。数据机协调器（v2 归档）仍按 [`COORDINATOR.md`](../../ops/qa/COORDINATOR.md) 单独交接，未安装。
 
+#### 数据机 QA 协调器就绪清单（未 apply）
+
+按 `ops/qa/COORDINATOR.md` 顺序；本段只记就绪条件，**不**代替安装：
+
+1. 应用机 source config（root 0600）+ 固定 binary SHA；app-a / app-b 的 `source_id` 隔离。
+2. 数据机 config 引用两台 worker 路径；`active_from` 已核对；PG* EnvironmentFile 只读核验指向 cn-prod 库。
+3. 先 plan 安装 source，再 plan 安装 data；交接前停旧 provision/cleanup/archive timer（capture 不停）。
+4. 受控单轮 `coordinator_host.py --apply` + `force_retention.py --apply` 验收副作用。
+5. 矩阵登记 `data_qa_jobs` / 应用机 `tokenkey-qa-retention` 后重装 host watcher，再启用 timer。
+
 ## 首次安装与配置 owner
 
 > 本节记录 UCloud 首发时的安装流程；腾讯北京迁机按 host-replacement 技能执行，不重跑本节。
@@ -143,8 +153,9 @@ app-a 的 `tokenkey-qa-provision/cleanup/archive` 由 `ops/qa/local_maintenance_
 远程运维身份只读 [`prod-target.json`](prod-target.json) 的 `ssm_instance_id` 和
 `ssm_region`。agent 由主机主动通过 HTTPS 连接 AWS SSM；billing/usage/error probe 通过
 `run-probe.sh --target cn-prod` 默认按 `apps[]` 扇出（每台须有 `ssm_instance_id`）；
-单台用 `--node app-a|app-b`。当前 app-b 尚未登记 Hybrid，裸扇出会失败关闭——先
-`--node app-a`，或给 app-b 装 SSM 并写入矩阵。不依赖运维机公网 IP，也不需要开放公网 SSH 22。
+单台用 `--node app-a|app-b`。2026-11-17：app-b 已登记 Hybrid
+`mi-00a738270d1d7bd48`（snap `amazon-ssm-agent` 3.3.4793.0），裸扇出可用。
+不依赖运维机公网 IP，也不需要开放公网 SSH 22。
 
 SSH 只用于一次性 agent bootstrap 或 UHost 控制台不可用时的恢复。需要临时 SSH 时只放行
 当前出口 `/32`，完成操作立即移除；不得把动态运维出口固化为长期防火墙规则。日常 probe

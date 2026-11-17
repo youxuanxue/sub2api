@@ -18,6 +18,7 @@ import tempfile
 from collections.abc import Iterable
 from typing import Any
 
+import cos_archive_identity as cos_archive
 import data_layer_archive_cleanup_hold as cleanup_hold
 import data_layer_archive_cleanup_hold_remote as cleanup_hold_remote
 import data_layer_archive_prod_canary as canary
@@ -25,7 +26,7 @@ import data_layer_archive_rehearsal as rehearsal
 
 
 PROD_EXPORT_CONFIRMATION = "tokenkey-prod-archive-export-batch-v1"
-S3_KEY_BASE = "prod/pgdump/archive-export"
+S3_KEY_BASE = "prod/ops-archive-export"
 LEDGER_SCHEMA_VERSION = 1
 LEDGER_MODE = "prod_archive_export_ledger"
 DEFAULT_MAX_ROWS = 50_000
@@ -63,6 +64,10 @@ def _validated_staging_base(uri: str) -> str:
     bucket, key = canary._s3_location(uri)
     if key != S3_KEY_BASE:
         raise ExportError(f"S3 staging key must be exactly {S3_KEY_BASE}")
+    try:
+        cos_archive.refuse_aws_destination(f"s3://{bucket}/{key}")
+    except cos_archive.CosArchiveError as exc:
+        raise ExportError(str(exc)) from exc
     return f"s3://{bucket}/{key}"
 
 
@@ -641,9 +646,13 @@ def run_export_batch(args: argparse.Namespace) -> dict[str, Any]:
         args.cleanup_hold_receipt, instance_id
     )
     hold_verification = cleanup_hold.verify(args.cleanup_hold_receipt)
-    bucket = canary._stack_output(canary.BACKUP_STACK, canary.BACKUP_BUCKET_OUTPUT)
-    retention_days = canary._stack_parameter(canary.BACKUP_STACK, "RetentionDays")
-    if retention_days != str(canary.BACKUP_RETENTION_DAYS):
+    try:
+        settings = cos_archive.load_settings()
+    except cos_archive.CosArchiveError as exc:
+        raise ExportError(str(exc)) from exc
+    bucket = settings["bucket"]
+    retention_days = str(settings["expire_days"]["ops_archive_export"])
+    if retention_days != "7":
         raise ExportError(
             "production export staging requires the approved 7-day retention"
         )

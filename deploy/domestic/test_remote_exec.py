@@ -29,14 +29,16 @@ MANIFEST = {
     "tat_region": "ap-beijing",
     "entry": {"name": "entry", "lighthouse_instance_id": "lhins-j89o28j0", "private_ip": "10.2.4.7"},
     "apps": [
-        {"name": "app-b", "lighthouse_instance_id": "lhins-0kxx7cco", "private_ip": "10.2.4.13", "weight": 1},
+        {"name": "app-b", "lighthouse_instance_id": "lhins-0kxx7cco", "private_ip": "10.2.4.13", "weight": 1,
+         "ssm_instance_id": "mi-00a738270d1d7bd48"},
         {"name": "app-a", "lighthouse_instance_id": "lhins-6qmb3fd6", "private_ip": "10.2.4.11", "weight": 3,
          "ssm_instance_id": "mi-06568963b4b3c3239"},
     ],
 }
 
-APP_B = rx.Node("app-b", "app", "lhins-0kxx7cco", "10.2.4.13", None)
+APP_B = rx.Node("app-b", "app", "lhins-0kxx7cco", "10.2.4.13", "mi-00a738270d1d7bd48", ssm_region="eu-west-2")
 APP_A = rx.Node("app-a", "app", "lhins-6qmb3fd6", "10.2.4.11", "mi-06568963b4b3c3239", ssm_region="eu-west-2")
+APP_NO_SSM = rx.Node("app-x", "app", "lhins-nossm000", "10.2.4.99", None)
 
 
 def _b64(text: str | bytes) -> str:
@@ -103,7 +105,7 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(list(nodes), ["entry", "app-b", "app-a", "data"])
         self.assertEqual(nodes["entry"].role, "entry")
         self.assertEqual(nodes["app-a"].ssm_instance_id, "mi-06568963b4b3c3239")
-        self.assertIsNone(nodes["app-b"].ssm_instance_id)
+        self.assertEqual(nodes["app-b"].ssm_instance_id, "mi-00a738270d1d7bd48")
         self.assertEqual(nodes["data"].private_ip, "10.2.4.5")
         self.assertEqual(nodes["data"].ssm_instance_id, "mi-084a456b3dee71bb4")
         self.assertEqual({n.tat_region for n in nodes.values()}, {"ap-beijing"})
@@ -282,7 +284,7 @@ class SsmRunTest(unittest.TestCase):
     def test_node_without_ssm_raises(self):
         runner = FakeRunner()
         with self.assertRaisesRegex(rx.RemoteExecError, "no ssm_instance_id"):
-            rx.run(APP_B, "echo hi", via="ssm", runner=runner, sleep=no_sleep)
+            rx.run(APP_NO_SSM, "echo hi", via="ssm", runner=runner, sleep=no_sleep)
         self.assertEqual(runner.calls, [])
 
 
@@ -425,6 +427,9 @@ class CliTest(unittest.TestCase):
         self.assertEqual(rc, 1)
 
     def test_run_ssm_without_ssm_node_is_nonzero(self):
+        data = json.loads(json.dumps(MANIFEST))
+        data["apps"][0].pop("ssm_instance_id", None)
+        self.manifest.write_text(json.dumps(data))
         rc, _, err = self.cli("run", "--node", "app-b", "--script", str(self.script), "--via", "ssm",
                               runner=FakeRunner())
         self.assertEqual(rc, 2)

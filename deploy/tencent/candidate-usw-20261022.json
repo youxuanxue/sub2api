@@ -14,7 +14,8 @@
     "Tokyo i-045f062ce33e1a5af was retired and deleted 2026-10-23; its snapshots are deleted; never restore its S3 history chain as a writer.",
     "Cutover receipt: docs/ops/reports/tencent-cutover-20261022.json",
     "2026-10-29: tokenkey-disk-metrics.timer is installed and expected active. It checks root / and /var/lib/tokenkey at 85% alert / 80% recover.",
-    "2026-11-16 Phase C code/matrix converged: target is single tokenkey on private:8080 + loopback:18080; layout.kind=single-container; rolling plan/deploy is unlocked (confirm rolling-prod-<tag>). Live closure still requires both hosts' layout checks and a complete rolling receipt. Stopped blue/green remains rollback material. Phase D (old LUKS exit) is still gated."
+    "2026-11-16 Phase C code/matrix converged: target is single tokenkey on private:8080 + loopback:18080; layout.kind=single-container; rolling plan/deploy is unlocked (confirm rolling-prod-<tag>).",
+    "2026-11-17: stopped tokenkey-blue/green/caddy rollback containers removed on both apps (tokenkey healthy). resolve_prod_ssm_target requires --node when apps[] present. Phase D (old LUKS exit) is still gated."
   ],
   "layout": {
     "kind": "single-container",

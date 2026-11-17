@@ -23,7 +23,7 @@ import data_layer_archive_rehearsal as rehearsal  # noqa: E402
 
 
 _INSTANCE_ID = "i-0123456789abcdef0"
-_STAGING_BASE = "s3://test-backups/prod/pgdump/archive-export"
+_STAGING_BASE = "s3://tokenkey-prod-ops-archive-1320330536/prod/ops-archive-export"
 _HOLD_STARTED_AT = "2026-07-21T02:30:00.000000Z"
 _AS_OF = "2026-07-21T03:00:00.000000Z"
 
@@ -276,10 +276,6 @@ class ProdArchiveExportTest(unittest.TestCase):
             ), mock.patch.object(
                 export.cleanup_hold, "verify", return_value=hold_verify
             ), mock.patch.object(
-                canary, "_stack_output", return_value="test-backups"
-            ), mock.patch.object(
-                canary, "_stack_parameter", return_value="7"
-            ), mock.patch.object(
                 export, "stage_remote_bundle", return_value={"uri": f"{_STAGING_BASE}/control/x.tar.gz", "sha256": "a" * 64}
             ), mock.patch.object(
                 canary, "_run_ssm", return_value=uploaded
@@ -356,10 +352,6 @@ class ProdArchiveExportTest(unittest.TestCase):
             ), mock.patch.object(
                 export.cleanup_hold, "verify", return_value={"server_clock": _AS_OF}
             ), mock.patch.object(
-                canary, "_stack_output", return_value="test-backups"
-            ), mock.patch.object(
-                canary, "_stack_parameter", return_value="7"
-            ), mock.patch.object(
                 export,
                 "stage_remote_bundle",
                 return_value={
@@ -408,7 +400,7 @@ class ProdArchiveExportTest(unittest.TestCase):
     def test_download_accepts_prod_export_batch_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             batch_id = "prod-export-20260722T000000.000000Z-deadbeef0000"
-            prefix = f"s3://test-backups/prod/pgdump/archive-export/{batch_id}"
+            prefix = f"s3://tokenkey-prod-ops-archive-1320330536/prod/ops-archive-export/{batch_id}"
 
             def unavailable_download(_command: list[str]) -> str:
                 raise canary.CanaryError("deterministic download boundary")

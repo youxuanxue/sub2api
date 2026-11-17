@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-17 对象归档禁新写 AWS，改腾讯 COS
+
+原话：「核心是『以后凡是对象归档都别再落 AWS』。」「对的。确认。」
+
+适用范围：ops 冷数据 promote/export、host-config 等对象归档的**新写入**只允许腾讯 COS；禁止再落到 AWS S3。不覆盖 Oregon 出口、镜像分发、供应商 AWS。pgBackRest/QA 既有 COS/本地契约不变。设计见 `docs/approved/design-cos-object-archive.md`（2026-11-17 乔布斯复审后批准）。
+
 ## 2026-11-15 美西 prod 入口机 + 多应用机
 
 原话：「1-2 确认。4 确认接受丢失。3 同 cn-prod 一样，不需要热备入口？请安全推进，不要影响线上用户流量和请求。」

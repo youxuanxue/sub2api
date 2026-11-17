@@ -42,12 +42,15 @@ class FleetAppTargetTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("unknown --node", proc.stderr)
 
-    def test_cn_prod_all_apps_fails_without_app_b_ssm(self) -> None:
-        """Fail closed: app-b has no Hybrid id, so fleet fan-out cannot pretend to cover it."""
+    def test_cn_prod_lists_both_apps_with_ssm(self) -> None:
+        """Both cn-prod apps carry Hybrid ids after 2026-11-17 app-b registration."""
         proc = run("--site", "cn-prod", "--list")
-        self.assertEqual(proc.returncode, 2, proc.stderr)
-        self.assertIn("app-b", proc.stderr)
-        self.assertIn("ssm_instance_id", proc.stderr)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        apps = json.loads(proc.stdout)
+        by_name = {a["name"]: a for a in apps}
+        self.assertEqual(set(by_name), {"app-a", "app-b"})
+        self.assertTrue(by_name["app-a"]["ssm_instance_id"].startswith("mi-"))
+        self.assertEqual(by_name["app-b"]["ssm_instance_id"], "mi-00a738270d1d7bd48")
 
     def test_cn_prod_app_a_ok(self) -> None:
         proc = run("--site", "cn-prod", "--node", "app-a", "--format", "kv")

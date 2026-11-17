@@ -36,7 +36,7 @@ fi
 
 if [ "${INSTANCE_ID}" = prod ]; then
   RESOLVE_PROD="${SYNC_BBR_RESOLVE_PROD:-${SCRIPT_DIR}/resolve_prod_ssm_target.py}"
-  if ! resolved="$(python3 "${RESOLVE_PROD}" --target "${PROD_SSM_TARGET:-auto}" --format kv)"; then
+  if ! resolved="$(python3 "${RESOLVE_PROD}" --node "${PROD_SSM_NODE:-app-old}" --target "${PROD_SSM_TARGET:-auto}" --format kv)"; then
     echo "sync_host_bbr_via_ssm: resolve_prod_ssm_target failed; refusing to guess a host" >&2
     exit 2
   fi
