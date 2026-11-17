@@ -30,7 +30,7 @@ MANIFEST = {
     "entry": {"name": "entry", "lighthouse_instance_id": "lhins-j89o28j0", "private_ip": "10.2.4.7"},
     "apps": [
         {"name": "app-b", "lighthouse_instance_id": "lhins-0kxx7cco", "private_ip": "10.2.4.13", "weight": 1},
-        {"name": "app-a", "lighthouse_instance_id": "lhins-6qmb3fd6", "private_ip": "10.2.4.11", "weight": 3,
+        {"name": "app-a", "lighthouse_instance_id": "lhins-6qmb3fd6", "private_ip": "10.2.4.11", "weight": 1,
          "ssm_instance_id": "mi-06568963b4b3c3239"},
     ],
 }

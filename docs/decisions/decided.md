@@ -1,5 +1,13 @@
 # 已决定
 
+## 2026-11-17 cn-prod 压测扩容准备（800 并发前）
+
+原话：「1、开个专用的压测机。临时用2天。2、还是维持2台应用机，但是 app-a 和 app-b 都使用 4C 的吧，先升级一下？3、同意：DATABASE_MAX_OPEN_CONNS 40→80/应用，并上调数据机 max_connections」
+
+后续确认：「1. app-b 改为 4C8G，同意生完权重1:1；2.同意。低峰需要发我审批；3.同意。」（按量压测机）
+
+适用范围：cn-prod。双应用机保持两台；app-b 由 2C4G 升到 `bundle_rs_mc_lg8_01` **4C8G**（非 4C16G）；入口 WRR **app-a:app-b = 1:1**。应用侧 `DATABASE_MAX_OPEN_CONNS` 40→80（idle 10→20）。数据机 `max_connections` 200→400 **须低峰窗口审批后才重启 Postgres**（审批 `docs/ops/approvals/cn-prod-pg-max-connections-200-to-400.md`；**2026-11-17 13:46 BJT 已执行**，`SHOW max_connections=400`）。专用压测 client：北京按量 4C8G CVM 约 2 天（`ins-7ltl2zv3`，tag `expire_after=2026-11-19`），不放在 `cn-ip*` 代理机或应用机上。依据：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-20261117.md`。
+
 ## 2026-11-17 AG argon maxOutputTokens：只钳显式超大、不默认注入
 
 原话：「若要对齐开源精神又留安全网：更干净的是 只钳非法/超大、不默认注入。」

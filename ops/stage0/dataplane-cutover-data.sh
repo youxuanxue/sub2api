@@ -39,15 +39,16 @@ private_ip="$(ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 |
 [ -n "$private_ip" ] || die "no private 10.x address on this host"
 
 # Approved parameters (design §数据库参数 建议值). Memory values differ per site.
+# cn-prod max_connections raised 200→400 on 2026-11-17 (docs/ops/approvals/cn-prod-pg-max-connections-200-to-400.md).
 expected_settings() {
-  local sb ecs mwm
-  if [ "$SITE" = prod ]; then sb=2GB ecs=5GB mwm=256MB; else sb=1GB ecs=2560MB mwm=128MB; fi
+  local sb ecs mwm max_conn
+  if [ "$SITE" = prod ]; then sb=2GB ecs=5GB mwm=256MB max_conn=200; else sb=1GB ecs=2560MB mwm=128MB max_conn=400; fi
   cat <<EOF
 shared_buffers=$sb
 effective_cache_size=$ecs
 maintenance_work_mem=$mwm
 work_mem=16MB
-max_connections=200
+max_connections=$max_conn
 jit=off
 wal_compression=lz4
 max_wal_size=4GB

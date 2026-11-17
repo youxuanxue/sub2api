@@ -35,10 +35,10 @@ services:
       # Avoids overseas ip-api RTT on cn-prod admin proxy latency. Explicit
       # security.proxy_probe.urls in config.yaml still wins over this preset.
       SECURITY_PROXY_PROBE_PRESET: "domestic"
-      # Pool sized for the current cn-prod host (4C16G, bundle_rs_mc_lg16_01
-      # since the 2026-11-14 upgrade). Raise the pool only together with
-      # DATABASE_*/REDIS_* limits, and remember GOMEMLIMIT is a Go-heap soft
-      # limit, not a cgroup cap — mem_limit above owns the hard boundary.
+      # Pool sized for cn-prod dual-app layout (app-a 4C16G + app-b 4C8G as of
+      # 2026-11-17). Raise the pool only together with DATABASE_*/REDIS_* limits
+      # and data-machine max_connections; GOMEMLIMIT is a Go-heap soft limit,
+      # not a cgroup cap — mem_limit above owns the hard boundary.
       GOMEMLIMIT: "2GiB"
       # Process-wide relay concurrency cap (gateway.max_in_flight_requests).
       # Overflow returns 503 + Retry-After instead of queueing, so a traffic
@@ -49,8 +49,12 @@ services:
       # here must show up in `docker compose config` / node_compose renders
       # (see SECURITY_PROXY_PROBE_PRESET, 2026-10-23).
       GATEWAY_MAX_IN_FLIGHT_REQUESTS: "512"
-      DATABASE_MAX_OPEN_CONNS: "40"
-      DATABASE_MAX_IDLE_CONNS: "10"
+      # 2026-11-17 capacity: 400-concurrency pool perf already pinned ~81
+      # live PG connections against 40×2 app pools. Raise per-app open to 80
+      # before the 800-concurrency run; pair with data-machine max_connections
+      # headroom (see docs/ops/reports/cn-prod-deepseek-flash-pool-perf-20261117.md).
+      DATABASE_MAX_OPEN_CONNS: "80"
+      DATABASE_MAX_IDLE_CONNS: "20"
       REDIS_POOL_SIZE: "96"
       REDIS_MIN_IDLE_CONNS: "8"
       # Data plane endpoints. The default is the same-host name. After the

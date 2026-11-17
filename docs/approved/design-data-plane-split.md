@@ -5,6 +5,7 @@ approved_by: "feng（2026-11-09 会话：同意 #3102 的设计，要求文档�
 approved_at: 2026-11-09
 risk: high
 authors: [agent]
+revised: 2026-11-17（cn-prod 现网 max_connections=400、应用池 80/20 与 deploy/domestic SSOT 对齐；切流当时快照仍保留为历史）
 ---
 
 # prod 与 cn-prod 数据面从应用机拆出
@@ -32,6 +33,8 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 第 1–3 项批准之前不购买机器、不切流、不重启现网。第 4 项批准之前不删旧数据。
 
 审批状态（2026-11-10）：第 1 项（本设计）已批准。第 2 项：两站数据机已开通。第 3 项：cn-prod 停写窗口已于 2026-11-09 22:05 CST 执行，网关指向数据机 `10.2.4.5`；prod 停写窗口已于 2026-11-10 07:07 CST 执行，网关指向数据机 `10.4.0.3`，新主库 timeline 4 的 WAL 已向 COS 归档。第 4 项未批，两站旧数据目录、旧 Redis 和转发器都先留着。
+
+**现网补充（2026-11-17，非本设计新决策）**：cn-prod 数据机 PG 现网 `max_connections=400`（审批 `docs/ops/approvals/cn-prod-pg-max-connections-200-to-400.md`）；应用池 `DATABASE_MAX_OPEN_CONNS=80` / idle=20（`deploy/domestic/compose.override.yml`）。prod 仍为 `max_connections=200`、应用 open=50。切流当时「两站都 200 / cn-prod 40」的叙述见下文「数据库参数」历史建议，勿当作今日 cn-prod SSOT。
 
 ## 乔布斯复审
 
@@ -135,7 +138,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 | `effective_cache_size` | 4GB | prod 5GB，cn-prod 2.5GB | 让优化器知道 PG 加页缓存一共能缓存多少。按 PG 容器上限算，不按整机内存算 |
 | `work_mem` | 4MB | 16MB | 两站都有大量临时文件；prod 17 小时 922 个，平均每个 3.9 MB，16MB 能消掉大部分。实际只有十来条连接，不会把内存用满 |
 | `maintenance_work_mem` | 64MB | prod 256MB，cn-prod 128MB | 加快 vacuum 和建索引 |
-| `max_connections` | 200 / 100 | 两站都 200 | cn-prod 一台网关在蓝绿重叠时就占 80，再加运维连接已经贴近 100。备用库的这一项不能小于主库，200 两站都满足 |
+| `max_connections` | 200 / 100 | 切流目标：两站都 200；**cn-prod 现网 2026-11-17 已升到 400**（prod 仍 200） | 切流时：cn-prod 一台网关蓝绿重叠可占 80，贴近旧上限 100。2026-11-17 容量压测后 cn-prod 应用池升到 80×2，数据机经审批升到 400；期望值 owner 见 `ops/stage0/dataplane-cutover-data.sh` |
 | `jit` | on | off | 网关都是短查询，JIT 编译只增加延迟。仓库调优文件已经是 off |
 | `max_parallel_workers` / `max_parallel_workers_per_gather` | 8 / 2 | 2 / 1 | 沿用仓库调优文件的值，避免一条报表查询占满 CPU |
 | `random_page_cost` | 4 | 1.1 | 两站都是 SSD 云盘 |
@@ -160,7 +163,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 1. 把仓库调优文件扩成数据机用的 Postgres 启动定义，上表每一项都写成 `-c`，内存相关的值走 `.env` 变量，沿用该文件已有的变量名。两站共用这一份。
 2. pgBackRest 恢复会把旧库的 `postgresql.conf` 和 `postgresql.auto.conf` 一起带过来。命令行 `-c` 的优先级高于这两个文件，所以新值直接生效。提升之后用 `ALTER SYSTEM RESET` 清掉 `postgresql.auto.conf` 里的旧值（prod 有 `max_connections`、归档、`restore_command`），只留一个参数来源。
 3. 提升之后执行 `CREATE EXTENSION pg_stat_statements`。
-4. 网关侧的连接池在 `.env` 里显式写出：prod `DATABASE_MAX_OPEN_CONNS=50`、`DATABASE_MAX_IDLE_CONNS=10`，cn-prod 保持 40 / 10。prod 现役 `tokenkey-blue` 是手工 `docker run` 起的，按代码默认 256 运行，切流时由模板创建新色就会改正。
+4. 网关侧的连接池在 `.env` / override 里显式写出：prod `DATABASE_MAX_OPEN_CONNS=50`、`DATABASE_MAX_IDLE_CONNS=10`；cn-prod 切流时为 40 / 10，**现网 2026-11-17 为 80 / 20**（`deploy/domestic/compose.override.yml`）。prod 现役 `tokenkey-blue` 是手工 `docker run` 起的，按代码默认 256 运行，切流时由模板创建新色就会改正。
 
 ### 不在这次做
 
@@ -336,7 +339,7 @@ prod 应用机的 Docker 数据目录和 `.env` 也在 LUKS 卷上。11-08 新�
 两站都拆完之前，不部署第二台网关。拆完之后要在某站加副本，先满足下面三条，缺一条就不加：
 
 - 现网 `RUN_MODE` 不是 `simple`。`simple` 会跳过清理锁，每台网关都会做清理。
-- 网关台数 × 每色连接上限 × 2（蓝绿重叠），再加上备份和运维连接，放得进 `max_connections`。拆库后两站的 `max_connections` 都是 200，每色上限 prod 50、cn-prod 40。prod 两台网关加蓝绿重叠正好占满 200，cn-prod 是 160。加副本前必须先把每色上限调低。Redis 连接池一并收小。
+- 网关台数 × 每色连接上限 × 2（蓝绿重叠），再加上备份和运维连接，放得进 `max_connections`。切流当时两站 `max_connections` 都是 200，每色上限 prod 50、cn-prod 40。**现网（2026-11-17）**：prod 仍 200 / open 50；cn-prod 为 400 / open 80（单容器滚动，无蓝绿重叠翻倍）。加副本前仍须按「台数×上限×重叠 + 运维」核算，不够先调上限或升 `max_connections`。Redis 连接池一并核算。
 - `model_pricing.json` 和插件目录确认是每台机器自己的缓存，不是要在副本之间互相覆盖的事实来源。
 
 账号调度和用量已经在同一个库里，多台网关共用这份状态。上游配额才是容量上限。
