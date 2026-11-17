@@ -49,7 +49,15 @@ def identity(tag: str, revision: str) -> str:
 
 def choose_channel(node: remote_exec.Node, requested: str) -> str:
     if requested == "auto":
-        return "ssm" if node.ssm_instance_id else "tat"
+        # Prefer TAT whenever Lighthouse identity exists (prod/cn-prod default).
+        # SSM is only the auto fallback when TAT identity is absent.
+        if node.lighthouse_instance_id:
+            return "tat"
+        if node.ssm_instance_id:
+            return "ssm"
+        raise WarmFanoutError(
+            f"{node.name}: --channel auto needs lighthouse_instance_id or ssm_instance_id"
+        )
     if requested not in ("tat", "ssm"):
         raise WarmFanoutError(f"channel must be auto, tat, or ssm (got {requested!r})")
     if requested == "ssm" and not node.ssm_instance_id:

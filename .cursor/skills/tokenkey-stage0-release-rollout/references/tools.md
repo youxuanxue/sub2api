@@ -10,14 +10,14 @@
 | main bump 路由探测（direct-push / bump-via-pr） | 机械 | `bash scripts/release-main-push-route.sh`（读 protection + 当前 gh 用户 bypass 能力） |
 | VERSION/tag 三态决策（tag-only / bump-and-tag / skip-bump-skip-tag） | 机械 | `scripts/release-decide-version.sh [--emit-suggested-bump]`（被上行脚本消费；单独跑仅用于诊断） |
 | 打 tag（含 skip-ci / VERSION 一致 / HEAD==origin/main 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z`（被上行脚本调用；**git 侧必须带 `v`**） |
-| **prod / cn-prod rolling / warm dispatch** | 机械 | `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy\|cn-deploy\|warm --tag X.Y.Z\|vX.Y.Z --revision FULL_SHA`（入口剥 `v`；`deploy`→`prod-rolling-deploy.yml`，`cn-deploy`→`cn-prod-rolling-deploy.yml`，`warm`→`warm-image-stage0.yml`。三个操作都要求完整 40 位 revision；不要手写 `gh workflow run`） |
+| **prod / cn-prod rolling / warm dispatch** | 机械 | `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy\|cn-deploy\|warm --tag X.Y.Z\|vX.Y.Z --revision FULL_SHA`（入口剥 `v`；`deploy`→`prod-rolling-deploy.yml`（审批 `prod` / 执行 `tencent-ops` + TAT），`cn-deploy`→`cn-prod-rolling-deploy.yml`，`warm`→`warm-image-stage0.yml`（`tencent-ops` + `--channel tat`）。三个操作都要求完整 40 位 revision；不要手写 `gh workflow run`） |
 | **prod legacy / replay / smoke-only dispatch** | 机械 | `bash scripts/stage0/dispatch-prod-deploy.sh --operation legacy-deploy\|replay\|smoke-only --tag X.Y.Z\|vX.Y.Z`（旧 `deploy-stage0.yml`，仅 recovery-only / legacy blue-green；`replay` 不切流） |
 | **cn-prod image distribution** | 机械 | Release 成功后由 `distribute-cn-image.yml` 执行 AWS `publish` + Tencent `tencent-ops` warm；warm 固定 `--channel tat`，按 `prod-target.json` 的 `apps[]` 顺序预下载。AWS publish job 不持有腾讯密钥，腾讯 warm job 不持有 AWS 凭据。 |
 | **cn-prod SSM pull / put-file** | 机械 | `deploy/domestic/deploy_via_ssm.sh pull` 预热镜像；`put-file` 应急传文件。M6 后蓝绿 prepare/promote 已删；日常发版用 `rolling.py`。身份读 `deploy/domestic/prod-target.json`，**不要**开 SSH 或 scp 离线 tar。 |
 | release.yml 恢复 dispatch（skip-ci 误伤等） | 机械 | `gh workflow run release.yml -f tag=vX.Y.Z -f simple_release=false`（**git tag 形态，带 `v`**）+ `gh run watch --exit-status` |
 | watch workflow run | 机械 | `gh run watch --exit-status` |
 | **prod pricing registry runtime audit** | 机械 | `ops-daily-diagnostics.yml` 经 `ops/observability/prod-config-audit.sh` 只读执行 `ops/pricing/manage-overlay-runtime.py check`；价格发布独立由 registry 合并到 protected main 后触发 `pricing-registry-publish.yml` |
-| prod / warm Environment approval | 机械 | `bash scripts/stage0/approve-github-run-env.sh --run-id <id> --comment "…"`（批不批、何时批是判断） |
+| prod rolling Environment approval | 机械 | `bash scripts/stage0/approve-github-run-env.sh --run-id <id> --comment "…"`（仅 rolling 的 `prod` 审批门；warm 已改 `tencent-ops`，不再为此自动批 `prod`。批不批、何时批是判断） |
 | prod/cn-prod rolling smoke（CI 唯一验收源） | 机械 | 由对应 rolling workflow 的 completed receipt 与 smoke 输出判定；旧 `deploy-stage0.yml` 的 `tk_post_deploy_smoke: OK` 只适用于 legacy deploy。 |
 | 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 均 ∈ `TK_SMOKE_API_KEY` 的 `/v1/models`）。**完整校验需要 smoke key，只在 CI 可跑**；本地降级为 `bash ops/stage0/load_smoke_github_env.sh --check prod`（只验 secret/vars 已配置） |
 | 发版后跟进档位（skip / single） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier`（是否值得人工再跟；**实测检查不走这里**） |

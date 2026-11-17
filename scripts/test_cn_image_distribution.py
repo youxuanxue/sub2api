@@ -9,12 +9,17 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 
 class ReleaseWorkflowCredentialBoundaryTest(unittest.TestCase):
-    def test_prod_rolling_job_uses_prod_environment_for_oidc_and_approval(self):
+    def test_prod_rolling_approval_and_tencent_credentials_are_separate(self):
         text = (WORKFLOWS / "prod-rolling-deploy.yml").read_text()
-        self.assertNotIn("needs: approval", text)
-        self.assertIn("environment: prod", text)
-        self.assertNotIn("environment: tencent-ops", text)
-        self.assertIn("aws-actions/configure-aws-credentials", text)
+        self.assertIn("  approval:\n", text)
+        self.assertIn("    environment: prod\n", text)
+        self.assertIn("  rolling:\n    needs: approval", text)
+        self.assertIn("    environment: tencent-ops", text)
+        self.assertIn("TENCENTCLOUD_SECRET_ID", text)
+        self.assertIn("--via tat", text)
+        self.assertNotIn("--via ssm", text)
+        self.assertNotIn("aws-actions/configure-aws-credentials", text)
+        self.assertNotIn("id-token: write", text)
 
     def test_cn_rolling_approval_and_tencent_credentials_are_separate(self):
         text = (WORKFLOWS / "cn-prod-rolling-deploy.yml").read_text()

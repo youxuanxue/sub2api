@@ -20727,12 +20727,16 @@
       "path": ".github/workflows/prod-rolling-deploy.yml",
       "must_contain": [
         "environment: prod",
-        "- name: Plan (prepares remote helpers)",
+        "environment: tencent-ops",
+        "needs: approval",
+        "--via tat",
+        "TENCENTCLOUD_SECRET_ID",
+        "- name: Plan (read-only)",
         "python3 deploy/domestic/rolling.py plan \\",
         "if [[ \"$INPUT_CONFIRM\" != \"rolling-prod-${INPUT_TAG}\" ]]; then",
         "--confirm \"$INPUT_CONFIRM\" \\"
       ],
-      "rationale": "The prod rolling job owns the prod Environment so required reviewers and the AWS OIDC claim stay together; its confirm phrase stays tied to prod and the plan step names that remote helpers are installed."
+      "rationale": "Prod rolling mirrors cn-prod: prod Environment is the approval gate only; the rolling job runs on tencent-ops with explicit TAT (--via tat) and TENCENTCLOUD_* secrets. Confirm phrase stays rolling-prod-<tag>. SSM/OIDC is emergency-only outside this default path."
     },
     {
       "path": "deploy/domestic/warm_fanout.py",

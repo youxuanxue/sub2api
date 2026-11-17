@@ -50,6 +50,13 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 例外：
 
 - `target=prod`：只发版/部署腾讯美西 prod（**默认路径**）。
+  `warm-image-stage0.yml` 在 **`tencent-ops`** 执行，固定 `--channel tat`
+  （不再绑定 `prod` Environment / AWS OIDC 作为默认 warm）。
+  `prod-rolling-deploy.yml` 与 cn-prod 同形：`prod` Environment 只做审批门，
+  rolling job 在 **`tencent-ops`** 用 `--via tat` + `TENCENTCLOUD_*` 执行。
+  依赖美西 `na-siliconvalley` TAT/CAM；发版前须确认凭据区域权限，不能只看 CI 绿。
+  **SSM 应急**：本地显式 `--via ssm` / `--channel ssm`（见 `deploy/hetzner/README.md`）；
+  不要把 AWS OIDC 半吊回 workflow 默认。
 - `target=cn-prod`：复用同一 GHCR 包。`distribute-cn-image.yml` 的 AWS publish job
   上传/校验私有 S3 归档，随后独立的 `tencent-ops` warm job 按 `prod-target.json`
   的 `apps[]` 顺序预下载；warm 固定 `--channel tat`，不能选 `auto`。

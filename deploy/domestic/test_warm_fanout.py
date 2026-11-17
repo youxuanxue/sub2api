@@ -56,13 +56,26 @@ class WarmFanoutTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.out = pathlib.Path(self.temp.name) / "warm.json"
 
-    def test_cn_prod_mixes_tat_and_ssm_in_manifest_order(self):
+    def test_choose_channel_auto_prefers_tat_when_lighthouse_present(self):
+        # APP_A has both lighthouse and SSM; auto must still pick TAT.
+        self.assertEqual(warm_fanout.choose_channel(APP_A, "auto"), "tat")
+        self.assertEqual(warm_fanout.choose_channel(APP_B, "auto"), "tat")
+        ssm_only = remote_exec.Node(
+            "legacy", "app", "", "10.2.4.99", "mi-legacy", ssm_region="eu-west-2",
+        )
+        self.assertEqual(warm_fanout.choose_channel(ssm_only, "auto"), "ssm")
+        with self.assertRaisesRegex(warm_fanout.WarmFanoutError, "needs lighthouse"):
+            warm_fanout.choose_channel(
+                remote_exec.Node("empty", "app", "", "10.2.4.98", None), "auto",
+            )
+
+    def test_auto_prefers_tat_for_every_lighthouse_node_in_order(self):
         runner = FakeRunner({
             "app-b": remote_exec.Result(
                 "tat", "Success", 0, json.dumps(receipt("app-b", "tat"), indent=2), ""
             ),
             "app-a": remote_exec.Result(
-                "ssm", "Success", 0, json.dumps(receipt("app-a", "ssm"), indent=2), ""
+                "tat", "Success", 0, json.dumps(receipt("app-a", "tat"), indent=2), ""
             ),
         })
         payload = warm_fanout.warm_all(
@@ -78,15 +91,15 @@ class WarmFanoutTests(unittest.TestCase):
         )
         self.assertEqual(payload["outcome"], "success")
         self.assertEqual([(n["name"], n["channel"]) for n in payload["nodes"]],
-                         [("app-b", "tat"), ("app-a", "ssm")])
+                         [("app-b", "tat"), ("app-a", "tat")])
         self.assertEqual([(c[0], c[1]) for c in runner.calls],
-                         [("app-b", "tat"), ("app-a", "ssm")])
+                         [("app-b", "tat"), ("app-a", "tat")])
         self.assertEqual(json.loads(self.out.read_text())["outcome"], "success")
 
     def test_failure_is_fail_stop_and_receipt_records_partial_work(self):
         runner = FakeRunner({
             "app-b": remote_exec.Result("tat", "Failed", 2, "", "pull failed"),
-            "app-a": remote_exec.Result("ssm", "Success", 0, "{}", ""),
+            "app-a": remote_exec.Result("tat", "Success", 0, "{}", ""),
         })
         with self.assertRaisesRegex(warm_fanout.WarmFanoutError, "pull failed"):
             warm_fanout.warm_all(
@@ -110,7 +123,7 @@ class WarmFanoutTests(unittest.TestCase):
         bad["revision"] = "b" * 40
         runner = FakeRunner({
             "app-b": remote_exec.Result("tat", "Success", 0, json.dumps(bad), ""),
-            "app-a": remote_exec.Result("ssm", "Success", 0, "{}", ""),
+            "app-a": remote_exec.Result("tat", "Success", 0, "{}", ""),
         })
         with self.assertRaisesRegex(warm_fanout.WarmFanoutError, "revision"):
             warm_fanout.warm_all(
@@ -178,7 +191,7 @@ class WarmFanoutTests(unittest.TestCase):
         )
         self.assertEqual(
             [(node.name, via) for node, via, _ in entries],
-            [("app-b", "tat"), ("app-a", "ssm")],
+            [("app-b", "tat"), ("app-a", "tat")],
         )
         self.assertEqual(rendered["nodes"][0]["script_sha256"],
                          warm_fanout.hashlib.sha256(
@@ -241,8 +254,8 @@ class WarmFanoutTests(unittest.TestCase):
         results = [
             remote_exec.Result("tat", "Success", 0,
                                json.dumps(receipt("app-b", "tat")), ""),
-            remote_exec.Result("ssm", "Success", 0,
-                               json.dumps(receipt("app-a", "ssm")), ""),
+            remote_exec.Result("tat", "Success", 0,
+                               json.dumps(receipt("app-a", "tat")), ""),
         ]
         calls = []
 
