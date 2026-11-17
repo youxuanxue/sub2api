@@ -144,9 +144,9 @@ class CoveragePlanTest(unittest.TestCase):
             watch.job_fact(inactive, absent, 1000, boundary_limit, expected_paused=True)['healthy']
         )
 
-    def test_local_provision_is_monitored_independently_of_paused_archive(self):
+    def test_local_retention_is_monitored_and_not_paused(self):
         # After coordinator cutover, prod watches independent retention (not
-        # paused). Legacy provision/cleanup limits remain for cn-prod/v1 hosts.
+        # paused). JOB_LIMITS still keep legacy v1 names for historical units.
         prod = self.config('prod', self.watch['hostname'])
         self.assertIn('tokenkey-qa-retention', prod['jobs'])
         self.assertNotIn('tokenkey-qa-retention', prod['paused_jobs'])
@@ -888,7 +888,7 @@ class QaArchiveCoverageTest(unittest.TestCase):
         self.assertGreaterEqual(max_age, 2 * 4 * 3600)
         self.assertGreaterEqual(max_runtime, 1800)
 
-    def test_both_hosts_configure_the_archive_job(self):
+    def test_both_hosts_configure_retention_not_v1_archive(self):
         prod_jobs = watch.build_config('prod', self.prod_matrix['host_watch']['hostname'],
                                        self.prod_matrix, self.domestic)['jobs']
         cn_jobs = watch.build_config('cn-prod', self.domestic['instance_name'],
