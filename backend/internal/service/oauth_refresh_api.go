@@ -284,6 +284,26 @@ func (api *OAuthRefreshAPI) refresh(
 		// credentials. Never persist them after the attempt/cycle boundary.
 		return nil, ctxErr
 	}
+	// Antigravity OAuth may rotate tokens successfully while still lacking
+	// project_id. Persist the rotated credentials first, then surface the
+	// non-retryable missing_project_id error so SetError can quarantine the
+	// account without discarding a consumed refresh_token.
+	if refreshErr != nil && errors.Is(refreshErr, errAntigravityOAuthMissingProjectID) && newCredentials != nil {
+		newCredentials["_token_version"] = time.Now().UnixMilli()
+		if updateErr := persistAccountCredentials(ctx, api.accountRepo, freshAccount, newCredentials); updateErr != nil {
+			slog.Error("oauth_refresh_update_failed",
+				"account_id", freshAccount.ID,
+				"platform", freshAccount.Platform,
+				"error", updateErr,
+			)
+			return nil, fmt.Errorf("%w: %v", errOAuthRefreshCredentialPersist, updateErr)
+		}
+		return &OAuthRefreshResult{
+			Refreshed:      true,
+			NewCredentials: newCredentials,
+			Account:        freshAccount,
+		}, refreshErr
+	}
 	if refreshErr != nil {
 		// 竞争恢复：invalid_grant 可能是另一个 worker 已消费了旧 refresh_token
 		// 重新读取 DB，如果 refresh_token 已更新则说明是竞争，返回成功

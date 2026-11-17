@@ -883,6 +883,13 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 			}
 			if refreshErr != nil {
 				err = refreshErr
+				// OAuthRefreshAPI persists rotated Antigravity tokens before
+				// returning missing_project_id; mark persisted so post-error
+				// cleanup still invalidates caches against the new creds.
+				if result != nil && result.NewCredentials != nil &&
+					errors.Is(refreshErr, errAntigravityOAuthMissingProjectID) {
+					credentialsPersisted = true
+				}
 			} else if result.LockHeld {
 				// 锁被其他 worker 持有，由调用侧策略决定如何计数
 				err = s.refreshPolicy.handleLockHeld()
@@ -908,7 +915,11 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 				releaseRate()
 			}
 			attemptTimedOut := errors.Is(attemptCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
-			if err == nil && newCredentials != nil && !attemptTimedOut {
+			// Persist rotated Antigravity tokens even when project_id is still
+			// missing, then let the non-retryable SetError path quarantine.
+			shouldPersist := newCredentials != nil && !attemptTimedOut &&
+				(err == nil || errors.Is(err, errAntigravityOAuthMissingProjectID))
+			if shouldPersist {
 				newCredentials["_token_version"] = time.Now().UnixMilli()
 				if saveErr := persistAccountCredentials(attemptCtx, s.accountRepo, account, newCredentials); saveErr != nil {
 					err = fmt.Errorf("failed to save credentials: %w", saveErr)
@@ -1164,10 +1175,11 @@ func (s *TokenRefreshService) retryBackoff(accountID int64, attempt int) time.Du
 func (s *TokenRefreshService) postRefreshActions(ctx context.Context, account *Account) {
 	s.clearAntigravityForceTokenRefresh(ctx, account, "success")
 
-	// Antigravity 账户：如果之前是因为缺少 project_id 而标记为 error，现在成功获取到了，清除错误状态
+	// Antigravity 账户：仅在刷新后确有 project_id 时清除 missing_project_id 错误
 	if account.Platform == PlatformAntigravity &&
 		account.Status == StatusError &&
-		strings.Contains(account.ErrorMessage, "missing_project_id:") {
+		strings.Contains(account.ErrorMessage, "missing_project_id:") &&
+		AntigravityOAuthProjectIDReady(account) {
 		if clearErr := s.accountRepo.ClearError(ctx, account.ID); clearErr != nil {
 			slog.Warn("token_refresh.clear_account_error_failed",
 				"account_id", account.ID,

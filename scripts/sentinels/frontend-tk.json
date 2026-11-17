@@ -2880,6 +2880,23 @@
         "'Idempotency-Key': `api-key-rotate-${id}-${requestID}`"
       ],
       "rationale": "API key rotation is a TokenKey control-plane action. Keep the endpoint call and its required idempotency header together so an upstream merge cannot silently remove rotation or make enforced idempotency reject the UI request."
+    },
+    {
+      "path": "frontend/src/utils/latencyHealth.ts",
+      "must_contain": [
+        "export const formatUsageFirstTokenMs = (ms: number | null | undefined): string => {",
+        "if (ms == null || !Number.isFinite(ms)) return '—'",
+        "if (ms === 0) return '0.0s'"
+      ],
+      "rationale": "Usage first-content column must render null as em-dash, never misleading 0.0s; true zero stays 0.0s."
+    },
+    {
+      "path": "frontend/src/components/admin/usage/UsageTable.vue",
+      "must_contain": [
+        "formatUsageFirstTokenMs(row.first_token_ms)",
+        "latencyFirstToken"
+      ],
+      "rationale": "Shared UsageTable must route first-token display through formatUsageFirstTokenMs and the 首内容 i18n key so keepalive nulls cannot render as 0.0s."
     }
   ]
 }

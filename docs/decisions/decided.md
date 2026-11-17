@@ -6,6 +6,24 @@
 
 适用范围：ops 冷数据 promote/export、host-config 等对象归档的**新写入**只允许腾讯 COS；禁止再落到 AWS S3。不覆盖 Oregon 出口、镜像分发、供应商 AWS。pgBackRest/QA 既有 COS/本地契约不变。设计见 `docs/approved/design-cos-object-archive.md`（2026-11-17 乔布斯复审后批准）。
 
+## 2026-11-17 AG/Gemini 用量 TTFT：硬编码 visible，thought-only 显示 —
+
+原话：「同意。」（针对：AG/Gemini 先硬编码 visible、不做配置开关；thought-only 终态继续 null→「—」。）
+
+适用范围：用量「首内容」列与 AG/Gemini 原生流 `first_token_ms`。keepalive/纯 thought 不计 TTFT；无可见内容不硬凑时间。见 PR #3243。
+
+## 2026-11-17 AG argon maxOutputTokens：只钳显式超大、不默认注入
+
+原话：「若要对齐开源精神又留安全网：更干净的是 只钳非法/超大、不默认注入。」
+
+适用范围：Antigravity Gemini 原生 ForwardGemini 上 `gemini-4-argon*` 的 `max_output_tokens_cap=8192`：客户端显式更大才钳到 8192；未设字段不注入。`thinkingBudget` 合法域 clamp / level 模型丢弃非法 budget 仍生效。见 PR #3242 / `docs/spec-delta-ag-argon-thinking-clamp.md`。
+
+## 2026-11-17 cn-prod tokensea interleaved assistant 网关兼容
+
+原话：「查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。」
+
+适用范围：已判定 `rt@tk.com` / `tokensea_online` 为真实业务流量。对 `kimi-*` 在转发前丢弃夹在 `assistant.tool_calls` 与对应 `tool` 结果之间的无 `tool_calls` assistant 文本；普通非 tool round-trip 的 assistant 文本不动。契约记入 `docs/approved/volc-kimi-chat-compatibility.md`。
+
 ## 2026-11-15 美西 prod 入口机 + 多应用机
 
 原话：「1-2 确认。4 确认接受丢失。3 同 cn-prod 一样，不需要热备入口？请安全推进，不要影响线上用户流量和请求。」

@@ -91,6 +91,10 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeGoogleError(c, http.StatusNotFound, "Unsupported action: "+action)
 	}
 
+	// Clamp illegal thinkingBudget / argon maxOutputTokens before variant
+	// resolution so oversized budgets cannot boost argon via budget>8192→high.
+	body = normalizeAntigravityNativeGeminiRequest(originalModel, body)
+
 	// Forwarding, retry prechecks and cooldown writes share the actual native
 	// thinking tier; a low/medium failure must never cool the default high wire.
 	ctx = withAntigravityNativeThinking(ctx, body)

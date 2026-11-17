@@ -2397,12 +2397,11 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(
 					if delta == "" {
 						continue
 					}
-					if firstTokenMs == nil {
-						ms := int(time.Since(startTime).Milliseconds())
-						firstTokenMs = &ms
-						firstOutputGuard.Commit()
-						ensureClientStarted()
-					}
+					// Thought/thinking_delta is not visible TTFT (non-thought
+					// text/tool/media only). Still commit first-output budget
+					// so long thinking does not trip silent failover.
+					firstOutputGuard.Commit()
+					ensureClientStarted()
 					if openToolIndex >= 0 {
 						writeSSE(c.Writer, "content_block_stop", map[string]any{
 							"type":  "content_block_stop",
@@ -3193,16 +3192,19 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 						}
 					}
 
-					if firstTokenMs == nil {
-						ms := int(time.Since(startTime).Milliseconds())
-						firstTokenMs = &ms
-						firstOutputGuard.Commit()
-					}
-					ensureClientStarted()
 					classified := rawBytes
 					if len(classified) == 0 {
 						classified = []byte(rawToWrite)
 					}
+					// Visible TTFT (OpenAI-visible equivalent): thought/keepalive
+					// frames do not start the meter; first-output budget still
+					// commits on any non-empty data frame for failover safety.
+					if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT(classified) {
+						ms := int(time.Since(startTime).Milliseconds())
+						firstTokenMs = &ms
+					}
+					firstOutputGuard.Commit()
+					ensureClientStarted()
 					if geminiPayloadDeliveredUsableOutput(classified) {
 						usableWritten = true
 					}

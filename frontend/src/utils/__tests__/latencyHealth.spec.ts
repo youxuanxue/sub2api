@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { durationSeverity, firstTokenSeverity, formatUsageOutputRate } from '../latencyHealth'
+import {
+  durationSeverity,
+  firstTokenSeverity,
+  formatUsageDurationMs,
+  formatUsageFirstTokenMs,
+  formatUsageOutputRate,
+} from '../latencyHealth'
 
 describe('latencyHealth', () => {
   it('classifies first-token latency at 10s/30s/60s boundaries', () => {
@@ -21,6 +27,36 @@ describe('latencyHealth', () => {
     expect(durationSeverity(180_000)).toBe('slow')
     expect(durationSeverity(299_999)).toBe('slow')
     expect(durationSeverity(300_000)).toBe('critical')
+  })
+})
+
+describe('formatUsageFirstTokenMs', () => {
+  it('renders missing first-token as em dash, never 0.0s', () => {
+    expect(formatUsageFirstTokenMs(null)).toBe('—')
+    expect(formatUsageFirstTokenMs(undefined)).toBe('—')
+    expect(formatUsageFirstTokenMs(Number.NaN)).toBe('—')
+  })
+
+  it('keeps genuine zero as 0.0s', () => {
+    expect(formatUsageFirstTokenMs(0)).toBe('0.0s')
+  })
+
+  it('formats sub-second and multi-second values', () => {
+    expect(formatUsageFirstTokenMs(12)).toBe('12ms')
+    expect(formatUsageFirstTokenMs(1500)).toBe('1.5s')
+    expect(formatUsageFirstTokenMs(65_000)).toBe('1m 5s')
+  })
+})
+
+describe('formatUsageDurationMs', () => {
+  it('renders missing duration as em dash', () => {
+    expect(formatUsageDurationMs(null)).toBe('—')
+    expect(formatUsageDurationMs(undefined)).toBe('—')
+  })
+
+  it('formats finite durations', () => {
+    expect(formatUsageDurationMs(0)).toBe('0ms')
+    expect(formatUsageDurationMs(2500)).toBe('2.50s')
   })
 })
 

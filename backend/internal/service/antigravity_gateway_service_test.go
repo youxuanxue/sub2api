@@ -1370,6 +1370,74 @@ func TestHandleGeminiStreamingResponse_NormalComplete(t *testing.T) {
 	require.NotContains(t, body, "event: error")
 }
 
+// TestHandleGeminiStreamingResponse_VisibleTTFTIgnoresThoughtHoldAndKeepalive
+// 可见 TTFT：仅 thought hold + keepalive 不得提前记 first_token_ms；首个非 thought
+// 正文到达后才记，且数值覆盖 hold 等待。
+func TestHandleGeminiStreamingResponse_VisibleTTFTIgnoresThoughtHoldAndKeepalive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := newAntigravityTestService(&config.Config{
+		Gateway: config.GatewayConfig{
+			MaxLineSize:               defaultMaxLineSize,
+			StreamKeepaliveInterval:   1, // seconds; ticker fires while thought is held
+			StreamDataIntervalTimeout: 30,
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	pr, pw := io.Pipe()
+	resp := &http.Response{StatusCode: http.StatusOK, Body: pr, Header: http.Header{}}
+
+	thoughtDelay := 120 * time.Millisecond
+	go func() {
+		defer func() { _ = pw.Close() }()
+		// Holdable thought prefix — must not start visible TTFT while buffered.
+		fmt.Fprintln(pw, `data: {"candidates":[{"content":{"parts":[{"thought":true,"text":"planning…"}]}}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":0,"thoughtsTokenCount":2}}`)
+		fmt.Fprintln(pw, "")
+		fmt.Fprintln(pw, `: keepalive`)
+		fmt.Fprintln(pw, "")
+		time.Sleep(thoughtDelay)
+		fmt.Fprintln(pw, `data: {"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1,"thoughtsTokenCount":2}}`)
+		fmt.Fprintln(pw, "")
+	}()
+
+	start := time.Now()
+	result, err := svc.handleGeminiStreamingResponse(c, resp, start)
+	_ = pr.Close()
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.firstTokenMs, "visible text must record first_token_ms")
+	require.GreaterOrEqual(t, *result.firstTokenMs, int(thoughtDelay/time.Millisecond)-20,
+		"first_token_ms=%d should cover thought-hold wait, not keepalive", *result.firstTokenMs)
+	require.Contains(t, rec.Body.String(), `"text":"answer"`)
+}
+
+func TestHandleGeminiStreamingResponse_KeepaliveOnlyLeavesNilFirstToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := newAntigravityTestService(&config.Config{
+		Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	upstream := ": keepalive\n\n: keepalive\n\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(upstream)),
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+
+	result, err := svc.handleGeminiStreamingResponse(c, resp, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Nil(t, result.firstTokenMs, "keepalive-only stream must not invent first_token_ms")
+}
+
 // TestHandleGeminiStreamingResponse_DropsTrailingDONEWithoutBlankLine reproduces the
 // Gemini CLI / @google/genai failure mode: upstream ends with `data: [DONE]` and no
 // trailing blank line. The old pass-through wrote a single `\n`, leaving residual

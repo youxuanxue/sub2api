@@ -67,7 +67,9 @@ func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 //   - a function tool whose name is empty or whitespace returns 400 (param
 //     tools). Names are not dropped so the request can continue;
 //   - a string video_url becomes {"url": ...} (2026-11-05);
-//   - a text part with text "" is dropped (2026-11-06).
+//   - a text part with text "" is dropped (2026-11-06);
+//   - an assistant text message inserted between assistant.tool_calls and the
+//     matching tool result(s) is dropped (2026-11-17 cn-prod tokensea_online).
 //
 // Matched tool results, string content, and content-part arrays are unchanged.
 // Video parts are not stripped. Reachability is a separate preflight:
@@ -77,11 +79,69 @@ func normalizeVolcKimiInboundMessages(body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	shaped, err = dropVolcKimiInterleavedAssistantText(shaped)
+	if err != nil {
+		return nil, err
+	}
 	shaped, err = normalizeVolcKimiOrphanToolMessages(shaped)
 	if err != nil {
 		return nil, err
 	}
 	return normalizeVolcKimiEmptyFunctionNames(shaped)
+}
+
+// dropVolcKimiInterleavedAssistantText removes assistant messages that have no
+// tool_calls and sit between an assistant.tool_calls turn and the next
+// non-(assistant-without-tool_calls) message. Volc Agent Plan rejects that
+// order with a generic InvalidParameter 400 (cn-prod 2026-11-17, user 2
+// tokensea_online Claude-Code-style trajectories). Live ablation: dropping
+// those interleaved turns recovered 200; tool schemas alone were not the
+// cause. Ordinary assistant text outside a tool round-trip is kept.
+func dropVolcKimiInterleavedAssistantText(body []byte) ([]byte, error) {
+	msgs := gjson.GetBytes(body, "messages")
+	if !msgs.IsArray() {
+		return body, nil
+	}
+	arr := msgs.Array()
+	if len(arr) == 0 {
+		return body, nil
+	}
+	kept := make([]json.RawMessage, 0, len(arr))
+	changed := false
+	for i := 0; i < len(arr); i++ {
+		msg := arr[i]
+		kept = append(kept, json.RawMessage(msg.Raw))
+		if !volcKimiAssistantWithToolCalls(msg) {
+			continue
+		}
+		for i+1 < len(arr) {
+			nxt := arr[i+1]
+			if !strings.EqualFold(nxt.Get("role").String(), "assistant") {
+				break
+			}
+			if volcKimiAssistantWithToolCalls(nxt) {
+				break
+			}
+			changed = true
+			i++
+		}
+	}
+	if !changed {
+		return body, nil
+	}
+	encoded, err := json.Marshal(kept)
+	if err != nil {
+		return nil, err
+	}
+	return sjson.SetRawBytes(body, "messages", encoded)
+}
+
+func volcKimiAssistantWithToolCalls(msg gjson.Result) bool {
+	if !strings.EqualFold(msg.Get("role").String(), "assistant") {
+		return false
+	}
+	calls := msg.Get("tool_calls")
+	return calls.IsArray() && len(calls.Array()) > 0
 }
 
 func normalizeVolcKimiMessageContents(body []byte) ([]byte, error) {

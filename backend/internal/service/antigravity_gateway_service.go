@@ -85,7 +85,18 @@ const (
 
 const antigravityProjectIDFallbackCredentialKey = "antigravity_project_id"
 
+// antigravityMissingProjectIDErrorPrefix is the stable SetError / clear-error marker
+// for Antigravity OAuth accounts that never obtained a project_id. Temporary
+// LoadCodeAssist failures that retain a prior project_id must not use this prefix.
+const antigravityMissingProjectIDErrorPrefix = "missing_project_id:"
+
 var errAntigravityProjectIDRequired = errors.New("该 standard-tier Antigravity 账号需配置 project_id")
+
+// errAntigravityOAuthMissingProjectID is returned by token refresh when an
+// Antigravity OAuth account still has no project_id after a successful token
+// exchange. isNonRetryableRefreshError matches the missing_project_id needle and
+// persists status=error via SetError.
+var errAntigravityOAuthMissingProjectID = errors.New(antigravityMissingProjectIDErrorPrefix + " antigravity OAuth account has no project_id")
 
 // AntigravityAccountSwitchError 账号切换信号
 // 当账号限流时间超过阈值时，通知上层切换账号
@@ -375,6 +386,19 @@ func resolveAntigravityProjectID(account *Account) (string, error) {
 		return projectID, nil
 	}
 	return "", errAntigravityProjectIDRequired
+}
+
+// AntigravityOAuthProjectIDReady reports whether an Antigravity OAuth account
+// already carries a dispatchable project_id (credentials or explicit fallback).
+// Non-Antigravity / non-OAuth accounts are treated as ready so other platforms
+// do not inherit this gate. Admission and refresh status gates share this helper
+// with resolveAntigravityProjectID so forward-time and schedule-time agree.
+func AntigravityOAuthProjectIDReady(account *Account) bool {
+	if account == nil || account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
+		return true
+	}
+	_, err := resolveAntigravityProjectID(account)
+	return err == nil
 }
 
 // applyThinkingModelSuffix 根据 thinking 配置调整模型名

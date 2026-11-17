@@ -97,16 +97,25 @@ func TestGeminiNativeReasoningPricingUsesExplicitForwardedLevel(t *testing.T) {
 					require.Len(t, upstream.requestBodies, 1)
 					forwardedPath := "generationConfig.thinkingConfig.thinkingLevel"
 					requestedLevel, _ := tc.thinking["thinkingLevel"].(string)
+					wantEffort := tc.wantEffort
+					multiplier := tc.multiplier
 					if tc.name == "snake_case_high" {
 						forwardedPath = "generation_config.thinking_config.thinking_level"
 						requestedLevel, _ = tc.thinking["thinking_level"].(string)
+					}
+					// AG ForwardGemini rewrites legal thinkingBudget → thinkingLevel on
+					// level models (gemini-3+); pricing follows the rewritten level.
+					if provider == "antigravity" && tc.name == "budget_only" {
+						requestedLevel = "high"
+						wantEffort = "high"
+						multiplier = 2
 					}
 					if wrapped {
 						forwardedPath = "request." + forwardedPath
 					}
 					require.Equal(t, requestedLevel, gjson.GetBytes(upstream.requestBodies[0], forwardedPath).String())
-					require.Equal(t, tc.wantEffort, optionalStringValue(result.ReasoningEffort))
-					if tc.wantEffort == "" {
+					require.Equal(t, wantEffort, optionalStringValue(result.ReasoningEffort))
+					if wantEffort == "" {
 						require.Nil(t, result.ReasoningEffort)
 					}
 
@@ -127,10 +136,10 @@ func TestGeminiNativeReasoningPricingUsesExplicitForwardedLevel(t *testing.T) {
 						Result: result, APIKey: apiKey, User: &User{ID: 20}, Account: account,
 					}))
 					require.NotNil(t, usageRepo.lastLog)
-					require.Equal(t, tc.wantEffort, optionalStringValue(usageRepo.lastLog.ReasoningEffort))
-					require.InDelta(t, tc.multiplier, usageRepo.lastLog.TotalCost, 1e-12)
-					require.InDelta(t, tc.multiplier*0.5, usageRepo.lastLog.ActualCost, 1e-12)
-					require.InDelta(t, tc.multiplier*0.5, userRepo.lastAmount, 1e-12)
+					require.Equal(t, wantEffort, optionalStringValue(usageRepo.lastLog.ReasoningEffort))
+					require.InDelta(t, multiplier, usageRepo.lastLog.TotalCost, 1e-12)
+					require.InDelta(t, multiplier*0.5, usageRepo.lastLog.ActualCost, 1e-12)
+					require.InDelta(t, multiplier*0.5, userRepo.lastAmount, 1e-12)
 				})
 			}
 		}

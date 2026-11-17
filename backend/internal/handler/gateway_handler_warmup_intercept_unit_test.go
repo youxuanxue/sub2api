@@ -244,6 +244,7 @@ func TestGatewayHandlerMessages_InterceptWarmup_AntigravityAccount_MixedScheduli
 		Type:     service.AccountTypeOAuth,
 		Credentials: map[string]any{
 			"access_token":              "tok_xxx",
+			"project_id":                "warmup-project",
 			"intercept_warmup_requests": true,
 			"model_mapping":             map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"},
 		},
@@ -331,6 +332,7 @@ func TestGatewayHandlerMessages_InterceptWarmup_AntigravityAccount_ForcePlatform
 		Type:     service.AccountTypeOAuth,
 		Credentials: map[string]any{
 			"access_token":              "tok_xxx",
+			"project_id":                "warmup-project",
 			"intercept_warmup_requests": true,
 			"model_mapping":             map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"},
 		},

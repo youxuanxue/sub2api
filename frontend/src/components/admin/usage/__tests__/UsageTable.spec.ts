@@ -70,6 +70,9 @@ const messages: Record<string, string> = {
   'usage.imageSizeUnknown': 'unknown',
   'usage.imageUnitPrice': 'Per-image price',
   'usage.imageTotalPrice': 'Image total price',
+  'usage.latencyFirstToken': 'First content',
+  'usage.latencyFirstTokenHint': 'excludes keepalive',
+  'usage.latencyDuration': 'Total',
   'usage.stream': 'Stream',
   'usage.sync': 'Sync',
   'usage.nativeCompactionV2': 'Compaction',
@@ -177,6 +180,24 @@ describe('admin UsageTable tooltip', () => {
     })
     expect(wrapper.findAll('[data-testid="output-tps"]').map(cell => cell.text())).toEqual(['50.0 tok/s', '—', '—'])
     expect(wrapper.text()).toContain('Output TPS')
+  })
+
+  it('renders missing first_token_ms as em dash and keeps genuine zero as 0.0s', () => {
+    const base = { ...baseImageRow, image_count: 0, billing_mode: 'token', output_tokens: 10, duration_ms: 5_000 }
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [
+          { ...base, request_id: 'ttft-null', first_token_ms: null },
+          { ...base, request_id: 'ttft-zero', first_token_ms: 0 },
+          { ...base, request_id: 'ttft-ok', first_token_ms: 1_500 },
+        ],
+        loading: false,
+        columns: [{ key: 'latency', label: 'Latency' }],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    expect(wrapper.findAll('[data-testid="first-token-ms"]').map(cell => cell.text())).toEqual(['—', '0.0s', '1.5s'])
+    expect(wrapper.text()).toContain('First content')
   })
 
   beforeEach(() => {

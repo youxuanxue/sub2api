@@ -3357,9 +3357,11 @@
         "video_url is not reachable; provide a video URL this service can access",
         "func wrapVolcKimiStringVideoURLs(",
         "func dropVolcKimiEmptyTextParts(",
-        "shaped, err = dropVolcKimiEmptyTextParts(shaped)"
+        "shaped, err = dropVolcKimiEmptyTextParts(shaped)",
+        "func dropVolcKimiInterleavedAssistantText(",
+        "shaped, err = dropVolcKimiInterleavedAssistantText(shaped)"
       ],
-      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire."
+      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. Interleaved assistant text between tool_calls and tool results is dropped before Volc InvalidParameter 400."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
@@ -3433,11 +3435,12 @@
         "func TestVolcKimiChatAllowedToolsEnvelope(",
         "func TestVolcKimiForwardKeepsThinkingAndToolConstraints(",
         "func TestVolcKimiInboundMessageShapes(",
+        "Claude-Code-style trajectories insert assistant text",
         "func TestVolcKimiVideoURLPreflight(",
         "func TestVolcKimiHTTPVideoProbe(",
         "func TestVolcKimiDropsEmptyTextParts("
       ],
-      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface."
+      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface and interleaved-assistant drop for Volc tool round-trips."
     },
     {
       "path": "backend/internal/pkg/httputil/body.go",
@@ -14571,9 +14574,11 @@
       "must_contain": [
         "s.tkAllowOrCollectWindowCost(ctx, acc, &windowDropped)",
         "tkRecoverAnthropicCandidatesFromWindowDropped(candidates, windowDropped, time.Now())",
-        "s.gatewayAccountEligible(ctx, acc, platform, useMixed, requestedModel, false)"
+        "s.gatewayAccountEligible(ctx, acc, platform, useMixed, requestedModel, false)",
+        "!AntigravityOAuthProjectIDReady(account)",
+        "return \"missing_project_id\""
       ],
-      "rationale": "P3 thin wiring for Anthropic window-cost drop + never-empty recovery in SelectAccountWithLoadAwareness Layer-2. Upstream merges that restore bare continue-on-window-reject (no collect) or drop the recovery call silently empty the pool under window pressure."
+      "rationale": "P3 thin wiring for Anthropic window-cost drop + never-empty recovery in SelectAccountWithLoadAwareness Layer-2. Upstream merges that restore bare continue-on-window-reject (no collect) or drop the recovery call silently empty the pool under window pressure. Also anchors Antigravity OAuth project_id admission: hollow OAuth accounts without project_id must return missing_project_id before profit/model gates so they cannot enter sticky/routed/load-aware pools (candidate-eligibility-ssot 2026-11-17)."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_tk_buffered_stream.go",
@@ -20735,6 +20740,87 @@
         "Mirror deploy/domestic/bluegreen.py"
       ],
       "rationale": "After M6, cn-prod timeout remediate must drain/recreate the single tokenkey container and refuse leftover blue/green or entry-origin socat layout."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gemini_thinking_clamp_tk.go",
+      "must_contain": [
+        "func normalizeAntigravityNativeGeminiRequest(model string, body []byte) []byte",
+        "antigravityGeminiArgonMaxOutputTokensCap = 8192",
+        "antigravityGeminiThinkingBudgetMax = 65535",
+        "logAntigravityGeminiThinkingRewrite(model, \"drop_illegal_budget\""
+      ],
+      "rationale": "AG Gemini native thinkingBudget clamp + argon maxOutputTokens hard-cap owner. Upstream merge that drops this companion restores illegal budget→400 and 65536 thinking runaway on ForwardGemini."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "body = normalizeAntigravityNativeGeminiRequest(originalModel, body)",
+        "mappedModel, variantResolved := resolveGeminiThinkingVariant(account, originalModel, body)"
+      ],
+      "rationale": "ForwardGemini must normalize thinkingBudget / argon maxOutputTokens BEFORE resolveGeminiThinkingVariant so oversized budgets cannot boost argon via budget>8192→high. Companion compile-clean alone would not catch a dropped call site."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gemini_thinking_clamp_tk_test.go",
+      "must_contain": [
+        "func TestNormalizeAntigravityNativeGeminiRequest_ArgonIllegalBudgetDroppedNotBoosted(t *testing.T)",
+        "func TestIllegalArgonBudgetDoesNotResolveToHighVariant(t *testing.T)"
+      ],
+      "rationale": "Behavioral guards that illegal argon budgets are dropped (not rewritten to high) and cannot resolve to -high variants after clamp."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_stream_truncation_tk.go",
+      "must_contain": [
+        "func geminiPayloadStartsVisibleTTFT(payload []byte) bool",
+        "func geminiNativePartIsVisibleOutput(part gjson.Result) bool",
+        "if part.Get(\"thought\").Bool() {"
+      ],
+      "rationale": "Visible TTFT owner for Gemini/AG native streams: first non-thought usable output only. Upstream merge that drops this helper restores keepalive/thought-as-TTFT mis-metering."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_streaming.go",
+      "must_contain": [
+        "if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT([]byte(payload)) {",
+        "if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT(inner) {"
+      ],
+      "rationale": "AG Gemini stream must record first_token_ms only via geminiPayloadStartsVisibleTTFT so thought-hold flushes and keepalives cannot start TTFT."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT(classified) {"
+      ],
+      "rationale": "Gemini messages/native compat stream must share the visible TTFT helper; reverting to any-data-frame TTFT reintroduces thought-as-first-token."
+    },
+    {
+      "path": "backend/internal/service/gateway_usage_billing.go",
+      "must_contain": [
+        "preferUsageUpstreamModel(result.UpstreamModel, facts.ResolvedModel())"
+      ],
+      "rationale": "Anthropic/generic usage must keep the AG/Gemini thinking-tier wire in upstream_model when ProtocolRouteFacts only carries the Plan floor; reverting to facts.ResolvedModel() alone makes usage_logs disagree with model_mapping_chain."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_usage.go",
+      "must_contain": [
+        "preferUsageUpstreamModel(result.UpstreamModel, facts.ResolvedModel())"
+      ],
+      "rationale": "OpenAI usage path shares the same ProtocolRouteFacts overwrite; keep the thinking-tier prefer helper so Gemini-family wires are not flattened to the schedule floor."
+    },
+    {
+      "path": "backend/internal/service/usage_upstream_model_tk.go",
+      "must_contain": [
+        "func preferUsageUpstreamModel(",
+        "sameGeminiThinkingFamily("
+      ],
+      "rationale": "Owner for usage upstream_model vs Plan floor preference on Gemini thinking-tier remaps."
+    },
+    {
+      "path": "backend/internal/service/usage_upstream_model_tk_test.go",
+      "must_contain": [
+        "func TestPreferUsageUpstreamModel_ThinkingTierWireWinsOverPlanFloor(t *testing.T)",
+        "high wire over medium floor",
+        "non-gemini disagreement keeps plan SSOT"
+      ],
+      "rationale": "Positive thinking-tier wire win and negative non-Gemini Plan-SSOT regression for preferUsageUpstreamModel."
     }
   ]
 }
