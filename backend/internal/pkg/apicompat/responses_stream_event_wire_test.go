@@ -51,6 +51,46 @@ func TestWire_FunctionCallItemAlwaysComplete(t *testing.T) {
 	require.Equal(t, "", item["arguments"])
 }
 
+// Wei-Shaw/sub2api#8582: sealed-call markers must survive stream wire rebuild.
+func TestWire_FunctionCallPreservesEncryptedFunctionArgs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want any
+	}{
+		{name: "encrypted", raw: `["message"]`, want: []any{"message"}},
+		{name: "plaintext_empty", raw: `[]`, want: []any{}},
+		{name: "null", raw: `null`, want: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := marshalEvent(t, ResponsesStreamEvent{
+				Type: "response.output_item.done",
+				Item: &ResponsesOutput{
+					Type:                  "function_call",
+					ID:                    "fc_1",
+					CallID:                "call_a",
+					Name:                  "send_message",
+					Arguments:             `{"x":1}`,
+					EncryptedFunctionArgs: json.RawMessage(tc.raw),
+				},
+			})
+			item, ok := m["item"].(map[string]any)
+			require.True(t, ok)
+			require.Contains(t, item, "encrypted_function_args")
+			require.Equal(t, tc.want, item["encrypted_function_args"])
+		})
+	}
+	t.Run("absent", func(t *testing.T) {
+		m := marshalEvent(t, ResponsesStreamEvent{
+			Type: "response.output_item.done",
+			Item: &ResponsesOutput{Type: "function_call", ID: "fc_1", CallID: "call_a", Name: "exec", Arguments: "{}"},
+		})
+		item, ok := m["item"].(map[string]any)
+		require.True(t, ok)
+		require.NotContains(t, item, "encrypted_function_args")
+	})
+}
+
 // TestWire_MessageItemContentAlwaysArray guards content:[] presence.
 func TestWire_MessageItemContentAlwaysArray(t *testing.T) {
 	m := marshalEvent(t, ResponsesStreamEvent{

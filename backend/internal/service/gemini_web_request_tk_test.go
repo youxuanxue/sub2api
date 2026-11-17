@@ -191,7 +191,10 @@ func TestGeminiWebChatAndResponsesDefaultLimitIsNotWorkerCapability(t *testing.T
 		require.NoError(t, err)
 		body, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
 		require.NoError(t, err)
-		require.JSONEq(t, `{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"generationConfig":{"maxOutputTokens":8192}}`, string(body))
+		require.JSONEq(t, fmt.Sprintf(
+			`{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"generationConfig":{"maxOutputTokens":%d}}`,
+			apicompat.ResponsesToAnthropicDefaultMaxTokens,
+		), string(body))
 		require.False(t, protocolrouter.GeminiWebNativeBodySupported(body, false, false))
 	}
 }
