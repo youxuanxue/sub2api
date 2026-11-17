@@ -38,9 +38,7 @@ prod 分发保持原路径。
   `layers[].size` / compressed digest 比对归档成员）。并校验架构、版本、完整 revision。
   COS 路径为版本/完整 revision/归档 SHA；条件创建拒绝覆盖，manifest 最后写入。同
   tag/revision/archive_sha 已完成时复用现有 manifest（允许 receipt 可选字段演进，不重写）。
-  prod 主机 botocore < 1.36 时跳过 checksum kwargs；probe 在缺 crane 时引导静态二进制
-  （tarball SHA256 固定校验）。`publish_source` 为 `prod-crane`（CLI 动作名
-  `publish-docker` 仅为兼容别名）。
+  prod 主机 botocore < 1.36 时跳过 checksum kwargs；probe 在缺 crane 时引导静态二进制。
 - `warm_fanout.py` 是 per-node render/dispatch owner。它按 `prod-target.json` 的
   `apps[]` 顺序 fail-stop，校验 render 的节点身份、tag、完整 revision、channel 和脚本
   SHA，并固定 `--channel tat` 下发；每个节点成功回执写入

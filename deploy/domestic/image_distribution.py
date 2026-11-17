@@ -249,14 +249,13 @@ def publish(client, bucket, tag, revision, repository):
 def publish_from_docker(client, bucket, tag, revision, repository, image_ref=''):
     """Standard path: on a prod host, crane-legacy export + upload to Beijing COS.
 
-    CLI action remains ``publish-docker`` (compatibility alias). Modern
-    ``docker save`` emits OCI layouts that fail ``verify_archive``; archive bytes
-    come from ``crane pull --format=legacy`` of ``repository@digest``. The win vs
-    GHA is COS upload egress from the USW prod host. ``image_ref`` is ignored
-    (kept only so old callers with ``--image`` do not break).
+    Modern ``docker save`` emits OCI layouts with directory members that fail
+    ``verify_archive`` (legacy-only). Prod still has fast GHCR access, so archive
+    bytes come from ``crane pull --format=legacy`` of ``repository@digest``.
+    The win vs GHA is COS upload egress from the USW prod host. Optional
+    ``image_ref`` only asserts a local warm already landed (advisory).
     """
     import time
-    _ = image_ref  # compatibility no-op; archive always comes from crane@digest
 
     key = prefix(tag, revision)
     t0 = time.monotonic()
@@ -267,6 +266,12 @@ def publish_from_docker(client, bucket, tag, revision, repository, image_ref='')
     phase(f'digest {repository}:{tag}')
     digest, raw = _registry_digest_and_manifest(repository, tag)
     archive_tag = f'tokenkey-domestic/archive:{digest.removeprefix("sha256:")}'
+    if image_ref:
+        phase(f'advisory local inspect {image_ref}')
+        inspect = subprocess.run(
+            ['docker', 'image', 'inspect', image_ref], capture_output=True, text=True, check=False)
+        if inspect.returncode != 0:
+            phase(f'advisory local image missing; continuing with crane pull')
     with tempfile.TemporaryDirectory(prefix='cn-image-') as temp:
         archive = Path(temp) / 'image.tar'
         original = Path(temp) / 'original.tar'
@@ -284,7 +289,7 @@ def publish_from_docker(client, bucket, tag, revision, repository, image_ref='')
             'schema_version': 1, 'tag': tag, 'revision': revision, 'source_digest': digest,
             'archive_tag': archive_tag, 'archive_sha256': archive_sha,
             'bytes': archive.stat().st_size, 'manifest_raw': raw.decode(),
-            'manifest': json.loads(raw), 'publish_source': 'prod-crane',
+            'manifest': json.loads(raw), 'publish_source': 'prod-docker',
         }
         return _finalize_publish(client, bucket, key, archive, receipt, digest, phase)
 
@@ -340,7 +345,7 @@ def main():
     parser.add_argument('--repository', default='ghcr.io/youxuanxue/sub2api')
     parser.add_argument(
         '--image', default='',
-        help='ignored compatibility flag for publish-docker (archive always crane@digest)',
+        help='local docker ref for publish-docker (default: repository@amd64 digest)',
     )
     args = parser.parse_args()
     if args.action == 'resolve':
