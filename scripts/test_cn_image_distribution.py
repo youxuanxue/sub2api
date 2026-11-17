@@ -26,7 +26,9 @@ class ReleaseWorkflowCredentialBoundaryTest(unittest.TestCase):
 
     def test_cn_distribution_uses_tencent_cos_for_publish_and_warm(self):
         text = (WORKFLOWS / "distribute-cn-image.yml").read_text()
-        publish, warm = text.split("  warm:\n", 1)
+        self.assertIn("  resolve:\n", text)
+        publish, rest = text.split("  warm:\n", 1)
+        warm, warm_ghcr = rest.split("  warm-ghcr:\n", 1)
         self.assertIn("  publish:\n", publish)
         self.assertIn("environment: tencent-ops", publish)
         self.assertIn("TENCENTCLOUD_SECRET_ID", publish)
@@ -37,16 +39,25 @@ class ReleaseWorkflowCredentialBoundaryTest(unittest.TestCase):
         self.assertIn("retention-days: 1", publish)
         self.assertIn("--channel tat", publish)
         self.assertNotIn("--channel auto", publish)
+        self.assertIn("inputs.transport == 's3'", publish)
 
-        self.assertIn("needs: publish", warm)
+        self.assertIn("needs: [resolve, publish]", warm)
         self.assertIn("environment: tencent-ops", warm)
-        self.assertIn("ref: ${{ needs.publish.outputs.source_sha }}", warm)
+        self.assertIn("ref: ${{ needs.resolve.outputs.source_sha }}", warm)
         self.assertIn("python3 deploy/domestic/warm_fanout.py dispatch-rendered", warm)
         self.assertIn("TENCENTCLOUD_SECRET_ID", warm)
         self.assertNotIn("configure-aws-credentials", warm)
         self.assertNotIn("pip install boto3", warm)
         self.assertIn("--channel tat", warm)
         self.assertNotIn("--channel auto", warm)
+
+        self.assertIn("inputs.transport == 'ghcr'", warm_ghcr)
+        self.assertIn("python3 deploy/domestic/warm_fanout.py warm-all", warm_ghcr)
+        self.assertIn("--transport ghcr", warm_ghcr)
+        self.assertIn("--channel tat", warm_ghcr)
+        self.assertNotIn("--channel auto", warm_ghcr)
+        self.assertIn("environment: tencent-ops", warm_ghcr)
+        self.assertNotIn("configure-aws-credentials", warm_ghcr)
 
 
 def load_tests(loader, tests, pattern):

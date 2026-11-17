@@ -5,12 +5,21 @@ on:
     types: [completed]
   # Backfill / retry after a failed publish (e.g. verify_archive bug on 1.8.310).
   # Always runs default-branch code; only the release-run artifact supplies tag/revision.
+  # transport=ghcr: skip COS (US→Beijing upload is UserNetworkTooSlow); nodes pull GHCR via TAT.
   workflow_dispatch:
     inputs:
       release_run_id:
         description: Successful Release run id that uploaded cn-image-source
         required: true
         type: string
+      transport:
+        description: s3 = COS publish+warm; ghcr = nodes docker pull GHCR (no COS upload)
+        required: true
+        type: choice
+        options:
+          - s3
+          - ghcr
+        default: s3
 permissions:
   contents: read
   actions: read
@@ -18,25 +27,20 @@ concurrency:
   group: cn-prod-image-distribution
   cancel-in-progress: false
 jobs:
-  publish:
+  resolve:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    # First COS publish of a multi-arch gateway image can exceed the old 25m
-    # budget (v1.8.381 timed out mid-upload with an empty receipt).
-    timeout-minutes: 60
-    environment: tencent-ops
+    timeout-minutes: 10
     permissions:
       contents: read
       actions: read
-      packages: read
     outputs:
       source_sha: ${{ steps.repo.outputs.sha }}
       tag: ${{ steps.source.outputs.tag }}
       revision: ${{ steps.source.outputs.revision }}
     steps:
-      # Trusted default-branch code only; the downloaded artifact is validated data.
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.repository.default_branch }}
@@ -76,6 +80,27 @@ jobs:
         run: |
           python3 deploy/domestic/image_distribution.py resolve \
             --source-file release-source/cn-image-source.json --github-output "$GITHUB_OUTPUT"
+
+  publish:
+    needs: resolve
+    if: >-
+      needs.resolve.result == 'success' && (
+        github.event_name == 'workflow_run' ||
+        inputs.transport == 's3'
+      )
+    runs-on: ubuntu-latest
+    # First COS publish of a multi-arch gateway image can exceed the old 25m
+    # budget (v1.8.381 timed out mid-upload with an empty receipt).
+    timeout-minutes: 60
+    environment: tencent-ops
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -94,8 +119,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish verified cn-prod image archive
         env:
-          RELEASE_TAG: ${{ steps.source.outputs.tag }}
-          RELEASE_REVISION: ${{ steps.source.outputs.revision }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_REVISION: ${{ needs.resolve.outputs.revision }}
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
           # Belt-and-suspenders with s3_client BotocoreConfig: COS rejects
@@ -109,8 +134,8 @@ jobs:
             --repository "ghcr.io/${GITHUB_REPOSITORY,,}" > cn-image-publish.json
       - name: Render per-node private COS prewarm scripts
         env:
-          RELEASE_TAG: ${{ steps.source.outputs.tag }}
-          RELEASE_REVISION: ${{ steps.source.outputs.revision }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_REVISION: ${{ needs.resolve.outputs.revision }}
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
         run: |
@@ -139,7 +164,8 @@ jobs:
           retention-days: 1
 
   warm:
-    needs: publish
+    needs: [resolve, publish]
+    if: needs.publish.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: tencent-ops
@@ -147,10 +173,9 @@ jobs:
       contents: read
       actions: read
     steps:
-      # Pin the execution code to the same trusted default-branch revision.
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.publish.outputs.source_sha }}
+          ref: ${{ needs.resolve.outputs.source_sha }}
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -164,8 +189,8 @@ jobs:
           run-id: ${{ github.run_id }}
       - name: Prewarm every cn-prod app node
         env:
-          RELEASE_TAG: ${{ needs.publish.outputs.tag }}
-          RELEASE_REVISION: ${{ needs.publish.outputs.revision }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_REVISION: ${{ needs.resolve.outputs.revision }}
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
         run: |
@@ -177,6 +202,67 @@ jobs:
             --transport s3 \
             --channel tat \
             --render-file cn-image-render/cn-image-render.json \
+            --receipt-out cn-image-warm.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: cn-image-warm-receipt
+          path: cn-image-warm.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  warm-ghcr:
+    needs: resolve
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.transport == 'ghcr' &&
+      needs.resolve.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: tencent-ops
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Tencent remote execution CLI and crane
+        run: |
+          python3 -m pip install 'tccli==3.1.198.1'
+          go install github.com/google/go-containerregistry/cmd/crane@v0.22.1
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prewarm every cn-prod app node from GHCR
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_REVISION: ${{ needs.resolve.outputs.revision }}
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          REPO="ghcr.io/${GITHUB_REPOSITORY,,}"
+          DIGEST="$(crane digest --platform=linux/amd64 "${REPO}:${RELEASE_TAG}")"
+          echo "amd64_digest=${DIGEST}"
+          python3 deploy/domestic/warm_fanout.py warm-all \
+            --manifest deploy/domestic/prod-target.json \
+            --tag "$RELEASE_TAG" \
+            --revision "$RELEASE_REVISION" \
+            --transport ghcr \
+            --channel tat \
+            --repository "$REPO" \
+            --digest "$DIGEST" \
             --receipt-out cn-image-warm.json
       - uses: actions/upload-artifact@v7
         if: always()
