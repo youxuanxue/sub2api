@@ -17,6 +17,10 @@ func (s *GatewayService) gatewayAccountEligibilityReason(ctx context.Context, ac
 	switch {
 	case !s.isAccountSchedulableForSelection(account):
 		return "not_schedulable"
+	case !AntigravityOAuthProjectIDReady(account):
+		// Antigravity OAuth forward requires project_id; hollow actives must not
+		// enter sticky/routed/load-aware pools. docs/approved/candidate-eligibility-ssot.md
+		return "missing_project_id"
 	case !s.isGatewayAccountProfitEligible(ctx, account):
 		return "profit_ineligible"
 	case !s.isAccountAllowedForPlatformModel(ctx, account, platform, mixed, model):

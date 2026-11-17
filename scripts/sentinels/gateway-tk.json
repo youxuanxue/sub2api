@@ -14574,9 +14574,11 @@
       "must_contain": [
         "s.tkAllowOrCollectWindowCost(ctx, acc, &windowDropped)",
         "tkRecoverAnthropicCandidatesFromWindowDropped(candidates, windowDropped, time.Now())",
-        "s.gatewayAccountEligible(ctx, acc, platform, useMixed, requestedModel, false)"
+        "s.gatewayAccountEligible(ctx, acc, platform, useMixed, requestedModel, false)",
+        "!AntigravityOAuthProjectIDReady(account)",
+        "return \"missing_project_id\""
       ],
-      "rationale": "P3 thin wiring for Anthropic window-cost drop + never-empty recovery in SelectAccountWithLoadAwareness Layer-2. Upstream merges that restore bare continue-on-window-reject (no collect) or drop the recovery call silently empty the pool under window pressure."
+      "rationale": "P3 thin wiring for Anthropic window-cost drop + never-empty recovery in SelectAccountWithLoadAwareness Layer-2. Upstream merges that restore bare continue-on-window-reject (no collect) or drop the recovery call silently empty the pool under window pressure. Also anchors Antigravity OAuth project_id admission: hollow OAuth accounts without project_id must return missing_project_id before profit/model gates so they cannot enter sticky/routed/load-aware pools (candidate-eligibility-ssot 2026-11-17)."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_tk_buffered_stream.go",

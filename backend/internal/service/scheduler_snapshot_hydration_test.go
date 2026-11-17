@@ -346,6 +346,10 @@ func TestGatewaySelectAccountWithLoadAwareness_SkipsAntigravityGeminiFamilyRateL
 				Schedulable: true,
 				Concurrency: 1,
 				Priority:    1,
+				Credentials: map[string]any{
+					"project_id":    "ag-proj-1",
+					"model_mapping": map[string]any{"gemini-3.8-flash": "gemini-3.8-flash"},
+				},
 				AccountGroups: []AccountGroup{
 					{AccountID: 1, GroupID: 22},
 				},
@@ -367,6 +371,10 @@ func TestGatewaySelectAccountWithLoadAwareness_SkipsAntigravityGeminiFamilyRateL
 				Schedulable: true,
 				Concurrency: 1,
 				Priority:    2,
+				Credentials: map[string]any{
+					"project_id":    "ag-proj-2",
+					"model_mapping": map[string]any{"gemini-3.8-flash": "gemini-3.8-flash"},
+				},
 				AccountGroups: []AccountGroup{
 					{AccountID: 2, GroupID: 22},
 				},
@@ -377,8 +385,8 @@ func TestGatewaySelectAccountWithLoadAwareness_SkipsAntigravityGeminiFamilyRateL
 			},
 		},
 		accounts: map[int64]*Account{
-			1: {ID: 1, Platform: PlatformAntigravity, Type: AccountTypeOAuth},
-			2: {ID: 2, Platform: PlatformAntigravity, Type: AccountTypeOAuth},
+			1: {ID: 1, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Credentials: map[string]any{"project_id": "ag-proj-1"}},
+			2: {ID: 2, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Credentials: map[string]any{"project_id": "ag-proj-2"}},
 		},
 	}
 	groupID := int64(22)
