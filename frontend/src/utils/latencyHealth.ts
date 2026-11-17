@@ -70,6 +70,30 @@ export const LATENCY_BAR_TO_CLASSES: Record<LatencySeverity, string> = {
   critical: 'to-red-500',
 }
 
+/**
+ * 用量明细「首内容」列：null/缺失显示 —，禁止渲染成误导性 0.0s。
+ * 真零（0ms）仍显示为 0.0s，与「未采到」区分。
+ */
+export const formatUsageFirstTokenMs = (ms: number | null | undefined): string => {
+  if (ms == null || !Number.isFinite(ms)) return '—'
+  if (ms === 0) return '0.0s'
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  const totalSec = Math.round(ms / 1000)
+  if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`
+  return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`
+}
+
+/** 用量明细总耗时列；null/缺失 → —。 */
+export const formatUsageDurationMs = (ms: number | null | undefined): string => {
+  if (ms == null || !Number.isFinite(ms)) return '—'
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(2)}s`
+  const totalSec = Math.round(ms / 1000)
+  if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`
+  return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`
+}
+
 // 与运维 Token 请求统计一致：使用完整耗时，输出可能包含推理 Token。
 export const formatUsageOutputRate = (row: Pick<UsageLog,
   'output_tokens' | 'duration_ms' | 'image_count' | 'image_output_tokens' | 'billing_mode' | 'request_type'
