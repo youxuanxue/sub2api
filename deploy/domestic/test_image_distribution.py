@@ -340,7 +340,8 @@ class DistributionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 distribution.render(client, 'bucket', TAG, REV, 'sha256:' + '0' * 64)
 
-    def test_publish_from_docker_uses_docker_save(self):
+    def test_publish_from_docker_uses_crane_legacy_on_prod(self):
+        """docker save OCI layouts fail verify_archive; prod uses crane --format=legacy."""
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / 'source.tar'
             receipt = make_archive(source)
@@ -351,8 +352,8 @@ class DistributionTests(unittest.TestCase):
                 calls.append(args)
                 if args[:2] == ['docker', 'image']:
                     return subprocess.CompletedProcess(args, 0, '', '')
-                if args[:2] == ['docker', 'save']:
-                    Path(args[args.index('-o') + 1]).write_bytes(source.read_bytes())
+                if args[:2] == ['crane', 'pull'] and '--format=legacy' in args:
+                    Path(args[3]).write_bytes(source.read_bytes())
                     return subprocess.CompletedProcess(args, 0)
                 raise AssertionError(args)
 
@@ -361,7 +362,8 @@ class DistributionTests(unittest.TestCase):
                 published = distribution.publish_from_docker(
                     client, 'bucket', TAG, REV, 'ghcr.io/example/app', 'local/app:tag')
             self.assertEqual(published.get('publish_source'), 'prod-docker')
-            self.assertTrue(any(c[:2] == ['docker', 'save'] for c in calls))
+            self.assertTrue(any(c[:2] == ['crane', 'pull'] and '--format=legacy' in c for c in calls))
+            self.assertFalse(any(c[:2] == ['docker', 'save'] for c in calls))
             self.assertEqual(client.puts[-1], distribution.prefix(TAG, REV) + '/manifest.json')
 
     def _publish_with_fixture(self, client, source, receipt):

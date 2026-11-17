@@ -27,12 +27,15 @@ revised: 2026-11-17（标准路径改为 prod 导出→北京 COS→同城 warm�
 原话：「北京的镜像应该从 prod 导出上传到 北京 cos，再从北京 cos 拉下来使用。这条变为标准路径」
 
 ```
-prod 主机（已有或可 docker pull 的 tag/revision）
-  → docker save + crane provenance
-  → 上传北京 COS
+prod 主机（USW，可 crane 拉 GHCR）
+  → crane pull --format=legacy + registry provenance
+  → 上传北京 COS（egress 自 prod，非 GHA→北京）
   → cn-prod apps[] 同城 COS warm
   → cn-prod rolling
 ```
+
+说明：现代 `docker save` 产出 OCI 布局（含目录成员），与 `verify_archive` 的
+crane-legacy 契约不兼容；标准路径在 prod 上用 `crane pull --format=legacy`。
 
 - Owner：`image_distribution.publish_from_docker` + `probe_publish_cn_from_prod.sh`；
   `distribute-cn-image.yml` 默认 `transport=prod`（Release 自动触发亦然）。

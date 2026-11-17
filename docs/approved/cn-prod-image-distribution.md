@@ -24,20 +24,21 @@ prod 分发保持原路径。
   传入已成功 Release 的 `release_run_id` 做回补/重试。两种触发都只 checkout
   default_branch，只从该成功 run 的 `cn-image-source` artifact 读 tag/revision 并与
   git tag 核对；不执行发布 ref 的代码。
-  **标准 publish**（2026-11-17）：在 **prod** 主机 `docker save` 后上传北京 COS
- （`publish_from_docker` / `probe_publish_cn_from_prod.sh`），再 `warm`；
+  **标准 publish**（2026-11-17）：在 **prod** 主机 `crane pull --format=legacy`
+  后上传北京 COS（`publish_from_docker` / `probe_publish_cn_from_prod.sh`），再 `warm`；
   `distribute-cn-image.yml` 默认 `transport=prod`。GHA runner 上 `crane pull`→COS
   （`transport=s3`）与节点直拉 GHCR（`transport=ghcr`）仅应急。
   `publish`/`publish-from-prod` 与 `warm` 使用 `tencent-ops` 腾讯凭据写 COS / TAT 预下载；
-  prod 导出另需 AWS OIDC 走 SSM。render artifact 含短期签名 URL，保留 1 天且从不打印；
-  publish receipt 保留 7 天。
-- `image_distribution.py`：标准路径用本地 `docker save`（prod）+ crane 取 registry
-  digest/manifest 作 provenance；legacy CI 路径仍 `crane pull --format=legacy`。
-  只将归档内加载标签改为专用 digest 标签。legacy 归档内层是未压缩 tar，按 config
-  `rootfs.diff_ids` 校验（不得用 registry `layers[].size` / compressed digest 比对
-  归档成员）。并校验架构、版本、完整 revision。COS 路径为版本/完整 revision/归档 SHA；
-  条件创建拒绝覆盖，manifest 最后写入。同 tag/revision/archive_sha 已完成时复用现有
-  manifest（允许 receipt 可选字段演进，不重写）。
+  `publish-from-prod` 另需 AWS OIDC 走 SSM（角色 trust 含 `environment:tencent-ops`）。
+  render artifact 含短期签名 URL，保留 1 天且从不打印；publish receipt 保留 7 天。
+- `image_distribution.py`：标准路径与 legacy CI 均 `crane pull --format=legacy`；标准路径
+  只是把导出+COS 上传放到 prod 主机（规避 GHA→北京慢）。现代 `docker save` OCI 布局
+  含目录成员，不能直接进 `verify_archive`。只将归档内加载标签改为专用 digest 标签。
+  legacy 归档内层是未压缩 tar，按 config `rootfs.diff_ids` 校验（不得用 registry
+  `layers[].size` / compressed digest 比对归档成员）。并校验架构、版本、完整 revision。
+  COS 路径为版本/完整 revision/归档 SHA；条件创建拒绝覆盖，manifest 最后写入。同
+  tag/revision/archive_sha 已完成时复用现有 manifest（允许 receipt 可选字段演进，不重写）。
+  prod 主机 botocore < 1.36 时跳过 checksum kwargs；probe 在缺 crane 时引导静态二进制。
 - `warm_fanout.py` 是 per-node render/dispatch owner。它按 `prod-target.json` 的
   `apps[]` 顺序 fail-stop，校验 render 的节点身份、tag、完整 revision、channel 和脚本
   SHA，并固定 `--channel tat` 下发；每个节点成功回执写入
