@@ -96,9 +96,11 @@
       "tokenkey-ghcr-prune-daily": "Not installed on Tencent cutover host (verified not-found 2026-10-22); pause until separately installed."
     },
     "local_qa_jobs": [
-      "tokenkey-qa-provision",
-      "tokenkey-qa-cleanup",
-      "tokenkey-qa-archive"
+      "tokenkey-qa-retention"
+    ],
+    "data_qa_jobs": [
+      "tokenkey-qa-coordinator",
+      "tokenkey-qa-retention"
     ],
     "data_hostname": "VM-0-3-ubuntu"
   },

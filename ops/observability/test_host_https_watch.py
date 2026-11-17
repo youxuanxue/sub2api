@@ -38,11 +38,11 @@ class CoveragePlanTest(unittest.TestCase):
 
     def test_data_machines_watch_only_their_own_jobs(self):
         # After the data-plane split the data machine owns pgBackRest; its
-        # watcher probes no public targets. cn-prod data also watches explicit
-        # data_qa_jobs after the coordinator cutover; prod-data stays disk-only
-        # until it registers its own list.
+        # watcher probes no public targets. Explicit data_qa_jobs are watched
+        # after the coordinator cutover (prod and cn-prod).
         for role, host, jobs in (
-                ('prod-data', self.watch['data_hostname'], ['tokenkey-disk-metrics']),
+                ('prod-data', self.watch['data_hostname'],
+                 ['tokenkey-disk-metrics', 'tokenkey-qa-coordinator', 'tokenkey-qa-retention']),
                 ('cn-prod-data', self.domestic['data_instance_name'],
                  ['tokenkey-disk-metrics', 'tokenkey-qa-coordinator', 'tokenkey-qa-retention']),
         ):
@@ -98,11 +98,13 @@ class CoveragePlanTest(unittest.TestCase):
             self.assertNotIn(retired, prod['jobs'])
             self.assertNotIn(retired, prod['paused_jobs'])
             self.assertNotIn(retired, watch.JOB_LIMITS)
-        # The archive push (tar stream to node1) must be monitored on both
-        # hosts; it went unmonitored in production until 2026-11-03.
-        self.assertIn('tokenkey-qa-archive', prod['jobs'])
+        # Both sites cut over to data-machine coordinator + local retention.
+        self.assertIn('tokenkey-qa-retention', prod['jobs'])
+        self.assertNotIn('tokenkey-qa-archive', prod['jobs'])
         self.assertIn('tokenkey-qa-retention',
                       self.config('cn-prod', self.domestic['instance_name'])['jobs'])
+        self.assertNotIn('tokenkey-qa-archive',
+                         self.config('cn-prod', self.domestic['instance_name'])['jobs'])
         # Retired Tokyo identity is not an accepted prod watch host.
         with self.assertRaisesRegex(ValueError, 'host identity'):
             self.config('prod', 'tokenkey-prod-tokyo-20261017')
@@ -143,14 +145,14 @@ class CoveragePlanTest(unittest.TestCase):
         )
 
     def test_local_provision_is_monitored_independently_of_paused_archive(self):
-        # Provision and cleanup are expected-running local jobs, never paused.
+        # After coordinator cutover, prod watches independent retention (not
+        # paused). Legacy provision/cleanup limits remain for cn-prod/v1 hosts.
         prod = self.config('prod', self.watch['hostname'])
-        for job in ('tokenkey-qa-provision', 'tokenkey-qa-cleanup'):
-            with self.subTest(job=job):
-                self.assertIn(job, prod['jobs'])
-                self.assertNotIn(job, prod['paused_jobs'])
-                self.assertIn(job, watch.JOB_LIMITS)
-        limit = watch.JOB_LIMITS['tokenkey-qa-cleanup']
+        self.assertIn('tokenkey-qa-retention', prod['jobs'])
+        self.assertNotIn('tokenkey-qa-retention', prod['paused_jobs'])
+        for job in ('tokenkey-qa-provision', 'tokenkey-qa-cleanup', 'tokenkey-qa-retention'):
+            self.assertIn(job, watch.JOB_LIMITS)
+        limit = watch.JOB_LIMITS['tokenkey-qa-retention']
         self.assertFalse(watch.job_fact({'ActiveState':'inactive', 'Result':'success'},
                                        {'ActiveState':'inactive', 'UnitFileState':'disabled'},
                                        10000, limit)['healthy'])
@@ -891,8 +893,9 @@ class QaArchiveCoverageTest(unittest.TestCase):
                                        self.prod_matrix, self.domestic)['jobs']
         cn_jobs = watch.build_config('cn-prod', self.domestic['instance_name'],
                                      self.prod_matrix, self.domestic)['jobs']
-        # prod still owns v1 archive; cn-prod cut over to retention (+ data coordinator).
-        self.assertIn('tokenkey-qa-archive', prod_jobs)
+        # Both sites cut over to retention (+ data coordinator).
+        self.assertIn('tokenkey-qa-retention', prod_jobs)
+        self.assertNotIn('tokenkey-qa-archive', prod_jobs)
         self.assertIn('tokenkey-qa-retention', cn_jobs)
         self.assertNotIn('tokenkey-qa-archive', cn_jobs)
 

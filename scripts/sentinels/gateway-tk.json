@@ -17238,15 +17238,19 @@
     {
       "path": "deploy/tencent/candidate-usw-20261022.json",
       "must_contain": [
-        "\"tokenkey-qa-cleanup\"",
-        "\"tokenkey-qa-archive\""
+        "\"tokenkey-qa-retention\"",
+        "\"data_qa_jobs\"",
+        "\"tokenkey-qa-coordinator\""
       ],
       "must_not_contain": [
         "\"tokenkey-qa-maintenance\":",
         "\"tokenkey-qa-boundary\":",
-        "prod_phase2_live_health"
+        "prod_phase2_live_health",
+        "\"tokenkey-qa-cleanup\"",
+        "\"tokenkey-qa-archive\"",
+        "\"tokenkey-qa-provision\""
       ],
-      "rationale": "QA S3 retired 2026-11-08 (user decision); current path is local 24h + node1 every 4h. paused_jobs and the watcher JOB_LIMITS drop the S3 units together; local QA jobs stay monitored."
+      "rationale": "QA S3 retired 2026-11-08; prod cut over to data-machine coordinator + independent one-day retention (2026-11-17). host_watch.local_qa_jobs and data_qa_jobs must stay registered so watcher probes the live timers; v1 cleanup/archive literals must not reappear as expected-running jobs."
     },
     {
       "path": "deploy/aws/stage0/stage0-ec2-bootstrap.sh",
