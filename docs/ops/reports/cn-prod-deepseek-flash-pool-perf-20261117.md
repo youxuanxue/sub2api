@@ -239,7 +239,7 @@ app-host driver 默认：`MODEL=deepseek-flash`，`PERF_STEPS=200,400`，`POOL_S
 - 高 cache hit → TPM 偏乐观  
 - app-b、入口、数据机 CPU 本轮采样不足  
 - `content_rate≈0.78` 未根因  
-- 800 并发 **未跑**；文末清单落地前不建议打
+- 800 并发阶梯已在专用压测机完成：见 `docs/ops/reports/cn-prod-deepseek-flash-pool-perf-800-20261117.md`（400/600/800 均过）
 
 ---
 
