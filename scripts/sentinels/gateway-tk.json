@@ -214,14 +214,14 @@
         "def test_check_command_failure_is_a_hard_fault_not_an_advisory(",
         "def test_wal_archive_failing_is_a_hard_fault_with_its_reason_visible(",
         "def test_archive_is_registered_with_a_cadence_matching_its_timer(",
-        "def test_both_hosts_configure_the_archive_job(",
+        "def test_both_hosts_configure_retention_not_v1_archive(",
         "def test_cn_prod_jobs_come_from_its_own_config_not_a_hardcoded_list(",
         "def test_cn_prod_units_carry_their_own_cn_prefixed_names(",
         "def test_auto_discovery_covers_cn_prod_when_archive_check_exists(",
         "def test_old_blocked_hour_is_unhealthy(",
         "def test_receipt_path_matches_the_host_runner("
       ],
-      "rationale": "Keep executable coverage, body validation, alert/recovery and retry regressions in the existing host watch test owner. Prod disk-metrics stays an active watched job. Bootstrap advisory and its evidence-forgery guard stay executable. The 2026-11-03 coverage cases are what make the blind spots regressions rather than opinions: qa-archive registered on both hosts with a cadence tolerating one missed run, cn-prod's job list sourced from its own config, and the pgBackRest auto-discovery reaching cn-prod while still gated on the evidence file."
+      "rationale": "Keep executable coverage, body validation, alert/recovery and retry regressions in the existing host watch test owner. After 2026-11-17 coordinator cutover, both prod and cn-prod assert retention (not v1 archive) on app hosts; data_qa_jobs cover coordinator+retention on data machines. JOB_LIMITS still keep historical v1 names."
     },
     {
       "path": "deploy/aws/stage0/tokenkey-pgdump.sh",
