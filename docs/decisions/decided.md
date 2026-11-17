@@ -6,9 +6,11 @@
 
 后续确认：「1. app-b 改为 4C8G，同意生完权重1:1；2.同意。低峰需要发我审批；3.同意。」（按量压测机）
 
-适用范围：cn-prod。双应用机保持两台；app-b 由 2C4G 升到 `bundle_rs_mc_lg8_01` **4C8G**（非 4C16G）；入口 WRR **app-a:app-b = 1:1**。应用侧 `DATABASE_MAX_OPEN_CONNS` 40→80（idle 10→20）。数据机 `max_connections` 200→400 **须低峰窗口审批后才重启 Postgres**（审批 `docs/ops/approvals/cn-prod-pg-max-connections-200-to-400.md`；**2026-11-17 13:46 BJT 已执行**，`SHOW max_connections=400`）。专用压测 client：北京按量 4C8G CVM 约 2 天（`ins-7ltl2zv3`，tag `expire_after=2026-11-19`），不放在 `cn-ip*` 代理机或应用机上。依据：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-20261117.md`。
+适用范围：cn-prod。双应用机保持两台；app-b 由 2C4G 升到 `bundle_rs_mc_lg8_01` **4C8G**（非 4C16G）；入口 WRR **app-a:app-b = 1:1**。应用侧 `DATABASE_MAX_OPEN_CONNS` 40→80（idle 10→20）。数据机 `max_connections` 200→400 **须低峰窗口审批后才重启 Postgres**（审批 `docs/ops/approvals/cn-prod-pg-max-connections-200-to-400.md`；**2026-11-17 13:46 BJT 已执行**，`SHOW max_connections=400`）。专用压测 client：北京按量 CVM 约 2 天（`ins-7ltl2zv3`，tag `expire_after=2026-11-19`），不放在 `cn-ip*` 代理机或应用机上。依据：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-20261117.md`。
 
 后续确认（2026-11-17）：「client 换 8C 同意。再压一下并发 1200 吧。重点关注吞吐已明显亚线性的根因。」→ 压测机由 `SA2.LARGE8`（4C8G）升到 `SA2.2XLARGE16`（8C16G）；阶梯含 1200，并采双应用/数据机 monitor。
+
+结果落盘（同日）：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-20261117.md`。operating point 仍 **800**；1200 成功率 ~20% **主因是 client soft `ulimit -n=1024`（Errno 24）**，网关 503 仅数十次；400→800 亚线性主因是 **延迟/TTFT 随并发抬升**（升 8C 后 800 RPM mean 仍≈1086，与 4C 轮同级）。数据机高压窗 loadavg 一度 >20、PG 瞬时 ~172/162，服务未挂。
 
 ## 2026-11-17 对象归档禁新写 AWS，改腾讯 COS
 

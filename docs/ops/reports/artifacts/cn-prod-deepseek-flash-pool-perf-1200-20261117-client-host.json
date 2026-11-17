@@ -1,0 +1,10 @@
+{
+  "n_samples": 200,
+  "nproc": 8,
+  "ulimit_n_soft": 1024,
+  "loadavg1_max": 14.62,
+  "loadavg1_p95": 9.55,
+  "loadavg1_mean": 5.34,
+  "mem_available_GiB_min": 12.76,
+  "mem_available_GiB_mean": 13.46
+}

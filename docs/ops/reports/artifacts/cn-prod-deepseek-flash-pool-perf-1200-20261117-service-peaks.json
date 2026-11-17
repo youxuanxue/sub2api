@@ -1,0 +1,27 @@
+{
+  "app_a": {
+    "load1_max": 2.96,
+    "cpu_pct_max": 329.7,
+    "cpu_pct_p95": 286.18,
+    "mem_used_MiB_max": 2033.7,
+    "note": "lite.jsonl during ladder; docker stats % can exceed 100 on multi-core"
+  },
+  "app_b": {
+    "load1_max": 4.29,
+    "cpu_pct_max": 387.66,
+    "cpu_pct_p95": 354.84,
+    "mem_used_MiB_max": 2064.4,
+    "channel": "TAT"
+  },
+  "data": {
+    "load1_max": 22.33,
+    "load1_p95": 17.32,
+    "pg_total_max": 172,
+    "pg_active_max": 162,
+    "pg_cpu_pct_max": 189.86,
+    "pg_mem_MiB_max": 1642.5,
+    "max_connections": 400
+  },
+  "mid_test_public_health": 200,
+  "post_test_public_health": 200
+}
