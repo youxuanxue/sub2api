@@ -45,12 +45,11 @@ class Stage0ArchiveContractTest(unittest.TestCase):
         self.assertNotIn("Transitions", rule)
         self.assertNotIn("Prefix", rule)
 
-    def test_raw_telemetry_instance_role_access_unchanged(self) -> None:
+    def test_instance_role_is_read_only_during_wind_down(self) -> None:
         template = yaml.load(TEMPLATE.read_text(encoding="utf-8"), Loader=CloudFormationLoader)
         statements = template["Resources"]["OpsArchiveBucketPolicy"]["Properties"]["PolicyDocument"]["Statement"]
-        write = next(statement for statement in statements if statement["Sid"] == "AllowAppInstanceRolePutArchive")
-        self.assertEqual(write["Action"], "s3:PutObject")
-        self.assertTrue(any("raw-telemetry" in resource for resource in write["Resource"]))
+        sids = {statement["Sid"] for statement in statements}
+        self.assertNotIn("AllowAppInstanceRolePutArchive", sids)
         deny_read = next(
             statement
             for statement in statements

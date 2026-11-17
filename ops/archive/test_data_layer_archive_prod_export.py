@@ -391,6 +391,10 @@ class ProdArchiveExportTest(unittest.TestCase):
         )
         self.assertIn("host-export", command)
         self.assertIn("--legacy-upper-exclusive", command)
+        self.assertIn("--endpoint-url", command)
+        self.assertIn("cos.na-siliconvalley.myqcloud.com", command)
+        self.assertIn("/etc/tokenkey/cos-archive.env", command)
+        self.assertIn("cos_archive_identity.py", export._remote_bundle_sources())
         parsed = subprocess.run(
             ["bash", "-n"], input=command, capture_output=True, text=True, check=False
         )

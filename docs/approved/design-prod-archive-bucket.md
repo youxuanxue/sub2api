@@ -10,9 +10,9 @@ related_prs: [1401, 1653]
 
 # 生产 ops 长期 archive bucket 与 promote
 
-> **存储目的地（2026-11-17）**：新对象归档禁止落 AWS，改腾讯 COS。见 pending
+> **存储目的地（2026-11-17）**：新对象归档禁止落 AWS，改腾讯 COS。见已批准
 > [design-cos-object-archive.md](design-cos-object-archive.md)。本文保留 **promote/export
-> 证据语义与历史 S3 契约**；未批准 COS 设计前不得新写 AWS archive。
+> 证据语义与历史 S3 契约**；新写入一律以 COS 设计为准。
 
 ## 决策
 

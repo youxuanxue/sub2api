@@ -88,13 +88,31 @@ def _write_ledgers(root: pathlib.Path, *, cutoff: str = _UPPER, checksum: str = 
                     "mode": promote.PROMOTE_RECEIPT_MODE,
                     "environment": "prod",
                     "batch_id": _BATCH_ID,
-                    "archive_s3_prefix": f"s3://archive/prod/ops-archive/{_BATCH_ID}",
+                    "staging_s3_prefix": (
+                        f"s3://tokenkey-prod-ops-archive-1320330536/"
+                        f"prod/ops-archive-export/{_BATCH_ID}"
+                    ),
+                    "archive_s3_prefix": (
+                        f"s3://tokenkey-prod-ops-archive-1320330536/"
+                        f"prod/ops-archive/{_BATCH_ID}"
+                    ),
                     "manifest_sha256": checksum,
                     "manifest_promoted_last": True,
                     "archive_standard_days": promote.ARCHIVE_STANDARD_DAYS,
                     "archive_expire_days": promote.ARCHIVE_EXPIRE_DAYS,
                     "source_mutated": False,
                     "deletion_authorized": False,
+                    "objects": [
+                        {
+                            "uri": (
+                                f"s3://tokenkey-prod-ops-archive-1320330536/"
+                                f"prod/ops-archive/{_BATCH_ID}/manifest.json"
+                            ),
+                            "sha256": checksum,
+                            "bytes": 1,
+                            "server_side_encryption": "AES256",
+                        }
+                    ],
                 }
             ],
             "source_mutated": False,
@@ -133,6 +151,7 @@ class ArchiveCloseoutTest(unittest.TestCase):
             export_path, promote_path = _write_ledgers(root)
             payload = json.loads(promote_path.read_text(encoding="utf-8"))
             payload["promoted_batches"][0]["manifest_sha256"] = "b" * 64
+            payload["promoted_batches"][0]["objects"][-1]["sha256"] = "b" * 64
             export._atomic_json(promote_path, payload)
             with self.assertRaisesRegex(closeout.CloseoutError, "does not match"):
                 closeout.validate_ledger_pair(export_path, promote_path)

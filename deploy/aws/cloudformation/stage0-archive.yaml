@@ -70,14 +70,8 @@ Resources:
             Condition:
               Bool:
                 'aws:SecureTransport': 'false'
-          - Sid: AllowAppInstanceRolePutArchive
-            Effect: Allow
-            Principal:
-              AWS: !Ref AppInstanceRoleArn
-            Action: 's3:PutObject'
-            Resource:
-              - !Sub '${OpsArchiveBucket.Arn}/${Environment}/ops-archive/*'
-              - !Sub '${OpsArchiveBucket.Arn}/${Environment}/raw-telemetry/*'
+          # Wind-down: instance role may read historical objects only. New archive
+          # writes go to Tencent COS (design-cos-object-archive); no PutObject here.
           - Sid: DenyAppInstanceRoleReadRawTelemetry
             Effect: Deny
             Principal:

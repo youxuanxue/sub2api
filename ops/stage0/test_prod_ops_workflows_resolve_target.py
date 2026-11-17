@@ -12,6 +12,9 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 _PROD_RESOLVE_WORKFLOWS = (
     "ops-stage0-pg-dump-refresh.yml",
     "sync-docs-to-pages.yml",
+    "ops-stage0-container-log-policy.yml",
+    "ops-stage0-ghcr-prune-timer.yml",
+    "deploy-stage0.yml",
 )
 
 ROOT_SCRIPTS = ROOT / "ops" / "stage0"
@@ -25,6 +28,8 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
                 self.assertIn("ops/stage0/resolve_prod_ssm_target.py", text)
                 self.assertIn("PROD_SSM_TARGET", text)
                 self.assertIn("ssm_region", text)
+                # Multi-app fleets refuse silent defaults; every resolve must pin a node.
+                self.assertIn("--node", text)
                 # Must not keep a bare CFN InstanceId resolve as the only path.
                 self.assertNotIn(
                     "Outputs[?OutputKey==`InstanceId`].OutputValue",
@@ -58,6 +63,7 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("resolve_prod_ssm_target.py", text)
+        self.assertIn("--node", text)
         self.assertNotIn("Outputs[?OutputKey==`InstanceId`].OutputValue", text)
         # Hybrid dash rejects bare pipefail; must wrap before send-command.
         self.assertIn("ssm_wrap_bash_commands.py", text)
@@ -86,6 +92,7 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("resolve_prod_ssm_target.py", text)
+        self.assertIn("--node", text)
         self.assertNotIn("Outputs[?OutputKey==`InstanceId`].OutputValue", text)
 
     def test_pgdump_restore_canary_passes_prod_ssm_target(self) -> None:

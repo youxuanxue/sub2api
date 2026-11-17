@@ -106,7 +106,8 @@ def build_plan(
         "region": settings["region"],
         "archive_backend": "tencent-cos",
         "archive_endpoint": settings["endpoint"],
-        "archive_stack": ARCHIVE_STACK,
+        # Historical AWS CFN name kept as ARCHIVE_STACK constant for grep only.
+        "archive_stack": "cos-archive",
         "staging_stack": "cos-archive",
         "batch_id": batch_id,
         "staging_s3_prefix": staging_prefix,
