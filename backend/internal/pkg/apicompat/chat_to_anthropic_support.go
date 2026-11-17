@@ -7,8 +7,9 @@ import (
 	"strings"
 )
 
-// ValidateChatToAnthropic checks the text/function-tool subset whose semantics
-// the Messages converter preserves. Routing and cached conversion share it.
+// ValidateChatToAnthropic checks the text/image + function-tool subset whose
+// semantics the Messages converter preserves. Routing and cached conversion
+// share it.
 func ValidateChatToAnthropic(req *ChatCompletionsRequest) error {
 	invalid := fmt.Errorf("unsupported Chat to Messages semantics")
 	if len(req.Functions) > 0 || hasChatJSON(req.FunctionCall) || hasChatJSON(req.ResponseFormat) {
@@ -85,7 +86,7 @@ func ValidateChatToAnthropic(req *ChatCompletionsRequest) error {
 		default:
 			return invalid
 		}
-		blocks, err := chatAnthropicTextBlocks(message.Content)
+		blocks, err := chatAnthropicContentBlocks(message.Content)
 		if err != nil {
 			return invalid
 		}

@@ -1453,11 +1453,12 @@
       "must_contain": [
         "preservesResponsesToMessages",
         "preservesChatToMessages",
+        "allowed := ContentText | ContentImage",
         "adapterID: AdapterGeminiToChat",
         "func preservesGeminiToChat(",
         "apicompat.GeminiToChatRequest("
       ],
-      "rationale": "Tool-capable Messages conversions remain owned by the protocol registry, without supplier-specific handler fallbacks."
+      "rationale": "Tool-capable Messages conversions remain owned by the protocol registry, without supplier-specific handler fallbacks. Chat→Messages must keep admitting text+image (open-source aligned); text-only regression would revive unsupported_request for Magpie-style Chat clients."
     },
     {
       "path": "backend/internal/engine/protocolrouter/policy_contract_test.go",
@@ -1465,6 +1466,38 @@
         "TestPolicyContractToolsToMessagesStayWithinConversionFeatures"
       ],
       "rationale": "Guard supported tool conversions together with fail-closed continuation, reasoning and media boundaries."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/chat_messages_tools_test.go",
+      "must_contain": [
+        "TestChatToMessagesAdmitsImageAndReasoningEffort",
+        "TestChatToMessagesRejectsUnsupportedSemantics"
+      ],
+      "rationale": "Chat→Messages Plan must keep admitting image_url + reasoning_effort and keep rejecting thinking+effort / root reasoning / hosted tools."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",
+      "must_contain": [
+        "func anthropicImageSourceFromURL(",
+        "Type: \"url\""
+      ],
+      "rationale": "Chat/Responses image_url http(s) values must map to Anthropic source.type=url; data-URI-only conversion silently drops remote images."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/chat_to_anthropic_request.go",
+      "must_contain": [
+        "func pinAnthropicThinkingTemperature(",
+        "pinAnthropicThinkingTemperature(out)"
+      ],
+      "rationale": "Chat→Messages must pin temperature=1 when thinking is enabled, matching NewAPI bridge / open-source relays so Opus 5.5 adaptive does not 400 Magpie clients."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/chat_to_anthropic_image_effort_test.go",
+      "must_contain": [
+        "TestChatCompletionsToAnthropicRequest_ImageURLAndReasoningEffort",
+        "TestChatCompletionsToAnthropicRequest_PinsTemperatureWhenThinking"
+      ],
+      "rationale": "Regression for Chat→Anthropic image url/base64 conversion, reasoning_effort→adaptive thinking, and temperature pin."
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler.go",

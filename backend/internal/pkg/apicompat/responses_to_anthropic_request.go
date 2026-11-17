@@ -358,7 +358,7 @@ func responsesFunctionOutputToAnthropicContent(item ResponsesInputItem) json.Raw
 					blocks = append(blocks, AnthropicContentBlock{Type: "text", Text: part.Text})
 				}
 			case "input_image":
-				if source := dataURIToAnthropicImageSource(part.ImageURL); source != nil {
+				if source := anthropicImageSourceFromURL(part.ImageURL); source != nil {
 					blocks = append(blocks, AnthropicContentBlock{Type: "image", Source: source})
 				}
 			}
@@ -457,7 +457,7 @@ func convertResponsesUserToAnthropicContent(raw json.RawMessage) (json.RawMessag
 				})
 			}
 		case "input_image":
-			src := dataURIToAnthropicImageSource(p.ImageURL)
+			src := anthropicImageSourceFromURL(p.ImageURL)
 			if src != nil {
 				blocks = append(blocks, AnthropicContentBlock{
 					Type:   "image",
@@ -533,6 +533,23 @@ func ResponsesCallIDToAnthropic(id string) string {
 		return "toolu_" + id
 	}
 	return id
+}
+
+// anthropicImageSourceFromURL maps Chat/Responses image URLs onto Anthropic
+// image sources. data: URIs become base64 sources; http(s) URLs use type=url
+// (same surface new-api / LiteLLM expose for OpenAI image_url).
+func anthropicImageSourceFromURL(raw string) *AnthropicImageSource {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if src := dataURIToAnthropicImageSource(raw); src != nil {
+		return src
+	}
+	if strings.HasPrefix(raw, "https://") || strings.HasPrefix(raw, "http://") {
+		return &AnthropicImageSource{Type: "url", URL: raw}
+	}
+	return nil
 }
 
 // dataURIToAnthropicImageSource parses a data URI into an AnthropicImageSource.

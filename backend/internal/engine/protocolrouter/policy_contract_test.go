@@ -14,9 +14,10 @@ func TestPolicyContractToolsToMessagesStayWithinConversionFeatures(t *testing.T)
 			allowed bool
 		}{
 			{"function_tools", RequestProfile{Tools: true, ToolChoice: ToolChoiceAuto, ContentKinds: ContentText}, true},
-			{"images", RequestProfile{Tools: true, ContentKinds: ContentText | ContentImage}, inbound == ProtocolResponses},
+			{"images", RequestProfile{Tools: true, ContentKinds: ContentText | ContentImage}, true},
 			{"continuation", RequestProfile{Tools: true, Continuation: ContinuationPreviousResponse}, false},
-			{"reasoning", RequestProfile{Tools: true, Reasoning: ReasoningEffort}, false},
+			// Chat→Messages maps reasoning_effort; Responses→Messages still requires ReasoningNone.
+			{"reasoning", RequestProfile{Tools: true, Reasoning: ReasoningEffort, ContentKinds: ContentText}, inbound == ProtocolChatCompletions},
 			{"audio", RequestProfile{Tools: true, ContentKinds: ContentAudio}, false},
 		} {
 			t.Run(string(inbound)+"/"+test.name, func(t *testing.T) {

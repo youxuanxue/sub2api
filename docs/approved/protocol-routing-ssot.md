@@ -1,11 +1,19 @@
 ---
 title: Protocol Routing Single Source of Truth
 status: approved
-approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, conversation, conversation_id, and audio behind native Responses; unowned previous_response_id is dropped before forwarding on HTTP and the first WebSocket frame, while later WebSocket turns stay fail-closed; 2026-11-12 Chat/Responses/Messages→Gemini preserve alignment)"
+approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, conversation, conversation_id, and audio behind native Responses; unowned previous_response_id is dropped before forwarding on HTTP and the first WebSocket frame, while later WebSocket turns stay fail-closed; 2026-11-12 Chat/Responses/Messages→Gemini preserve alignment; 2026-11-17 Chat→Messages admits image_url + reasoning_effort, aligning new-api/LiteLLM)"
 authors: [codex]
 created: 2026-08-24
-revised: 2026-11-12
+revised: 2026-11-17
 revision_note: >
+  2026-11-17: Chat→Messages Plan admits text+image content and
+  reasoning_effort (or native thinking), matching open-source relays
+  (new-api / LiteLLM). Conversion maps image_url data-URI and http(s)
+  URL onto Anthropic image sources, and reasoning_effort through the
+  existing Chat→Responses→Anthropic path. Still fail-closed: video/audio,
+  root reasoning objects, prompt_cache_key, previous_response_id,
+  hosted/strict tools, json_schema response_format, thinking+effort
+  together. Responses→Messages reasoning gate unchanged.
   2026-11-12: Chat→Gemini is a direct converter and keeps data-URL images,
   function tools, tool_choice, JSON response format, and reasoning_effort.
   Messages→Gemini keeps base64 images, thought parts, and tool_choice
@@ -316,8 +324,10 @@ still constrains the admitted routes before this comparison, as specified by the
 same candidate policy. Each registry entry names its target protocol,
 allowed Responses paths, model policy, feature constraints, endpoint/profile
 resolver, one route adapter, and one transport. Conversion routes are
-deny-by-default and open only for semantics proven lossless by adapter contract
-tests.
+deny-by-default and open only for semantics proven by adapter contract tests:
+either lossless identity, or a documented Anthropic-native-equivalent mapping
+(for example Chat `reasoning_effort` → Messages `thinking` /
+`output_config.effort`, matching open-source relays).
 
 For one account, a route is legal only when:
 
@@ -365,7 +375,16 @@ tools-bearing Claude Code body does not fail closed back onto identity.
 
 The `chat_completions -> messages` and `responses -> messages` adapters also
 preserve function tools and images through the existing apicompat conversions.
-`responses → chat_completions` matches that content/tool surface and maps
+`chat_completions → messages` additionally admits OpenAI `reasoning_effort`
+(and Messages-native `thinking` without a conflicting effort), mapping effort
+through Chat→Responses→Anthropic the same way open-source relays do. Image
+parts accept data-URI and http(s) `image_url` values as Anthropic `image`
+sources. Video, audio, root Chat `reasoning` objects, `prompt_cache_key`,
+`previous_response_id`, hosted/strict tools, and `json_schema`
+`response_format` stay fail-closed on that route. `responses → messages`
+still requires `ReasoningNone` at Plan time; Responses→Chat already owns
+effort mapping when a Chat hop is legal.
+`responses → chat_completions` matches the content/tool surface and maps
 `reasoning.effort` in apicompat. `prompt_cache_key`, `cache_control`,
 `previous_response_id`, `conversation`, `conversation_id`, and audio input are
 removed from the effective request and the plan is marked
