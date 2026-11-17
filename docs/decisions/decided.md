@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-17 AG argon maxOutputTokens：只钳显式超大、不默认注入
+
+原话：「若要对齐开源精神又留安全网：更干净的是 只钳非法/超大、不默认注入。」
+
+适用范围：Antigravity Gemini 原生 ForwardGemini 上 `gemini-4-argon*` 的 `max_output_tokens_cap=8192`：客户端显式更大才钳到 8192；未设字段不注入。`thinkingBudget` 合法域 clamp / level 模型丢弃非法 budget 仍生效。见 PR #3242 / `docs/spec-delta-ag-argon-thinking-clamp.md`。
+
 ## 2026-11-17 cn-prod tokensea interleaved assistant 网关兼容
 
 原话：「查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。」
