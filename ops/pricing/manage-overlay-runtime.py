@@ -21,6 +21,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -390,8 +391,20 @@ def _print_inspection(expected: RegistryArtifact, inspection: RuntimeInspection)
         print(f"DRIFT: runtime snapshot state={inspection.state}{suffix}.")
 
 
+def _ensure_pricing_data_node() -> None:
+    """Pricing settings + redis live on the data machine; pin PROD_SSM_NODE=data.
+
+    Multi-app prod matrices refuse a silent single-app default. Overlay publish
+    always mutates the data-plane settings/redis path, so leave an explicit pin
+    when the caller did not already choose a fleet node.
+    """
+    if not (os.environ.get("PROD_SSM_NODE") or "").strip():
+        os.environ["PROD_SSM_NODE"] = "data"
+
+
 def cmd_check(_args: argparse.Namespace) -> int:
     expected = load_origin_main_artifact(require_publishable_checkout=False)
+    _ensure_pricing_data_node()
     instance_id = _SSM.resolve_prod_instance()
     inspection = inspect_runtime_document(read_runtime_document(instance_id).value)
     _print_inspection(expected, inspection)
@@ -471,6 +484,7 @@ def cmd_sync_runtime(args: argparse.Namespace) -> int:
         )
         return 0
 
+    _ensure_pricing_data_node()
     instance_id = _SSM.resolve_prod_instance()
     for attempt in range(1, CAS_MAX_ATTEMPTS + 1):
         document = read_runtime_document(instance_id)

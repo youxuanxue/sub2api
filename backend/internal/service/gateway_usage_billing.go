@@ -838,7 +838,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	result := input.Result
 	if facts, ok := result.ProtocolRouteFacts(); ok {
 		input.UpstreamEndpoint = facts.UpstreamEndpoint()
-		result.UpstreamModel = facts.ResolvedModel()
+		// Prefer the model actually forwarded when AG/Gemini remaps a thinking
+		// tier after Plan resolution; otherwise keep protocol-routing SSOT.
+		result.UpstreamModel = preferUsageUpstreamModel(result.UpstreamModel, facts.ResolvedModel())
 	}
 	apiKey := input.APIKey
 	user := input.User

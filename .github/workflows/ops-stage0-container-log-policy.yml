@@ -51,7 +51,7 @@ jobs:
         id: instance
         run: |
           set -euo pipefail
-          python3 ops/stage0/resolve_prod_ssm_target.py --format json --github-output "$GITHUB_OUTPUT"
+          python3 ops/stage0/resolve_prod_ssm_target.py --format json --github-output "$GITHUB_OUTPUT" --node app-old
       - name: Sync bounded log policy and recreate Caddy
         id: sync
         env:

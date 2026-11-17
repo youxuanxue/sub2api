@@ -93,7 +93,7 @@ def _resolve_instance(run_aws: AWSRunner) -> str:
     global PROD_REGION
     payload = _aws_json(
         [sys.executable, str(pathlib.Path(__file__).resolve().parents[1] / "stage0/resolve_prod_ssm_target.py"),
-         "--format", "json"],
+         "--node", "data", "--format", "json"],
         run_aws,
     )
     instance_id = payload.get("instance_id")

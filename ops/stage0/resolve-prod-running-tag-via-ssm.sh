@@ -94,6 +94,7 @@ RESOLVE_PROD="${RESOLVE_PROD_SSM_TARGET:-${SCRIPT_DIR}/resolve_prod_ssm_target.p
 if [[ -z "${INSTANCE_ID}" ]]; then
   # Live prod is the Tencent USW SSM Hybrid mi-* host (resolver auto); no CFN i-* fallback.
   if ! RESOLVED_JSON="$(PROD_SSM_TARGET="${PROD_SSM_TARGET:-auto}" python3 "${RESOLVE_PROD}" \
+    --node "${PROD_SSM_NODE:-app-old}" \
     --target "${PROD_SSM_TARGET:-auto}" \
     --stack "${STACK}" \
     --format json 2>&1)"; then

@@ -38,6 +38,7 @@ fi
 
 if [[ -z "$INSTANCE_ID" ]]; then
   RESOLVED_JSON="$(python3 "$REPO_ROOT/ops/stage0/resolve_prod_ssm_target.py" \
+    --node "${PROD_SSM_NODE:-app-old}" \
     --target "${PROD_SSM_TARGET}" \
     --stack "$STACK" \
     --format json)"

@@ -43,6 +43,16 @@ class ProdIdentityTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "prod_matrix_not_live"):
                 media.prod_identity([path])
 
+    def test_run_probe_tmp_delivery_reads_sibling_matrix_without_parents_index_error(self):
+        # run-probe decompresses script + matrix into /tmp; Path('/tmp').parents[1]
+        # must not crash before the sibling matrix is tried.
+        matrix = json.loads((ROOT / "deploy/tencent/candidate-usw-20261022.json").read_text())
+        with tempfile.TemporaryDirectory() as tmp:
+            here = pathlib.Path(tmp)
+            (here / media.MATRIX_NAME).write_text(json.dumps(matrix))
+            with mock.patch.object(media, "_HERE", here), mock.patch.dict(os.environ, {"TK_TENCENT_PROD_MATRIX": ""}):
+                self.assertEqual(media.prod_identity(), matrix["target"]["hostname"])
+
     def test_plan_uses_resolved_tencent_data_containers(self):
         calls = []
 

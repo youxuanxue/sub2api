@@ -162,6 +162,52 @@ func geminiNativePartHoldable(part gjson.Result) bool {
 	return holdable
 }
 
+// geminiPayloadStartsVisibleTTFT 是 Gemini/Antigravity 原生流的 visible
+// first_token_ms 口径：首个非 thought 的可用输出（非空正文、工具调用或媒体）。
+// keepalive / SSE comment、签名、空白 text、纯 thought、usage-only、仅
+// finishReason 的帧一律不计。与 OpenAI OpenAITTFTModeVisible 对齐；thinking
+// 模型默认走此口径。
+func geminiPayloadStartsVisibleTTFT(payload []byte) bool {
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 || !gjson.ValidBytes(payload) || !gjson.ParseBytes(payload).IsObject() {
+		return false
+	}
+	found := false
+	gjson.GetBytes(payload, "candidates").ForEach(func(_, cand gjson.Result) bool {
+		parts := cand.Get("content.parts")
+		if !parts.IsArray() {
+			return true
+		}
+		parts.ForEach(func(_, part gjson.Result) bool {
+			if geminiNativePartIsVisibleOutput(part) {
+				found = true
+				return false
+			}
+			return true
+		})
+		return !found
+	})
+	return found
+}
+
+func geminiNativePartIsVisibleOutput(part gjson.Result) bool {
+	if !part.IsObject() {
+		return false
+	}
+	if part.Get("thought").Bool() {
+		return false
+	}
+	if strings.TrimSpace(part.Get("text").String()) != "" {
+		return true
+	}
+	for _, key := range []string{"functionCall", "functionCalls", "inlineData", "fileData", "executableCode", "codeExecutionResult"} {
+		if part.Get(key).Exists() {
+			return true
+		}
+	}
+	return false
+}
+
 // geminiNativeStreamClientAborted 判定下游已先行离开：取消会连带取消上游请求，
 // 此时上游读到的 EOF 与真实截断不可区分，沿用既有语义不判为上游故障。
 func geminiNativeStreamClientAborted(ctx context.Context) bool {

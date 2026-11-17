@@ -76,7 +76,7 @@ class SsmExecutionResolveTest(unittest.TestCase):
             iid = self.mod.resolve_prod_instance()
         self.assertEqual(iid, "mi-080ed76dc6d97d8b5")
         self.assertEqual(self.mod.PROD_REGION, "eu-west-2")
-        fake.resolve_tencent_usw_candidate.assert_called_once_with(fake.TENCENT_USW_MATRIX)
+        fake.resolve_tencent_usw_candidate.assert_called_once_with(fake.TENCENT_USW_MATRIX, node="")
         fake.resolve_hetzner.assert_not_called()
         fake.resolve_fresh_aws.assert_not_called()
 

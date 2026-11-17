@@ -210,6 +210,7 @@ jobs:
           set -euo pipefail
           # Single call: JSON on stdout + id/api_url/browser_origin/ssm_region/… into GITHUB_OUTPUT.
           RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
+            --node app-old \
             --target "${PROD_SSM_TARGET}" \
             --stack "$STACK_NAME" \
             --format json \
@@ -283,7 +284,15 @@ jobs:
           STAGE0_BLUEGREEN_STAGE: ${{ inputs.replay_receipt != '' && 'promote' || 'deploy' }}
           STAGE0_BLUEGREEN_APPROVED_RECEIPT: ${{ steps.replay_gate.outputs.prepared_receipt }}
           STAGE0_BLUEGREEN_APPROVED_REPLAY: ${{ inputs.replay_receipt }}
+          STAGE0_ALLOW_LEGACY_BLUEGREEN: ${{ vars.STAGE0_ALLOW_LEGACY_BLUEGREEN }}
         run: |
+          # M6: live prod is rolling-only. Bluegreen remains an emergency path.
+          if [[ "${STAGE0_ALLOW_LEGACY_BLUEGREEN:-}" != "1" ]]; then
+            echo "::error::deploy-stage0 bluegreen is retired for live single-container prod."
+            echo "::error::Use prod-rolling-deploy.yml (confirm rolling-prod-<tag>)."
+            echo "::error::Set STAGE0_ALLOW_LEGACY_BLUEGREEN=1 only for approved emergency recovery."
+            exit 2
+          fi
           bash ops/stage0/deploy_via_ssm_bluegreen.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=prod bluegreen"
 
       - name: External health check

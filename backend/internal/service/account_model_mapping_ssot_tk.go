@@ -566,8 +566,10 @@ func supportedCatalogModelIDsFromMap(src map[string]struct{}) []string {
 }
 
 var geminiTrafficAliases = map[string]string{
+	// Gemini API/Vertex floors still forward the public id onto 3.8 wire capacity.
+	// Pricing for gemini-3-flash is a first-class overlay owner (AG Ultra literal).
 	"gemini-3-flash":         "gemini-3.8-flash",
-	"gemini-3-flash-preview": "gemini-3.8-flash",
+	"gemini-3-flash-preview": "gemini-3-flash",
 }
 
 func geminiAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
@@ -600,7 +602,9 @@ var supportedGeminiWebCatalogModels = map[string]struct{}{
 }
 
 var geminiWebTrafficAliases = map[string]string{
-	"gemini-3-flash":         "gemini-3.8-flash",
+	"gemini-3-flash": "gemini-3.8-flash",
+	// preview remains a settlement/traffic alias onto Web's 3.8 wire; the public
+	// catalog owner for gemini-3-flash is AG/Gemini API, not this restricted floor.
 	"gemini-3-flash-preview": "gemini-3.8-flash",
 	"gemini-3.1-pro-preview": "gemini-3.1-pro",
 	"nano-2":                 "gemini-3.1-flash-image",

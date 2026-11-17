@@ -1169,7 +1169,9 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             "max_rows": (1, 200_000),
             "statement_timeout_seconds": (1, 300),
         }
-        staging_marker = "/prod/pgdump/archive-export/"
+        # COS staging (2026-11-17) or frozen AWS historical evidence prefixes.
+        staging_marker = "/prod/ops-archive-export/"
+        staging_marker_legacy = "/prod/pgdump/archive-export/"
         continuation_key = "more_cold_rows_remaining"
         first_key_name = "first_key"
         last_key_name = "last_key"
@@ -1258,10 +1260,13 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         ):
             raise RehearsalError("production archive query_elapsed_ms is invalid")
         staging_prefix = manifest.get("staging_s3_prefix")
+        accepted_markers = [staging_marker]
+        if mode == PROD_EXPORT_MODE:
+            accepted_markers.append(staging_marker_legacy)
         if (
             not isinstance(staging_prefix, str)
             or not staging_prefix.startswith("s3://")
-            or staging_marker not in staging_prefix
+            or not any(marker and marker in staging_prefix for marker in accepted_markers)
             or not staging_prefix.endswith(f"/{manifest.get('batch_id')}")
             or ".." in staging_prefix
         ):

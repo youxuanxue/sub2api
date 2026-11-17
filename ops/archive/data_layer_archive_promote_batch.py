@@ -13,21 +13,26 @@ import tempfile
 from collections.abc import Iterable
 from typing import Any
 
+import cos_archive_identity as cos_archive
 import data_layer_archive_prod_canary as canary
 import data_layer_archive_prod_export as export
 import data_layer_archive_rehearsal as rehearsal
 
 
+# Historical CFN name kept for receipt fields / grep; destination is COS only.
 ARCHIVE_STACK = "tokenkey-stage0-archive"
 ARCHIVE_KEY_BASE = "prod/ops-archive"
-STAGING_EXPORT_BASE = export.S3_KEY_BASE
+STAGING_EXPORT_BASE = "prod/ops-archive-export"
 PROMOTE_CONFIRMATION = "tokenkey-prod-archive-promote-batch-v1"
 PROMOTE_RECEIPT_SCHEMA = 1
 PROMOTE_RECEIPT_MODE = "prod_archive_promote_receipt"
 PROMOTE_LEDGER_SCHEMA = 1
 PROMOTE_LEDGER_MODE = "prod_archive_promote_ledger"
-ARCHIVE_STANDARD_DAYS = 90
+# New COS plans: Standard until expire (no Glacier). Historical S3 receipts keep 90.
+ARCHIVE_STANDARD_DAYS = 400
 ARCHIVE_EXPIRE_DAYS = 400
+_HISTORICAL_STANDARD_DAYS = 90
+_LEGACY_STAGING_EXPORT_BASE = "prod/pgdump/archive-export"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -59,16 +64,24 @@ def _validated_staging_prefix(prefix: str, *, batch_id: str) -> str:
     expected = f"{STAGING_EXPORT_BASE}/{batch_id}"
     if key != expected:
         raise PromoteError("staging prefix does not match the approved export layout")
+    try:
+        cos_archive.refuse_aws_destination(f"s3://{bucket}/{key}")
+    except cos_archive.CosArchiveError as exc:
+        raise PromoteError(str(exc)) from exc
     return f"s3://{bucket}/{key}"
 
 
 def _archive_base_uri() -> str:
-    bucket = canary._stack_output(ARCHIVE_STACK, "BucketName")
-    archive_uri = canary._stack_output(ARCHIVE_STACK, "ArchiveS3Uri")
-    _, key = canary._s3_location(archive_uri)
+    try:
+        settings = cos_archive.load_settings()
+        uri = cos_archive.archive_base_uri(settings)
+        cos_archive.refuse_aws_destination(uri, settings=settings)
+    except cos_archive.CosArchiveError as exc:
+        raise PromoteError(str(exc)) from exc
+    _, key = canary._s3_location(uri)
     if key != ARCHIVE_KEY_BASE:
-        raise PromoteError("archive stack URI does not match the approved key base")
-    return f"s3://{bucket}/{key}"
+        raise PromoteError("archive URI does not match the approved key base")
+    return uri
 
 
 def build_plan(
@@ -76,7 +89,11 @@ def build_plan(
     batch_id: str,
 ) -> dict[str, Any]:
     batch_id = _validated_batch_id(batch_id)
-    staging_bucket = canary._stack_output(canary.BACKUP_STACK, "BucketName")
+    try:
+        settings = cos_archive.load_settings()
+    except cos_archive.CosArchiveError as exc:
+        raise PromoteError(str(exc)) from exc
+    staging_bucket = settings["bucket"]
     staging_prefix = _validated_staging_prefix(
         f"s3://{staging_bucket}/{STAGING_EXPORT_BASE}/{batch_id}",
         batch_id=batch_id,
@@ -86,9 +103,12 @@ def build_plan(
         "schema_version": rehearsal.SCHEMA_VERSION,
         "mode": "prod_archive_promote_plan",
         "environment": "prod",
-        "region": canary.PROD_REGION,
-        "archive_stack": ARCHIVE_STACK,
-        "staging_stack": canary.BACKUP_STACK,
+        "region": settings["region"],
+        "archive_backend": "tencent-cos",
+        "archive_endpoint": settings["endpoint"],
+        # Historical AWS CFN name kept as ARCHIVE_STACK constant for grep only.
+        "archive_stack": "cos-archive",
+        "staging_stack": "cos-archive",
         "batch_id": batch_id,
         "staging_s3_prefix": staging_prefix,
         "archive_s3_prefix": f"{archive_base}/{batch_id}",
@@ -101,8 +121,13 @@ def build_plan(
     }
 
 
+def _cos_command_runner(command_runner: canary.CommandRunner) -> canary.CommandRunner:
+    return cos_archive.wrap_runner(command_runner)
+
+
 def _head_object_bytes(uri: str, *, command_runner: canary.CommandRunner) -> int:
     bucket, key = canary._s3_location(uri)
+    cos_archive.refuse_aws_destination(uri)
     head = json.loads(
         command_runner(
             [
@@ -110,7 +135,7 @@ def _head_object_bytes(uri: str, *, command_runner: canary.CommandRunner) -> int
                 "s3api",
                 "head-object",
                 "--region",
-                canary.PROD_REGION,
+                cos_archive.load_settings()["region"],
                 "--bucket",
                 bucket,
                 "--key",
@@ -141,7 +166,7 @@ def _download_manifest(
                 "s3",
                 "cp",
                 "--region",
-                canary.PROD_REGION,
+                cos_archive.load_settings()["region"],
                 "--only-show-errors",
                 f"{staging_prefix}/manifest.json",
                 str(manifest_path),
@@ -165,13 +190,17 @@ def _copy_object(
     sha256: str,
     command_runner: canary.CommandRunner,
 ) -> dict[str, Any]:
+    cos_archive.refuse_aws_destination(source_uri)
+    cos_archive.refuse_aws_destination(dest_uri)
+    region = cos_archive.load_settings()["region"]
+    expected_bytes = _head_object_bytes(source_uri, command_runner=command_runner)
     command_runner(
         [
             "aws",
             "s3",
             "cp",
             "--region",
-            canary.PROD_REGION,
+            region,
             "--only-show-errors",
             "--sse",
             "AES256",
@@ -181,12 +210,40 @@ def _copy_object(
             dest_uri,
         ]
     )
-    return canary._head_s3_object(
-        dest_uri,
-        expected_bytes=_head_object_bytes(source_uri, command_runner=command_runner),
-        expected_sha256=sha256,
-        command_runner=command_runner,
+    dest_bytes = _head_object_bytes(dest_uri, command_runner=command_runner)
+    if dest_bytes != expected_bytes:
+        raise PromoteError(f"COS object byte count mismatch: {dest_uri}")
+    bucket, key = canary._s3_location(dest_uri)
+    head = json.loads(
+        command_runner(
+            [
+                "aws",
+                "s3api",
+                "head-object",
+                "--region",
+                region,
+                "--bucket",
+                bucket,
+                "--key",
+                key,
+                "--output",
+                "json",
+            ]
+        )
     )
+    if not isinstance(head, dict):
+        raise PromoteError("COS head-object returned invalid JSON")
+    if head.get("ServerSideEncryption") not in {"AES256", "aws:kms"}:
+        raise PromoteError(f"COS object is not server-side encrypted: {dest_uri}")
+    metadata = head.get("Metadata")
+    if not isinstance(metadata, dict) or metadata.get("sha256") != sha256:
+        raise PromoteError(f"COS object checksum metadata mismatch: {dest_uri}")
+    return {
+        "uri": dest_uri,
+        "bytes": expected_bytes,
+        "sha256": sha256,
+        "server_side_encryption": head["ServerSideEncryption"],
+    }
 
 
 def promote_batch(
@@ -201,6 +258,7 @@ def promote_batch(
     plan = build_plan(batch_id=batch_id)
     staging_prefix = plan["staging_s3_prefix"]
     archive_prefix = plan["archive_s3_prefix"]
+    command_runner = _cos_command_runner(command_runner)
     manifest, _manifest_bytes, manifest_sha256 = _download_manifest(
         staging_prefix, command_runner=command_runner
     )
@@ -298,13 +356,18 @@ def _validate_promote_receipt(receipt: Any) -> None:
         or not isinstance(batch_id, str)
         or _validated_batch_id(batch_id) != batch_id
         or archive_key != f"{ARCHIVE_KEY_BASE}/{batch_id}"
-        or staging_key != f"{STAGING_EXPORT_BASE}/{batch_id}"
+        or staging_key
+        not in {
+            f"{STAGING_EXPORT_BASE}/{batch_id}",
+            f"{_LEGACY_STAGING_EXPORT_BASE}/{batch_id}",
+        }
         or not isinstance(manifest_sha256, str)
         or _SHA256_RE.fullmatch(manifest_sha256) is None
         or not isinstance(objects, list)
         or not objects
         or receipt.get("manifest_promoted_last") is not True
-        or receipt.get("archive_standard_days") != ARCHIVE_STANDARD_DAYS
+        or receipt.get("archive_standard_days")
+        not in {ARCHIVE_STANDARD_DAYS, _HISTORICAL_STANDARD_DAYS}
         or receipt.get("archive_expire_days") != ARCHIVE_EXPIRE_DAYS
         or receipt.get("source_mutated") is not False
         or receipt.get("deletion_authorized") is not False

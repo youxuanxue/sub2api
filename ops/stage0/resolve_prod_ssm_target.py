@@ -136,16 +136,176 @@ def resolve_hetzner() -> dict[str, str]:
     )
 
 
-def load_tencent_usw_matrix(path: pathlib.Path) -> dict[str, Any]:
+def load_tencent_usw_matrix_file(path: pathlib.Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        fail(f"invalid tencent usw matrix root: {path}")
+    return data
+
+
+def load_tencent_usw_matrix(path: pathlib.Path) -> dict[str, Any]:
+    data = load_tencent_usw_matrix_file(path)
     target = data.get("target")
     if not isinstance(target, dict):
         fail(f"invalid tencent usw candidate matrix: {path}")
     return target
 
 
-def resolve_tencent_usw_candidate(matrix_path: pathlib.Path) -> dict[str, str]:
-    """Resolve Tencent USW: live prod when deployable=true, else pre-cutover candidate."""
+def list_fleet_node_names(matrix_path: pathlib.Path) -> list[str]:
+    data = load_tencent_usw_matrix_file(matrix_path)
+    names: list[str] = []
+    entry = data.get("entry")
+    if isinstance(entry, dict) and entry.get("name"):
+        names.append(str(entry["name"]))
+    apps = data.get("apps")
+    if isinstance(apps, list):
+        for app in apps:
+            if isinstance(app, dict) and app.get("name"):
+                names.append(str(app["name"]))
+    data_machine = data.get("data_machine")
+    if isinstance(data_machine, dict):
+        names.append("data")
+    return names
+
+
+def resolve_node_selector(explicit: str) -> str:
+    """Return fleet node name from --node or PROD_SSM_NODE; empty if unset."""
+    if explicit.strip():
+        return explicit.strip()
+    return (os.environ.get("PROD_SSM_NODE") or "").strip()
+
+
+def _online_instance(region: str, expected: str, *, name_hint: str = "") -> dict[str, Any]:
+    if not expected.startswith("mi-") or not INSTANCE_RE.match(expected):
+        fail(f"expected Hybrid mi-* for tencent node, got {expected!r}")
+    rows = list_instance_information(region)
+    matches = [r for r in rows if str(r.get("InstanceId") or "") == expected]
+    if not matches and name_hint:
+        matches = [
+            r
+            for r in rows
+            if str(r.get("ComputerName") or "") == name_hint or str(r.get("Name") or "") == name_hint
+        ]
+    if not matches:
+        fail(f"no Hybrid instance {expected!r} (hint={name_hint!r}) in {region}")
+    online = [r for r in matches if str(r.get("PingStatus") or "") == "Online"]
+    if len(online) != 1:
+        fail(f"expected exactly one Online Hybrid for {expected!r}; found {len(online)}")
+    chosen = online[0]
+    instance_id = str(chosen.get("InstanceId") or "")
+    if instance_id != expected:
+        fail(f"tencent SSM id mismatch: got {instance_id!r} expected {expected!r}")
+    return chosen
+
+
+def resolve_tencent_usw_node(matrix_path: pathlib.Path, node: str) -> dict[str, str]:
+    """Resolve one fleet node (entry|app-*|data). No silent single-app default."""
+    data = load_tencent_usw_matrix_file(matrix_path)
+    target = data.get("target")
+    if not isinstance(target, dict):
+        fail(f"invalid tencent usw candidate matrix: {matrix_path}")
+    if target.get("resolvable") is not True:
+        fail("tencent usw matrix is not resolvable")
+    live = target.get("deployable") is True
+    region = str(data.get("ssm_region") or target.get("ssm_region") or "").strip()
+    if not region:
+        fail("tencent usw matrix missing ssm_region")
+
+    if live:
+        api_domain = str(target.get("api_domain") or "api.tokenkey.dev")
+        if not api_domain.endswith(".tokenkey.dev") and not api_domain.endswith(".callmodel.io"):
+            fail(f"live tencent prod api_domain invalid: {api_domain!r}")
+        if target.get("cutover_completed") is not True and target.get("cutover_authorized") is not True:
+            fail("live tencent prod requires cutover_completed or cutover_authorized")
+    else:
+        directed = str(target.get("directed_domain") or "")
+        if not directed:
+            fail("tencent usw candidate matrix missing directed_domain")
+        if directed.endswith(".tokenkey.dev") or directed.startswith("api."):
+            fail("tencent candidate must not use a live tokenkey.dev API domain")
+        if target.get("cutover_authorized") is True:
+            fail("pre-cutover candidate must keep cutover_authorized=false")
+        api_domain = directed
+
+    expected = ""
+    name_hint = ""
+    role = ""
+    if node == "entry":
+        entry = data.get("entry")
+        if not isinstance(entry, dict):
+            fail("matrix missing entry")
+        expected = str(entry.get("ssm_instance_id") or "").strip()
+        name_hint = str(entry.get("name") or "entry")
+        role = "entry"
+    elif node == "data":
+        dm = data.get("data_machine")
+        if not isinstance(dm, dict):
+            fail("matrix missing data_machine")
+        expected = str(dm.get("expected_ssm_instance_id") or dm.get("ssm_instance_id") or "").strip()
+        name_hint = str(dm.get("ssm_name") or dm.get("hostname") or "data")
+        role = "data"
+    else:
+        apps = data.get("apps")
+        if not isinstance(apps, list):
+            fail("matrix missing apps[]")
+        match = next((a for a in apps if isinstance(a, dict) and str(a.get("name") or "") == node), None)
+        if match is None:
+            available = ", ".join(list_fleet_node_names(matrix_path)) or "(none)"
+            fail(f"unknown --node {node!r}; available: {available}")
+        expected = str(match.get("ssm_instance_id") or "").strip()
+        name_hint = str(match.get("name") or node)
+        role = "app"
+    if not expected:
+        fail(f"node {node!r} missing ssm_instance_id in matrix")
+
+    chosen = _online_instance(region, expected, name_hint=name_hint)
+    try:
+        storage = volume_contract(target)
+    except ValueError as exc:
+        fail(str(exc))
+    return with_browser_origin(
+        {
+            "target": "tencent-usw-candidate" if not live else "tencent-usw-prod",
+            "instance_id": str(chosen.get("InstanceId") or expected),
+            "ssm_region": region,
+            "api_url": f"https://{api_domain}",
+            "deploy_profile": "prod" if live else "tencent-usw-candidate",
+            "platform": "tencent-lighthouse",
+            "computer_name": str(chosen.get("Name") or chosen.get("ComputerName") or name_hint),
+            "fleet_node": node,
+            "fleet_role": role,
+            "cutover_authorized": "true" if live else "false",
+            "volume_mount": str(target.get("volume_mount") or ""),
+            "volume_platform": storage["platform"],
+            "volume_mapper": storage["mapper_name"],
+            "volume_root_uuid": storage.get("root_uuid", ""),
+        }
+    )
+
+
+def resolve_tencent_usw_candidate(matrix_path: pathlib.Path, node: str = "") -> dict[str, str]:
+    """Resolve Tencent USW.
+
+    Multi-app live matrices require an explicit fleet node (``--node`` /
+    ``PROD_SSM_NODE``). Legacy single-target rows without ``apps[]`` keep the
+    historical ``target.expected_ssm_instance_id`` path.
+    """
+    data = load_tencent_usw_matrix_file(matrix_path)
+    apps = data.get("apps")
+    has_apps = isinstance(apps, list) and len(apps) > 0
+    selected = resolve_node_selector(node)
+    if has_apps:
+        if not selected:
+            available = ", ".join(list_fleet_node_names(matrix_path)) or "(none)"
+            fail(
+                "prod fleet has apps[]; refusing silent single-app default. "
+                f"Pass --node <name> or PROD_SSM_NODE (available: {available}). "
+                "Fleet-wide diagnosis uses run-probe --all-apps."
+            )
+        return resolve_tencent_usw_node(matrix_path, selected)
+    if selected:
+        return resolve_tencent_usw_node(matrix_path, selected)
+
     target = load_tencent_usw_matrix(matrix_path)
     if target.get("resolvable") is not True:
         fail("tencent usw matrix is not resolvable")
@@ -230,6 +390,12 @@ def main() -> int:
     parser.add_argument("--stack", default=AWS_STACK)
     parser.add_argument("--matrix", default="")
     parser.add_argument(
+        "--node",
+        default="",
+        help="fleet node: entry|app-old|app-cand|data (or PROD_SSM_NODE). "
+        "Required when matrix has apps[].",
+    )
+    parser.add_argument(
         "--format",
         choices=("kv", "instance-id", "json"),
         default="kv",
@@ -244,7 +410,7 @@ def main() -> int:
         outputs = resolve_aws(args.stack)
     elif mode == "tencent-usw-candidate":
         matrix = pathlib.Path(args.matrix) if args.matrix else TENCENT_USW_MATRIX
-        outputs = resolve_tencent_usw_candidate(matrix)
+        outputs = resolve_tencent_usw_candidate(matrix, node=args.node)
     else:
         resolve_hetzner()
 

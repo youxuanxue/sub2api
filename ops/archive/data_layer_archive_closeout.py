@@ -145,7 +145,10 @@ def validate_ledger_pair(
     export_path = pathlib.Path(export_ledger_path).expanduser().resolve()
     promote_path = pathlib.Path(promote_ledger_path).expanduser().resolve()
     export_ledger = export.load_ledger(export_path)
-    promote_ledger = promote.load_promote_ledger(promote_path)
+    try:
+        promote_ledger = promote.load_promote_ledger(promote_path)
+    except promote.PromoteError as exc:
+        raise CloseoutError(f"promote ledger archive prefix or receipt invalid: {exc}") from exc
     batches = export_ledger["completed_batches"]
     if not batches or export_ledger["more_cold_rows_remaining"] is not False:
         raise CloseoutError("export ledger has not reached the cold-row boundary")

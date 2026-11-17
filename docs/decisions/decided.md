@@ -8,6 +8,20 @@
 
 适用范围：cn-prod。双应用机保持两台；app-b 由 2C4G 升到 `bundle_rs_mc_lg8_01` **4C8G**（非 4C16G）；入口 WRR **app-a:app-b = 1:1**。应用侧 `DATABASE_MAX_OPEN_CONNS` 40→80（idle 10→20）。数据机 `max_connections` 200→400 **须低峰窗口审批后才重启 Postgres**（审批 `docs/ops/approvals/cn-prod-pg-max-connections-200-to-400.md`；**2026-11-17 13:46 BJT 已执行**，`SHOW max_connections=400`）。专用压测 client：北京按量 4C8G CVM 约 2 天（`ins-7ltl2zv3`，tag `expire_after=2026-11-19`），不放在 `cn-ip*` 代理机或应用机上。依据：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-20261117.md`。
 
+后续确认（2026-11-17）：「client 换 8C 同意。再压一下并发 1200 吧。重点关注吞吐已明显亚线性的根因。」→ 压测机由 `SA2.LARGE8`（4C8G）升到 `SA2.2XLARGE16`（8C16G）；阶梯含 1200，并采双应用/数据机 monitor。
+
+## 2026-11-17 对象归档禁新写 AWS，改腾讯 COS
+
+原话：「核心是『以后凡是对象归档都别再落 AWS』。」「对的。确认。」
+
+适用范围：ops 冷数据 promote/export、host-config 等对象归档的**新写入**只允许腾讯 COS；禁止再落到 AWS S3。不覆盖 Oregon 出口、镜像分发、供应商 AWS。pgBackRest/QA 既有 COS/本地契约不变。设计见 `docs/approved/design-cos-object-archive.md`（2026-11-17 乔布斯复审后批准）。
+
+## 2026-11-17 AG/Gemini 用量 TTFT：硬编码 visible，thought-only 显示 —
+
+原话：「同意。」（针对：AG/Gemini 先硬编码 visible、不做配置开关；thought-only 终态继续 null→「—」。）
+
+适用范围：用量「首内容」列与 AG/Gemini 原生流 `first_token_ms`。keepalive/纯 thought 不计 TTFT；无可见内容不硬凑时间。见 PR #3243。
+
 ## 2026-11-17 AG argon maxOutputTokens：只钳显式超大、不默认注入
 
 原话：「若要对齐开源精神又留安全网：更干净的是 只钳非法/超大、不默认注入。」

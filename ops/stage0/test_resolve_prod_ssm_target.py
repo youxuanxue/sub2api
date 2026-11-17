@@ -217,6 +217,64 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     self.mod.resolve_tencent_usw_candidate(path)
 
+    def test_multi_app_matrix_refuses_silent_default(self) -> None:
+        matrix = {
+            "ssm_region": "eu-west-2",
+            "apps": [{"name": "app-old", "ssm_instance_id": "mi-080ed76dc6d97d8b5"}],
+            "target": {
+                "resolvable": True,
+                "deployable": True,
+                "cutover_authorized": True,
+                "cutover_completed": True,
+                "computer_name": "tokenkey-usw-rehearsal-20261021",
+                "ssm_region": "eu-west-2",
+                "expected_ssm_instance_id": "mi-080ed76dc6d97d8b5",
+                "api_domain": "api.tokenkey.dev",
+                "volume_mount": "/srv/tokenkey-rehearsal",
+                "volume_platform": "tencent-luks",
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "m.json"
+            path.write_text(json.dumps(matrix), encoding="utf-8")
+            with mock.patch.dict("os.environ", {}, clear=True):
+                with self.assertRaises(SystemExit):
+                    self.mod.resolve_tencent_usw_candidate(path)
+
+    def test_multi_app_matrix_resolves_explicit_node(self) -> None:
+        matrix = {
+            "ssm_region": "eu-west-2",
+            "apps": [
+                {"name": "app-cand", "ssm_instance_id": "mi-000c0168439c243a8"},
+                {"name": "app-old", "ssm_instance_id": "mi-080ed76dc6d97d8b5"},
+            ],
+            "target": {
+                "resolvable": True,
+                "deployable": True,
+                "cutover_authorized": True,
+                "cutover_completed": True,
+                "computer_name": "tokenkey-usw-rehearsal-20261021",
+                "ssm_region": "eu-west-2",
+                "expected_ssm_instance_id": "mi-080ed76dc6d97d8b5",
+                "api_domain": "api.tokenkey.dev",
+                "volume_mount": "/srv/tokenkey-rehearsal",
+                "volume_platform": "tencent-luks",
+            },
+        }
+        info = [{
+            "InstanceId": "mi-000c0168439c243a8",
+            "Name": "tokenkey-usw-app-20261111",
+            "PingStatus": "Online",
+        }]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "m.json"
+            path.write_text(json.dumps(matrix), encoding="utf-8")
+            with mock.patch.object(self.mod, "list_instance_information", return_value=info):
+                out = self.mod.resolve_tencent_usw_candidate(path, node="app-cand")
+        self.assertEqual(out["instance_id"], "mi-000c0168439c243a8")
+        self.assertEqual(out["fleet_node"], "app-cand")
+        self.assertEqual(out["fleet_role"], "app")
+
 
 if __name__ == "__main__":
     unittest.main()

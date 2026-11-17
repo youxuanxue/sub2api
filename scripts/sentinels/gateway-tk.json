@@ -364,9 +364,10 @@
         "return \"tencent-usw-candidate\"",
         "refusing to fall back ",
         "target=aws-fresh is retired",
-        "expected exactly one Online Hybrid instance"
+        "expected exactly one Online Hybrid instance",
+        "refusing silent single-app default"
       ],
-      "rationale": "Live prod auto-selects Tencent USW when matrix.deployable=true and otherwise fails closed (never falls back to retired Tokyo); aws-fresh is rejected without querying AWS."
+      "rationale": "Live prod auto-selects Tencent USW when matrix.deployable=true and otherwise fails closed (never falls back to retired Tokyo); aws-fresh is rejected without querying AWS. Multi-app matrices require explicit --node / PROD_SSM_NODE (no silent single-app default)."
     },
     {
       "path": "backend/internal/config/config.go",
@@ -19041,9 +19042,10 @@
       "path": "ops/observability/test_run_probe.py",
       "must_contain": [
         "def test_data_targets_send_to_the_matrix_instance(self) -> None:",
-        "def test_wrong_ssm_name_stops_before_send(self) -> None:"
+        "def test_wrong_ssm_name_stops_before_send(self) -> None:",
+        "def test_bare_cn_prod_fanout_lists_both_apps_with_ssm(self) -> None:"
       ],
-      "rationale": "Keep data-machine probe resolution and the Name check executable."
+      "rationale": "Keep data-machine probe resolution, the Name check, and cn-prod multi-app fan-out executable."
     },
     {
       "path": ".github/workflows/ops-daily-diagnostics.yml",
@@ -20766,6 +20768,61 @@
         "func TestIllegalArgonBudgetDoesNotResolveToHighVariant(t *testing.T)"
       ],
       "rationale": "Behavioral guards that illegal argon budgets are dropped (not rewritten to high) and cannot resolve to -high variants after clamp."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_stream_truncation_tk.go",
+      "must_contain": [
+        "func geminiPayloadStartsVisibleTTFT(payload []byte) bool",
+        "func geminiNativePartIsVisibleOutput(part gjson.Result) bool",
+        "if part.Get(\"thought\").Bool() {"
+      ],
+      "rationale": "Visible TTFT owner for Gemini/AG native streams: first non-thought usable output only. Upstream merge that drops this helper restores keepalive/thought-as-TTFT mis-metering."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_streaming.go",
+      "must_contain": [
+        "if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT([]byte(payload)) {",
+        "if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT(inner) {"
+      ],
+      "rationale": "AG Gemini stream must record first_token_ms only via geminiPayloadStartsVisibleTTFT so thought-hold flushes and keepalives cannot start TTFT."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "if firstTokenMs == nil && geminiPayloadStartsVisibleTTFT(classified) {"
+      ],
+      "rationale": "Gemini messages/native compat stream must share the visible TTFT helper; reverting to any-data-frame TTFT reintroduces thought-as-first-token."
+    },
+    {
+      "path": "backend/internal/service/gateway_usage_billing.go",
+      "must_contain": [
+        "preferUsageUpstreamModel(result.UpstreamModel, facts.ResolvedModel())"
+      ],
+      "rationale": "Anthropic/generic usage must keep the AG/Gemini thinking-tier wire in upstream_model when ProtocolRouteFacts only carries the Plan floor; reverting to facts.ResolvedModel() alone makes usage_logs disagree with model_mapping_chain."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_usage.go",
+      "must_contain": [
+        "preferUsageUpstreamModel(result.UpstreamModel, facts.ResolvedModel())"
+      ],
+      "rationale": "OpenAI usage path shares the same ProtocolRouteFacts overwrite; keep the thinking-tier prefer helper so Gemini-family wires are not flattened to the schedule floor."
+    },
+    {
+      "path": "backend/internal/service/usage_upstream_model_tk.go",
+      "must_contain": [
+        "func preferUsageUpstreamModel(",
+        "sameGeminiThinkingFamily("
+      ],
+      "rationale": "Owner for usage upstream_model vs Plan floor preference on Gemini thinking-tier remaps."
+    },
+    {
+      "path": "backend/internal/service/usage_upstream_model_tk_test.go",
+      "must_contain": [
+        "func TestPreferUsageUpstreamModel_ThinkingTierWireWinsOverPlanFloor(t *testing.T)",
+        "high wire over medium floor",
+        "non-gemini disagreement keeps plan SSOT"
+      ],
+      "rationale": "Positive thinking-tier wire win and negative non-Gemini Plan-SSOT regression for preferUsageUpstreamModel."
     }
   ]
 }

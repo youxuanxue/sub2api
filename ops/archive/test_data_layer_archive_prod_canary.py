@@ -685,39 +685,9 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             ]
         )
 
-    def test_us039_run_preserves_complete_mode(self) -> None:
-        batch_id = "prod-canary-20260721T030000000000Z-0123456789abcdef"
-        receipt = {
-            "mode": "prod_archive_export_canary_upload",
-            "batch_id": batch_id,
-            "s3_prefix": f"{_STAGING_BASE}/{batch_id}",
-            "manifest_sha256": "a" * 64,
-            "objects": [
-                {
-                    "uri": f"{_STAGING_BASE}/{batch_id}/manifest.json",
-                    "sha256": "a" * 64,
-                    "server_side_encryption": "AES256",
-                }
-            ],
-            "manifest_uploaded_last": True,
-            "source_mutated": False,
-            "deletion_authorized": False,
-            "cleanup_hold": {
-                "hold_started_at": _HOLD_STARTED_AT,
-                "verified_at": "2026-07-21T03:00:00.000000Z",
-                "hold_active": True,
-                "no_cleanup_after_hold": True,
-                "runtime_disabled_proven": True,
-            },
-        }
-        restored = {
-            "mode": "prod_archive_export_canary_restore",
-            "batch_id": batch_id,
-            "verify": {"verified": True},
-            "restore": {"verified": True},
-            "source_mutated": False,
-            "deletion_authorized": False,
-        }
+    def test_run_canary_refuses_aws_backup_stack_destination(self) -> None:
+        # design-cos-object-archive: canary stays fail-closed on AWS until
+        # explicitly rewired to cos-archive.json (no half-wired S3 writes).
         args = argparse.Namespace(
             confirm=canary.PROD_CONFIRMATION,
             table="ops_system_logs",
@@ -736,19 +706,9 @@ class ProdArchiveCanaryTest(unittest.TestCase):
         with mock.patch.object(
             canary, "_prod_instance", return_value=_INSTANCE_ID
         ), mock.patch.object(
-            canary, "_stack_output", return_value="test-backups"
+            canary, "_stack_output", return_value="tokenkey-prod-archive-682751977094"
         ), mock.patch.object(
             canary, "_stack_parameter", return_value="7"
-        ), mock.patch.object(
-            canary,
-            "stage_remote_bundle",
-            return_value={
-                "uri": f"{_STAGING_BASE}/control/{'a' * 64}.tar.gz",
-                "sha256": "a" * 64,
-                "deletion_authorized": False,
-            },
-        ), mock.patch.object(
-            canary, "_remote_host_command", return_value="true"
         ), mock.patch.object(
             canary.cleanup_hold,
             "verify_receipt_for_instance",
@@ -762,24 +722,11 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                 "no_cleanup_after_hold": True,
             },
         ), mock.patch.object(
-            canary, "_run_ssm", return_value=receipt
-        ), mock.patch.object(
-            canary, "restore_committed_batch", return_value=restored
-        ) as restore:
-            result = canary.run_canary(args)
-
-        self.assertEqual(result["mode"], "prod_archive_export_canary_complete")
-        self.assertTrue(result["production_export_executed"])
-        self.assertTrue(result["cleanup_hold"]["no_cleanup_after_hold"])
-        restore.assert_called_once_with(
-            s3_prefix=receipt["s3_prefix"],
-            batch_id=batch_id,
-            evidence_root=args.evidence_root,
-            target_dsn=args.restore_target_dsn,
-            seed=args.seed,
-            timeout_seconds=args.timeout_seconds,
-            expected_manifest_sha256=receipt["manifest_sha256"],
-        )
+            canary, "stage_remote_bundle"
+        ) as stage:
+            with self.assertRaisesRegex(canary.CanaryError, "approved COS bucket"):
+                canary.run_canary(args)
+        stage.assert_not_called()
 
     def test_us039_committed_download_binds_manifest_checksum(self) -> None:
         as_of = "2026-07-21T03:00:00Z"
