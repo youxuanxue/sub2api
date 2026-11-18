@@ -446,8 +446,10 @@ def _cli(argv: list[str] | None = None) -> int:
             instance_id=args.instance_id,
             timeout_seconds=args.timeout_seconds,
         )
+        # Always exit 0 after a terminal invocation is retrieved so callers under
+        # ``set -e`` can dump stdout/stderr before inspecting Status.
         print(json.dumps(inv, ensure_ascii=False))
-        return 0 if inv.get("Status") == "Success" and inv.get("ResponseCode") in (0, None) else 1
+        return 0
     return 2
 
 

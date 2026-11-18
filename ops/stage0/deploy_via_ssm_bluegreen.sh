@@ -115,11 +115,6 @@ if [[ ! "${TIMEOUT_SECONDS}" =~ ^[0-9]+$ || ! "${EXECUTION_TIMEOUT_SECONDS}" =~ 
   exit 1
 fi
 
-ssm_region_args=()
-if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
-  ssm_region_args=(--region "${AWS_REGION:-${AWS_DEFAULT_REGION}}")
-fi
-
 mkdir -p "${OUTPUT_DIR}"
 params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
@@ -1643,7 +1638,11 @@ fi
 python3 "$(dirname "${BASH_SOURCE[0]}")/ssm_wrap_bash_commands.py" "${params_file}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+if [[ -z "${REGION}" ]]; then
+  echo "stage0_deploy_via_ssm_bluegreen: AWS_REGION or AWS_DEFAULT_REGION is required for LEGACY SSM" >&2
+  exit 1
+fi
 cmd_id="$(python3 "${HERE}/ssm_execution.py" send \
   --region "${REGION}" \
   --instance-id "${INSTANCE_ID}" \

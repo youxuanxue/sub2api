@@ -5,6 +5,7 @@ import importlib.util
 import pathlib
 import re
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MOD_PATH = ROOT / "ops/stage0/ssm_execution.py"
@@ -49,6 +50,31 @@ class SsmExecutionSendTest(unittest.TestCase):
             "SSM SendCommand response has no CommandId",
         ):
             self.assertIsNone(GATE.search(msg), msg)
+
+    def test_wait_get_cli_exits_zero_on_remote_failure(self) -> None:
+        """Shell callers under set -e must still receive the invocation JSON."""
+        inv = {
+            "Status": "Failed",
+            "ResponseCode": 1,
+            "StandardOutputContent": "out",
+            "StandardErrorContent": "err",
+        }
+        with mock.patch.object(self.mod, "wait_and_get", return_value=inv):
+            with mock.patch("sys.stdout"):
+                rc = self.mod._cli(
+                    [
+                        "wait-get",
+                        "--region",
+                        "us-east-1",
+                        "--instance-id",
+                        "mi-abc",
+                        "--command-id",
+                        "cid",
+                        "--timeout-seconds",
+                        "1",
+                    ]
+                )
+        self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":
