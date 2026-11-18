@@ -55,7 +55,9 @@ const newapiModels = [
   'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst',
   'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst',
   // Qwen3 稠密档（经 newapi channel 可服务）
-  ...qwen3DenseModels
+  ...qwen3DenseModels,
+  // Ali Token Plan qwen4 GA + preview（manifest 自映射）
+  'qwen4.0-max', 'qwen4.0-max-preview'
 ]
 
 // (claudeModels / geminiModels / antigravityModels removed — see the note above;
