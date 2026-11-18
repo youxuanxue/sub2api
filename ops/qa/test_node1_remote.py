@@ -9,6 +9,7 @@ import datetime as dt
 import importlib.util
 import json
 import pathlib
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -229,6 +230,31 @@ class StreamTest(unittest.TestCase):
                     remote.push_directory(staging, key=pathlib.Path("/k"), jump="j",
                                           target="t", remote_dir="/d", rate_kbps=0,
                                           timeout=60)
+
+    def test_transfer_timeout_is_node1_connectivity(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            staging = pathlib.Path(root) / "s"
+            staging.mkdir()
+            handle = mock.MagicMock()
+            handle.stdout = mock.MagicMock()
+            handle.stderr = mock.MagicMock()
+            handle.stderr.read.return_value = b""
+            handle.returncode = 0
+            with mock.patch.object(remote.subprocess, "Popen", return_value=handle), \
+                 mock.patch.object(remote, "_has_pv", return_value=False), \
+                 mock.patch.object(remote.subprocess, "run",
+                                   side_effect=subprocess.TimeoutExpired("ssh", 90)):
+                with self.assertRaises(remote.Node1ConnectivityError) as caught:
+                    remote.push_directory(staging, key=pathlib.Path("/k"), jump="j",
+                                          target="t", remote_dir="/d", rate_kbps=0,
+                                          timeout=90)
+        self.assertIn("node1 transfer timed out after 90 seconds", str(caught.exception))
+        # Production imports share one node1_remote module; archive_failure_class
+        # keys off Node1ConnectivityError so ops owns the Feishu page.
+        self.assertEqual(
+            archive.archive_failure_class(archive.node1_remote.Node1ConnectivityError(str(caught.exception))),
+            "node1_unreachable",
+        )
 
 
 class RemoteCapacityTest(unittest.TestCase):

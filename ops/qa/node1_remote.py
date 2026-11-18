@@ -228,8 +228,15 @@ def push_directory(staging: Path, *, key: Path, jump: str, target: str,
         source = limiter.stdout
 
     try:
-        receiver = subprocess.run(remote, stdin=source, text=True,
-                                  capture_output=True, check=False, timeout=timeout)
+        try:
+            receiver = subprocess.run(remote, stdin=source, text=True,
+                                      capture_output=True, check=False, timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            # Slow or stuck jump→node1 is an ops/network problem, not gateway QA.
+            raise Node1ConnectivityError(
+                f"node1 transfer timed out after {timeout} seconds "
+                f"(SSH/jump path slow or stuck)"
+            ) from exc
     finally:
         if source is not None:
             source.close()
