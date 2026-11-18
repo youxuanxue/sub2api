@@ -79,6 +79,29 @@ class ParseUaTests(unittest.TestCase):
         self.assertEqual(eng.parse_ua(""), ("", ""))
 
 
+class StructuredWireTests(unittest.TestCase):
+    # Sanitized real agy 1.5.10 Linux request; no account/project identifiers.
+    wire = "antigravity/cli/1.5.10 (aidev_client; os_type=linux; arch=amd64; cl=1023297289; auth_method=consumer)"
+
+    def test_structured_host_parses_and_os_only_difference_is_informational(self):
+        self.assertEqual(eng.parse_ua(self.wire), ("1.5.10", "linux/amd64"))
+        rows = eng.diff_bundle({"http": {"user_agent": self.wire}}, eng.load_antigravity_baseline())
+        self.assertFalse(eng.has_actionable_mismatch(rows))
+        statuses = {r.field: r.status for r in rows}
+        self.assertEqual(statuses["http.ua_identity"], "match")
+        self.assertEqual(statuses["http.ua_os_arch"], "info")
+
+    def test_same_version_identity_drift_is_actionable(self):
+        for ua in [self.wire.replace("1023297289", "9999999999"),
+                   self.wire.replace("consumer", "gcp"),
+                   self.wire.replace("aidev_client", "other_client"),
+                   "antigravity/cli/1.5.10 darwin/arm64"]:
+            with self.subTest(ua=ua):
+                rows = eng.diff_bundle({"http": {"user_agent": ua}}, eng.load_antigravity_baseline())
+                self.assertTrue(eng.has_actionable_mismatch(rows))
+                self.assertEqual(next(r.status for r in rows if r.field == "http.ua_identity"), "mismatch")
+
+
 class DiffTests(unittest.TestCase):
     def test_all_match_when_capture_matches_baseline(self):
         bundle = {"http": _full_http(), "tls": {}}

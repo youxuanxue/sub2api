@@ -15,9 +15,9 @@ import (
 	"time"
 )
 
-func TestBuildUserAgentUsesHubClientFamily(t *testing.T) {
-	if got := BuildUserAgent(" 2.23.0 "); got != "antigravity/cli/2.23.0 darwin/arm64" {
-		t.Fatalf("Hub client family must be sent with the configured version: %q", got)
+func TestBuildUserAgentUsesCLIWireIdentity(t *testing.T) {
+	if got := BuildUserAgent(" 2.23.0 "); got != "antigravity/cli/2.23.0 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)" {
+		t.Fatalf("CLI wire identity must be sent with the configured version: %q", got)
 	}
 }
 
@@ -29,15 +29,15 @@ func TestBuildUserAgentValidatesCustomVersion(t *testing.T) {
 		version string
 		want    string
 	}{
-		{version: " 3.4.5 ", want: "antigravity/cli/3.4.5 darwin/arm64"},
-		{version: "", want: "antigravity/cli/2.23.0 darwin/arm64"},
-		{version: "hub/3.4.5", want: "antigravity/cli/2.23.0 darwin/arm64"},
-		{version: "3.4", want: "antigravity/cli/2.23.0 darwin/arm64"},
-		{version: "3.4.5\r\nInjected: header", want: "antigravity/cli/2.23.0 darwin/arm64"},
+		{version: " 3.4.5 ", want: "antigravity/cli/3.4.5 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)"},
+		{version: "", want: "antigravity/cli/2.23.0 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)"},
+		{version: "hub/3.4.5", want: "antigravity/cli/2.23.0 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)"},
+		{version: "3.4", want: "antigravity/cli/2.23.0 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)"},
+		{version: "3.4.5\r\nInjected: header", want: "antigravity/cli/2.23.0 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)"},
 	} {
 		t.Run(tc.version, func(t *testing.T) {
 			if got := BuildUserAgent(tc.version); got != tc.want {
-				t.Fatalf("custom version must be validated before building Hub user agent: got %q, want %q", got, tc.want)
+				t.Fatalf("custom version must be validated before building CLI user agent: got %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -66,16 +66,16 @@ func TestGetUserAgentForContextPreservesVersionOverride(t *testing.T) {
 		version string
 		want    string
 	}{
-		{version: " 3.4.5 ", want: "antigravity/cli/3.4.5 darwin/arm64"},
-		{version: "invalid", want: "antigravity/cli/2.23.0 darwin/arm64"},
+		{version: " 3.4.5 ", want: "antigravity/cli/3.4.5 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)"},
+		{version: "invalid", want: "antigravity/cli/2.23.0 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)"},
 	} {
 		ctx := context.WithValue(context.Background(), userAgentVersionTestContextKey{}, tc.version)
 		if got := GetUserAgentForContext(ctx); got != tc.want {
-			t.Fatalf("context version override must use Hub family: got %q, want %q", got, tc.want)
+			t.Fatalf("context version override must use CLI identity: got %q, want %q", got, tc.want)
 		}
 	}
-	if got := GetUserAgentForContext(nil); got != "antigravity/cli/2.23.0 darwin/arm64" {
-		t.Fatalf("nil context must keep the default Hub user agent: %q", got)
+	if got := GetUserAgentForContext(nil); got != "antigravity/cli/2.23.0 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)" {
+		t.Fatalf("nil context must keep the default CLI user agent: %q", got)
 	}
 }
 
@@ -85,8 +85,8 @@ func TestGetUserAgentEnvironmentOverride(t *testing.T) {
 		if got := GetDefaultUserAgentVersion(); got != expected {
 			t.Fatalf("environment version must be loaded during initialization: got %q, want %q", got, expected)
 		}
-		if got := GetUserAgent(); got != "antigravity/cli/"+expected+" darwin/arm64" {
-			t.Fatalf("environment override must keep Hub family: %q", got)
+		if got := GetUserAgent(); got != "antigravity/cli/"+expected+" (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)" {
+			t.Fatalf("environment override must keep CLI identity: %q", got)
 		}
 		return
 	}
@@ -806,7 +806,7 @@ func TestConstants_值正确(t *testing.T) {
 	if RedirectURI != "http://localhost:8085/callback" {
 		t.Errorf("RedirectURI 不匹配: got %s", RedirectURI)
 	}
-	if GetUserAgent() != "antigravity/cli/1.5.10 darwin/arm64" {
+	if GetUserAgent() != "antigravity/cli/1.5.10 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)" {
 		t.Errorf("UserAgent 不匹配: got %s", GetUserAgent())
 	}
 	if SessionTTL != 30*time.Minute {

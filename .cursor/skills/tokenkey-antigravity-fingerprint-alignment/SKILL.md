@@ -8,7 +8,7 @@ description: >-
 
 Ground truth = **本机 `agy`**（`brew install --cask antigravity-cli`）。对齐靶 =
 `backend/internal/pkg/antigravity/oauth.go` 的 `DefaultUserAgentVersion` 与
-`BuildUserAgent`（`antigravity/cli/<ver> darwin/arm64`）。
+`BuildUserAgent`（结构化 `aidev_client` UA，OS/arch 保持 darwin/arm64）。
 
 **不再使用 Antigravity IDE**（`language_server`、spawn-validate、IDE mitm）作为指纹来源。
 
@@ -17,7 +17,7 @@ Ground truth = **本机 `agy`**（`brew install --cask antigravity-cli`）。对
 | 维度 | 路径 | 说明 |
 |---|---|---|
 | UA 版本 | `oauth.go` `DefaultUserAgentVersion` | 与 `agy --version` 一致 |
-| UA 格式 | `oauth.go` `BuildUserAgent` | `antigravity/cli/%s darwin/arm64` |
+| UA 格式 | `oauth.go` `BuildUserAgent` | 结构化 client / build CL / auth_method，以 `BuildUserAgent` 为 owner |
 | body userAgent | `request_transformer.go` | `antigravity` |
 | ideType 等 | `client.go` | `ANTIGRAVITY` / `GEMINI` 等（wire 回归时再验） |
 | gl-node | `client.go` | **不发**（#756） |
@@ -38,9 +38,10 @@ python3 -m unittest discover -s ops/antigravity -p 'test_*.py' -t ops/antigravit
 
 仅当怀疑非版本字段漂移时，用 `agy` + mitmproxy（**不是 IDE**）：
 
-1. 将 mitm CA 加入 **login keychain**（Go 二进制不认 `NODE_EXTRA_CA_CERTS`）
-2. `mitmdump` + 空目录内 `agy --print "pong"`（见历史 skill 2026-06-11 实测）
-3. `bash ops/antigravity/capture-antigravity-fingerprint.sh capture --http`
+1. 优先在隔离环境使用任务专属 CA + `SSL_CERT_FILE`，避免修改主机信任库。
+2. `mitmdump` + 空工作目录内官方 `agy --print "pong"`；prod 采证走 `run-probe.sh` 单节点和账号原代理，凭据不输出。
+3. `bash ops/antigravity/capture-antigravity-fingerprint.sh capture --http`；非版本身份漂移也必须修复，OS/arch 仅作信息项。
+4. 区分 eligibility 与生成请求：403 或未进入 `streamGenerateContent` 时，保留生成阶段证据缺口；结束清理任务凭据、容器和 CA。
 
 ## 漂移修复
 

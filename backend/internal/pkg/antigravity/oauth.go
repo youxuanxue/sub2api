@@ -168,13 +168,14 @@ func GetUserAgentVersionForContext(ctx context.Context) string {
 }
 
 // BuildUserAgent 使用指定版本号构造 User-Agent；版本为空或非法时回退默认值。
-// 形如 `antigravity/cli/<ver> darwin/arm64`：对标 Antigravity CLI (`agy`) on-wire
-// 形态；os/arch 故意钉死 darwin/arm64（与宿主无关，与 IDE 时代钉 windows/amd64 同理）。
+// 对齐 agy 1.5.10 的 aidev_client / build CL / consumer 身份；
+// os/arch 保留 darwin/arm64 策略，与宿主无关。
 func BuildUserAgent(version string) string {
-	if normalized := NormalizeUserAgentVersion(version); normalized != "" {
-		return fmt.Sprintf("antigravity/cli/%s darwin/arm64", normalized)
+	normalized := NormalizeUserAgentVersion(version)
+	if normalized == "" {
+		normalized = defaultUserAgentVersion
 	}
-	return fmt.Sprintf("antigravity/cli/%s darwin/arm64", defaultUserAgentVersion)
+	return fmt.Sprintf("antigravity/cli/%s (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)", normalized)
 }
 
 // GetUserAgentForContext 返回当前请求应使用的 User-Agent。
