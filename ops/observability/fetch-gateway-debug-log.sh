@@ -2,7 +2,9 @@
 # fetch-gateway-debug-log.sh — pull SUB2API_DEBUG_GATEWAY_BODY log from prod to local.
 #
 # Remote path default: /app/data/gateway_debug.log (inside tokenkey container).
-# Flow: SSM gzip on instance → presigned S3 PUT (curl) → local download + gunzip.
+# Flow: remote gzip on instance → presigned S3 PUT (curl) → local download + gunzip.
+# Daily transport: TAT via execute_remote_params.py (TOKENKEY_REMOTE_VIA default).
+# Break-glass: TOKENKEY_REMOTE_VIA=ssm.
 #
 # Usage:
 #   bash ops/observability/fetch-gateway-debug-log.sh --target prod
@@ -60,8 +62,9 @@ REGION=""
 INSTANCE_ID=""
 EDGE_LABEL="prod"
 if [ "$TARGET" = "prod" ]; then
+  export PROD_SSM_NODE="${PROD_SSM_NODE:-app-old}"
   RESOLVED_JSON="$(python3 "$REPO_ROOT/ops/stage0/resolve_prod_ssm_target.py" \
-    --node "${PROD_SSM_NODE:-app-old}" \
+    --node "${PROD_SSM_NODE}" \
     --target "${PROD_SSM_TARGET:-auto}" \
     --format json)"
   INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
@@ -153,45 +156,32 @@ jq -n \
     ])
   }' > "$PARAMS"
 
+python3 "$REPO_ROOT/ops/stage0/ssm_wrap_bash_commands.py" "$PARAMS"
+
 log "target=$TARGET region=$REGION instance=$INSTANCE_ID"
 log "remote=$LOG_PATH → s3://$BUCKET/$S3_KEY → $LOCAL_LOG"
 
-CMD_ID=$(aws ssm send-command \
-  --region "$REGION" \
-  --instance-ids "$INSTANCE_ID" \
-  --document-name AWS-RunShellScript \
+if [ -n "${STAGE0_SSM_OUTPUT_DIR:-}" ] || [ "${STAGE0_RENDER_ONLY:-}" = "1" ]; then
+  log "wrote $PARAMS (render-only; no remote)"
+  printf '%s\n' "$PARAMS"
+  exit 0
+fi
+
+SSM_STDOUT="$SCRATCH/remote-stdout.txt"
+SSM_STDERR="$SCRATCH/remote-stderr.txt"
+export TOKENKEY_REMOTE_VIA="${TOKENKEY_REMOTE_VIA:-tat}"
+if ! python3 "$REPO_ROOT/ops/stage0/execute_remote_params.py" \
+  --params-file "$PARAMS" \
+  --instance-id "$INSTANCE_ID" \
   --comment "fetch gateway_debug.log ($EDGE_LABEL)" \
-  --timeout-seconds "$WAIT_MAX" \
-  --parameters "file://$PARAMS" \
-  --query 'Command.CommandId' --output text)
-
-log "command_id=$CMD_ID (waiting up to ${WAIT_MAX}s)…"
-DEADLINE=$(( $(date +%s) + WAIT_MAX ))
-while true; do
-  STATUS=$(aws ssm get-command-invocation \
-    --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-    --query 'Status' --output text 2>/dev/null || echo InProgress)
-  case "$STATUS" in
-    Success|Failed|TimedOut|Cancelled) break ;;
-  esac
-  if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-    STATUS=TimedOut
-    break
-  fi
-  sleep 8
-done
-
-if [ "$STATUS" != "Success" ]; then
-  err "remote status=$STATUS"
-  aws ssm get-command-invocation \
-    --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-    --query '{stderr:StandardErrorContent,stdout:StandardOutputContent}' --output text >&2 || true
+  --stdout-file "$SSM_STDOUT" \
+  --stderr-file "$SSM_STDERR"; then
+  err "remote fetch failed"
+  cat "$SSM_STDERR" >&2 || true
   exit 1
 fi
 
-REMOTE_BYTES=$(aws ssm get-command-invocation \
-  --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-  --query 'StandardOutputContent' --output text | tr -d '[:space:]')
+REMOTE_BYTES=$(tr -d '[:space:]' < "$SSM_STDOUT")
 log "remote gzip bytes=$REMOTE_BYTES"
 
 log "downloading s3://$BUCKET/$S3_KEY"
@@ -201,12 +191,13 @@ BYTES=$(wc -c < "$LOCAL_LOG" | tr -d ' ')
 log "saved $LOCAL_LOG (${BYTES} bytes)"
 
 aws s3 rm --region "$S3_REGION" "s3://${BUCKET}/${S3_KEY}" >/dev/null 2>&1 || true
-aws ssm send-command \
-  --region "$REGION" \
-  --instance-ids "$INSTANCE_ID" \
-  --document-name AWS-RunShellScript \
+CLEANUP_PARAMS="$SCRATCH/cleanup-params.json"
+jq -n --arg remote_gz "$REMOTE_GZ" '{commands: ["rm -f " + ($remote_gz | @sh)]}' > "$CLEANUP_PARAMS"
+python3 "$REPO_ROOT/ops/stage0/ssm_wrap_bash_commands.py" "$CLEANUP_PARAMS" || true
+python3 "$REPO_ROOT/ops/stage0/execute_remote_params.py" \
+  --params-file "$CLEANUP_PARAMS" \
+  --instance-id "$INSTANCE_ID" \
   --comment "cleanup gateway debug tmp ($EDGE_LABEL)" \
-  --parameters "{\"commands\":[\"rm -f '$REMOTE_GZ'\"]}" \
-  --query 'Command.CommandId' --output text >/dev/null 2>&1 || true
+  >/dev/null 2>&1 || true
 
 printf '%s\n' "$LOCAL_LOG"

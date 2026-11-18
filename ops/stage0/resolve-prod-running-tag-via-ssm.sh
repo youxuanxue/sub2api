@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
 # Resolve the Stage0 prod host's *runtime* app image tag via read-only SSM.
+# Daily transport: TAT via execute_remote_params.py (TOKENKEY_REMOTE_VIA default).
+# Break-glass: TOKENKEY_REMOTE_VIA=ssm.
 #
 # Why this exists:
 #   CloudFormation ImageTag is a bootstrap-only value. Normal prod releases use
@@ -85,13 +87,15 @@ case "${APP_CONTAINER}" in
   *) echo "resolve-prod-running-tag: --container must be auto, tokenkey, tokenkey-blue, or tokenkey-green" >&2; exit 1 ;;
 esac
 
-aws_region() {
-  aws --region "${REGION}" "$@"
-}
-
 RESOLVE_PROD="${RESOLVE_PROD_SSM_TARGET:-${SCRIPT_DIR}/resolve_prod_ssm_target.py}"
+OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
+mkdir -p "${OUTPUT_DIR}"
+params_file="${OUTPUT_DIR}/ssm-params-running-tag.json"
+stdout_file="${OUTPUT_DIR}/stdout-running-tag.txt"
+stderr_file="${OUTPUT_DIR}/stderr-running-tag.txt"
 
 if [[ -z "${INSTANCE_ID}" ]]; then
+  export PROD_SSM_NODE="${PROD_SSM_NODE:-app-old}"
   # Live prod is the Tencent USW SSM Hybrid mi-* host (resolver auto); no CFN i-* fallback.
   if ! RESOLVED_JSON="$(PROD_SSM_TARGET="${PROD_SSM_TARGET:-auto}" python3 "${RESOLVE_PROD}" \
     --node "${PROD_SSM_NODE:-app-old}" \
@@ -192,48 +196,31 @@ printf 'ENVIMAGE {"image":"%s"}\n' "\$env_img"
 PROBE
 
 REMOTE_B64="$(printf '%s' "${REMOTE_PROBE}" | base64 | tr -d '\n')"
-PARAMS="$(python3 - "${REMOTE_B64}" <<'PY'
-import json
-import sys
+jq -n --arg b64 "${REMOTE_B64}" '{commands: ["echo \($b64) | base64 -d | bash"]}' >"${params_file}"
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
-print(json.dumps({"commands": [f"echo {sys.argv[1]} | base64 -d | bash"]}))
-PY
-)"
+if [[ -n "${STAGE0_SSM_OUTPUT_DIR:-}" || "${STAGE0_RENDER_ONLY:-}" == "1" ]]; then
+  echo "[info] wrote ${params_file} (render-only; no remote)"
+  exit 0
+fi
 
-cmd_id="$(aws_region ssm send-command \
-  --instance-ids "${INSTANCE_ID}" \
-  --document-name AWS-RunShellScript \
+export TOKENKEY_REMOTE_VIA="${TOKENKEY_REMOTE_VIA:-tat}"
+EXECUTE_REMOTE="${STAGE0_EXECUTE_REMOTE_PARAMS:-${SCRIPT_DIR}/execute_remote_params.py}"
+if ! python3 "${EXECUTE_REMOTE}" \
+  --params-file "${params_file}" \
+  --instance-id "${INSTANCE_ID}" \
   --comment "${COMMENT}" \
-  --parameters "${PARAMS}" \
-  --query 'Command.CommandId' --output text 2>&1)" || {
-    echo "resolve-prod-running-tag: could not start SSM command on ${INSTANCE_ID}" >&2
-    printf '%s\n' "${cmd_id}" >&2
-    exit 2
-  }
+  --stdout-file "${stdout_file}" \
+  --stderr-file "${stderr_file}"; then
+  echo "resolve-prod-running-tag: could not start remote probe on ${INSTANCE_ID}" >&2
+  cat "${stderr_file}" >&2 || true
+  exit 2
+fi
+probe_out="$(cat "${stdout_file}")"
 
-deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
-status="Pending"
-while :; do
-  status="$(aws_region ssm get-command-invocation \
-    --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-    --query 'Status' --output text 2>/dev/null || echo Pending)"
-  case "${status}" in
-    Success|Failed|Cancelled|TimedOut) break ;;
-  esac
-  [[ $(date +%s) -ge ${deadline} ]] && { status=TimedOut; break; }
-  sleep 2
-done
-
-probe_out="$(aws_region ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardOutputContent' --output text 2>/dev/null || true)"  # preflight-allow: swallow -- status/output validation below turns this into a hard helper failure
-
-if [[ "${status}" != "Success" || -z "${probe_out}" ]]; then
-  probe_err="$(aws_region ssm get-command-invocation \
-    --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-    --query 'StandardErrorContent' --output text 2>/dev/null || true)"  # preflight-allow: swallow -- diagnostic stderr is best-effort after a failed probe
-  echo "resolve-prod-running-tag: could not read host state (ssm status=${status})" >&2
-  [[ -n "${probe_err}" && "${probe_err}" != "None" ]] && printf '%s\n' "${probe_err}" >&2
+if [[ -z "${probe_out}" ]]; then
+  echo "resolve-prod-running-tag: could not read host state (empty stdout)" >&2
+  [[ -s "${stderr_file}" ]] && cat "${stderr_file}" >&2
   exit 2
 fi
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import importlib.util
 import datetime as dt
 import gzip
 import io
@@ -1082,86 +1083,28 @@ def _ssm_parameters(remote_script: str, timeout_seconds: int) -> str:
     return params
 
 
+def _load_ssm_execution():
+    path = pathlib.Path(__file__).resolve().parents[1] / "stage0" / "ssm_execution.py"
+    spec = importlib.util.spec_from_file_location("tk_ssm_execution_archive_canary", path)
+    if spec is None or spec.loader is None:
+        raise CanaryError(f"cannot load {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
 def _run_ssm(instance_id: str, remote_script: str, *, timeout_seconds: int) -> dict[str, Any]:
-    params = _ssm_parameters(remote_script, timeout_seconds)
-    send = _aws_json(
-        [
-            "ssm",
-            "send-command",
-            "--region",
-            _ssm_region(instance_id),
-            "--instance-ids",
-            instance_id,
-            "--document-name",
-            "AWS-RunShellScript",
-            "--comment",
-            "tokenkey prod archive export-only canary",
-            "--timeout-seconds",
-            str(timeout_seconds),
-            "--parameters",
-            params,
-        ]
-    )
+    del timeout_seconds  # transport layer enforces via ssm_execution / TAT controller
+    ssm = _load_ssm_execution()
+    shell_b64 = base64.b64encode(remote_script.encode()).decode()
     try:
-        command_id = send["Command"]["CommandId"]
-    except (KeyError, TypeError) as exc:
-        raise CanaryError("SSM send-command returned no command id") from exc
-    deadline = time.monotonic() + timeout_seconds
-    invocation: dict[str, Any] | None = None
-    while time.monotonic() < deadline:
-        try:
-            candidate = _aws_json(
-                [
-                    "ssm",
-                    "get-command-invocation",
-                    "--region",
-                    _ssm_region(instance_id),
-                    "--command-id",
-                    command_id,
-                    "--instance-id",
-                    instance_id,
-                ]
-            )
-        except CanaryError as exc:
-            if "InvocationDoesNotExist" not in str(exc):
-                raise
-        else:
-            if not isinstance(candidate, dict):
-                raise CanaryError("SSM invocation response is invalid")
-            invocation = candidate
-            if candidate.get("Status") in TERMINAL_SSM_STATUSES:
-                break
-        time.sleep(5)
-    if invocation is None or invocation.get("Status") not in TERMINAL_SSM_STATUSES:
-        try:
-            _command_output(
-                [
-                    "aws",
-                    "ssm",
-                    "cancel-command",
-                    "--region",
-                    _ssm_region(instance_id),
-                    "--command-id",
-                    command_id,
-                    "--instance-ids",
-                    instance_id,
-                ]
-            )
-        except CanaryError as exc:
-            raise CanaryError(
-                "production canary SSM exceeded its controller deadline and "
-                f"cancellation failed: {exc}"
-            ) from exc
-        raise CanaryError(
-            "production canary SSM exceeded its controller deadline and was cancelled"
+        stdout = ssm.run_shell_b64(
+            instance_id,
+            shell_b64,
+            "tokenkey prod archive export-only canary",
         )
-    if invocation.get("Status") != "Success":
-        status = invocation.get("Status") if invocation else "TimedOut"
-        detail = (invocation or {}).get("StandardErrorContent", "")
-        raise CanaryError(f"production canary SSM failed: {status} {detail[:400]}")
-    stdout = invocation.get("StandardOutputContent")
-    if not isinstance(stdout, str):
-        raise CanaryError("production canary SSM returned no stdout")
+    except SystemExit as exc:
+        raise CanaryError(f"production canary remote failed: {exc}") from exc
     lines = [line for line in stdout.splitlines() if line.strip()]
     try:
         receipt = json.loads(lines[-1])

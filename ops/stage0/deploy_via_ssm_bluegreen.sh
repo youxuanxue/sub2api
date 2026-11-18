@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 #
+# LEGACY break-glass: Stage0 prod blue/green deploy via AWS SSM Run-Command.
+# Daily default: prod-rolling-deploy.yml / rolling.py (Tencent TAT).
+# Live single-container prod refuses unless STAGE0_ALLOW_LEGACY_BLUEGREEN=1.
+# Do not wire this script back into the workflow default without explicit approval.
+#
 # Stage0 prod blue/green SSM deploy primitive.
 #
 # Scope:

@@ -74,11 +74,11 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
         self.assertIn("resolve_prod_ssm_target.py", text)
         self.assertIn("--node", text)
         self.assertNotIn("Outputs[?OutputKey==`InstanceId`].OutputValue", text)
-        # Hybrid dash rejects bare pipefail; must wrap before send-command.
+        # Hybrid dash rejects bare pipefail; must wrap before remote transport.
         self.assertIn("ssm_wrap_bash_commands.py", text)
         wrap_at = text.index("ssm_wrap_bash_commands.py")
-        send_at = text.index("aws ssm send-command")
-        self.assertLess(wrap_at, send_at)
+        transport_at = text.index("execute_remote_params.py", wrap_at)
+        self.assertLess(wrap_at, transport_at)
 
     def test_error_clustering_installer_go_image_matches_module(self) -> None:
         # Official golang images set GOTOOLCHAIN=local; a stale image tag

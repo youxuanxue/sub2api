@@ -1,205 +1,21 @@
 #!/usr/bin/env bash
-# Behavioral regression checks for the rendered host-side secret backup payload.
+# Tombstone check: SecureString writer is permanently retired (closeout C5).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="${ROOT}/ops/stage0/backup-env-secrets-via-ssm.sh"
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "${tmp}"' EXIT
-local_bin="${tmp}/local-bin"
-remote_bin="${tmp}/remote-bin"
-output_dir="${tmp}/output"
-work_dir="${tmp}/work"
-mkdir -p "${local_bin}" "${remote_bin}" "${output_dir}" "${work_dir}"
-
-secret_file="${tmp}/env.secret"
-cat >"${secret_file}" <<'EOF'
-TOTP_ENCRYPTION_KEY=3333333333333333333333333333333333333333333333333333333333333333
-POSTGRES_PASSWORD=222222222222222222222222222222222222222222222222
-JWT_SECRET=1111111111111111111111111111111111111111111111111111111111111111
-EOF
-
-cat >"${local_bin}/aws" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-args="$*"
-case "${args}" in
-  *"ssm send-command"*)
-    echo test-command-id
-    ;;
-  *"ssm get-command-invocation"*"StandardOutputContent"*)
-    ;;
-  *"ssm get-command-invocation"*"StandardErrorContent"*)
-    ;;
-  *"ssm get-command-invocation"*"Status"*)
-    echo Success
-    ;;
-  *)
-    echo "unexpected local aws invocation: ${args}" >&2
-    exit 2
-    ;;
-esac
-EOF
-chmod +x "${local_bin}/aws"
-
-# Default path must refuse SecureString writes (closeout C3).
-if PATH="${local_bin}:${PATH}" bash "${SCRIPT}" mi-test 2>"${tmp}/refuse.err"; then
-  echo "expected refuse without TOKENKEY_ALLOW_SECURESTRING_WRITE" >&2
+if bash "${SCRIPT}" mi-test 2>"${TMPDIR:-/tmp}/backup-env-refuse.err"; then
+  echo "expected exit 2 from retired backup-env-secrets script" >&2
   exit 1
 fi
-grep -q "refused (closeout C3)" "${tmp}/refuse.err"
+grep -q "retired (closeout C5)" "${TMPDIR:-/tmp}/backup-env-refuse.err"
 
-PATH="${local_bin}:${PATH}" \
-  TOKENKEY_ALLOW_SECURESTRING_WRITE=1 \
-  STAGE0_SSM_OUTPUT_DIR="${output_dir}" \
-  TK_ENV_SECRETS_SOURCE="${secret_file}" \
-  TK_ENV_SECRETS_PARAM="/tokenkey/prod/stage0/env-secrets-backup" \
-  AWS_REGION=us-east-2 \
-  bash "${SCRIPT}" mi-test rendered-payload-test >"${tmp}/outer.out"
-
-host_script="${tmp}/host-under-test.sh"
-# Execute the complete SSM payload under the same shell as Ubuntu Hybrid hosts.
-# Testing only the inner bash script hides failures before it is invoked.
-jq -r '.commands[]' "${output_dir}/ssm-params.json" >"${host_script}"
-
-expected_parameter="${tmp}/expected.parameter"
-printf '%s\n%s\n%s' \
-  'JWT_SECRET=1111111111111111111111111111111111111111111111111111111111111111' \
-  'POSTGRES_PASSWORD=222222222222222222222222222222222222222222222222' \
-  'TOTP_ENCRYPTION_KEY=3333333333333333333333333333333333333333333333333333333333333333' >"${expected_parameter}"
-cat >"${remote_bin}/sudo" <<'EOF'
-#!/usr/bin/env bash
-exec "$@"
-EOF
-chmod +x "${remote_bin}/sudo"
-
-cat >"${remote_bin}/aws" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-[ "${AWS_REGION:-}" = us-east-2 ] && [ "${AWS_DEFAULT_REGION:-}" = us-east-2 ] || {
-  echo "remote AWS region was not delivered" >&2
-  exit 2
-}
-args="$*"
-case "${args}" in
-  *"ssm get-parameter"*)
-    if [ ! -f "${FAKE_SSM_STATE}" ]; then
-      echo "ParameterNotFound" >&2
-      exit 254
-    fi
-    # AWS CLI --output text appends one newline after a scalar value.
-    cat "${FAKE_SSM_STATE}"
-    printf '\n'
-    ;;
-  *"ssm put-parameter"*)
-    if [ "${FAKE_PUT_RESULT:-ok}" = fail ]; then
-      echo "AccessDeniedException" >&2
-      exit 254
-    fi
-    value_arg=""
-    while [ "$#" -gt 0 ]; do
-      if [ "$1" = "--value" ]; then
-        value_arg="${2:-}"
-        break
-      fi
-      shift
-    done
-    case "${value_arg}" in
-      file://*) cp "${value_arg#file://}" "${FAKE_SSM_STATE}" ;;
-      *) echo "missing file:// value" >&2; exit 2 ;;
-    esac
-    count=0
-    if [ -f "${FAKE_PUT_COUNT}" ]; then
-      count="$(cat "${FAKE_PUT_COUNT}")"
-    fi
-    echo "$((count + 1))" >"${FAKE_PUT_COUNT}"
-    echo '{"Version":1}'
-    ;;
-  *)
-    echo "unexpected remote aws invocation: ${args}" >&2
-    exit 2
-    ;;
-esac
-EOF
-chmod +x "${remote_bin}/aws"
-
-state_file="${tmp}/parameter"
-put_count_file="${tmp}/put-count"
-
-assert_work_dir_empty() {
-  if find "${work_dir}" -mindepth 1 -print -quit | grep -q .; then
-    echo "FAIL: plaintext temporary files were not removed" >&2
-    exit 1
-  fi
-}
-
-run_host() {
-  local label="$1"
-  local put_result="$2"
-  env -u AWS_REGION -u AWS_DEFAULT_REGION \
-    PATH="${remote_bin}:${PATH}" \
-    LC_ALL=C \
-    TMPDIR="${work_dir}" \
-    FAKE_SSM_STATE="${state_file}" \
-    FAKE_PUT_COUNT="${put_count_file}" \
-    FAKE_PUT_RESULT="${put_result}" \
-    dash "${host_script}" >"${tmp}/${label}.out" 2>"${tmp}/${label}.err"
-}
-
-# Regression: a rejected write must make the SSM host payload fail.
-rm -f "${state_file}" "${put_count_file}"
-if run_host failure fail; then
-  echo "FAIL: rejected PutParameter must make the host payload fail" >&2
+# Break-glass write flag must also refuse — PutParameter path is gone.
+if TOKENKEY_ALLOW_SECURESTRING_WRITE=1 bash "${SCRIPT}" mi-test 2>"${TMPDIR:-/tmp}/backup-env-refuse2.err"; then
+  echo "expected exit 2 even with TOKENKEY_ALLOW_SECURESTRING_WRITE=1" >&2
   exit 1
 fi
-if grep -F 'secrets off-boxed' "${tmp}/failure.out" >/dev/null; then
-  echo "FAIL: rejected PutParameter must not report success" >&2
-  exit 1
-fi
-assert_work_dir_empty
-
-# A first write persists and verifies the exact three source assignments.
-rm -f "${state_file}" "${put_count_file}"
-run_host first-write ok
-cmp -s "${expected_parameter}" "${state_file}"
-test "$(cat "${put_count_file}")" = 1
-grep -F 'secrets off-boxed' "${tmp}/first-write.out" >/dev/null
-grep -F 'verify: 3 secret line(s)' "${tmp}/first-write.out" >/dev/null
-assert_work_dir_empty
-
-# An unchanged value remains a no-op and still verifies successfully.
-cp "${expected_parameter}" "${state_file}"
-rm -f "${put_count_file}"
-run_host unchanged ok
-test ! -e "${put_count_file}"
-grep -F 'secrets unchanged; no new SSM version written' "${tmp}/unchanged.out" >/dev/null
-grep -F 'verify: 3 secret line(s)' "${tmp}/unchanged.out" >/dev/null
-assert_work_dir_empty
-
-# A malformed local source must fail before it can replace the recovery point.
-cat >"${secret_file}" <<'EOF'
-POSTGRES_PASSWORD=222222222222222222222222222222222222222222222222
-JWT_SECRET=not-hex;touch-/tmp/owned
-TOTP_ENCRYPTION_KEY=3333333333333333333333333333333333333333333333333333333333333333
-EOF
-rm -f "${state_file}" "${put_count_file}"
-if run_host malformed-source ok; then
-  echo "FAIL: malformed local secrets must be rejected before PutParameter" >&2
-  exit 1
-fi
-test ! -e "${state_file}"
-test ! -e "${put_count_file}"
-grep -F 'invalid secret value for JWT_SECRET' "${tmp}/malformed-source.err" >/dev/null
-assert_work_dir_empty
-
-if grep -R -F \
-    -e '1111111111111111111111111111111111111111111111111111111111111111' \
-    -e '222222222222222222222222222222222222222222222222' \
-    -e '3333333333333333333333333333333333333333333333333333333333333333' \
-    "${tmp}"/*.out "${tmp}"/*.err >/dev/null; then
-  echo "FAIL: command output leaked a secret value" >&2
-  exit 1
-fi
+grep -q "retired (closeout C5)" "${TMPDIR:-/tmp}/backup-env-refuse2.err"
 
 echo "test_backup_env_secrets_via_ssm: ok"

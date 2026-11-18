@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
+import importlib.util
 import json
 import os
 import pathlib
 import re
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -24,9 +25,6 @@ import resolve_app_container  # noqa: E402  (path bootstrap above)
 PROD_REGION = "eu-west-2"
 CONFIRMATION = "tokenkey-prod-partition-maintenance-v1"
 INSTANCE_RE = re.compile(r"(?:i|mi)-[0-9a-f]{17}")
-COMMAND_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{7,127}")
-POLL_ATTEMPTS = 100
-POLL_INTERVAL_SECONDS = 3
 
 # The remote side receives a command string, not a checkout, so it cannot source
 # ops/lib/resolve-app-container.sh. It renders the resolver from the same owner
@@ -48,7 +46,6 @@ _REMOTE_SCRIPT = "\n".join(
         f" --partition-maintenance-once --confirm {CONFIRMATION}",
     ]
 )
-REMOTE_COMMAND = "sudo bash -c " + shlex.quote(_REMOTE_SCRIPT)
 
 
 class PartitionMaintenanceError(RuntimeError):
@@ -106,88 +103,23 @@ def _resolve_instance(run_aws: AWSRunner) -> str:
     return instance_id
 
 
-def _send_once(instance_id: str, run_aws: AWSRunner) -> str:
-    payload = _aws_json(
-        [
-            "aws",
-            "ssm",
-            "send-command",
-            "--region",
-            PROD_REGION,
-            "--instance-ids",
-            instance_id,
-            "--document-name",
-            "AWS-RunShellScript",
-            "--comment",
-            "TokenKey guarded partition maintenance",
-            "--parameters",
-            _canonical_json({"commands": [REMOTE_COMMAND]}),
-            "--output",
-            "json",
-        ],
-        run_aws,
-    )
-    command = payload.get("Command")
-    if not isinstance(command, dict):
-        raise PartitionMaintenanceError("SSM send-command response is incomplete")
-    command_id = command.get("CommandId")
-    if not isinstance(command_id, str) or COMMAND_ID_RE.fullmatch(command_id) is None:
-        raise PartitionMaintenanceError("SSM send-command returned an invalid CommandId")
-    if command.get("DocumentName") != "AWS-RunShellScript":
-        raise PartitionMaintenanceError("SSM send-command returned the wrong document")
-    if command.get("InstanceIds") != [instance_id]:
-        raise PartitionMaintenanceError("SSM send-command returned a different instance")
-    return command_id
+def _load_ssm_execution():
+    path = pathlib.Path(__file__).resolve().parents[1] / "stage0" / "ssm_execution.py"
+    spec = importlib.util.spec_from_file_location("tk_ssm_execution_partition", path)
+    if spec is None or spec.loader is None:
+        raise PartitionMaintenanceError(f"cannot load {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
 
 
-def _poll_invocation(
-    command_id: str,
-    instance_id: str,
-    run_aws: AWSRunner,
-    sleep: Callable[[float], None],
-) -> dict[str, Any]:
-    last_error: PartitionMaintenanceError | None = None
-    for attempt in range(POLL_ATTEMPTS):
-        try:
-            payload = _aws_json(
-                [
-                    "aws",
-                    "ssm",
-                    "get-command-invocation",
-                    "--region",
-                    PROD_REGION,
-                    "--command-id",
-                    command_id,
-                    "--instance-id",
-                    instance_id,
-                    "--output",
-                    "json",
-                ],
-                run_aws,
-            )
-        except PartitionMaintenanceError as exc:
-            last_error = exc
-            if attempt + 1 < POLL_ATTEMPTS:
-                sleep(POLL_INTERVAL_SECONDS)
-                continue
-            break
-        if payload.get("CommandId") != command_id or payload.get("InstanceId") != instance_id:
-            raise PartitionMaintenanceError("SSM invocation identity does not match the submitted command")
-        status = payload.get("Status")
-        if status in {"Pending", "InProgress", "Delayed"}:
-            sleep(POLL_INTERVAL_SECONDS)
-            continue
-        if status != "Success" or payload.get("ResponseCode") != 0:
-            detail = str(payload.get("StandardErrorContent") or "").strip()
-            raise PartitionMaintenanceError(
-                f"SSM partition maintenance failed status={status!r}: {detail[:600]}"
-            )
-        if not isinstance(payload.get("StandardOutputContent"), str):
-            raise PartitionMaintenanceError("SSM invocation success has no stdout")
-        return payload
-    if last_error is not None:
-        raise PartitionMaintenanceError("SSM invocation could not be read") from last_error
-    raise PartitionMaintenanceError("SSM partition maintenance did not reach a terminal state")
+def _remote_stdout(instance_id: str) -> str:
+    ssm = _load_ssm_execution()
+    shell_b64 = base64.b64encode(_REMOTE_SCRIPT.encode()).decode()
+    try:
+        return ssm.run_shell_b64(instance_id, shell_b64, "TokenKey guarded partition maintenance")
+    except SystemExit as exc:
+        raise PartitionMaintenanceError(f"partition maintenance remote failed: {exc}") from exc
 
 
 def _timestamp(value: Any) -> str:
@@ -279,15 +211,14 @@ def run(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     instance_id = _resolve_instance(run_aws)
-    command_id = _send_once(instance_id, run_aws)
-    invocation = _poll_invocation(command_id, instance_id, run_aws, sleep)
-    remote_receipt = _validate_remote_receipt(invocation["StandardOutputContent"])
+    stdout = _remote_stdout(instance_id)
+    remote_receipt = _validate_remote_receipt(stdout)
     receipt = {
         "controller_receipt_version": 1,
         "region": PROD_REGION,
         "target": "prod",
         "instance_id": instance_id,
-        "command_id": command_id,
+        "command_id": "remote",
         "recorded_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         "remote_receipt": remote_receipt,
     }

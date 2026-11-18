@@ -30,6 +30,7 @@ reuse the shared ``ops/stage0`` helpers.
 from __future__ import annotations
 
 import argparse
+import base64
 import functools
 import importlib.util
 import json
@@ -139,42 +140,16 @@ _PROD_SSM = _load("ops/stage0/ssm_execution.py", "tk_ssm_execution")
 
 
 def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> str:
-    """Pipe SQL via SSM into the target's PostgreSQL container. Returns stdout."""
+    """Pipe SQL via daily TAT/SSM transport into the target Postgres container. Returns stdout."""
+    del region
     remote = 'sudo docker exec -i "$TK_PG" psql -U tokenkey -d tokenkey -t -A -v ON_ERROR_STOP=1'
-    command = f"set -euo pipefail\n{_SSM.data_container_preamble()}{remote} <<'SQL'\n{sql}\nSQL"
-    params = json.dumps({"commands": [command]}, ensure_ascii=False)
+    command = f"set -euo pipefail\n{_PROD_SSM.data_container_preamble()}{remote} <<'SQL'\n{sql}\nSQL"
+    shell_b64 = base64.b64encode(command.encode()).decode()
     try:
-        cid = subprocess.check_output(
-            [
-                "aws", "ssm", "send-command",
-                "--region", region,
-                "--instance-ids", instance_id,
-                "--document-name", "AWS-RunShellScript",
-                "--comment", comment,
-                "--parameters", params,
-                "--query", "Command.CommandId",
-                "--output", "text",
-            ],
-            text=True,
-        ).strip()
-    except subprocess.CalledProcessError as e:
-        fail(f"ssm send-command failed ({comment}): {e}")
-    subprocess.run(
-        ["aws", "ssm", "wait", "command-executed", "--region", region,
-         "--command-id", cid, "--instance-id", instance_id],
-        check=False,
-    )
-    inv = json.loads(
-        subprocess.check_output(
-            ["aws", "ssm", "get-command-invocation", "--region", region,
-             "--command-id", cid, "--instance-id", instance_id, "--output", "json"],
-            text=True,
-        )
-    )
-    if inv.get("Status") != "Success" or inv.get("ResponseCode") != 0:
-        err = (inv.get("StandardErrorContent") or "").strip()[:1200]
-        fail(f"ssm cmd {cid} status={inv.get('Status')} rc={inv.get('ResponseCode')} ({comment})\n  stderr: {err}")
-    return (inv.get("StandardOutputContent") or "").strip()
+        out = _PROD_SSM.run_shell_b64(instance_id, shell_b64, comment)
+    except SystemExit as exc:
+        fail(f"remote sql failed ({comment}): {exc}")
+    return out.strip()
 
 
 def _account_violation(row: dict) -> str | None:

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
 # Stage0 prod live-host STATE drift check (read-only, ADVISORY).
+# Daily transport: TAT via execute_remote_params.py (TOKENKEY_REMOTE_VIA default).
+# Break-glass: TOKENKEY_REMOTE_VIA=ssm.
 #
 # Why this exists:
 #   A Stage0 prod host's running state is deliberately decoupled from the CFN/repo
@@ -51,16 +53,11 @@ if [[ -z "${INSTANCE_ID}" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
-
-aws_ssm() {
-  if [[ -n "${_region}" ]]; then
-    aws --region "${_region}" ssm "$@"
-  else
-    aws ssm "$@"
-  fi
-}
+OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
+mkdir -p "${OUTPUT_DIR}"
+params_file="${OUTPUT_DIR}/ssm-params-live-host.json"
+stdout_file="${OUTPUT_DIR}/stdout-live-host.txt"
+stderr_file="${OUTPUT_DIR}/stderr-live-host.txt"
 
 collection_args=()
 [[ -n "${REQUIRE_ENV+x}" ]] && collection_args+=(--require-env "$REQUIRE_ENV")
@@ -93,39 +90,30 @@ docker exec "\$app_container" printenv 2>/dev/null \
 PROBE
 
 REMOTE_B64="$(printf '%s' "${REMOTE_PROBE}" | base64 | tr -d '\n')"
+jq -n --arg b64 "${REMOTE_B64}" '{commands: ["echo \($b64) | base64 -d | bash"]}' >"${params_file}"
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
-# Guard send-command: an SSM transport failure must NOT make this advisory check
-# exit non-zero (the contract above) — surface it as a ::warning:: and stop.
-if ! cmd_id="$(aws_ssm send-command \
-  --instance-ids "${INSTANCE_ID}" \
-  --document-name AWS-RunShellScript \
-  --comment "${COMMENT}" \
-  --parameters "commands=[\"echo ${REMOTE_B64} | base64 -d | bash\"]" \
-  --query 'Command.CommandId' --output text 2>/dev/null)" || [[ -z "${cmd_id}" ]]; then
-  echo "::warning::live-host assert could not start SSM command on ${INSTANCE_ID}; skipping verdict"
+if [[ -n "${STAGE0_SSM_OUTPUT_DIR:-}" || "${STAGE0_RENDER_ONLY:-}" == "1" ]]; then
+  echo "[info] wrote ${params_file} (render-only; no remote)"
   exit 0
 fi
 
-# Poll for completion (the CLI waiter can be flaky on very short commands).
-deadline=$(( $(date +%s) + SSM_TIMEOUT_SECONDS ))
-status="Pending"
-while :; do
-  status="$(aws_ssm get-command-invocation \
-    --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-    --query 'Status' --output text 2>/dev/null || echo Pending)"
-  case "${status}" in
-    Success|Failed|Cancelled|TimedOut) break ;;
-  esac
-  [[ $(date +%s) -ge ${deadline} ]] && break
-  sleep 2
-done
+# Transport failure must NOT make this advisory check exit non-zero — ::warning:: and stop.
+export TOKENKEY_REMOTE_VIA="${TOKENKEY_REMOTE_VIA:-tat}"
+EXECUTE_REMOTE="${STAGE0_EXECUTE_REMOTE_PARAMS:-${SCRIPT_DIR}/execute_remote_params.py}"
+if ! python3 "${EXECUTE_REMOTE}" \
+  --params-file "${params_file}" \
+  --instance-id "${INSTANCE_ID}" \
+  --comment "${COMMENT}" \
+  --stdout-file "${stdout_file}" \
+  --stderr-file "${stderr_file}"; then
+  echo "::warning::live-host assert could not start remote command on ${INSTANCE_ID}; skipping verdict"
+  exit 0
+fi
+probe_out="$(cat "${stdout_file}")"
 
-probe_out="$(aws_ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardOutputContent' --output text 2>/dev/null || true)"
-
-if [[ "${status}" != "Success" || -z "${probe_out}" ]]; then
-  echo "::warning::live-host assert could not read host state (ssm status=${status}); skipping verdict"
+if [[ -z "${probe_out}" ]]; then
+  echo "::warning::live-host assert could not read host state (empty stdout); skipping verdict"
   exit 0
 fi
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
 # Stage0 prod-only post-deploy DATA-INVARIANT check: exclusive-group orphan keys.
+# Daily transport: TAT via execute_remote_params.py (TOKENKEY_REMOTE_VIA default).
+# Break-glass: TOKENKEY_REMOTE_VIA=ssm.
 #
 # Why this exists:
 #   #669 made `user_allowed_groups` load-bearing at request time — an API key
@@ -93,50 +95,26 @@ jq -n --arg cmd "${REMOTE_CMD}" '{commands: [$cmd]}' > "${params_file}"
 # Hybrid RunShellScript starts under dash, which rejects pipefail.
 python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
-if [ "${EXCLUSIVE_GROUP_RENDER_ONLY:-0}" = "1" ]; then
-  RENDER_DIR="${EXCLUSIVE_GROUP_RENDER_DIR:-.}"
+if [ "${EXCLUSIVE_GROUP_RENDER_ONLY:-0}" = "1" ] || [ -n "${STAGE0_SSM_OUTPUT_DIR:-}" ] || [ "${STAGE0_RENDER_ONLY:-}" = "1" ]; then
+  RENDER_DIR="${EXCLUSIVE_GROUP_RENDER_DIR:-${STAGE0_SSM_OUTPUT_DIR:-.}}"
   mkdir -p "${RENDER_DIR}"
   cp "${params_file}" "${RENDER_DIR}/ssm-params.json"
   echo "exclusive-group orphan check: render-only params=${RENDER_DIR}/ssm-params.json"
   exit 0
 fi
 
-cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
-  --instance-ids "${INSTANCE_ID}" \
-  --document-name AWS-RunShellScript \
+export TOKENKEY_REMOTE_VIA="${TOKENKEY_REMOTE_VIA:-tat}"
+if ! python3 "${SCRIPT_DIR}/execute_remote_params.py" \
+  --params-file "${params_file}" \
+  --instance-id "${INSTANCE_ID}" \
   --comment "${COMMENT}" \
-  --parameters "file://${params_file}" \
-  --query 'Command.CommandId' --output text 2>/dev/null || echo "")"
-
-if [[ -z "${cmd_id}" || "${cmd_id}" == "None" ]]; then
-  echo "::warning::exclusive-group orphan check: SSM send-command failed (instance=${INSTANCE_ID}); skipped — NOT a deploy blocker."
-  exit 0
-fi
-echo "exclusive-group orphan check: ssm command-id=${cmd_id}"
-
-deadline=$(( $(date +%s) + SSM_TIMEOUT_SECONDS ))
-status="InProgress"
-while true; do
-  status="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
-    --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-    --query 'Status' --output text 2>/dev/null || echo InProgress)"
-  case "${status}" in Success|Failed|TimedOut|Cancelled) break ;; esac
-  if [[ $(date +%s) -ge ${deadline} ]]; then status="TimedOut"; break; fi
-  sleep 4
-done
-
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardOutputContent' --output text > "${stdout_file}" 2>/dev/null || true
-
-if [[ "${status}" != "Success" ]]; then
-  aws "${ssm_region_args[@]}" ssm get-command-invocation \
-    --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-    --query 'StandardErrorContent' --output text > "${stderr_file}" 2>/dev/null || true
+  --stdout-file "${stdout_file}" \
+  --stderr-file "${stderr_file}"; then
   detail="$(tr '\n' ' ' < "${stderr_file}" | cut -c1-400)"
-  echo "::warning::exclusive-group orphan check: SSM status=${status}; skipped — NOT a deploy blocker. ${detail}"
+  echo "::warning::exclusive-group orphan check: remote transport failed (instance=${INSTANCE_ID}); skipped — NOT a deploy blocker. ${detail}"
   exit 0
 fi
+echo "exclusive-group orphan check: remote probe ok"
 
 count_line="$(grep -E '^orphans=' "${stdout_file}" | head -1 || true)"
 orphans="${count_line#orphans=}"

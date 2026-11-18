@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Sync prod-only Postgres GUC overlay onto Stage0 prod, then recreate
 # postgres so command-line -c flags take effect.
+# Daily transport: TAT via execute_remote_params.py (TOKENKEY_REMOTE_VIA default).
+# Break-glass: TOKENKEY_REMOTE_VIA=ssm.
 #
 # Shared docker-compose.yml stays edge-safe (no GUC command). Prod uses
 # docker-compose.prod-pg.yml beside it (never embedded in Lightsail user-data).
@@ -98,25 +100,22 @@ jq -n \
 
 python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
-CMD_ID="$(aws ssm send-command \
-  --region "${REGION}" \
-  --instance-ids "${INSTANCE_ID}" \
-  --document-name AWS-RunShellScript \
-  --comment "${COMMENT}" \
-  --parameters "file://${params_file}" \
-  --timeout-seconds "${TIMEOUT_SECONDS}" \
-  --query 'Command.CommandId' --output text)"
+if [[ -n "${STAGE0_SSM_OUTPUT_DIR:-}" || "${STAGE0_RENDER_ONLY:-}" == "1" ]]; then
+  echo "[info] wrote ${params_file} (render-only; no remote)"
+  exit 0
+fi
 
-echo "ssm command_id=${CMD_ID}"
-aws ssm wait command-executed --region "${REGION}" --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" || true
-aws ssm get-command-invocation \
-  --region "${REGION}" \
-  --command-id "${CMD_ID}" \
+export TOKENKEY_REMOTE_VIA="${TOKENKEY_REMOTE_VIA:-tat}"
+EXECUTE_REMOTE="${STAGE0_EXECUTE_REMOTE_PARAMS:-${SCRIPT_DIR}/execute_remote_params.py}"
+if ! python3 "${EXECUTE_REMOTE}" \
+  --params-file "${params_file}" \
   --instance-id "${INSTANCE_ID}" \
-  --query '{Status:Status,ResponseCode:ResponseCode,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
-  --output json | tee "${stdout_file}"
-jq -r '.Stderr // empty' "${stdout_file}" >"${stderr_file}"
-if ! jq -e '.Status == "Success" and .ResponseCode == 0' "${stdout_file}" >/dev/null; then
-  echo "PG tuning SSM command did not succeed; see ${stdout_file}" >&2
+  --comment "${COMMENT}" \
+  --stdout-file "${stdout_file}" \
+  --stderr-file "${stderr_file}"; then
+  echo "PG tuning remote command did not succeed; see ${stdout_file}" >&2
   exit 1
 fi
+echo '--- remote stdout (last 8KB) ---'
+tail -c 8192 "${stdout_file}"
+echo
