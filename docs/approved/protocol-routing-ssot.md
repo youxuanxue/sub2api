@@ -7,12 +7,15 @@ created: 2026-08-24
 revised: 2026-11-18
 revision_note: >
   2026-11-18: Chat→Messages Plan matches open-source relay UX (new-api /
-    LiteLLM): admit and strip/remap OpenAI-only extras — response_format,
-    legacy functions/function_call, and root reasoning objects — instead of
-    fail-closed unsupported_request. Still fail-closed: video/audio,
+    LiteLLM): admit request-level OpenAI-only extras — response_format,
+    legacy functions[] / function_call, and root reasoning objects —
+    instead of fail-closed unsupported_request. response_format and root
+    reasoning are dropped; legacy functions[] / function_call remap through
+    Chat→Responses→Anthropic. Still fail-closed: video/audio,
     prompt_cache_key, previous_response_id, hosted/strict tools,
-    thinking+effort together. Approved by feng: 「我们也应该对齐开源实现，
-    以用户体验更高优先级。」
+    thinking+effort together, and assistant message-level function_call /
+    role=function history (follow-up). Approved by feng: 「我们也应该对齐
+    开源实现，以用户体验更高优先级。」
   2026-11-17: Chat→Messages Plan admits text+image content and
   reasoning_effort (or native thinking), matching open-source relays
   (new-api / LiteLLM). Conversion maps image_url data-URI and http(s)
@@ -384,13 +387,15 @@ preserve function tools and images through the existing apicompat conversions.
 (and Messages-native `thinking` without a conflicting effort), mapping effort
 through Chat→Responses→Anthropic the same way open-source relays do. Image
 parts accept data-URI and http(s) `image_url` values as Anthropic `image`
-sources. OpenAI-only extras that open-source relays strip or ignore —
-`response_format` (including `json_schema` / `json_object`), legacy
-`functions` / `function_call`, and root Chat `reasoning` objects — are
-admitted and dropped or remapped by the converter; they must not produce
-Plan-level `unsupported_request`. Video, audio, `prompt_cache_key`,
-`previous_response_id`, hosted/strict tools, and thinking+effort together
-stay fail-closed on that route. `responses → messages`
+sources. Request-level OpenAI-only extras that open-source relays strip or
+ignore — `response_format` (including `json_schema` / `json_object`),
+legacy `functions[]` / `function_call`, and root Chat `reasoning` objects —
+are admitted: `response_format` and root `reasoning` are dropped;
+`functions[]` / `function_call` remap through Chat→Responses→Anthropic.
+They must not produce Plan-level `unsupported_request`. Video, audio,
+`prompt_cache_key`, `previous_response_id`, hosted/strict tools,
+thinking+effort together, and assistant message-level `function_call` /
+`role=function` history stay fail-closed on that route. `responses → messages`
 still requires `ReasoningNone` at Plan time; Responses→Chat already owns
 effort mapping when a Chat hop is legal.
 `responses → chat_completions` matches the content/tool surface and maps

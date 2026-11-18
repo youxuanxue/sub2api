@@ -24,11 +24,12 @@ func TestChatToMessagesAdmitsImageAndReasoningEffort(t *testing.T) {
 		"data_image":       `{"model":"claude-fable-5","messages":[{"role":"user","content":[{"type":"text","text":"what"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AQID"}}]}]}`,
 		"image_and_effort": `{"model":"claude-fable-5","reasoning_effort":"medium","messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"https://example.com/a.png"}}]}]}`,
 		"thinking_only":    `{"model":"claude-fable-5","thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"hello"}]}`,
-		// Open-source relays strip these OpenAI-only extras instead of rejecting.
-		"structured output": `{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],"response_format":{"type":"json_schema"}}`,
-		"legacy function":   `{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],"functions":[{"name":"lookup","parameters":{"type":"object"}}]}`,
-		"root reasoning":    `{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],"reasoning":{"effort":"high"}}`,
-		"non_stream_json":   `{"model":"claude-fable-5","stream":false,"messages":[{"role":"user","content":"hello"}],"response_format":{"type":"json_object"}}`,
+		// Open-source relays strip/remap these request-level OpenAI-only extras.
+		"structured output":    `{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],"response_format":{"type":"json_schema"}}`,
+		"legacy function":      `{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],"functions":[{"name":"lookup","parameters":{"type":"object"}}]}`,
+		"legacy function_call": `{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],"functions":[{"name":"lookup","parameters":{"type":"object"}}],"function_call":"auto"}`,
+		"root reasoning":       `{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],"reasoning":{"effort":"high"}}`,
+		"non_stream_json":      `{"model":"claude-fable-5","stream":false,"messages":[{"role":"user","content":"hello"}],"response_format":{"type":"json_object"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			req, err := ParseCanonicalRequest(ProtocolChatCompletions, ResponsesPathNone, "claude-fable-5", true, []byte(body))
@@ -58,11 +59,12 @@ func TestChatToMessagesRejectsUnsupportedSemantics(t *testing.T) {
 		})
 	}
 	for name, messages := range map[string]string{
-		"orphan result":     `[{"role":"tool","tool_call_id":"call_missing","content":"result"}]`,
-		"invalid arguments": `[{"role":"assistant","tool_calls":[{"id":"call_a","type":"function","function":{"name":"lookup","arguments":"invalid"}}]}]`,
-		"missing result":    `[{"role":"assistant","tool_calls":[{"id":"call_a","type":"function","function":{"name":"lookup","arguments":"{}"}}]}]`,
-		"invalid cache":     `[{"role":"user","content":[{"type":"text","text":"hello","cache_control":{"type":"ephemeral","ttl":"2h"}}]}]`,
-		"conflicting cache": `[{"role":"user","cache_control":{"type":"ephemeral","ttl":"5m"},"content":[{"type":"text","text":"hello","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]`,
+		"orphan result":         `[{"role":"tool","tool_call_id":"call_missing","content":"result"}]`,
+		"invalid arguments":     `[{"role":"assistant","tool_calls":[{"id":"call_a","type":"function","function":{"name":"lookup","arguments":"invalid"}}]}]`,
+		"missing result":        `[{"role":"assistant","tool_calls":[{"id":"call_a","type":"function","function":{"name":"lookup","arguments":"{}"}}]}]`,
+		"invalid cache":         `[{"role":"user","content":[{"type":"text","text":"hello","cache_control":{"type":"ephemeral","ttl":"2h"}}]}]`,
+		"conflicting cache":     `[{"role":"user","cache_control":{"type":"ephemeral","ttl":"5m"},"content":[{"type":"text","text":"hello","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]`,
+		"message function_call": `[{"role":"assistant","function_call":{"name":"lookup","arguments":"{}"}}]`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			body := []byte(`{"model":"claude-fable-5","tools":[{"type":"function","function":{"name":"lookup"}}],"messages":` + messages + `}`)

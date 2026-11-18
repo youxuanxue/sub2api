@@ -11,10 +11,12 @@ import (
 // semantics the Messages converter preserves. Routing and cached conversion
 // share it.
 //
-// OpenAI-only fields that open-source relays (new-api / LiteLLM) strip or ignore
-// on Chat→Claude — response_format, legacy functions/function_call — are
-// admitted here. The converter drops or remaps them; Plan must not fail-closed
-// into unsupported_request for Magpie / deepseek-harness style clients.
+// Request-level OpenAI-only fields that open-source relays (new-api / LiteLLM)
+// strip or ignore on Chat→Claude — response_format, legacy functions[] /
+// function_call — are admitted here. The converter drops response_format and
+// remaps functions[] / function_call; Plan must not fail-closed into
+// unsupported_request for Magpie / deepseek-harness style clients. Assistant
+// message-level function_call history remains fail-closed below.
 func ValidateChatToAnthropic(req *ChatCompletionsRequest) error {
 	invalid := fmt.Errorf("unsupported Chat to Messages semantics")
 	if hasChatJSON(req.Thinking) {
