@@ -33,6 +33,22 @@ def signature_label(codes: list[str]) -> str:
     return "feishu-config-sig:" + hashlib.sha256(signature.encode()).hexdigest()[:12]
 
 
+def load_probe(text: str) -> dict[str, Any]:
+    """Parse probe stdout. Accept a single JSON object, or the first object when
+    fan-out accidentally concatenates multiple objects on one stream."""
+    payload = (text or "").strip()
+    if not payload:
+        return {}
+    try:
+        value = json.loads(payload)
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        value, _offset = decoder.raw_decode(payload)
+    if not isinstance(value, dict):
+        raise ValueError("probe output must be a JSON object")
+    return value
+
+
 def findings(probe: dict[str, Any], probe_exit_code: int) -> list[str]:
     if probe_exit_code:
         return [f"probe_transport_failed:{probe_exit_code}"]
@@ -114,8 +130,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        probe = json.loads(args.probe_file.read_text(encoding="utf-8").strip() or "{}")
-    except (OSError, json.JSONDecodeError) as exc:
+        probe = load_probe(args.probe_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
         probe = {}
         if args.probe_exit_code == 0:
             args.probe_exit_code = 1

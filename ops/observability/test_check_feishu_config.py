@@ -8,10 +8,20 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ops.observability.check_feishu_config import findings, main, signature_label
+from ops.observability.check_feishu_config import findings, load_probe, main, signature_label
 
 
 class FeishuConfigCheckTest(unittest.TestCase):
+    def test_load_probe_accepts_first_object_when_fanout_concatenates(self) -> None:
+        first = {
+            "db": {"row_present": True, "feishu_enabled": True,
+                   "feishu_webhook_present": True, "feishu_secret_present": True},
+            "host_env": {"feishu_webhook_present": True, "feishu_secret_present": True},
+        }
+        second = {"db": {"row_present": False}, "host_env": {}}
+        text = json.dumps(first, separators=(",", ":")) + "\n" + json.dumps(second)
+        self.assertEqual(load_probe(text), first)
+
     def test_healthy_probe_has_no_findings(self) -> None:
         probe = {
             "db": {
@@ -96,6 +106,7 @@ class FeishuConfigWorkflowContractTest(unittest.TestCase):
         self.assertIn("check_feishu_config.py", text)
         self.assertIn("environment: tencent-ops", text)
         self.assertIn("--via tat", text)
+        self.assertIn("--node app-old", text)
         self.assertNotIn("environment: prod", text)
         self.assertNotIn("sync-feishu-config.sh", text)
         self.assertNotIn("aws-actions/configure-aws-credentials", text)
