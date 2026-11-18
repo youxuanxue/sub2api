@@ -80,11 +80,11 @@ class ParseUaTests(unittest.TestCase):
 
 
 class StructuredWireTests(unittest.TestCase):
-    # Sanitized real agy 1.5.10 Linux request; no account/project identifiers.
-    wire = "antigravity/cli/1.5.10 (aidev_client; os_type=linux; arch=amd64; cl=1023297289; auth_method=consumer)"
+    # Sanitized agy structured UA (Linux host); version tracks DefaultUserAgentVersion.
+    wire = "antigravity/cli/1.5.11 (aidev_client; os_type=linux; arch=amd64; cl=1023297289; auth_method=consumer)"
 
     def test_structured_host_parses_and_os_only_difference_is_informational(self):
-        self.assertEqual(eng.parse_ua(self.wire), ("1.5.10", "linux/amd64"))
+        self.assertEqual(eng.parse_ua(self.wire), ("1.5.11", "linux/amd64"))
         rows = eng.diff_bundle({"http": {"user_agent": self.wire}}, eng.load_antigravity_baseline())
         self.assertFalse(eng.has_actionable_mismatch(rows))
         statuses = {r.field: r.status for r in rows}
@@ -95,7 +95,7 @@ class StructuredWireTests(unittest.TestCase):
         for ua in [self.wire.replace("1023297289", "9999999999"),
                    self.wire.replace("consumer", "gcp"),
                    self.wire.replace("aidev_client", "other_client"),
-                   "antigravity/cli/1.5.10 darwin/arm64"]:
+                   "antigravity/cli/1.5.11 darwin/arm64"]:
             with self.subTest(ua=ua):
                 rows = eng.diff_bundle({"http": {"user_agent": ua}}, eng.load_antigravity_baseline())
                 self.assertTrue(eng.has_actionable_mismatch(rows))
