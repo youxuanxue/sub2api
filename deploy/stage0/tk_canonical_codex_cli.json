@@ -69,9 +69,9 @@
   ],
   "observed": {
     "source": "real-cli-local-connect-capture",
-    "codex_cli_version": "0.169.1",
+    "codex_cli_version": "0.170.0",
     "captured_at": "2026-11-18",
-    "sample_count": 9,
+    "sample_count": 8,
     "server_names": [
       "chatgpt.com"
     ],
@@ -79,7 +79,7 @@
       "ja4": "t13d1011h2_61a7ad8aa9b6_0d308c48d2a3",
       "ja3_raw_sorted_extensions": "771,4866-4865-4867-49196-49195-52393-49200-49199-52392-255,0-5-10-11-13-16-23-35-43-45-51,4588-29-23-24,0",
       "ja3_hash_sorted_extensions": "082240ccb778985f253b420029540a34",
-      "ja3_hash_note": "wire JA3 differs per connection (6/6 distinct) because rustls shuffles extension order",
+      "ja3_hash_note": "wire JA3 differs per connection (5/5 distinct) because rustls shuffles extension order",
       "negotiated_alpn": "h2",
       "http2_akamai": "2:0;4:2097152;5:16384;6:16384|5177345|0|m,s,a,p"
     },
