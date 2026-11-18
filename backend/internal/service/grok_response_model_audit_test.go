@@ -248,7 +248,28 @@ func TestGrokResponseAuditChatBridge(t *testing.T) {
 	}
 }
 
+func TestGrokMessages_NativeCatalogUsesChatCompletions(t *testing.T) {
+	require.True(t, grokGroupServesNativeCatalogModel("grok-4.7"), "grok-4.7 must stay on the native catalog")
+	require.False(t, grokGroupServesNativeCatalogModel(grokMessagesResponsesAuditProbeModel),
+		"responses-audit probe must stay off the native catalog")
+
+	c, _ := grokAuditContext("/v1/messages")
+	account := healthyGrokOAuthGatewayTestAccount(88770, "access-token")
+	upstream := &httpUpstreamRecorder{resp: grokAuditHTTPResponse("application/json", grokAuditChatJSON("grok-4.7-build"))}
+	request := []byte(`{"model":"grok-4.7","max_tokens":32,"stream":false,"messages":[{"role":"user","content":"hi"}]}`)
+	result, err := grokAuditOAuthService(upstream, account).ForwardAsAnthropic(context.Background(), c, account, request, "", "")
+	require.NoError(t, err)
+	require.Contains(t, upstream.lastReq.URL.String(), "/chat/completions")
+	require.NotContains(t, upstream.lastReq.URL.String(), "/responses")
+	require.Equal(t, "grok-4.7", result.Model)
+	require.Equal(t, "grok-4.7", result.UpstreamModel)
+}
+
 func TestGrokResponseAuditMessages(t *testing.T) {
+	// Cataloged native SKUs (e.g. grok-4.7) skip /v1/responses via
+	// tkTryGrokNativeCatalogChatFallback. Keep a non-catalog probe here so the
+	// messages→responses model-audit path stays covered.
+	const probe = grokMessagesResponsesAuditProbeModel
 	for i, stream := range []bool{false, true} {
 		name := "aggregate"
 		if stream {
@@ -258,11 +279,13 @@ func TestGrokResponseAuditMessages(t *testing.T) {
 			c, rec := grokAuditContext("/v1/messages")
 			account := healthyGrokOAuthGatewayTestAccount(88800+int64(i), "access-token")
 			upstream := &httpUpstreamRecorder{resp: grokAuditHTTPResponse("text/event-stream", grokAuditResponsesSSE("", "grok-4.7-build"))}
-			request := []byte(fmt.Sprintf(`{"model":"grok-4.7","max_tokens":32,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`, stream))
+			request := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":32,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`, probe, stream))
 			result, err := grokAuditOAuthService(upstream, account).ForwardAsAnthropic(context.Background(), c, account, request, "", "")
 			require.NoError(t, err)
 			require.Contains(t, upstream.lastReq.URL.String(), "/responses")
-			require.Equal(t, "grok-4.7", result.Model)
+			// Client-facing id stays the probe (keeps catalog chat-fallback from
+			// firing); upstream wire id resolves to canonical grok-4.7.
+			require.Equal(t, probe, result.Model)
 			require.Equal(t, "grok-4.7", result.UpstreamModel)
 			require.Equal(t, "grok-4.7-build", result.UpstreamResponseModel)
 			require.False(t, result.UpstreamResponseModelConflict)
@@ -271,7 +294,7 @@ func TestGrokResponseAuditMessages(t *testing.T) {
 			require.False(t, *mismatch)
 			client := rec.Body.String()
 			if !stream {
-				require.Equal(t, "grok-4.7", gjson.Get(client, "model").String())
+				require.Equal(t, probe, gjson.Get(client, "model").String())
 			}
 			require.NotContains(t, client, "grok-4.7-build")
 		})
@@ -294,15 +317,16 @@ func TestGrokResponseAuditConvertedStreamingConflict(t *testing.T) {
 		require.NotContains(t, rec.Body.String(), "grok-4.7-build")
 	})
 	t.Run("messages", func(t *testing.T) {
+		const probe = grokMessagesResponsesAuditProbeModel
 		c, rec := grokAuditContext("/v1/messages")
 		account := healthyGrokOAuthGatewayTestAccount(88902, "access-token")
 		upstream := &httpUpstreamRecorder{resp: grokAuditHTTPResponse("text/event-stream", sse)}
-		request := []byte(`{"model":"grok-4.7","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+		request := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":32,"stream":true,"messages":[{"role":"user","content":"hi"}]}`, probe))
 		result, err := grokAuditOAuthService(upstream, account).ForwardAsAnthropic(context.Background(), c, account, request, "", "")
 		require.NoError(t, err)
 		require.Equal(t, "grok-4.7-build", result.UpstreamResponseModel)
 		require.True(t, result.UpstreamResponseModelConflict)
-		require.Equal(t, "grok-4.7", result.Model)
+		require.Equal(t, probe, result.Model)
 		require.NotContains(t, rec.Body.String(), "grok-4.7-build")
 		require.NotContains(t, rec.Body.String(), "grok-4.5")
 	})
@@ -314,13 +338,18 @@ func TestGrokResponseAuditConvertedAggregateConflict(t *testing.T) {
 		t.Run(entry, func(t *testing.T) {
 			result, client := grokAuditRunConvertedAggregate(t, entry, 89001+int64(i), sse)
 			require.False(t, result.Stream)
-			require.Equal(t, "grok-4.7", result.Model)
-			require.Equal(t, "grok-4.7", result.UpstreamModel)
+			wantClient := "grok-4.7"
+			wantUpstream := "grok-4.7"
+			if entry == "messages" {
+				wantClient = grokMessagesResponsesAuditProbeModel
+			}
+			require.Equal(t, wantClient, result.Model)
+			require.Equal(t, wantUpstream, result.UpstreamModel)
 			require.Equal(t, "grok-4.7-build", result.UpstreamResponseModel)
 			require.True(t, result.UpstreamResponseModelConflict)
 			requireObservedMismatch(t, result, false, false)
 			require.True(t, gjson.Valid(client), "aggregate client should receive JSON, got %s", client)
-			require.Equal(t, "grok-4.7", gjson.Get(client, "model").String())
+			require.Equal(t, wantClient, gjson.Get(client, "model").String())
 			require.NotContains(t, client, "grok-4.7-build")
 			require.NotContains(t, client, "grok-4.5")
 		})
@@ -347,11 +376,15 @@ func TestGrokResponseAuditConvertedAggregateModelBoundaries(t *testing.T) {
 					require.Equal(t, tt.conflict, result.UpstreamResponseModelConflict)
 					requireObservedMismatch(t, result, tt.mismatchNil, tt.mismatch)
 					require.True(t, gjson.Valid(client), "aggregate client should receive JSON, got %s", client)
-					require.Equal(t, "grok-4.7", gjson.Get(client, "model").String())
-					if tt.wantModel != "" && tt.wantModel != "grok-4.7" {
+					wantClient := "grok-4.7"
+					if entry == "messages" {
+						wantClient = grokMessagesResponsesAuditProbeModel
+					}
+					require.Equal(t, wantClient, gjson.Get(client, "model").String())
+					if tt.wantModel != "" && tt.wantModel != wantClient && tt.wantModel != "grok-4.7" {
 						require.NotContains(t, client, tt.wantModel)
 					}
-					if tt.created != "" && tt.created != tt.wantModel && tt.created != "grok-4.7" {
+					if tt.created != "" && tt.created != tt.wantModel && tt.created != wantClient && tt.created != "grok-4.7" {
 						require.NotContains(t, client, tt.created)
 					}
 				})
@@ -465,7 +498,11 @@ func TestGrokResponseAuditAggregatePriorStateStaysBounded(t *testing.T) {
 				require.False(t, result.Stream)
 				require.Equal(t, wantModel, result.UpstreamResponseModel)
 				require.True(t, result.UpstreamResponseModelConflict)
-				require.Equal(t, "grok-4.7", gjson.Get(client, "model").String())
+				wantClient := "grok-4.7"
+				if entry == "messages" {
+					wantClient = grokMessagesResponsesAuditProbeModel
+				}
+				require.Equal(t, wantClient, gjson.Get(client, "model").String())
 				require.NotContains(t, client, late)
 				require.NotContains(t, client, wantModel)
 			})
@@ -503,6 +540,12 @@ func grokAuditPriorModelSSE(repeats int, repeated, late, terminal string) string
 	return b.String()
 }
 
+// grokMessagesResponsesAuditProbeModel is intentionally absent from
+// supportedGrokCatalogModels so /v1/messages still exercises the responses hop
+// (cataloged SKUs take tkTryGrokNativeCatalogChatFallback instead). It stays on
+// the grok-4.7 build-runtime alias set so mismatch auditing still matches.
+const grokMessagesResponsesAuditProbeModel = "grok-4.7-latest"
+
 func grokAuditRunConvertedAggregate(t *testing.T, entry string, id int64, sse string) (*OpenAIForwardResult, string) {
 	t.Helper()
 	switch entry {
@@ -517,10 +560,11 @@ func grokAuditRunConvertedAggregate(t *testing.T, entry string, id int64, sse st
 		require.Contains(t, upstream.lastReq.URL.String(), "/responses")
 		return result, rec.Body.String()
 	case "messages":
+		const probe = grokMessagesResponsesAuditProbeModel
 		c, rec := grokAuditContext("/v1/messages")
 		account := healthyGrokOAuthGatewayTestAccount(id, "access-token")
 		upstream := &httpUpstreamRecorder{resp: grokAuditHTTPResponse("text/event-stream", sse)}
-		request := []byte(`{"model":"grok-4.7","max_tokens":32,"stream":false,"messages":[{"role":"user","content":"hi"}]}`)
+		request := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":32,"stream":false,"messages":[{"role":"user","content":"hi"}]}`, probe))
 		result, err := grokAuditOAuthService(upstream, account).ForwardAsAnthropic(context.Background(), c, account, request, "", "")
 		require.NoError(t, err)
 		require.Contains(t, upstream.lastReq.URL.String(), "/responses")
