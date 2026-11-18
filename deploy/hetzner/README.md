@@ -6,6 +6,17 @@
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
 切流回执：[`docs/ops/reports/tencent-cutover-20261022.json`](../../docs/ops/reports/tencent-cutover-20261022.json)
 
+## 高可用与等效容灾（对外表述）
+
+TokenKey 生产具备**多地域等效容灾**与**站点内应用高可用**：
+
+| 层级 | 事实 | 含义 |
+|---|---|---|
+| 多地域 | 腾讯美西 **prod** 与腾讯北京 **cn-prod** 双站点；库、Redis、备份仓库相互独立，不共用控制面数据库 | 单地域整站故障时，另一地域仍可独立服务（等效跨地域容灾） |
+| 站点内 HA | 每站「入口机 + **多应用机** WRR + 独立数据机」；入口按 `/health` 摘除不健康应用机；发版滚动不中断 | 单应用机故障或发版窗口不导致整站不可用 |
+
+地域内入口机可不做热备（故障靠重建证书/入口），这是站内细节，**不否定**上表多地域等效容灾与多应用机 HA。国内入口见 [`deploy/domestic/README.md`](../domestic/README.md)。
+
 ## 2026-11-15/16 入口机 + 双应用机（已切 DNS）
 
 prod 与 cn-prod 均为「入口机 + 多应用机 + 独立数据机」。设计见
@@ -19,7 +30,7 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 |---|---|---|---|---|---|
 | **prod 入口** | `lhins-3am1i23j` | `43.162.119.210` | `10.4.0.8` | `mi-026982f3622163a1b` | Caddy 终止五域名 TLS；WRR `10.4.0.16:8080`×2 + `10.4.0.9:8080`×1；公网只开 80/443 |
 | prod 应用（旧） | `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | `mi-080ed76dc6d97d8b5` | 4C16G / LUKS；Phase C 单容器 `tokenkey`（`:8080`/`:18080`）；**公网 80/443 已关**，仅入口 `/32` 打 8080 |
-| prod 应用（候选） | `lhins-2kf31667` | `43.162.126.44` | `10.4.0.9` | `mi-000c0168439c243a8` | 2C8G 明文根盘；Phase C 单容器同形 |
+| prod 应用（候选） | `lhins-2kf31667` | `43.162.126.44` | `10.4.0.9` | `mi-000c0168439c243a8` | 4C8G（`bundle_rs_nmc_lin_lg8_01`，2026-11-18 由 2C8G 安全滚动升配）明文根盘；Phase C 单容器同形 |
 | prod 数据 | `lhins-p43i2kxh` | — | `10.4.0.3` | `mi-044ba9da6453c1557` | PG/Redis |
 
 五域名 A（TTL 60）均指向入口 `43.162.119.210`：`tokenkey.dev` / `api.tokenkey.dev` /
@@ -218,7 +229,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 
 | 类别 | 状态 | 动作 |
 |---|---|---|
-| SSM Hybrid / OIDC / Parameter Store | **保留作应急/旁路** | prod/cn-prod 日常 warm+rolling 已默认 TAT；SSM/OIDC 仍服务诊断、部分 ops workflow、GHCR 身份与应急 `--via ssm` |
+| SSM Hybrid / OIDC / Parameter Store | **禁新增；存量 allowlist 抠迁中** | 日常 warm+rolling+`run-probe`/`ssm_execution` 已默认 TAT。门牙见 `ops/tencent-ops/`。收尾清单 [design-tencent-ops-closeout](../../docs/approved/design-tencent-ops-closeout.md)（2026-11-18 批准）；退役入口已删/拒绝，余下 OIDC workflow 与 SecureString 活源继续抠 |
 | Oregon 保留计算 | **必须留** | 2026-11-17：prod `or-1..4` 合计 124 live accounts；cn-prod 无 Oregon 行 |
 | 旧 physical-backup CFN/S3 | **已清** | 2026-11 核对 `DELETE_COMPLETE` / `HeadBucket` 404 |
 | Tokyo EC2 / `aws-fresh` | **已清** | resolver 失败关闭 |
@@ -228,10 +239,10 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 
 | 类别 | 当前用途 / owner | 清理条件 |
 |---|---|---|
-| SSM Hybrid / Parameter Store / STS OIDC | 腾讯美西 prod/出口机与北京 cn-prod 远程执行、参数与 GHCR 身份；`ops/stage0/resolve_prod_ssm_target.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
+| SSM Hybrid / Parameter Store / STS OIDC | 存量旁路仍服务诊断/部分 ops workflow/GHCR 身份与应急 `--via ssm`；`resolve_prod_ssm_target.py` | 默认消费者清零后再批拆 Hybrid/OIDC；门牙见 `ops/tencent-ops/` |
 | QA raw archive | QA S3 已于 2026-11-08 退役；仓库模板与恢复 CLI 已删除 | CFN `tokenkey-prod-qa-raw-archive`=`DELETE_COMPLETE`（2026-11-09）；桶 `HeadBucket` 404；主机 maintenance/boundary 脚本与 unit 已不存在（2026-11-17 核对）。见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界) |
 | 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
-| env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
+| env-secrets 与备份解密材料 | 仍 SecureString 活源；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 停写已门禁；迁 `tencent-ops`/主机 root-only/COS 后停读再删（同设计文） |
 | 历史 / 休眠 S3 桶 | 见下方「2026-11-17 桶盘点」；Tokyo `cfn-deploy` 镜像中转已改 COS；AWS `archive` 已开 30 天过期 | 休眠桶与 Tokyo 镜像桶已清；`archive` 桶待对象过期后自然空桶再删 |
 | 共享运行文件目录 | `deploy/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 直接消费 | 共享 owner；目录名不再含 `aws/`；改路径须同步引用、生成产物和 sentinel |
 | 第三方 AWS 协议 | Kiro/Bedrock 的 AWS endpoint、SDK/SigV4、S3 兼容客户端 | 属模型供应商/协议能力，不能随基础设施迁移删除 |
@@ -271,9 +282,9 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 |---|---|---|
 | `tokenkey-prod-archive-682751977094` | us-east-1 | lifecycle `expire-all-30d` **已启用**（2026-11-17 核对）；**禁止新写**。最新对象约 2026-11-15（`host-config/prod-entry-…`），按 LastModified+30d 过期。活目的地：腾讯 COS `tokenkey-prod-ops-archive-1320330536`（[design-cos-object-archive](../../docs/approved/design-cos-object-archive.md)）。空桶后再删桶本身 |
 
-后续债（实现中）：运维旁路与密钥材料收敛到腾讯 TAT/COS——见
+后续债（门牙已合入，旁路/密钥逐 PR）：运维旁路与密钥材料收敛到腾讯 TAT/COS——见
 [`design-tencent-ops-control-plane.md`](../../docs/approved/design-tencent-ops-control-plane.md)
-（2026-11-18 批准）。共享 Stage0 路径已迁至 `deploy/stage0/`。
+与 [`ops/tencent-ops/`](../../ops/tencent-ops/)。共享 Stage0 路径已迁至 `deploy/stage0/`。
 
 ## QA 与备份排队、旧 AWS 定时任务收尾
 

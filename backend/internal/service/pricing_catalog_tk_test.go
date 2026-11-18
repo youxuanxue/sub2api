@@ -595,6 +595,44 @@ func TestPricingCatalogService_AntigravityConvergedSurfaceSurfaces(t *testing.T)
 	assert.Equal(t, "antigravity", img.Vendor)
 }
 
+func TestPublicCatalog_ContextWindowAndVisionClaims(t *testing.T) {
+	t.Parallel()
+	s := &PricingCatalogService{}
+	public := FilterPublicCatalogToServable(s.BuildPublicCatalog(context.Background()))
+	require.NotNil(t, public)
+	byID := make(map[string]PublicCatalogModel, len(public.Data))
+	for _, m := range public.Data {
+		byID[m.ModelID] = m
+	}
+
+	// Official OpenAI GPT-6 model cards advertise a 1,050,000 context window
+	// (often marketed as ~1.1M). Public context_window projects max_input_tokens.
+	for _, id := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6-astra"} {
+		row, ok := byID[id]
+		require.True(t, ok, "%s must be on the public catalog", id)
+		require.Equal(t, 1_050_000, row.ContextWindow, "%s public context_window", id)
+		require.Contains(t, row.Capabilities, "vision", "%s must claim vision like Sol/Luna peers", id)
+	}
+
+	glm, ok := byID["glm-5.3"]
+	require.True(t, ok, "glm-5.3 must be on the public catalog")
+	require.Equal(t, 1_048_576, glm.ContextWindow)
+	require.Equal(t, 131_072, glm.MaxOutputTokens)
+	require.NotContains(t, glm.Capabilities, "vision", "glm-5.3 is official text-only")
+
+	qwen, ok := byID["qwen3.8-max"]
+	require.True(t, ok, "qwen3.8-max must be on the public catalog")
+	require.Equal(t, 1_000_000, qwen.ContextWindow)
+	require.Equal(t, 131_072, qwen.MaxOutputTokens)
+	require.Contains(t, qwen.Capabilities, "vision")
+
+	mm, ok := byID["minimax-m3.1-flash"]
+	require.True(t, ok, "minimax-m3.1-flash must be on the public catalog")
+	require.Equal(t, 1_000_000, mm.ContextWindow)
+	require.Equal(t, 131_072, mm.MaxOutputTokens)
+	require.Contains(t, mm.Capabilities, "vision")
+}
+
 func TestPublicCatalog_ManifestDisplayAliasesInheritOwner(t *testing.T) {
 	snapshot := loadTKPricingOverlaySnapshot()
 	s := &PricingCatalogService{}
@@ -753,6 +791,29 @@ func TestPublicCatalog_RetiredNativeIDsRequireAnotherDeclaredSupply(t *testing.T
 	assert.True(t, s.IsModelPriced("gpt-5.5", PlatformOpenAI), "display withdrawal preserves settlement pricing")
 	assert.True(t, got["gpt-5.6-terra"], "terra remains public")
 	assert.True(t, got["gpt-5.6-luna"], "luna remains public")
+}
+
+func TestPublicCatalog_PublishesGPT6TerraAndGrok47(t *testing.T) {
+	t.Parallel()
+	s := &PricingCatalogService{}
+	public := FilterPublicCatalogToServable(s.BuildPublicCatalog(context.Background()))
+	require.NotNil(t, public)
+	got := make(map[string]bool, len(public.Data))
+	for _, m := range public.Data {
+		got[m.ModelID] = true
+	}
+	require.True(t, got["gpt-6-terra"], "gpt-6-terra must appear on the public catalog")
+	require.True(t, got["gpt-6.1-terra"], "gpt-6.1-terra must appear on the public catalog")
+	require.True(t, got["grok-4.7"], "grok-4.7 must appear on the public catalog")
+	require.True(t, isPublicCatalogModelSupported("openai", "gpt-6-terra"))
+	require.True(t, isPublicCatalogModelSupported("openai", "gpt-6.1-terra"))
+	require.True(t, isPublicCatalogModelSupported("xai", "grok-4.7"))
+
+	openaiFloor := openAICanonicalAccountModelMappingFloor(context.Background(), nil, nil)
+	require.Equal(t, "gpt-5.6-terra", openaiFloor["gpt-6-terra"])
+	require.Equal(t, "gpt-5.6-terra", openaiFloor["gpt-6.1-terra"])
+	grokFloor := grokAccountModelMappingFloor(context.Background(), nil, nil)
+	require.Equal(t, "grok-4.7", grokFloor["grok-4.7"])
 }
 
 func TestPublicCatalog_HidesLegacyTokenPlanAliasesButKeepsPricing(t *testing.T) {

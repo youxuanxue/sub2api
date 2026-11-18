@@ -112,6 +112,8 @@ export interface AdminUser extends User {
   // 为 true 时该用户仅可使用 allowed_groups 中列出的公开分组。
   // 管理侧权限开关，普通用户接口不返回。
   restrict_public_groups?: boolean
+  // Per-user QA capture gate. Default true. When false, gateway skips QA body/blob persistence.
+  qa_capture_enabled?: boolean
   // 当前并发数（仅管理员列表接口返回）
   current_concurrency?: number
 }
@@ -2354,6 +2356,7 @@ export interface UpdateUserRequest {
   balance?: number
   concurrency?: number
   rpm_limit?: number
+  qa_capture_enabled?: boolean
   status?: 'active' | 'disabled'
   allowed_groups?: number[] | null
   restrict_public_groups?: boolean

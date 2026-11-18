@@ -9,8 +9,8 @@
 | 入口 | 处置 |
 |---|---|
 | prod `tokenkey-pgdump.timer` | 停用；不终止正在运行的导出；保留 service 与历史文件 |
-| `ops-pgdump-restore-canary.yml` | 移除周定时，仅保留历史手动入口；退役 prod 拒绝触发自动补 dump |
-| `ops-stage0-pg-dump-refresh.yml` / `pg_dump_refresh_via_ssm.sh` | 标记 legacy；主机 marker 存在即拒绝重新安装/启用旧任务 |
+| `ops-pgdump-restore-canary.yml` | **已删**（2026-11-18 closeout A12）。历史隔离恢复手跑：`ops/stage0/pgdump_restore_canary_remote.sh` 经 `run-probe --via tat`（或 break-glass `--via ssm`）投递；不再 OIDC 自动入口 |
+| `ops-stage0-pg-dump-refresh.yml` / `pg_dump_refresh_via_ssm.sh` | **已删**（2026-11-18 closeout A11）；主机 marker 仍拒绝重新安装/启用旧任务 |
 | `deploy/stage0/tokenkey-pgdump.sh` | marker 存在即失败，不能滚动清理旧文件或继续导出 |
 | EC2 / Hetzner bootstrap | 默认不启用 legacy timer；明确 opt-in 且没有退役 marker 才可启用；不代表自动装好了物理备份 |
 | `ops-daily-diagnostics.yml` | 使用物理备份 health，缺失/过期/损坏仍告警；沿用传输完整性校验 |

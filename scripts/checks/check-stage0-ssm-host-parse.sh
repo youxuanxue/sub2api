@@ -138,9 +138,7 @@ check_one "deploy_via_ssm.sh"               deploy    bash "${OPS}/deploy_via_ss
 check_one "deploy_via_ssm_bluegreen.sh"     bgdeploy  \
   env STAGE0_ALLOW_LEGACY_BLUEGREEN=1 \
   bash "${OPS}/deploy_via_ssm_bluegreen.sh" 1.0.0 i-0stub probe
-check_one "warm_pull_via_ssm.sh"            warm      bash "${OPS}/warm_pull_via_ssm.sh" 1.0.0 i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh prod"  sync-prod bash "${OPS}/sync_caddyfile_via_ssm.sh" prod i-0stub probe
-check_one "sync_docs_pages.sh"              sync-docs bash "${OPS}/sync_docs_pages.sh" i-0stub ops/stage0/fixtures/sync_docs_page_sample.md
 # sync-feishu-config.sh requires the shared webhook/secret in env; pass dummies so
 # it reaches params emission (the stubbed aws makes the later verify exit nonzero,
 # which check_one swallows — we only assert the joined host script parses).
@@ -149,8 +147,6 @@ check_one "sync-feishu-config.sh"           sync-feishu \
   bash "${OPS}/sync-feishu-config.sh" prod
 check_one "sync-ghcr-prune-timer-via-ssm.sh" sync-ghcr-prune \
   bash "${OPS}/sync-ghcr-prune-timer-via-ssm.sh" i-0stub
-check_one "sync-host-mem-guard-via-ssm.sh"  sync-mem-guard \
-  bash "${OPS}/sync-host-mem-guard-via-ssm.sh" i-0stub
 check_one "sync-host-bbr-via-ssm.sh"        sync-bbr \
   bash "${OPS}/sync-host-bbr-via-ssm.sh" i-0stub
 check_one "sync-container-log-policy-via-ssm.sh" sync-log-policy \

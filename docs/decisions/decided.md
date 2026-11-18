@@ -1,12 +1,26 @@
 # 已决定
 
+## 2026-11-18 QA capture 按用户关闭；双站关闭 compute@tk.com
+
+原话：「安排 agent 改造 QA capture，支持按用户关闭，并把 双站的 compute@tk.com 用户的 关闭。」
+
+适用范围：`users.qa_capture_enabled`（默认 true）。站点级 `qa_capture.enabled` 可保持开启；用户为 false 时网关不持久化该用户请求/响应正文与 QA blob。Admin `PUT /api/v1/admin/users/:id` 与用户编辑 UI 可改。发版并跑 migration 后，在 prod 与 cn-prod 将 `compute@tk.com` 设为 false。
+
+## 2026-11-18 多地域 + 多应用机 = 等效容灾/高可用（投标与对外表述）
+
+原话：「多可用区或等效容灾，我们已经具备了，现在 prod 和 cn-prod 是多地域的。而且每个地域都是多应用机，高可用的。请改仓库文档表述。」
+
+适用范围：对外/投标将「腾讯美西 prod + 腾讯北京 cn-prod」双站点（库与控制面独立）+ 每站入口 WRR 多应用机滚动，表述为**多地域等效容灾与站点内应用高可用**。地域内入口机仍可不做热备（故障靠重建），该细节不否定上述等效容灾表述。见 `deploy/hetzner/README.md`、`deploy/domestic/README.md`、`docs/tender/tokenkey-control-parameters.md`。
+
 ## 2026-11-18 运维旁路与密钥材料收敛到腾讯云
 
 原话：「运维旁路与密钥材料，也应该改到 腾讯 tat 或者 cos 等，收敛到腾讯云体系内。」
 
-适用范围：在日常发版已默认 TAT 之后，把仍依赖 AWS Hybrid SSM / OIDC / Parameter Store SecureString 的运维旁路与密钥材料，迁到腾讯 TAT（远程执行）与 COS/主机 root-only 文件（密钥与恢复材料）。不覆盖 Oregon 出口机、Kiro/Bedrock 等供应商 AWS 协议、也不要求立刻废弃 GHCR 镜像源。设计见 `docs/approved/design-tencent-ops-control-plane.md`（2026-11-18 批准；实现中）。
+适用范围：在日常发版已默认 TAT 之后，把仍依赖 AWS Hybrid SSM / OIDC / Parameter Store SecureString 的运维旁路与密钥材料，迁到腾讯 TAT（远程执行）与 COS/主机 root-only 文件（密钥与恢复材料）。不覆盖 Oregon 出口机、Kiro/Bedrock 等供应商 AWS 协议、也不要求立刻废弃 GHCR 镜像源。设计见 `docs/approved/design-tencent-ops-control-plane.md`（2026-11-18 批准）。门牙：`ops/tencent-ops/` + `scripts/checks/tencent-ops-control-plane-gate.py`；存量旁路/密钥逐 PR 抠迁。
 
 后续确认（2026-11-18）：「同意。请推进实现。」→ 设计批准；先合入门牙门禁，再按 `rg` 逐入口改 TAT / 迁密钥。
+
+后续确认（2026-11-18）：「同意建议。继续。」→ 批准 `docs/approved/design-tencent-ops-closeout.md` 整张处置清单（旁路迁 TAT / 删退役入口 / SecureString 收尾）；按清单 E 节顺序推进，不另批。
 
 ## 2026-11-17 cn-prod tokensea missing text part 网关兼容
 
@@ -45,6 +59,14 @@
 后续确认（2026-11-17）：「client 换 8C 同意。再压一下并发 1200 吧。重点关注吞吐已明显亚线性的根因。」→ 压测机由 `SA2.LARGE8`（4C8G）升到 `SA2.2XLARGE16`（8C16G）；阶梯含 1200，并采双应用/数据机 monitor。
 
 结果落盘（同日）：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-20261117.md`。operating point 仍 **800**；1200 成功率 ~20% **主因是 client soft `ulimit -n=1024`（Errno 24）**，网关 503 仅数十次；400→800 亚线性主因是 **延迟/TTFT 随并发抬升**（升 8C 后 800 RPM mean 仍≈1086，与 4C 轮同级）。数据机高压窗 loadavg 一度 >20、PG 瞬时 ~172/162，服务未挂。
+
+后续确认（2026-11-18）：「修复 client nofile 之后，重新压一下 1200？」→ soft nofile 提到 **65535** 后复测：400/800 仍 100%；1200 成功率 **0.916**，主失败改为 **455×503 overloaded_error**（concurrency_peak=1200）；operating point 仍 **800**。报告：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-nofile-20261118.md`。
+
+后续确认（2026-11-18）：「1、同意 闸门 512→480。应用机统一 4C8G（prod和cn-prod，安全rolling到这个配置）。数据机升级到4C8G（安全升配，不要影响用户请求体验）。2、把压测脚本优化，把入口机的 CPU/load/连接数也纳入 lite monitor 采样。」→ `GATEWAY_MAX_IN_FLIGHT_REQUESTS` **512→480**；应用机规格**下限 4C8G**（Lighthouse **不能原地把 4C16G 降到 4C8G**，已有 16G 机保留；低于 4C8G 的升到 4C8G）；cn-prod 数据机 **2C4G→4C8G**（`bundle_starter_mc_lg8_01`）；压测 lite monitor 补入口机 CPU/load/连接数（`ops/observability/tpm_burst_lite_monitor.sh`）。
+
+后续确认（2026-11-18）：「影响用户请求体验的操作必须经过单独审批。」→ 初版口径过宽。
+
+后续澄清（2026-11-18）：「其实除了数据机停机升配需要单独审批，其他的都可以安全滚动推进。请继续。」→ **仅数据机停机升配**须单独审批；应用机 drain→停机升配→回流、闸门/池滚动 apply、入口权重安全滚动等**可继续推进**。仓库 SSOT 与脚本可同步落地。
 
 ## 2026-11-17 对象归档禁新写 AWS，改腾讯 COS
 

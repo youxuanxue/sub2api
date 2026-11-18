@@ -104,6 +104,7 @@ type UserUpdateFields struct {
 	Status               bool
 	Concurrency          bool
 	RPMLimit             bool
+	QACaptureEnabled     bool
 	SignupSource         bool
 	LastLoginAt          bool
 	LastActiveAt         bool

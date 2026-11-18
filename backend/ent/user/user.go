@@ -69,6 +69,8 @@ const (
 	FieldRpmLimit = "rpm_limit"
 	// FieldTrajExportEnabled holds the string denoting the traj_export_enabled field in the database.
 	FieldTrajExportEnabled = "traj_export_enabled"
+	// FieldQaCaptureEnabled holds the string denoting the qa_capture_enabled field in the database.
+	FieldQaCaptureEnabled = "qa_capture_enabled"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
 	EdgeAPIKeys = "api_keys"
 	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
@@ -227,6 +229,7 @@ var Columns = []string{
 	FieldOnboardingTourSeenAt,
 	FieldRpmLimit,
 	FieldTrajExportEnabled,
+	FieldQaCaptureEnabled,
 }
 
 var (
@@ -303,6 +306,8 @@ var (
 	DefaultRpmLimit int
 	// DefaultTrajExportEnabled holds the default value on creation for the "traj_export_enabled" field.
 	DefaultTrajExportEnabled bool
+	// DefaultQaCaptureEnabled holds the default value on creation for the "qa_capture_enabled" field.
+	DefaultQaCaptureEnabled bool
 )
 
 // OrderOption defines the ordering options for the User queries.
@@ -446,6 +451,11 @@ func ByRpmLimit(opts ...sql.OrderTermOption) OrderOption {
 // ByTrajExportEnabled orders the results by the traj_export_enabled field.
 func ByTrajExportEnabled(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldTrajExportEnabled, opts...).ToFunc()
+}
+
+// ByQaCaptureEnabled orders the results by the qa_capture_enabled field.
+func ByQaCaptureEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldQaCaptureEnabled, opts...).ToFunc()
 }
 
 // ByAPIKeysCount orders the results by api_keys count.

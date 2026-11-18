@@ -882,7 +882,17 @@ staged_snapshot() {{ printf '%s\\n' {shlex.quote(json.dumps(current))}; }}
 container_image() {{ echo repo:1.8.99; }}
 validate_prepared_receipt blue green
 """
-                    result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
+                    # sudo() uses `command`, which bypasses shell functions; put
+                    # the portable scripts/dev/bin/sha256sum shim on PATH for macOS.
+                    sha_bin = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "dev" / "bin"
+                    path = f"{sha_bin}:{os.environ.get('PATH', '')}"
+                    result = subprocess.run(
+                        ["bash"],
+                        input=script,
+                        text=True,
+                        capture_output=True,
+                        env={**os.environ, "PATH": path},
+                    )
                     self.assertEqual(result.returncode == 0, mutation == "none", result.stdout + result.stderr)
 
     def test_rejects_unknown_instance_id_shape(self) -> None:

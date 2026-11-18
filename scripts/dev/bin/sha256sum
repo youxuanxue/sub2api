@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Portable sha256sum for hosts without GNU coreutils (e.g. macOS).
+# Emits the same "HASH  PATH" text-mode lines GNU sha256sum prints for file args.
+set -euo pipefail
+if command -v gsha256sum >/dev/null 2>&1; then
+  exec gsha256sum "$@"
+fi
+exec shasum -a 256 "$@"

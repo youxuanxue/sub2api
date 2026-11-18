@@ -8,33 +8,22 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
-# Host-mutating / warm paths that must follow the cutover-aware resolver.
-_PROD_RESOLVE_WORKFLOWS = (
-    "ops-stage0-pg-dump-refresh.yml",
-    "sync-docs-to-pages.yml",
-    "ops-stage0-container-log-policy.yml",
-    "ops-stage0-ghcr-prune-timer.yml",
-    "deploy-stage0.yml",
-)
-
 ROOT_SCRIPTS = ROOT / "ops" / "stage0"
 
 
 class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
-    def test_listed_workflows_use_resolve_prod_ssm_target(self) -> None:
-        for name in _PROD_RESOLVE_WORKFLOWS:
-            with self.subTest(workflow=name):
-                text = (WORKFLOWS / name).read_text(encoding="utf-8")
-                self.assertIn("ops/stage0/resolve_prod_ssm_target.py", text)
-                self.assertIn("PROD_SSM_TARGET", text)
-                self.assertIn("ssm_region", text)
-                # Multi-app fleets refuse silent defaults; every resolve must pin a node.
-                self.assertIn("--node", text)
-                # Must not keep a bare CFN InstanceId resolve as the only path.
-                self.assertNotIn(
-                    "Outputs[?OutputKey==`InstanceId`].OutputValue",
-                    text,
-                )
+    def test_container_log_policy_uses_tat_not_oidc(self) -> None:
+        text = (WORKFLOWS / "ops-stage0-container-log-policy.yml").read_text(encoding="utf-8")
+        self.assertIn("environment: tencent-ops", text)
+        self.assertIn("--via tat", text)
+        self.assertIn("run-probe.sh", text)
+        self.assertIn("probe-sync-container-log-policy.sh", text)
+        self.assertIn("--node", text)
+        self.assertNotIn("aws-actions/configure-aws-credentials", text)
+        self.assertNotIn("AWS_OIDC_ROLE_ARN", text)
+        self.assertNotIn("id-token: write", text)
+        self.assertNotIn("resolve_prod_ssm_target.py", text)
+        self.assertNotIn("sync-container-log-policy-via-ssm.sh", text)
 
     def test_warm_workflow_warms_every_app_node(self) -> None:
         text = (WORKFLOWS / "warm-image-stage0.yml").read_text(encoding="utf-8")
@@ -54,15 +43,29 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
         # Multi-node sequential warm needs headroom beyond the old single-host 15m.
         self.assertRegex(text, r"timeout-minutes:\s*(2[5-9]|[3-9]\d|[1-9]\d{2,})\b")
 
-    def test_feishu_sync_region_default_matches_other_prod_workflows(self) -> None:
-        # AWS_REGION only scopes OIDC credentials; the SSM call must take the
-        # resolver's ssm_region. A Tokyo default here is a stale cutover leftover.
+    def test_ghcr_prune_timer_workflow_uses_tat_on_all_apps(self) -> None:
+        text = (WORKFLOWS / "ops-stage0-ghcr-prune-timer.yml").read_text(encoding="utf-8")
+        self.assertIn("python3 ops/stage0/sync_ghcr_prune_timer.py", text)
+        self.assertIn("deploy/tencent/candidate-usw-20261022.json", text)
+        self.assertIn("--via tat", text)
+        self.assertIn("environment: tencent-ops", text)
+        self.assertIn("TENCENTCLOUD_SECRET_ID", text)
+        self.assertNotIn("aws-actions/configure-aws-credentials", text)
+        self.assertNotIn("AWS_OIDC_ROLE_ARN", text)
+        self.assertNotIn("id-token: write", text)
+        self.assertNotIn("sync-ghcr-prune-timer-via-ssm.sh", text)
+        self.assertNotIn("resolve_prod_ssm_target.py", text)
+        self.assertIn("prod-ghcr-prune-timer-receipt.json", text)
+
+    def test_feishu_sync_uses_tat_not_oidc(self) -> None:
         workflow = (WORKFLOWS / "prod-feishu-config-sync.yml").read_text(encoding="utf-8")
-        self.assertIn("AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}", workflow)
+        self.assertIn("environment: tencent-ops", workflow)
+        self.assertIn("--via tat", workflow)
+        self.assertIn("run-probe.sh", workflow)
+        self.assertNotIn("aws-actions/configure-aws-credentials", workflow)
+        self.assertNotIn("AWS_OIDC_ROLE_ARN", workflow)
+        self.assertNotIn("id-token: write", workflow)
         self.assertNotIn("ap-northeast-1", workflow)
-        script = (ROOT_SCRIPTS / "sync-feishu-config.sh").read_text(encoding="utf-8")
-        self.assertIn('["ssm_region"]', script)
-        self.assertNotIn("$AWS_REGION", script)
 
     def test_error_clustering_installer_is_cutover_aware(self) -> None:
         text = (ROOT_SCRIPTS / "deploy-error-clustering-binary.sh").read_text(
@@ -101,14 +104,14 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
         self.assertIn("--node", text)
         self.assertNotIn("Outputs[?OutputKey==`InstanceId`].OutputValue", text)
 
-    def test_pgdump_restore_canary_passes_prod_ssm_target(self) -> None:
-        # Canary reaches prod via run-probe (indirect resolve). Without
-        # PROD_SSM_TARGET in job env, OIDC AccessDenied on the flip param
-        # silent-fallbacked to standby EC2 after Wave B cutover.
-        text = (WORKFLOWS / "ops-pgdump-restore-canary.yml").read_text(encoding="utf-8")
-        self.assertIn("PROD_SSM_TARGET", text)
-        self.assertIn("vars.PROD_SSM_TARGET || 'auto'", text)
-        self.assertIn("run-probe.sh", text)
+    def test_dispatch_refuses_legacy_deploy_stage0_entry(self) -> None:
+        # Workflow body retained for sentinel/contract tests; daily entry is
+        # refused by scripts/stage0/dispatch-prod-deploy.sh (closeout A14).
+        text = (ROOT / "scripts" / "stage0" / "dispatch-prod-deploy.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("legacy-deploy|replay|smoke-only", text)
+        self.assertIn("retired", text)
 
 
 if __name__ == "__main__":

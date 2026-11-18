@@ -21,7 +21,7 @@ LIVE_APPB = '''services:
       - "10.2.4.13:8080:8080"
       - "127.0.0.1:18080:8080"
     environment:
-      GATEWAY_MAX_IN_FLIGHT_REQUESTS: "512"
+      GATEWAY_MAX_IN_FLIGHT_REQUESTS: "480"
       TOKENKEY_NODE_NAME: "cn-prod-app-b"
       GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED: "true"
       GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED: "false"
@@ -61,10 +61,10 @@ class NodeComposeTest(unittest.TestCase):
             rendered, LIVE_APPB.replace('      - "127.0.0.1:18080:8080"\n', '')))
 
     def test_max_in_flight_comes_from_the_shared_override(self):
-        self.assertEqual(node_compose.default_max_in_flight(), '512')
+        self.assertEqual(node_compose.default_max_in_flight(), '480')
         rendered = node_compose.render(node_compose.find_app(self.target, 'app-a'))
         doc = node_compose.semantic(rendered)['services']['tokenkey']
-        self.assertEqual(doc['environment']['GATEWAY_MAX_IN_FLIGHT_REQUESTS'], '512')
+        self.assertEqual(doc['environment']['GATEWAY_MAX_IN_FLIGHT_REQUESTS'], '480')
         self.assertEqual(doc['environment']['TOKENKEY_NODE_NAME'], 'cn-prod-app-a')
         self.assertEqual(doc['ports'], {'!override': ['10.2.4.11:8080:8080', '127.0.0.1:18080:8080']})
         self.assertEqual(doc['mem_limit'], '3g')
@@ -87,10 +87,10 @@ class NodeComposeTest(unittest.TestCase):
             code, out = run(node_compose.main, ['--node', 'app-b', '--diff', str(existing)])
             self.assertEqual((code, json.loads(out)), (0, {'node': 'app-b', 'equivalent': True}))
             self.assertEqual(existing.read_bytes(), before)
-            existing.write_text(LIVE_APPB.replace('"512"', '"256"'))
+            existing.write_text(LIVE_APPB.replace('"480"', '"256"'))
             code, out = run(node_compose.main, ['--node', 'app-b', '--diff', str(existing)])
             self.assertEqual(code, 1)
-            self.assertIn('"512"', out)
+            self.assertIn('"480"', out)
             dest = Path(root) / 'compose.node.yml'
             code, _ = run(node_compose.main, ['--node', 'app-b', '--out', str(dest)])
             self.assertEqual(code, 0)

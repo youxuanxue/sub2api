@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import base64
 import json
+import os
 import pathlib
 import subprocess
 import unittest
@@ -27,6 +28,7 @@ class SsmExecutionResolveTest(unittest.TestCase):
         self.mod = load_mod()
 
     def test_shell_transport_runs_under_dash_without_consuming_following_commands(self) -> None:
+        # Break-glass SSM path: daily default is TAT (TOKENKEY_REMOTE_VIA unset).
         run = subprocess.run
         for script, expected_rc in (("cat >/dev/null\nprintf after-stdin", 0), ("exit 7", 7)):
             with self.subTest(script=script):
@@ -44,7 +46,8 @@ class SsmExecutionResolveTest(unittest.TestCase):
                                        "StandardOutputContent": result.stdout,
                                        "StandardErrorContent": result.stderr})
 
-                with mock.patch.object(self.mod.subprocess, "check_output", side_effect=aws), \
+                with mock.patch.dict(os.environ, {"TOKENKEY_REMOTE_VIA": "ssm"}), \
+                     mock.patch.object(self.mod.subprocess, "check_output", side_effect=aws), \
                      mock.patch.object(self.mod.subprocess, "run"):
                     encoded = base64.b64encode(script.encode()).decode()
                     if expected_rc:
@@ -59,7 +62,8 @@ class SsmExecutionResolveTest(unittest.TestCase):
         fake = mock.Mock()
         fake.resolve_mode.return_value = "hetzner"
         fake.resolve_hetzner.side_effect = SystemExit("retired")
-        with mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
+        with mock.patch.dict(os.environ, {"TOKENKEY_REMOTE_VIA": "ssm", "PROD_SSM_NODE": "app-old"}), \
+             mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
             with self.assertRaises(SystemExit):
                 self.mod.resolve_prod_instance()
         fake.resolve_hetzner.assert_called_once_with()
@@ -72,7 +76,8 @@ class SsmExecutionResolveTest(unittest.TestCase):
             "instance_id": "mi-080ed76dc6d97d8b5",
             "ssm_region": "eu-west-2",
         }
-        with mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
+        with mock.patch.dict(os.environ, {"TOKENKEY_REMOTE_VIA": "ssm", "PROD_SSM_NODE": "app-old"}), \
+             mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
             iid = self.mod.resolve_prod_instance()
         self.assertEqual(iid, "mi-080ed76dc6d97d8b5")
         self.assertEqual(self.mod.PROD_REGION, "eu-west-2")
@@ -87,7 +92,8 @@ class SsmExecutionResolveTest(unittest.TestCase):
             "instance_id": "i-0e43099f831b03160",
             "ssm_region": "us-east-1",
         }
-        with mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
+        with mock.patch.dict(os.environ, {"TOKENKEY_REMOTE_VIA": "ssm", "PROD_SSM_NODE": "app-old"}), \
+             mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
             iid = self.mod.resolve_prod_instance()
         self.assertEqual(iid, "i-0e43099f831b03160")
         self.assertEqual(self.mod.PROD_REGION, "us-east-1")
@@ -101,9 +107,30 @@ class SsmExecutionResolveTest(unittest.TestCase):
             "instance_id": "mi-080ed76dc6d97d8b5",
             "ssm_region": "",
         }
-        with mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
+        with mock.patch.dict(os.environ, {"TOKENKEY_REMOTE_VIA": "ssm", "PROD_SSM_NODE": "app-old"}), \
+             mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
             with self.assertRaises(SystemExit):
                 self.mod.resolve_prod_instance()
+
+    def test_resolve_prod_instance_tat_reads_matrix_without_aws_online(self) -> None:
+        fake_node = mock.Mock()
+        fake_node.name = "data"
+        fake = mock.Mock()
+        fake.TENCENT_USW_MATRIX = pathlib.Path("/tmp/tencent.json")
+        fake.load_tencent_usw_matrix_file.return_value = {
+            "ssm_region": "eu-west-2",
+            "target": {"ssm_region": "eu-west-2"},
+            "data_machine": {"expected_ssm_instance_id": "mi-0aaaaaaaaaaaaaaa1"},
+            "apps": [{"name": "app-old", "ssm_instance_id": "mi-0bbbbbbbbbbbbbbb2"}],
+        }
+        with mock.patch.dict(os.environ, {"TOKENKEY_REMOTE_VIA": "tat", "PROD_SSM_NODE": "data"}), \
+             mock.patch.object(self.mod, "resolve_prod_node", return_value=fake_node), \
+             mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
+            iid = self.mod.resolve_prod_instance()
+        self.assertEqual(iid, "mi-0aaaaaaaaaaaaaaa1")
+        self.assertEqual(self.mod.PROD_REGION, "eu-west-2")
+        fake.resolve_tencent_usw_candidate.assert_not_called()
+        fake.load_tencent_usw_matrix_file.assert_called_once_with(fake.TENCENT_USW_MATRIX)
 
     def test_region_for_mi_pin_reads_tencent_matrix(self) -> None:
         fake = mock.Mock()

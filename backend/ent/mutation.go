@@ -60898,6 +60898,7 @@ type UserMutation struct {
 	rpm_limit                     *int
 	addrpm_limit                  *int
 	traj_export_enabled           *bool
+	qa_capture_enabled            *bool
 	clearedFields                 map[string]struct{}
 	api_keys                      map[int64]struct{}
 	removedapi_keys               map[int64]struct{}
@@ -62225,6 +62226,42 @@ func (m *UserMutation) ResetTrajExportEnabled() {
 	m.traj_export_enabled = nil
 }
 
+// SetQaCaptureEnabled sets the "qa_capture_enabled" field.
+func (m *UserMutation) SetQaCaptureEnabled(b bool) {
+	m.qa_capture_enabled = &b
+}
+
+// QaCaptureEnabled returns the value of the "qa_capture_enabled" field in the mutation.
+func (m *UserMutation) QaCaptureEnabled() (r bool, exists bool) {
+	v := m.qa_capture_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldQaCaptureEnabled returns the old "qa_capture_enabled" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldQaCaptureEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldQaCaptureEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldQaCaptureEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldQaCaptureEnabled: %w", err)
+	}
+	return oldValue.QaCaptureEnabled, nil
+}
+
+// ResetQaCaptureEnabled resets all changes to the "qa_capture_enabled" field.
+func (m *UserMutation) ResetQaCaptureEnabled() {
+	m.qa_capture_enabled = nil
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by ids.
 func (m *UserMutation) AddAPIKeyIDs(ids ...int64) {
 	if m.api_keys == nil {
@@ -62961,7 +62998,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 27)
+	fields := make([]string, 0, 28)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -63043,6 +63080,9 @@ func (m *UserMutation) Fields() []string {
 	if m.traj_export_enabled != nil {
 		fields = append(fields, user.FieldTrajExportEnabled)
 	}
+	if m.qa_capture_enabled != nil {
+		fields = append(fields, user.FieldQaCaptureEnabled)
+	}
 	return fields
 }
 
@@ -63105,6 +63145,8 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.RpmLimit()
 	case user.FieldTrajExportEnabled:
 		return m.TrajExportEnabled()
+	case user.FieldQaCaptureEnabled:
+		return m.QaCaptureEnabled()
 	}
 	return nil, false
 }
@@ -63168,6 +63210,8 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldRpmLimit(ctx)
 	case user.FieldTrajExportEnabled:
 		return m.OldTrajExportEnabled(ctx)
+	case user.FieldQaCaptureEnabled:
+		return m.OldQaCaptureEnabled(ctx)
 	}
 	return nil, fmt.Errorf("unknown User field %s", name)
 }
@@ -63365,6 +63409,13 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetTrajExportEnabled(v)
+		return nil
+	case user.FieldQaCaptureEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetQaCaptureEnabled(v)
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)
@@ -63615,6 +63666,9 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldTrajExportEnabled:
 		m.ResetTrajExportEnabled()
+		return nil
+	case user.FieldQaCaptureEnabled:
+		m.ResetQaCaptureEnabled()
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)

@@ -5,7 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DAILY="${ROOT}/deploy/stage0/tokenkey-ghcr-prune-daily.sh"
 BOOTSTRAP="${ROOT}/deploy/stage0/stage0-ec2-bootstrap.sh"
-PROD_SYNC="${ROOT}/ops/stage0/sync-ghcr-prune-timer-via-ssm.sh"
+PROD_SYNC="${ROOT}/ops/stage0/sync_ghcr_prune_timer.py"
+LEGACY_SSM_SYNC="${ROOT}/ops/stage0/sync-ghcr-prune-timer-via-ssm.sh"
 CFN="${ROOT}/deploy/aws/cloudformation/stage0-single-ec2.yaml"
 
 fail=0
@@ -90,12 +91,20 @@ if ! grep -q 'docker image prune -af' "${DAILY}"; then
   fail=1
 fi
 
-for consumer in "${BOOTSTRAP}" "${PROD_SYNC}"; do
+for consumer in "${BOOTSTRAP}" "${PROD_SYNC}" "${LEGACY_SSM_SYNC}"; do
   if ! grep -q -- '--install-units' "${consumer}"; then
     echo "FAIL: ${consumer} does not delegate unit rendering to the canonical installer" >&2
     fail=1
   fi
 done
+if ! grep -q -- '--via tat' "${ROOT}/.github/workflows/ops-stage0-ghcr-prune-timer.yml"; then
+  echo "FAIL: ghcr-prune timer workflow must default to TAT" >&2
+  fail=1
+fi
+if grep -q 'configure-aws-credentials' "${ROOT}/.github/workflows/ops-stage0-ghcr-prune-timer.yml"; then
+  echo "FAIL: ghcr-prune timer workflow must not use AWS OIDC by default" >&2
+  fail=1
+fi
 
 daily_b64="$(awk -v q="'" '
   />>> GHCR_PRUNE_DAILY_B64_PARAM START/ { in_marker = 1; next }

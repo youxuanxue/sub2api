@@ -98,6 +98,10 @@
 #   auto-merge protected paths   — publish-on-push paths of the publishing
 #        workflows are listed for auto-merge-low-risk. Driven by
 #        `scripts/checks/auto-merge-protected-paths.py`.
+#   tencent ops control-plane ban — forbids new OIDC→SSM remotes into the Tencent
+#        fleet and new SecureString ops-key writes (design-tencent-ops-control-plane).
+#        Legacy paths are frozen in ops/tencent-ops/legacy-aws-control-plane-allowlist.json.
+#        Driven by `scripts/checks/tencent-ops-control-plane-gate.py`.
 #   platform registry drift      — Go ↔ TS platform registry lockstep
 #        (OpenAI-compat list, dispatch-config platforms, Platform universe,
 #        Ent platform enum coverage, admin UI style maps). Driven by
@@ -121,6 +125,13 @@ set -u
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+
+# Portable sha256sum for hosts without GNU coreutils (macOS). Stage0 install/
+# bluegreen helpers and their unittests expect `sha256sum` on PATH; CI Linux
+# already has it. Prefer scripts/dev/bin over requiring brew coreutils locally.
+if ! command -v sha256sum >/dev/null 2>&1 && [ -x "$REPO_ROOT/scripts/dev/bin/sha256sum" ]; then
+    export PATH="$REPO_ROOT/scripts/dev/bin:$PATH"
+fi
 
 # Python toolchain contract: CI runs these checks on Python 3.12 (actions/setup-python
 # '3.12') with PyYAML. Older interpreters fail several unrelated checks on 3.10+
@@ -2542,14 +2553,24 @@ echo ""
 fi # preflight gate
 if _preflight_selected 'pgdump timer cadence parity'; then
 echo "=== sub2api: pgdump timer cadence parity ==="
-_pgdump_reference="$(grep -m1 'OnCalendar=' ops/stage0/pg_dump_refresh_via_ssm.sh 2>/dev/null)"
-for _pgdump_source in deploy/stage0/stage0-ec2-bootstrap.sh deploy/hetzner/render-prod-bootstrap.sh; do
+# Refresh entrypoint retired 2026-11-18; keep bootstrap/renderer templates in lockstep.
+_pgdump_sources="deploy/stage0/stage0-ec2-bootstrap.sh deploy/hetzner/render-prod-bootstrap.sh"
+_pgdump_reference=""
+for _pgdump_source in $_pgdump_sources; do
     _pgdump_calendar="$(awk '/tokenkey-pgdump\.timer/{f=1} f&&/OnCalendar=/{print; exit}' "$_pgdump_source" 2>/dev/null)"
-    if [ -z "$_pgdump_reference" ] || [ "$_pgdump_calendar" != "$_pgdump_reference" ]; then
+    if [ -z "$_pgdump_calendar" ]; then
+        echo "  FAIL: pgdump timer cadence missing in $_pgdump_source"
+        errors=$((errors + 1))
+        continue
+    fi
+    if [ -z "$_pgdump_reference" ]; then
+        _pgdump_reference="$_pgdump_calendar"
+        echo "  ok: $_pgdump_source cadence reference ($_pgdump_calendar)"
+    elif [ "$_pgdump_calendar" != "$_pgdump_reference" ]; then
         echo "  FAIL: pgdump timer cadence drift in $_pgdump_source"
         errors=$((errors + 1))
     else
-        echo "  ok: $_pgdump_source cadence matches refresh ($_pgdump_calendar)"
+        echo "  ok: $_pgdump_source cadence matches ($_pgdump_calendar)"
     fi
 done
 
@@ -3163,6 +3184,22 @@ if ! command -v python3 >/dev/null 2>&1; then
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/diagnostics-oidc-perm-coverage.py --quiet; then
     errors=$((errors + 1))
+fi
+
+
+fi # preflight gate
+if _preflight_selected 'tencent ops control-plane ban'; then
+echo "=== sub2api: tencent ops control-plane ban ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by tencent-ops-control-plane-gate.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/tencent-ops-control-plane-gate.py --selftest >/dev/null; then
+    echo "  FAIL: tencent-ops-control-plane-gate.py selftest failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/tencent-ops-control-plane-gate.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: no new OIDC→SSM Tencent remotes or SecureString ops-key writes"
 fi
 
 

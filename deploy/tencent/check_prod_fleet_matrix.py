@@ -78,9 +78,9 @@ def main() -> int:
             mem = app.get("memory_limit")
             if isinstance(mem, str) and not MEM_RE.match(mem.strip()):
                 errors.append(f"apps[{index}].memory_limit must look like 3g or 512m")
-            # Phase C: 2C8G cand must not declare the old-host 8g bluegreen default.
+            # Cand host floor is 4C8G; keep container limit below host RAM (not the old 8g bluegreen default).
             if name == "app-cand" and isinstance(mem, str) and mem.strip().lower() == "8g":
-                errors.append("apps[app-cand].memory_limit must not be 8g on 2C8G")
+                errors.append("apps[app-cand].memory_limit must not be 8g (host floor 4C8G; use 3g)")
         ips = [a.get("private_ip") for a in apps if isinstance(a, dict)]
         if len(ips) != len(set(ips)):
             errors.append("apps private_ip values must be unique")

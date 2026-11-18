@@ -19,17 +19,22 @@ class OpsPaymentBillingWatchWorkflowTest(unittest.TestCase):
         self.assertIn("17,47 * * * *", self.text)
         self.assertIn("0 1 * * 1", self.text)
 
-    def test_uses_shared_feishu_secrets_and_oidc(self) -> None:
+    def test_uses_shared_feishu_secrets_and_tat(self) -> None:
         self.assertIn("TK_FEISHU_WEBHOOK_URL", self.text)
         self.assertIn("TK_FEISHU_SIGNING_SECRET", self.text)
-        self.assertIn("AWS_OIDC_ROLE_ARN", self.text)
-        self.assertIn("configure-aws-credentials", self.text)
+        self.assertIn("environment: tencent-ops", self.text)
+        self.assertIn("TENCENTCLOUD_SECRET_ID", self.text)
+        self.assertIn("TENCENTCLOUD_SECRET_KEY", self.text)
+        self.assertNotIn("AWS_OIDC_ROLE_ARN", self.text)
+        self.assertNotIn("configure-aws-credentials", self.text)
+        self.assertNotIn("id-token: write", self.text)
 
     def test_probe_and_delivery_owners(self) -> None:
         self.assertIn("ops/observability/probe-payment-billing-watch.sh", self.text)
         self.assertIn("ops/observability/payment_billing_watch.py", self.text)
         self.assertIn("run-probe.sh", self.text)
         self.assertIn("--target prod", self.text)
+        self.assertIn("--via tat", self.text)
 
     def test_dry_run_does_not_require_feishu_when_true(self) -> None:
         self.assertIn('"$DRY_RUN" != "true"', self.text)

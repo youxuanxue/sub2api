@@ -18,8 +18,8 @@ revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切�
 | 角色 | 实例 | 私网 | 现状（2026-11-17） |
 |---|---|---|---|
 | 入口机 | `lhins-j89o28j0` | `10.2.4.7` | Caddy 终止 `api.galaxywaveai.com` TLS，`weighted_round_robin 1 1`，主动健康检查 3s，连续 2 次失败摘除，`lb_try_duration 30s` |
-| app-a | `lhins-6qmb3fd6` | `10.2.4.11` | 4C16G（`bundle_rs_mc_lg16_01`），单容器 `tokenkey`，监听 `10.2.4.11:8080` |
-| app-b | `lhins-0kxx7cco` | `10.2.4.13` | 4C8G（`bundle_rs_mc_lg8_01`，由 2C4G 升配），单容器 `tokenkey`，监听 `10.2.4.13:8080` |
+| app-a | `lhins-6qmb3fd6` | `10.2.4.11` | 下限 4C8G；现仍 4C16G（`bundle_rs_mc_lg16_01`，不可原地降内存），单容器 `tokenkey`，监听 `10.2.4.11:8080` |
+| app-b | `lhins-0kxx7cco` | `10.2.4.13` | 4C8G（`bundle_rs_mc_lg8_01`），单容器 `tokenkey`，监听 `10.2.4.13:8080` |
 | 数据机 | `lhins-odyx5eis` | `10.2.4.5` | PG `max_connections=400`（2026-11-17 由 200 升，见审批）；源 ACL 已含 `.11` 与 `.13` |
 
 > 历史快照（2026-11-15 设计批准时）：入口 WRR 曾为 `3 1`；app-a 仍蓝绿+socat；app-b 为 2C4G 手写 `compose.appb.yml`；PG `max_connections=200`。下文迁移步骤（M1–M6）描述的是当时要解决的问题，不是今日现状。
@@ -130,7 +130,7 @@ revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切�
 
 ## 容量核算
 
-**现网（2026-11-17）**：两台应用机各配 `DATABASE_MAX_OPEN_CONNS=80` / idle=20（`compose.override.yml`），合计最多 160 open；数据机 PG `max_connections=400`。`GATEWAY_MAX_IN_FLIGHT_REQUESTS=512`，`REDIS_POOL_SIZE=96`。prod 的池另算，在 prod 数据机上。依据：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-20261117.md`、`docs/ops/approvals/cn-prod-pg-max-connections-200-to-400.md`。
+**现网（2026-11-18）**：两台应用机各配 `DATABASE_MAX_OPEN_CONNS=80` / idle=20（`compose.override.yml`），合计最多 160 open；数据机 PG `max_connections=400`。`GATEWAY_MAX_IN_FLIGHT_REQUESTS=480`，`REDIS_POOL_SIZE=96`。应用机规格下限 4C8G（已有 4C16G 可保留）。prod 的池另算，在 prod 数据机上。依据：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-nofile-20261118.md`、`docs/ops/approvals/cn-prod-pg-max-connections-200-to-400.md`。
 
 历史（2026-11-15 设计时）：各机 open=40 合计 80、PG 上限 200；app-b 仍是 2C4G/`memory_limit` 3g。M4 期间 app-b 单独承接全部流量须低峰执行——该迁移步骤已完成，数值勿当作今日 SSOT。
 

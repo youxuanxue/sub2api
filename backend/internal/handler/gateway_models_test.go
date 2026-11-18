@@ -1694,7 +1694,7 @@ func TestGatewayModels_GPT6SolLunaDiscoveryRespectsGroupAndAccountRestrictions(t
 		want       []string
 	}{
 		{"published sol/luna appear when allowlisted", []string{"gpt-6-luna", "gpt-6-sol"}, false, []string{"gpt-6-luna", "gpt-6-sol"}},
-		{"unpublished upstream models stay hidden", []string{"gpt-6-terra"}, false, []string{}},
+		{"published terra appear when allowlisted", []string{"gpt-6-terra", "gpt-6.1-terra"}, false, []string{"gpt-6-terra", "gpt-6.1-terra"}},
 		{"selected and ordered", []string{"gpt-6.1-sol", "gpt-6-luna", "gpt-6-sol"}, false, []string{"gpt-6.1-sol", "gpt-6-luna", "gpt-6-sol"}},
 		{"group excludes new models", []string{"gpt-5.6-sol"}, false, []string{"gpt-5.6-sol"}},
 		{"account restricts new models", []string{"gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol"}, true, []string{"gpt-5.6-sol"}},

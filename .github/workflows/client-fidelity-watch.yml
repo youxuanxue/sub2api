@@ -24,7 +24,6 @@ on:
 permissions:
   contents: read
   issues: write
-  id-token: write
 
 concurrency:
   group: client-fidelity-watch
@@ -190,33 +189,34 @@ jobs:
     if: always() && needs.registry-gate.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    environment: tencent-ops
     outputs:
       observation_status: ${{ steps.observation.outputs.status }}
     env:
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
       SINCE: ${{ inputs.since || '24h' }}
     steps:
       - uses: actions/checkout@v6
 
-      - name: Precheck OIDC role
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install tccli
+        run: python3 -m pip install 'tccli==3.1.198.1'
+
+      - name: Precheck Tencent TAT credentials
         id: precheck
         run: |
-          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+          if [ -z "${TENCENTCLOUD_SECRET_ID:-}" ] || [ -z "${TENCENTCLOUD_SECRET_KEY:-}" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::AWS_OIDC_ROLE_ARN empty — skipping prod aggregate"
+            echo "::warning::TENCENTCLOUD_SECRET_ID/KEY empty — skipping prod aggregate"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Configure AWS credentials via OIDC
-        if: steps.precheck.outputs.skip == 'false'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Probe prod fingerprint logs (read-only SSM)
+      - name: Probe prod fingerprint logs (read-only TAT)
         id: observer
         if: steps.precheck.outputs.skip == 'false'
         run: |
@@ -224,6 +224,7 @@ jobs:
           mkdir -p .cache/prompt-surface-watch
           bash ops/observability/run-probe.sh \
             --target prod \
+            --via tat \
             --script ops/observability/probe-prompt-surface-fingerprints.sh \
             --env "SINCE=${SINCE}" \
             --env "LIMIT=40" \
@@ -288,32 +289,33 @@ jobs:
     if: always() && needs.registry-gate.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: tencent-ops
     outputs:
       observation_status: ${{ steps.observation.outputs.status }}
     env:
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
     steps:
       - uses: actions/checkout@v6
 
-      - name: Precheck OIDC role
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install tccli
+        run: python3 -m pip install 'tccli==3.1.198.1'
+
+      - name: Precheck Tencent TAT credentials
         id: precheck
         run: |
-          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+          if [ -z "${TENCENTCLOUD_SECRET_ID:-}" ] || [ -z "${TENCENTCLOUD_SECRET_KEY:-}" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::AWS_OIDC_ROLE_ARN empty — skipping Kiro production-configured parity"
+            echo "::warning::TENCENTCLOUD_SECRET_ID/KEY empty — skipping Kiro production-configured parity"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Configure AWS credentials via OIDC
-        if: steps.precheck.outputs.skip == 'false'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Probe Kiro production DB profile parity (read-only SSM)
+      - name: Probe Kiro production DB profile parity (read-only TAT)
         id: observer
         if: steps.precheck.outputs.skip == 'false'
         run: |
@@ -321,6 +323,7 @@ jobs:
           mkdir -p .cache/kiro-profile-parity
           bash ops/observability/run-probe.sh \
             --target prod \
+            --via tat \
             --script ops/observability/probe-kiro-tls-profile-parity.sh \
             --comment "client-fidelity-watch Kiro production-configured parity" \
             --timeout-seconds 120 \

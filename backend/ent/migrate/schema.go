@@ -2123,6 +2123,7 @@ var (
 		{Name: "onboarding_tour_seen_at", Type: field.TypeTime, Nullable: true},
 		{Name: "rpm_limit", Type: field.TypeInt, Default: 0},
 		{Name: "traj_export_enabled", Type: field.TypeBool, Default: false},
+		{Name: "qa_capture_enabled", Type: field.TypeBool, Default: true},
 	}
 	// UsersTable holds the schema information for the "users" table.
 	UsersTable = &schema.Table{
