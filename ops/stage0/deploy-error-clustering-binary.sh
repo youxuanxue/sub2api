@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Build the error_clustering binary inside a transient golang:1.27.4-alpine
+# Daily transport: TAT via execute_remote_params.py (TOKENKEY_REMOTE_VIA default).
+# Break-glass: TOKENKEY_REMOTE_VIA=ssm.
 # container on the prod host (native host architecture), then install it to
 # /usr/local/bin/error_clustering. Image tag must satisfy
 # tools/error_clustering/go.mod (go >= 1.27.4); GOTOOLCHAIN=local in the
@@ -84,40 +86,23 @@ jq -n --arg b64 "$TAR_B64" '{
 # Same wrap owner as deploy_via_ssm / sync-*-via-ssm.
 python3 "$REPO_ROOT/ops/stage0/ssm_wrap_bash_commands.py" "$PARAMS_FILE"
 
-CMD_ID=$(aws ssm send-command \
-  --region "$REGION" \
-  --instance-ids "$INSTANCE_ID" \
-  --document-name AWS-RunShellScript \
+stdout_file="${SSM_STDOUT_FILE:-$WORKDIR/stdout.txt}"
+stderr_file="${SSM_STDERR_FILE:-$WORKDIR/stderr.txt}"
+
+if [[ -n "${STAGE0_SSM_OUTPUT_DIR:-}" || "${STAGE0_RENDER_ONLY:-}" == "1" ]]; then
+  echo "[info] wrote $PARAMS_FILE (render-only; no remote)"
+  exit 0
+fi
+
+export TOKENKEY_REMOTE_VIA="${TOKENKEY_REMOTE_VIA:-tat}"
+if ! python3 "$REPO_ROOT/ops/stage0/execute_remote_params.py" \
+  --params-file "$PARAMS_FILE" \
+  --instance-id "$INSTANCE_ID" \
   --comment "deploy error_clustering binary" \
-  --parameters "file://$PARAMS_FILE" \
-  --query 'Command.CommandId' --output text)
-
-echo "SSM command-id: $CMD_ID instance=$INSTANCE_ID region=$REGION"
-echo "polling until completion..."
-
-# AWS_SSM_WAIT_MAX seconds total (default 240); poll every 5s. SSM's built-in
-# wait command-executed has a fixed 600s ceiling and tight 20s polling that
-# tends to time out; we roll our own loop to surface output sooner.
-DEADLINE=$(( $(date +%s) + ${AWS_SSM_WAIT_MAX:-240} ))
-while true; do
-  STATUS=$(aws ssm get-command-invocation --region "$REGION" \
-    --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-    --query 'Status' --output text 2>/dev/null || echo "InProgress")
-  case "$STATUS" in
-    Success|Cancelled|TimedOut|Failed) break ;;
-  esac
-  if [[ $(date +%s) -ge $DEADLINE ]]; then
-    echo "timed out waiting for SSM command" >&2
-    break
-  fi
-  sleep 5
-done
-
-aws ssm get-command-invocation --region "$REGION" \
-  --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-  --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
-  --output json
-
-if [[ "$STATUS" != "Success" ]]; then
+  --stdout-file "$stdout_file" \
+  --stderr-file "$stderr_file"; then
+  echo "deploy error_clustering binary: remote failed" >&2
+  cat "$stderr_file" >&2 || true
   exit 1
 fi
+cat "$stdout_file"

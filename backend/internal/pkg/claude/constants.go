@@ -93,7 +93,7 @@ const DefaultCacheControlTTL = "5m"
 // CLICurrentVersion 是内置的 Claude Code CLI 伪装版本号基线（三段 semver）。
 // 用于 billing attribution block 中的 cc_version=X.Y.Z.{fp} 前缀以及 fingerprint 计算。
 // 必须与 DefaultHeaders["User-Agent"] 中的版本号严格一致；不一致会被 Anthropic 判第三方。
-const CLICurrentVersion = "2.1.325"
+const CLICurrentVersion = "2.1.327"
 
 // JoinBetaHeader joins beta tokens into the wire anthropic-beta header value.
 func JoinBetaHeader(betas []string) string {
@@ -152,13 +152,13 @@ func FullClaudeCodeHaikuMimicryBetas() []string {
 // 承载，由守卫测试强制对齐。
 func DefaultHeaders() map[string]string {
 	headers := map[string]string{
-		"User-Agent":                                "claude-cli/2.1.325 (external, cli)",
+		"User-Agent":                                "claude-cli/2.1.327 (external, cli)",
 		"X-Stainless-Lang":                          "js",
 		"X-Stainless-Package-Version":               "0.128.0",
 		"X-Stainless-OS":                            "MacOS",
 		"X-Stainless-Arch":                          "arm64",
 		"X-Stainless-Runtime":                       "node",
-		"X-Stainless-Runtime-Version":               "v26.3.0",
+		"X-Stainless-Runtime-Version":               "v26.12.1",
 		"X-Stainless-Retry-Count":                   "0",
 		"X-Stainless-Timeout":                       "600",
 		"X-App":                                     "cli",

@@ -222,7 +222,9 @@ func computeChatToResponsesPreservation(req CanonicalRequest) bool {
 func preservesChatToMessages(req CanonicalRequest) bool {
 	// Text + image only. Video/audio stay fail-closed (Anthropic Messages has no
 	// lossless video surface here). Open-source relays (new-api / LiteLLM) admit
-	// the same Chat image + reasoning_effort subset onto Messages.
+	// the same Chat image + reasoning_effort subset onto Messages, and strip
+	// OpenAI-only extras (response_format, legacy functions, root reasoning)
+	// instead of rejecting the whole request.
 	allowed := ContentText | ContentImage
 	if req.profile.ContentKinds == 0 || req.profile.ContentKinds&^allowed != 0 ||
 		req.profile.Continuation != ContinuationNone ||
@@ -243,18 +245,16 @@ func preservesChatToMessages(req CanonicalRequest) bool {
 
 func computeChatToMessagesPreservation(req CanonicalRequest) bool {
 	var chat apicompat.ChatCompletionsRequest
-	var root map[string]json.RawMessage
 	// Root "reasoning" objects are not ChatCompletionsRequest.ReasoningEffort;
-	// keep them fail-closed until an explicit Chat→Messages mapping owns them.
-	if json.Unmarshal(req.body, &root) != nil || len(root["reasoning"]) > 0 {
-		return false
-	}
+	// encoding/json drops the unknown field on unmarshal. Match open-source
+	// relays: admit and strip rather than fail-closed into unsupported_request.
 	if json.Unmarshal(req.body, &chat) != nil || apicompat.ValidateChatToAnthropic(&chat) != nil {
 		return false
 	}
 	// ValidateChatToAnthropic already rejects thinking+reasoning_effort together.
 	// Admit: text/image content, thinking-only, or reasoning_effort-only (mapped
-	// through ChatCompletionsToResponses → ResponsesToAnthropic).
+	// through ChatCompletionsToResponses → ResponsesToAnthropic). OpenAI-only
+	// extras are dropped or remapped by the converter.
 	return true
 }
 

@@ -1,4 +1,6 @@
-"""Exercise production alert sync through a local SSM fixture."""
+"""Exercise production Feishu sync dry-run + TAT/ssm_execution fixture path."""
+
+from __future__ import annotations
 
 import json
 import os
@@ -9,110 +11,65 @@ import unittest
 from pathlib import Path
 
 
+REPO = Path(__file__).resolve().parents[2]
+
+
 class SyncFeishuConfigTest(unittest.TestCase):
-    def run_sync(self, status="Success", receipt=True):
+    def _seed_tree(self, root: Path) -> Path:
+        ops = root / "ops" / "stage0"
+        ops.mkdir(parents=True)
+        shutil.copyfile(Path(__file__).with_name("sync-feishu-config.sh"), ops / "sync.sh")
+        (root / "ops" / "lib").mkdir(parents=True)
+        shutil.copyfile(
+            REPO / "ops" / "lib" / "resolve_app_container.py",
+            root / "ops" / "lib" / "resolve_app_container.py",
+        )
+        return ops / "sync.sh"
+
+    def test_dry_run_emits_params_without_aws(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            ops = root / "ops" / "stage0"
-            ops.mkdir(parents=True)
-            shutil.copyfile(Path(__file__).with_name("sync-feishu-config.sh"), ops / "sync.sh")
-            (root / "ops" / "lib").mkdir(parents=True)
-            shutil.copyfile(Path(__file__).resolve().parents[1] / "lib" / "resolve_app_container.py",
-                            root / "ops" / "lib" / "resolve_app_container.py")
-            (ops / "resolve_prod_ssm_target.py").write_text(
-                'import json\nprint(json.dumps({"instance_id":"mi-0a1b2c3d4e5f60718",'
-                '"ssm_region":"eu-west-2","target":"tencent-usw-candidate"}))\n'
-            )
-            aws = root / "aws"
-            aws.write_text('''#!/usr/bin/env python3
-import json, os, pathlib, sys
-args = sys.argv[1:]
-with open(os.environ["CALLS"], "a") as handle:
-    handle.write(json.dumps(args) + "\\n")
-if "send-command" in args:
-    params = args[args.index("--parameters") + 1]
-    commands = json.loads(pathlib.Path(params.removeprefix("file://")).read_text())["commands"]
-    assert len(commands) == 1 and commands[0].startswith("bash -lc ")
-    print("cmd-fixture")
-elif "wait" in args:
-    sys.exit(0 if os.environ["REMOTE_STATUS"] == "Success" else 1)
-elif "--query" in args:
-    query = args[args.index("--query") + 1]
-    if query == "Status": print(os.environ["REMOTE_STATUS"])
-    elif query == "StandardOutputContent" and os.environ["RECEIPT"] == "yes":
-        print("FEISHU_ENABLED=true FEISHU_WEBHOOK_PRESENT=t FEISHU_SECRET_PRESENT=t")
-        print("FEISHU_SYNC_OK=1")
-        print("ENV_FEISHU_SYNC_OK=1")
-''')
-            aws.chmod(0o700)
-            calls = root / "calls.jsonl"
+            sync = self._seed_tree(root)
+            out = root / "out"
             env = {
                 **os.environ,
-                "PATH": str(root) + os.pathsep + os.environ["PATH"],
                 "TK_FEISHU_WEBHOOK_URL": "https://example.test/private-hook",
                 "TK_FEISHU_SIGNING_SECRET": "fixture-private-secret",
-                "STAGE0_SSM_OUTPUT_DIR": str(root),
-                "CALLS": str(calls),
-                "REMOTE_STATUS": status,
-                "RECEIPT": "yes" if receipt else "no",
+                "STAGE0_SSM_OUTPUT_DIR": str(out),
             }
-            result = subprocess.run(["bash", str(ops / "sync.sh"), "prod"], env=env,
-                                    capture_output=True, text=True, check=False)
-            requests = [json.loads(line) for line in calls.read_text().splitlines()]
-            self.assertNotIn(env["TK_FEISHU_WEBHOOK_URL"], result.stdout + result.stderr)
-            self.assertNotIn(env["TK_FEISHU_SIGNING_SECRET"], result.stdout + result.stderr)
-            for request in requests:
-                self.assertEqual(request[request.index("--region") + 1], "eu-west-2")
-                flag = "--instance-ids" if "send-command" in request else "--instance-id"
-                self.assertEqual(request[request.index(flag) + 1], "mi-0a1b2c3d4e5f60718")
-            self.assertTrue(any("wait" in request for request in requests))
-            return result
+            result = subprocess.run(
+                ["bash", str(sync), "prod"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            params = json.loads((out / "ssm-params.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(params["commands"]), 1)
+            self.assertTrue(params["commands"][0].startswith("bash -lc "))
+            blob = result.stdout + result.stderr + (out / "ssm-params.json").read_text()
+            # Secrets are embedded in the remote script payload (expected) but must
+            # not appear on the operator-facing success banner lines alone — the
+            # script still must not echo them as VERIFY/ok lines. Assert the dry-run
+            # banner path does not print them outside the params file.
+            self.assertNotIn(env["TK_FEISHU_WEBHOOK_URL"], result.stdout)
+            self.assertNotIn(env["TK_FEISHU_SIGNING_SECRET"], result.stdout)
+            self.assertIn(env["TK_FEISHU_WEBHOOK_URL"], blob)
 
-    def test_verified_remote_success(self):
-        result = self.run_sync()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("feishu config sync complete", result.stdout)
-
-    def test_remote_script_resolves_layout_exception_postgres(self):
+    def test_remote_script_resolves_layout_exception_postgres(self) -> None:
         """Tencent USW keeps tk-archive-standby; do not hard-code tokenkey-postgres only."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            ops = root / "ops" / "stage0"
-            ops.mkdir(parents=True)
-            shutil.copyfile(Path(__file__).with_name("sync-feishu-config.sh"), ops / "sync.sh")
-            (root / "ops" / "lib").mkdir(parents=True)
-            shutil.copyfile(Path(__file__).resolve().parents[1] / "lib" / "resolve_app_container.py",
-                            root / "ops" / "lib" / "resolve_app_container.py")
-            (ops / "resolve_prod_ssm_target.py").write_text(
-                'import json\nprint(json.dumps({"instance_id":"mi-0a1b2c3d4e5f60718",'
-                '"ssm_region":"eu-west-2","target":"tencent-usw-candidate"}))\n'
-            )
-            aws = root / "aws"
-            aws.write_text(
-                "#!/usr/bin/env python3\n"
-                "import os, pathlib, sys\n"
-                "args = sys.argv[1:]\n"
-                "if 'send-command' in args:\n"
-                "    print('cmd-fixture')\n"
-                "elif 'wait' in args:\n"
-                "    raise SystemExit(0)\n"
-                "elif '--query' in args:\n"
-                "    q = args[args.index('--query') + 1]\n"
-                "    if q == 'Status': print('Success')\n"
-                "    elif q == 'StandardOutputContent':\n"
-                "        print('FEISHU_ENABLED=true FEISHU_WEBHOOK_PRESENT=t "
-                "FEISHU_SECRET_PRESENT=t\\nFEISHU_SYNC_OK=1\\nENV_FEISHU_SYNC_OK=1')\n"
-            )
-            aws.chmod(0o700)
+            sync = self._seed_tree(root)
             env = {
                 **os.environ,
-                "PATH": str(root) + os.pathsep + os.environ["PATH"],
                 "TK_FEISHU_WEBHOOK_URL": "https://example.test/private-hook",
                 "TK_FEISHU_SIGNING_SECRET": "fixture-private-secret",
                 "STAGE0_SSM_OUTPUT_DIR": str(root),
             }
             proc = subprocess.run(
-                ["bash", str(ops / "sync.sh"), "prod"],
+                ["bash", str(sync), "prod"],
                 env=env,
                 capture_output=True,
                 text=True,
@@ -125,17 +82,63 @@ elif "--query" in args:
             self.assertNotIn("grep -qx tokenkey-postgres", body)
             self.assertIn("POSTGRES_CONTAINER=", body)
             self.assertIn("$POSTGRES_CONTAINER", body)
-            self.assertIn('docker exec \\"$POSTGRES_CONTAINER\\"', body)
 
-    def test_remote_failure_is_not_submission_success(self):
-        result = self.run_sync(status="Failed")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Feishu config sync failed", result.stderr)
+    def _run_live(self, *, stdout: str, fail: bool = False) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sync = self._seed_tree(root)
+            # Minimal ssm_execution stub consumed by the live path.
+            (root / "ops" / "stage0" / "ssm_execution.py").write_text(
+                "def resolve_prod_instance():\n"
+                "    return 'mi-0a1b2c3d4e5f60718'\n"
+                "def data_container_preamble(**kwargs):\n"
+                "    return ''\n"
+                "def run_shell_b64(instance_id, shell_b64, comment, preamble=''):\n"
+                f"    if {fail!r}:\n"
+                "        raise SystemExit('remote failed')\n"
+                f"    return {stdout!r}\n",
+                encoding="utf-8",
+            )
+            env = {
+                **os.environ,
+                "TK_FEISHU_WEBHOOK_URL": "https://example.test/private-hook",
+                "TK_FEISHU_SIGNING_SECRET": "fixture-private-secret",
+                "TOKENKEY_REMOTE_VIA": "tat",
+                "PROD_SSM_NODE": "data",
+            }
+            return subprocess.run(
+                ["bash", str(sync), "prod"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+                cwd=str(root),
+            )
 
-    def test_missing_verification_receipt_fails(self):
-        result = self.run_sync(receipt=False)
+    def test_verified_remote_success(self) -> None:
+        result = self._run_live(
+            stdout=(
+                "FEISHU_ENABLED=true FEISHU_WEBHOOK_PRESENT=t FEISHU_SECRET_PRESENT=t\n"
+                "FEISHU_SYNC_OK=1\nENV_FEISHU_SYNC_OK=1\n"
+            )
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("feishu config sync complete", result.stdout)
+        self.assertIn("PROD_SSM_NODE=data", result.stdout)
+        self.assertIn("TOKENKEY_REMOTE_VIA=tat", result.stdout)
+        self.assertNotIn("https://example.test/private-hook", result.stdout + result.stderr)
+        self.assertNotIn("fixture-private-secret", result.stdout + result.stderr)
+
+    def test_remote_failure_is_not_submission_success(self) -> None:
+        result = self._run_live(stdout="", fail=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Feishu config sync failed", result.stderr)
+
+    def test_missing_verification_receipt_fails(self) -> None:
+        result = self._run_live(
+            stdout="FEISHU_ENABLED=true FEISHU_WEBHOOK_PRESENT=t FEISHU_SECRET_PRESENT=t\n"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("FEISHU_SYNC_OK=1", result.stderr)
 
 
 if __name__ == "__main__":

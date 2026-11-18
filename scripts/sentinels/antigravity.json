@@ -5,9 +5,9 @@
     {
       "path": "backend/internal/pkg/antigravity/oauth.go",
       "must_contain": [
-        "antigravity/cli/%s darwin/arm64"
+        "antigravity/cli/%s (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)"
       ],
-      "rationale": "TokenKey mirrors Antigravity CLI (`agy`) User-Agent: `antigravity/cli/<ver> darwin/arm64`. Upstream/sub2api base emits IDE-shaped `antigravity/%s windows/amd64` without the `/cli/` segment — reverting silently breaks CLI fingerprint alignment."
+      "rationale": "TokenKey mirrors Antigravity CLI (`agy`) User-Agent: `structured aidev_client UA with build CL and consumer auth`. Upstream/sub2api base emits IDE-shaped `antigravity/%s windows/amd64` without the `/cli/` segment — reverting silently breaks CLI fingerprint alignment."
     },
     {
       "path": "backend/internal/pkg/antigravity/oauth.go",

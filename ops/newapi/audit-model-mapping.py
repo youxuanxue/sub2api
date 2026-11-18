@@ -30,6 +30,7 @@ New mapping floors converge through a reviewed bundle and
 from __future__ import annotations
 
 import argparse
+import base64
 import importlib.util
 import json
 import pathlib
@@ -81,35 +82,15 @@ _SSM = _load("ops/stage0/ssm_execution.py", "tk_ssm_execution_audit_mapping")
 
 
 def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> str:
+    del region  # TAT path uses PROD_SSM_NODE; SSM break-glass still needs instance_id pin.
     remote = 'sudo docker exec -i "$TK_PG" psql -U tokenkey -d tokenkey -t -A -v ON_ERROR_STOP=1'
     command = f"set -euo pipefail\n{_SSM.data_container_preamble()}{remote} <<'SQL'\n{sql}\nSQL"
-    params = json.dumps({"commands": [command]}, ensure_ascii=False)
+    shell_b64 = base64.b64encode(command.encode()).decode()
     try:
-        cid = subprocess.check_output(
-            ["aws", "ssm", "send-command", "--region", region,
-             "--instance-ids", instance_id, "--document-name", "AWS-RunShellScript",
-             "--comment", comment, "--parameters", params,
-             "--query", "Command.CommandId", "--output", "text"],
-            text=True,
-        ).strip()
-    except subprocess.CalledProcessError as e:
-        fail(f"ssm send-command failed ({comment}): {e}")
-    subprocess.run(
-        ["aws", "ssm", "wait", "command-executed", "--region", region,
-         "--command-id", cid, "--instance-id", instance_id],
-        check=False,
-    )
-    inv = json.loads(
-        subprocess.check_output(
-            ["aws", "ssm", "get-command-invocation", "--region", region,
-             "--command-id", cid, "--instance-id", instance_id, "--output", "json"],
-            text=True,
-        )
-    )
-    if inv.get("Status") != "Success" or inv.get("ResponseCode") != 0:
-        err = (inv.get("StandardErrorContent") or "").strip()[:1200]
-        fail(f"ssm cmd {cid} status={inv.get('Status')} rc={inv.get('ResponseCode')} ({comment})\n  stderr: {err}")
-    return (inv.get("StandardOutputContent") or "").strip()
+        out = _SSM.run_shell_b64(instance_id, shell_b64, comment)
+    except SystemExit as exc:
+        fail(f"remote sql failed ({comment}): {exc}")
+    return out.strip()
 
 
 def main() -> int:

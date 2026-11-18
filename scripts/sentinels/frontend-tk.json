@@ -1067,7 +1067,8 @@
       "path": "frontend/src/views/admin/ops/components/OpsRequestDetailsModal.vue",
       "must_contain": [
         "requesterPrimary",
-        "requesterMeta"
+        "requesterMeta",
+        "{{ t('admin.ops.requestDetails.table.account') }}"
       ],
       "rationale": "TK ops request-attribution column (upstream Wei-Shaw/sub2api#2410). The admin request-details drill-down shows a Requester column built from requesterPrimary (user email/username) + requesterMeta (api key / group / upstream account names) so operators can identify who is calling without a DB lookup. These names ride on the user_email/username/api_key_name/group_name/account_name fields the request-details query joins; an upstream merge that rewrites this modal would silently drop the attribution UI. The sentinel forces the merge to keep (or deliberately remove) the requester helpers."
     },

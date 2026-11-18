@@ -69,8 +69,8 @@
   ],
   "observed": {
     "source": "real-cli-local-connect-capture",
-    "codex_cli_version": "0.167.2",
-    "captured_at": "2026-11-12",
+    "codex_cli_version": "0.169.1",
+    "captured_at": "2026-11-18",
     "sample_count": 9,
     "server_names": [
       "chatgpt.com"

@@ -120,7 +120,7 @@ def _extract_struct_field(go_src: str, field: str, where: str) -> str:
 
 
 def _extract_ua_format(oauth_src: str) -> str:
-    """Pull the `antigravity/cli/%s darwin/arm64` format string out of BuildUserAgent."""
+    """Pull the CLI User-Agent format string out of BuildUserAgent."""
     m = re.search(r"fmt\.Sprintf\(\"(antigravity/[^\"]*%s[^\"]*)\"", oauth_src)
     if not m:
         raise ValueError("BuildUserAgent fmt.Sprintf(\"antigravity/...%s... darwin/arm64\") not found in oauth.go")
@@ -163,23 +163,37 @@ def load_antigravity_baseline() -> dict[str, Any]:
 
 def expected_user_agent(baseline: dict[str, Any]) -> str:
     """Render the HTTP User-Agent exactly as antigravity.BuildUserAgent does for the
-    default version (e.g. `antigravity/cli/1.1.19 darwin/arm64`)."""
+    default version, preserving the structured client identity."""
     return baseline["ua_format"].replace("%s", baseline["ua_version"], 1)
 
 
 # --------------------------------------------------------------------------- #
 # Captured-UA parsing.
 # --------------------------------------------------------------------------- #
-_UA_RE = re.compile(r"antigravity/cli/(\d+\.\d+\.\d+)\s*(\S+)?")
+_UA_RE = re.compile(r"antigravity/cli/(\d+\.\d+\.\d+)(?=\s|$)")
 _VER = r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?"
 
 
 def parse_ua(ua: str) -> tuple[str, str]:
-    """Return (version, os_arch) parsed from an `antigravity/cli/<ver> <os>/<arch>` UA."""
+    """Return version and host identity for structured CLI and historical UAs."""
     m = _UA_RE.search(ua or "")
     if not m:
         return "", ""
-    return m.group(1), (m.group(2) or "")
+    tail = ua[m.end():].strip()
+    os_type = re.search(r"(?:^|[;(]\s*)os_type=([^; )]+)", tail)
+    arch = re.search(r"(?:^|[;(]\s*)arch=([^; )]+)", tail)
+    if os_type and arch:
+        return m.group(1), f"{os_type.group(1)}/{arch.group(1)}"
+    legacy = re.fullmatch(r"[\w.-]+/[\w.-]+", tail)
+    return m.group(1), tail if legacy else ""
+
+
+def ua_identity(ua: str) -> str:
+    """Compare all UA identity fields except separately checked version and host."""
+    value = _UA_RE.sub("antigravity/cli/<version>", ua)
+    value = re.sub(r"os_type=[^; )]+", "os_type=<os>", value)
+    value = re.sub(r"arch=[^; )]+", "arch=<arch>", value)
+    return re.sub(r"(?<=<version>)\s+[\w.-]+/[\w.-]+$", " <os>/<arch>", value)
 
 
 # --------------------------------------------------------------------------- #
@@ -313,6 +327,12 @@ def diff_bundle(bundle: dict[str, Any], baseline: dict[str, Any]) -> list[DiffRo
         rows.append(DiffRow(
             "http.ua_version", base_ver, cap_ver,
             "match" if cap_ver == base_ver else "mismatch", critical=True,
+        ))
+        expected_identity = ua_identity(expected_user_agent(baseline))
+        captured_identity = ua_identity(cap_ua)
+        rows.append(DiffRow(
+            "http.ua_identity", expected_identity, captured_identity,
+            "match" if captured_identity == expected_identity else "mismatch", critical=True,
         ))
         # os/arch is informational only: TokenKey deliberately pins darwin/arm64
         # regardless of the host OS.
@@ -451,15 +471,17 @@ def cmd_diff(args: argparse.Namespace) -> int:
     rows = diff_bundle(bundle, baseline)
     print(_render(rows))
     actionable = has_actionable_mismatch(rows)
-    captured_any = any(r.status in ("match", "mismatch") for r in rows)
+    incomplete = any(r.status == "missing_capture" for r in rows)
     if actionable:
         print("\nRESULT: drift detected (actionable HTTP mismatch).")
-    elif not captured_any:
-        print("\nRESULT: no HTTP capture — confirm the IDE egresses through the mitm proxy + trusts its CA.")
+    elif incomplete:
+        print("\nRESULT: incomplete HTTP capture — confirm agy uses the mitm proxy and trusts its CA.")
     else:
         print("\nRESULT: aligned.")
     if args.check and actionable:
         return 1
+    if args.check and incomplete:
+        return 3
     return 0
 
 

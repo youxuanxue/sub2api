@@ -81,3 +81,7 @@ created: 2026-11-18
 主线同步补充：合入 `544cf3746947c10a71687654cec36c75aefec914` 与随后发布的 `be56ea06e1590ab637e664a2b64376886b3802c8`，后者已通过主线发布 GPT-6.2 registry 和 Terra 自身映射。本轮不再假定这些 owner 未发布：保留其价格、目录和请求策略；上游 sensor 仍不能覆盖它们。合并两个 v28 鉴权快照布局后升至 v29，同时往返 QA capture 和 Ultrafast，并拒绝旧 v28，避免热缓存缺字段。
 
 Grok 搜索用例迁移：上游 fixture 为 `/v1/messages` 直接注入 Responses SSE，但显式原生目录模型在 TokenKey 未绑定 Plan 的兼容入口会使用 Chat Completions。测试通过现有 capability fixture 与 production planner 绑定 Responses，并断言实际 target；保留 xs_/as_ 计数、重复事件去重、客户端工具和 OpenAI 不误计费断言，不改原生目录路由。
+
+最终主线同步：纳入 `ea4cad6c778e9b2046cbfd3cd76a28333d5c53a3`，保留主线已交付的 Ali qwen4 GA/preview 自映射及计费、Chat→Messages 字段剥离、AG 地域故障分类、OAuth 探测单次刷新、managed batch 默认值与 CLI 指纹更新。运维退役沿用主线裁决；不执行部署、生产写入或模型激活。sentinel 追加项取并集，前端指纹由最终源代码重建。GPT-6.1 Sol 预设断言继续保留，并与 Terra/6.2 断言同时执行。
+
+表格契约补充：恢复 OpsRequestDetailsModal 桌面请求详情的账号表头，保持表头与账号数据列对齐；原账号表头断言继续执行，不以模型表头断言替代。

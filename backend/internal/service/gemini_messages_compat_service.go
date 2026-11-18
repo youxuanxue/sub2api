@@ -1103,7 +1103,8 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				})
 				return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
 					StatusCode: resp.StatusCode, ResponseBody: respBody,
-					RetryableOnSameAccount: !isModelCapabilityFailureMessage(msg400),
+					RetryableOnSameAccount: !isModelCapabilityFailureMessage(msg400) &&
+						!isGoogleUserLocationUnsupported(msg400),
 				}, gatewayFailoverProfileGoogle, semantic)
 			}
 		}
@@ -1691,7 +1692,8 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				})
 				return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
 					StatusCode: resp.StatusCode, ResponseBody: evBody,
-					RetryableOnSameAccount: !isModelCapabilityFailureMessage(msg400),
+					RetryableOnSameAccount: !isModelCapabilityFailureMessage(msg400) &&
+						!isGoogleUserLocationUnsupported(msg400),
 				}, gatewayFailoverProfileGoogle, semantic)
 			}
 		}

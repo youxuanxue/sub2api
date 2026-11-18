@@ -441,16 +441,23 @@ func TestTokenRefreshService_BoundsPerProviderConcurrency(t *testing.T) {
 	require.Equal(t, int64(2), refresher.maxActive.Load())
 }
 
-func TestTokenRefreshRateGate_ReservesSpacedSlotsAndHonorsCancellation(t *testing.T) {
+func TestTokenRefreshRateGate_RechecksDelayedWakeupsAndHonorsCancellation(t *testing.T) {
 	const interval = 25 * time.Millisecond
 	gate := newTokenRefreshRateGateWithInterval(interval)
 	base := time.Unix(1_700_000_000, 0)
+	gate.mu.Lock()
 
-	require.Equal(t, base, gate.reserveSlot(base))
-	require.Equal(t, base.Add(interval), gate.reserveSlot(base))
-	require.Equal(t, base.Add(2*interval), gate.reserveSlot(base))
+	require.Zero(t, gate.delayForSlot(base))
+	require.Equal(t, interval, gate.delayForSlot(base))
+	require.Equal(t, interval, gate.delayForSlot(base), "waiters must not reserve future slots")
+	// Model multiple timers waking after a scheduler stall. Only one may
+	// start; the others must wait a full interval from the actual admission.
 	jumped := base.Add(time.Second)
-	require.Equal(t, jumped, gate.reserveSlot(jumped), "an idle gate should not retain stale delay")
+	require.Zero(t, gate.delayForSlot(jumped), "an idle gate should admit immediately")
+	require.Equal(t, interval, gate.delayForSlot(jumped))
+	require.Equal(t, interval/2, gate.delayForSlot(jumped.Add(interval/2)))
+	require.Zero(t, gate.delayForSlot(jumped.Add(interval)))
+	gate.mu.Unlock()
 
 	cancelGate := newTokenRefreshRateGateWithInterval(time.Hour)
 	require.NoError(t, cancelGate.wait(context.Background()), "the first slot is immediately available")
@@ -517,8 +524,10 @@ func TestTokenRefreshService_ProviderRateGateIsSharedAcrossRuns(t *testing.T) {
 	require.Same(t, first, second, "background cycles and reconciliation must share the process-local provider limiter")
 
 	base := time.Unix(1_700_000_000, 0)
-	require.Equal(t, base, first.reserveSlot(base))
-	require.Equal(t, base.Add(25*time.Millisecond), second.reserveSlot(base))
+	first.mu.Lock()
+	defer first.mu.Unlock()
+	require.Zero(t, first.delayForSlot(base))
+	require.Equal(t, 25*time.Millisecond, second.delayForSlot(base))
 }
 
 func TestTokenRefreshService_ProviderConcurrencyGateIsSharedAcrossBackgroundAndConcurrentAdminReconciliation(t *testing.T) {
@@ -636,27 +645,9 @@ func TestTokenRefreshService_SaturatedProviderPreservesConcurrencyAndActualQPSSt
 	require.Len(t, starts, attemptCount)
 	configuredSpacing := time.Second / time.Duration(providerQPS)
 
-	// The floor is a tenth of the configured spacing, not spacing minus a few
-	// milliseconds. Each start timestamp is taken after the rate gate releases
-	// the goroutine, so scheduler delay can compress one observed gap without
-	// the gate having done anything wrong: this assertion failed on a loaded
-	// machine at 13ms and again at 37ms against a 40ms floor, both times with
-	// the gate pacing correctly.
-	//
-	// A tenth still separates the two cases by a wide margin. Measured with
-	// providerQPS=20 (50ms spacing), 8 attempts, providerConcurrency=2:
-	//
-	//	gate at 50ms  -> minimum observed gap 49.97ms
-	//	gate at 0     -> minimum observed gap 22µs
-	//
-	// So an unpaced gate lands three orders of magnitude below the 5ms floor
-	// and is still caught, while jitter on a busy machine has room to move.
-	//
-	// Do not swap this for an assertion on the total span of the starts: the
-	// span is dominated by how long each attempt takes under
-	// providerConcurrency, not by the gate. Same measurement — 471ms paced
-	// against 241ms unpaced — so a span check passes with the gate disabled and
-	// tests nothing.
+	// Allow scheduling delay between admission and the refresher timestamp,
+	// while still detecting an unpaced burst. Delayed-wakeup admission itself
+	// is checked deterministically by TestTokenRefreshRateGate_RechecksDelayedWakeupsAndHonorsCancellation.
 	minimumObservedSpacing := configuredSpacing / 10
 	actualMinimumSpacing := starts[1].Sub(starts[0])
 	for i := 1; i < len(starts); i++ {

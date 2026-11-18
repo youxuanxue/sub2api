@@ -54,6 +54,7 @@ class DeployViaSsmTest(unittest.TestCase):
         self.fakebin = self.repo / "fakebin"
         self.fakebin.mkdir()
         self.aws_log = self.repo / "aws-args.log"
+        self.remote_log = self.repo / "remote-exec.log"
         self.ssm_parameters = self.repo / "ssm-parameters.json"
         self.stdout_fixture = self.repo / "ssm-stdout.json"
         self.stdout_fixture.write_text(
@@ -69,6 +70,26 @@ class DeployViaSsmTest(unittest.TestCase):
                 indent=2,
             )
             + "\n"
+        )
+        # Daily path uses remote_exec.py (TAT default). Fixture stub records the
+        # host script the same way the old aws send-command stub did.
+        (self.repo / "deploy/domestic/remote_exec.py").write_text(
+            textwrap.dedent(
+                f"""\
+                #!/usr/bin/env python3
+                import json, pathlib, sys
+                argv = sys.argv[1:]
+                pathlib.Path({str(self.remote_log)!r}).write_text(" ".join(argv) + "\\n")
+                if "run" not in argv:
+                    raise SystemExit(f"unexpected remote_exec argv: {{argv!r}}")
+                script = argv[argv.index("--script") + 1]
+                body = pathlib.Path(script).read_text()
+                pathlib.Path({str(self.ssm_parameters)!r}).write_text(
+                    json.dumps({{"commands": [body]}}) + "\\n"
+                )
+                sys.stdout.write(pathlib.Path({str(self.stdout_fixture)!r}).read_text())
+                """
+            )
         )
         describe_fixture = self.repo / "ssm-describe.json"
         describe_fixture.write_text(
@@ -466,7 +487,8 @@ class DeployViaSsmTest(unittest.TestCase):
     def test_pull_strips_v_and_sends_ssm(self) -> None:
         proc = self._run("pull", "--tag", "v1.8.306")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
-        self.assertIn("send-command", self.aws_log.read_text())
+        self.assertTrue(self.remote_log.exists(), msg=proc.stderr)
+        self.assertIn("run", self.remote_log.read_text())
         self.assertIn("mi-0a1b2c3d4e5f60718", self.aws_log.read_text())
         self.assertIn('"tag": "1.8.306"', proc.stdout)
         self.assertIn("tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf", proc.stdout)
@@ -536,9 +558,9 @@ class DeployViaSsmTest(unittest.TestCase):
     def test_put_file_sends_ssm(self) -> None:
         proc = self._put_file()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
-        log = self.aws_log.read_text()
-        self.assertIn("send-command", log)
-        self.assertIn("cn-prod-deploy put-file", log)
+        self.assertTrue(self.remote_log.exists(), msg=proc.stderr)
+        remote = json.loads(self.ssm_parameters.read_text())["commands"][0]
+        self.assertIn("put_file ok path=", remote)
 
     def _rewrite_ssm_name(self, name: str) -> None:
         describe = self.repo / "ssm-describe.json"
@@ -550,14 +572,14 @@ class DeployViaSsmTest(unittest.TestCase):
         self._rewrite_ssm_name("tokenkey-cn-prod")
         proc = self._put_file()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
-        self.assertIn("send-command", self.aws_log.read_text())
+        self.assertTrue(self.remote_log.exists(), msg=proc.stderr)
 
     def test_identity_rejects_unregistered_name_before_send(self) -> None:
         self._rewrite_ssm_name("other-host")
         proc = self._put_file()
         self.assertEqual(proc.returncode, 2)
         self.assertIn("SSM identity not ready", proc.stderr)
-        self.assertNotIn("send-command", self.aws_log.read_text())
+        self.assertFalse(self.remote_log.exists())
 
     def test_pull_dry_run_emits_amd64_and_label_checks(self) -> None:
         env = {

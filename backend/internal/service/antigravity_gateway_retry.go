@@ -984,8 +984,23 @@ func isGoogleProjectConfigError(lowerMsg string) bool {
 	return strings.Contains(lowerMsg, "invalid project resource name")
 }
 
+// isGoogleUserLocationUnsupported 识别账号地理/合规拒绝（User location is not
+// supported / FAILED_PRECONDITION 同类文案）。这是账号作用域故障：换号可能成功，
+// 同号重试无意义（upstream Wei-Shaw/sub2api#8732）。
+func isGoogleUserLocationUnsupported(lowerMsg string) bool {
+	if lowerMsg == "" {
+		return false
+	}
+	return strings.Contains(lowerMsg, "user location is not supported") ||
+		strings.Contains(lowerMsg, "location is not supported for the api") ||
+		(strings.Contains(lowerMsg, "location is not supported") &&
+			(strings.Contains(lowerMsg, "user") || strings.Contains(lowerMsg, "failed_precondition")))
+}
+
 func googleGatewayFailureSemantic(statusCode int, lowerMsg string) gatewayFailureSemantic {
-	if statusCode == http.StatusBadRequest && (isGoogleProjectConfigError(lowerMsg) || isModelCapabilityFailureMessage(lowerMsg)) {
+	if statusCode == http.StatusBadRequest && (isGoogleProjectConfigError(lowerMsg) ||
+		isModelCapabilityFailureMessage(lowerMsg) ||
+		isGoogleUserLocationUnsupported(lowerMsg)) {
 		return gatewayFailureSemanticAccountFault
 	}
 	return gatewayFailureSemanticUnclassified

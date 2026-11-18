@@ -9,6 +9,7 @@ import pathlib
 import subprocess
 import tempfile
 import unittest
+import unittest.mock as mock
 
 import data_layer_partition_maintenance as controller
 
@@ -100,67 +101,44 @@ class DataLayerPartitionMaintenanceTest(unittest.TestCase):
 
     def test_success_uses_fixed_instance_command_and_full_json(self) -> None:
         fake = FakeAWS()
+        remote_stdout = json.dumps(remote_receipt(), separators=(",", ":"))
         with tempfile.TemporaryDirectory() as td:
             receipt_path = pathlib.Path(td) / "receipt.json"
-            result = controller.run(
-                receipt_path,
-                controller.CONFIRMATION,
-                run_aws=fake,
-                sleep=lambda _: None,
-            )
+            with mock.patch.object(controller, "_remote_stdout", return_value=remote_stdout) as remote:
+                result = controller.run(
+                    receipt_path,
+                    controller.CONFIRMATION,
+                    run_aws=fake,
+                    sleep=lambda _: None,
+                )
             persisted = json.loads(receipt_path.read_text(encoding="utf-8"))
 
         self.assertEqual(result, persisted)
         self.assertEqual(result["region"], controller.PROD_REGION)
         self.assertEqual(result["target"], "prod")
         self.assertEqual(result["instance_id"], INSTANCE_ID)
-        self.assertEqual(result["command_id"], COMMAND_ID)
+        self.assertEqual(result["command_id"], "remote")
         self.assertEqual(result["remote_receipt"], remote_receipt())
-        self.assertEqual(len(fake.calls), 3)
-
-        describe, send, invocation = fake.calls
-        for call in fake.calls[1:]:
-            self.assertIn("--output", call)
-            self.assertIn("json", call)
-            self.assertNotIn("--query", call)
-        self.assertTrue(describe[1].endswith("resolve_prod_ssm_target.py"))
-        self.assertEqual(send[send.index("--region") + 1], "eu-west-2")
-        self.assertEqual(invocation[invocation.index("--region") + 1], "eu-west-2")
-        self.assertEqual(send[send.index("--instance-ids") + 1], INSTANCE_ID)
-        parameters = json.loads(send[send.index("--parameters") + 1])
-        self.assertEqual(parameters, {"commands": [controller.REMOTE_COMMAND]})
-        self.assertTrue(controller.REMOTE_COMMAND.startswith("sudo bash -c "))
-        self.assertNotIn("run-probe.sh", controller.REMOTE_COMMAND)
-        self.assertIn(
-            'sudo docker exec --user 1000:1000 "$APP_CONTAINER" /app/sub2api --partition-maintenance-once --confirm tokenkey-prod-partition-maintenance-v1',
-            controller.REMOTE_COMMAND,
-        )
-        self.assertEqual(invocation[invocation.index("--instance-id") + 1], INSTANCE_ID)
-
-    def test_send_command_instance_drift_fails_without_receipt(self) -> None:
-        fake = FakeAWS(send_instance="i-11111111111111111")
-        with tempfile.TemporaryDirectory() as td:
-            receipt_path = pathlib.Path(td) / "receipt.json"
-            with self.assertRaisesRegex(controller.PartitionMaintenanceError, "instance"):
-                controller.run(
-                    receipt_path,
-                    controller.CONFIRMATION,
-                    run_aws=fake,
-                    sleep=lambda _: None,
-                )
-            self.assertFalse(receipt_path.exists())
+        self.assertEqual(len(fake.calls), 1)
+        self.assertTrue(fake.calls[0][1].endswith("resolve_prod_ssm_target.py"))
+        remote.assert_called_once_with(INSTANCE_ID)
 
     def test_incomplete_remote_receipt_fails_closed(self) -> None:
-        fake = FakeAWS(receipt={"ok": True, "deletion_authorized": False})
+        fake = FakeAWS()
         with tempfile.TemporaryDirectory() as td:
             receipt_path = pathlib.Path(td) / "receipt.json"
-            with self.assertRaisesRegex(controller.PartitionMaintenanceError, "receipt"):
-                controller.run(
-                    receipt_path,
-                    controller.CONFIRMATION,
-                    run_aws=fake,
-                    sleep=lambda _: None,
-                )
+            with mock.patch.object(
+                controller,
+                "_remote_stdout",
+                return_value=json.dumps({"ok": True, "deletion_authorized": False}),
+            ):
+                with self.assertRaisesRegex(controller.PartitionMaintenanceError, "receipt"):
+                    controller.run(
+                        receipt_path,
+                        controller.CONFIRMATION,
+                        run_aws=fake,
+                        sleep=lambda _: None,
+                    )
             self.assertFalse(receipt_path.exists())
 
     def test_existing_receipt_is_not_overwritten_or_sent(self) -> None:

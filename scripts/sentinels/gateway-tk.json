@@ -1473,7 +1473,7 @@
         "TestChatToMessagesAdmitsImageAndReasoningEffort",
         "TestChatToMessagesRejectsUnsupportedSemantics"
       ],
-      "rationale": "Chat→Messages Plan must keep admitting image_url + reasoning_effort and keep rejecting thinking+effort / root reasoning / hosted tools."
+      "rationale": "Chat→Messages Plan must keep admitting image_url + reasoning_effort and open-source-stripped extras (response_format / legacy functions / root reasoning), while still rejecting thinking+effort / hosted tools / prompt_cache_key / continuation."
     },
     {
       "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",
@@ -7098,17 +7098,17 @@
       "path": "backend/internal/pkg/claude/constants.go",
       "must_contain": [
         "(external, cli)",
-        "v26.3.0"
+        "v26.12.1"
       ],
-      "rationale": "Single-source-of-truth for the Claude Code mimicry identity: DefaultHeaders must carry the canonical UA suffix (external, cli) and node v26.3.0 so a fingerprint-fallback request stays consistent with the single canonical TLS ClientHello. An upstream merge reverting these to the old Linux/(external, cli)/v24.13.0 values reintroduces a self-contradicting TLS-vs-HTTP fingerprint. Also locked by identity_canonical_consistency_test.go."
+      "rationale": "Single-source-of-truth for the Claude Code mimicry identity: DefaultHeaders must carry the canonical UA suffix (external, cli) and node v26.12.1 so a fingerprint-fallback request stays consistent with the single canonical TLS ClientHello. An upstream merge reverting these to the old Linux/(external, cli)/v24.13.0 values reintroduces a self-contradicting TLS-vs-HTTP fingerprint. Also locked by identity_canonical_consistency_test.go."
     },
     {
       "path": "backend/internal/service/identity_service.go",
       "must_contain": [
         "(external, cli)",
-        "v26.3.0"
+        "v26.12.1"
       ],
-      "rationale": "defaultFingerprint fallback identity must match the canonical block (canonicalHTTPObservedStatic): UA suffix (external, cli) and node v26.3.0. Kept as an explicit literal (not a func derivation) so ops/anthropic/capture_cc_fingerprint.py can statically read it; consistency with canonical is locked by identity_canonical_consistency_test.go."
+      "rationale": "defaultFingerprint fallback identity must match the canonical block (canonicalHTTPObservedStatic): UA suffix (external, cli) and node v26.12.1. Kept as an explicit literal (not a func derivation) so ops/anthropic/capture_cc_fingerprint.py can statically read it; consistency with canonical is locked by identity_canonical_consistency_test.go."
     },
     {
       "path": "backend/internal/handler/openai_gateway_tk_video.go",
@@ -7215,10 +7215,10 @@
       "path": "backend/internal/service/tk_billing_served_model_tk_test.go",
       "must_contain": [
         "TestSettleBillingOnAccountServedModel_UsesAccountMappingSSOT",
-        "TestGatewayRecordUsage_TokenPlanLegacyAliasBillsServedModel",
-        "TestOpenAIRecordUsage_TokenPlanLegacyAliasBillsServedModel"
+        "TestGatewayRecordUsage_TokenPlanQwen4SelfMapBillsRequestedModel",
+        "TestOpenAIRecordUsage_TokenPlanQwen4SelfMapBillsRequestedModel"
       ],
-      "rationale": "Focused regressions for served-model settlement: unit SSOT, Anthropic/generic RecordUsage, and the OpenAI-compat china/newapi Token Plan path under BillingModelSourceRequested."
+      "rationale": "Focused regressions for served-model settlement: unit SSOT, Anthropic/generic RecordUsage, and the OpenAI-compat china/newapi Token Plan path under BillingModelSourceRequested. After qwen4 GA, both qwen4.0-max and qwen4.0-max-preview self-map and bill the requested id."
     },
     {
       "path": "backend/internal/service/billing_service_tk_qianfan.go",
@@ -7269,10 +7269,11 @@
         "wan2.7-image",
         "withdrawn qwen-plus alias is not a Token Plan preset",
         "withdrawn qwen-max alias is not a Token Plan preset",
-        "upstream billing id is not a client mapping key",
-        "mapping[\"qwen4.0-max\"]"
+        "GA+preview both self-map as client keys",
+        "mapping[\"qwen4.0-max\"]",
+        "mapping[\"qwen4.0-max-preview\"]"
       ],
-      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. qwen-plus and qwen-max stay off the Token Plan floor; qwen4.0-max maps to qwen4.0-max-preview without an identity key for the upstream id."
+      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. qwen-plus and qwen-max stay off the Token Plan floor; qwen4.0-max and qwen4.0-max-preview both self-map as client keys after GA."
     },
     {
       "path": "backend/internal/service/tk_served_models_manifest_tk_test.go",
@@ -14437,10 +14438,11 @@
         "qwen-audio-3.0-tts-plus",
         "withdrawn qwen-plus alias is not a Token Plan preset",
         "withdrawn qwen-max alias is not a Token Plan preset",
-        "upstream billing id is not a client mapping key",
-        "mapping[\"qwen4.0-max\"]"
+        "GA+preview both self-map as client keys",
+        "mapping[\"qwen4.0-max\"]",
+        "mapping[\"qwen4.0-max-preview\"]"
       ],
-      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. Ali Token Plan floor must include priced TTS identity once manifested."
+      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. Ali Token Plan floor must include priced TTS identity once manifested; qwen4.0-max and qwen4.0-max-preview both self-map after GA."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_media_unpriced_guard.go",
@@ -21068,6 +21070,75 @@
         "TestAccountUsageService_GetOpenAIUsage_RefreshFailureKeepsCachedDataAndReportsError"
       ],
       "rationale": "Preserve distinct explicit-error, passive-read and automatic-stale-observation contracts so upstream refresh changes cannot silently merge them."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_retry.go",
+      "must_contain": [
+        "func isGoogleUserLocationUnsupported(lowerMsg string) bool {",
+        "isGoogleUserLocationUnsupported(lowerMsg)"
+      ],
+      "rationale": "AG/Gemini User location is not supported must stay AccountFault (#8732); dropping the matcher returns geo rejects to unclassified 400 and same-account thrash."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_claude.go",
+      "must_contain": [
+        "!isGoogleUserLocationUnsupported(msg)"
+      ],
+      "rationale": "Antigravity Claude 400 location rejects must not RetryableOnSameAccount."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat.go",
+      "must_contain": [
+        "!isGoogleUserLocationUnsupported(lowerMsg)"
+      ],
+      "rationale": "Antigravity compat HTTP 400 location rejects must switch accounts immediately."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "!isGoogleUserLocationUnsupported(lowerMsg)"
+      ],
+      "rationale": "Antigravity Gemini 400 location rejects must switch accounts immediately."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "!isGoogleUserLocationUnsupported(msg400)"
+      ],
+      "rationale": "Gemini messages/native 400 location rejects must not RetryableOnSameAccount."
+    },
+    {
+      "path": "backend/internal/service/gateway_failover_policy_test.go",
+      "must_contain": [
+        "locationSemantic := googleGatewayFailureSemantic(http.StatusBadRequest, \"user location is not supported\")",
+        "isGoogleUserLocationUnsupported(\"failed_precondition: user location is not supported\")"
+      ],
+      "rationale": "Location AccountFault + negative non-location message regression for #8732."
+    },
+    {
+      "path": "backend/internal/service/account_test_service.go",
+      "must_contain": [
+        "if retried, retryErr := s.tryRefreshOpenAIOAuthProbe401(c, account, credentialAccount, body, modelID, prompt, mode); retried {",
+        "Omit temperature: Opus 4.7+/部分模型拒绝 temperature"
+      ],
+      "rationale": "Admin/scheduled OpenAI OAuth probes must ForceRefresh recoverable 401 before SetError (#8855) and omit temperature (#8625)."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_openai_oauth401_tk.go",
+      "must_contain": [
+        "func (s *AccountTestService) tryRefreshOpenAIOAuthProbe401(",
+        "gw.tryRefreshOpenAI401Token(ctx, credentialAccount, body)"
+      ],
+      "rationale": "TK companion owning one-shot OAuth probe 401 refresh; dropping it restores permanent SetError on refreshable tokens."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_oauth_probe_tk_test.go",
+      "must_contain": [
+        "func TestCreateTestPayloadOmitsTemperature(t *testing.T)",
+        "func TestOpenAIAccountConnection_OAuth401ForceRefreshBeforeSetError(t *testing.T)",
+        "func TestOpenAIAccountConnection_OAuth401PermanentStillSetError(t *testing.T)"
+      ],
+      "rationale": "Positive omit-temperature + recoverable 401 refresh, and negative permanent 401 still SetError."
     }
   ]
 }

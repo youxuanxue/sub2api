@@ -582,7 +582,10 @@ func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
 			ResponseHeaders: resp.Header.Clone(),
 		}
 		if googleSemantic != gatewayFailureSemanticUnclassified {
-			failure.RetryableOnSameAccount = resp.StatusCode == http.StatusBadRequest && !isModelCapabilityFailureMessage(strings.ToLower(message))
+			lowerMsg := strings.ToLower(message)
+			failure.RetryableOnSameAccount = resp.StatusCode == http.StatusBadRequest &&
+				!isModelCapabilityFailureMessage(lowerMsg) &&
+				!isGoogleUserLocationUnsupported(lowerMsg)
 			return applyGatewayFailoverSemantic(failure, gatewayFailoverProfileGoogle, googleSemantic)
 		}
 		return failure

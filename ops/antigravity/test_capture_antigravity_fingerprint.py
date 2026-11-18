@@ -11,6 +11,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -76,6 +77,29 @@ class ParseUaTests(unittest.TestCase):
     def test_unparseable_returns_empty(self):
         self.assertEqual(eng.parse_ua("Mozilla/5.0"), ("", ""))
         self.assertEqual(eng.parse_ua(""), ("", ""))
+
+
+class StructuredWireTests(unittest.TestCase):
+    # Sanitized real agy 1.5.10 Linux request; no account/project identifiers.
+    wire = "antigravity/cli/1.5.10 (aidev_client; os_type=linux; arch=amd64; cl=1023297289; auth_method=consumer)"
+
+    def test_structured_host_parses_and_os_only_difference_is_informational(self):
+        self.assertEqual(eng.parse_ua(self.wire), ("1.5.10", "linux/amd64"))
+        rows = eng.diff_bundle({"http": {"user_agent": self.wire}}, eng.load_antigravity_baseline())
+        self.assertFalse(eng.has_actionable_mismatch(rows))
+        statuses = {r.field: r.status for r in rows}
+        self.assertEqual(statuses["http.ua_identity"], "match")
+        self.assertEqual(statuses["http.ua_os_arch"], "info")
+
+    def test_same_version_identity_drift_is_actionable(self):
+        for ua in [self.wire.replace("1023297289", "9999999999"),
+                   self.wire.replace("consumer", "gcp"),
+                   self.wire.replace("aidev_client", "other_client"),
+                   "antigravity/cli/1.5.10 darwin/arm64"]:
+            with self.subTest(ua=ua):
+                rows = eng.diff_bundle({"http": {"user_agent": ua}}, eng.load_antigravity_baseline())
+                self.assertTrue(eng.has_actionable_mismatch(rows))
+                self.assertEqual(next(r.status for r in rows if r.field == "http.ua_identity"), "mismatch")
 
 
 class DiffTests(unittest.TestCase):
@@ -151,6 +175,26 @@ class DiffTests(unittest.TestCase):
         self.assertFalse(row.critical)
 
 
+class CheckExitTests(unittest.TestCase):
+    def test_http_evidence_controls_check_exit(self):
+        cases = [
+            ({"http": {}, "tls": {}}, 3),
+            ({"http": {}, "tls": {"ja3_hash": "deadbeef"}}, 3),
+            ({"http": {"user_agent": eng.expected_user_agent(_synth_baseline())}}, 3),
+            ({"http": _full_http()}, 0),
+            ({"http": _full_http(ua_version="99.0.0")}, 1),
+            ({"http": {"body_user_agent": "windsurf"}}, 1),
+        ]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "capture.json"
+            for bundle, expected in cases:
+                with self.subTest(bundle=bundle):
+                    path.write_text(json.dumps(bundle))
+                    with mock.patch.object(eng, "load_antigravity_baseline", return_value=_synth_baseline()):
+                        self.assertEqual(eng.main(["check", "--bundle", str(path)]), expected)
+                        self.assertEqual(eng.main(["diff", "--check", "--bundle", str(path)]), expected)
+
+
 class HttpLogMergeTests(unittest.TestCase):
     def test_merges_fields_across_endpoint_lines(self):
         # streamGenerateContent carries UA+body, loadCodeAssist carries ideType, etc.
@@ -199,9 +243,9 @@ class BundleRoundtripTests(unittest.TestCase):
             self.assertEqual(bundle["schema_version"], eng.SCHEMA_VERSION)
             self.assertEqual(bundle["http"]["user_agent"], ua)
             self.assertIn("antigravity_baseline", bundle)
-            # check passes (aligned) on this bundle
+            # The serving request lacks metadata endpoints, so coverage is incomplete.
             rc_check = eng.main(["check", "--bundle", str(out)])
-            self.assertEqual(rc_check, 0)
+            self.assertEqual(rc_check, 3)
 
 
 import mitm_antigravity_http_headers as addon  # noqa: E402

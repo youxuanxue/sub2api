@@ -6,6 +6,7 @@ on:
     paths:
       - backend/internal/service/tk_pricing_overlay.json
       - .github/workflows/pricing-registry-publish.yml
+  workflow_dispatch:
 
 permissions:
   contents: read

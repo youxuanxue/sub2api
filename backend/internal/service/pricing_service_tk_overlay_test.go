@@ -726,6 +726,39 @@ func TestTKPricingOverlay_CacheHitBillingUsesOverlayRates(t *testing.T) {
 	require.InDelta(t, wantCreate, createCost.TotalCost, 1e-9)
 }
 
+// Official Beijing qwen4-max list (captured 2026-11-18): ¥10/¥30 per MTok,
+// cache 5m ¥12.5 / 1h ¥20 / hit ¥0.5; CNY/USD=6.7. Locks the GA self-map owner
+// after retiring the temporary qwen3.8-max copy rates.
+func TestTKPricingOverlay_Qwen40MaxBillsOfficialBeijingList(t *testing.T) {
+	const modelID = "qwen4.0-max"
+	const cnyUSD = 6.7
+	wantIn := 10.0 / cnyUSD / 1e6
+	wantOut := 30.0 / cnyUSD / 1e6
+	wantCreate5m := 12.5 / cnyUSD / 1e6
+	wantCreate1h := 20.0 / cnyUSD / 1e6
+	wantHit := 0.5 / cnyUSD / 1e6
+
+	overlayRow := loadTKPricingOverlay()[modelID]
+	require.NotNil(t, overlayRow, modelID)
+	require.InDelta(t, wantIn, overlayRow.InputCostPerToken, 1e-18)
+	require.InDelta(t, wantOut, overlayRow.OutputCostPerToken, 1e-18)
+	require.InDelta(t, wantCreate5m, overlayRow.CacheCreationInputTokenCost, 1e-18)
+	require.InDelta(t, wantCreate1h, overlayRow.CacheCreationInputTokenCostAbove1hr, 1e-18)
+	require.InDelta(t, wantHit, overlayRow.CacheReadInputTokenCost, 1e-18)
+
+	preview := loadTKPricingOverlay()["qwen4.0-max-preview"]
+	require.NotNil(t, preview)
+	require.InDelta(t, wantIn, preview.InputCostPerToken, 1e-18,
+		"preview customer bill tracks GA Beijing list until preview sunsets")
+	require.Equal(t, 393216, preview.MaxOutputTokens)
+
+	billing := NewBillingService(nil, nil)
+	pricing, err := billing.GetModelPricing(modelID)
+	require.NoError(t, err)
+	require.InDelta(t, wantIn, pricing.InputPricePerToken, 1e-18)
+	require.InDelta(t, wantOut, pricing.OutputPricePerToken, 1e-18)
+}
+
 // TestTKPricingOverlay_DomesticChatCacheReadNotEqualInput is the SSOT gate
 // against the historical DashScope mistake of billing cache_read at full input.
 // Official context-cache list (or family default %) must make cache_read cheaper

@@ -18,12 +18,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// codexCLIProfile loads deploy/stage0/tk_canonical_codex_cli.json (the
-// committed capture of real codex-cli 0.167.2) so the replay test cannot drift
-// from the owner file.
 func codexCLIProfile(t *testing.T) *Profile {
 	t.Helper()
-	raw, err := os.ReadFile("../../../../deploy/stage0/tk_canonical_codex_cli.json")
+	return capturedCLIProfile(t, "tk_canonical_codex_cli.json")
+}
+
+// capturedCLIProfile reads the committed real-CLI capture used by runtime.
+func capturedCLIProfile(t *testing.T, filename string) *Profile {
+	t.Helper()
+	raw, err := os.ReadFile("../../../../deploy/stage0/" + filename)
 	require.NoError(t, err)
 	var j struct {
 		Name                string   `json:"name"`
@@ -50,9 +53,9 @@ func codexCLIProfile(t *testing.T) *Profile {
 }
 
 type parsedHello struct {
-	ciphers, exts, groups, sigalgs, versions, keyShares, psk []uint16
-	alpn                                                     []string
-	sessionIDLen                                             int
+	ciphers, exts, groups, points, sigalgs, versions, keyShares, psk []uint16
+	alpn                                                             []string
+	sessionIDLen                                                     int
 }
 
 func parseClientHelloRecord(t *testing.T, rec []byte) parsedHello {
@@ -85,6 +88,10 @@ func parseClientHelloRecord(t *testing.T, rec []byte) parsedHello {
 		switch id {
 		case 10:
 			h.groups = u16s(d[2:])
+		case 11:
+			for _, point := range d[1:] {
+				h.points = append(h.points, uint16(point))
+			}
 		case 13:
 			h.sigalgs = u16s(d[2:])
 		case 16:

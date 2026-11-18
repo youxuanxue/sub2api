@@ -1,35 +1,17 @@
 {
   "ssot": "docs/approved/design-tencent-ops-control-plane.md",
   "ssm_remote_paths": [
-    "deploy/domestic/deploy_via_ssm.sh",
     "deploy/domestic/remote_exec.py",
-    "ops/antigravity/check-antigravity-account-config.py",
-    "ops/archive/data_layer_archive_prod_canary.py",
-    "ops/archive/data_layer_retention_activation.py",
-    "ops/migration/data_layer_partition_maintenance.py",
-    "ops/newapi/audit-model-mapping.py",
-    "ops/observability/fetch-gateway-debug-log.sh",
     "ops/observability/run-probe.sh",
     "ops/pricing/manage-account-model-mapping-runtime.py",
-    "ops/stage0/assert-live-host-state.sh",
-    "ops/stage0/backup-env-secrets-via-ssm.sh",
-    "ops/stage0/check_exclusive_group_orphans_via_ssm.sh",
-    "ops/stage0/deploy-error-clustering-binary.sh",
     "ops/stage0/deploy_via_ssm.sh",
     "ops/stage0/deploy_via_ssm_bluegreen.sh",
-    "ops/stage0/resolve-prod-running-tag-via-ssm.sh",
     "ops/stage0/run_physical_restore.py",
     "ops/stage0/ssm_execution.py",
     "ops/stage0/sync-container-log-policy-via-ssm.sh",
-    "ops/stage0/sync-feishu-config.sh",
-    "ops/stage0/sync-ghcr-prune-timer-via-ssm.sh",
-    "ops/stage0/sync-host-bbr-via-ssm.sh",
-    "ops/stage0/sync-prod-pg-tuning-via-ssm.sh",
-    "ops/stage0/sync_caddyfile_via_ssm.sh"
+    "ops/stage0/sync-ghcr-prune-timer-via-ssm.sh"
   ],
-  "securestring_write_paths": [
-    "ops/stage0/backup-env-secrets-via-ssm.sh"
-  ],
+  "securestring_write_paths": [],
   "oidc_ssm_workflow_paths": [
     ".github/workflows/deploy-stage0.yml",
     ".github/workflows/ops-physical-restore.yml"

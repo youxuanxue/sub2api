@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Push deploy/host/ensure-tokenkey-bbr.sh via SSM to one managed host and apply.
+# Push deploy/host/ensure-tokenkey-bbr.sh to one managed host and apply.
+# Daily transport: TAT via execute_remote_params.py (TOKENKEY_REMOTE_VIA default).
+# Break-glass: TOKENKEY_REMOTE_VIA=ssm.
 #
 # New hosts get BBR from bootstrap (EC2 user-data / prod bootstrap renderer).
 # deploy-stage0 is an image hot-swap and does NOT re-run bootstrap, so this
@@ -22,7 +24,6 @@ set -euo pipefail
 
 INSTANCE_ID="${1:-${INSTANCE_ID:-}}"
 COMMENT="${2:-${SSM_COMMENT:-ops-host-bbr}}"
-TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-300}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,8 +36,9 @@ if [ -z "${INSTANCE_ID}" ]; then
 fi
 
 if [ "${INSTANCE_ID}" = prod ]; then
+  export PROD_SSM_NODE="${PROD_SSM_NODE:-app-old}"
   RESOLVE_PROD="${SYNC_BBR_RESOLVE_PROD:-${SCRIPT_DIR}/resolve_prod_ssm_target.py}"
-  if ! resolved="$(python3 "${RESOLVE_PROD}" --node "${PROD_SSM_NODE:-app-old}" --target "${PROD_SSM_TARGET:-auto}" --format kv)"; then
+  if ! resolved="$(python3 "${RESOLVE_PROD}" --node "${PROD_SSM_NODE}" --target "${PROD_SSM_TARGET:-auto}" --format kv)"; then
     echo "sync_host_bbr_via_ssm: resolve_prod_ssm_target failed; refusing to guess a host" >&2
     exit 2
   fi
@@ -51,11 +53,10 @@ if [[ ! "$INSTANCE_ID" =~ ^(i|mi)-[a-zA-Z0-9]+$ ]]; then
   exit 2
 fi
 
-if [ -z "${SSM_REGION}" ]; then
+if [ -z "${SSM_REGION}" ] && [[ "${TOKENKEY_REMOTE_VIA:-tat}" == "ssm" ]]; then
   echo "sync_host_bbr_via_ssm: no SSM region; set AWS_REGION or pass 'prod' to use the resolver" >&2
   exit 2
 fi
-ssm_region_args=(--region "${SSM_REGION}")
 SSOT="${SCRIPT_DIR}/../../deploy/host/ensure-tokenkey-bbr.sh"
 [[ -f "${SSOT}" ]] || { echo "missing ${SSOT}" >&2; exit 1; }
 
@@ -66,14 +67,6 @@ mkdir -p "${OUTPUT_DIR}"
 params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
-
-aws_ssm() {
-  if [ "${#ssm_region_args[@]}" -gt 0 ]; then
-    aws "${ssm_region_args[@]}" ssm "$@"
-  else
-    aws ssm "$@"
-  fi
-}
 
 jq -n \
   --arg bbr "${BBR_B64}" \
@@ -99,50 +92,23 @@ jq -n \
 
 python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
-cmd_id="$(aws_ssm send-command \
-  --instance-ids "${INSTANCE_ID}" \
-  --document-name AWS-RunShellScript \
-  --comment "${COMMENT}" \
-  --parameters "file://${params_file}" \
-  --query 'Command.CommandId' --output text)"
-
-echo "ssm command-id=${cmd_id}"
-if [ -n "${GITHUB_OUTPUT:-}" ]; then
-  echo "command_id=${cmd_id}" >> "${GITHUB_OUTPUT}"
+# Host-parse / dry-run: params only.
+if [[ -n "${STAGE0_SSM_OUTPUT_DIR:-}" || "${STAGE0_RENDER_ONLY:-}" == "1" ]]; then
+  echo "[info] wrote ${params_file} (render-only; no remote)"
+  exit 0
 fi
 
-deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
-status="InProgress"
-while true; do
-  status="$(aws_ssm get-command-invocation \
-    --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-    --query 'Status' --output text 2>/dev/null || echo InProgress)"
-  case "${status}" in
-    Success|Failed|TimedOut|Cancelled) break ;;
-  esac
-  if [ "$(date +%s)" -ge "${deadline}" ]; then
-    echo "::error::ssm timeout" >&2
-    status="TimedOut"
-    break
-  fi
-  sleep 5
-done
+export TOKENKEY_REMOTE_VIA="${TOKENKEY_REMOTE_VIA:-tat}"
+python3 "${SCRIPT_DIR}/execute_remote_params.py" \
+  --params-file "${params_file}" \
+  --instance-id "${INSTANCE_ID}" \
+  --comment "${COMMENT}" \
+  --stdout-file "${stdout_file}" \
+  --stderr-file "${stderr_file}"
 
-aws_ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardOutputContent' --output text > "${stdout_file}"
-aws_ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardErrorContent' --output text > "${stderr_file}"
-
-echo '--- ssm stdout (last 8KB) ---'
+echo '--- remote stdout (last 8KB) ---'
 tail -c 8192 "${stdout_file}"
 echo
-echo '--- ssm stderr (last 8KB) ---'
+echo '--- remote stderr (last 8KB) ---'
 tail -c 8192 "${stderr_file}"
 echo
-
-if [ "${status}" != "Success" ]; then
-  echo "::error::ssm command status=${status}" >&2
-  exit 1
-fi

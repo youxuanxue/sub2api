@@ -39,7 +39,20 @@ class RenderProdBootstrapTests(unittest.TestCase):
             body,
         )
         self.assertNotIn("${CADDY_UPSTREAM_TARGET}", body)
-        self.assertIn("tokenkey/hetzner/prod/stage0/env-secrets-backup", body)
+        self.assertIn("tokenkey-restore-prod-env-secrets.sh", body)
+        self.assertIn("--allow-generate", body)
+        # Fail closed: ALLOW_SECRET_GENERATE=false must not still append generate.
+        self.assertNotIn(
+            "First-boot / rehearse templates generate once",
+            body,
+        )
+        self.assertRegex(
+            body,
+            r'elif \[ "\$\{ALLOW_SECRET_GENERATE\}" = true \]; then\n'
+            r'  restore_secret_args\+=\(--allow-generate\)\n'
+            r'fi\n',
+        )
+        self.assertNotIn("tokenkey/hetzner/prod/stage0/env-secrets-backup", body)
         self.assertIn("tokenkey-pgdump.timer", body)
         self.assertIn("tokenkey-disk-metrics.timer", body)
         self.assertIn("tokenkey-ghcr-prune-daily.timer", body)

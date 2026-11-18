@@ -44,7 +44,7 @@
             "organization disabled"
           ],
           "duration_minutes": 360,
-          "description": "账号或组织禁用 - 暂停 6 小时（二次命中由 handle403 升级为 SetError）"
+          "description": "\u8d26\u53f7\u6216\u7ec4\u7ec7\u7981\u7528 - \u6682\u505c 6 \u5c0f\u65f6\uff08\u4e8c\u6b21\u547d\u4e2d\u7531 handle403 \u5347\u7ea7\u4e3a SetError\uff09"
         }
       ]
     },
@@ -62,7 +62,7 @@
     ],
     "tls_profile": {
       "name": "tk_canonical_cc_oauth",
-      "description": "TokenKey canonical Claude Code OAuth TLS profile. Stable id decoupled from cc CLI patch version (TLS ClientHello byte-identical 2.1.142 → 2.1.152). HTTP UA driven at runtime by SettingService.GetClaudeCodeUserAgentVersion. runtime=node v26.3.0 darwin/arm64. ja3_hash=d871d02cecbde59abbf8f4806134addf (2026-05-15 capture).",
+      "description": "TokenKey canonical Claude Code OAuth TLS profile. Stable id is independent of the CLI patch version. Captured from Claude Code 2.1.327 on 2026-11-18 (Node v26.12.1 darwin/arm64): X25519MLKEM768 and X25519 key shares, no padding extension. HTTP observed.user_agent remains a compile-time snapshot; live UA uses SettingService.GetClaudeCodeUserAgentVersion.",
       "enable_grease": false,
       "cipher_suites": [
         4865,
@@ -84,6 +84,7 @@
         53
       ],
       "curves": [
+        4588,
         29,
         23,
         24
@@ -100,6 +101,8 @@
         1281,
         2054,
         1537,
+        2055,
+        1539,
         513
       ],
       "alpn_protocols": [
@@ -110,6 +113,7 @@
         771
       ],
       "key_share_groups": [
+        4588,
         29
       ],
       "psk_modes": [
@@ -128,8 +132,7 @@
         18,
         51,
         45,
-        43,
-        21
+        43
       ]
     }
   },

@@ -328,40 +328,43 @@ func newTokenRefreshRateGate(qps int) *tokenRefreshRateGate {
 	return newTokenRefreshRateGateWithInterval(time.Second / time.Duration(qps))
 }
 
-// newTokenRefreshRateGateWithInterval is a narrow duration seam used to test
-// slot reservation and cancellation without waiting on production-scale QPS.
+// newTokenRefreshRateGateWithInterval also supports deterministic admission tests.
 func newTokenRefreshRateGateWithInterval(interval time.Duration) *tokenRefreshRateGate {
 	return &tokenRefreshRateGate{interval: interval}
 }
 
-func (g *tokenRefreshRateGate) reserveSlot(now time.Time) time.Time {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.next.Before(now) {
-		g.next = now
+// delayForSlot admits at most one caller at now; the caller holds g.mu.
+// Waiters recheck after waking so scheduler stalls cannot turn expired slots
+// into bursts.
+func (g *tokenRefreshRateGate) delayForSlot(now time.Time) time.Duration {
+	if delay := g.next.Sub(now); delay > 0 {
+		return delay
 	}
-	slot := g.next
-	g.next = g.next.Add(g.interval)
-	return slot
+	g.next = now.Add(g.interval)
+	return 0
 }
 
 func (g *tokenRefreshRateGate) wait(ctx context.Context) error {
 	if g == nil || g.interval <= 0 {
-		return nil
-	}
-	slot := g.reserveSlot(time.Now())
-
-	wait := time.Until(slot)
-	if wait <= 0 {
-		return nil
-	}
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
 		return ctx.Err()
-	case <-timer.C:
-		return nil
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		g.mu.Lock()
+		delay := g.delayForSlot(time.Now())
+		g.mu.Unlock()
+		if delay <= 0 {
+			return nil
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
 	}
 }
 

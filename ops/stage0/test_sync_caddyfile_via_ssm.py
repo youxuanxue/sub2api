@@ -17,16 +17,22 @@ import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "sync_caddyfile_via_ssm.sh"
 
+_WRAP = importlib.util.spec_from_file_location(
+    "tk_ssm_wrap_caddy_test",
+    pathlib.Path(__file__).resolve().parent / "ssm_wrap_bash_commands.py",
+)
+assert _WRAP is not None and _WRAP.loader is not None
+_WRAP_MOD = importlib.util.module_from_spec(_WRAP)
+_WRAP.loader.exec_module(_WRAP_MOD)
+
 
 def _ssm_script_body(params: dict) -> str:
-    """Inner script of the single `bash -c …` SSM command (dash-safe wrapper)."""
+    """Inner host script after dash-safe unwrap (echo|b64|bash -s or bash -c)."""
     commands = params["commands"]
-    if len(commands) != 1 or not commands[0].startswith("bash -c "):
-        raise AssertionError(f"expected one bash -c command, got {commands!r}")
-    parts = shlex.split(commands[0])
-    if len(parts) < 3 or parts[0] != "bash" or parts[1] != "-c":
-        raise AssertionError(f"unparseable bash -c wrapper: {commands[0][:120]!r}")
-    return parts[2]
+    unwrapped = _WRAP_MOD.unwrap_commands(commands)
+    if not unwrapped:
+        raise AssertionError(f"empty host script after unwrap: {commands!r}")
+    return "\n".join(unwrapped)
 
 
 def _run_sync(kind: str = "prod", extra_env: dict[str, str] | None = None):
@@ -288,13 +294,17 @@ class SyncCaddyfileUpstreamPolicyTest(unittest.TestCase):
 
 
 class SyncCaddyfileRenderTest(unittest.TestCase):
-    def test_ssm_commands_are_single_bash_c_for_dash_hybrid(self) -> None:
-        """Hybrid SSM uses /bin/sh; pipefail must run under bash -c."""
+    def test_ssm_commands_are_single_dash_safe_bash_wrapper(self) -> None:
+        """Hybrid SSM uses /bin/sh; pipefail must run under a bash wrapper."""
         proc, params = _run_sync("prod")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert params is not None
         self.assertEqual(len(params["commands"]), 1)
-        self.assertTrue(params["commands"][0].startswith("bash -c "))
+        self.assertTrue(
+            params["commands"][0].endswith(" | base64 -d | bash -s")
+            or params["commands"][0].startswith("bash -c "),
+            msg=params["commands"][0][:120],
+        )
         body = _ssm_script_body(params)
         self.assertIn("set -euo pipefail", body)
 
