@@ -12,4 +12,4 @@ SSOT：[`docs/approved/design-tencent-ops-control-plane.md`](../../docs/approved
 
 - 新文件出现 `ssm send-command`（OIDC→SSM 管机）或不在清单内的 SecureString 写入 → 合不进来
 - 迁完一条：去掉违例模式，并**同 PR 从 allowlist 删除**该路径
-- 禁止靠扩 allowlist 开新旁路；例外须另批并改设计
+- allowlist 相对 `origin/main` **只许缩不许增**（门牙机械拒绝扩表；首次落地除外）
