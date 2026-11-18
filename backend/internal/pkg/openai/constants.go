@@ -281,11 +281,12 @@ func IsGPT61SolModelSpelling(model string) bool {
 	}
 }
 
-// IsGPT6SolFamilyModelSpelling covers gpt-6-sol / gpt-6-luna / gpt-6.1-sol request
-// compatibility (sampling strip, chat tools+reasoning gate, registry price lookup).
-// Do not use for "none" effort passthrough: gpt-6.1-sol rejects none/minimal upstream.
+// IsGPT6SolFamilyModelSpelling covers gpt-6-sol / gpt-6-luna / gpt-6.1-sol /
+// gpt-6.2-sol request compatibility (sampling strip, chat tools+reasoning gate,
+// registry price lookup). Do not use for "none" effort passthrough: gpt-6.1-sol
+// and gpt-6.2-sol reject none/minimal upstream.
 func IsGPT6SolFamilyModelSpelling(model string) bool {
-	return IsGPT6SolOrLunaModelSpelling(model) || IsGPT61SolModelSpelling(model)
+	return IsGPT6SolOrLunaModelSpelling(model) || IsGPT61SolModelSpelling(model) || IsGPT62SolModelSpelling(model)
 }
 
 // IsGPT61TerraModelSpelling recognizes gpt-6.1-terra and its effort/compact suffixes.
@@ -306,10 +307,49 @@ func IsGPT61TerraModelSpelling(model string) bool {
 	}
 }
 
+// IsGPT62SolModelSpelling recognizes gpt-6.2-sol and its effort/compact suffixes.
+// Official docs reject none; local effort suffixes still keep the wire id family.
+func IsGPT62SolModelSpelling(model string) bool {
+	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
+	if canonical == "gpt-6.2-sol" {
+		return true
+	}
+	suffix, ok := strings.CutPrefix(canonical, "gpt-6.2-sol-")
+	if !ok {
+		return false
+	}
+	switch suffix {
+	case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "openai-compact":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsGPT62AstraModelSpelling recognizes gpt-6.2-astra and its effort/compact suffixes.
+// Official docs reject none; local effort suffixes still keep the wire id family.
+func IsGPT62AstraModelSpelling(model string) bool {
+	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
+	if canonical == "gpt-6.2-astra" {
+		return true
+	}
+	suffix, ok := strings.CutPrefix(canonical, "gpt-6.2-astra-")
+	if !ok {
+		return false
+	}
+	switch suffix {
+	case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "openai-compact":
+		return true
+	default:
+		return false
+	}
+}
+
 // RequiresResponsesForToolCalls reports models whose tool calls are only
 // available through the Responses API.
 func RequiresResponsesForToolCalls(model string) bool {
-	return IsGPT61SolModelSpelling(model) || IsGPT61TerraModelSpelling(model)
+	return IsGPT61SolModelSpelling(model) || IsGPT61TerraModelSpelling(model) ||
+		IsGPT62SolModelSpelling(model) || IsGPT62AstraModelSpelling(model)
 }
 
 // ValidateGPT61SolReasoningEffort rejects disabled reasoning instead of silently
@@ -333,11 +373,30 @@ func ValidateGPT61TerraReasoningEffort(model, effort string) error {
 	return nil
 }
 
-// ValidateGPT61ReasoningEffort applies the published effort scale of each
-// GPT-6.1 model.
+// ValidateGPT62ReasoningEffort rejects disabled reasoning for gpt-6.2-sol/astra.
+func ValidateGPT62ReasoningEffort(model, effort string) error {
+	if !IsGPT62SolModelSpelling(model) && !IsGPT62AstraModelSpelling(model) {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(effort)) {
+	case "none", "minimal":
+		owner := "gpt-6.2-sol"
+		if IsGPT62AstraModelSpelling(model) {
+			owner = "gpt-6.2-astra"
+		}
+		return fmt.Errorf("%s does not support reasoning effort %q; use low, medium, high, xhigh or max", owner, effort)
+	}
+	return nil
+}
+
+// ValidateGPT61ReasoningEffort applies the published effort scale of GPT-6.1
+// and GPT-6.2 models that share the same request-body gate.
 func ValidateGPT61ReasoningEffort(model, effort string) error {
 	if err := ValidateGPT61SolReasoningEffort(model, effort); err != nil {
 		return err
 	}
-	return ValidateGPT61TerraReasoningEffort(model, effort)
+	if err := ValidateGPT61TerraReasoningEffort(model, effort); err != nil {
+		return err
+	}
+	return ValidateGPT62ReasoningEffort(model, effort)
 }

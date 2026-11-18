@@ -511,12 +511,13 @@ var tkOpenAITextCompatibilityAliases = map[string]string{
 	"gpt-6.1": "gpt-6.1-sol",
 }
 
-// Published OpenAI catalog IDs whose OAuth wire capacity is gpt-5.6-terra.
-// These stay first-class overlay price owners for /pricing; they are not
-// overlay _aliases (unlike bare gpt-5.6 / gpt-6 / gpt-6.1 settlement folds).
+// Published OpenAI catalog IDs whose OAuth wire capacity is a different
+// first-class catalog owner. gpt-6.1-terra is itself servable upstream
+// (identity via allowlist); gpt-6-terra remaps onto it. These remain
+// first-class overlay price owners for /pricing; they are not overlay
+// _aliases (unlike bare gpt-5.6 / gpt-6 / gpt-6.1 settlement folds).
 var tkOpenAIWireRemapAliases = map[string]string{
-	"gpt-6-terra":   "gpt-5.6-terra",
-	"gpt-6.1-terra": "gpt-5.6-terra",
+	"gpt-6-terra": "gpt-6.1-terra",
 }
 
 func openAIAinzyRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
