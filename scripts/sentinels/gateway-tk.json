@@ -3484,10 +3484,17 @@
         "func dropVolcKimiEmptyTextParts(",
         "shaped, err = dropVolcKimiEmptyTextParts(shaped)",
         "func volcKimiTextPartHasNoInput(",
+        "func dropVolcKimiReasoningContentParts(",
+        "shaped, err = dropVolcKimiReasoningContentParts(shaped)",
+        "func rejectVolcKimiAudioContentParts(",
+        "if err = rejectVolcKimiAudioContentParts(shaped); err != nil {",
+        "func rewriteVolcKimiVideoTypeParts(",
+        "shaped, err = rewriteVolcKimiVideoTypeParts(shaped)",
         "func dropVolcKimiInterleavedAssistantText(",
-        "shaped, err = dropVolcKimiInterleavedAssistantText(shaped)"
+        "shaped, err = dropVolcKimiInterleavedAssistantText(shaped)",
+        "func volcKimiToolCallIDs("
       ],
-      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. Interleaved assistant text between tool_calls and tool results is dropped before Volc InvalidParameter 400. Text parts with empty/null/missing text are dropped before missing messages.content.text 400. Message-level content JSON null is rewritten to empty string before Volc missing messages.content 400. Thinking-on pins KVV-legal non-1 temperature to 1.0 before Volc only-1 400."
+      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. thinking/reasoning_text content parts are dropped; type=video rewrites to video_url; audio_url/input_audio return local 400. Open tool-round interleaved assistant text (including between parallel tool results) is dropped before Volc InvalidParameter 400. Text parts with empty/null/missing text are dropped before missing messages.content.text 400. Message-level content JSON null is rewritten to empty string before Volc missing messages.content 400. Thinking-on pins KVV-legal non-1 temperature to 1.0 before Volc only-1 400. Orphan tool_call_id stays 400."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
@@ -3565,14 +3572,16 @@
         "func TestVolcKimiForwardKeepsThinkingAndToolConstraints(",
         "func TestVolcKimiInboundMessageShapes(",
         "Claude-Code-style trajectories insert assistant text",
+        "Parallel tool_calls: assistant text between tool results is also dropped",
         "func TestVolcKimiVideoURLPreflight(",
         "func TestVolcKimiHTTPVideoProbe(",
         "func TestVolcKimiDropsEmptyTextParts(",
         "missing text field",
         "null message content becomes empty string",
-        "absent content key unchanged"
+        "absent content key unchanged",
+        "func TestVolcKimiContentPartCompatibility("
       ],
-      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface, interleaved-assistant drop for Volc tool round-trips, missing/null text-part drop, and message-level content null→empty-string coerce."
+      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface, open-round interleaved-assistant drop for Volc tool round-trips (including parallel results), content-part thinking/video/audio compatibility, missing/null text-part drop, and message-level content null→empty-string coerce."
     },
     {
       "path": "backend/internal/pkg/httputil/body.go",
