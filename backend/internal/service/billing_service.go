@@ -1320,19 +1320,24 @@ func (s *BillingService) applyModelSpecificPricingPolicyEx(model string, pricing
 	usesCacheWritePremium := isOpenAIGPT6AstraModel(normalized) || isOpenAIGPT56Model(normalized) ||
 		openai.IsGPT6SolOrLunaModelSpelling(normalized) || openai.IsGPT61SolModelSpelling(normalized) ||
 		openai.IsGPT61TerraModelSpelling(normalized) || openai.IsGPT62SolModelSpelling(normalized) ||
-		openai.IsGPT62AstraModelSpelling(normalized)
+		openai.IsGPT62AstraModelSpelling(normalized) || normalized == "gpt-6-terra"
 	needsOpus55FastMultiplier := claude.IsOpus55(model) && pricing.FastMultiplier == nil
 	needsMaxReasoningEffortMultiplier := isClaudeFable51Model(model) && pricing.MaxReasoningEffortMultiplier == nil
 	needsCacheCreationPolicy := usesCacheWritePremium && !pricing.CacheCreationPriceExplicit && (pricing.CacheCreationPricePerToken <= 0 ||
 		(pricing.InputPricePerTokenPriority > 0 && pricing.CacheCreationPricePerTokenPriority <= 0))
 	fastRatio := openAIModelFastPricingRatio(normalized)
-	needs12hPrice := usesCacheWritePremium && pricing.CacheCreation12hPricePerToken == nil && (forceDeepSeekRates || !pricing.CacheCreationPriceExplicit)
-	if !needs12hPrice && !needsCacheCreationPolicy && fastRatio <= 0 && !needsMaxReasoningEffortMultiplier && !needsOpus55FastMultiplier {
+	// Official OpenAI 12h cache-write is input×2.5 (30m write×2). Fill even when
+	// the 30m write is an explicit registry/fallback card — Explicit only means
+	// "don't invent the 30m rate", not "omit the published 12h ladder".
+	needs12hPrice := usesCacheWritePremium && pricing.CacheCreation12hPricePerToken == nil
+	ultrafastMult := openAIModelUltrafastMultiplier(normalized, time.Now())
+	needsUltrafast := ultrafastMult > 0 && pricing.UltrafastMultiplier != ultrafastMult
+	if !needs12hPrice && !needsCacheCreationPolicy && fastRatio <= 0 && !needsMaxReasoningEffortMultiplier && !needsOpus55FastMultiplier && !needsUltrafast {
 		return pricing
 	}
 	cloned := *pricing
-	if isOpenAIGPT6AstraModel(normalized) {
-		cloned.UltrafastMultiplier = 6
+	if ultrafastMult > 0 {
+		cloned.UltrafastMultiplier = ultrafastMult
 	}
 	if needsOpus55FastMultiplier {
 		multiplier := 2.0
@@ -1349,7 +1354,7 @@ func (s *BillingService) applyModelSpecificPricingPolicyEx(model string, pricing
 			cloned.CacheCreationPricePerTokenPriority = cloned.InputPricePerTokenPriority * 1.25
 		}
 	}
-	if usesCacheWritePremium && cloned.CacheCreation12hPricePerToken == nil && (forceDeepSeekRates || !cloned.CacheCreationPriceExplicit) {
+	if usesCacheWritePremium && cloned.CacheCreation12hPricePerToken == nil {
 		price := cloned.InputPricePerToken * 2.5
 		cloned.CacheCreation12hPricePerToken = &price
 	}
@@ -1357,11 +1362,48 @@ func (s *BillingService) applyModelSpecificPricingPolicyEx(model string, pricing
 		enforceOpenAIFastPricingRatio(&cloned, fastRatio)
 		if (openai.IsGPT6SolOrLunaModelSpelling(normalized) || openai.IsGPT61SolModelSpelling(normalized) ||
 			openai.IsGPT61TerraModelSpelling(normalized) || openai.IsGPT62SolModelSpelling(normalized) ||
-			openai.IsGPT62AstraModelSpelling(normalized)) && cloned.CacheCreationPriceExplicit {
+			openai.IsGPT62AstraModelSpelling(normalized) || normalized == "gpt-6-terra") && cloned.CacheCreationPriceExplicit {
 			cloned.CacheCreationPricePerTokenPriority = cloned.CacheCreationPricePerToken * fastRatio
 		}
 	}
 	return &cloned
+}
+
+// openAIGPT62UltrafastSixXStart is when GPT-6.2 Sol/Astra Ultrafast leaves the
+// introductory 3× Standard window (official docs: Pacific time).
+var openAIGPT62UltrafastSixXStart = func() time.Time {
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		loc = time.FixedZone("PST", -8*3600)
+	}
+	return time.Date(2027, 3, 1, 0, 0, 0, 0, loc)
+}()
+
+// openAIModelUltrafastMultiplier returns the official Ultrafast×Standard factor
+// for known OpenAI owners. Zero means "no model-owned Ultrafast ladder" — callers
+// keep the generic service_tier multiplier (2×, same as Fast).
+func openAIModelUltrafastMultiplier(normalized string, at time.Time) float64 {
+	switch {
+	case isOpenAIGPT6AstraModel(normalized):
+		// GPT-6 Astra catalog settlement: Ultrafast = 6× Standard.
+		return 6
+	case openai.IsGPT61SolModelSpelling(normalized) || normalized == "gpt-6.1-sol":
+		// developers.openai.com/api/docs/models/gpt-6.1-sol: Ultrafast 6× Standard.
+		return 6
+	case openai.IsGPT62SolModelSpelling(normalized) || openai.IsGPT62AstraModelSpelling(normalized) ||
+		normalized == "gpt-6.2-sol" || normalized == "gpt-6.2-astra":
+		// developers.openai.com/api/docs/models/gpt-6.2-{sol,astra}:
+		// 3× through 2027-02-28 PT, 6× from 2027-03-01 PT.
+		if at.IsZero() {
+			at = time.Now()
+		}
+		if !at.Before(openAIGPT62UltrafastSixXStart) {
+			return 6
+		}
+		return 3
+	default:
+		return 0
+	}
 }
 
 // openAIModelFastPricingRatio 返回业务口径下 OpenAI GPT 模型 Fast/priority
@@ -1370,7 +1412,7 @@ func (s *BillingService) applyModelSpecificPricingPolicyEx(model string, pricing
 func openAIModelFastPricingRatio(normalized string) float64 {
 	switch normalized {
 	case "gpt-5.4", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra",
-		"gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-6.2-sol", "gpt-6.2-astra":
+		"gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-terra", "gpt-6-sol", "gpt-6-luna", "gpt-6.2-sol", "gpt-6.2-astra":
 		return 2.0
 	case "gpt-5.5":
 		return 2.5

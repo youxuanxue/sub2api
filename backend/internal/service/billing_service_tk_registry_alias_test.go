@@ -4,6 +4,7 @@ package service
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -118,14 +119,18 @@ func TestGPT62PublicOwnersBillOfficialRates(t *testing.T) {
 	billing := NewBillingService(&config.Config{}, pricingService)
 
 	cases := []struct {
-		model  string
-		input  float64
-		output float64
-		cache  float64
+		model      string
+		input      float64
+		output     float64
+		cache      float64
+		cacheWrite float64
+		cache12h   float64
+		ultrafast  float64
 	}{
-		{model: "gpt-6.2-sol", input: 2e-6, output: 10e-6, cache: 0.1e-6},
-		{model: "gpt-6.2-astra", input: 8e-6, output: 40e-6, cache: 0.4e-6},
-		{model: "gpt-6.1-terra", input: 1e-6, output: 5e-6, cache: 0.05e-6},
+		{model: "gpt-6.2-sol", input: 2e-6, output: 10e-6, cache: 0.1e-6, cacheWrite: 2.5e-6, cache12h: 5e-6, ultrafast: 3},
+		{model: "gpt-6.2-astra", input: 8e-6, output: 40e-6, cache: 0.4e-6, cacheWrite: 10e-6, cache12h: 20e-6, ultrafast: 3},
+		{model: "gpt-6.1-terra", input: 1e-6, output: 5e-6, cache: 0.05e-6, cacheWrite: 1.25e-6, cache12h: 2.5e-6, ultrafast: 0},
+		{model: "gpt-6-terra", input: 1e-6, output: 5e-6, cache: 0.05e-6, cacheWrite: 1.25e-6, cache12h: 2.5e-6, ultrafast: 0},
 	}
 	for _, tc := range cases {
 		owner := pricingService.GetModelPricing(tc.model)
@@ -138,10 +143,32 @@ func TestGPT62PublicOwnersBillOfficialRates(t *testing.T) {
 		require.NoError(t, err, tc.model)
 		require.InDelta(t, tc.input, pricing.InputPricePerToken, 1e-15, tc.model)
 		require.InDelta(t, tc.output, pricing.OutputPricePerToken, 1e-15, tc.model)
+		require.InDelta(t, tc.cacheWrite, pricing.CacheCreationPricePerToken, 1e-15, tc.model)
+		require.NotNil(t, pricing.CacheCreation12hPricePerToken, tc.model)
+		require.InDelta(t, tc.cache12h, *pricing.CacheCreation12hPricePerToken, 1e-15, tc.model)
+		require.InDelta(t, tc.ultrafast, pricing.UltrafastMultiplier, 1e-15, tc.model)
 		require.False(t, billing.IsServedViaFamilyFloor(tc.model),
 			"%s must resolve as an exact overlay owner, not family floor", tc.model)
-		require.Equal(t, tc.model, normalizeOpenAIBillingModel(tc.model))
+
+		tokens := UsageTokens{InputTokens: 1000, OutputTokens: 1000, CacheCreationTokens: 1000, CacheCreation12hTokens: 1000}
+		std, err := billing.CalculateCostWithServiceTier(tc.model, tokens, 1, "")
+		require.NoError(t, err, tc.model)
+		require.InDelta(t, tc.cache12h*1000, std.CacheCreationCost, 1e-12, tc.model)
+		if tc.ultrafast > 0 {
+			uf, err := billing.CalculateCostWithServiceTier(tc.model, UsageTokens{InputTokens: 1000}, 1, "ultrafast")
+			require.NoError(t, err, tc.model)
+			require.InDelta(t, tc.input*1000*tc.ultrafast, uf.InputCost, 1e-12, tc.model)
+		}
 	}
+
+	require.Equal(t, 3.0, openAIModelUltrafastMultiplier("gpt-6.2-sol", openAIGPT62UltrafastSixXStart.Add(-time.Second)))
+	require.Equal(t, 6.0, openAIModelUltrafastMultiplier("gpt-6.2-sol", openAIGPT62UltrafastSixXStart))
+	require.Equal(t, 6.0, openAIModelUltrafastMultiplier("gpt-6.2-astra", openAIGPT62UltrafastSixXStart))
+	require.Equal(t, 6.0, openAIModelUltrafastMultiplier("gpt-6.1-sol", time.Time{}))
+	require.True(t, configuredCodexSupportsUltrafastServiceTier("gpt-6.2-sol"))
+	require.True(t, configuredCodexSupportsUltrafastServiceTier("gpt-6.2-astra"))
+	require.True(t, configuredCodexSupportsUltrafastServiceTier("gpt-6.1-sol"))
+	require.False(t, configuredCodexSupportsUltrafastServiceTier("gpt-6.1-terra"))
 }
 
 func TestUS043_LegacyFallbackNumbersCannotAffectBilling(t *testing.T) {
