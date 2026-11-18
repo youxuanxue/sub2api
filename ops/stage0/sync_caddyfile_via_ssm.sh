@@ -66,6 +66,9 @@
 #                                     (default: deploy/tencent/candidate-usw-20261022.json).
 #   STAGE0_SSM_TIMEOUT_SECONDS        SSM poll timeout (default 240)
 #   STAGE0_SSM_OUTPUT_DIR             where to drop ssm-params/stdout/stderr
+#
+# Daily transport: TAT via execute_remote_params.py (TOKENKEY_REMOTE_VIA default).
+# Break-glass: TOKENKEY_REMOTE_VIA=ssm.
 
 set -euo pipefail
 
@@ -359,50 +362,27 @@ jq -n \
   ]
 }' > "${params_file}"
 
-cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
-    --instance-ids "${INSTANCE_ID}" \
-    --document-name AWS-RunShellScript \
-    --comment "${COMMENT} kind=${KIND}" \
-    --parameters "file://${params_file}" \
-    --query 'Command.CommandId' --output text)"
+python3 "${HERE}/ssm_wrap_bash_commands.py" "${params_file}"
 
-echo "ssm command-id=${cmd_id}"
-if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  echo "command_id=${cmd_id}" >> "${GITHUB_OUTPUT}"
+if [[ -n "${STAGE0_SSM_OUTPUT_DIR:-}" || "${STAGE0_RENDER_ONLY:-}" == "1" ]]; then
+  echo "[info] wrote ${params_file} (render-only; no remote)"
+  exit 0
 fi
 
-deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
-status="InProgress"
-while true; do
-  status="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
-    --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-    --query 'Status' --output text 2>/dev/null || echo InProgress)"
-  case "${status}" in
-    Success|Failed|TimedOut|Cancelled) break ;;
-  esac
-  if [[ $(date +%s) -ge ${deadline} ]]; then
-    echo "::error::ssm timeout" >&2
-    status="TimedOut"
-    break
-  fi
-  sleep 5
-done
-
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardOutputContent' --output text > "${stdout_file}"
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardErrorContent' --output text > "${stderr_file}"
-
-echo '--- ssm stdout (last 8KB) ---'
-tail -c 8192 "${stdout_file}"
-echo
-echo '--- ssm stderr (last 8KB) ---'
-tail -c 8192 "${stderr_file}"
-echo
-
-if [[ "${status}" != "Success" ]]; then
-  echo "::error::ssm command status=${status}" >&2
+export TOKENKEY_REMOTE_VIA="${TOKENKEY_REMOTE_VIA:-tat}"
+if ! python3 "${HERE}/execute_remote_params.py" \
+  --params-file "${params_file}" \
+  --instance-id "${INSTANCE_ID}" \
+  --comment "${COMMENT} kind=${KIND}" \
+  --stdout-file "${stdout_file}" \
+  --stderr-file "${stderr_file}"; then
+  echo "::error::remote Caddy sync failed" >&2
   exit 1
 fi
+
+echo '--- remote stdout (last 8KB) ---'
+tail -c 8192 "${stdout_file}"
+echo
+echo '--- remote stderr (last 8KB) ---'
+tail -c 8192 "${stderr_file}"
+echo

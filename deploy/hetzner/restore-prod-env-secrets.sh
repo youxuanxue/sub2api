@@ -1,8 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Restore the three Stage0 bootstrap secrets onto a host.
+#
+# Closeout C2/C4 SSOT (docs/approved/design-tencent-ops-closeout.md):
+#   1) Host root-only file already present → reuse (live SSOT)
+#   2) --from-file PATH → copy validated material (COS/operator export)
+#   3) --allow-generate → first provision only
+# SecureString reads are refused unless TOKENKEY_ALLOW_SECURESTRING_READ=1
+# (break-glass until C5 deletes the parameters).
+
 PARAMETER=""
 OUTPUT=""
+FROM_FILE=""
 REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 ALLOW_GENERATE=false
 
@@ -10,17 +20,13 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --parameter) PARAMETER="${2:-}"; shift 2 ;;
     --output) OUTPUT="${2:-}"; shift 2 ;;
+    --from-file) FROM_FILE="${2:-}"; shift 2 ;;
     --allow-generate) ALLOW_GENERATE=true; shift ;;
     *) echo "restore-prod-env-secrets: unknown argument $1" >&2; exit 40 ;;
   esac
 done
 
-[[ "${PARAMETER}" =~ ^/tokenkey/hetzner/[a-z0-9-]+/stage0/env-secrets-backup$ ]] || {
-  echo "restore-prod-env-secrets: bad parameter" >&2
-  exit 40
-}
 [[ "${OUTPUT}" = /* ]] || { echo "restore-prod-env-secrets: absolute output path required" >&2; exit 40; }
-[[ -n "${REGION}" ]] || { echo "restore-prod-env-secrets: AWS region required" >&2; exit 40; }
 
 validate_secret_file() {
   local path="$1"
@@ -61,21 +67,52 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if aws --region "${REGION}" ssm get-parameter \
-  --name "${PARAMETER}" --with-decryption \
-  --query Parameter.Value --output text >"${temp}" 2>"${error_file}"; then
-  validate_secret_file "${temp}" || {
-    echo "restore-prod-env-secrets: SSM value is malformed" >&2
+install_from_path() {
+  local src="$1"
+  local label="$2"
+  validate_secret_file "${src}" || {
+    echo "restore-prod-env-secrets: ${label} is malformed" >&2
     exit 42
   }
+  cp -f "${src}" "${temp}"
+  chmod 0600 "${temp}"
   mv -f "${temp}" "${OUTPUT}"
   chmod 0600 "${OUTPUT}"
-  echo "prod env secrets restored from SSM"
-elif grep -Fq 'ParameterNotFound' "${error_file}"; then
-  if [ "${ALLOW_GENERATE}" != true ]; then
-    echo "restore-prod-env-secrets: parameter is missing and generation is not authorized" >&2
-    exit 45
+  echo "prod env secrets restored from ${label}"
+}
+
+if [ -n "${FROM_FILE}" ]; then
+  install_from_path "${FROM_FILE}" "--from-file"
+  exit 0
+fi
+
+if [ "${TOKENKEY_ALLOW_SECURESTRING_READ:-}" = "1" ]; then
+  [[ "${PARAMETER}" =~ ^/tokenkey/(hetzner|prod|edge|prod-tokyo-precutover)/[a-z0-9-]+/stage0/env-secrets-backup$ ]] \
+    || [[ "${PARAMETER}" =~ ^/tokenkey/prod/stage0/env-secrets-backup$ ]] || {
+    echo "restore-prod-env-secrets: bad parameter" >&2
+    exit 40
+  }
+  [[ -n "${REGION}" ]] || { echo "restore-prod-env-secrets: AWS region required for SecureString break-glass" >&2; exit 40; }
+  if aws --region "${REGION}" ssm get-parameter \
+    --name "${PARAMETER}" --with-decryption \
+    --query Parameter.Value --output text >"${temp}" 2>"${error_file}"; then
+    validate_secret_file "${temp}" || {
+      echo "restore-prod-env-secrets: SSM value is malformed" >&2
+      exit 42
+    }
+    mv -f "${temp}" "${OUTPUT}"
+    chmod 0600 "${OUTPUT}"
+    echo "prod env secrets restored from SSM (TOKENKEY_ALLOW_SECURESTRING_READ=1)"
+    exit 0
   fi
+  if ! grep -Fq 'ParameterNotFound' "${error_file}"; then
+    echo "restore-prod-env-secrets: SSM read failed; refusing secret rotation" >&2
+    tail -c 1024 "${error_file}" >&2
+    exit 44
+  fi
+fi
+
+if [ "${ALLOW_GENERATE}" = true ]; then
   : >"${temp}"
   printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 24)" >>"${temp}"
   printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)" >>"${temp}"
@@ -84,8 +121,9 @@ elif grep -Fq 'ParameterNotFound' "${error_file}"; then
   mv -f "${temp}" "${OUTPUT}"
   chmod 0600 "${OUTPUT}"
   echo "prod env secrets generated for first provision"
-else
-  echo "restore-prod-env-secrets: SSM read failed; refusing secret rotation" >&2
-  tail -c 1024 "${error_file}" >&2
-  exit 44
+  exit 0
 fi
+
+echo "restore-prod-env-secrets: no host file; supply --from-file (COS/operator export) or --allow-generate" >&2
+echo "SecureString is not the live SSOT (closeout C4). Break-glass: TOKENKEY_ALLOW_SECURESTRING_READ=1" >&2
+exit 45

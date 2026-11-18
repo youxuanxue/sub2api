@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 #
+# LEGACY break-glass: Stage0 single-container image deploy via AWS SSM Run-Command.
+# Daily default: prod-rolling-deploy.yml / rolling.py (Tencent TAT).
+# Do not wire this script back into the workflow default without explicit approval.
+#
 # Stage0 SSM deploy primitive.
 #
 # Scope of this script:

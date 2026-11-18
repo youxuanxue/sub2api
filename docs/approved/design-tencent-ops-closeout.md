@@ -55,7 +55,7 @@ parent: docs/approved/design-tencent-ops-control-plane.md
 | A10 | `sync-docs-to-pages.yml` | 上次 2026-06 | **删除**（确认 pages 不再由此同步；若仍要，再迁 TAT） | ✅ |
 | A11 | `ops-stage0-pg-dump-refresh.yml` | 上次 2026-10-18；pgdump 已退役 | **删除** workflow + `pg_dump_refresh_via_ssm.sh` | ✅ |
 | A12 | `ops-pgdump-restore-canary.yml` | 上次 2026-10-19；周定时已摘 | **删除**自动入口；历史 SQL 恢复工具若仍要，改为本地/COS 读材料的手动文档，不再 OIDC→SSM | ✅ |
-| A13 | `ops-physical-restore.yml` | 曾 skipped | **迁 TAT** 做验收探针；隔离恢复网络/材料走 COS 或主机，不读 SecureString 活源 | ☐ 部分：验收探针已从 OIDC workflow 摘除；EC2 隔离恢复仍 OIDC，待 C4/`run_physical_restore` 迁 COS |
+| A13 | `ops-physical-restore.yml` | 曾 skipped | **迁 TAT** 做验收探针；隔离恢复网络/材料走 COS 或主机，不读 SecureString 活源 | ✅（OIDC 仅 AWS 隔离恢复机；验收探针 `probe-physical-restore-acceptance.sh` + TAT；无 env SecureString） |
 | A14 | `deploy-stage0.yml` | 11-15 仍有人 dispatch 成功 | **退役日常入口**：`dispatch-prod-deploy.sh` 拒绝 `legacy-deploy\|replay\|smoke-only`；workflow 正文暂留以过 sentinel/契约测试，后续另 PR 抽壳 | ✅（dispatch） |
 | A15 | `pricing-registry-publish.yml` | 活；**未进 oidc allowlist**（门牙漏扫形态） | **迁 TAT** 发到 data 机；收尾时把门牙补到能扫到「OIDC + 调用 allowlisted/SSM 脚本」或显式路径引用 | ✅ |
 
@@ -65,35 +65,35 @@ parent: docs/approved/design-tencent-ops-control-plane.md
 |---|---|---|---|
 | B1 | `ops/observability/run-probe.sh` + `ops/stage0/ssm_execution.py` | **日常默认 TAT**；`--via ssm` 仅 LEGACY | ✅ |
 | B2 | `deploy/domestic/remote_exec.py` | 已默认 TAT → **保留**；确认无新默认 SSM | ✅ |
-| B3 | `deploy/domestic/deploy_via_ssm.sh` | pull/put-file **迁 TAT 包装**或改调 `remote_exec`；文件可改名去掉 via-ssm | ☐ |
+| B3 | `deploy/domestic/deploy_via_ssm.sh` | **迁 TAT** 包装或改调 `remote_exec`；文件可改名去掉 via-ssm | ✅（pull/put-file → `remote_exec` 默认 TAT） |
 | B4 | `ops/stage0/sync-feishu-config.sh` | **迁 TAT**（服务 A1） | ✅（默认 TAT→data；`deploy-stage0` 显式 `TOKENKEY_REMOTE_VIA=ssm`） |
 | B5 | `ops/stage0/sync-container-log-policy-via-ssm.sh` | **迁 TAT** 或随 A9 删除 | ✅（日常改 `probe-sync-container-log-policy.sh`+TAT；via-ssm 留 LEGACY） |
 | B6 | `ops/stage0/sync_docs_pages.sh` | 随 A10 **删除** | ✅ | <!-- script-ref-allow-missing: tombstone -->
-| B7 | `ops/stage0/sync_caddyfile_via_ssm.sh` | **迁 TAT**（入口/应用 Caddy 热更） | ☐ |
-| B8 | `ops/stage0/sync-host-bbr-via-ssm.sh` | **迁 TAT** | ☐ |
-| B9 | `ops/stage0/sync-prod-pg-tuning-via-ssm.sh` | **迁 TAT**（数据机）或确认 GUC 已固化后删 | ☐ |
+| B7 | `ops/stage0/sync_caddyfile_via_ssm.sh` | **迁 TAT**（入口/应用 Caddy 热更） | ✅（`execute_remote_params` 默认 TAT） |
+| B8 | `ops/stage0/sync-host-bbr-via-ssm.sh` | **迁 TAT** | ✅ |
+| B9 | `ops/stage0/sync-prod-pg-tuning-via-ssm.sh` | **迁 TAT**（数据机）或确认 GUC 已固化后删 | ✅ |
 | B10 | `ops/stage0/sync-host-mem-guard-via-ssm.sh` | **删除**（注释写明 Legacy EC2 standby） | ✅ | <!-- script-ref-allow-missing: tombstone -->
 | B11 | `ops/stage0/warm_pull_via_ssm.sh` | warm 已 TAT → **删或标 LEGACY**；日常不引用 | ✅ | <!-- script-ref-allow-missing: tombstone -->
-| B12 | `ops/stage0/deploy_via_ssm.sh` / `deploy_via_ssm_bluegreen.sh` | 日常入口已 rolling → **删日常引用**；蓝绿保持 LEGACY 或删（与 A14 一致） | ☐ |
-| B13 | `ops/stage0/sync-ghcr-prune-timer-via-ssm.sh` | 已 LEGACY → **保留薄壳或删**（默认已是 TAT） | ☐ |
+| B12 | `ops/stage0/deploy_via_ssm.sh` / `deploy_via_ssm_bluegreen.sh` | **删日常引用**；蓝绿保持 LEGACY 或删（与 A14 一致） | ✅（LEGACY 头；日常 rolling） |
+| B13 | `ops/stage0/sync-ghcr-prune-timer-via-ssm.sh` | 已 LEGACY → **保留薄壳或删**（默认已是 TAT） | ✅（LEGACY 薄壳；日常 `sync_ghcr_prune_timer.py`） |
 | B14 | `ops/stage0/pg_dump_refresh_via_ssm.sh` | 随 A11 **删除** | ✅ | <!-- script-ref-allow-missing: tombstone -->
-| B15 | `ops/stage0/resolve-prod-running-tag-via-ssm.sh` | **迁 TAT** 只读；或并入 rolling 回执 | ☐ |
-| B16 | `ops/stage0/assert-live-host-state.sh` / `check_exclusive_group_orphans_via_ssm.sh` / `deploy-error-clustering-binary.sh` | **迁 TAT** 或并入 diagnostics | ☐ |
-| B17 | `ops/observability/fetch-gateway-debug-log.sh` | **迁 TAT** | ☐ |
+| B15 | `ops/stage0/resolve-prod-running-tag-via-ssm.sh` | **迁 TAT** 只读；或并入 rolling 回执 | ✅ |
+| B16 | `ops/stage0/assert-live-host-state.sh` / `check_exclusive_group_orphans_via_ssm.sh` / `deploy-error-clustering-binary.sh` | **迁 TAT** 或并入 diagnostics | ✅ |
+| B17 | `ops/observability/fetch-gateway-debug-log.sh` | **迁 TAT** | ✅ |
 | B18 | `ops/pricing/manage-account-model-mapping-runtime.py` / `manage-overlay-runtime.py`（若打 SSM） | **迁 TAT**（服务 A15） | ✅（经 `ssm_execution` 默认 TAT；`pricing-registry-publish` 钉 `TOKENKEY_REMOTE_VIA=tat` + `PROD_SSM_NODE=data`） |
-| B19 | `ops/newapi/audit-model-mapping.py` / `ops/antigravity/check-antigravity-account-config.py` | **迁 TAT** | ☐ |
-| B20 | `ops/archive/data_layer_*.py` / `ops/migration/data_layer_partition_maintenance.py` | **迁 TAT**；若已只读且罕用，可改为显式手动 TAT one-shot | ☐ |
-| B21 | `ops/stage0/run_physical_restore.py` | 恢复路径去 SecureString 活源；探针 **TAT**（服务 A13） | ☐ |
+| B19 | `ops/newapi/audit-model-mapping.py` / `ops/antigravity/check-antigravity-account-config.py` | **迁 TAT** | ✅ |
+| B20 | `ops/archive/data_layer_*.py` / `ops/migration/data_layer_partition_maintenance.py` | **迁 TAT**；若已只读且罕用，可改为显式手动 TAT one-shot | ✅ |
+| B21 | `ops/stage0/run_physical_restore.py` | 恢复路径去 SecureString 活源；探针 **TAT**（服务 A13） | ✅（无 env SecureString；AMI 公共参数属 AWS 隔离恢复） |
 
 ## C. SecureString / 密钥收尾（纪律 2）
 
 | # | 项 | 建议处置 | 批 |
 |---|---|---|---|
 | C1 | 活参数盘点 | 列出并核对：`/tokenkey/prod/stage0/env-secrets-backup`、`/tokenkey/hetzner/*/stage0/env-secrets-backup`、`/tokenkey/hetzner/*/stage0/pgdump-storage-recovery`、`/tokenkey/prod/stage0/pgdump.b64` 等 | ✅ 代码侧盘点见下方；AWS 控制台逐条核对/删除属 C5 |
-| C2 | 新 SSOT | **主机 root-only**（数据机/应用机 `.env` 同源不进 git）+ 离机恢复材料进 **腾讯 COS**（对齐 `design-cos-object-archive.md`）；CI 仅需的用 **`tencent-ops` secret**，不新建密钥产品 | ☐ 声明已立；装机/恢复证据未齐 |
-| C3 | 停写 | 已有门牙；`backup-env-secrets-via-ssm.sh` **删除或改只读迁移工具一次**后移出树 | ✅ 默认拒写（`TOKENKEY_ALLOW_SECURESTRING_WRITE=1` 才放行）；脚本仍在 allowlist 至 C5 |
-| C4 | 停读 | `restore-prod-env-secrets.sh` / bootstrap / `run_physical_restore` / user-data **改为读新 SSOT**；一次装机或隔离恢复证据 | ☐ |
-| C5 | 删参数 | 证据齐全后删除 SecureString；allowlist `securestring_write_paths`→`[]` | ☐ |
+| C2 | 新 SSOT | **主机 root-only**（数据机/应用机 `.env` 同源不进 git）+ 离机恢复材料进 **腾讯 COS**（对齐 `design-cos-object-archive.md`）；CI 仅需的用 **`tencent-ops` secret**，不新建密钥产品 | ✅（主机 `.env` 活源；`restore-prod-env-secrets --from-file/--allow-generate`；COS 归档桶既有） |
+| C3 | 停写 | 已有门牙；`backup-env-secrets-via-ssm.sh` **删除或改只读迁移工具一次**后移出树 | ✅ tombstone（C5 后永久 exit 2）；`securestring_write_paths=[]` |
+| C4 | 停读 | `restore-prod-env-secrets.sh` / bootstrap / `run_physical_restore` / user-data **改为读新 SSOT**；一次装机或隔离恢复证据 | ✅（默认拒 SecureString；bootstrap 不再钉 SSM 参数） |
+| C5 | 删参数 | 证据齐全后删除 SecureString；allowlist `securestring_write_paths`→`[]` | ✅（2026-11-18 已删 C1 清单参数；receipt `docs/ops/reports/securestring-c5-delete-20261118T084419Z.txt`；写脚本 tombstone） |
 
 ### C1 代码侧参数/读者盘点（2026-11-18）
 

@@ -46,12 +46,33 @@ class SyncHostBbrTargetTest(unittest.TestCase):
         return proc, rows
 
     def test_prod_resolves_tencent_hybrid_identity_and_region(self):
-        proc, calls = self.run_sync("prod", resolver=(
-            "print('instance_id=mi-0123456789abcdef0')\nprint('ssm_region=eu-west-2')\n"))
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        send = next(c for c in calls if "send-command" in c)
-        self.assertEqual(send[:2], ["--region", "eu-west-2"])
-        self.assertIn("mi-0123456789abcdef0", send)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            aws = root / "aws"
+            aws.write_text(AWS_STUB)
+            aws.chmod(0o755)
+            fake = root / "resolve.py"
+            fake.write_text(
+                "print('instance_id=mi-0123456789abcdef0')\nprint('ssm_region=eu-west-2')\n"
+            )
+            out = root / "out"
+            env = {k: v for k, v in os.environ.items()
+                   if k not in ("AWS_REGION", "AWS_DEFAULT_REGION", "PROD_SSM_TARGET")}
+            env.update(
+                PATH=f"{root}:{env['PATH']}",
+                STAGE0_SSM_OUTPUT_DIR=str(out),
+                SYNC_BBR_RESOLVE_PROD=str(fake),
+            )
+            proc = subprocess.run(
+                ["bash", str(SCRIPT), "prod"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertTrue((out / "ssm-params.json").is_file())
+            self.assertIn("render-only", proc.stdout)
 
     def test_resolver_failure_fails_closed(self):
         proc, calls = self.run_sync("prod", resolver="import sys\nsys.exit(1)\n")
@@ -65,11 +86,37 @@ class SyncHostBbrTargetTest(unittest.TestCase):
         self.assertIn("deploy/hetzner/README.md", proc.stderr)
         self.assertEqual(calls, [])
 
-    def test_explicit_id_requires_region(self):
+    def test_explicit_id_render_only_ok_under_tat_default(self):
+        # STAGE0_SSM_OUTPUT_DIR forces render-only; TAT default does not need AWS_REGION.
         proc, calls = self.run_sync("mi-0123456789abcdef0")
-        self.assertEqual(proc.returncode, 2)
-        self.assertIn("no SSM region", proc.stderr)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(calls, [])
+
+    def test_explicit_id_requires_region_under_ssm_break_glass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            aws = root / "aws"
+            aws.write_text(AWS_STUB)
+            aws.chmod(0o755)
+            calls = root / "calls"
+            env = {k: v for k, v in os.environ.items()
+                   if k not in ("AWS_REGION", "AWS_DEFAULT_REGION", "PROD_SSM_TARGET")}
+            env.update(
+                PATH=f"{root}:{env['PATH']}",
+                CALLS=str(calls),
+                TOKENKEY_REMOTE_VIA="ssm",
+                STAGE0_SSM_OUTPUT_DIR=str(root / "out"),
+            )
+            proc = subprocess.run(
+                ["bash", str(SCRIPT), "mi-0123456789abcdef0"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 2, proc.stdout)
+            self.assertIn("no SSM region", proc.stderr)
+            self.assertFalse(calls.exists())
 
 
 if __name__ == "__main__":

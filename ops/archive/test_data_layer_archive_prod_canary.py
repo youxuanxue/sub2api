@@ -625,65 +625,36 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                 expected_hold_started_at=_HOLD_STARTED_AT,
             )
 
-        ssm_calls: list[list[str]] = []
+        class _FakeSSM:
+            def run_shell_b64(self, instance_id, shell_b64, comment):  # noqa: ANN001
+                self.last = (instance_id, comment, shell_b64)
+                return json.dumps(receipt)
 
-        def fake_ssm(args: list[str]):
-            ssm_calls.append(args)
-            if args[:2] == ["ssm", "send-command"]:
-                return {"Command": {"CommandId": "command-123"}}
-            if args[:2] == ["ssm", "get-command-invocation"]:
-                return {
-                    "Status": "Success",
-                    "StandardOutputContent": json.dumps(receipt),
-                }
-            raise AssertionError(args)
-
-        with mock.patch.object(canary, "_aws_json", side_effect=fake_ssm):
+        fake = _FakeSSM()
+        with mock.patch.object(canary, "_load_ssm_execution", return_value=fake):
             actual_receipt = canary._run_ssm(
                 _INSTANCE_ID,
                 "printf done",
                 timeout_seconds=30,
             )
         self.assertEqual(actual_receipt, receipt)
-        send_parameters = json.loads(
-            ssm_calls[0][ssm_calls[0].index("--parameters") + 1]
-        )
-        self.assertEqual(send_parameters["executionTimeout"], ["30"])
-        self.assertTrue(
-            all(
-                args[args.index("--instance-id") + 1] == _INSTANCE_ID
-                if "--instance-id" in args
-                else args[args.index("--instance-ids") + 1] == _INSTANCE_ID
-                for args in ssm_calls
-            )
-        )
+        self.assertEqual(fake.last[0], _INSTANCE_ID)
 
         with mock.patch.object(
             canary,
-            "_aws_json",
-            return_value={"Command": {"CommandId": "command-timeout"}},
-        ), mock.patch.object(
-            canary.time, "monotonic", side_effect=[0.0, 31.0]
-        ), mock.patch.object(canary, "_command_output", return_value="") as cancel:
-            with self.assertRaisesRegex(canary.CanaryError, "was cancelled"):
+            "_load_ssm_execution",
+            return_value=type(
+                "Boom",
+                (),
+                {"run_shell_b64": staticmethod(lambda *a, **k: (_ for _ in ()).throw(SystemExit("timed out")))},
+            )(),
+        ):
+            with self.assertRaisesRegex(canary.CanaryError, "remote failed"):
                 canary._run_ssm(
                     _INSTANCE_ID,
                     "printf done",
                     timeout_seconds=30,
                 )
-        cancel.assert_called_once_with(
-            [
-                "aws",
-                "ssm",
-                "cancel-command",
-                "--region",
-                canary._ssm_region(_INSTANCE_ID),
-                "--command-id",
-                "command-timeout",
-                "--instance-ids",
-                _INSTANCE_ID,
-            ]
-        )
 
     def test_run_canary_refuses_aws_bucket_even_with_cos_settings_override(
         self,

@@ -44,21 +44,31 @@ def wrap_commands(commands: list[str]) -> list[str]:
 
 
 def unwrap_commands(commands: list[str]) -> list[str]:
-    """Recover the real host script from either dash-safe wrapper form.
+    """Recover the real host script from nested dash-safe wrappers.
 
     Handles this helper's `echo <b64> | base64 -d | bash -s` and the
-    pre-existing `bash -c '<script>'`. No-op on an unwrapped array.
+    pre-existing `bash -c '<script>'`. Peels layers until neither form remains
+    (sync_caddyfile emits bash -c, then this helper re-wraps as echo|b64).
     """
-    if len(commands) != 1:
-        return commands
-    match = _WRAP_RE.fullmatch(commands[0])
-    if match is not None:
-        return base64.b64decode(match.group(1)).decode().split("\n")
-    if commands[0].startswith(_BASH_C_PREFIX):
-        parts = shlex.split(commands[0])
-        if len(parts) >= 3 and parts[0] == "bash" and parts[1] == "-c":
-            return parts[2].split("\n")
-    return commands
+    current = list(commands)
+    for _ in range(4):
+        if len(current) == 1:
+            match = _WRAP_RE.fullmatch(current[0])
+            if match is not None:
+                current = base64.b64decode(match.group(1)).decode().split("\n")
+                continue
+            candidate = current[0]
+        else:
+            # echo|b64 unwrap splits on newlines; a jq `@sh` bash -c payload
+            # becomes many lines that must be rejoined before the next peel.
+            candidate = "\n".join(current)
+        if candidate.startswith(_BASH_C_PREFIX):
+            parts = shlex.split(candidate)
+            if len(parts) >= 3 and parts[0] == "bash" and parts[1] == "-c":
+                current = parts[2].split("\n")
+                continue
+        return current if len(current) == 1 else candidate.split("\n")
+    return current
 
 
 def main(argv: list[str]) -> int:

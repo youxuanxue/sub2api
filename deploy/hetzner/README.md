@@ -242,7 +242,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 | SSM Hybrid / Parameter Store / STS OIDC | 存量旁路仍服务诊断/部分 ops workflow/GHCR 身份与应急 `--via ssm`；`resolve_prod_ssm_target.py` | 默认消费者清零后再批拆 Hybrid/OIDC；门牙见 `ops/tencent-ops/` |
 | QA raw archive | QA S3 已于 2026-11-08 退役；仓库模板与恢复 CLI 已删除 | CFN `tokenkey-prod-qa-raw-archive`=`DELETE_COMPLETE`（2026-11-09）；桶 `HeadBucket` 404；主机 maintenance/boundary 脚本与 unit 已不存在（2026-11-17 核对）。见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界) |
 | 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
-| env-secrets 与备份解密材料 | 仍 SecureString 活源；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 停写已门禁；迁 `tencent-ops`/主机 root-only/COS 后停读再删（同设计文） |
+| env-secrets 与备份解密材料 | **主机 root-only `.env` 为活源**；SecureString 已 C5 删除（2026-11-18） | `restore-prod-env-secrets.sh` 默认拒 SSM；`--from-file` / `--allow-generate`；写脚本 tombstone |
 | 历史 / 休眠 S3 桶 | 见下方「2026-11-17 桶盘点」；Tokyo `cfn-deploy` 镜像中转已改 COS；AWS `archive` 已开 30 天过期 | 休眠桶与 Tokyo 镜像桶已清；`archive` 桶待对象过期后自然空桶再删 |
 | 共享运行文件目录 | `deploy/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 直接消费 | 共享 owner；目录名不再含 `aws/`；改路径须同步引用、生成产物和 sentinel |
 | 第三方 AWS 协议 | Kiro/Bedrock 的 AWS endpoint、SDK/SigV4、S3 兼容客户端 | 属模型供应商/协议能力，不能随基础设施迁移删除 |

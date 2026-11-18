@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# cn-prod image pull + emergency put-file via AWS SSM Hybrid.
+# cn-prod image pull + emergency put-file (legacy operator entry).
+#
+# Daily transport: Tencent TAT via deploy/domestic/remote_exec.py
+# (CN_PROD_REMOTE_VIA / TOKENKEY_REMOTE_VIA default tat). Break-glass: via=ssm.
 #
 # M6 (2026-11-17): blue/green prepare/promote/candidate-smoke/sync-controls and
 # socat entry-origin are retired. Daily releases use rolling.py via
@@ -178,69 +181,50 @@ echo "deploy_via_ssm: target=cn-prod ssm_region=${SSM_REGION} instance_id=${SSM_
 run_ssm() {
   local comment="$1"
   local remote_script="$2"
-  local params_file stdout_file stderr_file cmd_id status deadline
-  # AWS-RunShellScript starts under /bin/sh (dash on cn-prod). Invoke Bash
-  # explicitly; a quoted heredoc preserves the generated script verbatim.
+  local script_file stdout_file stderr_file py via node
+  # AWS-RunShellScript / TAT shell starts under /bin/sh (dash on cn-prod).
+  # Invoke Bash explicitly; a quoted heredoc preserves the generated script.
   remote_script="$(printf "bash <<'TOKENKEY_CN_DEPLOY_SCRIPT'\n%s\nTOKENKEY_CN_DEPLOY_SCRIPT\n" "${remote_script}")"
   if [[ "${CN_PROD_SSM_DRY_RUN:-}" == "1" ]]; then
     printf '%s\n' "${remote_script}"
     return 0
   fi
-  params_file="$(mktemp)"
+  script_file="$(mktemp)"
   stdout_file="$(mktemp)"
   stderr_file="$(mktemp)"
   # shellcheck disable=SC2064
-  trap "rm -f '${params_file}' '${stdout_file}' '${stderr_file}'" RETURN
+  trap "rm -f '${script_file}' '${stdout_file}' '${stderr_file}'" RETURN
+  printf '%s\n' "${remote_script}" >"${script_file}"
 
-  jq -n --arg cmd "${remote_script}" --arg timeout "${EXECUTION_TIMEOUT}" \
-    '{commands:[$cmd],executionTimeout:[$timeout]}' >"${params_file}"
+  # remote_exec (TAT/SSM) does not need boto3; keep PATH python3 so ghcr/probe
+  # paths still work on operator machines without AWS SDK.
+  py="${CN_PROD_PYTHON3:-$(command -v python3)}"
+  via="${CN_PROD_REMOTE_VIA:-${TOKENKEY_REMOTE_VIA:-tat}}"
+  node="${CN_PROD_REMOTE_NODE:-app-a}"
 
-  cmd_id="$(aws ssm send-command \
-    --region "${SSM_REGION}" \
-    --instance-ids "${SSM_INSTANCE_ID}" \
-    --document-name AWS-RunShellScript \
-    --comment "${comment}" \
-    --parameters "file://${params_file}" \
-    --query 'Command.CommandId' --output text)"
-  echo "deploy_via_ssm: ssm command-id=${cmd_id}" >&2
-
-  deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
-  status="InProgress"
-  while true; do
-    status="$(aws ssm get-command-invocation \
-      --region "${SSM_REGION}" \
-      --command-id "${cmd_id}" \
-      --instance-id "${SSM_INSTANCE_ID}" \
-      --query 'Status' --output text 2>/dev/null || echo InProgress)"
-    case "${status}" in Success|Failed|TimedOut|Cancelled) break ;; esac
-    if [[ $(date +%s) -ge ${deadline} ]]; then
-      status="TimedOut"
-      break
-    fi
-    sleep 4
-  done
-
-  aws ssm get-command-invocation \
-    --region "${SSM_REGION}" \
-    --command-id "${cmd_id}" \
-    --instance-id "${SSM_INSTANCE_ID}" \
-    --query 'StandardOutputContent' --output text >"${stdout_file}" || true
-  aws ssm get-command-invocation \
-    --region "${SSM_REGION}" \
-    --command-id "${cmd_id}" \
-    --instance-id "${SSM_INSTANCE_ID}" \
-    --query 'StandardErrorContent' --output text >"${stderr_file}" || true
-
-  echo '--- ssm stdout (last 8KB) ---' >&2
+  if ! "${py}" "${REPO_ROOT}/deploy/domestic/remote_exec.py" \
+    --manifest "${MANIFEST}" \
+    run \
+    --node "${node}" \
+    --via "${via}" \
+    --timeout "${EXECUTION_TIMEOUT}" \
+    --script "${script_file}" >"${stdout_file}" 2>"${stderr_file}"; then
+    echo '--- remote stdout (last 8KB) ---' >&2
+    tail -c 8192 "${stdout_file}" >&2 || true
+    echo >&2
+    echo '--- remote stderr (last 8KB) ---' >&2
+    tail -c 8192 "${stderr_file}" >&2 || true
+    echo >&2
+    echo "deploy_via_ssm: remote status=Failed via=${via} node=${node}" >&2
+    exit 1
+  fi
+  echo '--- remote stdout (last 8KB) ---' >&2
   tail -c 8192 "${stdout_file}" >&2 || true
   echo >&2
-  echo '--- ssm stderr (last 8KB) ---' >&2
-  tail -c 8192 "${stderr_file}" >&2 || true
-  echo >&2
-
-  if [[ "${status}" != "Success" ]]; then
-    echo "deploy_via_ssm: SSM status=${status}" >&2
-    exit 1
+  if [[ -s "${stderr_file}" ]]; then
+    echo '--- remote stderr (last 8KB) ---' >&2
+    tail -c 8192 "${stderr_file}" >&2 || true
+    echo >&2
   fi
   cat "${stdout_file}"
 }

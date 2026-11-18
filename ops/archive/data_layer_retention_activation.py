@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import importlib.util
 import json
 import os
 import pathlib
@@ -90,32 +92,32 @@ def _aws_json(args: list[str]) -> dict[str, Any]:
     return value
 
 
+def _load_ssm_execution():
+    path = HERE.parent / "stage0" / "ssm_execution.py"
+    spec = importlib.util.spec_from_file_location("tk_ssm_execution_retention", path)
+    if spec is None or spec.loader is None:
+        raise ActivationError(f"cannot load {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
 def _run_remote(instance_id: str) -> dict[str, Any]:
-    sent = _aws_json([
-        "aws","ssm","send-command","--region",REGION,"--instance-ids",instance_id,
-        "--document-name","AWS-RunShellScript","--comment","TokenKey data retention activation plan",
-        "--parameters",json.dumps({"commands":[_remote_plan_script()]},separators=(",",":")),"--output","json",
-    ])
-    command_id = str(sent.get("Command",{}).get("CommandId", ""))
-    if not command_id:
-        raise ActivationError("SSM command id is missing")
-    for _ in range(60):
-        result = _aws_json(["aws","ssm","get-command-invocation","--region",REGION,
-            "--command-id",command_id,"--instance-id",instance_id,"--output","json"])
-        if result.get("Status") in {"Pending","InProgress","Delayed"}:
-            time.sleep(3)
-            continue
-        if result.get("Status") != "Success" or result.get("ResponseCode") != 0:
-            raise ActivationError(f"activation plan SSM failed: {result.get('Status')} {str(result.get('StandardErrorContent') or '')[:400]}")
-        lines = [x for x in str(result.get("StandardOutputContent") or "").splitlines() if x.strip()]
-        try:
-            payload = json.loads(lines[-1])
-        except (IndexError,json.JSONDecodeError) as exc:
-            raise ActivationError("activation plan output is invalid") from exc
-        if not isinstance(payload,dict) or payload.get("deletion_authorized") is not False:
-            raise ActivationError("activation plan failed safety validation")
-        return {**payload,"instance_id":instance_id,"command_id":command_id}
-    raise ActivationError("activation plan SSM timed out")
+    ssm = _load_ssm_execution()
+    script = _remote_plan_script()
+    shell_b64 = base64.b64encode(script.encode()).decode()
+    try:
+        stdout = ssm.run_shell_b64(instance_id, shell_b64, "TokenKey data retention activation plan")
+    except SystemExit as exc:
+        raise ActivationError(f"activation plan remote failed: {exc}") from exc
+    lines = [x for x in stdout.splitlines() if x.strip()]
+    try:
+        payload = json.loads(lines[-1])
+    except (IndexError, json.JSONDecodeError) as exc:
+        raise ActivationError("activation plan output is invalid") from exc
+    if not isinstance(payload, dict) or payload.get("deletion_authorized") is not False:
+        raise ActivationError("activation plan failed safety validation")
+    return {**payload, "instance_id": instance_id, "command_id": "remote"}
 
 
 def _ready(payload: dict[str, Any]) -> tuple[bool,list[str]]:

@@ -344,15 +344,18 @@ printf '%s' "$RESTORE_SECRETS_B64" | base64 -d | gunzip > /usr/local/bin/tokenke
 chmod 0755 /usr/local/bin/tokenkey-restore-prod-env-secrets.sh
 
 SECRET_FILE=/var/lib/tokenkey/.env.secret
-restore_secret_args=(
-  --parameter "/tokenkey/hetzner/prod/stage0/env-secrets-backup" \
-  --output "$SECRET_FILE"
-)
-if [ "${ALLOW_SECRET_GENERATE}" = true ]; then
+# Closeout C4: host root-only / --from-file / --allow-generate. SecureString is
+# not the live SSOT (TOKENKEY_ALLOW_SECURESTRING_READ=1 break-glass only).
+restore_secret_args=(--output "$SECRET_FILE")
+if [ -n "${TOKENKEY_ENV_SECRETS_FILE:-}" ]; then
+  restore_secret_args+=(--from-file "${TOKENKEY_ENV_SECRETS_FILE}")
+elif [ "${ALLOW_SECRET_GENERATE}" = true ]; then
+  restore_secret_args+=(--allow-generate)
+else
+  # First-boot / rehearse templates generate once when no operator export is mounted.
   restore_secret_args+=(--allow-generate)
 fi
-AWS_REGION="${SSM_REGION}" /usr/local/bin/tokenkey-restore-prod-env-secrets.sh \
-  "${restore_secret_args[@]}"
+/usr/local/bin/tokenkey-restore-prod-env-secrets.sh "${restore_secret_args[@]}"
 set -a; . "$SECRET_FILE"; set +a
 
 # Off-box storage is installed separately with private host-only credentials.
