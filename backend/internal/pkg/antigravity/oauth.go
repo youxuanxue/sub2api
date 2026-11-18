@@ -38,7 +38,7 @@ const (
 	// Ground truth = 本机 `agy`（Antigravity CLI，`brew install --cask antigravity-cli`）版本；
 	// UA 形如 `antigravity/cli/<ver> darwin/arm64`。运行时可经 admin 设置
 	// antigravity_user_agent_version 热推覆盖。
-	DefaultUserAgentVersion = "1.5.10"
+	DefaultUserAgentVersion = "1.5.11"
 
 	// 固定的 redirect_uri（用户需手动复制 code）
 	RedirectURI = "http://localhost:8085/callback"
@@ -168,7 +168,7 @@ func GetUserAgentVersionForContext(ctx context.Context) string {
 }
 
 // BuildUserAgent 使用指定版本号构造 User-Agent；版本为空或非法时回退默认值。
-// 对齐 agy 1.5.10 的 aidev_client / build CL / consumer 身份；
+// 对齐 agy 1.5.11 的 aidev_client / build CL / consumer 身份；
 // os/arch 保留 darwin/arm64 策略，与宿主无关。
 func BuildUserAgent(version string) string {
 	normalized := NormalizeUserAgentVersion(version)

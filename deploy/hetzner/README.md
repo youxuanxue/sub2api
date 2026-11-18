@@ -242,7 +242,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 
 | 类别 | 状态 | 动作 |
 |---|---|---|
-| SSM Hybrid / OIDC / Parameter Store | **禁新增**；OIDC→SSM workflow 已抽壳/拒绝（`oidc_ssm_workflow_paths=[]`）；SecureString 已 C5 | 日常 warm+rolling+`run-probe`/`ssm_execution` 默认 TAT。allowlist 仅剩 break-glass SSM 字面量与 AWS 隔离恢复（`run_physical_restore`）。Hybrid/OIDC **角色注销**另批。门牙见 `ops/tencent-ops/`；清单 [design-tencent-ops-closeout](../../docs/approved/design-tencent-ops-closeout.md) |
+| SSM Hybrid / OIDC / Parameter Store | **禁新增**；OIDC→SSM workflow 已抽壳/拒绝（`oidc_ssm_workflow_paths=[]`）；SecureString 已 C5 | 日常 warm+rolling+`run-probe`/`ssm_execution` 默认 TAT。allowlist `ssm_remote_paths` 仅剩 break-glass SendCommand owner `ops/stage0/ssm_execution.py`（隔离恢复等调用方走该 owner，不再各自占位）。Hybrid/OIDC **角色注销**另批。门牙见 `ops/tencent-ops/`；清单 [design-tencent-ops-closeout](../../docs/approved/design-tencent-ops-closeout.md) |
 | Oregon 保留计算 | **必须留** | 2026-11-17：prod `or-1..4` 合计 124 live accounts；cn-prod 无 Oregon 行 |
 | 旧 physical-backup CFN/S3 | **已清** | 2026-11 核对 `DELETE_COMPLETE` / `HeadBucket` 404 |
 | Tokyo EC2 / `aws-fresh` | **已清** | resolver 失败关闭 |
@@ -252,7 +252,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 
 | 类别 | 当前用途 / owner | 清理条件 |
 |---|---|---|
-| SSM Hybrid / Parameter Store / STS OIDC | 存量旁路仍服务诊断/部分 ops workflow/GHCR 身份与应急 `--via ssm`；`resolve_prod_ssm_target.py` | 默认消费者清零后再批拆 Hybrid/OIDC；门牙见 `ops/tencent-ops/` |
+| SSM Hybrid / Parameter Store / STS OIDC | 日常默认已 TAT；残留为 break-glass `--via ssm`、GHCR/Oregon 身份与 resolver 矩阵；`resolve_prod_ssm_target.py` | 默认消费者已清零；拆 Hybrid/OIDC 角色另批；门牙见 `ops/tencent-ops/` |
 | QA raw archive | QA S3 已于 2026-11-08 退役；仓库模板与恢复 CLI 已删除 | CFN `tokenkey-prod-qa-raw-archive`=`DELETE_COMPLETE`（2026-11-09）；桶 `HeadBucket` 404；主机 maintenance/boundary 脚本与 unit 已不存在（2026-11-17 核对）。见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界) |
 | 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
 | env-secrets 与备份解密材料 | **主机 root-only `.env` 为活源**；SecureString 已 C5 删除（2026-11-18） | `restore-prod-env-secrets.sh` 默认拒 SSM；`--from-file` / `--allow-generate`；删参 owner `ops/stage0/delete-legacy-securestring-params.sh`；写脚本 tombstone；C4 证据见下节 |
