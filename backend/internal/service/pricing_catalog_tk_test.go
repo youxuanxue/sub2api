@@ -833,13 +833,13 @@ func TestPublicCatalog_HidesLegacyTokenPlanAliasesButKeepsPricing(t *testing.T) 
 	for _, model := range public.Data {
 		visible[model.ModelID] = true
 	}
-	for legacy, replacement := range newAPIAliTokenPlanModelAliases() {
-		assert.True(t, s.IsModelPriced(legacy, PlatformNewAPI), "legacy %s retains PAYG catalog pricing; Token Plan billing settles on served model", legacy)
-		assert.Equal(t, isTkCuratedNewAPIModelDisplayed(legacy), visible[legacy], "scoped alias %s follows shared catalog display intent", legacy)
-		if isTkCuratedNewAPIModelDisplayed(replacement) {
-			assert.True(t, visible[replacement], "displayed replacement %s remains public", replacement)
+	for alias, owner := range newAPIAliTokenPlanModelAliases() {
+		assert.True(t, s.IsModelPriced(alias, PlatformNewAPI), "public alias %s stays priced via overlay owner %s", alias, owner)
+		assert.Equal(t, isTkCuratedNewAPIModelDisplayed(alias), visible[alias], "scoped alias %s follows shared catalog display intent", alias)
+		if isTkCuratedNewAPIModelDisplayed(owner) {
+			assert.True(t, visible[owner], "displayed owner %s remains public", owner)
 		} else {
-			assert.False(t, visible[replacement], "non-displayed upstream id %s stays off the public catalog", replacement)
+			assert.False(t, visible[owner], "non-displayed upstream id %s stays off the public catalog", owner)
 		}
 	}
 }

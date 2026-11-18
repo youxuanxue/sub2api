@@ -7223,10 +7223,10 @@
       "path": "backend/internal/service/tk_billing_served_model_tk_test.go",
       "must_contain": [
         "TestSettleBillingOnAccountServedModel_UsesAccountMappingSSOT",
-        "TestGatewayRecordUsage_TokenPlanQwen4SelfMapBillsRequestedModel",
-        "TestOpenAIRecordUsage_TokenPlanQwen4SelfMapBillsRequestedModel"
+        "TestGatewayRecordUsage_TokenPlanQwen4AliasBillsRequestedModel",
+        "TestOpenAIRecordUsage_TokenPlanQwen4AliasBillsRequestedModel"
       ],
-      "rationale": "Focused regressions for served-model settlement: unit SSOT, Anthropic/generic RecordUsage, and the OpenAI-compat china/newapi Token Plan path under BillingModelSourceRequested. After qwen4 GA, both qwen4.0-max and qwen4.0-max-preview self-map and bill the requested id."
+      "rationale": "Focused regressions for served-model settlement: unit SSOT, Anthropic/generic RecordUsage, and the OpenAI-compat china/newapi Token Plan path under BillingModelSourceRequested. Public qwen4.0-max/qwen4.0-max-preview remap to undotted upstream qwen4-max/qwen4-max-preview; BillingModelSourceRequested still bills the requested public id."
     },
     {
       "path": "backend/internal/service/billing_service_tk_qianfan.go",
@@ -7277,11 +7277,11 @@
         "wan2.7-image",
         "withdrawn qwen-plus alias is not a Token Plan preset",
         "withdrawn qwen-max alias is not a Token Plan preset",
-        "GA+preview both self-map as client keys",
+        "GA+preview stay public client keys",
         "mapping[\"qwen4.0-max\"]",
         "mapping[\"qwen4.0-max-preview\"]"
       ],
-      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. qwen-plus and qwen-max stay off the Token Plan floor; qwen4.0-max and qwen4.0-max-preview both self-map as client keys after GA."
+      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. qwen-plus and qwen-max stay off the Token Plan floor; qwen4.0-max and qwen4.0-max-preview stay public client keys and remap to undotted upstream qwen4-max/qwen4-max-preview."
     },
     {
       "path": "backend/internal/service/tk_served_models_manifest_tk_test.go",
@@ -14433,11 +14433,11 @@
         "qwen-audio-3.0-tts-plus",
         "withdrawn qwen-plus alias is not a Token Plan preset",
         "withdrawn qwen-max alias is not a Token Plan preset",
-        "GA+preview both self-map as client keys",
+        "GA+preview stay public client keys",
         "mapping[\"qwen4.0-max\"]",
         "mapping[\"qwen4.0-max-preview\"]"
       ],
-      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. Ali Token Plan floor must include priced TTS identity once manifested; qwen4.0-max and qwen4.0-max-preview both self-map after GA."
+      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. Ali Token Plan floor must include priced TTS identity once manifested; qwen4.0-max and qwen4.0-max-preview stay public client keys and remap to undotted upstream qwen4-max/qwen4-max-preview."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_media_unpriced_guard.go",
