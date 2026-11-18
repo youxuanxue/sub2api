@@ -72,11 +72,15 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	"gpt-6-astra": {},
 	"gpt-6-luna":  {},
 	"gpt-6-sol":   {},
-	// GPT-6 / 6.1 Terra: public catalog owners; OAuth floor remaps wire traffic
-	// onto gpt-5.6-terra (see tkOpenAIWireRemapAliases).
+	// GPT-6 Terra: public catalog owner; OAuth floor remaps wire traffic onto
+	// gpt-6.1-terra (see tkOpenAIWireRemapAliases). gpt-6.1-terra is identity.
 	"gpt-6-terra":   {},
 	"gpt-6.1-sol":   {},
 	"gpt-6.1-terra": {},
+	// GPT-6.2 Sol/Astra: prod OAuth Codex + api.openai.com /v1/models evidence
+	// 2026-11-18; self-mapped floor + public catalog owners.
+	"gpt-6.2-astra": {},
+	"gpt-6.2-sol":   {},
 	// GPT Image 2 remains the default Images model id and an official OpenAI
 	// SKU; keep identity so floor-applied OAuth accounts do not lose it when
 	// empty-mapping fail-open is replaced by the compiled floor.

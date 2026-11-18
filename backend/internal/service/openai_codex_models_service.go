@@ -516,7 +516,8 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		descriptor.ServiceTiers = configuredCodexServiceTiersForModel(modelID)
 		if isOpenAICodexReasoningGPTModel(modelID) {
 			defaultReasoningLevel := "medium"
-			if getNormalizedCodexModel(modelID) == "gpt-5.6-sol" || openai.IsGPT61SolModelSpelling(modelID) {
+			if getNormalizedCodexModel(modelID) == "gpt-5.6-sol" || openai.IsGPT61SolModelSpelling(modelID) ||
+				openai.IsGPT62SolModelSpelling(modelID) {
 				defaultReasoningLevel = "low"
 			}
 			descriptor.DefaultReasoningLevel = &defaultReasoningLevel
@@ -528,13 +529,14 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 			if isOpenAIGPT56Model(modelID) || openai.IsGPT6SolOrLunaModelSpelling(modelID) || openai.IsGPT61SolModelSpelling(modelID) {
 				descriptor.MaxContextWindow = configuredCodexGPT56MaxContext
 			}
-			// gpt-6.1-sol matches Astra-sized context (1.05M) per official SKU /
-			// overlay max_input_tokens — not the older Sol/Luna 872k template.
-			if openai.IsGPT61SolModelSpelling(modelID) {
+			// gpt-6.1-sol / gpt-6.2-sol/astra match Astra-sized context (1.05M)
+			// per official SKU / overlay max_input_tokens.
+			if openai.IsGPT61SolModelSpelling(modelID) || openai.IsGPT62SolModelSpelling(modelID) ||
+				openai.IsGPT62AstraModelSpelling(modelID) {
 				descriptor.ContextWindow = configuredCodexGPT6AstraContext
 				descriptor.MaxContextWindow = configuredCodexGPT6AstraContext
 			}
-			if isOpenAIGPT6AstraModel(modelID) {
+			if isOpenAIGPT6AstraModel(modelID) || openai.IsGPT62AstraModelSpelling(modelID) {
 				// Codex resolves the Ultra workflow to this effort before inference.
 				// openai/codex a9896da3: codex-rs/models-manager/models.json.
 				multiAgentEffort := "xhigh"
@@ -619,7 +621,12 @@ func configuredCodexSupportsPriorityServiceTier(modelID string) bool {
 }
 
 func configuredCodexSupportsUltrafastServiceTier(modelID string) bool {
-	return normalizeKnownOpenAICodexModel(modelID) == "gpt-5.6-sol"
+	switch normalizeKnownOpenAICodexModel(modelID) {
+	case "gpt-5.6-sol", "gpt-6.1-sol", "gpt-6.2-sol", "gpt-6.2-astra":
+		return true
+	default:
+		return false
+	}
 }
 
 func configuredCodexGrokReasoningLevels(modelID string) []configuredCodexReasoningLevel {
@@ -684,7 +691,9 @@ func configuredCodexGPTReasoningLevels(modelID string) []configuredCodexReasonin
 			Description: "Maximum reasoning depth for complex tasks",
 		})
 	}
-	if isOpenAIGPT6AstraModel(modelID) || openai.IsGPT61SolModelSpelling(modelID) || normalized == "gpt-5.6-sol" || normalized == "gpt-5.6-terra" {
+	if isOpenAIGPT6AstraModel(modelID) || openai.IsGPT61SolModelSpelling(modelID) ||
+		openai.IsGPT62SolModelSpelling(modelID) || openai.IsGPT62AstraModelSpelling(modelID) ||
+		normalized == "gpt-5.6-sol" || normalized == "gpt-5.6-terra" {
 		levels = append(levels, configuredCodexReasoningLevel{
 			Effort:      "ultra",
 			Description: "Maximum reasoning with automatic task delegation",
@@ -2150,8 +2159,8 @@ func CodexModelsManifestETag(body []byte) string {
 }
 
 var apiKeyCodexModelsWithoutResponsesLite = map[string]struct{}{
-	"gpt-6.2-sol":   {},
 	"gpt-6.2-astra": {},
+	"gpt-6.2-sol":   {},
 	"gpt-6.1-terra": {},
 	"gpt-6.1-sol":   {},
 	"gpt-6-astra":   {},

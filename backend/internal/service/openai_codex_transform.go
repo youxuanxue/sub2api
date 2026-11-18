@@ -94,9 +94,9 @@ var codexVersionModelPrefixes = []struct {
 	prefix string
 	target string
 }{
-	{prefix: "gpt-6.1-terra", target: "gpt-6.1-terra"},
-	{prefix: "gpt-6.2-sol", target: "gpt-6.2-sol"},
 	{prefix: "gpt-6.2-astra", target: "gpt-6.2-astra"},
+	{prefix: "gpt-6.2-sol", target: "gpt-6.2-sol"},
+	{prefix: "gpt-6.1-terra", target: "gpt-6.1-terra"},
 	{prefix: "gpt-6.1-sol", target: "gpt-6.1-sol"},
 	{prefix: "gpt-6.1", target: "gpt-6.1-sol"},
 	{prefix: "gpt-6-terra", target: "gpt-6-terra"},
@@ -743,8 +743,11 @@ func remapOpenAICodexWireModel(modelID string) string {
 	if modelID == "" {
 		return ""
 	}
-	if base := openai.GPT62ModelID(modelID); base != "" {
-		return base
+	if openai.IsGPT62AstraModelSpelling(modelID) {
+		return "gpt-6.2-astra"
+	}
+	if openai.IsGPT62SolModelSpelling(modelID) {
+		return "gpt-6.2-sol"
 	}
 	if openai.IsGPT61TerraModelSpelling(modelID) {
 		return "gpt-6.1-terra"

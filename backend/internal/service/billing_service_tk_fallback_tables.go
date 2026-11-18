@@ -6,20 +6,6 @@ import "strings"
 // price cards (Fable / Gemini / GPT / DeepSeek / GLM / domestic LLM / Doubao).
 // Claude classic Opus/Sonnet/Haiku and xAI Grok cards stay in initFallbackPricing.
 func (s *BillingService) tkInitFallbackPricingTables() {
-	s.fallbackPrices["gpt-6.2-astra"] = &ModelPricing{
-		InputPricePerToken:                 8e-6,
-		InputPricePerTokenPriority:         16e-6,
-		OutputPricePerToken:                40e-6,
-		OutputPricePerTokenPriority:        80e-6,
-		CacheCreationPricePerToken:         10e-6,
-		CacheCreationPricePerTokenPriority: 20e-6,
-		CacheReadPricePerToken:             0.4e-6,
-		CacheReadPricePerTokenPriority:     0.8e-6,
-		CacheCreationPriceExplicit:         true,
-		LongContextInputThreshold:          272_000,
-		LongContextInputMultiplier:         2,
-		LongContextOutputMultiplier:        1.5,
-	}
 
 	s.fallbackPrices["claude-opus-5-5"] = &ModelPricing{
 		InputPricePerToken:         4e-6,
@@ -104,6 +90,7 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 		LongContextInputMultiplier:         2,
 		LongContextOutputMultiplier:        1.5,
 	}
+	gpt61TerraCache12h := 2.5e-6
 	s.fallbackPrices["gpt-6.1-terra"] = &ModelPricing{
 		InputPricePerToken:                 1e-6,
 		InputPricePerTokenPriority:         2e-6,
@@ -111,6 +98,7 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 		OutputPricePerTokenPriority:        10e-6,
 		CacheCreationPricePerToken:         1.25e-6,
 		CacheCreationPricePerTokenPriority: 2.5e-6,
+		CacheCreation12hPricePerToken:      &gpt61TerraCache12h,
 		CacheReadPricePerToken:             0.05e-6,
 		CacheReadPricePerTokenPriority:     0.1e-6,
 		CacheCreationPriceExplicit:         true,
@@ -118,6 +106,7 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 		LongContextInputMultiplier:         2,
 		LongContextOutputMultiplier:        1.5,
 	}
+	gpt61SolCache12h := 5e-6
 	s.fallbackPrices["gpt-6.1-sol"] = &ModelPricing{
 		InputPricePerToken:                 2e-6,
 		InputPricePerTokenPriority:         4e-6,
@@ -125,9 +114,49 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 		OutputPricePerTokenPriority:        20e-6,
 		CacheCreationPricePerToken:         2.5e-6,
 		CacheCreationPricePerTokenPriority: 5e-6,
+		CacheCreation12hPricePerToken:      &gpt61SolCache12h,
 		CacheReadPricePerToken:             0.1e-6,
 		CacheReadPricePerTokenPriority:     0.2e-6,
 		CacheCreationPriceExplicit:         true,
+		UltrafastMultiplier:                6,
+		LongContextInputThreshold:          272_000,
+		LongContextInputMultiplier:         2,
+		LongContextOutputMultiplier:        1.5,
+	}
+	// GPT-6.2 Sol: official $2/$10 per MTok (developers.openai.com/api/docs/models/gpt-6.2-sol).
+	// 12h cache write $5/MTok; Ultrafast 3× Standard through 2027-02-28 PT.
+	gpt62SolCache12h := 5e-6
+	s.fallbackPrices["gpt-6.2-sol"] = &ModelPricing{
+		InputPricePerToken:                 2e-6,
+		InputPricePerTokenPriority:         4e-6,
+		OutputPricePerToken:                10e-6,
+		OutputPricePerTokenPriority:        20e-6,
+		CacheCreationPricePerToken:         2.5e-6,
+		CacheCreationPricePerTokenPriority: 5e-6,
+		CacheCreation12hPricePerToken:      &gpt62SolCache12h,
+		CacheReadPricePerToken:             0.1e-6,
+		CacheReadPricePerTokenPriority:     0.2e-6,
+		CacheCreationPriceExplicit:         true,
+		UltrafastMultiplier:                3,
+		LongContextInputThreshold:          272_000,
+		LongContextInputMultiplier:         2,
+		LongContextOutputMultiplier:        1.5,
+	}
+	// GPT-6.2 Astra: official $8/$40 per MTok (developers.openai.com/api/docs/models/gpt-6.2-astra).
+	// 12h cache write $20/MTok; Ultrafast 3× Standard through 2027-02-28 PT.
+	gpt62AstraCache12h := 20e-6
+	s.fallbackPrices["gpt-6.2-astra"] = &ModelPricing{
+		InputPricePerToken:                 8e-6,
+		InputPricePerTokenPriority:         16e-6,
+		OutputPricePerToken:                40e-6,
+		OutputPricePerTokenPriority:        80e-6,
+		CacheCreationPricePerToken:         10e-6,
+		CacheCreationPricePerTokenPriority: 20e-6,
+		CacheCreation12hPricePerToken:      &gpt62AstraCache12h,
+		CacheReadPricePerToken:             0.4e-6,
+		CacheReadPricePerTokenPriority:     0.8e-6,
+		CacheCreationPriceExplicit:         true,
+		UltrafastMultiplier:                3,
 		LongContextInputThreshold:          272_000,
 		LongContextInputMultiplier:         2,
 		LongContextOutputMultiplier:        1.5,
@@ -562,8 +591,6 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 		OutputPricePerToken:     0,
 		SupportsCacheBreakdown:  false,
 	}
-
-	s.fallbackPrices["gpt-6.2-sol"] = s.fallbackPrices["gpt-6.1-sol"]
 
 }
 

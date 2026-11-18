@@ -49,7 +49,7 @@ created: 2026-11-18
 | 未启用 source filter 的 passthrough 默认忽略映射 | 仅保留直接 legacy 方法的兼容语义；真实调度继续守 model_mapping 白名单，显式 opt-in filter 可列出 source 名称，兄弟账号映射仍可见 | passthrough 资格、混合池、wire body 与 catalog 测试 |
 | upstream admin 页面、用量和接入指南 | 保留 persistent shell、共享模型目录、被动用量接口与恢复快照；新增字段接到已有 owner | 前端全量测试、账户用量/接入指南/设置表单桌面与移动端 Playwright |
 
-没有改动 CI workflow 或必测文件过滤；不删除 TokenKey 特性文件。删除的未调用包装函数由已有共享 owner 承接，Gemini 流式工具参数使用保留 partial JSON 的 `geminiToolCallArgsJSON`，对象形参数仍由 `normalizeGeminiFunctionArgs` 统一规范。
+本次 upstream 裁决没有自行改动 CI workflow 或必测文件过滤；后续 origin/main 同步包含其已交付的运维 workflow 调整。不删除 TokenKey 特性文件。删除的未调用包装函数由已有共享 owner 承接，Gemini 流式工具参数使用保留 partial JSON 的 `geminiToolCallArgsJSON`，对象形参数仍由 `normalizeGeminiFunctionArgs` 统一规范。
 
 ## 原有断言迁移
 
@@ -77,3 +77,7 @@ created: 2026-11-18
 上游新增的 dashboard 请求日志/去重清理日界测试不适用于 TokenKey：DashboardAggregation 只清汇总，OpsCleanup 才拥有 runtime request retention；billing dedup 维持已审批 7d hot / 30d total，不随 usage retention 扩成 90/365 天。替代回归 TestDashboardAggregationRetentionLeavesRequestAndDedupCleanupToOpsOwner 同时执行两个 owner，验证 dashboard 不启动竞争删除、OpsCleanup 按运行期设置清 usage 且 dedup 仍独立。DST 日界的新测试继续保留。
 
 配额与供应源边界复核：本地 WindowStats 仅附加到真实存在的 5h 窗口，缺失/过期窗口不生成 5h 行；7d 可保留 unknown 本地统计。Spark 的 additional_rate_limits 若没有 primary/secondary window，不写新快照或 active 标记。Bedrock 的 AWS 429 按模型冷却，模型未知时复用秒级账号兜底；不进入 Anthropic 无权威响应头规则与健康熔断，临时限流不永久停号。
+
+主线同步补充：合入 `544cf3746947c10a71687654cec36c75aefec914` 与随后发布的 `be56ea06e1590ab637e664a2b64376886b3802c8`，后者已通过主线发布 GPT-6.2 registry 和 Terra 自身映射。本轮不再假定这些 owner 未发布：保留其价格、目录和请求策略；上游 sensor 仍不能覆盖它们。合并两个 v28 鉴权快照布局后升至 v29，同时往返 QA capture 和 Ultrafast，并拒绝旧 v28，避免热缓存缺字段。
+
+Grok 搜索用例迁移：上游 fixture 为 `/v1/messages` 直接注入 Responses SSE，但显式原生目录模型在 TokenKey 未绑定 Plan 的兼容入口会使用 Chat Completions。测试通过现有 capability fixture 与 production planner 绑定 Responses，并断言实际 target；保留 xs_/as_ 计数、重复事件去重、客户端工具和 OpenAI 不误计费断言，不改原生目录路由。

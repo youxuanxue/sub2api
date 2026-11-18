@@ -133,19 +133,27 @@ func accountCodexToolCapabilities(account *Account, modelID string) map[string]j
 	apiUltra := account.IsOpenAIApiKey() && isOfficialOpenAIModelsBaseURL(baseURL) && (base != "" || isOpenAIGPT6AstraModel(modelID))
 	tiers := capabilities["service_tiers"]
 	if (apiUltra && len(tiers) == 0) || (planIncludesUltra && !gjson.GetBytes(tiers, `#(id=="ultrafast")`).Exists()) {
-		if len(tiers) == 0 {
-			tiers, err = json.Marshal(configuredCodexServiceTiersForModel(modelID))
-			if err != nil {
-				panic(err)
-			}
-		}
 		description := "Lowest latency; increased subscription usage."
 		if apiUltra {
 			description = fmt.Sprintf("Lowest latency; %gx Standard token pricing.", openAIUltrafastMultiplier(modelID, time.Now()))
 		}
-		tiers, err = sjson.SetBytes(tiers, "-1", configuredCodexServiceTier{ID: OpenAIFastTierUltrafast, Name: "Ultrafast", Description: description})
-		if err != nil {
-			panic(err)
+		if len(tiers) == 0 {
+			defaults := configuredCodexServiceTiersForModel(modelID)
+			for i := range defaults {
+				if defaults[i].ID == OpenAIFastTierUltrafast {
+					defaults[i].Description = description
+				}
+			}
+			tiers, err = json.Marshal(defaults)
+			if err != nil {
+				panic(err)
+			}
+		}
+		if !gjson.GetBytes(tiers, `#(id=="ultrafast")`).Exists() {
+			tiers, err = sjson.SetBytes(tiers, "-1", configuredCodexServiceTier{ID: OpenAIFastTierUltrafast, Name: "Ultrafast", Description: description})
+			if err != nil {
+				panic(err)
+			}
 		}
 		capabilities["service_tiers"] = tiers
 	}

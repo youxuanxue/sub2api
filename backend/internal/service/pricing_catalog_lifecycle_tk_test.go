@@ -46,6 +46,8 @@ func TestCatalogLifecycleWithdrawalFacts(t *testing.T) {
 	require.True(t, isCatalogModelRecommended("grok-4.7"))
 	require.True(t, isCatalogModelRecommended("gpt-6-terra"))
 	require.True(t, isCatalogModelRecommended("gpt-6.1-terra"))
+	require.True(t, isCatalogModelRecommended("gpt-6.2-sol"))
+	require.True(t, isCatalogModelRecommended("gpt-6.2-astra"))
 	// Operator-hidden 2026-11-16: Vertex/Gemini Web unschedulable or AG preview 404.
 	require.False(t, isCatalogModelRecommended("gemini-3.7-flash"))
 	require.False(t, isCatalogModelRecommended("gemini-3-pro-image"))

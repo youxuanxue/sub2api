@@ -83,7 +83,9 @@ func firstOutputHighEffortModel(model string) bool {
 	return isOpenAIGPT6AstraModel(normalized) ||
 		isOpenAIGPT56Model(normalized) ||
 		openai.IsGPT6SolOrLunaModelSpelling(normalized) ||
-		openai.IsGPT61SolModelSpelling(normalized)
+		openai.IsGPT61SolModelSpelling(normalized) ||
+		openai.IsGPT62SolModelSpelling(normalized) ||
+		openai.IsGPT62AstraModelSpelling(normalized)
 }
 
 // newAPIChatFirstOutputTimeoutWithEffort is the per-attempt useful-first-output

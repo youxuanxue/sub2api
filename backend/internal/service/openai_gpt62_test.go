@@ -111,12 +111,12 @@ func TestGPT62PricingAtRequestTime(t *testing.T) {
 		if model == "gpt-6.2-astra" {
 			unit = 8e-6
 		}
-		// Unpublished models keep the approved family floor in production.
+		// Main published these owners in #3287. External sensors cannot replace them.
 		for _, runtime := range []*BillingService{newTestBillingService(), NewBillingService(nil, newStubPricingServiceFromJSON(t, `{"other":{"input_cost_per_token":1}}`))} {
 			got, err := runtime.GetModelPricing(model)
 			require.NoError(t, err)
-			require.Equal(t, tkRegistryAliasOwnerPricing("gpt-5.4").InputPricePerToken, got.InputPricePerToken)
-			require.Nil(t, tkRegistryAliasOwnerPricing(model))
+			require.NotNil(t, tkRegistryAliasOwnerPricing(model))
+			require.Equal(t, tkRegistryAliasOwnerPricing(model).InputPricePerToken, got.InputPricePerToken)
 		}
 		legacy := newTestBillingService()
 		legacy.useActiveRegistryAliases = false                         // isolated arithmetic fixture, never a runtime publisher
@@ -124,6 +124,7 @@ func TestGPT62PricingAtRequestTime(t *testing.T) {
 		sensor := newStubPricingServiceFromJSON(t, fmt.Sprintf(`{"%s":{"input_cost_per_token":%g,"output_cost_per_token":%g,"cache_creation_input_token_cost":%g,"cache_read_input_token_cost":%g,"input_cost_per_token_priority":%g,"output_cost_per_token_priority":%g,"cache_creation_input_token_cost_priority":%g,"cache_read_input_token_cost_priority":%g,"long_context_input_token_threshold":272000,"long_context_input_cost_multiplier":2,"long_context_output_cost_multiplier":1.5}}`, model, unit, unit*5, unit*1.25, unit*0.05, unit*2, unit*10, unit*2.5, unit*0.1))
 		for name, svc := range map[string]*BillingService{"explicit legacy fixture": legacy, "explicit sensor fixture": NewBillingService(nil, sensor)} {
 			t.Run(model+name, func(t *testing.T) {
+				originalUltrafast := svc.fallbackPrices[model].UltrafastMultiplier
 				for _, resolver := range []*ModelPricingResolver{nil, NewModelPricingResolver(nil, svc)} {
 					enabled := true
 					input := CostInput{Model: model, Tokens: UsageTokens{InputTokens: 100, OutputTokens: 50, CacheCreationTokens: 40, CacheReadTokens: 20}, RateMultiplier: 1, PricingAt: before, Resolver: resolver, LongContextBillingEnabled: &enabled}
@@ -161,7 +162,7 @@ func TestGPT62PricingAtRequestTime(t *testing.T) {
 					}
 				}
 				// Request-specific calculation must not mutate shared fallback pricing.
-				require.Zero(t, svc.fallbackPrices[model].UltrafastMultiplier)
+				require.Equal(t, originalUltrafast, svc.fallbackPrices[model].UltrafastMultiplier)
 			})
 		}
 	}

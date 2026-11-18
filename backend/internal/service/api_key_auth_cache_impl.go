@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 28 // v28: group force_openai_ultrafast (OpenAI gateway reads it from ctx)
+const apiKeyAuthSnapshotVersion = 29 // v29: carry QA capture and group Ultrafast together
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -368,6 +368,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			BalanceNotifyExtraEmails:   apiKey.User.BalanceNotifyExtraEmails,
 			TotalRecharged:             apiKey.User.TotalRecharged,
 			RPMLimit:                   apiKey.User.RPMLimit,
+			QACaptureEnabled:           apiKey.User.QACaptureEnabled,
 		},
 	}
 
@@ -487,6 +488,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			BalanceNotifyExtraEmails:    snapshot.User.BalanceNotifyExtraEmails,
 			TotalRecharged:              snapshot.User.TotalRecharged,
 			RPMLimit:                    snapshot.User.RPMLimit,
+			QACaptureEnabled:            snapshot.User.QACaptureEnabled,
 			UserGroupRPMOverride:        snapshot.User.UserGroupRPMOverride,
 			UserGroupRPMOverrideGroupID: snapshot.User.UserGroupRPMOverrideGroupID,
 		},

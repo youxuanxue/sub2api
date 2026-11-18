@@ -1336,13 +1336,13 @@ func (s *BillingService) applyModelSpecificPricingPolicyEx(model string, pricing
 	if normalized == "" {
 		normalized = strings.ToLower(strings.TrimSpace(model))
 	}
-	usesCacheWritePremium := isOpenAIGPT6AstraModel(normalized) || isOpenAIGPT56Model(normalized) || openai.IsGPT6SolOrLunaModelSpelling(normalized) || openai.IsGPT61SolModelSpelling(normalized) || openai.IsGPT61TerraModelSpelling(normalized) || openai.GPT62ModelID(normalized) != ""
+	usesCacheWritePremium := isOpenAIGPT6AstraModel(normalized) || isOpenAIGPT56Model(normalized) || openai.IsGPT6SolOrLunaModelSpelling(normalized) || openai.IsGPT61SolModelSpelling(normalized) || openai.IsGPT61TerraModelSpelling(normalized) || openai.GPT62ModelID(normalized) != "" || normalized == "gpt-6-terra"
 	needsOpus55FastMultiplier := claude.IsOpus55(model) && pricing.FastMultiplier == nil
 	needsMaxReasoningEffortMultiplier := isClaudeFable51Model(model) && pricing.MaxReasoningEffortMultiplier == nil
 	needsCacheCreationPolicy := usesCacheWritePremium && !pricing.CacheCreationPriceExplicit && (pricing.CacheCreationPricePerToken <= 0 ||
 		(pricing.InputPricePerTokenPriority > 0 && pricing.CacheCreationPricePerTokenPriority <= 0))
 	fastRatio := openAIModelFastPricingRatio(normalized)
-	needs12hPrice := usesCacheWritePremium && pricing.CacheCreation12hPricePerToken == nil && (forceDeepSeekRates || !pricing.CacheCreationPriceExplicit)
+	needs12hPrice := usesCacheWritePremium && pricing.CacheCreation12hPricePerToken == nil
 	if !openAIModelSupportsUltrafast(normalized) && !needs12hPrice && !needsCacheCreationPolicy && fastRatio <= 0 && !needsMaxReasoningEffortMultiplier && !needsOpus55FastMultiplier {
 		return pricing
 	}
@@ -1365,25 +1365,36 @@ func (s *BillingService) applyModelSpecificPricingPolicyEx(model string, pricing
 			cloned.CacheCreationPricePerTokenPriority = cloned.InputPricePerTokenPriority * 1.25
 		}
 	}
-	if usesCacheWritePremium && cloned.CacheCreation12hPricePerToken == nil && (forceDeepSeekRates || !cloned.CacheCreationPriceExplicit) {
+	if usesCacheWritePremium && cloned.CacheCreation12hPricePerToken == nil {
 		price := cloned.InputPricePerToken * 2.5
 		cloned.CacheCreation12hPricePerToken = &price
 	}
 	if fastRatio > 0 {
 		enforceOpenAIFastPricingRatio(&cloned, fastRatio)
-		if (openai.IsGPT6SolOrLunaModelSpelling(normalized) || openai.IsGPT61SolModelSpelling(normalized) || openai.IsGPT61TerraModelSpelling(normalized) || openai.GPT62ModelID(normalized) != "") && cloned.CacheCreationPriceExplicit {
+		if (openai.IsGPT6SolOrLunaModelSpelling(normalized) || openai.IsGPT61SolModelSpelling(normalized) || openai.IsGPT61TerraModelSpelling(normalized) || openai.GPT62ModelID(normalized) != "" || normalized == "gpt-6-terra") && cloned.CacheCreationPriceExplicit {
 			cloned.CacheCreationPricePerTokenPriority = cloned.CacheCreationPricePerToken * fastRatio
 		}
 	}
 	return &cloned
 }
 
+// openAIGPT62UltrafastSixXStart is when GPT-6.2 Sol/Astra Ultrafast leaves the
+// introductory 3× Standard window (official docs: Pacific time).
+var openAIGPT62UltrafastSixXStart = func() time.Time {
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		loc = time.FixedZone("PST", -8*3600)
+	}
+	return time.Date(2027, 3, 1, 0, 0, 0, 0, loc)
+}()
+
 // openAIModelFastPricingRatio 返回业务口径下 OpenAI GPT 模型 Fast/priority
 // 的标准价倍率：gpt-5.6 / gpt-6-astra / gpt-5.4 为 2x，gpt-5.5 为 2.5x。未定义 Fast
 // 档的模型（如 gpt-5.5-pro、gpt-5.4-mini/nano）返回 0。
 func openAIModelFastPricingRatio(normalized string) float64 {
 	switch normalized {
-	case "gpt-5.4", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra", "gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna":
+	case "gpt-5.4", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra",
+		"gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-terra", "gpt-6-sol", "gpt-6-luna", "gpt-6.2-sol", "gpt-6.2-astra":
 		return 2.0
 	case "gpt-5.5":
 		return 2.5
@@ -1969,7 +1980,7 @@ func openAIUltrafastMultiplier(model string, at time.Time) float64 {
 	if at.IsZero() {
 		at = timezone.Now()
 	}
-	if openai.GPT62ModelID(model) != "" && at.Before(time.Date(2027, time.March, 1, 8, 0, 0, 0, time.UTC)) {
+	if openai.GPT62ModelID(model) != "" && at.Before(openAIGPT62UltrafastSixXStart) {
 		return 3
 	}
 	return 6

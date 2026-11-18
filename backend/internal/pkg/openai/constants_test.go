@@ -84,3 +84,36 @@ func TestGPT61SolIdentityAndEffort(t *testing.T) {
 	}
 	require.Contains(t, CodexBaseInstructionsForModel("gpt-6.1-sol"), "based on GPT-6")
 }
+
+func TestGPT62IdentityAndEffort(t *testing.T) {
+	require.Contains(t, DefaultModelIDs(), "gpt-6.2-sol")
+	require.Contains(t, DefaultModelIDs(), "gpt-6.2-astra")
+	for _, id := range []string{"gpt-6.2-sol", "gpt-6.2-sol-ultra", "openai/GPT_6.2_SOL-max", "gpt-6.2-sol-openai-compact"} {
+		require.True(t, IsGPT62SolModelSpelling(id), id)
+		require.True(t, IsGPT6SolFamilyModelSpelling(id), id)
+		require.False(t, IsGPT62AstraModelSpelling(id), id)
+		require.False(t, IsGPT61SolModelSpelling(id), id)
+	}
+	for _, id := range []string{"gpt-6.2-astra", "gpt-6.2-astra-ultra", "openai/gpt-6.2-astra-high", "GPT_6.2_ASTRA"} {
+		require.True(t, IsGPT62AstraModelSpelling(id), id)
+		require.False(t, IsGPT62SolModelSpelling(id), id)
+		require.False(t, IsGPT6SolFamilyModelSpelling(id), id)
+	}
+	for _, id := range []string{"gpt-6.2-solitude", "gpt-6.2-sol-preview", "gpt-6.2", "gpt-6.1-sol", "gpt-6-astra"} {
+		require.False(t, IsGPT62SolModelSpelling(id), id)
+		require.False(t, IsGPT62AstraModelSpelling(id), id)
+	}
+	for _, model := range []string{"gpt-6.2-sol", "gpt-6.2-astra"} {
+		for _, effort := range []string{"", "low", "medium", "high", "xhigh", "max"} {
+			require.NoError(t, ValidateGPT62ReasoningEffort(model, effort), model+"/"+effort)
+			require.NoError(t, ValidateGPT61ReasoningEffort(model, effort), model+"/"+effort)
+		}
+		for _, effort := range []string{"none", "minimal"} {
+			require.Error(t, ValidateGPT62ReasoningEffort(model, effort), model+"/"+effort)
+			require.Error(t, ValidateGPT61ReasoningEffort(model, effort), model+"/"+effort)
+		}
+		require.True(t, RequiresResponsesForToolCalls(model), model)
+	}
+	require.NoError(t, ValidateGPT62ReasoningEffort("gpt-6.1-sol", "none"))
+	require.NoError(t, ValidateGPT62ReasoningEffort("gpt-6-sol", "none"))
+}

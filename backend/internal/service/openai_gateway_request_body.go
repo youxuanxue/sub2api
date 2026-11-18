@@ -2278,7 +2278,8 @@ func validateGPT61CompatRequest(body []byte, model string) error {
 }
 
 func validateGPT61RawEffort(body []byte, model string) error {
-	if !openai.IsGPT61SolModelSpelling(model) && !openai.IsGPT61TerraModelSpelling(model) && openai.GPT62ModelID(model) == "" {
+	if !openai.IsGPT61SolModelSpelling(model) && !openai.IsGPT61TerraModelSpelling(model) &&
+		!openai.IsGPT62SolModelSpelling(model) && !openai.IsGPT62AstraModelSpelling(model) {
 		return nil
 	}
 	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort"} {

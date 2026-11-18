@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -92,6 +93,18 @@ func forwardGrokCustomToolCallStream(t *testing.T, path string, streaming bool, 
 	var err error
 	if path == "/v1/chat/completions" {
 		result, err = svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+	} else if account.IsGrok() {
+		// This fixture supplies Responses SSE. Bind that capability through the
+		// production planner; unplanned native-catalog requests correctly use Chat.
+		attachTestProtocolCapability(account, protocolrouter.ProtocolResponses)
+		var value any
+		value, err = protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(ctx context.Context, selected *Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+			require.Equal(t, protocolrouter.ProtocolResponses, plan.TargetProtocol())
+			return svc.ForwardAsAnthropic(ctx, c, selected, request.Body(), "", "")
+		})
+		if err == nil {
+			result = value.(*OpenAIForwardResult)
+		}
 	} else {
 		result, err = svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
 	}

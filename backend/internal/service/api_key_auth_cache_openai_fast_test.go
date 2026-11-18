@@ -60,3 +60,26 @@ func TestAPIKeyAuthSnapshotGroupForceOpenAIUltrafastRoundtrip(t *testing.T) {
 	require.True(t, materialized.Group.ForceOpenAIUltrafast)
 	require.False(t, materialized.Group.ForceOpenAIFast)
 }
+
+func TestAPIKeyAuthSnapshotPreservesQACaptureAndUltrafast(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		svc := &APIKeyService{}
+		key := &APIKey{ID: 83, UserID: 40, Key: "sk-qa-ultrafast", Status: StatusActive,
+			User:  &User{ID: 40, Status: StatusActive, QACaptureEnabled: enabled},
+			Group: &Group{ID: 51, Hydrated: true, ForceOpenAIUltrafast: true}}
+		entry := &APIKeyAuthCacheEntry{Snapshot: svc.snapshotFromAPIKey(context.Background(), key)}
+		payload, err := json.Marshal(entry)
+		require.NoError(t, err)
+		var cached APIKeyAuthCacheEntry
+		require.NoError(t, json.Unmarshal(payload, &cached))
+		got, used, err := svc.applyAuthCacheEntry(key.Key, &cached)
+		require.NoError(t, err)
+		require.True(t, used)
+		require.Equal(t, enabled, got.User.QACaptureEnabled)
+		require.True(t, got.Group.ForceOpenAIUltrafast)
+		cached.Snapshot.Version = 28
+		_, used, err = svc.applyAuthCacheEntry(key.Key, &cached)
+		require.NoError(t, err)
+		require.False(t, used, "both earlier v28 cache layouts must be rebuilt")
+	}
+}
