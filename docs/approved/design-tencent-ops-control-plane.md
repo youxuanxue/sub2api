@@ -1,11 +1,12 @@
 ---
 title: 运维旁路与密钥材料收敛到腾讯云（TAT / COS）
-status: pending
-approved_by: pending
+status: approved
+approved_by: "feng（2026-11-18 会话：同意。请推进实现。）"
+approved_at: 2026-11-18
 risk: high
 authors: [agent]
 created_at: 2026-11-18
-revised: 2026-11-18（三次乔布斯复审；待人批）
+revised: 2026-11-18（三次乔布斯复审后批准）
 ---
 
 # 运维旁路与密钥材料收敛到腾讯云（TAT / COS）
@@ -70,5 +71,4 @@ revised: 2026-11-18（三次乔布斯复审；待人批）
 
 ## 审批门禁
 
-`approved_by: pending`。人改署名并 merge = 批准（`pending` 不得进 `main`）。  
-批准前只改文档；批准后逐 PR 抠，禁止大爆炸。
+已于 2026-11-18 批准。实现按 `rg` 命中逐 PR 抠；先门牙（禁新增），再旁路/密钥。禁止大爆炸。

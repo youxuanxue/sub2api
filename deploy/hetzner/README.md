@@ -271,10 +271,9 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 |---|---|---|
 | `tokenkey-prod-archive-682751977094` | us-east-1 | lifecycle `expire-all-30d` **已启用**（2026-11-17 核对）；**禁止新写**。最新对象约 2026-11-15（`host-config/prod-entry-…`），按 LastModified+30d 过期。活目的地：腾讯 COS `tokenkey-prod-ops-archive-1320330536`（[design-cos-object-archive](../../docs/approved/design-cos-object-archive.md)）。空桶后再删桶本身 |
 
-后续债（不与本收口同 PR）：运维旁路与密钥材料收敛到腾讯 TAT/COS——见
+后续债（实现中）：运维旁路与密钥材料收敛到腾讯 TAT/COS——见
 [`design-tencent-ops-control-plane.md`](../../docs/approved/design-tencent-ops-control-plane.md)
-（2026-11-18 决策；`approved_by: pending`，批准前不拆 Hybrid/SecureString）。
-共享 Stage0 路径已迁至 `deploy/stage0/`。
+（2026-11-18 批准）。共享 Stage0 路径已迁至 `deploy/stage0/`。
 
 ## QA 与备份排队、旧 AWS 定时任务收尾
 
