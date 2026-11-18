@@ -98,6 +98,10 @@
 #   auto-merge protected paths   — publish-on-push paths of the publishing
 #        workflows are listed for auto-merge-low-risk. Driven by
 #        `scripts/checks/auto-merge-protected-paths.py`.
+#   tencent ops control-plane ban — forbids new OIDC→SSM remotes into the Tencent
+#        fleet and new SecureString ops-key writes (design-tencent-ops-control-plane).
+#        Legacy paths are frozen in ops/tencent-ops/legacy-aws-control-plane-allowlist.json.
+#        Driven by `scripts/checks/tencent-ops-control-plane-gate.py`.
 #   platform registry drift      — Go ↔ TS platform registry lockstep
 #        (OpenAI-compat list, dispatch-config platforms, Platform universe,
 #        Ent platform enum coverage, admin UI style maps). Driven by
@@ -3163,6 +3167,22 @@ if ! command -v python3 >/dev/null 2>&1; then
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/diagnostics-oidc-perm-coverage.py --quiet; then
     errors=$((errors + 1))
+fi
+
+
+fi # preflight gate
+if _preflight_selected 'tencent ops control-plane ban'; then
+echo "=== sub2api: tencent ops control-plane ban ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by tencent-ops-control-plane-gate.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/tencent-ops-control-plane-gate.py --selftest >/dev/null; then
+    echo "  FAIL: tencent-ops-control-plane-gate.py selftest failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/tencent-ops-control-plane-gate.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: no new OIDC→SSM Tencent remotes or SecureString ops-key writes"
 fi
 
 
