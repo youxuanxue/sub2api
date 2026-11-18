@@ -83,12 +83,58 @@ def resolve_prod_node():
     return nodes[node_name]
 
 
-def resolve_prod_identity() -> tuple[str, str]:
-    """Return ``(instance_id, ssm_region)`` via cutover-aware resolve_prod_ssm_target.
+def _matrix_identity_for_node(node_name: str) -> tuple[str, str]:
+    """Return ``(ssm_instance_id, ssm_region)`` from the USW matrix without AWS probes.
 
-    Multi-app fleets require ``PROD_SSM_NODE`` (entry|app-old|app-cand|data).
-    Kept for break-glass SSM callers and identity checks.
+    TAT publishers (pricing registry, etc.) still call ``resolve_prod_instance`` for
+    caller compatibility, but must not require Hybrid inventory credentials.
     """
+    mod = _resolve_mod()
+    data = mod.load_tencent_usw_matrix_file(mod.TENCENT_USW_MATRIX)
+    target = data.get("target") if isinstance(data.get("target"), dict) else {}
+    region = str(data.get("ssm_region") or target.get("ssm_region") or "").strip()
+    if not region:
+        fail("tencent usw matrix missing ssm_region")
+    expected = ""
+    if node_name == "entry":
+        entry = data.get("entry")
+        if not isinstance(entry, dict):
+            fail("matrix missing entry")
+        expected = str(entry.get("ssm_instance_id") or "").strip()
+    elif node_name == "data":
+        dm = data.get("data_machine")
+        if not isinstance(dm, dict):
+            fail("matrix missing data_machine")
+        expected = str(dm.get("expected_ssm_instance_id") or dm.get("ssm_instance_id") or "").strip()
+    else:
+        apps = data.get("apps")
+        if not isinstance(apps, list):
+            fail("matrix missing apps[]")
+        match = next(
+            (a for a in apps if isinstance(a, dict) and str(a.get("name") or "") == node_name),
+            None,
+        )
+        if match is None:
+            fail(f"unknown prod node {node_name!r} in tencent usw matrix")
+        expected = str(match.get("ssm_instance_id") or "").strip()
+    if not _INSTANCE_RE.match(expected):
+        fail(f"node {node_name!r} missing valid ssm_instance_id in matrix ({expected!r})")
+    return expected, region
+
+
+def resolve_prod_identity() -> tuple[str, str]:
+    """Return ``(instance_id, ssm_region)``.
+
+    Daily TAT default: matrix pin only (no AWS ``DescribeInstanceInformation``).
+    Break-glass ``TOKENKEY_REMOTE_VIA=ssm``: cutover-aware resolve with Hybrid
+    online check. Multi-app fleets require ``PROD_SSM_NODE``.
+    """
+    if _remote_via() == "tat":
+        # Validate the node exists on the TAT manifest, then pin matrix identity.
+        resolve_prod_node()
+        node_name = (os.environ.get("PROD_SSM_NODE") or os.environ.get("TOKENKEY_REMOTE_NODE") or "").strip()
+        return _matrix_identity_for_node(node_name)
+
     mod = _resolve_mod()
     mode = mod.resolve_mode("auto")
     if mode == "tencent-usw-candidate":
