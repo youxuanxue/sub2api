@@ -20,7 +20,7 @@ revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切�
 | 入口机 | `lhins-j89o28j0` | `10.2.4.7` | Caddy 终止 `api.galaxywaveai.com` TLS，`weighted_round_robin 1 1`，主动健康检查 3s，连续 2 次失败摘除，`lb_try_duration 30s` |
 | app-a | `lhins-6qmb3fd6` | `10.2.4.11` | 下限 4C8G；现仍 4C16G（`bundle_rs_mc_lg16_01`，不可原地降内存），单容器 `tokenkey`，监听 `10.2.4.11:8080` |
 | app-b | `lhins-0kxx7cco` | `10.2.4.13` | 4C8G（`bundle_rs_mc_lg8_01`），单容器 `tokenkey`，监听 `10.2.4.13:8080` |
-| 数据机 | `lhins-odyx5eis` | `10.2.4.5` | PG `max_connections=400`（2026-11-17 由 200 升，见审批）；源 ACL 已含 `.11` 与 `.13` |
+| 数据机 | `lhins-odyx5eis` | `10.2.4.5` | 4C8G（`bundle_starter_mc_lg8_01`，2026-11-18 短窗升配）；PG `max_connections=400`（2026-11-17 由 200 升，见审批）；源 ACL 已含 `.11` 与 `.13` |
 
 > 历史快照（2026-11-15 设计批准时）：入口 WRR 曾为 `3 1`；app-a 仍蓝绿+socat；app-b 为 2C4G 手写 `compose.appb.yml`；PG `max_connections=200`。下文迁移步骤（M1–M6）描述的是当时要解决的问题，不是今日现状。
 
