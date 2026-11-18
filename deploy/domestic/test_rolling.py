@@ -235,6 +235,7 @@ class HappyPathTest(RollingTestBase):
         self.assertEqual(drain_order, ["app-b", "app-a"])
         r = self.receipt_json()
         self.assertEqual(r["outcome"], "success")
+        self.assertEqual(r["previous_runtime_tag"], OLD_TAG)
         self.assertEqual([(n["name"], n["before_image_id"], n["after_image_id"], n["outcome"]) for n in r["nodes"]],
                          [("app-b", OLD_ID, NEW_ID, "rolled"), ("app-a", OLD_ID, NEW_ID, "rolled")])
         self.assertTrue(all("seconds" in s for n in r["nodes"] for s in n["steps"]))
@@ -780,6 +781,37 @@ class AgentHostTest(unittest.TestCase):
             code = rolling.agent_main(["--root", "/var/lib/tokenkey", "probe"])
         self.assertEqual(code, rolling.EXIT_USAGE)
         self.assertIn("--root and --controls must be passed together", err.getvalue())
+
+
+class RuntimeTagHelperTest(unittest.TestCase):
+    def test_extract_prefers_oci_version_and_strips_local_suffix(self):
+        facts = {
+            "current_image": {"version": "v1.8.381"},
+            "container": {"image_ref": "tokenkey-domestic/tokenkey:1.8.381-2a3355369"},
+        }
+        self.assertEqual(rolling.extract_runtime_release_tag(facts), "1.8.381")
+        facts_ref_only = {
+            "current_image": None,
+            "container": {"image_ref": "tokenkey-domestic/tokenkey:1.8.380-aaaaaaaaa"},
+        }
+        self.assertEqual(rolling.extract_runtime_release_tag(facts_ref_only), "1.8.380")
+        self.assertIsNone(rolling.extract_runtime_release_tag(
+            {"current_image": None, "container": {"image_ref": "name@sha256:dead"}}))
+
+    def test_resolve_previous_skips_target_and_uses_first_node(self):
+        facts = {
+            "app-b": {"current_image": {"version": "1.8.377"}, "container": {"image_ref": OLD_REF}},
+            "app-a": {"current_image": {"version": TAG}, "container": {"image_ref": NEW_REF}},
+        }
+        self.assertEqual(
+            rolling.resolve_previous_runtime_tag([APP_B, APP_A], facts, TAG),
+            "1.8.377",
+        )
+        already = {
+            "app-b": {"current_image": {"version": TAG}, "container": {"image_ref": NEW_REF}},
+            "app-a": {"current_image": {"version": TAG}, "container": {"image_ref": NEW_REF}},
+        }
+        self.assertIsNone(rolling.resolve_previous_runtime_tag([APP_B, APP_A], already, TAG))
 
 
 if __name__ == "__main__":

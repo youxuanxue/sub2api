@@ -96,3 +96,20 @@ jobs:
             prod-rolling-*.log
           if-no-files-found: warn
           retention-days: 30
+      - name: Notify Feishu (release rollout)
+        # Best-effort 发版公告。rolling 回执 smoke/traffic 已通过后才跑；
+        # continue-on-error + 脚本 exit 0，webhook 抽风不红 deploy。
+        if: success()
+        continue-on-error: true  # preflight-allow: swallow
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          bash ops/stage0/notify-feishu-from-rolling-receipt.sh \
+            --receipt prod-rolling-receipt.json \
+            --environment prod \
+            --api-url "${{ vars.PROD_API_URL || 'https://api.tokenkey.dev' }}" \
+            --run-url "$RUN_URL"
