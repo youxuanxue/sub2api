@@ -253,6 +253,22 @@ func TestAntigravityRemoteImageURLAllowedBlocksPrivateHosts(t *testing.T) {
 	require.Error(t, antigravityRemoteImageURLAllowed(context.Background(), "gs://bucket/a.png"))
 }
 
+func TestAntigravityPrepareRemoteMediaRejectsNonImageHTTPS(t *testing.T) {
+	prev := fetchAntigravityRemoteImage
+	t.Cleanup(func() { fetchAntigravityRemoteImage = prev })
+	fetchAntigravityRemoteImage = func(ctx context.Context, rawURL string) (antigravityFetchedImage, error) {
+		t.Fatalf("non-image fileUri must not be fetched: %s", rawURL)
+		return antigravityFetchedImage{}, nil
+	}
+
+	body := []byte(`{"contents":[{"parts":[{"fileData":{"mimeType":"video/mp4","fileUri":"https://cdn.example.test/a.mp4"}}]}]}`)
+	oauth := &Account{ID: 292, Platform: PlatformAntigravity, Type: AccountTypeOAuth}
+	_, err := antigravityPrepareRemoteMedia(context.Background(), oauth, "generateContent", body)
+	var media *AntigravityInlineMediaError
+	require.ErrorAs(t, err, &media)
+	require.Equal(t, "Antigravity Gemini only accepts inlineData; remote fileUri is not supported", media.Error())
+}
+
 func TestGeminiRemoteFileURIDetectsAntigravityUnsupportedReferences(t *testing.T) {
 	inline := []byte(`{"contents":[{"parts":[{"inlineData":{"mimeType":"image/png","data":"aGVsbG8="}}]}]}`)
 	require.False(t, GeminiBodyHasRemoteFileURI(inline))

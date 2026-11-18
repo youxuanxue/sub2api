@@ -18714,18 +18714,20 @@
         "func TestAntigravityTransportsRejectRemoteFileURIBeforeUpstream(t *testing.T)",
         "func TestAntigravityPrepareRemoteMediaInlinesHTTPSImages(t *testing.T)",
         "func TestAntigravityPrepareRemoteMediaRejectsPrivateImageHost(t *testing.T)",
-        "func TestAntigravityRemoteImageURLAllowedBlocksPrivateHosts(t *testing.T)"
+        "func TestAntigravityRemoteImageURLAllowedBlocksPrivateHosts(t *testing.T)",
+        "func TestAntigravityPrepareRemoteMediaRejectsNonImageHTTPS(t *testing.T)"
       ],
-      "rationale": "Cover positive HTTPS image inlining, private-host SSRF refusal, and gs:// local rejection on both nil transports."
+      "rationale": "Cover positive HTTPS image inlining, private-host SSRF refusal, non-image https leftover rejection, and gs:// local rejection on both nil transports."
     },
     {
       "path": "backend/internal/service/antigravity_remote_image_inline_tk.go",
       "must_contain": [
         "func antigravityPrepareRemoteMedia(",
         "safeDialContext",
-        "antigravityRemoteImageMaxBytes"
+        "antigravityRemoteImageMaxBytes",
+        "antigravityRemoteImageMaxTotalBytes"
       ],
-      "rationale": "OmniRoute-aligned Antigravity media prepare: SSRF-safe dial, per-image size cap, then reject leftovers."
+      "rationale": "OmniRoute-aligned Antigravity media prepare: SSRF-safe dial, per-image and per-request size caps, then reject leftovers."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_service.go",

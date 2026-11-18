@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	antigravityRemoteImageMaxBytes  = 15 << 20
-	antigravityRemoteImageMaxCount  = 8
-	antigravityRemoteImageTimeout   = 20 * time.Second
-	antigravityRemoteImageRedirects = 5
+	antigravityRemoteImageMaxBytes      = 15 << 20
+	antigravityRemoteImageMaxTotalBytes = 32 << 20
+	antigravityRemoteImageMaxCount      = 8
+	antigravityRemoteImageTimeout       = 20 * time.Second
+	antigravityRemoteImageRedirects     = 5
 )
 
 // antigravityRemoteImageHTTPClient fetches public http(s) images for Antigravity
@@ -174,8 +175,8 @@ func inlineAntigravityRemoteImages(ctx context.Context, body []byte) ([]byte, er
 		return nil, &AntigravityInlineMediaError{Reason: "Request body must be a JSON object"}
 	}
 	cache := make(map[string]antigravityFetchedImage)
-	var count int
-	if err := walkInlineAntigravityRemoteImages(ctx, root, cache, &count); err != nil {
+	var count, totalBytes int
+	if err := walkInlineAntigravityRemoteImages(ctx, root, cache, &count, &totalBytes); err != nil {
 		return nil, err
 	}
 	out, err := json.Marshal(root)
@@ -185,20 +186,20 @@ func inlineAntigravityRemoteImages(ctx context.Context, body []byte) ([]byte, er
 	return out, nil
 }
 
-func walkInlineAntigravityRemoteImages(ctx context.Context, node any, cache map[string]antigravityFetchedImage, count *int) error {
+func walkInlineAntigravityRemoteImages(ctx context.Context, node any, cache map[string]antigravityFetchedImage, count, totalBytes *int) error {
 	switch typed := node.(type) {
 	case map[string]any:
-		if err := maybeInlineAntigravityFileDataPart(ctx, typed, cache, count); err != nil {
+		if err := maybeInlineAntigravityFileDataPart(ctx, typed, cache, count, totalBytes); err != nil {
 			return err
 		}
 		for _, value := range typed {
-			if err := walkInlineAntigravityRemoteImages(ctx, value, cache, count); err != nil {
+			if err := walkInlineAntigravityRemoteImages(ctx, value, cache, count, totalBytes); err != nil {
 				return err
 			}
 		}
 	case []any:
 		for _, item := range typed {
-			if err := walkInlineAntigravityRemoteImages(ctx, item, cache, count); err != nil {
+			if err := walkInlineAntigravityRemoteImages(ctx, item, cache, count, totalBytes); err != nil {
 				return err
 			}
 		}
@@ -206,7 +207,7 @@ func walkInlineAntigravityRemoteImages(ctx context.Context, node any, cache map[
 	return nil
 }
 
-func maybeInlineAntigravityFileDataPart(ctx context.Context, part map[string]any, cache map[string]antigravityFetchedImage, count *int) error {
+func maybeInlineAntigravityFileDataPart(ctx context.Context, part map[string]any, cache map[string]antigravityFetchedImage, count, totalBytes *int) error {
 	fileKey, file, ok := antigravityFileDataObject(part)
 	if !ok {
 		return nil
@@ -239,7 +240,11 @@ func maybeInlineAntigravityFileDataPart(ctx context.Context, part map[string]any
 		fetched = img
 		cache[uri] = fetched
 	}
+	if *totalBytes+len(fetched.Data) > antigravityRemoteImageMaxTotalBytes {
+		return &AntigravityInlineMediaError{Reason: "remote images exceed Antigravity inline budget"}
+	}
 	*count++
+	*totalBytes += len(fetched.Data)
 	delete(part, fileKey)
 	part["inlineData"] = map[string]any{
 		"mimeType": fetched.Mime,

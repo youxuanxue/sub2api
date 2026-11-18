@@ -144,7 +144,7 @@
 
 原话：「第 1 个 和 第 3 个，同意建议，请修复。」
 
-适用范围：短窗口反复原生截断/`unexpected EOF` 临时移出调度；`INSUFFICIENT_G1_CREDITS` 单独停用。缺 `contents` 或顶层误带 `messages`/`max_tokens`/`input`/`store` → 本地 400。Antigravity 只接受 `inlineData`，拒绝 `gs://` 与 http(s) `fileUri`；不改写成 Chat。
+适用范围：短窗口反复原生截断/`unexpected EOF` 临时移出调度；`INSUFFICIENT_G1_CREDITS` 单独停用。缺 `contents` 或顶层误带 `messages`/`max_tokens`/`input`/`store` → 本地 400。Antigravity 只接受 `inlineData`，拒绝 `gs://`；公网 http(s) 图 `fileUri` 代下改写见 2026-11-18。不改写成 Chat。
 
 ## 2026-11-12 手动停调度不进 Plan
 
@@ -174,4 +174,4 @@
 
 原话：「对齐开源「可感体验」：最接近的是 OmniRoute 路线（仅 http(s) 图、白名单/SSRF 防护、大小上限、失败仍本地 400）。」
 
-适用范围：Antigravity 原生 `generateContent`/`streamGenerateContent` 上，公网 `http(s)` 图片 `fileUri` 由网关 SSRF-safe 下载并改写为 `inlineData`（单图 15MiB、最多 8 张）；`gs://`、非图片远程 URI、私网/元数据主机、下载失败仍本地 400。不改写成 Chat。官方 Gemini 账户仍透传 `fileUri`。
+适用范围：Antigravity 原生 `generateContent`/`streamGenerateContent` 上，公网 `http(s)` 图片 `fileUri` 由网关 SSRF-safe 下载并改写为 `inlineData`（单图 15MiB、单请求合计 32MiB、最多 8 张）；`gs://`、非图片远程 URI、私网/元数据主机、下载失败仍本地 400。不改写成 Chat。官方 Gemini 账户仍透传 `fileUri`。
