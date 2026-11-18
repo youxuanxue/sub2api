@@ -1234,9 +1234,11 @@ func isGeminiSignatureRelatedError(respBody []byte) bool {
 }
 
 func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte) (*ForwardResult, error) {
-	if err := antigravityRemoteFileRejected(account, action, body); err != nil {
+	prepared, err := antigravityPrepareRemoteMedia(ctx, account, action, body)
+	if err != nil {
 		return nil, err
 	}
+	body = prepared
 	ctx = bindGoogleGeneric403Request(c, ctx)
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)

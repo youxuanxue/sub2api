@@ -168,15 +168,11 @@ class CoveragePlanTest(unittest.TestCase):
     def test_prod_pause_does_not_silence_other_observers_or_jobs(self):
         prod = self.config('prod', self.watch['hostname'])
         self.assertEqual(prod['paused_jobs'], self.watch['paused_jobs'])
-        self.assertEqual(
-            set(prod['paused_jobs']),
-            {
-                'tokenkey-pgdump',
-                'tokenkey-ghcr-prune-daily',
-            },
-        )
+        self.assertEqual(set(prod['paused_jobs']), {'tokenkey-pgdump'})
         self.assertIn('tokenkey-disk-metrics', prod['jobs'])
+        self.assertIn('tokenkey-ghcr-prune-daily', prod['jobs'])
         self.assertNotIn('tokenkey-disk-metrics', prod['paused_jobs'])
+        self.assertNotIn('tokenkey-ghcr-prune-daily', prod['paused_jobs'])
         self.assertEqual(self.config('cn-prod', self.domestic['instance_name'])['paused_jobs'], {})
         self.assertIn('tokenkey-pgdump', prod['jobs'])
         # A held-disabled job stays monitored as expected-paused so accidental
@@ -698,18 +694,20 @@ class CnProdMultiAppWatchTest(unittest.TestCase):
         self.assertEqual(primary['paused_jobs'], legacy['paused_jobs'])
         self.assertEqual(primary['backends'],
                          {'prod-app-old:local': 'http://127.0.0.1:18080/health'})
-        self.assertEqual(primary['jobs'][:2],
-                         ['tokenkey-disk-metrics', 'tokenkey-qa-retention'])
+        self.assertEqual(primary['jobs'][:3],
+                         ['tokenkey-disk-metrics', 'tokenkey-qa-retention',
+                          'tokenkey-ghcr-prune-daily'])
         self.assertEqual(set(primary['jobs']) & set(primary['paused_jobs']),
                          set(primary['paused_jobs']))
-        self.assertEqual(set(primary['paused_jobs']),
-                         {'tokenkey-pgdump', 'tokenkey-ghcr-prune-daily'})
+        self.assertEqual(set(primary['paused_jobs']), {'tokenkey-pgdump'})
+        self.assertIn('tokenkey-ghcr-prune-daily', primary['jobs'])
         secondary = self.config('prod', node='app-cand', host_ips=[cand['private_ip']])
         self.assertEqual(secondary['node'], 'prod-app-cand')
         self.assertEqual(secondary['targets'], {})
         self.assertEqual(secondary['paused_jobs'], {})
         self.assertEqual(secondary['jobs'],
-                         ['tokenkey-disk-metrics', 'tokenkey-qa-retention'])
+                         ['tokenkey-disk-metrics', 'tokenkey-qa-retention',
+                          'tokenkey-ghcr-prune-daily'])
         with self.assertRaisesRegex(ValueError, 'host identity'):
             self.config('prod', node='app-cand', host_ips=[old['private_ip']])
         with self.assertRaisesRegex(ValueError, 'unknown prod app node'):
