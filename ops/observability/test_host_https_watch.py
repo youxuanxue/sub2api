@@ -87,6 +87,56 @@ class CoveragePlanTest(unittest.TestCase):
             path.write_text(json.dumps(receipt))
             self.assertFalse(watch.qa_coordinator_fact(path, 100000)['healthy'])
 
+    def test_coordinator_node1_failure_overrides_exit_code_with_chinese_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / 'last-run.json'
+            path.write_text(json.dumps({
+                'ok': False,
+                'observed_at': '1970-01-02T03:46:40+00:00',
+                'failure_class': 'node1_unreachable',
+                'errors': [{
+                    'operation': 'archive',
+                    'failure_class': 'node1_unreachable',
+                    'error': 'node1 capacity probe failed after 3 attempts: Connection timed out',
+                }],
+            }))
+            base = {'healthy': False, 'reason': 'service failed: exit-code'}
+            fact = watch.qa_coordinator_failure_fact(path, 100000, base)
+            self.assertEqual(fact['category'], 'node1_unreachable')
+            self.assertIn('node1', fact['reason'])
+            sent = []
+            state = watch.tick_jobs(
+                ['tokenkey-qa-coordinator'], {}, 1000,
+                lambda _: fact, sent.append, 'prod-data')
+            watch.tick_jobs(
+                ['tokenkey-qa-coordinator'], state, 1120,
+                lambda _: fact, sent.append, 'prod-data')
+            self.assertIn('运维处理：node1 无法连接', sent[-1])
+            self.assertIn('prod-data/tokenkey-qa-coordinator', sent[-1])
+            self.assertNotIn('service failed: exit-code', sent[-1])
+
+    def test_retention_exit_code_suppressed_while_coordinator_reports_node1(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / 'last-run.json'
+            path.write_text(json.dumps({
+                'ok': False,
+                'observed_at': '1970-01-02T03:46:40+00:00',
+                'failure_class': 'node1_unreachable',
+                'errors': [{'error': 'node1 capacity probe failed', 'failure_class': 'node1_unreachable'}],
+            }))
+            original = watch.QA_COORDINATOR_RECEIPT
+            watch.QA_COORDINATOR_RECEIPT = path
+            self.addCleanup(setattr, watch, 'QA_COORDINATOR_RECEIPT', original)
+            with patch.object(watch, 'job_fact', return_value={
+                'healthy': False, 'reason': 'service failed: exit-code',
+            }), patch.object(watch.subprocess, 'run', return_value=SimpleNamespace(
+                returncode=0, stdout='ActiveState=inactive\nResult=exit-code\nUnitFileState=static\n',
+            )), patch.object(watch.time, 'monotonic', return_value=2.0), \
+                 patch.object(watch.time, 'time', return_value=100000.0):
+                fact = watch.probe_job('tokenkey-qa-retention')
+            self.assertTrue(fact['healthy'], fact)
+            self.assertEqual(fact['reason'], 'recent completion')
+
     def test_refuses_wrong_host_and_retains_prod_monitor_peer(self):
         with self.assertRaisesRegex(ValueError, 'host identity'):
             self.config('cn-prod', 'some-other-host')

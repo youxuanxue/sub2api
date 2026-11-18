@@ -148,6 +148,31 @@ class RunnerTest(unittest.TestCase):
             self.assertEqual(json.loads(run.call_args.kwargs['input'])['source_id'], 'a')
             self.assertNotIn('shell', run.call_args.kwargs)
 
+    def test_archive_worker_stderr_classifies_node1_and_lands_on_last_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cfg = config(Path(directory))
+            stderr = (
+                '{"ok": false, "error": "node1 capacity probe failed after 3 attempts: '
+                'Connection timed out during banner exchange"}'
+            )
+
+            def source_command(config, source, command, hour, **kwargs):
+                raise policy.CoordinatorError(stderr)
+
+            def database(config, phase, *args, **kwargs):
+                return {'db_anchor_utc': (HOUR + dt.timedelta(hours=2)).isoformat(), 'hours': []}
+
+            with mock.patch.object(host.socket, 'gethostname', return_value='fixture-data'), \
+                 mock.patch.object(host, 'source_command', side_effect=source_command), \
+                 mock.patch.object(host, 'database', side_effect=database):
+                result = host.run(cfg, apply=True)
+            self.assertFalse(result['ok'])
+            self.assertEqual(result['failure_class'], 'node1_unreachable')
+            self.assertEqual(result['errors'][0]['failure_class'], 'node1_unreachable')
+            self.assertEqual(host.archive_error_failure_class(stderr), 'node1_unreachable')
+            written = json.loads((Path(directory) / 'state' / 'last-run.json').read_text())
+            self.assertEqual(written['failure_class'], 'node1_unreachable')
+
 
 class InstallerTest(unittest.TestCase):
     def test_plan_does_not_write_units_or_enable_timers(self):
