@@ -167,6 +167,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`design-phase1-prod-activation-gates.md`](design-phase1-prod-activation-gates.md) | Phase1 activation gates（telemetry 探针已退役：2026-11-08 用户决定保持关闭并删除代码） |
 | [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 archive 桶（历史 S3 证据语义；新目的地见下） |
 | [`design-cos-object-archive.md`](design-cos-object-archive.md) | 对象归档统一 COS、禁新写 AWS（2026-11-17 批准） |
+| [`design-tencent-ops-control-plane.md`](design-tencent-ops-control-plane.md) | 运维旁路/密钥收敛腾讯 TAT·COS（2026-11-18 批准） |
 | [`ops-error-logs-column-contract.md`](ops-error-logs-column-contract.md) | `ops_error_logs` 列契约：声明 == 写入 ∪ DB 托管（无 Ent schema 表的机械替代） |
 | [`qa-raw-only.md`](qa-raw-only.md) | archived：QA S3 已退役（2026-11-08）；现行 QA 为本地 24h + node1 每 4h，见 design-tencent-cos-backup-node1-qa.md |
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |

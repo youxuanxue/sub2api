@@ -1,5 +1,13 @@
 # 已决定
 
+## 2026-11-18 运维旁路与密钥材料收敛到腾讯云
+
+原话：「运维旁路与密钥材料，也应该改到 腾讯 tat 或者 cos 等，收敛到腾讯云体系内。」
+
+适用范围：在日常发版已默认 TAT 之后，把仍依赖 AWS Hybrid SSM / OIDC / Parameter Store SecureString 的运维旁路与密钥材料，迁到腾讯 TAT（远程执行）与 COS/主机 root-only 文件（密钥与恢复材料）。不覆盖 Oregon 出口机、Kiro/Bedrock 等供应商 AWS 协议、也不要求立刻废弃 GHCR 镜像源。设计见 `docs/approved/design-tencent-ops-control-plane.md`（2026-11-18 批准；实现中）。
+
+后续确认（2026-11-18）：「同意。请推进实现。」→ 设计批准；先合入门牙门禁，再按 `rg` 逐入口改 TAT / 迁密钥。
+
 ## 2026-11-17 cn-prod tokensea missing text part 网关兼容
 
 原话：「请修复。」（前置：「建议网关修复。另外，网关修复之后，和 kvv 冲突吗？」已确认与 KVV 不冲突。）
