@@ -1,5 +1,17 @@
 # 已决定
 
+## 2026-11-18 QA capture 按用户关闭；双站关闭 compute@tk.com
+
+原话：「安排 agent 改造 QA capture，支持按用户关闭，并把 双站的 compute@tk.com 用户的 关闭。」
+
+适用范围：`users.qa_capture_enabled`（默认 true）。站点级 `qa_capture.enabled` 可保持开启；用户为 false 时网关不持久化该用户请求/响应正文与 QA blob。Admin `PUT /api/v1/admin/users/:id` 与用户编辑 UI 可改。发版并跑 migration 后，在 prod 与 cn-prod 将 `compute@tk.com` 设为 false。
+
+## 2026-11-18 多地域 + 多应用机 = 等效容灾/高可用（投标与对外表述）
+
+原话：「多可用区或等效容灾，我们已经具备了，现在 prod 和 cn-prod 是多地域的。而且每个地域都是多应用机，高可用的。请改仓库文档表述。」
+
+适用范围：对外/投标将「腾讯美西 prod + 腾讯北京 cn-prod」双站点（库与控制面独立）+ 每站入口 WRR 多应用机滚动，表述为**多地域等效容灾与站点内应用高可用**。地域内入口机仍可不做热备（故障靠重建），该细节不否定上述等效容灾表述。见 `deploy/hetzner/README.md`、`deploy/domestic/README.md`、`docs/tender/tokenkey-control-parameters.md`。
+
 ## 2026-11-18 运维旁路与密钥材料收敛到腾讯云
 
 原话：「运维旁路与密钥材料，也应该改到 腾讯 tat 或者 cos 等，收敛到腾讯云体系内。」
