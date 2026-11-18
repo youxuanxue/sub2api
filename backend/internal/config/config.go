@@ -2376,7 +2376,7 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
-	viper.SetDefault("managed_batch.enabled", false)
+	viper.SetDefault("managed_batch.enabled", true)
 	viper.SetDefault("managed_batch.storage.driver", "")
 	viper.SetDefault("managed_batch.storage.endpoint", "")
 	viper.SetDefault("managed_batch.storage.region", "")
