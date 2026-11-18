@@ -17,6 +17,7 @@ Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
 
 | date (UTC) | UA version | type | change | note |
 |---|---|---|---|---|
+| 2026-11-18 | **1.5.10** | pure UA | `DefaultUserAgentVersion` 1.5.6 → 1.5.10 | Homebrew upgrade followed by local `agy --version` static validation. Real CLI diagnostic confirmed no login; no v1internal request was observed. Operator explicitly retained the wire evidence gap for this PR. Fixed the capture check to return 3 for missing HTTP evidence instead of reporting aligned. |
 | 2026-11-12 | **1.5.6** | pure UA | `DefaultUserAgentVersion` 1.5.1 → 1.5.6 | `brew upgrade --cask antigravity-cli` 后本机 `agy --version` reports 1.5.6; static check confirms UA version alignment. HTTP format and non-version fields unchanged; no wire capture or production hot-push. Resolves #3166 on merge. |
 | 2026-11-06 | **1.5.1** | pure UA | `DefaultUserAgentVersion` 1.4.12 → 1.5.1 | `brew install --cask antigravity-cli` 后本机 `agy --version` reports 1.5.1; static check confirms UA version alignment. HTTP format and non-version fields unchanged; no wire capture or production hot-push. Resolves #3078 on merge. |
 | 2026-10-30 | **1.4.10** | pure UA | `DefaultUserAgentVersion` 1.4.9 → 1.4.10 | Installed `agy --version` reports 1.4.10; static check confirms UA version alignment. HTTP format and non-version fields unchanged; no wire capture or production hot-push. Resolves #2986 on merge. |

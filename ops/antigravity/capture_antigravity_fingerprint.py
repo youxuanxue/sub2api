@@ -451,15 +451,17 @@ def cmd_diff(args: argparse.Namespace) -> int:
     rows = diff_bundle(bundle, baseline)
     print(_render(rows))
     actionable = has_actionable_mismatch(rows)
-    captured_any = any(r.status in ("match", "mismatch") for r in rows)
+    incomplete = any(r.status == "missing_capture" for r in rows)
     if actionable:
         print("\nRESULT: drift detected (actionable HTTP mismatch).")
-    elif not captured_any:
-        print("\nRESULT: no HTTP capture — confirm the IDE egresses through the mitm proxy + trusts its CA.")
+    elif incomplete:
+        print("\nRESULT: incomplete HTTP capture — confirm agy uses the mitm proxy and trusts its CA.")
     else:
         print("\nRESULT: aligned.")
     if args.check and actionable:
         return 1
+    if args.check and incomplete:
+        return 3
     return 0
 
 
