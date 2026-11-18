@@ -1,6 +1,6 @@
 {
   "name": "tk_canonical_cc_oauth",
-  "description": "TokenKey canonical Claude Code OAuth TLS profile. Stable id intentionally decoupled from cc CLI patch version: TLS ClientHello stays byte-identical across cc patch releases (baseline ja3_hash=d871d02cecbde59abbf8f4806134addf, captured from cc 2.1.142 onward), so a new patch release never triggers a rename. HTTP observed.user_agent below is a compile-time snapshot; the live wire UA is driven at runtime by SettingService.GetClaudeCodeUserAgentVersion (admin setting → env CLAUDE_CODE_USER_AGENT_VERSION → compile default). runtime=node v26.3.0 darwin/arm64.",
+  "description": "TokenKey canonical Claude Code OAuth TLS profile. Stable id is independent of the CLI patch version. Captured from Claude Code 2.1.327 on 2026-11-18 (Node v26.12.1 darwin/arm64): X25519MLKEM768 and X25519 key shares, no padding extension. HTTP observed.user_agent remains a compile-time snapshot; live UA uses SettingService.GetClaudeCodeUserAgentVersion.",
   "enable_grease": false,
   "cipher_suites": [
     4865,
@@ -22,6 +22,7 @@
     53
   ],
   "curves": [
+    4588,
     29,
     23,
     24
@@ -38,6 +39,8 @@
     1281,
     2054,
     1537,
+    2055,
+    1539,
     513
   ],
   "alpn_protocols": [
@@ -48,6 +51,7 @@
     771
   ],
   "key_share_groups": [
+    4588,
     29
   ],
   "psk_modes": [
@@ -66,21 +70,21 @@
     18,
     51,
     45,
-    43,
-    21
+    43
   ],
   "observed": {
     "model": "claude-haiku-4-5-20251001",
-    "user_agent": "claude-cli/2.1.325 (external, cli)",
+    "user_agent": "claude-cli/2.1.327 (external, cli)",
     "stainless_os": "MacOS",
     "stainless_arch": "arm64",
     "stainless_runtime": "node",
-    "stainless_runtime_version": "v26.3.0",
+    "stainless_runtime_version": "v26.12.1",
     "stainless_lang": "js",
     "stainless_package_version": "0.128.0",
-    "ja3_raw": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-21,29-23-24,0",
-    "ja3_hash": "d871d02cecbde59abbf8f4806134addf",
-    "ja4": "t13d1714h1_5b57614c22b0_43ade6aba3df",
-    "source": "https://tls.sub2api.org:8090"
+    "ja3_raw": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43,4588-29-23-24,0",
+    "ja3_hash": "1523504b38f0fae0d881d4b6554aac1b",
+    "ja4": "t13d1713h1_5b57614c22b0_7f527383e249",
+    "source": "https://tls.sub2api.org:8090",
+    "captured_at": "2026-11-18T04:35:17.29084498Z"
   }
 }

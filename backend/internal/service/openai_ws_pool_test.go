@@ -1444,14 +1444,18 @@ func TestOpenAIWSConnPool_AcquireRejectsWhenEffectiveMaxConnsIsZero(t *testing.T
 }
 
 func TestOpenAIWSConnLease_ReadMessageWithContextTimeout_PerRead(t *testing.T) {
-	conn := newOpenAIWSConn("timeout", 1, &openAIWSBlockingConn{readDelay: 80 * time.Millisecond}, nil)
+	// The first read waits for cancellation; the second returns immediately.
+	// Two wall-clock timers can both expire while the test is descheduled,
+	// making select choose success randomly even when its context expired.
+	reader := &openAIWSPerReadContextConn{}
+	conn := newOpenAIWSConn("timeout", 1, reader, nil)
 	lease := &openAIWSConnLease{conn: conn}
 
 	_, err := lease.ReadMessageWithContextTimeout(context.Background(), 20*time.Millisecond)
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 
-	payload, err := lease.ReadMessageWithContextTimeout(context.Background(), 150*time.Millisecond)
+	payload, err := lease.ReadMessageWithContextTimeout(context.Background(), time.Minute)
 	require.NoError(t, err)
 	require.Contains(t, string(payload), "response.completed")
 
@@ -2496,6 +2500,23 @@ func (c *openAIWSFakeConn) Close() error {
 	defer c.mu.Unlock()
 	c.closed = true
 	return nil
+}
+
+type openAIWSPerReadContextConn struct {
+	openAIWSBlockingConn
+	reads int
+}
+
+func (c *openAIWSPerReadContextConn) ReadMessage(ctx context.Context) ([]byte, error) {
+	c.reads++
+	if c.reads != 2 {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return []byte(`{"type":"response.completed"}`), nil
 }
 
 type openAIWSBlockingConn struct {

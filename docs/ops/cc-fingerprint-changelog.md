@@ -23,6 +23,7 @@ re-document it per patch — note "A/B unchanged" in the row instead.
 
 | cc version | date (UTC) | type | note |
 |---|---|---|---|
+| 2.1.327 | 2026-11-18 | TLS/runtime + UA | Real CLI collector captures agree on JA3 `1523504b38f0fae0d881d4b6554aac1b` (X25519MLKEM768; no padding) and Node `v26.12.1`; synchronize canonical/embedded TLS profile and HTTP runtime pins. Haiku/Sonnet MITM cohort is `third_party_token`: system identity observed; OAuth beta NOT_OBSERVED, billing prefix absent. SDK stays `0.128.0`. See [runtime decision](../spec-delta/cc-node-runtime.md); no production apply. |
 | 2.1.319 | 2026-11-10 | pure UA | `cc_version` 2.1.318 → 2.1.319；本机 `claude --version` reports 2.1.319, static version alignment only. TLS, beta, Stainless, system and geo-stego unchanged; no wire capture. Issue #3124 upstream 2.1.322 remains pending until local CLI/capture ground truth reaches it. |
 | 2.1.318 | 2026-11-04 | pure UA | 2.1.316 → 2.1.318；本机 `claude --version` 升级到 2.1.318 后静态验证，再跑 `check-cc-version-sync.py --write`。TLS、beta、Stainless、system 配置未改，本次未采集 wire / Haiku A/B 证据。关联 #3041。 |
 | 2.1.314 | 2026-10-30 | pure UA | 2.1.312 → 2.1.314；`claude update` 后本机 `claude --version` 静态验证与 `check-cc-version-sync.py --write`。TLS、beta、Stainless、system 配置未改，本次未采集 wire / Haiku A/B 证据。关联 #2984。 |

@@ -123,7 +123,7 @@ func floorClaudeCLIUserAgentVersion(ua string) (string, bool) {
 // 单一真值来源纪律：身份字段（OS/arch/runtime/lang/pkg/UA 后缀）必须与权威的
 // canonicalHTTPObservedStatic（与唯一 TLS ClientHello 同批抓包）逐字节一致。
 // 历史上这里曾是 Linux/v24.13.0/(external, cli) 的第二套真值，与 canonical 的
-// MacOS/v26.3.0/(external, sdk-cli) 冲突——当 fingerprint 走兜底时会发出 TLS 与
+// MacOS/v26.12.1/(external, sdk-cli) 冲突——当 fingerprint 走兜底时会发出 TLS 与
 // HTTP 头自相矛盾的指纹（Mac 级 TLS + Linux 头）。现收敛到 canonical 取值。
 //
 // 这里刻意保留显式 struct 字面量（而非 func 派生 canonical）：
@@ -132,13 +132,13 @@ func floorClaudeCLIUserAgentVersion(ua string) (string, bool) {
 // 字面量与 canonical 的一致性改由 identity_canonical_consistency_test.go 机械锁死。
 func defaultFingerprint() Fingerprint {
 	fp := Fingerprint{
-		UserAgent:               "claude-cli/2.1.325 (external, cli)",
+		UserAgent:               "claude-cli/2.1.327 (external, cli)",
 		StainlessLang:           "js",
 		StainlessPackageVersion: "0.128.0",
 		StainlessOS:             "MacOS",
 		StainlessArch:           "arm64",
 		StainlessRuntime:        "node",
-		StainlessRuntimeVersion: "v26.3.0",
+		StainlessRuntimeVersion: "v26.12.1",
 	}
 	fp.UserAgent = claude.DefaultUserAgent()
 	return fp

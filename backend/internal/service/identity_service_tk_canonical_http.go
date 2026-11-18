@@ -56,7 +56,7 @@ const (
 	// neither env nor runtime resolver provides a value. Keep in sync with
 	// the most recent cc CLI release this build was validated against; the
 	// admin UI / runtime resolver is the normal update path going forward.
-	DefaultClaudeCodeUserAgentVersion = "2.1.325"
+	DefaultClaudeCodeUserAgentVersion = "2.1.327"
 
 	// canonicalUAPrefix / canonicalUASuffix wrap the version-only field.
 	// Matches interactive Claude Code REPL ingress (`claude-cli/<version> (external, cli)`).
@@ -157,7 +157,7 @@ var canonicalHTTPObservedStatic = Fingerprint{
 	StainlessOS:             "MacOS",
 	StainlessArch:           "arm64",
 	StainlessRuntime:        "node",
-	StainlessRuntimeVersion: "v26.3.0",
+	StainlessRuntimeVersion: "v26.12.1",
 }
 
 // IsCanonicalTLSProfileName reports whether name is the TokenKey canonical

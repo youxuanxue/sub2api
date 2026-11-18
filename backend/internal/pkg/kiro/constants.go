@@ -10,7 +10,7 @@ const DefaultKiroAccountPriority = 10
 // below is the User-Agent observed on
 // AmazonCodeWhispererStreamingService.GenerateAssistantResponse from logged-in
 // kiro-cli 3.3.0; do not infer any segment from release metadata alone.
-const DefaultKiroCLIVersion = "3.3.0"
+const DefaultKiroCLIVersion = "3.4.0"
 
 const (
 	kiroCLISDKVersion    = "1.6.0"

@@ -21,7 +21,7 @@ _spec.loader.exec_module(mod)
 class CaptureCCFingerprintTest(unittest.TestCase):
     def test_load_tokenkey_baseline_has_expected_keys(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
-        self.assertEqual(baseline["tls"]["ja3_hash"], "d871d02cecbde59abbf8f4806134addf")
+        self.assertEqual(baseline["tls"]["ja3_hash"], "1523504b38f0fae0d881d4b6554aac1b")
         # default_version is derived from the Go const, which check-cc-version-sync.py
         # keeps == cc_version in the source JSON. Assert that invariant rather than
         # hard-coding the patch — so a cc bump never has to touch this test.
@@ -39,6 +39,16 @@ class CaptureCCFingerprintTest(unittest.TestCase):
         self.assertNotIn("effort-2025-11-24", baseline["betas"]["sonnet_mimicry"])
         self.assertIn("thinking-token-count-2026-05-13", baseline["betas"]["haiku_mimicry"])
         self.assertNotIn("effort-2025-11-24", baseline["betas"]["haiku_mimicry"])
+
+    def test_tls_runtime_baseline_matches_canonical_capture(self) -> None:
+        canonical = json.loads((mod.REPO_ROOT / "deploy/stage0/tk_canonical_cc_oauth.json").read_text())
+        runtime = json.loads((mod.REPO_ROOT / "backend/internal/baseline/anthropic-oauth-stability-baselines-tiered.json").read_text())
+        self.assertEqual(runtime["shared_baseline"]["tls_profile"],
+                         {key: value for key, value in canonical.items() if key != "observed"})
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        for lane in ("canonical_http", "mimic_http"):
+            self.assertEqual(baseline[lane]["stainless_runtime_version"],
+                             canonical["observed"]["stainless_runtime_version"])
 
     def test_diff_all_match_when_capture_matches_baseline(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
