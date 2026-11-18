@@ -120,23 +120,13 @@ func TestGeminiStreamDisruptionCountsEmptyPrefixTruncation(t *testing.T) {
 	store := &geminiCooldownStub{}
 	account := &Account{ID: 529}
 
-	// Empty-prefix failovers now count: three in the window cool the account.
-	noteGeminiStreamDisruptionWhenDelivered(context.Background(), store, account, false)
-	noteGeminiStreamDisruptionWhenDelivered(context.Background(), store, account, false)
+	// Empty-prefix truncations count the same as post-content ones: 3/1m cools.
+	noteGeminiStreamDisruption(context.Background(), store, account)
+	noteGeminiStreamDisruption(context.Background(), store, account)
 	require.Zero(t, store.calls)
-	noteGeminiStreamDisruptionWhenDelivered(context.Background(), store, account, false)
+	noteGeminiStreamDisruption(context.Background(), store, account)
 	require.Equal(t, 1, store.calls)
 	require.Contains(t, store.reason, "tier=0")
-}
-
-func TestGeminiPayloadDeliveredUsableOutput(t *testing.T) {
-	require.False(t, geminiPayloadDeliveredUsableOutput(nil))
-	require.False(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"thoughtSignature":"SIG"}]}}]}`)))
-	require.False(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"text":"  "}]}}]}`)))
-	require.False(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"thought":true,"text":"hmm"}]}}]}`)))
-	require.True(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"text":"answer"}]}}]}`)))
-	require.True(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"x"}}]}}]}`)))
-	require.True(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"abc"}}]}}]}`)))
 }
 
 func TestGeminiPayloadStartsVisibleTTFT(t *testing.T) {

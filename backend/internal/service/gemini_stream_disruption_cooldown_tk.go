@@ -90,25 +90,6 @@ func noteGeminiStreamDisruption(ctx context.Context, store geminiDisruptionStore
 	noteGeminiStreamDisruptionAt(ctx, store, account, time.Now())
 }
 
-// noteGeminiStreamDisruptionWhenDelivered counts a truncation toward the
-// disruption ladder. `delivered` is retained for call-site clarity; empty-prefix
-// failovers count too so accounts that repeatedly die before first usable byte
-// leave the pool (same 3-in-1m threshold as post-content truncations).
-func noteGeminiStreamDisruptionWhenDelivered(ctx context.Context, store geminiDisruptionStore, account *Account, delivered bool) {
-	_ = delivered
-	noteGeminiStreamDisruption(ctx, store, account)
-}
-
-// geminiPayloadDeliveredUsableOutput is the messages-compat counterpart of
-// antigravityStreamResult.modelBytesWritten: a holdable prefix (signature,
-// blank text, thought) is not body, tool, or media.
-func geminiPayloadDeliveredUsableOutput(payload []byte) bool {
-	if len(bytes.TrimSpace(payload)) == 0 {
-		return false
-	}
-	return !geminiNativeEventHoldable(payload)
-}
-
 func noteGeminiStreamDisruptionAt(ctx context.Context, store geminiDisruptionStore, account *Account, now time.Time) {
 	if account == nil || account.ID == 0 {
 		return
