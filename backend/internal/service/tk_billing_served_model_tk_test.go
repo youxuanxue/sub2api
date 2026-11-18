@@ -15,7 +15,8 @@ import (
 func TestSettleBillingOnAccountServedModel_UsesAccountMappingSSOT(t *testing.T) {
 	t.Parallel()
 	account := aliTokenPlanAccountForBillingTest(t)
-	require.Equal(t, "qwen4.0-max-preview", settleBillingOnAccountServedModel(account, "qwen4.0-max", "qwen4.0-max"))
+	require.Equal(t, "qwen4.0-max", settleBillingOnAccountServedModel(account, "qwen4.0-max", "qwen4.0-max"))
+	require.Equal(t, "qwen4.0-max-preview", settleBillingOnAccountServedModel(account, "qwen4.0-max-preview", "qwen4.0-max-preview"))
 	require.Equal(t, "qwen-plus", settleBillingOnAccountServedModel(account, "qwen-plus", "qwen-plus"))
 	require.Equal(t, "qwen-max", settleBillingOnAccountServedModel(account, "qwen-max", "qwen-max"))
 	require.Equal(t, "claude-sonnet-4", settleBillingOnAccountServedModel(account, "claude-sonnet-4", "claude-sonnet-4"))
@@ -35,14 +36,14 @@ func TestSettleBillingOnAccountServedModel_UsesAccountMappingSSOT(t *testing.T) 
 	require.Equal(t, "qwen-plus", settleBillingOnAccountServedModel(nil, "qwen-plus", "qwen-plus"))
 }
 
-func TestGatewayRecordUsage_TokenPlanLegacyAliasBillsServedModel(t *testing.T) {
+func TestGatewayRecordUsage_TokenPlanQwen4SelfMapBillsRequestedModel(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}
 	subRepo := &openAIRecordUsageSubRepoStub{}
 	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, subRepo)
 	account := aliTokenPlanAccountForBillingTest(t)
 
-	expectedCost, err := svc.billingService.CalculateCost("qwen4.0-max-preview", UsageTokens{
+	expectedCost, err := svc.billingService.CalculateCost("qwen4.0-max", UsageTokens{
 		InputTokens:  1000,
 		OutputTokens: 500,
 	}, 1.1)
@@ -52,7 +53,7 @@ func TestGatewayRecordUsage_TokenPlanLegacyAliasBillsServedModel(t *testing.T) {
 		Result: &ForwardResult{
 			RequestID:     "tokenplan-qwen4-billing",
 			Model:         "qwen4.0-max",
-			UpstreamModel: "qwen4.0-max-preview",
+			UpstreamModel: "qwen4.0-max",
 			Usage: ClaudeUsage{
 				InputTokens:  1000,
 				OutputTokens: 500,
@@ -75,16 +76,15 @@ func TestGatewayRecordUsage_TokenPlanLegacyAliasBillsServedModel(t *testing.T) {
 }
 
 // china / newapi Token Plan traffic settles on the OpenAI-compat RecordUsage
-// path; BillingModelSourceRequested must not keep the legacy price card after
-// account model_mapping remaps the request.
-func TestOpenAIRecordUsage_TokenPlanLegacyAliasBillsServedModel(t *testing.T) {
+// path; qwen4 GA self-maps so BillingModelSourceRequested bills the requested id.
+func TestOpenAIRecordUsage_TokenPlanQwen4SelfMapBillsRequestedModel(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}
 	subRepo := &openAIRecordUsageSubRepoStub{}
 	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
 	account := aliTokenPlanAccountForBillingTest(t)
 
-	expectedCost, err := svc.billingService.CalculateCost("qwen4.0-max-preview", UsageTokens{
+	expectedCost, err := svc.billingService.CalculateCost("qwen4.0-max", UsageTokens{
 		InputTokens:  1000,
 		OutputTokens: 500,
 	}, 1.1)
@@ -95,7 +95,7 @@ func TestOpenAIRecordUsage_TokenPlanLegacyAliasBillsServedModel(t *testing.T) {
 			RequestID:     "tokenplan-openai-qwen4-billing",
 			Model:         "qwen4.0-max",
 			BillingModel:  "qwen4.0-max",
-			UpstreamModel: "qwen4.0-max-preview",
+			UpstreamModel: "qwen4.0-max",
 			Usage: OpenAIUsage{
 				InputTokens:  1000,
 				OutputTokens: 500,
