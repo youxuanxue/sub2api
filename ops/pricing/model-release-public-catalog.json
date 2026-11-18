@@ -45,6 +45,24 @@
       "notes": "public launch post API id"
     },
     {
+      "vendor": "openai",
+      "model_id": "gpt-6.1-terra",
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
+      "notes": "public API model card; $1/$5 standard; OAuth Codex self-mapped floor"
+    },
+    {
+      "vendor": "openai",
+      "model_id": "gpt-6.2-sol",
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-6.2-sol",
+      "notes": "public API model card; $2/$10 standard; prod OAuth+apikey evidence 2026-11-18"
+    },
+    {
+      "vendor": "openai",
+      "model_id": "gpt-6.2-astra",
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-6.2-astra",
+      "notes": "public API model card; $8/$40 standard; prod OAuth+apikey evidence 2026-11-18"
+    },
+    {
       "vendor": "google",
       "model_id": "gemini-3.8-flash",
       "source_url": "https://ai.google.dev/gemini-api/docs/models",

@@ -101,9 +101,13 @@ func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
 	require.True(t, account.IsModelSupported("gpt-6-luna"), "gpt-6-luna must be on the OpenAI floor")
 	require.True(t, account.IsModelSupported("gpt-6-terra"), "gpt-6-terra must be on the OpenAI floor")
 	require.True(t, account.IsModelSupported("gpt-6.1-terra"), "gpt-6.1-terra must be on the OpenAI floor")
+	require.True(t, account.IsModelSupported("gpt-6.2-sol"), "gpt-6.2-sol must be on the OpenAI floor")
+	require.True(t, account.IsModelSupported("gpt-6.2-astra"), "gpt-6.2-astra must be on the OpenAI floor")
 	require.Equal(t, "gpt-6-astra", mapping["gpt-6"], "public gpt-6 must be a floor alias onto Astra")
-	require.Equal(t, "gpt-5.6-terra", mapping["gpt-6-terra"], "published gpt-6-terra remaps onto gpt-5.6-terra")
-	require.Equal(t, "gpt-5.6-terra", mapping["gpt-6.1-terra"], "published gpt-6.1-terra remaps onto gpt-5.6-terra")
+	require.Equal(t, "gpt-6.1-terra", mapping["gpt-6-terra"], "published gpt-6-terra remaps onto gpt-6.1-terra")
+	require.Equal(t, "gpt-6.1-terra", mapping["gpt-6.1-terra"], "published gpt-6.1-terra stays identity")
+	require.Equal(t, "gpt-6.2-sol", mapping["gpt-6.2-sol"])
+	require.Equal(t, "gpt-6.2-astra", mapping["gpt-6.2-astra"])
 	require.True(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-6")), "public gpt-6 alias must route onto the floor")
 	require.False(t, account.IsModelSupported("gpt-not-a-real-id-zzz"), "unknown OpenAI ids must stay out of the floor")
 }
@@ -360,8 +364,10 @@ func requireOpenAITextCompatibilityAliases(t *testing.T, mapping map[string]stri
 		_, declared := tkPricingRegistryAliasOwner(from)
 		require.Falsef(t, declared, "wire remap %s must remain a first-class overlay owner, not an _aliases key", from)
 	}
-	require.Equal(t, "gpt-5.6-terra", mapping["gpt-6-terra"])
-	require.Equal(t, "gpt-5.6-terra", mapping["gpt-6.1-terra"])
+	require.Equal(t, "gpt-6.1-terra", mapping["gpt-6-terra"])
+	require.Equal(t, "gpt-6.1-terra", mapping["gpt-6.1-terra"])
+	require.Equal(t, "gpt-6.2-sol", mapping["gpt-6.2-sol"])
+	require.Equal(t, "gpt-6.2-astra", mapping["gpt-6.2-astra"])
 }
 
 func grokDisplayBackedCompatibilityAliases() map[string]string {
@@ -409,7 +415,7 @@ func requireIdentityMappingForIDs(t *testing.T, mapping map[string]string, ids [
 	}
 	// Compatibility aliases may add extra keys. A catalog id may also be a
 	// public alias (bare gpt-5.6 → sol) or a published wire remap
-	// (gpt-6-terra → gpt-5.6-terra). Every other SSOT key stays identity,
+	// (gpt-6-terra → gpt-6.1-terra). Every other SSOT key stays identity,
 	// and every target stays in the SSOT id set.
 	for from, to := range mapping {
 		_, isSSOT := idSet[from]

@@ -271,6 +271,8 @@
         "\"gpt-6-luna\":",
         "\"gpt-6-terra\":",
         "\"gpt-6.1-terra\":",
+        "\"gpt-6.2-astra\":",
+        "\"gpt-6.2-sol\":",
         "\"grok-4.7\":",
         "\"gemini-4-argon\":"
       ],
@@ -1004,11 +1006,10 @@
         "\"gpt-6.1\": \"gpt-6.1-sol\"",
         "tkOpenAITextCompatibilityAliases,",
         "var tkOpenAIWireRemapAliases = map[string]string{",
-        "\"gpt-6-terra\":   \"gpt-5.6-terra\"",
-        "\"gpt-6.1-terra\": \"gpt-5.6-terra\"",
+        "\"gpt-6-terra\": \"gpt-6.1-terra\"",
         "tkOpenAIWireRemapAliases,"
       ],
-      "rationale": "OpenAI native floor folds public bare gpt-6 onto gpt-6-astra and gpt-6.1 onto gpt-6.1-sol via tkOpenAITextCompatibilityAliases (alongside image aliases). Published gpt-6-terra / gpt-6.1-terra stay first-class catalog/price owners but OAuth wire remaps onto gpt-5.6-terra via tkOpenAIWireRemapAliases. Losing either map or its merge into openAICanonicalAccountModelMappingFloor would drop aliases or send Terra requests to unavailable upstream IDs."
+      "rationale": "OpenAI native floor folds public bare gpt-6 onto gpt-6-astra and gpt-6.1 onto gpt-6.1-sol via tkOpenAITextCompatibilityAliases (alongside image aliases). Published gpt-6-terra remaps onto gpt-6.1-terra via tkOpenAIWireRemapAliases; gpt-6.1-terra stays identity. gpt-6.2-sol/astra are self-mapped public catalog owners. Losing the map or its merge into openAICanonicalAccountModelMappingFloor would drop aliases or send Terra/6.2 requests to unavailable upstream IDs."
     },
     {
       "path": "backend/internal/service/antigravity_model_capability_tk_test.go",
