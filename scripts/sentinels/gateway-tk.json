@@ -12019,9 +12019,11 @@
         "OpenRouterProviderImages",
         "OpenRouterProviderVideoSubmit",
         "OpenRouterProviderVideoFetch",
-        "registerTKOpenRouterProviderRoutes("
+        "registerTKOpenRouterProviderRoutes(",
+        "openrouterProvider.Use(apiKeyAuth)",
+        "openrouterProvider.Use(qaCapture)"
       ],
-      "rationale": "OpenRouter seller route registration companion: Group(/openrouter/v1) + provider models/images/videos handlers. Thin call registerTKOpenRouterProviderRoutes from gateway.go."
+      "rationale": "OpenRouter seller route registration companion: Group(/openrouter/v1) + provider models/images/videos handlers. Thin call registerTKOpenRouterProviderRoutes from gateway.go. apiKeyAuth must precede qaCapture so per-user qa_capture_enabled can skip tee/buffering."
     },
     {
       "path": "backend/internal/server/routes/gateway.go",
@@ -14952,11 +14954,11 @@
     {
       "path": "backend/internal/server/routes/gateway.go",
       "must_contain": [
-        "registerTKOpenRouterProviderRoutes(r, h,",
+        "registerTKOpenRouterProviderRoutes(r, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), terminalOutcomeRecorder)",
         "registerTKGrokVoiceRoutesV1(gatewayRoutes, h)",
         "registerTKGrokVoiceRoutesRoot(rootRoutes, h,"
       ],
-      "rationale": "Keep the public router connected to the OpenRouter and Grok companions. Anchoring only function definitions allows upstream merges to silently remove these HTTP surfaces."
+      "rationale": "Keep the public router connected to the OpenRouter and Grok companions. Full OpenRouter call-arg order is load-bearing: positional swap of qaCapture vs opsErrorLogger/apiKeyAuth silently mis-wires /openrouter/v1 middleware (ops errors miss auth failures; QA gate may run without auth context)."
     },
     {
       "path": "backend/internal/server/routes/gateway_tk_companion_routes_test.go",

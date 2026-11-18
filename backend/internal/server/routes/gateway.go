@@ -117,7 +117,7 @@ func RegisterGatewayRoutes(
 	}
 
 	// TK: OpenRouter seller catalog — see gateway_tk_openrouter_routes.go
-	registerTKOpenRouterProviderRoutes(r, h, bodyLimit, clientRequestID, trajectoryID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), qaCapture, terminalOutcomeRecorder)
+	registerTKOpenRouterProviderRoutes(r, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), terminalOutcomeRecorder)
 
 	// Gemini 原生 API 兼容层（Gemini SDK/CLI 直连）
 	gemini := r.Group("/v1beta")
