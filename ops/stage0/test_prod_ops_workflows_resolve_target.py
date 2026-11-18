@@ -13,7 +13,6 @@ _PROD_RESOLVE_WORKFLOWS = (
     "ops-stage0-pg-dump-refresh.yml",
     "sync-docs-to-pages.yml",
     "ops-stage0-container-log-policy.yml",
-    "ops-stage0-ghcr-prune-timer.yml",
     "deploy-stage0.yml",
 )
 
@@ -53,6 +52,20 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
         self.assertIn("prod-warm-receipt.json", text)
         # Multi-node sequential warm needs headroom beyond the old single-host 15m.
         self.assertRegex(text, r"timeout-minutes:\s*(2[5-9]|[3-9]\d|[1-9]\d{2,})\b")
+
+    def test_ghcr_prune_timer_workflow_uses_tat_on_all_apps(self) -> None:
+        text = (WORKFLOWS / "ops-stage0-ghcr-prune-timer.yml").read_text(encoding="utf-8")
+        self.assertIn("python3 ops/stage0/sync_ghcr_prune_timer.py", text)
+        self.assertIn("deploy/tencent/candidate-usw-20261022.json", text)
+        self.assertIn("--via tat", text)
+        self.assertIn("environment: tencent-ops", text)
+        self.assertIn("TENCENTCLOUD_SECRET_ID", text)
+        self.assertNotIn("aws-actions/configure-aws-credentials", text)
+        self.assertNotIn("AWS_OIDC_ROLE_ARN", text)
+        self.assertNotIn("id-token: write", text)
+        self.assertNotIn("sync-ghcr-prune-timer-via-ssm.sh", text)
+        self.assertNotIn("resolve_prod_ssm_target.py", text)
+        self.assertIn("prod-ghcr-prune-timer-receipt.json", text)
 
     def test_feishu_sync_region_default_matches_other_prod_workflows(self) -> None:
         # AWS_REGION only scopes OIDC credentials; the SSM call must take the

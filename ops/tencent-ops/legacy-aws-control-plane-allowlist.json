@@ -46,7 +46,6 @@
     ".github/workflows/ops-pgdump-restore-canary.yml",
     ".github/workflows/ops-physical-restore.yml",
     ".github/workflows/ops-stage0-container-log-policy.yml",
-    ".github/workflows/ops-stage0-ghcr-prune-timer.yml",
     ".github/workflows/ops-stage0-pg-dump-refresh.yml",
     ".github/workflows/prod-feishu-config-repair.yml",
     ".github/workflows/prod-feishu-config-sync.yml",

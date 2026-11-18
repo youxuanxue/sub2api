@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Push tokenkey-ghcr-prune-daily.{sh,service,timer} onto a running Stage0 host
-# (prod) via SSM Run-Command, WITHOUT rebuilding the instance.
+# LEGACY break-glass: push tokenkey-ghcr-prune-daily via SSM Run-Command.
+# Daily default is TAT: ops/stage0/sync_ghcr_prune_timer.py +
+# .github/workflows/ops-stage0-ghcr-prune-timer.yml (tencent-ops).
+# Do not wire this script back into the workflow default
+# (docs/approved/design-tencent-ops-control-plane.md).
 #
-# Why: deploy_via_ssm.sh prunes GHCR tags at deploy time only; without a daily timer
-# stale tags pile up between deploys (2026-08 disk-full incident on us3/us4/us6).
-# New prod boots get the timer from deploy/stage0/stage0-ec2-bootstrap.sh.
-# This one-shot backfills LIVE hosts provisioned before the timer landed.
+# Why it existed: deploy_via_ssm.sh pruned GHCR tags at deploy time only; without
+# a daily timer stale tags piled up (2026-08 disk-full on us3/us4/us6).
+# New prod boots still get the timer from deploy/stage0/stage0-ec2-bootstrap.sh.
 #
 # SSOT for the script body: deploy/stage0/tokenkey-ghcr-prune-daily.sh
 #
-# Usage:
+# Usage (explicit emergency only):
 #   bash ops/stage0/sync-ghcr-prune-timer-via-ssm.sh <instance-id> [comment]
 #   AWS_REGION=us-east-1 bash ops/stage0/sync-ghcr-prune-timer-via-ssm.sh i-0abc...
 
