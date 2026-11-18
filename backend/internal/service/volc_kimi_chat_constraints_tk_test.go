@@ -525,6 +525,25 @@ func TestVolcKimiDropsEmptyTextParts(t *testing.T) {
 		})
 	}
 
+	t.Run("null message content becomes empty string", func(t *testing.T) {
+		// cn-prod 2026-11-18 rt@tk.com wire: system content null → Volc missing messages.content.
+		in := []byte(`{"messages":[{"role":"system","content":null},{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"get_weather","parameters":{"type":"object"}}}]}`)
+		out, err := normalizeVolcKimiChatRequest(in)
+		require.NoError(t, err)
+		require.Equal(t, gjson.String, gjson.GetBytes(out, "messages.0.content").Type)
+		require.Equal(t, "", gjson.GetBytes(out, "messages.0.content").String())
+		require.Equal(t, "hi", gjson.GetBytes(out, "messages.1.content").String())
+		require.Equal(t, "get_weather", gjson.GetBytes(out, "tools.0.function.name").String())
+	})
+
+	t.Run("absent content key unchanged", func(t *testing.T) {
+		in := []byte(`{"messages":[{"role":"system"},{"role":"user","content":"hi"}]}`)
+		out, err := normalizeVolcKimiChatRequest(in)
+		require.NoError(t, err)
+		require.False(t, gjson.GetBytes(out, "messages.0.content").Exists())
+		require.Equal(t, "hi", gjson.GetBytes(out, "messages.1.content").String())
+	})
+
 	// Body without empty parts is returned byte-for-byte.
 	clean := []byte(`{"messages":[{"role":"system","content":[{"type":"text","text":"a"}]},{"role":"user","content":"hi"}]}`)
 	out, err := normalizeVolcKimiChatRequest(clean)

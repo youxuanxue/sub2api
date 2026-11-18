@@ -414,3 +414,23 @@ Behavior: same owner as empty text parts — treat missing/null `text` like
 content and tool promotion are untouched.
 
 Test: `TestVolcKimiDropsEmptyTextParts`.
+
+## 2026-11-18: message-level content JSON null → ""
+
+Evidence: cn-prod `rt@tk.com` (user_id=2). Report window `2026-11-18T04:02:34Z`
+and later `08:05Z` bursts returned Volc
+`missing \`messages.content\` parameter`. QA wire blobs (e.g.
+`01e52f5e-…`, `7f74db05-…`, `f9452965-…`) show inbound
+`{"role":"system","content":null}` — sometimes with top-level tools, often
+without message-level `tools`. Wire size matched a body without dynamic-tool
+payloads; the customer harness logged an intended Calculator injection that did
+not appear on the wire. Same Volc path accepts `content:""`.
+
+Behavior: `coerceVolcKimiNullMessageContent` (in
+`normalizeVolcKimiInboundMessages`) rewrites JSON null `messages.content` to
+`""` on the Volc Agent Plan K3 path only. Absent content keys stay absent.
+KVV dynamic-tool promotion still runs first: system + null/empty content +
+legal `tools` is promoted and the message dropped before this coerce.
+
+Test: `TestVolcKimiDropsEmptyTextParts/null_message_content_becomes_empty_string`
+and `TestApplyMoonshotK3DynamicToolsShape_PromotesNullContent`.
