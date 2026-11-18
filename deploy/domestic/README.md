@@ -1,6 +1,7 @@
 # 腾讯北京 cn-prod（domestic）
 
 当前站点是腾讯北京 `tokenkey-cn-prod`，已采用入口机 + 多应用机 + 数据机的生产布局。
+与美西 **prod** 组成**多地域等效容灾**（站点库与控制面独立）；本站入口 WRR 多应用机提供**站点内应用高可用**。对外表述见 [`deploy/hetzner/README.md`](../hetzner/README.md#高可用与等效容灾对外表述)。
 `lhins-6qmb3fd6`（`154.8.214.179`）只是历史 app-a 身份，当前节点、私网和数据面
 以 [`prod-target.json`](prod-target.json) 的 `entry`、`apps[]` 和数据机配置为准。
 原始实例与 `cn-ip1..4` 到期 **2026-11-22**，续费标志

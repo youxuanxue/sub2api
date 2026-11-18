@@ -1,5 +1,23 @@
 # 独立本地生命周期
 
+## 按用户关闭采集
+
+站点级 `ops/qa/policy.yaml` / `qa_capture.enabled` 可保持开启。用户表
+`users.qa_capture_enabled`（默认 `true`）为 false 时，网关
+`CaptureFromContext` 不持久化该用户请求/响应正文与 QA blob。
+Admin：`PUT /api/v1/admin/users/:id` body `{"qa_capture_enabled":false}`，或控制台用户编辑。
+auth snapshot v28+ 携带该字段；改完会 invalidate 认证缓存。
+
+双站关闭示例（发版含 `tk_114` 之后）：
+
+```bash
+# 先查用户 id，再关采集
+node .cursor/skills/sub2api-admin/scripts/sub2api-admin.js api GET '/api/v1/admin/users?email=compute@tk.com'
+node .cursor/skills/sub2api-admin/scripts/sub2api-admin.js api PUT "/api/v1/admin/users/<id>" --json '{"qa_capture_enabled":false}'
+```
+
+prod 与 cn-prod 各执行一次；读回 `qa_capture_enabled` 确认。
+
 2026-10-21 已完成生产启用与积压清理，见 [验收记录](../../docs/ops/qa-local-retention-20261021.md)。
 
 `tokenkey-qa-provision.timer` 是本地预建任务：每小时滚动补齐当前起未来 72 小时，

@@ -367,6 +367,12 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 	if !ok || apiKey == nil || apiKey.User == nil {
 		return
 	}
+	// Per-user gate (users.qa_capture_enabled). Site-wide cfg may stay on; when
+	// this user is false, do not persist request/response bodies or QA blobs.
+	// Auth snapshot carries the flag (apiKeyAuthSnapshotVersion >= 28).
+	if !apiKey.User.QACaptureEnabled {
+		return
+	}
 
 	requestID, _ := c.Request.Context().Value(ctxkey.RequestID).(string)
 	trajectoryID, _ := c.Request.Context().Value(ctxkey.TrajectoryID).(string)

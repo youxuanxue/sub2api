@@ -131,6 +131,13 @@ func (User) Fields() []ent.Field {
 		// 开启后该用户每个 API Key 行出现导出入口，可独立导出其捕获的对话轨迹。
 		field.Bool("traj_export_enabled").
 			Default(false),
+
+		// TK: per-user QA capture gate. Site-wide qa_capture.enabled may stay on;
+		// when this is false, gateway QA middleware must not persist request/response
+		// bodies or QA blobs for that user's traffic. Default true (backward compatible).
+		// Owner: internal/observability/qa CaptureFromContext.
+		field.Bool("qa_capture_enabled").
+			Default(true),
 	}
 }
 

@@ -1,6 +1,8 @@
 schema_version: 1
 
 prod:
+  # Site-wide capture. Per-user off-switch is users.qa_capture_enabled (default true);
+  # see CaptureFromContext + ops/qa/README.md「按用户关闭采集」.
   capture_enabled: true
 
   # QA S3 archive retired 2026-11-08 (user decision). Local data stays 24h; host

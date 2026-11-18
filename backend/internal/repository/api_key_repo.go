@@ -179,6 +179,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				user.FieldLastLoginAt,
 				user.FieldLastActiveAt,
 				user.FieldRpmLimit,
+				user.FieldQaCaptureEnabled,
 			)
 			q.WithAllowedGroups(func(gq *dbent.GroupQuery) {
 				gq.Select(group.FieldID)
@@ -984,6 +985,7 @@ func userEntityToService(u *dbent.User) *service.User {
 		TotalRecharged:             u.TotalRecharged,
 		OnboardingTourSeenAt:       u.OnboardingTourSeenAt,
 		RPMLimit:                   u.RpmLimit,
+		QACaptureEnabled:           u.QaCaptureEnabled,
 		CreatedAt:                  u.CreatedAt,
 		UpdatedAt:                  u.UpdatedAt,
 		DeletedAt:                  u.DeletedAt,

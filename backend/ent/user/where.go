@@ -190,6 +190,11 @@ func TrajExportEnabled(v bool) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldTrajExportEnabled, v))
 }
 
+// QaCaptureEnabled applies equality check predicate on the "qa_capture_enabled" field. It's identical to QaCaptureEnabledEQ.
+func QaCaptureEnabled(v bool) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldQaCaptureEnabled, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldCreatedAt, v))
@@ -1468,6 +1473,16 @@ func TrajExportEnabledEQ(v bool) predicate.User {
 // TrajExportEnabledNEQ applies the NEQ predicate on the "traj_export_enabled" field.
 func TrajExportEnabledNEQ(v bool) predicate.User {
 	return predicate.User(sql.FieldNEQ(FieldTrajExportEnabled, v))
+}
+
+// QaCaptureEnabledEQ applies the EQ predicate on the "qa_capture_enabled" field.
+func QaCaptureEnabledEQ(v bool) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldQaCaptureEnabled, v))
+}
+
+// QaCaptureEnabledNEQ applies the NEQ predicate on the "qa_capture_enabled" field.
+func QaCaptureEnabledNEQ(v bool) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldQaCaptureEnabled, v))
 }
 
 // HasAPIKeys applies the HasEdge predicate on the "api_keys" edge.

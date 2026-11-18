@@ -2687,6 +2687,10 @@ func init() {
 	userDescTrajExportEnabled := userFields[23].Descriptor()
 	// user.DefaultTrajExportEnabled holds the default value on creation for the traj_export_enabled field.
 	user.DefaultTrajExportEnabled = userDescTrajExportEnabled.Default.(bool)
+	// userDescQaCaptureEnabled is the schema descriptor for qa_capture_enabled field.
+	userDescQaCaptureEnabled := userFields[24].Descriptor()
+	// user.DefaultQaCaptureEnabled holds the default value on creation for the qa_capture_enabled field.
+	user.DefaultQaCaptureEnabled = userDescQaCaptureEnabled.Default.(bool)
 	userallowedgroupFields := schema.UserAllowedGroup{}.Fields()
 	_ = userallowedgroupFields
 	// userallowedgroupDescCreatedAt is the schema descriptor for created_at field.

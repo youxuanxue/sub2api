@@ -75,6 +75,9 @@ class InstallDataMachineIdentityTest(unittest.TestCase):
                      f'  "{self.config}")\n'
                      f'    case "$fmt" in %a) echo 640 ;; %u:%g) echo 0:70 ;; *) echo "{config_stat}" ;; esac ;;\n'
                      f'  *) exit 1 ;; esac'),
+            # GNU sha256sum is also absent on macOS; install script only needs a
+            # stable 16-char prefix to detect config rewrite after first refresh.
+            "sha256sum": 'printf "%s  %s\\n" "$(wc -c <"$1" | tr -d " ")" "$1"',
         }
         for name, body in scripts.items():
             path = self.bin / name

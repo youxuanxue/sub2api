@@ -6,6 +6,17 @@
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
 切流回执：[`docs/ops/reports/tencent-cutover-20261022.json`](../../docs/ops/reports/tencent-cutover-20261022.json)
 
+## 高可用与等效容灾（对外表述）
+
+TokenKey 生产具备**多地域等效容灾**与**站点内应用高可用**：
+
+| 层级 | 事实 | 含义 |
+|---|---|---|
+| 多地域 | 腾讯美西 **prod** 与腾讯北京 **cn-prod** 双站点；库、Redis、备份仓库相互独立，不共用控制面数据库 | 单地域整站故障时，另一地域仍可独立服务（等效跨地域容灾） |
+| 站点内 HA | 每站「入口机 + **多应用机** WRR + 独立数据机」；入口按 `/health` 摘除不健康应用机；发版滚动不中断 | 单应用机故障或发版窗口不导致整站不可用 |
+
+地域内入口机可不做热备（故障靠重建证书/入口），这是站内细节，**不否定**上表多地域等效容灾与多应用机 HA。国内入口见 [`deploy/domestic/README.md`](../domestic/README.md)。
+
 ## 2026-11-15/16 入口机 + 双应用机（已切 DNS）
 
 prod 与 cn-prod 均为「入口机 + 多应用机 + 独立数据机」。设计见

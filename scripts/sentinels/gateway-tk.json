@@ -11820,15 +11820,17 @@
     {
       "path": "backend/internal/service/api_key_auth_cache_impl.go",
       "must_contain": [
-        "apiKeyAuthSnapshotVersion = 27",
+        "apiKeyAuthSnapshotVersion = 28",
         "apiKey.Group.StickyRoutingMode",
         "apiKey.Group.MessagesCompactionEnabled",
         "apiKey.Group.MessagesCompactionInputTokensThreshold",
         "snapshot.Group.StickyRoutingMode",
         "snapshot.Group.MessagesCompactionEnabled",
-        "snapshot.Group.MessagesCompactionInputTokensThreshold"
+        "snapshot.Group.MessagesCompactionInputTokensThreshold",
+        "apiKey.User.QACaptureEnabled",
+        "snapshot.User.QACaptureEnabled"
       ],
-      "rationale": "Auth snapshot serialization and hydration must preserve sticky routing plus both messages compaction fields in both directions, and a version bump must invalidate Redis/L1 entries serialized with the broken projection. One-way mapping still silently drops these policies after cache materialization."
+      "rationale": "Auth snapshot serialization and hydration must preserve sticky routing plus both messages compaction fields in both directions, and a version bump must invalidate Redis/L1 entries serialized with the broken projection. One-way mapping still silently drops these policies after cache materialization. v28 also carries per-user qa_capture_enabled so CaptureFromContext can gate body/blob persistence without a DB round-trip; dropping either side reverts to zero-value false and silently stops capture for cached keys."
     },
     {
       "path": "backend/internal/service/admin_account.go",
@@ -12017,17 +12019,19 @@
         "OpenRouterProviderImages",
         "OpenRouterProviderVideoSubmit",
         "OpenRouterProviderVideoFetch",
-        "registerTKOpenRouterProviderRoutes("
+        "registerTKOpenRouterProviderRoutes(",
+        "openrouterProvider.Use(apiKeyAuth)",
+        "openrouterProvider.Use(qaCapture)"
       ],
-      "rationale": "OpenRouter seller route registration companion: Group(/openrouter/v1) + provider models/images/videos handlers. Thin call registerTKOpenRouterProviderRoutes from gateway.go."
+      "rationale": "OpenRouter seller route registration companion: Group(/openrouter/v1) + provider models/images/videos handlers. Thin call registerTKOpenRouterProviderRoutes from gateway.go. apiKeyAuth must precede qaCapture so per-user qa_capture_enabled can skip tee/buffering."
     },
     {
       "path": "backend/internal/server/routes/gateway.go",
       "must_contain": [
         "gatewayRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, tkOpenAICompatAudioSpeechHandler(h))",
-        "rootRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, tkOpenAICompatAudioSpeechHandler(h))"
+        "rootRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, bodyLimit, clientRequestID, trajectoryID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), qaCapture, groupModelAllowlist, requireGroupAnthropic, tkOpenAICompatAudioSpeechHandler(h))"
       ],
-      "rationale": "Public OpenAI-compat audio speech routes on /v1 and root must stay wired to tkOpenAICompatAudioSpeechHandler; dropping either registration silently removes the TTS surface while catalog/docs still advertise it."
+      "rationale": "Public OpenAI-compat audio speech routes on /v1 and root must stay wired to tkOpenAICompatAudioSpeechHandler; dropping either registration silently removes the TTS surface while catalog/docs still advertise it. qaCapture stays after apiKeyAuth so per-user qa_capture_enabled can skip tee/buffering."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_openrouter_provider_media.go",
@@ -14950,11 +14954,11 @@
     {
       "path": "backend/internal/server/routes/gateway.go",
       "must_contain": [
-        "registerTKOpenRouterProviderRoutes(r, h,",
+        "registerTKOpenRouterProviderRoutes(r, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), terminalOutcomeRecorder)",
         "registerTKGrokVoiceRoutesV1(gatewayRoutes, h)",
         "registerTKGrokVoiceRoutesRoot(rootRoutes, h,"
       ],
-      "rationale": "Keep the public router connected to the OpenRouter and Grok companions. Anchoring only function definitions allows upstream merges to silently remove these HTTP surfaces."
+      "rationale": "Keep the public router connected to the OpenRouter and Grok companions. Full OpenRouter call-arg order is load-bearing: positional swap of qaCapture vs opsErrorLogger/apiKeyAuth silently mis-wires /openrouter/v1 middleware (ops errors miss auth failures; QA gate may run without auth context)."
     },
     {
       "path": "backend/internal/server/routes/gateway_tk_companion_routes_test.go",

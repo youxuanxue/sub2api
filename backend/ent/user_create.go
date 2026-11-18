@@ -396,6 +396,20 @@ func (_c *UserCreate) SetNillableTrajExportEnabled(v *bool) *UserCreate {
 	return _c
 }
 
+// SetQaCaptureEnabled sets the "qa_capture_enabled" field.
+func (_c *UserCreate) SetQaCaptureEnabled(v bool) *UserCreate {
+	_c.mutation.SetQaCaptureEnabled(v)
+	return _c
+}
+
+// SetNillableQaCaptureEnabled sets the "qa_capture_enabled" field if the given value is not nil.
+func (_c *UserCreate) SetNillableQaCaptureEnabled(v *bool) *UserCreate {
+	if v != nil {
+		_c.SetQaCaptureEnabled(*v)
+	}
+	return _c
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_c *UserCreate) AddAPIKeyIDs(ids ...int64) *UserCreate {
 	_c.mutation.AddAPIKeyIDs(ids...)
@@ -706,6 +720,10 @@ func (_c *UserCreate) defaults() error {
 		v := user.DefaultTrajExportEnabled
 		_c.mutation.SetTrajExportEnabled(v)
 	}
+	if _, ok := _c.mutation.QaCaptureEnabled(); !ok {
+		v := user.DefaultQaCaptureEnabled
+		_c.mutation.SetQaCaptureEnabled(v)
+	}
 	return nil
 }
 
@@ -800,6 +818,9 @@ func (_c *UserCreate) check() error {
 	}
 	if _, ok := _c.mutation.TrajExportEnabled(); !ok {
 		return &ValidationError{Name: "traj_export_enabled", err: errors.New(`ent: missing required field "User.traj_export_enabled"`)}
+	}
+	if _, ok := _c.mutation.QaCaptureEnabled(); !ok {
+		return &ValidationError{Name: "qa_capture_enabled", err: errors.New(`ent: missing required field "User.qa_capture_enabled"`)}
 	}
 	return nil
 }
@@ -935,6 +956,10 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.TrajExportEnabled(); ok {
 		_spec.SetField(user.FieldTrajExportEnabled, field.TypeBool, value)
 		_node.TrajExportEnabled = value
+	}
+	if value, ok := _c.mutation.QaCaptureEnabled(); ok {
+		_spec.SetField(user.FieldQaCaptureEnabled, field.TypeBool, value)
+		_node.QaCaptureEnabled = value
 	}
 	if nodes := _c.mutation.APIKeysIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -1590,6 +1615,18 @@ func (u *UserUpsert) UpdateTrajExportEnabled() *UserUpsert {
 	return u
 }
 
+// SetQaCaptureEnabled sets the "qa_capture_enabled" field.
+func (u *UserUpsert) SetQaCaptureEnabled(v bool) *UserUpsert {
+	u.Set(user.FieldQaCaptureEnabled, v)
+	return u
+}
+
+// UpdateQaCaptureEnabled sets the "qa_capture_enabled" field to the value that was provided on create.
+func (u *UserUpsert) UpdateQaCaptureEnabled() *UserUpsert {
+	u.SetExcluded(user.FieldQaCaptureEnabled)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -2087,6 +2124,20 @@ func (u *UserUpsertOne) SetTrajExportEnabled(v bool) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateTrajExportEnabled() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateTrajExportEnabled()
+	})
+}
+
+// SetQaCaptureEnabled sets the "qa_capture_enabled" field.
+func (u *UserUpsertOne) SetQaCaptureEnabled(v bool) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetQaCaptureEnabled(v)
+	})
+}
+
+// UpdateQaCaptureEnabled sets the "qa_capture_enabled" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateQaCaptureEnabled() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateQaCaptureEnabled()
 	})
 }
 
@@ -2753,6 +2804,20 @@ func (u *UserUpsertBulk) SetTrajExportEnabled(v bool) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateTrajExportEnabled() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateTrajExportEnabled()
+	})
+}
+
+// SetQaCaptureEnabled sets the "qa_capture_enabled" field.
+func (u *UserUpsertBulk) SetQaCaptureEnabled(v bool) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetQaCaptureEnabled(v)
+	})
+}
+
+// UpdateQaCaptureEnabled sets the "qa_capture_enabled" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateQaCaptureEnabled() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateQaCaptureEnabled()
 	})
 }
 

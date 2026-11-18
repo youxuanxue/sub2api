@@ -314,6 +314,9 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 	if fields.RPMLimit {
 		updateOp = updateOp.SetRpmLimit(userIn.RPMLimit)
 	}
+	if fields.QACaptureEnabled {
+		updateOp = updateOp.SetQaCaptureEnabled(userIn.QACaptureEnabled)
+	}
 	if fields.Status {
 		updateOp = updateOp.SetStatus(userIn.Status)
 	}
@@ -1639,6 +1642,9 @@ func applyUserEntityToService(dst *service.User, src *dbent.User) {
 	dst.LastActiveAt = src.LastActiveAt
 	dst.CreatedAt = src.CreatedAt
 	dst.UpdatedAt = src.UpdatedAt
+	// Ent defaults (e.g. qa_capture_enabled=true) must surface on the in-memory
+	// create result so admin Create responses match the persisted row.
+	dst.QACaptureEnabled = src.QaCaptureEnabled
 }
 
 func userSignupSourceOrDefault(signupSource string) string {

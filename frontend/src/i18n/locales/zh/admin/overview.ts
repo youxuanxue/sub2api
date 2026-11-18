@@ -651,7 +651,9 @@ export default {
         concurrencyPlaceholder: '0 表示不限制',
         concurrencyHint: '该用户的最大并发请求数，0 = 不限制',
         rpmLimitPlaceholder: '0 表示不限制',
-        rpmLimitHint: '该用户每分钟最大请求数，0 = 不限制；仅在所用分组未设置 rpm_limit 时作为兜底生效'
+        rpmLimitHint: '该用户每分钟最大请求数，0 = 不限制；仅在所用分组未设置 rpm_limit 时作为兜底生效',
+        qaCaptureEnabled: 'QA 采集',
+        qaCaptureEnabledHint: '关闭后，即使站点级 QA 采集开启，也不会持久化该用户网关流量的请求/响应正文与 QA blob'
       },
       adjustBalance: '调整余额',
       adjustConcurrency: '调整并发数',

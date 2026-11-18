@@ -126,6 +126,13 @@ set -u
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Portable sha256sum for hosts without GNU coreutils (macOS). Stage0 install/
+# bluegreen helpers and their unittests expect `sha256sum` on PATH; CI Linux
+# already has it. Prefer scripts/dev/bin over requiring brew coreutils locally.
+if ! command -v sha256sum >/dev/null 2>&1 && [ -x "$REPO_ROOT/scripts/dev/bin/sha256sum" ]; then
+    export PATH="$REPO_ROOT/scripts/dev/bin:$PATH"
+fi
+
 # Python toolchain contract: CI runs these checks on Python 3.12 (actions/setup-python
 # '3.12') with PyYAML. Older interpreters fail several unrelated checks on 3.10+
 # syntax, and a 3.12+ without PyYAML fails every YAML-reading gate. Fail fast with
