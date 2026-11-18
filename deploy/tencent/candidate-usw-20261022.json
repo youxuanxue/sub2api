@@ -50,7 +50,8 @@
       "external_network": "tokenkey_tokenkey-network",
       "jobs": [
         "tokenkey-disk-metrics",
-        "tokenkey-qa-retention"
+        "tokenkey-qa-retention",
+        "tokenkey-ghcr-prune-daily"
       ]
     },
     {
@@ -64,7 +65,8 @@
       "external_network": "tokenkey_tokenkey-network",
       "jobs": [
         "tokenkey-disk-metrics",
-        "tokenkey-qa-retention"
+        "tokenkey-qa-retention",
+        "tokenkey-ghcr-prune-daily"
       ]
     }
   ],
@@ -101,8 +103,7 @@
       "api.callmodel.io"
     ],
     "paused_jobs": {
-      "tokenkey-pgdump": "Retired after pgBackRest latest and historical recovery acceptance; never installed on the Tencent host (verified not-found 2026-10-22); retained backups are not deleted.",
-      "tokenkey-ghcr-prune-daily": "Not installed on Tencent cutover host (verified not-found 2026-10-22); pause until separately installed."
+      "tokenkey-pgdump": "Retired after pgBackRest latest and historical recovery acceptance; never installed on the Tencent host (verified not-found 2026-10-22); retained backups are not deleted."
     },
     "local_qa_jobs": [
       "tokenkey-qa-retention"
