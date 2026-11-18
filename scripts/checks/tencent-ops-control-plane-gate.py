@@ -163,11 +163,11 @@ def selftest() -> list[str]:
         (staging / ".github/workflows").mkdir(parents=True)
         (staging / "ops/stage0").mkdir(parents=True)
         # Seed allowlisted file so oidc workflow can reference a real ssm path.
-        legacy = staging / "ops/stage0/legacy-ssm.sh"
+        legacy = staging / "ops/stage0/legacy-ssm.sh"  # script-ref-allow-missing: selftest fixture
         legacy.write_text("#!/bin/bash\naws ssm send-command --instance-ids i-1\n", encoding="utf-8")
-        new_script = staging / "ops/stage0/brand-new-ssm.sh"
+        new_script = staging / "ops/stage0/brand-new-ssm.sh"  # script-ref-allow-missing: selftest fixture
         new_script.write_text("#!/bin/bash\naws ssm send-command --instance-ids i-2\n", encoding="utf-8")
-        new_secret = staging / "ops/stage0/brand-new-secret.sh"
+        new_secret = staging / "ops/stage0/brand-new-secret.sh"  # script-ref-allow-missing: selftest fixture
         new_secret.write_text(
             "#!/bin/bash\naws ssm put-parameter --name /x --type SecureString --value secret\n",
             encoding="utf-8",
@@ -176,18 +176,18 @@ def selftest() -> list[str]:
         new_wf.write_text(
             "jobs:\n  x:\n    steps:\n"
             "      - uses: aws-actions/configure-aws-credentials@v6\n"
-            "      - run: bash ops/stage0/legacy-ssm.sh\n",
+            "      - run: bash ops/stage0/legacy-ssm.sh\n",  # script-ref-allow-missing: selftest fixture
             encoding="utf-8",
         )
         tiny_allow = {
-            "ssm_remote_paths": ["ops/stage0/legacy-ssm.sh"],
+            "ssm_remote_paths": ["ops/stage0/legacy-ssm.sh"],  # script-ref-allow-missing: selftest fixture
             "securestring_write_paths": [],
             "oidc_ssm_workflow_paths": [],
         }
         found = evaluate(staging, tiny_allow)
         need = (
-            "new ssm_remote_paths hit not on allowlist: ops/stage0/brand-new-ssm.sh",
-            "new securestring_write_paths hit not on allowlist: ops/stage0/brand-new-secret.sh",
+            "new ssm_remote_paths hit not on allowlist: ops/stage0/brand-new-ssm.sh",  # script-ref-allow-missing: selftest fixture
+            "new securestring_write_paths hit not on allowlist: ops/stage0/brand-new-secret.sh",  # script-ref-allow-missing: selftest fixture
             "new oidc_ssm_workflow_paths hit not on allowlist: .github/workflows/brand-new-oidc-ssm.yml",
         )
         for needle in need:
