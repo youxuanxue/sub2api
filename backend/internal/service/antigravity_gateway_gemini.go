@@ -451,7 +451,8 @@ handleSuccess:
 		streamRes, err := s.handleGeminiStreamingResponse(c, resp, startTime)
 		if err != nil {
 			if geminiUpstreamUnexpectedEOF(err) {
-				noteGeminiStreamDisruption(ctx, s.accountRepo, account)
+				delivered := streamRes != nil && streamRes.modelBytesWritten
+				noteGeminiStreamDisruptionWhenDelivered(ctx, s.accountRepo, account, delivered)
 			}
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_error error=%v", prefix, err)
 			return nil, err
@@ -461,9 +462,9 @@ handleSuccess:
 		clientDisconnect = streamRes.clientDisconnect
 		// TK: 上游在任何终止事件之前干净 EOF 必须失败，不能按 HTTP 200 伪成功收尾。
 		// 还没有可用输出时换号；正文、工具或媒体已经写出时记 stream_truncated，不重放。
-		// 两种截断都计入 geminiDisruption 3/1m（含空前缀），反复出字前就死的号出池。
 		if truncErr := finalizeAntigravityGeminiStreamTruncation(c, streamRes, account, requestID); truncErr != nil {
-			noteGeminiStreamDisruption(ctx, s.accountRepo, account)
+			// 空前缀换号时 modelBytesWritten 为 false，客户端没看到正文，不计数。
+			noteGeminiStreamDisruptionWhenDelivered(ctx, s.accountRepo, account, streamRes.modelBytesWritten)
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_truncated", prefix)
 			truncatedUsage := ClaudeUsage{}
 			if usage != nil {

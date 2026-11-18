@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	// 1 分钟内满 3 次截断/断流才冷却（含空前缀换号）。阈值过滤偶发毛刺；
-	// 反复在出字前就死的号也必须出池，不能只惩罚「已经写出正文后又截断」的路径。
+	// 正文、工具或媒体已经写给客户端之后，1 分钟内满 3 次才冷却。
+	// 还没写出可用内容就换号的截断不进入这个窗口（docs/decisions/decided.md 2026-11-13）。
 	geminiDisruptionWindow    = 1 * time.Minute
 	geminiDisruptionThreshold = 3
 	// INSUFFICIENT_G1_CREDITS 是账号额度耗尽，立刻停这一档，不走截断阶梯。
@@ -88,6 +88,25 @@ var geminiDisruptions = &geminiDisruptionRecorder{}
 
 func noteGeminiStreamDisruption(ctx context.Context, store geminiDisruptionStore, account *Account) {
 	noteGeminiStreamDisruptionAt(ctx, store, account, time.Now())
+}
+
+// noteGeminiStreamDisruptionWhenDelivered counts a truncation only after the
+// client has received usable output. An empty-prefix failover has not.
+func noteGeminiStreamDisruptionWhenDelivered(ctx context.Context, store geminiDisruptionStore, account *Account, delivered bool) {
+	if !delivered {
+		return
+	}
+	noteGeminiStreamDisruption(ctx, store, account)
+}
+
+// geminiPayloadDeliveredUsableOutput is the messages-compat counterpart of
+// antigravityStreamResult.modelBytesWritten: a holdable prefix (signature,
+// blank text, thought) is not body, tool, or media.
+func geminiPayloadDeliveredUsableOutput(payload []byte) bool {
+	if len(bytes.TrimSpace(payload)) == 0 {
+		return false
+	}
+	return !geminiNativeEventHoldable(payload)
 }
 
 func noteGeminiStreamDisruptionAt(ctx context.Context, store geminiDisruptionStore, account *Account, now time.Time) {

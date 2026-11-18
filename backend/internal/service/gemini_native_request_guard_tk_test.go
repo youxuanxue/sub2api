@@ -114,19 +114,34 @@ func TestGeminiStreamDisruptionDropsEventsOutsideTheWindow(t *testing.T) {
 	require.Zero(t, store.calls)
 }
 
-func TestGeminiStreamDisruptionCountsEmptyPrefixTruncation(t *testing.T) {
+func TestGeminiStreamDisruptionIgnoresTruncationBeforeUsableOutput(t *testing.T) {
 	resetGeminiStreamDisruptionWindow()
 	t.Cleanup(resetGeminiStreamDisruptionWindow)
 	store := &geminiCooldownStub{}
 	account := &Account{ID: 529}
+	now := time.Date(2026, 11, 13, 1, 30, 0, 0, time.UTC)
 
-	// Empty-prefix truncations count the same as post-content ones: 3/1m cools.
-	noteGeminiStreamDisruption(context.Background(), store, account)
-	noteGeminiStreamDisruption(context.Background(), store, account)
+	for range 5 {
+		noteGeminiStreamDisruptionWhenDelivered(context.Background(), store, account, false)
+	}
 	require.Zero(t, store.calls)
-	noteGeminiStreamDisruption(context.Background(), store, account)
+
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now)
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(20*time.Second))
+	require.Zero(t, store.calls)
+	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(40*time.Second))
 	require.Equal(t, 1, store.calls)
 	require.Contains(t, store.reason, "tier=0")
+}
+
+func TestGeminiPayloadDeliveredUsableOutput(t *testing.T) {
+	require.False(t, geminiPayloadDeliveredUsableOutput(nil))
+	require.False(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"thoughtSignature":"SIG"}]}}]}`)))
+	require.False(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"text":"  "}]}}]}`)))
+	require.False(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"thought":true,"text":"hmm"}]}}]}`)))
+	require.True(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"text":"answer"}]}}]}`)))
+	require.True(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"x"}}]}}]}`)))
+	require.True(t, geminiPayloadDeliveredUsableOutput([]byte(`{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"abc"}}]}}]}`)))
 }
 
 func TestGeminiPayloadStartsVisibleTTFT(t *testing.T) {

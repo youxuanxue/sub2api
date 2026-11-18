@@ -2277,7 +2277,7 @@
       "judgment": {
         "impact": "high",
         "tokenkey_status": "partially_mitigated",
-        "rationale": "2026-11-18: post-1.8.383 prod AG stream_trunc=0 since deploy; empty-prefix truncations now count toward geminiDisruption 3/1m cooldown so pre-content dying accounts leave the pool. Dual-use/Pi/uncorroborated-429 already shipped. Remaining Hermes: web_search deletion + Responses effort low→high still need verification."
+        "rationale": "2026-11-18: post-1.8.383 prod AG stream_trunc=0 since deploy. Empty-prefix failover remains non-counting per decided.md 2026-11-13 (recoverable switch). Dual-use/Pi/uncorroborated-429 already shipped. Remaining Hermes: web_search deletion + Responses effort low→high still need verification."
       },
       "upstream": "Wei-Shaw/sub2api#8851"
     },
