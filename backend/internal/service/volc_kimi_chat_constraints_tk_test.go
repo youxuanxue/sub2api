@@ -625,4 +625,22 @@ func TestVolcKimiContentPartCompatibility(t *testing.T) {
 	var invalid *OpenAIInvalidParameterError
 	require.ErrorAs(t, err, &invalid)
 	require.Equal(t, "messages", invalid.Param)
+
+	// Selected-account routing applies content-part rules; other suppliers keep parts.
+	reasoningBody := []byte(`{"model":"kimi-k3","messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"hi"}]}]}`)
+	volc, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3", reasoningBody)
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"type":"text","text":"hi"}]`, gjson.GetBytes(volc, "messages.0.content").Raw)
+	other, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", reasoningBody)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, gjson.GetBytes(other, "messages.0.content.#").Int())
+	require.Equal(t, "thinking", gjson.GetBytes(other, "messages.0.content.0.type").String())
+
+	audioBody := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":[{"type":"audio_url","audio_url":{"url":"https://example.com/a.wav"}}]}]}`)
+	_, err = applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3", audioBody)
+	require.ErrorAs(t, err, &invalid)
+	require.Equal(t, "messages.content", invalid.Param)
+	keptAudio, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", audioBody)
+	require.NoError(t, err)
+	require.Equal(t, "audio_url", gjson.GetBytes(keptAudio, "messages.0.content.0.type").String())
 }

@@ -3485,8 +3485,11 @@
         "shaped, err = dropVolcKimiEmptyTextParts(shaped)",
         "func volcKimiTextPartHasNoInput(",
         "func dropVolcKimiReasoningContentParts(",
+        "shaped, err = dropVolcKimiReasoningContentParts(shaped)",
         "func rejectVolcKimiAudioContentParts(",
+        "if err = rejectVolcKimiAudioContentParts(shaped); err != nil {",
         "func rewriteVolcKimiVideoTypeParts(",
+        "shaped, err = rewriteVolcKimiVideoTypeParts(shaped)",
         "func dropVolcKimiInterleavedAssistantText(",
         "shaped, err = dropVolcKimiInterleavedAssistantText(shaped)",
         "func volcKimiToolCallIDs("
