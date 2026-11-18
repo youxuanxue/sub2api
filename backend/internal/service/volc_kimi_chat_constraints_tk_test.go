@@ -334,6 +334,16 @@ func TestVolcKimiInboundMessageShapes(t *testing.T) {
 	require.Equal(t, "tool", gjson.GetBytes(multiFixed, "messages.2.role").String())
 	require.Equal(t, "c1", gjson.GetBytes(multiFixed, "messages.2.tool_call_id").String())
 
+	// Parallel tool_calls: assistant text between tool results is also dropped.
+	parallelInterleaved := []byte(`{"messages":[{"role":"user","content":"u"},{"role":"assistant","tool_calls":[{"id":"a","type":"function","function":{"name":"A","arguments":"{}"}},{"id":"b","type":"function","function":{"name":"B","arguments":"{}"}}]},{"role":"tool","tool_call_id":"a","content":"ra"},{"role":"assistant","content":"progress"},{"role":"tool","tool_call_id":"b","content":"rb"}]}`)
+	parallelFixed, err := normalizeVolcKimiChatRequest(parallelInterleaved)
+	require.NoError(t, err)
+	require.EqualValues(t, 4, gjson.GetBytes(parallelFixed, "messages.#").Int())
+	require.Equal(t, "tool", gjson.GetBytes(parallelFixed, "messages.2.role").String())
+	require.Equal(t, "a", gjson.GetBytes(parallelFixed, "messages.2.tool_call_id").String())
+	require.Equal(t, "tool", gjson.GetBytes(parallelFixed, "messages.3.role").String())
+	require.Equal(t, "b", gjson.GetBytes(parallelFixed, "messages.3.tool_call_id").String())
+
 	// Ordinary assistant text outside a tool round-trip must stay.
 	plain := []byte(`{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello"},{"role":"user","content":"next"}]}`)
 	keptPlain, err := normalizeVolcKimiChatRequest(plain)
@@ -558,4 +568,61 @@ func TestVolcKimiDropsEmptyTextParts(t *testing.T) {
 	other, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", body)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, gjson.GetBytes(other, "messages.0.content.#").Int())
+}
+
+// cn-prod 2026-11-18: Volc rejects messages.content.type thinking / reasoning_text /
+// audio_url / bare type=video. Drop reasoning parts; rewrite video; reject audio.
+func TestVolcKimiContentPartCompatibility(t *testing.T) {
+	dropped, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"secret"},{"type":"text","text":"hi"},{"type":"reasoning_text","text":"raw"}]},{"role":"user","content":"next"}]}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"type":"text","text":"hi"}]`, gjson.GetBytes(dropped, "messages.0.content").Raw)
+
+	onlyReasoning, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"x"}]},{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "", gjson.GetBytes(onlyReasoning, "messages.0.content").String())
+
+	// Reasoning-only interleaved assistant between tool_calls and tool is dropped
+	// after parts are emptied (open tool round-trip).
+	interleavedReasoning := []byte(`{"messages":[{"role":"user","content":"u"},{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"f","arguments":"{}"}}]},{"role":"assistant","content":[{"type":"thinking","thinking":"…"}]},{"role":"tool","tool_call_id":"c1","content":"ok"}]}`)
+	fixed, err := normalizeVolcKimiChatRequest(interleavedReasoning)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, gjson.GetBytes(fixed, "messages.#").Int())
+	require.Equal(t, "tool", gjson.GetBytes(fixed, "messages.2.role").String())
+
+	videoType, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":[{"type":"video","url":"https://example.com/a.mp4"},{"type":"text","text":"see"}]}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "video_url", gjson.GetBytes(videoType, "messages.0.content.0.type").String())
+	require.Equal(t, "https://example.com/a.mp4", gjson.GetBytes(videoType, "messages.0.content.0.video_url.url").String())
+	require.False(t, gjson.GetBytes(videoType, "messages.0.content.0.url").Exists())
+
+	videoNested, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":[{"type":"video","video":{"url":"ms://file-9"}}]}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "video_url", gjson.GetBytes(videoNested, "messages.0.content.0.type").String())
+	require.Equal(t, "ms://file-9", gjson.GetBytes(videoNested, "messages.0.content.0.video_url.url").String())
+	require.False(t, gjson.GetBytes(videoNested, "messages.0.content.0.video").Exists())
+
+	for _, audioBody := range []string{
+		`{"messages":[{"role":"user","content":[{"type":"audio_url","audio_url":{"url":"https://example.com/a.wav"}}]}]}`,
+		`{"messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"AA=="}}]}]}`,
+		`{"messages":[{"role":"user","content":{"type":"audio_url","audio_url":{"url":"https://example.com/a.wav"}}}]}`,
+	} {
+		_, err := normalizeVolcKimiChatRequest([]byte(audioBody))
+		var invalid *OpenAIInvalidParameterError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, "messages.content", invalid.Param)
+		require.Equal(t, volcKimiAudioUnsupportedMessage, invalid.Message)
+		require.NotContains(t, strings.ToLower(invalid.Message), "volc")
+	}
+
+	// Top-level thinking.type is unchanged by content-part drops.
+	thinking, err := normalizeVolcKimiChatRequest([]byte(`{"thinking":{"type":"enabled"},"messages":[{"role":"user","content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"hi"}]}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "enabled", gjson.GetBytes(thinking, "thinking.type").String())
+	require.JSONEq(t, `[{"type":"text","text":"hi"}]`, gjson.GetBytes(thinking, "messages.0.content").Raw)
+
+	// Orphan tool_call_id still 400 (KVV); not rewritten.
+	_, err = normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":"hi"},{"role":"tool","tool_call_id":"missing","content":"x"}]}`))
+	var invalid *OpenAIInvalidParameterError
+	require.ErrorAs(t, err, &invalid)
+	require.Equal(t, "messages", invalid.Param)
 }
