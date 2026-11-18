@@ -82,6 +82,25 @@ def database(config, phase, *args, dry_run=False):
     return value
 
 
+def archive_error_failure_class(error: str) -> str:
+    """Map a source archive error string to the #3222 alert owner categories."""
+    text = (error or "").lower()
+    # Worker stderr (capacity probe / SSH path) and SSH transport failures.
+    markers = (
+        "node1 capacity probe failed",
+        "connection timed out during banner exchange",
+        "connection to unknown port",
+        "could not resolve hostname",
+        "no route to host",
+        "connection refused",
+        "permission denied (publickey)",
+        "host key verification failed",
+    )
+    if any(marker in text for marker in markers):
+        return "node1_unreachable"
+    return "gateway_qa_archive_failed"
+
+
 def source_command(config, source, command, hour, *, plan=None, apply=False):
     request = {"command": command, "source_id": source["id"], "environment": config["environment"],
                "hour": hour.isoformat(), "apply": apply}
@@ -89,12 +108,18 @@ def source_command(config, source, command, hour, *, plan=None, apply=False):
         request["plan"] = plan
     remote = shlex.join(["/usr/bin/nice", "-n", "19", "/usr/bin/ionice", "-c", "3",
                          "/usr/bin/python3", source["worker"], "--config", source["worker_config"]])
-    completed = subprocess.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
-                               "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10",
-                               "-o", f"UserKnownHostsFile={config['known_hosts']}",
-                               "-i", config["ssh_key"], source["ssh_target"], remote],
-                              input=json.dumps(request), capture_output=True, text=True, check=True,
-                              timeout=1800 if command == "archive" else 300)
+    try:
+        completed = subprocess.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+                                   "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10",
+                                   "-o", f"UserKnownHostsFile={config['known_hosts']}",
+                                   "-i", config["ssh_key"], source["ssh_target"], remote],
+                                  input=json.dumps(request), capture_output=True, text=True, check=True,
+                                  timeout=1800 if command == "archive" else 300)
+    except subprocess.CalledProcessError as exc:
+        # Preserve worker stderr so the data-machine receipt can classify node1
+        # vs gateway failures the same way #3222 did for tokenkey-qa-archive.
+        detail = (exc.stderr or "").strip() or (exc.stdout or "").strip() or str(exc)
+        raise policy.CoordinatorError(detail) from exc
     result = json.loads(completed.stdout)
     if result.get("ok") is not True or result.get("source_id") != source["id"]:
         raise policy.CoordinatorError("application worker response identity invalid")
@@ -102,7 +127,6 @@ def source_command(config, source, command, hour, *, plan=None, apply=False):
                                   or result.get("action") != ("delete" if apply else "plan")):
         raise policy.CoordinatorError("application worker did not prove requested cleanup")
     return result
-
 
 def run(config, *, apply=False):
     validate_config(config)
@@ -156,7 +180,12 @@ def run(config, *, apply=False):
                         evidence = source_command(config, source, "archive", hour)
                         archive.atomic_json(path, evidence)
                 except (OSError, ValueError, subprocess.SubprocessError) as exc:
-                    result["errors"].append({"source_id": source["id"], "hour": hour.isoformat(), "operation": "archive", "error": str(exc)})
+                    error = str(exc)
+                    entry = {"source_id": source["id"], "hour": hour.isoformat(),
+                             "operation": "archive", "error": error}
+                    if apply:
+                        entry["failure_class"] = archive_error_failure_class(error)
+                    result["errors"].append(entry)
             plan = policy.build_plan(receipt_root=receipts, environment=config["environment"], hour=hour,
                                      expected_sources=[source["id"] for source in sources], now=anchor)
             item = {"hour": hour.isoformat(), "sources": plan["sources"]}
@@ -176,9 +205,16 @@ def run(config, *, apply=False):
         blocked = sorted(hour for hour in incomplete if hour + dt.timedelta(hours=2) <= anchor)
         result["blocked_hours"] = len(blocked)
         result["oldest_blocked_hour_utc"] = blocked[0].isoformat() if blocked else None
+        if result["errors"]:
+            classes = {item.get("failure_class") for item in result["errors"] if item.get("failure_class")}
+            if not classes:
+                classes = {archive_error_failure_class(item.get("error", "")) for item in result["errors"]}
+            result["failure_class"] = (
+                "node1_unreachable" if "node1_unreachable" in classes
+                else "gateway_qa_archive_failed"
+            )
         archive.atomic_json(state / ("last-run.json" if apply else "last-plan.json"), result)
         return result
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

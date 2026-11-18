@@ -410,6 +410,25 @@ QA_COORDINATOR_RECEIPT = Path("/var/lib/tokenkey/qa-coordinator/last-run.json")
 QA_ARCHIVE_RECEIPTS = Path("/var/lib/tokenkey/qa-node1/receipts")
 
 
+def coordinator_failure_class(receipt: dict) -> str:
+    """Reuse #3222 owner categories from coordinator receipt fields only.
+
+    Classification of raw SSH/worker stderr lives in coordinator_host
+    (``archive_error_failure_class`` → ``failure_class`` on last-run.json).
+    The watcher must not keep a second copy of those string markers.
+    """
+    category = receipt.get("failure_class")
+    if category in {"node1_unreachable", "gateway_qa_archive_failed"}:
+        return category
+    for item in receipt.get("errors") or []:
+        if isinstance(item, dict) and item.get("failure_class") == "node1_unreachable":
+            return "node1_unreachable"
+    for item in receipt.get("errors") or []:
+        if isinstance(item, dict) and item.get("failure_class") == "gateway_qa_archive_failed":
+            return "gateway_qa_archive_failed"
+    return "gateway_qa_archive_failed"
+
+
 def qa_coordinator_fact(path: Path, now: float) -> dict | None:
     try:
         receipt = json.loads(path.read_text())
@@ -418,11 +437,44 @@ def qa_coordinator_fact(path: Path, now: float) -> dict | None:
             raise ValueError("coordinator failed or receipt is stale")
         oldest = receipt.get("oldest_blocked_hour_utc")
         if oldest and now - datetime.fromisoformat(oldest).timestamp() > QA_CLEANUP_MAX_BLOCKED_AGE:
-            return {"healthy": False, "reason": f"QA coordinator backlog: oldest held hour {oldest}"}
+            category = coordinator_failure_class(receipt)
+            if category == "node1_unreachable":
+                return {
+                    "healthy": False,
+                    "category": category,
+                    "reason": "node1 无法连接，QA 归档积压；请恢复 node1 或其 SSH/jump",
+                }
+            return {
+                "healthy": False,
+                "category": category,
+                "reason": f"QA 协调器积压：最早未归档小时 {oldest}",
+            }
     except (OSError, ValueError, KeyError, TypeError):
-        return {"healthy": False, "reason": "QA coordinator receipt missing, invalid, stale or failed"}
+        try:
+            receipt = json.loads(path.read_text())
+            category = coordinator_failure_class(receipt)
+        except (OSError, ValueError, KeyError, TypeError):
+            category = "gateway_qa_archive_failed"
+        if category == "node1_unreachable":
+            return {
+                "healthy": False,
+                "category": category,
+                "reason": "node1 无法连接：SSH/jump 失败，请运维恢复 node1 连通",
+            }
+        return {
+            "healthy": False,
+            "category": category,
+            "reason": "QA 协调器回执缺失、无效、过期或失败",
+        }
     return None
 
+
+def qa_coordinator_failure_fact(path: Path, now: float, base: dict) -> dict:
+    """Prefer coordinator receipt root cause over bare systemd exit-code."""
+    categorized = qa_coordinator_fact(path, now)
+    if categorized is not None:
+        return categorized
+    return base
 
 def archive_failure_category(path: Path, now: float) -> str:
     try:
@@ -527,12 +579,17 @@ def probe_job(name: str, *, expected_paused=False, environment="prod") -> dict:
             if backlog.get("category") == "node1_unreachable":
                 return fact
             return backlog
-    if name == "tokenkey-qa-coordinator" and fact["healthy"] and not expected_paused:
-        backlog = qa_coordinator_fact(QA_COORDINATOR_RECEIPT, time.time())
-        if backlog is not None:
-            return backlog
+    if name == "tokenkey-qa-coordinator" and not expected_paused:
+        # Same as archive: classify from receipt even when systemd already
+        # failed with exit-code, so Feishu only pages the root-cause owner.
+        return qa_coordinator_failure_fact(QA_COORDINATOR_RECEIPT, time.time(), fact)
+    if name == "tokenkey-qa-retention" and not fact["healthy"] and not expected_paused:
+        # Retention keeps deleting local hot data when node1 is down; do not
+        # page a second English exit-code alert for the same outage.
+        coordinator = qa_coordinator_fact(QA_COORDINATOR_RECEIPT, time.time())
+        if coordinator and coordinator.get("category") == "node1_unreachable":
+            return {"healthy": True, "reason": "recent completion"}
     return fact
-
 
 def tick_jobs(jobs, previous, now, probe, send, node="unknown"):
 
@@ -554,9 +611,10 @@ def tick_jobs(jobs, previous, now, probe, send, node="unknown"):
                 label = "🔴 网关 QA 归档失败"
                 owner = "责任方：TokenKey 网关 QA 归档"
             else:
+                # Keep legacy English for non-QA-root-cause jobs (#3222 scope).
                 label = f"TokenKey host job {action}"
                 owner = ""
-            send(f"{label}: {node}/{name}; {fact['reason']}. {owner}")
+            send(f"{label}: {node}/{name}; {fact['reason']}. {owner}".rstrip())
             updated.update(active=action == "unhealthy", sent_at=now)
         warning = fact["healthy"] and fact.get("severity") == "warning"
         if warning and (not updated.get("warning_sent_at")
