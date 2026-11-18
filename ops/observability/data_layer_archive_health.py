@@ -275,14 +275,23 @@ def build_signal(evidence_dir: pathlib.Path | None = None, *, now: dt.datetime |
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    layout = pipeline_status.load_evidence_layout()
     parser.add_argument(
         "--evidence-dir",
         type=pathlib.Path,
         default=None,
-        help=f"override repo evidence directory (default: {layout.evidence_dir})",
+        help="override repo evidence directory (default: pipeline_status.yaml layout)",
     )
     args = parser.parse_args()
+    try:
+        layout = pipeline_status.load_evidence_layout()
+    except Exception as exc:  # noqa: BLE001 — emit fail-closed signal, never empty ARCHIVESTATS
+        kind = "pyyaml_missing" if "PyYAML" in str(exc) else "archive_layout_failed"
+        print(
+            "ARCHIVESTATS "
+            + json.dumps({"evidence_errors": [kind]}, sort_keys=True)
+        )
+        print(f"data_layer_archive_health: {exc}", file=sys.stderr)
+        return 1
     evidence_dir = layout.evidence_dir if args.evidence_dir is None else args.evidence_dir
     print("ARCHIVESTATS " + json.dumps(build_signal(evidence_dir), sort_keys=True))
     return 0
