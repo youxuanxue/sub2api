@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-18 Chat→Messages 对齐开源：剥离 OpenAI-only 字段优先生效
+
+原话：「这一条，我们也应该对齐开源实现，以用户体验更高优先级。」
+
+适用范围：`chat_completions → messages` Plan/Validate。对 new-api / LiteLLM 会静默剥离或忽略的 **请求顶层** OpenAI-only 字段（`response_format`、legacy `functions[]`/`function_call`、root `reasoning`）改为准入：前两者由转换器丢弃，`functions[]`/`function_call` 经 Chat→Responses→Anthropic 重映射，不再 Plan 级 `unsupported_request`。assistant 消息级 `function_call` / `role=function` 历史仍 fail-closed（另跟）。video/audio、`prompt_cache_key`、continuation、hosted/strict tools、thinking+effort 同传仍 fail-closed。见 `docs/approved/protocol-routing-ssot.md`。
+
 ## 2026-11-18 QA capture 按用户关闭；双站关闭 compute@tk.com
 
 原话：「安排 agent 改造 QA capture，支持按用户关闭，并把 双站的 compute@tk.com 用户的 关闭。」
