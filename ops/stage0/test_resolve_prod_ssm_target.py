@@ -155,7 +155,11 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "m.json"
             path.write_text(json.dumps(matrix), encoding="utf-8")
-            with mock.patch.object(self.mod, "list_instance_information", return_value=info):
+            with mock.patch.dict(
+                "os.environ",
+                {"TOKENKEY_REMOTE_VIA": "ssm"},
+                clear=False,
+            ), mock.patch.object(self.mod, "list_instance_information", return_value=info):
                 out = self.mod.resolve_tencent_usw_candidate(path)
         self.assertEqual(out["target"], "tencent-usw-candidate")
         self.assertEqual(out["deploy_profile"], "tencent-usw-candidate")
@@ -188,7 +192,11 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "m.json"
             path.write_text(json.dumps(matrix), encoding="utf-8")
-            with mock.patch.object(self.mod, "list_instance_information", return_value=info):
+            with mock.patch.dict(
+                "os.environ",
+                {"TOKENKEY_REMOTE_VIA": "ssm"},
+                clear=False,
+            ), mock.patch.object(self.mod, "list_instance_information", return_value=info):
                 out = self.mod.resolve_tencent_usw_candidate(path)
         self.assertEqual(out["target"], "tencent-usw-prod")
         self.assertEqual(out["deploy_profile"], "prod")
@@ -269,11 +277,105 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "m.json"
             path.write_text(json.dumps(matrix), encoding="utf-8")
-            with mock.patch.object(self.mod, "list_instance_information", return_value=info):
+            # Break-glass SSM still inventories Hybrid Online status.
+            with mock.patch.dict(
+                "os.environ",
+                {"TOKENKEY_REMOTE_VIA": "ssm", "TOKENKEY_RESOLVE_TRUST_MATRIX": ""},
+                clear=False,
+            ), mock.patch.object(self.mod, "list_instance_information", return_value=info) as listed:
                 out = self.mod.resolve_tencent_usw_candidate(path, node="app-cand")
+            listed.assert_called_once_with("eu-west-2")
         self.assertEqual(out["instance_id"], "mi-000c0168439c243a8")
         self.assertEqual(out["fleet_node"], "app-cand")
         self.assertEqual(out["fleet_role"], "app")
+
+    def test_trust_matrix_identity_defaults_for_tat(self) -> None:
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertTrue(self.mod.trust_matrix_identity())
+        with mock.patch.dict("os.environ", {"TOKENKEY_REMOTE_VIA": "tat"}, clear=True):
+            self.assertTrue(self.mod.trust_matrix_identity())
+        with mock.patch.dict("os.environ", {"TOKENKEY_REMOTE_VIA": "ssm"}, clear=True):
+            self.assertFalse(self.mod.trust_matrix_identity())
+        with mock.patch.dict(
+            "os.environ",
+            {"TOKENKEY_REMOTE_VIA": "ssm", "TOKENKEY_RESOLVE_TRUST_MATRIX": "1"},
+            clear=True,
+        ):
+            self.assertTrue(self.mod.trust_matrix_identity())
+        with mock.patch.dict(
+            "os.environ",
+            {"TOKENKEY_REMOTE_VIA": "tat", "TOKENKEY_RESOLVE_TRUST_MATRIX": "0"},
+            clear=True,
+        ):
+            self.assertFalse(self.mod.trust_matrix_identity())
+
+    def test_multi_app_tat_trusts_matrix_without_aws(self) -> None:
+        matrix = {
+            "ssm_region": "eu-west-2",
+            "apps": [
+                {"name": "app-cand", "ssm_instance_id": "mi-000c0168439c243a8"},
+                {"name": "app-old", "ssm_instance_id": "mi-080ed76dc6d97d8b5"},
+            ],
+            "target": {
+                "resolvable": True,
+                "deployable": True,
+                "cutover_authorized": True,
+                "cutover_completed": True,
+                "computer_name": "tokenkey-usw-rehearsal-20261021",
+                "ssm_region": "eu-west-2",
+                "expected_ssm_instance_id": "mi-080ed76dc6d97d8b5",
+                "api_domain": "api.tokenkey.dev",
+                "volume_mount": "/srv/tokenkey-rehearsal",
+                "volume_platform": "tencent-luks",
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "m.json"
+            path.write_text(json.dumps(matrix), encoding="utf-8")
+            with mock.patch.dict(
+                "os.environ",
+                {"TOKENKEY_REMOTE_VIA": "tat"},
+                clear=True,
+            ), mock.patch.object(
+                self.mod,
+                "list_instance_information",
+                side_effect=AssertionError("TAT diagnostics must not call AWS SSM"),
+            ):
+                out = self.mod.resolve_tencent_usw_candidate(path, node="app-old")
+        self.assertEqual(out["instance_id"], "mi-080ed76dc6d97d8b5")
+        self.assertEqual(out["fleet_node"], "app-old")
+        self.assertEqual(out["target"], "tencent-usw-prod")
+
+    def test_legacy_single_target_tat_trusts_matrix_without_aws(self) -> None:
+        matrix = {
+            "target": {
+                "resolvable": True,
+                "deployable": True,
+                "cutover_authorized": True,
+                "cutover_completed": True,
+                "computer_name": "tokenkey-usw-rehearsal-20261021",
+                "ssm_region": "eu-west-2",
+                "expected_ssm_instance_id": "mi-080ed76dc6d97d8b5",
+                "api_domain": "api.tokenkey.dev",
+                "volume_mount": "/srv/tokenkey-rehearsal",
+                "volume_platform": "tencent-luks",
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "m.json"
+            path.write_text(json.dumps(matrix), encoding="utf-8")
+            with mock.patch.dict(
+                "os.environ",
+                {"TOKENKEY_REMOTE_VIA": "tat"},
+                clear=True,
+            ), mock.patch.object(
+                self.mod,
+                "list_instance_information",
+                side_effect=AssertionError("TAT diagnostics must not call AWS SSM"),
+            ):
+                out = self.mod.resolve_tencent_usw_candidate(path)
+        self.assertEqual(out["instance_id"], "mi-080ed76dc6d97d8b5")
+        self.assertEqual(out["target"], "tencent-usw-prod")
 
 
 if __name__ == "__main__":

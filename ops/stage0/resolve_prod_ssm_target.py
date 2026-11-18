@@ -6,6 +6,10 @@
 it fails closed. ``PROD_SSM_TARGET`` may explicitly select modes; retired
 ``aws`` / ``aws-fresh`` (Tokyo, retired 2026-10-23) / ``hetzner`` are rejected. No silent EC2 fallback when inventory fails.
 
+Daily TAT / diagnostics trust the matrix Hybrid IDs (no AWS SSM inventory).
+Break-glass ``TOKENKEY_REMOTE_VIA=ssm`` still requires a live Online Hybrid.
+See ``trust_matrix_identity``.
+
 Fleet narrative SSOT still lives at ``deploy/hetzner/README.md`` (historical
 path name); the Hetzner Cloud prod matrix is retired and never resolves live.
 """
@@ -175,9 +179,42 @@ def resolve_node_selector(explicit: str) -> str:
     return (os.environ.get("PROD_SSM_NODE") or "").strip()
 
 
+def trust_matrix_identity() -> bool:
+    """Whether resolve may return matrix Hybrid IDs without AWS SSM inventory.
+
+    Daily diagnostics and TAT remotes already treat the fleet matrix as SSOT
+    (``TOKENKEY_REMOTE_VIA=tat``, default). Hybrid ``DescribeInstanceInformation``
+    requires AWS credentials the tencent-ops diagnose job deliberately lacks, so
+    trusting the matrix keeps GHA → TAT read-only without reintroducing OIDC.
+
+    Break-glass ``TOKENKEY_REMOTE_VIA=ssm`` still requires a live Online Hybrid.
+    ``TOKENKEY_RESOLVE_TRUST_MATRIX=1|0`` forces either side explicitly.
+    """
+    explicit = (os.environ.get("TOKENKEY_RESOLVE_TRUST_MATRIX") or "").strip().lower()
+    if explicit in ("1", "true", "yes"):
+        return True
+    if explicit in ("0", "false", "no"):
+        return False
+    via = (os.environ.get("TOKENKEY_REMOTE_VIA") or "tat").strip().lower()
+    return via != "ssm"
+
+
+def _matrix_instance(expected: str, *, name_hint: str = "") -> dict[str, Any]:
+    if not expected.startswith("mi-") or not INSTANCE_RE.match(expected):
+        fail(f"expected Hybrid mi-* for tencent node, got {expected!r}")
+    return {
+        "InstanceId": expected,
+        "Name": name_hint,
+        "ComputerName": name_hint,
+        "PingStatus": "TrustedMatrix",
+    }
+
+
 def _online_instance(region: str, expected: str, *, name_hint: str = "") -> dict[str, Any]:
     if not expected.startswith("mi-") or not INSTANCE_RE.match(expected):
         fail(f"expected Hybrid mi-* for tencent node, got {expected!r}")
+    if trust_matrix_identity():
+        return _matrix_instance(expected, name_hint=name_hint)
     rows = list_instance_information(region)
     matches = [r for r in rows if str(r.get("InstanceId") or "") == expected]
     if not matches and name_hint:
@@ -336,21 +373,27 @@ def resolve_tencent_usw_candidate(matrix_path: pathlib.Path, node: str = "") -> 
         storage = volume_contract(target)
     except ValueError as exc:
         fail(str(exc))
-    rows = list_instance_information(region)
-    matches = [
-        r
-        for r in rows
-        if str(r.get("ComputerName") or "") == name or str(r.get("Name") or "") == name
-    ]
-    if not matches:
-        fail(f"no Hybrid instance with ComputerName/Name={name!r} in {region}")
-    online = [r for r in matches if str(r.get("PingStatus") or "") == "Online"]
-    if len(online) != 1:
-        fail(f"expected exactly one Online Hybrid instance for {name!r}; found {len(online)}")
-    chosen = online[0]
-    instance_id = str(chosen.get("InstanceId") or "")
-    if instance_id != expected:
-        fail(f"tencent SSM id mismatch: got {instance_id!r} expected {expected!r}")
+    if trust_matrix_identity():
+        chosen = _matrix_instance(expected, name_hint=name)
+    else:
+        rows = list_instance_information(region)
+        matches = [
+            r
+            for r in rows
+            if str(r.get("ComputerName") or "") == name or str(r.get("Name") or "") == name
+        ]
+        if not matches:
+            fail(f"no Hybrid instance with ComputerName/Name={name!r} in {region}")
+        online = [r for r in matches if str(r.get("PingStatus") or "") == "Online"]
+        if len(online) != 1:
+            fail(f"expected exactly one Online Hybrid instance for {name!r}; found {len(online)}")
+        chosen = online[0]
+        instance_id = str(chosen.get("InstanceId") or "")
+        if instance_id != expected:
+            fail(f"tencent SSM id mismatch: got {instance_id!r} expected {expected!r}")
+        if not instance_id.startswith("mi-") or not INSTANCE_RE.match(instance_id):
+            fail(f"expected Hybrid mi-* for tencent, got {instance_id!r}")
+    instance_id = str(chosen.get("InstanceId") or expected)
     if not instance_id.startswith("mi-") or not INSTANCE_RE.match(instance_id):
         fail(f"expected Hybrid mi-* for tencent, got {instance_id!r}")
     return with_browser_origin(

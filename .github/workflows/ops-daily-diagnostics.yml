@@ -159,8 +159,8 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install tccli
-        run: python3 -m pip install 'tccli==3.1.198.1'
+      - name: Install tccli and PyYAML
+        run: python3 -m pip install 'tccli==3.1.198.1' 'PyYAML==6.0.3'
 
       - name: Prepare target report directory
         run: |
@@ -401,13 +401,15 @@ jobs:
             if [ "$TARGET_KIND" = "prod" ]; then
             SAFETY_OUT="$(bash ops/observability/run-probe.sh --target "${PROBE_TARGET}-data" --via tat --script ops/observability/probe-data-layer-safety.sh --with ops/observability/data-layer-partition-coverage.sql --with ops/lib/resolve-app-container.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
             # Live prod is Hybrid mi-* (no EBS); the EC2 snapshot branch only applies
-            # if an EC2 prod is ever rebuilt.
-            if [[ "$INSTANCE_ID" == mi-* ]] || [ "$CONTROL_PLANE_TARGET" = "hetzner" ]; then
+            # if an EC2 prod is ever rebuilt. Empty INSTANCE_ID (resolve failed) must
+            # not default to the EBS gate — that opened false ebs_snapshot_freshness
+            # findings after Tokyo retirement (#3294/#3295 cascade).
+            if [ -z "$INSTANCE_ID" ] || [[ "$INSTANCE_ID" == mi-* ]] || [ "$CONTROL_PLANE_TARGET" = "hetzner" ] || [[ "$CONTROL_PLANE_TARGET" == tencent-usw-* ]]; then
               SNAPSHOT_SIGNAL="$(DATA_LAYER_SNAPSHOT_APPLICABLE=false bash ops/observability/data_layer_snapshot_signal.sh unused unused 2>>"$STDERR" || echo '{"latest_snapshot_at":null,"probe_ok":true,"probe_error":null,"applicable":false}')" # preflight-allow: swallow — N/A signal must not fail the run
             else
               SNAPSHOT_SIGNAL="$(bash ops/observability/data_layer_snapshot_signal.sh "$TARGET_REGION" "$STACK_NAME" "$INSTANCE_ID" 2>>"$STDERR" || echo '{"latest_snapshot_at":null,"probe_ok":false,"probe_error":"snapshot signal helper failed","applicable":true}')" # preflight-allow: swallow — helper failures become an explicit probe_ok=false signal
             fi
-            ARCHIVE_SIGNAL="$(python3 ops/observability/data_layer_archive_health.py 2>>"$STDERR" || echo 'ARCHIVESTATS {}')"
+            ARCHIVE_SIGNAL="$(python3 ops/observability/data_layer_archive_health.py 2>>"$STDERR" || echo 'ARCHIVESTATS {"evidence_errors":["archive_health_failed"]}')"
             SAFETY_VERDICT="$(printf '%s\nSNAPSHOTSTATS %s\n%s\n' "$SAFETY_OUT" "$SNAPSHOT_SIGNAL" "$ARCHIVE_SIGNAL" | python3 ops/observability/data_layer_safety_verdict.py 2>>"$STDERR" || echo '{"verdict":"unsafe","findings":[{"kind":"data_layer_safety_probe","status":"issue_candidate","severity":"error","summary":"data-layer safety verdict failed"}]}')"
             printf 'data_layer_safety: %s\n' "$SAFETY_VERDICT" >> "$STDOUT"
             if [ "$(printf '%s' "$SAFETY_VERDICT" | jq -r '.verdict // "unsafe"')" = "green" ]; then
@@ -633,9 +635,12 @@ jobs:
             # come from usage_logs + ops_error_logs; access-log-only failures are
             # kept as low-confidence capture gaps. The probe is read-only and
             # returns sanitized structured fields only.
+            # Postgres lives on the data machine after the data-plane split; bare
+            # prod|cn-prod fans out to apps[] and fails on hosts without a local
+            # postgres container (#3254). Pin to ${PROBE_TARGET}-data.
             if printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$' && [ "$SINCE_HOURS" -ge 1 ] && [ "$SINCE_HOURS" -le 168 ]; then
               if bash ops/observability/run-probe.sh \
-                --target "$PROBE_TARGET" \
+                --target "${PROBE_TARGET}-data" \
                 --via tat \
                 --script ops/observability/probe-daily-error-ledger.sh \
                 --env "WINDOW_HOURS=$SINCE_HOURS" \
