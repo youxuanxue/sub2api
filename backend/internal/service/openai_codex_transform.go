@@ -80,6 +80,7 @@ var codexModelMap = map[string]string{
 	"gpt-5.3-chat-latest": "gpt-5.3-codex-spark",
 	"gpt-6-sol":           "gpt-6-sol",
 	"gpt-6-luna":          "gpt-6-luna",
+	"gpt-6-terra":         "gpt-6-terra",
 	"gpt-6.1-terra":       "gpt-6.1-terra",
 	"gpt-6.1-sol":         "gpt-6.1-sol",
 	"gpt-6.1":             "gpt-6.1-sol",
@@ -92,6 +93,7 @@ var codexVersionModelPrefixes = []struct {
 	{prefix: "gpt-6.1-terra", target: "gpt-6.1-terra"},
 	{prefix: "gpt-6.1-sol", target: "gpt-6.1-sol"},
 	{prefix: "gpt-6.1", target: "gpt-6.1-sol"},
+	{prefix: "gpt-6-terra", target: "gpt-6-terra"},
 	{prefix: "gpt-6-sol", target: "gpt-6-sol"},
 	{prefix: "gpt-6-luna", target: "gpt-6-luna"},
 	// Longer GPT-5.6 prefixes first so sol/terra/luna/chat-latest win over bare gpt-5.6.

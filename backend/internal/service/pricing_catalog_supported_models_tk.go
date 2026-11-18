@@ -72,7 +72,11 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	"gpt-6-astra": {},
 	"gpt-6-luna":  {},
 	"gpt-6-sol":   {},
-	"gpt-6.1-sol": {},
+	// GPT-6 / 6.1 Terra: public catalog owners; OAuth floor remaps wire traffic
+	// onto gpt-5.6-terra (see tkOpenAIWireRemapAliases).
+	"gpt-6-terra":   {},
+	"gpt-6.1-sol":   {},
+	"gpt-6.1-terra": {},
 	// GPT Image 2 remains the default Images model id and an official OpenAI
 	// SKU; keep identity so floor-applied OAuth accounts do not lose it when
 	// empty-mapping fail-open is replaced by the compiled floor.
@@ -225,6 +229,7 @@ var supportedGrokCatalogModels = map[string]struct{}{
 	"grok-4.5":                     {},
 	"grok-4.5-latest":              {},
 	"grok-4.6":                     {},
+	"grok-4.7":                     {},
 	"grok-build-0.1":               {},
 	"grok-build-latest":            {},
 	"grok-code-fast":               {},
