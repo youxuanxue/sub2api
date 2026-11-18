@@ -411,29 +411,21 @@ QA_ARCHIVE_RECEIPTS = Path("/var/lib/tokenkey/qa-node1/receipts")
 
 
 def coordinator_failure_class(receipt: dict) -> str:
-    """Reuse #3222 owner categories for data-machine coordinator receipts."""
+    """Reuse #3222 owner categories from coordinator receipt fields only.
+
+    Classification of raw SSH/worker stderr lives in coordinator_host
+    (``archive_error_failure_class`` → ``failure_class`` on last-run.json).
+    The watcher must not keep a second copy of those string markers.
+    """
     category = receipt.get("failure_class")
     if category in {"node1_unreachable", "gateway_qa_archive_failed"}:
         return category
     for item in receipt.get("errors") or []:
-        if isinstance(item, dict) and item.get("failure_class") in {
-            "node1_unreachable", "gateway_qa_archive_failed",
-        }:
-            if item["failure_class"] == "node1_unreachable":
-                return "node1_unreachable"
-        text = str((item or {}).get("error", "") if isinstance(item, dict) else item).lower()
-        markers = (
-            "node1 capacity probe failed",
-            "connection timed out during banner exchange",
-            "connection to unknown port",
-            "could not resolve hostname",
-            "no route to host",
-            "connection refused",
-            "permission denied (publickey)",
-            "host key verification failed",
-        )
-        if any(marker in text for marker in markers):
+        if isinstance(item, dict) and item.get("failure_class") == "node1_unreachable":
             return "node1_unreachable"
+    for item in receipt.get("errors") or []:
+        if isinstance(item, dict) and item.get("failure_class") == "gateway_qa_archive_failed":
+            return "gateway_qa_archive_failed"
     return "gateway_qa_archive_failed"
 
 
