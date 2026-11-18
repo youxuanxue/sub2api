@@ -3,9 +3,9 @@
 services:
   tokenkey:
     pull_policy: never
-    # Hard container memory cap for the gateway only. The app host is 4C16G;
-    # Caddy, the local-data profile (retired) and the data machine's PG/Redis
-    # are deliberately outside this limit.
+    # Hard container memory cap for the gateway only. App hosts target ≥4C8G
+    # (existing 4C16G may remain until replaced; Lighthouse cannot in-place
+    # downgrade memory). Caddy / data-plane PG+Redis stay outside this limit.
     #
     # Why a cap at all: GOMEMLIMIT only bounds the Go heap. goroutine stacks,
     # socket buffers, page cache and non-Go allocations live outside it, so an
@@ -14,11 +14,10 @@ services:
     # dies" into "this container is killed and restarts".
     #
     # Why 3G with GOMEMLIMIT=2GiB: leave ~1 GiB of non-heap headroom (stacks,
-    # buffers, allocator fragmentation) inside the cap, and ~13 GiB of the 16 GiB
-    # host for page cache, Caddy, sshd, the docker daemon and the blue/green
-    # overlap window where two colours briefly coexist. Docker's OOM killer acts
-    # inside the cgroup, so the Go GC reaches its soft limit (2GiB) first and the
-    # process is collected long before the hard cap is hit.
+    # buffers, allocator fragmentation) inside the cap, and the rest of the
+    # 8–16 GiB host for page cache, Caddy, sshd and the docker daemon. Docker's
+    # OOM killer acts inside the cgroup, so the Go GC reaches its soft limit
+    # (2GiB) first and the process is collected long before the hard cap is hit.
     #
     # memswap_limit == mem_limit disables additional swap for this cgroup: with
     # swap enabled an overloaded gateway thrashes instead of failing fast, and
@@ -35,20 +34,20 @@ services:
       # Avoids overseas ip-api RTT on cn-prod admin proxy latency. Explicit
       # security.proxy_probe.urls in config.yaml still wins over this preset.
       SECURITY_PROXY_PROBE_PRESET: "domestic"
-      # Pool sized for cn-prod dual-app layout (app-a 4C16G + app-b 4C8G as of
-      # 2026-11-17). Raise the pool only together with DATABASE_*/REDIS_* limits
-      # and data-machine max_connections; GOMEMLIMIT is a Go-heap soft limit,
-      # not a cgroup cap — mem_limit above owns the hard boundary.
+      # Pool sized for cn-prod dual-app layout (≥4C8G floor as of 2026-11-18).
+      # Raise the pool only together with DATABASE_*/REDIS_* limits and
+      # data-machine max_connections; GOMEMLIMIT is a Go-heap soft limit, not a
+      # cgroup cap — mem_limit above owns the hard boundary.
       GOMEMLIMIT: "2GiB"
       # Process-wide relay concurrency cap (gateway.max_in_flight_requests).
       # Overflow returns 503 + Retry-After instead of queueing, so a traffic
-      # spike sheds new work while admitted streams finish. 512 leaves wide
-      # headroom over the tens of concurrent long streams this site actually
-      # carries, and 0/negative would disable the gate for rollback.
+      # spike sheds new work while admitted streams finish. 480 aligns the
+      # per-node hard gate with the Recipe-1 soft CPU top (~800 fleet / 1:1),
+      # and 0/negative would disable the gate for rollback.
       # Rolling single-container reads this compose as SSOT (M6). A key added
       # here must show up in `docker compose config` / node_compose renders
       # (see SECURITY_PROXY_PROBE_PRESET, 2026-10-23).
-      GATEWAY_MAX_IN_FLIGHT_REQUESTS: "512"
+      GATEWAY_MAX_IN_FLIGHT_REQUESTS: "480"
       # 2026-11-17 capacity: 400-concurrency pool perf already pinned ~81
       # live PG connections against 40×2 app pools. Raise per-app open to 80
       # before the 800-concurrency run; pair with data-machine max_connections

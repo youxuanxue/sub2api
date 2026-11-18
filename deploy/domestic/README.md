@@ -53,12 +53,12 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 | 角色 | 实例 | 私网 | 公网 | 说明 |
 |---|---|---|---|---|
 | 入口机 | `lhins-j89o28j0` | `10.2.4.7` | `154.8.185.224` | Caddy 终止 `api.galaxywaveai.com` 的 TLS，按 **1:1** 分发到两台应用机；公网只开 80/443 |
-| app-a | `lhins-6qmb3fd6` | `10.2.4.11` | `154.8.214.179` | 4C16G（`bundle_rs_mc_lg16_01`），单容器 `tokenkey`，私网 `10.2.4.11:8080`；云防火墙只放行入口 `10.2.4.7` |
-| app-b | `lhins-0kxx7cco` | `10.2.4.13` | `82.156.89.64` | 4C8G（`bundle_rs_mc_lg8_01`，2026-11-17 由 2C4G 升配），单容器 `tokenkey`，无公网入站；监听 `10.2.4.13:8080`，同样只放行 `10.2.4.7` |
-| 数据机 | `lhins-odyx5eis` | `10.2.4.5` | （无公网业务入口） | PG `max_connections=400`（2026-11-17）、Redis；见 `dataplane-cutover-data.sh` 期望值 |
+| app-a | `lhins-6qmb3fd6` | `10.2.4.11` | `154.8.214.179` | 应用机下限 **4C8G**；现仍为 4C16G（`bundle_rs_mc_lg16_01`，Lighthouse 不支持原地降内存），单容器 `tokenkey`，私网 `10.2.4.11:8080`；云防火墙只放行入口 `10.2.4.7` |
+| app-b | `lhins-0kxx7cco` | `10.2.4.13` | `82.156.89.64` | 4C8G（`bundle_rs_mc_lg8_01`），单容器 `tokenkey`，无公网入站；监听 `10.2.4.13:8080`，同样只放行 `10.2.4.7` |
+| 数据机 | `lhins-odyx5eis` | `10.2.4.5` | （无公网业务入口） | 目标 **4C8G**（`bundle_starter_mc_lg8_01`）；PG `max_connections=400`、Redis；见 `dataplane-cutover-data.sh` 期望值 |
 | 临时压测 client | `ins-7ltl2zv3`（CVM，非 Lighthouse） | `172.21.0.17` | `192.144.136.234` | 北京按量 `SA2.LARGE8` 4C8G；tag `expire_after=2026-11-19`；**勿销毁**（Agent B 压测用）；不进 `apps[]` |
 
-节点身份只看 [`prod-target.json`](prod-target.json) 的 `entry` 与 `apps[]`。`apps[]` 的顺序就是滚动顺序，金丝雀位在前（现为 app-b；两机都是 4C 后不再按「更小规格」理解）。设计见 [cn-prod 多应用机滚动发版](../../docs/approved/design-cn-prod-rolling-deploy.md)。应用池现网：`DATABASE_MAX_OPEN_CONNS=80` / idle=20、`REDIS_POOL_SIZE=96`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS=512`（`compose.override.yml`）。
+节点身份只看 [`prod-target.json`](prod-target.json) 的 `entry` 与 `apps[]`。`apps[]` 的顺序就是滚动顺序，金丝雀位在前（现为 app-b；应用机下限 4C8G）。设计见 [cn-prod 多应用机滚动发版](../../docs/approved/design-cn-prod-rolling-deploy.md)。应用池现网：`DATABASE_MAX_OPEN_CONNS=80` / idle=20、`REDIS_POOL_SIZE=96`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS=480`（`compose.override.yml`）。
 - 入口机健康检查每 3 秒访问各节点 `/health`，连续 2 次失败即摘除。drain 让节点 `/health` 返回 503，入口机先停派新请求，节点再等在途请求清零。
 - 日常发版由 `rolling.py` 逐台 drain、换镜像、健康检查和回流，入口机持续把新流量分给另一台。**M6 起节点内蓝绿与 `tokenkey-entry-origin` socat 代码已删除**；若主机上仍有停用的 blue/green/socat 容器，只作历史残骸，rolling 会拒绝把它们当成在服布局。
 - 入口机 Caddyfile 在 `/var/lib/tokenkey/caddy/etc/Caddyfile`，挂载的是目录而不是单个文件：单文件挂载在 `sed -i` 换 inode 后会继续读旧内容。入库模板为 [`entry/Caddyfile.tmpl`](entry/Caddyfile.tmpl)，`python3 entry_caddy.py --diff <线上文件>` 只读比对（忽略注释和空白），`--out PATH` 渲染。`to` 列表按私网 IP 排序，权重跟随各自节点。
@@ -122,7 +122,7 @@ cn-prod 已切到 `ops/qa/COORDINATOR.md` 路径，不再跑应用机 v1 `provis
 - `prepare-runtime.py STATE_DIR` 从共享 Stage0 Compose/Caddy 模板生成本机受保护 bundle，
   重用已存在的 secrets，不在 stdout 输出配置或密钥。`STATE_DIR/images.json` 必须来自
   已校验的 amd64 镜像，包含各服务的 `source` digest、`config` digest、归档 `sha256` 与本地 `tag`。
-- `compose.override.yml` 打开 QA capture，不配置 QA S3 上传，并设置应用池与在途闸门（**现网 2026-11-17**：`GOMEMLIMIT=2GiB`、DB open/idle **80/20**、Redis pool/idle `96/8`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS=512`）。同一份 override 还设置应用容器硬内存上限（`mem_limit`/`memswap_limit`，默认 3g，`TOKENKEY_APP_MEMORY_LIMIT` 可覆盖；0/负值关闭闸门）。美西 prod 的容器上限走另一份 compose（`docker-compose.bluegreen.yml`，默认 8g），两站机制不同，不要互相套用。蓝绿 `prepare` 会用该文件解析出的池参数，以及
+- `compose.override.yml` 打开 QA capture，不配置 QA S3 上传，并设置应用池与在途闸门（**现网 2026-11-18**：`GOMEMLIMIT=2GiB`、DB open/idle **80/20**、Redis pool/idle `96/8`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS=480`）。同一份 override 还设置应用容器硬内存上限（`mem_limit`/`memswap_limit`，默认 3g，`TOKENKEY_APP_MEMORY_LIMIT` 可覆盖；0/负值关闭闸门）。美西 prod 的容器上限走另一份 compose（`deploy/tencent/compose.override.yml` / 主机 `.env`），两站机制不同，不要互相套用。蓝绿 `prepare` 会用该文件解析出的池参数，以及
   `QA_CAPTURE_ENABLED=true`，覆盖候选容器
   env（密钥仍取自线上容器）。候选若带上 QA archive 或 S3 driver 会被拒绝。容量 bump 可先起候选再切 Caddy。现网核对/写入还可用
   `ops/observability/probe-cn-prod-pool-env.sh`（经 `run-probe.sh --target cn-prod`，
