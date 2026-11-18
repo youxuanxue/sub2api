@@ -215,6 +215,46 @@ def short_id(image_id: str | None) -> str:
     return image_id.removeprefix("sha256:")[:12]
 
 
+# Stage0 release tag, optionally with the domestic local-tag short-sha suffix
+# (tokenkey-domestic/tokenkey:1.8.381-2a3355369 → 1.8.381).
+_RUNTIME_TAG_RE = re.compile(
+    r"^(?P<tag>\d+\.\d+\.\d+(?:-rc\.\d+|-beta\.\d+)?)(?:-[0-9a-f]{7,40})?$",
+    re.IGNORECASE,
+)
+
+
+def extract_runtime_release_tag(facts: dict) -> str | None:
+    """Best-effort Stage0 tag currently serving on a probed app node."""
+    candidates: list[str] = []
+    ver = ((facts.get("current_image") or {}).get("version") or "").strip().lstrip("v")
+    if ver:
+        candidates.append(ver)
+    ref = ((facts.get("container") or {}).get("image_ref") or "").strip()
+    if ref and "@" not in ref and ":" in ref:
+        candidates.append(ref.rsplit(":", 1)[1].strip().lstrip("v"))
+    for raw in candidates:
+        m = _RUNTIME_TAG_RE.match(raw)
+        if m:
+            return m.group("tag")
+    return None
+
+
+def resolve_previous_runtime_tag(nodes: list, facts: dict, target_tag: str) -> str | None:
+    """Fleet baseline for Feishu notes: first non-target runtime tag in node order."""
+    target = (target_tag or "").lstrip("v")
+    seen: list[str] = []
+    for node in nodes:
+        tag = extract_runtime_release_tag(facts.get(node.name) or {})
+        if tag and tag != target:
+            seen.append(tag)
+    if not seen:
+        return None
+    uniq = sorted(set(seen))
+    if len(uniq) > 1:
+        log(f"mixed previous runtime tags {uniq}; Feishu baseline uses {seen[0]}")
+    return seen[0]
+
+
 def utcnow() -> _dt.datetime:
     return _dt.datetime.now(_dt.timezone.utc)
 
@@ -958,6 +998,7 @@ class Run:
     outcome: str = "pending"
     holder: str | None = None
     target_local_tag: str | None = None
+    previous_runtime_tag: str | None = None
     nodes: list = field(default_factory=list)
     errors: list = field(default_factory=list)
     manual_steps: list = field(default_factory=list)
@@ -966,7 +1007,9 @@ class Run:
     def to_json(self) -> dict:
         return {
             "schema_version": 1, "command": self.command, "tag": self.tag, "revision": self.revision,
-            "target_local_tag": self.target_local_tag, "started_at": self.started_at,
+            "target_local_tag": self.target_local_tag,
+            "previous_runtime_tag": self.previous_runtime_tag,
+            "started_at": self.started_at,
             "finished_at": self.finished_at, "outcome": self.outcome, "holder": self.holder,
             "lease_previous_holder": (self.lease_previous or {}).get("holder"),
             "errors": self.errors, "manual_steps": self.manual_steps,
@@ -1062,6 +1105,7 @@ class Roller:
         exit_code = EXIT_OK
         try:
             facts, modes, errs = self.assess()
+            run.previous_runtime_tag = resolve_previous_runtime_tag(self.nodes, facts, self.tag)
             if errs:
                 run.errors += errs
                 raise RollingError("preflight refused:\n  " + "\n  ".join(errs))
@@ -1289,6 +1333,7 @@ def cmd_plan(roller: Roller, run: Run) -> int:
     for node in [*roller.nodes]:
         roller.remote.install(node)
     facts, modes, errs = roller.assess()
+    run.previous_runtime_tag = resolve_previous_runtime_tag(roller.nodes, facts, roller.tag)
     for line in roller.plan_lines(facts, modes):
         print(line)
     for node in roller.nodes:

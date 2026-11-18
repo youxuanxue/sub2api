@@ -19,6 +19,7 @@
 | **prod pricing registry runtime audit** | 机械 | `ops-daily-diagnostics.yml` 经 `ops/observability/prod-config-audit.sh` 只读执行 `ops/pricing/manage-overlay-runtime.py check`；价格发布独立由 registry 合并到 protected main 后触发 `pricing-registry-publish.yml` |
 | prod rolling Environment approval | 机械 | `bash scripts/stage0/approve-github-run-env.sh --run-id <id> --comment "…"`（仅 rolling 的 `prod` 审批门；warm 已改 `tencent-ops`，不再为此自动批 `prod`。批不批、何时批是判断） |
 | prod/cn-prod rolling smoke（CI 唯一验收源） | 机械 | 由对应 rolling workflow 的 completed receipt 与 smoke 输出判定；旧 `deploy-stage0.yml` 的 `tk_post_deploy_smoke: OK` 只适用于 legacy deploy。 |
+| **prod/cn-prod rolling Feishu 发版公告** | 机械 | rolling 成功后 `notify-feishu-from-rolling-receipt.sh`（基线=回执 `previous_runtime_tag`）。补发走 `notify-feishu-release.yml` workflow_dispatch；旧 `deploy-stage0.yml` 仍保留自身 Notify 步。 |
 | 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 均 ∈ `TK_SMOKE_API_KEY` 的 `/v1/models`）。**完整校验需要 smoke key，只在 CI 可跑**；本地降级为 `bash ops/stage0/load_smoke_github_env.sh --check prod`（只验 secret/vars 已配置） |
 | 发版后跟进档位（skip / single） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier`（是否值得人工再跟；**实测检查不走这里**） |
 | 发版后控制面探活（prod） | 机械 | `bash ops/observability/probe-release-control-plane.sh`（prod `/health` + `/api/v1/settings/public`，JSON lines + summary） |

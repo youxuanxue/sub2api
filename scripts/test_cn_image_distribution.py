@@ -20,6 +20,9 @@ class ReleaseWorkflowCredentialBoundaryTest(unittest.TestCase):
         self.assertNotIn("--via ssm", text)
         self.assertNotIn("aws-actions/configure-aws-credentials", text)
         self.assertNotIn("id-token: write", text)
+        self.assertIn("Notify Feishu (release rollout)", text)
+        self.assertIn("notify-feishu-from-rolling-receipt.sh", text)
+        self.assertIn("--environment prod", text)
 
     def test_cn_rolling_approval_and_tencent_credentials_are_separate(self):
         text = (WORKFLOWS / "cn-prod-rolling-deploy.yml").read_text()
@@ -28,6 +31,10 @@ class ReleaseWorkflowCredentialBoundaryTest(unittest.TestCase):
         self.assertIn("  rolling:\n    needs: approval", text)
         self.assertIn("    environment: tencent-ops", text)
         self.assertIn("TENCENTCLOUD_SECRET_ID", text)
+        self.assertIn("Notify Feishu (release rollout)", text)
+        self.assertIn("notify-feishu-from-rolling-receipt.sh", text)
+        self.assertIn("--environment cn-prod", text)
+        self.assertIn("https://api.galaxywaveai.com", text)
 
     def test_cn_distribution_uses_tencent_cos_for_publish_and_warm(self):
         text = (WORKFLOWS / "distribute-cn-image.yml").read_text()

@@ -1,0 +1,70 @@
+name: notify feishu release
+# Ops backfill / manual Feishu rollout card. Daily path is wired into
+# prod-rolling-deploy.yml and cn-prod-rolling-deploy.yml; use this when a
+# successful rolling deploy predated that wiring (or webhook was empty).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Released tag X.Y.Z (no leading v)
+        required: true
+        type: string
+      previous_tag:
+        description: Runtime baseline tag that was serving before the rollout
+        required: true
+        type: string
+      environment:
+        description: Target environment label on the card
+        required: true
+        type: choice
+        options:
+          - prod
+          - cn-prod
+      api_url:
+        description: Gateway URL shown on the card
+        required: true
+        type: string
+      run_url:
+        description: Optional link to the rolling deploy run
+        required: false
+        type: string
+        default: ""
+      deployed_at:
+        description: Optional RFC3339 cutover time (receipt finished_at)
+        required: false
+        type: string
+        default: ""
+permissions:
+  contents: read
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Notify Feishu
+        continue-on-error: true  # preflight-allow: swallow
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+          INPUT_TAG: ${{ inputs.tag }}
+          PREVIOUS_TAG: ${{ inputs.previous_tag }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          API_URL: ${{ inputs.api_url }}
+          RUN_URL: ${{ inputs.run_url }}
+          DEPLOYED_AT: ${{ inputs.deployed_at }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
+          bash ops/stage0/validate-deploy-tag.sh "$PREVIOUS_TAG"
+          NOTES="$(bash ops/stage0/collect-feishu-release-notes.sh "$PREVIOUS_TAG" "$INPUT_TAG")"
+          args=(
+            "$INPUT_TAG" "$API_URL"
+            --previous-tag "$PREVIOUS_TAG"
+            --environment "$ENVIRONMENT"
+            --notes "$NOTES"
+          )
+          [ -n "$RUN_URL" ] && args+=(--run-url "$RUN_URL")
+          [ -n "$DEPLOYED_AT" ] && args+=(--deployed-at "$DEPLOYED_AT")
+          bash ops/stage0/notify-feishu-release.sh "${args[@]}"
