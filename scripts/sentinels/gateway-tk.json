@@ -3478,13 +3478,15 @@
         "func rejectUnreachableVolcKimiVideoURLs(",
         "video_url is not reachable; provide a video URL this service can access",
         "func wrapVolcKimiStringVideoURLs(",
+        "func coerceVolcKimiNullMessageContent(",
+        "shaped, err := coerceVolcKimiNullMessageContent(body)",
         "func dropVolcKimiEmptyTextParts(",
         "shaped, err = dropVolcKimiEmptyTextParts(shaped)",
         "func volcKimiTextPartHasNoInput(",
         "func dropVolcKimiInterleavedAssistantText(",
         "shaped, err = dropVolcKimiInterleavedAssistantText(shaped)"
       ],
-      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. Interleaved assistant text between tool_calls and tool results is dropped before Volc InvalidParameter 400. Text parts with empty/null/missing text are dropped before missing messages.content.text 400."
+      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. Interleaved assistant text between tool_calls and tool results is dropped before Volc InvalidParameter 400. Text parts with empty/null/missing text are dropped before missing messages.content.text 400. Message-level content JSON null is rewritten to empty string before Volc missing messages.content 400."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
@@ -3562,9 +3564,11 @@
         "func TestVolcKimiVideoURLPreflight(",
         "func TestVolcKimiHTTPVideoProbe(",
         "func TestVolcKimiDropsEmptyTextParts(",
-        "missing text field"
+        "missing text field",
+        "null message content becomes empty string",
+        "absent content key unchanged"
       ],
-      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface, interleaved-assistant drop for Volc tool round-trips, and missing/null text-part drop."
+      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface, interleaved-assistant drop for Volc tool round-trips, missing/null text-part drop, and message-level content null→empty-string coerce."
     },
     {
       "path": "backend/internal/pkg/httputil/body.go",

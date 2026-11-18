@@ -718,10 +718,11 @@
       "must_contain": [
         "TestApplyMoonshotK3DynamicToolsShape_PromotesSystemTools",
         "TestApplyMoonshotK3DynamicToolsShape_PromotesEmptyStringContent",
+        "TestApplyMoonshotK3DynamicToolsShape_PromotesNullContent",
         "TestApplyMoonshotK3DynamicToolsShape_KeepsExplicitToolChoice",
         "TestForwardAsChatCompletionsDispatched_PromotesKimiK3DynamicTools"
       ],
-      "rationale": "Focused regressions for kimi-k3 dynamic tool promotion: helper lifts system+tools into top-level tools (including empty-string content), sets tool_choice=required only when omitted, and chat bridge dispatch captures the promoted body."
+      "rationale": "Focused regressions for kimi-k3 dynamic tool promotion: helper lifts system+tools into top-level tools (including empty-string and JSON-null content), sets tool_choice=required only when omitted, and chat bridge dispatch captures the promoted body."
     },
     {
       "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk.go",
