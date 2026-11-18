@@ -8830,7 +8830,13 @@
     "input_cost_per_token": 1.5e-07,
     "output_cost_per_token": 6e-07,
     "cache_read_input_token_cost": 1.5e-08,
-    "source": "MiniMax official API list price for MiniMax-M3.1-Flash ($0.15/$0.60/cache-read $0.015 per M tokens). Captured 2026-11-17 from https://platform.minimax.io/docs/pricing/overview. Public vendor is OEM (minimax). Direct supply via newapi channel_type=1 account on https://api.minimaxi.com; upstream wire id MiniMax-M3.1-Flash. Flat pricing (no published priority/long-context ladder for this Flash SKU)."
+    "source": "MiniMax official API list price for MiniMax-M3.1-Flash ($0.15/$0.60/cache-read $0.015 per M tokens). Captured 2026-11-17 from https://platform.minimax.io/docs/pricing/overview. Public vendor is OEM (minimax). Direct supply via newapi channel_type=1 account on https://api.minimaxi.com; upstream wire id MiniMax-M3.1-Flash. Flat pricing (no published priority/long-context ladder for this Flash SKU). API windows/capabilities filled 2026-11-18 from https://platform.minimax.io docs: context window 1000000, recommended max completion 131072, multimodal (supports_vision).",
+    "max_input_tokens": 1000000,
+    "max_output_tokens": 131072,
+    "supports_vision": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_reasoning": true
   },
   "moonshot-v1-128k": {
     "litellm_provider": "moonshot",
@@ -10513,7 +10519,14 @@
     "output_cost_per_token": 5.373134328358209e-06,
     "cache_creation_input_token_cost": 2.2388059701492535e-06,
     "cache_read_input_token_cost": 2.238805970149254e-07,
-    "source": "Alibaba DashScope qwen3.8-max official China-mainland (Beijing) list https://help.aliyun.com/zh/model-studio/qwen3-8-max, captured 2026-10-19: input ¥12/Mtok, output ¥36/Mtok (思维链+回答), 输入（缓存命中）¥1.5/Mtok, 显式缓存创建 ¥15/Mtok, 显式缓存命中 ¥1/Mtok; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. TK single cache_read field maps to 输入（缓存命中）¥1.5 (implicit hit / primary listed cache-hit); explicit-hit ¥1 is not separately modeled. Batch half-price and promo discounts not modeled."
+    "source": "Alibaba DashScope qwen3.8-max official China-mainland (Beijing) list https://help.aliyun.com/zh/model-studio/qwen3-8-max, captured 2026-10-19: input ¥12/Mtok, output ¥36/Mtok (思维链+回答), 输入（缓存命中）¥1.5/Mtok, 显式缓存创建 ¥15/Mtok, 显式缓存命中 ¥1/Mtok; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. TK single cache_read field maps to 输入（缓存命中）¥1.5 (implicit hit / primary listed cache-hit); explicit-hit ¥1 is not separately modeled. Batch half-price and promo discounts not modeled. API windows/capabilities filled 2026-11-18 from DashScope qwen3.8-max model card: context 1000000, max-output 131072, input modalities include image (supports_vision).",
+    "max_input_tokens": 1000000,
+    "max_output_tokens": 131072,
+    "supports_vision": true,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_reasoning": true
   },
   "qwen4.0-max-preview": {
     "litellm_provider": "dashscope",
@@ -10537,7 +10550,14 @@
     "input_cost_per_token": 1.1940298507462686e-06,
     "output_cost_per_token": 4.17910447761194e-06,
     "cache_read_input_token_cost": 2.9850746268656716e-07,
-    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-08-19: GLM-5.3 input ¥8/Mtok, output ¥28/Mtok, cache-hit ¥2/Mtok, 1M context, no input-tier split; CNY/USD=6.7. Cross-checked Z.AI international https://docs.z.ai/guides/overview/pricing same day: GLM-5.3 $1.4/$0.26/$4.4 per 1M tokens (USD list; TokenKey GLM owner remains BigModel CNY÷6.7, matching glm-5.2). LiteLLM has no glm-5.3 row (lookup 2026-08-19). Pricing source only: serving remains the configured OpenAI-compat / DashScope path (runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Overlay stores pre-tax official list rates; TokenKey applies the official_list_base_tax zhipu multiplier at resolution/catalog time. Cache storage is listed as limited-time free."
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-08-19: GLM-5.3 input ¥8/Mtok, output ¥28/Mtok, cache-hit ¥2/Mtok, 1M context, no input-tier split; CNY/USD=6.7. Cross-checked Z.AI international https://docs.z.ai/guides/overview/pricing same day: GLM-5.3 $1.4/$0.26/$4.4 per 1M tokens (USD list; TokenKey GLM owner remains BigModel CNY÷6.7, matching glm-5.2). LiteLLM has no glm-5.3 row (lookup 2026-08-19). Pricing source only: serving remains the configured OpenAI-compat / DashScope path (runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Overlay stores pre-tax official list rates; TokenKey applies the official_list_base_tax zhipu multiplier at resolution/catalog time. Cache storage is listed as limited-time free. API context/output windows filled 2026-11-18 from BigModel/Aliyun model cards: context/max-input 1048576, max-output 131072 (text-only; no vision).",
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 131072,
+    "max_tokens": 131072,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_reasoning": true
   },
   "glm-5.3-flash": {
     "litellm_provider": "zhipu",
@@ -10735,12 +10755,20 @@
       "/v1/responses"
     ],
     "supported_modalities": [
-      "text"
+      "text",
+      "image"
     ],
     "supported_output_modalities": [
       "text"
     ],
-    "source": "GPT-6 Astra commercial rates from Wei-Shaw/sub2api upstream static fallback (billing_service/pricing_service: $10/$50 per MTok standard, priority 2x, cache write $12.5/MTok, cache read $1/MTok, 272k long-context in×2/out×1.5). No flex/batches/regional tiers published in that evidence; omitted intentionally. Captured 2026-09-06."
+    "source": "GPT-6 Astra commercial rates from Wei-Shaw/sub2api upstream static fallback (billing_service/pricing_service: $10/$50 per MTok standard, priority 2x, cache write $12.5/MTok, cache read $1/MTok, 272k long-context in×2/out×1.5). No flex/batches/regional tiers published in that evidence; omitted intentionally. Captured 2026-09-06. Official developers.openai.com/gpt-6-astra input modalities include text+image; public catalog vision claim filled 2026-11-18.",
+    "supports_vision": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_reasoning": true,
+    "supports_response_schema": true,
+    "supports_web_search": true,
+    "supports_pdf_input": true
   },
   "qwen-vl-max": {
     "litellm_provider": "dashscope",
@@ -10850,7 +10878,7 @@
     "long_context_input_cost_multiplier": 2.0,
     "long_context_output_cost_multiplier": 1.5,
     "litellm_provider": "openai",
-    "max_input_tokens": 922000,
+    "max_input_tokens": 1050000,
     "max_output_tokens": 128000,
     "max_tokens": 128000,
     "mode": "chat",
@@ -10896,7 +10924,7 @@
     "cache_read_input_token_cost_above_272k_tokens_flex": 2e-07,
     "regional_processing_uplift_multiplier_eu": 1.1,
     "regional_processing_uplift_multiplier_us": 1.1,
-    "source": "GPT-6 Sol commercial rates from backend/resources/model-pricing/model_prices_and_context_window.json (provider evidence) + TokenKey fallback card alignment; above-272k absolute costs derived from long_context_* multipliers. Captured 2026-09-28 for edge OpenAI OAuth Codex activation. This authoritative registry row is the runtime price owner for billing and /pricing."
+    "source": "GPT-6 Sol commercial rates from backend/resources/model-pricing/model_prices_and_context_window.json (provider evidence) + TokenKey fallback card alignment; above-272k absolute costs derived from long_context_* multipliers. Captured 2026-09-28 for edge OpenAI OAuth Codex activation. This authoritative registry row is the runtime price owner for billing and /pricing. Public context_window/max_input_tokens aligned to official 1,050,000 context window (developers.openai.com model card; max-input 922k remains the request input ceiling). Captured 2026-11-18."
   },
   "gpt-6-luna": {
     "cache_creation_input_token_cost": 1.25e-07,
@@ -10914,7 +10942,7 @@
     "long_context_input_cost_multiplier": 2.0,
     "long_context_output_cost_multiplier": 1.5,
     "litellm_provider": "openai",
-    "max_input_tokens": 922000,
+    "max_input_tokens": 1050000,
     "max_output_tokens": 128000,
     "max_tokens": 128000,
     "mode": "chat",
@@ -10960,7 +10988,7 @@
     "cache_read_input_token_cost_above_272k_tokens_flex": 1e-08,
     "regional_processing_uplift_multiplier_eu": 1.1,
     "regional_processing_uplift_multiplier_us": 1.1,
-    "source": "GPT-6 Luna commercial rates from backend/resources/model-pricing/model_prices_and_context_window.json (provider evidence) + TokenKey fallback card alignment; above-272k absolute costs derived from long_context_* multipliers. Captured 2026-09-28 for edge OpenAI OAuth Codex activation. This authoritative registry row is the runtime price owner for billing and /pricing."
+    "source": "GPT-6 Luna commercial rates from backend/resources/model-pricing/model_prices_and_context_window.json (provider evidence) + TokenKey fallback card alignment; above-272k absolute costs derived from long_context_* multipliers. Captured 2026-09-28 for edge OpenAI OAuth Codex activation. This authoritative registry row is the runtime price owner for billing and /pricing. Public context_window/max_input_tokens aligned to official 1,050,000 context window (developers.openai.com model card; max-input 922k remains the request input ceiling). Captured 2026-11-18."
   },
   "gpt-6.1-sol": {
     "cache_creation_input_token_cost": 2.5e-06,
