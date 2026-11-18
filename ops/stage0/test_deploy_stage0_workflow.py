@@ -125,7 +125,11 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         deploy = job_block("deploy")
         self.assertIn("if: inputs.operation == 'deploy'", deploy)
         self.assertIn("environment: prod", deploy)
-        self.assertIn("id-token: write", deploy)
+        # Closeout A14: OIDC removed; refuse before mutation; tombstone anchors kept.
+        self.assertNotIn("id-token:", deploy)
+        self.assertNotIn("configure-aws-credentials", deploy)
+        self.assertNotIn("AWS_OIDC_ROLE_ARN", deploy)
+        self.assertIn("Refuse retired legacy deploy-stage0 entry", deploy)
         self.assertIn("packages: read", deploy)
         self.assertIn("deploy_via_ssm_bluegreen.sh", deploy)
         self.assertIn("steps.ssm.outputs.cutover_at", deploy)

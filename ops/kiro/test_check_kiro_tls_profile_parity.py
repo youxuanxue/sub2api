@@ -64,6 +64,22 @@ class KiroTLSProfileParityTest(unittest.TestCase):
         self.assertEqual(result["status"], "missing")
         self.assertIsNone(result["database_digest"])
 
+    def test_fanout_duplicate_ndjson_collapses(self) -> None:
+        row = self.row()
+        line = json.dumps(row, ensure_ascii=False)
+        got = parity.extract_snapshot_row(f"{line}\n{line}\n")
+        self.assertEqual(got, row)
+
+    def test_fanout_disagreeing_digests_fail_closed(self) -> None:
+        a = self.row()
+        b = copy.deepcopy(a)
+        b["cipher_suites"] = list(reversed(b["cipher_suites"]))
+        with self.assertRaises(ValueError) as ctx:
+            parity.extract_snapshot_row(
+                f"{json.dumps(a, ensure_ascii=False)}\n{json.dumps(b, ensure_ascii=False)}\n"
+            )
+        self.assertIn("disagreeing digests", str(ctx.exception))
+
     def test_malformed_snapshot_is_observer_failure(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             bad = Path(td) / "bad.jsonl"

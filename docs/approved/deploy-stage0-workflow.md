@@ -23,9 +23,12 @@ scope: ".github/workflows/deploy-stage0.yml + scripts/checks/bluegreen-migration
 > entry + multiple single-container app nodes + a data machine. Normal releases use
 > `prod-rolling-deploy.yml` and `cn-prod-rolling-deploy.yml`; see
 > `design-prod-entry-multi-app.md` and `design-cn-prod-rolling-deploy.md`.
-> This document remains the approved contract for the recovery-only / legacy
-> `deploy-stage0.yml` blue-green path. References below to this workflow being the
-> primary release path describe the pre-rolling baseline.
+> **2026-11-18 closeout A14:** `.github/workflows/deploy-stage0.yml` is a structure
+> tombstone (no OIDC / `configure-aws-credentials`); GHA jobs refuse before host
+> mutation. `dispatch-prod-deploy.sh` rejects `legacy-deploy|replay|smoke-only`.
+> Emergency blue/green remains `deploy_via_ssm_bluegreen.sh` +
+> `STAGE0_ALLOW_LEGACY_BLUEGREEN=1`, not this workflow. Historical sections below
+> that describe OIDC-gated deploy steps are the pre-A14 baseline.
 
 Historically, gateway production release moved to `deploy-stage0.yml` and the
 blue/green SSM owner in this document. After the rolling migration it is retained

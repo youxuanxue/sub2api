@@ -34,23 +34,55 @@ def extract_snapshot_row(snapshot: Any) -> dict[str, Any] | None:
     if isinstance(snapshot, list):
         rows = [extract_snapshot_row(item) for item in snapshot]
         rows = [row for row in rows if row is not None]
-        if len(rows) > 1:
-            raise ValueError("snapshot contains more than one canonical row")
-        return rows[0] if rows else None
+        return _collapse_equivalent_rows(rows)
     if isinstance(snapshot, str):
+        text = snapshot.strip()
+        if not text:
+            return None
+        # Prefer one JSON document before NDJSON line scanning (TAT/run-probe
+        # wrappers may append banners; pretty-printed objects span lines).
+        try:
+            return extract_snapshot_row(json.loads(text))
+        except json.JSONDecodeError:
+            pass
         rows: list[dict[str, Any]] = []
-        for line in snapshot.splitlines():
+        saw_json = False
+        for line in text.splitlines():
             line = line.strip()
             if not line:
                 continue
-            parsed = json.loads(line)
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            saw_json = True
             row = extract_snapshot_row(parsed)
             if row is not None:
                 rows.append(row)
-        if len(rows) > 1:
-            raise ValueError("snapshot contains more than one canonical row")
-        return rows[0] if rows else None
+        if not saw_json:
+            raise ValueError("snapshot must be a JSON object, array, or JSON-lines string")
+        return _collapse_equivalent_rows(rows)
     raise ValueError("snapshot must be a JSON object, array, or JSON-lines string")
+
+
+def _collapse_equivalent_rows(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Collapse fan-out duplicates; disagreeing digests stay fail-closed."""
+    if not rows:
+        return None
+    named = [
+        row for row in rows
+        if str(row.get("name") or "") == capture.KIRO_PROFILE_NAME
+    ]
+    candidates = named or rows
+    if len(candidates) == 1:
+        return candidates[0]
+    digests = {capture.runtime_profile_digest(row) for row in candidates}
+    if len(digests) == 1:
+        return candidates[0]
+    raise ValueError(
+        "snapshot contains more than one canonical row "
+        f"(disagreeing digests: {sorted(digests)})"
+    )
 
 
 def compare_profiles(canonical: dict[str, Any], row: dict[str, Any] | None) -> dict[str, Any]:

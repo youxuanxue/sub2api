@@ -7,13 +7,8 @@
     "ops/stage0/deploy_via_ssm.sh",
     "ops/stage0/deploy_via_ssm_bluegreen.sh",
     "ops/stage0/run_physical_restore.py",
-    "ops/stage0/ssm_execution.py",
-    "ops/stage0/sync-container-log-policy-via-ssm.sh",
-    "ops/stage0/sync-ghcr-prune-timer-via-ssm.sh"
+    "ops/stage0/ssm_execution.py"
   ],
   "securestring_write_paths": [],
-  "oidc_ssm_workflow_paths": [
-    ".github/workflows/deploy-stage0.yml",
-    ".github/workflows/ops-physical-restore.yml"
-  ]
+  "oidc_ssm_workflow_paths": []
 }

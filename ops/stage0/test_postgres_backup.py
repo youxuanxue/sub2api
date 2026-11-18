@@ -757,11 +757,14 @@ class PhysicalBackupTests(unittest.TestCase):
         text = (root / ".github/workflows/ops-physical-restore.yml").read_text()
         self.assertNotIn("describe-instances", text)
         self.assertNotIn("ap-northeast-1", text)
-        for name in ("PHYSICAL_RESTORE_REGION", "PHYSICAL_RESTORE_SUBNET", "PHYSICAL_RESTORE_ARCH"):
-            self.assertIn("vars." + name, text)
+        # Closeout A13: GHA refuses OIDC restore; operator runs local AWS path.
+        self.assertNotIn("configure-aws-credentials", text)
+        self.assertNotIn("AWS_OIDC_ROLE_ARN", text)
+        self.assertNotIn("id-token:", text)
+        self.assertIn("Refuse GHA OIDC physical restore", text)
+        self.assertIn("run_physical_restore.py", text)
         self.assertIn("--architecture", text)
-        fence = text.index("Require an approved restore network")
-        self.assertLess(fence, text.index("configure-aws-credentials"))
+        self.assertIn("probe-physical-restore-acceptance.sh", text)
 
 
 if __name__ == "__main__":

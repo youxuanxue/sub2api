@@ -45,7 +45,11 @@ def parse_snapshot(raw: str | dict[str, Any]) -> dict[str, Any]:
         if not text:
             raise PaymentWatchError("empty probe snapshot")
         try:
-            data = json.loads(text)
+            if __package__:
+                from .probe_json import loads_probe_json
+            else:
+                from probe_json import loads_probe_json
+            data = loads_probe_json(text)
         except json.JSONDecodeError as exc:
             raise PaymentWatchError(f"probe snapshot is not JSON: {exc}") from exc
     if not isinstance(data, dict):
