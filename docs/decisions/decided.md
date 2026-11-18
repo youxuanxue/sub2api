@@ -1,5 +1,17 @@
 # 已决定
 
+## 2026-11-18 prod 入口 WRR 改为 1:1
+
+原话：「流量是不是应该1:1分配？」
+
+适用范围：美西 prod 入口对 `app-old` / `app-cand` 的 Caddy WRR 从 2:1 改为 **1:1**（cand 已升配 4C8G，双应用机对称分发）。矩阵 `apps[].weight` 与线上 Caddyfile 同步为 `1 1`。
+
+## 2026-11-18 prod 旧应用机脱离 LUKS（阶段 D）执行批准
+
+原话：「批准。继续安全推进。」
+
+适用范围：按 `docs/approved/design-prod-entry-multi-app.md` §3 推进旧机 `lhins-fcwpwymt` 脱离 LUKS。先 L1（入口池仅留明文应用机）并观察单台承载门禁，再 L2+；破坏性步骤（停 Docker / umount / 重启 / 删载体 X1–X4）仍按设计逐步确认。不中断用户请求路径。
+
 ## 2026-11-18 Chat→Messages 对齐开源：剥离 OpenAI-only 字段优先生效
 
 原话：「这一条，我们也应该对齐开源实现，以用户体验更高优先级。」

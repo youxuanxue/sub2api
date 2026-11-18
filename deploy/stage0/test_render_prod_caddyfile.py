@@ -141,8 +141,9 @@ class RenderProdCaddyfileTest(unittest.TestCase):
             api_cn_domain="api-cn.tokenkey.dev",
             caddy_role="entry",
         )
-        self.assertIn("reverse_proxy 10.4.0.16:8080 10.4.0.9:8080 {", rendered)
-        self.assertIn("lb_policy weighted_round_robin 2 1", rendered)
+        # apps[] weights are 1:1; renderer sorts backends by private IP.
+        self.assertIn("reverse_proxy 10.4.0.9:8080 10.4.0.16:8080 {", rendered)
+        self.assertIn("lb_policy weighted_round_robin 1 1", rendered)
         self.assertIn("health_interval 3s", rendered)
         self.assertIn("health_timeout 2s", rendered)
         self.assertIn("health_passes 2", rendered)

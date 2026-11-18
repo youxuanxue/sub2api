@@ -28,8 +28,8 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 
 | 角色 | 实例 | 公网 IP | 私网 | SSM (eu-west-2) | 备注 |
 |---|---|---|---|---|---|
-| **prod 入口** | `lhins-3am1i23j` | `43.162.119.210` | `10.4.0.8` | `mi-026982f3622163a1b` | Caddy 终止五域名 TLS；WRR `10.4.0.16:8080`×2 + `10.4.0.9:8080`×1；公网只开 80/443 |
-| prod 应用（旧） | `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | `mi-080ed76dc6d97d8b5` | 4C16G / LUKS；Phase C 单容器 `tokenkey`（`:8080`/`:18080`）；**公网 80/443 已关**，仅入口 `/32` 打 8080 |
+| **prod 入口** | `lhins-3am1i23j` | `43.162.119.210` | `10.4.0.8` | `mi-026982f3622163a1b` | Caddy 终止五域名 TLS；WRR `10.4.0.16:8080`×1 + `10.4.0.9:8080`×1；公网只开 80/443 |
+| prod 应用（旧） | `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | `mi-080ed76dc6d97d8b5` | 4C16G / **明文根盘**（2026-11-18 阶段 D L1–L8）；Phase C 单容器 `tokenkey`（`:8080`/`:18080`）；**公网 80/443 已关**，仅入口 `/32` 打 8080；LUKS 载体仍保留待 §3.5/X1 |
 | prod 应用（候选） | `lhins-2kf31667` | `43.162.126.44` | `10.4.0.9` | `mi-000c0168439c243a8` | 4C8G（`bundle_rs_nmc_lin_lg8_01`，2026-11-18 由 2C8G 安全滚动升配）明文根盘；Phase C 单容器同形 |
 | prod 数据 | `lhins-p43i2kxh` | — | `10.4.0.3` | `mi-044ba9da6453c1557` | PG/Redis |
 
@@ -50,12 +50,11 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 日常发版走 `rolling.py` + `prod-rolling-deploy.yml`（确认词 `rolling-prod-<tag>`，
 默认 `--via tat` / `tencent-ops`；SSM 仅应急）。**真换版本 rolling receipt**：[run 44058916390](https://github.com/youxuanxue/sub2api/actions/runs/44058916390)
 （`1.8.381`；`app-cand`/`app-old` 均为 `mode=full` / `outcome=rolled`）。
-`prepare_single_container.py` 仅作历史/重铺参考。旧机脱离 LUKS 是阶段 D
-（须 ≥24h 稳定 + 单台门禁 + 再批准）。
+`prepare_single_container.py` 仅作历史/重铺参考。**2026-11-18 阶段 D L1–L8 完成**：旧机已在明文根盘接流（`/var/lib/tokenkey`、Docker Root `/var/lib/docker`，卷契约 `tencent-root`）；入口 WRR **1:1**（`10.4.0.16`×1 + `10.4.0.9`×1；cand 升配后对称）。LUKS 载体文件与 unlock 材料按设计 §3.5 观察 ≥7 天后再单独批准 X1–X4 销毁。
 舰队矩阵形状门禁：`python3 deploy/tencent/check_prod_fleet_matrix.py`。
 
 **Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已于 2026-10-23 完全退役**（实例、栈、VPC、卷、EIP、快照均已删；仅留 S3 历史链 `prod/postgres` timeline 1，只含数据库）。不能当作现网入口。
-旧应用机布局例外：LUKS 双挂；Docker Root 保留 `/srv/tokenkey-rehearsal/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`。细则 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)；unlock [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
+旧应用机现与 cand 同形明文布局；历史 LUKS 例外与 unlock 契约仅作回退/X 销毁参考：[`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)、[`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
 
 SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
 SOCKS 仅监听各机私网 `:1080`；放行来源见下方 `ALLOWED_SOURCES`（**应用机公网 IP**，不是入口 IP）。
@@ -171,7 +170,7 @@ cn-prod `proxies` **无** `or-*`，仅 Aliyun `ip5..8` + `cn-ip9..12`。Oregon *
 
 正式 prod 的 Caddy 源是 `deploy/stage0/Caddyfile`，同一模板按角色渲染两套策略：
 应用机 `PROD_CADDY_ROLE=app` 保持单容器 `tokenkey:8080`，只由 `/health` 主动检查决定摘除与恢复；
-入口机 `PROD_CADDY_ROLE=entry` 从活矩阵生成两台应用机的私网 WRR 池（当前 `10.4.0.16`×2 +
+入口机 `PROD_CADDY_ROLE=entry` 从活矩阵生成两台应用机的私网 WRR 池（当前 `10.4.0.16`×1 +
 `10.4.0.9`×1），3s 健康检查、连续 2 次失败摘除。两种策略都禁止被动冷却。修改模板时同时
 重生成 Hetzner bootstrap，`scripts/checks/caddyfile-syntax.sh` 校验 Caddy 解析后的健康策略；
 运行中主机通过 `ops/stage0/sync_caddyfile_via_ssm.sh` 热更新，单纯发布应用镜像不会刷新 Caddyfile。
