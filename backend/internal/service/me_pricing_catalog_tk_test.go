@@ -834,7 +834,7 @@ func TestBuildForUser_ChannelAndAccount_CatalogPriceWins(t *testing.T) {
 	assert.InDelta(t, 0.0025, *byID[openAIIDs[1]].YourPrice.InputPer1K, 1e-9, "account-only row uses catalog price × 1.0 rate")
 }
 
-func TestBuildForUser_ChannelAndAccountShowQwen4SelfMapsHideWithdrawn(t *testing.T) {
+func TestBuildForUser_ChannelAndAccountShowQwen4AliasesHideWithdrawn(t *testing.T) {
 	group := mkGroupForMe(50, "Ali", PlatformNewAPI, 1)
 	models := []SupportedModel{}
 	whitelist := []string{}
@@ -863,8 +863,10 @@ func TestBuildForUser_ChannelAndAccountShowQwen4SelfMapsHideWithdrawn(t *testing
 	for _, model := range resp.Models {
 		visible[model.ModelID] = true
 	}
-	require.True(t, visible["qwen4.0-max"], "qwen4.0-max self-map stays selectable")
-	require.True(t, visible["qwen4.0-max-preview"], "qwen4.0-max-preview self-map stays selectable")
+	require.True(t, visible["qwen4.0-max"], "public qwen4.0-max alias stays selectable")
+	require.True(t, visible["qwen4.0-max-preview"], "public qwen4.0-max-preview alias stays selectable")
+	require.False(t, visible["qwen4-max"], "undotted upstream id stays off the user menu")
+	require.False(t, visible["qwen4-max-preview"], "undotted upstream id stays off the user menu")
 	require.False(t, visible["qwen-plus"], "withdrawn qwen-plus alias stays hidden")
 	require.False(t, visible["qwen-max"], "withdrawn qwen-max alias stays hidden")
 	require.False(t, visible["deepseek-flash"], "DeepSeek is not an Ali Token Plan model")
