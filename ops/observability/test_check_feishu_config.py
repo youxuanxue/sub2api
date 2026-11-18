@@ -94,15 +94,15 @@ class FeishuConfigWorkflowContractTest(unittest.TestCase):
         self.assertIn("Prod Feishu Config Watchdog", text)
         self.assertIn("issues: write", text)
         self.assertIn("check_feishu_config.py", text)
+        self.assertIn("environment: tencent-ops", text)
+        self.assertIn("--via tat", text)
         self.assertNotIn("environment: prod", text)
         self.assertNotIn("sync-feishu-config.sh", text)
-
-    def test_repair_workflow_is_manual_and_approved(self) -> None:
-        text = (self.ROOT / ".github/workflows/prod-feishu-config-repair.yml").read_text()
-        self.assertIn("workflow_dispatch", text)
-        self.assertIn("environment: prod", text)
-        self.assertIn("sync-feishu-config.sh prod", text)
-        self.assertNotIn("schedule:", text)
+        self.assertNotIn("aws-actions/configure-aws-credentials", text)
+        self.assertFalse(
+            (self.ROOT / ".github/workflows/prod-feishu-config-repair.yml").exists(),
+            "repair workflow deleted; watchdog owns Feishu probe",
+        )
 
 
 if __name__ == "__main__":

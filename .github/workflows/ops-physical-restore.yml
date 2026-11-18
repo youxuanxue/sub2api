@@ -62,23 +62,9 @@ jobs:
             --key "artifacts/$BUNDLE_SHA.tar.gz" --sha256 "$BUNDLE_SHA" --image "$IMAGE_ID" \
             --subnet "$RESTORE_SUBNET" --architecture "$RESTORE_ARCH" --profile "$RESTORE_PROFILE" \
             --receipt restore-receipt.json --apply "${args[@]}"
-      - name: Import acceptance into the existing source-host monitor
-        run: |
-          set -euo pipefail
-          cat > /tmp/physical-accept.sh <<'SH'
-          #!/bin/bash
-          set -euo pipefail
-          unit=$(systemctl show tokenkey-postgres-backup.service --property=ExecStart --value)
-          operator=$(printf '%s' "$unit" | sed -n 's@.*\(/usr/local/lib/tokenkey/postgres-backup/[a-f0-9]*/postgres_backup.py\).*@\1@p')
-          if [ -z "$operator" ]; then
-            # Tencent prod runs tencent_pgbackrest.py, which has no accept command yet.
-            echo "acceptance import unsupported by current backup operator: $unit" >&2
-            exit 1
-          fi
-          python3 "$operator" accept --receipt /tmp/restore-receipt.json
-          SH
-          bash ops/observability/run-probe.sh --target prod --script /tmp/physical-accept.sh \
-            --with restore-receipt.json --timeout-seconds 180 --comment 'import isolated physical restore acceptance'
+      # Acceptance import onto the live data host is a separate TAT operator
+      # step (closeout A13): keep this OIDC workflow AWS-isolated-restore only
+      # so the control-plane gate can treat run-probe remotes as TAT-only.
       - uses: actions/upload-artifact@v7
         if: always()
         with:

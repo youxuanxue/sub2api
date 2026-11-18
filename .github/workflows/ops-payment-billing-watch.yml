@@ -7,6 +7,7 @@ name: Ops Payment Billing Watch
 #     last 7d / prev calendar month / current calendar month / all-time
 #
 # Cadence is best-effort GitHub Actions scheduling.
+# Transport: Tencent TAT via run-probe (2026-11-18 closeout).
 
 on:
   schedule:
@@ -35,7 +36,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: ops-payment-billing-watch
@@ -45,15 +45,23 @@ jobs:
   watch:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: tencent-ops
     env:
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
       FORCE_WEEKLY: ${{ inputs.force_weekly || 'false' }}
       FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
       FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
     steps:
       - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install tccli
+        run: python3 -m pip install 'tccli==3.1.198.1'
 
       - name: Resolve mode
         id: mode
@@ -76,10 +84,12 @@ jobs:
       - name: Check required configuration
         run: |
           set -euo pipefail
-          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
-            echo "::error::AWS_OIDC_ROLE_ARN repo variable is empty — payment billing watch cannot reach SSM."
-            exit 1
-          fi
+          for key in TENCENTCLOUD_SECRET_ID TENCENTCLOUD_SECRET_KEY; do
+            if [ -z "${!key}" ]; then
+              echo "::error::$key is not configured"
+              exit 1
+            fi
+          done
           if [ "$DRY_RUN" != "true" ] && { [ -z "${FEISHU_WEBHOOK_URL:-}" ] || [ -z "${FEISHU_SIGNING_SECRET:-}" ]; }; then
             echo "::error::TK_FEISHU_WEBHOOK_URL / TK_FEISHU_SIGNING_SECRET must be set for live watches."
             exit 1
@@ -93,19 +103,14 @@ jobs:
           restore-keys: |
             payment-billing-watch-state-
 
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Probe prod payment billing (read-only SSM)
+      - name: Probe prod payment billing (read-only TAT)
         id: probe
         run: |
           set -euo pipefail
           mkdir -p .payment-billing-watch-state
           bash ops/observability/run-probe.sh \
             --target prod \
+            --via tat \
             --script ops/observability/probe-payment-billing-watch.sh \
             --comment "payment billing watch mode=${{ steps.mode.outputs.mode }}" \
             --timeout-seconds 120 \

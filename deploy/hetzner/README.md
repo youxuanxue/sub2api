@@ -229,7 +229,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 
 | 类别 | 状态 | 动作 |
 |---|---|---|
-| SSM Hybrid / OIDC / Parameter Store | **禁新增；存量 allowlist 抠迁中** | 日常 warm+rolling 已默认 TAT。新 OIDC→SSM 管腾讯机 / SecureString 写由门牙拒绝（`ops/tencent-ops/`）。存量旁路与密钥按 [design-tencent-ops-control-plane](../../docs/approved/design-tencent-ops-control-plane.md) 逐 PR 迁 TAT/COS |
+| SSM Hybrid / OIDC / Parameter Store | **禁新增；存量 allowlist 抠迁中** | 日常 warm+rolling+`run-probe`/`ssm_execution` 已默认 TAT。门牙见 `ops/tencent-ops/`。收尾清单 [design-tencent-ops-closeout](../../docs/approved/design-tencent-ops-closeout.md)（2026-11-18 批准）；退役入口已删/拒绝，余下 OIDC workflow 与 SecureString 活源继续抠 |
 | Oregon 保留计算 | **必须留** | 2026-11-17：prod `or-1..4` 合计 124 live accounts；cn-prod 无 Oregon 行 |
 | 旧 physical-backup CFN/S3 | **已清** | 2026-11 核对 `DELETE_COMPLETE` / `HeadBucket` 404 |
 | Tokyo EC2 / `aws-fresh` | **已清** | resolver 失败关闭 |

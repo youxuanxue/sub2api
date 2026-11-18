@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# LEGACY (SSM Hybrid break-glass). Daily path: ops/stage0/probe-sync-container-log-policy.sh
+# via run-probe --via tat (ops-stage0-container-log-policy.yml).
 # Install the canonical bounded Docker log policy on a live Stage0 prod host and
 # recreate only Caddy so its existing unbounded json log is released. Postgres,
 # Redis, and the active blue/green app container are not restarted.

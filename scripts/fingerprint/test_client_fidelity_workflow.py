@@ -39,10 +39,13 @@ class ClientFidelityWorkflowContractTest(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertNotIn(marker, self.text)
 
-    def test_artifacts_issues_and_oidc_remain(self) -> None:
+    def test_artifacts_issues_and_tat_remain(self) -> None:
         self.assertIn("contents: read", self.text)
         self.assertIn("issues: write", self.text)
-        self.assertIn("id-token: write", self.text)
+        self.assertNotIn("id-token: write", self.text)
+        self.assertNotIn("configure-aws-credentials", self.text)
+        self.assertIn("environment: tencent-ops", self.text)
+        self.assertIn("--via tat", self.text)
         self.assertIn("actions/upload-artifact@v7", self.text)
         self.assertIn("open_client_release_watch_issues.py", self.text)
         self.assertIn("open_prompt_surface_watch_issues.py", self.text)

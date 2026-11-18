@@ -2553,14 +2553,24 @@ echo ""
 fi # preflight gate
 if _preflight_selected 'pgdump timer cadence parity'; then
 echo "=== sub2api: pgdump timer cadence parity ==="
-_pgdump_reference="$(grep -m1 'OnCalendar=' ops/stage0/pg_dump_refresh_via_ssm.sh 2>/dev/null)"
-for _pgdump_source in deploy/stage0/stage0-ec2-bootstrap.sh deploy/hetzner/render-prod-bootstrap.sh; do
+# Refresh entrypoint retired 2026-11-18; keep bootstrap/renderer templates in lockstep.
+_pgdump_sources="deploy/stage0/stage0-ec2-bootstrap.sh deploy/hetzner/render-prod-bootstrap.sh"
+_pgdump_reference=""
+for _pgdump_source in $_pgdump_sources; do
     _pgdump_calendar="$(awk '/tokenkey-pgdump\.timer/{f=1} f&&/OnCalendar=/{print; exit}' "$_pgdump_source" 2>/dev/null)"
-    if [ -z "$_pgdump_reference" ] || [ "$_pgdump_calendar" != "$_pgdump_reference" ]; then
+    if [ -z "$_pgdump_calendar" ]; then
+        echo "  FAIL: pgdump timer cadence missing in $_pgdump_source"
+        errors=$((errors + 1))
+        continue
+    fi
+    if [ -z "$_pgdump_reference" ]; then
+        _pgdump_reference="$_pgdump_calendar"
+        echo "  ok: $_pgdump_source cadence reference ($_pgdump_calendar)"
+    elif [ "$_pgdump_calendar" != "$_pgdump_reference" ]; then
         echo "  FAIL: pgdump timer cadence drift in $_pgdump_source"
         errors=$((errors + 1))
     else
-        echo "  ok: $_pgdump_source cadence matches refresh ($_pgdump_calendar)"
+        echo "  ok: $_pgdump_source cadence matches ($_pgdump_calendar)"
     fi
 done
 

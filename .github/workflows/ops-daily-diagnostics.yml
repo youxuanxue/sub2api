@@ -1,7 +1,7 @@
 name: Ops Daily Diagnostics
 
 # Canonical production diagnostics entry point.
-# Diagnostics reaches prod through GHA → AWS STS (OIDC) → SSM. The only
+# Diagnostics reaches prod through GHA → tencent-ops (TAT) via run-probe.sh --via tat.
 # This workflow is read-only: it checks gateway, database, and raw archive health.
 # Issue creation and repair dispatch are isolated from AWS
 # credentials. This workflow never deploys, rolls back, edits secrets, writes
@@ -122,18 +122,22 @@ jobs:
     needs: discover-targets
     if: needs.discover-targets.outputs.has_targets == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: tencent-ops
     permissions:
       contents: read
-      id-token: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.discover-targets.outputs.matrix) }}
     env:
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+      TOKENKEY_REMOTE_VIA: tat
       # Job-level so Run target diagnostics + every run-probe inherit cutover.
       # Step-only env left diagnose on auto → AccessDenied on the flip param
       # after #2574 fail-closed (#2576 cascade).
       PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
+      PROD_SSM_NODE: app-old
       SINCE_HOURS: ${{ inputs.since_hours || '24' }}
       DIAGNOSTICS_LOG_SINCE: ${{ inputs.diagnostics_log_since || '24h' }}
       TARGET_ID: ${{ matrix.target_id }}
@@ -148,6 +152,15 @@ jobs:
       PUBLIC_HEALTH: ${{ matrix.public_health }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install tccli
+        run: python3 -m pip install 'tccli==3.1.198.1'
 
       - name: Prepare target report directory
         run: |
@@ -170,31 +183,30 @@ jobs:
           : > "prod-ops-targets/$TARGET_ID/stdout.txt"
           : > "prod-ops-targets/$TARGET_ID/stderr.txt"
 
-      - name: Precheck OIDC role
+      - name: Precheck Tencent ops credentials
         id: precheck
         run: |
           set -euo pipefail
-          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+          missing=0
+          for key in TENCENTCLOUD_SECRET_ID TENCENTCLOUD_SECRET_KEY; do
+            if [ -z "${!key:-}" ]; then
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             jq -cn \
               --arg target_id "$TARGET_ID" \
-              --arg kind "missing_oidc_role" \
+              --arg kind "missing_tencent_ops_secrets" \
               --arg status "skip" \
               --arg severity "info" \
-              --arg title "AWS_OIDC_ROLE_ARN is not configured" \
-              --arg summary "Skipping diagnostics because AWS_OIDC_ROLE_ARN repo variable is empty." \
+              --arg title "Tencent ops secrets are not configured" \
+              --arg summary "Skipping diagnostics because TENCENTCLOUD_SECRET_ID or TENCENTCLOUD_SECRET_KEY is empty in the tencent-ops environment." \
               '{target_id:$target_id,kind:$kind,status:$status,severity:$severity,title:$title,summary:$summary,signature:$kind}' \
               >> "prod-ops-targets/$TARGET_ID/findings.jsonl"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Configure AWS credentials via OIDC
-        if: steps.precheck.outputs.skip == 'false'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.TARGET_REGION }}
 
       - name: Assert live-host state (prod daily audit)
         # ADVISORY ONLY — prod only. Cutover-aware: resolve_prod_ssm_target (not CFN).
@@ -208,9 +220,21 @@ jobs:
             --node app-old \
             --target "${PROD_SSM_TARGET}" --stack "$STACK_NAME" --format json)"
           IID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
-          SSM_REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$RESOLVED_JSON")"
           if [ -n "$IID" ] && [ "$IID" != "None" ]; then
-            AWS_REGION="$SSM_REGION" bash ops/stage0/assert-live-host-state.sh "$IID" "" "ops-daily-diagnostics live-host audit env=prod"
+            ENV_FILTER="$(python3 ops/stage0/live_host_state_verdict.py --print-collection-filter)"
+            probe_out="$(bash ops/observability/run-probe.sh \
+              --target "$PROBE_TARGET" \
+              --via tat \
+              --node app-old \
+              --env "ENV_FILTER=$ENV_FILTER" \
+              --script ops/stage0/probe-live-host-state-collection.sh \
+              --comment "ops-daily-diagnostics live-host audit env=prod" \
+              --timeout-seconds 120 2>&1)" || probe_out=""
+            if [ -n "$probe_out" ]; then
+              printf '%s\n' "$probe_out" | python3 ops/stage0/live_host_state_verdict.py || true
+            else
+              echo "::warning::live-host assert could not read host state via TAT; skipping verdict"
+            fi
           else
             echo "skip live-host audit: resolve_prod_ssm_target returned empty instance_id"
           fi
@@ -228,7 +252,6 @@ jobs:
             --target "${PROD_SSM_TARGET}" --stack "$STACK_NAME" --format json)"
           INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
           export INSTANCE_ID
-          export AWS_REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$RESOLVED_JSON")"
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           bash ops/observability/prod-config-audit.sh
 
@@ -333,7 +356,7 @@ jobs:
           # Data-layer capacity on each diagnosed host. Isolated and non-fatal:
           # a probe failure only drops that finding, never the run.
           if [ -n "${PROBE_TARGET:-}" ]; then
-            RESOURCE_OUT="$(bash ops/observability/run-probe.sh --target "$PROBE_TARGET" --env "RUNTIME_RESOURCE_LAYOUT=$RUNTIME_LAYOUT" --script ops/observability/probe-runtime-resource-config.sh --comment "daily runtime resource config" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — invalid/missing probe becomes an explicit unknown verdict
+            RESOURCE_OUT="$(bash ops/observability/run-probe.sh --target "$PROBE_TARGET" --via tat --env "RUNTIME_RESOURCE_LAYOUT=$RUNTIME_LAYOUT" --script ops/observability/probe-runtime-resource-config.sh --comment "daily runtime resource config" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — invalid/missing probe becomes an explicit unknown verdict
             RESOURCE_VERDICT="$(printf '%s' "$RESOURCE_OUT" | python3 ops/observability/runtime_resource_config_verdict.py 2>>"$STDERR" || echo '{"verdict":"unknown","violations":[]}')"
             printf 'runtime_resource_config: %s\n' "$RESOURCE_VERDICT" >> "$STDOUT"
             RESOURCE_V="$(printf '%s' "$RESOURCE_VERDICT" | jq -r '.verdict // "unknown"')"
@@ -347,7 +370,7 @@ jobs:
             # The database disk is on the data machine since the data-plane split
             # (docs/approved/design-data-plane-split.md); df on the app host is
             # not the runway.
-            CAP_OUT="$(bash ops/observability/run-probe.sh --target "${PROBE_TARGET}-data" --script ops/observability/probe-data-layer-capacity.sh --comment "daily data-layer capacity" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — probe failure -> unknown verdict (surfaced as a finding), never breaks the run
+            CAP_OUT="$(bash ops/observability/run-probe.sh --target "${PROBE_TARGET}-data" --via tat --script ops/observability/probe-data-layer-capacity.sh --comment "daily data-layer capacity" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — probe failure -> unknown verdict (surfaced as a finding), never breaks the run
             CAP_VERDICT="$(printf '%s' "$CAP_OUT" | python3 ops/observability/data_layer_capacity_verdict.py 2>>"$STDERR" || echo '{}')"
             printf 'data_layer_capacity: %s\n' "$CAP_VERDICT" >> "$STDOUT"
             CAP_V="$(printf '%s' "$CAP_VERDICT" | jq -r '.verdict // "unknown"')"
@@ -376,7 +399,7 @@ jobs:
             # the data machine; the app host still has the retired pgdump dir and
             # the renamed pre-cutover receipts, which keep this gate paging.
             if [ "$TARGET_KIND" = "prod" ]; then
-            SAFETY_OUT="$(bash ops/observability/run-probe.sh --target "${PROBE_TARGET}-data" --script ops/observability/probe-data-layer-safety.sh --with ops/observability/data-layer-partition-coverage.sql --with ops/lib/resolve-app-container.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
+            SAFETY_OUT="$(bash ops/observability/run-probe.sh --target "${PROBE_TARGET}-data" --via tat --script ops/observability/probe-data-layer-safety.sh --with ops/observability/data-layer-partition-coverage.sql --with ops/lib/resolve-app-container.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
             # Live prod is Hybrid mi-* (no EBS); the EC2 snapshot branch only applies
             # if an EC2 prod is ever rebuilt.
             if [[ "$INSTANCE_ID" == mi-* ]] || [ "$CONTROL_PLANE_TARGET" = "hetzner" ]; then
@@ -408,19 +431,18 @@ jobs:
               add_finding "diagnostics_log_since_input" "manual_ops" "error" "Invalid diagnostics_log_since input" "diagnostics_log_since must match ^[0-9]+[smhd]$ (e.g. 20m, 2h, 1d), got: $DIAGNOSTICS_LOG_SINCE" "diagnostics-log-since-input|$DIAGNOSTICS_LOG_SINCE"
             fi
 
-            python3 - <<'PY' > "$OUT/runtime-params.json"
+            OUT_DIR="$OUT" DIAGNOSTICS_LOG_SINCE="$DIAGNOSTICS_LOG_SINCE" python3 - <<'PY'
           import importlib.util
-          import json
           import os
           import pathlib
           import shlex
 
           log_since = os.environ["DIAGNOSTICS_LOG_SINCE"]
+          out_dir = pathlib.Path(os.environ["OUT_DIR"])
           quoted_since = shlex.quote(log_since)
-          # Canonical app-container resolver. This workflow sends an inline SSM
-          # command array, so it cannot source the shell library the probes use;
-          # it renders the same rules from the one owner instead of keeping a
-          # fourth hand-written copy. scripts/checks/app-container-resolver.py
+          # Canonical app-container resolver. This workflow ships a remote shell
+          # script via run-probe; it renders the same rules from the one owner
+          # instead of keeping a fourth hand-written copy. scripts/checks/app-container-resolver.py
           # fails the build if a copy reappears here.
           _rel = "ops/lib/resolve_app_container.py"
           _resolver_path = next(
@@ -465,38 +487,41 @@ jobs:
               "grep -Ei 'panic|fatal|error|traceback|failed|timeout|refused|denied| 5[0-9][0-9] | 429 ' \"$SIG_OUT/tokenkey.log\" | tail -60 || true",
               "sudo rm -rf \"$SIG_OUT\" || true",  # preflight-allow: exact mktemp directory
           ]
-          # Hybrid hosts start RunShellScript in dash; pipefail requires bash.
-          print(json.dumps({"commands": ["bash -c " + shlex.quote("\n".join(commands))]}))
+          script_path = out_dir / "runtime-diagnostics.sh"
+          script_path.write_text("#!/usr/bin/env bash\n" + "\n".join(commands) + "\n", encoding="utf-8")
+          script_path.chmod(0o755)
           PY
-            RUNTIME_SSM_TRANSPORT_OK=false
-            if CMD_ID="$(aws ssm send-command --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --comment "prod-ops runtime diagnostics target=$TARGET_ID" --parameters "file://$OUT/runtime-params.json" --query 'Command.CommandId' --output text 2>>"$STDERR")"; then
-              RUNTIME_SSM_TRANSPORT_OK=true
-              echo "runtime ssm command-id=$CMD_ID" >> "$STDOUT"
-              RUNTIME_WAIT_SECONDS=180
-              # Both live hosts are Hybrid SSM. The shorter wait timed out while
-              # collecting a day of logs on US West, so Beijing uses the same budget.
-              if [ "$TARGET_ID" = "prod" ] || [ "$TARGET_ID" = "cn-prod" ]; then
-                RUNTIME_WAIT_SECONDS=300
-              fi
-              DEADLINE=$(( $(date +%s) + RUNTIME_WAIT_SECONDS ))
-              STATUS="InProgress"
-              while true; do
-                STATUS="$(aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'Status' --output text 2>/dev/null || echo InProgress)"
-                case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
-                [ $(date +%s) -lt $DEADLINE ] || { STATUS=TimedOut; break; }
-                sleep 5
-              done
-              aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardOutputContent' --output text > "$OUT/runtime-stdout.txt" 2>>"$STDERR" || true
-              aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text > "$OUT/runtime-stderr.txt" 2>>"$STDERR" || true
-              tail -c 8192 "$OUT/runtime-stdout.txt" >> "$STDOUT" || true
-              tail -c 4096 "$OUT/runtime-stderr.txt" >> "$STDERR" || true
-              if grep -q '^internal_health_status=failed' "$OUT/runtime-stdout.txt"; then
-                INTERNAL_HEALTH_SUMMARY="$(grep '^internal_health_status=failed' "$OUT/runtime-stdout.txt" | tail -1)"
-                add_finding "internal_health" "warning" "warning" "Internal container health probe failed for $TARGET_ID" "The in-container /health probe reported ${INTERNAL_HEALTH_SUMMARY}; runtime log signal collection continued." "internal-health|$TARGET_ID"
-              fi
-              if grep -q '^===END_LOG_SIGNAL_COUNTS===$' "$OUT/runtime-stdout.txt"; then
-                awk '/^===LOG_SIGNAL_COUNTS===$/{f=1;next} /^===END_LOG_SIGNAL_COUNTS===$/{f=0} f' "$OUT/runtime-stdout.txt" > "$OUT/log-signal-counts.json" || true
-                python3 - <<'PY' "$OUT/log-signal-counts.json" "$FINDINGS" "$TARGET_ID" "$DIAGNOSTICS_LOG_SINCE"
+            RUNTIME_WAIT_SECONDS=180
+            # Both live prod sites need a longer log collection budget.
+            if [ "$TARGET_ID" = "prod" ] || [ "$TARGET_ID" = "cn-prod" ]; then
+              RUNTIME_WAIT_SECONDS=300
+            fi
+            RUNTIME_PROBE_RC=0
+            bash ops/observability/run-probe.sh \
+              --target "$PROBE_TARGET" \
+              --via tat \
+              --script "$OUT/runtime-diagnostics.sh" \
+              --comment "prod-ops runtime diagnostics target=$TARGET_ID" \
+              --timeout-seconds "$RUNTIME_WAIT_SECONDS" \
+              > "$OUT/runtime-stdout.txt" 2>>"$STDERR" || RUNTIME_PROBE_RC=$?
+            : > "$OUT/runtime-stderr.txt"
+            if [ "$RUNTIME_PROBE_RC" -eq 0 ]; then
+              STATUS=Success
+            elif [ "$RUNTIME_PROBE_RC" -eq 3 ]; then
+              STATUS=TimedOut
+            else
+              STATUS=Failed
+            fi
+            echo "runtime probe exit=$RUNTIME_PROBE_RC status=$STATUS" >> "$STDOUT"
+            tail -c 8192 "$OUT/runtime-stdout.txt" >> "$STDOUT" || true
+            tail -c 4096 "$OUT/runtime-stderr.txt" >> "$STDERR" || true
+            if grep -q '^internal_health_status=failed' "$OUT/runtime-stdout.txt"; then
+              INTERNAL_HEALTH_SUMMARY="$(grep '^internal_health_status=failed' "$OUT/runtime-stdout.txt" | tail -1)"
+              add_finding "internal_health" "warning" "warning" "Internal container health probe failed for $TARGET_ID" "The in-container /health probe reported ${INTERNAL_HEALTH_SUMMARY}; runtime log signal collection continued." "internal-health|$TARGET_ID"
+            fi
+            if grep -q '^===END_LOG_SIGNAL_COUNTS===$' "$OUT/runtime-stdout.txt"; then
+              awk '/^===LOG_SIGNAL_COUNTS===$/{f=1;next} /^===END_LOG_SIGNAL_COUNTS===$/{f=0} f' "$OUT/runtime-stdout.txt" > "$OUT/log-signal-counts.json" || true
+              python3 - <<'PY' "$OUT/log-signal-counts.json" "$FINDINGS" "$TARGET_ID" "$DIAGNOSTICS_LOG_SINCE"
           import json
           import pathlib
           import sys
@@ -560,71 +585,41 @@ jobs:
               for finding in findings:
                   fh.write(json.dumps(finding, separators=(",", ":")) + "\n")
           PY
-              else
-                add_finding "log_signal_counts" "warning" "warning" "Runtime log signal counts missing for $TARGET_ID" "SSM runtime diagnostics did not emit complete log signal count markers." "log-signal-counts|$TARGET_ID"
-              fi
-              if [ "$STATUS" = "Success" ]; then
-                add_finding "ssm_runtime" "ok" "info" "SSM runtime diagnostics passed for $TARGET_ID" "Docker runtime diagnostics completed on $INSTANCE_ID." "ssm-runtime|$TARGET_ID"
-              else
-                add_finding "ssm_runtime" "manual_ops" "error" "SSM runtime diagnostics failed for $TARGET_ID" "SSM runtime diagnostics finished with status=$STATUS on $INSTANCE_ID after waiting up to ${RUNTIME_WAIT_SECONDS}s." "ssm-runtime|$TARGET_ID|$STATUS"
-              fi
             else
-              add_finding "ssm_send_command" "manual_ops" "error" "Could not send SSM command for $TARGET_ID" "SSM SendCommand failed for $INSTANCE_ID in $TARGET_REGION." "ssm-send|$TARGET_ID"
+              add_finding "log_signal_counts" "warning" "warning" "Runtime log signal counts missing for $TARGET_ID" "Remote runtime diagnostics did not emit complete log signal count markers." "log-signal-counts|$TARGET_ID"
+            fi
+            if [ "$STATUS" = "Success" ]; then
+              add_finding "ssm_runtime" "ok" "info" "Remote runtime diagnostics passed for $TARGET_ID" "Docker runtime diagnostics completed on $INSTANCE_ID via TAT." "ssm-runtime|$TARGET_ID"
+            else
+              add_finding "ssm_runtime" "manual_ops" "error" "Remote runtime diagnostics failed for $TARGET_ID" "Runtime diagnostics finished with status=$STATUS on $INSTANCE_ID after waiting up to ${RUNTIME_WAIT_SECONDS}s." "ssm-runtime|$TARGET_ID|$STATUS"
             fi
 
             # Backup receipts live on the data machine. The app host only has
             # the renamed pre-cutover copies, so this read is separate from the
             # gateway and Caddy probe above.
-            DATA_RECEIPT_RC=0
-            DATA_RESOLVED=$(python3 ops/observability/data_machine_target.py --site "$PROBE_TARGET" --verify) || DATA_RECEIPT_RC=$?
-            if [ "$DATA_RECEIPT_RC" -ne 0 ]; then
-              add_finding "physical_backup" "issue_candidate" "error" "Physical backup receipt transport failed for $TARGET_ID" "The data machine SSM identity could not be verified." "physical-backup|$TARGET_ID|transport-failed"
-            else
-              DATA_REGION="$(printf '%s\n' "$DATA_RESOLVED" | awk -F= '$1=="ssm_region" {print $2; exit}')"
-              DATA_ID="$(printf '%s\n' "$DATA_RESOLVED" | awk -F= '$1=="instance_id" {print $2; exit}')"
-              python3 - <<'PY' > "$OUT/receipt-params.json"
-          import json
-          import pathlib
-          import shlex
-
-          transport_source = pathlib.Path("ops/observability/probe_output_transport.py").read_text()
-          receipt_command = (
-              "python3 -c " + shlex.quote("exec(" + repr(transport_source) + ")")
-              + " encode -- bash -c " + shlex.quote(
-                  # Selected on the data machine. Stage0 writes health.json; the
-                  # Tencent pgBackRest path writes archive_check.json. An empty
-                  # health.json must not hide a usable archive receipt, and the
-                  # local saved name is not health.json, so the choice stays here.
-                  "for f in health.json archive_check.json; do "
-                  "if sudo test -s \"/var/lib/tokenkey/postgres-backup/$f\"; then "
-                  "sudo cat \"/var/lib/tokenkey/postgres-backup/$f\"; exit 0; fi; done; "
-                  "true"
-              )  # preflight-allow: swallow (missing receipt becomes an actionable verdict)
-          )
-          print(json.dumps({"commands": ["bash -c " + shlex.quote("set -euo pipefail\n" + receipt_command)]}))
-          PY
-              if RECEIPT_CMD_ID="$(aws ssm send-command --region "$DATA_REGION" --instance-ids "$DATA_ID" --document-name AWS-RunShellScript --comment "prod-ops backup receipt target=$TARGET_ID" --parameters "file://$OUT/receipt-params.json" --query 'Command.CommandId' --output text 2>>"$STDERR")"; then
-                RECEIPT_DEADLINE=$(( $(date +%s) + 120 ))
-                RECEIPT_STATUS="InProgress"
-                while true; do
-                  RECEIPT_STATUS="$(aws ssm get-command-invocation --region "$DATA_REGION" --command-id "$RECEIPT_CMD_ID" --instance-id "$DATA_ID" --query 'Status' --output text 2>/dev/null || echo InProgress)"
-                  case "$RECEIPT_STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
-                  [ $(date +%s) -lt $RECEIPT_DEADLINE ] || { RECEIPT_STATUS=TimedOut; break; }
-                  sleep 5
-                done
-                aws ssm get-command-invocation --region "$DATA_REGION" --command-id "$RECEIPT_CMD_ID" --instance-id "$DATA_ID" --query 'StandardOutputContent' --output text > "$OUT/physical-backup-health-receipt.frame" 2>>"$STDERR" || true
-                if [ "$RECEIPT_STATUS" != "Success" ]; then
-                  add_finding "physical_backup" "issue_candidate" "error" "Physical backup receipt transport failed for $TARGET_ID" "Data machine receipt command finished with status=$RECEIPT_STATUS on $DATA_ID." "physical-backup|$TARGET_ID|transport-failed"
-                elif ! python3 ops/observability/probe_output_transport.py decode < "$OUT/physical-backup-health-receipt.frame" > "$OUT/physical-backup-health-receipt.json" 2>>"$STDERR"; then
-                  add_finding "physical_backup" "issue_candidate" "error" "Physical backup receipt transport failed for $TARGET_ID" "The complete data-machine receipt could not be retrieved." "physical-backup|$TARGET_ID|transport-failed"
-                elif ! python3 ops/observability/postgres_backup_verdict.py \
-                  --receipt "$OUT/physical-backup-health-receipt.json" \
-                  --target-id "$TARGET_ID" >> "$FINDINGS" 2>>"$STDERR"; then
-                  add_finding "physical_backup" "issue_candidate" "error" "Physical backup verdict failed for $TARGET_ID" "The data-machine receipt could not be classified." "physical-backup|$TARGET_ID|verdict-failed"
-                fi
-              else
-                add_finding "physical_backup" "issue_candidate" "error" "Physical backup receipt transport failed for $TARGET_ID" "SSM SendCommand failed for data machine $DATA_ID in $DATA_REGION." "physical-backup|$TARGET_ID|transport-failed"
-              fi
+            cat > /tmp/read-receipt.sh <<'EOS'
+          #!/bin/bash
+          set -u
+          for f in health.json archive_check.json; do
+            p="/var/lib/tokenkey/postgres-backup/$f"
+            if sudo test -s "$p"; then sudo cat "$p"; exit 0; fi
+          done
+          true
+          EOS
+            RECEIPT_PROBE_RC=0
+            bash ops/observability/run-probe.sh \
+              --target "${PROBE_TARGET}-data" \
+              --via tat \
+              --script /tmp/read-receipt.sh \
+              --comment "prod-ops backup receipt target=$TARGET_ID" \
+              --timeout-seconds 120 \
+              > "$OUT/physical-backup-health-receipt.json" 2>>"$STDERR" || RECEIPT_PROBE_RC=$?
+            if [ "$RECEIPT_PROBE_RC" -ne 0 ]; then
+              add_finding "physical_backup" "issue_candidate" "error" "Physical backup receipt transport failed for $TARGET_ID" "The data-machine receipt command did not complete via TAT." "physical-backup|$TARGET_ID|transport-failed"
+            elif ! python3 ops/observability/postgres_backup_verdict.py \
+              --receipt "$OUT/physical-backup-health-receipt.json" \
+              --target-id "$TARGET_ID" >> "$FINDINGS" 2>>"$STDERR"; then
+              add_finding "physical_backup" "issue_candidate" "error" "Physical backup verdict failed for $TARGET_ID" "The data-machine receipt could not be classified." "physical-backup|$TARGET_ID|verdict-failed"
             fi
 
             # Legacy qa_records hash clustering compiled on the host with a
@@ -641,6 +636,7 @@ jobs:
             if printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$' && [ "$SINCE_HOURS" -ge 1 ] && [ "$SINCE_HOURS" -le 168 ]; then
               if bash ops/observability/run-probe.sh \
                 --target "$PROBE_TARGET" \
+                --via tat \
                 --script ops/observability/probe-daily-error-ledger.sh \
                 --env "WINDOW_HOURS=$SINCE_HOURS" \
                 --timeout-seconds 240 \
@@ -911,12 +907,14 @@ jobs:
   log-dump:
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'log_dump'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: tencent-ops
     permissions:
       contents: read
-      id-token: write
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+      TOKENKEY_REMOTE_VIA: tat
       STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
       INPUT_TARGET_SELECTOR: ${{ inputs.target_selector || 'prod' }}
       INPUT_SINCE: ${{ inputs.since }}
@@ -928,6 +926,15 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install tccli
+        run: python3 -m pip install 'tccli==3.1.198.1'
 
       - name: Validate inputs
         run: |
@@ -956,21 +963,17 @@ jobs:
             exit 1
           fi
 
-      - name: Precheck OIDC role
+      - name: Precheck Tencent ops credentials
         run: |
-          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
-            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set; configure per deploy/aws/README.md § 'CI 通过 OIDC 调度 SSM'"
-            exit 1
-          fi
+          set -euo pipefail
+          for key in TENCENTCLOUD_SECRET_ID TENCENTCLOUD_SECRET_KEY; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::$key is not configured in tencent-ops"
+              exit 1
+            fi
+          done
 
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Resolve prod instance ID
-        id: instance
+      - name: Resolve prod cutover target (logging only)
         env:
           PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
@@ -979,59 +982,44 @@ jobs:
             --node app-old \
             --target "${PROD_SSM_TARGET}" \
             --stack "$STACK_NAME" \
-            --format json \
-            --github-output "$GITHUB_OUTPUT")"
+            --format json)"
           python3 -c '
           import json, sys
           d = json.loads(sys.argv[1])
-          for key in ("id", "ssm_region", "target"):
+          for key in ("instance_id", "ssm_region", "target"):
             if not d.get(key):
               raise SystemExit(f"::error::missing {key} in resolve_prod_ssm_target output")
           print(
               "prod log dump instance=%s target=%s ssm_region=%s"
-              % (d["id"], d["target"], d["ssm_region"])
+              % (d["instance_id"], d["target"], d["ssm_region"])
           )
           ' "$RESOLVED_JSON"
 
       - name: Route Postgres/Redis logs to the data machine
         id: logtarget
-        env:
-          APP_INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          APP_SSM_REGION: ${{ steps.instance.outputs.ssm_region }}
         run: |
           set -euo pipefail
-          # After the data-plane split Postgres and Redis run on the data
-          # machine (docs/approved/design-data-plane-split.md). The app host
-          # only has the stopped originals, so their logs are read there.
           case "$INPUT_CONTAINER" in
-            tokenkey-postgres|tokenkey-redis)
-              python3 ops/observability/data_machine_target.py --site prod --verify --github-output "$GITHUB_OUTPUT" ;;
-            *)
-              printf 'id=%s\nssm_region=%s\n' "$APP_INSTANCE_ID" "$APP_SSM_REGION" >> "$GITHUB_OUTPUT" ;;
+            tokenkey-postgres|tokenkey-redis) echo "probe_target=prod-data" >> "$GITHUB_OUTPUT" ;;
+            *) echo "probe_target=prod" >> "$GITHUB_OUTPUT" ;;
           esac
 
-      - name: Run docker logs on prod via SSM
-        env:
-          INSTANCE_ID: ${{ steps.logtarget.outputs.id }}
-          AWS_REGION: ${{ steps.logtarget.outputs.ssm_region }}
+      - name: Run docker logs on prod via TAT
         run: |
           set -euo pipefail
           export GREP_B64="$(printf '%s' "$INPUT_GREP" | base64 -w0 2>/dev/null \
             || printf '%s' "$INPUT_GREP" | base64 | tr -d '\n')"
 
-          python3 - <<'PY' > ssm-params.json
-          import json
+          python3 - <<'PY'
+          import importlib.util
           import os
+          import pathlib
           import shlex
 
-          import importlib.util
           container = os.environ["INPUT_CONTAINER"]
           since = os.environ["INPUT_SINCE"]
           tail = os.environ["INPUT_TAIL"]
           grep_b64 = os.environ["GREP_B64"]
-          # Choices are logical roles. The canonical resolver maps them to the real
-          # host container (blue/green app; Stage0 or Tencent PG/Redis names), so
-          # "tokenkey" never tails the Tencent control proxy by accident.
           _spec = importlib.util.spec_from_file_location("tk_resolve_app_container", "ops/lib/resolve_app_container.py")
           _tk = importlib.util.module_from_spec(_spec)
           _spec.loader.exec_module(_tk)
@@ -1061,37 +1049,26 @@ jobs:
               "echo",
               "echo ===END_LOGS===",
           ]
-          # Hybrid hosts start RunShellScript in dash; pipefail requires bash.
-          print(json.dumps({"commands": ["bash -c " + shlex.quote("\n".join(commands))]}))
+          script_path = pathlib.Path("log-dump-remote.sh")
+          script_path.write_text("#!/usr/bin/env bash\n" + "\n".join(commands) + "\n", encoding="utf-8")
+          script_path.chmod(0o755)
           PY
 
-          CMD_ID=$(aws --region "$AWS_REGION" ssm send-command \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name AWS-RunShellScript \
-            --comment "prod-log-dump $INPUT_CONTAINER since=$INPUT_SINCE" \
-            --parameters file://ssm-params.json \
-            --query 'Command.CommandId' --output text)
-          echo "ssm command-id=$CMD_ID"
+          PROBE_ARGS=(
+            --target "${{ steps.logtarget.outputs.probe_target }}"
+            --via tat
+            --script log-dump-remote.sh
+            --comment "prod-log-dump $INPUT_CONTAINER since=$INPUT_SINCE"
+            --timeout-seconds 180
+          )
+          if [ "${{ steps.logtarget.outputs.probe_target }}" = "prod" ]; then
+            PROBE_ARGS+=(--node app-old)
+          fi
+          PROBE_RC=0
+          bash ops/observability/run-probe.sh "${PROBE_ARGS[@]}" > stdout.txt 2> stderr.txt || PROBE_RC=$?
 
-          DEADLINE=$(( $(date +%s) + 180 ))
-          while true; do
-            STATUS=$(aws --region "$AWS_REGION" ssm get-command-invocation \
-              --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-              --query 'Status' --output text 2>/dev/null || echo InProgress)
-            case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
-            [ $(date +%s) -lt $DEADLINE ] || { echo "::error::ssm timeout"; STATUS=TimedOut; break; }
-            sleep 4
-          done
-
-          aws --region "$AWS_REGION" ssm get-command-invocation \
-            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-            --query 'StandardOutputContent' --output text > stdout.txt
-          aws --region "$AWS_REGION" ssm get-command-invocation \
-            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-            --query 'StandardErrorContent' --output text > stderr.txt
-
-          if [ "$STATUS" != "Success" ]; then
-            echo "::error::ssm command status=$STATUS"
+          if [ "$PROBE_RC" -ne 0 ]; then
+            echo "::error::log dump probe failed with exit=$PROBE_RC"
             echo '--- stderr ---'; cat stderr.txt
             echo '--- stdout ---'; cat stdout.txt
             exit 1
@@ -1099,7 +1076,7 @@ jobs:
 
           if ! grep -q '^===END_LOGS===$' stdout.txt; then
             BYTES=$(wc -c < stdout.txt)
-            echo "::error::SSM stdout truncated at ${BYTES}B (24KB cap). Tighten GREP_PATTERN, lower TAIL_LINES, or shorten SINCE."
+            echo "::error::log dump stdout truncated at ${BYTES}B. Tighten GREP_PATTERN, lower TAIL_LINES, or shorten SINCE."
             exit 1
           fi
 

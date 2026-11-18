@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# run-probe.sh — Deliver a local probe script to a remote TokenKey host via SSM
-# or SSH and return its stdout. Wraps the base64+send-command+poll
-# pattern that previously lived as prose inside the troubleshooting / traffic-profile
-# skills. Probes are read-only by default. A write-capable script must carry its own
-# explicit opt-in guard; migration recovery uses CANARY_CREATE_DUMP=1 for that purpose.
+# run-probe.sh — Deliver a local probe script to a remote TokenKey host and
+# return its stdout. Daily default transport is Tencent TAT
+# (docs/approved/design-tencent-ops-control-plane.md). Pass --via ssm for
+# explicit Hybrid break-glass; cn-prod may still fall back to SSH only when
+# --via ssm and no healthy mi-* identity exists. Probes are read-only by
+# default. A write-capable script must carry its own explicit opt-in guard.
 #
 # Determinism contract (matches dev-rules-convention.mdc §"skill / command 确定性基线"):
 #   - Same script + same env + same target → same transport-independent stdout
@@ -22,12 +23,12 @@
 #       [--comment "free text"] \
 #       [--expected-instance-id i-*|mi-*|uhost-*|lhins-*] \
 #       [--timeout-seconds 120]
+#       [--via tat|ssm]     default tat; ssm is Hybrid break-glass only
 #       [--compressed-output] integrity-checked gzip transport for large stdout
 #       [--describe-script]  print the registered companion/verdict contract and exit
 #
-# Multi-app (2026-11-17): bare --target prod|cn-prod fans out to all apps[] that
-# declare ssm_instance_id. Pass --node to pin one host. Missing SSM on any app
-# fails closed so a single-host probe cannot look like a fleet diagnosis.
+# Multi-app (2026-11-17): bare --target prod|cn-prod fans out to all apps[].
+# Pass --node to pin one host.
 #
 # Probe contracts (ops/observability/probe-contracts.json):
 #   Optional for delivery. Registered scripts auto-upload companions and expose a
@@ -70,9 +71,9 @@
 #   "[run-probe] status=... duration=...s"
 #
 # Exit codes:
-#   0 — SSM Status=Success and the remote script exited 0
+#   0 — remote Status=Success and the remote script exited 0
 #   1 — wrapper validation failure (missing script, unknown target, etc.)
-#   2 — SSM/AWS transport failure (assume-role, send-command, get-invocation)
+#   2 — transport failure (TAT/SSM/SSH)
 #   3 — remote script Status != Success (timeout / cancelled / failed)
 #
 # The wrapper deliberately does NOT retry on transient SSM errors — retry is a
@@ -95,6 +96,7 @@ TIMEOUT_SECONDS=120
 EXPECTED_INSTANCE_ID=""
 DESCRIBE_SCRIPT=0
 COMPRESSED_OUTPUT=0
+VIA="tat"
 NODE=""
 ALL_APPS=0
 declare -a ENVS=()
@@ -112,6 +114,7 @@ while [ "$#" -gt 0 ]; do
     --comment) COMMENT="${2:-}"; PASSTHRU+=("--comment" "${2:-}"); shift 2 ;;
     --expected-instance-id) EXPECTED_INSTANCE_ID="${2:-}"; PASSTHRU+=("--expected-instance-id" "${2:-}"); shift 2 ;;
     --timeout-seconds) TIMEOUT_SECONDS="${2:-}"; PASSTHRU+=("--timeout-seconds" "${2:-}"); shift 2 ;;
+    --via) VIA="${2:-}"; PASSTHRU+=("--via" "${2:-}"); shift 2 ;;
     --node) NODE="${2:-}"; shift 2 ;;
     --all-apps) ALL_APPS=1; shift ;;
     --describe-script) DESCRIBE_SCRIPT=1; PASSTHRU+=("--describe-script"); shift ;;
@@ -119,6 +122,11 @@ while [ "$#" -gt 0 ]; do
     *) echo "[run-probe] ERROR: unknown arg: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
+
+case "$VIA" in
+  tat|ssm) ;;
+  *) echo "[run-probe] ERROR: --via must be tat or ssm, got: $VIA" >&2; exit 1 ;;
+esac
 
 if [ -z "$SCRIPT_PATH" ] || { [ "$DESCRIBE_SCRIPT" = "0" ] && [ -z "$TARGET" ]; }; then
   echo "[run-probe] ERROR: --target and --script are required" >&2
@@ -274,9 +282,8 @@ for _tk_resolver in \
 done
 
 # Local macOS/Homebrew preflight: catch the known aws/pyexpat loader breakage
-# before the first real AWS call. Diagnose only; repair stays explicit in the
-# helper's --apply mode so this wrapper remains read-only.
-if [ "$TARGET" != "cn-prod" ] && [ "$(uname -s)" = "Darwin" ]; then
+# before the first real AWS call. Skip for TAT (no aws CLI on the critical path).
+if [ "$VIA" = "ssm" ] && [ "$TARGET" != "cn-prod" ] && [ "$(uname -s)" = "Darwin" ]; then
   AWS_PYEXPAT_HELPER="$REPO_ROOT/scripts/checks/check-local-aws-pyexpat.py"
   if [ -f "$AWS_PYEXPAT_HELPER" ] && ! python3 "$AWS_PYEXPAT_HELPER" --quiet; then
     echo "[run-probe] ERROR: local aws bootstrap check failed" >&2
@@ -285,10 +292,11 @@ if [ "$TARGET" != "cn-prod" ] && [ "$(uname -s)" = "Darwin" ]; then
   fi
 fi
 
-# Resolve REGION + INSTANCE_ID per target shape
+# Resolve REGION + INSTANCE_ID only for SSM break-glass. TAT resolves lighthouse
+# identity inside ops/observability/run_probe_remote.py.
 REGION=""
 INSTANCE_ID=""
-if [ "$TARGET" = "prod" ] || { [ "$TARGET" = "cn-prod" ] && [ -n "$NODE" ]; }; then
+if [ "$VIA" = "ssm" ] && { [ "$TARGET" = "prod" ] || { [ "$TARGET" = "cn-prod" ] && [ -n "$NODE" ]; }; }; then
   # Multi-app: --node selects apps[].ssm_instance_id. Bare site already fan-out above.
   if [ -z "$NODE" ]; then
     echo "[run-probe] ERROR: internal: expected --node after fan-out gate" >&2
@@ -311,10 +319,8 @@ if [ "$TARGET" = "prod" ] || { [ "$TARGET" = "cn-prod" ] && [ -n "$NODE" ]; }; t
   fi
 fi
 
-if [ "$TARGET" = "prod-data" ] || [ "$TARGET" = "cn-prod-data" ]; then
-  # ops/observability/data_machine_target.py owns the data-machine identity:
-  # it reads the site matrix and requires SSM Online + the registered Name
-  # before anything is sent. Exit 1 = matrix incomplete, 2 = SSM not ready.
+if [ "$VIA" = "ssm" ] && { [ "$TARGET" = "prod-data" ] || [ "$TARGET" = "cn-prod-data" ]; }; then
+  # SSM break-glass: data_machine_target.py requires SSM Online + registered Name.
   DATA_RESOLVE_RC=0
   DATA_RESOLVED=$(python3 "$REPO_ROOT/ops/observability/data_machine_target.py" \
     --site "${TARGET%-data}" --verify) || DATA_RESOLVE_RC=$?
@@ -325,7 +331,7 @@ if [ "$TARGET" = "prod-data" ] || [ "$TARGET" = "cn-prod-data" ]; then
   INSTANCE_ID="$(printf '%s\n' "$DATA_RESOLVED" | awk -F= '$1=="instance_id" {print $2; exit}')"
 fi
 
-if [ "$TARGET" != "cn-prod" ] && { [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; }; then
+if [ "$VIA" = "ssm" ] && [ "$TARGET" != "cn-prod" ] && { [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; }; then
   echo "[run-probe] ERROR: could not resolve instance id for target $TARGET" >&2
   exit 2
 fi
@@ -334,7 +340,7 @@ if [ -n "$EXPECTED_INSTANCE_ID" ]; then
     echo "[run-probe] ERROR: --expected-instance-id must be an EC2, SSM-managed, UHost, or Lighthouse instance id" >&2
     exit 1
   fi
-  if [ "$TARGET" != "cn-prod" ] && [ "$INSTANCE_ID" != "$EXPECTED_INSTANCE_ID" ]; then
+  if [ "$VIA" = "ssm" ] && [ "$TARGET" != "cn-prod" ] && [ "$INSTANCE_ID" != "$EXPECTED_INSTANCE_ID" ]; then
     echo "[run-probe] ERROR: resolved instance does not match --expected-instance-id for target $TARGET" >&2
     exit 1
   fi
@@ -376,6 +382,39 @@ for part in "${REMOTE_PARTS[@]}"; do
     REMOTE_LINE="$REMOTE_LINE && $part"
   fi
 done
+
+if [ "$VIA" = "tat" ]; then
+  TAT_ARGS=(
+    --target "$TARGET"
+    --via tat
+    --timeout-seconds "$TIMEOUT_SECONDS"
+    --comment "$COMMENT"
+  )
+  if [ -n "$NODE" ]; then
+    TAT_ARGS+=(--node "$NODE")
+  fi
+  START=$(date +%s)
+  set +e
+  STDOUT=$(printf '%s\n' "$REMOTE_LINE" | python3 "$REPO_ROOT/ops/observability/run_probe_remote.py" "${TAT_ARGS[@]}")
+  TAT_RC=$?
+  set -e
+  END=$(date +%s)
+  DURATION=$((END - START))
+  echo "[run-probe] duration=${DURATION}s via=tat rc=$TAT_RC" >&2
+  if [ "$TAT_RC" -ne 0 ]; then
+    printf '%s\n' "$STDOUT"
+    exit "$TAT_RC"
+  fi
+  if [ "$COMPRESSED_OUTPUT" = "1" ]; then
+    if ! printf '%s\n' "$STDOUT" | python3 "$OUTPUT_TRANSPORT" decode; then
+      echo "[run-probe] ERROR: compressed output integrity check failed" >&2
+      exit 2
+    fi
+  else
+    printf '%s\n' "$STDOUT"
+  fi
+  exit 0
+fi
 
 # Compose the SSM command JSON via python (avoids shell-quote hell)
 PARAMS=$(python3 - "$REMOTE_LINE" "$TIMEOUT_SECONDS" <<'PY'

@@ -43,7 +43,15 @@ esac
 EOF
 chmod +x "${local_bin}/aws"
 
+# Default path must refuse SecureString writes (closeout C3).
+if PATH="${local_bin}:${PATH}" bash "${SCRIPT}" mi-test 2>"${tmp}/refuse.err"; then
+  echo "expected refuse without TOKENKEY_ALLOW_SECURESTRING_WRITE" >&2
+  exit 1
+fi
+grep -q "refused (closeout C3)" "${tmp}/refuse.err"
+
 PATH="${local_bin}:${PATH}" \
+  TOKENKEY_ALLOW_SECURESTRING_WRITE=1 \
   STAGE0_SSM_OUTPUT_DIR="${output_dir}" \
   TK_ENV_SECRETS_SOURCE="${secret_file}" \
   TK_ENV_SECRETS_PARAM="/tokenkey/prod/stage0/env-secrets-backup" \

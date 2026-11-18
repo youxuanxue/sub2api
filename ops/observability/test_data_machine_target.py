@@ -73,13 +73,14 @@ class DataMachineTargetTest(unittest.TestCase):
 
     def test_workflow_reads_data_logs_and_capacity_on_the_data_machine(self) -> None:
         workflow = (HERE.parents[1] / ".github/workflows/ops-daily-diagnostics.yml").read_text()
-        self.assertIn("python3 ops/observability/data_machine_target.py --site prod --verify --github-output", workflow)
-        self.assertIn("INSTANCE_ID: ${{ steps.logtarget.outputs.id }}", workflow)
+        self.assertIn("probe_target=prod-data", workflow)
+        self.assertIn("Run docker logs on prod via TAT", workflow)
         cap = next(l for l in workflow.splitlines() if "probe-data-layer-capacity.sh" in l and "run-probe.sh" in l)
         self.assertIn('--target "${PROBE_TARGET}-data"', cap)
+        self.assertIn("--via tat", cap)
         safety = next(l for l in workflow.splitlines() if "probe-data-layer-safety.sh" in l and "run-probe.sh" in l)
         self.assertIn('--target "${PROBE_TARGET}-data"', safety)
-        self.assertIn('data_machine_target.py --site "$PROBE_TARGET" --verify', workflow)
+        self.assertIn("--via tat", safety)
         targets = json.loads((HERE / "diagnostics-targets.json").read_text())["include"]
         self.assertEqual({t["probe_target"] for t in targets}, set(WANT))
 

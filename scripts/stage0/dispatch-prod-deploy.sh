@@ -137,31 +137,10 @@ case "${OPERATION}" in
     )
     ;;
   legacy-deploy|replay|smoke-only)
-    # M6 (prod): live fleet is single-container rolling. legacy blue/green stays
-    # behind an explicit emergency unlock only.
-    if [[ "${OPERATION}" == "legacy-deploy" && "${STAGE0_ALLOW_LEGACY_BLUEGREEN:-}" != "1" ]]; then
-      echo "dispatch-prod-deploy: legacy-deploy retired for live prod; use --operation deploy (rolling)" >&2
-      echo "  set STAGE0_ALLOW_LEGACY_BLUEGREEN=1 only for approved emergency recovery" >&2
-      exit 2
-    fi
-    WORKFLOW="deploy-stage0.yml"
-    GH_ARGS=(
-      workflow run "${WORKFLOW}"
-      -f "operation=$([[ "${OPERATION}" == "legacy-deploy" ]] && printf deploy || printf %s "${OPERATION}")"
-      -f "tag=${TAG}"
-    )
-    if [[ -n "${REPLAY_RECEIPT}" ]]; then
-      GH_ARGS+=(-f "replay_receipt=${REPLAY_RECEIPT}")
-    fi
-    if [[ -n "${REPLACE_RECEIPT}" ]]; then
-      GH_ARGS+=(-f "replace_receipt=${REPLACE_RECEIPT}")
-    fi
-    if [[ -n "${SSOT_MODELS}" ]]; then
-      GH_ARGS+=(-f "ssot_models=${SSOT_MODELS}")
-    fi
-    if [[ -n "${SIMPLE_OVERRIDE}" ]]; then
-      GH_ARGS+=(-f "simple_release_override=${SIMPLE_OVERRIDE}")
-    fi
+    # 2026-11-18: deploy-stage0.yml is a refuse-only stub (closeout A14).
+    echo "dispatch-prod-deploy: ${OPERATION} retired; use --operation deploy|cn-deploy|warm (rolling)" >&2
+    echo "  see docs/approved/design-tencent-ops-closeout.md A14" >&2
+    exit 2
     ;;
 esac
 
