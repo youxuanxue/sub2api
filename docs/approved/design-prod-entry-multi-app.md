@@ -6,7 +6,7 @@ approved_at: 2026-11-15
 risk: high
 authors: [agent]
 created_at: 2026-11-15
-revised: 2026-11-15（复审修复后用户批准；恢复 §3.5/§3.6；显式废止并行替换文档 HA 入口验收；补证书离机备份契约）
+revised: 2026-11-15（复审修复后用户批准；恢复 §3.5/§3.6；显式废止并行替换文档 HA 入口验收；补证书离机备份契约）；2026-11-18（阶段 D L1–L8 完成后与舰队 SSOT 对齐：cand 升配 4C8G、入口 WRR 1:1；L8 后 volume_platform=tencent-root，载体销毁仍待 §3.5/X1；见 decided.md）
 ---
 
 # 美西 prod 入口机 + 双应用机，旧应用机脱离 LUKS
@@ -118,13 +118,14 @@ revised: 2026-11-15（复审修复后用户批准；恢复 §3.5/§3.6；显式�
 
 ```
 客户端 ──DNS(5 域名, TTL 60)──▶ 入口机 2C4G Caddy :443
-                                    ├──▶ 旧应用机 4C16G 10.4.0.16:8080（明文根盘，权重 2）
-                                    └──▶ 新应用机 2C8G  10.4.0.9:8080 （明文根盘，权重 1）
+                                    ├──▶ 旧应用机 4C16G 10.4.0.16:8080（明文根盘，权重 1）
+                                    └──▶ 候选应用机 4C8G 10.4.0.9:8080（明文根盘，权重 1）
 两台应用机 ──▶ 数据机 10.4.0.3 PG/Redis
 两台应用机 ──公网 IP──▶ cn-ip5..12 / Oregon SOCKS
 
 应用机公网 80/443：切流稳定后关闭（同 cn-prod）
 入口故障：重建入口机；不做旧机热备入口 / 证书回推
+（历史切流期曾 cand=2C8G、WRR 2:1；以矩阵为准）
 ```
 
 ### 2.1 入口机
@@ -141,7 +142,8 @@ revised: 2026-11-15（复审修复后用户批准；恢复 §3.5/§3.6；显式�
 
 站点：`tokenkey.dev`、`callmodel.io`、`api.tokenkey.dev`、`api.callmodel.io`、`api-cn.tokenkey.dev`（以线上 Caddyfile 为准）。
 
-- 复用 `deploy/stage0/Caddyfile` 与渲染器；增加「后端列表 + 权重」：上游改为两台应用机私网 8080，`lb_policy weighted_round_robin 2 1`，`health_interval 3s`，`health_fails 2`；保留 `lb_try_duration 30s` 等。
+- 复用 `deploy/stage0/Caddyfile` 与渲染器；增加「后端列表 + 权重」：上游改为两台应用机私网 8080，权重来自舰队矩阵 `apps[].weight`（渲染为 `lb_policy weighted_round_robin …`），`health_interval 3s`，`health_fails 2`；保留 `lb_try_duration 30s` 等。
+- **现网（2026-11-18）**：cand 已升配 4C8G 后入口 WRR **1:1**（`10.4.0.16`×1 + `10.4.0.9`×1；见 `candidate-usw-20261022.json` 与 decided.md）。历史切流窗口曾为 `2 1`（旧机偏重），不是今日现状。
 - 只用主动健康检查。`PROD_EDGE_REQUIRED_ENV` 与 `import tokenkey_api_machine` 门禁对入口机生效。
 - 客户端 IP：入口机写 `X-Forwarded-For`/`X-Real-IP`，删 `CF-Connecting-IP`。应用机 8080 只放行入口机私网 /32。经 socat 后网关记录的 IP **未核实**，切流前用测试请求实测。
 
@@ -155,12 +157,16 @@ revised: 2026-11-15（复审修复后用户批准；恢复 §3.5/§3.6；显式�
 
 ### 2.4 应用机规格与连接预算
 
-| 节点 | mem / GOMEMLIMIT | DB open | Redis pool | 权重 |
-|---|---|---|---|---|
-| 旧 4C16G | 8g / 6GiB（可保持） | 50 | 建议脱离 LUKS 后降到 96–256（待定） | 2 |
-| 新 2C8G | **~5g / 对应 GOMEMLIMIT**（单容器；矩阵显式给出，缺省或 8g 拒绝） | 25 | 96 | 1 |
+**现网（2026-11-18）**以舰队矩阵与 [hetzner README](../../deploy/hetzner/README.md) 为准：
 
-PG：稳态约 75；滚动时一台摘流，无双色重叠。旧机脱离 LUKS 窗口由 2C8G 单独承载，须先过 §3.2 门禁。
+| 节点 | 规格 | mem / GOMEMLIMIT | 权重 |
+|---|---|---|---|
+| 旧 `app-old` 4C16G | 明文根盘 `tencent-root` | 矩阵 `memory_limit`（现 8g） | 1 |
+| 候选 `app-cand` 4C8G | 明文根盘（2026-11-18 由 2C8G 升配） | 矩阵显式给出 | 1 |
+
+> 历史快照（2026-11-15 设计批准时）：cand 为 2C8G、入口 WRR `2 1`（旧机权重 2）；旧机仍 LUKS。下文 §3 迁移步骤描述当时门禁与动作，权重数字以矩阵为准。
+
+PG：稳态约 75；滚动时一台摘流，无双色重叠。旧机脱离 LUKS 窗口由 cand 单独承载，须先过 §3.2 门禁。
 
 ### 2.5 多节点共享状态门禁
 
@@ -194,7 +200,7 @@ PG：稳态约 75；滚动时一台摘流，无双色重叠。旧机脱离 LUKS 
 | L5 | umount；暂存改名就位；close mapper / loop | 无 | 是 |
 | L6 | **重启验收**（已摘流） | 无 | 是 |
 | L7 | 按滚动布局部署同 tag；loopback + 入口私网 Host 头烟测；真实授权核对 usage | 无 | 是 |
-| L8 | 恢复 QA；权重 0→1→2 | 旧机回流 | 是 |
+| L8 | 恢复 QA；按矩阵恢复旧机权重（切流期曾 0→1→2；现网对称后为 1，与 cand 1:1） | 旧机回流 | 是 |
 
 （无 L9：不恢复旧机热备 Caddy。）
 
@@ -224,7 +230,9 @@ PG：稳态约 75；滚动时一台摘流，无双色重叠。旧机脱离 LUKS 
 | X3 | 删除操作员 vault：`~/.local/state/tokenkey-luks-offhost-vault/recovery-luks.key.enc` 与 `~/.local/share/tokenkey-custody/luks-wrap-20261022.key` | X1 完成 |
 | X4 | 删除 `tokenkey-luks-unlock` unit/脚本、`pre-luks-underlay`、`pre-plain-<ts>/`、旧暂存 | X1 完成且确认不再回退 |
 
-先删密钥会在载体仍在时造成永久丢数；载体销毁后再删密钥。X1 之后更新舰队文档、unlock contract、data-plane-split 相关节与 `candidate-usw-20261022.json` 的 `volume_platform`（另开文档 PR）。
+先删密钥会在载体仍在时造成永久丢数；载体销毁后再删密钥。
+
+**卷契约时序（2026-11-18 修订）**：L8 明文根盘接流后即可把 `candidate-usw-20261022.json` 的 `volume_platform` 改为 `tencent-root`（并保留 `luks_carrier_retained` 指向载体路径）——部署/解锁路径必须反映现网，不能等到 X1。X1 完成后另开文档 PR 清理 unlock contract、data-plane-split 相关节，并删除 `luks_carrier_retained`。
 
 ## 4. 切流与回退（用户无感）
 
