@@ -114,7 +114,9 @@ def source_command(config, source, command, hour, *, plan=None, apply=False):
                                    "-o", f"UserKnownHostsFile={config['known_hosts']}",
                                    "-i", config["ssh_key"], source["ssh_target"], remote],
                                   input=json.dumps(request), capture_output=True, text=True, check=True,
-                                  timeout=1800 if command == "archive" else 300)
+                                  # Archive wall time includes seal + slow jump SSH
+                                  # push; keep above source remote.timeout (max 3600).
+                                  timeout=3900 if command == "archive" else 300)
     except subprocess.CalledProcessError as exc:
         # Preserve worker stderr so the data-machine receipt can classify node1
         # vs gateway failures the same way #3222 did for tokenkey-qa-archive.
