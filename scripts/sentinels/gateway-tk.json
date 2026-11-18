@@ -11820,15 +11820,17 @@
     {
       "path": "backend/internal/service/api_key_auth_cache_impl.go",
       "must_contain": [
-        "apiKeyAuthSnapshotVersion = 27",
+        "apiKeyAuthSnapshotVersion = 28",
         "apiKey.Group.StickyRoutingMode",
         "apiKey.Group.MessagesCompactionEnabled",
         "apiKey.Group.MessagesCompactionInputTokensThreshold",
         "snapshot.Group.StickyRoutingMode",
         "snapshot.Group.MessagesCompactionEnabled",
-        "snapshot.Group.MessagesCompactionInputTokensThreshold"
+        "snapshot.Group.MessagesCompactionInputTokensThreshold",
+        "apiKey.User.QACaptureEnabled",
+        "snapshot.User.QACaptureEnabled"
       ],
-      "rationale": "Auth snapshot serialization and hydration must preserve sticky routing plus both messages compaction fields in both directions, and a version bump must invalidate Redis/L1 entries serialized with the broken projection. One-way mapping still silently drops these policies after cache materialization."
+      "rationale": "Auth snapshot serialization and hydration must preserve sticky routing plus both messages compaction fields in both directions, and a version bump must invalidate Redis/L1 entries serialized with the broken projection. One-way mapping still silently drops these policies after cache materialization. v28 also carries per-user qa_capture_enabled so CaptureFromContext can gate body/blob persistence without a DB round-trip; dropping either side reverts to zero-value false and silently stops capture for cached keys."
     },
     {
       "path": "backend/internal/service/admin_account.go",

@@ -98,7 +98,7 @@ func TestUS070_MiddlewarePersistsUpstreamModelFromOpsContext(t *testing.T) {
 		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
 			ID:     5,
 			UserID: 7,
-			User:   &service.User{ID: 7},
+			User:   &service.User{ID: 7, QACaptureEnabled: true},
 			Group:  &service.Group{Platform: service.PlatformAnthropic},
 		})
 		c.Set("ops_upstream_model", "claude-sonnet-4-5")
@@ -176,7 +176,7 @@ func TestQAMetadataSurvivesBodyCaptureLimit(t *testing.T) {
 		require.NoError(t, err)
 		c.Set(service.OpsRequestBodyKey, body)
 		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
-			ID: 5, UserID: 7, User: &service.User{ID: 7},
+			ID: 5, UserID: 7, User: &service.User{ID: 7, QACaptureEnabled: true},
 			Group: &service.Group{Platform: service.PlatformAnthropic},
 		})
 		c.JSON(200, gin.H{"ok": true})

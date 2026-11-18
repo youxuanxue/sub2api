@@ -71,6 +71,8 @@ type User struct {
 	RpmLimit int `json:"rpm_limit,omitempty"`
 	// TrajExportEnabled holds the value of the "traj_export_enabled" field.
 	TrajExportEnabled bool `json:"traj_export_enabled,omitempty"`
+	// QaCaptureEnabled holds the value of the "qa_capture_enabled" field.
+	QaCaptureEnabled bool `json:"qa_capture_enabled,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the UserQuery when eager-loading is set.
 	Edges        UserEdges `json:"edges"`
@@ -243,7 +245,7 @@ func (*User) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case user.FieldTotpEnabled, user.FieldRestrictPublicGroups, user.FieldBalanceNotifyEnabled, user.FieldTrajExportEnabled:
+		case user.FieldTotpEnabled, user.FieldRestrictPublicGroups, user.FieldBalanceNotifyEnabled, user.FieldTrajExportEnabled, user.FieldQaCaptureEnabled:
 			values[i] = new(sql.NullBool)
 		case user.FieldBalance, user.FieldFrozenBalance, user.FieldBalanceNotifyThreshold, user.FieldTotalRecharged:
 			values[i] = new(sql.NullFloat64)
@@ -442,6 +444,12 @@ func (_m *User) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field traj_export_enabled", values[i])
 			} else if value.Valid {
 				_m.TrajExportEnabled = value.Bool
+			}
+		case user.FieldQaCaptureEnabled:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field qa_capture_enabled", values[i])
+			} else if value.Valid {
+				_m.QaCaptureEnabled = value.Bool
 			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
@@ -643,6 +651,9 @@ func (_m *User) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("traj_export_enabled=")
 	builder.WriteString(fmt.Sprintf("%v", _m.TrajExportEnabled))
+	builder.WriteString(", ")
+	builder.WriteString("qa_capture_enabled=")
+	builder.WriteString(fmt.Sprintf("%v", _m.QaCaptureEnabled))
 	builder.WriteByte(')')
 	return builder.String()
 }

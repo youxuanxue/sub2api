@@ -587,7 +587,9 @@ export default {
         concurrencyPlaceholder: '0 = unlimited',
         concurrencyHint: 'Max concurrent requests for this user; 0 = unlimited.',
         rpmLimitPlaceholder: '0 = unlimited',
-        rpmLimitHint: 'Max requests per minute for this user; 0 = unlimited. Acts as a fallback only when the group has no rpm_limit set.'
+        rpmLimitHint: 'Max requests per minute for this user; 0 = unlimited. Acts as a fallback only when the group has no rpm_limit set.',
+        qaCaptureEnabled: 'QA Capture',
+        qaCaptureEnabledHint: 'When off, gateway QA middleware will not persist request/response bodies or QA blobs for this user even if site-wide capture is enabled.'
       },
       columns: {
         user: 'User',

@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 27 // v27: preserve TK group/routing snapshot and add require_privacy_set
+const apiKeyAuthSnapshotVersion = 28 // v28: carry per-user qa_capture_enabled for QA middleware
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -368,6 +368,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			BalanceNotifyExtraEmails:   apiKey.User.BalanceNotifyExtraEmails,
 			TotalRecharged:             apiKey.User.TotalRecharged,
 			RPMLimit:                   apiKey.User.RPMLimit,
+			QACaptureEnabled:           apiKey.User.QACaptureEnabled,
 		},
 	}
 
@@ -486,6 +487,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			BalanceNotifyExtraEmails:    snapshot.User.BalanceNotifyExtraEmails,
 			TotalRecharged:              snapshot.User.TotalRecharged,
 			RPMLimit:                    snapshot.User.RPMLimit,
+			QACaptureEnabled:            snapshot.User.QACaptureEnabled,
 			UserGroupRPMOverride:        snapshot.User.UserGroupRPMOverride,
 			UserGroupRPMOverrideGroupID: snapshot.User.UserGroupRPMOverrideGroupID,
 		},
