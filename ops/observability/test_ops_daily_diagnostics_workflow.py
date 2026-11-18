@@ -280,11 +280,18 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         snapshot_block = text[safety_start:safety_end]
         self.assertIn("data_layer_snapshot_signal.sh", snapshot_block)
         self.assertIn("DATA_LAYER_SNAPSHOT_APPLICABLE=false", snapshot_block)
+        self.assertIn('-z "$INSTANCE_ID"', snapshot_block)
         self.assertIn('INSTANCE_ID" == mi-*', snapshot_block)
+        self.assertIn("tencent-usw-*", snapshot_block)
         self.assertIn('"$TARGET_REGION" "$STACK_NAME" "$INSTANCE_ID"', snapshot_block)
         self.assertNotIn("describe-instances", snapshot_block)
         self.assertNotIn("BlockDeviceMappings[0]", snapshot_block)
         self.assertNotIn("describe-snapshots", snapshot_block)
+        archive_fallback = text[
+            text.index("ARCHIVE_SIGNAL=", safety_start) : text.index("SAFETY_VERDICT=", safety_start)
+        ]
+        self.assertIn('evidence_errors":["archive_health_failed"]', archive_fallback)
+        self.assertNotIn("ARCHIVESTATS {}", archive_fallback)
 
     def test_retired_qa_s3_checks_are_not_wired(self) -> None:
         # QA S3 retired 2026-11-08: no Phase 2 live health or raw-archive IAM audit.
@@ -502,6 +509,8 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
     def test_prod_diagnose_uses_resolve_prod_ssm_target(self) -> None:
         text = workflow_text()
         self.assertIn("ops/stage0/resolve_prod_ssm_target.py", text)
+        self.assertIn("Install tccli and PyYAML", text)
+        self.assertIn("'PyYAML==6.0.3'", text)
         # Job-level PROD_SSM_TARGET so Run target diagnostics + run-probe inherit
         # cutover (step-only env left diagnose on auto → AccessDenied cascade).
         job = text.index("  diagnose-targets:")
@@ -511,6 +520,7 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             "PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}",
             text[job_env:first_step],
         )
+        self.assertIn("TOKENKEY_REMOTE_VIA: tat", text[job_env:first_step])
         # Live-host and config audit are both prod-only; no edge target path remains.
         audit = text.index("Assert live-host state (prod daily audit)")
         config = text.index("Audit prod configuration independently of deployment")
@@ -612,7 +622,7 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
                     args = (root / "probe-args").read_text().splitlines()
-                    self.assertEqual(args[args.index("--target") + 1], "prod")
+                    self.assertEqual(args[args.index("--target") + 1], "prod-data")
                     self.assertEqual(args[args.index("--env") + 1], "WINDOW_HOURS=24")
                     self.assertEqual((root / "finding-status").read_text().strip(), status)
             beijing = subprocess.run(
@@ -622,7 +632,7 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             )
             self.assertEqual(beijing.returncode, 0, beijing.stderr)
             beijing_args = (root / "probe-args").read_text().splitlines()
-            self.assertEqual(beijing_args[beijing_args.index("--target") + 1], "cn-prod")
+            self.assertEqual(beijing_args[beijing_args.index("--target") + 1], "cn-prod-data")
 
     def test_daily_error_report_is_aggregated_and_dispatches_only_isolated_repair(self) -> None:
         text = workflow_text()
