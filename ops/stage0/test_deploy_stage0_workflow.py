@@ -197,6 +197,11 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertRegex(smoke, r"(?ms)^    permissions:\n      contents: read\s*$")
         self.assertNotIn("id-token:", smoke)
         self.assertNotIn("packages:", smoke)
+        # A14: GHA entry is refuse-only (dispatch already rejects smoke-only).
+        self.assertIn("Refuse retired legacy deploy-stage0 entry", smoke)
+        refuse_at = smoke.index("Refuse retired legacy deploy-stage0 entry")
+        smoke_at = smoke.index("Prod gateway smoke (read-only acceptance)")
+        self.assertLess(refuse_at, smoke_at)
 
     def test_smoke_only_runs_canonical_full_smoke_and_ssot_gate(self) -> None:
         smoke = job_block("smoke-only")

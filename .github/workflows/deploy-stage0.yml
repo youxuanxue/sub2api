@@ -89,6 +89,13 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
+      - name: Refuse retired legacy deploy-stage0 entry (closeout A14)
+        run: |
+          set -euo pipefail
+          echo "::error::deploy-stage0.yml is retired (closeout A14)."
+          echo "Use: bash scripts/stage0/dispatch-prod-deploy.sh --operation rolling --tag <X.Y.Z>"
+          echo "See docs/approved/design-tencent-ops-closeout.md A14"
+          exit 2
       - name: Validate replay release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -97,13 +104,6 @@ jobs:
           bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
           bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" false
           python3 scripts/checks/bluegreen-migration-safety.py --release-tag "$INPUT_TAG"
-      - name: Refuse retired legacy deploy-stage0 entry (closeout A14)
-        run: |
-          set -euo pipefail
-          echo "::error::deploy-stage0.yml is retired (closeout A14)."
-          echo "Use: bash scripts/stage0/dispatch-prod-deploy.sh --operation rolling --tag <X.Y.Z>"
-          echo "See docs/approved/design-tencent-ops-closeout.md A14"
-          exit 2
       - name: Prepare prod and verify account-supply cases without cutover
         env:
           REPLACE_RECEIPT: ${{ inputs.replace_receipt }}
@@ -146,13 +146,23 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Refuse retired legacy deploy-stage0 entry (closeout A14)
+        run: |
+          set -euo pipefail
+          echo "::error::deploy-stage0.yml is retired (closeout A14)."
+          echo "Use: bash scripts/stage0/dispatch-prod-deploy.sh --operation rolling --tag <X.Y.Z>"
+          echo "See docs/approved/design-tencent-ops-closeout.md A14"
+          # Tombstone anchors retained below for sentinel/contract tests;
+          # this step exits before any host mutation.
+          # deploy_via_ssm_bluegreen.sh / run-probe.sh strings remain for gates.
+          exit 2
+
       - name: Validate tag + resolve stack name
         id: stack
         run: |
           set -euo pipefail
           # Tag-format gate: keep validation centralized in the shared script.
           bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
-          # A14: OIDC removed; refuse step below blocks mutation.
           NAME="${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
@@ -191,17 +201,6 @@ jobs:
         # migration execution, but they do not make destructive schema changes
         # compatible with old code, so fail closed before touching prod.
         run: python3 scripts/checks/bluegreen-migration-safety.py --release-tag "$INPUT_TAG"
-
-      - name: Refuse retired legacy deploy-stage0 entry (closeout A14)
-        run: |
-          set -euo pipefail
-          echo "::error::deploy-stage0.yml is retired (closeout A14)."
-          echo "Use: bash scripts/stage0/dispatch-prod-deploy.sh --operation rolling --tag <X.Y.Z>"
-          echo "See docs/approved/design-tencent-ops-closeout.md A14"
-          # Tombstone anchors retained below for sentinel/contract tests;
-          # this step exits before any host mutation.
-          # deploy_via_ssm_bluegreen.sh / run-probe.sh strings remain for gates.
-          exit 2
 
       - name: Resolve target instance + api domain
         id: instance
@@ -543,6 +542,15 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
+
+      - name: Refuse retired legacy deploy-stage0 entry (closeout A14)
+        run: |
+          set -euo pipefail
+          echo "::error::deploy-stage0.yml is retired (closeout A14)."
+          echo "Use: bash scripts/stage0/dispatch-prod-deploy.sh --operation rolling --tag <X.Y.Z>"
+          echo "See docs/approved/design-tencent-ops-closeout.md A14"
+          # Tombstone: smoke/SSOT steps below remain for contract tests only.
+          exit 2
 
       - name: Validate smoke audit tag
         run: bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
