@@ -38,6 +38,12 @@ SSM_SEND = re.compile(
     r"""["']ssm["']\s*,\s*["']send-command["']|ssm\.send_command\b""",
     re.I,
 )
+# OIDC workflows that drive Tencent hosts via shared runners even when the
+# workflow YAML itself has no literal send-command (closeout A15 gap).
+OIDC_REMOTE_HINT = re.compile(
+    r"run-probe\.sh|ssm_execution|manage-overlay-runtime\.py|SendCommand",
+    re.I,
+)
 SECURE_WRITE = re.compile(
     r"""put-parameter[\s\S]{0,240}?--type\s+["']?SecureString|--type\s+["']?SecureString""",
     re.I,
@@ -145,7 +151,11 @@ def scan_hits(root: Path) -> dict[str, set[str]]:
             if not OIDC.search(text):
                 continue
             rel = path.relative_to(root).as_posix()
-            if SSM_SEND.search(text) or any(candidate in text for candidate in ssm):
+            if (
+                SSM_SEND.search(text)
+                or OIDC_REMOTE_HINT.search(text)
+                or any(candidate in text for candidate in ssm)
+            ):
                 oidc_ssm.add(rel)
     return {
         "ssm_remote_paths": ssm,

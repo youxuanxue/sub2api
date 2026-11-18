@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: pricing-registry-publish
@@ -19,16 +18,26 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: tencent-ops
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       # Pricing registry CAS + redis PUBLISH run on the data machine (PG/Redis),
       # not an app node. Multi-app fleets refuse a silent single-app default.
       PROD_SSM_NODE: data
+      TOKENKEY_REMOTE_VIA: tat
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install tccli
+        run: python3 -m pip install 'tccli==3.1.198.1'
 
       - name: Resolve latest protected main
         run: |
@@ -43,19 +52,15 @@ jobs:
           python3 scripts/checks/pricing-overlay.py
           python3 ops/pricing/manage-overlay-runtime.py sync-runtime --dry-run
 
-      - name: Require production OIDC role
+      - name: Require Tencent ops credentials
         run: |
           set -euo pipefail
-          test -n "${OIDC_ROLE_ARN:-}" || {
-            echo "::error::AWS_OIDC_ROLE_ARN is required for pricing publication"
-            exit 1
-          }
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          for key in TENCENTCLOUD_SECRET_ID TENCENTCLOUD_SECRET_KEY; do
+            if [ -z "${!key}" ]; then
+              echo "::error::$key is required for pricing publication via TAT"
+              exit 1
+            fi
+          done
 
       - name: Publish and verify protected-main snapshot
         run: python3 ops/pricing/manage-overlay-runtime.py sync-runtime

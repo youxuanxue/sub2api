@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import base64
 import json
+import os
 import pathlib
 import subprocess
 import unittest
@@ -27,6 +28,7 @@ class SsmExecutionResolveTest(unittest.TestCase):
         self.mod = load_mod()
 
     def test_shell_transport_runs_under_dash_without_consuming_following_commands(self) -> None:
+        # Break-glass SSM path: daily default is TAT (TOKENKEY_REMOTE_VIA unset).
         run = subprocess.run
         for script, expected_rc in (("cat >/dev/null\nprintf after-stdin", 0), ("exit 7", 7)):
             with self.subTest(script=script):
@@ -44,7 +46,8 @@ class SsmExecutionResolveTest(unittest.TestCase):
                                        "StandardOutputContent": result.stdout,
                                        "StandardErrorContent": result.stderr})
 
-                with mock.patch.object(self.mod.subprocess, "check_output", side_effect=aws), \
+                with mock.patch.dict(os.environ, {"TOKENKEY_REMOTE_VIA": "ssm"}), \
+                     mock.patch.object(self.mod.subprocess, "check_output", side_effect=aws), \
                      mock.patch.object(self.mod.subprocess, "run"):
                     encoded = base64.b64encode(script.encode()).decode()
                     if expected_rc:

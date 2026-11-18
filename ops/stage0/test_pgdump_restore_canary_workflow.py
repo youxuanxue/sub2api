@@ -1,42 +1,21 @@
 #!/usr/bin/env python3
-"""Contract tests for scheduled Fleet restore-canary orchestration."""
+"""Contract: Fleet pgdump restore-canary OIDC workflow is retired."""
 
 from __future__ import annotations
 
 import pathlib
 import unittest
 
-import yaml
-
-
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ops-pgdump-restore-canary.yml"
 
 
 class PgdumpRestoreCanaryWorkflowTest(unittest.TestCase):
-    def test_legacy_manual_dispatch_is_fail_closed(self) -> None:
-        workflow = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-        triggers = workflow["on"]
-        self.assertNotIn("schedule", triggers)
-        self.assertIn("workflow_dispatch", triggers)
-        restore = workflow["jobs"]["restore-canary"]
-        self.assertEqual(restore["permissions"]["id-token"], "write")
-        command = next(
-            step["run"]
-            for step in restore["steps"]
-            if step.get("name") == "Run isolated pg_dump restore canary"
+    def test_oidc_canary_workflow_removed(self) -> None:
+        self.assertFalse(
+            WORKFLOW.exists(),
+            "ops-pgdump-restore-canary.yml deleted per design-tencent-ops-closeout A12",
         )
-        self.assertIn("run-probe.sh", command)
-        self.assertIn("--compressed-output", command)
-        self.assertIn("pgdump_restore_canary_remote.sh", command)
-        self.assertIn("pgdump_restore_canary.py", command)
-        self.assertIn("pgdump_restore_canary_contract.py", command)
-        canary_step = next(
-            step for step in restore["steps"]
-            if step.get("name") == "Run isolated pg_dump restore canary"
-        )
-        self.assertNotIn("continue-on-error", canary_step)
-        self.assertEqual(len(restore["steps"]), 3)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,8 @@
 
 后续确认（2026-11-18）：「同意。请推进实现。」→ 设计批准；先合入门牙门禁，再按 `rg` 逐入口改 TAT / 迁密钥。
 
+后续确认（2026-11-18）：「同意建议。继续。」→ 批准 `docs/approved/design-tencent-ops-closeout.md` 整张处置清单（旁路迁 TAT / 删退役入口 / SecureString 收尾）；按清单 E 节顺序推进，不另批。
+
 ## 2026-11-17 cn-prod tokensea missing text part 网关兼容
 
 原话：「请修复。」（前置：「建议网关修复。另外，网关修复之后，和 kvv 冲突吗？」已确认与 KVV 不冲突。）

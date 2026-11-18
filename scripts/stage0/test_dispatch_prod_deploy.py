@@ -105,32 +105,18 @@ class DispatchProdDeployTest(unittest.TestCase):
         self.assertIn(f"revision={revision}", self._gh_args())
         self.assertNotIn("operation=", self._gh_args())
 
-    def test_replay_replace_receipt(self) -> None:
-        receipt = "a" * 64
-        proc = self._run(
-            "--operation", "replay", "--tag", "1.2.3", "--replace-receipt", receipt
-        )
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
-        self.assertIn(f"replace_receipt={receipt}", self._gh_args())
+    def test_replay_and_legacy_deploy_are_retired(self) -> None:
+        for operation in ("replay", "legacy-deploy", "smoke-only"):
+            with self.subTest(operation=operation):
+                proc = self._run("--operation", operation, "--tag", "1.2.3")
+                self.assertEqual(proc.returncode, 2, msg=proc.stderr + proc.stdout)
+                self.assertIn("retired", proc.stderr)
+                self.assertFalse(self.gh_log.exists())
 
-    def test_legacy_deploy_replay_receipt_for_promote(self) -> None:
-        receipt = "b" * 64
+    def test_rejects_replay_receipt_on_rolling_deploy(self) -> None:
         proc = self._run(
-            "--operation",
-            "legacy-deploy",
-            "--tag",
-            "1.2.3",
-            "--replay-receipt",
-            receipt,
-        )
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
-        self.assertIn("workflow=deploy-stage0.yml", proc.stdout)
-        self.assertIn("operation=deploy", self._gh_args())
-        self.assertIn(f"replay_receipt={receipt}", self._gh_args())
-
-    def test_rejects_replay_receipt_on_replay(self) -> None:
-        proc = self._run(
-            "--operation", "replay", "--tag", "1.2.3", "--replay-receipt", "x" * 64
+            "--operation", "deploy", "--tag", "1.2.3", "--revision", "e" * 40,
+            "--replay-receipt", "x" * 64,
         )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("--replay-receipt", proc.stderr)

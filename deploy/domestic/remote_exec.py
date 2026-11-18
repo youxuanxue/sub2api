@@ -277,12 +277,14 @@ def build_remote_command(node: Node, script: str) -> str:
     )
 
 
-def _tail(raw: bytes | str | None) -> str:
+def _tail(raw: bytes | str | None, limit: int = OUTPUT_TAIL_BYTES) -> str:
     if not raw:
         return ""
     if isinstance(raw, str):
         raw = raw.encode("utf-8", errors="replace")
-    return raw[-OUTPUT_TAIL_BYTES:].decode("utf-8", errors="replace")
+    if limit <= 0:
+        return raw.decode("utf-8", errors="replace")
+    return raw[-limit:].decode("utf-8", errors="replace")
 
 
 # --------------------------------------------------------------------------
@@ -312,7 +314,15 @@ def _poll_budget(timeout: int) -> int:
     return -(-(timeout + POLL_GRACE_SECONDS) // POLL_INTERVAL_SECONDS)
 
 
-def _run_tat(node: Node, command: str, timeout: int, runner: Runner, sleep: Callable[[float], None]) -> Result:
+def _run_tat(
+    node: Node,
+    command: str,
+    timeout: int,
+    runner: Runner,
+    sleep: Callable[[float], None],
+    *,
+    output_bytes: int = OUTPUT_TAIL_BYTES,
+) -> Result:
     content = base64.b64encode(command.encode("utf-8")).decode("ascii")
     if len(content) > TAT_MAX_CONTENT_B64:
         raise RemoteExecError(
@@ -358,7 +368,7 @@ def _run_tat(node: Node, command: str, timeout: int, runner: Runner, sleep: Call
             break
     else:
         # Local poll budget exhausted. Do not retry and do not switch channel.
-        return Result("tat", "TimedOut", None, _tat_output(task), "")
+        return Result("tat", "TimedOut", None, _tat_output(task, output_bytes), "")
 
     status = task["TaskStatus"]
     result = task.get("TaskResult") or {}
@@ -371,20 +381,28 @@ def _run_tat(node: Node, command: str, timeout: int, runner: Runner, sleep: Call
     else:
         mapped = "Failed"
     # TAT returns one combined stream; it goes to stdout_tail.
-    return Result("tat", mapped, exit_code, _tat_output(task), "")
+    return Result("tat", mapped, exit_code, _tat_output(task, output_bytes), "")
 
 
-def _tat_output(task: dict) -> str:
+def _tat_output(task: dict, output_bytes: int = OUTPUT_TAIL_BYTES) -> str:
     raw = (task.get("TaskResult") or {}).get("Output")
     if not raw:
         return ""
     try:
-        return _tail(base64.b64decode(raw))
+        return _tail(base64.b64decode(raw), output_bytes)
     except ValueError:
-        return _tail(raw)
+        return _tail(raw, output_bytes)
 
 
-def _run_ssm(node: Node, command: str, timeout: int, runner: Runner, sleep: Callable[[float], None]) -> Result:
+def _run_ssm(
+    node: Node,
+    command: str,
+    timeout: int,
+    runner: Runner,
+    sleep: Callable[[float], None],
+    *,
+    output_bytes: int = OUTPUT_TAIL_BYTES,
+) -> Result:
     if not node.ssm_instance_id:
         raise RemoteExecError(f"node {node.name} has no ssm_instance_id; SSM is not available for it")
     if not node.ssm_region:
@@ -429,13 +447,25 @@ def _run_ssm(node: Node, command: str, timeout: int, runner: Runner, sleep: Call
         if inv.get("Status") and inv["Status"] not in _SSM_PENDING:
             break
     else:
-        return Result("ssm", "TimedOut", None, _tail(inv.get("StandardOutputContent")), _tail(inv.get("StandardErrorContent")))
+        return Result(
+            "ssm",
+            "TimedOut",
+            None,
+            _tail(inv.get("StandardOutputContent"), output_bytes),
+            _tail(inv.get("StandardErrorContent"), output_bytes),
+        )
 
     status = inv["Status"]
     code = inv.get("ResponseCode")
     exit_code = code if isinstance(code, int) and code >= 0 else None
     mapped = {"Success": "Success", "TimedOut": "TimedOut"}.get(status, "Failed")
-    return Result("ssm", mapped, exit_code, _tail(inv.get("StandardOutputContent")), _tail(inv.get("StandardErrorContent")))
+    return Result(
+        "ssm",
+        mapped,
+        exit_code,
+        _tail(inv.get("StandardOutputContent"), output_bytes),
+        _tail(inv.get("StandardErrorContent"), output_bytes),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -450,20 +480,28 @@ def run(
     via: str = "tat",
     runner: Runner | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    output_bytes: int = OUTPUT_TAIL_BYTES,
 ) -> Result:
-    """Run ``script`` on ``node`` once. Never retries, never switches channel."""
+    """Run ``script`` on ``node`` once. Never retries, never switches channel.
+
+    ``output_bytes`` caps returned stdout/stderr tails (default 8KiB). Pass a
+    larger positive value for probe-style callers that need more of the stream;
+    ``0`` keeps the full decoded payload (subject to cloud API truncation).
+    """
     if via not in ("tat", "ssm"):
         raise RemoteExecError(f"via must be 'tat' or 'ssm' (got {via!r})")
     if not isinstance(timeout, int) or not 1 <= timeout <= MAX_TIMEOUT_SECONDS:
         raise RemoteExecError(f"timeout must be 1..{MAX_TIMEOUT_SECONDS} seconds (got {timeout!r})")
+    if not isinstance(output_bytes, int) or output_bytes < 0:
+        raise RemoteExecError(f"output_bytes must be >= 0 (got {output_bytes!r})")
     if via == "ssm" and not node.ssm_instance_id:
         raise RemoteExecError(f"node {node.name} has no ssm_instance_id; SSM is not available for it")
     command = build_remote_command(node, script)
     runner = runner or _default_runner
     if via == "tat":
-        result = _run_tat(node, command, timeout, runner, sleep)
+        result = _run_tat(node, command, timeout, runner, sleep, output_bytes=output_bytes)
     else:
-        result = _run_ssm(node, command, timeout, runner, sleep)
+        result = _run_ssm(node, command, timeout, runner, sleep, output_bytes=output_bytes)
     if result.exit_code == IDENTITY_MISMATCH_EXIT:
         raise RemoteExecError(
             f"identity mismatch on node {node.name}: host does not own {node.private_ip} "

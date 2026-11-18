@@ -1,5 +1,6 @@
 name: Stage0 Container Log Policy Sync
 
+# Transport: Tencent TAT via run-probe (2026-11-18 closeout).
 on:
   workflow_dispatch:
     inputs:
@@ -15,7 +16,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: ops-stage0-container-log-policy-${{ inputs.target }}
@@ -24,15 +24,19 @@ concurrency:
 jobs:
   prod:
     runs-on: ubuntu-latest
-    environment: prod
+    environment: tencent-ops
     env:
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install tccli
+        run: python3 -m pip install 'tccli==3.1.198.1'
       - name: Validate confirmation
         env:
           CONFIRM: ${{ inputs.confirm }}
@@ -42,35 +46,35 @@ jobs:
             echo "::error::confirmation mismatch"
             exit 1
           }
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Resolve prod instance id
-        id: instance
+      - name: Require Tencent TAT credentials
+        run: |
+          for key in TENCENTCLOUD_SECRET_ID TENCENTCLOUD_SECRET_KEY; do
+            if [ -z "${!key}" ]; then
+              echo "::error::$key is not configured"
+              exit 1
+            fi
+          done
+      - name: Sync bounded log policy and recreate Caddy (TAT)
         run: |
           set -euo pipefail
-          python3 ops/stage0/resolve_prod_ssm_target.py --format json --github-output "$GITHUB_OUTPUT" --node app-old
-      - name: Sync bounded log policy and recreate Caddy
-        id: sync
-        env:
-          STAGE0_SSM_OUTPUT_DIR: .
-          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
-        run: bash ops/stage0/sync-container-log-policy-via-ssm.sh "${{ steps.instance.outputs.id }}" "bounded Docker logs; Caddy-only recreate"
+          chmod +x ops/stage0/probe-sync-container-log-policy.sh
+          bash ops/observability/run-probe.sh \
+            --target prod \
+            --node app-old \
+            --via tat \
+            --script ops/stage0/probe-sync-container-log-policy.sh \
+            --with deploy/stage0/docker-compose.yml \
+            --comment "bounded Docker logs; Caddy-only recreate" \
+            --timeout-seconds 300
       - name: Verify external health
         run: bash ops/stage0/external_health.sh https://api.tokenkey.dev
       - name: Job summary
         if: always()
-        env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          COMMAND_ID: ${{ steps.sync.outputs.command_id }}
         run: |
           {
             echo "## Stage0 container log policy"
             echo "- target: prod"
-            echo "- instance: \`${INSTANCE_ID:-unknown}\`"
-            echo "- SSM command: \`${COMMAND_ID:-none}\`"
+            echo "- channel: tat (tencent-ops)"
             echo "- mutation: canonical compose sync + Caddy-only recreate"
             echo "- untouched: active app, PostgreSQL, Redis"
           } >> "$GITHUB_STEP_SUMMARY"

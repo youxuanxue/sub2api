@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
   issues: write
 
 concurrency:
@@ -18,35 +17,38 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    environment: tencent-ops
     env:
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
       TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
       TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install tccli
+        run: python3 -m pip install 'tccli==3.1.198.1'
       - name: Validate watchdog configuration
         run: |
           set -euo pipefail
-          for key in OIDC_ROLE_ARN TK_FEISHU_WEBHOOK_URL TK_FEISHU_SIGNING_SECRET; do
+          for key in TENCENTCLOUD_SECRET_ID TENCENTCLOUD_SECRET_KEY TK_FEISHU_WEBHOOK_URL TK_FEISHU_SIGNING_SECRET; do
             if [ -z "${!key}" ]; then
               echo "::error::$key is not configured"
               exit 1
             fi
           done
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
       - name: Probe production alert configuration
         id: probe
         run: |
           set +e
           bash ops/observability/run-probe.sh \
             --target prod \
+            --via tat \
             --script ops/observability/probe-alert-config.sh \
             --comment "daily Feishu alert configuration watchdog" \
             > probe-alert-config.json
