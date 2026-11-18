@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type geminiCooldownStub struct {
@@ -207,8 +208,49 @@ func TestAntigravityTransportsRejectRemoteFileURIBeforeUpstream(t *testing.T) {
 	require.ErrorAs(t, err, &media)
 
 	official := &Account{ID: 7, Platform: PlatformGemini, Type: AccountTypeAPIKey}
-	require.NoError(t, antigravityRemoteFileRejected(official, "generateContent", body))
-	require.NoError(t, antigravityRemoteFileRejected(oauth, "countTokens", body))
+	out, err := antigravityPrepareRemoteMedia(context.Background(), official, "generateContent", body)
+	require.NoError(t, err)
+	require.Equal(t, body, out)
+	out, err = antigravityPrepareRemoteMedia(context.Background(), oauth, "countTokens", body)
+	require.NoError(t, err)
+	require.Equal(t, body, out)
+}
+
+func TestAntigravityPrepareRemoteMediaInlinesHTTPSImages(t *testing.T) {
+	prev := fetchAntigravityRemoteImage
+	t.Cleanup(func() { fetchAntigravityRemoteImage = prev })
+	fetchAntigravityRemoteImage = func(ctx context.Context, rawURL string) (antigravityFetchedImage, error) {
+		require.Equal(t, "https://cdn.example.test/a.png", rawURL)
+		return antigravityFetchedImage{Mime: "image/png", Data: []byte("hello")}, nil
+	}
+
+	body := []byte(`{"contents":[{"parts":[{"text":"see"},{"fileData":{"mimeType":"image/png","fileUri":"https://cdn.example.test/a.png"}}]}]}`)
+	oauth := &Account{ID: 292, Platform: PlatformAntigravity, Type: AccountTypeOAuth}
+	out, err := antigravityPrepareRemoteMedia(context.Background(), oauth, "generateContent", body)
+	require.NoError(t, err)
+	require.False(t, GeminiBodyHasRemoteFileURI(out))
+	require.Equal(t, "image/png", gjson.GetBytes(out, "contents.0.parts.1.inlineData.mimeType").String())
+	require.Equal(t, "aGVsbG8=", gjson.GetBytes(out, "contents.0.parts.1.inlineData.data").String())
+	require.False(t, gjson.GetBytes(out, "contents.0.parts.1.fileData").Exists())
+}
+
+func TestAntigravityPrepareRemoteMediaRejectsPrivateImageHost(t *testing.T) {
+	prev := fetchAntigravityRemoteImage
+	t.Cleanup(func() { fetchAntigravityRemoteImage = prev })
+	fetchAntigravityRemoteImage = defaultFetchAntigravityRemoteImage
+
+	body := []byte(`{"contents":[{"parts":[{"file_data":{"mime_type":"image/*","file_uri":"http://127.0.0.1/a.png"}}]}]}`)
+	oauth := &Account{ID: 292, Platform: PlatformAntigravity, Type: AccountTypeOAuth}
+	_, err := antigravityPrepareRemoteMedia(context.Background(), oauth, "generateContent", body)
+	var media *AntigravityInlineMediaError
+	require.ErrorAs(t, err, &media)
+	require.Contains(t, media.Error(), "invalid remote image URL")
+}
+
+func TestAntigravityRemoteImageURLAllowedBlocksPrivateHosts(t *testing.T) {
+	require.Error(t, antigravityRemoteImageURLAllowed(context.Background(), "http://127.0.0.1/a.png"))
+	require.Error(t, antigravityRemoteImageURLAllowed(context.Background(), "http://169.254.169.254/latest"))
+	require.Error(t, antigravityRemoteImageURLAllowed(context.Background(), "gs://bucket/a.png"))
 }
 
 func TestGeminiRemoteFileURIDetectsAntigravityUnsupportedReferences(t *testing.T) {

@@ -18695,25 +18695,37 @@
     {
       "path": "backend/internal/service/antigravity_gateway_gemini.go",
       "must_contain": [
-        "antigravityRemoteFileRejected(account, action, body)",
+        "antigravityPrepareRemoteMedia(ctx, account, action, body)",
         "noteGeminiG1CreditsExhausted(ctx, s.accountRepo, account)",
         "noteGeminiStreamDisruptionWhenDelivered(ctx, s.accountRepo, account, streamRes.modelBytesWritten)"
       ],
-      "rationale": "Antigravity OAuth native Gemini is governed and enters through ForwardGemini. Remote fileUri must be rejected there before any upstream call. G1 credit exhaustion still cools immediately. A truncation counts toward the ladder only after body, tool, or media was written; an empty-prefix failover must not."
+      "rationale": "Antigravity OAuth native Gemini is governed and enters through ForwardGemini. Public http(s) image fileUri parts are inlined before upstream; remaining remote fileUri (gs:// / non-image) still fails locally. G1 credit exhaustion still cools immediately. A truncation counts toward the ladder only after body, tool, or media was written; an empty-prefix failover must not."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
-        "antigravityRemoteFileRejected(account, action, body)"
+        "antigravityPrepareRemoteMedia(ctx, account, action, body)"
       ],
-      "rationale": "Antigravity API-key native Gemini uses ForwardNative. The same remote fileUri rejection has to run on that transport; official Gemini accounts stay allowed."
+      "rationale": "Antigravity API-key native Gemini uses ForwardNative. The same remote-image prepare path must run there; official Gemini accounts stay passthrough."
     },
     {
       "path": "backend/internal/service/gemini_native_request_guard_tk_test.go",
       "must_contain": [
-        "func TestAntigravityTransportsRejectRemoteFileURIBeforeUpstream(t *testing.T)"
+        "func TestAntigravityTransportsRejectRemoteFileURIBeforeUpstream(t *testing.T)",
+        "func TestAntigravityPrepareRemoteMediaInlinesHTTPSImages(t *testing.T)",
+        "func TestAntigravityPrepareRemoteMediaRejectsPrivateImageHost(t *testing.T)",
+        "func TestAntigravityRemoteImageURLAllowedBlocksPrivateHosts(t *testing.T)"
       ],
-      "rationale": "The rejection is only real if both nil transports return before touching upstream state."
+      "rationale": "Cover positive HTTPS image inlining, private-host SSRF refusal, and gs:// local rejection on both nil transports."
+    },
+    {
+      "path": "backend/internal/service/antigravity_remote_image_inline_tk.go",
+      "must_contain": [
+        "func antigravityPrepareRemoteMedia(",
+        "safeDialContext",
+        "antigravityRemoteImageMaxBytes"
+      ],
+      "rationale": "OmniRoute-aligned Antigravity media prepare: SSRF-safe dial, per-image size cap, then reject leftovers."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_service.go",

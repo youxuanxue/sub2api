@@ -169,3 +169,9 @@
 原话：「没有 tokensea 账号，是供应源受管的。」「同意。继续。」
 
 适用范围：删 openai/anthropic 上 tokensea relay 识别/地板/目录/调度特例。`agent.tokensea.ai` 请求体剥离按 host 保留。不改现网映射。
+
+## 2026-11-18 Antigravity 远程图按 OmniRoute 代下转 inlineData
+
+原话：「对齐开源「可感体验」：最接近的是 OmniRoute 路线（仅 http(s) 图、白名单/SSRF 防护、大小上限、失败仍本地 400）。」
+
+适用范围：Antigravity 原生 `generateContent`/`streamGenerateContent` 上，公网 `http(s)` 图片 `fileUri` 由网关 SSRF-safe 下载并改写为 `inlineData`（单图 15MiB、最多 8 张）；`gs://`、非图片远程 URI、私网/元数据主机、下载失败仍本地 400。不改写成 Chat。官方 Gemini 账户仍透传 `fileUri`。
