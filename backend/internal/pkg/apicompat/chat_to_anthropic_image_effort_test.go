@@ -57,6 +57,30 @@ func TestValidateChatToAnthropic_RejectsThinkingWithReasoningEffort(t *testing.T
 	require.Error(t, ValidateChatToAnthropic(&req))
 }
 
+func TestChatCompletionsToAnthropicRequest_StripsOpenAIOnlyExtras(t *testing.T) {
+	// Match new-api / LiteLLM: response_format and legacy functions do not block
+	// Chat→Messages. Structured output is dropped; legacy functions remap to tools.
+	var req ChatCompletionsRequest
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"model":"claude-fable-5-2",
+		"stream":false,
+		"max_tokens":64,
+		"response_format":{"type":"json_object"},
+		"functions":[{"name":"lookup","parameters":{"type":"object","properties":{"q":{"type":"string"}}}}],
+		"messages":[{"role":"user","content":"hello"}]
+	}`), &req))
+	require.NoError(t, ValidateChatToAnthropic(&req))
+	out, err := ChatCompletionsToAnthropicRequest(&req)
+	require.NoError(t, err)
+	require.Equal(t, 64, out.MaxTokens)
+	require.Len(t, out.Tools, 1)
+	require.Equal(t, "lookup", out.Tools[0].Name)
+	raw, err := json.Marshal(out)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "response_format")
+	require.NotContains(t, string(raw), "json_object")
+}
+
 func TestChatCompletionsToAnthropicRequest_PinsTemperatureWhenThinking(t *testing.T) {
 	temp := 0.2
 	req := ChatCompletionsRequest{

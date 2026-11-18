@@ -24,6 +24,11 @@ func TestChatToMessagesAdmitsImageAndReasoningEffort(t *testing.T) {
 		"data_image":       `{"model":"claude-fable-5","messages":[{"role":"user","content":[{"type":"text","text":"what"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AQID"}}]}]}`,
 		"image_and_effort": `{"model":"claude-fable-5","reasoning_effort":"medium","messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"https://example.com/a.png"}}]}]}`,
 		"thinking_only":    `{"model":"claude-fable-5","thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"hello"}]}`,
+		// Open-source relays strip these OpenAI-only extras instead of rejecting.
+		"structured output": `{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],"response_format":{"type":"json_schema"}}`,
+		"legacy function":   `{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],"functions":[{"name":"lookup","parameters":{"type":"object"}}]}`,
+		"root reasoning":    `{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],"reasoning":{"effort":"high"}}`,
+		"non_stream_json":   `{"model":"claude-fable-5","stream":false,"messages":[{"role":"user","content":"hello"}],"response_format":{"type":"json_object"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			req, err := ParseCanonicalRequest(ProtocolChatCompletions, ResponsesPathNone, "claude-fable-5", true, []byte(body))
@@ -37,15 +42,12 @@ func TestChatToMessagesAdmitsImageAndReasoningEffort(t *testing.T) {
 
 func TestChatToMessagesRejectsUnsupportedSemantics(t *testing.T) {
 	for name, extra := range map[string]string{
-		"strict tool":       `"tools":[{"type":"function","function":{"name":"lookup","strict":true}}]`,
-		"hosted tool":       `"tools":[{"type":"web_search"}]`,
-		"named undeclared":  `"tool_choice":{"type":"function","function":{"name":"missing"}}`,
-		"structured output": `"response_format":{"type":"json_schema"}`,
-		"thinking+effort":   `"thinking":{"type":"adaptive"},"reasoning_effort":"high"`,
-		"prompt cache key":  `"prompt_cache_key":"session"`,
-		"continuation":      `"previous_response_id":"resp_1"`,
-		"legacy function":   `"functions":[{"name":"lookup"}]`,
-		"root reasoning":    `"reasoning":{"effort":"high"}`,
+		"strict tool":      `"tools":[{"type":"function","function":{"name":"lookup","strict":true}}]`,
+		"hosted tool":      `"tools":[{"type":"web_search"}]`,
+		"named undeclared": `"tool_choice":{"type":"function","function":{"name":"missing"}}`,
+		"thinking+effort":  `"thinking":{"type":"adaptive"},"reasoning_effort":"high"`,
+		"prompt cache key": `"prompt_cache_key":"session"`,
+		"continuation":     `"previous_response_id":"resp_1"`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			body := []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hello"}],` + extra + `}`)

@@ -1473,7 +1473,7 @@
         "TestChatToMessagesAdmitsImageAndReasoningEffort",
         "TestChatToMessagesRejectsUnsupportedSemantics"
       ],
-      "rationale": "Chat→Messages Plan must keep admitting image_url + reasoning_effort and keep rejecting thinking+effort / root reasoning / hosted tools."
+      "rationale": "Chat→Messages Plan must keep admitting image_url + reasoning_effort and open-source-stripped extras (response_format / legacy functions / root reasoning), while still rejecting thinking+effort / hosted tools / prompt_cache_key / continuation."
     },
     {
       "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",

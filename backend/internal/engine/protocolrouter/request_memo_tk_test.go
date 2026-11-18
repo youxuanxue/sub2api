@@ -28,10 +28,8 @@ func freshChatToMessagesPreservation(req CanonicalRequest) bool {
 		return false
 	}
 	var chat apicompat.ChatCompletionsRequest
-	var root map[string]json.RawMessage
-	if json.Unmarshal(req.body, &root) != nil || len(root["reasoning"]) > 0 {
-		return false
-	}
+	// Mirror computeChatToMessagesPreservation: root reasoning is stripped on
+	// unmarshal; ValidateChatToAnthropic admits response_format / legacy functions.
 	if json.Unmarshal(req.body, &chat) != nil || apicompat.ValidateChatToAnthropic(&chat) != nil {
 		return false
 	}

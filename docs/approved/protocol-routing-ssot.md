@@ -1,19 +1,24 @@
 ---
 title: Protocol Routing Single Source of Truth
 status: approved
-approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, conversation, conversation_id, and audio behind native Responses; unowned previous_response_id is dropped before forwarding on HTTP and the first WebSocket frame, while later WebSocket turns stay fail-closed; 2026-11-12 Chat/Responses/Messages→Gemini preserve alignment; 2026-11-17 Chat→Messages admits image_url + reasoning_effort, aligning new-api/LiteLLM)"
+approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, conversation, conversation_id, and audio behind native Responses; unowned previous_response_id is dropped before forwarding on HTTP and the first WebSocket frame, while later WebSocket turns stay fail-closed; 2026-11-12 Chat/Responses/Messages→Gemini preserve alignment; 2026-11-17 Chat→Messages admits image_url + reasoning_effort, aligning new-api/LiteLLM; 2026-11-18 Chat→Messages strips OpenAI-only extras like open-source relays for UX)"
 authors: [codex]
 created: 2026-08-24
-revised: 2026-11-17
+revised: 2026-11-18
 revision_note: >
+  2026-11-18: Chat→Messages Plan matches open-source relay UX (new-api /
+    LiteLLM): admit and strip/remap OpenAI-only extras — response_format,
+    legacy functions/function_call, and root reasoning objects — instead of
+    fail-closed unsupported_request. Still fail-closed: video/audio,
+    prompt_cache_key, previous_response_id, hosted/strict tools,
+    thinking+effort together. Approved by feng: 「我们也应该对齐开源实现，
+    以用户体验更高优先级。」
   2026-11-17: Chat→Messages Plan admits text+image content and
   reasoning_effort (or native thinking), matching open-source relays
   (new-api / LiteLLM). Conversion maps image_url data-URI and http(s)
   URL onto Anthropic image sources, and reasoning_effort through the
-  existing Chat→Responses→Anthropic path. Still fail-closed: video/audio,
-  root reasoning objects, prompt_cache_key, previous_response_id,
-  hosted/strict tools, json_schema response_format, thinking+effort
-  together. Responses→Messages reasoning gate unchanged.
+  existing Chat→Responses→Anthropic path. Responses→Messages reasoning
+  gate unchanged.
   2026-11-12: Chat→Gemini is a direct converter and keeps data-URL images,
   function tools, tool_choice, JSON response format, and reasoning_effort.
   Messages→Gemini keeps base64 images, thought parts, and tool_choice
@@ -379,9 +384,13 @@ preserve function tools and images through the existing apicompat conversions.
 (and Messages-native `thinking` without a conflicting effort), mapping effort
 through Chat→Responses→Anthropic the same way open-source relays do. Image
 parts accept data-URI and http(s) `image_url` values as Anthropic `image`
-sources. Video, audio, root Chat `reasoning` objects, `prompt_cache_key`,
-`previous_response_id`, hosted/strict tools, and `json_schema`
-`response_format` stay fail-closed on that route. `responses → messages`
+sources. OpenAI-only extras that open-source relays strip or ignore —
+`response_format` (including `json_schema` / `json_object`), legacy
+`functions` / `function_call`, and root Chat `reasoning` objects — are
+admitted and dropped or remapped by the converter; they must not produce
+Plan-level `unsupported_request`. Video, audio, `prompt_cache_key`,
+`previous_response_id`, hosted/strict tools, and thinking+effort together
+stay fail-closed on that route. `responses → messages`
 still requires `ReasoningNone` at Plan time; Responses→Chat already owns
 effort mapping when a Chat hop is legal.
 `responses → chat_completions` matches the content/tool surface and maps

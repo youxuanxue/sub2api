@@ -10,11 +10,13 @@ import (
 // ValidateChatToAnthropic checks the text/image + function-tool subset whose
 // semantics the Messages converter preserves. Routing and cached conversion
 // share it.
+//
+// OpenAI-only fields that open-source relays (new-api / LiteLLM) strip or ignore
+// on Chat→Claude — response_format, legacy functions/function_call — are
+// admitted here. The converter drops or remaps them; Plan must not fail-closed
+// into unsupported_request for Magpie / deepseek-harness style clients.
 func ValidateChatToAnthropic(req *ChatCompletionsRequest) error {
 	invalid := fmt.Errorf("unsupported Chat to Messages semantics")
-	if len(req.Functions) > 0 || hasChatJSON(req.FunctionCall) || hasChatJSON(req.ResponseFormat) {
-		return invalid
-	}
 	if hasChatJSON(req.Thinking) {
 		var thinking AnthropicThinking
 		decoder := json.NewDecoder(bytes.NewReader(req.Thinking))
@@ -44,16 +46,29 @@ func ValidateChatToAnthropic(req *ChatCompletionsRequest) error {
 		return value.Type == "ephemeral" && (value.TTL == "" || value.TTL == "5m" || value.TTL == "1h")
 	}
 	names := make(map[string]bool)
-	for _, tool := range req.Tools {
-		f := tool.Function
-		if tool.Type != "function" || f == nil || strings.TrimSpace(f.Name) == "" || names[f.Name] || (f.Strict != nil && *f.Strict) || !cache(tool.CacheControl) {
-			return invalid
+	registerToolName := func(name string, strict *bool, parameters json.RawMessage, toolCache *AnthropicCacheControl) bool {
+		if strings.TrimSpace(name) == "" || names[name] || (strict != nil && *strict) || !cache(toolCache) {
+			return false
 		}
 		var schema map[string]any
-		if hasChatJSON(f.Parameters) && (json.Unmarshal(f.Parameters, &schema) != nil || schema == nil || (schema["type"] != nil && schema["type"] != "object")) {
+		if hasChatJSON(parameters) && (json.Unmarshal(parameters, &schema) != nil || schema == nil || (schema["type"] != nil && schema["type"] != "object")) {
+			return false
+		}
+		names[name] = true
+		return true
+	}
+	for _, tool := range req.Tools {
+		f := tool.Function
+		if tool.Type != "function" || f == nil || !registerToolName(f.Name, f.Strict, f.Parameters, tool.CacheControl) {
 			return invalid
 		}
-		names[f.Name] = true
+	}
+	// Legacy functions[] are converted through Chat→Responses→Anthropic the
+	// same way modern tools[] are; register names so tool turns still validate.
+	for _, f := range req.Functions {
+		if !registerToolName(f.Name, f.Strict, f.Parameters, nil) {
+			return invalid
+		}
 	}
 	if hasChatJSON(req.ToolChoice) {
 		var choice string
