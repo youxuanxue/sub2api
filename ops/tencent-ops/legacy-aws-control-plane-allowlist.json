@@ -21,7 +21,6 @@
     "ops/stage0/run_physical_restore.py",
     "ops/stage0/ssm_execution.py",
     "ops/stage0/sync-container-log-policy-via-ssm.sh",
-    "ops/stage0/sync-feishu-config.sh",
     "ops/stage0/sync-ghcr-prune-timer-via-ssm.sh",
     "ops/stage0/sync-host-bbr-via-ssm.sh",
     "ops/stage0/sync-prod-pg-tuning-via-ssm.sh",
