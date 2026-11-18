@@ -1,12 +1,6 @@
 {
   "ssot": "docs/approved/design-tencent-ops-control-plane.md",
   "ssm_remote_paths": [
-    "deploy/domestic/remote_exec.py",
-    "ops/observability/run-probe.sh",
-    "ops/pricing/manage-account-model-mapping-runtime.py",
-    "ops/stage0/deploy_via_ssm.sh",
-    "ops/stage0/deploy_via_ssm_bluegreen.sh",
-    "ops/stage0/run_physical_restore.py",
     "ops/stage0/ssm_execution.py"
   ],
   "securestring_write_paths": [],

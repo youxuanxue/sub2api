@@ -606,18 +606,22 @@ fi
 
 echo "[run-probe] resolved region=$REGION instance_id=$INSTANCE_ID" >&2
 START=$(date +%s)
-CMD_ID=$(aws ssm send-command \
+# Break-glass SSM: SendCommand argv lives in ssm_execution.py (allowlist).
+SSM_SEND_PY="$REPO_ROOT/ops/stage0/ssm_execution.py"
+PARAMS_FILE=$(mktemp)
+printf '%s\n' "$PARAMS" > "$PARAMS_FILE"
+CMD_ID=$(python3 "$SSM_SEND_PY" send \
   --region "$REGION" \
-  --instance-ids "$INSTANCE_ID" \
-  --document-name AWS-RunShellScript \
+  --instance-id "$INSTANCE_ID" \
   --comment "$COMMENT" \
   --timeout-seconds "$TIMEOUT_SECONDS" \
-  --parameters "$PARAMS" \
-  --query 'Command.CommandId' --output text 2>&1) || {
-  echo "[run-probe] ERROR: ssm send-command failed" >&2
+  --params-file "$PARAMS_FILE" 2>&1) || {
+  rm -f "$PARAMS_FILE"
+  echo "[run-probe] ERROR: SSM SendCommand failed" >&2
   printf '%s\n' "$CMD_ID" >&2
   exit 2
 }
+rm -f "$PARAMS_FILE"
 echo "[run-probe] command_id=$CMD_ID" >&2
 
 # The AWS waiter has a fixed ~100s budget (5s x 20 checks), independent of the
