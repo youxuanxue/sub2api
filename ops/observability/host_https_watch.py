@@ -442,7 +442,7 @@ def qa_coordinator_fact(path: Path, now: float) -> dict | None:
                 return {
                     "healthy": False,
                     "category": category,
-                    "reason": "node1 无法连接，QA 归档积压；请恢复 node1 或其 SSH/jump",
+                    "reason": "node1 网络异常，QA 归档积压；请运维排查 node1 / SSH jump 连通与传输带宽",
                 }
             return {
                 "healthy": False,
@@ -459,7 +459,7 @@ def qa_coordinator_fact(path: Path, now: float) -> dict | None:
             return {
                 "healthy": False,
                 "category": category,
-                "reason": "node1 无法连接：SSH/jump 失败，请运维恢复 node1 连通",
+                "reason": "node1 网络异常：SSH/jump 失败或传输过慢，请运维排查",
             }
         return {
             "healthy": False,
@@ -605,8 +605,8 @@ def tick_jobs(jobs, previous, now, probe, send, node="unknown"):
         updated["category"] = fact.get("category", "")
         if action:
             if fact.get("category") == "node1_unreachable":
-                label = "🔴 运维处理：node1 无法连接"
-                owner = "责任方：运维；请恢复 node1 或其 SSH/jump 连接"
+                label = "🔴 运维处理：node1 网络异常"
+                owner = "责任方：运维；请排查 node1 / SSH jump 连通与传输带宽"
             elif fact.get("category") == "gateway_qa_archive_failed":
                 label = "🔴 网关 QA 归档失败"
                 owner = "责任方：TokenKey 网关 QA 归档"

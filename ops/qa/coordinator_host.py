@@ -86,8 +86,12 @@ def archive_error_failure_class(error: str) -> str:
     """Map a source archive error string to the #3222 alert owner categories."""
     text = (error or "").lower()
     # Worker stderr (capacity probe / SSH path) and SSH transport failures.
+    # Transfer wall-clock timeouts are node1/jump network (ops), not gateway QA:
+    # prod has seen ~0.3–0.4 MiB/s through the archive jump, so large hours hit
+    # remote.timeout while still connected.
     markers = (
         "node1 capacity probe failed",
+        "node1 transfer timed out",
         "connection timed out during banner exchange",
         "connection to unknown port",
         "could not resolve hostname",
@@ -95,6 +99,7 @@ def archive_error_failure_class(error: str) -> str:
         "connection refused",
         "permission denied (publickey)",
         "host key verification failed",
+        "timed out after",
     )
     if any(marker in text for marker in markers):
         return "node1_unreachable"
