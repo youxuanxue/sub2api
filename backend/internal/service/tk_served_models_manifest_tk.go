@@ -236,12 +236,6 @@ func aliTokenPlanMappingKeyForbidden(key string) bool {
 	return false
 }
 
-// Upstream billing ids stay in the manifest so the public alias can resolve a
-// price, but they are not client mapping keys.
-func aliTokenPlanUpstreamOnlyModelID(key string) bool {
-	return key == "qwen4.0-max-preview"
-}
-
 func newAPIAliTokenPlanModelMappingPresetIDs() []string {
 	raw := tkServedModelsManifestPresetIDsForSelector(
 		PlatformNewAPI,
@@ -251,7 +245,7 @@ func newAPIAliTokenPlanModelMappingPresetIDs() []string {
 	ids := make([]string, 0, len(raw)+1)
 	seen := make(map[string]struct{}, len(raw)+1)
 	for _, id := range raw {
-		if aliTokenPlanMappingKeyForbidden(id) || aliTokenPlanUpstreamOnlyModelID(id) {
+		if aliTokenPlanMappingKeyForbidden(id) {
 			continue
 		}
 		if _, exists := seen[id]; exists {
@@ -261,7 +255,7 @@ func newAPIAliTokenPlanModelMappingPresetIDs() []string {
 		ids = append(ids, id)
 	}
 	for alias := range newAPIAliTokenPlanModelAliases() {
-		if aliTokenPlanMappingKeyForbidden(alias) || aliTokenPlanUpstreamOnlyModelID(alias) {
+		if aliTokenPlanMappingKeyForbidden(alias) {
 			continue
 		}
 		if _, exists := seen[alias]; exists {
@@ -358,11 +352,10 @@ var aliTokenPlanForbiddenModelMappingKeys = []string{
 
 // Ali Token Plan migration intent; shared by presets, runtime floors, the
 // generated activation bundle, and billing settlement (settleBillingOnAccountServedModel).
+// Empty after qwen4 GA: both qwen4.0-max and qwen4.0-max-preview self-map.
 // PAYG aliases retain their original targets.
 func newAPIAliTokenPlanModelAliases() map[string]string {
-	return map[string]string{
-		"qwen4.0-max": "qwen4.0-max-preview",
-	}
+	return map[string]string{}
 }
 
 func newAPIAliTokenPlanModelDisplayPresetIDs() []string {

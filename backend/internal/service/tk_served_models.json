@@ -215,7 +215,6 @@
     },
     "qwen4.0-max": {
       "display": true,
-      "price_owner": "qwen4.0-max-preview",
       "scopes": [
         {
           "channel_type": 17,
@@ -224,7 +223,7 @@
       ]
     },
     "qwen4.0-max-preview": {
-      "display": false,
+      "display": true,
       "scopes": [
         {
           "channel_type": 17,
