@@ -66,7 +66,7 @@ func TestVolcKimiRequestLimitsRejectUndeliverableFields(t *testing.T) {
 		})
 	}
 	for _, field := range []string{
-		`"top_p":0.95`, `"temperature":0`, `"temperature":0.6`, `"temperature":1`,
+		`"top_p":0.95`, `"temperature":1`,
 		`"presence_penalty":0`, `"frequency_penalty":0`,
 		`"n":1`, `"logprobs":false`, `"top_logprobs":0`, `"max_tokens":1`, `"max_completion_tokens":131072`,
 		`"top_p":null`, `"temperature":null`, `"n":null`, `"logprobs":null`, `"max_tokens":null`,
@@ -80,6 +80,15 @@ func TestVolcKimiRequestLimitsRejectUndeliverableFields(t *testing.T) {
 			require.JSONEq(t, string(body), string(got), "valid values must be forwarded unchanged")
 		})
 	}
+	// Default/enabled Volc thinking pins legal non-1 temperature to 1.0.
+	for _, raw := range []string{`"temperature":0`, `"temperature":0.6`} {
+		t.Run("thinking_on_pins/"+raw, func(t *testing.T) {
+			body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}],` + raw + `}`)
+			got, err := applyMoonshotThinkingShape(nil, account, "kimi-k3", body)
+			require.NoError(t, err)
+			require.InDelta(t, 1.0, gjson.GetBytes(got, "temperature").Float(), kimiK3FixedSamplingEpsilon)
+		})
+	}
 	// Public kimi-k3 rejects KVV-illegal sampling even when the account is not
 	// the supplier that owns the rest of the normalizer. top_p is checked first.
 	_, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", []byte(`{"n":2,"top_p":1.5}`))
@@ -91,7 +100,7 @@ func TestVolcKimiRequestLimitsRejectUndeliverableFields(t *testing.T) {
 	require.Equal(t, "n", otherInvalid.Param)
 
 	// kimi-k3.1-pro and other kimi-* ids use the same KVV table. n=2, temperature
-	// 1.1 and 2.0 are rejected. A legal temperature stays client-authored.
+	// 1.1 and 2.0 are rejected. Non-Volc accounts keep a legal temperature as sent.
 	_, err = applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","n":2}`))
 	var invalid *OpenAIInvalidParameterError
 	require.ErrorAs(t, err, &invalid)
@@ -110,6 +119,26 @@ func TestVolcKimiRequestLimitsRejectUndeliverableFields(t *testing.T) {
 		require.ErrorAs(t, ferr, &orphan)
 		require.Equal(t, "messages", orphan.Param)
 	}
+
+	t.Run("volc thinking-on pins kimi-k3.1-pro temperature", func(t *testing.T) {
+		// cn-prod 2026-11-18: default thinking + temp 0 → upstream only-1 400;
+		// temp 1 succeeds. Pin only on the Volc Agent Plan path.
+		for _, raw := range []string{`"temperature":0`, `"temperature":0.6`} {
+			got, ferr := applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","messages":[{"role":"user","content":"hi"}],`+raw+`}`))
+			require.NoError(t, ferr)
+			require.InDelta(t, 1.0, gjson.GetBytes(got, "temperature").Float(), kimiK3FixedSamplingEpsilon)
+		}
+		kept, ferr := applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","messages":[{"role":"user","content":"hi"}],"thinking":{"type":"disabled"},"temperature":0.6}`))
+		require.NoError(t, ferr)
+		require.Equal(t, "disabled", gjson.GetBytes(kept, "thinking.type").String())
+		require.InDelta(t, 0.6, gjson.GetBytes(kept, "temperature").Float(), kimiK3FixedSamplingEpsilon)
+		one, ferr := applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","messages":[{"role":"user","content":"hi"}],"temperature":1}`))
+		require.NoError(t, ferr)
+		require.InDelta(t, 1.0, gjson.GetBytes(one, "temperature").Float(), kimiK3FixedSamplingEpsilon)
+		_, ferr = applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","messages":[{"role":"user","content":"hi"}],"temperature":1.1}`))
+		require.ErrorAs(t, ferr, &invalid)
+		require.Equal(t, "temperature", invalid.Param)
+	})
 }
 
 func TestVolcKimiFixedSamplingSurvivesAliPin(t *testing.T) {

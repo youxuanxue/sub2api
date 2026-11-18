@@ -3480,13 +3480,14 @@
         "func wrapVolcKimiStringVideoURLs(",
         "func coerceVolcKimiNullMessageContent(",
         "shaped, err := coerceVolcKimiNullMessageContent(body)",
+        "shaped, err = pinVolcKimiThinkingOnTemperature(shaped)",
         "func dropVolcKimiEmptyTextParts(",
         "shaped, err = dropVolcKimiEmptyTextParts(shaped)",
         "func volcKimiTextPartHasNoInput(",
         "func dropVolcKimiInterleavedAssistantText(",
         "shaped, err = dropVolcKimiInterleavedAssistantText(shaped)"
       ],
-      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. Interleaved assistant text between tool_calls and tool results is dropped before Volc InvalidParameter 400. Text parts with empty/null/missing text are dropped before missing messages.content.text 400. Message-level content JSON null is rewritten to empty string before Volc missing messages.content 400."
+      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. Interleaved assistant text between tool_calls and tool results is dropped before Volc InvalidParameter 400. Text parts with empty/null/missing text are dropped before missing messages.content.text 400. Message-level content JSON null is rewritten to empty string before Volc missing messages.content 400. Thinking-on pins KVV-legal non-1 temperature to 1.0 before Volc only-1 400."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
@@ -3529,6 +3530,7 @@
       "path": "backend/internal/service/volc_kimi_chat_request_limits_tk.go",
       "must_contain": [
         "func validateVolcKimiRequestLimits(",
+        "func pinVolcKimiThinkingOnTemperature(",
         "volcKimiNumberInRange(body, \"temperature\", 0, 2)",
         "volcKimiNumberInRange(body, \"top_p\", 0, 1)",
         "kimi-k3 supports only n=1",
@@ -3537,12 +3539,14 @@
         "func validateVolcKimiPrediction(",
         "prediction.type must be content"
       ],
-      "rationale": "Volc Agent Plan kimi-k3 must return field-level 400s for sampling, n, logprobs and max token values the supplier silently ignores, and reasoning_effort none must close thinking instead of becoming low effort."
+      "rationale": "Volc Agent Plan kimi-k3 must return field-level 400s for sampling, n, logprobs and max token values the supplier silently ignores, reasoning_effort none must close thinking instead of becoming low effort, and thinking-on pins KVV-legal non-1 temperature to 1.0."
     },
     {
       "path": "backend/internal/service/volc_kimi_chat_request_limits_tk_test.go",
       "must_contain": [
         "func TestVolcKimiRequestLimitsRejectUndeliverableFields(",
+        "volc thinking-on pins kimi-k3.1-pro temperature",
+        "thinking_on_pins/",
         "func TestVolcKimiReasoningEffortNoneDisablesThinking(",
         "func TestVolcKimiRequestLimitsForwardReturnsLocal400(",
         "func TestVolcKimiUpstream400HidesSupplierRequestID(",
