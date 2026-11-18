@@ -32,6 +32,10 @@ func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	shaped, err = pinVolcKimiThinkingOnTemperature(shaped)
+	if err != nil {
+		return nil, err
+	}
 	shaped, err = normalizeVolcKimiAllowedTools(shaped)
 	if err != nil {
 		return nil, err
