@@ -20830,7 +20830,7 @@
       "path": "deploy/stage0/test_render_prod_caddyfile.py",
       "must_contain": [
         "def test_entry_mode_renders_private_weighted_pool(self) -> None:",
-        "self.assertIn(\"lb_policy weighted_round_robin 2 1\", rendered)"
+        "self.assertIn(\"lb_policy weighted_round_robin 1 1\", rendered)"
       ],
       "rationale": "Executable coverage keeps the prod entry backend pool private, ordered by matrix weight, and distinct from the app single-upstream mode."
     },
