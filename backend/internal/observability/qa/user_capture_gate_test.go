@@ -51,7 +51,7 @@ func TestUserQACaptureEnabled_PersistsWhenFlagTrue(t *testing.T) {
 }
 
 // TestUserQACaptureEnabled_SkipsWhenFlagFalse locks the negative path:
-// site-wide capture on + user.qa_capture_enabled=false → no qa_records / no blobs.
+// site-wide capture on + user.qa_capture_enabled=false → no tee buffer, no qa_records / blobs.
 func TestUserQACaptureEnabled_SkipsWhenFlagFalse(t *testing.T) {
 	svc, client, store := newQACaptureTestService(t)
 	gin.SetMode(gin.TestMode)
@@ -66,7 +66,9 @@ func TestUserQACaptureEnabled_SkipsWhenFlagFalse(t *testing.T) {
 		c.Next()
 	})
 	r.Use(svc.Middleware())
+	var sawTee bool
 	r.POST("/v1/messages", func(c *gin.Context) {
+		_, sawTee = c.Get(contextKeyTeeWriter)
 		c.JSON(200, gin.H{"ok": true, "secret": "must-not-be-captured"})
 	})
 
@@ -76,6 +78,7 @@ func TestUserQACaptureEnabled_SkipsWhenFlagFalse(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, 200, w.Code)
+	require.False(t, sawTee, "disabled user must not install response tee / body buffer")
 
 	// Give the async pool a moment; then assert nothing was persisted.
 	time.Sleep(100 * time.Millisecond)

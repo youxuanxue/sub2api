@@ -13,6 +13,7 @@ import (
 	"time"
 
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -110,6 +111,12 @@ func (w *teeResponseWriter) snapshot() ([]byte, []RawSSEChunk, bool) {
 func Middleware(svc *Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if svc == nil || !svc.Enabled() {
+			c.Next()
+			return
+		}
+		// Per-user gate must run before tee/buffer install. Requires API-key auth
+		// middleware to have populated ContextKeyAPIKey (see gateway route order).
+		if apiKey, ok := middleware.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.User != nil && !apiKey.User.QACaptureEnabled {
 			c.Next()
 			return
 		}

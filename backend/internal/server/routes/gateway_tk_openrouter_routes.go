@@ -28,10 +28,10 @@ func registerTKOpenRouterProviderRoutes(
 	openrouterProvider.Use(bodyLimit)
 	openrouterProvider.Use(clientRequestID)
 	openrouterProvider.Use(trajectoryID)
-	openrouterProvider.Use(qaCapture)
 	openrouterProvider.Use(opsErrorLogger)
 	openrouterProvider.Use(endpointNorm)
 	openrouterProvider.Use(apiKeyAuth)
+	openrouterProvider.Use(qaCapture)
 	openrouterProvider.Use(middleware.GroupModelAllowlist())
 	openrouterRoutes := newTerminalRouteRegistrar(openrouterProvider, terminalOutcomeRecorder)
 	{

@@ -12027,9 +12027,9 @@
       "path": "backend/internal/server/routes/gateway.go",
       "must_contain": [
         "gatewayRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, tkOpenAICompatAudioSpeechHandler(h))",
-        "rootRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, tkOpenAICompatAudioSpeechHandler(h))"
+        "rootRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, bodyLimit, clientRequestID, trajectoryID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), qaCapture, groupModelAllowlist, requireGroupAnthropic, tkOpenAICompatAudioSpeechHandler(h))"
       ],
-      "rationale": "Public OpenAI-compat audio speech routes on /v1 and root must stay wired to tkOpenAICompatAudioSpeechHandler; dropping either registration silently removes the TTS surface while catalog/docs still advertise it."
+      "rationale": "Public OpenAI-compat audio speech routes on /v1 and root must stay wired to tkOpenAICompatAudioSpeechHandler; dropping either registration silently removes the TTS surface while catalog/docs still advertise it. qaCapture stays after apiKeyAuth so per-user qa_capture_enabled can skip tee/buffering."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_openrouter_provider_media.go",

@@ -2,6 +2,10 @@
 -- when false, gateway QA middleware skips body/blob persistence for that user.
 -- Default true keeps capture ON for all existing users (backward compatible).
 -- Owner: internal/observability/qa CaptureFromContext (reads apiKey.User.QACaptureEnabled).
+-- bluegreen-safe-destructive-ok: expand-only ADD COLUMN IF NOT EXISTS with NOT NULL
+-- DEFAULT true on users; PG16 metadata-only for constant default (no table rewrite);
+-- old binaries ignore the column during rolling overlap; rollback of the image leaves
+-- the additive column while a failed migration rolls back atomically.
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS qa_capture_enabled BOOLEAN NOT NULL DEFAULT true;
 
