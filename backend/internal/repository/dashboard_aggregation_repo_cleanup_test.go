@@ -17,11 +17,12 @@ func TestCleanupUsageLogs_PartitionedReclaimsStraddlingLegacy(t *testing.T) {
 	setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
-	cutoff := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)
+	cutoff := service.GroupUsageTodayStart(time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC))
 	fixedNow := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
 	repo.clock = func() time.Time { return fixedNow }
 	todayStart := service.GroupUsageTodayStart(fixedNow)
 
+	mock.ExpectExec(groupRollupExpireExec).WithArgs(cutoff).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(`
 		SELECT EXISTS(
 			SELECT 1
@@ -30,8 +31,6 @@ func TestCleanupUsageLogs_PartitionedReclaimsStraddlingLegacy(t *testing.T) {
 			WHERE c.relname = 'usage_logs'
 		)
 	`)).WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery(`SELECT c.relname`).
-		WillReturnRows(sqlmock.NewRows([]string{"relname"}).AddRow("usage_logs_legacy"))
 	mock.ExpectQuery(`SELECT n.nspname, c.relname`).
 		WillReturnRows(sqlmock.NewRows([]string{"nspname", "relname", "bound_expr", "upper_bound", "estimated_rows"}).
 			AddRow("public", "usage_logs_legacy", "FOR VALUES FROM (MINVALUE) TO ('2026-08-10')", time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC), int64(1000)))
@@ -46,11 +45,7 @@ func TestCleanupUsageLogs_PartitionedReclaimsStraddlingLegacy(t *testing.T) {
 	mock.ExpectExec(`DELETE FROM "usage_logs_legacy"`).
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
-		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
-			AddRow(service.GroupUsageDate(todayStart), time.Unix(0, 0).UTC(), "Asia/Shanghai"))
-	mock.ExpectCommit()
+	expectGroupRollupPrecheck(mock, service.GroupUsageDate(todayStart), "Asia/Shanghai", true)
 
 	err := repo.CleanupUsageLogs(context.Background(), cutoff)
 	require.NoError(t, err)
@@ -59,7 +54,7 @@ func TestCleanupUsageLogs_PartitionedReclaimsStraddlingLegacy(t *testing.T) {
 
 func TestDeleteOldUsageLogRowsByID_RespectsMaxRows(t *testing.T) {
 	db, mock := newSQLMock(t)
-	cutoff := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)
+	cutoff := service.GroupUsageTodayStart(time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC))
 
 	mock.ExpectExec("DELETE FROM \"usage_logs_legacy\"").
 		WithArgs(cutoff, 5).
@@ -82,40 +77,20 @@ func TestCleanupUsageLogs_NonPartitionedContinuesUntilShortBatch(t *testing.T) {
 	setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
-	cutoff := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)
+	cutoff := service.GroupUsageTodayStart(time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC))
 	fixedNow := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
 	repo.clock = func() time.Time { return fixedNow }
 	todayStart := service.GroupUsageTodayStart(fixedNow)
-	fullBatchAt := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
-	shortBatchAt := time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)
 
+	mock.ExpectExec(groupRollupExpireExec).WithArgs(cutoff).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("pg_partitioned_table").WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at.*SELECT COUNT\(\*\) AS affected, MIN\(created_at\) AS earliest_deleted_at`).
+	mock.ExpectExec(`(?s)SELECT tableoid, ctid.*DELETE FROM usage_logs`).
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
-		WillReturnRows(sqlmock.NewRows([]string{"affected", "earliest_deleted_at"}).
-			AddRow(usageLogsCleanupBatchSize, fullBatchAt))
-	mock.ExpectExec(`UPDATE usage_group_rollup_state`).
-		WithArgs(fullBatchAt, "Asia/Shanghai").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
-	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at.*SELECT COUNT\(\*\) AS affected, MIN\(created_at\) AS earliest_deleted_at`).
+		WillReturnResult(sqlmock.NewResult(0, usageLogsCleanupBatchSize))
+	mock.ExpectExec(`(?s)SELECT tableoid, ctid.*DELETE FROM usage_logs`).
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
-		WillReturnRows(sqlmock.NewRows([]string{"affected", "earliest_deleted_at"}).AddRow(1, shortBatchAt))
-	mock.ExpectExec(`UPDATE usage_group_rollup_state`).
-		WithArgs(shortBatchAt, "Asia/Shanghai").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
-	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
-		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
-			AddRow(service.GroupUsageDate(todayStart), time.Unix(0, 0).UTC(), "Asia/Shanghai"))
-	mock.ExpectCommit()
+	expectGroupRollupPrecheck(mock, service.GroupUsageDate(todayStart), "Asia/Shanghai", true)
 
 	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -125,32 +100,20 @@ func TestCleanupUsageLogs_NonPartitionedStopsAtPerRunCapAndSyncs(t *testing.T) {
 	setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
-	cutoff := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)
-	deletedAt := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	cutoff := service.GroupUsageTodayStart(time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC))
 	fixedNow := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
 	repo.clock = func() time.Time { return fixedNow }
 	todayStart := service.GroupUsageTodayStart(fixedNow)
 
+	mock.ExpectExec(groupRollupExpireExec).WithArgs(cutoff).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("pg_partitioned_table").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	for i := 0; i < usageLogsCleanupMaxRowsPerRun/usageLogsCleanupBatchSize; i++ {
-		mock.ExpectBegin()
-		mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
-			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-		mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at.*SELECT COUNT\(\*\) AS affected, MIN\(created_at\) AS earliest_deleted_at`).
+		mock.ExpectExec(`(?s)SELECT tableoid, ctid.*DELETE FROM usage_logs`).
 			WithArgs(cutoff, usageLogsCleanupBatchSize).
-			WillReturnRows(sqlmock.NewRows([]string{"affected", "earliest_deleted_at"}).
-				AddRow(usageLogsCleanupBatchSize, deletedAt))
-		mock.ExpectExec(`UPDATE usage_group_rollup_state`).
-			WithArgs(deletedAt, "Asia/Shanghai").
-			WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectCommit()
+			WillReturnResult(sqlmock.NewResult(0, usageLogsCleanupBatchSize))
 	}
-	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
-		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
-			AddRow(service.GroupUsageDate(todayStart), time.Unix(0, 0).UTC(), "Asia/Shanghai"))
-	mock.ExpectCommit()
+	expectGroupRollupPrecheck(mock, service.GroupUsageDate(todayStart), "Asia/Shanghai", true)
 
 	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -159,7 +122,7 @@ func TestCleanupUsageLogs_NonPartitionedStopsAtPerRunCapAndSyncs(t *testing.T) {
 func TestCleanupUsageBillingDedupRespectsPerRunCap(t *testing.T) {
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
-	cutoff := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)
+	cutoff := service.GroupUsageTodayStart(time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC))
 
 	for i := 0; i < usageBillingDedupCleanupMaxRowsPerRun/usageBillingDedupCleanupBatchSize; i++ {
 		mock.ExpectExec("INSERT INTO usage_billing_dedup_archive").
@@ -175,12 +138,12 @@ func TestCleanupUsageLogs_NonPartitionedUsesChunkedDelete(t *testing.T) {
 	setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
-	cutoff := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)
+	cutoff := service.GroupUsageTodayStart(time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC))
 	fixedNow := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
 	repo.clock = func() time.Time { return fixedNow }
 	todayStart := service.GroupUsageTodayStart(fixedNow)
-	deletedAt := time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)
 
+	mock.ExpectExec(groupRollupExpireExec).WithArgs(cutoff).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(`
 		SELECT EXISTS(
 			SELECT 1
@@ -189,21 +152,10 @@ func TestCleanupUsageLogs_NonPartitionedUsesChunkedDelete(t *testing.T) {
 			WHERE c.relname = 'usage_logs'
 		)
 	`)).WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at.*SELECT COUNT\(\*\) AS affected, MIN\(created_at\) AS earliest_deleted_at`).
+	mock.ExpectExec(`(?s)SELECT tableoid, ctid.*DELETE FROM usage_logs`).
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
-		WillReturnRows(sqlmock.NewRows([]string{"affected", "earliest_deleted_at"}).AddRow(2, deletedAt))
-	mock.ExpectExec(`UPDATE usage_group_rollup_state`).
-		WithArgs(deletedAt, "Asia/Shanghai").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
-	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
-		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
-			AddRow(service.GroupUsageDate(todayStart), time.Unix(0, 0).UTC(), "Asia/Shanghai"))
-	mock.ExpectCommit()
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	expectGroupRollupPrecheck(mock, service.GroupUsageDate(todayStart), "Asia/Shanghai", true)
 
 	err := repo.CleanupUsageLogs(context.Background(), cutoff)
 	require.NoError(t, err)

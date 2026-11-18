@@ -50,7 +50,7 @@ describe('useModelWhitelist', () => {
   it('openai 模型列表透传后端 GPT-5.4/GPT-6 官方快照', async () => {
     const models = await loadApiModels('openai', [
       'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-2026-03-05', 'codex-auto-review',
-      'gpt-5.6', 'gpt-6', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'
+      'gpt-5.6', 'gpt-6', 'gpt-6-astra', 'gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'
     ])
 
     expect(models).toContain('gpt-5.4')
@@ -60,6 +60,8 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-5.6')
     expect(models).toContain('gpt-6')
     expect(models).toContain('gpt-6-astra')
+    expect(models).toContain('gpt-6.2-sol')
+    expect(models).toContain('gpt-6.2-astra')
     expect(models).toContain('gpt-6.1-sol')
     expect(models).toContain('gpt-6.1-terra')
     expect(models).toContain('gpt-6-sol')
@@ -78,6 +80,9 @@ describe('useModelWhitelist', () => {
 
   it('keeps GPT-6 and Astra mapping presets', () => {
     expect(getPresetMappingsByPlatform('openai')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'GPT-6.2 Sol', from: 'gpt-6.2-sol', to: 'gpt-6.2-sol' }),
+      expect.objectContaining({ label: 'GPT-6.2 Astra', from: 'gpt-6.2-astra', to: 'gpt-6.2-astra' }),
+      expect.objectContaining({ label: 'GPT-6.1 Sol', from: 'gpt-6.1-sol', to: 'gpt-6.1-sol' }),
       expect.objectContaining({ label: 'GPT-6.1 Terra', from: 'gpt-6.1-terra', to: 'gpt-6.1-terra' }),
       expect.objectContaining({ from: 'gpt-6', to: 'gpt-6' }),
       expect.objectContaining({ from: 'gpt-6-astra', to: 'gpt-6-astra' })

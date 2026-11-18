@@ -3,10 +3,9 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
@@ -21,6 +20,9 @@ type dashboardAggregationRepository struct {
 }
 
 const usageLogsCleanupBatchSize = 10000
+
+// usageLogsPartitionDropLockTimeout 限定删除分区时等待父表锁的时长。
+const usageLogsPartitionDropLockTimeout = 3 * time.Second
 const usageBillingDedupCleanupBatchSize = 10000
 
 // Automatic lifecycle cleanup drains large backlogs across existing cron runs rather
@@ -174,26 +176,19 @@ func (r *dashboardAggregationRepository) RecomputeRange(ctx context.Context, sta
 		dayEnd = dayEnd.Add(24 * time.Hour)
 	}
 
+	// 分组日桶从 start 所在自然日起失效，由后台同步重建；失效语句独立提交，不与看板重算共享事务。
+	if err := invalidateGroupUsageRollupsAt(ctx, r.sql, start); err != nil {
+		return err
+	}
+
 	// 尽量使用事务保证范围内的一致性（允许在非 *sql.DB 的情况下退化为非事务执行）。
 	if db, ok := r.sql.(*sql.DB); ok {
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
-		if err := lockGroupUsageRollupState(ctx, tx); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		if err := invalidateGroupUsageRollupsAt(ctx, tx, start); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
 		txRepo := newDashboardAggregationRepositoryWithSQL(tx)
 		if err := txRepo.recomputeRangeInTx(ctx, hourStart, hourEnd, dayStart, dayEnd); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		if err := txRepo.syncGroupUsageRollupsInTx(ctx, service.GroupUsageTodayStart(r.now())); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -300,7 +295,13 @@ func (r *dashboardAggregationRepository) CleanupAggregates(ctx context.Context, 
 	return nil
 }
 
+// CleanupUsageLogs 删除服务端配置时区内 cutoff 所在自然日零点之前的 usage_logs。
+// 删除前先把分组日汇总的保留下界推进到该零点，被删除的记录不触发日桶失效。
 func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, cutoff time.Time) error {
+	cutoff = service.GroupUsageTodayStart(cutoff)
+	if err := expireGroupUsageRollupsBefore(ctx, r.sql, cutoff); err != nil {
+		return err
+	}
 	isPartitioned, err := r.isUsageLogsPartitioned(ctx)
 	if err != nil {
 		return err
@@ -316,14 +317,18 @@ func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, c
 }
 
 func (r *dashboardAggregationRepository) cleanupPartitionedUsageLogs(ctx context.Context, cutoff time.Time) error {
-	if err := r.dropUsageLogsPartitions(ctx, cutoff); err != nil {
-		return err
-	}
 	db, ok := r.sql.(pgpartition.DB)
 	if !ok {
 		return nil
 	}
-	if _, err := pgpartition.DropExpired(ctx, db, "usage_logs", cutoff); err != nil {
+	if _, err := pgpartition.DropExpiredWith(ctx, db, "usage_logs", cutoff, func(name string) (bool, error) {
+		err := r.dropUsageLogsPartition(ctx, name)
+		if isPostgresLockNotAvailable(err) {
+			log.Printf("[DashboardAggregation] partition %s drop lock timed out; reclaim expired rows in bounded batches", name)
+			return false, nil
+		}
+		return err == nil, err
+	}); err != nil {
 		return err
 	}
 	straddling, err := pgpartition.ListStraddling(ctx, db, "usage_logs", "created_at", cutoff)
@@ -400,21 +405,8 @@ WHERE id IN (SELECT id FROM batch)
 }
 
 func (r *dashboardAggregationRepository) cleanupUsageLogsBatches(ctx context.Context, cutoff time.Time) error {
-	db, transactional := r.sql.(*sql.DB)
 	var total int64
 	for {
-		if transactional {
-			affected, err := cleanupUsageLogsBatchWithRollupInvalidation(ctx, db, cutoff)
-			if err != nil {
-				return err
-			}
-			total += affected
-			if affected < usageLogsCleanupBatchSize || total >= usageLogsCleanupMaxRowsPerRun {
-				return nil
-			}
-			continue
-		}
-
 		res, err := r.sql.ExecContext(ctx, `
 			WITH victims AS (
 				SELECT tableoid, ctid
@@ -438,54 +430,6 @@ func (r *dashboardAggregationRepository) cleanupUsageLogsBatches(ctx context.Con
 			return nil
 		}
 	}
-}
-
-func cleanupUsageLogsBatchWithRollupInvalidation(ctx context.Context, db *sql.DB, cutoff time.Time) (int64, error) {
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	rollback := func(err error) (int64, error) {
-		_ = tx.Rollback()
-		return 0, err
-	}
-
-	if err := lockGroupUsageRollupState(ctx, tx); err != nil {
-		return rollback(err)
-	}
-	row := tx.QueryRowContext(ctx, `
-		WITH victims AS (
-			SELECT tableoid, ctid
-			FROM usage_logs
-			WHERE created_at < $1
-			ORDER BY created_at ASC, id ASC
-			LIMIT $2
-		), deleted AS (
-			DELETE FROM usage_logs
-			WHERE (tableoid, ctid) IN (SELECT tableoid, ctid FROM victims)
-			RETURNING created_at
-		)
-		SELECT COUNT(*) AS affected, MIN(created_at) AS earliest_deleted_at
-		FROM deleted
-	`, cutoff.UTC(), usageLogsCleanupBatchSize)
-
-	var affected int64
-	var earliestDeletedAt sql.NullTime
-	if err := row.Scan(&affected, &earliestDeletedAt); err != nil {
-		return rollback(err)
-	}
-	if affected > 0 {
-		if !earliestDeletedAt.Valid {
-			return rollback(fmt.Errorf("cleanup deleted %d usage logs without an earliest timestamp", affected))
-		}
-		if err := invalidateGroupUsageRollupsAt(ctx, tx, earliestDeletedAt.Time); err != nil {
-			return rollback(err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return affected, nil
 }
 
 func (r *dashboardAggregationRepository) CleanupUsageBillingDedup(ctx context.Context, cutoff time.Time) error {
@@ -726,94 +670,37 @@ func (r *dashboardAggregationRepository) isUsageLogsPartitioned(ctx context.Cont
 	return partitioned, nil
 }
 
-func (r *dashboardAggregationRepository) dropUsageLogsPartitions(ctx context.Context, cutoff time.Time) error {
-	rows, err := r.sql.QueryContext(ctx, `
-		SELECT c.relname
-		FROM pg_inherits
-		JOIN pg_class c ON c.oid = pg_inherits.inhrelid
-		JOIN pg_class p ON p.oid = pg_inherits.inhparent
-		WHERE p.relname = 'usage_logs'
-	`)
-	if err != nil {
-		return err
-	}
-	cutoffMonth := truncateToMonthUTC(cutoff)
-	type usageLogsPartition struct {
-		name  string
-		month time.Time
-	}
-	partitions := make([]usageLogsPartition, 0)
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		if !strings.HasPrefix(name, "usage_logs_") {
-			continue
-		}
-		suffix := strings.TrimPrefix(name, "usage_logs_")
-		month, err := time.Parse("200601", suffix)
-		if err != nil {
-			continue
-		}
-		month = month.UTC()
-		if month.Before(cutoffMonth) {
-			partitions = append(partitions, usageLogsPartition{name: name, month: month})
-		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return err
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-
-	sort.Slice(partitions, func(i, j int) bool {
-		return partitions[i].month.Before(partitions[j].month)
-	})
-	if db, ok := r.sql.(*sql.DB); ok {
-		for _, partition := range partitions {
-			if err := dropUsageLogsPartitionWithRollupInvalidation(ctx, db, partition.name, partition.month); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	for _, partition := range partitions {
-		if _, err := r.sql.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", pq.QuoteIdentifier(partition.name))); err != nil {
-			return err
-		}
-	}
-	return nil
+func isPostgresLockNotAvailable(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "55P03"
 }
 
-func dropUsageLogsPartitionWithRollupInvalidation(ctx context.Context, db *sql.DB, name string, monthStart time.Time) error {
+// dropUsageLogsPartition receives a quoted qualified name selected by pgpartition
+// from actual finite bounds. Expiration was advanced before deletion, so expired
+// rows cannot dirty retained rollups. Bound the parent-table lock wait.
+func (r *dashboardAggregationRepository) dropUsageLogsPartition(ctx context.Context, name string) error {
+	drop := func(q sqlExecutor) error {
+		_, err := q.ExecContext(ctx, "DROP TABLE IF EXISTS "+name)
+		return err
+	}
+
+	db, ok := r.sql.(*sql.DB)
+	if !ok {
+		return drop(r.sql)
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	rollback := func(err error) error {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("SET LOCAL lock_timeout = '%dms'", usageLogsPartitionDropLockTimeout.Milliseconds())); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
-
-	if err := lockGroupUsageRollupState(ctx, tx); err != nil {
-		return rollback(err)
-	}
-	if err := invalidateGroupUsageRollupsAt(ctx, tx, monthStart); err != nil {
-		return rollback(err)
-	}
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", pq.QuoteIdentifier(name))); err != nil {
-		return rollback(err)
+	if err := drop(tx); err != nil {
+		_ = tx.Rollback()
+		return err
 	}
 	return tx.Commit()
-}
-
-func truncateToMonthUTC(t time.Time) time.Time {
-	y, m, _ := t.UTC().Date()
-	return time.Date(y, m, 1, 0, 0, 0, 0, time.UTC)
 }
 
 func truncateToDay(t time.Time) time.Time {

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
@@ -117,7 +118,7 @@ func (s *OpenAIGatewayService) evaluateOpenAIFastPolicy(ctx context.Context, acc
 }
 
 func (s *OpenAIGatewayService) shouldForceOpenAIFastPriorityForMissingTier(ctx context.Context, account *Account, model string) bool {
-	if account == nil || account.Platform != PlatformOpenAI {
+	if account == nil || account.Platform != PlatformOpenAI || IsUniversalKeyRouting(ctx) {
 		return false
 	}
 	action, _ := s.evaluateOpenAIFastPolicy(ctx, account, model, OpenAIFastTierMissing)
@@ -207,20 +208,45 @@ func openAIFastPolicySettingsFromContext(ctx context.Context) *OpenAIFastPolicyS
 // 到了上游可识别值；passthrough（OpenAI 自动透传） / native /responses 等
 // 入口没有这一前置步骤，pass 路径下若不在此处归一化，"fast" 就会被原样
 // 透传到 OpenAI 上游导致 400/拒绝。把归一化收敛到本函数，所有入口行为一致。
-func openAIGroupForcesFast(ctx context.Context, account *Account) bool {
-	if ctx == nil || account == nil || account.Platform != PlatformOpenAI || IsUniversalKeyRouting(ctx) {
-		return false
+func openAIModelSupportsUltrafast(model string) bool {
+	normalized := normalizeKnownOpenAICodexModel(model)
+	return isOpenAIGPT6AstraModel(normalized) || normalized == "gpt-6.1-sol" || normalized == "gpt-6.2-sol" || normalized == "gpt-6.2-astra"
+}
+
+func openAIGroupForcedServiceTier(ctx context.Context, account *Account, model string) string {
+	if ctx == nil || account == nil || account.Platform != PlatformOpenAI {
+		return ""
 	}
 	group, _ := ctx.Value(ctxkey.Group).(*Group)
-	return IsGroupContextValid(group) && group.ForceOpenAIFast
+	if !IsGroupContextValid(group) {
+		return ""
+	}
+	if group.ForceOpenAIUltrafast && openAIModelSupportsUltrafast(model) {
+		// Resolve the published Pro entitlement first, then account-specific grants.
+		if base := openai.GPT62ModelID(model); base != "" && account.IsOpenAIOAuthLike() {
+			if gpt62PlanIncludesUltrafast(account, base) {
+				return OpenAIFastTierUltrafast
+			}
+			metadata, ok := account.GetUpstreamModelMetadata(base)
+			if ok && gjson.GetBytes(metadata.CodexToolCapabilities["service_tiers"], `#(id=="ultrafast")`).Exists() {
+				return OpenAIFastTierUltrafast
+			}
+		} else {
+			return OpenAIFastTierUltrafast
+		}
+	}
+	if group.ForceOpenAIFast {
+		return OpenAIFastTierPriority
+	}
+	return ""
 }
 
 func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, account *Account, model string, body []byte) ([]byte, error) {
 	if len(body) == 0 {
 		return body, nil
 	}
-	if openAIGroupForcesFast(ctx, account) {
-		updated, err := sjson.SetBytes(body, "service_tier", OpenAIFastTierPriority)
+	if forcedTier := openAIGroupForcedServiceTier(ctx, account, model); forcedTier != "" {
+		updated, err := sjson.SetBytes(body, "service_tier", forcedTier)
 		if err != nil {
 			return body, err
 		}
@@ -229,7 +255,7 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, 
 	rawTier := gjson.GetBytes(body, "service_tier").String()
 	if rawTier == "" {
 		if s.shouldForceOpenAIFastPriorityForMissingTier(ctx, account, model) {
-			updated, err := sjson.SetBytes(body, "service_tier", OpenAIFastTierPriority)
+			updated, err := sjson.SetBytes(body, "service_tier", "priority")
 			if err != nil {
 				return body, fmt.Errorf("force missing service_tier priority on body: %w", err)
 			}
@@ -256,7 +282,7 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, 
 		}
 		return trimmed, nil
 	case OpenAIFastPolicyActionForcePriority:
-		updated, err := sjson.SetBytes(body, "service_tier", OpenAIFastTierPriority)
+		updated, err := sjson.SetBytes(body, "service_tier", "priority")
 		if err != nil {
 			return body, fmt.Errorf("force service_tier priority on body: %w", err)
 		}
@@ -342,8 +368,8 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 	if frameType != "response.create" {
 		return frame, nil, nil
 	}
-	if openAIGroupForcesFast(ctx, account) {
-		updated, err := sjson.SetBytes(frame, "service_tier", OpenAIFastTierPriority)
+	if forcedTier := openAIGroupForcedServiceTier(ctx, account, model); forcedTier != "" {
+		updated, err := sjson.SetBytes(frame, "service_tier", forcedTier)
 		if err != nil {
 			return frame, nil, err
 		}
@@ -352,7 +378,7 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 	rawTier := gjson.GetBytes(frame, "service_tier").String()
 	if rawTier == "" {
 		if s.shouldForceOpenAIFastPriorityForMissingTier(ctx, account, model) {
-			updated, err := sjson.SetBytes(frame, "service_tier", OpenAIFastTierPriority)
+			updated, err := sjson.SetBytes(frame, "service_tier", "priority")
 			if err != nil {
 				return frame, nil, fmt.Errorf("force missing service_tier priority in ws frame: %w", err)
 			}
@@ -379,7 +405,7 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 		}
 		return trimmed, nil, nil
 	case OpenAIFastPolicyActionForcePriority:
-		updated, err := sjson.SetBytes(frame, "service_tier", OpenAIFastTierPriority)
+		updated, err := sjson.SetBytes(frame, "service_tier", "priority")
 		if err != nil {
 			return frame, nil, fmt.Errorf("force service_tier priority in ws frame: %w", err)
 		}

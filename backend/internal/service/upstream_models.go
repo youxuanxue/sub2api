@@ -1493,6 +1493,23 @@ func buildOpenAIModelsURL(base string) string {
 	return buildOpenAIEndpointURL(base, "/v1/models")
 }
 
+// buildVertexPublisherModelsURL 构造 Google 发布方模型列表地址。该接口只有 v1beta1 版本，pageSize 上限 300。
+func buildVertexPublisherModelsURL(location, pageToken string) (string, error) {
+	location = strings.TrimSpace(location)
+	if location == "" {
+		location = vertexDefaultLocation
+	}
+	if !vertexLocationPattern.MatchString(location) {
+		return "", fmt.Errorf("invalid vertex location: %s", location)
+	}
+	host := vertexAPIHost(location)
+	query := url.Values{"pageSize": []string{strconv.Itoa(vertexPublisherModelsPageSize)}}
+	if pageToken != "" {
+		query.Set("pageToken", pageToken)
+	}
+	return fmt.Sprintf("https://%s/v1beta1/publishers/google/models?%s", host, query.Encode()), nil
+}
+
 func buildGeminiModelsURL(base string) string {
 	normalized := strings.TrimRight(strings.TrimSpace(base), "/")
 	if strings.HasSuffix(normalized, apipath.GeminiModels) {
@@ -1889,21 +1906,3 @@ func listVertexGeminiPublisherModels(location string, fetchPage func(page int, l
 }
 
 // buildVertexPublisherModelsURL 构造 Google 发布方模型列表地址。该接口只有 v1beta1 版本，pageSize 上限 300。
-func buildVertexPublisherModelsURL(location, pageToken string) (string, error) {
-	location = strings.TrimSpace(location)
-	if location == "" {
-		location = vertexDefaultLocation
-	}
-	if !vertexLocationPattern.MatchString(location) {
-		return "", fmt.Errorf("invalid vertex location: %s", location)
-	}
-	host := location + "-aiplatform.googleapis.com"
-	if location == "global" {
-		host = vertexGlobalHost
-	}
-	query := url.Values{"pageSize": []string{strconv.Itoa(vertexPublisherModelsPageSize)}}
-	if pageToken != "" {
-		query.Set("pageToken", pageToken)
-	}
-	return fmt.Sprintf("https://%s/v1beta1/publishers/google/models?%s", host, query.Encode()), nil
-}

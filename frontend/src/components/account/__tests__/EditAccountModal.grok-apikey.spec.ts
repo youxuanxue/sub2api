@@ -166,7 +166,7 @@ describe('EditAccountModal — Grok API-key account', () => {
   it('blocks save when the upstream base URL is cleared', async () => {
     const wrapper = mountModal()
 
-    await wrapper.get('input[placeholder="https://api.x.ai"]').setValue('')
+    await wrapper.get('input[placeholder="https://api.x.ai/v1"]').setValue('')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).not.toHaveBeenCalled()
@@ -176,7 +176,7 @@ describe('EditAccountModal — Grok API-key account', () => {
   it('saves the explicit upstream destination while preserving the redacted key', async () => {
     updateAccountMock.mockResolvedValue(buildGrokAPIKeyAccount())
     const wrapper = mountModal()
-    await wrapper.get('input[placeholder="https://api.x.ai"]').setValue(' https://upstream.example.test ')
+    await wrapper.get('input[placeholder="https://api.x.ai/v1"]').setValue(' https://upstream.example.test ')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledWith(7, expect.objectContaining({

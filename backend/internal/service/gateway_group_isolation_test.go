@@ -361,3 +361,13 @@ func TestGroupIsolation_SimpleMode_GroupedAccountAlsoSchedulable(t *testing.T) {
 	require.NotNil(t, acc)
 	require.Equal(t, int64(1), acc.ID, "SimpleMode 应能调度已分组账号")
 }
+
+func (m *groupAwareMockAccountRepo) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	if groupID != nil {
+		return m.ListSchedulableByGroupIDAndPlatforms(ctx, *groupID, platforms)
+	}
+	if includeGrouped {
+		return m.ListSchedulableByPlatforms(ctx, platforms)
+	}
+	return m.ListSchedulableUngroupedByPlatforms(ctx, platforms)
+}

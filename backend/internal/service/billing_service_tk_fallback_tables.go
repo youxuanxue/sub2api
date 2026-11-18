@@ -6,6 +6,21 @@ import "strings"
 // price cards (Fable / Gemini / GPT / DeepSeek / GLM / domestic LLM / Doubao).
 // Claude classic Opus/Sonnet/Haiku and xAI Grok cards stay in initFallbackPricing.
 func (s *BillingService) tkInitFallbackPricingTables() {
+	s.fallbackPrices["gpt-6.2-astra"] = &ModelPricing{
+		InputPricePerToken:                 8e-6,
+		InputPricePerTokenPriority:         16e-6,
+		OutputPricePerToken:                40e-6,
+		OutputPricePerTokenPriority:        80e-6,
+		CacheCreationPricePerToken:         10e-6,
+		CacheCreationPricePerTokenPriority: 20e-6,
+		CacheReadPricePerToken:             0.4e-6,
+		CacheReadPricePerTokenPriority:     0.8e-6,
+		CacheCreationPriceExplicit:         true,
+		LongContextInputThreshold:          272_000,
+		LongContextInputMultiplier:         2,
+		LongContextOutputMultiplier:        1.5,
+	}
+
 	s.fallbackPrices["claude-opus-5-5"] = &ModelPricing{
 		InputPricePerToken:         4e-6,
 		OutputPricePerToken:        20e-6,
@@ -547,6 +562,8 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 		OutputPricePerToken:     0,
 		SupportsCacheBreakdown:  false,
 	}
+
+	s.fallbackPrices["gpt-6.2-sol"] = s.fallbackPrices["gpt-6.1-sol"]
 
 }
 

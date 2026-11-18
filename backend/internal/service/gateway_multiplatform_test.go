@@ -28,10 +28,11 @@ const testAnthropicSchedulingModel = "claude-sonnet-4-6"
 
 // mockAccountRepoForPlatform 单平台测试用的 mock
 type mockAccountRepoForPlatform struct {
-	accounts         []Account
-	accountsByID     map[int64]*Account
-	listPlatformFunc func(ctx context.Context, platform string) ([]Account, error)
-	getByIDCalls     int
+	accounts             []Account
+	accountsByID         map[int64]*Account
+	listPlatformFunc     func(ctx context.Context, platform string) ([]Account, error)
+	listAvailabilityFunc func(context.Context, *int64, []string, bool) ([]Account, error)
+	getByIDCalls         int
 }
 
 func (m *mockAccountRepoForPlatform) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -3838,4 +3839,17 @@ func TestGatewayService_SelectAccountForModelWithPlatform_RoutedOpenAIGroup(t *t
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID, "routed account must win over the higher-priority unrouted one")
+}
+
+func (m *mockAccountRepoForPlatform) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	if m.listAvailabilityFunc != nil {
+		return m.listAvailabilityFunc(ctx, groupID, platforms, includeGrouped)
+	}
+	if groupID != nil {
+		return m.ListSchedulableByGroupIDAndPlatforms(ctx, *groupID, platforms)
+	}
+	if includeGrouped {
+		return m.ListSchedulableByPlatforms(ctx, platforms)
+	}
+	return m.ListSchedulableUngroupedByPlatforms(ctx, platforms)
 }

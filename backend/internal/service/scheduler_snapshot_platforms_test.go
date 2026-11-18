@@ -223,3 +223,13 @@ func TestDefaultBuckets_IncludesNewAPI(t *testing.T) {
 		}
 	}
 }
+
+func (r *stubAccountRepoForRebuild) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	if groupID != nil {
+		return r.ListSchedulableByGroupIDAndPlatforms(ctx, *groupID, platforms)
+	}
+	if includeGrouped {
+		return r.ListSchedulableByPlatforms(ctx, platforms)
+	}
+	return r.ListSchedulableUngroupedByPlatforms(ctx, platforms)
+}

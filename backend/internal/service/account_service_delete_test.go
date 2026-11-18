@@ -296,3 +296,13 @@ func TestAccountService_Delete_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []int64{55}, repo.deletedIDs) // 验证正确的 ID 被删除
 }
+
+func (s *accountRepoStub) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	if groupID != nil {
+		return s.ListSchedulableByGroupIDAndPlatforms(ctx, *groupID, platforms)
+	}
+	if includeGrouped {
+		return s.ListSchedulableByPlatforms(ctx, platforms)
+	}
+	return s.ListSchedulableUngroupedByPlatforms(ctx, platforms)
+}

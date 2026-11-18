@@ -40,7 +40,7 @@ func supplementUnmappedOpenAIModels(accounts []Account, models []string) []strin
 	var defaults []string
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform == PlatformOpenAI && (account.IsOpenAIPassthroughEnabled() || len(account.GetModelMapping()) == 0) {
+		if account.Platform == PlatformOpenAI && ((account.IsOpenAIPassthroughEnabled() && !account.IsOpenAIPassthroughModelFilterEnabled()) || len(account.GetModelMapping()) == 0) {
 			for _, id := range openai.DefaultModelIDs() {
 				if openAICodexSupportsRequestedModel(account, id) {
 					defaults = append(defaults, id)

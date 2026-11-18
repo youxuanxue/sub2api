@@ -1060,7 +1060,7 @@
     {
       "path": "backend/internal/service/account.go",
       "must_contain": [
-        "(a.Platform != PlatformAnthropic && a.Platform != PlatformOpenAI)"
+        "!webSearchEmulationPlatformEnabled(a.Platform)"
       ],
       "rationale": "OpenAI API-key accounts reach web_search emulation via /v1/messages, so the three-state switch must admit them alongside Anthropic. Narrowing this back to Anthropic silently disables the feature for OpenAI accounts."
     },
@@ -1810,21 +1810,21 @@
     {
       "path": "backend/internal/service/openai_gateway_forward_tk_codex_oauth_body.go",
       "must_contain": [
-        "!isCompactRequest && applyCodexAccountIdentityClientMetadataMap(decoded, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))"
+        "!isCompactRequest && applyCodexAccountIdentityClientMetadataMap(decoded, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c), codexClientSessionID(c))"
       ],
       "rationale": "Native OAuth request metadata is scoped to credential identity while compact bodies retain the client contract."
     },
     {
       "path": "backend/internal/service/openai_gateway_passthrough_tk.go",
       "must_contain": [
-        "applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))"
+        "applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c), codexClientSessionID(c))"
       ],
       "rationale": "Passthrough must use the same credential identity owner as native HTTP and WS."
     },
     {
       "path": "backend/internal/service/openai_ws_forwarder_ingress.go",
       "must_contain": [
-        "applyCodexAccountIdentityClientMetadataRaw(normalized, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))"
+        "applyCodexAccountIdentityClientMetadataRaw(normalized, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c), codexClientSessionID(c))"
       ],
       "rationale": "WS ingress parseClientPayload scopes credential identity once before HTTP-bridge turns; re-applying in openai_ws_http_bridge.go double-hashes session/thread UUIDs on later turns."
     },
@@ -7940,10 +7940,10 @@
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
-        "if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() {",
-        "Skip them while collecting; sibling mapped accounts still own the"
+        "if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() && !acc.IsOpenAIPassthroughModelFilterEnabled() {",
+        "the ordinary accounts in the same group still count."
       ],
-      "rationale": "OpenAI passthrough accounts must be skipped while collecting /v1/models mappings. Returning nil on the first passthrough account wipes TokenKey curated model_mapping from sibling accounts and collapses mixed Codex-passthrough + mapped groups onto the default catalog."
+      "rationale": "Unfiltered OpenAI passthrough accounts do not publish mappings. Explicit source-name filtering may publish their permitted source names; ordinary sibling mappings must remain visible in mixed groups."
     },
     {
       "path": "backend/internal/service/gateway_hotpath_optimization_test.go",
@@ -10086,7 +10086,7 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "5h 窗口重置时只清除 5h 自己的陈旧 utilization",
+        "rolloverPassiveUsageClears(account.Extra, time.Now())",
         "antigravityValidationEscalationSlotPlaceholder",
         "EscalationSlotPrefixOpenAI403",
         "openAI403EscalationSlotPlaceholder",
@@ -10095,7 +10095,7 @@
       "must_not_contain": [
         "\"passive_usage_7d_utilization\": nil"
       ],
-      "rationale": "TK fix (PR #782): on a 5h session-window roll (needInitWindow) UpdateSessionWindow must clear ONLY session_window_utilization, never the independent 7d family (passive_usage_7d_* / passive_usage_7d_sonnet_*). The pre-fix code cleared the 7d keys as nil on every 5h roll (4-5x/day), blanking the admin 7d / 7d-S windows until new traffic re-sampled the header. must_contain pins the fixed comment; must_not_contain catches an upstream merge that re-introduces the 7d nil-clear — the bare key still legitimately appears in the header-sampling block as an index assignment (extraUpdates[...] = ts), so the map-literal `: nil` form is the revert-specific signal. 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。 OpenAI 累计 403 阶梯同样接上共享槽位：BeginEscalationEpisode 必须在 IncrementOpenAI403Count 之前，否则一层坏代理让 3 个并发请求各自递增、单档 10 分钟冷却被跳过、账号直接 SetError —— 正是 handle403 上方注释要防的「一个坏请求/一层坏代理连环永久禁用整组账号」（已用并发用例复现并反向验证）。ResetOpenAI403Counter 必须同时释放槽位。"
+      "rationale": "TK fix (PR #782): on a 5h session-window roll (needInitWindow) UpdateSessionWindow must preserve independent unexpired 7d/7d-S samples; the shared rollover helper may clear a weekly sample only after its own reset time. The pre-fix code cleared the 7d keys as nil on every 5h roll (4-5x/day), blanking the admin 7d / 7d-S windows until new traffic re-sampled the header. must_contain pins the shared rollover owner; must_not_contain catches an upstream merge that re-introduces the 7d nil-clear — the bare key still legitimately appears in the header-sampling block as an index assignment (extraUpdates[...] = ts), so the map-literal `: nil` form is the revert-specific signal. 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。 OpenAI 累计 403 阶梯同样接上共享槽位：BeginEscalationEpisode 必须在 IncrementOpenAI403Count 之前，否则一层坏代理让 3 个并发请求各自递增、单档 10 分钟冷却被跳过、账号直接 SetError —— 正是 handle403 上方注释要防的「一个坏请求/一层坏代理连环永久禁用整组账号」（已用并发用例复现并反向验证）。ResetOpenAI403Counter 必须同时释放槽位。"
     },
     {
       "path": "backend/internal/service/gateway_service_tk_unsupported_model.go",
@@ -11820,7 +11820,7 @@
     {
       "path": "backend/internal/service/api_key_auth_cache_impl.go",
       "must_contain": [
-        "apiKeyAuthSnapshotVersion = 27",
+        "apiKeyAuthSnapshotVersion = 28",
         "apiKey.Group.StickyRoutingMode",
         "apiKey.Group.MessagesCompactionEnabled",
         "apiKey.Group.MessagesCompactionInputTokensThreshold",
@@ -13802,7 +13802,7 @@
       "must_contain": [
         "if mirroredTokenCostAtMultOne != nil {",
         "func accountStatsTokenCostFromBreakdown(",
-        "return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier, billingAt, reasoningEffort)"
+        "cost := tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier, billingAt, reasoningEffort)"
       ],
       "rationale": "Account-stats pricing priority 3 must treat a successfully mirrored user token cost, including an authoritative zero, as stronger than the LiteLLM fallback. Dropping the non-nil check or breakdown conversion silently makes account_stats_cost diverge from user TotalCost for channel overrides and peak-valley pricing while ordinary user billing remains correct."
     },
@@ -20962,6 +20962,93 @@
         "non-gemini disagreement keeps plan SSOT"
       ],
       "rationale": "Positive thinking-tier wire win and negative non-Gemini Plan-SSOT regression for preferUsageUpstreamModel."
+    },
+    {
+      "path": "backend/internal/repository/usage_billing_batch_repo.go",
+      "must_contain": [
+        "r.tkApplyHeldBillingBatch(ctx, tx, cmds, applied, outcomes)"
+      ],
+      "rationale": "Upstream batch settlement must preserve TokenKey hold consumption in the same transaction as each deduction."
+    },
+    {
+      "path": "backend/internal/repository/usage_billing_batch_repo_tk.go",
+      "must_contain": [
+        "cmd.TkHoldRequestID",
+        "r.applyUsageBillingEffects(ctx, tx, cmd, outcomes[i].Result)"
+      ],
+      "rationale": "Reuse atomic held settlement in command order so refunds, balances and overdraft outcomes stay consistent with single Apply."
+    },
+    {
+      "path": "backend/internal/service/usage_billing_lane_tk.go",
+      "must_contain": [
+        "func (c *UsageBillingLaneCombiner) ReserveBalanceHold(",
+        "func (c *UsageBillingLaneCombiner) ReleaseBalanceHold(",
+        "func (c *UsageBillingLaneCombiner) ReleaseExpiredBalanceHolds(",
+        "func (c *UsageBillingLaneCombiner) ApplyVideoRefund("
+      ],
+      "rationale": "The DI decorator must forward narrow hold, crash recovery and video refund capabilities instead of making their type assertions silently fail."
+    },
+    {
+      "path": "backend/internal/repository/usage_billing_batch_repo_tk_hold_integration_test.go",
+      "must_contain": [
+        "func TestBillingLaneAndBatchPreserveHandedOffHolds("
+      ],
+      "rationale": "Real PostgreSQL verifies decorated admission, atomic batch handoff, ordered balances, and duplicate/release idempotency."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "if clientOutputStarted {\n\t\t\t\ts.handleOpenAIStreamTerminalAccountSideEffects(c, account, payloadBytes, message, resp.Header, upstreamModel)"
+      ],
+      "rationale": "Committed compat streams still apply the shared credential, quota and capacity health owner once; output commitment only prevents failover."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages.go",
+      "must_contain": [
+        "if clientOutputStarted {\n\t\t\t\t\ts.handleOpenAIStreamTerminalAccountSideEffects(c, account, payloadBytes, message, resp.Header, upstreamModel)",
+        "releaseHeld()\n\t\t\tif !state.MessageStartSent {"
+      ],
+      "rationale": "The held Anthropic message_start must be committed before keepalive; terminal errors retain shared account-health side effects."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_compat_stream_account_side_effects_test.go",
+      "must_contain": [
+        "TestForwardAsChatCompletions_StreamErrorAfterOutputAppliesAccountSideEffects",
+        "TestForwardAsAnthropic_StreamErrorAfterOutputAppliesAccountSideEffects",
+        "TestForwardAsChatCompletions_StreamErrorBeforeOutputCountsOnce"
+      ],
+      "rationale": "Keep both compat terminal health regressions and the no-double-count pre-output boundary collected."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_pre_content_test.go",
+      "must_contain": [
+        "TestForwardAsAnthropic_PreContentPingCommitsMessageStart",
+        "require.Less(t, strings.Index(body, \"event: message_start\"), strings.Index(body, \"event: ping\"))"
+      ],
+      "rationale": "Protect the actual public message_start-before-ping order, beyond converter internal state."
+    },
+    {
+      "path": "backend/internal/service/group_model_allowlist.go",
+      "must_contain": [
+        "account.IsOpenAIPassthroughEnabled() && !account.IsOpenAIPassthroughModelFilterEnabled()"
+      ],
+      "rationale": "Explicit passthrough source filtering must prevent unrestricted default catalog supplementation."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_upstream_error_prelude.go",
+      "must_contain": [
+        "account.IsBedrock() && statusCode == http.StatusBadRequest && strings.HasPrefix(normalizeBedrockErrorMessage(extractUpstreamErrorMessage(responseBody)), \"malformed input request:\")"
+      ],
+      "rationale": "Bedrock request ValidationException echoes must not become supplier standing-billing failures before the native Bedrock error classifier."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_test.go",
+      "must_contain": [
+        "TestAccountUsageService_ExplicitOpenAIRefreshFailureReturnsError",
+        "TestAccountUsageService_PassiveOpenAIUsage_PreservesSnapshotObservationTime",
+        "TestAccountUsageService_GetOpenAIUsage_RefreshFailureKeepsCachedDataAndReportsError"
+      ],
+      "rationale": "Preserve distinct explicit-error, passive-read and automatic-stale-observation contracts so upstream refresh changes cannot silently merge them."
     }
   ]
 }

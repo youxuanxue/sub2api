@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 )
 
 // tkTryHandleUpstreamErrorPrelude collapses the TokenKey-only early-return chain
@@ -25,6 +26,12 @@ func (s *RateLimitService) tkTryHandleUpstreamErrorPrelude(
 	requestedModel string,
 ) (handled, shouldDisable bool) {
 	if s == nil || account == nil {
+		return true, false
+	}
+
+	// Bedrock ValidationException can echo arbitrary client field names. Those
+	// words cannot establish supplier billing/credential failure.
+	if account.IsBedrock() && statusCode == http.StatusBadRequest && strings.HasPrefix(normalizeBedrockErrorMessage(extractUpstreamErrorMessage(responseBody)), "malformed input request:") {
 		return true, false
 	}
 

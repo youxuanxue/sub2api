@@ -32,7 +32,7 @@ func (s *OpenAIGatewayService) tkApplyCodexOAuthForwardBody(
 		return newUpstreamModel, newPromptCacheKey, modified, codexResult.Error
 	}
 	setCodexToolNameReverse(c, codexResult.ToolNameReverse)
-	if !isCompactRequest && applyCodexAccountIdentityClientMetadataMap(decoded, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c)) {
+	if !isCompactRequest && applyCodexAccountIdentityClientMetadataMap(decoded, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c), codexClientSessionID(c)) {
 		modified = true
 	}
 	if codexResult.Modified {

@@ -2037,3 +2037,10 @@ func TestGatewayModels_CompositeCodexRouteLookupErrorKeepsFallback(t *testing.T)
 		})
 	}
 }
+
+func (s *gatewayModelsAccountRepoStub) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]service.Account, error) {
+	if groupID != nil {
+		return s.ListSchedulableByGroupID(ctx, *groupID)
+	}
+	return s.ListSchedulable(ctx)
+}

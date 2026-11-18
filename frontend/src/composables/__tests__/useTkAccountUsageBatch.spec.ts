@@ -109,4 +109,28 @@ describe('useTkAccountUsageBatch', () => {
     // Previous value retained (failure-open), not wiped to null.
     expect(usageOverrideFor(accounts[0])).toEqual(usageA)
   })
+  it('retains OpenAI windows and observation time across server and transport failures, then clears warnings after recovery', async () => {
+    const account = acct(5, 'openai', 'oauth')
+    const observed = {
+      source: 'passive', updated_at: '2026-11-17T10:00:00Z',
+      five_hour: { utilization: 24, resets_at: '2026-11-17T15:00:00Z' },
+      seven_day: { utilization: 63, resets_at: '2026-11-23T10:00:00Z' }
+    } as AccountUsageInfo
+    const { refreshUsageBatch, usageOverrideFor } = useTkAccountUsageBatch()
+    getBatchPassiveUsage.mockResolvedValueOnce({ usage: { '5': observed } })
+    await refreshUsageBatch([account])
+    getBatchPassiveUsage.mockResolvedValueOnce({ usage: { '5': { error_code: 'quota_refresh_failed', error: 'refresh unavailable' } } })
+    await refreshUsageBatch([account])
+    expect(usageOverrideFor(account)).toEqual({ ...observed, seven_day_sonnet: null,
+      error_code: 'quota_refresh_failed', error: 'refresh unavailable' })
+    getBatchPassiveUsage.mockRejectedValueOnce(new Error('network unavailable'))
+    await refreshUsageBatch([account])
+    expect(usageOverrideFor(account)).toMatchObject({ ...observed, error_code: 'quota_refresh_failed' })
+    const recovered = { ...observed, updated_at: '2026-11-17T10:30:00Z' }
+    getBatchPassiveUsage.mockResolvedValueOnce({ usage: { '5': recovered } })
+    await refreshUsageBatch([account])
+    expect(usageOverrideFor(account)).toEqual(recovered)
+    expect(usageOverrideFor(account)?.error_code).toBeUndefined()
+  })
+
 })

@@ -18,7 +18,8 @@ func lastOpenAIModelSegment(model string) string {
 	return strings.TrimSpace(model)
 }
 
-// isOpenAIGPT56Model accepts base names and supported GPT-5.6 variants.
+// isOpenAIGPT56Model 判断是否 GPT-5.6 系列模型；入参可为原始模型名
+// （含大小写/路径/后缀变体）或已归一化的基名，两者均能正确识别。
 func isOpenAIGPT56Model(model string) bool {
 	normalized := canonicalizeOpenAIModelAliasSpelling(model)
 	if normalized == "gpt-5.6" {
@@ -124,6 +125,10 @@ func normalizeOpenAIBillingModel(model string) string {
 	}
 	if normalized == "" {
 		return ""
+	}
+
+	if base := openai.GPT62ModelID(normalized); base != "" {
+		return base
 	}
 
 	if openai.IsGPT61TerraModelSpelling(normalized) {
@@ -239,5 +244,5 @@ func firstUsageBillingModel(candidates []string) string {
 }
 
 func isOpenAIGPT6Model(model string) bool {
-	return openai.IsGPT61TerraModelSpelling(model) || isOpenAIGPT6AstraModel(model) || openai.IsGPT6SolOrLunaModelSpelling(model) || openai.IsGPT61SolModelSpelling(model)
+	return openai.GPT62ModelID(model) != "" || openai.IsGPT61TerraModelSpelling(model) || isOpenAIGPT6AstraModel(model) || openai.IsGPT6SolOrLunaModelSpelling(model) || openai.IsGPT61SolModelSpelling(model)
 }

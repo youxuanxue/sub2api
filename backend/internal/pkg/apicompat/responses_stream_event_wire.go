@@ -188,6 +188,9 @@ func responsesItemWire(item *ResponsesOutput) map[string]any {
 			m["encrypted_content"] = item.EncryptedContent
 		}
 	case "function_call":
+		if item.EncryptedContent != "" {
+			m["encrypted_content"] = item.EncryptedContent
+		}
 		m["call_id"] = item.CallID
 		m["name"] = item.Name
 		m["arguments"] = item.Arguments

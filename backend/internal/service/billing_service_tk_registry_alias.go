@@ -30,6 +30,7 @@ func tkModelPricingFromLiteLLM(p *LiteLLMModelPricing) *ModelPricing {
 	price5m := p.CacheCreationInputTokenCost
 	price1h := p.CacheCreationInputTokenCostAbove1hr
 	return &ModelPricing{
+		priceOverrides:                     p.priceOverrides,
 		InputPricePerToken:                 p.InputCostPerToken,
 		InputPricePerTokenPriority:         p.InputCostPerTokenPriority,
 		OutputPricePerToken:                p.OutputCostPerToken,
@@ -121,6 +122,18 @@ func (s *BillingService) getRegistryAliasPricing(model string) *ModelPricing {
 	}
 	if owner, declared := tkPricingRegistryAliasOwner(lower); declared {
 		return tkRegistryAliasOwnerPricing(owner)
+	}
+
+	if canonical := normalizeAntigravityClaudeTierAlias(lower); canonical != lower {
+		return s.getRegistryAliasPricing(canonical)
+	}
+
+	// Normalized variants can use an already published registry owner; normalization
+	// never publishes an upstream numeric fallback for an absent owner.
+	if normalized := normalizeOpenAIBillingModel(lower); normalized != "" {
+		if pricing := tkRegistryAliasOwnerPricing(normalized); pricing != nil {
+			return pricing
+		}
 	}
 
 	// Recognized Opus 5.5 aliases must never inherit the older Opus 5 floor.
