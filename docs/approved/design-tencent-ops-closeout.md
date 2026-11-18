@@ -68,15 +68,15 @@ parent: docs/approved/design-tencent-ops-control-plane.md
 | B3 | `deploy/domestic/deploy_via_ssm.sh` | pull/put-file **迁 TAT 包装**或改调 `remote_exec`；文件可改名去掉 via-ssm | ☐ |
 | B4 | `ops/stage0/sync-feishu-config.sh` | **迁 TAT**（服务 A1） | ☐ |
 | B5 | `ops/stage0/sync-container-log-policy-via-ssm.sh` | **迁 TAT** 或随 A9 删除 | ✅（日常改 `probe-sync-container-log-policy.sh`+TAT；via-ssm 留 LEGACY） |
-| B6 | `ops/stage0/sync_docs_pages.sh` | 随 A10 **删除** | ✅ |
+| B6 | `ops/stage0/sync_docs_pages.sh` | 随 A10 **删除** | ✅ | <!-- script-ref-allow-missing: tombstone -->
 | B7 | `ops/stage0/sync_caddyfile_via_ssm.sh` | **迁 TAT**（入口/应用 Caddy 热更） | ☐ |
 | B8 | `ops/stage0/sync-host-bbr-via-ssm.sh` | **迁 TAT** | ☐ |
 | B9 | `ops/stage0/sync-prod-pg-tuning-via-ssm.sh` | **迁 TAT**（数据机）或确认 GUC 已固化后删 | ☐ |
-| B10 | `ops/stage0/sync-host-mem-guard-via-ssm.sh` | **删除**（注释写明 Legacy EC2 standby） | ✅ |
-| B11 | `ops/stage0/warm_pull_via_ssm.sh` | warm 已 TAT → **删或标 LEGACY**；日常不引用 | ✅ |
+| B10 | `ops/stage0/sync-host-mem-guard-via-ssm.sh` | **删除**（注释写明 Legacy EC2 standby） | ✅ | <!-- script-ref-allow-missing: tombstone -->
+| B11 | `ops/stage0/warm_pull_via_ssm.sh` | warm 已 TAT → **删或标 LEGACY**；日常不引用 | ✅ | <!-- script-ref-allow-missing: tombstone -->
 | B12 | `ops/stage0/deploy_via_ssm.sh` / `deploy_via_ssm_bluegreen.sh` | 日常入口已 rolling → **删日常引用**；蓝绿保持 LEGACY 或删（与 A14 一致） | ☐ |
 | B13 | `ops/stage0/sync-ghcr-prune-timer-via-ssm.sh` | 已 LEGACY → **保留薄壳或删**（默认已是 TAT） | ☐ |
-| B14 | `ops/stage0/pg_dump_refresh_via_ssm.sh` | 随 A11 **删除** | ✅ |
+| B14 | `ops/stage0/pg_dump_refresh_via_ssm.sh` | 随 A11 **删除** | ✅ | <!-- script-ref-allow-missing: tombstone -->
 | B15 | `ops/stage0/resolve-prod-running-tag-via-ssm.sh` | **迁 TAT** 只读；或并入 rolling 回执 | ☐ |
 | B16 | `ops/stage0/assert-live-host-state.sh` / `check_exclusive_group_orphans_via_ssm.sh` / `deploy-error-clustering-binary.sh` | **迁 TAT** 或并入 diagnostics | ☐ |
 | B17 | `ops/observability/fetch-gateway-debug-log.sh` | **迁 TAT** | ☐ |
