@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 #
-# Off-box Stage0 .env secrets to an SSM SecureString (operator-run).
+# LEGACY SecureString writer — refuse-by-default (closeout C3).
+# Daily ops secrets SSOT: host root-only `.env` + 腾讯 COS + `tencent-ops` secrets.
+# Break-glass one-shot only: TOKENKEY_ALLOW_SECURESTRING_WRITE=1
 #
+# Historical notes (break-glass path below):
+# Off-box Stage0 .env secrets to an SSM SecureString (operator-run).
 # Why a separate ops script (not in tokenkey-pgdump.sh): the secrets rotate rarely,
 # the dump script is already at the SSM Standard-tier embed-size limit, and we do NOT
 # want to co-locate the decryption keys with the S3 ledger dump (different blast
@@ -13,22 +17,27 @@
 # lands, re-add that inline policy (ssm:PutParameter on .../stage0/env-secrets-backup)
 # or this script's PutParameter step will AccessDenied. See RUNBOOK §4.4.
 #
-# Run this:
-#   - once at activation (after deploying stage0-backups.yaml), and
-#   - after ANY rotation of POSTGRES_PASSWORD / JWT_SECRET / TOTP_ENCRYPTION_KEY.
-# Change-detected: a no-op (no new param version) when the secrets are unchanged.
-#
-# Restore is documented in deploy/aws/RUNBOOK-disaster-recovery.md §4.4 step 0.
-#
-# Usage:
-#   ops/stage0/backup-env-secrets-via-ssm.sh <instance_id> [comment]
+# Break-glass usage:
+#   TOKENKEY_ALLOW_SECURESTRING_WRITE=1 \
+#     ops/stage0/backup-env-secrets-via-ssm.sh <instance_id> [comment]
 # Env:
+#   TOKENKEY_ALLOW_SECURESTRING_WRITE  must be 1 or the script exits 2
 #   TK_ENV_SECRETS_PARAM   SSM param name (default /tokenkey/prod/stage0/env-secrets-backup)
 #   TK_ENV_SECRETS_SOURCE  source file (default /var/lib/tokenkey/.env)
 #   AWS_REGION / AWS_DEFAULT_REGION   region for SSM (optional)
 #   STAGE0_SSM_TIMEOUT_SECONDS        SSM poll timeout (default 180)
 #   STAGE0_SSM_OUTPUT_DIR             where to drop ssm-params/stdout/stderr (default .)
 set -euo pipefail
+
+if [[ "${TOKENKEY_ALLOW_SECURESTRING_WRITE:-}" != "1" ]]; then
+  cat >&2 <<'EOF'
+backup_env_secrets_via_ssm: refused (closeout C3).
+Ops secrets are not written to AWS SSM SecureString by default.
+SSOT: host root-only .env + 腾讯 COS + tencent-ops secrets.
+Break-glass one-shot only: TOKENKEY_ALLOW_SECURESTRING_WRITE=1
+EOF
+  exit 2
+fi
 
 INSTANCE_ID="${1:-${INSTANCE_ID:-}}"
 COMMENT="${2:-${SSM_COMMENT:-backup-env-secrets}}"

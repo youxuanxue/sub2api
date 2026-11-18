@@ -557,10 +557,12 @@
         "const model = normalizeModelID(item)",
         "isApiBackedPlatform(platform)",
         "return servableModelsFor(platform) ?? []",
-        "'gpt-6', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6.1', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-terra'",
+        "'gpt-6', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6.1', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-terra',\n  'gpt-6.2-sol', 'gpt-6.2-astra'",
         "{ label: 'GPT-6.1 Sol', from: 'gpt-6.1-sol', to: 'gpt-6.1-sol'",
-        "{ label: 'GPT-6 Terra', from: 'gpt-6-terra', to: 'gpt-5.6-terra'",
-        "{ label: 'GPT-6.1 Terra', from: 'gpt-6.1-terra', to: 'gpt-5.6-terra'"
+        "{ label: 'GPT-6 Terra', from: 'gpt-6-terra', to: 'gpt-6.1-terra'",
+        "{ label: 'GPT-6.1 Terra', from: 'gpt-6.1-terra', to: 'gpt-6.1-terra'",
+        "{ label: 'GPT-6.2 Sol', from: 'gpt-6.2-sol', to: 'gpt-6.2-sol'",
+        "{ label: 'GPT-6.2 Astra', from: 'gpt-6.2-astra', to: 'gpt-6.2-astra'"
       ],
       "rationale": "Two load-bearing contracts. (1) buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs (normalizeModelID), or the submit path hits `includes is not a function` after #128 responses. (2) R-003 self-heal: the per-platform candidate lists are NO LONGER hardcoded here — getModelsByPlatform routes the API-backed platforms (anthropic/openai/gemini/antigravity) to servableModelsFor (the self-healing backend cache from useServableModels), keeping only newapi + the long-tail providers static. An upstream merge that re-hardcodes claude/openai/gemini arrays here would re-introduce retired/access-gated models (e.g. claude-fable-5) and defeat the self-heal; these anchors pin the API derivation. (3) newapi static GPT-6.1 Sol/Terra whitelist + admin preset mapping must stay aligned with the catalog/pricing floor aliases — dropping gpt-6.1 / gpt-6.1-sol / terra remaps from newapiModels or openaiPresetMappings would hide the public Sol/Terra surface from NewAPI account mapping UI after modelops activation."
     },

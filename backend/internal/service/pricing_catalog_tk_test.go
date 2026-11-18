@@ -804,14 +804,20 @@ func TestPublicCatalog_PublishesGPT6TerraAndGrok47(t *testing.T) {
 	}
 	require.True(t, got["gpt-6-terra"], "gpt-6-terra must appear on the public catalog")
 	require.True(t, got["gpt-6.1-terra"], "gpt-6.1-terra must appear on the public catalog")
+	require.True(t, got["gpt-6.2-sol"], "gpt-6.2-sol must appear on the public catalog")
+	require.True(t, got["gpt-6.2-astra"], "gpt-6.2-astra must appear on the public catalog")
 	require.True(t, got["grok-4.7"], "grok-4.7 must appear on the public catalog")
 	require.True(t, isPublicCatalogModelSupported("openai", "gpt-6-terra"))
 	require.True(t, isPublicCatalogModelSupported("openai", "gpt-6.1-terra"))
+	require.True(t, isPublicCatalogModelSupported("openai", "gpt-6.2-sol"))
+	require.True(t, isPublicCatalogModelSupported("openai", "gpt-6.2-astra"))
 	require.True(t, isPublicCatalogModelSupported("xai", "grok-4.7"))
 
 	openaiFloor := openAICanonicalAccountModelMappingFloor(context.Background(), nil, nil)
-	require.Equal(t, "gpt-5.6-terra", openaiFloor["gpt-6-terra"])
-	require.Equal(t, "gpt-5.6-terra", openaiFloor["gpt-6.1-terra"])
+	require.Equal(t, "gpt-6.1-terra", openaiFloor["gpt-6-terra"])
+	require.Equal(t, "gpt-6.1-terra", openaiFloor["gpt-6.1-terra"])
+	require.Equal(t, "gpt-6.2-sol", openaiFloor["gpt-6.2-sol"])
+	require.Equal(t, "gpt-6.2-astra", openaiFloor["gpt-6.2-astra"])
 	grokFloor := grokAccountModelMappingFloor(context.Background(), nil, nil)
 	require.Equal(t, "grok-4.7", grokFloor["grok-4.7"])
 }

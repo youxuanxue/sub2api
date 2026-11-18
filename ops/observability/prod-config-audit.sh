@@ -8,7 +8,7 @@ failed=0
 for check in pricing exclusive-groups supplier-projection account-bindings; do
   case "$check" in
     pricing) command=(python3 ops/pricing/manage-overlay-runtime.py check) ;;
-    exclusive-groups) command=(bash ops/stage0/check_exclusive_group_orphans_via_ssm.sh "$INSTANCE_ID" "daily orphan audit") ;;
+    exclusive-groups) command=(bash ops/stage0/check_exclusive_group_orphans.sh "daily orphan audit") ;;
     supplier-projection) command=(bash ops/observability/check-supplier-projection.sh --target prod --expected-instance-id "$INSTANCE_ID" --timeout-seconds 180) ;;
     account-bindings) command=(bash ops/observability/check-account-group-bindings.sh --target prod --expected-instance-id "$INSTANCE_ID" --timeout-seconds 180) ;;
   esac

@@ -46,8 +46,14 @@ def validate_publication_boundary(root: pathlib.Path) -> list[str]:
         return [str(exc)]
 
     events = _workflow_events(publisher)
-    if not isinstance(events, dict) or set(events) != {"push"}:
-        errors.append("publisher must accept only the push event")
+    # push@main remains the protected auto path; workflow_dispatch is allowed so
+    # operators can re-verify after control-plane fixes without touching the
+    # registry artifact (still pins origin/main + TAT publish).
+    allowed_events = {"push", "workflow_dispatch"}
+    if not isinstance(events, dict) or not set(events).issubset(allowed_events) or "push" not in events:
+        errors.append(
+            "publisher events must include push and may only add workflow_dispatch"
+        )
     else:
         push = events.get("push")
         if not isinstance(push, dict):
@@ -59,6 +65,8 @@ def validate_publication_boundary(root: pathlib.Path) -> list[str]:
                 errors.append(
                     f"publisher push paths must be exactly [{REGISTRY}, {PUBLISHER}]"
                 )
+        if "workflow_dispatch" in events and events.get("workflow_dispatch") not in (None, {}):
+            errors.append("publisher workflow_dispatch must be empty (no inputs)")
 
     concurrency = publisher.get("concurrency")
     if not isinstance(concurrency, dict) or concurrency.get("group") != "pricing-registry-publish":
@@ -67,16 +75,18 @@ def validate_publication_boundary(root: pathlib.Path) -> list[str]:
         errors.append("publisher must supersede obsolete runs with cancel-in-progress=true")
 
     permissions = publisher.get("permissions")
-    if not isinstance(permissions, dict) or permissions.get("id-token") != "write":
-        errors.append("publisher must retain id-token: write for repository-branch OIDC")
+    if not isinstance(permissions, dict) or set(permissions) != {"contents"}:
+        errors.append("publisher permissions must be contents-only (TAT via tencent-ops secrets)")
+    elif permissions.get("contents") != "read":
+        errors.append("publisher contents permission must be read")
 
     jobs = publisher.get("jobs")
     publish_job = jobs.get("publish") if isinstance(jobs, dict) else None
     if not isinstance(publish_job, dict):
         errors.append("publisher must define the publish job")
     else:
-        if "environment" in publish_job:
-            errors.append("publisher job must not add a second Environment approval gate")
+        if publish_job.get("environment") != "tencent-ops":
+            errors.append("publisher job must use environment: tencent-ops for TAT credentials")
         steps = publish_job.get("steps")
         canonical_sync = "python3 ops/pricing/manage-overlay-runtime.py sync-runtime"
         if not isinstance(steps, list) or not any(
@@ -95,6 +105,12 @@ def validate_publication_boundary(root: pathlib.Path) -> list[str]:
         # redis PUBLISH live on the data machine.
         if "PROD_SSM_NODE: data" not in publisher_text:
             errors.append("publisher must pin PROD_SSM_NODE: data for multi-app fleets")
+        if "TOKENKEY_REMOTE_VIA: tat" not in publisher_text:
+            errors.append("publisher must default TOKENKEY_REMOTE_VIA: tat")
+        if "aws-actions/configure-aws-credentials" in publisher_text:
+            errors.append("publisher must not configure AWS OIDC credentials")
+        if "AWS_OIDC_ROLE_ARN" in publisher_text:
+            errors.append("publisher must not reference AWS_OIDC_ROLE_ARN")
 
     forbidden_deploy = (
         "manage-overlay-runtime.py sync-runtime",

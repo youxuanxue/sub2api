@@ -59,12 +59,13 @@ class ReleaseWorkflowCredentialBoundaryTest(unittest.TestCase):
         self.assertNotIn("id-token: write", legacy)
         self.assertNotIn("configure-aws-credentials", legacy)
 
-        # Standard prod→COS: AWS OIDC only for SSM to prod; COS still TENCENT.
+        # Standard prod→COS: TAT via tencent-ops to prod; COS still TENCENT.
         prod_pub = text.split("  publish-from-prod:\n", 1)[1].split("  warm:\n", 1)[0]
         self.assertIn("environment: tencent-ops", prod_pub)
         self.assertIn("TENCENTCLOUD_SECRET_ID", prod_pub)
-        self.assertIn("id-token: write", prod_pub)
-        self.assertIn("configure-aws-credentials", prod_pub)
+        self.assertNotIn("id-token: write", prod_pub)
+        self.assertNotIn("configure-aws-credentials", prod_pub)
+        self.assertIn("--via tat", prod_pub)
         self.assertIn("probe_publish_cn_from_prod.sh", prod_pub)
         self.assertIn("python3 deploy/domestic/warm_fanout.py render-all", prod_pub)
         self.assertIn("--channel tat", prod_pub)

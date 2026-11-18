@@ -180,13 +180,12 @@ jobs:
     timeout-minutes: 45
     environment: tencent-ops
     env:
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      AWS_REGION: eu-west-2
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
     permissions:
       contents: read
       actions: read
       packages: read
-      id-token: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -194,17 +193,16 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Require AWS OIDC role for prod SSM
+      - name: Install tccli
+        run: python3 -m pip install 'tccli==3.1.198.1'
+      - name: Require Tencent TAT credentials
         run: |
-          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
-            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set" >&2
-            exit 1
-          fi
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          for key in TENCENTCLOUD_SECRET_ID TENCENTCLOUD_SECRET_KEY; do
+            if [ -z "${!key}" ]; then
+              echo "::error::$key is not configured" >&2
+              exit 1
+            fi
+          done
       - name: Publish from prod host to Beijing COS
         env:
           RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
@@ -213,13 +211,11 @@ jobs:
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.repository_owner }}
-          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
         run: |
           set -euo pipefail
           REPO="ghcr.io/${GITHUB_REPOSITORY,,}"
           chmod +x deploy/domestic/probe_publish_cn_from_prod.sh
-          bash ops/observability/run-probe.sh --target prod --node app-cand \
+          bash ops/observability/run-probe.sh --target prod --node app-cand --via tat \
             --script deploy/domestic/probe_publish_cn_from_prod.sh \
             --with deploy/domestic/image_distribution.py \
             --with deploy/domestic/image_archive.py \

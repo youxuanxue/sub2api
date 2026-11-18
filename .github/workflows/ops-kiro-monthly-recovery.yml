@@ -2,6 +2,7 @@ name: Ops Kiro Monthly Recovery
 
 # GitHub Actions cron is minute-granular.  23:59 UTC on the last possible day
 # lets the job wait until 00:00:05 UTC = 08:00:05 Asia/Shanghai on day 1.
+# Transport: Tencent TAT via run-probe (2026-11-18 closeout).
 on:
   schedule:
     - cron: '59 23 28-31 * *'
@@ -23,7 +24,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: ops-kiro-monthly-recovery
@@ -34,13 +34,14 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '59 23 28-31 * *'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    environment: tencent-ops
     strategy:
       fail-fast: false
       matrix:
         target: [prod, cn-prod]
     env:
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-2' }}
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
       MODE: ${{ github.event_name == 'schedule' && 'apply' || inputs.mode || 'dry-run' }}
       FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force || 'false' }}
       MODEL: claude-sonnet-4.5
@@ -50,6 +51,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install tccli
+        if: env.RUN_NOW == 'true'
+        run: python3 -m pip install 'tccli==3.1.198.1'
 
       - name: Wait for Beijing 08:00:05 on scheduled run
         if: github.event_name == 'schedule'
@@ -71,20 +80,18 @@ jobs:
             echo "runner started after target; proceeding immediately target_date=$TARGET_DATE"
           fi
 
-      - name: Check AWS OIDC configuration
+      - name: Check Tencent TAT credentials
         if: env.RUN_NOW == 'true'
         run: |
           set -euo pipefail
-          test -n "${OIDC_ROLE_ARN:-}" || { echo '::error::AWS_OIDC_ROLE_ARN is empty'; exit 1; }
+          for key in TENCENTCLOUD_SECRET_ID TENCENTCLOUD_SECRET_KEY; do
+            if [ -z "${!key}" ]; then
+              echo "::error::$key is not configured"
+              exit 1
+            fi
+          done
 
-      - name: Configure AWS credentials via OIDC
-        if: env.RUN_NOW == 'true'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Run Kiro recovery and probes through SSM
+      - name: Run Kiro recovery and probes through TAT
         id: run
         if: env.RUN_NOW == 'true'
         env:
@@ -98,6 +105,7 @@ jobs:
           fi
           bash ops/observability/run-probe.sh \
             --target "$TARGET" \
+            --via tat \
             --script ops/kiro/monthly-recovery.sh \
             --with ops/kiro/monthly_recovery.py \
             --with ops/stage0/probe_kiro_upstream_models.sh \

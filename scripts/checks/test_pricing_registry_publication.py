@@ -47,14 +47,21 @@ class PricingRegistryPublicationGateTest(unittest.TestCase):
     def test_rejects_non_main_extra_event_or_extra_path(self) -> None:
         workflow = ".github/workflows/pricing-registry-publish.yml"
         self._replace(workflow, "branches: [main]", "branches: [feature]")
-        self._replace(workflow, "on:\n  push:", "on:\n  push:\n  workflow_dispatch:")
         self._replace(
             workflow,
             "      - .github/workflows/pricing-registry-publish.yml",
             "      - .github/workflows/pricing-registry-publish.yml\n      - backend/internal/service/pricing_service.go",
         )
         errors = CHECK.validate_publication_boundary(self.root)
-        self.assertTrue(any("push event" in error for error in errors), errors)
+        self.assertTrue(any("push branches" in error for error in errors), errors)
+        self.assertTrue(any("push paths" in error for error in errors), errors)
+        # pull_request is not an allowed publisher event (workflow_dispatch is).
+        self._replace(workflow, "on:\n  push:", "on:\n  push:\n  pull_request:")
+        errors = CHECK.validate_publication_boundary(self.root)
+        self.assertTrue(
+            any("may only add workflow_dispatch" in error for error in errors),
+            errors,
+        )
 
     def test_rejects_missing_workflow_reconciliation_path(self) -> None:
         workflow = ".github/workflows/pricing-registry-publish.yml"
@@ -66,15 +73,21 @@ class PricingRegistryPublicationGateTest(unittest.TestCase):
         errors = CHECK.validate_publication_boundary(self.root)
         self.assertTrue(any("push paths" in error for error in errors), errors)
 
-    def test_rejects_environment_gate_bad_concurrency_or_missing_oidc(self) -> None:
+    def test_rejects_wrong_environment_bad_concurrency_or_oidc(self) -> None:
         workflow = ".github/workflows/pricing-registry-publish.yml"
-        self._replace(workflow, "    env:\n", "    environment: prod\n    env:\n")
+        self._replace(workflow, "environment: tencent-ops", "environment: prod")
         self._replace(workflow, "cancel-in-progress: true", "cancel-in-progress: false")
-        self._replace(workflow, "id-token: write", "id-token: read")
+        self._replace(workflow, "permissions:\n  contents: read\n", "permissions:\n  contents: read\n  id-token: write\n")
+        self._replace(
+            workflow,
+            "TOKENKEY_REMOTE_VIA: tat\n",
+            "TOKENKEY_REMOTE_VIA: tat\n      AWS_OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}\n",
+        )
         errors = CHECK.validate_publication_boundary(self.root)
-        self.assertTrue(any("Environment" in error for error in errors), errors)
+        self.assertTrue(any("tencent-ops" in error for error in errors), errors)
         self.assertTrue(any("cancel-in-progress" in error for error in errors), errors)
-        self.assertTrue(any("id-token" in error for error in errors), errors)
+        self.assertTrue(any("contents-only" in error for error in errors), errors)
+        self.assertTrue(any("AWS_OIDC_ROLE_ARN" in error for error in errors), errors)
 
     def test_rejects_missing_latest_main_or_canonical_sync(self) -> None:
         workflow = ".github/workflows/pricing-registry-publish.yml"

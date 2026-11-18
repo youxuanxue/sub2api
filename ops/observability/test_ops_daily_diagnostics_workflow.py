@@ -31,67 +31,49 @@ def workflow_text() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
 
-def extract_runtime_params_commands() -> list[str]:
-    """Inner host script lines from runtime-params.json builder.
-
-    Hybrid SSM wraps the array as a single ``bash -c '…'`` command so dash
-    can start the document; tests assert the unwrapped body.
-    """
-    from ops.stage0.ssm_wrap_bash_commands import unwrap_commands
-
-    marker = 'python3 - <<\'PY\' > "$OUT/runtime-params.json"\n'
+def _runtime_builder_script() -> str:
+    marker = "OUT_DIR=\"$OUT\" DIAGNOSTICS_LOG_SINCE=\"$DIAGNOSTICS_LOG_SINCE\" python3 - <<'PY'\n"
     text = workflow_text()
     start = text.index(marker) + len(marker)
     end = text.index("\n          PY", start)
-    script = textwrap.dedent(text[start:end])
+    return textwrap.dedent(text[start:end])
+
+
+def extract_runtime_params_commands() -> list[str]:
+    """Inner host script lines from the runtime-diagnostics.sh builder."""
+    script = _runtime_builder_script()
     old_since = os.environ.get("DIAGNOSTICS_LOG_SINCE")
-    os.environ["DIAGNOSTICS_LOG_SINCE"] = "24h"
-    try:
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout):
+    old_out = os.environ.get("OUT_DIR")
+    with tempfile.TemporaryDirectory() as directory:
+        out = Path(directory)
+        os.environ["DIAGNOSTICS_LOG_SINCE"] = "24h"
+        os.environ["OUT_DIR"] = str(out)
+        try:
             exec(compile(script, str(WORKFLOW), "exec"), {})
-        return unwrap_commands(json.loads(stdout.getvalue())["commands"])
-    finally:
-        if old_since is None:
-            os.environ.pop("DIAGNOSTICS_LOG_SINCE", None)
-        else:
-            os.environ["DIAGNOSTICS_LOG_SINCE"] = old_since
+        finally:
+            if old_since is None:
+                os.environ.pop("DIAGNOSTICS_LOG_SINCE", None)
+            else:
+                os.environ["DIAGNOSTICS_LOG_SINCE"] = old_since
+            if old_out is None:
+                os.environ.pop("OUT_DIR", None)
+            else:
+                os.environ["OUT_DIR"] = old_out
+        body = (out / "runtime-diagnostics.sh").read_text(encoding="utf-8")
+    lines = body.splitlines()
+    if lines and lines[0].startswith("#!"):
+        lines = lines[1:]
+    return lines
 
 
 def extract_receipt_params_commands() -> list[str]:
     """Host script that reads the backup receipt on the data machine."""
-    from ops.stage0.ssm_wrap_bash_commands import unwrap_commands
-
-    marker = 'python3 - <<\'PY\' > "$OUT/receipt-params.json"\n'
+    marker = "cat > /tmp/read-receipt.sh <<'EOS'\n"
     text = workflow_text()
     start = text.index(marker) + len(marker)
-    end = text.index("\n          PY", start)
-    script = textwrap.dedent(text[start:end])
-    stdout = io.StringIO()
-    with contextlib.redirect_stdout(stdout):
-        exec(compile(script, str(WORKFLOW), "exec"), {})
-    return unwrap_commands(json.loads(stdout.getvalue())["commands"])
-
-
-def extract_runtime_params_raw_commands() -> list[str]:
-    """Raw SSM commands array (still wrapped) for Hybrid dash regression."""
-    marker = 'python3 - <<\'PY\' > "$OUT/runtime-params.json"\n'
-    text = workflow_text()
-    start = text.index(marker) + len(marker)
-    end = text.index("\n          PY", start)
-    script = textwrap.dedent(text[start:end])
-    old_since = os.environ.get("DIAGNOSTICS_LOG_SINCE")
-    os.environ["DIAGNOSTICS_LOG_SINCE"] = "24h"
-    try:
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout):
-            exec(compile(script, str(WORKFLOW), "exec"), {})
-        return json.loads(stdout.getvalue())["commands"]
-    finally:
-        if old_since is None:
-            os.environ.pop("DIAGNOSTICS_LOG_SINCE", None)
-        else:
-            os.environ["DIAGNOSTICS_LOG_SINCE"] = old_since
+    end = text.index("\n          EOS", start)
+    body = textwrap.dedent(text[start:end]).strip("\n")
+    return [line.strip() for line in body.splitlines()]
 
 
 def extract_log_signal_classifier() -> str:
@@ -177,18 +159,15 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         text = workflow_text()
         self.assertIn("postgres_backup_verdict.py", text)
         self.assertIn("physical-backup|$TARGET_ID", text)
+        self.assertIn('cat > /tmp/read-receipt.sh <<\'EOS\'', text)
+        self.assertIn('--target "${PROBE_TARGET}-data"', text)
+        self.assertIn('--via tat', text)
         self.assertIn(
-            'data_machine_target.py --site "$PROBE_TARGET" --verify',
-            text,
-        )
-        self.assertIn(
-            '--target "${PROBE_TARGET}-data" --script ops/observability/probe-data-layer-safety.sh',
+            '--target "${PROBE_TARGET}-data" --via tat --script ops/observability/probe-data-layer-safety.sh',
             text,
         )
 
     def test_large_restore_receipt_survives_runtime_ssm_transport(self) -> None:
-        from ops.observability.probe_output_transport import decode
-
         command = "\n".join(extract_receipt_params_commands())
         row = {"rows": 100000, "total_cost": "123.4567890123", "actual_cost": "12.3456789012",
                "min_created_at": "2026-01-01T00:00:00.000000Z",
@@ -217,11 +196,13 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             sudo.chmod(0o755)
             env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"]}
             command_here = command.replace("/var/lib/tokenkey/postgres-backup", str(backup_dir))
+            script = root / "read-receipt.sh"
+            script.write_text(command_here + "\n", encoding="utf-8")
+            script.chmod(0o755)
 
-            result = subprocess.run(["bash", "-euo", "pipefail", "-c", command_here],
+            result = subprocess.run(["bash", str(script)],
                                     env=env, capture_output=True, text=True, check=True)
-            self.assertLess(len(result.stdout), 23000)
-            self.assertEqual(decode(result.stdout).decode(), receipt)
+            self.assertEqual(result.stdout, receipt)
 
             # Tencent pgBackRest hosts write archive_check.json and never create
             # health.json -- live prod has exactly that shape. The verdict accepts
@@ -232,51 +213,40 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             health.unlink()
             archive = backup_dir / "archive_check.json"
             archive.write_text(receipt)
-            fallback = subprocess.run(["bash", "-euo", "pipefail", "-c", command_here],
+            fallback = subprocess.run(["bash", str(script)],
                                       env=env, capture_output=True, text=True, check=True)
-            self.assertEqual(decode(fallback.stdout).decode(), receipt)
+            self.assertEqual(fallback.stdout, receipt)
 
             # health.json wins when both exist.
             health.write_text('{"status":"ok","observed_at":1}')
-            both = subprocess.run(["bash", "-euo", "pipefail", "-c", command_here],
+            both = subprocess.run(["bash", str(script)],
                                   env=env, capture_output=True, text=True, check=True)
-            self.assertEqual(decode(both.stdout).decode(), '{"status":"ok","observed_at":1}')
+            self.assertEqual(both.stdout, '{"status":"ok","observed_at":1}')
 
             # An empty health.json must not shadow a usable archive receipt --
             # live prod has an empty health.json alongside a non-empty one.
             health.write_text("")
-            empty_primary = subprocess.run(["bash", "-euo", "pipefail", "-c", command_here],
+            empty_primary = subprocess.run(["bash", str(script)],
                                            env=env, capture_output=True, text=True, check=True)
-            self.assertEqual(decode(empty_primary.stdout).decode(), receipt)
+            self.assertEqual(empty_primary.stdout, receipt)
 
             health.unlink()
             archive.unlink()
-            missing = subprocess.run(["bash", "-euo", "pipefail", "-c", command_here],
+            missing = subprocess.run(["bash", str(script)],
                                      env=env, capture_output=True, text=True, check=True)
-            self.assertEqual(decode(missing.stdout), b"")
+            self.assertEqual(missing.stdout, "")
 
-    def test_runtime_ssm_params_wrap_pipefail_in_bash_c_for_hybrid_dash(self) -> None:
-        """Hybrid RunShellScript starts under dash; pipefail must be inside bash -c."""
-        raw = extract_runtime_params_raw_commands()
-        self.assertEqual(len(raw), 1, raw)
-        self.assertTrue(raw[0].startswith("bash -c "), raw[0][:80])
+    def test_runtime_remote_scripts_use_bash_with_pipefail(self) -> None:
+        """TAT ships a bash script file; pipefail must be set at the top."""
         body = extract_runtime_params_commands()
         self.assertEqual(body[0], "set -euo pipefail")
         self.assertIn("echo ===INTERNAL_HEALTH===", body)
-
         text = workflow_text()
-        for marker in (
-            'python3 - <<\'PY\' > "$OUT/runtime-params.json"',
-            "python3 - <<'PY' > ssm-params.json",
-        ):
-            start = text.index(marker)
-            end = text.index("\n          PY", start)
-            block = text[start:end]
-            self.assertIn(
-                '["bash -c " + shlex.quote("\\n".join(commands))]',
-                block,
-                msg=f"missing Hybrid bash -c wrap near {marker}",
-            )
+        self.assertIn('runtime-diagnostics.sh', text)
+        self.assertIn('log-dump-remote.sh', text)
+        self.assertIn('pathlib.Path("log-dump-remote.sh")', text)
+        self.assertNotIn("ssm send-command", text)
+        self.assertNotIn("runtime-params.json", text)
 
     def test_expression_interpolated_run_blocks_fit_github_limit(self) -> None:
         workflow = yaml.safe_load(workflow_text())
@@ -406,7 +376,7 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("RUNTIME_WAIT_SECONDS=300", text)
         self.assertIn("Data-layer capacity approaching the disk trigger ($TARGET_ID)", text)
         self.assertIn("Data-layer capacity hit the disk trigger ($TARGET_ID)", text)
-        self.assertIn("DEADLINE=$(( $(date +%s) + RUNTIME_WAIT_SECONDS ))", text)
+        self.assertIn("--timeout-seconds \"$RUNTIME_WAIT_SECONDS\"", text)
         self.assertIn(
             "after waiting up to ${RUNTIME_WAIT_SECONDS}s",
             text,
@@ -602,11 +572,10 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
 
     def test_runtime_diagnostics_resolve_active_blue_green_container(self) -> None:
         commands = extract_runtime_params_commands()
-        init = commands.index("APP_CONTAINER=''")
         active = next(i for i, command in enumerate(commands) if "/var/lib/tokenkey/active-color" in command)
         health = next(i for i, command in enumerate(commands) if 'docker exec "$APP_CONTAINER"' in command)
         logs = next(i for i, command in enumerate(commands) if 'docker logs "$APP_CONTAINER"' in command)
-        self.assertLess(init, active)
+        self.assertGreater(active, 0)
         self.assertLess(active, health)
         self.assertLess(health, logs)
         self.assertFalse(any("docker logs tokenkey --since" in command for command in commands))
@@ -619,7 +588,7 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         # Execute the actual workflow branch under nounset. Only its external
         # probe/report commands are stubbed; no AWS or production calls occur.
         stubs = r'''
-        bash() { printf '%s\n' "$@" > "$OUT/probe-args"; return "$PROBE_EXIT"; }
+        bash() { [ "$1" = ops/observability/run-probe.sh ] && shift; printf '%s\n' "$@" > "$OUT/probe-args"; return "$PROBE_EXIT"; }
         python3() { return 0; }
         jq() {
           case "$2" in
@@ -713,12 +682,12 @@ class DataContainerResolutionTest(unittest.TestCase):
         raise AssertionError("log-dump heredoc not found")
 
     def _log_dump_commands(self, container: str) -> str:
-        script = self._heredoc("python3 - <<'PY' > ssm-params.json\n")
+        script = self._heredoc("python3 - <<'PY'\n")
         env = {**os.environ, "INPUT_CONTAINER": container, "INPUT_SINCE": "10m",
                "INPUT_TAIL": "100", "GREP_B64": ""}
-        out = subprocess.run([sys.executable, "-c", script], cwd=REPO_ROOT, env=env,
-                             capture_output=True, text=True, check=True).stdout
-        return json.loads(out)["commands"][0]
+        subprocess.run([sys.executable, "-c", script], cwd=REPO_ROOT, env=env,
+                       capture_output=True, text=True, check=True)
+        return (REPO_ROOT / "log-dump-remote.sh").read_text(encoding="utf-8")
 
     def test_log_dump_resolves_logical_containers(self) -> None:
         pg = self._log_dump_commands("tokenkey-postgres")

@@ -29,8 +29,19 @@ _SCRIPT = pathlib.Path(__file__).resolve().parent / "run-probe.sh"
 def _run(
     *args: str, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
+    argv = list(args)
+    # Legacy SSM transport tests stub aws(1). TAT default is covered by
+    # test_run_probe_remote.py; inject --via ssm unless the caller opts in.
+    if (
+        "--via" not in argv
+        and "--help" not in argv
+        and "-h" not in argv
+        and "--describe-script" not in argv
+        and "--target" in argv
+    ):
+        argv = ["--via", "ssm", *argv]
     return subprocess.run(
-        ["bash", str(_SCRIPT), *args],
+        ["bash", str(_SCRIPT), *argv],
         capture_output=True,
         text=True,
         check=False,
