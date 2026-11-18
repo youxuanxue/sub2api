@@ -8,8 +8,11 @@ ops/tencent-ops/legacy-aws-control-plane-allowlist.json. A hit outside the
 allowlist fails closed. An allowlist entry that no longer matches (or is
 missing on disk) also fails so migrations must shrink the list in the same PR.
 
+Allowlist growth vs PREFLIGHT_BASE/origin/main is refused (no「先写再迁」switch).
+First landing of the allowlist file on a base that lacks it is the only bootstrap.
+
 Usage:
-  python3 scripts/checks/tencent-ops-control-plane-gate.py [--quiet]
+  python3 scripts/checks/tencent-ops-control-plane-gate.py [--quiet] [--base REF]
   python3 scripts/checks/tencent-ops-control-plane-gate.py --selftest
 """
 
@@ -17,13 +20,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ALLOWLIST = ROOT / "ops/tencent-ops/legacy-aws-control-plane-allowlist.json"
+ALLOWLIST_REL = "ops/tencent-ops/legacy-aws-control-plane-allowlist.json"
+ALLOWLIST = ROOT / ALLOWLIST_REL
 SSOT = "docs/approved/design-tencent-ops-control-plane.md"
 
 # No leading \\b: Stage0 wraps as aws_ssm send-command (underscore is a word char).
@@ -49,8 +55,9 @@ def is_test(path: Path) -> bool:
     return name.startswith("test_") or name.endswith("_test.py") or name.endswith("_test.sh")
 
 
-def load_allowlist(path: Path = ALLOWLIST) -> dict[str, list[str]]:
-    data = json.loads(path.read_text(encoding="utf-8"))
+def parse_allowlist_payload(data: object) -> dict[str, list[str]]:
+    if not isinstance(data, dict):
+        raise ValueError("allowlist must be a JSON object")
     if data.get("ssot") != SSOT:
         raise ValueError(f"allowlist ssot must be {SSOT}")
     out: dict[str, list[str]] = {}
@@ -60,6 +67,38 @@ def load_allowlist(path: Path = ALLOWLIST) -> dict[str, list[str]]:
             raise ValueError(f"allowlist {key} must be a list of non-empty strings")
         out[key] = sorted(set(value))
     return out
+
+
+def load_allowlist(path: Path = ALLOWLIST) -> dict[str, list[str]]:
+    return parse_allowlist_payload(json.loads(path.read_text(encoding="utf-8")))
+
+
+def _git(*args: str) -> str:
+    return subprocess.check_output(
+        ["git", "-C", str(ROOT), *args],
+        text=True,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def read_allowlist_at(base: str) -> dict[str, list[str]] | None:
+    """Return parsed allowlist at ``base``, or None if the file is absent."""
+    try:
+        text = _git("show", f"{base}:{ALLOWLIST_REL}")
+    except subprocess.CalledProcessError:
+        return None
+    if not text.strip():
+        return None
+    return parse_allowlist_payload(json.loads(text))
+
+
+def allowlist_growth(base_list: dict[str, list[str]], head_list: dict[str, list[str]]) -> list[str]:
+    failures: list[str] = []
+    for key in KEYS:
+        added = sorted(set(head_list[key]) - set(base_list[key]))
+        for rel in added:
+            failures.append(f"allowlist {key} grew vs base (refused): {rel}")
+    return failures
 
 
 def iter_code_files(root: Path) -> list[Path]:
@@ -115,7 +154,12 @@ def scan_hits(root: Path) -> dict[str, set[str]]:
     }
 
 
-def evaluate(root: Path, allowlist: dict[str, list[str]]) -> list[str]:
+def evaluate(
+    root: Path,
+    allowlist: dict[str, list[str]],
+    *,
+    base_allowlist: dict[str, list[str]] | None = None,
+) -> list[str]:
     failures: list[str] = []
     hits = scan_hits(root)
     for key in KEYS:
@@ -131,6 +175,8 @@ def evaluate(root: Path, allowlist: dict[str, list[str]]) -> list[str]:
                 failures.append(
                     f"allowlist {key} no longer matches (shrink allowlist after migration): {rel}"
                 )
+    if base_allowlist is not None:
+        failures.extend(allowlist_growth(base_allowlist, allowlist))
     return failures
 
 
@@ -141,11 +187,26 @@ def selftest() -> list[str]:
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return [f"cannot load allowlist: {exc}"]
 
-    baseline = evaluate(ROOT, allowlist)
+    # Bootstrap base (no prior allowlist): current tree must still match inventory.
+    baseline = evaluate(ROOT, allowlist, base_allowlist=None)
     if baseline:
         failures.append("baseline repository must pass before selftest mutations")
         failures.extend(baseline)
         return failures
+
+    # Growth vs a frozen base must fail; shrink must pass.
+    grown = {key: list(values) for key, values in allowlist.items()}
+    grown["ssm_remote_paths"] = sorted(
+        set(grown["ssm_remote_paths"]) | {"ops/stage0/brand-new-ssm.sh"}  # script-ref-allow-missing: selftest fixture
+    )
+    growth_hits = allowlist_growth(allowlist, grown)
+    if not growth_hits:
+        failures.append("allowlist growth must fail closed")
+    shrunk = {key: list(values) for key, values in allowlist.items()}
+    if shrunk["oidc_ssm_workflow_paths"]:
+        shrunk["oidc_ssm_workflow_paths"] = shrunk["oidc_ssm_workflow_paths"][:-1]
+    if allowlist_growth(allowlist, shrunk):
+        failures.append("allowlist shrink must be allowed")
 
     with tempfile.TemporaryDirectory() as tmp:
         staging = Path(tmp)
@@ -201,6 +262,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--selftest", action="store_true")
+    parser.add_argument(
+        "--base",
+        default=os.environ.get("PREFLIGHT_BASE", "origin/main"),
+        help="git ref for allowlist monotonic-shrink check (default: PREFLIGHT_BASE or origin/main)",
+    )
     args = parser.parse_args()
 
     if args.selftest:
@@ -219,7 +285,13 @@ def main() -> int:
         print(f"FAIL: cannot load {ALLOWLIST.relative_to(ROOT)}: {exc}", file=sys.stderr)
         return 2
 
-    failures = evaluate(ROOT, allowlist)
+    try:
+        base_allowlist = read_allowlist_at(args.base)
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"FAIL: cannot parse allowlist at {args.base}: {exc}", file=sys.stderr)
+        return 2
+
+    failures = evaluate(ROOT, allowlist, base_allowlist=base_allowlist)
     if failures:
         print(
             "FAIL: new AWS OIDC→SSM Tencent remote or SecureString write outside allowlist",
@@ -233,9 +305,9 @@ def main() -> int:
         )
         return 1
 
-    counts = ", ".join(f"{key}={len(allowlist[key])}" for key in KEYS)
-    msg = f"ok: tencent-ops control-plane ban ({counts})"
-    print(msg if not args.quiet else msg)
+    if not args.quiet:
+        counts = ", ".join(f"{key}={len(allowlist[key])}" for key in KEYS)
+        print(f"ok: tencent-ops control-plane ban ({counts})")
     return 0
 
 
