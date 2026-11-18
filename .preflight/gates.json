@@ -7,6 +7,7 @@
     "ops/qa/*",
     "ops/archive/*",
     "ops/migration/*",
+    "ops/tencent-ops/*",
     "ops/pricing/*",
     "ops/anthropic/*",
     "ops/newapi/*",
@@ -150,6 +151,7 @@
     "CloudFormation resource dependencies": "deploy",
     "Lightsail OIDC perm coverage": "deploy",
     "diagnostics OIDC perm coverage": "deploy",
+    "tencent ops control-plane ban": "tencent-ops-ban",
     "public group aggregator channel (OpenRouter provider scheme C)": "build",
     "ops SQL generator coverage": "sql-generators",
     "newapi live mapping mutation contract": "newapi",
@@ -272,6 +274,19 @@
       "ops/migration/*",
       "ops/observability/run-probe.sh",
       "ops/lib/resolve-app-container.sh"
+    ],
+    "tencent-ops-ban": [
+      "ops/tencent-ops/*",
+      "ops/stage0/*",
+      "ops/observability/*",
+      "ops/archive/*",
+      "ops/migration/*",
+      "ops/antigravity/*",
+      "ops/newapi/*",
+      "ops/pricing/*",
+      "deploy/domestic/*",
+      ".github/workflows/*",
+      "scripts/checks/tencent-ops-control-plane-gate.py"
     ],
     "model-probes": [
       "backend/*",
