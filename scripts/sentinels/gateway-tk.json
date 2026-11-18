@@ -7288,7 +7288,10 @@
         "withdrawn qwen-max alias is not a Token Plan preset",
         "GA+preview stay public client keys",
         "mapping[\"qwen4.0-max\"]",
-        "mapping[\"qwen4.0-max-preview\"]"
+        "mapping[\"qwen4.0-max-preview\"]",
+        "undotted upstream id is not a client mapping key",
+        "\"qwen4-max\"",
+        "\"qwen4-max-preview\""
       ],
       "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. qwen-plus and qwen-max stay off the Token Plan floor; qwen4.0-max and qwen4.0-max-preview stay public client keys and remap to undotted upstream qwen4-max/qwen4-max-preview."
     },
@@ -14444,7 +14447,10 @@
         "withdrawn qwen-max alias is not a Token Plan preset",
         "GA+preview stay public client keys",
         "mapping[\"qwen4.0-max\"]",
-        "mapping[\"qwen4.0-max-preview\"]"
+        "mapping[\"qwen4.0-max-preview\"]",
+        "undotted upstream id is not a client mapping key",
+        "\"qwen4-max\"",
+        "\"qwen4-max-preview\""
       ],
       "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. Ali Token Plan floor must include priced TTS identity once manifested; qwen4.0-max and qwen4.0-max-preview stay public client keys and remap to undotted upstream qwen4-max/qwen4-max-preview."
     },
@@ -21070,6 +21076,18 @@
         "func TestOpenAIAccountConnection_OAuth401PermanentStillSetError(t *testing.T)"
       ],
       "rationale": "Positive omit-temperature + recoverable 401 refresh, and negative permanent 401 still SetError."
+    },
+    {
+      "path": "backend/internal/service/tk_served_models_manifest_tk.go",
+      "must_contain": [
+        "aliTokenPlanUpstreamOnlyModelID",
+        "newAPIAliTokenPlanModelAliases",
+        "\"qwen4.0-max\"",
+        "\"qwen4-max\"",
+        "\"qwen4.0-max-preview\"",
+        "\"qwen4-max-preview\""
+      ],
+      "rationale": "Ali Token Plan public dotted ids must remap to undotted upstream wire/billing ids; UpstreamOnly keeps undotted ids off client mapping keys."
     }
   ]
 }

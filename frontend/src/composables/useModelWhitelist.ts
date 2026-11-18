@@ -56,7 +56,7 @@ const newapiModels = [
   'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst',
   // Qwen3 稠密档（经 newapi channel 可服务）
   ...qwen3DenseModels,
-  // Ali Token Plan qwen4 GA + preview（manifest 自映射）
+  // Ali Token Plan qwen4 GA + preview（公开目录名；mapping → qwen4-max / qwen4-max-preview）
   'qwen4.0-max', 'qwen4.0-max-preview'
 ]
 
