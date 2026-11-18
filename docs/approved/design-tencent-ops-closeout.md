@@ -66,7 +66,7 @@ parent: docs/approved/design-tencent-ops-control-plane.md
 | B1 | `ops/observability/run-probe.sh` + `ops/stage0/ssm_execution.py` | **日常默认 TAT**；`--via ssm` 仅 LEGACY | ✅ |
 | B2 | `deploy/domestic/remote_exec.py` | 已默认 TAT → **保留**；确认无新默认 SSM | ✅ |
 | B3 | `deploy/domestic/deploy_via_ssm.sh` | pull/put-file **迁 TAT 包装**或改调 `remote_exec`；文件可改名去掉 via-ssm | ☐ |
-| B4 | `ops/stage0/sync-feishu-config.sh` | **迁 TAT**（服务 A1） | ☐ |
+| B4 | `ops/stage0/sync-feishu-config.sh` | **迁 TAT**（服务 A1） | ✅（默认 TAT→data；`deploy-stage0` 显式 `TOKENKEY_REMOTE_VIA=ssm`） |
 | B5 | `ops/stage0/sync-container-log-policy-via-ssm.sh` | **迁 TAT** 或随 A9 删除 | ✅（日常改 `probe-sync-container-log-policy.sh`+TAT；via-ssm 留 LEGACY） |
 | B6 | `ops/stage0/sync_docs_pages.sh` | 随 A10 **删除** | ✅ | <!-- script-ref-allow-missing: tombstone -->
 | B7 | `ops/stage0/sync_caddyfile_via_ssm.sh` | **迁 TAT**（入口/应用 Caddy 热更） | ☐ |
@@ -80,7 +80,7 @@ parent: docs/approved/design-tencent-ops-control-plane.md
 | B15 | `ops/stage0/resolve-prod-running-tag-via-ssm.sh` | **迁 TAT** 只读；或并入 rolling 回执 | ☐ |
 | B16 | `ops/stage0/assert-live-host-state.sh` / `check_exclusive_group_orphans_via_ssm.sh` / `deploy-error-clustering-binary.sh` | **迁 TAT** 或并入 diagnostics | ☐ |
 | B17 | `ops/observability/fetch-gateway-debug-log.sh` | **迁 TAT** | ☐ |
-| B18 | `ops/pricing/manage-account-model-mapping-runtime.py` / `manage-overlay-runtime.py`（若打 SSM） | **迁 TAT**（服务 A15） | ☐ |
+| B18 | `ops/pricing/manage-account-model-mapping-runtime.py` / `manage-overlay-runtime.py`（若打 SSM） | **迁 TAT**（服务 A15） | ✅（经 `ssm_execution` 默认 TAT；`pricing-registry-publish` 钉 `TOKENKEY_REMOTE_VIA=tat` + `PROD_SSM_NODE=data`） |
 | B19 | `ops/newapi/audit-model-mapping.py` / `ops/antigravity/check-antigravity-account-config.py` | **迁 TAT** | ☐ |
 | B20 | `ops/archive/data_layer_*.py` / `ops/migration/data_layer_partition_maintenance.py` | **迁 TAT**；若已只读且罕用，可改为显式手动 TAT one-shot | ☐ |
 | B21 | `ops/stage0/run_physical_restore.py` | 恢复路径去 SecureString 活源；探针 **TAT**（服务 A13） | ☐ |

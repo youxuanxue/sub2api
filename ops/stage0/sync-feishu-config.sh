@@ -2,7 +2,9 @@
 set -euo pipefail
 
 # Idempotently enable the shared Feishu alert configuration on the production
-# control plane and verify the remote result.
+# data plane (settings live on the data machine) and verify the remote result.
+# Daily transport: TAT via ssm_execution (TOKENKEY_REMOTE_VIA default tat).
+# Break-glass: TOKENKEY_REMOTE_VIA=ssm (legacy deploy-stage0 OIDC path).
 
 if [[ "${1:-}" != "prod" || "$#" -ne 1 ]]; then
   echo "usage: sync-feishu-config.sh prod" >&2
@@ -14,34 +16,30 @@ if [[ -z "${TK_FEISHU_WEBHOOK_URL:-}" || -z "${TK_FEISHU_SIGNING_SECRET:-}" ]]; 
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-resolved="$(python3 "$ROOT/ops/stage0/resolve_prod_ssm_target.py" --node "${PROD_SSM_NODE:-app-old}" --format json)"
-INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$resolved")"
-REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$resolved")"
-[[ -n "$INSTANCE_ID" && -n "$REGION" ]] || { echo "prod resolver returned an incomplete identity" >&2; exit 1; }
+# PG settings live on the data machine after the data-plane split.
+export PROD_SSM_NODE="${PROD_SSM_NODE:-data}"
+export TOKENKEY_REMOTE_VIA="${TOKENKEY_REMOTE_VIA:-tat}"
 
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "${WORKDIR}"' EXIT
+REMOTE_SCRIPT_FILE="${WORKDIR}/remote.sh"
 
-RES_MODE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["target"])' <<<"$resolved")"
-# Build the SSM command array in Python so the webhook/secret are embedded as
-# JSON literals inside a quoted heredoc (<<'EOSQL') — no shell expansion, no
-# quoting hell, and arbitrary characters in the values pass through untouched.
-# Ubuntu Hybrid (Hetzner) SSM agent runs under dash; wrap the body in bash -lc
-# so `set -o pipefail` and heredocs match Amazon Linux EC2 behavior.
-COMMANDS_JSON="$(TK_ROOT="$ROOT" python3 <<'PY'
+TK_ROOT="$ROOT" python3 - "${REMOTE_SCRIPT_FILE}" <<'PY'
 import importlib.util
 import json
 import os
-import shlex
+import sys
 
+out_path = sys.argv[1]
 _spec = importlib.util.spec_from_file_location(
-    "tk_resolve_app_container", os.path.join(os.environ["TK_ROOT"], "ops/lib/resolve_app_container.py"))
+    "tk_resolve_app_container",
+    os.path.join(os.environ["TK_ROOT"], "ops/lib/resolve_app_container.py"),
+)
 _tk = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_tk)
 
 webhook = os.environ["TK_FEISHU_WEBHOOK_URL"]
 secret = os.environ["TK_FEISHU_SIGNING_SECRET"]
-
-# json.dumps -> a JSON string literal (with surrounding quotes), safe to drop
-# straight into a jsonb_set value via $tag$-dollar-quoting.
 wj = json.dumps(webhook)
 sj = json.dumps(secret)
 
@@ -57,121 +55,119 @@ update_sql = (
     ")::text, updated_at = now() WHERE key = 'ops_email_notification_config';"
 )
 
-script = "\n".join(
-    [
-        "set -euo pipefail",
-        # Canonical resolver: Stage0 tokenkey-postgres or Tencent tk-archive-standby.
-        _tk.data_container_shell_snippet("postgres", docker="sudo docker", variable="POSTGRES_CONTAINER"),
-        "echo \"postgres_container=${POSTGRES_CONTAINER}\"",
-        # Ensure the row exists (fresh node before the app has materialized defaults).
-        "sudo docker exec \"$POSTGRES_CONTAINER\" psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 "
+lines = [
+    "set -euo pipefail",
+    _tk.data_container_shell_snippet(
+        "postgres", docker="sudo docker", variable="POSTGRES_CONTAINER"
+    ),
+    'echo "postgres_container=${POSTGRES_CONTAINER}"',
+    (
+        'sudo docker exec "$POSTGRES_CONTAINER" psql -U tokenkey -d tokenkey '
+        "-v ON_ERROR_STOP=1 "
         "-c \"INSERT INTO settings (key, value) SELECT 'ops_email_notification_config', '{}' "
-        "WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'ops_email_notification_config');\" >/dev/null",
-        # Apply webhook/secret/enabled (quoted heredoc -> values pass through literally).
-        "sudo docker exec -i \"$POSTGRES_CONTAINER\" psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 <<'EOSQL'",
-        update_sql,
-        "EOSQL",
-        # Read back and verify (never prints the secret values themselves).
-        "FEISHU_ENABLED=$(sudo docker exec \"$POSTGRES_CONTAINER\" psql -U tokenkey -d tokenkey -tA "
-        "-c \"SELECT coalesce(value::jsonb#>>'{feishu,enabled}','false') FROM settings WHERE key='ops_email_notification_config';\")",
-        "FEISHU_WEBHOOK_PRESENT=$(sudo docker exec \"$POSTGRES_CONTAINER\" psql -U tokenkey -d tokenkey -tA "
-        "-c \"SELECT (coalesce(value::jsonb#>>'{feishu,webhook_url}','')<>'') FROM settings WHERE key='ops_email_notification_config';\")",
-        "FEISHU_SECRET_PRESENT=$(sudo docker exec \"$POSTGRES_CONTAINER\" psql -U tokenkey -d tokenkey -tA "
-        "-c \"SELECT (coalesce(value::jsonb#>>'{feishu,signing_secret}','')<>'') FROM settings WHERE key='ops_email_notification_config';\")",
-        "echo \"FEISHU_ENABLED=${FEISHU_ENABLED} FEISHU_WEBHOOK_PRESENT=${FEISHU_WEBHOOK_PRESENT} FEISHU_SECRET_PRESENT=${FEISHU_SECRET_PRESENT}\"",
-        "if [ \"${FEISHU_ENABLED}\" != \"true\" ] || [ \"${FEISHU_WEBHOOK_PRESENT}\" != \"t\" ] || [ \"${FEISHU_SECRET_PRESENT}\" != \"t\" ]; then echo '[error] feishu config not fully applied' >&2; exit 1; fi",
-        "echo FEISHU_SYNC_OK=1",
-        # Mirror webhook/secret into /var/lib/tokenkey/.env so the on-box disk-full
-        # Feishu alert (tokenkey-disk-metrics.sh) can read them when the app/DB is
-        # DOWN — which is exactly when a full disk strikes. The DB copy above feeds
-        # the in-app alert path; this .env copy feeds the independent on-box timer.
-        # Quoted heredoc => values pass through literally, never echoed.
-        "sudo sed -i '/^TOKENKEY_FEISHU_WEBHOOK_URL=/d;/^TOKENKEY_FEISHU_WEBHOOK_SECRET=/d' /var/lib/tokenkey/.env",
-        "sudo tee -a /var/lib/tokenkey/.env >/dev/null <<'EOENV'",
-        "TOKENKEY_FEISHU_WEBHOOK_URL=" + webhook,
-        "TOKENKEY_FEISHU_WEBHOOK_SECRET=" + secret,
-        "EOENV",
-        "echo ENV_FEISHU_SYNC_OK=1",
-    ]
-)
-print(json.dumps(["bash -lc " + shlex.quote(script)]))
+        "WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'ops_email_notification_config');\" "
+        ">/dev/null"
+    ),
+    (
+        'sudo docker exec -i "$POSTGRES_CONTAINER" psql -U tokenkey -d tokenkey '
+        "-v ON_ERROR_STOP=1 <<'EOSQL'"
+    ),
+    update_sql,
+    "EOSQL",
+    (
+        'FEISHU_ENABLED=$(sudo docker exec "$POSTGRES_CONTAINER" psql -U tokenkey -d tokenkey -tA '
+        "-c \"SELECT coalesce(value::jsonb#>>'{feishu,enabled}','false') "
+        "FROM settings WHERE key='ops_email_notification_config';\")"
+    ),
+    (
+        'FEISHU_WEBHOOK_PRESENT=$(sudo docker exec "$POSTGRES_CONTAINER" psql -U tokenkey -d tokenkey -tA '
+        "-c \"SELECT (coalesce(value::jsonb#>>'{feishu,webhook_url}','')<>'') "
+        "FROM settings WHERE key='ops_email_notification_config';\")"
+    ),
+    (
+        'FEISHU_SECRET_PRESENT=$(sudo docker exec "$POSTGRES_CONTAINER" psql -U tokenkey -d tokenkey -tA '
+        "-c \"SELECT (coalesce(value::jsonb#>>'{feishu,signing_secret}','')<>'') "
+        "FROM settings WHERE key='ops_email_notification_config';\")"
+    ),
+    (
+        'echo "FEISHU_ENABLED=${FEISHU_ENABLED} '
+        'FEISHU_WEBHOOK_PRESENT=${FEISHU_WEBHOOK_PRESENT} '
+        'FEISHU_SECRET_PRESENT=${FEISHU_SECRET_PRESENT}"'
+    ),
+    (
+        'if [ "${FEISHU_ENABLED}" != "true" ] || [ "${FEISHU_WEBHOOK_PRESENT}" != "t" ] '
+        '|| [ "${FEISHU_SECRET_PRESENT}" != "t" ]; then '
+        "echo '[error] feishu config not fully applied' >&2; exit 1; fi"
+    ),
+    "echo FEISHU_SYNC_OK=1",
+    # Mirror into data-machine .env for on-box disk-full Feishu when DB is down.
+    "sudo sed -i '/^TOKENKEY_FEISHU_WEBHOOK_URL=/d;/^TOKENKEY_FEISHU_WEBHOOK_SECRET=/d' /var/lib/tokenkey/.env",
+    "sudo tee -a /var/lib/tokenkey/.env >/dev/null <<'EOENV'",
+    "TOKENKEY_FEISHU_WEBHOOK_URL=" + webhook,
+    "TOKENKEY_FEISHU_WEBHOOK_SECRET=" + secret,
+    "EOENV",
+    "echo ENV_FEISHU_SYNC_OK=1",
+]
+open(out_path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
 PY
-)"
-# Emit the SSM params file. Honor STAGE0_SSM_OUTPUT_DIR so the host-parse guard
-# (scripts/checks/check-stage0-ssm-host-parse.sh) can stub `aws`, capture the
-# rendered commands, and `bash -n` them without contacting AWS — same convention
-# as deploy_via_ssm.sh.
+
+# Host-parse / dry-run: emit commands JSON only (no remote).
 if [[ -n "${STAGE0_SSM_OUTPUT_DIR:-}" ]]; then
   OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR}"
-else
-  OUTPUT_DIR="$(mktemp -d)"
-  trap 'rm -rf "${OUTPUT_DIR}"' EXIT
-fi
-PARAM_BODY="${OUTPUT_DIR}/ssm-params.json"
-printf '{"commands":%s}\n' "${COMMANDS_JSON}" >"${PARAM_BODY}"
+  mkdir -p "${OUTPUT_DIR}"
+  python3 - "${REMOTE_SCRIPT_FILE}" "${OUTPUT_DIR}/ssm-params.json" <<'PY'
+import json
+import shlex
+import sys
 
-COMMAND_ID="$(aws ssm send-command \
-  --region "$REGION" \
-  --instance-ids "$INSTANCE_ID" \
-  --document-name AWS-RunShellScript \
-  --comment "sync feishu config (prod ${RES_MODE})" \
-  --parameters "file://${PARAM_BODY}" \
-  --query 'Command.CommandId' \
-  --output text)"
-INSTANCE_ID_SSM="$INSTANCE_ID"
-
-echo "[info] ssm_command_id=${COMMAND_ID}"
-echo "[info] ssm_invocation_instance_id=${INSTANCE_ID_SSM}"
-
-if ! aws ssm wait command-executed \
-  --region "$REGION" \
-  --command-id "$COMMAND_ID" \
-  --instance-id "$INSTANCE_ID_SSM"; then
-  echo "[warn] waiter reported non-success; fetching invocation details..." >&2
+script = open(sys.argv[1], encoding="utf-8").read()
+json.dump(
+    {"commands": ["bash -lc " + shlex.quote(script)]},
+    open(sys.argv[2], "w", encoding="utf-8"),
+    ensure_ascii=False,
+)
+print(f"[info] wrote {sys.argv[2]} (STAGE0_SSM_OUTPUT_DIR; no remote)")
+PY
+  exit 0
 fi
 
-STATUS="$(aws ssm get-command-invocation \
-  --region "$REGION" \
-  --command-id "$COMMAND_ID" \
-  --instance-id "$INSTANCE_ID_SSM" \
-  --query 'Status' \
-  --output text)"
+STDOUT_CONTENT="$(
+  TK_SYNC_FEISHU_ROOT="$ROOT" TK_SYNC_FEISHU_SCRIPT="$REMOTE_SCRIPT_FILE" python3 <<'PY'
+import base64
+import importlib.util
+import os
+import pathlib
+import sys
 
-STDOUT_CONTENT="$(aws ssm get-command-invocation \
-  --region "$REGION" \
-  --command-id "$COMMAND_ID" \
-  --instance-id "$INSTANCE_ID_SSM" \
-  --query 'StandardOutputContent' \
-  --output text)"
+root = pathlib.Path(os.environ["TK_SYNC_FEISHU_ROOT"])
+script = pathlib.Path(os.environ["TK_SYNC_FEISHU_SCRIPT"]).read_text(encoding="utf-8")
+spec = importlib.util.spec_from_file_location(
+    "tk_ssm_execution", root / "ops" / "stage0" / "ssm_execution.py"
+)
+mod = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(mod)
+shell_b64 = base64.b64encode(script.encode()).decode("ascii")
+instance_id = mod.resolve_prod_instance()
+out = mod.run_shell_b64(
+    instance_id,
+    shell_b64,
+    f"sync feishu config (prod node={os.environ.get('PROD_SSM_NODE')})",
+    preamble=mod.data_container_preamble(),
+)
+sys.stdout.write(out if out.endswith("\n") else out + "\n")
+if "FEISHU_SYNC_OK=1" not in out.splitlines():
+    sys.stderr.write("[error] Feishu config sync missing FEISHU_SYNC_OK=1\n")
+    sys.exit(1)
+PY
+)"
 
-STDERR_CONTENT="$(aws ssm get-command-invocation \
-  --region "$REGION" \
-  --command-id "$COMMAND_ID" \
-  --instance-id "$INSTANCE_ID_SSM" \
-  --query 'StandardErrorContent' \
-  --output text)"
-
-if [[ "${STATUS:-}" != "Success" ]] || ! printf '%s\n' "$STDOUT_CONTENT" | grep -q '^FEISHU_SYNC_OK=1$'; then
-  echo "[error] Feishu config sync failed: status=${STATUS:-empty}" >&2
-  if [[ -n "${STDOUT_CONTENT:-}" ]]; then
-    echo "[error] stdout:" >&2
-    printf '%s\n' "$STDOUT_CONTENT" >&2
-  fi
-  if [[ -n "${STDERR_CONTENT:-}" ]]; then
-    echo "[error] stderr:" >&2
-    printf '%s\n' "$STDERR_CONTENT" >&2
-  fi
-  exit 1
-fi
-
-# Surface the verify line (enabled / webhook-present / secret-present booleans; no secret values).
 VERIFY_LINE="$(printf '%s\n' "$STDOUT_CONTENT" | grep '^FEISHU_ENABLED=' | tail -n 1 || true)"
 
 echo ""
 echo "[ok] feishu config sync complete"
 echo "TARGET=prod"
-echo "SSM_ROUTING=${RES_MODE}"
-echo "REGION=${REGION}"
-echo "SSM_PRIMARY_ID=${INSTANCE_ID_SSM}"
+echo "PROD_SSM_NODE=${PROD_SSM_NODE}"
+echo "TOKENKEY_REMOTE_VIA=${TOKENKEY_REMOTE_VIA}"
 echo "VERIFY=${VERIFY_LINE}"
 echo "[ok] feishu alerting enabled; webhook/secret were not printed"

@@ -76,10 +76,13 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertEqual(deploy["env"]["STAGE0_DEPLOY_PROFILE"], "${{ steps.instance.outputs.deploy_profile }}")
         self.assertFalse(any(key.startswith("QA_") for key in deploy["env"]))
         self.assertEqual(drain["env"]["AWS_REGION"], "${{ steps.instance.outputs.ssm_region }}")
-        # Feishu sync self-resolves prod via resolve_prod_ssm_target (not CFN-only).
+        # Feishu sync targets the data plane; legacy deploy keeps OIDC→SSM break-glass.
         self.assertEqual(feishu["run"], "bash ops/stage0/sync-feishu-config.sh prod")
+        self.assertEqual(feishu["env"]["TOKENKEY_REMOTE_VIA"], "ssm")
+        self.assertEqual(feishu["env"]["PROD_SSM_NODE"], "data")
         feishu_src = (REPO_ROOT / "ops/stage0/sync-feishu-config.sh").read_text(encoding="utf-8")
-        self.assertIn("resolve_prod_ssm_target.py", feishu_src)
+        self.assertIn("ssm_execution", feishu_src)
+        self.assertIn('PROD_SSM_NODE="${PROD_SSM_NODE:-data}"', feishu_src)
         self.assertIn("bash -lc ", feishu_src)
 
     def test_us051_selected_components_and_drain_join_preserve_gateway_acceptance_order(self) -> None:

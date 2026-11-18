@@ -46,8 +46,14 @@ def validate_publication_boundary(root: pathlib.Path) -> list[str]:
         return [str(exc)]
 
     events = _workflow_events(publisher)
-    if not isinstance(events, dict) or set(events) != {"push"}:
-        errors.append("publisher must accept only the push event")
+    # push@main remains the protected auto path; workflow_dispatch is allowed so
+    # operators can re-verify after control-plane fixes without touching the
+    # registry artifact (still pins origin/main + TAT publish).
+    allowed_events = {"push", "workflow_dispatch"}
+    if not isinstance(events, dict) or not set(events).issubset(allowed_events) or "push" not in events:
+        errors.append(
+            "publisher events must include push and may only add workflow_dispatch"
+        )
     else:
         push = events.get("push")
         if not isinstance(push, dict):
@@ -59,6 +65,8 @@ def validate_publication_boundary(root: pathlib.Path) -> list[str]:
                 errors.append(
                     f"publisher push paths must be exactly [{REGISTRY}, {PUBLISHER}]"
                 )
+        if "workflow_dispatch" in events and events.get("workflow_dispatch") not in (None, {}):
+            errors.append("publisher workflow_dispatch must be empty (no inputs)")
 
     concurrency = publisher.get("concurrency")
     if not isinstance(concurrency, dict) or concurrency.get("group") != "pricing-registry-publish":

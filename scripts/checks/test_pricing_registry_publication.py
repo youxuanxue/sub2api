@@ -47,14 +47,21 @@ class PricingRegistryPublicationGateTest(unittest.TestCase):
     def test_rejects_non_main_extra_event_or_extra_path(self) -> None:
         workflow = ".github/workflows/pricing-registry-publish.yml"
         self._replace(workflow, "branches: [main]", "branches: [feature]")
-        self._replace(workflow, "on:\n  push:", "on:\n  push:\n  workflow_dispatch:")
         self._replace(
             workflow,
             "      - .github/workflows/pricing-registry-publish.yml",
             "      - .github/workflows/pricing-registry-publish.yml\n      - backend/internal/service/pricing_service.go",
         )
         errors = CHECK.validate_publication_boundary(self.root)
-        self.assertTrue(any("push event" in error for error in errors), errors)
+        self.assertTrue(any("push branches" in error for error in errors), errors)
+        self.assertTrue(any("push paths" in error for error in errors), errors)
+        # pull_request is not an allowed publisher event (workflow_dispatch is).
+        self._replace(workflow, "on:\n  push:", "on:\n  push:\n  pull_request:")
+        errors = CHECK.validate_publication_boundary(self.root)
+        self.assertTrue(
+            any("may only add workflow_dispatch" in error for error in errors),
+            errors,
+        )
 
     def test_rejects_missing_workflow_reconciliation_path(self) -> None:
         workflow = ".github/workflows/pricing-registry-publish.yml"

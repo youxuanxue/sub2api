@@ -340,8 +340,11 @@ jobs:
         # Inject the shared Feishu webhook/secret into prod's
         # ops_email_notification_config and enable alerting (idempotent). The
         # script verifies the write and exits non-zero if not applied, so a node
-        # that cannot alert FAILS the deploy.
+        # that cannot alert FAILS the deploy. Legacy deploy-stage0 still uses
+        # OIDC→SSM break-glass; daily default for the script itself is TAT.
         env:
+          TOKENKEY_REMOTE_VIA: ssm
+          PROD_SSM_NODE: data
           TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
           TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
         run: bash ops/stage0/sync-feishu-config.sh prod
