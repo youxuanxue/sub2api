@@ -144,8 +144,26 @@ python3 ops/stage0/run_physical_restore.py --region "$RESTORE_REGION" \
 数据库恢复成功不等于整站恢复、腾讯云兼容或正式切流通过。
 
 按用户简化要求，周定时恢复已从工作流移除，自动建机/IAM 扩权草稿撤回。
-`ops-physical-restore.yml` 仅保留手动入口，当前配置与权限未就绪，不代表可直接运行：
-使用前须配置 `PHYSICAL_BACKUP_ENABLED`、`PHYSICAL_RESTORE_{REGION,SUBNET,ARCH}`、恢复包/镜像/桶/profile 等变量，
-缺失恢复网络变量会在取凭据前失败；验证 CI 的 EC2/SSM 及 EC2 PassRole 权限与执行时长。
-现网活链前缀尚不在 RestoreRole 读权限内，Tencent operator 也无 `accept`，详见隔离恢复方案。已有恢复角色可读取备份，无需另建仓库或身份；
-这不是当前必须推进的 IAM 扩权任务，也不触发生产服务变更。
+
+### Closeout A13（2026-11-18）：GHA OIDC 入口退役
+
+`.github/workflows/ops-physical-restore.yml` 现为 **refuse-only 墓碑**（无 `configure-aws-credentials` /
+`AWS_OIDC_ROLE_ARN`）。隔离 AWS 恢复机用本地 operator 凭据执行：
+
+```bash
+python3 ops/stage0/run_physical_restore.py --region "$RESTORE_REGION" \
+  --bucket "$BACKUP_BUCKET" --key "artifacts/$BUNDLE_SHA.tar.gz" --sha256 "$BUNDLE_SHA" \
+  --image "$IMAGE_ID" --subnet "$RESTORE_SUBNET" --architecture "$RESTORE_ARCH" \
+  --profile "$RESTORE_PROFILE" --receipt /tmp/restore-receipt.json --apply
+```
+
+子网须为显式批准的 EC2 `subnet-*`（见 `docs/ops/tencent-isolated-restore-plan.md`），
+不能从腾讯 `mi-*` 推导。活库验收探针走 TAT（无 SecureString）：
+
+```bash
+bash ops/observability/run-probe.sh --target prod --node data --via tat \
+  --script ops/stage0/probe-physical-restore-acceptance.sh
+```
+
+env 材料 SSOT：主机 root-only `.env` + COS；`deploy/hetzner/restore-prod-env-secrets.sh`
+默认拒 SSM，见 `deploy/hetzner/README.md`「C4 装机/恢复证据」。

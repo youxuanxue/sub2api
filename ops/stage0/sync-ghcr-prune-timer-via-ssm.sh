@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# LEGACY break-glass: push tokenkey-ghcr-prune-daily via SSM Run-Command.
+# LEGACY thin shell retained for host-parse / break-glass.
 # Daily default is TAT: ops/stage0/sync_ghcr_prune_timer.py +
 # .github/workflows/ops-stage0-ghcr-prune-timer.yml (tencent-ops).
+# Daily transport here: TAT via execute_remote_params.py (TOKENKEY_REMOTE_VIA default).
+# Break-glass: TOKENKEY_REMOTE_VIA=ssm.
 # Do not wire this script back into the workflow default
 # (docs/approved/design-tencent-ops-control-plane.md).
 #
@@ -67,50 +69,22 @@ jq -n \
 
 python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
-cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
-  --instance-ids "${INSTANCE_ID}" \
-  --document-name AWS-RunShellScript \
-  --comment "${COMMENT}" \
-  --parameters "file://${params_file}" \
-  --query 'Command.CommandId' --output text)"
-
-echo "ssm command-id=${cmd_id}"
-if [ -n "${GITHUB_OUTPUT:-}" ]; then
-  echo "command_id=${cmd_id}" >> "${GITHUB_OUTPUT}"
+if [[ -n "${STAGE0_SSM_OUTPUT_DIR:-}" || "${STAGE0_RENDER_ONLY:-}" == "1" ]]; then
+  echo "sync_ghcr_prune_timer_via_ssm: render-only params=${params_file}"
+  exit 0
 fi
 
-deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
-status="InProgress"
-while true; do
-  status="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
-    --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-    --query 'Status' --output text 2>/dev/null || echo InProgress)"
-  case "${status}" in
-    Success|Failed|TimedOut|Cancelled) break ;;
-  esac
-  if [ "$(date +%s)" -ge "${deadline}" ]; then
-    echo "::error::ssm timeout" >&2
-    status="TimedOut"
-    break
-  fi
-  sleep 5
-done
+export TOKENKEY_REMOTE_VIA="${TOKENKEY_REMOTE_VIA:-tat}"
+python3 "${SCRIPT_DIR}/execute_remote_params.py" \
+  --params-file "${params_file}" \
+  --instance-id "${INSTANCE_ID}" \
+  --comment "${COMMENT}" \
+  --stdout-file "${stdout_file}" \
+  --stderr-file "${stderr_file}"
 
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardOutputContent' --output text > "${stdout_file}"
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardErrorContent' --output text > "${stderr_file}"
-
-echo '--- ssm stdout (last 8KB) ---'
+echo '--- remote stdout (last 8KB) ---'
 tail -c 8192 "${stdout_file}"
 echo
-echo '--- ssm stderr (last 8KB) ---'
+echo '--- remote stderr (last 8KB) ---'
 tail -c 8192 "${stderr_file}"
 echo
-
-if [ "${status}" != "Success" ]; then
-  echo "::error::ssm command status=${status}" >&2
-  exit 1
-fi

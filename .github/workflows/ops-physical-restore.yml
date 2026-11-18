@@ -1,4 +1,8 @@
 name: Production Physical Restore (manual only)
+# Closeout A13: GHA no longer assumes AWS OIDC. Isolated AWS restore stays a
+# local operator command (run_physical_restore.py with operator AWS creds).
+# Live-host acceptance is TAT: ops/stage0/probe-physical-restore-acceptance.sh
+# via run-probe. Materials SSOT: host root-only .env + COS (not SecureString).
 on:
   workflow_dispatch:
     inputs:
@@ -18,57 +22,31 @@ jobs:
     # Manual use requires configured credentials, resources and an approved budget.
     if: vars.PHYSICAL_BACKUP_ENABLED == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 125
+    timeout-minutes: 10
     permissions:
       contents: read
-      id-token: write
     env:
-      BACKUP_BUCKET: ${{ vars.PHYSICAL_BACKUP_BUCKET }}
-      BUNDLE_SHA: ${{ vars.PHYSICAL_BACKUP_BUNDLE_SHA }}
-      IMAGE_ID: ${{ vars.PHYSICAL_BACKUP_IMAGE_ID }}
-      RESTORE_PROFILE: ${{ vars.PHYSICAL_BACKUP_RESTORE_PROFILE }}
-      # The restore network is an approved, explicit input. It is never derived
-      # from the prod instance: Tencent prod is SSM Hybrid mi-* with no EC2 subnet.
-      RESTORE_REGION: ${{ vars.PHYSICAL_RESTORE_REGION }}
-      RESTORE_SUBNET: ${{ vars.PHYSICAL_RESTORE_SUBNET }}
-      RESTORE_ARCH: ${{ vars.PHYSICAL_RESTORE_ARCH }}
       TARGET_NAME: ${{ inputs.target_name }}
       TARGET_TIME: ${{ inputs.target_time }}
     steps:
       - uses: actions/checkout@v6
-      - name: Require an approved restore network (fail closed)
+      - name: Refuse GHA OIDC physical restore (closeout A13)
         run: |
           set -euo pipefail
-          missing=()
-          for name in RESTORE_REGION RESTORE_SUBNET RESTORE_ARCH; do
-            [ -n "${!name}" ] || missing+=("PHYSICAL_${name}")
-          done
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::error::isolated restore network not approved/configured: ${missing[*]}. Prod is a Tencent SSM Hybrid host; see docs/ops/tencent-isolated-restore-plan.md"
-            exit 1
+          echo "::error::ops-physical-restore.yml no longer runs AWS OIDC restore."
+          echo "Operator path (local AWS creds + approved restore network):"
+          echo "  python3 ops/stage0/run_physical_restore.py --region \"\$RESTORE_REGION\" \\"
+          echo "    --bucket \"\$BACKUP_BUCKET\" --key artifacts/\$BUNDLE_SHA.tar.gz \\"
+          echo "    --sha256 \"\$BUNDLE_SHA\" --image \"\$IMAGE_ID\" --subnet \"\$RESTORE_SUBNET\" \\"
+          echo "    --architecture \"\$RESTORE_ARCH\" --profile \"\$RESTORE_PROFILE\" \\"
+          echo "    --receipt restore-receipt.json --apply"
+          if [ -n "${TARGET_NAME:-}" ]; then
+            echo "  # optional: --target-name \"$TARGET_NAME\" --target-time \"$TARGET_TIME\""
           fi
-      - uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
-          aws-region: ${{ vars.PHYSICAL_RESTORE_REGION }}
-      - name: Run disposable recovery in the approved restore network
-        run: |
-          set -euo pipefail
-          args=()
-          if [ -n "$TARGET_NAME" ]; then
-            args+=(--target-name "$TARGET_NAME" --target-time "$TARGET_TIME")
-          fi
-          python3 ops/stage0/run_physical_restore.py --region "$RESTORE_REGION" --bucket "$BACKUP_BUCKET" \
-            --key "artifacts/$BUNDLE_SHA.tar.gz" --sha256 "$BUNDLE_SHA" --image "$IMAGE_ID" \
-            --subnet "$RESTORE_SUBNET" --architecture "$RESTORE_ARCH" --profile "$RESTORE_PROFILE" \
-            --receipt restore-receipt.json --apply "${args[@]}"
-      # Acceptance import onto the live data host is a separate TAT operator
-      # step (closeout A13): keep this OIDC workflow AWS-isolated-restore only
-      # so the control-plane gate can treat run-probe remotes as TAT-only.
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: physical-restore-receipt
-          path: restore-receipt.json
-          retention-days: 7
-          if-no-files-found: warn
+          echo "Live acceptance (TAT, no SecureString):"
+          echo "  bash ops/observability/run-probe.sh --target prod --node data --via tat \\"
+          echo "    --script ops/stage0/probe-physical-restore-acceptance.sh"
+          echo "SSOT: ops/stage0/physical-backup.md + deploy/hetzner/README.md"
+          # Tombstone: keep the historical entrypoint name visible for docs/tests.
+          echo "historical-entry: ops/stage0/run_physical_restore.py"
+          exit 2

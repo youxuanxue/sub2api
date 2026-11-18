@@ -110,14 +110,23 @@ jobs:
           mkdir -p .payment-billing-watch-state
           bash ops/observability/run-probe.sh \
             --target prod \
+            --node app-old \
             --via tat \
             --script ops/observability/probe-payment-billing-watch.sh \
             --comment "payment billing watch mode=${{ steps.mode.outputs.mode }}" \
             --timeout-seconds 120 \
             --compressed-output > snapshot.json
           python3 - <<'PY'
-          import json, sys
-          data = json.load(open("snapshot.json", encoding="utf-8"))
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "ops/observability")
+          from probe_json import loads_probe_json
+          raw = Path("snapshot.json").read_text(encoding="utf-8")
+          data = loads_probe_json(raw)
+          Path("snapshot.json").write_text(
+              __import__("json").dumps(data, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
           assert data.get("schema_version") == 1, data.get("schema_version")
           print("snapshot ok periods=", len(data.get("period_totals") or []))
           PY

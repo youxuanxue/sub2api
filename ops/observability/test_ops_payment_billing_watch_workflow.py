@@ -35,6 +35,8 @@ class OpsPaymentBillingWatchWorkflowTest(unittest.TestCase):
         self.assertIn("run-probe.sh", self.text)
         self.assertIn("--target prod", self.text)
         self.assertIn("--via tat", self.text)
+        self.assertIn("--node app-old", self.text)
+        self.assertIn("probe_json", self.text)
 
     def test_dry_run_does_not_require_feishu_when_true(self) -> None:
         self.assertIn('"$DRY_RUN" != "true"', self.text)

@@ -124,6 +124,19 @@ cn-prod `proxies` **无** `or-*`，仅 Aliyun `ip5..8` + `cn-ip9..12`。Oregon *
 | 备份/检查 | 数据机上的 `tokenkey-postgres-backup.timer`（偶数小时 :30 UTC）和 `tokenkey-postgres-archive-check.timer`（5min）。应用机上这两项已停用 |
 | 已停写并清理 | AWS physical-backup 桶/栈已删：CFN `tokenkey-prod-physical-backups`=`DELETE_COMPLETE`（2026-11-11）；`tokenkey-prod-physical-backup-682751977094-us-east-1` 与 cn-prod 对应桶 `HeadBucket` 404（2026-11-17 核对）。活链只在 COS `repo2` |
 
+### C4 装机 / 恢复证据（主机 + COS，不读 SecureString）
+
+| 证据 | 日期 / 回执 | 说明 |
+|---|---|---|
+| prod COS 真实恢复（全量+增量） | 2026-11-08；见 [design-tencent-cos-backup §prod COS](../../docs/approved/design-tencent-cos-backup-node1-qa.md#prod-cos-真实恢复证据2026-11-08) | 隔离主机从 COS `repo2` 恢复；不经 Parameter Store |
+| SecureString C5 删除 | 2026-11-18；`docs/ops/reports/securestring-c5-delete-20261118T084419Z.txt` | 活 env 备份参数已删；写脚本 tombstone |
+| env 恢复入口 | `deploy/hetzner/restore-prod-env-secrets.sh` | 默认拒 SSM SecureString；`--from-file` 读主机/离机材料；`--allow-generate` 仅显式批准 |
+| 新机 bootstrap | `deploy/stage0/stage0-ec2-bootstrap.sh` | 不再钉 SSM 参数名；活源为主机 `.env` |
+| 物理恢复 GHA | `ops-physical-restore.yml` refuse-only（A13） | 隔离恢复本地跑 `run_physical_restore.py`；活库验收 `probe-physical-restore-acceptance.sh` + TAT |
+
+装机或换机时：在目标机放好 root-only `.env`（或 `--from-file` 材料）后再起 compose；数据库从 COS
+`repo2` 恢复，不回退 SecureString。日常备份身份见上表 `tokenkey-backup-identity.timer`。
+
 ### 日本出口代理（已关停 · 2026-10-23 删除）
 
 2026-10-22 账号绑定已迁到 `usw-eval*`；`jp-*` 行已于 2026-10-23 在 prod `proxies` 表软删（绑定账号数为 0）。2026-10-22 经用户批准，Lightsail 机（含 `tokenkey-node1-ingress-jp-20261016-vm`）已于 2026-10-23 **删除并释放静态 IP**（不可逆）；最终快照也已于同日删除（[runbook §6](../../docs/ops/tokyo-retirement-runbook.md)）。
@@ -242,7 +255,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 | SSM Hybrid / Parameter Store / STS OIDC | 存量旁路仍服务诊断/部分 ops workflow/GHCR 身份与应急 `--via ssm`；`resolve_prod_ssm_target.py` | 默认消费者清零后再批拆 Hybrid/OIDC；门牙见 `ops/tencent-ops/` |
 | QA raw archive | QA S3 已于 2026-11-08 退役；仓库模板与恢复 CLI 已删除 | CFN `tokenkey-prod-qa-raw-archive`=`DELETE_COMPLETE`（2026-11-09）；桶 `HeadBucket` 404；主机 maintenance/boundary 脚本与 unit 已不存在（2026-11-17 核对）。见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界) |
 | 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
-| env-secrets 与备份解密材料 | **主机 root-only `.env` 为活源**；SecureString 已 C5 删除（2026-11-18） | `restore-prod-env-secrets.sh` 默认拒 SSM；`--from-file` / `--allow-generate`；删参 owner `ops/stage0/delete-legacy-securestring-params.sh`；写脚本 tombstone |
+| env-secrets 与备份解密材料 | **主机 root-only `.env` 为活源**；SecureString 已 C5 删除（2026-11-18） | `restore-prod-env-secrets.sh` 默认拒 SSM；`--from-file` / `--allow-generate`；删参 owner `ops/stage0/delete-legacy-securestring-params.sh`；写脚本 tombstone；C4 证据见下节 |
 | 历史 / 休眠 S3 桶 | 见下方「2026-11-17 桶盘点」；Tokyo `cfn-deploy` 镜像中转已改 COS；AWS `archive` 已开 30 天过期 | 休眠桶与 Tokyo 镜像桶已清；`archive` 桶待对象过期后自然空桶再删 |
 | 共享运行文件目录 | `deploy/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 直接消费 | 共享 owner；目录名不再含 `aws/`；改路径须同步引用、生成产物和 sentinel |
 | 第三方 AWS 协议 | Kiro/Bedrock 的 AWS endpoint、SDK/SigV4、S3 兼容客户端 | 属模型供应商/协议能力，不能随基础设施迁移删除 |

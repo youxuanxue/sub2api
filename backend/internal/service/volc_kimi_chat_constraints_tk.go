@@ -69,13 +69,21 @@ func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 //   - a string video_url becomes {"url": ...} (2026-11-05);
 //   - a text part with text "" is dropped (2026-11-06);
 //   - an assistant text message inserted between assistant.tool_calls and the
-//     matching tool result(s) is dropped (2026-11-17 cn-prod tokensea_online).
+//     matching tool result(s) is dropped (2026-11-17 cn-prod tokensea_online);
+//   - a message whose content is JSON null is rewritten to "" (2026-11-18
+//     cn-prod rt@tk.com). Volc returns missing `messages.content` for null;
+//     empty string is accepted. Dynamic-tool system messages with null content
+//     are promoted earlier and never reach this rewrite.
 //
 // Matched tool results, string content, and content-part arrays are unchanged.
 // Video parts are not stripped. Reachability is a separate preflight:
 // rejectUnreachableVolcKimiVideoURLs.
 func normalizeVolcKimiInboundMessages(body []byte) ([]byte, error) {
-	shaped, err := normalizeVolcKimiMessageContents(body)
+	shaped, err := coerceVolcKimiNullMessageContent(body)
+	if err != nil {
+		return nil, err
+	}
+	shaped, err = normalizeVolcKimiMessageContents(shaped)
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +150,30 @@ func volcKimiAssistantWithToolCalls(msg gjson.Result) bool {
 	}
 	calls := msg.Get("tool_calls")
 	return calls.IsArray() && len(calls.Array()) > 0
+}
+
+// coerceVolcKimiNullMessageContent rewrites messages.content JSON null to "".
+// cn-prod 2026-11-18 rt@tk.com: probes that emitted {"role":"system","content":null}
+// (with or without top-level tools) got Volc 400 missing `messages.content`.
+// The same prompts with content "" succeed. Absent content keys are unchanged.
+func coerceVolcKimiNullMessageContent(body []byte) ([]byte, error) {
+	msgs := gjson.GetBytes(body, "messages")
+	if !msgs.IsArray() {
+		return body, nil
+	}
+	shaped := body
+	for i, msg := range msgs.Array() {
+		content := msg.Get("content")
+		if !content.Exists() || content.Type != gjson.Null {
+			continue
+		}
+		next, err := sjson.SetBytes(shaped, fmt.Sprintf("messages.%d.content", i), "")
+		if err != nil {
+			return nil, err
+		}
+		shaped = next
+	}
+	return shaped, nil
 }
 
 func normalizeVolcKimiMessageContents(body []byte) ([]byte, error) {
