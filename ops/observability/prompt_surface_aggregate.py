@@ -105,7 +105,26 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        payload = json.loads(raw)
+        from probe_json import iter_probe_json
+
+        docs = [d for d in iter_probe_json(raw) if isinstance(d, dict)]
+        if not docs:
+            print("error: no JSON object in probe output", file=sys.stderr)
+            return 1
+        # Fan-out across apps concatenates one document per node; merge rows.
+        fingerprints: list = []
+        meta: dict = {}
+        nodes: list[str] = []
+        for doc in docs:
+            fingerprints.extend(doc.get("fingerprints") or [])
+            node = str((doc.get("meta") or {}).get("node") or "").strip()
+            if node:
+                nodes.append(node)
+            if not meta:
+                meta = dict(doc.get("meta") or {})
+        if nodes:
+            meta = {**meta, "nodes": nodes}
+        payload = {"meta": meta, "fingerprints": fingerprints}
     else:
         payload = json.load(sys.stdin)
 

@@ -173,6 +173,21 @@ class PaymentBillingWatchTest(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "schema_version"):
             parse_snapshot({"schema_version": 99})
 
+    def test_parse_fanout_duplicate_ndjson(self) -> None:
+        snap = sample_snapshot()
+        line = json.dumps(snap, ensure_ascii=False)
+        got = parse_snapshot(f"{line}\n{line}\n")
+        self.assertEqual(got["schema_version"], 1)
+        self.assertEqual(len(got["period_totals"]), len(snap["period_totals"]))
+
+    def test_parse_fanout_conflict_fails_closed(self) -> None:
+        a = sample_snapshot()
+        b = sample_snapshot(db_now_utc="2099-01-01T00:00:00Z")
+        with self.assertRaisesRegex(Exception, "probe snapshot is not JSON|conflicting"):
+            parse_snapshot(
+                f"{json.dumps(a, ensure_ascii=False)}\n{json.dumps(b, ensure_ascii=False)}\n"
+            )
+
     def test_weekly_report_is_scannable_and_flags_suspicious(self) -> None:
         snap = sample_snapshot(
             completed_by_provider=[

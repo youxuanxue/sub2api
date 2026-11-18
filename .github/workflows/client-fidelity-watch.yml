@@ -224,6 +224,7 @@ jobs:
           mkdir -p .cache/prompt-surface-watch
           bash ops/observability/run-probe.sh \
             --target prod \
+            --all-apps \
             --via tat \
             --script ops/observability/probe-prompt-surface-fingerprints.sh \
             --env "SINCE=${SINCE}" \
@@ -323,6 +324,7 @@ jobs:
           mkdir -p .cache/kiro-profile-parity
           bash ops/observability/run-probe.sh \
             --target prod \
+            --node app-old \
             --via tat \
             --script ops/observability/probe-kiro-tls-profile-parity.sh \
             --comment "client-fidelity-watch Kiro production-configured parity" \

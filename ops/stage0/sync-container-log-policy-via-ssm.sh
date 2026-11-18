@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# LEGACY (SSM Hybrid break-glass). Daily path: ops/stage0/probe-sync-container-log-policy.sh
-# via run-probe --via tat (ops-stage0-container-log-policy.yml).
+# LEGACY thin shell retained for host-parse. Daily path:
+# ops/stage0/probe-sync-container-log-policy.sh via run-probe --via tat
+# (ops-stage0-container-log-policy.yml).
+# Daily transport: TAT via execute_remote_params.py (TOKENKEY_REMOTE_VIA default).
+# Break-glass: TOKENKEY_REMOTE_VIA=ssm.
 # Install the canonical bounded Docker log policy on a live Stage0 prod host and
 # recreate only Caddy so its existing unbounded json log is released. Postgres,
 # Redis, and the active blue/green app container are not restarted.
@@ -70,39 +73,20 @@ jq -n --arg compose "$COMPOSE_B64" '{
 
 python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
-if [ "${STAGE0_RENDER_ONLY:-0}" = "1" ]; then
+if [[ -n "${STAGE0_SSM_OUTPUT_DIR:-}" || "${STAGE0_RENDER_ONLY:-0}" == "1" ]]; then
   echo "sync-container-log-policy: render-only params=$params_file"
   exit 0
 fi
 
-cmd_id="$(aws ssm send-command \
-  --region "$REGION" \
-  --instance-ids "$INSTANCE_ID" \
-  --document-name AWS-RunShellScript \
-  --comment "$COMMENT" \
-  --timeout-seconds "$TIMEOUT_SECONDS" \
-  --parameters "file://${params_file}" \
-  --query 'Command.CommandId' --output text)"
-echo "ssm command-id=${cmd_id}"
-if [ -n "${GITHUB_OUTPUT:-}" ]; then
-  echo "command_id=${cmd_id}" >> "$GITHUB_OUTPUT"
-fi
+export TOKENKEY_REMOTE_VIA="${TOKENKEY_REMOTE_VIA:-tat}"
+# REGION retained for break-glass SSM path inside ssm_execution.
+export AWS_REGION="${REGION}"
+python3 "${SCRIPT_DIR}/execute_remote_params.py" \
+  --params-file "${params_file}" \
+  --instance-id "${INSTANCE_ID}" \
+  --comment "${COMMENT}" \
+  --stdout-file "${stdout_file}" \
+  --stderr-file "${stderr_file}"
 
-deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
-status="InProgress"
-while true; do
-  status="$(aws ssm get-command-invocation --region "$REGION" --command-id "$cmd_id" --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo InProgress)"
-  case "$status" in Success|Failed|TimedOut|Cancelled) break ;; esac
-  if [ "$(date +%s)" -ge "$deadline" ]; then status="TimedOut"; break; fi
-  sleep 5
-done
-
-aws ssm get-command-invocation --region "$REGION" --command-id "$cmd_id" --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text > "$stdout_file"
-aws ssm get-command-invocation --region "$REGION" --command-id "$cmd_id" --instance-id "$INSTANCE_ID" --query StandardErrorContent --output text > "$stderr_file"
 tail -c 8192 "$stdout_file"
 tail -c 8192 "$stderr_file" >&2
-
-if [ "$status" != Success ]; then
-  echo "sync-container-log-policy: SSM status=$status" >&2
-  exit 1
-fi

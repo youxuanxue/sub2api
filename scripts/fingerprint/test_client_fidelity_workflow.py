@@ -46,6 +46,9 @@ class ClientFidelityWorkflowContractTest(unittest.TestCase):
         self.assertNotIn("configure-aws-credentials", self.text)
         self.assertIn("environment: tencent-ops", self.text)
         self.assertIn("--via tat", self.text)
+        # DB/global snapshot pins one app; fingerprint aggregate keeps --all-apps.
+        self.assertIn("--node app-old", self.text)
+        self.assertIn("--all-apps", self.text)
         self.assertIn("actions/upload-artifact@v7", self.text)
         self.assertIn("open_client_release_watch_issues.py", self.text)
         self.assertIn("open_prompt_surface_watch_issues.py", self.text)
