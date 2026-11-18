@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import copy
+import gzip
 import hashlib
 import importlib.util
 import io
@@ -407,6 +408,55 @@ class PricingRegistryRuntimeTests(unittest.TestCase):
             runtime._SSM, "run_shell_b64", return_value="CAS_APPLIED\n"
         ), self.assertRaisesRegex(SystemExit, "2"):
             runtime._write_runtime_document("i-" + "1" * 17, payload, "42")
+
+    def test_oversized_publish_shell_stages_gzip_in_tat_safe_chunks(self) -> None:
+        # Use the live registry bytes: they already overflow TAT_SAFE_SHELL_B64 when
+        # inlined (regression that broke Publish Pricing Registry on main).
+        payload = pathlib.Path(runtime.REGISTRY_PATH).read_bytes()
+        self.assertGreater(
+            len(
+                base64.b64encode(
+                    (
+                        "set -euo pipefail\n"
+                        f"JSON_B64=\"$(echo {base64.b64encode(gzip.compress(payload, mtime=0)).decode()} "
+                        "| base64 -d | gunzip | base64 | tr -d '\\n')\"\n"
+                    ).encode()
+                )
+            ),
+            runtime.TAT_SAFE_SHELL_B64,
+        )
+        expected_line = (
+            f"{runtime.SETTING_KEY}|{len(payload.decode())}|"
+            f"{hashlib.md5(payload).hexdigest()}"
+        )
+        comments: list[str] = []
+
+        def fake_run(_instance: str, encoded: str, comment: str, *, preamble: str = "") -> str:
+            comments.append(comment)
+            shell = base64.b64decode(encoded).decode()
+            self.assertLessEqual(len(encoded), runtime.TAT_SAFE_SHELL_B64, comment)
+            if comment.endswith("init staged publish payload"):
+                return "STAGE_INIT_OK\n"
+            if comment.endswith("append staged publish chunk"):
+                return "STAGE_CHUNK_OK\n"
+            if comment.endswith("finalize staged publish payload"):
+                return "STAGE_READY\n"
+            if comment.endswith("publish protected-main snapshot"):
+                self.assertIn('JSON_B64="$(gzip -dc "$STAGED"', shell)
+                self.assertIn("/var/tmp/tk-pricing-registry-", shell)
+                self.assertNotRegex(shell, r"echo [A-Za-z0-9+/=]{200,}")
+                return f"{expected_line}\nCAS_APPLIED\n"
+            raise AssertionError(f"unexpected comment: {comment}")
+
+        with mock.patch.object(runtime._SSM, "run_shell_b64", side_effect=fake_run):
+            self.assertTrue(
+                runtime._write_runtime_document("i-" + "1" * 17, payload, "42")
+            )
+        self.assertGreaterEqual(len(comments), 4)
+        self.assertTrue(any(c.endswith("init staged publish payload") for c in comments))
+        self.assertTrue(any(c.endswith("append staged publish chunk") for c in comments))
+        self.assertTrue(any(c.endswith("finalize staged publish payload") for c in comments))
+        self.assertTrue(any(c.endswith("publish protected-main snapshot") for c in comments))
 
     def test_old_psql_returning_shape_and_unknown_markers_fail_closed(self) -> None:
         for output in ("1\nUPDATE 1\n", "CAS_APPLIED\nCAS_CONFLICT\n"):

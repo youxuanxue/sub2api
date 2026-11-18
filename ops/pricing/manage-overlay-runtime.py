@@ -23,6 +23,7 @@ import io
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -40,6 +41,9 @@ CAS_MAX_ATTEMPTS = 3
 READ_MAX_ATTEMPTS = 3
 RUNTIME_CHUNK_BYTES = 12 << 10
 MAX_RUNTIME_DOCUMENT_BYTES = 12 << 20
+# TAT Content is capped at 64KiB after base64; keep inline publish shells below
+# this so large registries stage via chunked host files instead of failing closed.
+TAT_SAFE_SHELL_B64 = 48 << 10
 
 # "$TK_PG" / "$TK_REDIS" are exported on the host by the canonical resolver
 # preamble (ssm_execution.data_container_preamble) shipped with every remote script.
@@ -411,35 +415,27 @@ def cmd_check(_args: argparse.Namespace) -> int:
     return 0 if inspection.is_content_current(expected) else 1
 
 
-def _write_runtime_document(
-    instance_id: str, envelope_bytes: bytes, expected_version: str
-) -> bool:
-    if expected_version != "absent" and not expected_version.isdigit():
-        fail("runtime CAS version must be absent or a PostgreSQL xmin")
-    gz_b64 = base64.b64encode(gzip.compress(envelope_bytes, mtime=0)).decode("ascii")
-    expected_len = len(envelope_bytes.decode("utf-8"))
-    expected_md5 = hashlib.md5(envelope_bytes).hexdigest()
-    raw_b64_len = len(base64.b64encode(envelope_bytes))
+def _runtime_cas_mutation(expected_version: str) -> str:
     if expected_version == "absent":
-        mutation = (
+        return (
             "WITH mutation AS (INSERT INTO settings (key, value, updated_at) VALUES "
             f"('{SETTING_KEY}', convert_from(decode('$JSON_B64','base64'),'UTF8'), NOW()) "
             "ON CONFLICT (key) DO NOTHING RETURNING 1) "
             "SELECT CASE WHEN EXISTS (SELECT 1 FROM mutation) "
             "THEN 'CAS_APPLIED' ELSE 'CAS_CONFLICT' END"
         )
-    else:
-        mutation = (
-            "WITH mutation AS (UPDATE settings SET "
-            "value=convert_from(decode('$JSON_B64','base64'),'UTF8'), "
-            f"updated_at=NOW() WHERE key='{SETTING_KEY}' "
-            f"AND xmin='{expected_version}'::xid RETURNING 1) "
-            "SELECT CASE WHEN EXISTS (SELECT 1 FROM mutation) "
-            "THEN 'CAS_APPLIED' ELSE 'CAS_CONFLICT' END"
-        )
-    shell = (
-        "set -euo pipefail\n"
-        f"JSON_B64=\"$(echo {gz_b64} | base64 -d | gunzip | base64 | tr -d '\\n')\"\n"
+    return (
+        "WITH mutation AS (UPDATE settings SET "
+        "value=convert_from(decode('$JSON_B64','base64'),'UTF8'), "
+        f"updated_at=NOW() WHERE key='{SETTING_KEY}' "
+        f"AND xmin='{expected_version}'::xid RETURNING 1) "
+        "SELECT CASE WHEN EXISTS (SELECT 1 FROM mutation) "
+        "THEN 'CAS_APPLIED' ELSE 'CAS_CONFLICT' END"
+    )
+
+
+def _runtime_cas_tail(mutation: str, raw_b64_len: int) -> str:
+    return (
         f"test \"${{#JSON_B64}}\" -eq {raw_b64_len}\n"
         f"CAS_RESULT=\"$({PSQL} -c \"{mutation};\")\"\n"
         "case \"$CAS_RESULT\" in\n"
@@ -453,9 +449,95 @@ def _write_runtime_document(
         f"{REDISCLI} PUBLISH settings_updated refresh </dev/null || "
         "echo 'WARN: redis PUBLISH failed; replicas will reload on their poll interval'\n"
     )
-    shell_b64 = base64.b64encode(shell.encode()).decode("ascii")
-    if len(shell_b64) > 90_000:
-        fail(f"encoded sync payload is {len(shell_b64)} bytes; refusing oversized SSM command")
+
+
+def _stage_runtime_gzip(instance_id: str, gz_bytes: bytes) -> str:
+    """Copy a gzip envelope onto the host in TAT-safe chunks; return the staged path."""
+    digest = hashlib.sha256(gz_bytes).hexdigest()
+    remote = f"/var/tmp/tk-pricing-registry-{digest[:16]}.gz"
+    part = f"{remote}.part"
+    _run_pricing_shell(
+        instance_id,
+        "\n".join(
+            [
+                "set -euo pipefail",
+                f"rm -f {shlex.quote(remote)} {shlex.quote(part)}",
+                f": > {shlex.quote(part)}",
+                "echo STAGE_INIT_OK",
+            ]
+        ),
+        "pricing registry: init staged publish payload",
+    )
+    offset = 0
+    while offset < len(gz_bytes):
+        chunk = gz_bytes[offset : offset + RUNTIME_CHUNK_BYTES]
+        chunk_b64 = base64.b64encode(chunk).decode("ascii")
+        _run_pricing_shell(
+            instance_id,
+            "\n".join(
+                [
+                    "set -euo pipefail",
+                    f"printf %s {shlex.quote(chunk_b64)} | base64 -d >> {shlex.quote(part)}",
+                    "echo STAGE_CHUNK_OK",
+                ]
+            ),
+            "pricing registry: append staged publish chunk",
+        )
+        offset += len(chunk)
+    output = _run_pricing_shell(
+        instance_id,
+        "\n".join(
+            [
+                "set -euo pipefail",
+                f"GOT=\"$(sha256sum {shlex.quote(part)} | cut -d' ' -f1)\"",
+                f'test "$GOT" = {shlex.quote(digest)}',
+                f"mv -f {shlex.quote(part)} {shlex.quote(remote)}",
+                "echo STAGE_READY",
+            ]
+        ),
+        "pricing registry: finalize staged publish payload",
+    )
+    if "STAGE_READY" not in output.splitlines():
+        fail(f"staged publish payload finalize failed: {output!r}")
+    return remote
+
+
+def _write_runtime_document(
+    instance_id: str, envelope_bytes: bytes, expected_version: str
+) -> bool:
+    if expected_version != "absent" and not expected_version.isdigit():
+        fail("runtime CAS version must be absent or a PostgreSQL xmin")
+    gz_bytes = gzip.compress(envelope_bytes, mtime=0)
+    gz_b64 = base64.b64encode(gz_bytes).decode("ascii")
+    expected_len = len(envelope_bytes.decode("utf-8"))
+    expected_md5 = hashlib.md5(envelope_bytes).hexdigest()
+    raw_b64_len = len(base64.b64encode(envelope_bytes))
+    mutation = _runtime_cas_mutation(expected_version)
+    inline_shell = (
+        "set -euo pipefail\n"
+        f"JSON_B64=\"$(echo {gz_b64} | base64 -d | gunzip | base64 | tr -d '\\n')\"\n"
+        + _runtime_cas_tail(mutation, raw_b64_len)
+    )
+    inline_b64 = base64.b64encode(inline_shell.encode("utf-8")).decode("ascii")
+    staged_path = ""
+    if len(inline_b64) <= TAT_SAFE_SHELL_B64:
+        shell_b64 = inline_b64
+    else:
+        staged_path = _stage_runtime_gzip(instance_id, gz_bytes)
+        staged_shell = (
+            "set -euo pipefail\n"
+            f"STAGED={shlex.quote(staged_path)}\n"
+            'test -f "$STAGED"\n'
+            'trap \'rm -f "$STAGED"\' EXIT\n'
+            'JSON_B64="$(gzip -dc "$STAGED" | base64 | tr -d \'\\n\')"\n'
+            + _runtime_cas_tail(mutation, raw_b64_len)
+        )
+        shell_b64 = base64.b64encode(staged_shell.encode("utf-8")).decode("ascii")
+        if len(shell_b64) > TAT_SAFE_SHELL_B64:
+            fail(
+                f"staged publish apply shell is {len(shell_b64)} bytes after base64; "
+                "refusing oversized TAT command"
+            )
     output = _SSM.run_shell_b64(
         instance_id, shell_b64, "pricing registry: publish protected-main snapshot",
         preamble=_SSM.data_container_preamble(redis=True),
