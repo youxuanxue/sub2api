@@ -99,7 +99,11 @@ func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
 	require.True(t, account.IsModelSupported("gpt-6-astra"), "gpt-6-astra must be on the OpenAI floor")
 	require.True(t, account.IsModelSupported("gpt-6-sol"), "gpt-6-sol must be on the OpenAI floor")
 	require.True(t, account.IsModelSupported("gpt-6-luna"), "gpt-6-luna must be on the OpenAI floor")
+	require.True(t, account.IsModelSupported("gpt-6-terra"), "gpt-6-terra must be on the OpenAI floor")
+	require.True(t, account.IsModelSupported("gpt-6.1-terra"), "gpt-6.1-terra must be on the OpenAI floor")
 	require.Equal(t, "gpt-6-astra", mapping["gpt-6"], "public gpt-6 must be a floor alias onto Astra")
+	require.Equal(t, "gpt-5.6-terra", mapping["gpt-6-terra"], "published gpt-6-terra remaps onto gpt-5.6-terra")
+	require.Equal(t, "gpt-5.6-terra", mapping["gpt-6.1-terra"], "published gpt-6.1-terra remaps onto gpt-5.6-terra")
 	require.True(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-6")), "public gpt-6 alias must route onto the floor")
 	require.False(t, account.IsModelSupported("gpt-not-a-real-id-zzz"), "unknown OpenAI ids must stay out of the floor")
 }
@@ -348,6 +352,16 @@ func requireOpenAITextCompatibilityAliases(t *testing.T, mapping map[string]stri
 	require.Equal(t, "gpt-6-astra", mapping["gpt-6"])
 	_, hasBareGPT6Catalog := displaySet["gpt-6"]
 	require.False(t, hasBareGPT6Catalog, "bare gpt-6 stays alias-only; Sol/Luna/Astra are the catalog rows")
+	for from, to := range tkOpenAIWireRemapAliases {
+		if _, ok := displaySet[to]; !ok {
+			continue
+		}
+		require.Equal(t, to, mapping[from], "OpenAI wire remap %s must map to %s", from, to)
+		_, declared := tkPricingRegistryAliasOwner(from)
+		require.Falsef(t, declared, "wire remap %s must remain a first-class overlay owner, not an _aliases key", from)
+	}
+	require.Equal(t, "gpt-5.6-terra", mapping["gpt-6-terra"])
+	require.Equal(t, "gpt-5.6-terra", mapping["gpt-6.1-terra"])
 }
 
 func grokDisplayBackedCompatibilityAliases() map[string]string {
@@ -377,21 +391,31 @@ func requireIdentityMappingForIDs(t *testing.T, mapping map[string]string, ids [
 	t.Helper()
 	require.NotEmpty(t, ids, "SSOT id list must be populated")
 	idSet := make(map[string]struct{}, len(ids))
+	openAIFloorFold := func(id string) (string, bool) {
+		if alias, ok := tkOpenAITextCompatibilityAliases[id]; ok {
+			return alias, true
+		}
+		if alias, ok := tkOpenAIWireRemapAliases[id]; ok {
+			return alias, true
+		}
+		return "", false
+	}
 	for _, id := range ids {
 		idSet[id] = struct{}{}
-		if alias, folded := tkOpenAITextCompatibilityAliases[id]; folded && mapping[id] == alias {
+		if alias, folded := openAIFloorFold(id); folded && mapping[id] == alias {
 			continue
 		}
 		require.Equal(t, id, mapping[id], "mapping for SSOT id %s must be identity", id)
 	}
 	// Compatibility aliases may add extra keys. A catalog id may also be a
-	// public alias (bare gpt-5.6 → sol). Every other SSOT key stays identity,
+	// public alias (bare gpt-5.6 → sol) or a published wire remap
+	// (gpt-6-terra → gpt-5.6-terra). Every other SSOT key stays identity,
 	// and every target stays in the SSOT id set.
 	for from, to := range mapping {
 		_, isSSOT := idSet[from]
 		require.Contains(t, idSet, to, "mapping target %q for %q must be an SSOT id", to, from)
 		if isSSOT {
-			if alias, folded := tkOpenAITextCompatibilityAliases[from]; folded && to == alias {
+			if alias, folded := openAIFloorFold(from); folded && to == alias {
 				continue
 			}
 			require.Equal(t, from, to, "SSOT key %q must remain identity", from)

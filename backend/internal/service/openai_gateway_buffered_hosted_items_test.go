@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -275,7 +276,14 @@ func TestBufferedCompat_GrokSearchCountFromRebuiltHostedItems(t *testing.T) {
 				gin.SetMode(gin.TestMode)
 				rec := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(rec)
-				body := []byte(`{"model":"grok-4.7","stream":false,"messages":[{"role":"user","content":"hi"}]}`)
+				// /v1/messages needs a non-catalog probe: cataloged grok-4.7 skips
+				// responses via tkTryGrokNativeCatalogChatFallback. Chat-bridge still
+				// uses responses for cataloged grok-4.7.
+				model := "grok-4.7"
+				if path == "/v1/messages" {
+					model = grokMessagesResponsesAuditProbeModel
+				}
+				body := []byte(fmt.Sprintf(`{"model":%q,"stream":false,"messages":[{"role":"user","content":"hi"}]}`, model))
 				c.Request = httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
 				c.Request.Header.Set("Content-Type", "application/json")
 				c.Set("api_key", &APIKey{ID: 88000})

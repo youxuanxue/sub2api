@@ -42,6 +42,10 @@ func TestCatalogLifecycleWithdrawalFacts(t *testing.T) {
 	// Operator-hidden while sole Grok account is unschedulable (see catalogWithdrawnModelIDs).
 	require.False(t, isCatalogModelRecommended("grok-4.5"))
 	require.False(t, isCatalogModelRecommended("grok-imagine-image"))
+	// grok-4.7 remains the public Grok surface while older Grok IDs stay withdrawn.
+	require.True(t, isCatalogModelRecommended("grok-4.7"))
+	require.True(t, isCatalogModelRecommended("gpt-6-terra"))
+	require.True(t, isCatalogModelRecommended("gpt-6.1-terra"))
 	// Operator-hidden 2026-11-16: Vertex/Gemini Web unschedulable or AG preview 404.
 	require.False(t, isCatalogModelRecommended("gemini-3.7-flash"))
 	require.False(t, isCatalogModelRecommended("gemini-3-pro-image"))

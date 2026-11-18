@@ -16333,12 +16333,16 @@
         "\"gpt-5.6\": \"gpt-5.6-sol\"",
         "\"gpt-6\":   \"gpt-6-astra\"",
         "\"gpt-6.1\": \"gpt-6.1-sol\"",
-        "tkOpenAITextCompatibilityAliases,"
+        "tkOpenAITextCompatibilityAliases,",
+        "var tkOpenAIWireRemapAliases = map[string]string{",
+        "\"gpt-6-terra\":   \"gpt-5.6-terra\"",
+        "\"gpt-6.1-terra\": \"gpt-5.6-terra\"",
+        "tkOpenAIWireRemapAliases,"
       ],
       "must_not_contain": [
         "\"gpt-5.3-codex-spark\""
       ],
-      "rationale": "Floor SSOT companion for gpt-5.6→Sol, gpt-6→Astra and gpt-6.1→gpt-6.1-sol. The quoted spark id must not return to this owner: it is structurally gone, and TokenSea extras must not reintroduce it. Prevents a later edit from restoring spark or unfolding bare gpt-5.6 back to identity while the catalog rows remain."
+      "rationale": "Floor SSOT companion for gpt-5.6→Sol, gpt-6→Astra, gpt-6.1→gpt-6.1-sol, and published Terra wire remaps onto gpt-5.6-terra. The quoted spark id must not return to this owner: it is structurally gone, and TokenSea extras must not reintroduce it. Prevents a later edit from restoring spark, unfolding bare gpt-5.6, or sending gpt-6*-terra to unavailable upstream IDs."
     },
     {
       "path": "backend/internal/service/account_model_mapping_ssot_tk_test.go",
@@ -16362,9 +16366,9 @@
       "must_contain": [
         "func TestGatewayModels_GPT6SolLunaDiscoveryRespectsGroupAndAccountRestrictions(",
         "{\"published sol/luna appear when allowlisted\", []string{\"gpt-6-luna\", \"gpt-6-sol\"}, false, []string{\"gpt-6-luna\", \"gpt-6-sol\"}}",
-        "{\"unpublished upstream models stay hidden\", []string{\"gpt-6-terra\"}, false, []string{}}"
+        "{\"published terra appear when allowlisted\", []string{\"gpt-6-terra\", \"gpt-6.1-terra\"}, false, []string{\"gpt-6-terra\", \"gpt-6.1-terra\"}}"
       ],
-      "rationale": "Gateway /v1/models discovery must list published GPT-6 Sol/Luna when allowlisted, keep unpublished gpt-6-terra hidden, and still honor group/account mapping restrictions. Pins the publication boundary against silent catalog/allowlist regressions."
+      "rationale": "Gateway /v1/models discovery must list published GPT-6 Sol/Luna/Terra when allowlisted and still honor group/account mapping restrictions. Pins the publication boundary against silent catalog/allowlist regressions."
     },
     {
       "path": "backend/internal/service/gemini_compat_image_options_test.go",

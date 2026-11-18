@@ -482,6 +482,7 @@ func openAICanonicalAccountModelMappingFloor(ctx context.Context, pricing *Prici
 	for _, aliases := range []map[string]string{
 		tkOpenAIImageCompatibilityAliases,
 		tkOpenAITextCompatibilityAliases,
+		tkOpenAIWireRemapAliases,
 	} {
 		for from, to := range aliases {
 			if _, ok := displaySet[to]; ok {
@@ -508,6 +509,14 @@ var tkOpenAITextCompatibilityAliases = map[string]string{
 	"gpt-5.6": "gpt-5.6-sol",
 	"gpt-6":   "gpt-6-astra",
 	"gpt-6.1": "gpt-6.1-sol",
+}
+
+// Published OpenAI catalog IDs whose OAuth wire capacity is gpt-5.6-terra.
+// These stay first-class overlay price owners for /pricing; they are not
+// overlay _aliases (unlike bare gpt-5.6 / gpt-6 / gpt-6.1 settlement folds).
+var tkOpenAIWireRemapAliases = map[string]string{
+	"gpt-6-terra":   "gpt-5.6-terra",
+	"gpt-6.1-terra": "gpt-5.6-terra",
 }
 
 func openAIAinzyRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
