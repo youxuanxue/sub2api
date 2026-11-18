@@ -10924,7 +10924,7 @@
     "cache_read_input_token_cost_above_272k_tokens_flex": 2e-07,
     "regional_processing_uplift_multiplier_eu": 1.1,
     "regional_processing_uplift_multiplier_us": 1.1,
-    "source": "GPT-6 Sol commercial rates from backend/resources/model-pricing/model_prices_and_context_window.json (provider evidence) + TokenKey fallback card alignment; above-272k absolute costs derived from long_context_* multipliers. Captured 2026-09-28 for edge OpenAI OAuth Codex activation. This authoritative registry row is the runtime price owner for billing and /pricing. Public context_window/max_input_tokens aligned to official 1,050,000 context window (developers.openai.com model card; max-input 922k remains the request input ceiling). Captured 2026-11-18."
+    "source": "GPT-6 Sol commercial rates from backend/resources/model-pricing/model_prices_and_context_window.json (provider evidence) + TokenKey fallback card alignment; above-272k absolute costs derived from long_context_* multipliers. Captured 2026-09-28 for edge OpenAI OAuth Codex activation. This authoritative registry row is the runtime price owner for billing and /pricing. Public context_window projects max_input_tokens; both are intentionally set to the official 1,050,000 context window from the developers.openai.com model card (often marketed as ~1.1M). Captured 2026-11-18."
   },
   "gpt-6-luna": {
     "cache_creation_input_token_cost": 1.25e-07,
@@ -10988,7 +10988,7 @@
     "cache_read_input_token_cost_above_272k_tokens_flex": 1e-08,
     "regional_processing_uplift_multiplier_eu": 1.1,
     "regional_processing_uplift_multiplier_us": 1.1,
-    "source": "GPT-6 Luna commercial rates from backend/resources/model-pricing/model_prices_and_context_window.json (provider evidence) + TokenKey fallback card alignment; above-272k absolute costs derived from long_context_* multipliers. Captured 2026-09-28 for edge OpenAI OAuth Codex activation. This authoritative registry row is the runtime price owner for billing and /pricing. Public context_window/max_input_tokens aligned to official 1,050,000 context window (developers.openai.com model card; max-input 922k remains the request input ceiling). Captured 2026-11-18."
+    "source": "GPT-6 Luna commercial rates from backend/resources/model-pricing/model_prices_and_context_window.json (provider evidence) + TokenKey fallback card alignment; above-272k absolute costs derived from long_context_* multipliers. Captured 2026-09-28 for edge OpenAI OAuth Codex activation. This authoritative registry row is the runtime price owner for billing and /pricing. Public context_window projects max_input_tokens; both are intentionally set to the official 1,050,000 context window from the developers.openai.com model card (often marketed as ~1.1M). Captured 2026-11-18."
   },
   "gpt-6.1-sol": {
     "cache_creation_input_token_cost": 2.5e-06,
