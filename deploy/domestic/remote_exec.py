@@ -296,6 +296,18 @@ def _default_runner(argv: list[str], *, input: str | None = None) -> str:
     return proc.stdout
 
 
+def _load_ssm_execution():
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[2] / "ops" / "stage0" / "ssm_execution.py"
+    spec = importlib.util.spec_from_file_location("tk_ssm_execution", path)
+    if spec is None or spec.loader is None:
+        raise RemoteExecError(f"cannot load {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def _call(runner: Runner, argv: list[str], what: str) -> dict:
     try:
         out = runner(argv)
@@ -410,24 +422,23 @@ def _run_ssm(
     size = len(command.encode("utf-8"))
     if size > SSM_MAX_COMMAND_BYTES:
         raise RemoteExecError(f"SSM command is {size} bytes, over the {SSM_MAX_COMMAND_BYTES} limit")
-    params = json.dumps({"commands": [command], "executionTimeout": [str(timeout)]})
-    # Parameters go inline as JSON in argv (no temp file, no shell quoting).
-    resp = _call(
-        runner,
-        [
-            "aws", "ssm", "send-command",
-            "--region", node.ssm_region,
-            "--instance-ids", node.ssm_instance_id,
-            "--document-name", "AWS-RunShellScript",
-            "--comment", f"tokenkey remote-exec {node.name}",
-            "--parameters", params,
-            "--output", "json",
-        ],
-        "aws ssm send-command",
-    )
-    command_id = (resp.get("Command") or {}).get("CommandId")
-    if not isinstance(command_id, str) or not command_id:
-        raise RemoteExecError("aws ssm send-command: response has no CommandId")
+    params = {"commands": [command], "executionTimeout": [str(timeout)]}
+    # SendCommand argv lives only in ops/stage0/ssm_execution.py (allowlist).
+    send_mod = _load_ssm_execution()
+
+    def _runner(argv: list[str]):
+        return _call(runner, list(argv), "aws ssm break-glass")
+
+    try:
+        command_id = send_mod.send_run_shell_script(
+            region=node.ssm_region,
+            instance_id=node.ssm_instance_id,
+            parameters=params,
+            comment=f"tokenkey remote-exec {node.name}",
+            runner=_runner,
+        )
+    except send_mod.AwsSsmError as exc:
+        raise RemoteExecError(str(exc)) from exc
     print(f"remote_exec: ssm node={node.name} command-id={command_id}", file=sys.stderr)
 
     get = [

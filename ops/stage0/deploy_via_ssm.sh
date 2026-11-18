@@ -247,42 +247,27 @@ fi
 # transport-layer transform that `--unwrap-stdout` reverses losslessly.
 python3 "$(dirname "${BASH_SOURCE[0]}")/ssm_wrap_bash_commands.py" "${params_file}"
 
-eff_instance_id="${INSTANCE_ID}"
-  cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
-    --instance-ids "${INSTANCE_ID}" \
-    --document-name AWS-RunShellScript \
-    --comment "${COMMENT} tag=${TAG}" \
-    --parameters "file://${params_file}" \
-    --query 'Command.CommandId' --output text)"
-
+# LEGACY break-glass transport via sole SendCommand owner (allowlist).
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
+cmd_id="$(python3 "${HERE}/ssm_execution.py" send \
+  --region "${REGION}" \
+  --instance-id "${INSTANCE_ID}" \
+  --comment "${COMMENT} tag=${TAG}" \
+  --params-file "${params_file}")"
 echo "ssm command-id=${cmd_id}"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   echo "command_id=${cmd_id}" >> "${GITHUB_OUTPUT}"
 fi
 
-deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
-status="InProgress"
-while true; do
-  status="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
-    --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
-    --query 'Status' --output text 2>/dev/null || echo InProgress)"
-  case "${status}" in
-    Success|Failed|TimedOut|Cancelled) break ;;
-  esac
-  if [[ $(date +%s) -ge ${deadline} ]]; then
-    echo "::error::ssm timeout" >&2
-    status="TimedOut"
-    break
-  fi
-  sleep 5
-done
-
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
-  --query 'StandardOutputContent' --output text > "${stdout_file}"
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
-  --query 'StandardErrorContent' --output text > "${stderr_file}"
+inv_json="$(python3 "${HERE}/ssm_execution.py" wait-get \
+  --region "${REGION}" \
+  --instance-id "${INSTANCE_ID}" \
+  --command-id "${cmd_id}" \
+  --timeout-seconds "${TIMEOUT_SECONDS}")"
+status="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("Status",""))' <<<"${inv_json}")"
+python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("StandardOutputContent") or "")' <<<"${inv_json}" > "${stdout_file}"
+python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("StandardErrorContent") or "")' <<<"${inv_json}" > "${stderr_file}"
 
 echo '--- ssm stdout (last 8KB) ---'
 tail -c 8192 "${stdout_file}"
