@@ -793,6 +793,29 @@ func TestPublicCatalog_RetiredNativeIDsRequireAnotherDeclaredSupply(t *testing.T
 	assert.True(t, got["gpt-5.6-luna"], "luna remains public")
 }
 
+func TestPublicCatalog_PublishesGPT6TerraAndGrok47(t *testing.T) {
+	t.Parallel()
+	s := &PricingCatalogService{}
+	public := FilterPublicCatalogToServable(s.BuildPublicCatalog(context.Background()))
+	require.NotNil(t, public)
+	got := make(map[string]bool, len(public.Data))
+	for _, m := range public.Data {
+		got[m.ModelID] = true
+	}
+	require.True(t, got["gpt-6-terra"], "gpt-6-terra must appear on the public catalog")
+	require.True(t, got["gpt-6.1-terra"], "gpt-6.1-terra must appear on the public catalog")
+	require.True(t, got["grok-4.7"], "grok-4.7 must appear on the public catalog")
+	require.True(t, isPublicCatalogModelSupported("openai", "gpt-6-terra"))
+	require.True(t, isPublicCatalogModelSupported("openai", "gpt-6.1-terra"))
+	require.True(t, isPublicCatalogModelSupported("xai", "grok-4.7"))
+
+	openaiFloor := openAICanonicalAccountModelMappingFloor(context.Background(), nil, nil)
+	require.Equal(t, "gpt-5.6-terra", openaiFloor["gpt-6-terra"])
+	require.Equal(t, "gpt-5.6-terra", openaiFloor["gpt-6.1-terra"])
+	grokFloor := grokAccountModelMappingFloor(context.Background(), nil, nil)
+	require.Equal(t, "grok-4.7", grokFloor["grok-4.7"])
+}
+
 func TestPublicCatalog_HidesLegacyTokenPlanAliasesButKeepsPricing(t *testing.T) {
 	t.Parallel()
 	s := &PricingCatalogService{}

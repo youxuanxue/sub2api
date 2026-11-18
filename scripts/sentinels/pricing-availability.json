@@ -269,9 +269,12 @@
         "\"gpt-6-astra\":",
         "\"gpt-6-sol\":",
         "\"gpt-6-luna\":",
+        "\"gpt-6-terra\":",
+        "\"gpt-6.1-terra\":",
+        "\"grok-4.7\":",
         "\"gemini-4-argon\":"
       ],
-      "rationale": "Single source for the empirically-servable native catalog sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels: live Gemini set plus #1265 live Claude subset, with gpt-oss/dead/unpriced keys excluded from persisted account mappings) is hand-maintained from empirical probes; losing it silently reverts antigravity to passthrough or hides now-supported Claude IDs. grok-code-fast-1 is intentionally absent from public allowlists after the 2026-10-22 canary 429. gemini-4-argon is required as of 2026-10-30: the canary 404 came from upstream serving two catalog tiers (6 of 17 AG OAuth accounts advertise the argon wires and return 200 on the daily endpoint; the other 11 advertise gemini-4-argon-disabled and 404), so publication is correct and the mapping floor is applied per-account via targeted activation. The grok allowlist (supportedGrokCatalogModels: priced grok-imagine media + official-priced grok chat ids that returned 200 on the native grok edge probe) is likewise hand-maintained; losing it silently empties a grok group's 分组目录 again (2026-06-20 incident). Fifth-platform newapi long-tail display is delegated to tk_served_models_manifest_tk.go via isTkCuratedNewAPICatalogRowDisplayed; unknown vendors stay hidden until a universal mapping exists. GPT-6: catalog lists astra/sol/luna only; bare gpt-6 stays overlay/floor alias→astra (not a catalog row). nano-banana-2 stays listed beside nano-2 as the Flash Image marketing alias.",
+      "rationale": "Single source for the empirically-servable native catalog sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels: live Gemini set plus #1265 live Claude subset, with gpt-oss/dead/unpriced keys excluded from persisted account mappings) is hand-maintained from empirical probes; losing it silently reverts antigravity to passthrough or hides now-supported Claude IDs. grok-code-fast-1 is intentionally absent from public allowlists after the 2026-10-22 canary 429. gemini-4-argon is required as of 2026-10-30: the canary 404 came from upstream serving two catalog tiers (6 of 17 AG OAuth accounts advertise the argon wires and return 200 on the daily endpoint; the other 11 advertise gemini-4-argon-disabled and 404), so publication is correct and the mapping floor is applied per-account via targeted activation. The grok allowlist (supportedGrokCatalogModels: priced grok-imagine media + official-priced grok chat ids that returned 200 on the native grok edge probe) is likewise hand-maintained; losing it silently empties a grok group's 分组目录 again (2026-06-20 incident). Fifth-platform newapi long-tail display is delegated to tk_served_models_manifest_tk.go via isTkCuratedNewAPICatalogRowDisplayed; unknown vendors stay hidden until a universal mapping exists. GPT-6: catalog lists astra/sol/luna/terra (+ gpt-6.1-terra); bare gpt-6 stays overlay/floor alias→astra (not a catalog row). grok-4.7 is the public Grok chat surface while older Grok IDs stay recommendation-withdrawn. nano-banana-2 stays listed beside nano-2 as the Flash Image marketing alias.",
       "must_not_contain": [
         "\"grok-code-fast-1\":"
       ]
@@ -999,9 +1002,13 @@
         "var tkOpenAITextCompatibilityAliases = map[string]string{",
         "\"gpt-6\":   \"gpt-6-astra\"",
         "\"gpt-6.1\": \"gpt-6.1-sol\"",
-        "tkOpenAITextCompatibilityAliases,"
+        "tkOpenAITextCompatibilityAliases,",
+        "var tkOpenAIWireRemapAliases = map[string]string{",
+        "\"gpt-6-terra\":   \"gpt-5.6-terra\"",
+        "\"gpt-6.1-terra\": \"gpt-5.6-terra\"",
+        "tkOpenAIWireRemapAliases,"
       ],
-      "rationale": "OpenAI native floor folds public bare gpt-6 onto gpt-6-astra and gpt-6.1 onto gpt-6.1-sol via tkOpenAITextCompatibilityAliases (alongside image aliases). Losing the map or its merge into openAICanonicalAccountModelMappingFloor would either drop the aliases from identity floors or re-introduce bare gpt-6 / gpt-6.1 as catalog identities after Sol/Luna/6.1 listing."
+      "rationale": "OpenAI native floor folds public bare gpt-6 onto gpt-6-astra and gpt-6.1 onto gpt-6.1-sol via tkOpenAITextCompatibilityAliases (alongside image aliases). Published gpt-6-terra / gpt-6.1-terra stay first-class catalog/price owners but OAuth wire remaps onto gpt-5.6-terra via tkOpenAIWireRemapAliases. Losing either map or its merge into openAICanonicalAccountModelMappingFloor would drop aliases or send Terra requests to unavailable upstream IDs."
     },
     {
       "path": "backend/internal/service/antigravity_model_capability_tk_test.go",

@@ -78,7 +78,8 @@ describe('useModelWhitelist', () => {
 
   it('keeps GPT-6 and Astra mapping presets', () => {
     expect(getPresetMappingsByPlatform('openai')).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: 'GPT-6.1 Terra', from: 'gpt-6.1-terra', to: 'gpt-6.1-terra' }),
+      expect.objectContaining({ label: 'GPT-6 Terra', from: 'gpt-6-terra', to: 'gpt-5.6-terra' }),
+      expect.objectContaining({ label: 'GPT-6.1 Terra', from: 'gpt-6.1-terra', to: 'gpt-5.6-terra' }),
       expect.objectContaining({ from: 'gpt-6', to: 'gpt-6' }),
       expect.objectContaining({ from: 'gpt-6-astra', to: 'gpt-6-astra' })
     ]))
