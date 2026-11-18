@@ -112,6 +112,38 @@ func TestGPT61PublicAliasBillsSolOwner(t *testing.T) {
 	require.Equal(t, "gpt-6.1-sol", CanonicalizeOpenAICompatRoutingModel("gpt-6.1-sol"))
 }
 
+func TestGPT62PublicOwnersBillOfficialRates(t *testing.T) {
+	resetPricingRegistrySnapshot(t)
+	pricingService := NewPricingService(&config.Config{}, nil)
+	billing := NewBillingService(&config.Config{}, pricingService)
+
+	cases := []struct {
+		model  string
+		input  float64
+		output float64
+		cache  float64
+	}{
+		{model: "gpt-6.2-sol", input: 2e-6, output: 10e-6, cache: 0.1e-6},
+		{model: "gpt-6.2-astra", input: 8e-6, output: 40e-6, cache: 0.4e-6},
+		{model: "gpt-6.1-terra", input: 1e-6, output: 5e-6, cache: 0.05e-6},
+	}
+	for _, tc := range cases {
+		owner := pricingService.GetModelPricing(tc.model)
+		require.NotNil(t, owner, tc.model)
+		require.InDelta(t, tc.input, owner.InputCostPerToken, 1e-15, tc.model)
+		require.InDelta(t, tc.output, owner.OutputCostPerToken, 1e-15, tc.model)
+		require.InDelta(t, tc.cache, owner.CacheReadInputTokenCost, 1e-15, tc.model)
+
+		pricing, err := billing.GetModelPricing(tc.model)
+		require.NoError(t, err, tc.model)
+		require.InDelta(t, tc.input, pricing.InputPricePerToken, 1e-15, tc.model)
+		require.InDelta(t, tc.output, pricing.OutputPricePerToken, 1e-15, tc.model)
+		require.False(t, billing.IsServedViaFamilyFloor(tc.model),
+			"%s must resolve as an exact overlay owner, not family floor", tc.model)
+		require.Equal(t, tc.model, normalizeOpenAIBillingModel(tc.model))
+	}
+}
+
 func TestUS043_LegacyFallbackNumbersCannotAffectBilling(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	billing := NewBillingService(&config.Config{}, &PricingService{})
