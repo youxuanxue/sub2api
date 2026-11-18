@@ -8,7 +8,7 @@ set -euo pipefail
 #   2) --from-file PATH → copy validated material (COS/operator export)
 #   3) --allow-generate → first provision only
 # SecureString reads are refused unless TOKENKEY_ALLOW_SECURESTRING_READ=1
-# (break-glass until C5 deletes the parameters).
+# (break-glass only; C5 deleted the live parameters on 2026-11-18).
 
 PARAMETER=""
 OUTPUT=""

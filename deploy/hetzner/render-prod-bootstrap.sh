@@ -351,10 +351,8 @@ if [ -n "${TOKENKEY_ENV_SECRETS_FILE:-}" ]; then
   restore_secret_args+=(--from-file "${TOKENKEY_ENV_SECRETS_FILE}")
 elif [ "${ALLOW_SECRET_GENERATE}" = true ]; then
   restore_secret_args+=(--allow-generate)
-else
-  # First-boot / rehearse templates generate once when no operator export is mounted.
-  restore_secret_args+=(--allow-generate)
 fi
+# ALLOW_SECRET_GENERATE=false and no export: reuse host file only (fail closed).
 /usr/local/bin/tokenkey-restore-prod-env-secrets.sh "${restore_secret_args[@]}"
 set -a; . "$SECRET_FILE"; set +a
 

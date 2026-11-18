@@ -93,7 +93,7 @@ parent: docs/approved/design-tencent-ops-control-plane.md
 | C2 | 新 SSOT | **主机 root-only**（数据机/应用机 `.env` 同源不进 git）+ 离机恢复材料进 **腾讯 COS**（对齐 `design-cos-object-archive.md`）；CI 仅需的用 **`tencent-ops` secret**，不新建密钥产品 | ✅（主机 `.env` 活源；`restore-prod-env-secrets --from-file/--allow-generate`；COS 归档桶既有） |
 | C3 | 停写 | 已有门牙；`backup-env-secrets-via-ssm.sh` **删除或改只读迁移工具一次**后移出树 | ✅ tombstone（C5 后永久 exit 2）；`securestring_write_paths=[]` |
 | C4 | 停读 | `restore-prod-env-secrets.sh` / bootstrap / `run_physical_restore` / user-data **改为读新 SSOT**；一次装机或隔离恢复证据 | ✅（默认拒 SecureString；bootstrap 不再钉 SSM 参数） |
-| C5 | 删参数 | 证据齐全后删除 SecureString；allowlist `securestring_write_paths`→`[]` | ✅（2026-11-18 已删 C1 清单参数；receipt `docs/ops/reports/securestring-c5-delete-20261118T084419Z.txt`；写脚本 tombstone） |
+| C5 | 删参数 | 证据齐全后删除 SecureString；allowlist `securestring_write_paths`→`[]` | ✅（2026-11-18 已删 C1 清单参数；owner `ops/stage0/delete-legacy-securestring-params.sh`；receipt `docs/ops/reports/securestring-c5-delete-20261118T084419Z.txt`；写脚本 tombstone） |
 
 ### C1 代码侧参数/读者盘点（2026-11-18）
 
