@@ -457,7 +457,9 @@ handleAntigravityClaudeResponse:
 				})
 				return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
 					StatusCode: resp.StatusCode, ResponseBody: respBody,
-					RetryableOnSameAccount: resp.StatusCode == http.StatusBadRequest && !isModelCapabilityFailureMessage(msg),
+					RetryableOnSameAccount: resp.StatusCode == http.StatusBadRequest &&
+						!isModelCapabilityFailureMessage(msg) &&
+						!isGoogleUserLocationUnsupported(msg),
 				}, gatewayFailoverProfileGoogle, semantic)
 			}
 

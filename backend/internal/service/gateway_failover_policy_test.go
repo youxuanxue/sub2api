@@ -194,6 +194,14 @@ func TestUS049_AdaptersDelegateWithoutBehaviorDrift(t *testing.T) {
 		Profile: gatewayFailoverProfileGoogle, Semantic: googleSemantic, StatusCode: http.StatusBadRequest,
 	}).RetryNextAccount)
 
+	locationSemantic := googleGatewayFailureSemantic(http.StatusBadRequest, "user location is not supported")
+	require.Equal(t, gatewayFailureSemanticAccountFault, locationSemantic)
+	require.True(t, classifyGatewayFailover(gatewayFailoverObservation{
+		Profile: gatewayFailoverProfileGoogle, Semantic: locationSemantic, StatusCode: http.StatusBadRequest,
+	}).RetryNextAccount)
+	require.True(t, isGoogleUserLocationUnsupported("failed_precondition: user location is not supported"))
+	require.False(t, isGoogleUserLocationUnsupported("invalid argument: bad image"))
+
 	require.True(t, (&OpenAIGatewayService{}).shouldFailoverLiveCreateError(nil, errors.New("transport failed")))
 }
 

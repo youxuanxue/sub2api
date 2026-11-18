@@ -2277,7 +2277,7 @@
       "judgment": {
         "impact": "high",
         "tokenkey_status": "partially_mitigated",
-        "rationale": "2026-11-17: Dual-use strip (#8824) and Pi neutralize (#8791) shipped; uncorroborated AG 429 skips account cool (tkGoogle429CorroboratesAccountLimit). Remaining Hermes reports: /antigravity/v1/messages web_search deletion and Responses effort low→high inversion still need code verification/fix. Prod still sees AG RESOURCE_EXHAUSTED final 429."
+        "rationale": "2026-11-18: post-1.8.383 prod AG stream_trunc=0 since deploy. Empty-prefix failover remains non-counting per decided.md 2026-11-13 (recoverable switch). Dual-use/Pi/uncorroborated-429 already shipped. Remaining Hermes: web_search deletion + Responses effort low→high still need verification."
       },
       "upstream": "Wei-Shaw/sub2api#8851"
     },
@@ -2300,10 +2300,18 @@
     {
       "judgment": {
         "impact": "medium",
-        "tokenkey_status": "unresolved_in_tokenkey",
-        "rationale": "2026-11-17: AG 400 User location is not supported is not in googleGatewayFailureSemantic AccountFault set (only invalid project / model capability). shouldFailoverUpstreamError status-only path excludes 400. Add location FAILED_PRECONDITION as account-scoped failover."
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-18: isGoogleUserLocationUnsupported in googleGatewayFailureSemantic → AccountFault failover; RetryableOnSameAccount false on AG/Gemini paths. Unit: gateway_failover_policy_test."
       },
-      "upstream": "Wei-Shaw/sub2api#8732"
+      "upstream": "Wei-Shaw/sub2api#8732",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/antigravity_gateway_retry.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/antigravity_gateway_retry.go:func isGoogleUserLocationUnsupported(lowerMsg string) bool {",
+        "backend/internal/service/antigravity_gateway_retry.go:isGoogleUserLocationUnsupported(lowerMsg)"
+      ]
     },
     {
       "judgment": {
@@ -2316,18 +2324,35 @@
     {
       "judgment": {
         "impact": "medium",
-        "tokenkey_status": "unresolved_in_tokenkey",
-        "rationale": "2026-11-17: scheduled OpenAI OAuth tests can SetError on early 401 without refresh, stranding refreshable accounts. Upstream open #8856. Ops impact on auto account health."
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-18: admin/scheduled OpenAI OAuth probe tries tryRefreshOpenAI401Token once before SetError; permanent 401 still SetError. Unit: TestOpenAIAccountConnection_OAuth401ForceRefreshBeforeSetError."
       },
-      "upstream": "Wei-Shaw/sub2api#8855"
+      "upstream": "Wei-Shaw/sub2api#8855",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/account_test_service_openai_oauth401_tk.go",
+        "backend/internal/service/account_test_service.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/account_test_service_openai_oauth401_tk.go:func (s *AccountTestService) tryRefreshOpenAIOAuthProbe401(",
+        "backend/internal/service/account_test_service.go:if retried, retryErr := s.tryRefreshOpenAIOAuthProbe401(c, account, credentialAccount, body, modelID, prompt, mode); retried {"
+      ]
     },
     {
       "judgment": {
         "impact": "medium",
-        "tokenkey_status": "partially_mitigated",
-        "rationale": "2026-11-17: API-key probe omits temperature (#8525). OAuth/Claude-Code createTestPayload still hardcodes temperature:1 which breaks models rejecting temperature (e..g. opus-4-8). Finish by model-capability gated omission."
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "2026-11-18: createTestPayload omits temperature (aligned with API-key probe #8525); Opus 4.7+ rejecting temperature no longer fails OAuth connectivity probes."
       },
-      "upstream": "Wei-Shaw/sub2api#8625"
+      "upstream": "Wei-Shaw/sub2api#8625",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/account_test_service.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/account_test_service.go:Omit temperature: Opus 4.7+/部分模型拒绝 temperature",
+        "backend/internal/service/account_test_service_oauth_probe_tk_test.go:TestCreateTestPayloadOmitsTemperature"
+      ]
     },
     {
       "judgment": {

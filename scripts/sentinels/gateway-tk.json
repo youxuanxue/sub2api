@@ -20968,6 +20968,75 @@
         "non-gemini disagreement keeps plan SSOT"
       ],
       "rationale": "Positive thinking-tier wire win and negative non-Gemini Plan-SSOT regression for preferUsageUpstreamModel."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_retry.go",
+      "must_contain": [
+        "func isGoogleUserLocationUnsupported(lowerMsg string) bool {",
+        "isGoogleUserLocationUnsupported(lowerMsg)"
+      ],
+      "rationale": "AG/Gemini User location is not supported must stay AccountFault (#8732); dropping the matcher returns geo rejects to unclassified 400 and same-account thrash."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_claude.go",
+      "must_contain": [
+        "!isGoogleUserLocationUnsupported(msg)"
+      ],
+      "rationale": "Antigravity Claude 400 location rejects must not RetryableOnSameAccount."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat.go",
+      "must_contain": [
+        "!isGoogleUserLocationUnsupported(lowerMsg)"
+      ],
+      "rationale": "Antigravity compat HTTP 400 location rejects must switch accounts immediately."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "!isGoogleUserLocationUnsupported(lowerMsg)"
+      ],
+      "rationale": "Antigravity Gemini 400 location rejects must switch accounts immediately."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "!isGoogleUserLocationUnsupported(msg400)"
+      ],
+      "rationale": "Gemini messages/native 400 location rejects must not RetryableOnSameAccount."
+    },
+    {
+      "path": "backend/internal/service/gateway_failover_policy_test.go",
+      "must_contain": [
+        "locationSemantic := googleGatewayFailureSemantic(http.StatusBadRequest, \"user location is not supported\")",
+        "isGoogleUserLocationUnsupported(\"failed_precondition: user location is not supported\")"
+      ],
+      "rationale": "Location AccountFault + negative non-location message regression for #8732."
+    },
+    {
+      "path": "backend/internal/service/account_test_service.go",
+      "must_contain": [
+        "if retried, retryErr := s.tryRefreshOpenAIOAuthProbe401(c, account, credentialAccount, body, modelID, prompt, mode); retried {",
+        "Omit temperature: Opus 4.7+/部分模型拒绝 temperature"
+      ],
+      "rationale": "Admin/scheduled OpenAI OAuth probes must ForceRefresh recoverable 401 before SetError (#8855) and omit temperature (#8625)."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_openai_oauth401_tk.go",
+      "must_contain": [
+        "func (s *AccountTestService) tryRefreshOpenAIOAuthProbe401(",
+        "gw.tryRefreshOpenAI401Token(ctx, credentialAccount, body)"
+      ],
+      "rationale": "TK companion owning one-shot OAuth probe 401 refresh; dropping it restores permanent SetError on refreshable tokens."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_oauth_probe_tk_test.go",
+      "must_contain": [
+        "func TestCreateTestPayloadOmitsTemperature(t *testing.T)",
+        "func TestOpenAIAccountConnection_OAuth401ForceRefreshBeforeSetError(t *testing.T)",
+        "func TestOpenAIAccountConnection_OAuth401PermanentStillSetError(t *testing.T)"
+      ],
+      "rationale": "Positive omit-temperature + recoverable 401 refresh, and negative permanent 401 still SetError."
     }
   ]
 }

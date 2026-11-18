@@ -14,7 +14,7 @@ import (
 
 const (
 	// 正文、工具或媒体已经写给客户端之后，1 分钟内满 3 次才冷却。
-	// 还没写出可用内容就换号的截断不进入这个窗口。
+	// 还没写出可用内容就换号的截断不进入这个窗口（docs/decisions/decided.md 2026-11-13）。
 	geminiDisruptionWindow    = 1 * time.Minute
 	geminiDisruptionThreshold = 3
 	// INSUFFICIENT_G1_CREDITS 是账号额度耗尽，立刻停这一档，不走截断阶梯。

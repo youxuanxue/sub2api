@@ -363,9 +363,10 @@ func createTestPayload(modelID string) (map[string]any, error) {
 		"metadata": map[string]string{
 			"user_id": sessionID,
 		},
-		"max_tokens":  1024,
-		"temperature": 1,
-		"stream":      true,
+		"max_tokens": 1024,
+		// Omit temperature: Opus 4.7+/部分模型拒绝 temperature，探测只需连通性
+		// （API-key 探测路径早已省略；OAuth Claude Code payload 对齐同一策略，#8625）。
+		"stream": true,
 	}, nil
 }
 
@@ -1137,10 +1138,15 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		if resp.StatusCode == http.StatusTooManyRequests {
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
-		// 401 Unauthorized: 标记账号为永久错误
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
-			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
-			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
+		// 401：OAuth 先强制 refresh 再重试一次；仍失败或不可恢复才 SetError。
+		if resp.StatusCode == http.StatusUnauthorized {
+			if retried, retryErr := s.tryRefreshOpenAIOAuthProbe401(c, account, credentialAccount, body, modelID, prompt, mode); retried {
+				return retryErr
+			}
+			if s.accountRepo != nil {
+				errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
+				_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
+			}
 		}
 		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
 	}
