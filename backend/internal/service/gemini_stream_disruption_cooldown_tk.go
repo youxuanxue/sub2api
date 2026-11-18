@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	// 正文、工具或媒体已经写给客户端之后，1 分钟内满 3 次才冷却。
-	// 还没写出可用内容就换号的截断不进入这个窗口。
+	// 1 分钟内满 3 次截断/断流才冷却（含空前缀换号）。阈值过滤偶发毛刺；
+	// 反复在出字前就死的号也必须出池，不能只惩罚「已经写出正文后又截断」的路径。
 	geminiDisruptionWindow    = 1 * time.Minute
 	geminiDisruptionThreshold = 3
 	// INSUFFICIENT_G1_CREDITS 是账号额度耗尽，立刻停这一档，不走截断阶梯。
@@ -90,12 +90,12 @@ func noteGeminiStreamDisruption(ctx context.Context, store geminiDisruptionStore
 	noteGeminiStreamDisruptionAt(ctx, store, account, time.Now())
 }
 
-// noteGeminiStreamDisruptionWhenDelivered counts a truncation only after the
-// client has received usable output. An empty-prefix failover has not.
+// noteGeminiStreamDisruptionWhenDelivered counts a truncation toward the
+// disruption ladder. `delivered` is retained for call-site clarity; empty-prefix
+// failovers count too so accounts that repeatedly die before first usable byte
+// leave the pool (same 3-in-1m threshold as post-content truncations).
 func noteGeminiStreamDisruptionWhenDelivered(ctx context.Context, store geminiDisruptionStore, account *Account, delivered bool) {
-	if !delivered {
-		return
-	}
+	_ = delivered
 	noteGeminiStreamDisruption(ctx, store, account)
 }
 

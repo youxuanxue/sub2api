@@ -391,9 +391,14 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
 			})
+			lowerMsg := strings.ToLower(upstreamMsg)
 			return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
 				StatusCode: resp.StatusCode, ResponseBody: unwrappedForOps,
-				RetryableOnSameAccount: resp.StatusCode == http.StatusBadRequest && !isModelCapabilityFailureMessage(upstreamMsg),
+				// Project-config 400s may be transient on the same account; model
+				// capability and geo/location rejects must switch accounts.
+				RetryableOnSameAccount: resp.StatusCode == http.StatusBadRequest &&
+					!isModelCapabilityFailureMessage(upstreamMsg) &&
+					!isGoogleUserLocationUnsupported(lowerMsg),
 			}, gatewayFailoverProfileGoogle, googleSemantic)
 		}
 

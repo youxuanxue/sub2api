@@ -114,22 +114,17 @@ func TestGeminiStreamDisruptionDropsEventsOutsideTheWindow(t *testing.T) {
 	require.Zero(t, store.calls)
 }
 
-func TestGeminiStreamDisruptionIgnoresTruncationBeforeUsableOutput(t *testing.T) {
+func TestGeminiStreamDisruptionCountsEmptyPrefixTruncation(t *testing.T) {
 	resetGeminiStreamDisruptionWindow()
 	t.Cleanup(resetGeminiStreamDisruptionWindow)
 	store := &geminiCooldownStub{}
 	account := &Account{ID: 529}
-	now := time.Date(2026, 11, 13, 1, 30, 0, 0, time.UTC)
 
-	for range 5 {
-		noteGeminiStreamDisruptionWhenDelivered(context.Background(), store, account, false)
-	}
+	// Empty-prefix failovers now count: three in the window cool the account.
+	noteGeminiStreamDisruptionWhenDelivered(context.Background(), store, account, false)
+	noteGeminiStreamDisruptionWhenDelivered(context.Background(), store, account, false)
 	require.Zero(t, store.calls)
-
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, now)
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(20*time.Second))
-	require.Zero(t, store.calls)
-	noteGeminiStreamDisruptionAt(context.Background(), store, account, now.Add(40*time.Second))
+	noteGeminiStreamDisruptionWhenDelivered(context.Background(), store, account, false)
 	require.Equal(t, 1, store.calls)
 	require.Contains(t, store.reason, "tier=0")
 }
