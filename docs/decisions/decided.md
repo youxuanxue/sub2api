@@ -46,6 +46,14 @@
 
 结果落盘（同日）：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-20261117.md`。operating point 仍 **800**；1200 成功率 ~20% **主因是 client soft `ulimit -n=1024`（Errno 24）**，网关 503 仅数十次；400→800 亚线性主因是 **延迟/TTFT 随并发抬升**（升 8C 后 800 RPM mean 仍≈1086，与 4C 轮同级）。数据机高压窗 loadavg 一度 >20、PG 瞬时 ~172/162，服务未挂。
 
+后续确认（2026-11-18）：「修复 client nofile 之后，重新压一下 1200？」→ soft nofile 提到 **65535** 后复测：400/800 仍 100%；1200 成功率 **0.916**，主失败改为 **455×503 overloaded_error**（concurrency_peak=1200）；operating point 仍 **800**。报告：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-nofile-20261118.md`。
+
+后续确认（2026-11-18）：「1、同意 闸门 512→480。应用机统一 4C8G（prod和cn-prod，安全rolling到这个配置）。数据机升级到4C8G（安全升配，不要影响用户请求体验）。2、把压测脚本优化，把入口机的 CPU/load/连接数也纳入 lite monitor 采样。」→ `GATEWAY_MAX_IN_FLIGHT_REQUESTS` **512→480**；应用机规格**下限 4C8G**（Lighthouse **不能原地把 4C16G 降到 4C8G**，已有 16G 机保留；低于 4C8G 的升到 4C8G）；cn-prod 数据机 **2C4G→4C8G**（`bundle_starter_mc_lg8_01`）；压测 lite monitor 补入口机 CPU/load/连接数（`ops/observability/tpm_burst_lite_monitor.sh`）。
+
+后续确认（2026-11-18）：「影响用户请求体验的操作必须经过单独审批。」→ 初版口径过宽。
+
+后续澄清（2026-11-18）：「其实除了数据机停机升配需要单独审批，其他的都可以安全滚动推进。请继续。」→ **仅数据机停机升配**须单独审批；应用机 drain→停机升配→回流、闸门/池滚动 apply、入口权重安全滚动等**可继续推进**。仓库 SSOT 与脚本可同步落地。
+
 ## 2026-11-17 对象归档禁新写 AWS，改腾讯 COS
 
 原话：「核心是『以后凡是对象归档都别再落 AWS』。」「对的。确认。」
