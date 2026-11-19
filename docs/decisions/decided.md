@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-19 Volc Kimi type=file 归一（缺 file / 非 PDF）
+
+原话：「同意。请修复、实测。」（前置：u2 kimi-k3 Invalid PDF 与 missing messages.content.file；与 KVV 不冲突的方案：缺/空 file 本地 400；video/* → video_url；text/* → text；真 PDF/file_id 透传；其它非 PDF 本地 400）
+
+适用范围：Volc Agent Plan `kimi-*` 入站。`normalizeVolcKimiFileContentParts` 在 `normalizeVolcKimiMessageContents` 末尾执行。见 `docs/approved/volc-kimi-chat-compatibility.md`。
+
 ## 2026-11-19 QA 只归档 node1；不恢复 QA S3；不做 data-layer archive canary
 
 原话：「QA S3 不需要上传，qa 只往 node1 写归档。」「归档 canary … 应该不需要了吧，有 qa 到 node1，pgpackrest +wal 就行了？」
