@@ -21,9 +21,8 @@ func newapiAcctWithMapping(id int64, served ...string) Account {
 		mapping[m] = m
 	}
 	return Account{
-		ID:          id,
-		Platform:    PlatformNewAPI,
-		Credentials: map[string]any{"model_mapping": mapping},
+		ID: id, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1,
+		Credentials: map[string]any{"model_mapping": mapping, "channel_type": 17},
 	}
 }
 

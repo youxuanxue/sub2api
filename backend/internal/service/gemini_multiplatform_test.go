@@ -1080,3 +1080,13 @@ func TestGeminiMessagesCompatService_isModelSupportedByAccountWithContext_PlanRe
 	ctx = WithProtocolRouting(context.Background(), NewProtocolRouter(), claudeReq)
 	require.True(t, svc.isModelSupportedByAccountWithContext(ctx, account, "claude-sonnet-4-6"))
 }
+
+func (m *mockAccountRepoForGemini) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	if groupID != nil {
+		return m.ListSchedulableByGroupIDAndPlatforms(ctx, *groupID, platforms)
+	}
+	if includeGrouped {
+		return m.ListSchedulableByPlatforms(ctx, platforms)
+	}
+	return m.ListSchedulableUngroupedByPlatforms(ctx, platforms)
+}

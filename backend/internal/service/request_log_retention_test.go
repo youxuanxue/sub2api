@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/stretchr/testify/require"
 )
 
@@ -112,4 +114,67 @@ func TestRuntimeLogConfig_RequestRetentionCompatibility(t *testing.T) {
 	reset, err := svc.ResetRuntimeLogConfig(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, 400, *reset.RequestRetentionDays)
+}
+
+// OpsCleanup owns request retention and the independent 7d hot / 30d total
+// dedup lifecycle. Dashboard aggregation must not start a competing delete loop.
+func TestDashboardAggregationRetentionLeavesRequestAndDedupCleanupToOpsOwner(t *testing.T) {
+	for _, dedupDays := range []int{90, 365} {
+		repo := &dashboardAggregationRepoTestStub{}
+		svc := NewDashboardAggregationService(repo, nil, &config.Config{DashboardAgg: config.DashboardAggregationConfig{
+			Enabled:   true,
+			Retention: config.DashboardAggregationRetentionConfig{UsageLogsDays: 90, UsageBillingDedupDays: dedupDays, HourlyDays: 180, DailyDays: 730},
+		}})
+		now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+		svc.maybeCleanupRetention(context.Background(), now)
+		require.Zero(t, repo.cleanupUsageCalls)
+		require.True(t, repo.cleanupDedupCutoff.IsZero())
+		require.Equal(t, now, svc.lastRetentionCleanup.Load())
+		settings := newRuntimeSettingRepoStub()
+		settings.values[SettingKeyOpsRuntimeLogConfig] = `{"request_retention_days":90}`
+		ops, cleaned := newRequestRetentionCleanup(t, settings)
+		ops.cfg.DashboardAgg.Retention.UsageBillingDedupDays = dedupDays
+		_, err := ops.runCleanupOnce(context.Background())
+		require.NoError(t, err)
+		require.True(t, cutoffMatchesDays(cleaned.lastUsageCutoff, 90))
+		require.True(t, cutoffMatchesDays(cleaned.lastDedupCutoff, billingDedupRetentionDays))
+	}
+}
+
+// 夏令时在零点跳变的日期没有 00:00：日界取该日期实际开始的时刻，而不是前一天的 23:00。
+func TestGroupUsageDayBoundariesSkipMidnightDSTGap(t *testing.T) {
+	previous := timezone.Name()
+	require.NoError(t, timezone.Init("America/Santiago"))
+	t.Cleanup(func() { require.NoError(t, timezone.Init(previous)) })
+	loc := timezone.Location()
+
+	noon := time.Date(2026, 9, 6, 12, 0, 0, 0, loc)
+	start := GroupUsageTodayStart(noon)
+	require.Equal(t, "2026-09-06", GroupUsageDate(start))
+	require.Equal(t, "2026-09-05", GroupUsageDate(start.Add(-time.Nanosecond)))
+
+	parsed, err := ParseGroupUsageDate("2026-09-06")
+	require.NoError(t, err)
+	require.True(t, parsed.Equal(start), "parsed=%s start=%s", parsed, start)
+
+	nextNoon := time.Date(2026, 9, 7, 12, 0, 0, 0, loc)
+	require.True(t, GroupUsageYesterdayStart(nextNoon).Equal(start))
+
+	// 普通日期仍是本地零点。
+	regular, err := ParseGroupUsageDate("2026-09-08")
+	require.NoError(t, err)
+	require.True(t, regular.Equal(time.Date(2026, 9, 8, 0, 0, 0, 0, loc)))
+}
+
+// 零点出现两次的日期（Asia/Gaza 2020-10-24 在 01:00 回拨到 00:00）：日界取第一次出现的 00:00。
+func TestGroupUsageDayBoundariesUseFirstOfRepeatedMidnight(t *testing.T) {
+	previous := timezone.Name()
+	require.NoError(t, timezone.Init("Asia/Gaza"))
+	t.Cleanup(func() { require.NoError(t, timezone.Init(previous)) })
+
+	start, err := ParseGroupUsageDate("2020-10-24")
+	require.NoError(t, err)
+	require.Equal(t, "2020-10-24", GroupUsageDate(start))
+	require.Equal(t, "2020-10-23", GroupUsageDate(start.Add(-time.Nanosecond)))
+	require.True(t, GroupUsageTodayStart(start.Add(90*time.Minute)).Equal(start))
 }

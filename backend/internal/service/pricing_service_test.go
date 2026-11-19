@@ -1077,3 +1077,717 @@ func TestParsePricingData_TKMediaRegistryReplacesSource(t *testing.T) {
 	require.NotNil(t, owner)
 	require.InDelta(t, owner.OutputCostPerImage, got.OutputCostPerImage, 1e-12)
 }
+
+func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
+	svc := &PricingService{}
+	body := []byte(`{
+		"gpt-5.4": {
+			"input_cost_per_token": 0.0000025,
+			"input_cost_per_token_priority": 0.000005,
+			"output_cost_per_token": 0.000015,
+			"output_cost_per_token_priority": 0.00003,
+			"cache_creation_input_token_cost": 0.0000025,
+			"cache_creation_input_token_cost_priority": 0.000005,
+			"cache_read_input_token_cost": 0.00000025,
+			"cache_read_input_token_cost_priority": 0.0000005,
+			"long_context_input_token_threshold": 272000,
+			"long_context_input_cost_multiplier": 2,
+			"long_context_output_cost_multiplier": 1.5,
+			"supports_service_tier": true,
+			"supports_prompt_caching": true,
+			"litellm_provider": "openai",
+			"mode": "chat"
+		}
+	}`)
+
+	data, err := svc.parsePricingSensorData(body)
+	require.NoError(t, err)
+	pricing := data["gpt-5.4"]
+	require.NotNil(t, pricing)
+	require.InDelta(t, 5e-6, pricing.InputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 3e-5, pricing.OutputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 5e-6, pricing.CacheCreationInputTokenCostPriority, 1e-12)
+	require.InDelta(t, 5e-7, pricing.CacheReadInputTokenCostPriority, 1e-12)
+	require.Equal(t, 272000, pricing.LongContextInputTokenThreshold)
+	require.InDelta(t, 2.0, pricing.LongContextInputCostMultiplier, 1e-12)
+	require.InDelta(t, 1.5, pricing.LongContextOutputCostMultiplier, 1e-12)
+	require.True(t, pricing.SupportsServiceTier)
+}
+
+func TestParsePricingData_KeepsImageOnlyPricing(t *testing.T) {
+	svc := &PricingService{}
+	body := []byte(`{
+		"image-only-model": {
+			"output_cost_per_image": 0.034,
+			"litellm_provider": "vertex_ai-language-models",
+			"mode": "image_generation"
+		}
+	}`)
+
+	data, err := svc.parsePricingSensorData(body)
+	require.NoError(t, err)
+	pricing := data["image-only-model"]
+	require.NotNil(t, pricing)
+	require.InDelta(t, 0.034, pricing.OutputCostPerImage, 1e-12)
+	require.Equal(t, "image_generation", pricing.Mode)
+	// 仅有图片价的条目必须标记 token 价缺失，供 token 计费路径 fail-closed。
+	require.True(t, pricing.TokenPricingAbsent)
+}
+
+func TestPricingService_MergesFallbackOnlyModels(t *testing.T) {
+	dir := t.TempDir()
+	fallbackFile := filepath.Join(dir, "fallback.json")
+	require.NoError(t, os.WriteFile(fallbackFile, []byte(`{
+		"remote-model": {
+			"input_cost_per_token": 0.000001,
+			"litellm_provider": "test",
+			"mode": "chat"
+		},
+		"gemini-3.1-flash-lite-image": {
+			"output_cost_per_image": 0.034,
+			"litellm_provider": "vertex_ai-language-models",
+			"mode": "image_generation"
+		}
+	}`), 0644))
+
+	svc := &PricingService{cfg: &config.Config{}}
+	svc.cfg.Pricing.FallbackFile = fallbackFile
+	remoteData, err := svc.parsePricingSensorData([]byte(`{
+		"remote-model": {
+			"input_cost_per_token": 0.000002,
+			"litellm_provider": "test",
+			"mode": "chat"
+		}
+	}`))
+	require.NoError(t, err)
+
+	merged := svc.mergeFallbackPricingData(remoteData)
+	require.InDelta(t, 0.000002, merged["remote-model"].InputCostPerToken, 1e-12)
+	require.NotNil(t, merged["gemini-3.1-flash-lite-image"])
+	require.InDelta(t, 0.034, merged["gemini-3.1-flash-lite-image"].OutputCostPerImage, 1e-12)
+}
+
+func TestGetModelPricing_Gpt53CodexSparkUsesGpt51CodexPricing(t *testing.T) {
+	sparkPricing := &LiteLLMModelPricing{InputCostPerToken: 1}
+	gpt53Pricing := &LiteLLMModelPricing{InputCostPerToken: 9}
+
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.3-codex-spark": sparkPricing,
+			"gpt-5.3":             gpt53Pricing,
+		},
+	}
+
+	got := svc.GetModelPricing("gpt-5.3-codex-spark")
+	require.Equal(t, sparkPricing, got)
+}
+
+func TestGetModelPricing_Gpt53CodexFallbackStillUsesGpt52Codex(t *testing.T) {
+	gpt52CodexPricing := &LiteLLMModelPricing{InputCostPerToken: 2}
+
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.3-codex-spark": gpt52CodexPricing,
+		},
+	}
+
+	got := svc.GetModelPricing("gpt-5.3-codex")
+	require.Equal(t, gpt52CodexPricing, got)
+}
+
+func TestGetModelPricing_Gpt54UsesStaticFallbackWhenRemoteMissing(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.1-codex": &LiteLLMModelPricing{InputCostPerToken: 1.25e-6},
+		},
+	}
+
+	// Sparse external data cannot fabricate a static publication. Registry startup
+	// supplies the complete owner; compact aliases share the published owner.
+	require.Nil(t, svc.GetModelPricing("gpt-5.4"))
+	applyTKPricingOverlay(svc.pricingData)
+	require.Equal(t, svc.GetModelPricing("gpt-5.4"), svc.GetModelPricing("gpt-5.4"))
+	require.Positive(t, svc.GetModelPricing("gpt-5.4").InputCostPerToken)
+}
+
+func TestGetModelPricing_OpenAICompactAliasUsesStaticFallback(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
+		},
+	}
+
+	// Sparse external data cannot fabricate a static publication. Registry startup
+	// supplies the complete owner; compact aliases share the published owner.
+	require.Nil(t, svc.GetModelPricing("openai/gpt5.5"))
+	applyTKPricingOverlay(svc.pricingData)
+	require.Equal(t, svc.GetModelPricing("gpt-5.5"), svc.GetModelPricing("openai/gpt5.5"))
+	require.Positive(t, svc.GetModelPricing("openai/gpt5.5").InputCostPerToken)
+}
+
+func TestBillingService_Gemini37FlashThinkingTierFallbacksAreBillable(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, nil)
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
+
+	for _, model := range []string{
+		"gemini-3.7-flash",
+		"gemini-3.7-flash-high",
+		"gemini-3.7-flash-low",
+		"gemini-3.7-flash-medium",
+		"gemini-3.7-flash-tiered",
+	} {
+		t.Run(model, func(t *testing.T) {
+			cost, err := svc.CalculateCost(model, tokens, 1)
+			require.NoError(t, err)
+			require.InDelta(t, 0.75, cost.InputCost, 1e-12)
+			require.InDelta(t, 3.75, cost.OutputCost, 1e-12)
+			require.InDelta(t, 0.075, cost.CacheReadCost, 1e-12)
+			require.InDelta(t, 4.575, cost.TotalCost, 1e-12)
+		})
+	}
+}
+
+func TestBillingService_Gemini38FlashThinkingTierFallbacksAreBillable(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, nil)
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
+
+	for _, model := range []string{
+		"gemini-3.8-flash",
+		"gemini-3.8-flash-high",
+		"gemini-3.8-flash-low",
+		"gemini-3.8-flash-medium",
+		"gemini-3.8-flash-tiered",
+	} {
+		t.Run(model, func(t *testing.T) {
+			cost, err := svc.CalculateCost(model, tokens, 1)
+			require.NoError(t, err)
+			require.InDelta(t, 0.75, cost.InputCost, 1e-12)
+			require.InDelta(t, 3.75, cost.OutputCost, 1e-12)
+			require.InDelta(t, 0.075, cost.CacheReadCost, 1e-12)
+			require.InDelta(t, 4.575, cost.TotalCost, 1e-12)
+		})
+	}
+}
+
+func TestPricingService_Gemini4ArgonThinkingTiersUseBasePricing(t *testing.T) {
+	basePricing := &LiteLLMModelPricing{InputCostPerToken: 2e-6, OutputCostPerToken: 10e-6, CacheReadInputTokenCost: 0.1e-6}
+	cyberPricing := &LiteLLMModelPricing{InputCostPerToken: 4e-6, OutputCostPerToken: 20e-6, CacheReadInputTokenCost: 0.2e-6}
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"gemini-4-argon":                  basePricing,
+		"gemini-4-argon-cyber-permissive": cyberPricing,
+	}}
+
+	for _, model := range []string{
+		"gemini-4-argon",
+		"gemini-4-argon-high",
+		"gemini-4-argon-low",
+		"gemini-4-argon-medium",
+		"models/gemini-4-argon-high",
+		"projects/p/locations/global/publishers/google/models/gemini-4-argon",
+	} {
+		t.Run(model, func(t *testing.T) {
+			require.Same(t, basePricing, svc.GetModelPricing(model))
+		})
+	}
+	require.Same(t, cyberPricing, svc.GetModelPricing("gemini-4-argon-cyber-permissive"))
+}
+
+func TestBillingService_Gemini4ArgonFallbacksAreBillable(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, nil)
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
+
+	for _, tc := range []struct {
+		model               string
+		input, output, read float64
+	}{
+		{"gemini-4-argon", 4, 20, 0.2},
+		{"gemini-4-argon-high", 4, 20, 0.2},
+		{"gemini-4-argon-low", 4, 20, 0.2},
+		{"gemini-4-argon-medium", 4, 20, 0.2},
+		{"models/gemini-4-argon", 4, 20, 0.2},
+		{"gemini-4-argon-cyber-permissive", 4, 20, 0.2},
+		{"gemini-4-argon-cyber", 4, 20, 0.2},
+		{"publishers/google/models/gemini-4-argon-cyber-permissive", 4, 20, 0.2},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			cost, err := svc.CalculateCost(tc.model, tokens, 1)
+			require.NoError(t, err)
+			require.InDelta(t, tc.input, cost.InputCost, 1e-12)
+			require.InDelta(t, tc.output, cost.OutputCost, 1e-12)
+			require.InDelta(t, tc.read, cost.CacheReadCost, 1e-12)
+			require.InDelta(t, tc.input+tc.output+tc.read, cost.TotalCost, 1e-12)
+		})
+	}
+}
+
+func TestDefaultPricingIncludesGemini4ArgonRates(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
+	require.NoError(t, err)
+
+	pricingSvc := &PricingService{}
+	pricingData, err := pricingSvc.parsePricingSensorData(data)
+	require.NoError(t, err)
+	pricingSvc.pricingData = pricingData
+
+	for _, tc := range []struct {
+		model               string
+		provider            string
+		input, output, read float64
+	}{
+		{"gemini-4-argon", "gemini", 4e-6, 20e-6, 0.2e-6},
+		{"gemini-4-argon-high", "gemini", 4e-6, 20e-6, 0.2e-6},
+		{"gemini-4-argon-cyber-permissive", "vertex_ai-language-models", 4e-6, 20e-6, 0.2e-6},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			pricing := pricingSvc.GetModelPricing(tc.model)
+			require.NotNil(t, pricing)
+			require.Equal(t, tc.provider, pricing.LiteLLMProvider)
+			require.InDelta(t, tc.input, pricing.InputCostPerToken, 1e-15)
+			require.InDelta(t, tc.output, pricing.OutputCostPerToken, 1e-15)
+			require.InDelta(t, tc.read, pricing.CacheReadInputTokenCost, 1e-15)
+			// Priority 档为标准价的 1.8 倍；单一价档不分提示词长度，显式缓存不可用故无存储价。
+			require.InDelta(t, tc.input*1.8, pricing.InputCostPerTokenPriority, 1e-15)
+			require.InDelta(t, tc.output*1.8, pricing.OutputCostPerTokenPriority, 1e-15)
+			require.InDelta(t, tc.read*1.8, pricing.CacheReadInputTokenCostPriority, 1e-15)
+			require.Zero(t, pricing.LongContextInputTokenThreshold)
+			require.Zero(t, pricing.CacheStorageCostPerTokenPerHour)
+		})
+	}
+	require.Contains(t, pricingSvc.ListModelNamesByProvider("gemini"), "gemini-4-argon")
+}
+
+func TestBillingService_Gemini4HydrogenFallbackIsBillable(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, nil)
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
+
+	for _, tc := range []struct {
+		model               string
+		serviceTier         string
+		input, output, read float64
+	}{
+		{"gemini-4-hydrogen", "", 1.5, 7.5, 0.075},
+		{"models/gemini-4-hydrogen", "", 1.5, 7.5, 0.075},
+		{"projects/p/locations/global/publishers/google/models/gemini-4-hydrogen", "", 1.5, 7.5, 0.075},
+		{"gemini-4-hydrogen", "priority", 2.7, 13.5, 0.135},
+	} {
+		t.Run(tc.model+"/"+tc.serviceTier, func(t *testing.T) {
+			cost, err := svc.CalculateCostWithServiceTier(tc.model, tokens, 1, tc.serviceTier)
+			require.NoError(t, err)
+			require.InDelta(t, tc.input, cost.InputCost, 1e-12)
+			require.InDelta(t, tc.output, cost.OutputCost, 1e-12)
+			require.InDelta(t, tc.read, cost.CacheReadCost, 1e-12)
+			require.InDelta(t, tc.input+tc.output+tc.read, cost.TotalCost, 1e-12)
+		})
+	}
+}
+
+func TestDefaultPricingIncludesGemini4HydrogenRates(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
+	require.NoError(t, err)
+
+	pricingSvc := &PricingService{}
+	pricingData, err := pricingSvc.parsePricingSensorData(data)
+	require.NoError(t, err)
+	pricingSvc.pricingData = pricingData
+
+	pricing := pricingSvc.GetModelPricing("gemini-4-hydrogen")
+	require.NotNil(t, pricing)
+	require.Equal(t, "gemini", pricing.LiteLLMProvider)
+	require.InDelta(t, 1.5e-6, pricing.InputCostPerToken, 1e-15)
+	require.InDelta(t, 7.5e-6, pricing.OutputCostPerToken, 1e-15)
+	require.InDelta(t, 0.075e-6, pricing.CacheReadInputTokenCost, 1e-15)
+	// Priority 档为标准价的 1.8 倍；单一价档不分提示词长度，显式缓存不可用故无存储价。
+	require.InDelta(t, 2.7e-6, pricing.InputCostPerTokenPriority, 1e-15)
+	require.InDelta(t, 13.5e-6, pricing.OutputCostPerTokenPriority, 1e-15)
+	require.InDelta(t, 0.135e-6, pricing.CacheReadInputTokenCostPriority, 1e-15)
+	require.Zero(t, pricing.LongContextInputTokenThreshold)
+	require.Zero(t, pricing.CacheStorageCostPerTokenPerHour)
+	require.Contains(t, pricingSvc.ListModelNamesByProvider("gemini"), "gemini-4-hydrogen")
+}
+
+func TestDefaultPricingIncludesGrok47FastRates(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
+	require.NoError(t, err)
+
+	pricingSvc := &PricingService{}
+	pricingData, err := pricingSvc.parsePricingSensorData(data)
+	require.NoError(t, err)
+	pricingSvc.pricingData = pricingData
+
+	for _, model := range []string{"grok-4.7-fast", "xai/grok-4.7-fast"} {
+		t.Run(model, func(t *testing.T) {
+			pricing := pricingSvc.GetModelPricing(model)
+			require.NotNil(t, pricing)
+			require.Equal(t, "xai", pricing.LiteLLMProvider)
+			require.InDelta(t, 4e-6, pricing.InputCostPerToken, 1e-15)
+			require.InDelta(t, 12e-6, pricing.OutputCostPerToken, 1e-15)
+			require.InDelta(t, 1e-6, pricing.CacheReadInputTokenCost, 1e-15)
+			// Long-context Fast is $6 / $1.50 / $18, i.e. 1.5x the Fast base card.
+			require.Equal(t, 200000, pricing.LongContextInputTokenThreshold)
+			require.InDelta(t, 1.5, pricing.LongContextInputCostMultiplier, 1e-12)
+			require.InDelta(t, 1.5, pricing.LongContextOutputCostMultiplier, 1e-12)
+		})
+	}
+	// The Fast entry must not shadow the standard grok-4.7 card.
+	standard := pricingSvc.GetModelPricing("grok-4.7")
+	require.NotNil(t, standard)
+	require.InDelta(t, 2e-6, standard.InputCostPerToken, 1e-15)
+
+	billing := NewBillingService(&config.Config{}, pricingSvc)
+	cost, err := billing.CalculateCost("grok-4.7-fast", UsageTokens{InputTokens: 150_000, CacheReadTokens: 50_000, OutputTokens: 10_000}, 1)
+	require.NoError(t, err)
+	require.True(t, cost.LongContextBillingApplied)
+	require.InDelta(t, 0.9, cost.InputCost, 1e-12)
+	require.InDelta(t, 0.075, cost.CacheReadCost, 1e-12)
+	require.InDelta(t, 0.18, cost.OutputCost, 1e-12)
+}
+
+func TestDefaultPricingUsesCurrentCodexAutoReviewBaseRates(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
+	require.NoError(t, err)
+
+	svc := &PricingService{}
+	pricingData, err := svc.parsePricingSensorData(data)
+	require.NoError(t, err)
+	svc.pricingData = pricingData
+
+	got := svc.GetModelPricing("codex-auto-review")
+	registered := &PricingService{useActiveRegistry: true}
+	wantCard := tkModelPricingFromLiteLLM(registered.GetModelPricing("codex-auto-review"))
+	gotCard := tkModelPricingFromLiteLLM(got)
+	wantCard.registrySnapshot, gotCard.registrySnapshot = nil, nil
+	require.Equal(t, wantCard, gotCard, "sensor and registry settlement fields agree; capability metadata is separate")
+	require.Positive(t, got.InputCostPerToken)
+	require.Positive(t, got.LongContextInputTokenThreshold)
+}
+
+func TestGetModelPricing_Gpt54MiniUsesDedicatedStaticFallbackWhenRemoteMissing(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
+		},
+	}
+
+	// Sparse external data cannot fabricate a static publication. Registry startup
+	// supplies the complete owner; compact aliases share the published owner.
+	require.Nil(t, svc.GetModelPricing("gpt-5.4-mini"))
+	applyTKPricingOverlay(svc.pricingData)
+	require.Equal(t, svc.GetModelPricing("gpt-5.4-mini"), svc.GetModelPricing("gpt-5.4-mini"))
+	require.Positive(t, svc.GetModelPricing("gpt-5.4-mini").InputCostPerToken)
+}
+
+func TestGetModelPricing_Gpt54NanoUsesDedicatedStaticFallbackWhenRemoteMissing(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
+		},
+	}
+
+	// Sparse external data cannot fabricate a static publication. Registry startup
+	// supplies the complete owner; compact aliases share the published owner.
+	require.Nil(t, svc.GetModelPricing("gpt-5.4-nano"))
+	applyTKPricingOverlay(svc.pricingData)
+	require.Equal(t, svc.GetModelPricing("gpt-5.4-nano"), svc.GetModelPricing("gpt-5.4-nano"))
+	require.Positive(t, svc.GetModelPricing("gpt-5.4-nano").InputCostPerToken)
+}
+
+func TestParsePricingData_DerivesLongContextFromAboveTierFields(t *testing.T) {
+	svc := &PricingService{}
+	data, err := svc.parsePricingSensorData([]byte(`{
+		"gpt-above": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 5e-06, "output_cost_per_token": 3e-05,
+			"cache_read_input_token_cost": 5e-07,
+			"input_cost_per_token_above_272k_tokens": 1e-05,
+			"output_cost_per_token_above_272k_tokens": 4.5e-05,
+			"cache_read_input_token_cost_above_272k_tokens": 1e-06,
+			"input_cost_per_token_above_272k_tokens_flex": 5e-06,
+			"output_cost_per_token_above_272k_tokens_flex": 2.25e-05},
+		"gemini-above": {"litellm_provider": "vertex_ai-language-models", "mode": "chat",
+			"input_cost_per_token": 1.25e-06, "output_cost_per_token": 1e-05,
+			"input_cost_per_token_above_200k_tokens": 2.5e-06,
+			"output_cost_per_token_above_200k_tokens": 1.5e-05},
+		"explicit-wins": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 5e-06, "output_cost_per_token": 3e-05,
+			"long_context_input_cost_multiplier": 1,
+			"long_context_output_cost_multiplier": 1,
+			"input_cost_per_token_above_272k_tokens": 1e-05,
+			"output_cost_per_token_above_272k_tokens": 4.5e-05},
+		"no-surcharge": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 5e-06, "output_cost_per_token": 3e-05,
+			"input_cost_per_token_above_272k_tokens": 5e-06,
+			"output_cost_per_token_above_272k_tokens": 3e-05},
+		"cache-only-above": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 5e-06, "output_cost_per_token": 3e-05,
+			"cache_read_input_token_cost_above_272k_tokens": 1e-06},
+		"multi-threshold": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 1e-06, "output_cost_per_token": 2e-06,
+			"input_cost_per_token_above_128k_tokens": 2e-06,
+			"input_cost_per_token_above_272k_tokens": 4e-06}
+	}`))
+	require.NoError(t, err)
+
+	openai := data["gpt-above"]
+	require.Equal(t, 272000, openai.LongContextInputTokenThreshold, "阈值取自字段名（_flex 变体不参与）")
+	require.InDelta(t, 2.0, openai.LongContextInputCostMultiplier, 1e-12)
+	require.InDelta(t, 1.5, openai.LongContextOutputCostMultiplier, 1e-12)
+
+	gemini := data["gemini-above"]
+	require.Equal(t, 200000, gemini.LongContextInputTokenThreshold)
+	require.InDelta(t, 2.0, gemini.LongContextInputCostMultiplier, 1e-12)
+	require.InDelta(t, 1.5, gemini.LongContextOutputCostMultiplier, 1e-12)
+
+	explicit := data["explicit-wins"]
+	require.Zero(t, explicit.LongContextInputTokenThreshold, "显式 long_context_* 字段优先，不做折算")
+	require.InDelta(t, 1.0, explicit.LongContextInputCostMultiplier, 1e-12)
+
+	require.Zero(t, data["no-surcharge"].LongContextInputTokenThreshold, "above 价不高于基础价视为无附加费")
+	require.Zero(t, data["cache-only-above"].LongContextInputTokenThreshold, "仅 cache 侧 above 字段不构成阶梯")
+	require.Equal(t, 128000, data["multi-threshold"].LongContextInputTokenThreshold, "多阈值取最小")
+}
+
+func TestGetModelPricing_XAIThresholdInclusive(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, newStubPricingServiceFromJSON(t, `{
+		"grok-4.5": {"litellm_provider": "xai", "mode": "chat",
+			"input_cost_per_token": 2e-06, "output_cost_per_token": 6e-06,
+			"input_cost_per_token_above_200k_tokens": 4e-06,
+			"output_cost_per_token_above_200k_tokens": 1.2e-05}
+	}`))
+	pricing, err := svc.GetModelPricing("grok-4.5")
+	require.NoError(t, err)
+	require.Equal(t, 200000, pricing.LongContextInputThreshold)
+	require.True(t, pricing.LongContextThresholdInclusive, "xAI 阈值语义为达到即进高档")
+}
+
+func TestParsePricingData_ExplicitZeroThresholdDisablesLadder(t *testing.T) {
+	svc := &PricingService{}
+	data, err := svc.parsePricingSensorData([]byte(`{
+		"gpt-5.5": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 5e-06, "output_cost_per_token": 3e-05,
+			"long_context_input_token_threshold": 0,
+			"input_cost_per_token_above_272k_tokens": 1e-05,
+			"output_cost_per_token_above_272k_tokens": 4.5e-05}
+	}`))
+	require.NoError(t, err)
+	require.Zero(t, data["gpt-5.5"].LongContextInputTokenThreshold)
+	require.Zero(t, data["gpt-5.5"].LongContextInputCostMultiplier)
+}
+
+func TestParsePricingData_WarnsOrphanCacheTierFields(t *testing.T) {
+	logSink, restore := captureStructuredLog(t)
+	defer restore()
+
+	svc := &PricingService{}
+	data, err := svc.parsePricingSensorData([]byte(`{
+		"gemini-orphan": {"litellm_provider": "vertex_ai-language-models", "mode": "chat",
+			"input_cost_per_token": 1.25e-06, "output_cost_per_token": 1e-05,
+			"cache_read_input_token_cost": 1.25e-07,
+			"input_cost_per_token_above_200k_tokens": 2.5e-06,
+			"output_cost_per_token_above_200k_tokens": 1.5e-05,
+			"cache_read_input_token_cost_above_200k_tokens": 2.5e-07,
+			"cache_creation_input_token_cost_above_200k_tokens": 2.5e-07},
+		"gemini-complete": {"litellm_provider": "vertex_ai-language-models", "mode": "chat",
+			"input_cost_per_token": 1.25e-06, "output_cost_per_token": 1e-05,
+			"cache_read_input_token_cost": 1.25e-07,
+			"cache_creation_input_token_cost": 1.25e-06,
+			"input_cost_per_token_above_200k_tokens": 2.5e-06,
+			"output_cost_per_token_above_200k_tokens": 1.5e-05,
+			"cache_read_input_token_cost_above_200k_tokens": 2.5e-07,
+			"cache_creation_input_token_cost_above_200k_tokens": 2.5e-06},
+		"priority-variant-without-own-base": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 5e-06, "output_cost_per_token": 3e-05,
+			"cache_read_input_token_cost": 5e-07,
+			"input_cost_per_token_above_272k_tokens": 1e-05,
+			"output_cost_per_token_above_272k_tokens": 4.5e-05,
+			"cache_read_input_token_cost_above_272k_tokens_priority": 2e-06},
+		"priority-variant-orphan": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 5e-06, "output_cost_per_token": 3e-05,
+			"cache_creation_input_token_cost_above_272k_tokens_priority": 2.5e-05},
+		"hourly-tier-with-5m-base": {"litellm_provider": "anthropic", "mode": "chat",
+			"input_cost_per_token": 3e-06, "output_cost_per_token": 1.5e-05,
+			"cache_creation_input_token_cost": 3.75e-06,
+			"cache_creation_input_token_cost_above_1hr_above_200k_tokens": 1.2e-05},
+		"hourly-tier-orphan": {"litellm_provider": "anthropic", "mode": "chat",
+			"input_cost_per_token": 3e-06, "output_cost_per_token": 1.5e-05,
+			"cache_creation_input_token_cost_above_1hr_above_200k_tokens": 1.2e-05}
+	}`))
+	require.NoError(t, err)
+
+	require.Equal(t, 200000, data["gemini-orphan"].LongContextInputTokenThreshold, "孤儿 cache 字段不影响 input/output 阶梯折算")
+	require.Zero(t, data["gemini-orphan"].CacheCreationInputTokenCost)
+	require.InDelta(t, 1.25e-6, data["gemini-complete"].CacheCreationInputTokenCost, 1e-12)
+
+	require.True(t, logSink.ContainsMessageAtLevel("gemini-orphan(cache_creation_input_token_cost_above_200k_tokens)", "warn"))
+	require.True(t, logSink.ContainsMessage("priority-variant-orphan(cache_creation_input_token_cost_above_272k_tokens_priority)"))
+	require.True(t, logSink.ContainsMessage("hourly-tier-orphan(cache_creation_input_token_cost_above_1hr_above_200k_tokens)"))
+	require.False(t, logSink.ContainsMessage("gemini-complete"))
+	require.False(t, logSink.ContainsMessage("priority-variant-without-own-base"))
+	require.False(t, logSink.ContainsMessage("hourly-tier-with-5m-base"), "1h 档缺 above_1hr 基础价时计费回落 5m 价，不算孤儿")
+}
+
+func TestParsePricingData_WarnsLopsidedLongContextLadder(t *testing.T) {
+	logSink, restore := captureStructuredLog(t)
+	defer restore()
+
+	svc := &PricingService{}
+	data, err := svc.parsePricingSensorData([]byte(`{
+		"mixed-versions": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 5e-06, "output_cost_per_token": 3e-05,
+			"input_cost_per_token_above_272k_tokens": 8e-06,
+			"output_cost_per_token_above_272k_tokens": 3e-05},
+		"consistent": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 4e-06, "output_cost_per_token": 2e-05,
+			"input_cost_per_token_above_272k_tokens": 8e-06,
+			"output_cost_per_token_above_272k_tokens": 3e-05},
+		"explicit-input-only": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 4e-06, "output_cost_per_token": 2e-05,
+			"long_context_input_token_threshold": 272000,
+			"long_context_input_cost_multiplier": 2}
+	}`))
+	require.NoError(t, err)
+
+	require.Equal(t, 272000, data["mixed-versions"].LongContextInputTokenThreshold, "单侧阶梯仍按折算结果计费，只告警不丢弃")
+	require.InDelta(t, 1.6, data["mixed-versions"].LongContextInputCostMultiplier, 1e-12)
+	require.True(t, logSink.ContainsMessageAtLevel("mixed-versions(input x1.60, output x1.00)", "warn"))
+	require.False(t, logSink.ContainsMessage("consistent"))
+	require.False(t, logSink.ContainsMessage("explicit-input-only"))
+}
+
+func TestDefaultCatalogSnapshot_CacheTierContract(t *testing.T) {
+	logSink, restore := captureStructuredLog(t)
+	defer restore()
+
+	body, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
+	require.NoError(t, err)
+
+	var rawEntries map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(body, &rawEntries))
+	for name, raw := range rawEntries {
+		require.Empty(t, orphanCacheTierFields(raw), "快照条目 %s 带孤儿 cache above 字段", name)
+	}
+
+	svc := &PricingService{}
+	data, err := svc.parsePricingSensorData(body)
+	require.NoError(t, err)
+	require.False(t, logSink.ContainsMessage("carry cache above-tier prices"), "快照不应触发孤儿 cache 字段哨兵")
+	require.False(t, logSink.ContainsMessage("one-sided long-context ladder"), "快照不应触发单侧阶梯哨兵")
+	for _, model := range []string{
+		"gemini-2.5-pro", "gemini-3-pro-preview", "gemini-3.1-pro-preview",
+		"gemini-3.1-pro-high", "gemini-3.1-pro-low", "gemini-3.1-pro-preview-customtools",
+	} {
+		pricing := data[model]
+		require.NotNil(t, pricing, model)
+		require.Positive(t, pricing.InputCostPerToken, model)
+		require.InDelta(t, pricing.InputCostPerToken, pricing.CacheCreationInputTokenCost, 1e-15, "%s 缓存写入基础价应等于标准输入价", model)
+		require.Equal(t, 200000, pricing.LongContextInputTokenThreshold, model)
+		if pricing.InputCostPerTokenPriority > 0 {
+			require.InDelta(t, pricing.InputCostPerTokenPriority, pricing.CacheCreationInputTokenCostPriority, 1e-15, "%s priority 缓存写入价应等于 priority 输入价", model)
+		}
+	}
+}
+
+func TestCalculateCost_PartialLongContextMultiplierDefaultsToOne(t *testing.T) {
+	tokens := UsageTokens{InputTokens: 300000, OutputTokens: 1000, CacheReadTokens: 10000}
+
+	t.Run("only input multiplier", func(t *testing.T) {
+		svc := NewBillingService(&config.Config{}, newStubPricingServiceFromJSON(t, `{
+			"partial-in": {"litellm_provider": "openai", "mode": "chat",
+				"input_cost_per_token": 2e-06, "output_cost_per_token": 1e-05,
+				"cache_read_input_token_cost": 2e-07,
+				"long_context_input_token_threshold": 272000,
+				"long_context_input_cost_multiplier": 2.0}
+		}`))
+		cost, err := svc.CalculateCost("partial-in", tokens, 1.0)
+		require.NoError(t, err)
+		require.True(t, cost.LongContextBillingApplied)
+		require.InDelta(t, 300000*2e-6*2, cost.InputCost, 1e-10)
+		require.InDelta(t, 1000*1e-5, cost.OutputCost, 1e-10, "缺失的 output 倍率按 1 计，不得为 0")
+		require.InDelta(t, 10000*2e-7*2, cost.CacheReadCost, 1e-10)
+	})
+
+	t.Run("only output multiplier", func(t *testing.T) {
+		svc := NewBillingService(&config.Config{}, newStubPricingServiceFromJSON(t, `{
+			"partial-out": {"litellm_provider": "openai", "mode": "chat",
+				"input_cost_per_token": 2e-06, "output_cost_per_token": 1e-05,
+				"cache_read_input_token_cost": 2e-07,
+				"long_context_input_token_threshold": 272000,
+				"long_context_output_cost_multiplier": 1.5}
+		}`))
+		cost, err := svc.CalculateCost("partial-out", tokens, 1.0)
+		require.NoError(t, err)
+		require.True(t, cost.LongContextBillingApplied)
+		require.InDelta(t, 300000*2e-6, cost.InputCost, 1e-10, "缺失的 input 倍率按 1 计，不得为 0")
+		require.InDelta(t, 1000*1e-5*1.5, cost.OutputCost, 1e-10)
+		require.InDelta(t, 10000*2e-7, cost.CacheReadCost, 1e-10, "cache_read 跟随 input 倍率，同样按 1 计")
+	})
+}
+
+func TestCalculateCost_ClaudeSonnetCatalogLadderIsDataDriven(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, newStubPricingServiceFromJSON(t, `{
+		"claude-sonnet-4-5": {"litellm_provider": "anthropic", "mode": "chat",
+			"input_cost_per_token": 3e-06, "output_cost_per_token": 1.5e-05,
+			"cache_read_input_token_cost": 3e-07,
+			"input_cost_per_token_above_200k_tokens": 6e-06,
+			"output_cost_per_token_above_200k_tokens": 2.25e-05,
+			"cache_read_input_token_cost_above_200k_tokens": 6e-07}
+	}`))
+
+	pricing, err := svc.GetModelPricing("claude-sonnet-4-5")
+	require.NoError(t, err)
+	require.Equal(t, 200000, pricing.LongContextInputThreshold)
+	require.False(t, pricing.LongContextThresholdInclusive, "anthropic 为严格大于")
+
+	over := UsageTokens{InputTokens: 250000, OutputTokens: 1000}
+	cost, err := svc.CalculateCost("claude-sonnet-4-5", over, 1.0)
+	require.NoError(t, err)
+	require.True(t, cost.LongContextBillingApplied)
+	require.InDelta(t, 250000*3e-6*2, cost.InputCost, 1e-10)
+	require.InDelta(t, 1000*1.5e-5*1.5, cost.OutputCost, 1e-10)
+
+	under := UsageTokens{InputTokens: 200000, OutputTokens: 1000}
+	cost, err = svc.CalculateCost("claude-sonnet-4-5", under, 1.0)
+	require.NoError(t, err)
+	require.False(t, cost.LongContextBillingApplied, "恰好 200000 不进高档（严格大于）")
+}
+
+func TestPricingService_AntigravityClaude55TiersUseBaseModelPricing(t *testing.T) {
+	opus := &LiteLLMModelPricing{InputCostPerToken: 4e-6, OutputCostPerToken: 20e-6}
+	sonnet := &LiteLLMModelPricing{InputCostPerToken: 2e-6, OutputCostPerToken: 10e-6}
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"claude-opus-5-5":   opus,
+		"claude-sonnet-5-5": sonnet,
+		"claude-opus-5":     {InputCostPerToken: 5e-6, OutputCostPerToken: 25e-6},
+		"claude-sonnet-4-5": {InputCostPerToken: 3e-6, OutputCostPerToken: 15e-6},
+	}}
+	for _, tier := range []string{"high", "medium", "low"} {
+		require.Same(t, opus, svc.GetModelPricing("claude-opus-5-5-"+tier))
+		require.Same(t, sonnet, svc.GetModelPricing("claude-sonnet-5-5-"+tier))
+	}
+
+	// 价格目录缺基础型号时走家族兜底，同样不能落到 claude-opus-5 / sonnet-4-5。
+	sparse := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"claude-opus-5":     {InputCostPerToken: 5e-6, OutputCostPerToken: 25e-6},
+		"claude-sonnet-4-5": {InputCostPerToken: 3e-6, OutputCostPerToken: 15e-6},
+	}}
+	require.Nil(t, sparse.GetModelPricing("claude-opus-5-5-high"), "an absent sensor row cannot invent a price")
+	require.Nil(t, sparse.GetModelPricing("claude-sonnet-5-5-low"))
+	sparse.useActiveRegistry = true
+	for _, base := range []string{"claude-opus-5-5", "claude-sonnet-5-5"} {
+		for _, tier := range []string{"high", "medium", "low"} {
+			require.Equal(t, sparse.GetModelPricing(base), sparse.GetModelPricing(base+"-"+tier))
+		}
+	}
+}
+
+func TestBillingService_AntigravityClaude55TierFallbacksUseBaseRates(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, nil)
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000}
+	for _, tier := range []string{"high", "medium", "low"} {
+		for base, want := range map[string]string{"claude-opus-5-5": "claude-opus-5-5", "claude-sonnet-5-5": "claude-sonnet-5-5"} {
+			got, err := svc.CalculateCost(base+"-"+tier, tokens, 1)
+			require.NoError(t, err)
+			ref, err := svc.CalculateCost(want, tokens, 1)
+			require.NoError(t, err)
+			require.InDelta(t, ref.TotalCost, got.TotalCost, 1e-12, base+"-"+tier)
+		}
+	}
+}

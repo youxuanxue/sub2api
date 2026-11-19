@@ -133,6 +133,13 @@ func EnsureDaily(ctx context.Context, db DB, table string, now time.Time, daysAh
 // Returns the estimated number of rows reclaimed (sum of dropped partitions' reltuples,
 // for heartbeat/observability). Never drops the parent.
 func DropExpired(ctx context.Context, db DropExecutor, table string, cutoff time.Time) (int64, error) {
+	return DropExpiredWith(ctx, db, table, cutoff, nil)
+}
+
+// DropExpiredWith uses the same validated bounds as DropExpired and lets callers
+// add transaction-scoped lock budgets. drop receives a quoted qualified name.
+// A nil callback executes DROP directly.
+func DropExpiredWith(ctx context.Context, db DropExecutor, table string, cutoff time.Time, drop func(string) (bool, error)) (int64, error) {
 	if err := rejectQAHourlyOwner(table); err != nil {
 		return 0, err
 	}
@@ -191,10 +198,17 @@ func DropExpired(ctx context.Context, db DropExecutor, table string, cutoff time
 	var reclaimed int64
 	for _, child := range expired {
 		qualifiedName := pq.QuoteIdentifier(child.schema) + "." + pq.QuoteIdentifier(child.name)
-		if _, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS "+qualifiedName); err != nil {
-			return reclaimed, fmt.Errorf("pgpartition: drop %s: %w", qualifiedName, err)
+		var dropErr error
+		dropped := true
+		if drop != nil {
+			dropped, dropErr = drop(qualifiedName)
+		} else {
+			_, dropErr = db.ExecContext(ctx, "DROP TABLE IF EXISTS "+qualifiedName)
 		}
-		if child.estimatedRows > 0 {
+		if dropErr != nil {
+			return reclaimed, fmt.Errorf("pgpartition: drop %s: %w", qualifiedName, dropErr)
+		}
+		if dropped && child.estimatedRows > 0 {
 			reclaimed += child.estimatedRows
 		}
 	}

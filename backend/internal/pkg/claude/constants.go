@@ -31,6 +31,7 @@ const (
 	BetaRedactThinking              = "redact-thinking-2026-02-12"
 	BetaContextManagement           = "context-management-2025-06-27"
 	BetaMidConversationOutputConfig = "mid-conversation-output-config-2026-07-01"
+	BetaPerTurnControl              = "per-turn-control-2026-07-01"
 	BetaExtendedCacheTTL            = "extended-cache-ttl-2025-04-11"
 
 	// cc 2.1.152 抓包新增；fine-grained-tool-streaming 已从真实 CLI 流量中消失。
@@ -291,7 +292,7 @@ func DefaultModelIDs() []string {
 }
 
 // DefaultTestModel 测试时使用的默认模型
-const DefaultTestModel = "claude-sonnet-4-5-20250929"
+const DefaultTestModel = "claude-sonnet-4-6"
 
 // ModelIDOverrides Claude OAuth 请求需要的模型 ID 映射
 var ModelIDOverrides = map[string]string{

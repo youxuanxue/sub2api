@@ -125,12 +125,16 @@
         "db.ExecContext(ctx, q, cutoff, limit)",
         "total += affected",
         "affected < usageLogsCleanupBatchSize || total >= usageLogsCleanupMaxRowsPerRun",
-        "SELECT COUNT(*) AS affected, MIN(created_at) AS earliest_deleted_at"
+        "expireGroupUsageRollupsBefore(ctx, r.sql, cutoff)",
+        "pgpartition.DropExpiredWith(",
+        "r.dropUsageLogsPartition(ctx, name)",
+        "pgpartition.ListStraddling("
       ],
       "must_not_contain": [
-        "isMissingUsageLogsRelationError"
+        "isMissingUsageLogsRelationError",
+        "dropUsageLogsPartitions("
       ],
-      "rationale": "Partitioned usage_logs reclaim shares the online-safety hard cap and unified fail-closed heartbeat contract. Its SQL LIMIT must use the remaining row budget, and a missing straddling relation must surface as an error rather than being silently reported as successful cleanup."
+      "rationale": "Partitioned usage_logs reclaim shares the online-safety hard cap and unified fail-closed heartbeat contract. Its SQL LIMIT must use the remaining row budget, and a missing straddling relation must surface as an error rather than being silently reported as successful cleanup. Whole-partition DROP must use catalog bounds through the shared pgpartition owner, with per-drop lock timeout; names cannot authorize deletion across a retained timezone boundary."
     },
     {
       "path": "backend/internal/pkg/partitionmaintenance/maintenance.go",
@@ -233,6 +237,14 @@
         "COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $4 AND created_at < $3), 0) as today_cost"
       ],
       "rationale": "/keys batch usage (GetBatchAPIKeyUsageStats) MUST keep an inclusive-exclusive created_at upper bound (created_at < $3 / end) so partitioned usage_logs can prune future partitions. Without the bound, the planner retains every partition after LEAST(start, today) — measured ~285ms planning alone on prod for multi-key /keys. Unit tests assert the substring but cannot see EXPLAIN on tiny fixtures; this shape sentinel is the merge-gate guard."
+    },
+    {
+      "path": "backend/internal/repository/dashboard_aggregation_group_usage_test.go",
+      "must_contain": [
+        "func TestDashboardAggregationRepositoryCleanupUsageLogsPreservesPartitionBeyondActualCutoff(",
+        "func TestDashboardAggregationRepositoryCleanupUsageLogsSkipsPartitionWhenDropLockTimesOut("
+      ],
+      "rationale": "Retain behavioral proof that catalog upper bounds protect retained rows and lock timeout falls back to bounded child deletes."
     }
   ]
 }

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -79,6 +80,12 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	}
 	if rejectSystemOneOnlyPlatform(c, apiKey, h.responsesErrorResponse) {
 		return
+	}
+	if cappedBody, changed, err := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); err != nil {
+		respondOpenAIReasoningEffortPolicyError(c, err, h.responsesErrorResponse)
+		return
+	} else if changed {
+		body = cappedBody
 	}
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
@@ -335,6 +342,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		setActualUpstreamEndpoint(c, "")
 		// TK: ProtocolExecutors wiring — see gateway_handler_tk_responses_execute.go
 		result, err = h.executeResponsesSelectedProtocol(c, requestCtx, selection, account, channelMapping, reqModel, parsedReq)
+		stampForwardRequestedReasoningEffort(result, service.RequestedReasoningEffortFromContext(c.Request.Context()))
 		tkRecordForwardResponseTail(c, forwardStart)
 
 		if accountReleaseFunc != nil {
@@ -392,6 +400,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				zap.Bool("upstream_error_response_already_written", upstreamErrorAlreadyCommunicated),
 				zap.Error(err),
 			)
+			// The response is already committed, so the client retries; send that
+			// retry through scheduling again instead of back to this account.
+			h.gatewayService.ReleaseStickySessionAfterCommittedNoContent(context.WithoutCancel(requestCtx), apiKey.GroupID, sessionHash, account.ID, err)
 			return
 		}
 

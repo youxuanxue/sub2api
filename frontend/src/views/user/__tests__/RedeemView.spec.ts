@@ -99,7 +99,7 @@ describe('RedeemView refresh after redemption', () => {
     await button('pagination.previous').trigger('click')
     await flushPromises()
     expect(getHistory).toHaveBeenLastCalledWith(1, 20)
-    expect(wrapper.findAll('select option').map(o => o.text())).toEqual(['20', '50', '100'])
+    expect(wrapper.findAll('select option').map(o => o.text())).toEqual(['10', '20', '50', '100'])
     await wrapper.get('select').setValue('50')
     await flushPromises()
     expect(getHistory).toHaveBeenLastCalledWith(1, 50)

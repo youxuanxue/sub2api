@@ -190,6 +190,33 @@ describe('ModelWhitelistSelector', () => {
     wrapper.unmount()
   })
 
+  it.each(['claude-*', '*', 'gpt-*-mini'])(
+    'preserves TokenKey wildcard whitelist entry %s', async (model) => {
+      const wrapper = mountSelector({ modelValue: ['gpt-5'] })
+      const input = wrapper.get('input[placeholder="admin.accounts.enterCustomModelName"]')
+      await input.setValue(model)
+      await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.addModel')!.trigger('click')
+
+      expect(wrapper.emitted('update:modelValue')).toEqual([[['gpt-5', model]]])
+      expect(showInfo).not.toHaveBeenCalled()
+      expect((input.element as HTMLInputElement).value).toBe('')
+    }
+  )
+
+  it('accepts trimmed wildcard and exact entries submitted with Enter', async () => {
+    const wrapper = mountSelector()
+    const input = wrapper.get('input[placeholder="admin.accounts.enterCustomModelName"]')
+    await input.setValue(' claude-* ')
+    await input.trigger('keydown.enter')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['claude-*']]])
+    expect(showInfo).not.toHaveBeenCalled()
+
+    await input.setValue(' claude-sonnet-4-5 ')
+    await input.trigger('keydown.enter')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['claude-*']], [['claude-sonnet-4-5']]])
+    expect((input.element as HTMLInputElement).value).toBe('')
+  })
+
   it('rejects a custom whitelist model that is already mapped to a different target', async () => {
     const wrapper = mountSelector({ modelMappings: [{ from: 'gpt-latest', to: 'deepseek-chat' }] })
     await wrapper.get('input[placeholder="admin.accounts.enterCustomModelName"]').setValue(' gpt-latest ')

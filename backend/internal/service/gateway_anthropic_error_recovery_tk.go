@@ -26,7 +26,13 @@ func tkWriteAnthropicError(c *gin.Context, statusCode int, errType, message stri
 // the observed context rejection; retain other JSON envelopes byte-for-byte
 // until SSE framing requires compact JSON.
 func tkWriteAnthropicPassthrough400(c *gin.Context, body []byte) {
-	message := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(body))
+	rawMessage := extractUpstreamErrorMessage(body)
+	message := sanitizeUpstreamErrorMessage(rawMessage)
+	if message != rawMessage && gjson.GetBytes(body, "error.message").Type == gjson.String {
+		if sanitized, err := sjson.SetBytes(body, "error.message", message); err == nil {
+			body = sanitized
+		}
+	}
 	errType := gjson.GetBytes(body, "error.type").String()
 	if (errType == "invalid_request_error" || errType == "<nil>") && tkAnthropicContextLimitMessage.MatchString(message) {
 		tkWriteAnthropicError(c, http.StatusBadRequest, "invalid_request_error", message)
@@ -35,6 +41,19 @@ func tkWriteAnthropicPassthrough400(c *gin.Context, body []byte) {
 	if TkLooksLikeUpstreamProductLeakMessage(message) || TkLooksLikeUpstreamProductLeakMessage(string(body)) {
 		if errType == "" || errType == "<nil>" {
 			errType = "invalid_request_error"
+		}
+		tkWriteAnthropicError(c, http.StatusBadRequest, errType, message)
+		return
+	}
+	// Invalid/empty supplier bodies are preserved for unstarted native HTTP,
+	// but a committed SSE response needs a useful, valid error envelope.
+	if c.Writer.Written() && strings.HasPrefix(strings.ToLower(c.Writer.Header().Get("Content-Type")), "text/event-stream") &&
+		(!gjson.ValidBytes(body) || !gjson.GetBytes(body, "error").IsObject()) {
+		if errType == "" || errType == "<nil>" {
+			errType = "invalid_request_error"
+		}
+		if message == "" {
+			message = "Upstream rejected the request"
 		}
 		tkWriteAnthropicError(c, http.StatusBadRequest, errType, message)
 		return

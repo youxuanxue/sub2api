@@ -4,6 +4,7 @@ package service
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"math"
 	"os"
@@ -886,6 +887,80 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedCacheRead: floatPtr(0.03e-6),
 		},
 
+		// ---- 硅基流动 Qwen3-Embedding 系列（纯文本向量化，仅输入计费）----
+		{
+			name:             "qwen3 embedding 8b vendor prefix",
+			model:            "Qwen/Qwen3-Embedding-8B",
+			expectNilPricing: true,
+			expectedInput:    0.04e-6,
+			expectedOutput:   floatPtr(0),
+		},
+		{
+			name:             "qwen3 embedding 8b bare",
+			model:            "qwen3-embedding-8b",
+			expectNilPricing: true,
+			expectedInput:    0.04e-6,
+			expectedOutput:   floatPtr(0),
+		},
+		{
+			name:             "qwen3 embedding 4b vendor prefix",
+			model:            "Qwen/Qwen3-Embedding-4B",
+			expectNilPricing: true,
+			expectedInput:    0.02e-6,
+			expectedOutput:   floatPtr(0),
+		},
+		{
+			name:             "qwen3 embedding 0.6b vendor prefix",
+			model:            "Qwen/Qwen3-Embedding-0.6B",
+			expectNilPricing: true,
+			expectedInput:    0.01e-6,
+			expectedOutput:   floatPtr(0),
+		},
+		{
+			name:             "qwen3 embedding 0.6b dash alias",
+			model:            "qwen3-embedding-0-6b",
+			expectNilPricing: true,
+			expectedInput:    0.01e-6,
+			expectedOutput:   floatPtr(0),
+		},
+
+		// ---- 硅基流动 Qwen3-Reranker 系列（文本重排序，仅输入计费）----
+		{
+			name:             "qwen3 reranker 8b vendor prefix",
+			model:            "Qwen/Qwen3-Reranker-8B",
+			expectNilPricing: true,
+			expectedInput:    0.04e-6,
+			expectedOutput:   floatPtr(0),
+		},
+		{
+			name:             "qwen3 reranker 8b bare",
+			model:            "qwen3-reranker-8b",
+			expectNilPricing: true,
+			expectedInput:    0.04e-6,
+			expectedOutput:   floatPtr(0),
+		},
+		{
+			name:             "qwen3 reranker 4b vendor prefix",
+			model:            "Qwen/Qwen3-Reranker-4B",
+			expectNilPricing: true,
+			expectedInput:    0.02e-6,
+			expectedOutput:   floatPtr(0),
+		},
+		{
+			name:             "qwen3 reranker 0.6b vendor prefix",
+			model:            "Qwen/Qwen3-Reranker-0.6B",
+			expectNilPricing: true,
+			expectedInput:    0.01e-6,
+			expectedOutput:   floatPtr(0),
+		},
+		{
+			name:             "qwen3 reranker 0.6b dash alias",
+			model:            "qwen3-reranker-0-6b",
+			expectNilPricing: true,
+			expectedInput:    0.01e-6,
+			expectedOutput:   floatPtr(0),
+		},
+
 		// ---- 火山方舟 豆包 Embedding（多模态向量化）----
 		{
 			name:           "doubao embedding vision text rate",
@@ -901,6 +976,10 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 
 		// ---- 负向用例 ----
 		{name: "qwen unknown no fallback", model: "qwen-max", expectNilPricing: true},
+		// qwen3-embedding 仅白名单 8b / 4b / 0.6b 三个官方档位；未知档位不回退。
+		{name: "qwen3 embedding unknown size no fallback", model: "Qwen/Qwen3-Embedding-2B", expectNilPricing: true},
+		// qwen3-reranker 同样仅白名单 8b / 4b / 0.6b；qwen3-vl-reranker-8b 与 bge-reranker 不在白名单，不回退。
+		{name: "qwen3 reranker unknown size no fallback", model: "Qwen/Qwen3-Reranker-2B", expectNilPricing: true},
 		// doubao-pro / doubao-embedding（纯文本）不在白名单，不回退；仅 doubao-embedding-vision 显式命中。
 		{name: "doubao unknown no fallback", model: "doubao-pro", expectNilPricing: true},
 		{name: "doubao text embedding no fallback", model: "doubao-embedding-text-240515", expectNilPricing: true},
@@ -944,6 +1023,67 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 				require.InDelta(t, *tt.expectedCacheRead, pricing.CacheReadPricePerToken, 1e-14,
 					"CacheReadPricePerToken mismatch for %s", tt.model)
 			}
+		})
+	}
+}
+
+// 硅基流动 Qwen3-Embedding 系列（纯文本向量化）：只按输入计费，输出价为 0。
+// 验证 GetModelPricing 能解出带厂商前缀 / 裸名 / 0.6B 连字符别名的拼法。
+func TestGetModelPricing_Qwen3EmbeddingFallback(t *testing.T) {
+
+	tests := []struct {
+		model string
+		input float64
+	}{
+		{model: "Qwen/Qwen3-Embedding-8B", input: 0.04e-6},
+		{model: "qwen3-embedding-8b", input: 0.04e-6},
+		{model: "Qwen/Qwen3-Embedding-4B", input: 0.02e-6},
+		{model: "Qwen/Qwen3-Embedding-0.6B", input: 0.01e-6},
+		{model: "qwen3-embedding-0-6b", input: 0.01e-6},
+	}
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			runtime, runtimeErr := newTestBillingService().GetModelPricing(tt.model)
+			if published := tkRegistryAliasOwnerPricing(tt.model); published != nil {
+				require.NoError(t, runtimeErr)
+				require.Equal(t, published, runtime)
+			} else {
+				require.ErrorIs(t, runtimeErr, ErrModelPricingUnavailable, "sensor aliases cannot publish prices")
+			}
+			svc := NewBillingService(nil, newStubPricingServiceFromJSON(t, fmt.Sprintf(`{"%s":{"input_cost_per_token":%g,"output_cost_per_token":0}}`, tt.model, tt.input)))
+			pricing, err := svc.GetModelPricing(tt.model)
+			require.NoError(t, err, "model %s should resolve fallback pricing", tt.model)
+			require.NotNil(t, pricing)
+			require.InDelta(t, tt.input, pricing.InputPricePerToken, 1e-12, "input rate for %s", tt.model)
+			require.Zero(t, pricing.OutputPricePerToken, "embedding has no output cost for %s", tt.model)
+		})
+	}
+}
+
+// 硅基流动 Qwen3-Reranker 系列（文本重排序）：只按输入计费，输出价为 0。
+// 验证 GetModelPricing 能解出带厂商前缀 / 裸名 / 0.6B 连字符别名的拼法。
+func TestGetModelPricing_Qwen3RerankerFallback(t *testing.T) {
+
+	tests := []struct {
+		model string
+		input float64
+	}{
+		{model: "Qwen/Qwen3-Reranker-8B", input: 0.04e-6},
+		{model: "qwen3-reranker-8b", input: 0.04e-6},
+		{model: "Qwen/Qwen3-Reranker-4B", input: 0.02e-6},
+		{model: "Qwen/Qwen3-Reranker-0.6B", input: 0.01e-6},
+		{model: "qwen3-reranker-0-6b", input: 0.01e-6},
+	}
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			_, missingErr := newTestBillingService().GetModelPricing(tt.model)
+			require.ErrorIs(t, missingErr, ErrModelPricingUnavailable, "upstream metadata does not publish a TokenKey price")
+			svc := NewBillingService(nil, newStubPricingServiceFromJSON(t, fmt.Sprintf(`{"%s":{"input_cost_per_token":%g,"output_cost_per_token":0}}`, tt.model, tt.input)))
+			pricing, err := svc.GetModelPricing(tt.model)
+			require.NoError(t, err, "model %s should resolve fallback pricing", tt.model)
+			require.NotNil(t, pricing)
+			require.InDelta(t, tt.input, pricing.InputPricePerToken, 1e-12, "input rate for %s", tt.model)
+			require.Zero(t, pricing.OutputPricePerToken, "rerank has no output cost for %s", tt.model)
 		})
 	}
 }
@@ -2294,6 +2434,40 @@ func TestAstraUltrafastPricingUsesSixTimesStandard(t *testing.T) {
 	require.Equal(t, 2.0, configuredServiceTierMultiplier("ultrafast", p))
 }
 
+// 门控与计费共用同一判定：凡是分组会强制写入 ultrafast 的模型，都必须按 6x 计费。
+func TestOpenAIUltrafastGateMatchesBilling(t *testing.T) {
+	svc := newTestBillingService()
+	for _, tt := range []struct {
+		model string
+		want  float64
+	}{
+		{model: "gpt-6-astra", want: 6},
+		{model: "gpt-6.1-sol", want: 6},
+		{model: "gpt-6.1-sol-high", want: 6},
+		{model: "gpt-6.1-terra", want: 2},
+		{model: "gpt-6-sol", want: 2},
+		{model: "gpt-5.6-sol", want: 2},
+	} {
+		pricing, err := svc.GetModelPricing(tt.model)
+		if tkRegistryAliasOwnerPricing(tt.model) == nil && tt.model == "gpt-6.1-terra" {
+			require.ErrorIs(t, err, ErrModelPricingUnavailable, "recognized upstream metadata does not publish a price")
+			require.False(t, openAIModelSupportsUltrafast(tt.model))
+			continue
+		}
+		require.NoError(t, err, tt.model)
+		require.Equal(t, tt.want, configuredServiceTierMultiplier(OpenAIFastTierUltrafast, pricing), tt.model)
+		require.Equal(t, tt.want == 6, openAIModelSupportsUltrafast(tt.model), tt.model)
+
+		// 渠道自定义价格与显式 Fast 倍率都不改变 Ultrafast 倍率。
+		custom, fast := 1e-6, 3.0
+		channelPricing, err := svc.GetModelPricingWithChannel(tt.model, &ChannelModelPricing{
+			InputPrice: &custom, OutputPrice: &custom, FastMultiplier: &fast,
+		})
+		require.NoError(t, err, tt.model)
+		require.Equal(t, tt.want, configuredServiceTierMultiplier(OpenAIFastTierUltrafast, channelPricing), tt.model)
+	}
+}
+
 func TestGPT61SolExplicitZeroCacheWriteAcrossTiers(t *testing.T) {
 	pricing := &PricingService{}
 	var err error
@@ -2310,4 +2484,244 @@ func TestGPT61SolExplicitZeroCacheWriteAcrossTiers(t *testing.T) {
 		cost := svc.computeTokenBreakdown(overridden, UsageTokens{CacheCreationTokens: 300000}, 1, tier, false)
 		require.Zero(t, cost.CacheCreationCost)
 	}
+}
+
+func TestGetModelPricing_GLM52UsesOwnPrice(t *testing.T) {
+	svc := newTestBillingService()
+
+	got, err := svc.GetModelPricing("glm-5.2")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	// TokenKey uses the approved BigModel CNY owner plus the shared base tax.
+	require.InDelta(t, glmCNYPerMTokWithTax(8), got.InputPricePerToken, 1e-12)
+	require.InDelta(t, glmCNYPerMTokWithTax(28), got.OutputPricePerToken, 1e-12)
+	require.InDelta(t, glmCNYPerMTokWithTax(2), got.CacheReadPricePerToken, 1e-12)
+}
+
+func TestFallbackPricing_OpenAIGPT55UsesOfficialPrices(t *testing.T) {
+	svc := newTestBillingService()
+
+	pricing, err := svc.GetModelPricing("gpt-5.5")
+	require.NoError(t, err)
+	require.InDelta(t, 5e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 30e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.5e-6, pricing.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, 0, pricing.CacheCreationPricePerToken, 1e-12)
+	require.InDelta(t, 12.5e-6, pricing.InputPricePerTokenPriority, 1e-12)
+	require.InDelta(t, 75e-6, pricing.OutputPricePerTokenPriority, 1e-12)
+}
+
+func TestFallbackPricing_OpenAIGPT55ProUsesOfficialPrices(t *testing.T) {
+	svc := newTestBillingService()
+
+	pricing, err := svc.GetModelPricing("gpt-5.5-pro")
+	require.NoError(t, err)
+	owner, err := svc.GetModelPricing("gpt-5.5")
+	require.NoError(t, err)
+	// The approved public alias shares its owner, including tiers and cache policy.
+	require.Equal(t, owner, pricing)
+}
+
+func TestCalculateCost_OpenAIGPT54LongContextAppliesMultiplierToCacheCreation(t *testing.T) {
+	svc := newTestBillingServiceWithOpenAILadderCatalog(t)
+
+	// InputTokens + CacheReadTokens = 1000 + 300000 = 301000 > 272000 阈值
+	tokens := UsageTokens{
+		InputTokens:         1000,
+		CacheReadTokens:     300000,
+		CacheCreationTokens: 10000,
+		OutputTokens:        1000,
+	}
+
+	cost, err := svc.CalculateCost("gpt-5.4-2026-03-05", tokens, 1.0)
+	require.NoError(t, err)
+
+	// gpt-5.4 fallback: CacheCreationPricePerToken = 2.5e-6, LongContextInputMultiplier = 2.0
+	expectedCacheCreation := float64(tokens.CacheCreationTokens) * 2.5e-6 * 2.0
+	require.InDelta(t, expectedCacheCreation, cost.CacheCreationCost, 1e-10,
+		"cache_creation_cost should be scaled by LongContextInputMultiplier when long-context pricing applies")
+}
+
+func TestCalculateCost_OpenAIGPT54NoLongContextKeepsCacheCreationAtBasePrice(t *testing.T) {
+	svc := newTestBillingServiceWithOpenAILadderCatalog(t)
+
+	// InputTokens + CacheReadTokens = 1000 + 100000 = 101000 < 272000 阈值，不触发长上下文
+	tokens := UsageTokens{
+		InputTokens:         1000,
+		CacheReadTokens:     100000,
+		CacheCreationTokens: 10000,
+		OutputTokens:        1000,
+	}
+
+	cost, err := svc.CalculateCost("gpt-5.4-2026-03-05", tokens, 1.0)
+	require.NoError(t, err)
+
+	expectedCacheCreation := float64(tokens.CacheCreationTokens) * 2.5e-6
+	require.InDelta(t, expectedCacheCreation, cost.CacheCreationCost, 1e-10,
+		"cache_creation_cost should remain at base price when below long-context threshold")
+}
+
+func TestCalculateGrokImagineVideoCostUsesDefaultRateCard(t *testing.T) {
+	svc := newTestBillingService()
+
+	// 默认价目为 xAI 官方每秒价格，按 1 秒时长验证每秒单价。
+	standard480P := svc.CalculateVideoCost("grok-imagine-video", "480p", 1, 1, nil, 1.0, nil)
+	standard720P := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 1, nil, 1.0, nil)
+	video15_480P := svc.CalculateVideoCost("grok-imagine-video-1.5", "480p", 1, 1, nil, 1.0, nil)
+	video15_720P := svc.CalculateVideoCost("grok-imagine-video-1.5", "720p", 1, 1, nil, 1.0, nil)
+	video15_1080P := svc.CalculateVideoCost("grok-imagine-video-1.5", "1080p", 1, 1, nil, 1.0, nil)
+
+	require.InDelta(t, 0.05, standard480P.TotalCost, 1e-10)
+	require.InDelta(t, 0.07, standard720P.TotalCost, 1e-10)
+	require.InDelta(t, 0.08, video15_480P.TotalCost, 1e-10)
+	require.InDelta(t, 0.14, video15_720P.TotalCost, 1e-10)
+	require.InDelta(t, 0.25, video15_1080P.TotalCost, 1e-10)
+}
+
+func TestGetModelPricing_GrokBareAliasesUseGrok46(t *testing.T) {
+	svc := newTestBillingService()
+	for _, model := range []string{"grok", "grok-latest"} {
+		owner, known := resolveGrokTextPricingOwner(model)
+		require.True(t, known)
+		got, err := svc.GetModelPricing(model)
+		require.NoError(t, err)
+		want := tkRegistryAliasOwnerPricing(model)
+		if want == nil {
+			want, err = svc.GetModelPricing(owner)
+			require.NoError(t, err)
+		}
+		require.Equal(t, want, got)
+	}
+}
+
+func TestGetModelPricing_Grok47FastOfficialFallback(t *testing.T) {
+	svc := NewBillingService(nil, newStubPricingServiceFromJSON(t, `{"grok-4.7-fast":{"input_cost_per_token":0.000004,"output_cost_per_token":0.000012,"cache_read_input_token_cost":0.000001,"input_cost_per_token_above_200k_tokens":0.000006,"output_cost_per_token_above_200k_tokens":0.000018,"cache_read_input_token_cost_above_200k_tokens":0.0000015,"long_context_threshold_inclusive":true}}`))
+
+	for _, model := range []string{"grok-4.7-fast", "GROK-4.7-FAST"} {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			pricing, err := svc.GetModelPricing(model)
+			require.NoError(t, err)
+			require.InDelta(t, 4e-6, pricing.InputPricePerToken, 1e-12)
+			require.InDelta(t, 12e-6, pricing.OutputPricePerToken, 1e-12)
+			require.InDelta(t, 1e-6, pricing.CacheReadPricePerToken, 1e-12)
+			require.Equal(t, 200000, pricing.LongContextInputThreshold)
+			require.True(t, pricing.LongContextThresholdInclusive)
+			require.InDelta(t, 1.5, pricing.LongContextInputMultiplier, 1e-12)
+			require.InDelta(t, 1.5, pricing.LongContextOutputMultiplier, 1e-12)
+			require.False(t, pricing.SupportsCacheBreakdown)
+		})
+	}
+	require.True(t, svc.HasIdentifiedTokenPricing("grok-4.7-fast"))
+}
+
+func TestCalculateCost_Grok47FastUsesFastCard(t *testing.T) {
+	svc := NewBillingService(nil, newStubPricingServiceFromJSON(t, `{"grok-4.7-fast":{"input_cost_per_token":0.000004,"output_cost_per_token":0.000012,"cache_read_input_token_cost":0.000001,"input_cost_per_token_above_200k_tokens":0.000006,"output_cost_per_token_above_200k_tokens":0.000018,"cache_read_input_token_cost_above_200k_tokens":0.0000015,"long_context_threshold_inclusive":true}}`))
+
+	short := UsageTokens{InputTokens: 100_000, CacheReadTokens: 50_000, OutputTokens: 10_000}
+	standard, err := svc.CalculateCost("grok-4.7", short, 1)
+	require.NoError(t, err)
+	fast, err := svc.CalculateCost("grok-4.7-fast", short, 1)
+	require.NoError(t, err)
+	require.InDelta(t, 0.4, fast.InputCost, 1e-12)
+	require.InDelta(t, 0.05, fast.CacheReadCost, 1e-12)
+	require.InDelta(t, 0.12, fast.OutputCost, 1e-12)
+	require.False(t, fast.LongContextBillingApplied)
+	// Below 200k the Fast card is exactly twice the standard card.
+	require.InDelta(t, standard.TotalCost*2, fast.TotalCost, 1e-12)
+
+	// Reaching 200k prompt tokens moves the whole request to $6 / $1.50 / $18.
+	long := UsageTokens{InputTokens: 150_000, CacheReadTokens: 50_000, OutputTokens: 10_000}
+	standardLong, err := svc.CalculateCost("grok-4.7", long, 1)
+	require.NoError(t, err)
+	fastLong, err := svc.CalculateCost("grok-4.7-fast", long, 1)
+	require.NoError(t, err)
+	require.True(t, fastLong.LongContextBillingApplied)
+	require.InDelta(t, 0.9, fastLong.InputCost, 1e-12)
+	require.InDelta(t, 0.075, fastLong.CacheReadCost, 1e-12)
+	require.InDelta(t, 0.18, fastLong.OutputCost, 1e-12)
+	// Long-context Fast is 1.5x the standard long-context card.
+	require.InDelta(t, standardLong.TotalCost*1.5, fastLong.TotalCost, 1e-12)
+}
+
+func TestGetModelPricing_UnknownGrokTextFallsBackToGrok46(t *testing.T) {
+	svc := newTestBillingService()
+	baseline, err := svc.GetModelPricing("grok-4.6")
+	require.NoError(t, err)
+
+	for _, model := range []string{"grok-5", "grok-5-latest", "x-ai/grok-7", "grok-4.7-beta"} {
+		pricing, err := svc.GetModelPricing(model)
+		require.NoError(t, err, "model %s", model)
+		require.InDelta(t, baseline.InputPricePerToken, pricing.InputPricePerToken, 1e-12, model)
+		require.InDelta(t, baseline.OutputPricePerToken, pricing.OutputPricePerToken, 1e-12, model)
+		require.InDelta(t, baseline.CacheReadPricePerToken, pricing.CacheReadPricePerToken, 1e-12, model)
+	}
+
+	// Per-unit media ids must not inherit the text card just because they carry
+	// a version number; they are billed by the image/video/audio paths instead.
+	for _, model := range []string{"grok-2-image-1212", "grok-2-audio", "grok-5-video", "x-ai/grok-6-image"} {
+		require.False(t, isGrokUnknownTextFamilyModel(model), "model %s", model)
+	}
+	// Multimodal chat models stay token billed.
+	require.True(t, isGrokUnknownTextFamilyModel("grok-2-vision-1212"))
+
+	for _, model := range []string{
+		"grok-imagine-image-3.0",
+		"grok-imagine-video-2",
+		"grok-voice-latest",
+		"grok-web-search",
+		"grok-x-search",
+		"grok-speech-1",
+	} {
+		_, err := svc.GetModelPricing(model)
+		require.Error(t, err, "non-text grok family %s must not inherit grok-4.5 token rates", model)
+		require.ErrorIs(t, err, ErrModelPricingUnavailable)
+	}
+
+	// Known cards stay on their own rate, not the 4.5 family floor.
+	build, err := svc.GetModelPricing("grok-build-0.1")
+	require.NoError(t, err)
+	require.InDelta(t, 1e-6, build.InputPricePerToken, 1e-12)
+}
+
+func TestComputeCacheCreationCost_UnknownTTLUsesApprovedOneHourPrice(t *testing.T) {
+	svc := &BillingService{}
+	pricing := &ModelPricing{
+		SupportsCacheBreakdown: true,
+		CacheCreation5mPrice:   4e-6,
+		CacheCreation1hPrice:   5e-6,
+	}
+
+	tests := []struct {
+		name   string
+		tokens UsageTokens
+	}{
+		{name: "zero details", tokens: UsageTokens{CacheCreationTokens: 100}},
+		{name: "one negative detail", tokens: UsageTokens{CacheCreationTokens: 100, CacheCreation5mTokens: -25}},
+		{name: "both negative details", tokens: UsageTokens{CacheCreationTokens: 100, CacheCreation5mTokens: -25, CacheCreation1hTokens: -75}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cost := svc.computeCacheCreationCost(pricing, tt.tokens, 0, 1)
+			require.InDelta(t, 100*5e-6, cost, 1e-12)
+		})
+	}
+}
+
+func TestGetModelPricingWithChannel_PreservesCatalogPriorityRatio(t *testing.T) {
+	svc := newTestBillingService()
+
+	// gpt-5.4 目录价：input 2.5/5（2x），output 15/30（2x）。
+	pricing, err := svc.GetModelPricingWithChannel("gpt-5.4", &ChannelModelPricing{
+		InputPrice:  testPtrFloat64(4e-6),
+		OutputPrice: testPtrFloat64(30e-6),
+	})
+	require.NoError(t, err)
+
+	require.InDelta(t, 4e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 8e-6, pricing.InputPricePerTokenPriority, 1e-12)
+	require.InDelta(t, 30e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 60e-6, pricing.OutputPricePerTokenPriority, 1e-12)
 }

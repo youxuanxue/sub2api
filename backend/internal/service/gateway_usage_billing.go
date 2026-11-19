@@ -364,10 +364,9 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 		return true, false, nil
 	}
 
-	billingCtx, cancel := detachedBillingContext(ctx)
-	defer cancel()
-
-	result, err := repo.Apply(billingCtx, cmd)
+	applyCtx, cancelApply := detachedBillingContext(ctx)
+	result, err := repo.Apply(applyCtx, cmd)
+	cancelApply()
 	if err != nil {
 		return false, false, err
 	}
@@ -379,6 +378,10 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 		return false, false, nil
 	}
 	holdConsumed = strings.TrimSpace(cmd.TkHoldRequestID) != ""
+
+	// Apply 可能在按用户合并的结算通道中排队，结算后的缓存同步使用独立的超时。
+	billingCtx, cancel := detachedBillingContext(ctx)
+	defer cancel()
 
 	if result.APIKeyQuotaExhausted {
 		if invalidator, ok := p.APIKeyService.(apiKeyAuthCacheInvalidator); ok && p.APIKey != nil && p.APIKey.Key != "" {
@@ -933,7 +936,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 			mirroredTokenCost = s.mirrorAccountStatsTokenCost(ctx, result, apiKey, effectiveBillingModel, pricingAt, opts, cost)
 			applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
 				account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
-				cost.TotalCost-storageCost, pricingAt, mirroredTokenCost,
+				cost.TotalCost-storageCost, pricingAt, mirroredTokenCost, result.upstreamPriceFactor(),
 			)
 			addCacheStorageToAccountStatsCost(usageLog, storageCost)
 		}
@@ -1556,6 +1559,9 @@ func (s *GatewayService) mirrorAccountStatsTokenCost(
 		}
 	}
 	mirror := s.calculateTokenCost(ctx, result, apiKey, billingModel, 1.0, pricingAt, opts)
+	if s.resolveChannelPricing(ctx, billingModel, apiKey) == nil {
+		applyCostBreakdownMultiplier(mirror, result.upstreamPriceFactor())
+	}
 	return accountStatsTokenCostFromBreakdown(mirror)
 }
 

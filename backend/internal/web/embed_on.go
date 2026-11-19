@@ -165,9 +165,10 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	cached := s.cache.Get()
 	if cached != nil {
 		etag := facadeChromeETag(cached.ETag, host, path)
-		// Check If-None-Match for 304 response (host/path-aware — body chrome varies)
-		if match := c.GetHeader("If-None-Match"); match == etag {
+		// Per-request CSP nonces require a fresh document even when chrome is unchanged.
+		if match := c.GetHeader("If-None-Match"); nonce == "" && match == etag {
 			c.Header("Vary", "Host")
+			applyHTMLNoCacheHeaders(c.Writer.Header())
 			c.Status(http.StatusNotModified)
 			c.Abort()
 			return
@@ -178,6 +179,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 		content = applyFacadeChromeDocument(content, host, path)
 
 		writeIndexHTMLCacheHeaders(c, etag)
+		applyHTMLNoCacheHeaders(c.Writer.Header())
 		c.Data(http.StatusOK, "text/html; charset=utf-8", content)
 		c.Abort()
 		return
@@ -190,6 +192,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	settings, err := s.settings.GetPublicSettingsForInjection(ctx)
 	if err != nil {
 		// Fallback: serve without injection
+		applyHTMLNoCacheHeaders(c.Writer.Header())
 		c.Header("Vary", "Host")
 		c.Data(http.StatusOK, "text/html; charset=utf-8", applyFacadeChromeDocument(s.baseHTML, host, path))
 		c.Abort()
@@ -199,6 +202,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	settingsJSON, err := json.Marshal(settings)
 	if err != nil {
 		// Fallback: serve without injection
+		applyHTMLNoCacheHeaders(c.Writer.Header())
 		c.Header("Vary", "Host")
 		c.Data(http.StatusOK, "text/html; charset=utf-8", applyFacadeChromeDocument(s.baseHTML, host, path))
 		c.Abort()
@@ -219,6 +223,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 		c.Header("Vary", "Host")
 		c.Header("Cache-Control", "no-cache")
 	}
+	applyHTMLNoCacheHeaders(c.Writer.Header())
 	c.Data(http.StatusOK, "text/html; charset=utf-8", content)
 	c.Abort()
 }

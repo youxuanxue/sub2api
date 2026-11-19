@@ -28,7 +28,7 @@
           <td v-if="showAccountCost" class="py-1 text-right text-orange-500 dark:text-orange-400">
             ${{ formatCost(user.account_cost) }}
           </td>
-          <td class="py-1 pr-1 text-right text-gray-400 dark:text-gray-500">
+          <td v-if="showStandardCost" class="py-1 pr-1 text-right text-gray-400 dark:text-gray-500">
             ${{ formatCost(user.cost) }}
           </td>
         </tr>
@@ -48,10 +48,12 @@ const { t } = useI18n()
 const props = withDefaults(defineProps<{
   items: UserBreakdownItem[]
   loading?: boolean
+  showStandardCost?: boolean
   showAccountCost?: boolean
   breakdownCostField?: 'actual_cost' | 'account_cost'
 }>(), {
   loading: false,
+  showStandardCost: true,
   showAccountCost: true,
   breakdownCostField: 'actual_cost',
 })

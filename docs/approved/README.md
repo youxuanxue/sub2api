@@ -213,6 +213,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`upstream-merge-2026-10-22-migrations.md`](upstream-merge-2026-10-22-migrations.md) | 2026-10-22 上游迁移已随 #2796 合入（`shipped`） |
 | [`upstream-merge-2026-11-05-migrations.md`](upstream-merge-2026-11-05-migrations.md) | 2026-11-05 上游迁移 247–249 已随 #3068 合入（`shipped`） |
 | [`upstream-merge-2026-11-11.md`](upstream-merge-2026-11-11.md) | 本轮隔离合并、覆盖索引与 OpenAI TTL 迁移边界；生产与主线审批待确认 |
+| [`upstream-merge-2026-11-18.md`](upstream-merge-2026-11-18.md) | 隔离合并、Ultra Fast 与汇总重建迁移范围；待最终审核 |
 
 ## 已归档的 QA 设计
 

@@ -99,6 +99,7 @@ async function reload(silent = false) {
     if (ctrl.signal.aborted || abortController !== ctrl) return
     items.value = normalizePublicMonitorViews(res.items)
     for (const key of Object.keys(detailCache)) delete detailCache[Number(key)]
+    await ensureDetailsForWindow()
   } catch (err: unknown) {
     const e = err as { name?: string; code?: string }
     if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
@@ -114,11 +115,7 @@ async function reload(silent = false) {
 
 async function refresh(silent = false) {
   await reload(silent)
-  // After base reload, refresh any cached detail records so non-7d availability
-  // values stay in sync without forcing the user to switch tabs again.
-  if (currentWindow.value !== '7d') {
-    await Promise.all(items.value.map((item) => loadDetail(item, true)))
-  }
+
 }
 
 async function loadDetail(item: PublicUserMonitorView, force = false) {
@@ -151,10 +148,6 @@ function closeDetail() {
   showDetail.value = false
   detailTarget.value = null
 }
-
-watch(items, () => {
-  void ensureDetailsForWindow()
-})
 
 watch(
   () => appStore.cachedPublicSettings?.channel_monitor_enabled,

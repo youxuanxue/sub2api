@@ -92,7 +92,7 @@ describe('Ops request latency details', () => {
 
   it('shows account names with id fallback in the account column', async () => {
     const wrapper = await openDetails('ttft_desc')
-    expect(wrapper.text()).toContain('admin.ops.requestDetails.table.account')
+    expect(wrapper.findAll('thead th')[4].text()).toBe('admin.ops.requestDetails.table.account')
     const accountCells = wrapper.findAll('tbody tr').map(tr => tr.findAll('td')[4].text())
     expect(accountCells).toEqual(['acc-alpha', 'acc-beta', '#999'])
     // 999 不在账号映射里，应触发一次强制刷新重建缓存

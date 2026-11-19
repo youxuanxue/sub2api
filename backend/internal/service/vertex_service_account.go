@@ -90,6 +90,8 @@ func (a *Account) VertexProjectID() string {
 	return ""
 }
 
+// VertexLocation 返回模型请求使用的区域：vertex_model_locations 显式指定优先；否则取账号区域，
+// Gemini 账号区域为多区域（us/eu）时按 vertexModelLocations 判断模型是否支持，不支持的走 global。
 func (a *Account) VertexLocation(model string) string {
 	if a == nil {
 		return vertexDefaultLocation
@@ -118,6 +120,9 @@ func (a *Account) VertexLocation(model string) string {
 		if configured == vertexGlobalLocation && !vertexModelSupportsGlobal(model) {
 			return vertexModelRegionalFallback(model)
 		}
+		if a.Platform == PlatformGemini {
+			return resolveVertexModelLocation(configured, model)
+		}
 		return configured
 	}
 	return vertexModelRegionalFallback(model)
@@ -139,6 +144,7 @@ func (a *Account) VertexLocation(model string) string {
 // global）；globalSupported 为 false 表示该模型在全局端点不存在（账号配了
 // global 也必须拉回区域）。两者不能同真。regional 给出该模型的区域兜底。
 type vertexModelLocationSupport struct {
+	multiRegion     bool
 	globalOnly      bool
 	globalSupported bool
 	regional        string
@@ -146,6 +152,14 @@ type vertexModelLocationSupport struct {
 
 // 未列出的模型：既支持 global 也支持区域，按账号配置或默认区域走。
 var vertexModelLocations = map[string]vertexModelLocationSupport{
+	"gemini-3.1-flash-image": {multiRegion: true, globalSupported: true},
+	"gemini-3.1-flash-lite":  {multiRegion: true, globalSupported: true},
+	"gemini-3.5-flash":       {multiRegion: true, globalSupported: true},
+	"gemini-3.5-flash-lite":  {multiRegion: true, globalSupported: true},
+	"gemini-3.6-flash":       {multiRegion: true, globalSupported: true},
+	"gemini-3.7-flash":       {multiRegion: true, globalSupported: true},
+	"gemini-3.8-flash":       {multiRegion: true, globalSupported: true},
+	"gemini-4-argon":         {multiRegion: true, globalSupported: true},
 	// 官方只有 Global 一列 —— 账号配了区域也要走 global，否则 404。
 	// gemini-3-flash-preview 曾被 #2822 从 global 侧删掉以迁合一个上游测试
 	// （那个测试守的是「API Key + project_id 走项目端点」这个认证边界，拿
@@ -416,12 +430,14 @@ func exchangeVertexServiceAccountToken(ctx context.Context, key *vertexServiceAc
 }
 
 // buildVertexGeminiAccountURL 按账号构造 Vertex Gemini 请求地址：未配置 project_id 的 API Key 账号
-// 走 Express mode 全局端点，其余账号走项目级端点。
-func buildVertexGeminiAccountURL(account *Account, model, action string, stream bool) (string, error) {
+// 走 Express mode 全局端点，其余账号走项目级端点。cachedContentLocation 是请求引用的显式缓存所在区域，
+// 非空时按该区域发送（缓存只能在其所在区域的端点上引用），为空时按 VertexLocation 选区域。
+func buildVertexGeminiAccountURL(account *Account, model, action string, stream bool, cachedContentLocation string) (string, error) {
 	if account.IsVertexAPIKey() && account.VertexProjectID() == "" {
 		return buildVertexGeminiExpressURL(model, action, stream)
 	}
-	return buildVertexGeminiURL(account.VertexProjectID(), account.VertexLocation(model), model, action, stream)
+	location := vertexGeminiRequestLocation(account, model, cachedContentLocation)
+	return buildVertexGeminiURL(account.VertexProjectID(), location, model, action, stream)
 }
 
 // buildVertexGeminiExpressURL 构造不带项目与区域的全局端点地址，仅 API Key 认证可用。
@@ -492,10 +508,7 @@ func buildVertexGeminiURL(projectID, location, model, action string, stream bool
 	if err := validateVertexGeminiAction(action); err != nil {
 		return "", err
 	}
-	host := fmt.Sprintf("%s-aiplatform.googleapis.com", location)
-	if location == "global" {
-		host = vertexGlobalHost
-	}
+	host := vertexAPIHost(location)
 	u := fmt.Sprintf(
 		"https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:%s",
 		host,
@@ -530,10 +543,7 @@ func buildVertexAnthropicURL(projectID, location, model string, stream bool) (st
 	if stream {
 		action = "streamRawPredict"
 	}
-	host := fmt.Sprintf("%s-aiplatform.googleapis.com", location)
-	if location == "global" {
-		host = "aiplatform.googleapis.com"
-	}
+	host := vertexAPIHost(location)
 	escapedModel := strings.ReplaceAll(url.PathEscape(model), "%40", "@")
 	return fmt.Sprintf(
 		"https://%s/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:%s",

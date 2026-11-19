@@ -159,6 +159,7 @@
                     :items="breakdownItems"
                     :loading="breakdownLoading"
                     :show-account-cost="showAccountCost"
+                    :show-standard-cost="showStandardCost"
                     :breakdown-cost-field="breakdownCostField"
                   />
                 </td>

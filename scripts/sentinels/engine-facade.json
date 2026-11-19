@@ -121,7 +121,6 @@
       "required_literals": [
         "func shouldDropGeminiInternalText(",
         "func normalizeGeminiFunctionArgs(",
-        "func normalizeGeminiFunctionArgsJSON(",
         "func extractGeminiInternalThinkingBlocks("
       ]
     },
@@ -130,7 +129,7 @@
       "source": "backend/internal/service/gemini_messages_compat_service.go",
       "required_literals": [
         "// redacted_thinking is opaque Anthropic state. Replaying it as text",
-        "normalizeGeminiFunctionArgsJSON(args)",
+        "geminiToolCallArgsJSON(fc[\"args\"])",
         "extractGeminiInternalThinkingBlocks(geminiResp)",
         "internalThinkingBlocks, err := collectGeminiSSE("
       ]
