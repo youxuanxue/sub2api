@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-19 Volc Kimi thinking-off temperature pin 到 0.6
+
+原话：「同意。请继续修复。」（前置：对齐 KVV 且最大限度可用 → thinking-on 合法 temperature→1、thinking-off 合法 temperature→0.6，非法值继续 400）
+
+适用范围：Volc Agent Plan `kimi-*` 路径。`pinVolcKimiThinkingTemperature` 在 thinking-off（含 `enable_thinking=false` 归一后）把 KVV 合法非 0.6 的 temperature 改写为 0.6；thinking-on 仍改写为 1.0；省略不补写；`1.1`/`2.0` 等非法值仍本地 400。见 `docs/approved/volc-kimi-chat-compatibility.md`。
+
 ## 2026-11-18 prod 入口 WRR 改为 1:1
 
 原话：「流量是不是应该1:1分配？」

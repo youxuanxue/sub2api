@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。); feng (2026-11-18 conversation: 同意。继续。 — Volc thinking-on 时把合法非 1 temperature 改写为 1); feng (2026-11-18 conversation: deepseek-v4-flash-0731 退役旧模型，不做任何动作。Kimi/Volc：可做的网关修复（对齐 KVV），同意建议的修复，请逐个修复。复审。); feng (2026-11-19 conversation: 同意。继续。 — drop prompt_cache_breakpoint; tighten data: video local 400; keep long tool_call_id trajectories unchanged)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。); feng (2026-11-18 conversation: 同意。继续。 — Volc thinking-on 时把合法非 1 temperature 改写为 1); feng (2026-11-18 conversation: deepseek-v4-flash-0731 退役旧模型，不做任何动作。Kimi/Volc：可做的网关修复（对齐 KVV），同意建议的修复，请逐个修复。复审。); feng (2026-11-19 conversation: 同意。请继续修复。 — Volc thinking-off 时把合法非 0.6 temperature 改写为 0.6); feng (2026-11-19 conversation: 同意。继续。 — drop prompt_cache_breakpoint; tighten data: video local 400; keep long tool_call_id trajectories unchanged)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -254,11 +254,13 @@ read 2026-11-04.
   bridge returns 400. The raw Chat path does not run the pin and returns the
   same 400. `kimi-k3.1-pro` and other `kimi-*` ids use this same table.
   DashScope does not rewrite those dotted ids. On the Volc Agent Plan path,
-  after thinking normalization, `pinVolcKimiThinkingOnTemperature` rewrites a
-  KVV-legal non-1 `temperature` to `1.0` when thinking is on (explicit
-  `enabled`/`auto`, or default when `thinking.type` is not `disabled`). Explicit
-  `thinking.type=disabled` keeps the client temperature (including 0.6).
-  KVV-illegal values stay rejected and are never rewritten into a legal one.
+  after thinking normalization, `pinVolcKimiThinkingTemperature` rewrites a
+  KVV-legal `temperature` to the Volc single allowed value for the active
+  thinking mode: `1.0` when thinking is on (explicit `enabled`/`auto`, or
+  default when `thinking.type` is not `disabled`); `0.6` when
+  `thinking.type=disabled` (including after `enable_thinking=false`
+  normalization). Omitted temperature stays omitted. KVV-illegal values stay
+  rejected and are never rewritten into a legal one.
 - `n` other than `1` returns 400 on `n` for every `kimi-*` id. Moonshot fixes K3 `n` at `1`; the
   supplier returned one choice for `n=2`.
 - `logprobs=true` or `top_logprobs>0` returns 400 on that field. Moonshot
@@ -452,9 +454,9 @@ Capability case labeled `temperature=1` actually failed on wire
 `` `temperature` only 1 is allowed for this model ``. Same window,
 `temperature:1` (`5130d184-…`) returned 200 with reasoning tokens. KVV expects
 thinking-on + `temperature=0.6` to succeed; Volc rejects non-1 while thinking
-is on. Thinking-off still accepts 0.6.
+is on.
 
-Behavior: after `normalizeVolcKimiThinking`, `pinVolcKimiThinkingOnTemperature`
+Behavior: after `normalizeVolcKimiThinking`, `pinVolcKimiThinkingTemperature`
 rewrites a KVV-legal non-1 `temperature` to `1.0` when thinking is not
 explicitly `disabled`. Omitted temperature stays omitted. `1.1` / `2.0` and
 other KVV rejects remain 400. Does not extend the DashScope pin to dotted ids
@@ -462,6 +464,26 @@ on non-Volc accounts.
 
 Test: `TestVolcKimiRequestLimitsRejectUndeliverableFields/volc_thinking-on_pins_kimi-k3.1-pro_temperature`
 and `thinking_on_pins/*`.
+
+## 2026-11-19: thinking-off temperature pin to 0.6
+
+Evidence: cn-prod `rt@tk.com` (user_id=2), request
+`c491ad60-7846-4325-abab-e9c2109cf27a` (BJT 11:27:01) and same-day cluster.
+Inbound QA shape was `enable_thinking=false` + `temperature=1` (also `0.7`);
+gateway normalized the switch to `thinking.type=disabled` and forwarded the
+client temperature; Volc returned
+`` `temperature` only 0.6 is allowed for this model ``. Direct Agent Plan
+matrix on account 115 (`kimi-k3.1-pro`, 2026-11-19): thinking off accepts only
+`0.6` or omit; thinking on accepts only `1` or omit. KVV params suite requires
+off-side success for `0.6` (and omit) and still rejects `1.1` / `2.0` / `-0.1`.
+User decision 2026-11-19: pin thinking-off KVV-legal non-0.6 to `0.6` (symmetric
+with the thinking-on pin to `1.0`).
+
+Behavior: `pinVolcKimiThinkingTemperature` rewrites a KVV-legal non-0.6
+`temperature` to `0.6` when `thinking.type=disabled`. Omitted temperature stays
+omitted. Illegal values remain 400. Non-Volc accounts are unchanged.
+
+Test: `TestVolcKimiRequestLimitsRejectUndeliverableFields/volc_thinking-off_pins_kimi-k3.1-pro_temperature`.
 
 ## 2026-11-18: content-part compatibility + open tool-round interleaved drop
 
