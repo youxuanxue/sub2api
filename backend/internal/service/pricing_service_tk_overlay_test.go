@@ -728,7 +728,7 @@ func TestTKPricingOverlay_CacheHitBillingUsesOverlayRates(t *testing.T) {
 
 // Official Beijing qwen4-max list (captured 2026-11-18): ¥10/¥30 per MTok,
 // cache 5m ¥12.5 / 1h ¥20 / hit ¥0.5; CNY/USD=6.7. Locks the undotted GA
-// price owner; public qwen4.0-max resolves through overlay _aliases.
+// price owner; legacy qwen4.0-max resolves through overlay _aliases.
 func TestTKPricingOverlay_Qwen40MaxBillsOfficialBeijingList(t *testing.T) {
 	const ownerID = "qwen4-max"
 	const publicID = "qwen4.0-max"

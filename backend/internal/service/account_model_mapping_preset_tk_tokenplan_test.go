@@ -50,9 +50,10 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	// PAYG-only ch17 floor ids must not leak into Token Plan override.
 	require.NotContains(t, want, "qwen-plus", "withdrawn qwen-plus alias is not a Token Plan preset")
 	require.NotContains(t, want, "qwen-max", "withdrawn qwen-max alias is not a Token Plan preset")
-	require.Contains(t, want, "qwen4.0-max-preview", "GA+preview stay public client keys")
-	require.NotContains(t, want, "qwen4-max", "undotted upstream id is not a client mapping key")
-	require.NotContains(t, want, "qwen4-max-preview", "undotted upstream id is not a client mapping key")
+	require.Contains(t, want, "qwen4-max", "canonical Ali Plan model is a client mapping key")
+	require.Contains(t, want, "qwen4-max-preview", "canonical Ali Plan preview is a client mapping key")
+	require.Contains(t, want, "qwen4.0-max", "legacy dotted alias remains a mapping key")
+	require.Contains(t, want, "qwen4.0-max-preview", "legacy dotted preview alias remains a mapping key")
 
 	got := NewAPIModelMappingPresetIDsForAccount(account)
 	require.Equal(t, want, got)
@@ -67,6 +68,8 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	require.NotContains(t, mapping, "deepseek-v4.1-flash")
 	require.Equal(t, "glm-5.2", mapping["glm-5.2"])
 	require.Equal(t, "glm-5.3", mapping["glm-5.3"])
+	require.Equal(t, "deepseek-v4.1-flash-1017", mapping["deepseek-v4.1-flash-1017"])
+	require.Contains(t, NewAPIModelDisplayIDsForAccount(account), "deepseek-v4.1-flash-1017")
 
 	// PAYG DashScope on the same channel_type must keep the generic ch17 floor.
 	payg := &Account{
@@ -94,16 +97,16 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	}
 	for alias, target := range newAPIAliTokenPlanModelAliases() {
 		require.Equal(t, target, mapping[alias])
-		require.NotContains(t, mapping, target, "upstream billing id is not a client mapping key")
+		require.Equal(t, target, mapping[target], "canonical Ali Plan id is a self mapping")
 		require.True(t, isTkCuratedNewAPIModelListed(alias), "pricing membership remains")
-		require.True(t, isTkCuratedNewAPIModelDisplayed(alias), "public alias stays advertised")
+		require.False(t, isTkCuratedNewAPIModelDisplayed(alias), "legacy dotted alias is mapping-only")
 	}
 	require.Equal(t, "qwen-max", paygMapping["qwen-max"], "PAYG keeps the legacy qwen-max identity")
 	require.Equal(t, "qwen-plus", paygMapping["qwen-plus"], "PAYG keeps the legacy qwen-plus identity")
-	require.True(t, isTkCuratedNewAPIModelDisplayed("qwen4.0-max"))
-	require.True(t, isTkCuratedNewAPIModelDisplayed("qwen4.0-max-preview"))
-	require.Contains(t, NewAPIModelDisplayIDsForAccount(account), "qwen4.0-max")
-	require.Contains(t, NewAPIModelDisplayIDsForAccount(account), "qwen4.0-max-preview")
+	require.False(t, isTkCuratedNewAPIModelDisplayed("qwen4.0-max"))
+	require.False(t, isTkCuratedNewAPIModelDisplayed("qwen4.0-max-preview"))
+	require.Contains(t, NewAPIModelDisplayIDsForAccount(account), "qwen4-max")
+	require.Contains(t, NewAPIModelDisplayIDsForAccount(account), "qwen4-max-preview")
 	require.NotContains(t, NewAPIModelDisplayIDsForAccount(payg), "qwen4.0-max")
 	require.Equal(t, "qwen4-max", mapping["qwen4.0-max"])
 	require.Equal(t, "qwen4-max-preview", mapping["qwen4.0-max-preview"])

@@ -7286,14 +7286,14 @@
         "wan2.7-image",
         "withdrawn qwen-plus alias is not a Token Plan preset",
         "withdrawn qwen-max alias is not a Token Plan preset",
-        "GA+preview stay public client keys",
+        "legacy dotted preview alias remains a mapping key",
         "mapping[\"qwen4.0-max\"]",
         "mapping[\"qwen4.0-max-preview\"]",
-        "undotted upstream id is not a client mapping key",
+        "canonical Ali Plan id is a self mapping",
         "\"qwen4-max\"",
         "\"qwen4-max-preview\""
       ],
-      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. qwen-plus and qwen-max stay off the Token Plan floor; qwen4.0-max and qwen4.0-max-preview stay public client keys and remap to undotted upstream qwen4-max/qwen4-max-preview."
+      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. qwen-plus and qwen-max stay off the Token Plan floor; Canonical qwen4-max/qwen4-max-preview stay public and self-map; dotted qwen4.0 aliases stay mapping-only."
     },
     {
       "path": "backend/internal/service/tk_served_models_manifest_tk_test.go",
@@ -14445,14 +14445,14 @@
         "qwen-audio-3.0-tts-plus",
         "withdrawn qwen-plus alias is not a Token Plan preset",
         "withdrawn qwen-max alias is not a Token Plan preset",
-        "GA+preview stay public client keys",
+        "legacy dotted preview alias remains a mapping key",
         "mapping[\"qwen4.0-max\"]",
         "mapping[\"qwen4.0-max-preview\"]",
-        "undotted upstream id is not a client mapping key",
+        "canonical Ali Plan id is a self mapping",
         "\"qwen4-max\"",
         "\"qwen4-max-preview\""
       ],
-      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. Ali Token Plan floor must include priced TTS identity once manifested; qwen4.0-max and qwen4.0-max-preview stay public client keys and remap to undotted upstream qwen4-max/qwen4-max-preview."
+      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. Ali Token Plan floor must include priced TTS identity once manifested; Canonical qwen4-max/qwen4-max-preview stay public and self-map; dotted qwen4.0 aliases stay mapping-only."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_media_unpriced_guard.go",
@@ -21080,14 +21080,14 @@
     {
       "path": "backend/internal/service/tk_served_models_manifest_tk.go",
       "must_contain": [
-        "aliTokenPlanUpstreamOnlyModelID",
+        "newAPIAliTokenPlanModelMappingPresetIDs",
         "newAPIAliTokenPlanModelAliases",
         "\"qwen4.0-max\"",
         "\"qwen4-max\"",
         "\"qwen4.0-max-preview\"",
         "\"qwen4-max-preview\""
       ],
-      "rationale": "Ali Token Plan public dotted ids must remap to undotted upstream wire/billing ids; UpstreamOnly keeps undotted ids off client mapping keys."
+      "rationale": "Ali Token Plan canonical ids self-map and are public; legacy dotted ids remain mapping-only aliases."
     }
   ]
 }
