@@ -1,16 +1,19 @@
 ---
 title: Data-layer 生产只读导出 canary
-status: approved
+status: archived
 approved_by: "xuejiao (export canary approval, 2026-07-21)"
 approved_at: 2026-07-21
 authors: [agent]
 created: 2026-07-21
+archived_at: 2026-11-19
+archived_reason: "Prod export/canary/hold CLIs removed; declined.md 2026-11-19 — library protection is pgBackRest+WAL, QA is node1."
 ---
 
 # Data-layer 生产只读导出 canary
 
-> **Prod 日常**：`python3 ops/observability/data_layer_archive_health.py` +
-> `ops/archive/README.md` steady state。本文档仅保留 Exception path / canary CLI 契约。
+> **Archived 2026-11-19**：生产 export / canary / hold / promote / closeout CLI 与
+> `data_layer_archive_health.py` 已删除。本文仅作历史契约；现网不做、不迁腾讯。
+> 见 [`docs/decisions/declined.md`](../decisions/declined.md) 与 [`ops/archive/README.md`](../../ops/archive/README.md)。
 
 ## 决策
 

@@ -265,6 +265,21 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
             {f["kind"] for f in result["findings"]},
         )
 
+    def test_retired_export_canary_not_applicable_skips_archive_gates(self) -> None:
+        signals = _signals()
+        signals["ARCHIVESTATS"] = {
+            "applicable": False,
+            "evidence_errors": ["would_page_if_applicable"],
+            "closeout_complete": False,
+            "restore_verified_at": [],
+        }
+        result = verdict.compute_verdict(signals)
+        self.assertEqual(result["verdict"], "green")
+        kinds = {f["kind"] for f in result["findings"]}
+        self.assertNotIn("archive_evidence", kinds)
+        self.assertNotIn("archive_lag", kinds)
+        self.assertNotIn("archive_restore_proof", kinds)
+
     def test_future_dated_freshness_evidence_fails_closed(self) -> None:
         cases = (
             ("heartbeat", "PARTITIONSTATS", "partition_maintenance_last_success_at", "partition_maintenance_heartbeat"),

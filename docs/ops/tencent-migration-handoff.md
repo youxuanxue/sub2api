@@ -1,28 +1,28 @@
 # 腾讯美西迁机交接
 
-更新：2026-10-23。**腾讯美西已在服（timeline 2）；Tokyo 与日本 Lightsail 代理已于 2026-10-23 删除；账号出口已迁到美西 `usw-eval*`。**
+更新：2026-11-19。**腾讯美西已在服（timeline 2）；Tokyo / 日本 Lightsail 已删；账号出口在 `or-*` + 阿里云 `cn-ip*`；入口+双应用+数据机；LUKS X1–X4 已退役。**
 
 ## 1. 接手先读（当前态）
 
 - 现网入口与坐标唯一来源：[舰队入口](../../deploy/hetzner/README.md)。切流回执：[tencent-cutover-20261022.json](reports/tencent-cutover-20261022.json)。清单：[tencent-cutover-checklist.md](tencent-cutover-checklist.md)。
 - **禁止把 Tokyo 历史链恢复成写库、禁止双写。** Tokyo 已删除，见 [退役 runbook](tokyo-retirement-runbook.md)。
-- **禁止拿现网做整机重启试验。** LUKS 自动解锁未验收；重启须人工交付解锁材料（契约：[tencent-unlock-contract.md](tencent-unlock-contract.md)）。
+- **LUKS 已退役（2026-11-19 X1–X4）**：应用机明文根盘；契约见 [tencent-unlock-contract.md](tencent-unlock-contract.md)（历史，不可再执行解锁演练）。
+- QA：**不**上传 S3；本地 24h + 数据机协调器归档 **node1**（见 [`declined.md`](../decisions/declined.md)）。
 - 私有 helper/回执在 `~/.local/state/tokenkey-tencent-usw-validation/`（含密钥/密文，**不进 git**）。
-- `resolve_prod_ssm_target.py --target auto` → 腾讯 Hybrid `mi-080ed76dc6d97d8b5`（矩阵 `deployable=true`）。
-- GitHub Actions 仓库变量 `PROD_SSM_TARGET` 必须为 `auto`（已从 `aws-fresh` 改回）；钉死旧值会让 deploy/诊断失败关闭。`aws-fresh` 已退役拒绝（2026-10-23）。
-- `PROD_SSM_TARGET=hetzner` 失败关闭；Hetzner prod 供给 workflow 已删除；Hetzner Cloud 已退役。
+- 多应用机诊断：`run-probe.sh --target prod --node entry|app-old|app-cand|data`（TAT 默认）；整站扇出用 `--all-apps`。
+- GitHub Actions 仓库变量 `PROD_SSM_TARGET` 必须为 `auto`；`hetzner`/`aws-fresh` 失败关闭。
 - 迁机流程 owner：[pgbackrest-host-migration.md](../../ops/stage0/pgbackrest-host-migration.md)。
 
 ## 2. 现网要点
 
 | 项 | 状态 |
 |---|---|
-| prod 入口 | `43.162.83.233`；`tokenkey.dev` / `api.tokenkey.dev` / `api-cn.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`（TTL 300） |
-| DB | timeline 2；活备份前缀 `candidates/tencent-usw-20261022/postgres`；历史 `prod/postgres` 只读 |
-| 备份 | `tokenkey-backup-identity.timer` + `tokenkey-postgres-backup/archive-check.timer`；全量标签 `20261022-020832F` |
-| 账号出口 | `usw-eval1..4`（私网 `10.4.0.{2,11,5,4}:1080`）；`jp-*` 绑定已清零；`cn-ip*` 未动 |
-| 外部飞书备份告警 | 已接：`tokenkey-https-watch.timer`（cn-prod `/health` + 备份/archive/qa-cleanup）；凭据在 `/var/lib/tokenkey/.env` |
-| Stage0 布局 | **已收敛（例外路径 2026-10-22）**：`.env`=`/var/lib/tokenkey/.env`；`tokenkey`/`tokenkey-caddy`；Docker root 例外保留 `/srv/tokenkey-rehearsal/docker`；PG/Redis 别名 `postgres`/`redis`。首次蓝绿已完成，日常走 `deploy-stage0`。见 [`stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md) |
+| prod 入口 | `43.162.119.210`（五域名 A）；WRR 应用机 `10.4.0.16` + `10.4.0.9` |
+| DB / Redis | 数据机 `10.4.0.3`；timeline 2；活备份 COS 前缀 `candidates/tencent-usw-20261022/postgres`；历史 `prod/postgres` 只读 |
+| 备份 | `tokenkey-backup-identity.timer` + `tokenkey-postgres-backup/archive-check.timer`；验收 `cos_restore_acceptance.py` |
+| 账号出口 | Oregon `or-1..4`（活）；阿里云 `cn-ip5..12`；`usw-eval*` / 腾讯 `cn-ip1..4` / `jp-*` 已退役 |
+| 宿主告警 | `tokenkey-https-watch.timer`（数据机含 Redis 主库探测）；凭据 `/opt/tokenkey/host-alerts.env`（data）或应用 `.env` |
+| 应用布局 | 明文根盘单容器 `tokenkey`（`:8080`/`:18080`）；日常发版 `prod-rolling-deploy.yml`，非蓝绿 |
 
 ## 3. 身份与备份边界（仍有效）
 

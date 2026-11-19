@@ -109,7 +109,8 @@ supersedes_destination: design-prod-archive-bucket.md
 1. 单测：identity、AWS 目的地拒绝、plan 无写。  
 2. 合成：对真实 COS（或批准的 mock）PUT → HEAD → GET。  
 3. host-config 或合成 batch 走通一次并留 receipt。  
-4. frozen 下 `data_layer_archive_health` 不因本文变红（除非故意改证据）。  
+4. ~~frozen 下 `data_layer_archive_health`~~（2026-11-19 已删；daily safety 对
+   ARCHIVESTATS 置 `applicable=false`）。  
 5. 文档与残留表一致。
 
 ## 审批门禁

@@ -141,111 +141,136 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
             )
         )
 
-    archive_mode = archive.get("archive_mode") if isinstance(archive, dict) else None
-    ledgers = archive.get("ledgers") if isinstance(archive, dict) else None
-    evidence_errors = (
-        archive.get("evidence_errors") if isinstance(archive, dict) else None
+    # Prod export/canary/hold CLIs retired 2026-11-19 (declined.md). Callers set
+    # ARCHIVESTATS.applicable=false so this gate is a no-op; missing applicable
+    # keeps the historical fail-closed path for fixtures that still emit ledgers.
+    archive_applicable = not (
+        isinstance(archive, dict) and archive.get("applicable") is False
     )
-    closeout_complete = archive.get("closeout_complete") is True if isinstance(archive, dict) else False
-    tail_export_complete = (
-        archive.get("tail_export_complete") is True if isinstance(archive, dict) else False
-    )
-    if evidence_errors:
-        valid_errors = (
-            sorted({str(item) for item in evidence_errors})
-            if isinstance(evidence_errors, list)
-            else ["invalid evidence error signal"]
+    if archive_applicable:
+        archive_mode = archive.get("archive_mode") if isinstance(archive, dict) else None
+        ledgers = archive.get("ledgers") if isinstance(archive, dict) else None
+        evidence_errors = (
+            archive.get("evidence_errors") if isinstance(archive, dict) else None
         )
-        findings.append(
-            _finding(
-                "archive_evidence",
-                "archive evidence failed validation: " + ", ".join(valid_errors),
+        closeout_complete = (
+            archive.get("closeout_complete") is True if isinstance(archive, dict) else False
+        )
+        tail_export_complete = (
+            archive.get("tail_export_complete") is True
+            if isinstance(archive, dict)
+            else False
+        )
+        if evidence_errors:
+            valid_errors = (
+                sorted({str(item) for item in evidence_errors})
+                if isinstance(evidence_errors, list)
+                else ["invalid evidence error signal"]
             )
-        )
-    elif closeout_complete and tail_export_complete:
-        if archive_mode not in {"active", "frozen"}:
             findings.append(
                 _finding(
                     "archive_evidence",
-                    "archive mode is missing or invalid",
+                    "archive evidence failed validation: " + ", ".join(valid_errors),
                 )
             )
-        elif archive_mode == "active" and archive.get("archive_coverage_current") is not True:
+        elif closeout_complete and tail_export_complete:
+            if archive_mode not in {"active", "frozen"}:
+                findings.append(
+                    _finding(
+                        "archive_evidence",
+                        "archive mode is missing or invalid",
+                    )
+                )
+            elif archive_mode == "active" and archive.get("archive_coverage_current") is not True:
+                findings.append(
+                    _finding(
+                        "archive_lag",
+                        "checked-in archive tail export ledger is stale relative to current cold rows",
+                    )
+                )
+            elif archive.get("cleanup_release_complete") is not True:
+                findings.append(
+                    _finding(
+                        "archive_evidence",
+                        "cleanup hold release evidence is missing or invalid",
+                    )
+                )
+        elif closeout_complete and not tail_export_complete:
             findings.append(
                 _finding(
                     "archive_lag",
-                    "checked-in archive tail export ledger is stale relative to current cold rows",
-                )
-            )
-        elif archive.get("cleanup_release_complete") is not True:
-            findings.append(
-                _finding(
-                    "archive_evidence",
-                    "cleanup hold release evidence is missing or invalid",
-                )
-            )
-    elif closeout_complete and not tail_export_complete:
-        findings.append(
-            _finding(
-                "archive_lag",
-                "post-legacy tail export is incomplete for one or both ops tables",
-            )
-        )
-    else:
-        expected_tables = {"ops_error_logs", "ops_system_logs"}
-        ledger_tables = {
-            ledger.get("table") for ledger in ledgers if isinstance(ledger, dict)
-        } if isinstance(ledgers, list) else set()
-        if (
-            not isinstance(ledgers, list)
-            or len(ledgers) != 2
-            or ledger_tables != expected_tables
-        ):
-            findings.append(
-                _finding(
-                    "archive_lag",
-                    "archive ledger coverage is missing for one or both ops tables",
+                    "post-legacy tail export is incomplete for one or both ops tables",
                 )
             )
         else:
-            for ledger in ledgers:
-                if not isinstance(ledger, dict):
-                    findings.append(_finding("archive_lag", "archive ledger signal is invalid"))
-                    continue
-                table = str(ledger.get("table") or "unknown")
-                if ledger.get("more_cold_rows_remaining") is not False:
-                    findings.append(
-                        _finding("archive_lag", f"{table} legacy export is incomplete")
-                    )
-
-    hold_started = _timestamp(archive.get("hold_started_at")) if isinstance(archive, dict) else None
-    if hold_started is not None and not closeout_complete and now - hold_started > HOLD_MAX_AGE:
-        findings.append(
-            _finding(
-                "cleanup_hold_stale",
-                "cleanup hold is older than 14d without complete archive closeout",
-                severity="warning",
+            expected_tables = {"ops_error_logs", "ops_system_logs"}
+            ledger_tables = (
+                {ledger.get("table") for ledger in ledgers if isinstance(ledger, dict)}
+                if isinstance(ledgers, list)
+                else set()
             )
-        )
+            if (
+                not isinstance(ledgers, list)
+                or len(ledgers) != 2
+                or ledger_tables != expected_tables
+            ):
+                findings.append(
+                    _finding(
+                        "archive_lag",
+                        "archive ledger coverage is missing for one or both ops tables",
+                    )
+                )
+            else:
+                for ledger in ledgers:
+                    if not isinstance(ledger, dict):
+                        findings.append(
+                            _finding("archive_lag", "archive ledger signal is invalid")
+                        )
+                        continue
+                    table = str(ledger.get("table") or "unknown")
+                    if ledger.get("more_cold_rows_remaining") is not False:
+                        findings.append(
+                            _finding("archive_lag", f"{table} legacy export is incomplete")
+                        )
 
-    restore_times = archive.get("restore_verified_at") if isinstance(archive, dict) else None
-    parsed_restore = [
-        stamp for stamp in (_timestamp(value) for value in (restore_times or [])) if stamp
-    ]
-    restore_invalid = len(parsed_restore) != 2 or any(
-        stamp > now + MAX_FUTURE_SKEW for stamp in parsed_restore
-    )
-    if archive_mode != "frozen":
-        restore_invalid = restore_invalid or any(
-            not _fresh(stamp, now, RESTORE_MAX_AGE) for stamp in parsed_restore
+        hold_started = (
+            _timestamp(archive.get("hold_started_at")) if isinstance(archive, dict) else None
         )
-    if restore_invalid:
-        detail = (
-            "long-term archive restore proof is missing, invalid, or future-dated for one or both ops tables"
-            if archive_mode == "frozen"
-            else "long-term archive restore proof is missing, stale, or future-dated for one or both ops tables"
+        if (
+            hold_started is not None
+            and not closeout_complete
+            and now - hold_started > HOLD_MAX_AGE
+        ):
+            findings.append(
+                _finding(
+                    "cleanup_hold_stale",
+                    "cleanup hold is older than 14d without complete archive closeout",
+                    severity="warning",
+                )
+            )
+
+        restore_times = (
+            archive.get("restore_verified_at") if isinstance(archive, dict) else None
         )
-        findings.append(_finding("archive_restore_proof", detail))
+        parsed_restore = [
+            stamp
+            for stamp in (_timestamp(value) for value in (restore_times or []))
+            if stamp
+        ]
+        restore_invalid = len(parsed_restore) != 2 or any(
+            stamp > now + MAX_FUTURE_SKEW for stamp in parsed_restore
+        )
+        if archive_mode != "frozen":
+            restore_invalid = restore_invalid or any(
+                not _fresh(stamp, now, RESTORE_MAX_AGE) for stamp in parsed_restore
+            )
+        if restore_invalid:
+            detail = (
+                "long-term archive restore proof is missing, invalid, or future-dated for one or both ops tables"
+                if archive_mode == "frozen"
+                else "long-term archive restore proof is missing, stale, or future-dated for one or both ops tables"
+            )
+            findings.append(_finding("archive_restore_proof", detail))
 
     return {
         "verdict": "green" if not findings else "unsafe",

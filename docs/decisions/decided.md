@@ -6,6 +6,15 @@
 
 适用范围：Volc Agent Plan `kimi-*` 入站。`normalizeVolcKimiFileContentParts` 在 `normalizeVolcKimiMessageContents` 末尾执行。见 `docs/approved/volc-kimi-chat-compatibility.md`。
 
+## 2026-11-19 QA 只归档 node1；不恢复 QA S3；不做 data-layer archive canary
+
+原话：「QA S3 不需要上传，qa 只往 node1 写归档。」「归档 canary … 应该不需要了吧，有 qa 到 node1，pgpackrest +wal 就行了？」
+
+适用范围：
+1. QA 归档 SSOT = 本地 24h + 数据机 `tokenkey-qa-coordinator` → node1；**不恢复** QA raw S3 上传，不为此改 Hybrid/桶策略/`DenyLightsailEdgeRole`。
+2. `data_layer_archive_*` 生产 archive canary（绑旧 EC2/`PROD_CANARY_*`）**不再迁腾讯、不再执行**；库级保护以 COS pgBackRest full+WAL（+ `cos_restore_acceptance`）为准。
+3. 切流清单对应项作废，见 `docs/ops/tencent-cutover-checklist.md` 与 `docs/decisions/declined.md`。
+
 ## 2026-11-19 LUKS X1–X4 提前收尾 + 销毁到期压测机
 
 原话：「LUKS 载体销毁观察窗、今天到期的压测机。可以不影响用户服务和体验的情况下，收敛收尾了吧。」

@@ -1,13 +1,15 @@
 schema_version: 1
 archive_mode: frozen
-# Repo-evidence SSOT for generic usage/ops data-layer archive (not live prod).
-# Refresh repo evidence under ops/archive/evidence/ after re-export exception-path batches only.
+# Frozen historical usage/ops archive evidence only (not live prod).
+# Prod export/canary/hold/promote/closeout CLIs retired 2026-11-19 — see
+# docs/decisions/declined.md. Do not refresh evidence or re-run those paths.
+# Live protection: partition coverage + pgBackRest / cos_restore_acceptance.
 # Live probes: ops/observability/probe-data-layer-*.sh
 
 design_anchors:
   phase1_closeout: docs/approved/design-data-layer-phase1-closeout.md
   archive_bucket: docs/approved/design-prod-archive-bucket.md
-  export_canary: docs/approved/design-data-layer-prod-export-canary.md
+  export_canary: docs/approved/design-data-layer-prod-export-canary.md  # archived 2026-11-19
 
 retention_hot_layer_days:
   usage: 90

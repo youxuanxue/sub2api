@@ -47,16 +47,13 @@ ledger 的 `more_cold_rows_remaining=false` 只是当次水位结论；时间推
 
 Archive closeout 继续证明冷数据可恢复，但不再作为年龄 retention 的前置条件。
 
-**Prod 终态**由 repo 证据 + `python3 ops/observability/data_layer_archive_health.py` 定义：
-`closeout_complete`、`tail_export_complete`、`cleanup_release_complete` 均为 true，且
-`evidence_errors` 为空。日常回收唯一 owner 是 `OpsCleanupService`（ops 日分区在
-`upper_bound <= retention cutoff` 时整分区 DROP；跨边界宽分区 capped 行级 DELETE；
-`usage_logs_legacy` 走 attach-legacy + 90d DELETE/DropExpired）。promote ledger 的
-`drop_ready` 只证明 export 证据齐全，**不授权**删除。
-
-若 tail export 完成后出现新的 post-legacy 冷行，走 re-export 例外路径（新 hold →
-`post_legacy_cold` export → promote → closeout → release）；见 `ops/archive/README.md`
-§Exception path。
+**Prod 终态（历史）**曾由 repo 证据 + `data_layer_archive_health.py` 定义
+（`closeout_complete` / `tail_export_complete` / `cleanup_release_complete`）。
+**2026-11-19** 起该 health CLI 与 export/canary 操作面已删除；checked-in
+`ops/archive/evidence/` 仅作 frozen 历史边界。日常回收唯一 owner 仍是
+`OpsCleanupService`（ops 日分区在 `upper_bound <= retention cutoff` 时整分区 DROP；
+跨边界宽分区 capped 行级 DELETE；`usage_logs_legacy` 走 attach-legacy + 90d
+DELETE/DropExpired）。库级保护以 pgBackRest + WAL 为准；不再走 re-export 例外路径。
 
 ## Usage 日分区
 

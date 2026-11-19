@@ -314,43 +314,11 @@ _bg_join() {  # _bg_join <key> [replay-on-failure] → sets _bg_rc; output in $_
 _bg_spawned() { [ -f "$_preflight_bg_dir/$1.pid" ]; }
 
 _archive_rehearsal_gate_run() {
-    local script pid
-    local parallel_failed=0
-    # These suites own distinct container names, databases, and random host
-    # ports. Overlap only this measured Docker pair; keep the remaining archive
-    # contracts serial so external-command fixtures cannot add daemon pressure.
-    local -a parallel_scripts=(
-        ./ops/archive/test_data_layer_archive_rehearsal.py
-        ./ops/archive/test_data_layer_archive_prod_canary.py
-    )
-    local -a parallel_pids=()
-    for script in "${parallel_scripts[@]}"; do
-        (
-            if ! python3 "$script"; then
-                printf 'failed command: python3 %s\n' "${script#./}"
-                exit 1
-            fi
-        ) &
-        parallel_pids+=("$!")
-    done
-    for pid in "${parallel_pids[@]}"; do
-        if ! wait "$pid"; then
-            parallel_failed=1
-        fi
-    done
-    if [ "$parallel_failed" -ne 0 ]; then
+    # Prod export/canary/hold suites retired 2026-11-19; keep nonprod rehearsal + SSOT.
+    if ! python3 ./ops/archive/test_data_layer_archive_rehearsal.py; then
+        printf 'failed command: python3 ops/archive/test_data_layer_archive_rehearsal.py\n'
         return 1
     fi
-
-    for script in \
-        ./ops/archive/test_data_layer_archive_prod_export.py \
-        ./ops/archive/test_data_layer_archive_promote_batch.py \
-        ./ops/archive/test_data_layer_archive_cleanup_hold.py; do
-        if ! python3 "$script"; then
-            printf 'failed command: python3 %s\n' "${script#./}"
-            return 1
-        fi
-    done
     if ! python3 ./scripts/checks/data-layer-archive-ssot.py --quiet; then
         echo "failed command: python3 scripts/checks/data-layer-archive-ssot.py"
         return 1
@@ -2379,7 +2347,7 @@ else
         echo "  FAIL: nonprod archive/restore rehearsal contracts"
         errors=$((errors + 1))
     else
-        echo "  ok: nonprod rehearsal + cleanup hold + export canary + legacy export + archive promote"
+        echo "  ok: nonprod archive rehearsal + retention SSOT"
     fi
 fi
 
