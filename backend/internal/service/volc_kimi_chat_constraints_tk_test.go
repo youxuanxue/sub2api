@@ -754,6 +754,13 @@ func TestVolcKimiFileContentPartCompatibility(t *testing.T) {
 		require.Equal(t, "messages.content.file", invalid.Param)
 	})
 
+	t.Run("non_file_type_with_nested_file_untouched", func(t *testing.T) {
+		body := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"hi","file":{"file_id":"file-x"}}]}]}`)
+		out, err := normalizeVolcKimiChatRequest(body)
+		require.NoError(t, err)
+		require.JSONEq(t, string(body), string(out))
+	})
+
 	t.Run("selected_account_applies_non_volc_keeps", func(t *testing.T) {
 		missing := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":[{"type":"file"},{"type":"text","text":"hi"}]}]}`)
 		_, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3", missing)

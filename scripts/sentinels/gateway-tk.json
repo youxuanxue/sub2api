@@ -3598,7 +3598,8 @@
         "missing_file_object_local_400",
         "video_mp4_file_data_rewrites_to_video_url",
         "text_plain_file_data_promotes_to_text",
-        "pdf_file_data_passthrough"
+        "pdf_file_data_passthrough",
+        "non_file_type_with_nested_file_untouched"
       ],
       "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface, open-round interleaved-assistant drop for Volc tool round-trips (including parallel results), content-part thinking/reasoning_text/prompt_cache_breakpoint/video/audio/file compatibility (including lone-object wrap and type=file missing/non-PDF normalize), undersized/non-video data: video local 400, missing/null text-part drop, and message-level content null→empty-string coerce."
     },

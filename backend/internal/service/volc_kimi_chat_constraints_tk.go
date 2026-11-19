@@ -530,6 +530,7 @@ const (
 //   - text/* data URI → decode to a text part (Moonshot-style extract);
 //   - application/pdf or %PDF magic → keep as file;
 //   - other non-PDF payloads → local 400 (do not strip; do not invent success).
+//
 // file_id is always forwarded. Parts are never silently dropped when they
 // carried a payload. KVV sampling/tools/orphan rules are unchanged.
 func normalizeVolcKimiFileContentParts(body []byte) ([]byte, error) {
@@ -571,16 +572,14 @@ func normalizeVolcKimiFileContentParts(body []byte) ([]byte, error) {
 
 func normalizeVolcKimiFilePart(part gjson.Result) (json.RawMessage, bool, error) {
 	typ := strings.ToLower(strings.TrimSpace(part.Get("type").String()))
+	if typ != "file" {
+		// Only the evidenced type=file shape is normalized. A nested "file"
+		// object on another part type is left alone.
+		return json.RawMessage(part.Raw), false, nil
+	}
 	fileNode := part.Get("file")
 	hasFileObj := fileNode.Exists() && fileNode.Type != gjson.Null
 	hasFlat := volcKimiFileSourceFieldSet(part)
-	if typ != "file" && !hasFileObj {
-		return json.RawMessage(part.Raw), false, nil
-	}
-	if typ != "file" && hasFileObj {
-		// A nested file object without type=file is still Volc's file shape.
-		typ = "file"
-	}
 
 	fileMap := map[string]any{}
 	if hasFileObj {
