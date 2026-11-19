@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-19 Volc Kimi type=file 归一（缺 file / 非 PDF）
+
+原话：「同意。请修复、实测。」（前置：u2 kimi-k3 Invalid PDF 与 missing messages.content.file；与 KVV 不冲突的方案：缺/空 file 本地 400；video/* → video_url；text/* → text；真 PDF/file_id 透传；其它非 PDF 本地 400）
+
+适用范围：Volc Agent Plan `kimi-*` 入站。`normalizeVolcKimiFileContentParts` 在 `normalizeVolcKimiMessageContents` 末尾执行。见 `docs/approved/volc-kimi-chat-compatibility.md`。
+
 ## 2026-11-19 LUKS X1–X4 提前收尾 + 销毁到期压测机
 
 原话：「LUKS 载体销毁观察窗、今天到期的压测机。可以不影响用户服务和体验的情况下，收敛收尾了吧。」

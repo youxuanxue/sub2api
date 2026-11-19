@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。); feng (2026-11-18 conversation: 同意。继续。 — Volc thinking-on 时把合法非 1 temperature 改写为 1); feng (2026-11-18 conversation: deepseek-v4-flash-0731 退役旧模型，不做任何动作。Kimi/Volc：可做的网关修复（对齐 KVV），同意建议的修复，请逐个修复。复审。); feng (2026-11-19 conversation: 同意。请继续修复。 — Volc thinking-off 时把合法非 0.6 temperature 改写为 0.6); feng (2026-11-19 conversation: 同意。继续。 — drop prompt_cache_breakpoint; tighten data: video local 400; keep long tool_call_id trajectories unchanged)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。); feng (2026-11-18 conversation: 同意。继续。 — Volc thinking-on 时把合法非 1 temperature 改写为 1); feng (2026-11-18 conversation: deepseek-v4-flash-0731 退役旧模型，不做任何动作。Kimi/Volc：可做的网关修复（对齐 KVV），同意建议的修复，请逐个修复。复审。); feng (2026-11-19 conversation: 同意。请继续修复。 — Volc thinking-off 时把合法非 0.6 temperature 改写为 0.6); feng (2026-11-19 conversation: 同意。继续。 — drop prompt_cache_breakpoint; tighten data: video local 400; keep long tool_call_id trajectories unchanged); feng (2026-11-19 conversation: 同意。请修复、实测。 — type=file missing/non-PDF normalize)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -550,3 +550,41 @@ Behavior:
 
 Tests: `TestVolcKimiContentPartCompatibility` (cache breakpoint),
 `TestVolcKimiVideoURLPreflight` (undersized / non-video / non-base64 data).
+
+## 2026-11-19: type=file missing / non-PDF normalize
+
+Evidence: cn-prod user 2 (`rt@tk.com` / api_key_id=4), window around
+`2026-11-19T09:35Z`–`10:45Z`. Final 400 buckets:
+
+- `Invalid PDF input: Syntax Warning: May not be a PDF file` ×16 on accounts
+  215 (`vap-1106-4`) and 130; upstream `param=file_url`.
+- `missing messages.content.file` ×5 on account 191 (`vap-1105-51`).
+- Earlier (2026-11-17): `exactly one of file_id, file_url, or file_data must be set` ×4.
+
+QA blobs (shape only): missing class is `{"type":"file"}` with no nested
+`file`; Invalid PDF class carries `file.file_data` as `data:video/mp4;base64,…`
+or `data:text/plain;base64,…` (Volc file modality accepts PDF only). User
+decision 2026-11-19: gateway normalize, KVV-aligned (no silent drop of payload;
+no sampling/tool softening).
+
+Behavior (`normalizeVolcKimiFileContentParts`, end of
+`normalizeVolcKimiMessageContents`):
+
+- `type=file` without nested `file` (or null/non-object) → local 400
+  `messages.content.file` / `messages.content.file is required for type=file`.
+  Flat `file_id`/`file_url`/`file_data` on the part are nested under `file`
+  first.
+- Nested `file` must set exactly one of `file_id`, `file_url`, `file_data`
+  (non-empty) → else local 400 with the Volc xor sentence.
+- `file_data` / `data:` `file_url`: `video/*` → rewrite to `type=video_url`
+  (existing data: size gate still applies later); `text/*` (and
+  `application/json`/`xml`) → decode to `type=text`; `application/pdf` or
+  `%PDF` magic → keep as file; other MIME → local 400
+  `file input must be a PDF`.
+- http(s) `file_url` with video extensions → `video_url`; known non-PDF
+  extensions (`.txt`, images, audio, …) → local 400 PDF-only; `.pdf` / unknown
+  → pass through.
+- `file_id` always passes through. Payload-bearing file parts are never
+  stripped. Does not change KVV sampling, dynamic tools, or orphan tool 400s.
+
+Tests: `TestVolcKimiFileContentPartCompatibility`.

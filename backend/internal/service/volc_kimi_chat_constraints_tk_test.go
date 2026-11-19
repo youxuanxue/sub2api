@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -661,4 +662,114 @@ func TestVolcKimiContentPartCompatibility(t *testing.T) {
 	keptAudio, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", audioBody)
 	require.NoError(t, err)
 	require.Equal(t, "audio_url", gjson.GetBytes(keptAudio, "messages.0.content.0.type").String())
+}
+
+// cn-prod 2026-11-19 rt@tk.com: type=file missing nested file (vap-1105-51) and
+// non-PDF file_data (video/mp4 + text/plain on vap-1106-4) → Volc 400. Normalize
+// without conflicting with KVV fail-closed / video / text paths.
+func TestVolcKimiFileContentPartCompatibility(t *testing.T) {
+	t.Run("missing_file_object_local_400", func(t *testing.T) {
+		_, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":[{"type":"file"},{"type":"text","text":"hi"}]}]}`))
+		var invalid *OpenAIInvalidParameterError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, "messages.content.file", invalid.Param)
+		require.Equal(t, volcKimiFileMissingMessage, invalid.Message)
+		require.NotContains(t, strings.ToLower(invalid.Message), "volc")
+	})
+
+	t.Run("empty_file_object_local_400", func(t *testing.T) {
+		_, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":[{"type":"file","file":{}}]}]}`))
+		var invalid *OpenAIInvalidParameterError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, "messages.content.file", invalid.Param)
+		require.Equal(t, volcKimiFileXorMessage, invalid.Message)
+	})
+
+	t.Run("multiple_file_sources_local_400", func(t *testing.T) {
+		_, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":[{"type":"file","file":{"file_id":"file-1","file_url":"https://example.com/a.pdf"}}]}]}`))
+		var invalid *OpenAIInvalidParameterError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, volcKimiFileXorMessage, invalid.Message)
+	})
+
+	t.Run("video_mp4_file_data_rewrites_to_video_url", func(t *testing.T) {
+		dataURL := "data:video/mp4;base64," + strings.Repeat("A", ((volcKimiMinDataVideoBytes+2)/3)*4)
+		body := []byte(`{"messages":[{"role":"user","content":[{"type":"file","file":{"file_data":"` + dataURL + `","filename":"a.mp4"}},{"type":"text","text":"see"}]}]}`)
+		out, err := normalizeVolcKimiChatRequest(body)
+		require.NoError(t, err)
+		require.Equal(t, "video_url", gjson.GetBytes(out, "messages.0.content.0.type").String())
+		require.Equal(t, dataURL, gjson.GetBytes(out, "messages.0.content.0.video_url.url").String())
+		require.False(t, gjson.GetBytes(out, "messages.0.content.0.file").Exists())
+		require.Equal(t, "see", gjson.GetBytes(out, "messages.0.content.1.text").String())
+	})
+
+	t.Run("text_plain_file_data_promotes_to_text", func(t *testing.T) {
+		plain := base64.StdEncoding.EncodeToString([]byte("The secret word in the file is orchid."))
+		body := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"what is the secret?"},{"type":"file","file":{"file_data":"data:text/plain;base64,` + plain + `","filename":"secret.txt"}}]}]}`)
+		out, err := normalizeVolcKimiChatRequest(body)
+		require.NoError(t, err)
+		require.Equal(t, "text", gjson.GetBytes(out, "messages.0.content.1.type").String())
+		require.Equal(t, "The secret word in the file is orchid.", gjson.GetBytes(out, "messages.0.content.1.text").String())
+		require.False(t, gjson.GetBytes(out, "messages.0.content.1.file").Exists())
+	})
+
+	t.Run("pdf_file_data_passthrough", func(t *testing.T) {
+		pdf := base64.StdEncoding.EncodeToString([]byte("%PDF-1.4 minimal"))
+		body := []byte(`{"messages":[{"role":"user","content":[{"type":"file","file":{"file_data":"data:application/pdf;base64,` + pdf + `","filename":"a.pdf"}},{"type":"text","text":"summarize"}]}]}`)
+		out, err := normalizeVolcKimiChatRequest(body)
+		require.NoError(t, err)
+		require.Equal(t, "file", gjson.GetBytes(out, "messages.0.content.0.type").String())
+		require.Equal(t, "data:application/pdf;base64,"+pdf, gjson.GetBytes(out, "messages.0.content.0.file.file_data").String())
+		require.Equal(t, "a.pdf", gjson.GetBytes(out, "messages.0.content.0.file.filename").String())
+	})
+
+	t.Run("file_id_passthrough", func(t *testing.T) {
+		body := []byte(`{"messages":[{"role":"user","content":[{"type":"file","file":{"file_id":"file-abc"}},{"type":"text","text":"hi"}]}]}`)
+		out, err := normalizeVolcKimiChatRequest(body)
+		require.NoError(t, err)
+		require.JSONEq(t, string(body), string(out))
+	})
+
+	t.Run("flat_file_url_nests_and_non_pdf_ext_400", func(t *testing.T) {
+		_, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":[{"type":"file","file_url":"https://cdn.example/a.txt"}]}]}`))
+		var invalid *OpenAIInvalidParameterError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, volcKimiFilePDFOnlyMessage, invalid.Message)
+	})
+
+	t.Run("http_video_file_url_rewrites_to_video_url", func(t *testing.T) {
+		body := []byte(`{"messages":[{"role":"user","content":[{"type":"file","file":{"file_url":"https://cdn.example/clip.mp4"}}]}]}`)
+		out, err := normalizeVolcKimiChatRequest(body)
+		require.NoError(t, err)
+		require.Equal(t, "video_url", gjson.GetBytes(out, "messages.0.content.0.type").String())
+		require.Equal(t, "https://cdn.example/clip.mp4", gjson.GetBytes(out, "messages.0.content.0.video_url.url").String())
+	})
+
+	t.Run("image_file_data_local_400", func(t *testing.T) {
+		img := base64.StdEncoding.EncodeToString([]byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a})
+		_, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":[{"type":"file","file":{"file_data":"data:image/png;base64,` + img + `","filename":"a.png"}}]}]}`))
+		var invalid *OpenAIInvalidParameterError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, volcKimiFilePDFOnlyMessage, invalid.Message)
+		require.Equal(t, "messages.content.file", invalid.Param)
+	})
+
+	t.Run("non_file_type_with_nested_file_untouched", func(t *testing.T) {
+		body := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"hi","file":{"file_id":"file-x"}}]}]}`)
+		out, err := normalizeVolcKimiChatRequest(body)
+		require.NoError(t, err)
+		require.JSONEq(t, string(body), string(out))
+	})
+
+	t.Run("selected_account_applies_non_volc_keeps", func(t *testing.T) {
+		missing := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":[{"type":"file"},{"type":"text","text":"hi"}]}]}`)
+		_, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3", missing)
+		var invalid *OpenAIInvalidParameterError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, "messages.content.file", invalid.Param)
+		kept, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", missing)
+		require.NoError(t, err)
+		require.Equal(t, "file", gjson.GetBytes(kept, "messages.0.content.0.type").String())
+		require.False(t, gjson.GetBytes(kept, "messages.0.content.0.file").Exists())
+	})
 }
