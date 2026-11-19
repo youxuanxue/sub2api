@@ -235,6 +235,12 @@ class IsolationTest(unittest.TestCase):
     def _sandbox(self):
         return acceptance.Sandbox("img", pathlib.Path("/conf"), pathlib.Path("/tmp"), "1", "1g")
 
+    def test_module_docstring_has_no_backticks(self) -> None:
+        # bash command-substitution hazard if a wrapper bash-executes this file
+        # (2026-11-19: literal shutdown in backticks scheduled host poweroff).
+        self.assertIsNotNone(acceptance.__doc__)
+        self.assertNotIn("`", acceptance.__doc__)
+
     def test_restore_joins_no_network_and_publishes_no_port(self) -> None:
         box = self._sandbox()
         with mock.patch.object(acceptance, "run", return_value="") as runner:

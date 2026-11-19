@@ -27,7 +27,7 @@
 - [x] PG `archive_timeout`：2026-10-22 15:37 UTC 经用户批准 `ALTER SYSTEM SET archive_timeout='300s'` + reload（未重启，`pending_restart=f`）；6 分钟后复核 `archived_count` 199→201、`failed_count=0`。写在 `postgresql.auto.conf`，容器重建时随数据目录保留
 - [ ] 腾讯机整机/卷级快照策略（无 EBS/DLM 替代；目前仅 pgBackRest 覆盖 PG，Redis/配置/密钥无快照）
 - [ ] 隔离物理恢复演练：[#2799](https://github.com/youxuanxue/sub2api/pull/2799) 已对 Hybrid 失败关闭并支持 amd64；推荐 AWS us-east-1 临时 c7i.xlarge（预算上限 $5）。待批：RestoreRole 读活链前缀的 CFN、CI OIDC 的 EC2/PassRole 权限、预算。方案见 [`tencent-isolated-restore-plan.md`](tencent-isolated-restore-plan.md)
-- [ ] 腾讯宿主备份 operator：已由 #2802 入仓为 `deploy/tencent/tencent_pgbackrest.py`（宿主副本不随仓库更新），但仍只有 `backup`/`check`，缺 `accept`，恢复 workflow 末步回执导入会明确报错
+- [x] 腾讯宿主备份 operator：#2802 入仓 `deploy/tencent/tencent_pgbackrest.py`（宿主副本不随仓库更新）提供 `backup`/`check`；**accept 路径**为仓库内 `ops/backup/cos_restore_acceptance.py`（隔离容器写 `restore_acceptance.json` / `repository_verification.json`，非 tencent_pgbackrest 子命令）。2026-11-19 澄清：勿把 `.py` 当 run-probe `--script` 用 bash 执行（docstring 反引号曾误触发主机 shutdown）
 - [ ] 配置/密钥离机备份：推荐宿主用操作员公钥加密 tar 上传 `candidates/…/host-config/`（无需改 IAM），另开 PR
 - [x] 宿主探针 PG/Redis 容器名：#2804 将其余脚本迁到共享解析（`ops/lib/resolve-app-container.sh` / `resolve_app_container.py`），新增 preflight 门禁 `scripts/checks/data-container-resolver.py` 防回退；每日容量巡检恢复（2026-10-22 prod 只读验证）。白名单余项：cn-prod 专用 `tpm_burst_monitor_remote.sh`、`ops/migration` 下绑定已退役主机的脚本
 - [x] QA 分区预建漏装：2026-10-22 13:29 UTC 经用户批准用 `ops/qa/local_maintenance_host.py install --apply` 补装 `tokenkey-qa-provision.timer`（每小时整点），首轮 72/72 小时覆盖；未重启网关/PG。回滚备份 `/var/backups/tokenkey-qa-local/20261022T132922246441Z`

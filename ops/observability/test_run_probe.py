@@ -708,6 +708,25 @@ class RunProbePollingTest(unittest.TestCase):
         )
         self._assert_one_command(expected_gets=1)
 
+    def test_python_script_is_executed_with_python3_not_bash(self) -> None:
+        # 2026-11-19: bash-executing cos_restore_acceptance.py expanded
+        # docstring backticks into a host `shutdown` (+60s poweroff).
+        py_probe = self.root / "probe_example.py"
+        self._write_executable(py_probe, "#!/usr/bin/env python3\nprint('unused')\n")
+        previous = self.probe
+        self.probe = py_probe
+        try:
+            proc = self._run_scenario("eventual-success")
+        finally:
+            self.probe = previous
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        params = self.aws_params_log.read_text(encoding="utf-8")
+        self.assertIn(
+            "python3 /tmp/probe_output_redact.py -- python3 /tmp/probe_example.py",
+            params,
+        )
+        self.assertNotIn("bash /tmp/probe_example.py", params)
+
     def test_compressed_corruption_never_exposes_partial_stdout(self) -> None:
         proc = self._run_scenario("compressed-corrupt", compressed_output=True)
         self.assertEqual(proc.returncode, 2, proc.stderr)
