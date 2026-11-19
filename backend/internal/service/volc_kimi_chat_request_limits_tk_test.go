@@ -139,6 +139,29 @@ func TestVolcKimiRequestLimitsRejectUndeliverableFields(t *testing.T) {
 		require.ErrorAs(t, ferr, &invalid)
 		require.Equal(t, "temperature", invalid.Param)
 	})
+
+	t.Run("volc thinking-off pins kimi-k3.1-pro temperature", func(t *testing.T) {
+		// cn-prod 2026-11-19 rt@tk.com: thinking.type=disabled + temp 1/0.7 →
+		// upstream only-0.6 400. Pin KVV-legal non-0.6 to 0.6; omit stays omit;
+		// 1.1 stays rejected.
+		for _, raw := range []string{`"temperature":0`, `"temperature":0.7`, `"temperature":1`} {
+			got, ferr := applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","messages":[{"role":"user","content":"hi"}],"thinking":{"type":"disabled"},`+raw+`}`))
+			require.NoError(t, ferr)
+			require.Equal(t, "disabled", gjson.GetBytes(got, "thinking.type").String())
+			require.InDelta(t, 0.6, gjson.GetBytes(got, "temperature").Float(), kimiK3FixedSamplingEpsilon)
+		}
+		enableOff, ferr := applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","messages":[{"role":"user","content":"hi"}],"enable_thinking":false,"temperature":1}`))
+		require.NoError(t, ferr)
+		require.Equal(t, "disabled", gjson.GetBytes(enableOff, "thinking.type").String())
+		require.False(t, gjson.GetBytes(enableOff, "enable_thinking").Exists())
+		require.InDelta(t, 0.6, gjson.GetBytes(enableOff, "temperature").Float(), kimiK3FixedSamplingEpsilon)
+		omitted, ferr := applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","messages":[{"role":"user","content":"hi"}],"thinking":{"type":"disabled"}}`))
+		require.NoError(t, ferr)
+		require.False(t, gjson.GetBytes(omitted, "temperature").Exists())
+		_, ferr = applyMoonshotThinkingShape(nil, account, "kimi-k3.1-pro", []byte(`{"model":"kimi-k3.1-pro","messages":[{"role":"user","content":"hi"}],"thinking":{"type":"disabled"},"temperature":1.1}`))
+		require.ErrorAs(t, ferr, &invalid)
+		require.Equal(t, "temperature", invalid.Param)
+	})
 }
 
 func TestVolcKimiFixedSamplingSurvivesAliPin(t *testing.T) {

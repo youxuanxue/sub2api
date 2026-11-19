@@ -69,26 +69,28 @@ func rejectKimiK3FixedSampling(model string, body []byte) error {
 	return nil
 }
 
-// pinVolcKimiThinkingOnTemperature rewrites a KVV-legal temperature to 1.0 when
-// Volc thinking is on. cn-prod 2026-11-18 rt@tk.com: default/enabled thinking
-// rejects temperature≠1 with "`temperature` only 1 is allowed for this model"
-// (wire temp 0 → 400; temp 1 → 200). Explicit thinking.type=disabled leaves the
-// client value unchanged so thinking-off cases like 0.6 still pass. Omitted
-// temperature stays omitted. KVV-illegal values are rejected earlier and must
-// not be rewritten here.
-func pinVolcKimiThinkingOnTemperature(body []byte) ([]byte, error) {
+// pinVolcKimiThinkingTemperature rewrites a KVV-legal temperature to the Volc
+// single allowed value for the active thinking mode. cn-prod direct matrix
+// 2026-11-19 (account 115, kimi-k3.1-pro): thinking on accepts only 1 (or
+// omit); thinking off accepts only 0.6 (or omit). KVV still requires on-side
+// success for 0/0.6/1 and off-side success for 0.6; rewriting legal values
+// keeps those requests 200 without inventing a legal value from a KVV reject.
+// Omitted temperature stays omitted. KVV-illegal values are rejected earlier
+// and must not be rewritten here.
+func pinVolcKimiThinkingTemperature(body []byte) ([]byte, error) {
 	mode := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "thinking.type").String()))
+	want := 1.0
 	if mode == "disabled" {
-		return body, nil
+		want = 0.6
 	}
 	temp := gjson.GetBytes(body, "temperature")
 	if !volcKimiFieldSet(temp) || !kimiK3FixedTemperatureAllowed(temp) {
 		return body, nil
 	}
-	if kimiK3Near(temp.Num, 1) {
+	if kimiK3Near(temp.Num, want) {
 		return body, nil
 	}
-	next, err := sjson.SetBytes(body, "temperature", 1.0)
+	next, err := sjson.SetBytes(body, "temperature", want)
 	if err != nil {
 		return nil, err
 	}
