@@ -20607,9 +20607,10 @@
         "StrictHostKeyChecking=yes",
         "hour + dt.timedelta(hours=25) > anchor",
         "oldest_blocked_hour_utc",
-        "completed[hour.isoformat()] = plan[\"expected_sources\"]"
+        "completed[hour.isoformat()] = plan[\"expected_sources\"]",
+        "node1 transfer timed out"
       ],
-      "rationale": "The archive runner owns historical membership and pinned dispatch only within retention; independent host expiry must not be coupled to archive availability."
+      "rationale": "The archive runner owns historical membership and pinned dispatch only within retention; independent host expiry must not be coupled to archive availability; transfer timeouts page ops via the named marker only."
     },
     {
       "path": "ops/qa/source_worker.py",
@@ -20640,9 +20641,10 @@
         "test_database_write_defers_before_lock_or_native_execution_near_backup",
         "test_expired_hours_are_delegated_to_independent_retention_not_rearchived",
         "test_completed_archive_is_not_repeated_and_membership_change_reopens_it",
-        "test_independent_retention_units_for_both_roles_without_activation"
+        "test_independent_retention_units_for_both_roles_without_activation",
+        "test_archive_transfer_timeout_is_ops_node1_network"
       ],
-      "rationale": "Runtime tests pin independent expiry installation, retained-hour archive scope, historical membership and backup contention."
+      "rationale": "Runtime tests pin independent expiry installation, retained-hour archive scope, historical membership, backup contention, and transfer-timeout→ops ownership (not bare timed-out-after)."
     },
     {
       "path": "ops/qa/force_retention.py",

@@ -86,8 +86,14 @@ def archive_error_failure_class(error: str) -> str:
     """Map a source archive error string to the #3222 alert owner categories."""
     text = (error or "").lower()
     # Worker stderr (capacity probe / SSH path) and SSH transport failures.
+    # Transfer wall-clock timeouts are node1/jump network (ops), not gateway QA:
+    # prod has seen ~0.3–0.4 MiB/s through the archive jump, so large hours hit
+    # remote.timeout while still connected.
     markers = (
         "node1 capacity probe failed",
+        # Raised by node1_remote.push_directory on TimeoutExpired — do not
+        # use a bare "timed out after" (would mis-page seal/DB hangs to ops).
+        "node1 transfer timed out",
         "connection timed out during banner exchange",
         "connection to unknown port",
         "could not resolve hostname",
@@ -114,7 +120,9 @@ def source_command(config, source, command, hour, *, plan=None, apply=False):
                                    "-o", f"UserKnownHostsFile={config['known_hosts']}",
                                    "-i", config["ssh_key"], source["ssh_target"], remote],
                                   input=json.dumps(request), capture_output=True, text=True, check=True,
-                                  timeout=1800 if command == "archive" else 300)
+                                  # Archive wall time includes seal + slow jump SSH
+                                  # push; keep above source remote.timeout (max 3600).
+                                  timeout=3900 if command == "archive" else 300)
     except subprocess.CalledProcessError as exc:
         # Preserve worker stderr so the data-machine receipt can classify node1
         # vs gateway failures the same way #3222 did for tokenkey-qa-archive.

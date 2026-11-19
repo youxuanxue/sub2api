@@ -34,7 +34,9 @@ def validate_config(config):
     for key in ("key", "remote_root"):
         if not coordinator.safe_path(remote.get(key)):
             raise coordinator.CoordinatorError("invalid node1 path")
-    for key, maximum in (("rate_kbps", 20480), ("timeout", 1500)):
+    # timeout must exceed slow jump→node1 paths (~0.3–0.4 MiB/s observed on
+    # prod-app-old) for multi-thousand-file hours; keep below systemd unit budget.
+    for key, maximum in (("rate_kbps", 20480), ("timeout", 3600)):
         if type(remote.get(key)) is not int or not 1 <= remote[key] <= maximum:
             raise coordinator.CoordinatorError(f"invalid node1 {key}")
 

@@ -38,7 +38,7 @@ const (
 	// 账号精简记录（sched:meta:<id>）的修订号：全局修订号与按平台划分的修订号（前缀后接平台名）。
 	// 改写精简记录后写入所涉平台的修订号；删除记录、改写平台为空或平台发生变化的记录、写入出错时写入全局修订号。
 	// 取值都是新的随机串，读侧只比较是否相等，键丢失后重建也不会与旧取值相同；
-	// Redis 回滚恢复出缓存记录过的旧取值时，由进程内快照缓存的直接复用时长与宽限期兜底。
+	// Redis 回滚恢复出缓存记录过的旧取值时，由最长复用时长兜底。
 	schedulerAccountMetaRevisionKey            = "sched:meta:rev"
 	schedulerAccountMetaPlatformRevisionPrefix = "sched:meta:rev:"
 
