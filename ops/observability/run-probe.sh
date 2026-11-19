@@ -58,8 +58,14 @@
 #                        resubmits the command.
 #
 # Env passthrough:
-#   --env FOO=bar appears as `FOO=bar` in the remote shell *before* the script
+#   --env FOO=bar appears as FOO=bar in the remote shell *before* the script
 #   line; multiple --env are concatenated with spaces.
+#
+# Interpreter:
+#   *.py is executed with python3; everything else with bash. Never bash-execute
+#   a .py: module docstrings with backticks become command substitution
+#   (2026-11-19 prod-data: cos_restore_acceptance.py docstring scheduled host
+#   poweroff via literal `shutdown`).
 #
 # Output (always on stdout):
 #   The remote script's stdout, with credential values replaced by [REDACTED]
@@ -85,7 +91,7 @@
 set -euo pipefail
 
 usage() {
-  sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,90p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 TARGET=""
@@ -369,10 +375,16 @@ for extra in "${WITH_FILES[@]+"${WITH_FILES[@]}"}"; do
 done
 B64=$(gzip -cn < "$SCRIPT_PATH" | base64 | tr -d '\n')
 REMOTE_PARTS+=("echo $B64 | base64 -d | gzip -d > $REMOTE_PATH && chmod +x $REMOTE_PATH")
+# *.py → python3. Bash-executing Python source expands docstring backticks as
+# commands (see header "Interpreter"); that path scheduled a prod-data poweroff.
+case "$SCRIPT_PATH" in
+  *.py) REMOTE_INTERPRETER=python3 ;;
+  *)    REMOTE_INTERPRETER=bash ;;
+esac
 if [ "$COMPRESSED_OUTPUT" = "1" ]; then
-  REMOTE_PARTS+=("env $ENV_PREFIX python3 /tmp/probe_output_transport.py encode -- python3 /tmp/probe_output_redact.py -- bash $REMOTE_PATH")
+  REMOTE_PARTS+=("env $ENV_PREFIX python3 /tmp/probe_output_transport.py encode -- python3 /tmp/probe_output_redact.py -- $REMOTE_INTERPRETER $REMOTE_PATH")
 else
-  REMOTE_PARTS+=("env $ENV_PREFIX python3 /tmp/probe_output_redact.py -- bash $REMOTE_PATH")
+  REMOTE_PARTS+=("env $ENV_PREFIX python3 /tmp/probe_output_redact.py -- $REMOTE_INTERPRETER $REMOTE_PATH")
 fi
 REMOTE_LINE=""
 for part in "${REMOTE_PARTS[@]}"; do

@@ -10,8 +10,8 @@ database comes back out.
 
 The two receipts this writes are the ones host_https_watch already looks for --
 repository_verification.json and restore_acceptance.json -- so a successful run
-clears `repository_verification_missing_or_stale` and
-`restore_acceptance_missing_or_stale` for eight days
+clears repository_verification_missing_or_stale and
+restore_acceptance_missing_or_stale for eight days
 (ops/stage0/postgres_backup.py:status).
 
 Isolation, because prod and cn-prod both serve live users from the same host:
@@ -22,25 +22,29 @@ Isolation, because prod and cn-prod both serve live users from the same host:
     so nothing can connect to it from outside
   * the restore container stays on Docker's default bridge only and never joins
     the tokenkey network -- it cannot reach the gateway or the live database even
-    by name. Verified on cn-prod: `pg_isready -h tokenkey-postgres` from such a
-    container returns "no response". Do NOT harden this to `--network none`:
+    by name. Verified on cn-prod: pg_isready -h tokenkey-postgres from such a
+    container returns "no response". Do NOT harden this to --network none:
     Postgres runs archive-get against COS for the backup-end WAL at startup, and
     without egress it fails with "could not locate required checkpoint record"
     (seen on prod, 2026-11-08).
   * cpu/memory caps plus nice/ionice keep it off the live workload's back
-  * the pgbackrest config is mounted read-only and `--delta` is never used, so
+  * the pgbackrest config is mounted read-only and --delta is never used, so
     no production directory is writable from inside
   * a fresh temp directory per run, removed afterwards even on failure
 
 Two details are load-bearing and were each found the hard way on cn-prod:
 
-  * `--target-action=promote`, not `shutdown`. With shutdown the cluster never
-    completes recovery, so `pg_controldata` still reads "in production" and the
+  * --target-action=promote, not shutdown. With shutdown the cluster never
+    completes recovery, so pg_controldata still reads "in production" and the
     restored copy cannot be queried at all.
-  * `max_connections` must be at least the primary's value or PostgreSQL
+  * max_connections must be at least the primary's value or PostgreSQL
     refuses to recover: "recovery aborted because of insufficient parameter
     settings". The primary's setting is read from the live database rather than
     assumed.
+
+No ASCII backticks in this docstring: if a delivery wrapper ever bash-executes
+the file, backticks become command substitution (2026-11-19: a literal
+shutdown in backticks scheduled host poweroff +60s on prod-data).
 """
 from __future__ import annotations
 

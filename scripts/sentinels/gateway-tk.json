@@ -298,9 +298,10 @@
       "path": "ops/observability/run-probe.sh",
       "must_contain": [
         "WITH_FILES+=(\"$OUTPUT_REDACT\")",
-        "python3 /tmp/probe_output_redact.py -- bash $REMOTE_PATH"
+        "*.py) REMOTE_INTERPRETER=python3 ;;",
+        "python3 /tmp/probe_output_redact.py -- $REMOTE_INTERPRETER $REMOTE_PATH"
       ],
-      "rationale": "Every probe's remote stdout/stderr passes the credential redactor before reaching SSM history or callers; a 2026-11-08 probe leaked a pgBackRest STS token through a hand-written filter."
+      "rationale": "Every probe's remote stdout/stderr passes the credential redactor before reaching SSM history or callers; a 2026-11-08 probe leaked a pgBackRest STS token through a hand-written filter. *.py must use python3 — bash-executing Python expands docstring backticks as commands (2026-11-19 prod-data: literal shutdown scheduled host poweroff)."
     },
     {
       "path": "ops/observability/test_probe_output_redact.py",
@@ -314,9 +315,10 @@
       "path": "ops/observability/test_run_probe.py",
       "must_contain": [
         "test_remote_execution_timeout_matches_requested_long_probe",
-        "params[\"executionTimeout\"]"
+        "params[\"executionTimeout\"]",
+        "test_python_script_is_executed_with_python3_not_bash"
       ],
-      "rationale": "Exercise emitted SSM parameters for ordinary probes, long restores and the AWS execution ceiling."
+      "rationale": "Exercise emitted SSM parameters for ordinary probes, long restores and the AWS execution ceiling; keep the *.py→python3 interpreter guard executable."
     },
     {
       "path": "ops/stage0/test_pgdump_storage.py",
