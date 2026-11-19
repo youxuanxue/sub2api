@@ -21,7 +21,7 @@
 - [x] Tokyo 停机与最终快照（2026-10-22）：`i-045f062ce33e1a5af` 停机前只读核实只读库/0 会话/无 app 容器；最终快照 `snap-06612941333b662e8`（数据卷）/ `snap-0724597870487cf4a`（根卷）。后续删除见下方「Tokyo 退役」
 - [x] Tokyo 切流前 DLM 快照：2026-10-22 用户决定**不保留**，任其按 7 日轮换。DB 由 S3 `prod/postgres`（timeline 1）pgBackRest 历史链覆盖；Tokyo 主机上的 Redis/配置/证书原样副本随轮换消失，不再可查
 - [x] 日本 Lightsail 代理关停：2026-10-22 快照+停机；`jp-*` `proxies` 行 2-5 由用户在 Admin UI 软删；2026-10-23 00:55 UTC 经用户批准（删前复核：绑定 0、DNS/prod/cn-prod 配置无引用、快照 available）**删除 5 台实例并释放 5 个静态 IP（不可逆）**。最终快照 5 份已于 2026-10-23 经用户批准删除（不可逆）
-- [ ] LUKS 自动解锁验收（**禁止拿现网整机重启试验**；契约见 [`tencent-unlock-contract.md`](tencent-unlock-contract.md)；方案见 [`tencent-luks-autounlock-plan.md`](tencent-luks-autounlock-plan.md)：无 TPM，推荐开机经 SSM Hybrid 身份取 keyfile，演练约 40 CNY + 1–2 USD/月，待批）
+- [x] LUKS 路径退役（2026-11-19）：明文根盘已接流；用户授权缩短观察窗后完成 X1–X4（载体/钥/unlock 销毁）。原「自动解锁验收」作废，见 [`tencent-unlock-contract.md`](tencent-unlock-contract.md)
 - [x] 腾讯续费：2026-10-22 用户决定按月自动续费；5 台 Lighthouse 经 `ModifyInstancesRenewFlag` 改为 `NOTIFY_AND_AUTO_RENEW`（DescribeInstances 复核），合计 395 CNY/月。须保持账户余额充足，余额不足仍会到期停机
 - [x] Redis 持久化：2026-10-22 23:44 UTC（低峰）经用户批准，经复制切换重建 `tk-cutover-prod-redis`：`appendonly yes` / `appendfsync everysec`，数据挂 `/srv/tokenkey-rehearsal/redis`（LUKS），网络别名不变；写暂停窗口 0.83s，切换后网关 Redis 报错 0。首次尝试（直接以 AOF 启动拷入的 RDB）因 AOF 优先于 RDB 只载入新写入、触发自动回滚，网关约 20s 连不上 Redis。回滚容器 `tk-cutover-prod-redis-old-20261022T234441Z` 已于 2026-10-23 00:56 UTC 经用户批准删除（删前复核 AOF ok、网关 1h Redis 报错 0）
 - [x] PG `archive_timeout`：2026-10-22 15:37 UTC 经用户批准 `ALTER SYSTEM SET archive_timeout='300s'` + reload（未重启，`pending_restart=f`）；6 分钟后复核 `archived_count` 199→201、`failed_count=0`。写在 `postgresql.auto.conf`，容器重建时随数据目录保留

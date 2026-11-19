@@ -1,76 +1,29 @@
-# 腾讯美西 · LUKS 解锁与挂载契约
+# 腾讯美西 · LUKS 解锁与挂载契约（已退役）
 
-状态：**切流已完成（2026-10-22）**；现网数据在 LUKS mapper 上。  
-**禁止拿现网整机重启做解锁验收。**  
-关联：[切流清单](tencent-cutover-checklist.md)、[候选矩阵](../../deploy/tencent/candidate-usw-20261022.json)、[舰队 SSOT](../../deploy/hetzner/README.md)。
+状态：**2026-11-19 X1–X4 完成；LUKS 不再是现网数据面。**  
+现网 `app-old` / `app-cand` 均为明文根盘（`volume_platform=tencent-root`），业务目录 `/var/lib/tokenkey`、Docker Root `/var/lib/docker`。  
+舰队 SSOT：[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)；矩阵：[`deploy/tencent/candidate-usw-20261022.json`](../../deploy/tencent/candidate-usw-20261022.json)。
 
-## 硬门禁
+## 退役事实（2026-11-19）
 
-- 禁止把 LUKS 密钥写回目标加密盘或未加密根盘做「自动开机」。
-- 禁止未经批准的整机重启试验；禁止把 Tokyo 历史链恢复成写库、禁止双写。
-- LUKS 自动解锁仍未验收；重启须人工交付解锁材料到 **tmpfs**。
-
-## 异机密钥托管（已落盘）
-
-解锁材料拆成两棵树，缺一不可：
-
-| 部分 | 位置（操作员本机，不进 git） |
+| 项 | 结果 |
 |---|---|
-| 密封密文 | `~/.local/state/tokenkey-luks-offhost-vault/recovery-luks.key.enc` |
-| 包装密钥 | `~/.local/share/tokenkey-custody/luks-wrap-20261022.key` |
-| 回执 | `~/.local/state/tokenkey-tencent-usw-validation/p1-20261022/luks-offhost-vault-receipt.json` |
+| 载体 | `/var/lib/tokenkey-validation/recovery-rebuild-20261108.luks` 已 `luksErase` 并删除（约 64 GiB 释放） |
+| mapper / loop | 销毁前已确认 inactive / 无 loop |
+| COS 自动解锁钥 | `tokenkey-prod-backup-usw-1320330536` `custody/luks/20261108/{recovery-luks-20261108.key.enc,luks-wrap-20261108.key}` 已删；仅保留 `luks-rebuild-receipt.json` |
+| 操作员 vault | 本机 `recovery-luks-20261108.key.enc` / `luks-wrap-20261108.key` 已 shred |
+| unlock unit/脚本 | `tokenkey-luks-unlock.service` 与 `/usr/local/sbin/tokenkey-luks-unlock` 已删 |
+| 主机回执 | `/var/lib/tokenkey-validation/luks-x1-x4-destroy-20261119T092329Z.json` |
+| 用户流量 | 全程 `tokenkey` healthy，`https://api.tokenkey.dev/health=200` |
 
-取钥（仅注入目标 **tmpfs**，故障恢复时）：
+授权见 [`docs/decisions/decided.md`](../decisions/decided.md)（缩短 §3.5 观察窗的提前收尾）。
 
-```bash
-openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
-  -pass file:$HOME/.local/share/tokenkey-custody/luks-wrap-20261022.key \
-  -in $HOME/.local/state/tokenkey-luks-offhost-vault/recovery-luks.key.enc \
-  -out /path/to/tmpfs/luks.key
-# 核验 sha256 与回执 plaintext_key_sha256 一致后再 cryptsetup open
-```
+## 历史（切流期，仅供考古）
 
-明文指纹（可公开核对，不是密钥）：见回执 `plaintext_key_sha256`。
+以下描述 **2026-10-22→2026-11-18** 切流与阶段 D 之前的契约，**不可再执行**：
 
-## 启动顺序（强制）
+- 异机密封密文 + wrap key → tmpfs → `cryptsetup open` → 双挂 `/var/lib/tokenkey` 与 `/srv/tokenkey-rehearsal`
+- 禁止把密钥写回目标盘做「自动开机」；禁止拿现网整机重启做解锁验收
+- 只读探针曾用 `ops/observability/probe-tencent-unlock-health.sh`（现网明文布局下 mapper 缺失告警属预期，勿当作故障回滚依据）
 
-`unlock` → `mount` → `Docker` → `app`  
-未解锁 / 未挂载时禁止启动业务容器。
-
-## 现网挂载与布局（2026-10-22 布局窗后）
-
-同一 LUKS mapper 同时挂在两条路径上。布局收敛走 **Docker Root 例外路径**（详见 [`deploy/tencent/stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md)）。
-
-| 项 | 实况 |
-|---|---|
-| mapper | `/dev/mapper/tokenkey_recovery` |
-| 挂载 | `/var/lib/tokenkey` **与** `/srv/tokenkey-rehearsal`（同一 source） |
-| Docker Root Dir | `/srv/tokenkey-rehearsal/docker`（**例外保留**；未改 daemon.json） |
-| 业务 `.env` | `/var/lib/tokenkey/.env`（`formal/.env` 仍保留作历史/回滚参考） |
-| 容器名 | `tokenkey-blue/green`（活动色）、`tokenkey`（socat 控制代理）、`tokenkey-caddy`、`tk-cutover-prod-redis`、`tk-archive-standby` |
-| 网络别名 | PG:`postgres`；Redis:`redis` / `tokenkey-redis` |
-
-标准 `deploy-stage0` 已完成首次蓝绿，依赖上述别名。回执：`/var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json`。
-
-布局工具（经 `run-probe.sh --target prod`）：`probe-tencent-layout-prep.sh`、`probe-tencent-layout-find-compose.sh`、`probe-tencent-layout-capture-recipe.sh`、`probe-tencent-layout-window-preflight.sh`、`apply-tencent-layout-window.sh`（仅 `APPLY=yes-layout-window-cutover`）。完整字面改名/搬 Docker Root 仍为可选整洁，不得绑第二次停机窗。
-
-## 解锁失败信号（只读探针）
-
-目标机跑 `ops/observability/probe-tencent-unlock-health.sh`（原操作员 `helpers/unlock-health-readonly.sh` 的入仓副本；`run-probe.sh --target prod --script …`，或 TAT）。关键字段：
-
-- `severity`: `ok` | `warn` | `critical`
-- `alerts`: `mapper_missing` / `luks_mount_missing_or_wrong_source` / `docker_root_not_on_luks` / `swap_present` / …
-
-日常只跑只读探针；**不**用重启来验收。
-
-## 只读核验（不重启）
-
-```text
-hostname == VM-0-16-ubuntu
-findmnt SOURCE /var/lib/tokenkey == /dev/mapper/tokenkey_recovery
-findmnt SOURCE /srv/tokenkey-rehearsal == /dev/mapper/tokenkey_recovery
-docker info DockerRootDir 前缀 == /srv/tokenkey-rehearsal
-test -f /var/lib/tokenkey/.env
-docker inspect tokenkey >/dev/null
-swapon 为空
-```
+关联历史：[`tencent-cutover-checklist.md`](tencent-cutover-checklist.md)、[`stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md)、[`design-prod-entry-multi-app.md`](../approved/design-prod-entry-multi-app.md)。

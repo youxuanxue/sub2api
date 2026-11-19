@@ -1,5 +1,13 @@
 # 已决定
 
+## 2026-11-19 LUKS X1–X4 提前收尾 + 销毁到期压测机
+
+原话：「LUKS 载体销毁观察窗、今天到期的压测机。可以不影响用户服务和体验的情况下，收敛收尾了吧。」
+
+适用范围：
+1. prod `app-old` LUKS：在明文根盘已接流、mapper 未挂载、无相关快照、业务 `/health=200` 前提下，**缩短设计 §3.5 ≥7 天观察窗**，执行 X1–X4（载体销毁、COS 解锁钥删除、操作员 vault 删除、unlock unit/脚本与 pre-plain 清理）。接受失去 LUKS 回退路径。
+2. cn-prod 临时压测机 `ins-7ltl2zv3`（`expire_after=2026-11-19`，不进 `apps[]`）：`TerminateInstances` 停费销毁。
+
 ## 2026-11-19 Volc Kimi thinking-off temperature pin 到 0.6
 
 原话：「同意。请继续修复。」（前置：对齐 KVV 且最大限度可用 → thinking-on 合法 temperature→1、thinking-off 合法 temperature→0.6，非法值继续 400）
