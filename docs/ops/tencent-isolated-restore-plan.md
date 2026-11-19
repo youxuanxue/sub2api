@@ -1,6 +1,6 @@
 # 腾讯美西 prod · 隔离恢复演练与快照缺口方案
 
-状态：**方案，待人工批准**（2026-10-22）。本文不授权创建任何云资源、修改 IAM 或 dispatch workflow。
+状态：**已取消（档案）**（2026-11-19）。整机迁移已覆盖真实恢复路径；**不再**另开 AWS 临时机隔离演练，也不再为 §2 申请预算/RestoreRole/OIDC。本文保留历史方案与 §3 快照/host-config 讨论，执行以 [切流清单](tencent-cutover-checklist.md) 为准。
 现网身份：[舰队入口](../../deploy/hetzner/README.md)、[候选矩阵](../../deploy/tencent/candidate-usw-20261022.json)。
 备份操作单：[physical-backup.md](../../ops/stage0/physical-backup.md)；加密盘：[解锁契约](tencent-unlock-contract.md)。
 

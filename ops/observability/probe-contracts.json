@@ -209,5 +209,47 @@
       "ok",
       "fail"
     ]
+  },
+  "probe-entry-host-config-inventory.sh": {
+    "companions": [
+      "ops/archive/pack_entry_host_config.py"
+    ],
+    "verdicts": [
+      "ok",
+      "fail"
+    ]
+  },
+  "probe-entry-host-config-pack-serve.sh": {
+    "companions": [
+      "ops/archive/pack_entry_host_config.py"
+    ],
+    "verdicts": [
+      "ok",
+      "fail",
+      "refused"
+    ]
+  },
+  "probe-data-fetch-upload-entry-host-config.sh": {
+    "companions": [
+      "ops/archive/upload_host_config.py",
+      "ops/archive/cos_archive_identity.py",
+      "ops/archive/cos-archive.json"
+    ],
+    "verdicts": [
+      "ok",
+      "fail",
+      "refused"
+    ]
+  },
+  "probe-list-host-config.sh": {
+    "companions": [
+      "ops/archive/list_host_config.py",
+      "ops/archive/cos_archive_identity.py",
+      "ops/archive/cos-archive.json"
+    ],
+    "verdicts": [
+      "ok",
+      "fail"
+    ]
   }
 }
