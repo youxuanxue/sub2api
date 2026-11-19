@@ -4,7 +4,7 @@
 #   bash ops/observability/run-probe.sh --target prod-data \
 #     --script ops/archive/probe-data-fetch-upload-entry-host-config.sh \
 #     --env TK_HOST_CONFIG_APPLY=1 \
-#     --env TK_HOST_CONFIG_URL=http://10.4.0.8:19791/... \
+#     --env TK_HOST_CONFIG_URL=http://10.4.0.8:8765/... \
 #     --env TK_HOST_CONFIG_SHA256=<sha>
 set -euo pipefail
 
@@ -40,13 +40,8 @@ fi
 export TK_COS_ARCHIVE_SETTINGS="$WORKDIR/cos-archive.json"
 python3 "$WORKDIR/upload_host_config.py" --file "$OUT" --label "$LABEL" >"$WORKDIR/plan.json"
 python3 "$WORKDIR/upload_host_config.py" --file "$OUT" --label "$LABEL" --apply >"$WORKDIR/receipt.json"
-python3 - <<'PY'
-import json
-from pathlib import Path
-work = Path(__import__("os").environ["WORKDIR"]) if False else None
-PY
 python3 -c '
-import json, pathlib, os
+import json, pathlib
 wd = pathlib.Path("'"$WORKDIR"'")
 print(json.dumps({
   "ok": True,

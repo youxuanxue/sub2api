@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Orchestrate plaintext entry host-config → COS (prod).
-# 1) optional: open entry Lighthouse FW TCP/8765 from data private IP
+# 1) open entry Lighthouse FW TCP/8765 from data private IP
 # 2) entry: pack + one-shot private HTTP
 # 3) data: curl + upload_host_config --apply
-# 4) remove the temp FW rule
+# 4) remove matching temp FW rule(s) by Port+Cidr (description-agnostic)
 #
 #   TK_HOST_CONFIG_APPLY=1 bash ops/archive/apply_entry_host_config_offsite.sh
 set -euo pipefail
@@ -12,6 +12,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROBE="$ROOT/ops/observability/run-probe.sh"
 MATRIX="$ROOT/deploy/tencent/candidate-usw-20261022.json"
 PORT="${TK_HOST_CONFIG_PORT:-8765}"
+REGION=na-siliconvalley
+FW_DESC="temp host-config pull from data"
 
 if [ "${TK_HOST_CONFIG_APPLY:-}" != "1" ]; then
   echo "REFUSED: set TK_HOST_CONFIG_APPLY=1 to upload plaintext entry certs to COS" >&2
@@ -25,20 +27,58 @@ print(m["entry"]["lighthouse_instance_id"], m["data_machine"]["private_ip"])
 PY
 )
 
+# Delete every ACCEPT TCP/$PORT rule from ${DATA_IP}/32 regardless of description.
+# Description mismatch previously left a dangling 8765 hole when Create hit Exists.
+delete_matching_fw() {
+  local raw matches
+  raw="$(tccli lighthouse DescribeFirewallRules --region "$REGION" \
+    --InstanceId "$ENTRY_LHINS" --output json)"
+  matches="$(python3 - "$raw" "$PORT" "${DATA_IP}/32" <<'PY'
+import json, sys
+doc = json.loads(sys.argv[1])
+port, cidr = sys.argv[2], sys.argv[3]
+out = []
+for rule in doc.get("FirewallRuleSet") or []:
+    if (
+        str(rule.get("Protocol") or "").upper() == "TCP"
+        and str(rule.get("Port") or "") == port
+        and str(rule.get("CidrBlock") or "") == cidr
+        and str(rule.get("Action") or "").upper() == "ACCEPT"
+    ):
+        out.append({
+            "Protocol": "TCP",
+            "Port": port,
+            "CidrBlock": cidr,
+            "Action": "ACCEPT",
+            "FirewallRuleDescription": rule.get("FirewallRuleDescription") or "",
+        })
+print(json.dumps(out, ensure_ascii=False))
+PY
+)"
+  if [ "$matches" = "[]" ]; then
+    echo "  no matching firewall rules to delete" >&2
+    return 0
+  fi
+  echo "  deleting: $matches" >&2
+  tccli lighthouse DeleteFirewallRules --region "$REGION" \
+    --InstanceId "$ENTRY_LHINS" \
+    --FirewallRules "$matches" >/dev/null
+}
+
 cleanup_fw() {
-  if [ "${FW_OPENED:-0}" = "1" ]; then
-    echo "== cleanup firewall $ENTRY_LHINS tcp/$PORT from ${DATA_IP}/32" >&2
-    tccli lighthouse DeleteFirewallRules --region na-siliconvalley \
-      --InstanceId "$ENTRY_LHINS" \
-      --FirewallRules "[{\"Protocol\":\"TCP\",\"Port\":\"$PORT\",\"CidrBlock\":\"${DATA_IP}/32\",\"Action\":\"ACCEPT\",\"FirewallRuleDescription\":\"temp host-config pull from data\"}]" \
-      >/dev/null || true
+  if [ "${FW_OPENED:-0}" != "1" ]; then
+    return 0
+  fi
+  echo "== cleanup firewall $ENTRY_LHINS tcp/$PORT from ${DATA_IP}/32" >&2
+  if ! delete_matching_fw; then
+    echo "WARN: firewall cleanup failed; check DescribeFirewallRules on $ENTRY_LHINS" >&2
   fi
 }
 trap cleanup_fw EXIT
 
 echo "== 0/3 open firewall tcp/$PORT ${DATA_IP}/32 -> $ENTRY_LHINS" >&2
-FW_JSON="[{\"Protocol\":\"TCP\",\"Port\":\"$PORT\",\"CidrBlock\":\"${DATA_IP}/32\",\"Action\":\"ACCEPT\",\"FirewallRuleDescription\":\"temp host-config pull from data\"}]"
-if tccli lighthouse CreateFirewallRules --region na-siliconvalley \
+FW_JSON="$(python3 -c 'import json,sys; print(json.dumps([{"Protocol":"TCP","Port":sys.argv[1],"CidrBlock":sys.argv[2]+"/32","Action":"ACCEPT","FirewallRuleDescription":sys.argv[3]}]))' "$PORT" "$DATA_IP" "$FW_DESC")"
+if tccli lighthouse CreateFirewallRules --region "$REGION" \
   --InstanceId "$ENTRY_LHINS" \
   --FirewallRules "$FW_JSON" >/tmp/tk-hc-fw-create.json 2>/tmp/tk-hc-fw-create.err; then
   FW_OPENED=1

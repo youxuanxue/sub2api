@@ -113,19 +113,8 @@ LUKS 盘上的快照意味着：
   5. 跑只读解锁探针、发布 smoke 后才放流量。
 - 创建快照或策略需人工批准，本 PR 没有创建。
 
-### 最小可行"配置/密钥离机备份"
+### 配置/密钥离机备份（已 supersede）
 
-**能否复用 `backup-env-secrets-via-ssm.sh`**：只能部分复用。
-- 脚本已支持 Hybrid（`REGION` 参数、dash→bash 包装），但 Hybrid 角色**没有 `ssm:PutParameter`**，现有参数 `/tokenkey/prod/stage0/env-secrets-backup`（us-east-1，2026-10-17 Tokyo 时期写入）无法由腾讯机更新。
-- 它只备份 3 个密钥，不覆盖其余 `.env`、Caddy、systemd 与 operator。
-- 若沿用此脚本：给 Hybrid 角色加一条仅限该参数 ARN（或腾讯专用新参数名）的 `ssm:PutParameter/GetParameter` 内联策略，在 `REGION=us-east-1` 下运行一次。之后每次轮换都要重跑。需 IAM 审批。
+**2026-11-19 起以 [`docs/decisions/decided.md`](../decisions/decided.md) 为准**：入口证书离机备份为 **明文 tar.gz → 腾讯 COS `prod/host-config/`**（桶侧 SSE-AES256），**不做**操作员本机 RSA/age（避免本机坏钥不可恢复，与 LUKS 同类失败）。活 owner：`ops/archive/pack_entry_host_config.py` + `apply_entry_host_config_offsite.sh`；说明见 [`ops/archive/README.md`](../../ops/archive/README.md)。
 
-**推荐的最小方案（不需要改 IAM）**：
-1. 宿主把 `.env`、`docker-compose.bluegreen.yml`、`active-color`、Caddyfile、`/etc/systemd/system/tokenkey-*`、`/usr/local/lib/tokenkey{,-migration}/` 打成 tar。
-2. 用**操作员公钥**（age 或 openssl RSA/OAEP 包装随机 AES 密钥）加密后，上传到现有可写前缀 `candidates/tencent-usw-20261022/host-config/<UTC>.tar.enc`。Hybrid 角色在该前缀已有 Put 权限。
-3. 私钥与 LUKS 包装密钥一样留在操作员本机，宿主只持有公钥，被入侵也读不出历史备份。
-4. 变更后触发即可，或每天一次并做变更检测，保留 14 份。运行回执只写对象 key、sha256 与文件清单，不写内容。
-5. 验收：在操作员本机下载、解密，与宿主 sha256 比对。
-
-已知取舍：该前缀同时允许 `DeleteObject`，宿主被入侵后可以删掉这些备份，可选用桶版本控制缓解。
-这个方案需要另开 PR 实现并审批首次运行；本 PR 只写方案。
+下文「操作员公钥加密 / AWS candidates 前缀」仅为 2026-10-22 历史草案，**勿再执行**。
