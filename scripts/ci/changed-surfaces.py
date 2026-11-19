@@ -29,10 +29,6 @@ CONTRACT_FILES = {
     "scripts/test_export_agent_contract.py",
     "ops/pricing/modelops.py",
     "ops/pricing/manage-account-model-mapping-runtime.py",
-    "ops/archive/data_layer_archive_cleanup_hold.py",
-    "ops/archive/data_layer_archive_prod_export.py",
-    "ops/archive/data_layer_archive_promote_batch.py",
-    "ops/archive/data_layer_archive_closeout.py",
     "ops/migration/usage_logs_daily_partition.py",
     # Owner-declaration and approved-doc navigation gates: editing either checker
     # must re-run the contracts surface that consumes it.

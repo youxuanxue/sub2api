@@ -3,19 +3,13 @@
 SSOT：`pipeline_status.yaml`（repo 证据路径与 hot-layer retention 天数，与
 `data_layer_archive_rehearsal.py` 机械对齐）。QA 生命周期见 [`ops/qa/README.md`](../qa/README.md)。
 
-This directory contains two deliberately separate archive surfaces. The
-rehearsal CLI is local/non-production only: its SQLite path is the deterministic
-baseline and `snapshot-postgres` accepts only a localhost Docker PostgreSQL with
-the rehearsal sentinel. The production canary CLI is an explicit, export-only
-operator command described below; it has no delete, schedule, workflow, or
-deployment integration.
+本目录保留 **nonprod rehearsal**、**COS host-config 上传** 与 **frozen 历史证据**。
+生产 export / canary / hold / promote / closeout CLI 已于 2026-11-19 退役（见
+[`docs/decisions/declined.md`](../../docs/decisions/declined.md)）：不再迁腾讯、不再作为现网必做。
+库级保护以 COS pgBackRest full+WAL（+ `cos_restore_acceptance`）为准；QA 走 node1。
 
-Retention day defaults: `pipeline_status.yaml` (preflight:
-`scripts/checks/data-layer-archive-ssot.py`).
-
-`data_layer_retention_activation.py` owns production usage/ops only. It does not query,
-plan, or activate QA retention; the QA lifecycle owner and operator entrypoints remain in
-[`ops/qa/README.md`](../qa/README.md).
+Retention day defaults: `pipeline_status.yaml`（preflight:
+`scripts/checks/data-layer-archive-ssot.py`）。
 
 ## Source contract
 
@@ -58,8 +52,7 @@ The defaults match `pipeline_status.yaml` hot-layer retention days. QA uses its 
 Every manifest keeps `deletion_authorized=false`; there is no deletion command.
 The sealed source path and file identity prevent restore targets from pointing
 back to the source through another path or hard link.
-Production access is not available through the rehearsal CLI. The separate
-production canary below does not loosen any of these source restrictions.
+Production access is not available through the rehearsal CLI.
 
 ## PostgreSQL phase 3
 
@@ -91,61 +84,15 @@ deletes source or target data.
 ## Frozen production evidence
 
 Generic usage/ops promoted archive is a **frozen historical closeout**, declared by
-`pipeline_status.yaml` → `archive_mode: frozen`. It is not an active tail pipeline:
-new rows belong to PostgreSQL hot retention, while the checked-in final tail remains
-the immutable historical coverage boundary.
+`pipeline_status.yaml` → `archive_mode: frozen`. It is not an active pipeline.
+Checked-in ledgers under `ops/archive/evidence/` remain as historical coverage
+boundary only — do not refresh them and do not reintroduce export/canary CLIs.
 
 | Owner | Responsibility |
 | --- | --- |
 | `OpsCleanupService` | Daily age retention: capped row DELETE + whole-partition DROP when `upper_bound <= now - hot_layer_days` |
-| `ops/archive/` CLIs | Export/promote/closeout/hold **only** on the re-export exception path; **no** DROP CLI |
-| `ops/archive/evidence/` + `pipeline_status.yaml` | Archive evidence SSOT (not live prod) |
-
-Verify steady state:
-
-```bash
-python3 ops/observability/data_layer_archive_health.py
-```
-
-All must hold:
-
-- `archive_mode=frozen`
-- `closeout_complete=true`
-- `tail_export_complete=true` and every final tail batch is promoted
-- `cleanup_release_complete=true`
-- both closeout restore proofs remain present and correctly bound
-- `evidence_errors=[]`
-
-Frozen mode deliberately does not compare the final tail cutoff with today's hot-layer
-window and does not require a new restore rehearsal every 30 days. Missing/corrupt
-ledgers, bindings, release evidence, or restore proofs still fail closed.
-
-Do not treat hold **apply** receipts as current prod state. `archive_health` binds the
-**release** receipt to the latest valid hold apply receipt. QA lifecycle is separate:
-[`ops/qa/README.md`](../qa/README.md).
-
-Physical DROP semantics: `docs/approved/design-prod-archive-bucket.md` §分区回收门禁.
-Promote ledger `drop_ready` proves export evidence only; it does **not** authorize deletion.
-
-## Break-glass re-export tooling
-
-The export/promote/closeout/hold CLIs remain available for an explicitly approved
-historical-evidence repair. Frozen mode does not run or request routine post-legacy
-cold re-export, and archive health does not infer a new gap from the passage of time.
-
-1. **Hold** — `data_layer_archive_cleanup_hold.py` plan → apply → verify (new receipt)
-2. **Export** — `data_layer_archive_prod_export.py run-batch` with scope `post_legacy_cold`
-3. **Promote** — `data_layer_archive_promote_batch.py promote-ledger`
-4. **Closeout** — `data_layer_archive_closeout.py` per ops table (hold still active)
-5. **Release** — `data_layer_archive_cleanup_hold.py release` after
-   `data_layer_retention_activation.py` plan; persist receipt under
-   `pipeline_status.yaml` → `cleanup_release_receipt_glob`
-
-Refresh ledgers/receipts under `ops/archive/evidence/` after each batch.
-First-time canary or legacy-scope export mechanics: CLI `--help` on
-`data_layer_archive_prod_canary.py` and `data_layer_archive_prod_export.py`.
-Design baselines: `docs/approved/design-data-layer-prod-export-canary.md`,
-`docs/approved/design-prod-archive-bucket.md`.
+| `ops/archive/evidence/` + `pipeline_status.yaml` | Frozen historical archive evidence (not live prod) |
+| pgBackRest + `cos_restore_acceptance` | Live library-level protection |
 
 ## 对象归档目的地（2026-11-17）
 
@@ -158,8 +105,6 @@ Design baselines: `docs/approved/design-data-layer-prod-export-canary.md`,
 | 设置 | `ops/archive/cos-archive.json` |
 | Identity | `ops/archive/cos_archive_identity.py`（AWS 目的地 fail-closed） |
 | host-config 上传 | `python3 ops/archive/upload_host_config.py --file … --label …`（默认 plan；`--apply` 才写） |
-| promote / export | 已接同一 COS identity；export 远端主机需 `/etc/tokenkey/cos-archive.env` |
-| canary | 已接同一 COS identity（前缀 `prod/ops-archive-export/archive-canary`）；默认 `PROD_SSM_NODE=data` |
 | 凭据 | 复用 backup CAM：prod data 已装 `/etc/tokenkey/cos-archive.env`（root 0600；与 `cos-backup.env` 同密钥，不新建子用户）。控制器可用 `TK_COS_ARCHIVE_CREDENTIALS` |
 
 历史 AWS CFN `tokenkey-stage0-archive` 仅作风控收尸（30 天自删，实例角色只读），不再作为新写入目的地。

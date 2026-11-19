@@ -409,11 +409,13 @@ jobs:
             else
               SNAPSHOT_SIGNAL="$(bash ops/observability/data_layer_snapshot_signal.sh "$TARGET_REGION" "$STACK_NAME" "$INSTANCE_ID" 2>>"$STDERR" || echo '{"latest_snapshot_at":null,"probe_ok":false,"probe_error":"snapshot signal helper failed","applicable":true}')" # preflight-allow: swallow — helper failures become an explicit probe_ok=false signal
             fi
-            ARCHIVE_SIGNAL="$(python3 ops/observability/data_layer_archive_health.py 2>>"$STDERR" || echo 'ARCHIVESTATS {"evidence_errors":["archive_health_failed"]}')"
-            SAFETY_VERDICT="$(printf '%s\nSNAPSHOTSTATS %s\n%s\n' "$SAFETY_OUT" "$SNAPSHOT_SIGNAL" "$ARCHIVE_SIGNAL" | python3 ops/observability/data_layer_safety_verdict.py 2>>"$STDERR" || echo '{"verdict":"unsafe","findings":[{"kind":"data_layer_safety_probe","status":"issue_candidate","severity":"error","summary":"data-layer safety verdict failed"}]}')"
+            # Export/canary/hold CLIs retired 2026-11-19; archive evidence is historical
+            # only. Mark ARCHIVESTATS not applicable so safety stays on partition/backup.
+            ARCHIVE_SIGNAL='{"applicable":false,"reason":"prod export canary retired 2026-11-19"}'
+            SAFETY_VERDICT="$(printf '%s\nSNAPSHOTSTATS %s\nARCHIVESTATS %s\n' "$SAFETY_OUT" "$SNAPSHOT_SIGNAL" "$ARCHIVE_SIGNAL" | python3 ops/observability/data_layer_safety_verdict.py 2>>"$STDERR" || echo '{"verdict":"unsafe","findings":[{"kind":"data_layer_safety_probe","status":"issue_candidate","severity":"error","summary":"data-layer safety verdict failed"}]}')"
             printf 'data_layer_safety: %s\n' "$SAFETY_VERDICT" >> "$STDOUT"
             if [ "$(printf '%s' "$SAFETY_VERDICT" | jq -r '.verdict // "unsafe"')" = "green" ]; then
-              add_finding "data_layer_safety" "ok" "info" "Data-layer protection gates passed ($TARGET_ID)" "Partition and backup gates are current; frozen archive evidence and bindings are valid." "data-layer-safety|$TARGET_ID"
+              add_finding "data_layer_safety" "ok" "info" "Data-layer protection gates passed ($TARGET_ID)" "Partition and backup gates are current; export canary evidence gate retired." "data-layer-safety|$TARGET_ID"
             else
               while IFS= read -r SAFETY_FINDING; do
                 SF_KIND="$(printf '%s' "$SAFETY_FINDING" | jq -r '.kind')"

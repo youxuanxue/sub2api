@@ -74,7 +74,7 @@ class SelectionTest(unittest.TestCase):
         self.assertIn('new gate', self.choose(BILL)['gates'])
 
     def test_archive_launch_dependency_is_selected(self):
-        selected = self.choose('ops/archive/data_layer_archive_cleanup_hold.py')
+        selected = self.choose('ops/archive/data_layer_archive_rehearsal.py')
         self.assertIn('nonprod archive/restore rehearsal', selected['gates'])
 
     def test_sentinel_paths_come_from_the_registry(self):

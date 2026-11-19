@@ -69,10 +69,6 @@ CLI_END_MARKER = "## MCP"
 CLI_ENTRYPOINTS = (
     ("ops/pricing/modelops.py", "build_parser"),
     ("ops/pricing/manage-account-model-mapping-runtime.py", "_build_parser"),
-    ("ops/archive/data_layer_archive_cleanup_hold.py", "build_parser"),
-    ("ops/archive/data_layer_archive_prod_export.py", "build_parser"),
-    ("ops/archive/data_layer_archive_promote_batch.py", "build_parser"),
-    ("ops/archive/data_layer_archive_closeout.py", "build_parser"),
     ("ops/migration/usage_logs_daily_partition.py", "build_parser"),
 )
 

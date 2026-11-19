@@ -146,10 +146,9 @@ fail closed；ops 回收上界不得超过 snapshot 观测到的 ops 关系总�
 
 ## 归档 steady state
 
-Generic usage/ops archive 已收口：`archive_health` 三 flag 绿 +
-`OpsCleanupService` 日常 retention。Exception path 与 CLI 契约见
-`ops/archive/README.md`、`design-prod-archive-bucket.md`、
-`design-data-layer-prod-export-canary.md`。
+Generic usage/ops archive 已收口为 frozen 历史证据 + `OpsCleanupService` 日常
+retention。生产 export/canary/health CLI 已于 2026-11-19 删除（见
+`docs/decisions/declined.md`、`ops/archive/README.md`）。
 
 候选保留策略为 usage 热 90 天、raw ops 热 30 天。prod 上 `usage_logs`
 已完成日分区 cutover（见 `design-data-layer-phase1-closeout.md`），不在 prod

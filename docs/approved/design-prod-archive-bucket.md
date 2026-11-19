@@ -13,6 +13,9 @@ related_prs: [1401, 1653]
 > **存储目的地（2026-11-17）**：新对象归档禁止落 AWS，改腾讯 COS。见已批准
 > [design-cos-object-archive.md](design-cos-object-archive.md)。本文保留 **promote/export
 > 证据语义与历史 S3 契约**；新写入一律以 COS 设计为准。
+>
+> **2026-11-19**：生产 export/canary/hold/promote/closeout CLI 与 archive_health 已删除
+> （[`declined.md`](../decisions/declined.md)）。下文入口名仅作历史记录；不要再执行。
 
 ## 决策
 
@@ -35,7 +38,7 @@ export staging（`tokenkey-stage0-backups` / `prod/pgdump/archive-export/`）仅
 
 ### Promote
 
-- 唯一入口：`ops/archive/data_layer_archive_promote_batch.py`
+- 唯一入口（已删）：`ops/archive/data_layer_archive_promote_batch.py` <!-- script-ref-allow-missing: retired 2026-11-19 -->
 - 确认串：`tokenkey-prod-archive-promote-batch-v1`
 - 从 staging 已提交 batch（manifest 最后上传）复制到 archive 桶；逐对象 head 校验
   `sha256` metadata 与 manifest 一致

@@ -161,7 +161,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | File | Topic |
 | --- | --- |
 | [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 阈值 |
-| [`design-data-layer-prod-export-canary.md`](design-data-layer-prod-export-canary.md) | 生产只读 export canary |
+| [`design-data-layer-prod-export-canary.md`](design-data-layer-prod-export-canary.md) | archived：生产 export/canary CLI 已删（2026-11-19）；库级靠 pgBackRest |
 | [`design-data-layer-archive-rehearsal.md`](design-data-layer-archive-rehearsal.md) | Archive rehearsal |
 | [`design-data-layer-phase1-closeout.md`](design-data-layer-phase1-closeout.md) | Phase1 closeout（Telemetry S3 一节已退役：2026-11-08 用户决定保持关闭并删除代码） |
 | [`design-phase1-prod-activation-gates.md`](design-phase1-prod-activation-gates.md) | Phase1 activation gates（telemetry 探针已退役：2026-11-08 用户决定保持关闭并删除代码） |

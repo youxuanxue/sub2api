@@ -290,8 +290,9 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         archive_fallback = text[
             text.index("ARCHIVE_SIGNAL=", safety_start) : text.index("SAFETY_VERDICT=", safety_start)
         ]
-        self.assertIn('evidence_errors":["archive_health_failed"]', archive_fallback)
-        self.assertNotIn("ARCHIVESTATS {}", archive_fallback)
+        self.assertIn('"applicable":false', archive_fallback)
+        self.assertNotIn("data_layer_archive_health.py", archive_fallback)
+        self.assertNotIn("archive_health_failed", archive_fallback)
 
     def test_retired_qa_s3_checks_are_not_wired(self) -> None:
         # QA S3 retired 2026-11-08: no Phase 2 live health or raw-archive IAM audit.
