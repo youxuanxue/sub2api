@@ -15,16 +15,29 @@ DEFAULT_CACHE_DIR = REPO_ROOT / ".cache/fingerprint/client-release-watch"
 
 LABEL_CLIENT_FIDELITY = "client-fidelity-watch"
 LABEL_BOARD = "client-release:board"
+LABEL_DRIFT = "client-release:drift"  # Forge action trigger (only this)
+LABEL_ALIGNED = "client-release:aligned"
+LABEL_IN_PROGRESS = "client-release:in-progress"
+LABEL_BLOCKED = "client-release:blocked"
+LABEL_NEEDS_TRIAGE = "needs-triage"
+LABEL_WATCH = "client-release-watch"
+LABEL_AUTOMATED = "automated"
+UMBRELLA_SKILL = "tokenkey-fingerprint-alignment-all"
 BOARD_TITLE = "[client-release] Fingerprint drift board"
 
+# Labels that mean a human/Forge agent already owns the board — do not re-arm drift.
+AGENT_STATUS_LABELS = frozenset({LABEL_IN_PROGRESS, LABEL_BLOCKED})
+
 BASE_LABELS = {
-    "client-release-watch": ("BFD4F2", "Client release watch signal"),
-    LABEL_CLIENT_FIDELITY: ("1D76DB", "Client fidelity umbrella watch"),
-    LABEL_BOARD: ("5319E7", "Single sticky client-release drift board"),
-    "automated": ("C5DEF5", "Automated signal"),
-    "needs-triage": ("FBCA04", "Needs human triage"),
-    "client-release:drift": ("D73A4A", "Upstream client newer than TokenKey pin"),
-    "client-release:aligned": ("0E8A16", "Client release aligned with pin"),
+    LABEL_WATCH: ("BFD4F2", "Client release watch signal (not a Forge trigger)"),
+    LABEL_CLIENT_FIDELITY: ("1D76DB", "Client fidelity umbrella watch (not a Forge trigger)"),
+    LABEL_BOARD: ("5319E7", "Single sticky client-release drift board (not a Forge trigger)"),
+    LABEL_AUTOMATED: ("C5DEF5", "Automated signal"),
+    LABEL_NEEDS_TRIAGE: ("FBCA04", "Blocked / repeated failure — not a permanent label"),
+    LABEL_DRIFT: ("D73A4A", "Forge-actionable: upstream client newer than TokenKey pin"),
+    LABEL_ALIGNED: ("0E8A16", "All watched clients aligned with pins"),
+    LABEL_IN_PROGRESS: ("FBCA04", "Fingerprint alignment in progress; Forge must not duplicate"),
+    LABEL_BLOCKED: ("B60205", "Alignment blocked; Forge must not auto-start"),
 }
 
 
@@ -66,6 +79,15 @@ def issue_url(number: str) -> str:
     return sh(["gh", "issue", "view", number, "--json", "url", "--jq", ".url"]).stdout.strip()
 
 
+def list_issue_labels(number: str) -> set[str]:
+    raw = sh([
+        "gh", "issue", "view", number,
+        "--json", "labels",
+        "--jq", "[.labels[].name]",
+    ]).stdout.strip()
+    return {str(item) for item in json.loads(raw or "[]")}
+
+
 def actionable_drift(platforms: list[dict]) -> list[dict]:
     return [
         item
@@ -80,7 +102,30 @@ def board_title(drift_count: int) -> str:
     return f"{BOARD_TITLE} ({drift_count} drifting)"[:250]
 
 
-def build_board_body(report: dict) -> str:
+def platform_evidence_status(item: dict) -> str:
+    explicit = item.get("evidence_status")
+    if explicit:
+        return str(explicit)
+    if item.get("fetch_errors"):
+        return "fetch-error"
+    if item.get("issue_suppressed"):
+        return "suppressed"
+    if item.get("drift"):
+        return "release-metadata-only"
+    return "aligned"
+
+
+def platform_block_reason(item: dict) -> str:
+    explicit = item.get("block_reason")
+    if explicit:
+        return str(explicit)
+    errors = item.get("fetch_errors") or []
+    if errors:
+        return "; ".join(str(err) for err in errors)
+    return "—"
+
+
+def build_board_body(report: dict, *, status_labels: list[str] | None = None) -> str:
     platforms = list(report.get("platforms") or [])
     drift = actionable_drift(platforms)
     aligned = [
@@ -89,53 +134,61 @@ def build_board_body(report: dict) -> str:
         if not (item.get("drift") and not item.get("issue_suppressed"))
     ]
     run_url = report.get("run_url") or "n/a"
+    status = list(status_labels or [])
+
+    if status:
+        forge_line = (
+            f"- Active status: {', '.join(f'`{name}`' for name in status)} — "
+            f"Forge must **not** auto-start (trigger is only `{LABEL_DRIFT}`)."
+        )
+    elif drift:
+        forge_line = (
+            f"- Action label: `{LABEL_DRIFT}` — Forge may auto-start "
+            f"`{UMBRELLA_SKILL}` for one PR covering all drifting clients."
+        )
+    else:
+        forge_line = f"- Aligned — `{LABEL_DRIFT}` must be absent so Forge does not start."
+
     lines = [
         "## Client release fingerprint board",
         "",
         "Single sticky tracking issue for upstream client release drift.",
-        "Work unit is a fingerprint-alignment PR — do not open per-client issues for routine bumps.",
+        "Do **not** open per-client issues for routine bumps.",
         "",
         f"- Watchdog run: {run_url}",
         f"- Drifting: `{len(drift)}`",
         f"- Aligned / other: `{len(aligned)}`",
         "",
-        "## Current drift",
+        "## Forge trigger",
         "",
+        forge_line,
+        f"- Forge must only act on `{LABEL_DRIFT}`.",
+        "- These labels are **not** Forge start signals: "
+        f"`{LABEL_WATCH}`, `{LABEL_BOARD}`, `{LABEL_CLIENT_FIDELITY}`, "
+        f"`{LABEL_ALIGNED}`, `{LABEL_NEEDS_TRIAGE}`.",
+        "",
+        "## Execute",
+        "",
+        f"- Skill: `{UMBRELLA_SKILL}`",
+        "- One task / one PR for all drifting clients — do not split per-client PRs.",
+        "",
+        "## Platforms",
+        "",
+        "| Client | Pin | Upstream | Drift | Evidence | Block |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
-    if drift:
-        lines.append("| Platform | Pin | Upstream | Skill | Sources |")
-        lines.append("| --- | --- | --- | --- | --- |")
-        for item in drift:
-            sources = "; ".join(
-                f"{label} `{info.get('version')}`"
-                for label, info in (item.get("upstream_sources") or {}).items()
-            ) or "n/a"
-            lines.append(
-                "| `{pid}` | `{pin}` | `{up}` | `{skill}` | {sources} |".format(
-                    pid=item.get("id") or "?",
-                    pin=item.get("pinned") or "n/a",
-                    up=item.get("upstream_latest") or "unknown",
-                    skill=item.get("skill") or "n/a",
-                    sources=sources,
-                )
+    for item in platforms:
+        is_drift = bool(item.get("drift") and not item.get("issue_suppressed"))
+        lines.append(
+            "| `{pid}` | `{pin}` | `{up}` | `{drift}` | `{evidence}` | {block} |".format(
+                pid=item.get("id") or "?",
+                pin=item.get("pinned") or "n/a",
+                up=item.get("upstream_latest") or "unknown",
+                drift="yes" if is_drift else "no",
+                evidence=platform_evidence_status(item),
+                block=platform_block_reason(item),
             )
-    else:
-        lines.append("_None — all watched platforms are aligned (or suppressed)._")
-    lines.extend(["", "## Aligned / non-actionable", ""])
-    if aligned:
-        lines.append("| Platform | Pin | Upstream | Status |")
-        lines.append("| --- | --- | --- | --- |")
-        for item in aligned:
-            lines.append(
-                "| `{pid}` | `{pin}` | `{up}` | `{status}` |".format(
-                    pid=item.get("id") or "?",
-                    pin=item.get("pinned") or "n/a",
-                    up=item.get("upstream_latest") or "unknown",
-                    status=item.get("status") or ("suppressed" if item.get("issue_suppressed") else "aligned"),
-                )
-            )
-    else:
-        lines.append("_None._")
+        )
 
     fetch_errors = [
         (item.get("id"), err)
@@ -150,13 +203,33 @@ def build_board_body(report: dict) -> str:
     lines.extend(
         [
             "",
+            "## When NOT to open a PR",
+            "",
+            "1. Release metadata alone is **not** enough to bump pins.",
+            "2. Require real CLI / on-wire fingerprint evidence before changing pins.",
+            "3. If the local CLI / capture prerequisites are missing → mark "
+            f"`{LABEL_BLOCKED}` (optional `{LABEL_NEEDS_TRIAGE}`); do not open a PR.",
+            "4. If capture shows no actual fingerprint drift → do not open a PR "
+            "(version-only / no-op).",
+            "5. Multiple clients drifting → one PR via "
+            f"`{UMBRELLA_SKILL}`, not one PR per client.",
+            "",
+            "## Label lifecycle",
+            "",
+            f"- Any actionable drift + no agent status → `{LABEL_DRIFT}` "
+            f"(remove `{LABEL_ALIGNED}` / `{LABEL_NEEDS_TRIAGE}`).",
+            f"- Agent start → `{LABEL_IN_PROGRESS}` and remove `{LABEL_DRIFT}` / "
+            f"`{LABEL_NEEDS_TRIAGE}`.",
+            f"- Blocked / repeated failure → `{LABEL_BLOCKED}` "
+            f"(+ `{LABEL_NEEDS_TRIAGE}` only while blocked).",
+            f"- All aligned → `{LABEL_ALIGNED}`, remove `{LABEL_DRIFT}` / "
+            f"`{LABEL_NEEDS_TRIAGE}` / agent status, close board.",
+            "",
             "## Expected follow-up",
             "",
-            "1. Local routing: `bash ops/fingerprint/client-release-watch.sh plan`",
-            "2. Load the listed skill(s), or `tokenkey-fingerprint-alignment-all` for one PR",
-            "3. Capture on-wire evidence — do not bump pins from release metadata alone",
-            "4. Open a dedicated issue only when a platform is blocked / multi-day / needs discussion",
-            "   (do **not** add the `automated` label — the watchdog only auto-closes automated legacy tickets)",
+            "1. `bash ops/fingerprint/client-release-watch.sh plan`",
+            f"2. Load `{UMBRELLA_SKILL}` in Cursor",
+            "3. Capture on-wire evidence — never bump from release metadata alone",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -182,24 +255,59 @@ def find_board_issue() -> tuple[str | None, str | None]:
     return str(rows[0]["number"]), str(rows[0].get("state") or "CLOSED")
 
 
-def board_labels(*, umbrella: bool, drifting: bool) -> list[str]:
-    labels = [
-        "client-release-watch",
-        LABEL_BOARD,
-        "automated",
-    ]
+def identity_labels(*, umbrella: bool) -> list[str]:
+    labels = [LABEL_WATCH, LABEL_BOARD, LABEL_AUTOMATED]
     if umbrella:
         labels.append(LABEL_CLIENT_FIDELITY)
+    return labels
+
+
+def converge_board_labels(
+    number: str,
+    *,
+    umbrella: bool,
+    drifting: bool,
+    current: set[str],
+) -> set[str]:
+    """Apply Forge-safe label convergence; return resulting label set."""
+    labels = set(current)
+    for name in identity_labels(umbrella=umbrella):
+        labels.add(name)
+        sh(["gh", "issue", "edit", number, "--add-label", name], check=False)
+
+    agent_status = sorted(labels & AGENT_STATUS_LABELS)
     if drifting:
-        labels.extend(["needs-triage", "client-release:drift"])
+        sh(["gh", "issue", "edit", number, "--remove-label", LABEL_ALIGNED], check=False)
+        labels.discard(LABEL_ALIGNED)
+        if LABEL_BLOCKED in labels:
+            sh(["gh", "issue", "edit", number, "--add-label", LABEL_NEEDS_TRIAGE], check=False)
+            sh(["gh", "issue", "edit", number, "--remove-label", LABEL_DRIFT], check=False)
+            labels.add(LABEL_NEEDS_TRIAGE)
+            labels.discard(LABEL_DRIFT)
+        elif LABEL_IN_PROGRESS in labels:
+            for name in (LABEL_DRIFT, LABEL_NEEDS_TRIAGE):
+                sh(["gh", "issue", "edit", number, "--remove-label", name], check=False)
+                labels.discard(name)
+        else:
+            sh(["gh", "issue", "edit", number, "--add-label", LABEL_DRIFT], check=False)
+            sh(["gh", "issue", "edit", number, "--remove-label", LABEL_NEEDS_TRIAGE], check=False)
+            labels.add(LABEL_DRIFT)
+            labels.discard(LABEL_NEEDS_TRIAGE)
     else:
-        labels.append("client-release:aligned")
+        sh(["gh", "issue", "edit", number, "--add-label", LABEL_ALIGNED], check=False)
+        labels.add(LABEL_ALIGNED)
+        for name in (LABEL_DRIFT, LABEL_NEEDS_TRIAGE, LABEL_IN_PROGRESS, LABEL_BLOCKED):
+            sh(["gh", "issue", "edit", number, "--remove-label", name], check=False)
+            labels.discard(name)
+    _ = agent_status
     return labels
 
 
 _RESERVED_CLIENT_RELEASE_LABELS = {
-    "client-release:drift",
-    "client-release:aligned",
+    LABEL_DRIFT,
+    LABEL_ALIGNED,
+    LABEL_IN_PROGRESS,
+    LABEL_BLOCKED,
     LABEL_BOARD,
 }
 
@@ -208,9 +316,9 @@ def _is_automated_legacy_drift_issue(labels: set[str]) -> bool:
     """True for old bot per-platform/per-signature tickets; false for human exceptions."""
     if LABEL_BOARD in labels:
         return False
-    if "automated" not in labels:
+    if LABEL_AUTOMATED not in labels:
         return False
-    if "client-release-watch" not in labels and "client-fidelity-watch" not in labels:
+    if LABEL_WATCH not in labels and LABEL_CLIENT_FIDELITY not in labels:
         return False
     has_cr_sig = any(name.startswith("cr-sig:") for name in labels)
     has_platform = any(
@@ -225,20 +333,24 @@ def close_legacy_per_platform_issues(*, board_number: str | None, run_url: str) 
     existing_raw = sh([
         "gh", "issue", "list",
         "--state", "open",
-        "--label", "client-release:drift",
+        "--label", LABEL_DRIFT,
         "--json", "number,labels,title",
         "--limit", "100",
     ]).stdout.strip()
     if not existing_raw or existing_raw == "[]":
         return
-    board_line = f"- Canonical board: #{board_number}" if board_number else "- Canonical board: pending create on next drift scan"
+    board_line = (
+        f"- Canonical board: #{board_number}"
+        if board_number
+        else "- Canonical board: pending create on next drift scan"
+    )
     comment = "\n".join([
         "Superseded by the single sticky client-release drift board.",
         "",
         board_line,
         f"- Watchdog run: {run_url}",
         "",
-        "Routine upstream bumps are tracked on the board; work unit is the alignment PR.",
+        f"Routine upstream bumps are tracked on the board; work unit is `{UMBRELLA_SKILL}`.",
     ]) + "\n"
     for row in json.loads(existing_raw):
         number = str(row["number"])
@@ -256,56 +368,66 @@ def sync_issues(report: dict, *, cache_dir: pathlib.Path, umbrella: bool) -> lis
     platforms = list(report.get("platforms") or [])
     drift = actionable_drift(platforms)
     run_url = report.get("run_url") or "n/a"
-    body = build_board_body(report)
+    board_number, board_state = find_board_issue()
+    current_labels: set[str] = set()
+    if board_number and board_state == "OPEN":
+        current_labels = list_issue_labels(board_number)
+    status = sorted(current_labels & AGENT_STATUS_LABELS)
+
+    body = build_board_body(report, status_labels=status)
     body_path = board_body_path(cache_dir)
     body_path.parent.mkdir(parents=True, exist_ok=True)
     body_path.write_text(body, encoding="utf-8")
 
     title = board_title(len(drift))
-    labels = board_labels(umbrella=umbrella, drifting=bool(drift))
-    labels_csv = ",".join(labels)
-    board_number, board_state = find_board_issue()
     links: list[dict[str, object]] = []
 
     if drift:
+        create_labels = identity_labels(umbrella=umbrella) + [LABEL_DRIFT]
         if board_number and board_state == "OPEN":
             sh(["gh", "issue", "edit", board_number, "--title", title, "--body-file", str(body_path)])
-            sh(["gh", "issue", "edit", board_number, "--add-label", labels_csv])
-            subprocess.run(
-                ["gh", "issue", "edit", board_number, "--remove-label", "client-release:aligned"],
-                text=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+            current_labels = converge_board_labels(
+                board_number,
+                umbrella=umbrella,
+                drifting=True,
+                current=current_labels,
             )
-            status = "updated"
+            status_code = "updated"
             print(f"updated drift board #{board_number}")
         elif board_number:
             sh(["gh", "issue", "reopen", board_number])
             sh(["gh", "issue", "edit", board_number, "--title", title, "--body-file", str(body_path)])
-            sh(["gh", "issue", "edit", board_number, "--add-label", labels_csv])
-            subprocess.run(
-                ["gh", "issue", "edit", board_number, "--remove-label", "client-release:aligned"],
-                text=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+            current_labels = converge_board_labels(
+                board_number,
+                umbrella=umbrella,
+                drifting=True,
+                current=list_issue_labels(board_number),
             )
-            status = "reopened"
+            status_code = "reopened"
             print(f"reopened drift board #{board_number}")
         else:
             created_url = sh([
                 "gh", "issue", "create",
                 "--title", title,
                 "--body-file", str(body_path),
-                "--label", labels_csv,
+                "--label", ",".join(create_labels),
             ]).stdout.strip()
             number_match = re.search(r"/issues/(\d+)(?:$|[?#])", created_url)
             board_number = number_match.group(1) if number_match else ""
-            status = "created"
+            status_code = "created"
             print(f"created drift board #{board_number or '?'}")
+            if board_number:
+                current_labels = converge_board_labels(
+                    board_number,
+                    umbrella=umbrella,
+                    drifting=True,
+                    current=set(create_labels),
+                )
 
         if board_number:
             close_legacy_per_platform_issues(board_number=board_number, run_url=run_url)
             url = issue_url(board_number)
+            forge_armed = LABEL_DRIFT in current_labels
             for item in drift:
                 links.append({
                     "kind": "issue",
@@ -314,23 +436,19 @@ def sync_issues(report: dict, *, cache_dir: pathlib.Path, umbrella: bool) -> lis
                     "title": title,
                     "number": int(board_number),
                     "url": url,
-                    "status": status,
+                    "status": status_code,
                     "board": True,
+                    "forge_actionable": forge_armed,
                 })
         return links
 
     if board_number and board_state == "OPEN":
         sh(["gh", "issue", "edit", board_number, "--title", title, "--body-file", str(body_path)])
-        sh(["gh", "issue", "edit", board_number, "--add-label", labels_csv])
-        subprocess.run(
-            [
-                "gh", "issue", "edit", board_number,
-                "--remove-label", "client-release:drift",
-                "--remove-label", "needs-triage",
-            ],
-            text=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+        converge_board_labels(
+            board_number,
+            umbrella=umbrella,
+            drifting=False,
+            current=current_labels,
         )
         sh([
             "gh", "issue", "close", board_number,
@@ -338,7 +456,6 @@ def sync_issues(report: dict, *, cache_dir: pathlib.Path, umbrella: bool) -> lis
         ])
         print(f"closed aligned drift board #{board_number}")
 
-    # Still retire any leftover per-platform tickets even when already aligned.
     close_legacy_per_platform_issues(board_number=board_number, run_url=run_url)
     return links
 

@@ -14,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from open_client_release_watch_issues import (
     LABEL_BOARD,
+    LABEL_DRIFT,
+    LABEL_IN_PROGRESS,
+    UMBRELLA_SKILL,
     _is_automated_legacy_drift_issue,
     board_body_path,
     build_board_body,
@@ -53,7 +56,7 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
             f"issue-{filename_safe('claude-code')}.md",
         )
 
-    def test_build_board_body_lists_drift_and_aligned(self) -> None:
+    def test_build_board_body_uses_umbrella_skill_and_platform_table(self) -> None:
         report = {
             "run_url": "https://example/run",
             "platforms": [
@@ -78,11 +81,14 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
             ],
         }
         body = build_board_body(report)
-        self.assertIn("## Current drift", body)
+        self.assertIn("## Platforms", body)
+        self.assertIn("| Client | Pin | Upstream | Drift | Evidence | Block |", body)
         self.assertIn("`claude-code`", body)
-        self.assertIn("tokenkey-cc-fingerprint-alignment", body)
-        self.assertIn("## Aligned / non-actionable", body)
-        self.assertIn("`codex`", body)
+        self.assertIn("release-metadata-only", body)
+        self.assertIn(UMBRELLA_SKILL, body)
+        self.assertNotIn("tokenkey-cc-fingerprint-alignment", body)
+        self.assertIn(f"`{LABEL_DRIFT}`", body)
+        self.assertIn("## When NOT to open a PR", body)
         self.assertIn("https://example/run", body)
 
     def test_sync_issues_returns_no_links_for_aligned_report(self) -> None:
@@ -117,8 +123,10 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
                     ]),
                     stderr="",
                 )
-            if args[:3] == ["gh", "issue", "list"] and "client-release:drift" in args:
+            if args[:3] == ["gh", "issue", "list"] and LABEL_DRIFT in args:
                 return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+            if args[:3] == ["gh", "issue", "view"] and "--jq" in args and "labels" in args:
+                return subprocess.CompletedProcess(args, 0, stdout='["client-release:board"]', stderr="")
             if args[:3] == ["gh", "issue", "view"]:
                 return subprocess.CompletedProcess(
                     args,
@@ -139,6 +147,7 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
                 self.assertEqual(link["number"], 4000)
                 self.assertEqual(link["status"], "updated")
                 self.assertTrue(link["board"])
+                self.assertTrue(link["forge_actionable"])
                 self.assertEqual(link["url"], "https://github.com/youxuanxue/sub2api/issues/4000")
             self.assertTrue((Path(tmp) / "issue-board.md").is_file())
 
@@ -150,7 +159,7 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
             calls.append(list(args))
             if args[:3] == ["gh", "issue", "list"] and LABEL_BOARD in args:
                 return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
-            if args[:3] == ["gh", "issue", "list"] and "client-release:drift" in args:
+            if args[:3] == ["gh", "issue", "list"] and LABEL_DRIFT in args:
                 return subprocess.CompletedProcess(
                     args,
                     0,
@@ -197,6 +206,10 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
                     stdout="https://github.com/youxuanxue/sub2api/issues/4400",
                     stderr="",
                 )
+            if args[:3] == ["gh", "issue", "view"] and "--jq" in args and "labels" in args:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout='["client-release:board","client-release:drift"]', stderr=""
+                )
             if args[:3] == ["gh", "issue", "view"]:
                 return subprocess.CompletedProcess(
                     args,
@@ -220,6 +233,7 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
         self.assertFalse(any(call[:4] == ["gh", "issue", "close", "3399"] for call in calls))
         create = next(call for call in calls if call[:3] == ["gh", "issue", "create"])
         self.assertIn(LABEL_BOARD, ",".join(create))
+        self.assertIn(LABEL_DRIFT, ",".join(create))
 
     def test_is_automated_legacy_drift_issue_requires_bot_markers(self) -> None:
         self.assertTrue(_is_automated_legacy_drift_issue({
@@ -242,6 +256,56 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
             LABEL_BOARD,
         }))
 
+    def test_sync_issues_disarms_drift_when_in_progress(self) -> None:
+        report = _drift_report("kiro-cli")
+        calls: list[list[str]] = []
+
+        def fake_sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+            calls.append(list(args))
+            if args[:3] == ["gh", "issue", "list"] and LABEL_BOARD in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout=json.dumps([
+                        {"number": 4100, "state": "OPEN", "updatedAt": "2026-11-18T00:00:00Z"},
+                    ]),
+                    stderr="",
+                )
+            if args[:3] == ["gh", "issue", "list"] and LABEL_DRIFT in args:
+                return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+            if args[:3] == ["gh", "issue", "view"] and "--jq" in args and "labels" in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout=json.dumps([LABEL_BOARD, LABEL_DRIFT, LABEL_IN_PROGRESS]),
+                    stderr="",
+                )
+            if args[:3] == ["gh", "issue", "view"]:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout="https://github.com/youxuanxue/sub2api/issues/4100\n",
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp, \
+            patch("open_client_release_watch_issues.ensure_base_labels"), \
+            patch("open_client_release_watch_issues.ensure_label"), \
+            patch("open_client_release_watch_issues.sh", side_effect=fake_sh):
+            links = sync_issues(report, cache_dir=Path(tmp), umbrella=False)
+            self.assertEqual(links[0]["status"], "updated")
+            self.assertFalse(links[0]["forge_actionable"])
+            self.assertTrue(
+                any(
+                    call[:4] == ["gh", "issue", "edit", "4100"] and "--remove-label" in call and LABEL_DRIFT in call
+                    for call in calls
+                )
+            )
+            body = (Path(tmp) / "issue-board.md").read_text(encoding="utf-8")
+            self.assertIn(LABEL_IN_PROGRESS, body)
+            self.assertIn(UMBRELLA_SKILL, body)
+
     def test_sync_issues_reopens_closed_board_on_new_drift(self) -> None:
         report = _drift_report("kiro-cli")
         calls: list[list[str]] = []
@@ -257,7 +321,9 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
                     ]),
                     stderr="",
                 )
-            if args[:3] == ["gh", "issue", "list"] and "client-release:drift" in args:
+            if args[:3] == ["gh", "issue", "list"] and LABEL_DRIFT in args:
+                return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+            if args[:3] == ["gh", "issue", "view"] and "--jq" in args and "labels" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
             if args[:3] == ["gh", "issue", "view"]:
                 return subprocess.CompletedProcess(
@@ -303,8 +369,12 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
                     ]),
                     stderr="",
                 )
-            if args[:3] == ["gh", "issue", "list"] and "client-release:drift" in args:
+            if args[:3] == ["gh", "issue", "list"] and LABEL_DRIFT in args:
                 return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+            if args[:3] == ["gh", "issue", "view"] and "--jq" in args and "labels" in args:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=json.dumps([LABEL_BOARD, LABEL_DRIFT, "needs-triage"]), stderr=""
+                )
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
         with tempfile.TemporaryDirectory() as tmp, \
@@ -315,6 +385,12 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
 
         self.assertEqual(links, [])
         self.assertTrue(any(call[:4] == ["gh", "issue", "close", "4200"] for call in calls))
+        self.assertTrue(
+            any(
+                call[:4] == ["gh", "issue", "edit", "4200"] and "--remove-label" in call and LABEL_DRIFT in call
+                for call in calls
+            )
+        )
 
 
 if __name__ == "__main__":
