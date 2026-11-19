@@ -15,6 +15,8 @@ import time
 from datetime import datetime
 from urllib.parse import urlparse
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from resolve_app_container import resolve_redis_server
 from https_health import cert_days_left, probe_health
 from feishu_delivery import _atomic_write, post_feishu
 
@@ -650,6 +652,70 @@ def backup_jobs(node_role, state: Path) -> list:
     return []
 
 
+def redis_primary_fact(inspect: dict, replication: str, startup_config: str = "") -> dict:
+    """Read-only runtime and next-boot check; never send a Redis write probe."""
+    fields = dict(line.split(":", 1) for line in replication.splitlines() if ":" in line)
+    if fields.get("role") != "master":
+        return {"healthy": False, "reason": "Redis is not primary (writes unavailable)", "severity": "P0"}
+    startup = json.dumps([inspect["Config"].get("Entrypoint"), inspect["Config"].get("Cmd")]).lower()
+    # Also inspect the effective config file: a runtime promotion can leave its
+    # replicaof directive behind even when no command-line override exists.
+    directives = [line.split()[0].lower() for line in startup_config.splitlines()
+                  if line.strip() and not line.lstrip().startswith("#")]
+    if "include" in directives:
+        return {"healthy": False, "reason": "Redis startup config includes unverified files (restart role unknown)", "severity": "P1"}
+    if "replicaof" in startup or "slaveof" in startup or any(
+            name in ("replicaof", "slaveof") for name in directives):
+        return {"healthy": False, "reason": "Redis primary has replica startup configuration (restart risk)", "severity": "P1"}
+    return {"healthy": True, "reason": "Redis primary; no replica startup configuration", "severity": "P1"}
+
+
+def probe_redis_primary() -> dict:
+    primary_confirmed = False
+
+    def command(args):
+        return subprocess.run(args, capture_output=True, text=True, check=True, timeout=5).stdout
+
+    try:
+        container = resolve_redis_server()
+        if not container:
+            raise ValueError("Redis server unresolved")
+        inspect = json.loads(command(["docker", "inspect", container]))[0]
+        def redis(*args):
+            return command(["docker", "exec", container, "sh", "-c",
+                            'REDISCLI_AUTH="$(cat /run/requirepass)"; export REDISCLI_AUTH; '
+                            'exec redis-cli --no-auth-warning "$@"', "sh", *args])
+        replication = redis("INFO", "replication")
+        primary_confirmed = "role:master" in replication.splitlines()
+        server = dict(line.split(":", 1) for line in redis("INFO", "server").splitlines() if ":" in line)
+        path = server.get("config_file", "")
+        config = command(["docker", "exec", container, "cat", "--", path]) if path else ""
+        return redis_primary_fact(inspect, replication, config)
+    except (OSError, ValueError, KeyError, IndexError, subprocess.SubprocessError):
+        # Never include command stdout/stderr: CONFIG REWRITE can persist auth
+        # in the config file, and docker inspect may contain credentials.
+        return {"healthy": False,
+                "reason": "Redis startup config probe failed" if primary_confirmed else "Redis primary probe failed",
+                "severity": "P1" if primary_confirmed else "P0"}
+
+
+def tick_redis_primary(previous: dict, now: int, probe, send, node: str) -> dict:
+    state = dict(previous)
+    key = "dependency:redis-primary"
+    fact = probe()
+    updated, action = next_state(previous.get(key, {}), fact["healthy"], now)
+    # Escalate a previously notified latent P1 into a runtime P0 immediately.
+    if not fact["healthy"] and fact["severity"] == "P0" and previous.get(key, {}).get("severity") == "P1" and previous[key].get("active"):
+        action = "unhealthy"
+    updated.update(reason=fact["reason"], severity=fact["severity"])
+    if action:
+        label = "Redis 主库已恢复" if action == "recovered" else fact["severity"] + " Redis 主库异常"
+        send(f"TokenKey {label}: {node}; {fact['reason']}")
+        updated.update(active=action == "unhealthy", sent_at=now)
+    state[key] = updated
+    return state
+
+
 def validate_backend_url(name: str, url: str) -> None:
     """Plain HTTP is allowed only to loopback or private IP literals."""
     parsed = urlparse(url)
@@ -727,6 +793,8 @@ def main() -> None:
                                environment=environment,
                            ),
                            send, config.get("node", os.uname().nodename))
+        if config.get("node") in ("prod-data", "cn-prod-data"):
+            result = tick_redis_primary(result, int(time.time()), probe_redis_primary, send, config["node"])
         if not args.dry_run:
             _atomic_write(args.state, json.dumps(result, sort_keys=True) + "\n")
         print(json.dumps({"dry_run": args.dry_run, "targets": result, "notifications": len(actions)}))

@@ -34,6 +34,9 @@ done
 # shellcheck source=../lib/resolve-app-container.sh
 . "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
 
+# shellcheck source=../lib/redis-promotion.sh
+. "$_tk_lib/redis-promotion.sh"
+
 PHASE="${PHASE:-check}"
 SITE="${SITE:?SITE must be prod or cn-prod}"
 DATA="${DATA_IP:?DATA_IP (data machine private IP) required}"
@@ -178,6 +181,7 @@ phase_check() {
   # Without the target password the AUTH result says nothing about the replica;
   # the missing file is already reported above.
   if [ -z "$new_redis_pass_problem" ]; then
+    tk_redis_persistence_check data_rc && ok "data redis uses persistent role configuration" || bad "data redis role would not survive restart"
     [ "$(data_rc PING 2>/dev/null)" = PONG ] && ok "data redis AUTH with the target password" || bad "data redis AUTH failed"
     [ "$(data_rc INFO replication 2>/dev/null | field master_link_status)" = up ] && ok "data redis replica link up" || bad "data redis replica link not up"
   else
@@ -284,13 +288,13 @@ phase_apply() {
   redis_master_host="$(data_rc INFO replication | field master_host)"
   redis_master_port="$(data_rc INFO replication | field master_port)"
   [ -n "$redis_master_host" ] && [ -n "$redis_master_port" ] || abort "data redis master address unknown"
-  [ "$(data_rc REPLICAOF NO ONE)" = OK ] || abort "REPLICAOF NO ONE refused"
+  tk_redis_set_role data_rc NO || die "Redis promotion/persistence failed; keep writers stopped, inspect runtime and durable role" 4
   if [ "$(data_q 'select pg_promote(wait => true, wait_seconds => 60)')" != t ] \
     || [ "$(data_q 'select pg_is_in_recovery()')" != f ]; then
     # Redis already left replication; Postgres did not promote. Re-attach Redis
     # and restore the old site: nothing has written to the data machine yet.
-    [ "$(data_rc REPLICAOF "$redis_master_host" "$redis_master_port")" = OK ] \
-      || echo "WARN data redis not re-attached to $redis_master_host:$redis_master_port; re-run the replica setup before retrying" >&2
+    tk_redis_set_role data_rc "$redis_master_host" "$redis_master_port" \
+      || die "Redis rollback/persistence failed; keep writers stopped" 4
     abort "pg_promote failed"
   fi
   log "  promoted; timeline $(data_q 'select timeline_id from pg_control_checkpoint()')"

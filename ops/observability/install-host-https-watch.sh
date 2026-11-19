@@ -18,7 +18,7 @@ if role not in ('prod','cn-prod','prod-data','cn-prod-data','cn-prod-entry','pro
 node=os.environ.get('WATCH_NODE','')
 host_ips=subprocess.run(['hostname','-I'],capture_output=True,text=True,check=True).stdout.split() if (node or role.endswith('-entry')) else []
 config=build_config(role,socket.gethostname(),prod_matrix,domestic,node=node,host_ips=host_ips)
-files=['host_https_watch.py','https_health.py','feishu_delivery.py']
+files=['host_https_watch.py','https_health.py','feishu_delivery.py','resolve_app_container.py']
 for file in files:
     if not (root/file).is_file():raise SystemExit('missing companion: '+file)
 print(json.dumps({'role':role,'watch_node':node,**config,'apply':os.environ.get('APPLY')=='yes-host-https-watch'}))

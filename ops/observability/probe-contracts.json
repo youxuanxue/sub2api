@@ -190,5 +190,24 @@
       "live_app_unresolved",
       "data_container_unresolved"
     ]
+  },
+  "dataplane-cutover-app.sh": {
+    "companions": [
+      "ops/lib/redis-promotion.sh"
+    ],
+    "verdicts": [
+      "ok",
+      "fail"
+    ]
+  },
+  "dataplane-cutover-data.sh": {
+    "companions": [
+      "ops/lib/redis-promotion.sh",
+      "ops/stage0/dataplane-redis-entrypoint.sh"
+    ],
+    "verdicts": [
+      "ok",
+      "fail"
+    ]
   }
 }

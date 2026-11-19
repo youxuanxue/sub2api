@@ -194,6 +194,15 @@ jobs:
           else
             ./dev-rules/templates/preflight.sh
           fi
+      - name: Redis role persistence regression
+        if: needs.changes.outputs.all == 'true' || needs.changes.outputs.ops == 'true'
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s ops/observability -p test_redis_primary_watch.py -v
+          python3 -m unittest discover -s ops/observability -p test_host_https_watch.py -q
+          python3 -m unittest discover -s ops/stage0 -p test_dataplane_cutover.py -v
+          TK_REDIS_REHEARSAL=1 python3 -m unittest discover -s ops/stage0 -p test_redis_promotion_restart.py -v
       - name: Migration PostgreSQL regression
         if: needs.changes.outputs.all == 'true' || needs.changes.outputs.ops == 'true'
         timeout-minutes: 5
