@@ -1291,16 +1291,21 @@
       "must_contain": [
         "nvidiaBuildModelTargets",
         "nvidiaBuildModelMapping",
-        "NewAPIModelMappingPresetIDsForAccount"
+        "NewAPIModelMappingPresetIDsForAccount",
+        "\"kimi-k3.1-pro\": \"moonshotai/kimi-k3.1-pro\"",
+        "\"kimi-k3\"",
+        "\"glm-5.3\"",
+        "\"glm-5.3-flash\""
       ],
-      "rationale": "NVIDIA wire targets are projected through manifest intent into the activation bundle, preserving canonical public pricing IDs."
+      "rationale": "NVIDIA wire targets are projected through manifest intent into the activation bundle. 2026-11-19 floor is kimi-k3.1-pro only; kimi-k3/glm-5.3/glm-5.3-flash stay forbidden after upstream EOL/timeout evidence."
     },
     {
       "path": "backend/internal/service/account_model_mapping_nvidia_tk_test.go",
       "must_contain": [
-        "TestNVIDIABuildMappingScope"
+        "TestNVIDIABuildMappingScope",
+        "TestNVIDIABuildRetiredModelExcludedFromProvisioning"
       ],
-      "rationale": "Guards NVIDIA namespace translation, manifest coverage, bundle export and isolation from other ch1 providers."
+      "rationale": "Guards NVIDIA namespace translation, manifest coverage, bundle export, isolation from other ch1 providers, and retired-key exclusion after the kimi-k3.1-pro-only floor."
     },
     {
       "path": "backend/internal/integration/newapi/minimax.go",

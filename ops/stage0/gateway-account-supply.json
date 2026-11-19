@@ -16,24 +16,13 @@
       "branch_family": "kimi",
       "representatives": [
         {
-          "family": "glm",
-          "model": "glm-5.3-flash",
-          "upstream_model": "z-ai/glm-5.3-flash",
-          "operation": "generation",
-          "baseline_protocol": "openai-chat",
-          "represented_models": [
-            "glm-5.3",
-            "glm-5.3-flash"
-          ]
-        },
-        {
           "family": "kimi",
-          "model": "kimi-k3",
-          "upstream_model": "moonshotai/kimi-k3",
+          "model": "kimi-k3.1-pro",
+          "upstream_model": "moonshotai/kimi-k3.1-pro",
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "kimi-k3"
+            "kimi-k3.1-pro"
           ]
         }
       ],
@@ -71,7 +60,7 @@
         "vision": {
           "status": "unknown",
           "family": "kimi",
-          "evidence": "1.8.225 / 2026-09-13: transport_error; request ; Original timeout used another class; direct deepseek-v4-flash on that supplier stalls while analyzing base64, not proven visual support. 2026-09-30: NVIDIA floor converged to glm-5.3/glm-5.3-flash/kimi-k3 after direct chat evidence; deepseek flash withdrawn (410 EOL)."
+          "evidence": "1.8.225 / 2026-09-13: transport_error; request ; Original timeout used another class; direct deepseek-v4-flash on that supplier stalls while analyzing base64, not proven visual support. 2026-11-19: NVIDIA floor converged to kimi-k3.1-pro only (kimi-k3/glm-5.3 410 EOL; glm-5.3-flash chat timeout)."
         }
       }
     },
