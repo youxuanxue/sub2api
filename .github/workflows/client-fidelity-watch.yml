@@ -69,8 +69,9 @@ jobs:
           GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
         run: |
           set -euo pipefail
-          # One sticky board issue (label client-release:board); rewrite body each run.
-          # Closes automated legacy per-platform drift tickets only. Work unit = alignment PR.
+          # One sticky board (client-release:board). Forge trigger = client-release:drift only.
+          # Body always points at tokenkey-fingerprint-alignment-all (one PR for all clients).
+          # Respects in-progress/blocked so Forge does not re-arm drift; closes legacy tickets.
           python3 ops/fingerprint/open_client_release_watch_issues.py \
             --umbrella \
             --links-json .cache/fingerprint/client-release-watch/links.json

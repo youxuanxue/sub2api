@@ -20,12 +20,32 @@ from typing import Any, Protocol
 
 LABEL = "upstream-merge-needed"
 LEGACY_LABEL = "upstream-merge-agent"
+LEGACY_LABELS = (LEGACY_LABEL, "upstream-drift")
 AUTOMATED_LABEL = "automated"
+LABEL_BLOCKED = "upstream-merge-blocked"
+LABEL_IN_PROGRESS = "upstream-merge-in-progress"
+LABEL_READY = "upstream-merge-ready"
+STATUS_LABELS = (LABEL_BLOCKED, LABEL_IN_PROGRESS, LABEL_READY)
 TITLE_PREFIX = "[upstream-merge]"
 COMMIT_LIMIT = 30
 LABEL_SPECS = (
-    (LABEL, "D93F0B", "TokenKey is behind Wei-Shaw/sub2api"),
+    (LABEL, "D93F0B", "Forge-actionable: TokenKey is behind Wei-Shaw/sub2api"),
     (AUTOMATED_LABEL, "C5DEF5", "Automated signal"),
+    (LABEL_BLOCKED, "B60205", "Upstream merge blocked; Forge must not auto-start"),
+    (LABEL_IN_PROGRESS, "FBCA04", "Upstream merge in progress; Forge must not duplicate"),
+    (LABEL_READY, "0E8A16", "Upstream merge PR ready for human review/merge"),
+)
+# Path substring → TokenKey risk bucket for conflict classification.
+RISK_PATH_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("billing", ("billing", "usage", "pricing", "quota", "redeem", "invoice")),
+    ("auth", ("auth", "oauth", "jwt", "session", "login", "apikey", "api_key")),
+    ("routing", ("gateway", "relay", "protocol", "router", "dispatch", "converter")),
+    ("accounts", ("/account", "accounts", "subscription")),
+    ("concurrency", ("concurren", "ratelimit", "rate_limit", "sticky", "scheduler", "saturation")),
+    ("sentinel", ("scripts/sentinels", "_tk_", ".tk.", "upstream-override")),
+    ("frontend", ("frontend/",)),
+    ("backend", ("backend/",)),
+    ("deploy", ("deploy/", "stage0", ".github/workflows/release", "goreleaser")),
 )
 WORKFLOW_RELPATH = ".github/workflows/upstream-merge-notify.yml"
 FORBIDDEN_WORKFLOW_NEEDLES = (
@@ -54,7 +74,11 @@ class IssueHost(Protocol):
     def update(self, number: int, title: str, body: str) -> None: ...
     def comment(self, number: int, body: str) -> None: ...
     def close(self, number: int, comment: str) -> None: ...
+    def ensure_labels(self, specs: list[tuple[str, str, str]]) -> list[str]: ...
     def attach_labels(self, number: int, specs: list[tuple[str, str, str]]) -> list[str]: ...
+    def list_labels(self, number: int) -> set[str]: ...
+    def remove_labels(self, number: int, names: list[str]) -> None: ...
+    def get_body(self, number: int) -> str: ...
 
 
 def is_tracking_title(title: str) -> bool:
@@ -107,6 +131,93 @@ def truncate_commits(commits: list[str], limit: int = COMMIT_LIMIT) -> tuple[lis
     return cleaned[:limit], len(cleaned) - limit
 
 
+def active_status_labels(labels: set[str]) -> list[str]:
+    return [name for name in STATUS_LABELS if name in labels]
+
+
+def forge_may_auto_start(labels: set[str]) -> bool:
+    """Forge only auto-starts when needed is present and no blocking status label is set."""
+    if any(name in labels for name in STATUS_LABELS):
+        return False
+    return LABEL in labels
+
+
+def classify_conflict_risks(conflicts: list[str]) -> dict[str, list[str]]:
+    buckets: dict[str, list[str]] = {name: [] for name, _ in RISK_PATH_RULES}
+    buckets["other"] = []
+    for path in conflicts:
+        lowered = path.lower()
+        matched = False
+        for bucket, needles in RISK_PATH_RULES:
+            if any(needle in lowered for needle in needles):
+                buckets[bucket].append(path)
+                matched = True
+        if not matched:
+            buckets["other"].append(path)
+    return {key: value for key, value in buckets.items() if value}
+
+
+def parse_facts_from_body(body: str) -> dict[str, str]:
+    """Best-effort parse of previous sticky-board facts for refresh comments."""
+    facts: dict[str, str] = {}
+    patterns = {
+        "behind": r"TokenKey behind:\s*(\d+)\s+commits?",
+        "ahead": r"TokenKey ahead:\s*(\d+)\s+commits?",
+        "upstream_head": r"upstream/main:\s*`([^`]+)`",
+        "origin_head": r"origin/main:\s*`([^`]+)`",
+    }
+    for key, pattern in patterns.items():
+        match = re.search(pattern, body or "")
+        if match:
+            facts[key] = match.group(1)
+    return facts
+
+
+def render_refresh_comment(
+    *,
+    drift: dict[str, Any],
+    commits: list[str],
+    previous: dict[str, str],
+    run_url: str,
+    status_labels: list[str],
+) -> str:
+    behind = int(drift.get("behind") or 0)
+    upstream_head = str(drift.get("upstream_head") or "")
+    origin_head = str(drift.get("origin_head") or "")
+    shown, hidden = truncate_commits(commits)
+    commit_block = "\n".join(shown) if shown else "(none)"
+    if hidden:
+        commit_block += f"\n... ({hidden} more)"
+
+    prev_behind = previous.get("behind")
+    delta_line = f"- Current behind: `{behind}`"
+    if prev_behind is not None and str(prev_behind) != str(behind):
+        delta_line = f"- Behind changed: `{prev_behind}` → `{behind}`"
+    prev_up = previous.get("upstream_head")
+    up_line = f"- upstream/main: `{upstream_head}`"
+    if prev_up and prev_up != upstream_head:
+        up_line = f"- upstream/main moved: `{prev_up}` → `{upstream_head}`"
+
+    status_line = ", ".join(f"`{name}`" for name in status_labels) if status_labels else "`upstream-merge-needed` (Forge-actionable)"
+    return "\n".join(
+        [
+            f"Refresh by {run_url or 'n/a'} (history only — body holds current facts).",
+            "",
+            delta_line,
+            up_line,
+            f"- origin/main: `{origin_head}`",
+            f"- Status labels: {status_line}",
+            "",
+            "### New upstream commits (snapshot)",
+            "",
+            "```",
+            commit_block,
+            "```",
+            "",
+        ]
+    )
+
+
 def render_body(
     *,
     drift: dict[str, Any],
@@ -114,19 +225,15 @@ def render_body(
     conflicts: list[str],
     open_prs: list[dict[str, Any]],
     run_url: str,
+    status_labels: list[str] | None = None,
     hidden_commit_count: int = 0,
 ) -> str:
+    del commits, hidden_commit_count  # commit lists live in refresh comments, not the sticky body
     behind = int(drift.get("behind") or 0)
     ahead = int(drift.get("ahead") or 0)
     upstream_head = str(drift.get("upstream_head") or "")
     origin_head = str(drift.get("origin_head") or "")
-    shown, hidden = truncate_commits(commits)
-    if hidden_commit_count:
-        hidden = hidden_commit_count
-
-    commit_block = "\n".join(shown) if shown else "(none)"
-    if hidden:
-        commit_block += f"\n... ({hidden} more)"
+    status = list(status_labels or [])
 
     if conflicts:
         conflict_block = "\n".join(f"- `{path}`" for path in conflicts)
@@ -148,44 +255,88 @@ def render_body(
     else:
         pr_block = "none"
 
+    risks = classify_conflict_risks(conflicts)
+    if risks:
+        risk_lines: list[str] = []
+        for bucket, paths in risks.items():
+            joined = ", ".join(f"`{path}`" for path in paths[:12])
+            extra = f" (+{len(paths) - 12} more)" if len(paths) > 12 else ""
+            risk_lines.append(f"- **{bucket}**: {joined}{extra}")
+        risk_block = "\n".join(risk_lines)
+    else:
+        risk_block = "- none from merge-tree conflicts"
+
+    hot = sorted(
+        name
+        for name in ("billing", "auth", "routing", "accounts", "concurrency")
+        if name in risks
+    )
+    hot_line = ", ".join(f"`{name}`" for name in hot) if hot else "none detected from conflict paths"
+
+    if status:
+        forge_line = (
+            f"- Active status: {', '.join(f'`{name}`' for name in status)} — "
+            "Forge must **not** auto-start a duplicate merge."
+        )
+    else:
+        forge_line = (
+            f"- Action label: `{LABEL}` — Forge may auto-start "
+            "(only while no blocked/in-progress/ready label is set)."
+        )
+
     return "\n".join(
         [
             "> Auto-generated by `.github/workflows/upstream-merge-notify.yml`.",
-            "> This workflow does **not** merge, open a PR, or run an agent.",
+            "> Detection only: this workflow does **not** merge, open a PR, or run an agent.",
+            "> Body is overwritten on every refresh; comments keep historical snapshots.",
             "",
-            "## Drift",
+            "## Current",
             "",
             f"- TokenKey behind: {behind} commits (`origin/main..upstream/main`)",
             f"- TokenKey ahead: {ahead} commits (`upstream/main..origin/main`)",
             f"- upstream/main: `{upstream_head}`",
             f"- origin/main: `{origin_head}`",
+            f"- Open `merge/upstream-*` PRs: {len(open_prs)}",
+            f"- merge-tree conflicts: {len(conflicts)}",
             f"- run: {run_url or 'n/a'}",
-            "",
-            "## New upstream commits (`origin/main..upstream/main`)",
-            "",
-            "```",
-            commit_block,
-            "```",
-            "",
-            "## merge-tree conflict files (read-only)",
-            "",
-            "If we merged `upstream/main` into `origin/main` now, these files would conflict:",
-            "",
-            conflict_block,
             "",
             "## Open merge/upstream-* PRs",
             "",
             pr_block,
             "",
+            "## merge-tree conflict files (read-only)",
+            "",
+            conflict_block,
+            "",
+            "## TokenKey risk scope",
+            "",
+            "- prod / cn-prod deploy status: **not probed** by this notify workflow (detection-only).",
+            f"- Hot buckets touched by conflicts: {hot_line}",
+            "- TokenKey-specific surfaces (sentinel / `*_tk_*` / `.tk.*`) and FE/BE split from conflicts:",
+            risk_block,
+            "",
+            "## Forge / agent signals",
+            "",
+            forge_line,
+            "- Keep a single sticky `[upstream-merge]` issue; do not open per-drift tickets.",
+            "- Before starting: check open `merge/upstream-*` PRs above, status labels, and whether drift SHA changed since the last refresh comment.",
+            "- On start: remove `upstream-merge-needed`, add `upstream-merge-in-progress`.",
+            "- On block: `upstream-merge-blocked`. On PR ready for humans: `upstream-merge-ready`.",
+            "",
+            "## Expected verification",
+            "",
+            "1. `bash scripts/upstream/check-drift.sh`",
+            "2. Follow `.cursor/skills/tokenkey-upstream-merge/SKILL.md` (loads generic `upstream-merge`).",
+            "3. `./scripts/preflight.sh` and `make test` on the merge branch.",
+            "4. Shape gate: `.github/workflows/upstream-merge-pr-shape.yml`.",
+            "",
             "## Human next steps",
             "",
-            "1. Decide whether this batch is worth merging. Large or hotspot-heavy batches can wait.",
-            "2. Follow `.cursor/skills/tokenkey-upstream-merge/SKILL.md`.",
-            "3. `git fetch upstream && git fetch origin`",
-            "4. `git checkout -b merge/upstream-$(date -u +%Y%m%d) origin/main`",
-            "5. `git merge --no-ff upstream/main`",
-            "6. Resolve conflicts, keep TokenKey companions/sentinels, run `./scripts/preflight.sh` and `make test`.",
-            "7. Open a `merge/upstream-*` PR. `upstream-merge-pr-shape.yml` is the shape gate.",
+            "1. Decide whether this batch is worth merging. Hotspot-heavy batches can wait.",
+            "2. `git fetch upstream && git fetch origin`",
+            "3. `git checkout -b merge/upstream-$(date -u +%Y%m%d) origin/main`",
+            "4. `git merge --no-ff upstream/main`",
+            "5. Resolve conflicts; keep TokenKey companions/sentinels; open `merge/upstream-*` PR.",
             "",
         ]
     ) + "\n"
@@ -209,6 +360,12 @@ def apply(
     label_warnings: list[str] = []
 
     if action in {"create", "update"}:
+        current_labels: set[str] = set()
+        previous_facts: dict[str, str] = {}
+        if action == "update" and primary is not None:
+            current_labels = set(host.list_labels(primary))
+            previous_facts = parse_facts_from_body(host.get_body(primary))
+        status = active_status_labels(current_labels)
         title = render_title(behind)
         body = render_body(
             drift=drift,
@@ -216,22 +373,55 @@ def apply(
             conflicts=conflicts,
             open_prs=open_prs,
             run_url=run_url,
+            status_labels=status,
         )
         if action == "create":
+            create_specs = [
+                spec for spec in LABEL_SPECS if spec[0] in {LABEL, AUTOMATED_LABEL}
+            ]
             create_labels: list[str] = []
             if isinstance(host, GhIssueHost):
-                create_labels = host.labels_ready_for_create(list(LABEL_SPECS))
+                create_labels = host.labels_ready_for_create(create_specs)
             else:
-                create_labels = [name for name, _, _ in LABEL_SPECS]
+                create_labels = [name for name, _, _ in create_specs]
             primary = host.create(title, body, create_labels or None)
+            current_labels = set(create_labels)
         else:
             assert primary is not None
             host.update(primary, title, body)
-            host.comment(primary, f"Refreshed by {run_url}: still {behind} commit(s) behind.")
+            host.comment(
+                primary,
+                render_refresh_comment(
+                    drift=drift,
+                    commits=commits,
+                    previous=previous_facts,
+                    run_url=run_url,
+                    status_labels=status,
+                ),
+            )
             for extra in existing[1:]:
                 host.close(extra, f"Duplicate of #{primary}.")
         if primary is not None:
-            label_warnings = host.attach_labels(primary, list(LABEL_SPECS))
+            # Ensure status label *definitions* exist; never force-add status labels onto the issue.
+            label_warnings = host.ensure_labels(list(LABEL_SPECS))
+            current_labels = set(host.list_labels(primary)) | current_labels
+            status = active_status_labels(current_labels)
+            if status:
+                # Human/Forge ownership: strip needed so Forge does not double-start.
+                if LABEL in current_labels:
+                    host.remove_labels(primary, [LABEL])
+                host.attach_labels(
+                    primary,
+                    [(AUTOMATED_LABEL, "C5DEF5", "Automated signal")],
+                )
+            else:
+                host.attach_labels(
+                    primary,
+                    [
+                        (LABEL, "D93F0B", "Forge-actionable: TokenKey is behind Wei-Shaw/sub2api"),
+                        (AUTOMATED_LABEL, "C5DEF5", "Automated signal"),
+                    ],
+                )
     elif action == "close":
         close_comment = (
             f"origin/main now contains upstream/main (`{drift.get('upstream_head') or ''}`). "
@@ -249,15 +439,21 @@ def apply(
             " A new `upstream-merge-needed` issue will open when TokenKey is behind upstream/main."
         )
     closed_legacy = []
-    for number in host.list_open(LEGACY_LABEL):
-        host.close(number, legacy_msg)
-        closed_legacy.append(number)
+    for legacy in LEGACY_LABELS:
+        for number in host.list_open(legacy):
+            host.close(number, legacy_msg)
+            closed_legacy.append(number)
 
     return {
         "action": action,
         "issue": primary,
         "closed_legacy": closed_legacy,
         "label_warnings": label_warnings,
+        "forge_actionable": forge_may_auto_start(
+            set(host.list_labels(primary)) if primary is not None else set()
+        )
+        if primary is not None
+        else False,
     }
 
 
@@ -345,13 +541,75 @@ class GhIssueHost:
         return int(match.group(1))
 
     def update(self, number: int, title: str, body: str) -> None:
-        self._run(["gh", "issue", "edit", str(number), "--title", title, "--body", body])
+        body_path = ""
+        try:
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
+                handle.write(body)
+                body_path = handle.name
+            self._run(
+                [
+                    "gh",
+                    "issue",
+                    "edit",
+                    str(number),
+                    "--title",
+                    title,
+                    "--body-file",
+                    body_path,
+                ]
+            )
+        finally:
+            if body_path:
+                Path(body_path).unlink(missing_ok=True)
 
     def comment(self, number: int, body: str) -> None:
-        self._run(["gh", "issue", "comment", str(number), "--body", body])
+        body_path = ""
+        try:
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
+                handle.write(body)
+                body_path = handle.name
+            self._run(["gh", "issue", "comment", str(number), "--body-file", body_path])
+        finally:
+            if body_path:
+                Path(body_path).unlink(missing_ok=True)
 
     def close(self, number: int, comment: str) -> None:
         self._run(["gh", "issue", "close", str(number), "--comment", comment])
+
+    def list_labels(self, number: int) -> set[str]:
+        raw = self._run(
+            [
+                "gh",
+                "issue",
+                "view",
+                str(number),
+                "--json",
+                "labels",
+                "--jq",
+                "[.labels[].name]",
+            ]
+        )
+        data = json.loads(raw or "[]")
+        return {str(item) for item in data}
+
+    def get_body(self, number: int) -> str:
+        return self._run(
+            ["gh", "issue", "view", str(number), "--json", "body", "--jq", ".body"]
+        )
+
+    def remove_labels(self, number: int, names: list[str]) -> None:
+        for name in names:
+            self._run(
+                ["gh", "issue", "edit", str(number), "--remove-label", name],
+                allow_failure=True,
+            )
+
+    def ensure_labels(self, specs: list[tuple[str, str, str]]) -> list[str]:
+        warnings: list[str] = []
+        for name, color, description in specs:
+            if not self.ensure_label(name, color, description):
+                warnings.append(f"could not ensure label {name!r}")
+        return warnings
 
     def _label_exists(self, name: str) -> bool:
         raw = self._run(
@@ -487,18 +745,24 @@ class MemoryHost:
         self,
         open_issues: dict[str, list[int]] | None = None,
         titles: dict[int, str] | None = None,
+        bodies: dict[int, str] | None = None,
+        issue_labels: dict[int, set[str]] | None = None,
         attach_fail: bool = False,
     ) -> None:
         self.open_issues = {key: list(value) for key, value in (open_issues or {}).items()}
         self.titles = dict(titles or {})
+        self.bodies = dict(bodies or {})
+        self.issue_labels = {key: set(value) for key, value in (issue_labels or {}).items()}
         for number in self.open_issues.get(LABEL, []):
             self.titles.setdefault(number, f"{TITLE_PREFIX} seeded #{number}")
-        self.created: list[tuple[str, str]] = []
+            self.issue_labels.setdefault(number, {LABEL, AUTOMATED_LABEL})
+        self.created: list[tuple[str, str, list[str]]] = []
         self.updated: list[tuple[int, str, str]] = []
         self.comments: list[tuple[int, str]] = []
         self.closed: list[tuple[int, str]] = []
         self.labels: list[str] = []
         self.attached: list[tuple[int, str]] = []
+        self.removed: list[tuple[int, str]] = []
         self.attach_fail = attach_fail
         self._next_number = 9000
 
@@ -514,14 +778,18 @@ class MemoryHost:
     def create(self, title: str, body: str, labels: list[str] | None = None) -> int:
         self._next_number += 1
         number = self._next_number
-        self.created.append((title, body, list(labels or [])))
+        ready = list(labels or [])
+        self.created.append((title, body, ready))
         self.titles[number] = title
+        self.bodies[number] = body
+        self.issue_labels[number] = set(ready)
         self.open_issues.setdefault(LABEL, []).append(number)
         return number
 
     def update(self, number: int, title: str, body: str) -> None:
         self.updated.append((number, title, body))
         self.titles[number] = title
+        self.bodies[number] = body
 
     def comment(self, number: int, body: str) -> None:
         self.comments.append((number, body))
@@ -532,12 +800,33 @@ class MemoryHost:
             if number in values:
                 values.remove(number)
 
-    def attach_labels(self, number: int, specs: list[tuple[str, str, str]]) -> list[str]:
+    def list_labels(self, number: int) -> set[str]:
+        return set(self.issue_labels.get(number, set()))
+
+    def get_body(self, number: int) -> str:
+        return self.bodies.get(number, "")
+
+    def remove_labels(self, number: int, names: list[str]) -> None:
+        current = self.issue_labels.setdefault(number, set())
+        for name in names:
+            current.discard(name)
+            self.removed.append((number, name))
+
+    def ensure_labels(self, specs: list[tuple[str, str, str]]) -> list[str]:
         if self.attach_fail:
             return [f"could not ensure label {name!r}" for name, _, _ in specs]
         for name, _, _ in specs:
             self.labels.append(name)
+        return []
+
+    def attach_labels(self, number: int, specs: list[tuple[str, str, str]]) -> list[str]:
+        if self.attach_fail:
+            return [f"could not ensure label {name!r}" for name, _, _ in specs]
+        current = self.issue_labels.setdefault(number, set())
+        for name, _, _ in specs:
+            self.labels.append(name)
             self.attached.append((number, name))
+            current.add(name)
         return []
 
 
@@ -591,6 +880,11 @@ def run_selftest() -> int:
     expect("body_has_conflict", "backend/internal/service/gateway.go" in body)
     expect("body_warns_leftover_pr", "Do not treat leftover" in body)
     expect("body_no_agent", "run-headless-agent" not in body)
+    expect("body_has_current_section", "## Current" in body)
+    expect("body_has_risk_scope", "## TokenKey risk scope" in body)
+    expect("body_has_routing_bucket", "**routing**" in body)
+    expect("body_omits_commit_dump", "aaaaaaa first" not in body)
+    expect("body_detection_only", "Detection only" in body)
     clean_body = render_body(
         drift={"behind": 1, "ahead": 0, "upstream_head": "a", "origin_head": "b"},
         commits=[],
@@ -599,6 +893,24 @@ def run_selftest() -> int:
         run_url="",
     )
     expect("body_clean_merge_tree", "none (clean merge-tree)" in clean_body)
+
+    risks = classify_conflict_risks(
+        [
+            "backend/internal/service/gateway.go",
+            "scripts/sentinels/gateway-tk.json",
+            "frontend/src/views/x.vue",
+            "docs/readme.md",
+        ]
+    )
+    expect("classify_routing", "backend/internal/service/gateway.go" in risks.get("routing", []))
+    expect("classify_sentinel", "scripts/sentinels/gateway-tk.json" in risks.get("sentinel", []))
+    expect("classify_frontend", "frontend/src/views/x.vue" in risks.get("frontend", []))
+    expect("classify_other", "docs/readme.md" in risks.get("other", []))
+    expect("forge_blocks_in_progress", not forge_may_auto_start({LABEL, LABEL_IN_PROGRESS}))
+    expect("forge_allows_needed_only", forge_may_auto_start({LABEL, AUTOMATED_LABEL}))
+    parsed = parse_facts_from_body(body)
+    expect("parse_behind", parsed.get("behind") == "4")
+    expect("parse_upstream", parsed.get("upstream_head") == "abc1234")
 
     created_host = MemoryHost(open_issues={LEGACY_LABEL: [1776]})
     created = apply(
@@ -613,10 +925,19 @@ def run_selftest() -> int:
     expect("apply_create_closes_legacy", created["closed_legacy"] == [1776])
     expect("apply_create_mentions_new_issue", any("See #9001" in comment for _, comment in created_host.closed))
 
-    updated_host = MemoryHost(open_issues={LABEL: [10, 11]})
+    updated_host = MemoryHost(
+        open_issues={LABEL: [10, 11]},
+        bodies={10: render_body(
+            drift={"behind": 9, "ahead": 0, "upstream_head": "oldup", "origin_head": "oldtk"},
+            commits=[],
+            conflicts=[],
+            open_prs=[],
+            run_url="https://example.test/run/old",
+        )},
+    )
     updated = apply(
         drift={"behind": 2, "ahead": 0, "upstream_head": "up", "origin_head": "tk"},
-        commits=["c1"],
+        commits=["c1 feat"],
         conflicts=[],
         open_prs=[],
         run_url="https://example.test/run/3",
@@ -624,6 +945,33 @@ def run_selftest() -> int:
     )
     expect("apply_update", updated["action"] == "update" and updated["issue"] == 10)
     expect("apply_update_closes_duplicate", any(number == 11 for number, _ in updated_host.closed))
+    expect("apply_update_overwrites_body", any("TokenKey behind: 2 commits" in body for _, _, body in updated_host.updated))
+    expect(
+        "apply_update_history_comment",
+        any("Behind changed: `9` → `2`" in comment and "c1 feat" in comment for _, comment in updated_host.comments),
+    )
+    expect("apply_update_forge_actionable", updated.get("forge_actionable") is True)
+
+    blocked_host = MemoryHost(
+        open_issues={LABEL: [20]},
+        issue_labels={20: {LABEL, AUTOMATED_LABEL, LABEL_IN_PROGRESS}},
+        bodies={20: "## Current\n\n- TokenKey behind: 3 commits\n"},
+    )
+    blocked = apply(
+        drift={"behind": 3, "ahead": 0, "upstream_head": "up", "origin_head": "tk"},
+        commits=["c2"],
+        conflicts=["backend/internal/service/billing.go"],
+        open_prs=[],
+        run_url="https://example.test/run/3b",
+        host=blocked_host,
+    )
+    expect("apply_update_strips_needed_when_in_progress", LABEL not in blocked_host.issue_labels[20])
+    expect("apply_update_keeps_in_progress", LABEL_IN_PROGRESS in blocked_host.issue_labels[20])
+    expect("apply_update_not_forge_actionable", blocked.get("forge_actionable") is False)
+    expect(
+        "apply_update_body_mentions_status",
+        any("upstream-merge-in-progress" in body for _, _, body in blocked_host.updated),
+    )
 
     closed_host = MemoryHost(open_issues={LABEL: [10]})
     closed = apply(
@@ -725,6 +1073,8 @@ def run_selftest() -> int:
         gh_calls.append(list(args))
         if args[:3] == ["gh", "issue", "create"]:
             return "https://github.com/youxuanxue/sub2api/issues/42"
+        if args[:3] == ["gh", "issue", "edit"]:
+            return ""
         if args[:3] == ["gh", "issue", "list"]:
             return "[]"
         if args[:3] == ["gh", "label", "list"]:
@@ -736,7 +1086,10 @@ def run_selftest() -> int:
     create_call = next(call for call in gh_calls if call[:3] == ["gh", "issue", "create"])
     expect("gh_create_returns_number", created_number == 42)
     expect("gh_create_uses_body_file", "--body-file" in create_call)
-    attach_warnings = gh_host.attach_labels(42, list(LABEL_SPECS))
+    gh_host.update(42, render_title(2), "fresh-body")
+    update_call = next(call for call in gh_calls if call[:3] == ["gh", "issue", "edit"] and "--body-file" in call)
+    expect("gh_update_uses_body_file", "--body-file" in update_call)
+    attach_warnings = gh_host.attach_labels(42, [(LABEL, "D93F0B", "x"), (AUTOMATED_LABEL, "C5DEF5", "y")])
     expect("gh_attach_warns_when_label_create_denied", bool(attach_warnings))
 
     repo_root = Path(__file__).resolve().parents[2]

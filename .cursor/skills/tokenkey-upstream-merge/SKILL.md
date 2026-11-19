@@ -10,7 +10,18 @@ description: >-
 
 ## 0. 流程心智
 
-周期 `.github/workflows/upstream-merge-notify.yml` 只探测并更新跟踪 issue，等人决定；不在 CI 自动 merge、创建 merge PR 或派 headless agent。获授权的合并由 Agent 按通用 SOP 执行，worktree 用 `git-worktree-submodule`。
+周期 `.github/workflows/upstream-merge-notify.yml` 只探测并**覆盖刷新**单一 sticky `[upstream-merge]` issue（正文=当前 SHA/落后数/冲突/开放 PR/TokenKey 风险范围；评论=历史快照）；不在 CI 自动 merge、创建 merge PR 或派 headless agent。
+
+标签约定（Forge 只对 `upstream-merge-needed` 自动开跑）：
+
+| 标签 | 含义 |
+|---|---|
+| `upstream-merge-needed` | 可自动开跑 |
+| `upstream-merge-in-progress` | 已有任务/PR 进行中 |
+| `upstream-merge-blocked` | 阻塞，勿重复开跑 |
+| `upstream-merge-ready` | merge PR 待人审/合 |
+
+开跑时去掉 `needed`、加上 `in-progress`。获授权的合并由 Agent 按通用 SOP 执行，worktree 用 `git-worktree-submodule`。
 
 ## 1. 不可逾越原则
 

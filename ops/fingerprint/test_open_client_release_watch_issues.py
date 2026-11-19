@@ -14,9 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from open_client_release_watch_issues import (
     LABEL_BOARD,
+    LABEL_DRIFT,
+    LABEL_IN_PROGRESS,
+    UMBRELLA_SKILL,
     _is_automated_legacy_drift_issue,
     board_body_path,
     build_board_body,
+    converge_board_labels,
     filename_safe,
     issue_body_path,
     sync_issues,
@@ -53,7 +57,7 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
             f"issue-{filename_safe('claude-code')}.md",
         )
 
-    def test_build_board_body_lists_drift_and_aligned(self) -> None:
+    def test_build_board_body_uses_umbrella_skill_and_platform_table(self) -> None:
         report = {
             "run_url": "https://example/run",
             "platforms": [
@@ -78,11 +82,14 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
             ],
         }
         body = build_board_body(report)
-        self.assertIn("## Current drift", body)
+        self.assertIn("## Platforms", body)
+        self.assertIn("| Client | Pin | Upstream | Drift | Evidence | Block |", body)
         self.assertIn("`claude-code`", body)
-        self.assertIn("tokenkey-cc-fingerprint-alignment", body)
-        self.assertIn("## Aligned / non-actionable", body)
-        self.assertIn("`codex`", body)
+        self.assertIn("release-metadata-only", body)
+        self.assertIn(UMBRELLA_SKILL, body)
+        self.assertNotIn("tokenkey-cc-fingerprint-alignment", body)
+        self.assertIn(f"`{LABEL_DRIFT}`", body)
+        self.assertIn("## When NOT to open a PR", body)
         self.assertIn("https://example/run", body)
 
     def test_sync_issues_returns_no_links_for_aligned_report(self) -> None:
@@ -106,6 +113,7 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
 
     def test_sync_issues_updates_existing_open_board_and_links_each_platform(self) -> None:
         report = _drift_report("claude-code", "gemini-cli")
+        label_state = {LABEL_BOARD}
 
         def fake_sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
             if args[:3] == ["gh", "issue", "list"] and LABEL_BOARD in args:
@@ -117,8 +125,16 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
                     ]),
                     stderr="",
                 )
-            if args[:3] == ["gh", "issue", "list"] and "client-release:drift" in args:
+            if args[:3] == ["gh", "issue", "list"] and LABEL_DRIFT in args:
                 return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+            if args[:3] == ["gh", "issue", "edit"] and "--add-label" in args:
+                label_state.add(args[args.index("--add-label") + 1])
+            if args[:3] == ["gh", "issue", "edit"] and "--remove-label" in args:
+                label_state.discard(args[args.index("--remove-label") + 1])
+            if args[:3] == ["gh", "issue", "view"] and "--jq" in args and "labels" in args:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=json.dumps(sorted(label_state)), stderr=""
+                )
             if args[:3] == ["gh", "issue", "view"]:
                 return subprocess.CompletedProcess(
                     args,
@@ -139,18 +155,20 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
                 self.assertEqual(link["number"], 4000)
                 self.assertEqual(link["status"], "updated")
                 self.assertTrue(link["board"])
+                self.assertTrue(link["forge_actionable"])
                 self.assertEqual(link["url"], "https://github.com/youxuanxue/sub2api/issues/4000")
             self.assertTrue((Path(tmp) / "issue-board.md").is_file())
 
     def test_sync_issues_creates_board_and_closes_legacy_per_platform(self) -> None:
         report = _drift_report("claude-code")
         calls: list[list[str]] = []
+        label_state: set[str] = set()
 
         def fake_sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
             calls.append(list(args))
             if args[:3] == ["gh", "issue", "list"] and LABEL_BOARD in args:
                 return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
-            if args[:3] == ["gh", "issue", "list"] and "client-release:drift" in args:
+            if args[:3] == ["gh", "issue", "list"] and LABEL_DRIFT in args:
                 return subprocess.CompletedProcess(
                     args,
                     0,
@@ -191,11 +209,23 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
                     stderr="",
                 )
             if args[:3] == ["gh", "issue", "create"]:
+                # Mirror create --label CSV into stateful label set.
+                if "--label" in args:
+                    for name in args[args.index("--label") + 1].split(","):
+                        label_state.add(name)
                 return subprocess.CompletedProcess(
                     args,
                     0,
                     stdout="https://github.com/youxuanxue/sub2api/issues/4400",
                     stderr="",
+                )
+            if args[:3] == ["gh", "issue", "edit"] and "--add-label" in args:
+                label_state.add(args[args.index("--add-label") + 1])
+            if args[:3] == ["gh", "issue", "edit"] and "--remove-label" in args:
+                label_state.discard(args[args.index("--remove-label") + 1])
+            if args[:3] == ["gh", "issue", "view"] and "--jq" in args and "labels" in args:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=json.dumps(sorted(label_state)), stderr=""
                 )
             if args[:3] == ["gh", "issue", "view"]:
                 return subprocess.CompletedProcess(
@@ -215,11 +245,13 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
         self.assertEqual(len(links), 1)
         self.assertEqual(links[0]["number"], 4400)
         self.assertEqual(links[0]["status"], "created")
+        self.assertTrue(links[0]["forge_actionable"])
         self.assertTrue(any(call[:4] == ["gh", "issue", "close", "3317"] for call in calls))
         self.assertTrue(any(call[:4] == ["gh", "issue", "close", "3318"] for call in calls))
         self.assertFalse(any(call[:4] == ["gh", "issue", "close", "3399"] for call in calls))
         create = next(call for call in calls if call[:3] == ["gh", "issue", "create"])
         self.assertIn(LABEL_BOARD, ",".join(create))
+        self.assertIn(LABEL_DRIFT, ",".join(create))
 
     def test_is_automated_legacy_drift_issue_requires_bot_markers(self) -> None:
         self.assertTrue(_is_automated_legacy_drift_issue({
@@ -242,9 +274,65 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
             LABEL_BOARD,
         }))
 
+    def test_sync_issues_disarms_drift_when_in_progress(self) -> None:
+        report = _drift_report("kiro-cli")
+        calls: list[list[str]] = []
+        label_state = {LABEL_BOARD, LABEL_DRIFT, LABEL_IN_PROGRESS}
+
+        def fake_sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+            calls.append(list(args))
+            if args[:3] == ["gh", "issue", "list"] and LABEL_BOARD in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout=json.dumps([
+                        {"number": 4100, "state": "OPEN", "updatedAt": "2026-11-18T00:00:00Z"},
+                    ]),
+                    stderr="",
+                )
+            if args[:3] == ["gh", "issue", "list"] and LABEL_DRIFT in args:
+                return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+            if args[:3] == ["gh", "issue", "edit"] and "--add-label" in args:
+                label_state.add(args[args.index("--add-label") + 1])
+            if args[:3] == ["gh", "issue", "edit"] and "--remove-label" in args:
+                label_state.discard(args[args.index("--remove-label") + 1])
+            if args[:3] == ["gh", "issue", "view"] and "--jq" in args and "labels" in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout=json.dumps(sorted(label_state)),
+                    stderr="",
+                )
+            if args[:3] == ["gh", "issue", "view"]:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout="https://github.com/youxuanxue/sub2api/issues/4100\n",
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp, \
+            patch("open_client_release_watch_issues.ensure_base_labels"), \
+            patch("open_client_release_watch_issues.ensure_label"), \
+            patch("open_client_release_watch_issues.sh", side_effect=fake_sh):
+            links = sync_issues(report, cache_dir=Path(tmp), umbrella=False)
+            self.assertEqual(links[0]["status"], "updated")
+            self.assertFalse(links[0]["forge_actionable"])
+            self.assertTrue(
+                any(
+                    call[:4] == ["gh", "issue", "edit", "4100"] and "--remove-label" in call and LABEL_DRIFT in call
+                    for call in calls
+                )
+            )
+            body = (Path(tmp) / "issue-board.md").read_text(encoding="utf-8")
+            self.assertIn(LABEL_IN_PROGRESS, body)
+            self.assertIn(UMBRELLA_SKILL, body)
+
     def test_sync_issues_reopens_closed_board_on_new_drift(self) -> None:
         report = _drift_report("kiro-cli")
         calls: list[list[str]] = []
+        label_state: set[str] = set()
 
         def fake_sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
             calls.append(list(args))
@@ -257,8 +345,16 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
                     ]),
                     stderr="",
                 )
-            if args[:3] == ["gh", "issue", "list"] and "client-release:drift" in args:
+            if args[:3] == ["gh", "issue", "list"] and LABEL_DRIFT in args:
                 return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+            if args[:3] == ["gh", "issue", "edit"] and "--add-label" in args:
+                label_state.add(args[args.index("--add-label") + 1])
+            if args[:3] == ["gh", "issue", "edit"] and "--remove-label" in args:
+                label_state.discard(args[args.index("--remove-label") + 1])
+            if args[:3] == ["gh", "issue", "view"] and "--jq" in args and "labels" in args:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=json.dumps(sorted(label_state)), stderr=""
+                )
             if args[:3] == ["gh", "issue", "view"]:
                 return subprocess.CompletedProcess(
                     args,
@@ -276,6 +372,38 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
 
         self.assertEqual(links[0]["status"], "reopened")
         self.assertTrue(any(call[:3] == ["gh", "issue", "reopen"] and "4100" in call for call in calls))
+
+    def test_converge_board_labels_rereads_after_failed_add(self) -> None:
+        """R-001: check=False edit failures must not inflate forge_actionable."""
+        label_state = {LABEL_BOARD}
+
+        def fake_sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+            if args[:3] == ["gh", "issue", "edit"] and "--add-label" in args:
+                name = args[args.index("--add-label") + 1]
+                # Simulate GitHub rejecting drift arm while identity labels succeed.
+                if name == LABEL_DRIFT:
+                    return subprocess.CompletedProcess(args, 1, stdout="", stderr="denied")
+                label_state.add(name)
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["gh", "issue", "edit"] and "--remove-label" in args:
+                label_state.discard(args[args.index("--remove-label") + 1])
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["gh", "issue", "view"] and "--jq" in args and "labels" in args:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=json.dumps(sorted(label_state)), stderr=""
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        with patch("open_client_release_watch_issues.sh", side_effect=fake_sh):
+            result = converge_board_labels(
+                "5000",
+                umbrella=True,
+                drifting=True,
+                current={LABEL_BOARD},
+            )
+
+        self.assertNotIn(LABEL_DRIFT, result)
+        self.assertIn(LABEL_BOARD, result)
 
     def test_sync_issues_closes_open_board_when_aligned(self) -> None:
         report = {
@@ -303,8 +431,12 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
                     ]),
                     stderr="",
                 )
-            if args[:3] == ["gh", "issue", "list"] and "client-release:drift" in args:
+            if args[:3] == ["gh", "issue", "list"] and LABEL_DRIFT in args:
                 return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+            if args[:3] == ["gh", "issue", "view"] and "--jq" in args and "labels" in args:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=json.dumps([LABEL_BOARD, LABEL_DRIFT, "needs-triage"]), stderr=""
+                )
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
         with tempfile.TemporaryDirectory() as tmp, \
@@ -315,6 +447,12 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
 
         self.assertEqual(links, [])
         self.assertTrue(any(call[:4] == ["gh", "issue", "close", "4200"] for call in calls))
+        self.assertTrue(
+            any(
+                call[:4] == ["gh", "issue", "edit", "4200"] and "--remove-label" in call and LABEL_DRIFT in call
+                for call in calls
+            )
+        )
 
 
 if __name__ == "__main__":
