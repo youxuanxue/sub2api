@@ -445,13 +445,22 @@ func TestVolcKimiVideoURLPreflight(t *testing.T) {
 	})
 
 	t.Run("inline and supplier schemes skip the fetch", func(t *testing.T) {
-		for _, rawURL := range []string{"data:video/mp4;base64,AAAA", "ms://video-1"} {
+		largeData := "data:video/mp4;base64," + strings.Repeat("A", ((volcKimiMinDataVideoBytes+2)/3)*4)
+		for _, rawURL := range []string{largeData, "ms://video-1"} {
 			body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"` + rawURL + `"}}]}]}`)
 			got, err := applyMoonshotThinkingShape(nil, account, "kimi-k3", body)
 			require.NoError(t, err)
 			require.Equal(t, rawURL, gjson.GetBytes(got, "messages.0.content.0.video_url.url").String())
 		}
-		for _, rawURL := range []string{"", "data:video/mp4;base64,", "http://127.0.0.1/secret.mp4", "http://169.254.169.254/latest/meta-data"} {
+		for _, rawURL := range []string{
+			"",
+			"data:video/mp4;base64,",
+			"data:video/mp4;base64,AAAA",
+			"data:text/plain;base64," + strings.Repeat("A", ((volcKimiMinDataVideoBytes+2)/3)*4),
+			"data:video/mp4," + strings.Repeat("A", volcKimiMinDataVideoBytes),
+			"http://127.0.0.1/secret.mp4",
+			"http://169.254.169.254/latest/meta-data",
+		} {
 			body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"` + rawURL + `"}}]}]}`)
 			_, err := applyMoonshotThinkingShape(nil, account, "kimi-k3", body)
 			var invalid *OpenAIInvalidParameterError
@@ -576,6 +585,10 @@ func TestVolcKimiContentPartCompatibility(t *testing.T) {
 	dropped, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"secret"},{"type":"text","text":"hi"},{"type":"reasoning_text","text":"raw"}]},{"role":"user","content":"next"}]}`))
 	require.NoError(t, err)
 	require.JSONEq(t, `[{"type":"text","text":"hi"}]`, gjson.GetBytes(dropped, "messages.0.content").Raw)
+
+	cacheBreakpoint, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"system","content":"sys"},{"role":"user","content":[{"type":"text","text":"hi"},{"type":"prompt_cache_breakpoint"}]}]}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"type":"text","text":"hi"}]`, gjson.GetBytes(cacheBreakpoint, "messages.1.content").Raw)
 
 	onlyReasoning, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"x"}]},{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)

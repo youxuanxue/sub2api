@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。); feng (2026-11-18 conversation: 同意。继续。 — Volc thinking-on 时把合法非 1 temperature 改写为 1); feng (2026-11-18 conversation: deepseek-v4-flash-0731 退役旧模型，不做任何动作。Kimi/Volc：可做的网关修复（对齐 KVV），同意建议的修复，请逐个修复。复审。)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。); feng (2026-11-18 conversation: 同意。继续。 — Volc thinking-on 时把合法非 1 temperature 改写为 1); feng (2026-11-18 conversation: deepseek-v4-flash-0731 退役旧模型，不做任何动作。Kimi/Volc：可做的网关修复（对齐 KVV），同意建议的修复，请逐个修复。复审。); feng (2026-11-19 conversation: 同意。继续。 — drop prompt_cache_breakpoint; tighten data: video local 400; keep long tool_call_id trajectories unchanged)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -168,9 +168,13 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   service can access. A string `video_url` (Moonshot documents it as
   equivalent to `video_url.url`) is rewritten to `{"url": ...}`; Volc returned
   400 "expected an object" for the string form (cn-prod 2026-11-05 user 2).
-  Inline `data:` payloads, supplier schemes such as
-  `ms://`, and URLs the preflight can read are still forwarded. Do not strip
-  video parts. A body that exceeds the context window is not truncated.
+  Inline `data:` payloads that look like a real `video/*` base64 video
+  (decoded size ≥ 256 bytes), supplier schemes such as `ms://`, and URLs the
+  preflight can read are still forwarded. Empty, non-video MIME, invalid
+  base64, or undersized `data:` placeholders become the same local
+  `invalid_parameter` / `messages.content` as an unreachable http(s) URL.
+  Do not strip video parts. A body that exceeds the context window is not
+  truncated.
 
 ## Validation and rollout
 
@@ -186,7 +190,8 @@ allowed tools, definition ordering and malformed/mixed envelopes.
 customer dispatcher and admin probes for streaming and buffered calls.
 `TestVolcKimiVideoURLPreflight` and `TestVolcKimiHTTPVideoProbe` check that an
 unreachable `video_url` becomes the local parameter error, while a readable
-URL, an inline data URL and a non-Volc request keep the video part.
+URL, a sufficiently large inline `video/*` data URL and a non-Volc request keep
+the video part. Undersized / non-video `data:` placeholders are local 400.
 Existing Moonshot and provider
 tool constraint tests must still pass. The gateway sentinel registry anchors the
 supplier owner, selected-account routing and these regression tests.
@@ -470,9 +475,10 @@ KVV-aligned gateway recommendations; leave `deepseek-v4-flash-0731` retired
 
 Behavior (same owner `normalizeVolcKimiInboundMessages`):
 
-- Drop `messages.content` parts with `type` `thinking` or `reasoning_text`.
-  They add no deliverable input; Volc rejects the type enum. Top-level
-  `thinking.type` / `reasoning_effort` are unchanged.
+- Drop `messages.content` parts with `type` `thinking`, `reasoning_text`, or
+  (from 2026-11-19) `prompt_cache_breakpoint`. They add no deliverable input;
+  Volc rejects the type enum. Top-level `thinking.type` / `reasoning_effort`
+  are unchanged.
 - Rewrite `type=video` to `type=video_url` when a URL is present
   (`video_url` string/object, `video.url`, or bare `url`). Unreachable
   http(s) URLs still hit `rejectUnreachableVolcKimiVideoURLs`. Do not strip
@@ -495,3 +501,30 @@ Deferred (needs direct Volc sanitize→200 evidence before shipping): recursive
 
 Tests: `TestVolcKimiContentPartCompatibility`,
 `TestVolcKimiInboundMessageShapes` (parallel interleaved case).
+
+## 2026-11-19: prompt_cache_breakpoint drop + data: video local gate
+
+Evidence: cn-prod kimi final 400 after `v1.8.385` cutover
+(`2026-11-19T03:00Z`). Residual buckets on `rt@tk.com` / key 4 include
+`prompt_cache_breakpoint` content types and unnamed `InvalidParameter` on
+tiny `data:` `video_url` placeholders (url_len≈182, AAAA…). User decision
+2026-11-19: implement the KVV-aligned recommendations (drop cache marker;
+tighten data video; leave long `tool_call_id is not found` trajectories
+unchanged — no truncation, no orphan→user rewrite).
+
+Behavior:
+
+- Drop `messages.content` parts with `type` `prompt_cache_breakpoint` in the
+  same owner as `thinking` / `reasoning_text` (`dropVolcKimiReasoningContentParts`).
+- `defaultProbeVolcKimiVideoURL` / `validateVolcKimiDataVideoURL`: inline
+  `data:` URLs must be `video/*`, `;base64`, decodable, and ≥ 256 decoded
+  bytes. Failures become local `invalid_parameter` /
+  `messages.content` with `volcKimiVideoUnreachableMessage`. Do not strip the
+  video part. Supplier schemes such as `ms://` and reachable http(s) stay as
+  before.
+- Long, locally valid tool trajectories that still draw Volc
+  `tool_call_id is not found` are unchanged (KVV: no context truncation; orphan
+  tool messages stay 400, not rewritten).
+
+Tests: `TestVolcKimiContentPartCompatibility` (cache breakpoint),
+`TestVolcKimiVideoURLPreflight` (undersized / non-video / non-base64 data).
