@@ -1,9 +1,10 @@
-# 腾讯美西 prod · LUKS 自动解锁验收方案
+# 腾讯美西 prod · LUKS 自动解锁验收方案（已取消）
 
-状态：**方案，未执行**。契约与硬门禁仍以 [`tencent-unlock-contract.md`](tencent-unlock-contract.md) 为准：
-禁止拿现网整机重启做验收、禁止把密钥写回加密盘或未加密根盘。
+状态：**已取消（2026-11-19）**。prod `app-old` 已明文根盘接流，用户授权缩短 §3.5 观察窗后完成 X1–X4（载体/COS 钥/vault/unlock 销毁）；现网不再有 LUKS 数据面，本方案**不得再执行、不得再申请演练机或 IAM**。权威退役说明：[`tencent-unlock-contract.md`](tencent-unlock-contract.md)、[`docs/decisions/decided.md`](../decisions/decided.md)。
 
-## 1. 现网只读事实（2026-10-22，`run-probe.sh --target prod`）
+以下正文仅保留 2026-10-22 切流期考古材料。
+
+## 1. 历史只读事实（2026-10-22，`run-probe.sh --target prod`）
 
 | 项 | 实况 | 对方案的影响 |
 |---|---|---|
