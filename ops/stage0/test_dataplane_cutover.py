@@ -32,6 +32,7 @@ def stub_bin(directory: pathlib.Path, *, app_db_host: str = "tokenkey-postgres",
             case "$all" in
               *State.Running*) case "$name" in tokenkey-blue|tokenkey-postgres|tokenkey-redis) echo true ;; *) exit 1 ;; esac ;;
               *State.Health.Status*) echo healthy ;;
+              *Mounts*) echo bind:true ;;
               *Config.Env*) printf 'DATABASE_HOST={app_db_host}\\nDATABASE_PASSWORD=pw\\nREDIS_PASSWORD=rpw\\n' ;;
               *) exit 0 ;;
             esac ;;
@@ -44,6 +45,7 @@ def stub_bin(directory: pathlib.Path, *, app_db_host: str = "tokenkey-postgres",
               *pg_stat_activity*) echo 0 ;;
               *"show restore_command"*) echo "pgbackrest --repo=2 archive-get" ;;
               *show\\ *) echo x ;;
+              *"INFO server"*) echo config_file:/data/tokenkey-redis.conf ;;
               *PING*) echo PONG ;;
               *"INFO replication"*) printf 'role:slave\\nmaster_link_status:up\\nslave_repl_offset:5\\n' ;;
               *"CONFIG GET maxmemory-policy"*) printf 'maxmemory-policy\\nnoeviction\\n' ;;
@@ -162,6 +164,14 @@ class DataMachineTest(unittest.TestCase):
 
     def test_check_is_read_only(self) -> None:
         _, calls = run(DATA, self.dir, SITE="prod")
+        for write in WRITES:
+            self.assertNotIn(write, calls)
+
+    def test_prepare_redis_refuses_an_existing_server(self) -> None:
+        proc, calls = run(DATA, self.dir, SITE="prod", PHASE="prepare-redis",
+                          TK_DATAPLANE_CONFIRM="prepare-redis-prod-10.4.0.3")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("only for a fresh replica", proc.stderr)
         for write in WRITES:
             self.assertNotIn(write, calls)
 

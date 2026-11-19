@@ -3,12 +3,13 @@
 #
 # Design: docs/approved/design-data-plane-split.md §每站实施步骤 / 5. 停写窗口.
 # Runs ON the data machine (TAT RunCommand / SSM). The app-host side is
-# ops/stage0/dataplane-cutover-app.sh; it calls the two write phases below in
-# order, inside the approved window.
+# ops/stage0/dataplane-cutover-app.sh. Prepare the fresh replica before the
+# window; finish follows the approved cutover.
 #
 # Phases (PHASE=...):
 #   check    read-only (default). Standby replays WAL, Redis replica is linked,
 #            settings match the approved parameter table. Safe any time.
+#   prepare-redis WRITE, fresh replica host only: install the durable entrypoint.
 #   finish   WRITE, after the window. Reset postgresql.auto.conf leftovers,
 #            create pg_stat_statements, force one WAL switch and prove the new
 #            primary archives to COS.
@@ -22,6 +23,12 @@
 # Exit: 0 ok; 2 precondition failed (nothing changed); 3 failed after a write
 # started; 64 refused (confirm missing or wrong).
 set -euo pipefail
+
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/redis-promotion.sh" ] && break
+done
+# shellcheck source=../lib/redis-promotion.sh
+. "$_tk_lib/redis-promotion.sh"
 
 PHASE="${PHASE:-check}"
 SITE="${SITE:?SITE must be prod or cn-prod}"
@@ -88,6 +95,8 @@ phase_check() {
   # to ~10 min of commit time; anything older means archive-get is stuck.
   if [ "$lag" -lt 0 ] || [ "$lag" -gt "${MAX_REPLAY_LAG_S:-900}" ]; then echo "  FAIL replay lag ${lag}s"; fail=1; fi
   check_settings || fail=1
+  tk_redis_persistence_check rc || fail=1
+  tk_redis_startup_check "$REDIS" || fail=1
   link="$(redis_field master_link_status)"; policy="$(rc CONFIG GET maxmemory-policy | tail -1)"
   echo "  redis role=$(redis_field role) link=$link offset=$(redis_field slave_repl_offset) policy=$policy"
   [ "$(redis_field role)" = slave ] || { echo "  FAIL redis is not a replica"; fail=1; }
@@ -103,10 +112,29 @@ require_confirm() {
   [ "${TK_DATAPLANE_CONFIRM:-}" = "$want" ] || { echo "REFUSED: TK_DATAPLANE_CONFIRM must be $want" >&2; exit 64; }
 }
 
+phase_prepare_redis() {
+  require_confirm prepare-redis
+  # Provisioning only: never replace or restart an existing data Redis, even
+  # when it is stopped. A nonempty data directory is not a fresh replica.
+  if docker inspect "$REDIS" >/dev/null 2>&1; then die "Redis container exists; prepare-redis is only for a fresh replica"; fi
+  if [ -d /var/lib/tokenkey/redis ] && [ -n "$(ls -A /var/lib/tokenkey/redis)" ]; then
+    die "Redis data already exists; refusing replica bootstrap"
+  fi
+  local entrypoint="$(dirname "${BASH_SOURCE[0]}")/dataplane-redis-entrypoint.sh"
+  [ -f "$entrypoint" ] || die "Redis entrypoint companion missing"
+  install -d -m 700 /etc/tokenkey/redis-runtime
+  install -m 700 "$entrypoint" /etc/tokenkey/redis-runtime/entrypoint.sh
+  echo "RESULT Redis entrypoint prepared; mount /etc/tokenkey/redis-runtime/entrypoint.sh read-only at /runtime-entrypoint.sh when creating the new replica"
+}
+
 phase_finish() {
   local before after i
   require_confirm finish
   [ "$(q 'select pg_is_in_recovery()')" = f ] || die "postgres is still a standby; the window has not promoted it"
+  tk_redis_persistence_check rc && tk_redis_startup_check "$REDIS" || die "Redis persistence precondition failed"
+  [ "$(redis_field role)" = master ] || die "Redis is not a primary"
+  [ "$(rc CONFIG GET replicaof | tail -1)" = "" ] || die "Redis replicaof must be empty"
+  tk_redis_rewrite rc || die "Redis primary configuration was not saved" 3
   # postgresql.auto.conf carries the old primary's ALTER SYSTEM values and the
   # pgBackRest restore block. Command-line -c already wins; reset leaves one source.
   q "alter system reset all" >/dev/null
@@ -135,6 +163,7 @@ check_settings_primary() {
 
 case "$PHASE" in
   check) phase_check ;;
+  prepare-redis) phase_prepare_redis ;;
   finish) phase_finish ;;
-  *) die "unknown PHASE=$PHASE (check|finish)" ;;
+  *) die "unknown PHASE=$PHASE (check|prepare-redis|finish)" ;;
 esac
