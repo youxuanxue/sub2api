@@ -111,7 +111,7 @@ class CoveragePlanTest(unittest.TestCase):
             watch.tick_jobs(
                 ['tokenkey-qa-coordinator'], state, 1120,
                 lambda _: fact, sent.append, 'prod-data')
-            self.assertIn('运维处理：node1 无法连接', sent[-1])
+            self.assertIn('运维处理：node1 网络异常', sent[-1])
             self.assertIn('prod-data/tokenkey-qa-coordinator', sent[-1])
             self.assertNotIn('service failed: exit-code', sent[-1])
 
@@ -527,8 +527,9 @@ class HostJobWatchTest(unittest.TestCase):
         }
         state = watch.tick_jobs(["tokenkey-qa-archive"], {}, 1000, bad_node1, sent.append)
         watch.tick_jobs(["tokenkey-qa-archive"], state, 1120, bad_node1, sent.append)
-        self.assertIn("运维处理：node1 无法连接", sent[-1])
+        self.assertIn("运维处理：node1 网络异常", sent[-1])
         self.assertIn("责任方：运维", sent[-1])
+        self.assertIn("SSH jump", sent[-1])
 
         sent.clear()
         bad_gateway = lambda _: {

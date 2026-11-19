@@ -173,6 +173,30 @@ class RunnerTest(unittest.TestCase):
             written = json.loads((Path(directory) / 'state' / 'last-run.json').read_text())
             self.assertEqual(written['failure_class'], 'node1_unreachable')
 
+    def test_archive_transfer_timeout_is_ops_node1_network(self):
+        # Observed on prod-app-old: jump→node1 ~0.3–0.4 MiB/s; wall clock hits
+        # remote.timeout while SSH is still up. Owner must be 运维, not gateway QA.
+        # Only the node1_remote-named transfer timeout is ops; bare
+        # "timed out after" (seal/digest/DB hangs) stays gateway.
+        named = "node1 transfer timed out after 3600 seconds (SSH/jump path slow or stuck)"
+        wrapped = '{"ok": false, "error": "%s"}' % named
+        self.assertEqual(host.archive_error_failure_class(named), 'node1_unreachable')
+        self.assertEqual(host.archive_error_failure_class(wrapped), 'node1_unreachable')
+        self.assertEqual(
+            host.archive_error_failure_class('seal digest mismatch'),
+            'gateway_qa_archive_failed',
+        )
+        self.assertEqual(
+            host.archive_error_failure_class(
+                'digest compute timed out after 200 seconds'),
+            'gateway_qa_archive_failed',
+        )
+        self.assertEqual(
+            host.archive_error_failure_class(
+                "Command '['ssh', '-T', 'source']' timed out after 3900 seconds"),
+            'gateway_qa_archive_failed',
+        )
+
 
 class InstallerTest(unittest.TestCase):
     def test_plan_does_not_write_units_or_enable_timers(self):
