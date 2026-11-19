@@ -180,6 +180,20 @@ class DataLayerArchiveRehearsalTest(unittest.TestCase):
             rehearsal.restore_random(batch, self.target, seed=7)
         self.assertFalse(self.target.exists())
 
+    def test_retired_prod_export_canary_modes_fail_closed(self) -> None:
+        sealed = self._seal()
+        batch = pathlib.Path(sealed["batch_dir"])
+        manifest_path = batch / "manifest.json"
+        for mode in ("prod_archive_export_canary", "prod_archive_export_batch"):
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            payload["mode"] = mode
+            manifest_path.write_text(
+                json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(rehearsal.RehearsalError, "retired 2026-11-19"):
+                rehearsal.verify_batch(batch)
+
     def test_us037_random_restore_is_verified_and_idempotent(self) -> None:
         sealed = self._seal()
         source_before = _file_sha(self.source)
