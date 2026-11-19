@@ -240,7 +240,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 
 | 类别 | 状态 | 动作 |
 |---|---|---|
-| SSM Hybrid / OIDC / Parameter Store | **禁新增**；OIDC→SSM workflow 已抽壳/拒绝（`oidc_ssm_workflow_paths=[]`）；SecureString 已 C5 | 日常 warm+rolling+`run-probe`/`ssm_execution` 默认 TAT。allowlist `ssm_remote_paths` 仅剩 break-glass SendCommand owner `ops/stage0/ssm_execution.py`（隔离恢复等调用方走该 owner，不再各自占位）。Hybrid/OIDC **角色注销**另批。门牙见 `ops/tencent-ops/`；清单 [design-tencent-ops-closeout](../../docs/approved/design-tencent-ops-closeout.md) |
+| SSM Hybrid / OIDC / Parameter Store | **禁新增**；OIDC→SSM workflow 已抽壳/拒绝（`oidc_ssm_workflow_paths=[]`）；SecureString 已 C5 | 日常 warm+rolling+`run-probe`/`ssm_execution` 默认 TAT。allowlist `ssm_remote_paths` 仅剩 break-glass SendCommand owner `ops/stage0/ssm_execution.py`。**新增或替换 Hybrid 主机时**须把新 `mi-*` 写入栈外 inline `tokenkey-lightsail-edge-addon` 的 `SendCommand`（现含 prod/cn-prod 入口、应用、数据机等），否则 CI 发版/诊断与 break-glass 会被拒；策略备份在操作者本机 `~/.local/state/tokenkey-iam-backups/`，不进 git。Hybrid/OIDC **角色注销**另批。门牙见 `ops/tencent-ops/`；清单 [design-tencent-ops-closeout](../../docs/approved/design-tencent-ops-closeout.md) |
 | Oregon 保留计算 | **必须留** | 2026-11-17：prod `or-1..4` 合计 124 live accounts；cn-prod 无 Oregon 行 |
 | 旧 physical-backup CFN/S3 | **已清** | 2026-11 核对 `DELETE_COMPLETE` / `HeadBucket` 404 |
 | Tokyo EC2 / `aws-fresh` | **已清** | resolver 失败关闭 |
