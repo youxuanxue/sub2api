@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -263,11 +264,12 @@ const (
 )
 
 // dropVolcKimiReasoningContentParts removes messages.content parts whose type is
-// thinking or reasoning_text. Volc Agent Plan only accepts text / image_url /
-// video_url / file (and rejects those types with InvalidParameter). Clients
-// often replay prior reasoning blocks into history; the parts carry no
-// deliverable user input, so dropping them keeps meaning (same posture as
-// empty text parts). Top-level thinking.type / reasoning_effort are unchanged.
+// thinking, reasoning_text, or prompt_cache_breakpoint. Volc Agent Plan only
+// accepts text / image_url / video_url / file (and rejects those types with
+// InvalidParameter). Clients often replay prior reasoning or cache markers into
+// history; the parts carry no deliverable user input, so dropping them keeps
+// meaning (same posture as empty text parts). Top-level thinking.type /
+// reasoning_effort are unchanged.
 func dropVolcKimiReasoningContentParts(body []byte) ([]byte, error) {
 	shaped := body
 	var err error
@@ -306,7 +308,7 @@ func dropVolcKimiReasoningContentParts(body []byte) ([]byte, error) {
 
 func volcKimiReasoningContentPart(part gjson.Result) bool {
 	switch strings.ToLower(strings.TrimSpace(part.Get("type").String())) {
-	case "thinking", "reasoning_text":
+	case "thinking", "reasoning_text", "prompt_cache_breakpoint":
 		return true
 	default:
 		return false
@@ -494,9 +496,10 @@ func wrapVolcKimiStringVideoURLs(body []byte) ([]byte, error) {
 
 func volcKimiContentPartType(kind string) bool {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "text", "image_url", "video_url", "video", "input_audio", "audio_url", "file", "thinking", "reasoning_text":
-		// video / thinking / reasoning_text / audio_* are recognized so a lone
-		// object content is wrapped into a part array before drop/rewrite/reject.
+	case "text", "image_url", "video_url", "video", "input_audio", "audio_url", "file", "thinking", "reasoning_text", "prompt_cache_breakpoint":
+		// video / thinking / reasoning_text / prompt_cache_breakpoint / audio_*
+		// are recognized so a lone object content is wrapped into a part array
+		// before drop/rewrite/reject.
 		return true
 	default:
 		return false
@@ -505,15 +508,22 @@ func volcKimiContentPartType(kind string) bool {
 
 const volcKimiVideoUnreachableMessage = "video_url is not reachable; provide a video URL this service can access"
 
+// volcKimiMinDataVideoBytes is the minimum decoded payload size for an inline
+// data: video_url. Tiny placeholders (cn-prod 2026-11-19: url_len≈182 AAAA…)
+// pass the previous non-empty check then draw Volc's unnamed InvalidParameter;
+// real inline videos are larger. Do not strip the part — local 400 only.
+const volcKimiMinDataVideoBytes = 256
+
 // probeVolcKimiVideoURL reports whether one video_url can be read. Tests replace
 // it; production uses a public-client HEAD so private and link-local targets are
 // refused before dial.
 var probeVolcKimiVideoURL = defaultProbeVolcKimiVideoURL
 
 // rejectUnreachableVolcKimiVideoURLs turns a video_url the service cannot read
-// into a field-level 400. Reachable http(s) URLs and inline data URLs are left
-// for the supplier. This avoids Volc's unnamed InvalidParameter when the URL
-// itself cannot be fetched.
+// into a field-level 400. Reachable http(s) URLs and inline data URLs that look
+// like a real video/* base64 payload are left for the supplier. Empty, non-video
+// MIME, invalid base64, or undersized data: payloads become the same local
+// parameter error as an unreachable http(s) URL — never silently stripped.
 func rejectUnreachableVolcKimiVideoURLs(ctx context.Context, body []byte) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -572,11 +582,7 @@ func defaultProbeVolcKimiVideoURL(ctx context.Context, raw string) error {
 		return fmt.Errorf("empty video_url")
 	}
 	if strings.HasPrefix(strings.ToLower(raw), "data:") {
-		_, payload, ok := strings.Cut(raw, ",")
-		if !ok || strings.TrimSpace(payload) == "" {
-			return fmt.Errorf("empty data video_url")
-		}
-		return nil
+		return validateVolcKimiDataVideoURL(raw)
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Hostname() == "" {
@@ -594,6 +600,48 @@ func defaultProbeVolcKimiVideoURL(ctx context.Context, raw string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	return probeVolcKimiHTTPVideo(ctx, httpclient.NewPublicClient(5*time.Second), raw)
+}
+
+// validateVolcKimiDataVideoURL accepts only video/* base64 data URIs whose
+// decoded payload meets volcKimiMinDataVideoBytes. Placeholder or non-video
+// data URIs are refused locally so Volc does not return an unnamed
+// InvalidParameter; the content part itself is not stripped.
+func validateVolcKimiDataVideoURL(raw string) error {
+	meta, payload, ok := strings.Cut(raw, ",")
+	if !ok || strings.TrimSpace(payload) == "" {
+		return fmt.Errorf("empty data video_url")
+	}
+	metaLower := strings.ToLower(strings.TrimSpace(meta))
+	if !strings.HasPrefix(metaLower, "data:") {
+		return fmt.Errorf("invalid data video_url")
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(metaLower, "data:"))
+	mediaType, paramPart, _ := strings.Cut(rest, ";")
+	mediaType = strings.TrimSpace(mediaType)
+	if !strings.HasPrefix(mediaType, "video/") {
+		return fmt.Errorf("data video_url mime must be video/*")
+	}
+	isBase64 := false
+	for _, param := range strings.Split(paramPart, ";") {
+		if strings.TrimSpace(param) == "base64" {
+			isBase64 = true
+			break
+		}
+	}
+	if !isBase64 {
+		return fmt.Errorf("data video_url must be base64")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(payload))
+	if err != nil {
+		decoded, err = base64.RawStdEncoding.DecodeString(strings.TrimSpace(payload))
+		if err != nil {
+			return fmt.Errorf("data video_url is not valid base64")
+		}
+	}
+	if len(decoded) < volcKimiMinDataVideoBytes {
+		return fmt.Errorf("data video_url payload too small")
+	}
+	return nil
 }
 
 // probeVolcKimiHTTPVideo checks one already-classified public http(s) URL.
