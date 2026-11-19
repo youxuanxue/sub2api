@@ -1,14 +1,17 @@
 ---
 title: TokenKey upstream merge 2026-11-18 isolation and migration scope
-status: draft
-approved_by: pending
+status: shipped
+approved_by: "youxuanxue (PR #3303 merge approval)"
+approved_at: 2026-11-19
+related_prs: [3303]
+related_commits: [203d85ef534621986b3b3377bf20b007553e9775]
 authors: [codex]
 created: 2026-11-18
 ---
 
 # 2026-11-18 上游隔离合并范围
 
-本次用户调用 `$tokenkey-upstream-merge`，授权按技能完成隔离分支上的上游合并、冲突裁决与验证。本文记录待最终审核的迁移与行为边界；主线合并、生产部署、线上迁移、模型激活和价格发布另行确认。
+本次用户调用 `$tokenkey-upstream-merge`，授权按技能完成隔离分支上的上游合并、冲突裁决与验证。实现已由 `youxuanxue` 于 2026-11-19 03:09:31 UTC 合并 PR #3303，合并提交为 `203d85ef534621986b3b3377bf20b007553e9775`；本文随之作为已合入实现的迁移与行为边界审计记录。审批字段依据该次人工合并，不追认合并前已有设计审批，也不授权生产部署、线上迁移、模型激活或价格发布；这些动作仍需各自确认。
 
 固定 fork 基线为 `d581b62cb6fa68c12e1cd4c8521c02b76492f5ba`，上游目标为 `9e9ca6fe95d3d20ca9d099b0c681e336e8d812c4`，共同祖先为 `530c5e3a4f9c73ca2b0881191d0ef8e0d82c5484`。实际合并与最终审计使用这组 SHA，保持上游 ancestry。
 
