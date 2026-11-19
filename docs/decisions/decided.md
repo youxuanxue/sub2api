@@ -19,7 +19,7 @@
 适用范围：
 1. QA 归档 SSOT = 本地 24h + 数据机 `tokenkey-qa-coordinator` → node1；**不恢复** QA raw S3 上传，不为此改 Hybrid/桶策略/`DenyLightsailEdgeRole`。
 2. `data_layer_archive_*` 生产 archive canary（绑旧 EC2/`PROD_CANARY_*`）**不再迁腾讯、不再执行**；库级保护以 COS pgBackRest full+WAL（+ `cos_restore_acceptance`）为准。
-3. 切流清单对应项作废，见 `docs/ops/tencent-cutover-checklist.md` 与 `docs/decisions/declined.md`。
+3. 对应不作项见 `docs/decisions/declined.md`（切流清单已关闭）。
 
 ## 2026-11-19 LUKS X1–X4 提前收尾 + 销毁到期压测机
 

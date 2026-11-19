@@ -4,22 +4,20 @@
 现网身份只从[基础设施入口](../../deploy/hetzner/README.md)和 resolver 取得。
 生产物理备份已启用，并已完成真实 S3 最新点和历史同点全量/增量恢复验收。
 用户已同意停用旧 pgdump、保留数据至少 30 天；执行与脚本清单见 [pgdump-retirement.md](pgdump-retirement.md)。
-新机/腾讯云隔离演练见 [迁机工作流](pgbackrest-host-migration.md)。
-腾讯美西恢复演练路线、快照与配置离机缺口见 [隔离恢复方案](../../docs/ops/tencent-isolated-restore-plan.md)。
+新机恢复见 [迁机工作流](pgbackrest-host-migration.md)。不做整机/卷快照常备策略，不做 AWS 临时机隔离演练（见 [`declined.md`](../../docs/decisions/declined.md)）。入口证书离机包见 `ops/archive/README.md`。
 
-## 现网（腾讯美西，2026-10-22 起）
+## 现网（腾讯美西）
 
 | 项目 | 实况 |
 |---|---|
-| 主机 | 腾讯 Lighthouse `VM-0-16-ubuntu`，**amd64**，SSM Hybrid（id 见候选矩阵） |
-| PG | 容器 `tk-archive-standby`（非 compose，别名 `postgres`/`tokenkey-postgres`），amd64 镜像，PG 18.6 / pgBackRest 2.58.0 |
-| 数据 | `/srv/tokenkey-rehearsal/standby-pg`，位于 LUKS mapper `tokenkey_recovery`；无 EBS、无 DLM、无整机快照 |
-| 活链 | 2026-11-08 起仅 COS `repo2` `/prod/postgres`；`tencent_backup_identity.py` 每分钟用 COS 凭据渲染 tmpfs 配置。AWS `candidates/tencent-usw-20261022/postgres`（timeline 2）停写保留 |
-| 操作入口 | 宿主 `tencent_pgbackrest.py backup|check`（仓库 SSOT `deploy/tencent/tencent_pgbackrest.py`，宿主副本不随合并更新；无 accept/verify/status）；timer 同名 `tokenkey-postgres-{backup,archive-check}` |
-| 已知偏差 | 运行时 `archive_timeout=0`（基线 300），待审批修正 |
+| 主机 | 数据机 Lighthouse（矩阵 `node=data`），**amd64**；日常远程 TAT，Hybrid 仅 break-glass |
+| PG / Redis | 数据机容器（别名 `postgres`/`redis`）；PG 18.x / pgBackRest；Redis AOF |
+| 数据目录 | 明文根盘业务路径（LUKS 已退役）；无 EBS/DLM；**不做**整机/卷常备快照 |
+| 活链 | COS `repo2` `/prod/postgres`；`tencent_backup_identity.py` 渲染配置。东京 timeline 1 前缀只读 |
+| 操作入口 | 宿主 `tencent_pgbackrest.py backup|check`（仓库 SSOT `deploy/tencent/tencent_pgbackrest.py`）；timer `tokenkey-postgres-{backup,archive-check}`；验收 `ops/backup/cos_restore_acceptance.py` |
 
-`prod/postgres` 是 Tokyo timeline 1 的冻结只读链；不得写入，也不作为恢复默认。
-本文以下"固定配置""初次上线顺序"描述的是 Tokyo 时期（arm64、EC2、EBS）的已执行基线，标注为**历史**。
+`prod/postgres`（Tokyo timeline 1）冻结只读；不得写入，也不作为恢复默认。
+下文「固定配置」「初次上线顺序」是 Tokyo 期基线，标注为**历史**，勿当现网步骤。
 
 ## 固定配置与成本边界（历史：Tokyo 基线）
 
@@ -30,7 +28,7 @@
 | 归档 | archive_mode=on，archive_timeout=300；同步 archive-push；5 分钟一次往返及连续性检查 |
 | 清理 | 专用 S3 桶，us-east-1；pgBackRest 按时间保留至少 7 天所需链；S3 仅清未完成 multipart |
 | 并发 | 备份 2，恢复 4；与现有 pgdump 共用 QA host.lock；物理备份拿独占锁，避免争用 |
-| 恢复资源 | 显式批准的子网/区域内独立临时机：arm64→c7g.xlarge，amd64→c7i.xlarge；100 GiB 加密 gp3，无入站端口；只读仓库角色；完成即终止，2 小时自动关机/终止兜底。腾讯现网推荐路线见隔离恢复方案 |
+| 恢复资源（历史 AWS canary） | 显式批准的子网/区域内独立临时机：arm64→c7g.xlarge，amd64→c7i.xlarge；100 GiB 加密 gp3；完成即终止。现网迁机不走此路径，见 `pgbackrest-host-migration.md` |
 | 开销 | 首次验收临时机预算上限 $5；每次硬时限 2 小时。S3 流量依实际 WAL 量结算（腾讯→us-east-1 为公网上传） |
 
 容量按「窗口边界所需全量 + 后续增量 + 连续 WAL + 新全量暂时重叠」计算，不用 84 份文件估算。
@@ -157,8 +155,7 @@ python3 ops/stage0/run_physical_restore.py --region "$RESTORE_REGION" \
   --profile "$RESTORE_PROFILE" --receipt /tmp/restore-receipt.json --apply
 ```
 
-子网须为显式批准的 EC2 `subnet-*`（见 `docs/ops/tencent-isolated-restore-plan.md`），
-不能从腾讯 `mi-*` 推导。活库验收探针走 TAT（无 SecureString）：
+子网须为显式批准的 EC2 `subnet-*`，不能从腾讯 `mi-*` 推导（该脚本仅 AWS 临时验收机；现网迁机见 `pgbackrest-host-migration.md`）。活库验收探针走 TAT（无 SecureString）：
 
 ```bash
 bash ops/observability/run-probe.sh --target prod --node data --via tat \

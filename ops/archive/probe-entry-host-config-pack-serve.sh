@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Pack plaintext entry host-config and leave a one-shot private-IP HTTP listener
-# so prod-data can curl the tar (entry has no cos-archive.env / aws CLI).
+# so the site data machine can curl the tar (entry has no archive upload CLI).
 #
 #   TK_HOST_CONFIG_SERVE=1 bash ops/observability/run-probe.sh \
-#     --target prod --node entry \
-#     --script ops/archive/probe-entry-host-config-pack-serve.sh
+#     --target prod|cn-prod --node entry \
+#     --script ops/archive/probe-entry-host-config-pack-serve.sh \
+#     --env TK_HOST_CONFIG_SITE=prod|cn-prod
 #
 # Exits immediately after binding; listener serves one GET then deletes the tar.
 set -euo pipefail
@@ -14,6 +15,13 @@ if [ "${TK_HOST_CONFIG_SERVE:-}" != "1" ]; then
   exit 64
 fi
 
+SITE="${TK_HOST_CONFIG_SITE:-prod}"
+case "$SITE" in
+  prod) LABEL="${TK_HOST_CONFIG_LABEL:-prod-entry}" ;;
+  cn-prod) LABEL="${TK_HOST_CONFIG_LABEL:-cn-prod-entry}" ;;
+  *) echo "{\"ok\":false,\"reason\":\"unsupported site $SITE\"}"; exit 64 ;;
+esac
+
 ROOT="${TK_ENTRY_HOST_ROOT:-/var/lib/tokenkey}"
 PACK="/tmp/pack_entry_host_config.py"
 [ -f "$PACK" ] || PACK="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pack_entry_host_config.py"
@@ -21,20 +29,19 @@ PACK="/tmp/pack_entry_host_config.py"
 
 PRIV_IP="$(ip -4 -o addr show scope global | awk '{print $4}' | head -1 | cut -d/ -f1)"
 [ -n "$PRIV_IP" ] || { echo '{"ok":false,"reason":"no private ipv4"}'; exit 2; }
-# 8765 matches prior temp vault-pull firewall pattern on entry.
 PORT="${TK_HOST_CONFIG_PORT:-8765}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-OUT="/var/lib/tokenkey/host-config-pending/prod-entry-${STAMP}.tar.gz"
-mkdir -p "$(dirname "$OUT")"
-chmod 700 "$(dirname "$OUT")"
+PENDING="$ROOT/host-config-pending"
+OUT="$PENDING/${LABEL}-${STAMP}.tar.gz"
+mkdir -p "$PENDING"
+chmod 700 "$PENDING"
 
 export TK_ENTRY_HOST_ROOT="$ROOT"
-python3 "$PACK" pack --site prod --out "$OUT" >/var/lib/tokenkey/host-config-pending/last-pack.json
+python3 "$PACK" pack --site "$SITE" --out "$OUT" >"$PENDING/last-pack.json"
 SHA="$(python3 -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$OUT")"
 BYTES="$(wc -c <"$OUT" | tr -d ' ')"
 
-# Bind private IP only. One GET then exit and unlink the tar.
-nohup python3 - "$PRIV_IP" "$PORT" "$OUT" >/var/lib/tokenkey/host-config-pending/serve.log 2>&1 <<'PY' &
+nohup python3 - "$PRIV_IP" "$PORT" "$OUT" >"$PENDING/serve.log" 2>&1 <<'PY' &
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -70,7 +77,9 @@ python3 - <<PY
 import json
 print(json.dumps({
   "ok": True,
-  "url": "http://${PRIV_IP}:${PORT}/prod-entry.tar.gz",
+  "site": "${SITE}",
+  "label": "${LABEL}",
+  "url": "http://${PRIV_IP}:${PORT}/${LABEL}.tar.gz",
   "private_ip": "${PRIV_IP}",
   "port": int("${PORT}"),
   "sha256": "${SHA}",

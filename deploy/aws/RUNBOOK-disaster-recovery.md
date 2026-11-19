@@ -22,14 +22,13 @@ python3 ops/stage0/resolve_prod_ssm_target.py --target auto --format json
 
 | 资产 | 来源与边界 |
 |---|---|
-| PostgreSQL、Redis、Caddy 与主机配置 | 腾讯系统盘上的 LUKS mapper（双挂 `/var/lib/tokenkey`、`/srv/tokenkey-rehearsal`）；解锁见 [unlock 契约](../../docs/ops/tencent-unlock-contract.md) |
-| 全盘恢复点 | **当前无**（腾讯机无 EBS/DLM；快照策略为开放项）。Tokyo 已退役，快照已全部删除；Tokyo 期数据库只在 S3 `prod/postgres` 历史链 |
-| 数据库主备份 | pgBackRest 全量/增量/WAL；整 cluster 含账本、usage 和索引；恢复到新盘后校验 |
-| 历史逻辑备份 | 私有 S3 pgdump 已进入退役保留；核对所选文件实际覆盖与时间，旧备份可能不含 usage 明细 |
-| 已退役节点的历史库 | [独立 S3 冻结归档](../../docs/ops/aws-retirement-20261017.md)，用于运营回查，不覆盖在线库 |
-| 密钥与环境配置 | 当前卷及受保护的 SSM/恢复材料；按真实备份来源核对，旧路径名称不等于无用 |
-| Redis | 用户已选 AOF everysec；恢复时核对实际持久化配置与数据，不能假定所有 Redis 状态均可丢弃 |
-| QA raw | 历史不迁；S3 上传当前暂停，按 [QA 恢复分界](../../ops/qa/README.md#生产存储与恢复分界)处理 |
+| PostgreSQL | pgBackRest 全量/增量/WAL → COS；恢复到**新盘**后校验，禁止覆盖活库 |
+| Redis | AOF everysec；迁机可新建，不保证会话/限流状态可回放 |
+| 入口 TLS / Caddy 材料 | COS `prod/host-config/` 明文 tar.gz（见 `ops/archive/README.md`）；应用/数据机全量 `.env` **不**打包 |
+| 整机/卷快照 | **不做**常备策略（见 [`declined.md`](../../docs/decisions/declined.md)） |
+| Tokyo 历史库 | S3 `prod/postgres` timeline 1 只读；禁止写回 |
+| 历史逻辑备份 | 旧 pgdump 退役保留期内可回查；可能不含 usage 明细 |
+| QA raw | 本地 24h + node1；不恢复 S3 上传（见 declined） |
 
 实际 RPO 由远端连续可恢复 WAL 与成功备份链决定，不能只用最新对象时间。
 当前验收与缺口见 [物理备份](../../ops/stage0/physical-backup.md)；恢复后仍须核对账务与明细，
