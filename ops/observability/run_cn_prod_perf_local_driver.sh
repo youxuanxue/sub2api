@@ -2,11 +2,12 @@
 # Historical local driver (2026-11-17 200/400 formal run): sources TK_FULLTEST_KEY
 # and SSM-delivers pool perf onto cn-prod **app-a** (same host as the gateway).
 #
-# Prefer the dedicated Beijing loadtest CVM for new capacity runs (especially
-# 600/800): app-host client contaminates CPU/loadavg and contradicts
-# docs/decisions/decided.md + deploy/domestic/README.md (ins-7ltl2zv3,
-# expire_after=2026-11-19). Keep this script for replaying the app-host method
-# only. Never echo the key. Live traffic requires APPROVE below.
+# Prefer a dedicated Beijing loadtest CVM for new capacity runs (especially
+# 600/800): app-host client contaminates CPU/loadavg. Historical temp client
+# ins-7ltl2zv3 (expire_after=2026-11-19) was terminated 2026-11-19 — see
+# docs/decisions/decided.md + deploy/domestic/README.md. Keep this script for
+# replaying the app-host method only. Never echo the key. Live traffic requires
+# APPROVE below.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"

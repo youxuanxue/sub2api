@@ -6,7 +6,7 @@ approved_at: 2026-11-15
 risk: high
 authors: [agent]
 created_at: 2026-11-15
-revised: 2026-11-15（复审修复后用户批准；恢复 §3.5/§3.6；显式废止并行替换文档 HA 入口验收；补证书离机备份契约）；2026-11-18（阶段 D L1–L8 完成后与舰队 SSOT 对齐：cand 升配 4C8G、入口 WRR 1:1；L8 后 volume_platform=tencent-root，载体销毁仍待 §3.5/X1；见 decided.md）
+revised: 2026-11-15（复审修复后用户批准；恢复 §3.5/§3.6；显式废止并行替换文档 HA 入口验收；补证书离机备份契约）；2026-11-18（阶段 D L1–L8 完成后与舰队 SSOT 对齐：cand 升配 4C8G、入口 WRR 1:1；L8 后 volume_platform=tencent-root）；2026-11-19（用户授权缩短观察窗，X1–X4 完成；见 decided.md）
 ---
 
 # 美西 prod 入口机 + 双应用机，旧应用机脱离 LUKS
@@ -232,7 +232,7 @@ PG：稳态约 75；滚动时一台摘流，无双色重叠。旧机脱离 LUKS 
 
 先删密钥会在载体仍在时造成永久丢数；载体销毁后再删密钥。
 
-**卷契约时序（2026-11-18 修订）**：L8 明文根盘接流后即可把 `candidate-usw-20261022.json` 的 `volume_platform` 改为 `tencent-root`（并保留 `luks_carrier_retained` 指向载体路径）——部署/解锁路径必须反映现网，不能等到 X1。X1 完成后另开文档 PR 清理 unlock contract、data-plane-split 相关节，并删除 `luks_carrier_retained`。
+**卷契约时序（2026-11-18 修订；2026-11-19 收尾）**：L8 后矩阵已为 `tencent-root`。2026-11-19 用户授权提前 X1–X4：载体/COS 钥/操作员 vault/unlock 单元已删，矩阵去掉 `luks_carrier_retained`；`tencent-unlock-contract.md` 标退役。
 
 ## 4. 切流与回退（用户无感）
 

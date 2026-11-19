@@ -6,9 +6,14 @@ Owner skill：[`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-r
 
 状态：**维护窗已执行（2026-10-22）**；Docker Root **例外保留**；网关已恢复。  
 回执（主机）：`/var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json`  
-探针/执行器：`ops/stage0/probe-tencent-layout-prep.sh`、`ops/stage0/apply-tencent-layout-window.sh`（仅显式 `APPLY=…`）。
+探针/执行器（2026-10-22 布局窗历史入口；现网已明文根盘，勿当活路径再跑 APPLY）：
+`ops/stage0/probe-tencent-layout-prep.sh`、
+`ops/stage0/probe-tencent-layout-find-compose.sh`、
+`ops/stage0/probe-tencent-layout-capture-recipe.sh`、
+`ops/stage0/probe-tencent-layout-window-preflight.sh`、
+`ops/stage0/apply-tencent-layout-window.sh`（仅显式 `APPLY=…`）。
 
-关联：[unlock 契约](../../docs/ops/tencent-unlock-contract.md)、[切流清单](../../docs/ops/tencent-cutover-checklist.md)、[舰队 SSOT](../hetzner/README.md)。
+关联：[unlock 契约（已退役）](../../docs/ops/tencent-unlock-contract.md)、[切流清单](../../docs/ops/tencent-cutover-checklist.md)、[舰队 SSOT](../hetzner/README.md)。
 
 ## 默认例外路径（发版前置 · plan 即写入）
 

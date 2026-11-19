@@ -3,7 +3,7 @@
 状态：**已完成**（2026-10-23）。Tokyo 实例、栈、VPC、卷、EIP 均已删除；OIDC 已 retarget 到美西 `mi-080ed76dc6d97d8b5`；最终快照与 jp 代理快照也已删除；**唯一留存为 S3 历史链 `prod/postgres`（timeline 1，仅数据库）**。下文为执行时的步骤记录。
 舰队事实只在 [舰队 SSOT](../../deploy/hetzner/README.md)；现网身份与宿主 watcher owner 为
 [`deploy/tencent/candidate-usw-20261022.json`](../../deploy/tencent/candidate-usw-20261022.json) 的 `target` / `host_watch`。
-LUKS 自动解锁另见 [方案](tencent-luks-autounlock-plan.md)。
+LUKS 路径已于 2026-11-19 X1–X4 退役，见 [`tencent-unlock-contract.md`](tencent-unlock-contract.md)。
 
 每步标注：**[可逆]** 可原样恢复；**[不可逆]** 删除后无法恢复；**[审批]** 须用户在对话里明确批准该步（批准不跨步）。
 
@@ -160,4 +160,4 @@ apply **[可逆·审批]**：同一命令加 `--apply`。效果：新建内容�
 2. ~~腾讯续费方案~~：2026-10-22 用户决定月自动续费，已改 `NOTIFY_AND_AUTO_RENEW`。
 3. ~~Tokyo 退役~~：已完成（2026-10-23 仓库清理、删栈、删卷、OIDC retarget）。
 4. ~~`jp-*` 关停~~：已完成（2026-10-23 删机、释放静态 IP，最终快照随后删除）。
-5. LUKS 演练预算（见 [方案](tencent-luks-autounlock-plan.md)）。
+5. ~~LUKS 演练预算~~：作废（2026-11-19 X1–X4 已销毁载体/钥，无自动解锁验收）。
