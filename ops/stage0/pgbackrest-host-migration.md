@@ -7,7 +7,7 @@
 **当前交接：[腾讯迁机交接](../../docs/ops/tencent-migration-handoff.md）。**  
 **状态（2026-10-23）：腾讯美西已在服（timeline 2）；Tokyo 已退役删除；出口已迁 `usw-eval*`。**  
 切流踩坑与 verify 门禁见 skill [`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-replacement/SKILL.md) 与 [playbook](../../.cursor/skills/tokenkey-host-replacement/references/playbook.md)。  
-剩余：≥7 天后东京退役、JP Lightsail 关停、LUKS 自动解锁验收。飞书宿主告警（`tokenkey-https-watch.timer`）已接腾讯机。  
+Tokyo / JP Lightsail / LUKS 路径均已收尾（2026-11-19 X1–X4）。飞书宿主告警（`tokenkey-https-watch.timer`）已接腾讯机。  
 **规划纪律：** 新机从 `plan` 起按正式迁机终态一次写清（布局/控制面/备份告警/DNS/出口/SSOT），与 cutover **同窗**收口；禁止切后再开多轮返工停机。
 
 ## 当前可用能力与边界
@@ -140,7 +140,7 @@ Redis 默认新建；若会话/幂等功能有持久需求，按其 owner 单独
 - **Stage0 布局**：从 **plan/prepare** 起按「切流结束即可 `deploy-stage0`」设计；与 cutover **同窗**落地（默认例外路径：不搬 Docker Root、PG/Redis 别名）。见 [`stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md) / skill `tokenkey-host-replacement`。**禁止**规划迁机完成后的第二次布局停机。
 - **宿主存储契约**：`bluegreen_host_runtime.py` 默认 `--platform=tencent-luks`；拒绝 Hetzner volume 身份。
 - **备份身份**：候选前缀 `candidates/tencent-usw-20261022/postgres` 为活链；`RuntimeDirectoryPreserve=yes`；飞书宿主告警已接（`tokenkey-https-watch.timer`，见舰队 SSOT）。
-- **密钥与启动**：LUKS 异机托管已落盘；自动解锁未验收——**禁止现网整机重启试验**。
+- **密钥与启动**：LUKS 已退役（2026-11-19 X1–X4）；现网明文根盘，见 [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
 - **出口代理**：账号已迁 `usw-eval*`；日本 Lightsail 已于 2026-10-23 删除。
 
 ## 历史：切流前最短停写清单（2026-10-22 已执行）
