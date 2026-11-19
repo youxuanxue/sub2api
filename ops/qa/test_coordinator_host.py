@@ -176,15 +176,24 @@ class RunnerTest(unittest.TestCase):
     def test_archive_transfer_timeout_is_ops_node1_network(self):
         # Observed on prod-app-old: jump→node1 ~0.3–0.4 MiB/s; wall clock hits
         # remote.timeout while SSH is still up. Owner must be 运维, not gateway QA.
-        timeout_err = (
-            "{\"ok\": false, \"error\": \"Command '['ssh', '-o', 'BatchMode=yes', "
-            "'root@10.10.2.11', 'bash', '-c', '...']' timed out after 1500 seconds\"}"
-        )
+        # Only the node1_remote-named transfer timeout is ops; bare
+        # "timed out after" (seal/digest/DB hangs) stays gateway.
         named = "node1 transfer timed out after 3600 seconds (SSH/jump path slow or stuck)"
-        self.assertEqual(host.archive_error_failure_class(timeout_err), 'node1_unreachable')
+        wrapped = '{"ok": false, "error": "%s"}' % named
         self.assertEqual(host.archive_error_failure_class(named), 'node1_unreachable')
+        self.assertEqual(host.archive_error_failure_class(wrapped), 'node1_unreachable')
         self.assertEqual(
             host.archive_error_failure_class('seal digest mismatch'),
+            'gateway_qa_archive_failed',
+        )
+        self.assertEqual(
+            host.archive_error_failure_class(
+                'digest compute timed out after 200 seconds'),
+            'gateway_qa_archive_failed',
+        )
+        self.assertEqual(
+            host.archive_error_failure_class(
+                "Command '['ssh', '-T', 'source']' timed out after 3900 seconds"),
             'gateway_qa_archive_failed',
         )
 

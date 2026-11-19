@@ -91,6 +91,8 @@ def archive_error_failure_class(error: str) -> str:
     # remote.timeout while still connected.
     markers = (
         "node1 capacity probe failed",
+        # Raised by node1_remote.push_directory on TimeoutExpired — do not
+        # use a bare "timed out after" (would mis-page seal/DB hangs to ops).
         "node1 transfer timed out",
         "connection timed out during banner exchange",
         "connection to unknown port",
@@ -99,7 +101,6 @@ def archive_error_failure_class(error: str) -> str:
         "connection refused",
         "permission denied (publickey)",
         "host key verification failed",
-        "timed out after",
     )
     if any(marker in text for marker in markers):
         return "node1_unreachable"
