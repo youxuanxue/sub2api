@@ -63,13 +63,14 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Open or update drift tracking issues
+      - name: Sync sticky client-release drift board
         if: inputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          # One sticky board issue (label client-release:board); rewrite body each run.
+          # Closes automated legacy per-platform drift tickets only. Work unit = alignment PR.
           python3 ops/fingerprint/open_client_release_watch_issues.py \
             --umbrella \
             --links-json .cache/fingerprint/client-release-watch/links.json
