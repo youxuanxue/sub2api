@@ -269,38 +269,28 @@ def converge_board_labels(
     drifting: bool,
     current: set[str],
 ) -> set[str]:
-    """Apply Forge-safe label convergence; return resulting label set."""
+    """Apply Forge-safe label convergence; return labels re-read from GitHub."""
     labels = set(current)
     for name in identity_labels(umbrella=umbrella):
-        labels.add(name)
         sh(["gh", "issue", "edit", number, "--add-label", name], check=False)
 
-    agent_status = sorted(labels & AGENT_STATUS_LABELS)
     if drifting:
         sh(["gh", "issue", "edit", number, "--remove-label", LABEL_ALIGNED], check=False)
-        labels.discard(LABEL_ALIGNED)
         if LABEL_BLOCKED in labels:
             sh(["gh", "issue", "edit", number, "--add-label", LABEL_NEEDS_TRIAGE], check=False)
             sh(["gh", "issue", "edit", number, "--remove-label", LABEL_DRIFT], check=False)
-            labels.add(LABEL_NEEDS_TRIAGE)
-            labels.discard(LABEL_DRIFT)
         elif LABEL_IN_PROGRESS in labels:
             for name in (LABEL_DRIFT, LABEL_NEEDS_TRIAGE):
                 sh(["gh", "issue", "edit", number, "--remove-label", name], check=False)
-                labels.discard(name)
         else:
             sh(["gh", "issue", "edit", number, "--add-label", LABEL_DRIFT], check=False)
             sh(["gh", "issue", "edit", number, "--remove-label", LABEL_NEEDS_TRIAGE], check=False)
-            labels.add(LABEL_DRIFT)
-            labels.discard(LABEL_NEEDS_TRIAGE)
     else:
         sh(["gh", "issue", "edit", number, "--add-label", LABEL_ALIGNED], check=False)
-        labels.add(LABEL_ALIGNED)
         for name in (LABEL_DRIFT, LABEL_NEEDS_TRIAGE, LABEL_IN_PROGRESS, LABEL_BLOCKED):
             sh(["gh", "issue", "edit", number, "--remove-label", name], check=False)
-            labels.discard(name)
-    _ = agent_status
-    return labels
+    # Ground-truth for forge_actionable must come from GitHub, not optimistic local sets.
+    return list_issue_labels(number)
 
 
 _RESERVED_CLIENT_RELEASE_LABELS = {
