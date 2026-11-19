@@ -1,5 +1,12 @@
 # 已决定
 
+## 2026-11-19 NVIDIA Build mapping 仅保留 kimi-k3.1-pro
+
+原话：「把 nvidia相关的账号的 model_mapping 改一下，只保留到 kimi-k3.1-pro的映射。」
+
+适用范围：prod 全部 `integrate.api.nvidia.com` 账号（nvidia-build-* / uk2-nvidia-build-*）。证据：上游 kimi-k3/glm-5.3 410 EOL；glm-5.3-flash chat 超时；kimi-k3.1-pro 直连 200。SSOT：`nvidiaBuildModelTargets` + `tk_served_models.json` nvidia scope + bundle；live 经 `apply-accounts`。
+
+
 ## 2026-11-19 入口证书离机备份：明文进 COS，不做操作员 RSA
 
 原话：「不要加密，直接放 cos 呢？之前出现本机坏了，导致 luks 解密不了的问题。这个也是有风险的。」「确认。」

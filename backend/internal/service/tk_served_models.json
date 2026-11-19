@@ -109,10 +109,6 @@
       "channel_type": 25,
       "scopes": [
         {
-          "channel_type": 1,
-          "base_url": "https://integrate.api.nvidia.com"
-        },
-        {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
         }
@@ -121,6 +117,10 @@
     "kimi-k3.1-pro": {
       "display": true,
       "scopes": [
+        {
+          "channel_type": 1,
+          "base_url": "https://integrate.api.nvidia.com"
+        },
         {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
@@ -531,10 +531,6 @@
       "display": true,
       "scopes": [
         {
-          "channel_type": 1,
-          "base_url": "https://integrate.api.nvidia.com"
-        },
-        {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
         },
@@ -938,10 +934,6 @@
     "glm-5.3-flash": {
       "display": true,
       "scopes": [
-        {
-          "channel_type": 1,
-          "base_url": "https://integrate.api.nvidia.com"
-        },
         {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
