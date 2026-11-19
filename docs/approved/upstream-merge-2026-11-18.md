@@ -89,3 +89,5 @@ Grok 搜索用例迁移：上游 fixture 为 `/v1/messages` 直接注入 Respons
 二次 review 补充：拒绝 upstream 的 scheduler stale grace。原 TokenKey `MaxAgeBoundsUnversionedWrites` 要求快照到 10 秒时本次读取即重读，上游将该断言改为 eventually 并额外复用旧值 20 秒，削弱了旧实例/未推进修订号写入的兜底时效。恢复原立即更新断言与 10 秒硬上限，补充过期重读失败不得返回旧值、并发过期读取共享一次加载且全部等待新值的回归；保留 singleflight、未变母本复用和 last_used 缓存优化。版本号变更仍立即重读。同步去除两个 Anthropic compat 转发入口因 token 轮换合并遗留的重复 body defer Close。
 
 二次 review 主线同步：纳入 `8100cd4f5`（Volc Kimi thinking-on 合法非 1 temperature 规范为 1）与 `42e02dccc`（SSM SendCommand 统一进入 ssm_execution、缩减历史 allowlist）。这些是主线已交付契约，不恢复被主线移除的旧运维入口。
+
+二次 review 最终主线基线固定为 `fc6fbd031b1732e36641adb05bb8037017e40fcd`：保留后续主线 AG 公网图代下/SSRF 防护、Kimi content-part/open tool-round、Qwen4 映射、指纹与现网运维记录。gateway sentinel 冲突取并集；前端源码指纹从合并后的实际源重建。此次冻结基线后的主线推进由 ancestry CI 明示，不用删除新增特性消除冲突。

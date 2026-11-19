@@ -72,16 +72,21 @@ func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 //     tools). Names are not dropped so the request can continue;
 //   - a string video_url becomes {"url": ...} (2026-11-05);
 //   - a text part with text "" is dropped (2026-11-06);
+//   - thinking / reasoning_text content parts are dropped (2026-11-18);
+//   - type=video is rewritten to video_url when a URL is present (2026-11-18);
+//   - audio_url / input_audio parts return 400 (Volc kimi cannot deliver them);
 //   - an assistant text message inserted between assistant.tool_calls and the
-//     matching tool result(s) is dropped (2026-11-17 cn-prod tokensea_online);
+//     matching tool result(s) is dropped (2026-11-17 cn-prod tokensea_online;
+//     2026-11-18 also drops assistant text between parallel tool results);
 //   - a message whose content is JSON null is rewritten to "" (2026-11-18
 //     cn-prod rt@tk.com). Volc returns missing `messages.content` for null;
 //     empty string is accepted. Dynamic-tool system messages with null content
 //     are promoted earlier and never reach this rewrite.
 //
-// Matched tool results, string content, and content-part arrays are unchanged.
-// Video parts are not stripped. Reachability is a separate preflight:
-// rejectUnreachableVolcKimiVideoURLs.
+// Matched tool results, string content, and content-part arrays are unchanged
+// except for the rewrites above. Reachable video parts are not stripped.
+// Reachability is a separate preflight: rejectUnreachableVolcKimiVideoURLs.
+// Orphan tool messages stay 400 (KVV 2026-11-13); they are not rewritten.
 func normalizeVolcKimiInboundMessages(body []byte) ([]byte, error) {
 	shaped, err := coerceVolcKimiNullMessageContent(body)
 	if err != nil {
@@ -103,12 +108,15 @@ func normalizeVolcKimiInboundMessages(body []byte) ([]byte, error) {
 }
 
 // dropVolcKimiInterleavedAssistantText removes assistant messages that have no
-// tool_calls and sit between an assistant.tool_calls turn and the next
-// non-(assistant-without-tool_calls) message. Volc Agent Plan rejects that
-// order with a generic InvalidParameter 400 (cn-prod 2026-11-17, user 2
-// tokensea_online Claude-Code-style trajectories). Live ablation: dropping
-// those interleaved turns recovered 200; tool schemas alone were not the
-// cause. Ordinary assistant text outside a tool round-trip is kept.
+// tool_calls while a tool round-trip is still open: after assistant.tool_calls
+// until every id from that turn has a matching tool result. Volc Agent Plan
+// rejects that order with InvalidParameter / tool_call_id is not found
+// (cn-prod 2026-11-17/18, tokensea_online Claude-Code-style trajectories).
+// Live ablation: dropping those interleaved turns recovered 200; tool schemas
+// alone were not the cause. Parallel tool results may have assistant text
+// between them — those turns are dropped too. Ordinary assistant text outside
+// an open tool round-trip is kept. user/system messages end the open round
+// without being dropped. Orphan tool ids stay a separate 400.
 func dropVolcKimiInterleavedAssistantText(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
@@ -120,22 +128,34 @@ func dropVolcKimiInterleavedAssistantText(body []byte) ([]byte, error) {
 	}
 	kept := make([]json.RawMessage, 0, len(arr))
 	changed := false
-	for i := 0; i < len(arr); i++ {
+	for i := 0; i < len(arr); {
 		msg := arr[i]
-		kept = append(kept, json.RawMessage(msg.Raw))
 		if !volcKimiAssistantWithToolCalls(msg) {
+			kept = append(kept, json.RawMessage(msg.Raw))
+			i++
 			continue
 		}
-		for i+1 < len(arr) {
-			nxt := arr[i+1]
-			if !strings.EqualFold(nxt.Get("role").String(), "assistant") {
-				break
+		kept = append(kept, json.RawMessage(msg.Raw))
+		pending := volcKimiToolCallIDs(msg)
+		i++
+		for i < len(arr) && len(pending) > 0 {
+			nxt := arr[i]
+			role := strings.ToLower(strings.TrimSpace(nxt.Get("role").String()))
+			switch {
+			case role == "tool":
+				delete(pending, strings.TrimSpace(nxt.Get("tool_call_id").String()))
+				kept = append(kept, json.RawMessage(nxt.Raw))
+				i++
+			case volcKimiAssistantWithToolCalls(nxt):
+				// New tool round; leave nxt for the outer loop.
+				pending = nil
+			case role == "assistant":
+				changed = true
+				i++
+			default:
+				// user/system: stop the open round; outer loop keeps nxt.
+				pending = nil
 			}
-			if volcKimiAssistantWithToolCalls(nxt) {
-				break
-			}
-			changed = true
-			i++
 		}
 	}
 	if !changed {
@@ -180,6 +200,16 @@ func coerceVolcKimiNullMessageContent(body []byte) ([]byte, error) {
 	return shaped, nil
 }
 
+func volcKimiToolCallIDs(msg gjson.Result) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, call := range msg.Get("tool_calls").Array() {
+		if id := strings.TrimSpace(call.Get("id").String()); id != "" {
+			out[id] = struct{}{}
+		}
+	}
+	return out
+}
+
 func normalizeVolcKimiMessageContents(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
@@ -214,7 +244,170 @@ func normalizeVolcKimiMessageContents(body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	shaped, err = dropVolcKimiReasoningContentParts(shaped)
+	if err != nil {
+		return nil, err
+	}
+	if err = rejectVolcKimiAudioContentParts(shaped); err != nil {
+		return nil, err
+	}
+	shaped, err = rewriteVolcKimiVideoTypeParts(shaped)
+	if err != nil {
+		return nil, err
+	}
 	return wrapVolcKimiStringVideoURLs(shaped)
+}
+
+const (
+	volcKimiAudioUnsupportedMessage = "audio input is not supported for kimi on this service"
+)
+
+// dropVolcKimiReasoningContentParts removes messages.content parts whose type is
+// thinking or reasoning_text. Volc Agent Plan only accepts text / image_url /
+// video_url / file (and rejects those types with InvalidParameter). Clients
+// often replay prior reasoning blocks into history; the parts carry no
+// deliverable user input, so dropping them keeps meaning (same posture as
+// empty text parts). Top-level thinking.type / reasoning_effort are unchanged.
+func dropVolcKimiReasoningContentParts(body []byte) ([]byte, error) {
+	shaped := body
+	var err error
+	for i, msg := range gjson.GetBytes(body, "messages").Array() {
+		content := msg.Get("content")
+		if !content.IsArray() {
+			continue
+		}
+		parts := content.Array()
+		kept := make([]json.RawMessage, 0, len(parts))
+		for _, part := range parts {
+			if volcKimiReasoningContentPart(part) {
+				continue
+			}
+			kept = append(kept, json.RawMessage(part.Raw))
+		}
+		if len(kept) == len(parts) {
+			continue
+		}
+		path := fmt.Sprintf("messages.%d.content", i)
+		if len(kept) == 0 {
+			shaped, err = sjson.SetBytes(shaped, path, "")
+		} else {
+			encoded, marshalErr := json.Marshal(kept)
+			if marshalErr != nil {
+				return nil, marshalErr
+			}
+			shaped, err = sjson.SetRawBytes(shaped, path, encoded)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return shaped, nil
+}
+
+func volcKimiReasoningContentPart(part gjson.Result) bool {
+	switch strings.ToLower(strings.TrimSpace(part.Get("type").String())) {
+	case "thinking", "reasoning_text":
+		return true
+	default:
+		return false
+	}
+}
+
+// rejectVolcKimiAudioContentParts returns a field-level 400 when a content part
+// uses audio_url or input_audio. Volc kimi cannot deliver audio input
+// (upstream: "No available endpoints support input audio"); a local parameter
+// error matches the logprobs undeliverable-field posture and avoids a supplier
+// trace. Parts are not stripped — that would silently drop client media.
+func rejectVolcKimiAudioContentParts(body []byte) error {
+	for _, msg := range gjson.GetBytes(body, "messages").Array() {
+		content := msg.Get("content")
+		switch {
+		case content.IsArray():
+			for _, part := range content.Array() {
+				if volcKimiAudioContentPart(part) {
+					return newOpenAIInvalidParameterError("messages.content", volcKimiAudioUnsupportedMessage)
+				}
+			}
+		case content.IsObject():
+			if volcKimiAudioContentPart(content) {
+				return newOpenAIInvalidParameterError("messages.content", volcKimiAudioUnsupportedMessage)
+			}
+		}
+	}
+	return nil
+}
+
+func volcKimiAudioContentPart(part gjson.Result) bool {
+	switch strings.ToLower(strings.TrimSpace(part.Get("type").String())) {
+	case "audio_url", "input_audio":
+		return true
+	default:
+		return part.Get("audio_url").Exists() || part.Get("input_audio").Exists()
+	}
+}
+
+// rewriteVolcKimiVideoTypeParts rewrites type=video to type=video_url when a URL
+// is present (video_url string/object, video.url, or top-level url). Volc
+// rejects type=video ("supported values are: text, image_url, video_url, …").
+// Parts without a URL are left for upstream / other checks.
+func rewriteVolcKimiVideoTypeParts(body []byte) ([]byte, error) {
+	shaped := body
+	var err error
+	for i, msg := range gjson.GetBytes(body, "messages").Array() {
+		content := msg.Get("content")
+		if !content.IsArray() {
+			continue
+		}
+		for j, part := range content.Array() {
+			if !strings.EqualFold(strings.TrimSpace(part.Get("type").String()), "video") {
+				continue
+			}
+			url, ok := volcKimiVideoPartURL(part)
+			if !ok {
+				continue
+			}
+			base := fmt.Sprintf("messages.%d.content.%d", i, j)
+			shaped, err = sjson.SetBytes(shaped, base+".type", "video_url")
+			if err != nil {
+				return nil, err
+			}
+			shaped, err = sjson.SetBytes(shaped, base+".video_url", map[string]string{"url": url})
+			if err != nil {
+				return nil, err
+			}
+			if part.Get("video").Exists() {
+				shaped, err = sjson.DeleteBytes(shaped, base+".video")
+				if err != nil {
+					return nil, err
+				}
+			}
+			if part.Get("url").Exists() && !part.Get("video_url").Exists() {
+				// Bare url was the source; leave video_url object only.
+				shaped, err = sjson.DeleteBytes(shaped, base+".url")
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	return shaped, nil
+}
+
+func volcKimiVideoPartURL(part gjson.Result) (string, bool) {
+	if raw, ok := volcKimiVideoURLValue(part); ok {
+		if strings.TrimSpace(raw) != "" {
+			return strings.TrimSpace(raw), true
+		}
+	}
+	if v := part.Get("video"); v.IsObject() {
+		if u := strings.TrimSpace(v.Get("url").String()); u != "" {
+			return u, true
+		}
+	}
+	if u := strings.TrimSpace(part.Get("url").String()); u != "" {
+		return u, true
+	}
+	return "", false
 }
 
 // dropVolcKimiEmptyTextParts removes content parts of type text that carry no
@@ -301,7 +494,9 @@ func wrapVolcKimiStringVideoURLs(body []byte) ([]byte, error) {
 
 func volcKimiContentPartType(kind string) bool {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "text", "image_url", "video_url", "input_audio", "file":
+	case "text", "image_url", "video_url", "video", "input_audio", "audio_url", "file", "thinking", "reasoning_text":
+		// video / thinking / reasoning_text / audio_* are recognized so a lone
+		// object content is wrapped into a part array before drop/rewrite/reject.
 		return true
 	default:
 		return false

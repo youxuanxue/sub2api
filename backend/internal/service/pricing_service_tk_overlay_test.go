@@ -727,10 +727,11 @@ func TestTKPricingOverlay_CacheHitBillingUsesOverlayRates(t *testing.T) {
 }
 
 // Official Beijing qwen4-max list (captured 2026-11-18): ¥10/¥30 per MTok,
-// cache 5m ¥12.5 / 1h ¥20 / hit ¥0.5; CNY/USD=6.7. Locks the GA self-map owner
-// after retiring the temporary qwen3.8-max copy rates.
+// cache 5m ¥12.5 / 1h ¥20 / hit ¥0.5; CNY/USD=6.7. Locks the undotted GA
+// price owner; public qwen4.0-max resolves through overlay _aliases.
 func TestTKPricingOverlay_Qwen40MaxBillsOfficialBeijingList(t *testing.T) {
-	const modelID = "qwen4.0-max"
+	const ownerID = "qwen4-max"
+	const publicID = "qwen4.0-max"
 	const cnyUSD = 6.7
 	wantIn := 10.0 / cnyUSD / 1e6
 	wantOut := 30.0 / cnyUSD / 1e6
@@ -738,22 +739,22 @@ func TestTKPricingOverlay_Qwen40MaxBillsOfficialBeijingList(t *testing.T) {
 	wantCreate1h := 20.0 / cnyUSD / 1e6
 	wantHit := 0.5 / cnyUSD / 1e6
 
-	overlayRow := loadTKPricingOverlay()[modelID]
-	require.NotNil(t, overlayRow, modelID)
+	overlayRow := loadTKPricingOverlay()[ownerID]
+	require.NotNil(t, overlayRow, ownerID)
 	require.InDelta(t, wantIn, overlayRow.InputCostPerToken, 1e-18)
 	require.InDelta(t, wantOut, overlayRow.OutputCostPerToken, 1e-18)
 	require.InDelta(t, wantCreate5m, overlayRow.CacheCreationInputTokenCost, 1e-18)
 	require.InDelta(t, wantCreate1h, overlayRow.CacheCreationInputTokenCostAbove1hr, 1e-18)
 	require.InDelta(t, wantHit, overlayRow.CacheReadInputTokenCost, 1e-18)
 
-	preview := loadTKPricingOverlay()["qwen4.0-max-preview"]
+	preview := loadTKPricingOverlay()["qwen4-max-preview"]
 	require.NotNil(t, preview)
 	require.InDelta(t, wantIn, preview.InputCostPerToken, 1e-18,
 		"preview customer bill tracks GA Beijing list until preview sunsets")
 	require.Equal(t, 393216, preview.MaxOutputTokens)
 
 	billing := NewBillingService(nil, nil)
-	pricing, err := billing.GetModelPricing(modelID)
+	pricing, err := billing.GetModelPricing(publicID)
 	require.NoError(t, err)
 	require.InDelta(t, wantIn, pricing.InputPricePerToken, 1e-18)
 	require.InDelta(t, wantOut, pricing.OutputPricePerToken, 1e-18)

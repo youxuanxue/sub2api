@@ -46,8 +46,13 @@ jobs:
         id: probe
         run: |
           set +e
+          # Pin primary app node: bare --target prod fans out and concatenates
+          # multiple JSON objects on stdout, which check_feishu_config cannot parse
+          # (false probe_transport_failed). DB settings are shared; host_env is
+          # checked on the primary app host.
           bash ops/observability/run-probe.sh \
             --target prod \
+            --node app-old \
             --via tat \
             --script ops/observability/probe-alert-config.sh \
             --comment "daily Feishu alert configuration watchdog" \

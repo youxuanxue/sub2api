@@ -42,9 +42,11 @@ func WithForwardGeminiSession(groupID int64, sessionHash string) ForwardGeminiOp
 }
 
 func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte, isStickySession bool, options ...ForwardGeminiOption) (*ForwardResult, error) {
-	if err := antigravityRemoteFileRejected(account, action, body); err != nil {
+	prepared, err := antigravityPrepareRemoteMedia(ctx, account, action, body)
+	if err != nil {
 		return nil, err
 	}
+	body = prepared
 	ctx = bindGoogleGeneric403Request(c, ctx)
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)

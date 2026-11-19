@@ -1,5 +1,17 @@
 # 已决定
 
+## 2026-11-18 prod 入口 WRR 改为 1:1
+
+原话：「流量是不是应该1:1分配？」
+
+适用范围：美西 prod 入口对 `app-old` / `app-cand` 的 Caddy WRR 从 2:1 改为 **1:1**（cand 已升配 4C8G，双应用机对称分发）。矩阵 `apps[].weight` 与线上 Caddyfile 同步为 `1 1`。
+
+## 2026-11-18 prod 旧应用机脱离 LUKS（阶段 D）执行批准
+
+原话：「批准。继续安全推进。」
+
+适用范围：按 `docs/approved/design-prod-entry-multi-app.md` §3 推进旧机 `lhins-fcwpwymt` 脱离 LUKS。先 L1（入口池仅留明文应用机）并观察单台承载门禁，再 L2+；破坏性步骤（停 Docker / umount / 重启 / 删载体 X1–X4）仍按设计逐步确认。不中断用户请求路径。
+
 ## 2026-11-18 Chat→Messages 对齐开源：剥离 OpenAI-only 字段优先生效
 
 原话：「这一条，我们也应该对齐开源实现，以用户体验更高优先级。」
@@ -74,6 +86,8 @@
 
 后续澄清（2026-11-18）：「其实除了数据机停机升配需要单独审批，其他的都可以安全滚动推进。请继续。」→ **仅数据机停机升配**须单独审批；应用机 drain→停机升配→回流、闸门/池滚动 apply、入口权重安全滚动等**可继续推进**。仓库 SSOT 与脚本可同步落地。
 
+执行批准（2026-11-18 22:28 BJT）：「批准。尽可能缩短停机时间，减少用户体验影响。」→ 当时相对低峰（约 50 req/min，主体 `compute@tk.com`）。**已执行** cn-prod 数据机 `lhins-odyx5eis`：`bundle_starter_mc_med4_02` 2C4G → `bundle_starter_mc_lg8_01` **4C8G**；先 CHECKPOINT 再停 PG/Redis 后停主机；窗口约 **UTC 14:30:29–14:33:23** 主机侧，PG ready / 公网 `/health=200` 约再 +30s；`max_connections` 仍为 400。
+
 ## 2026-11-17 对象归档禁新写 AWS，改腾讯 COS
 
 原话：「核心是『以后凡是对象归档都别再落 AWS』。」「对的。确认。」
@@ -144,7 +158,7 @@
 
 原话：「第 1 个 和 第 3 个，同意建议，请修复。」
 
-适用范围：短窗口反复原生截断/`unexpected EOF` 临时移出调度；`INSUFFICIENT_G1_CREDITS` 单独停用。缺 `contents` 或顶层误带 `messages`/`max_tokens`/`input`/`store` → 本地 400。Antigravity 只接受 `inlineData`，拒绝 `gs://` 与 http(s) `fileUri`；不改写成 Chat。
+适用范围：短窗口反复原生截断/`unexpected EOF` 临时移出调度；`INSUFFICIENT_G1_CREDITS` 单独停用。缺 `contents` 或顶层误带 `messages`/`max_tokens`/`input`/`store` → 本地 400。Antigravity 只接受 `inlineData`，拒绝 `gs://`；公网 http(s) 图 `fileUri` 代下改写见 2026-11-18。不改写成 Chat。
 
 ## 2026-11-12 手动停调度不进 Plan
 
@@ -169,3 +183,9 @@
 原话：「没有 tokensea 账号，是供应源受管的。」「同意。继续。」
 
 适用范围：删 openai/anthropic 上 tokensea relay 识别/地板/目录/调度特例。`agent.tokensea.ai` 请求体剥离按 host 保留。不改现网映射。
+
+## 2026-11-18 Antigravity 远程图按 OmniRoute 代下转 inlineData
+
+原话：「对齐开源「可感体验」：最接近的是 OmniRoute 路线（仅 http(s) 图、白名单/SSRF 防护、大小上限、失败仍本地 400）。」
+
+适用范围：Antigravity 原生 `generateContent`/`streamGenerateContent` 上，公网 `http(s)` 图片 `fileUri` 由网关 SSRF-safe 下载并改写为 `inlineData`（单图 15MiB、单请求合计 32MiB、最多 8 张）；`gs://`、非图片远程 URI、私网/元数据主机、下载失败仍本地 400。不改写成 Chat。官方 Gemini 账户仍透传 `fileUri`。

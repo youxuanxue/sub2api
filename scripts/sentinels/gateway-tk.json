@@ -3484,10 +3484,17 @@
         "func dropVolcKimiEmptyTextParts(",
         "shaped, err = dropVolcKimiEmptyTextParts(shaped)",
         "func volcKimiTextPartHasNoInput(",
+        "func dropVolcKimiReasoningContentParts(",
+        "shaped, err = dropVolcKimiReasoningContentParts(shaped)",
+        "func rejectVolcKimiAudioContentParts(",
+        "if err = rejectVolcKimiAudioContentParts(shaped); err != nil {",
+        "func rewriteVolcKimiVideoTypeParts(",
+        "shaped, err = rewriteVolcKimiVideoTypeParts(shaped)",
         "func dropVolcKimiInterleavedAssistantText(",
-        "shaped, err = dropVolcKimiInterleavedAssistantText(shaped)"
+        "shaped, err = dropVolcKimiInterleavedAssistantText(shaped)",
+        "func volcKimiToolCallIDs("
       ],
-      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. Interleaved assistant text between tool_calls and tool results is dropped before Volc InvalidParameter 400. Text parts with empty/null/missing text are dropped before missing messages.content.text 400. Message-level content JSON null is rewritten to empty string before Volc missing messages.content 400. Thinking-on pins KVV-legal non-1 temperature to 1.0 before Volc only-1 400."
+      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. thinking/reasoning_text content parts are dropped; type=video rewrites to video_url; audio_url/input_audio return local 400. Open tool-round interleaved assistant text (including between parallel tool results) is dropped before Volc InvalidParameter 400. Text parts with empty/null/missing text are dropped before missing messages.content.text 400. Message-level content JSON null is rewritten to empty string before Volc missing messages.content 400. Thinking-on pins KVV-legal non-1 temperature to 1.0 before Volc only-1 400. Orphan tool_call_id stays 400."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
@@ -3565,14 +3572,16 @@
         "func TestVolcKimiForwardKeepsThinkingAndToolConstraints(",
         "func TestVolcKimiInboundMessageShapes(",
         "Claude-Code-style trajectories insert assistant text",
+        "Parallel tool_calls: assistant text between tool results is also dropped",
         "func TestVolcKimiVideoURLPreflight(",
         "func TestVolcKimiHTTPVideoProbe(",
         "func TestVolcKimiDropsEmptyTextParts(",
         "missing text field",
         "null message content becomes empty string",
-        "absent content key unchanged"
+        "absent content key unchanged",
+        "func TestVolcKimiContentPartCompatibility("
       ],
-      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface, interleaved-assistant drop for Volc tool round-trips, missing/null text-part drop, and message-level content null→empty-string coerce."
+      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface, open-round interleaved-assistant drop for Volc tool round-trips (including parallel results), content-part thinking/video/audio compatibility, missing/null text-part drop, and message-level content null→empty-string coerce."
     },
     {
       "path": "backend/internal/pkg/httputil/body.go",
@@ -7223,10 +7232,10 @@
       "path": "backend/internal/service/tk_billing_served_model_tk_test.go",
       "must_contain": [
         "TestSettleBillingOnAccountServedModel_UsesAccountMappingSSOT",
-        "TestGatewayRecordUsage_TokenPlanQwen4SelfMapBillsRequestedModel",
-        "TestOpenAIRecordUsage_TokenPlanQwen4SelfMapBillsRequestedModel"
+        "TestGatewayRecordUsage_TokenPlanQwen4AliasBillsRequestedModel",
+        "TestOpenAIRecordUsage_TokenPlanQwen4AliasBillsRequestedModel"
       ],
-      "rationale": "Focused regressions for served-model settlement: unit SSOT, Anthropic/generic RecordUsage, and the OpenAI-compat china/newapi Token Plan path under BillingModelSourceRequested. After qwen4 GA, both qwen4.0-max and qwen4.0-max-preview self-map and bill the requested id."
+      "rationale": "Focused regressions for served-model settlement: unit SSOT, Anthropic/generic RecordUsage, and the OpenAI-compat china/newapi Token Plan path under BillingModelSourceRequested. Public qwen4.0-max/qwen4.0-max-preview remap to undotted upstream qwen4-max/qwen4-max-preview; BillingModelSourceRequested still bills the requested public id."
     },
     {
       "path": "backend/internal/service/billing_service_tk_qianfan.go",
@@ -7277,11 +7286,14 @@
         "wan2.7-image",
         "withdrawn qwen-plus alias is not a Token Plan preset",
         "withdrawn qwen-max alias is not a Token Plan preset",
-        "GA+preview both self-map as client keys",
+        "GA+preview stay public client keys",
         "mapping[\"qwen4.0-max\"]",
-        "mapping[\"qwen4.0-max-preview\"]"
+        "mapping[\"qwen4.0-max-preview\"]",
+        "undotted upstream id is not a client mapping key",
+        "\"qwen4-max\"",
+        "\"qwen4-max-preview\""
       ],
-      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. qwen-plus and qwen-max stay off the Token Plan floor; qwen4.0-max and qwen4.0-max-preview both self-map as client keys after GA."
+      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. qwen-plus and qwen-max stay off the Token Plan floor; qwen4.0-max and qwen4.0-max-preview stay public client keys and remap to undotted upstream qwen4-max/qwen4-max-preview."
     },
     {
       "path": "backend/internal/service/tk_served_models_manifest_tk_test.go",
@@ -14446,11 +14458,14 @@
         "qwen-audio-3.0-tts-plus",
         "withdrawn qwen-plus alias is not a Token Plan preset",
         "withdrawn qwen-max alias is not a Token Plan preset",
-        "GA+preview both self-map as client keys",
+        "GA+preview stay public client keys",
         "mapping[\"qwen4.0-max\"]",
-        "mapping[\"qwen4.0-max-preview\"]"
+        "mapping[\"qwen4.0-max-preview\"]",
+        "undotted upstream id is not a client mapping key",
+        "\"qwen4-max\"",
+        "\"qwen4-max-preview\""
       ],
-      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. Ali Token Plan floor must include priced TTS identity once manifested; qwen4.0-max and qwen4.0-max-preview both self-map after GA."
+      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. Ali Token Plan floor must include priced TTS identity once manifested; qwen4.0-max and qwen4.0-max-preview stay public client keys and remap to undotted upstream qwen4-max/qwen4-max-preview."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_media_unpriced_guard.go",
@@ -18708,25 +18723,39 @@
     {
       "path": "backend/internal/service/antigravity_gateway_gemini.go",
       "must_contain": [
-        "antigravityRemoteFileRejected(account, action, body)",
+        "antigravityPrepareRemoteMedia(ctx, account, action, body)",
         "noteGeminiG1CreditsExhausted(ctx, s.accountRepo, account)",
         "noteGeminiStreamDisruptionWhenDelivered(ctx, s.accountRepo, account, streamRes.modelBytesWritten)"
       ],
-      "rationale": "Antigravity OAuth native Gemini is governed and enters through ForwardGemini. Remote fileUri must be rejected there before any upstream call. G1 credit exhaustion still cools immediately. A truncation counts toward the ladder only after body, tool, or media was written; an empty-prefix failover must not."
+      "rationale": "Antigravity OAuth native Gemini is governed and enters through ForwardGemini. Public http(s) image fileUri parts are inlined before upstream; remaining remote fileUri (gs:// / non-image) still fails locally. G1 credit exhaustion still cools immediately. A truncation counts toward the ladder only after body, tool, or media was written; an empty-prefix failover must not."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
-        "antigravityRemoteFileRejected(account, action, body)"
+        "antigravityPrepareRemoteMedia(ctx, account, action, body)"
       ],
-      "rationale": "Antigravity API-key native Gemini uses ForwardNative. The same remote fileUri rejection has to run on that transport; official Gemini accounts stay allowed."
+      "rationale": "Antigravity API-key native Gemini uses ForwardNative. The same remote-image prepare path must run there; official Gemini accounts stay passthrough."
     },
     {
       "path": "backend/internal/service/gemini_native_request_guard_tk_test.go",
       "must_contain": [
-        "func TestAntigravityTransportsRejectRemoteFileURIBeforeUpstream(t *testing.T)"
+        "func TestAntigravityTransportsRejectRemoteFileURIBeforeUpstream(t *testing.T)",
+        "func TestAntigravityPrepareRemoteMediaInlinesHTTPSImages(t *testing.T)",
+        "func TestAntigravityPrepareRemoteMediaRejectsPrivateImageHost(t *testing.T)",
+        "func TestAntigravityRemoteImageURLAllowedBlocksPrivateHosts(t *testing.T)",
+        "func TestAntigravityPrepareRemoteMediaRejectsNonImageHTTPS(t *testing.T)"
       ],
-      "rationale": "The rejection is only real if both nil transports return before touching upstream state."
+      "rationale": "Cover positive HTTPS image inlining, private-host SSRF refusal, non-image https leftover rejection, and gs:// local rejection on both nil transports."
+    },
+    {
+      "path": "backend/internal/service/antigravity_remote_image_inline_tk.go",
+      "must_contain": [
+        "func antigravityPrepareRemoteMedia(",
+        "safeDialContext",
+        "antigravityRemoteImageMaxBytes",
+        "antigravityRemoteImageMaxTotalBytes"
+      ],
+      "rationale": "OmniRoute-aligned Antigravity media prepare: SSRF-safe dial, per-image and per-request size caps, then reject leftovers."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_service.go",
@@ -20814,7 +20843,7 @@
       "path": "deploy/stage0/test_render_prod_caddyfile.py",
       "must_contain": [
         "def test_entry_mode_renders_private_weighted_pool(self) -> None:",
-        "self.assertIn(\"lb_policy weighted_round_robin 2 1\", rendered)"
+        "self.assertIn(\"lb_policy weighted_round_robin 1 1\", rendered)"
       ],
       "rationale": "Executable coverage keeps the prod entry backend pool private, ordered by matrix weight, and distinct from the app single-upstream mode."
     },
@@ -21169,6 +21198,18 @@
         "func TestSchedulerCacheSnapshotMemoExpiredConcurrentReadersWaitForFreshReload("
       ],
       "rationale": "Keep the original immediate-refresh boundary plus failed and concurrent reload regressions, not an eventually-fresh replacement."
+    },
+    {
+      "path": "backend/internal/service/tk_served_models_manifest_tk.go",
+      "must_contain": [
+        "aliTokenPlanUpstreamOnlyModelID",
+        "newAPIAliTokenPlanModelAliases",
+        "\"qwen4.0-max\"",
+        "\"qwen4-max\"",
+        "\"qwen4.0-max-preview\"",
+        "\"qwen4-max-preview\""
+      ],
+      "rationale": "Ali Token Plan public dotted ids must remap to undotted upstream wire/billing ids; UpstreamOnly keeps undotted ids off client mapping keys."
     }
   ]
 }

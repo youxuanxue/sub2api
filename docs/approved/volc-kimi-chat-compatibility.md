@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。); feng (2026-11-18 conversation: 同意。继续。 — Volc thinking-on 时把合法非 1 temperature 改写为 1)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。); feng (2026-11-18 conversation: 同意。继续。 — Volc thinking-on 时把合法非 1 temperature 改写为 1); feng (2026-11-18 conversation: deepseek-v4-flash-0731 退役旧模型，不做任何动作。Kimi/Volc：可做的网关修复（对齐 KVV），同意建议的修复，请逐个修复。复审。)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -457,3 +457,41 @@ on non-Volc accounts.
 
 Test: `TestVolcKimiRequestLimitsRejectUndeliverableFields/volc_thinking-on_pins_kimi-k3.1-pro_temperature`
 and `thinking_on_pins/*`.
+
+## 2026-11-18: content-part compatibility + open tool-round interleaved drop
+
+Evidence: prod/cn-prod ops_error_logs after `v1.8.380` (~50h) and post-`1.8.384`
+window. cn-prod kimi final 400 buckets included
+`messages.content.type` values `thinking` / `reasoning_text` / `audio_url` /
+`video`, plus upstream `tool_call_id is not found` alongside the existing
+interleaved-assistant pattern. User decision 2026-11-18: implement the
+KVV-aligned gateway recommendations; leave `deepseek-v4-flash-0731` retired
+(no routing alias).
+
+Behavior (same owner `normalizeVolcKimiInboundMessages`):
+
+- Drop `messages.content` parts with `type` `thinking` or `reasoning_text`.
+  They add no deliverable input; Volc rejects the type enum. Top-level
+  `thinking.type` / `reasoning_effort` are unchanged.
+- Rewrite `type=video` to `type=video_url` when a URL is present
+  (`video_url` string/object, `video.url`, or bare `url`). Unreachable
+  http(s) URLs still hit `rejectUnreachableVolcKimiVideoURLs`. Do not strip
+  video parts.
+- `audio_url` / `input_audio` parts return local 400
+  `invalid_parameter` / `messages.content` with
+  `audio input is not supported for kimi on this service`. Not stripped
+  (would silently drop client media); matches the undeliverable-field
+  posture used for `logprobs`.
+- Open tool round-trips: after `assistant.tool_calls`, drop any
+  `assistant` without `tool_calls` until every id from that turn has a
+  matching `tool` result (including text between parallel tool results).
+  `user` / `system` end the open round without being dropped. A new
+  `assistant.tool_calls` starts a new round. Orphan `tool_call_id` still
+  returns 400 (KVV 2026-11-13); not rewritten into a user message.
+
+Deferred (needs direct Volc sanitize→200 evidence before shipping): recursive
+`tools[].function.parameters` JSON Schema flatten. The client-facing
+`: tool function parameters schema` suffix stays a heuristic only.
+
+Tests: `TestVolcKimiContentPartCompatibility`,
+`TestVolcKimiInboundMessageShapes` (parallel interleaved case).
