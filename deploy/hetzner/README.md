@@ -218,19 +218,18 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 发版前须确认 `tencent-ops` 的 `TENCENTCLOUD_*` 对美西 `na-siliconvalley` TAT/CAM
 可用；权限未核通时 CI 绿也不可当作已能发版。
 
-## 开放运维项（非过程史）
+## 运维注意（非过程史）
 
 1. **账号**：prod 原生账号承接请求；错误、不可调度状态由运营处理，不自动恢复中继或旧副本。
 2. **QA**（2026-11-17 已交接数据机协调器）：capture 沿现有配置；QA S3 已退役。应用机跑独立 `tokenkey-qa-retention`（满 24h 可丢）；
    数据机跑 `tokenkey-qa-coordinator` + retention。应用机 v1 `provision/cleanup/archive` 已停用并拆除 unit（worker not-found 可接受；node1 不可达时协调器只记 pending/告警，不阻塞 retention）。巡检见 [QA 运维入口](../../ops/qa/README.md) /
    [COORDINATOR.md](../../ops/qa/COORDINATOR.md)。
-3. **监控**：腾讯机无 EBS/DLM；Tokyo 已退役，快照已全部删除（见 [runbook](../../docs/ops/tokyo-retirement-runbook.md)）。宿主 HTTPS/job watcher 读取暂停 owner，
-   要求所列 timer 停用且 service 不在运行；意外恢复会告警。其他任务（含 `local_qa_jobs` / `data_qa_jobs`）按成功时效监控。
+3. **监控**：宿主 HTTPS/job watcher 读取暂停 owner，要求所列 timer 停用且 service 不在运行；意外恢复会告警。其他任务（含 `local_qa_jobs` / `data_qa_jobs`）按成功时效监控。
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
-4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本 Lightsail 代理已于 2026-10-23 删除；
-   新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
-   AWS 冷归档桶 `tokenkey-prod-archive-682751977094` lifecycle 30 天自删已启用；东京 physical-backup 与 `cfn-deploy` 镜像桶已不存在（`HeadBucket` 404）。
-5. **告警**：腾讯机上备份/QA retention/coordinator timer 已装；`tokenkey-https-watch.timer` 已接到飞书。Stage0 布局已按例外路径收敛；日常发版走上方 `prod-rolling-deploy.yml`。
+4. **资源**：日本 Lightsail / Tokyo 已删（见 [退役摘要](../../docs/ops/tokyo-retirement-runbook.md)）；新加坡其它项目资源不纳入 TokenKey 批量清理。
+   AWS 冷归档桶 `tokenkey-prod-archive-682751977094` lifecycle 30 天自删已启用；旧 physical-backup / `cfn-deploy` 镜像桶已不存在。
+5. **告警**：备份/QA retention/coordinator timer 已装；`tokenkey-https-watch.timer` 已接飞书。日常发版走 `prod-rolling-deploy.yml`。
+6. **不做**：整机/卷常备快照、AWS 临时机隔离恢复演练（见 [`declined.md`](../../docs/decisions/declined.md)）。
 
 ## AWS 残留与环境变量
 
@@ -241,7 +240,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 
 | 类别 | 状态 | 动作 |
 |---|---|---|
-| SSM Hybrid / OIDC / Parameter Store | **禁新增**；OIDC→SSM workflow 已抽壳/拒绝（`oidc_ssm_workflow_paths=[]`）；SecureString 已 C5 | 日常 warm+rolling+`run-probe`/`ssm_execution` 默认 TAT。allowlist `ssm_remote_paths` 仅剩 break-glass SendCommand owner `ops/stage0/ssm_execution.py`（隔离恢复等调用方走该 owner，不再各自占位）。Hybrid/OIDC **角色注销**另批。门牙见 `ops/tencent-ops/`；清单 [design-tencent-ops-closeout](../../docs/approved/design-tencent-ops-closeout.md) |
+| SSM Hybrid / OIDC / Parameter Store | **禁新增**；OIDC→SSM workflow 已抽壳/拒绝（`oidc_ssm_workflow_paths=[]`）；SecureString 已 C5 | 日常 warm+rolling+`run-probe`/`ssm_execution` 默认 TAT。allowlist `ssm_remote_paths` 仅剩 break-glass SendCommand owner `ops/stage0/ssm_execution.py`。**新增或替换 Hybrid 主机时**须把新 `mi-*` 写入栈外 inline `tokenkey-lightsail-edge-addon` 的 `SendCommand`（现含 prod/cn-prod 入口、应用、数据机等），否则 CI 发版/诊断与 break-glass 会被拒；策略备份在操作者本机 `~/.local/state/tokenkey-iam-backups/`，不进 git。Hybrid/OIDC **角色注销**另批。门牙见 `ops/tencent-ops/`；清单 [design-tencent-ops-closeout](../../docs/approved/design-tencent-ops-closeout.md) |
 | Oregon 保留计算 | **必须留** | 2026-11-17：prod `or-1..4` 合计 124 live accounts；cn-prod 无 Oregon 行 |
 | 旧 physical-backup CFN/S3 | **已清** | 2026-11 核对 `DELETE_COMPLETE` / `HeadBucket` 404 |
 | Tokyo EC2 / `aws-fresh` | **已清** | resolver 失败关闭 |
@@ -333,13 +332,6 @@ cn-prod 逻辑 dump 已停。验收是北京本机 pgBackRest 能恢复，见 [d
 再用 `run-probe.sh` 读取主机/容器状态。镜像回滚走原 dispatcher 部署 previous tag。
 数据库从 pgBackRest 仓库恢复到新盘，绝不能覆盖活库；跨云/新机流程见
 [pgBackRest 迁机工作流](../../ops/stage0/pgbackrest-host-migration.md)。
-腾讯机目前**没有**整机/卷快照覆盖（Tokyo 的 DLM 不适用）。物理备份不包含 Redis、配置密钥及外部对象。
-旧 SQL 副本仍可用于隔离逻辑恢复，须核实所选备份的 usage 覆盖与加密材料。
-真实恢复按需执行，下次结合腾讯云迁机演练；周定时建机已撤回。已成功但过期的验证保留每日提醒，
-未验证、验证失败或当前备份链故障继续告警，分级规则见[物理备份](../../ops/stage0/physical-backup.md)。
-已回收旧主机的数据从私有 S3 归档恢复到隔离库；不能再引用旧机挂载卷。
-
-整机恢复先核对当前实例、卷、最近完成快照和当前主机的备份来源，再沿用
-`tokenkey-host-replacement` 与 [AWS DR](../aws/RUNBOOK-disaster-recovery.md) 中适用的恢复步骤；
-旧 CFN/实例身份不作为新机默认目标。旧机磁盘停写后的数据不能整库覆盖活库。
-迁移收尾、QA 当前验收与旧机回收边界见 [收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)。
+离机保护：库 = pgBackRest→COS；入口证书 = host-config→COS。**不做**整机/卷常备快照（见 [`declined.md`](../../docs/decisions/declined.md)）。
+Redis / 应用机以重建为准。跨云或换机走 [pgBackRest 迁机](../../ops/stage0/pgbackrest-host-migration.md) 与 `tokenkey-host-replacement`；禁止用旧盘覆盖活库。
+备份链故障分级见 [物理备份](../../ops/stage0/physical-backup.md)。

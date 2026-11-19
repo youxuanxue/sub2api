@@ -31,8 +31,8 @@ SHAPES = {
 def validate_network(subnet: str) -> None:
     """The restore subnet is an explicit, approved input; never derived from prod.
 
-    Tencent prod is an SSM Hybrid mi-* host with no EC2 subnet, see
-    docs/ops/tencent-isolated-restore-plan.md.
+    Tencent prod has no EC2 subnet (Lighthouse / TAT). This helper is AWS
+    temporary-restore only; live migration uses pgbackrest-host-migration.md.
     """
     if not re.fullmatch(r"subnet-[a-f0-9]{8,17}", subnet):
         raise BackupError("--subnet must be an explicit EC2 subnet-* id")

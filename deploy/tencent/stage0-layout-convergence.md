@@ -13,7 +13,7 @@ Owner skill：[`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-r
 `ops/stage0/probe-tencent-layout-window-preflight.sh`、
 `ops/stage0/apply-tencent-layout-window.sh`（仅显式 `APPLY=…`）。
 
-关联：[unlock 契约（已退役）](../../docs/ops/tencent-unlock-contract.md)、[切流清单](../../docs/ops/tencent-cutover-checklist.md)、[舰队 SSOT](../hetzner/README.md)。
+关联：[unlock 已退役](../../docs/ops/tencent-unlock-contract.md)、[切流清单已关闭](../../docs/ops/tencent-cutover-checklist.md)、[舰队 SSOT](../hetzner/README.md)。
 
 ## 默认例外路径（发版前置 · plan 即写入）
 

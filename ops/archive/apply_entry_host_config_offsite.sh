@@ -1,34 +1,64 @@
 #!/usr/bin/env bash
-# Orchestrate plaintext entry host-config → COS (prod).
+# Orchestrate plaintext entry host-config → COS (prod | cn-prod).
 # 1) open entry Lighthouse FW TCP/8765 from data private IP
 # 2) entry: pack + one-shot private HTTP
 # 3) data: curl + upload_host_config --apply
 # 4) remove matching temp FW rule(s) by Port+Cidr (description-agnostic)
 #
 #   TK_HOST_CONFIG_APPLY=1 bash ops/archive/apply_entry_host_config_offsite.sh
+#   TK_HOST_CONFIG_APPLY=1 SITE=cn-prod bash ops/archive/apply_entry_host_config_offsite.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROBE="$ROOT/ops/observability/run-probe.sh"
-MATRIX="$ROOT/deploy/tencent/candidate-usw-20261022.json"
+SITE="${SITE:-prod}"
 PORT="${TK_HOST_CONFIG_PORT:-8765}"
-REGION=na-siliconvalley
 FW_DESC="temp host-config pull from data"
+
+case "$SITE" in
+  prod)
+    MATRIX="$ROOT/deploy/tencent/candidate-usw-20261022.json"
+    REGION=na-siliconvalley
+    TARGET=prod
+    DATA_TARGET=prod-data
+    LABEL=prod-entry
+    CREDENTIALS=/etc/tokenkey/cos-archive.env
+    ENTRY_ROOT=/var/lib/tokenkey
+    read -r ENTRY_LHINS DATA_IP < <(python3 - "$MATRIX" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1], encoding="utf-8"))
+print(m["entry"]["lighthouse_instance_id"], m["data_machine"]["private_ip"])
+PY
+)
+    ;;
+  cn-prod)
+    MATRIX="$ROOT/deploy/domestic/prod-target.json"
+    REGION=ap-beijing
+    TARGET=cn-prod
+    DATA_TARGET=cn-prod-data
+    LABEL=cn-prod-entry
+    # cn-prod data has no cos-archive.env yet; backup CAM already heads/puts ops-archive.
+    CREDENTIALS=/etc/tokenkey/cos-backup.env
+    ENTRY_ROOT=/var/lib/tokenkey
+    read -r ENTRY_LHINS DATA_IP < <(python3 - "$MATRIX" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1], encoding="utf-8"))
+print(m["entry"]["lighthouse_instance_id"], m["data_private_ip"])
+PY
+)
+    ;;
+  *)
+    echo "REFUSED: SITE must be prod or cn-prod (got $SITE)" >&2
+    exit 64
+    ;;
+esac
 
 if [ "${TK_HOST_CONFIG_APPLY:-}" != "1" ]; then
   echo "REFUSED: set TK_HOST_CONFIG_APPLY=1 to upload plaintext entry certs to COS" >&2
   exit 64
 fi
 
-read -r ENTRY_LHINS DATA_IP < <(python3 - "$MATRIX" <<'PY'
-import json, sys
-m = json.load(open(sys.argv[1], encoding="utf-8"))
-print(m["entry"]["lighthouse_instance_id"], m["data_machine"]["private_ip"])
-PY
-)
-
 # Delete every ACCEPT TCP/$PORT rule from ${DATA_IP}/32 regardless of description.
-# Description mismatch previously left a dangling 8765 hole when Create hit Exists.
 delete_matching_fw() {
   local raw matches
   raw="$(tccli lighthouse DescribeFirewallRules --region "$REGION" \
@@ -76,7 +106,7 @@ cleanup_fw() {
 }
 trap cleanup_fw EXIT
 
-echo "== 0/3 open firewall tcp/$PORT ${DATA_IP}/32 -> $ENTRY_LHINS" >&2
+echo "== 0/3 site=$SITE open firewall tcp/$PORT ${DATA_IP}/32 -> $ENTRY_LHINS ($REGION)" >&2
 FW_JSON="$(python3 -c 'import json,sys; print(json.dumps([{"Protocol":"TCP","Port":sys.argv[1],"CidrBlock":sys.argv[2]+"/32","Action":"ACCEPT","FirewallRuleDescription":sys.argv[3]}]))' "$PORT" "$DATA_IP" "$FW_DESC")"
 if tccli lighthouse CreateFirewallRules --region "$REGION" \
   --InstanceId "$ENTRY_LHINS" \
@@ -93,10 +123,13 @@ fi
 echo "== 1/3 entry pack+serve" >&2
 SERVE_JSON="$(
   bash "$PROBE" \
-    --target prod --node entry \
+    --target "$TARGET" --node entry \
     --script "$ROOT/ops/archive/probe-entry-host-config-pack-serve.sh" \
     --env TK_HOST_CONFIG_SERVE=1 \
-    --env "TK_HOST_CONFIG_PORT=$PORT"
+    --env "TK_HOST_CONFIG_PORT=$PORT" \
+    --env "TK_HOST_CONFIG_SITE=$SITE" \
+    --env "TK_HOST_CONFIG_LABEL=$LABEL" \
+    --env "TK_ENTRY_HOST_ROOT=$ENTRY_ROOT"
 )"
 echo "$SERVE_JSON" >&2
 URL="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])' <<<"$SERVE_JSON")"
@@ -106,13 +139,14 @@ SHA="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["sha256"])' <<<"$
 echo "== 2/3 data fetch+upload" >&2
 UPLOAD_JSON="$(
   bash "$PROBE" \
-    --target prod-data \
+    --target "$DATA_TARGET" \
     --script "$ROOT/ops/archive/probe-data-fetch-upload-entry-host-config.sh" \
     --env TK_HOST_CONFIG_APPLY=1 \
     --env "TK_HOST_CONFIG_URL=$URL" \
     --env "TK_HOST_CONFIG_SHA256=$SHA" \
-    --env TK_HOST_CONFIG_LABEL=prod-entry
+    --env "TK_HOST_CONFIG_LABEL=$LABEL" \
+    --env "TK_COS_ARCHIVE_CREDENTIALS=$CREDENTIALS"
 )"
 echo "$UPLOAD_JSON"
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True; assert d["receipt"]["operation"]=="apply"' <<<"$UPLOAD_JSON"
-echo "RESULT ok plaintext host-config uploaded" >&2
+echo "RESULT ok plaintext host-config uploaded site=$SITE label=$LABEL" >&2

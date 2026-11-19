@@ -4,9 +4,9 @@
 
 ## 1. 接手先读（当前态）
 
-- 现网入口与坐标唯一来源：[舰队入口](../../deploy/hetzner/README.md)。切流回执：[tencent-cutover-20261022.json](reports/tencent-cutover-20261022.json)。清单：[tencent-cutover-checklist.md](tencent-cutover-checklist.md)。
-- **禁止把 Tokyo 历史链恢复成写库、禁止双写。** Tokyo 已删除，见 [退役 runbook](tokyo-retirement-runbook.md)。
-- **LUKS 已退役（2026-11-19 X1–X4）**：应用机明文根盘；契约见 [tencent-unlock-contract.md](tencent-unlock-contract.md)（历史，不可再执行解锁演练）。
+- 现网入口与坐标唯一来源：[舰队入口](../../deploy/hetzner/README.md)。切流回执（历史）：[tencent-cutover-20261022.json](reports/tencent-cutover-20261022.json)。切流清单已关闭：[tencent-cutover-checklist.md](tencent-cutover-checklist.md)。
+- **禁止把 Tokyo 历史链恢复成写库、禁止双写。** 见 [退役摘要](tokyo-retirement-runbook.md)。
+- **LUKS 已退役**：明文根盘；勿再解锁演练（[unlock stub](tencent-unlock-contract.md)）。整机/卷快照常备策略已拒绝，见 [`declined.md`](../decisions/declined.md)。
 - QA：**不**上传 S3；本地 24h + 数据机协调器归档 **node1**（见 [`declined.md`](../decisions/declined.md)）。
 - 私有 helper/回执在 `~/.local/state/tokenkey-tencent-usw-validation/`（含密钥/密文，**不进 git**）。
 - 多应用机诊断：`run-probe.sh --target prod --node entry|app-old|app-cand|data`（TAT 默认）；整站扇出用 `--all-apps`。

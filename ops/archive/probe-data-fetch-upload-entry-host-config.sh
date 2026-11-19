@@ -29,7 +29,7 @@ for f in upload_host_config.py cos_archive_identity.py cos-archive.json; do
   [ -f "$WORKDIR/$f" ] || cp -a "$BASE/$f" "$WORKDIR/"
 done
 
-OUT="$WORKDIR/prod-entry.tar.gz"
+OUT="$WORKDIR/${LABEL}.tar.gz"
 curl -fsS --max-time 60 "$URL" -o "$OUT"
 GOT_SHA="$(python3 -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$OUT")"
 if [ "$GOT_SHA" != "$WANT_SHA" ]; then
@@ -38,8 +38,14 @@ if [ "$GOT_SHA" != "$WANT_SHA" ]; then
 fi
 
 export TK_COS_ARCHIVE_SETTINGS="$WORKDIR/cos-archive.json"
-python3 "$WORKDIR/upload_host_config.py" --file "$OUT" --label "$LABEL" >"$WORKDIR/plan.json"
-python3 "$WORKDIR/upload_host_config.py" --file "$OUT" --label "$LABEL" --apply >"$WORKDIR/receipt.json"
+# Default: /etc/tokenkey/cos-archive.env. cn-prod data may pass cos-backup.env
+# (same CAM already heads/puts the ops-archive bucket).
+UPLOAD_ARGS=(--file "$OUT" --label "$LABEL")
+if [ -n "${TK_COS_ARCHIVE_CREDENTIALS:-}" ]; then
+  UPLOAD_ARGS+=(--credentials "$TK_COS_ARCHIVE_CREDENTIALS")
+fi
+python3 "$WORKDIR/upload_host_config.py" "${UPLOAD_ARGS[@]}" >"$WORKDIR/plan.json"
+python3 "$WORKDIR/upload_host_config.py" "${UPLOAD_ARGS[@]}" --apply >"$WORKDIR/receipt.json"
 python3 -c '
 import json, pathlib
 wd = pathlib.Path("'"$WORKDIR"'")
