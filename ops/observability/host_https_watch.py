@@ -605,11 +605,11 @@ def tick_jobs(jobs, previous, now, probe, send, node="unknown"):
         updated["category"] = fact.get("category", "")
         if action:
             if fact.get("category") == "node1_unreachable":
-                label = "🔴 运维处理：node1 网络异常"
-                owner = "责任方：运维；请排查 node1 / SSH jump 连通与传输带宽"
+                label = "🔴 node1 网络异常"
+                owner = "请排查 node1 / SSH jump 连通与传输带宽"
             elif fact.get("category") == "gateway_qa_archive_failed":
                 label = "🔴 网关 QA 归档失败"
-                owner = "责任方：TokenKey 网关 QA 归档"
+                owner = "请查 TokenKey 网关 QA 归档"
             else:
                 # Keep legacy English for non-QA-root-cause jobs (#3222 scope).
                 label = f"TokenKey host job {action}"
