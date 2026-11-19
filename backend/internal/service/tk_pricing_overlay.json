@@ -11,6 +11,7 @@
     "deepseek-reasoner": "deepseek-v4-flash",
     "deepseek-v4-flash-0731": "deepseek-v4-flash",
     "deepseek-v4.1-flash": "deepseek-v4-flash",
+    "deepseek-v4.1-flash-1017": "deepseek-v4-flash",
     "deepseek-v4-pro-0813": "deepseek-v4-pro",
     "gpt-5.5-pro": "gpt-5.5",
     "gpt-5.6": "gpt-5.6-sol",
@@ -11379,7 +11380,7 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_reasoning": true,
-    "source": "Alibaba Model Studio official Beijing list https://help.aliyun.com/zh/model-studio/model-pricing and https://help.aliyun.com/zh/model-studio/qwen4-max, captured 2026-11-18: qwen4-max input ¥10/Mtok, output ¥30/Mtok (思维链+回答), 创建缓存 5m ¥12.5/Mtok, 创建缓存 1h ¥20/Mtok, 显式/隐式缓存命中 ¥0.5/Mtok; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. Batch half-price and free quota not modeled. API windows from the same model card: context 1M, max-output 131072 (non-thinking) / 262144 (thinking default). Public catalog id qwen4.0-max aliases this owner and maps to upstream qwen4-max on Ali Token Plan."
+    "source": "Alibaba Model Studio official Beijing list https://help.aliyun.com/zh/model-studio/model-pricing and https://help.aliyun.com/zh/model-studio/qwen4-max, captured 2026-11-18: qwen4-max input ¥10/Mtok, output ¥30/Mtok (思维链+回答), 创建缓存 5m ¥12.5/Mtok, 创建缓存 1h ¥20/Mtok, 显式/隐式缓存命中 ¥0.5/Mtok; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. Batch half-price and free quota not modeled. API windows from the same model card: context 1M, max-output 131072 (non-thinking) / 262144 (thinking default). Canonical public catalog id qwen4-max self-maps on Ali Token Plan; qwen4.0-max remains a mapping-only legacy alias."
   },
   "qwen4-max-preview": {
     "litellm_provider": "dashscope",
@@ -11396,6 +11397,6 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_reasoning": true,
-    "source": "Preview remains Token Plan only (https://help.aliyun.com/zh/model-studio/qwen4-max-preview, captured 2026-11-18: Model ID qwen4-max-preview / alias qwen4.0-max-preview; context 1M; max output 393216 shared by reasoning and the answer; preview window ends 2026-11-25 24:00 UTC+8). No dedicated PAYG token row; customer bill uses the same Beijing qwen4-max list as the GA owner (¥10/¥30, cache 5m ¥12.5 / 1h ¥20 / hit ¥0.5; CNY/USD=6.7) until preview sunsets. Preview Credits discounts stay upstream subscription accounting and are not applied here. Public catalog id qwen4.0-max-preview aliases this owner and maps to upstream qwen4-max-preview on Ali Token Plan."
+    "source": "Preview remains Token Plan only (https://help.aliyun.com/zh/model-studio/qwen4-max-preview, captured 2026-11-18: Model ID qwen4-max-preview / alias qwen4.0-max-preview; context 1M; max output 393216 shared by reasoning and the answer; preview window ends 2026-11-25 24:00 UTC+8). No dedicated PAYG token row; customer bill uses the same Beijing qwen4-max list as the GA owner (¥10/¥30, cache 5m ¥12.5 / 1h ¥20 / hit ¥0.5; CNY/USD=6.7) until preview sunsets. Preview Credits discounts stay upstream subscription accounting and are not applied here. Canonical public catalog id qwen4-max-preview self-maps on Ali Token Plan; qwen4.0-max-preview remains a mapping-only legacy alias."
   }
 }

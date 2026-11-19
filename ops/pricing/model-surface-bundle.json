@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "84ae0fba90ab201ce5b8d326497d13ce5a45ae9194e6d34e0a1504b8c43e4956",
+  "floor_sha256": "b4f90387bcab0d4b61e9566ebcdbce4d4ddd2e3d635e02457d28a26d9ad7b812",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -348,6 +348,7 @@
         "channel_type": 17,
         "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com",
         "model_mapping": {
+          "deepseek-v4.1-flash-1017": "deepseek-v4.1-flash-1017",
           "glm-5.2": "glm-5.2",
           "glm-5.3": "glm-5.3",
           "happyhorse-1.1-i2v": "happyhorse-1.1-i2v",
@@ -360,6 +361,8 @@
           "qwen3.7-plus": "qwen3.7-plus",
           "qwen3.8-flash": "qwen3.8-flash",
           "qwen3.8-max": "qwen3.8-max",
+          "qwen4-max": "qwen4-max",
+          "qwen4-max-preview": "qwen4-max-preview",
           "qwen4.0-max": "qwen4-max",
           "qwen4.0-max-preview": "qwen4-max-preview",
           "wan2.7-image": "wan2.7-image",

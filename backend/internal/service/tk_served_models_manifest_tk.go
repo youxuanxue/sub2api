@@ -236,17 +236,6 @@ func aliTokenPlanMappingKeyForbidden(key string) bool {
 	return false
 }
 
-// aliTokenPlanUpstreamOnlyModelID keeps undotted Ali wire/billing ids out of
-// client mapping keys while still listing them for price-owner projection.
-func aliTokenPlanUpstreamOnlyModelID(key string) bool {
-	switch key {
-	case "qwen4-max", "qwen4-max-preview":
-		return true
-	default:
-		return false
-	}
-}
-
 func newAPIAliTokenPlanModelMappingPresetIDs() []string {
 	raw := tkServedModelsManifestPresetIDsForSelector(
 		PlatformNewAPI,
@@ -256,7 +245,7 @@ func newAPIAliTokenPlanModelMappingPresetIDs() []string {
 	ids := make([]string, 0, len(raw)+1)
 	seen := make(map[string]struct{}, len(raw)+1)
 	for _, id := range raw {
-		if aliTokenPlanMappingKeyForbidden(id) || aliTokenPlanUpstreamOnlyModelID(id) {
+		if aliTokenPlanMappingKeyForbidden(id) {
 			continue
 		}
 		if _, exists := seen[id]; exists {
@@ -266,7 +255,7 @@ func newAPIAliTokenPlanModelMappingPresetIDs() []string {
 		ids = append(ids, id)
 	}
 	for alias := range newAPIAliTokenPlanModelAliases() {
-		if aliTokenPlanMappingKeyForbidden(alias) || aliTokenPlanUpstreamOnlyModelID(alias) {
+		if aliTokenPlanMappingKeyForbidden(alias) {
 			continue
 		}
 		if _, exists := seen[alias]; exists {
@@ -363,7 +352,7 @@ var aliTokenPlanForbiddenModelMappingKeys = []string{
 
 // Ali Token Plan migration intent; shared by presets, runtime floors, the
 // generated activation bundle, and billing settlement (settleBillingOnAccountServedModel).
-// Public catalog keeps dotted ids; Ali Token Plan wire ids are undotted.
+// Canonical undotted ids are public; legacy dotted ids remain mapping-only aliases.
 // PAYG aliases retain their original targets.
 func newAPIAliTokenPlanModelAliases() map[string]string {
 	return map[string]string{

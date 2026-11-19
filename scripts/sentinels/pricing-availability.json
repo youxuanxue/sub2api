@@ -3,6 +3,17 @@
   "rationale": "Load-bearing tap injection points and companion files that anchor the pricing-availability passive observability system (docs/approved/pricing-availability-source-of-truth.md). Each entry is a 1-line TK injection in an upstream-shaped file that could be silently dropped by a future `git merge upstream/main`. Without these taps the model_availability table receives no data, availability status stays 'untested' forever, and the /pricing endpoint never decorates responses with real availability. This file is the single source of truth read by both scripts/preflight.sh and the upstream-merge-pr-shape workflow.",
   "sentinels": [
     {
+      "path": "backend/internal/service/me_pricing_catalog_tk_test.go",
+      "must_contain": [
+        "func TestBuildForUser_ChannelAndAccountShowCanonicalQwen4HideLegacyAliases(",
+        "require.False(t, visible[\"qwen4.0-max\"]",
+        "require.False(t, visible[\"qwen4.0-max-preview\"]",
+        "require.True(t, visible[\"qwen4-max\"]",
+        "require.True(t, visible[\"qwen4-max-preview\"]"
+      ],
+      "rationale": "Keep the canonical Ali Plan model IDs visible while legacy dotted aliases remain callable but hidden from public and group model menus."
+    },
+    {
       "path": "backend/internal/service/pricing_lookup_ssot_tk_test.go",
       "must_contain": [
         "TestPricingLookupDeclaredAliasesShareIdentification",

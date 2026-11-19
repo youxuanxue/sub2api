@@ -76,7 +76,7 @@ func TestGatewayRecordUsage_TokenPlanQwen4AliasBillsRequestedModel(t *testing.T)
 }
 
 // china / newapi Token Plan traffic settles on the OpenAI-compat RecordUsage
-// path; public qwen4.0-* aliases remap to undotted upstream ids while
+// path; legacy qwen4.0-* aliases remap to undotted upstream ids while
 // BillingModelSourceRequested still bills the requested public id.
 func TestOpenAIRecordUsage_TokenPlanQwen4AliasBillsRequestedModel(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}

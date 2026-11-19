@@ -214,7 +214,7 @@
       ]
     },
     "qwen4.0-max": {
-      "display": true,
+      "display": false,
       "price_owner": "qwen4-max",
       "scopes": [
         {
@@ -224,7 +224,7 @@
       ]
     },
     "qwen4.0-max-preview": {
-      "display": true,
+      "display": false,
       "price_owner": "qwen4-max-preview",
       "scopes": [
         {
@@ -234,7 +234,7 @@
       ]
     },
     "qwen4-max": {
-      "display": false,
+      "display": true,
       "scopes": [
         {
           "channel_type": 17,
@@ -243,7 +243,7 @@
       ]
     },
     "qwen4-max-preview": {
-      "display": false,
+      "display": true,
       "scopes": [
         {
           "channel_type": 17,
@@ -1017,6 +1017,16 @@
     },
     "happyhorse-1.1-r2v": {
       "display": true,
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
+    },
+    "deepseek-v4.1-flash-1017": {
+      "display": true,
+      "price_owner": "deepseek-v4-flash",
       "scopes": [
         {
           "channel_type": 17,
