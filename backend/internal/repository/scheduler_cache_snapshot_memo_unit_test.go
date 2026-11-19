@@ -839,6 +839,7 @@ func (c *memoTestClock) Advance(d time.Duration) {
 }
 
 func TestSchedulerCacheSnapshotMemoMaxAgeBoundsUnversionedWrites(t *testing.T) {
+	require.Equal(t, 10*time.Second, schedulerSnapshotCacheMaxAge, "retain the TokenKey unversioned-write freshness bound")
 	ctx := context.Background()
 	cache, _, _ := newSchedulerCacheMemoUnit(t, defaultSchedulerSnapshotWriteChunkSize)
 	clock := &memoTestClock{now: time.Date(2026, 10, 20, 8, 0, 0, 0, time.UTC)}
@@ -859,33 +860,26 @@ func TestSchedulerCacheSnapshotMemoMaxAgeBoundsUnversionedWrites(t *testing.T) {
 	clock.Advance(schedulerSnapshotCacheMaxAge - time.Millisecond)
 	require.Equal(t, "old", memoRead(t, cache, bucket)[0].Name)
 
-	// 超过直接复用时长：本次仍返回旧条目，同时由后台加载刷新。
 	clock.Advance(time.Millisecond)
-	require.Equal(t, "old", memoRead(t, cache, bucket)[0].Name)
-	require.Eventually(t, func() bool {
-		accounts, hit, err := cache.GetSnapshot(ctx, bucket)
-		return err == nil && hit && accounts[0].Name == "new"
-	}, time.Second, 5*time.Millisecond)
+	require.Equal(t, "new", memoRead(t, cache, bucket)[0].Name)
 }
 
-func TestSchedulerCacheSnapshotMemoStaleGraceIsBounded(t *testing.T) {
+func TestSchedulerCacheSnapshotMemoExpiredReloadFailureDoesNotServeStale(t *testing.T) {
 	ctx := context.Background()
 	cache, _, recorder := newSchedulerCacheMemoUnit(t, defaultSchedulerSnapshotWriteChunkSize)
 	clock := &memoTestClock{now: time.Date(2026, 10, 20, 8, 0, 0, 0, time.UTC)}
 	cache.now = clock.Now
 	bucket := memoTestBucket(127)
-	memoPublish(t, cache, bucket, memoTestAccount(152, "old"))
+	memoPublish(t, cache, bucket, memoTestAccount(152, "old"), memoTestAccount(153, "peer"))
+	cache.mgetChunkSize = 1
 	require.Equal(t, "old", memoRead(t, cache, bucket)[0].Name)
-
-	_, metaPayload, err := marshalSchedulerCacheAccount(memoTestAccount(152, "new"))
-	require.NoError(t, err)
-	require.NoError(t, cache.rdb.Set(ctx, schedulerAccountMetaKey("152"), metaPayload, 0).Err())
-
-	// 超过直接复用时长与宽限期之和后，读取等待加载结果。
-	clock.Advance(schedulerSnapshotCacheMaxAge + schedulerSnapshotCacheStaleGrace)
+	clock.Advance(schedulerSnapshotCacheMaxAge)
 	recorder.reset()
-	require.Equal(t, "new", memoRead(t, cache, bucket)[0].Name)
-	require.Equal(t, 1, recorder.countPrefix("zrange "))
+	recorder.setFailPipelineAt(1)
+	accounts, hit, err := cache.GetSnapshot(ctx, bucket)
+	require.ErrorContains(t, err, "injected pipeline failure")
+	require.False(t, hit)
+	require.Nil(t, accounts, "an expired snapshot must not mask a failed reload")
 }
 
 func TestSchedulerCacheSnapshotMemoVersionChangeWaitsForReload(t *testing.T) {
@@ -1024,7 +1018,7 @@ func TestSchedulerCacheSnapshotMemoReloadRedecodesMastersAfterRuntimeMappingChan
 	require.True(t, after.accounts[0].SharedSnapshotCurrent())
 }
 
-func TestSchedulerCacheSnapshotMemoStaleEntryStartsOneBackgroundReload(t *testing.T) {
+func TestSchedulerCacheSnapshotMemoExpiredConcurrentReadersWaitForFreshReload(t *testing.T) {
 	ctx := context.Background()
 	cache, _, recorder := newSchedulerCacheMemoUnit(t, defaultSchedulerSnapshotWriteChunkSize)
 	clock := &memoTestClock{now: time.Date(2026, 10, 20, 8, 0, 0, 0, time.UTC)}
@@ -1032,24 +1026,46 @@ func TestSchedulerCacheSnapshotMemoStaleEntryStartsOneBackgroundReload(t *testin
 	bucket := memoTestBucket(135)
 	memoPublish(t, cache, bucket, memoTestAccount(168, "old"))
 	require.Equal(t, "old", memoRead(t, cache, bucket)[0].Name)
-	stale := cache.lookupSnapshotEntry(bucket.String())
-
 	_, metaPayload, err := marshalSchedulerCacheAccount(memoTestAccount(168, "new"))
 	require.NoError(t, err)
 	require.NoError(t, cache.rdb.Set(ctx, schedulerAccountMetaKey("168"), metaPayload, 0).Err())
 	hook := &blockingZRangeHook{release: make(chan struct{})}
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(hook.release) }) }
+	defer release()
 	cache.rdb.AddHook(hook)
 	clock.Advance(schedulerSnapshotCacheMaxAge)
 	recorder.reset()
-
-	for i := 0; i < 5; i++ {
-		require.Equal(t, "old", memoRead(t, cache, bucket)[0].Name)
+	type outcome struct {
+		accounts []*service.Account
+		hit      bool
+		err      error
 	}
-	require.True(t, stale.refreshing.Load())
+	results := make(chan outcome, 5)
+	for i := 0; i < cap(results); i++ {
+		go func() {
+			accounts, hit, err := cache.GetSnapshot(ctx, bucket)
+			results <- outcome{accounts, hit, err}
+		}()
+	}
 	require.Eventually(t, func() bool { return recorder.countPrefix("zrange ") == 1 }, time.Second, time.Millisecond)
-	close(hook.release)
-	require.Eventually(t, func() bool { return !stale.refreshing.Load() }, time.Second, time.Millisecond)
-	require.Equal(t, "new", memoRead(t, cache, bucket)[0].Name)
+	select {
+	case <-results:
+		t.Fatal("expired readers must wait for the fresh snapshot")
+	default:
+	}
+	release()
+	for i := 0; i < cap(results); i++ {
+		select {
+		case result := <-results:
+			require.NoError(t, result.err)
+			require.True(t, result.hit)
+			require.Len(t, result.accounts, 1)
+			require.Equal(t, "new", result.accounts[0].Name)
+		case <-time.After(time.Second):
+			t.Fatal("shared reload did not finish")
+		}
+	}
 	require.Equal(t, 1, recorder.countPrefix("zrange "))
 }
 

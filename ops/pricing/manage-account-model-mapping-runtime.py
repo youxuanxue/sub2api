@@ -248,32 +248,23 @@ def _ssm_run_shell_b64_region(
         "rm -f /tmp/.tk_ssm_$$.sh\n"
         "exit $rc"
     )
-    params = json.dumps({"commands": ["bash -c " + shlex.quote(command)]}, ensure_ascii=False)
+    params = {"commands": ["bash -c " + shlex.quote(command)]}
+    send_mod = _load_ssm_execution()
     try:
-        cid = subprocess.check_output(
-            [
-                "aws", "ssm", "send-command", "--region", region,
-                "--instance-ids", instance_id, "--document-name", "AWS-RunShellScript",
-                "--comment", comment, "--parameters", params,
-                "--query", "Command.CommandId", "--output", "text",
-            ],
-            text=True,
-        ).strip()
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"ssm send-command failed ({comment}): {e}") from e
-    subprocess.run(
-        ["aws", "ssm", "wait", "command-executed", "--region", region,
-         "--command-id", cid, "--instance-id", instance_id],
-        check=False,
-    )
-    try:
-        inv = json.loads(subprocess.check_output(
-            ["aws", "ssm", "get-command-invocation", "--region", region,
-             "--command-id", cid, "--instance-id", instance_id, "--output", "json"],
-            text=True,
-        ))
-    except (subprocess.CalledProcessError, ValueError) as e:
-        raise RuntimeError(f"ssm get-command-invocation failed ({comment}): {e}") from e
+        cid = send_mod.send_run_shell_script(
+            region=region,
+            instance_id=instance_id,
+            parameters=params,
+            comment=comment,
+        )
+        inv = send_mod.wait_and_get(
+            region=region,
+            command_id=cid,
+            instance_id=instance_id,
+            timeout_seconds=600,
+        )
+    except send_mod.AwsSsmError as e:
+        raise RuntimeError(f"SSM break-glass failed ({comment}): {e}") from e
     if inv.get("Status") != "Success" or inv.get("ResponseCode") != 0:
         err = (inv.get("StandardErrorContent") or "").strip()[:1600]
         out = (inv.get("StandardOutputContent") or "").strip()[:600]
@@ -283,6 +274,15 @@ def _ssm_run_shell_b64_region(
         )
     return (inv.get("StandardOutputContent") or "").strip()
 
+
+def _load_ssm_execution():
+    path = REPO_ROOT / "ops" / "stage0" / "ssm_execution.py"
+    spec = importlib.util.spec_from_file_location("tk_ssm_execution", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 def _run_check_sql_json(region: str, instance_id: str, label: str) -> dict[str, Any]:
     sql_b64 = base64.b64encode(ACCOUNT_MODEL_MAPPING_CHECK_SQL.encode("utf-8")).decode("ascii")

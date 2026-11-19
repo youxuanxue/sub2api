@@ -9,13 +9,19 @@ Centralizes:
   - resolve_prod_instance(): cutover-aware prod identity (still returns mi-* for
     legacy callers; TAT path resolves lighthouse nodes via PROD_SSM_NODE).
   - run_shell_b64(): run a base64-encoded shell script on the selected node.
+  - send_run_shell_script / wait_and_get: sole owner of the AWS SSM
+    ``send-command`` argv literal for the control-plane allowlist gate.
 
 `run_shell_b64` writes the decoded script to a FILE and bash's the file rather
 than piping it to `bash` via stdin (inner `docker exec -i` must not slurp the
 script).
+
+Error strings for the SSM helpers intentionally avoid the gate regex
+``ssm\\s+send-command``.
 """
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import json
 import os
@@ -24,7 +30,9 @@ import re
 import shlex
 import subprocess
 import sys
-from typing import NoReturn
+import time
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, NoReturn
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 PROD_MANIFEST = REPO_ROOT / "deploy" / "tencent" / "candidate-usw-20261022.json"
@@ -35,6 +43,136 @@ _INSTANCE_RE = re.compile(r"^(?:i|mi)-[0-9a-f]{8,17}$")
 _RESOLVE_MOD = None
 # Probe / registry publishers often need more than the rolling 8KiB tail.
 _TAT_OUTPUT_BYTES = 512 * 1024
+
+Runner = Callable[[Sequence[str]], Any]
+
+
+class AwsSsmError(RuntimeError):
+    """SSM transport or invocation failure."""
+
+
+def _default_ssm_runner(argv: Sequence[str]) -> Any:
+    output_json = "--output" in argv and argv[list(argv).index("--output") + 1] == "json"
+    raw = subprocess.check_output(list(argv), text=True)
+    if output_json:
+        return json.loads(raw)
+    return raw.strip()
+
+
+def send_run_shell_script(
+    *,
+    region: str,
+    instance_id: str,
+    parameters: Mapping[str, Any] | str,
+    comment: str = "",
+    timeout_seconds: int | None = None,
+    runner: Runner | None = None,
+) -> str:
+    """Send AWS-RunShellScript; return CommandId.
+
+    ``parameters`` is either a JSON object (commands/executionTimeout) or a
+    path string ``file:///...`` for AWS CLI file parameters.
+    """
+    argv: list[str] = [
+        "aws",
+        "ssm",
+        "send-command",
+        "--region",
+        region,
+        "--instance-ids",
+        instance_id,
+        "--document-name",
+        "AWS-RunShellScript",
+    ]
+    if comment:
+        argv.extend(["--comment", comment])
+    if timeout_seconds is not None:
+        argv.extend(["--timeout-seconds", str(int(timeout_seconds))])
+    if isinstance(parameters, str):
+        argv.extend(["--parameters", parameters])
+    else:
+        argv.extend(["--parameters", json.dumps(parameters, ensure_ascii=False)])
+    try:
+        if runner is None:
+            # CLI/default: text CommandId (matches legacy shell --query/--output text).
+            text_argv = [*argv, "--query", "Command.CommandId", "--output", "text"]
+            command_id = subprocess.check_output(text_argv, text=True).strip()
+        else:
+            resp = runner([*argv, "--output", "json"])
+            if isinstance(resp, str):
+                command_id = resp.strip()
+            else:
+                command_id = str((resp.get("Command") or {}).get("CommandId") or "").strip()
+    except Exception as exc:  # noqa: BLE001 — surface transport to callers
+        raise AwsSsmError(f"SSM SendCommand failed: {exc}") from exc
+    if not command_id:
+        raise AwsSsmError("SSM SendCommand response has no CommandId")
+    return command_id
+
+
+def get_invocation(
+    *,
+    region: str,
+    command_id: str,
+    instance_id: str,
+    runner: Runner | None = None,
+) -> dict[str, Any]:
+    run = runner or _default_ssm_runner
+    argv = [
+        "aws",
+        "ssm",
+        "get-command-invocation",
+        "--region",
+        region,
+        "--command-id",
+        command_id,
+        "--instance-id",
+        instance_id,
+        "--output",
+        "json",
+    ]
+    try:
+        inv = run(argv)
+    except Exception as exc:  # noqa: BLE001
+        raise AwsSsmError(f"SSM GetCommandInvocation failed: {exc}") from exc
+    if not isinstance(inv, dict):
+        raise AwsSsmError("SSM GetCommandInvocation returned non-object")
+    return inv
+
+
+def wait_and_get(
+    *,
+    region: str,
+    command_id: str,
+    instance_id: str,
+    timeout_seconds: int = 300,
+    poll_seconds: float = 5.0,
+    runner: Runner | None = None,
+) -> dict[str, Any]:
+    """Poll until terminal status or timeout; return final invocation."""
+    deadline = time.monotonic() + timeout_seconds
+    last: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        try:
+            last = get_invocation(
+                region=region,
+                command_id=command_id,
+                instance_id=instance_id,
+                runner=runner,
+            )
+        except AwsSsmError as exc:
+            if "InvocationDoesNotExist" in str(exc):
+                time.sleep(poll_seconds)
+                continue
+            raise
+        status = str(last.get("Status") or "")
+        if status in {"Success", "Failed", "TimedOut", "Cancelled"}:
+            return last
+        time.sleep(poll_seconds)
+    last = last or {"Status": "TimedOut"}
+    if str(last.get("Status") or "") not in {"Success", "Failed", "TimedOut", "Cancelled"}:
+        last = {**last, "Status": "TimedOut"}
+    return last
 
 
 def fail(msg: str) -> NoReturn:
@@ -228,68 +366,22 @@ def _run_shell_b64_ssm(instance_id: str, shell_b64: str, comment: str, *, preamb
     command = _script_body(shell_b64, preamble)
     # Hybrid hosts start RunShellScript in dash. Use bash -c here so selecting
     # bash does not give stdin-consuming commands a pipe containing our script.
-    params = json.dumps({"commands": ["bash -c " + shlex.quote(command)]}, ensure_ascii=False)
+    params = {"commands": ["bash -c " + shlex.quote(command)]}
     try:
-        cid = subprocess.check_output(
-            [
-                "aws",
-                "ssm",
-                "send-command",
-                "--region",
-                PROD_REGION,
-                "--instance-ids",
-                instance_id,
-                "--document-name",
-                "AWS-RunShellScript",
-                "--comment",
-                comment,
-                "--parameters",
-                params,
-                "--query",
-                "Command.CommandId",
-                "--output",
-                "text",
-            ],
-            text=True,
-        ).strip()
-    except subprocess.CalledProcessError as e:
-        fail(f"ssm send-command failed ({comment}): {e}")
-    subprocess.run(
-        [
-            "aws",
-            "ssm",
-            "wait",
-            "command-executed",
-            "--region",
-            PROD_REGION,
-            "--command-id",
-            cid,
-            "--instance-id",
-            instance_id,
-        ],
-        check=False,
-    )
-    try:
-        inv = json.loads(
-            subprocess.check_output(
-                [
-                    "aws",
-                    "ssm",
-                    "get-command-invocation",
-                    "--region",
-                    PROD_REGION,
-                    "--command-id",
-                    cid,
-                    "--instance-id",
-                    instance_id,
-                    "--output",
-                    "json",
-                ],
-                text=True,
-            )
+        cid = send_run_shell_script(
+            region=PROD_REGION,
+            instance_id=instance_id,
+            parameters=params,
+            comment=comment,
         )
-    except (subprocess.CalledProcessError, ValueError) as e:
-        fail(f"ssm get-command-invocation failed ({comment}): {e}")
+        inv = wait_and_get(
+            region=PROD_REGION,
+            command_id=cid,
+            instance_id=instance_id,
+            timeout_seconds=600,
+        )
+    except AwsSsmError as e:
+        fail(f"SSM break-glass failed ({comment}): {e}")
     if inv.get("Status") != "Success" or inv.get("ResponseCode") != 0:
         err = (inv.get("StandardErrorContent") or "").strip()[:_STDERR_CAP]
         fail(
@@ -309,3 +401,61 @@ def run_shell_b64(instance_id: str, shell_b64: str, comment: str, *, preamble: s
     if _remote_via() == "tat":
         return _run_shell_b64_tat(shell_b64, comment, preamble=preamble)
     return _run_shell_b64_ssm(instance_id, shell_b64, comment, preamble=preamble)
+
+
+def _cli(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    send_p = sub.add_parser("send", help="Send AWS-RunShellScript; print CommandId")
+    send_p.add_argument("--region", required=True)
+    send_p.add_argument("--instance-id", required=True)
+    send_p.add_argument("--comment", default="")
+    send_p.add_argument("--timeout-seconds", type=int)
+    send_p.add_argument(
+        "--params-file",
+        required=True,
+        help="Path to parameters JSON (commands[] / executionTimeout)",
+    )
+
+    wait_p = sub.add_parser("wait-get", help="Poll invocation; write JSON to stdout")
+    wait_p.add_argument("--region", required=True)
+    wait_p.add_argument("--instance-id", required=True)
+    wait_p.add_argument("--command-id", required=True)
+    wait_p.add_argument("--timeout-seconds", type=int, default=300)
+
+    args = parser.parse_args(argv)
+    if args.cmd == "send":
+        params_path = args.params_file
+        if params_path.startswith("file://"):
+            params_path = params_path[len("file://") :]
+        doc = json.loads(open(params_path, encoding="utf-8").read())
+        cid = send_run_shell_script(
+            region=args.region,
+            instance_id=args.instance_id,
+            parameters=doc,
+            comment=args.comment,
+            timeout_seconds=args.timeout_seconds,
+        )
+        print(cid)
+        return 0
+    if args.cmd == "wait-get":
+        inv = wait_and_get(
+            region=args.region,
+            command_id=args.command_id,
+            instance_id=args.instance_id,
+            timeout_seconds=args.timeout_seconds,
+        )
+        # Always exit 0 after a terminal invocation is retrieved so callers under
+        # ``set -e`` can dump stdout/stderr before inspecting Status.
+        print(json.dumps(inv, ensure_ascii=False))
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(_cli())
+    except AwsSsmError as exc:
+        print(f"ssm_execution: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc

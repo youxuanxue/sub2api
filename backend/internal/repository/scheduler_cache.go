@@ -50,12 +50,10 @@ const (
 	// 替代立即 DEL，让正在读取旧版本的 reader 有足够时间完成 ZRANGE。
 	snapshotGraceTTLSeconds = 60
 
-	// schedulerSnapshotCacheMaxAge 是进程内快照缓存条目的直接复用时长，与 outbox_lag_rebuild_seconds 默认 10 秒的陈旧容忍度相同。
-	// 未推进修订号的精简记录改写在本进程的可见延迟不超过该时长与 schedulerSnapshotCacheStaleGrace 之和（另加一次加载耗时）。
+	// schedulerSnapshotCacheMaxAge bounds reuse even for legacy writers that do
+	// not advance revisions. At this age readers must await a fresh load.
 	schedulerSnapshotCacheMaxAge = 10 * time.Second
-	// schedulerSnapshotCacheStaleGrace：条目超过直接复用时长、但 (active, 修订号) 仍与 Redis 一致时，
-	// 在该宽限期内继续返回该条目，同时触发一次后台加载；超过宽限期后调用方等待加载结果。
-	schedulerSnapshotCacheStaleGrace = 20 * time.Second
+
 	// schedulerSnapshotCacheEvictAge：写入条目时，加载时间早于该时长的其它条目一并清除，
 	// 已退休分组的条目不会长期驻留。
 	schedulerSnapshotCacheEvictAge = 10 * schedulerSnapshotCacheMaxAge
@@ -287,8 +285,6 @@ type schedulerSnapshotEntry struct {
 
 	lastUsed      atomic.Pointer[schedulerLastUsedValues]
 	lastUsedLoads singleflight.Group
-	// refreshing 在宽限期内的后台加载进行期间为 true，同一条目同时只发起一次后台加载。
-	refreshing atomic.Bool
 }
 
 // schedulerLastUsedValues 是条目的一次 last_used 读取结果，与条目的 accounts 一一对齐。
@@ -341,8 +337,8 @@ func (c *schedulerCache) GetSnapshot(ctx context.Context, bucket service.Schedul
 }
 
 // GetSnapshotValues 读取 bucket 的激活快照。解码后的精简记录按 bucket 常驻进程内存：
-// ready、active 版本、全局修订号与该 bucket 所涉平台的修订号都与 Redis 一致且未超过直接复用时长时直接复用；
-// (active, 修订号) 一致但超过直接复用时长的条目在宽限期内继续返回，同时触发一次后台加载；其余情况等待加载结果。
+// ready、active 版本、全局修订号与该 bucket 所涉平台的修订号都与 Redis 一致且未超过最长复用时长时直接复用；
+// 其余情况等待加载结果，不在过期后继续返回旧条目。
 // 同一 bucket、同一组 (active, 修订号) 的并发加载合并为一次；加载时精简记录原文未变、
 // 且预解析结果对应当前运行时模型映射版本的账号沿用已解码的母本。
 // last_used 读取结果在条目内复用 schedulerLastUsedCacheMaxAge。
@@ -396,23 +392,8 @@ func (c *schedulerCache) snapshotEntry(ctx context.Context, bucket service.Sched
 	}
 
 	now := c.now()
-	if entry := c.lookupSnapshotEntry(bucketKey); entry != nil && entry.sameVersion(activeVal, revisions) {
-		age := now.Sub(entry.loadedAt)
-		if age >= 0 && age < schedulerSnapshotCacheMaxAge {
-			return entry, nil
-		}
-		if age >= 0 && age < schedulerSnapshotCacheMaxAge+schedulerSnapshotCacheStaleGrace {
-			if entry.refreshing.CompareAndSwap(false, true) {
-				results := c.loadSnapshotEntryShared(ctx, bucket, bucketKey, activeVal, revisions, now)
-				go func() {
-					if result := <-results; result.Err != nil {
-						slog.Warn("scheduler snapshot background reload failed", "bucket", bucketKey, "error", result.Err)
-					}
-					entry.refreshing.Store(false)
-				}()
-			}
-			return entry, nil
-		}
+	if entry := c.lookupSnapshotEntry(bucketKey); entry != nil && entry.matches(activeVal, revisions, now) {
+		return entry, nil
 	}
 
 	select {
@@ -445,7 +426,7 @@ func (c *schedulerCache) loadSnapshotEntryShared(ctx context.Context, bucket ser
 
 // loadSnapshotEntry 从 Redis 加载条目并写入进程内缓存，返回 nil 表示快照未命中。
 // 条目记录的是加载前读到的 (active, 修订号) 与当时的时钟 now：精简记录读取晚于这组取值，
-// 之后若再有改写，修订号或 active 必然不同，或在直接复用时长与宽限期之和后不再返回。
+// 之后若再有改写，修订号或 active 必然不同，或在最长复用时长后不再返回。
 // 进程内已有同一 (active, 修订号) 且未过期的条目时直接返回它。
 func (c *schedulerCache) loadSnapshotEntry(ctx context.Context, bucket service.SchedulerBucket, bucketKey, active string, revisions []string, now time.Time) (*schedulerSnapshotEntry, error) {
 	previous := c.lookupSnapshotEntry(bucketKey)

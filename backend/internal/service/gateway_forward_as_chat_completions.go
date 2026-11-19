@@ -210,7 +210,6 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	reasoningEffort := NormalizeClaudeOutputEffort(gjson.GetBytes(forwardedBody, "output_config.effort").String())
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, forwardedBody, mappedModel)
 
-	defer func() { _ = resp.Body.Close() }()
 	// 12. Handle error response with failover
 	if resp.StatusCode >= 400 {
 

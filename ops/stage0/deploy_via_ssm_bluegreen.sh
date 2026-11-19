@@ -115,11 +115,6 @@ if [[ ! "${TIMEOUT_SECONDS}" =~ ^[0-9]+$ || ! "${EXECUTION_TIMEOUT_SECONDS}" =~ 
   exit 1
 fi
 
-ssm_region_args=()
-if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
-  ssm_region_args=(--region "${AWS_REGION:-${AWS_DEFAULT_REGION}}")
-fi
-
 mkdir -p "${OUTPUT_DIR}"
 params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
@@ -1642,12 +1637,17 @@ fi
 # wrapping is a transport transform reversed by `--unwrap-stdout`.
 python3 "$(dirname "${BASH_SOURCE[0]}")/ssm_wrap_bash_commands.py" "${params_file}"
 
-cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
-  --instance-ids "${INSTANCE_ID}" \
-  --document-name AWS-RunShellScript \
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+if [[ -z "${REGION}" ]]; then
+  echo "stage0_deploy_via_ssm_bluegreen: AWS_REGION or AWS_DEFAULT_REGION is required for LEGACY SSM" >&2
+  exit 1
+fi
+cmd_id="$(python3 "${HERE}/ssm_execution.py" send \
+  --region "${REGION}" \
+  --instance-id "${INSTANCE_ID}" \
   --comment "${COMMENT} tag=${TAG}" \
-  --parameters "file://${params_file}" \
-  --query 'Command.CommandId' --output text)"
+  --params-file "${params_file}")"
 
 echo "ssm command-id=${cmd_id}"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
@@ -1661,29 +1661,14 @@ if [[ "${WAIT_PHASE}" = cutover ]]; then
   exit 0
 fi
 
-deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
-status="InProgress"
-while true; do
-  status="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
-    --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-    --query 'Status' --output text 2>/dev/null || echo InProgress)"
-  case "${status}" in
-    Success|Failed|TimedOut|Cancelled) break ;;
-  esac
-  if [[ $(date +%s) -ge ${deadline} ]]; then
-    echo "::error::ssm timeout" >&2
-    status="TimedOut"
-    break
-  fi
-  sleep 5
-done
-
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardOutputContent' --output text > "${stdout_file}"
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardErrorContent' --output text > "${stderr_file}"
+inv_json="$(python3 "${HERE}/ssm_execution.py" wait-get \
+  --region "${REGION}" \
+  --instance-id "${INSTANCE_ID}" \
+  --command-id "${cmd_id}" \
+  --timeout-seconds "${TIMEOUT_SECONDS}")"
+status="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("Status",""))' <<<"${inv_json}")"
+python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("StandardOutputContent") or "")' <<<"${inv_json}" > "${stdout_file}"
+python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("StandardErrorContent") or "")' <<<"${inv_json}" > "${stderr_file}"
 
 echo '--- ssm stdout (last 12KB) ---'
 tail -c 12288 "${stdout_file}"
@@ -1706,34 +1691,24 @@ if [[ "${STAGE}" = prepare ]]; then
   exit 0
 fi
 
-cutover_cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
-  --instance-ids "${INSTANCE_ID}" \
-  --document-name AWS-RunShellScript \
+cutover_params="${OUTPUT_DIR}/cutover-params.json"
+printf '%s\n' '{"commands":["sudo cat /var/lib/tokenkey/last-cutover-at"]}' > "${cutover_params}"
+cutover_cmd_id="$(python3 "${HERE}/ssm_execution.py" send \
+  --region "${REGION}" \
+  --instance-id "${INSTANCE_ID}" \
   --comment "${COMMENT} read cutover timestamp" \
-  --parameters 'commands=["sudo cat /var/lib/tokenkey/last-cutover-at"]' \
-  --query 'Command.CommandId' --output text)"
-cutover_deadline=$(( $(date +%s) + 30 ))
-cutover_status="InProgress"
-while true; do
-  cutover_status="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
-    --command-id "${cutover_cmd_id}" --instance-id "${INSTANCE_ID}" \
-    --query 'Status' --output text 2>/dev/null || echo InProgress)"
-  case "${cutover_status}" in
-    Success|Failed|TimedOut|Cancelled) break ;;
-  esac
-  if [[ $(date +%s) -ge ${cutover_deadline} ]]; then
-    cutover_status="TimedOut"
-    break
-  fi
-  sleep 1
-done
+  --params-file "${cutover_params}")"
+cutover_inv="$(python3 "${HERE}/ssm_execution.py" wait-get \
+  --region "${REGION}" \
+  --instance-id "${INSTANCE_ID}" \
+  --command-id "${cutover_cmd_id}" \
+  --timeout-seconds 30)"
+cutover_status="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("Status",""))' <<<"${cutover_inv}")"
 if [[ "${cutover_status}" != "Success" ]]; then
   echo "::error::could not read cutover timestamp: ssm command status=${cutover_status}" >&2
   exit 1
 fi
-cutover_at="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
-  --command-id "${cutover_cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardOutputContent' --output text | tr -d '[:space:]')"
+cutover_at="$(python3 -c 'import json,sys; print((json.load(sys.stdin).get("StandardOutputContent") or "").strip())' <<<"${cutover_inv}" | tr -d '[:space:]')"
 if [[ ! "${cutover_at}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
   echo "::error::successful blue/green deploy did not return a valid cutover timestamp" >&2
   exit 1

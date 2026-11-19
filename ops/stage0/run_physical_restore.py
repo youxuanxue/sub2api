@@ -51,6 +51,18 @@ def aws(region: str, *args: str, timeout: int = 60):
     return json.loads(result.stdout) if result.stdout.strip() else {}
 
 
+def _load_ssm_execution():
+    import importlib.util
+
+    path = Path(__file__).resolve().with_name("ssm_execution.py")
+    spec = importlib.util.spec_from_file_location("tk_ssm_execution", path)
+    if spec is None or spec.loader is None:
+        raise BackupError(f"cannot load {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def worker_command(
     bucket: str,
     key: str,
@@ -351,22 +363,18 @@ systemctl enable --now docker
             "commands": ["cloud-init status --wait >/dev/null", command],
             "executionTimeout": ["6000"],
         }
-        sent = aws(
-            args.region,
-            "ssm",
-            "send-command",
-            "--instance-ids",
-            instance,
-            "--document-name",
-            "AWS-RunShellScript",
-            "--parameters",
-            json.dumps(parameters),
-            "--timeout-seconds",
-            "600",
-            "--comment",
-            "approved isolated physical restore",
-        )
-        command_id = sent["Command"]["CommandId"]
+        # SendCommand argv owner: ops/stage0/ssm_execution.py (allowlist).
+        send_mod = _load_ssm_execution()
+        try:
+            command_id = send_mod.send_run_shell_script(
+                region=args.region,
+                instance_id=instance,
+                parameters=parameters,
+                comment="approved isolated physical restore",
+                timeout_seconds=600,
+            )
+        except send_mod.AwsSsmError as exc:
+            raise BackupError(str(exc)) from exc
         deadline = time.monotonic() + 6300
         while time.monotonic() < deadline:
             invocation = aws(

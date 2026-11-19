@@ -85,3 +85,7 @@ Grok 搜索用例迁移：上游 fixture 为 `/v1/messages` 直接注入 Respons
 最终主线同步：纳入 `ea4cad6c778e9b2046cbfd3cd76a28333d5c53a3`，保留主线已交付的 Ali qwen4 GA/preview 自映射及计费、Chat→Messages 字段剥离、AG 地域故障分类、OAuth 探测单次刷新、managed batch 默认值与 CLI 指纹更新。运维退役沿用主线裁决；不执行部署、生产写入或模型激活。sentinel 追加项取并集，前端指纹由最终源代码重建。GPT-6.1 Sol 预设断言继续保留，并与 Terra/6.2 断言同时执行。
 
 表格契约补充：恢复 OpsRequestDetailsModal 桌面请求详情的账号表头，保持表头与账号数据列对齐；原账号表头断言继续执行，不以模型表头断言替代。
+
+二次 review 补充：拒绝 upstream 的 scheduler stale grace。原 TokenKey `MaxAgeBoundsUnversionedWrites` 要求快照到 10 秒时本次读取即重读，上游将该断言改为 eventually 并额外复用旧值 20 秒，削弱了旧实例/未推进修订号写入的兜底时效。恢复原立即更新断言与 10 秒硬上限，补充过期重读失败不得返回旧值、并发过期读取共享一次加载且全部等待新值的回归；保留 singleflight、未变母本复用和 last_used 缓存优化。版本号变更仍立即重读。同步去除两个 Anthropic compat 转发入口因 token 轮换合并遗留的重复 body defer Close。
+
+二次 review 主线同步：纳入 `8100cd4f5`（Volc Kimi thinking-on 合法非 1 temperature 规范为 1）与 `42e02dccc`（SSM SendCommand 统一进入 ssm_execution、缩减历史 allowlist）。这些是主线已交付契约，不恢复被主线移除的旧运维入口。
