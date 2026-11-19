@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-19 入口证书离机备份：明文进 COS，不做操作员 RSA
+
+原话：「不要加密，直接放 cos 呢？之前出现本机坏了，导致 luks 解密不了的问题。这个也是有风险的。」「确认。」
+
+适用范围：prod（及同构的 cn-prod）入口机 TLS 材料离机备份。打包为 **明文 tar.gz** 写入腾讯 COS `prod/host-config/`（上传仍走 SSE-AES256）；**不**再做操作员本机 RSA/age 二次加密，避免「私钥只在一台笔记本、本机损坏即无法恢复」与 LUKS 同类失败。门禁 = 谁能读该桶/前缀（CAM / `cos-archive.env`）。不打包应用机/数据机全量 `.env`。owner：`ops/archive/pack_entry_host_config.py` + `upload_host_config.py`。
+
 ## 2026-11-19 Volc Kimi type=file 归一（缺 file / 非 PDF）
 
 原话：「同意。请修复、实测。」（前置：u2 kimi-k3 Invalid PDF 与 missing messages.content.file；与 KVV 不冲突的方案：缺/空 file 本地 400；video/* → video_url；text/* → text；真 PDF/file_id 透传；其它非 PDF 本地 400）
