@@ -292,7 +292,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 
 | 桶 | 区域 | 角色 |
 |---|---|---|
-| `tokenkey-prod-archive-682751977094` | us-east-1 | lifecycle `expire-all-30d` **已启用**（2026-11-17 核对）；**禁止新写**。最新对象约 2026-11-15（`host-config/prod-entry-…`），按 LastModified+30d 过期。活目的地：腾讯 COS `tokenkey-prod-ops-archive-1320330536`（[design-cos-object-archive](../../docs/approved/design-cos-object-archive.md)）。空桶后再删桶本身 |
+| `tokenkey-prod-archive-682751977094` | us-east-1 | lifecycle `expire-all-30d` **已启用**（2026-11-17 核对）；**禁止新写**。最新对象约 2026-11-15（`host-config/prod-entry-…`），按 LastModified+30d 过期。活目的地：腾讯 COS `tokenkey-prod-ops-archive-1320330536`（[design-cos-object-archive](../../docs/approved/design-cos-object-archive.md)）。入口证书离机打包/上传见 `ops/archive/README.md`「入口离机密文备份」；空桶后再删桶本身 |
 
 后续债（门牙已合入，旁路/密钥逐 PR）：运维旁路与密钥材料收敛到腾讯 TAT/COS——见
 [`design-tencent-ops-control-plane.md`](../../docs/approved/design-tencent-ops-control-plane.md)

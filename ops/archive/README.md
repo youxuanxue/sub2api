@@ -105,6 +105,20 @@ boundary only — do not refresh them and do not reintroduce export/canary CLIs.
 | 设置 | `ops/archive/cos-archive.json` |
 | Identity | `ops/archive/cos_archive_identity.py`（AWS 目的地 fail-closed） |
 | host-config 上传 | `python3 ops/archive/upload_host_config.py --file … --label …`（默认 plan；`--apply` 才写） |
+| 入口证书打包 | `python3 ops/archive/pack_entry_host_config.py inventory\|pack\|plan-upload`（明文 `.tar.gz`；[`design-prod-entry-multi-app.md`](../../docs/approved/design-prod-entry-multi-app.md) §2.1；2026-11-19 决定不做操作员 RSA） |
+| 首次/续期上传 | `TK_HOST_CONFIG_APPLY=1 bash ops/archive/apply_entry_host_config_offsite.sh`（入口 pack → 数据机拉取 → COS `--apply`） |
+| host-config 列表 | `python3 ops/archive/list_host_config.py`（只读 key/size/LastModified） |
+| 入口 inventory 探针 | `run-probe.sh --target prod --node entry --script ops/archive/probe-entry-host-config-inventory.sh` |
+| COS 列表探针 | `run-probe.sh --target prod-data --script ops/archive/probe-list-host-config.sh` |
 | 凭据 | 复用 backup CAM：prod data 已装 `/etc/tokenkey/cos-archive.env`（root 0600；与 `cos-backup.env` 同密钥，不新建子用户）。控制器可用 `TK_COS_ARCHIVE_CREDENTIALS` |
+
+### 入口离机备份（明文 tar → COS）
+
+1. 只读 inventory：`bash ops/observability/run-probe.sh --target prod --node entry --script ops/archive/probe-entry-host-config-inventory.sh`
+2. 上传（需确认口令）：`TK_HOST_CONFIG_APPLY=1 bash ops/archive/apply_entry_host_config_offsite.sh`  
+   入口机无 COS 凭据：私网一次性 HTTP 把 tar 交给数据机，由数据机 `upload_host_config.py --apply`。
+3. 续期后重复。重建入口机：用上传 receipt 里的 key（或 metadata sha256）`aws s3 cp` 拉回后解开还原 `caddy/`。  
+   注：现网 CAM 对 `ListBucket` 可能列不出对象，但 **Head/Get 可用**（2026-11-19 已用 sha256 核对下载）。
+4. 不打包应用机/数据机全量 `.env`。门禁 = COS 读权限（非本机私钥）。
 
 历史 AWS CFN `tokenkey-stage0-archive` 仅作风控收尸（30 天自删，实例角色只读），不再作为新写入目的地。
