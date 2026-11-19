@@ -271,6 +271,7 @@ type CreateGroupRequest struct {
 	AllowMessagesDispatch       bool                                      `json:"allow_messages_dispatch"`
 	AllowLive                   bool                                      `json:"allow_live"`
 	ForceOpenAIFast             bool                                      `json:"force_openai_fast"`
+	ForceOpenAIUltrafast        bool                                      `json:"force_openai_ultrafast"`
 	FreeOpenAIFast              bool                                      `json:"free_openai_fast"`
 	RequireOAuthOnly            bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           bool                                      `json:"require_privacy_set"`
@@ -353,6 +354,7 @@ type UpdateGroupRequest struct {
 	AllowMessagesDispatch       *bool                                      `json:"allow_messages_dispatch"`
 	AllowLive                   *bool                                      `json:"allow_live"`
 	ForceOpenAIFast             *bool                                      `json:"force_openai_fast"`
+	ForceOpenAIUltrafast        *bool                                      `json:"force_openai_ultrafast"`
 	FreeOpenAIFast              *bool                                      `json:"free_openai_fast"`
 	RequireOAuthOnly            *bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           *bool                                      `json:"require_privacy_set"`
@@ -777,6 +779,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ForceOpenAIFast:                        req.ForceOpenAIFast,
 		FreeOpenAIFast:                         req.FreeOpenAIFast,
 		MaxReasoningEffortOverLimit:            req.MaxReasoningEffortOverLimit,
+		ForceOpenAIUltrafast:                   req.ForceOpenAIUltrafast,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -929,6 +932,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		ForceOpenAIFast:                        req.ForceOpenAIFast,
 		FreeOpenAIFast:                         req.FreeOpenAIFast,
 		MaxReasoningEffortOverLimit:            req.MaxReasoningEffortOverLimit,
+		ForceOpenAIUltrafast:                   req.ForceOpenAIUltrafast,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

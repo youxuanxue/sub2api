@@ -561,6 +561,22 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		descriptor.ContextWindow = configuredCodexGPT6AstraContext
 		descriptor.MaxContextWindow = configuredCodexGPT6AstraContext
 		descriptor.officialMetadata = openai.CodexGPT61SolMetadata
+		// The two 6.2 descriptors now occupy the first two slots.
+		descriptor.Priority = 3
+	}
+	var metadata json.RawMessage
+	switch openai.GPT62ModelID(modelID) {
+	case "gpt-6.2-sol":
+		metadata = openai.CodexGPT62SolMetadata
+	case "gpt-6.2-astra":
+		metadata = openai.CodexGPT62AstraMetadata
+	}
+	if len(metadata) > 0 {
+		if err := json.Unmarshal(metadata, &descriptor); err != nil {
+			panic(err)
+		}
+		descriptor.Slug = modelID
+		descriptor.officialMetadata = metadata
 	}
 	if openai.IsGPT61TerraModelSpelling(modelID) {
 		// The Codex descriptor differs from the API model page: Codex offers

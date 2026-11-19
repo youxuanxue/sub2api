@@ -539,6 +539,7 @@ type bufferedFuncCall struct {
 	Name                  string
 	Namespace             string
 	EncryptedFunctionArgs json.RawMessage
+	EncryptedContent      string
 	Args                  strings.Builder
 	// ServerSideSearch marks a custom_tool_call the xAI server ran itself; it
 	// is rebuilt as that item, never as a client function_call.
@@ -594,6 +595,7 @@ func (a *BufferedResponseAccumulator) ProcessEvent(event *ResponsesStreamEvent) 
 				Name:                  event.Item.Name,
 				Namespace:             event.Item.Namespace,
 				EncryptedFunctionArgs: event.Item.EncryptedFunctionArgs,
+				EncryptedContent:      event.Item.EncryptedContent,
 				ServerSideSearch:      a.XAIServerSideSearch && IsServerSideSearchCall(event.Item.Type, event.Item.CallID),
 			})
 		}
@@ -677,6 +679,7 @@ func (a *BufferedResponseAccumulator) BuildOutput() []ResponsesOutput {
 			Name:                  a.funcCalls[i].Name,
 			Namespace:             a.funcCalls[i].Namespace,
 			EncryptedFunctionArgs: a.funcCalls[i].EncryptedFunctionArgs,
+			EncryptedContent:      a.funcCalls[i].EncryptedContent,
 			Arguments:             a.funcCalls[i].Args.String(),
 		})
 	}

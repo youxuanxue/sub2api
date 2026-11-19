@@ -154,6 +154,7 @@ export function apiToFormSections(
             cache_read_price: perTokenToMTok(p.cache_read_price),
             fast_multiplier: p.fast_multiplier,
             flex_multiplier: p.flex_multiplier,
+            ultrafast_multiplier: p.ultrafast_multiplier,
             reasoning_effort_multipliers: p.reasoning_effort_multipliers
               ? { ...p.reasoning_effort_multipliers }
               : null,
@@ -247,6 +248,8 @@ export function formSectionsToApi(
           entry.flex_multiplier != null && entry.flex_multiplier !== ''
             ? Number(entry.flex_multiplier)
             : null,
+        ultrafast_multiplier: entry.ultrafast_multiplier != null && entry.ultrafast_multiplier !== ''
+          ? Number(entry.ultrafast_multiplier) : null,
         reasoning_effort_multipliers: formReasoningEffortMultipliersToAPI(
           entry.reasoning_effort_multipliers,
         ),
@@ -294,18 +297,9 @@ export function formSectionsToApi(
   // Top-level bool to match the backend contract
   // (FeaturesConfig["bedrock_cc_compat"].(bool)); a map-shaped write here would
   // read back as `false` on the backend and the read path above.
-  let bedrockCCCompatEnabled: boolean | undefined
-  for (const section of sections) {
-    if (!section.enabled) continue
-    if (section.platform === PLATFORM_ANTHROPIC) {
-      bedrockCCCompatEnabled = !!section.bedrock_cc_compat
-    }
-  }
-  if (bedrockCCCompatEnabled !== undefined) {
-    featuresConfig.bedrock_cc_compat = bedrockCCCompatEnabled
-  } else {
-    delete featuresConfig.bedrock_cc_compat
-  }
+  featuresConfig.bedrock_cc_compat = sections.some(
+    section => section.enabled && section.platform === PLATFORM_ANTHROPIC && section.bedrock_cc_compat,
+  )
 
   return {
     group_ids: Array.from(new Set(group_ids)),

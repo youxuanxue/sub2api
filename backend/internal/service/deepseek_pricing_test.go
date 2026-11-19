@@ -366,3 +366,70 @@ func TestCalculateCostUnified_DeepseekProRetainsRatesAfterSeptember14(t *testing
 		require.InDelta(t, proTotal, cost.TotalCost, 1e-10, "%s must keep Pro rates at %s", tc.model, tc.at)
 	}
 }
+
+// External overrides remain inspectable sensors. Runtime prices and peak windows
+// stay owned by the approved registry, including after override reload/removal.
+func TestDeepseekOverrideFileTokenPrices(t *testing.T) {
+	for _, model := range []string{"deepseek-flash", "deepseek-v4-pro", "deepseek-v4-pro-0813", "deepseek-custom"} {
+		for _, patch := range []string{
+			`{"input_cost_per_token":0.000002,"output_cost_per_token":0.000003,"cache_read_input_token_cost":0.0000004}`,
+			`{"input_cost_per_token":0}`, `{"output_cost_per_token":0}`, `{"cache_read_input_token_cost":0}`,
+			`{"supports_prompt_caching":true}`, `{"input_cost_per_token":null}`, `{"input_cost_per_token":-0.000002}`,
+		} {
+			t.Run(model+patch, func(t *testing.T) {
+				svc := newHotReloadPricingService(t,
+					`{"`+model+`":{"input_cost_per_token":0.00001,"output_cost_per_token":0.00002,"cache_read_input_token_cost":0.000001}}`,
+					`{"`+model+`":`+patch+`}`)
+				svc.useActiveRegistry = true
+				registry := &PricingService{useActiveRegistry: true, pricingData: map[string]*LiteLLMModelPricing{}}
+				applyTKPricingOverlay(registry.pricingData)
+				baseline := NewBillingService(svc.cfg, registry)
+				billing := NewBillingService(svc.cfg, svc)
+				// buildPricingData must discard sensor-only publication and retain registry prices.
+				require.Equal(t, registry.GetModelPricing(model), svc.GetModelPricing(model))
+				if svc.GetModelPricing(model) == nil {
+					return
+				}
+				for _, hour := range []int{2, 12} {
+					input := CostInput{Ctx: context.Background(), Model: model,
+						Tokens: UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 2000}, RateMultiplier: 1.25,
+						PricingAt: time.Date(2026, 8, 24, hour, 0, 0, 0, time.UTC)}
+					input.Resolver = NewModelPricingResolver(nil, baseline)
+					want, err := baseline.CalculateCostUnified(input)
+					require.NoError(t, err)
+					input.Resolver = NewModelPricingResolver(nil, billing)
+					got, err := billing.CalculateCostUnified(input)
+					require.NoError(t, err)
+					require.Equal(t, want, got)
+				}
+			})
+		}
+	}
+}
+
+func TestDeepseekOverrideFileReloadRestoresOfficialPolicy(t *testing.T) {
+	svc := newHotReloadPricingService(t, `{"deepseek-flash":{"input_cost_per_token":0.00001,"output_cost_per_token":0.00002}}`,
+		`{"deepseek-flash":{"input_cost_per_token":0.000002,"output_cost_per_token":0.000003,"cache_read_input_token_cost":0}}`)
+	svc.useActiveRegistry = true
+	require.NotNil(t, svc.GetModelPricing("deepseek-flash"))
+	want := *svc.GetModelPricing("deepseek-flash")
+	require.NoError(t, os.WriteFile(svc.cfg.Pricing.OverrideFile, []byte(`{"deepseek-flash":{"output_cost_per_token":0}}`), 0644))
+	svc.reloadIfCustomFilesChanged()
+	require.Equal(t, want, *svc.GetModelPricing("deepseek-flash"))
+	require.NoError(t, os.Remove(svc.cfg.Pricing.OverrideFile))
+	svc.reloadIfCustomFilesChanged()
+	require.Equal(t, want, *svc.GetModelPricing("deepseek-flash"))
+}
+
+// Override parsing remains useful evidence even though sensors cannot publish prices.
+func TestDeepseekOverrideSensorPreservesExplicitFieldSemantics(t *testing.T) {
+	svc := newHotReloadPricingService(t, `{}`, `{"deepseek-custom":{"input_cost_per_token":0,"output_cost_per_token":0.000003,"cache_read_input_token_cost":0.0000004}}`)
+	data, err := svc.parsePricingSensorData([]byte(`{"deepseek-custom":{"input_cost_per_token":0.00001,"output_cost_per_token":0.00002,"cache_read_input_token_cost":0.000001}}`))
+	require.NoError(t, err)
+	got := data["deepseek-custom"]
+	require.NotNil(t, got)
+	require.Zero(t, got.InputCostPerToken)
+	require.Equal(t, 0.000003, got.OutputCostPerToken)
+	require.Equal(t, 0.0000004, got.CacheReadInputTokenCost)
+	require.Nil(t, svc.GetModelPricing("deepseek-custom"))
+}

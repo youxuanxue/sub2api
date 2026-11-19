@@ -83,6 +83,7 @@
               <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
               <th class="pb-2 text-right">{{ costColumnLabel }}</th>
+              <th v-if="showAccountCost" class="pb-2 text-right">{{ t('admin.dashboard.accountCost') }}</th>
               <th v-if="showStandardCost" class="pb-2 text-right">{{ t('admin.dashboard.standard') }}</th>
             </tr>
           </thead>
@@ -109,6 +110,9 @@
                 <td class="py-1.5 text-right text-green-600 dark:text-green-400">
                   ${{ formatCost(item.actual_cost) }}
                 </td>
+                <td v-if="showAccountCost" class="py-1.5 text-right text-orange-500 dark:text-orange-400">
+                  ${{ formatCost(item.account_cost ?? 0) }}
+                </td>
                 <td v-if="showStandardCost" class="py-1.5 text-right text-gray-400 dark:text-gray-500">
                   ${{ formatCost(item.cost) }}
                 </td>
@@ -119,6 +123,8 @@
                     :items="breakdownItems"
                     :loading="breakdownLoading"
                     :breakdown-cost-field="breakdownCostField"
+                    :show-account-cost="showAccountCost"
+                    :show-standard-cost="showStandardCost"
                   />
                 </td>
               </tr>
@@ -163,6 +169,7 @@ const props = withDefaults(
     showSourceToggle?: boolean
     enableBreakdown?: boolean
     showStandardCost?: boolean
+    showAccountCost?: boolean
     startDate?: string
     endDate?: string
     startTs?: number
@@ -182,6 +189,7 @@ const props = withDefaults(
     enableBreakdown: true,
     showStandardCost: true,
     breakdownCostField: 'actual_cost',
+    showAccountCost: true,
   }
 )
 
@@ -190,7 +198,7 @@ const breakdownCostField = computed(() => props.breakdownCostField)
 const costColumnLabel = computed(() =>
   showStandardCost.value ? t('admin.dashboard.actual') : t('usage.cost')
 )
-const distributionColspan = computed(() => 4 + (showStandardCost.value ? 1 : 0))
+const distributionColspan = computed(() => 4 + (showStandardCost.value ? 1 : 0) + (props.showAccountCost ? 1 : 0))
 
 const emit = defineEmits<{
   'update:metric': [value: DistributionMetric]

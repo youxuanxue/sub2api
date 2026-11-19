@@ -161,10 +161,10 @@ func TestGPT62PublicOwnersBillOfficialRates(t *testing.T) {
 		}
 	}
 
-	require.Equal(t, 3.0, openAIModelUltrafastMultiplier("gpt-6.2-sol", openAIGPT62UltrafastSixXStart.Add(-time.Second)))
-	require.Equal(t, 6.0, openAIModelUltrafastMultiplier("gpt-6.2-sol", openAIGPT62UltrafastSixXStart))
-	require.Equal(t, 6.0, openAIModelUltrafastMultiplier("gpt-6.2-astra", openAIGPT62UltrafastSixXStart))
-	require.Equal(t, 6.0, openAIModelUltrafastMultiplier("gpt-6.1-sol", time.Time{}))
+	require.Equal(t, 3.0, openAIUltrafastMultiplier("gpt-6.2-sol", openAIGPT62UltrafastSixXStart.Add(-time.Second)))
+	require.Equal(t, 6.0, openAIUltrafastMultiplier("gpt-6.2-sol", openAIGPT62UltrafastSixXStart))
+	require.Equal(t, 6.0, openAIUltrafastMultiplier("gpt-6.2-astra", openAIGPT62UltrafastSixXStart))
+	require.Equal(t, 6.0, openAIUltrafastMultiplier("gpt-6.1-sol", time.Time{}))
 	require.True(t, configuredCodexSupportsUltrafastServiceTier("gpt-6.2-sol"))
 	require.True(t, configuredCodexSupportsUltrafastServiceTier("gpt-6.2-astra"))
 	require.True(t, configuredCodexSupportsUltrafastServiceTier("gpt-6.1-sol"))

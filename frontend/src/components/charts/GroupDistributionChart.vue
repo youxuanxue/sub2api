@@ -90,6 +90,7 @@
                     :items="breakdownItems"
                     :loading="breakdownLoading"
                     :show-account-cost="showAccountCost"
+                    :show-standard-cost="showStandardCost"
                   />
                 </td>
               </tr>

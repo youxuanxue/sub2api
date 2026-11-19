@@ -328,7 +328,7 @@ func TestUpdateSessionWindow_ClearsUtilizationOnWindowReset(t *testing.T) {
 	repo := &sessionWindowMockRepo{}
 	svc := newRateLimitServiceForTest(repo)
 
-	account := &Account{ID: 33} // no existing window → needInitWindow=true
+	account := &Account{ID: 33, Extra: map[string]any{"passive_usage_7d_reset": time.Now().Add(72 * time.Hour).Unix(), "passive_usage_7d_oi_reset": time.Now().Add(72 * time.Hour).Unix()}} // valid weekly snapshots survive a new 5h window
 	headers := http.Header{}
 	headers.Set("anthropic-ratelimit-unified-5h-status", "allowed")
 	headers.Set("anthropic-ratelimit-unified-5h-reset", fmt.Sprintf("%d", resetUnix))
@@ -434,7 +434,7 @@ func TestUpdateSessionWindow_DoesNotClearFable7dOiOnWindowReset(t *testing.T) {
 	repo := &sessionWindowMockRepo{}
 	svc := newRateLimitServiceForTest(repo)
 
-	account := &Account{ID: 91} // no existing window → needInitWindow=true
+	account := &Account{ID: 91, Extra: map[string]any{"passive_usage_7d_reset": time.Now().Add(72 * time.Hour).Unix(), "passive_usage_7d_oi_reset": time.Now().Add(72 * time.Hour).Unix()}} // no existing 5h window
 	headers := http.Header{}
 	headers.Set("anthropic-ratelimit-unified-5h-status", "allowed")
 	headers.Set("anthropic-ratelimit-unified-5h-reset", fmt.Sprintf("%d", resetUnix))
@@ -513,4 +513,39 @@ func TestUpdateSessionWindow_Samples7dWithout5hStatus(t *testing.T) {
 	if _, ok := updates["session_window_utilization"]; ok {
 		t.Errorf("missing 5h status must not write session_window_utilization, got %v", updates["session_window_utilization"])
 	}
+}
+
+func TestUpdateSessionWindow_ClearsFable7dOiOnWindowReset(t *testing.T) {
+	// TokenKey keeps the independent 7d_oi window across a 5h reset.
+	resetUnix := time.Now().Add(3 * time.Hour).Unix()
+
+	repo := &sessionWindowMockRepo{}
+	svc := newRateLimitServiceForTest(repo)
+
+	account := &Account{ID: 91, Extra: map[string]any{
+		"passive_usage_7d_reset":    time.Now().Add(72 * time.Hour).Unix(),
+		"passive_usage_7d_oi_reset": time.Now().Add(72 * time.Hour).Unix(),
+	}}
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-5h-status", "allowed")
+	headers.Set("anthropic-ratelimit-unified-5h-reset", fmt.Sprintf("%d", resetUnix))
+
+	svc.UpdateSessionWindow(context.Background(), account, headers)
+
+	if len(repo.updateExtraCalls) != 1 {
+		t.Fatalf("expected 1 UpdateExtra call, got %d", len(repo.updateExtraCalls))
+	}
+	updates := repo.updateExtraCalls[0].Updates
+	if updates["session_window_utilization"] != nil {
+		t.Errorf("expected session_window_utilization cleared to nil, got %v", updates["session_window_utilization"])
+	}
+	for _, key := range []string{"passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset"} {
+		if val, present := updates[key]; present {
+			t.Errorf("5h roll must not clear %s, got val=%v", key, val)
+		}
+	}
+}
+
+func (m *sessionWindowMockRepo) ListModelAvailabilityCandidates(context.Context, *int64, []string, bool) ([]Account, error) {
+	panic("unexpected")
 }

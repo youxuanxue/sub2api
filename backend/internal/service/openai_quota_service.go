@@ -694,7 +694,7 @@ func buildCodexSparkWindowExtraUpdates(usage *OpenAIQuotaUsage, now time.Time) m
 			break
 		}
 	}
-	if spark == nil {
+	if spark == nil || (spark.PrimaryWindow == nil && spark.SecondaryWindow == nil) {
 		return nil
 	}
 

@@ -17,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // ForwardAsChatCompletions serves OpenAI Chat Completions clients through
@@ -49,7 +50,7 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 
-	return s.forwardClaudeBodyAsChatCompletions(ctx, c, account, prepared, originalModel, clientStream, includeUsage, startTime)
+	return s.forwardClaudeBodyAsChatCompletions(ctx, c, account, prepared, ccReq.ResponseFormat, originalModel, clientStream, includeUsage, startTime)
 }
 
 // forwardClaudeBodyAsChatCompletions sends an already prepared Chat Completions
@@ -59,6 +60,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	c *gin.Context,
 	account *Account,
 	claudeBody []byte,
+	responseFormat json.RawMessage,
 	originalModel string,
 	clientStream bool,
 	includeUsage bool,
@@ -94,6 +96,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
+	geminiReq = applyGeminiChatResponseFormat(geminiReq, responseFormat, mappedModel)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -320,20 +323,21 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	imageSize := normalizeOpenAIImageSizeTier(imageInputSize)
 
 	result := &ForwardResult{
-		RequestID:        requestID,
-		UpstreamHeaders:  resp.Header,
-		Usage:            *usage,
-		Model:            originalModel,
-		UpstreamModel:    mappedModel,
-		Stream:           clientStream,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     firstTokenMs,
-		ReasoningEffort:  reasoningEffort,
-		ImageEndpoint:    imageCount > 0,
-		ImageCount:       imageCount,
-		ImageSize:        imageSize,
-		ImageInputSize:   imageInputSize,
-		ClientDisconnect: false,
+		RequestID:               requestID,
+		UpstreamHeaders:         resp.Header,
+		Usage:                   *usage,
+		Model:                   originalModel,
+		UpstreamModel:           mappedModel,
+		Stream:                  clientStream,
+		Duration:                time.Since(startTime),
+		FirstTokenMs:            firstTokenMs,
+		ReasoningEffort:         reasoningEffort,
+		ImageEndpoint:           imageCount > 0,
+		ImageCount:              imageCount,
+		ImageSize:               imageSize,
+		ImageInputSize:          imageInputSize,
+		ClientDisconnect:        HasOpsClientClosedRequest(c),
+		UpstreamPriceMultiplier: VertexUpstreamPriceMultiplier(account, mappedModel, ""),
 	}
 	applyGeminiWebTextUsageEstimate(c, account, result, geminiReq, responseErr)
 	return result, responseErr
@@ -412,15 +416,21 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 					fullURL += "?alt=sse"
 				}
 
-				var inner any
-				if err := json.Unmarshal(geminiReq, &inner); err != nil {
-					return nil, "", fmt.Errorf("failed to parse gemini request: %w", err)
+				// request 按原字节嵌入，保留 responseJsonSchema 等 schema 的属性顺序与数值字面量。
+				if !json.Valid(geminiReq) {
+					return nil, "", errors.New("failed to parse gemini request: invalid JSON")
 				}
-				wrappedBytes, _ := json.Marshal(map[string]any{
+				wrapperBytes, err := json.Marshal(map[string]any{
 					"model":   mappedModel,
 					"project": projectID,
-					"request": inner,
 				})
+				if err != nil {
+					return nil, "", err
+				}
+				wrappedBytes, err := sjson.SetRawBytes(wrapperBytes, "request", geminiReq)
+				if err != nil {
+					return nil, "", err
+				}
 
 				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
 				if err != nil {
@@ -459,7 +469,7 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 			if clientStream {
 				action = "streamGenerateContent"
 			}
-			fullURL, err := buildVertexGeminiAccountURL(account, mappedModel, action, clientStream)
+			fullURL, err := buildVertexGeminiAccountURL(account, mappedModel, action, clientStream, "")
 			if err != nil {
 				return nil, "", err
 			}
@@ -650,6 +660,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	imageStream := newGeminiImageStream()
 	openToolIndex := -1
 	openToolName := ""
+	var toolBoundary geminiToolCallBoundary
 	var seenToolJSON geminiTextDelta
 	defer func() { stashGeminiWebEstimateOutputText(c, seenText.seen.String()) }()
 
@@ -670,6 +681,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 		openToolIndex = -1
 		openToolName = ""
 		seenToolJSON.reset()
+		toolBoundary = geminiToolCallBoundary{}
 		return disconnected
 	}
 
@@ -805,7 +817,8 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 								if closeOpenBlock() {
 									return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 								}
-								if openToolIndex >= 0 && openToolName != name {
+								argsJSONText := geminiToolCallArgsJSON(fc["args"])
+								if openToolIndex >= 0 && toolBoundary.startsNewBlock(openToolName, seenToolJSON.seen.String(), argsJSONText, fc) {
 									if closeOpenTool() {
 										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 									}
@@ -830,19 +843,8 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 									}
 								}
 
-								argsJSONText := "{}"
-								switch v := fc["args"].(type) {
-								case nil:
-								case string:
-									if strings.TrimSpace(v) != "" {
-										argsJSONText = v
-									}
-								default:
-									if b, err := json.Marshal(v); err == nil && len(b) > 0 {
-										argsJSONText = string(b)
-									}
-								}
 								delta := seenToolJSON.next(argsJSONText)
+								toolBoundary.observe(fc)
 								if delta != "" {
 									if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
 										Type: "content_block_delta",

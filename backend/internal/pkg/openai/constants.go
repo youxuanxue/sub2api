@@ -34,10 +34,10 @@ var DefaultModels = []Model{
 	{ID: "gpt-5.1-chat-latest", Object: "model", Created: 1733011200, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.1 Chat Latest"},
 	{ID: "gpt-5.6-terra", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Terra"},
 	{ID: "gpt-5.6-luna", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Luna"},
-	{ID: "gpt-6.1-terra", Object: "model", Created: 1792972800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 Terra"},
-	{ID: "gpt-6.1-sol", Object: "model", Created: 1790640000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 Sol"},
 	{ID: "gpt-6.2-sol", Object: "model", Created: 1795392000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.2 Sol"},
 	{ID: "gpt-6.2-astra", Object: "model", Created: 1795392000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.2 Astra"},
+	{ID: "gpt-6.1-terra", Object: "model", Created: 1792972800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 Terra"},
+	{ID: "gpt-6.1-sol", Object: "model", Created: 1790640000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 Sol"},
 	{ID: "gpt-6-terra", Object: "model", Created: 1790035200, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Terra"},
 	{ID: "gpt-6-sol", Object: "model", Created: 1790035200, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Sol"},
 	{ID: "gpt-6.1", Object: "model", Created: 1790640000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 (Sol)"},
@@ -124,6 +124,14 @@ var instructionsGPT55 string
 //
 //go:embed instructions_gpt6_astra.txt
 var instructionsGPT6Astra string
+
+// GPT-6.2 descriptors from the 2026-11-17 Codex models response, client 0.169.0.
+//
+//go:embed codex_gpt62_sol.json
+var CodexGPT62SolMetadata []byte
+
+//go:embed codex_gpt62_astra.json
+var CodexGPT62AstraMetadata []byte
 
 // CodexGPT61SolMetadata is the complete official descriptor from openai/codex
 // b1e72963c3b71a9265a551e54beff078384efed9, codex-rs/models-manager/models.json.
@@ -216,6 +224,10 @@ func CanonicalizeOpenAIModelAliasSpelling(model string) string {
 func CodexBaseInstructionsForModel(model string) string {
 	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
 	switch {
+	case GPT62ModelID(canonical) == "gpt-6.2-sol":
+		return codexInstructionsTemplate(CodexGPT62SolMetadata)
+	case GPT62ModelID(canonical) == "gpt-6.2-astra":
+		return codexInstructionsTemplate(CodexGPT62AstraMetadata)
 	case IsGPT61SolModelSpelling(canonical):
 		return codexInstructionsTemplate(CodexGPT61SolMetadata)
 	case IsGPT61TerraModelSpelling(canonical):
@@ -264,8 +276,27 @@ func IsGPT6SolOrLunaModelSpelling(model string) bool {
 	return false
 }
 
-// IsGPT61SolModelSpelling recognizes gpt-6.1-sol and its effort/compact suffixes.
-// Official docs reject none/minimal; local effort suffixes still keep the wire id family.
+// GPT62ModelID returns the published model ID for local effort and compact
+// spellings. Keep disabled effort suffixes identifiable for request validation.
+func GPT62ModelID(model string) string {
+	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
+	for _, base := range []string{"gpt-6.2-sol", "gpt-6.2-astra"} {
+		if canonical == base {
+			return base
+		}
+		suffix, ok := strings.CutPrefix(canonical, base+"-")
+		if ok {
+			switch suffix {
+			case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "openai-compact":
+				return base
+			}
+		}
+	}
+	return ""
+}
+
+// IsGPT61SolModelSpelling recognizes the published model and local effort/compact
+// spellings. Invalid effort suffixes remain identifiable for request validation.
 func IsGPT61SolModelSpelling(model string) bool {
 	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
 	if canonical == "gpt-6.1" || canonical == "gpt-6.1-sol" {
@@ -312,39 +343,13 @@ func IsGPT61TerraModelSpelling(model string) bool {
 // IsGPT62SolModelSpelling recognizes gpt-6.2-sol and its effort/compact suffixes.
 // Official docs reject none; local effort suffixes still keep the wire id family.
 func IsGPT62SolModelSpelling(model string) bool {
-	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
-	if canonical == "gpt-6.2-sol" {
-		return true
-	}
-	suffix, ok := strings.CutPrefix(canonical, "gpt-6.2-sol-")
-	if !ok {
-		return false
-	}
-	switch suffix {
-	case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "openai-compact":
-		return true
-	default:
-		return false
-	}
+	return GPT62ModelID(model) == "gpt-6.2-sol"
 }
 
 // IsGPT62AstraModelSpelling recognizes gpt-6.2-astra and its effort/compact suffixes.
 // Official docs reject none; local effort suffixes still keep the wire id family.
 func IsGPT62AstraModelSpelling(model string) bool {
-	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
-	if canonical == "gpt-6.2-astra" {
-		return true
-	}
-	suffix, ok := strings.CutPrefix(canonical, "gpt-6.2-astra-")
-	if !ok {
-		return false
-	}
-	switch suffix {
-	case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "openai-compact":
-		return true
-	default:
-		return false
-	}
+	return GPT62ModelID(model) == "gpt-6.2-astra"
 }
 
 // RequiresResponsesForToolCalls reports models whose tool calls are only

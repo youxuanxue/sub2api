@@ -55,7 +55,7 @@ func (s *OpenAIGatewayService) tkPrepareOpenAIPassthroughRequestBody(
 			reqStream = false
 		}
 		if !isOpenAIResponsesCompactPath(c) {
-			body, _, err = applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+			body, _, err = applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c), codexClientSessionID(c))
 			if err != nil {
 				return body, reqStream, err
 			}

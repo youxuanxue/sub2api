@@ -68,3 +68,14 @@ func TestHasFallbackModel_RecognizesDefaultModel(t *testing.T) {
 		t.Fatalf("did not expect unknown model to exist in fallback catalog")
 	}
 }
+
+func TestHasFallbackModel_Carbon(t *testing.T) {
+	for _, model := range []string{"gemini-4-carbon", "models/gemini-4-carbon"} {
+		if !HasFallbackModel(model) {
+			t.Fatalf("expected Carbon fallback: %s", model)
+		}
+	}
+	if HasFallbackModel("gemini-4-carbon-preview") {
+		t.Fatal("must not invent a preview alias")
+	}
+}

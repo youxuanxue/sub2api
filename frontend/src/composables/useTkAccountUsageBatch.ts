@@ -49,6 +49,14 @@ export function useTkAccountUsageBatch() {
    * request. Race-guarded by a sequence number so a stale response can't clobber
    * a newer list. Failure-open: on error the map is left as-is (cells show "-").
    */
+  function markOpenAIRefreshFailure(account: Account, message: string): AccountUsageInfo {
+    const previous = usageByAccountId.value[String(account.id)]
+    return {
+      source: 'passive', updated_at: null, five_hour: null, seven_day: null, seven_day_sonnet: null,
+      ...previous, error_code: 'quota_refresh_failed', error: message,
+    }
+  }
+
   async function refreshUsageBatch(accounts: Account[]): Promise<void> {
     const ids = accounts.filter(isBatchPassiveCapable).map(a => a.id)
     const reqSeq = ++usageReqSeq.value
@@ -73,11 +81,21 @@ export function useTkAccountUsageBatch() {
           continue
         }
         // Omitted by the server (cannot serve passive) => null => cell shows "-".
-        next[key] = server[key] ?? null
+        const received = server[key]
+        next[key] = account.platform === 'openai' && received?.error_code === 'quota_refresh_failed'
+          ? { ...markOpenAIRefreshFailure(account, received.error || 'Unable to refresh OpenAI quota'), ...received }
+          : received ?? null
       }
       usageByAccountId.value = next
     } catch (error) {
       if (reqSeq !== usageReqSeq.value) return
+      const next = { ...usageByAccountId.value }
+      for (const account of accounts) {
+        if (account.platform === 'openai' && isBatchPassiveCapable(account)) {
+          next[String(account.id)] = markOpenAIRefreshFailure(account, 'Unable to refresh OpenAI quota')
+        }
+      }
+      usageByAccountId.value = next
       console.error('Failed to load batch account usage:', error)
     } finally {
       if (reqSeq === usageReqSeq.value) usageLoading.value = false

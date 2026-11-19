@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 28 // v28: carry per-user qa_capture_enabled for QA middleware
+const apiKeyAuthSnapshotVersion = 29 // v29: carry QA capture and group Ultrafast together
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -445,6 +445,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			LongContextPricingEnabled:              apiKey.Group.LongContextPricingEnabled,
 			ModelPricing:                           apiKey.Group.ModelPricing,
 			RequirePrivacySet:                      apiKey.Group.RequirePrivacySet,
+			ForceOpenAIUltrafast:                   apiKey.Group.ForceOpenAIUltrafast,
 		}
 	}
 	return snapshot
@@ -557,6 +558,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			LongContextPricingEnabled:              snapshot.Group.LongContextPricingEnabled,
 			ModelPricing:                           snapshot.Group.ModelPricing,
 			RequirePrivacySet:                      snapshot.Group.RequirePrivacySet,
+			ForceOpenAIUltrafast:                   snapshot.Group.ForceOpenAIUltrafast,
 		}
 	}
 	s.compileAPIKeyIPRules(apiKey)

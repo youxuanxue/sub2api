@@ -1,6 +1,13 @@
 <template>
   <div ref="rootRef" :aria-busy="loading || activeQueryLoading">
     <div class="space-y-1">
+      <div v-if="isOpenAIOAuth && (error || usageInfo?.error || usageInfo?.error_code)"
+        role="alert" class="text-[10px] text-amber-700 dark:text-amber-300">
+        {{ t(hasOpenAIQuotaObservation
+          ? 'admin.accounts.usageWindow.quotaRefreshFailedCached'
+          : 'admin.accounts.usageWindow.quotaRefreshFailedUnknown') }}
+        <span v-if="error">{{ error }}</span>
+      </div>
       <TodayStatsBadges :stats="todayStats" :loading="todayStatsLoading" />
       <UsageProgressBar
         v-if="hasOpenAIUsageFallback && usageInfo?.five_hour"
@@ -25,6 +32,11 @@
         :show-now-when-idle="showNowWhenIdleForWindow(usageInfo.seven_day)"
         color="emerald"
       />
+      <div v-if="isOpenAIOAuth && hasOpenAIQuotaObservation" class="text-[10px] text-gray-500 dark:text-gray-400">
+        {{ t('admin.accounts.usageWindow.quotaObservedAt') }}
+        <time v-if="usageInfo?.updated_at" :datetime="usageInfo.updated_at">{{ formatDateTime(usageInfo.updated_at) }}</time>
+        <span v-else>{{ t('admin.accounts.usageWindow.quotaObservationUnknown') }}</span>
+      </div>
       <div v-for="windowQuota in windowQuotas" :key="windowQuota.key" data-testid="window-quota">
         <div
           v-if="windowQuota.key.includes(':')"
@@ -64,7 +76,7 @@
         </div>
       </div>
       <div v-else-if="!hasOpenAIUsageFallback" class="text-xs text-gray-400">-</div>
-      <div v-if="error" role="alert" class="text-xs text-red-500">{{ error }}</div>
+      <div v-if="error && !isOpenAIOAuth" role="alert" class="text-xs text-red-500">{{ error }}</div>
       <OpenAIQuotaResetCell
         v-if="hasOpenAIUsageFallback || !loading"
         :account="account"
@@ -114,6 +126,7 @@ import {
   type AccountUsageCellProps
 } from '../accountUsageCellProps'
 import { useAccountUsageFetch } from './useAccountUsageFetch'
+import { formatDateTime } from '@/utils/format'
 import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
 import { codexQuotaWindowLabel } from '@/constants/codexRateLimitWindows.tk'
 
@@ -151,6 +164,11 @@ function onAccountUpdated(account: Account) {
   void refreshQuotaUsage()
   emit('account-updated', account)
 }
+
+const isOpenAIOAuth = computed(() => props.account.platform === 'openai' && props.account.type === 'oauth')
+const hasOpenAIQuotaObservation = computed(() =>
+  [usageInfo.value?.five_hour, usageInfo.value?.seven_day].some(window => window && !window.utilization_unknown)
+)
 
 const hasOpenAIUsageFallback = computed(() => {
   return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day

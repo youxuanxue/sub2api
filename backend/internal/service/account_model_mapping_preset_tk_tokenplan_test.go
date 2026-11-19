@@ -209,8 +209,9 @@ func TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides(t *testing.T) 
 			require.ElementsMatch(t, aliTokenPlanForbiddenModelMappingKeys, floor.ForbiddenModelMappingKeys[scope])
 			for alias, target := range newAPIAliTokenPlanModelAliases() {
 				require.Equal(t, target, override.ModelMapping[alias])
-				require.NotContains(t, override.ModelMapping, target)
+				require.Equal(t, target, override.ModelMapping[target], "canonical Ali Plan ID must self-map in the ops floor")
 			}
+			require.Equal(t, "deepseek-v4.1-flash-1017", override.ModelMapping["deepseek-v4.1-flash-1017"])
 			require.Equal(t, "qwen4-max", override.ModelMapping["qwen4.0-max"])
 			require.Equal(t, "qwen4-max-preview", override.ModelMapping["qwen4.0-max-preview"])
 			require.NotContains(t, override.ModelMapping, "qwen-plus")

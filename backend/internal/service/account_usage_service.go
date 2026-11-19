@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -350,8 +351,20 @@ type ClaudeUsageResponse struct {
 	} `json:"seven_day_sonnet"`
 	// Fable 专属 7d 窗口（对应响应头 7d_oi，claim 名为 seven_day_overage_included，
 	// 见 anthropic-ratelimit-unified-representative-claim 头）。上游 usage API
-	// 若不下发该字段，GetUsage 会用被动采样数据回填。
+	// 若不下发该字段，先读取 limits[]，仍缺失时 GetUsage 用被动采样回填。
 	SevenDayOverageIncluded ClaudeUsageWindow `json:"seven_day_overage_included"`
+	Limits                  []struct {
+		Kind     string   `json:"kind"`
+		Group    string   `json:"group"`
+		Percent  *float64 `json:"percent"`
+		ResetsAt string   `json:"resets_at"`
+		Scope    struct {
+			Model struct {
+				DisplayName string `json:"display_name"`
+			} `json:"model"`
+			Surface json.RawMessage `json:"surface"`
+		} `json:"scope"`
+	} `json:"limits"`
 }
 
 // ClaudeUsageFetchOptions 包含获取 Claude 用量数据所需的所有选项
@@ -956,7 +969,7 @@ func (s *AccountUsageService) syncActiveToPassive(ctx context.Context, account *
 
 func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Account, force bool) (*UsageInfo, error) {
 	now := time.Now()
-	usage := &UsageInfo{UpdatedAt: &now}
+	usage := &UsageInfo{Source: "passive"}
 
 	if account == nil {
 		return usage, nil
@@ -975,6 +988,13 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		} else if len(updates) > 0 {
 			mergeAccountExtra(account, updates)
 			applyExtraToUsage(usage, account.Extra, now)
+			usage.Source = "active"
+		}
+		if usage.Source != "active" {
+			// Keep the last observation available, but never turn a failed probe
+			// (or a response without quota data) into a fresh successful read.
+			usage.ErrorCode = errorCodeQuotaRefreshFailed
+			usage.Error = "Unable to refresh OpenAI quota; displayed values may be from an earlier observation"
 		}
 	}
 
@@ -1154,6 +1174,10 @@ func applyExtraToUsage(usage *UsageInfo, extra map[string]any, now time.Time) {
 		}
 	}
 }
+
+// errorCodeQuotaRefreshFailed 标记 OpenAI OAuth 额度主动刷新失败：返回值仍是上次
+// 观测（或未知），只说明额度数据可能陈旧，不代表账号不可用。
+const errorCodeQuotaRefreshFailed = "quota_refresh_failed"
 
 func (s *AccountUsageService) getGeminiUsage(ctx context.Context, account *Account) (*UsageInfo, error) {
 	now := time.Now()
@@ -1828,7 +1852,26 @@ func (s *AccountUsageService) buildUsageInfo(resp *ClaudeUsageResponse, updatedA
 	}
 
 	// 7天Fable窗口（响应头 7d_oi 对应的窗口）
-	if fable := resp.SevenDayOverageIncluded; fable.ResetsAt != "" {
+	fable := resp.SevenDayOverageIncluded
+	if fable.ResetsAt == "" {
+		// 新版 usage 将模型周窗口放在 limits[]。仅投影无 surface 限定的
+		// Fable 周额度；percent 已是百分比，显式 0 也必须覆盖旧被动采样。
+		for _, limit := range resp.Limits {
+			if limit.Kind != "weekly_scoped" || limit.Group != "weekly" ||
+				limit.Scope.Model.DisplayName != "Fable" || limit.Percent == nil || *limit.Percent < 0 {
+				continue
+			}
+			if surface := bytes.TrimSpace(limit.Scope.Surface); len(surface) > 0 && !bytes.Equal(surface, []byte("null")) {
+				continue
+			}
+			if _, err := parseTime(limit.ResetsAt); err != nil {
+				continue
+			}
+			fable = ClaudeUsageWindow{Utilization: *limit.Percent, ResetsAt: limit.ResetsAt}
+			break
+		}
+	}
+	if fable.ResetsAt != "" {
 		if fableReset, err := parseTime(fable.ResetsAt); err == nil {
 			info.SevenDayFable = &UsageProgress{
 				Utilization:      fable.Utilization,

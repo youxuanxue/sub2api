@@ -246,3 +246,13 @@ func TestFilterBatchImageModelsByAllowlist(t *testing.T) {
 		require.Empty(t, got)
 	})
 }
+
+func (s *geminiAllowlistAccountRepoStub) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]service.Account, error) {
+	if groupID != nil {
+		return s.ListSchedulableByGroupIDAndPlatforms(ctx, *groupID, platforms)
+	}
+	if includeGrouped {
+		return s.ListSchedulableByPlatforms(ctx, platforms)
+	}
+	return s.ListSchedulableUngroupedByPlatforms(ctx, platforms)
+}

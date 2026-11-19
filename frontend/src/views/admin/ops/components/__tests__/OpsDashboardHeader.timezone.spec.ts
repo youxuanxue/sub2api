@@ -48,7 +48,7 @@ describe('ops custom time range timezone', () => {
     const wrapper = await openCustomRange(now)
     await wrapper.findAll('button').find(button => button.text() === 'common.confirm')!.trigger('click')
     expect(wrapper.emitted('update:customTimeRange')).toEqual([
-      [new Date(now.getTime() - 3600000).toISOString(), now.toISOString()]
+      [new Date(now.getTime() - 3600000).toISOString(), now.toISOString(), false]
     ])
   })
 })

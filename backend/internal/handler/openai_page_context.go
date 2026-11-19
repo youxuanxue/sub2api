@@ -61,16 +61,20 @@ func normalizeCodexPageContext(body []byte) ([]byte, bool) {
 			if !validCodexPageContext(name, output) {
 				continue
 			}
-		} else if !isCodexStandaloneContextName(name) {
+		} else if !isCodexStandaloneContextName(name) || ((name == "browser_info" || name == "goal_objective" || name == "untrusted_context") && strings.TrimSpace(output) == "") {
 			// Unknown real-looking tool names without call_id stay fail-closed.
 			continue
+		}
+		text := "<external_" + name + ">" + output + "</external_" + name + ">"
+		if validCodexPageContext(name, output) {
+			text = "<external_" + name + ">\n" + output + "\n</external_" + name + ">"
 		}
 		message := map[string]any{
 			"type": "message",
 			"role": "user",
 			"content": []map[string]string{{
 				"type": "input_text",
-				"text": "<external_" + name + ">\n" + output + "\n</external_" + name + ">",
+				"text": text,
 			}},
 		}
 		encoded, err := json.Marshal(message)
@@ -96,8 +100,13 @@ func normalizeCodexPageContext(body []byte) ([]byte, bool) {
 }
 
 func mayContainStandaloneCallOutput(body []byte) bool {
-	// Fast reject: standalone named outputs need a name field near function_call_output.
-	return bytes.Contains(body, []byte(`"function_call_output"`)) && bytes.Contains(body, []byte(`"name"`))
+	// Escaped field names/values require full parsing. Plain bodies can reject
+	// declarations or paired results outside the agent namespace without allocation.
+	if bytes.Contains(body, []byte(`\`)) {
+		return true
+	}
+	return bytes.Contains(body, []byte(`"function_call_output"`)) &&
+		bytes.Contains(body, []byte(`"name"`)) && bytes.Contains(body, []byte(`"agent"`))
 }
 
 func isCodexPageContextName(name string) bool {
@@ -108,6 +117,9 @@ func isCodexPageContextName(name string) bool {
 // Codex clients emit as named function_call_output without call_id on HTTP.
 func isCodexStandaloneContextName(name string) bool {
 	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "browser_info" || lower == "goal_objective" || lower == "untrusted_context" {
+		return true
+	}
 	if lower == "" {
 		return false
 	}
@@ -161,4 +173,9 @@ func validCodexPageSnapshot(text string) bool {
 	}
 	var value string
 	return json.Unmarshal(id, &value) == nil && strings.TrimSpace(value) != ""
+}
+
+// normalizeCodexUntrustedContext shares standalone-context normalization with IDE injections.
+func normalizeCodexUntrustedContext(body []byte) ([]byte, bool) {
+	return normalizeCodexPageContext(body)
 }

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -84,6 +85,12 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 	if rejectSystemOneOnlyPlatform(c, apiKey, h.chatCompletionsErrorResponse) {
 		return
+	}
+	if cappedBody, changed, err := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); err != nil {
+		respondOpenAIReasoningEffortPolicyError(c, err, h.chatCompletionsErrorResponse)
+		return
+	} else if changed {
+		body = cappedBody
 	}
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
@@ -306,6 +313,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		setActualUpstreamEndpoint(c, "")
 		// TK: ProtocolExecutors wiring — see gateway_handler_tk_chat_completions_execute.go
 		result, err = h.executeChatCompletionsSelectedProtocol(c, c.Request.Context(), selection, account, channelMapping, reqModel, parsedReq)
+		stampForwardRequestedReasoningEffort(result, service.RequestedReasoningEffortFromContext(c.Request.Context()))
 		tkRecordForwardResponseTail(c, forwardStart)
 
 		if accountReleaseFunc != nil {
@@ -363,6 +371,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				zap.Bool("upstream_error_response_already_written", upstreamErrorAlreadyCommunicated),
 				zap.Error(err),
 			)
+			h.gatewayService.ReleaseStickySessionAfterCommittedNoContent(context.WithoutCancel(c.Request.Context()), apiKey.GroupID, selectionSessionHash, account.ID, err)
 			return
 		}
 

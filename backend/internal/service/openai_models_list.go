@@ -165,8 +165,21 @@ func standardOpenAIModelsBody(body []byte, fromManifest bool) ([]byte, error) {
 // representations while retaining the source entry's metadata. It never changes
 // the shared response and never synthesizes models absent from this account.
 func projectAccountModelsBody(body []byte, account *Account, group *Group, codex bool) ([]byte, error) {
-	applyMapping := !account.IsOpenAIPassthroughEnabled() && len(account.GetModelMapping()) > 0
-	if !applyMapping && !account.IsOpenAIOAuthLike() {
+	projected, err := projectAccountModelAliases(body, account, group, codex)
+	if err != nil {
+		return nil, err
+	}
+	filtered, _, err := filterRetiredOpenAIPublicModelsBody(projected, []Account{*account}, codex)
+	return filtered, err
+}
+
+// projectAccountModelAliases retains the source entry's metadata, never changes
+// the shared response, and never synthesizes models absent from this account.
+func projectAccountModelAliases(body []byte, account *Account, group *Group, codex bool) ([]byte, error) {
+	passthrough := account.IsOpenAIPassthroughEnabled()
+	applyMapping := !passthrough && len(account.GetModelMapping()) > 0
+	filterMapping := passthrough && account.IsOpenAIPassthroughModelFilterEnabled() && len(account.GetModelMapping()) > 0
+	if !applyMapping && !filterMapping && !account.IsOpenAIOAuthLike() {
 		return body, nil
 	}
 	field, idField := "data", "id"
@@ -233,6 +246,8 @@ func projectAccountModelsBody(body []byte, account *Account, group *Group, codex
 		target, matched := id, true
 		if applyMapping {
 			target, matched = account.ResolveMappedModel(id)
+		} else if filterMapping {
+			target, matched = id, account.IsModelSupported(id)
 		}
 		raw, available := byID[strings.TrimSpace(target)]
 		if !matched || !available {

@@ -54,6 +54,12 @@ func TestApplyGeminiCompatThinkingConfig(t *testing.T) {
 		{name: "no thinking params streams thoughts only", model: "gemini-3.7-flash", claudeBody: `{}`, includeThoughts: true, wantThoughts: true},
 		{name: "unknown effort ignored", model: "gemini-3.7-flash", claudeBody: `{"output_config":{"effort":"turbo"}}`, wantNoConfig: true},
 		{name: "level with thoughts", model: "gemini-3.8-flash", claudeBody: `{"output_config":{"effort":"high"}}`, includeThoughts: true, wantLevel: "high", wantThoughts: true},
+		{name: "carbon low", model: "gemini-4-carbon", claudeBody: `{"output_config":{"effort":"low"}}`, wantLevel: "low"},
+		{name: "carbon medium", model: "models/gemini-4-carbon", claudeBody: `{"output_config":{"effort":"medium"}}`, wantLevel: "medium"},
+		{name: "carbon high", model: "gemini-4-carbon", claudeBody: `{"output_config":{"effort":"high"}}`, wantLevel: "high"},
+		{name: "carbon medium budget", model: "gemini-4-carbon", claudeBody: `{"thinking":{"type":"enabled","budget_tokens":4096}}`, wantLevel: "medium"},
+		{name: "carbon cannot disable thinking", model: "gemini-4-carbon", claudeBody: `{"thinking":{"type":"disabled"}}`, wantLevel: "low"},
+		{name: "carbon preserves upstream default", model: "gemini-4-carbon", claudeBody: `{}`, wantNoConfig: true},
 		{name: "gemini 4 uses level", model: "gemini-4-argon", claudeBody: `{"output_config":{"effort":"low"}}`, wantLevel: "low"},
 		// 2026-10-23: 原用例名为 "medium outside verified models becomes high"，
 		// 但它用的 gemini-4-argon 恰恰是官方档位文档明确列出的模型（low/medium/
@@ -105,16 +111,6 @@ func TestApplyGeminiCompatThinkingConfig(t *testing.T) {
 			require.Equal(t, tt.wantThoughts, cfg.Get("includeThoughts").Bool(), cfg.Raw)
 			require.False(t, cfg.Get("thinkingLevel").Exists() && cfg.Get("thinkingBudget").Exists(), "thinkingLevel and thinkingBudget are mutually exclusive")
 		})
-	}
-}
-
-func geminiCompatThinkingTestAccount() *Account {
-	return &Account{
-		ID:          611,
-		Platform:    PlatformGemini,
-		Type:        AccountTypeAPIKey,
-		Credentials: map[string]any{"api_key": "gemini-api-key"},
-		Concurrency: 1,
 	}
 }
 
