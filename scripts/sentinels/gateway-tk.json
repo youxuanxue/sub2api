@@ -3492,6 +3492,9 @@
         "if err = rejectVolcKimiAudioContentParts(shaped); err != nil {",
         "func rewriteVolcKimiVideoTypeParts(",
         "shaped, err = rewriteVolcKimiVideoTypeParts(shaped)",
+        "func normalizeVolcKimiFileContentParts(",
+        "return normalizeVolcKimiFileContentParts(shaped)",
+        "file input must be a PDF",
         "func dropVolcKimiInterleavedAssistantText(",
         "shaped, err = dropVolcKimiInterleavedAssistantText(shaped)",
         "func volcKimiToolCallIDs(",
@@ -3500,7 +3503,7 @@
         "const volcKimiMinDataVideoBytes = 256",
         "case \"text\", \"image_url\", \"video_url\", \"video\", \"input_audio\", \"audio_url\", \"file\", \"thinking\", \"reasoning_text\", \"prompt_cache_breakpoint\":"
       ],
-      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. thinking/reasoning_text/prompt_cache_breakpoint content parts are dropped; type=video rewrites to video_url; audio_url/input_audio return local 400. Inline data: video_url must be video/* base64 ≥256 decoded bytes or local 400. Open tool-round interleaved assistant text (including between parallel tool results) is dropped before Volc InvalidParameter 400. Text parts with empty/null/missing text are dropped before missing messages.content.text 400. Message-level content JSON null is rewritten to empty string before Volc missing messages.content 400. Thinking-mode temperature pin: on → KVV-legal non-1 to 1.0; off → KVV-legal non-0.6 to 0.6 (Volc only-1 / only-0.6). Orphan tool_call_id stays 400; long trajectories are not truncated."
+      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. thinking/reasoning_text/prompt_cache_breakpoint content parts are dropped; type=video rewrites to video_url; audio_url/input_audio return local 400. type=file missing/xor → local 400; video/* file_data → video_url; text/* → text; non-PDF → local 400; PDF/file_id pass through. Inline data: video_url must be video/* base64 ≥256 decoded bytes or local 400. Open tool-round interleaved assistant text (including between parallel tool results) is dropped before Volc InvalidParameter 400. Text parts with empty/null/missing text are dropped before missing messages.content.text 400. Message-level content JSON null is rewritten to empty string before Volc missing messages.content 400. Thinking-mode temperature pin: on → KVV-legal non-1 to 1.0; off → KVV-legal non-0.6 to 0.6 (Volc only-1 / only-0.6). Orphan tool_call_id stays 400; long trajectories are not truncated."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
@@ -3590,9 +3593,14 @@
         "prompt_cache_breakpoint",
         "Lone object content must wrap then drop",
         "data:video/mp4;base64,AAAA",
-        "volcKimiMinDataVideoBytes"
+        "volcKimiMinDataVideoBytes",
+        "func TestVolcKimiFileContentPartCompatibility(",
+        "missing_file_object_local_400",
+        "video_mp4_file_data_rewrites_to_video_url",
+        "text_plain_file_data_promotes_to_text",
+        "pdf_file_data_passthrough"
       ],
-      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface, open-round interleaved-assistant drop for Volc tool round-trips (including parallel results), content-part thinking/reasoning_text/prompt_cache_breakpoint/video/audio compatibility (including lone-object wrap), undersized/non-video data: video local 400, missing/null text-part drop, and message-level content null→empty-string coerce."
+      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface, open-round interleaved-assistant drop for Volc tool round-trips (including parallel results), content-part thinking/reasoning_text/prompt_cache_breakpoint/video/audio/file compatibility (including lone-object wrap and type=file missing/non-PDF normalize), undersized/non-video data: video local 400, missing/null text-part drop, and message-level content null→empty-string coerce."
     },
     {
       "path": "backend/internal/pkg/httputil/body.go",

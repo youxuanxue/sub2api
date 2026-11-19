@@ -76,6 +76,10 @@ func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 //   - thinking / reasoning_text content parts are dropped (2026-11-18);
 //   - type=video is rewritten to video_url when a URL is present (2026-11-18);
 //   - audio_url / input_audio parts return 400 (Volc kimi cannot deliver them);
+//   - type=file is normalized (2026-11-19 cn-prod rt@tk.com): missing/empty
+//     file object or 0/>1 of file_id|file_url|file_data → local 400; video/*
+//     file_data/file_url → video_url; text/* data → text part; non-PDF binary
+//     → local 400; real PDF / file_id pass through;
 //   - an assistant text message inserted between assistant.tool_calls and the
 //     matching tool result(s) is dropped (2026-11-17 cn-prod tokensea_online;
 //     2026-11-18 also drops assistant text between parallel tool results);
@@ -256,7 +260,11 @@ func normalizeVolcKimiMessageContents(body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return wrapVolcKimiStringVideoURLs(shaped)
+	shaped, err = wrapVolcKimiStringVideoURLs(shaped)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeVolcKimiFileContentParts(shaped)
 }
 
 const (
@@ -504,6 +512,373 @@ func volcKimiContentPartType(kind string) bool {
 	default:
 		return false
 	}
+}
+
+const (
+	volcKimiFileMissingMessage = "messages.content.file is required for type=file"
+	volcKimiFileXorMessage     = "exactly one of file_id, file_url, or file_data must be set"
+	volcKimiFilePDFOnlyMessage = "file input must be a PDF"
+)
+
+// normalizeVolcKimiFileContentParts owns Volc Agent Plan type=file shape
+// compatibility (cn-prod 2026-11-19 rt@tk.com / vap-1106-4 / vap-1105-51):
+//   - type=file without a nested file object (or with null/empty) → local 400;
+//   - flat file_id/file_url/file_data on the part are nested under file first;
+//   - file must carry exactly one of file_id, file_url, file_data → else 400;
+//   - video/* data URI or video-looking file_url → rewrite to video_url
+//     (same posture as type=video rewrite; data: size gate stays downstream);
+//   - text/* data URI → decode to a text part (Moonshot-style extract);
+//   - application/pdf or %PDF magic → keep as file;
+//   - other non-PDF payloads → local 400 (do not strip; do not invent success).
+// file_id is always forwarded. Parts are never silently dropped when they
+// carried a payload. KVV sampling/tools/orphan rules are unchanged.
+func normalizeVolcKimiFileContentParts(body []byte) ([]byte, error) {
+	shaped := body
+	var err error
+	for i, msg := range gjson.GetBytes(body, "messages").Array() {
+		content := msg.Get("content")
+		if !content.IsArray() {
+			continue
+		}
+		parts := content.Array()
+		kept := make([]json.RawMessage, 0, len(parts))
+		changed := false
+		for _, part := range parts {
+			out, rewrite, partErr := normalizeVolcKimiFilePart(part)
+			if partErr != nil {
+				return nil, partErr
+			}
+			if rewrite {
+				changed = true
+			}
+			kept = append(kept, out)
+		}
+		if !changed {
+			continue
+		}
+		path := fmt.Sprintf("messages.%d.content", i)
+		encoded, marshalErr := json.Marshal(kept)
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		shaped, err = sjson.SetRawBytes(shaped, path, encoded)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return shaped, nil
+}
+
+func normalizeVolcKimiFilePart(part gjson.Result) (json.RawMessage, bool, error) {
+	typ := strings.ToLower(strings.TrimSpace(part.Get("type").String()))
+	fileNode := part.Get("file")
+	hasFileObj := fileNode.Exists() && fileNode.Type != gjson.Null
+	hasFlat := volcKimiFileSourceFieldSet(part)
+	if typ != "file" && !hasFileObj {
+		return json.RawMessage(part.Raw), false, nil
+	}
+	if typ != "file" && hasFileObj {
+		// A nested file object without type=file is still Volc's file shape.
+		typ = "file"
+	}
+
+	fileMap := map[string]any{}
+	if hasFileObj {
+		if !fileNode.IsObject() {
+			return nil, false, newOpenAIInvalidParameterError("messages.content.file", volcKimiFileMissingMessage)
+		}
+		if err := json.Unmarshal([]byte(fileNode.Raw), &fileMap); err != nil {
+			return nil, false, newOpenAIInvalidParameterError("messages.content.file", volcKimiFileMissingMessage)
+		}
+	} else if hasFlat {
+		for _, key := range []string{"file_id", "file_url", "file_data", "filename"} {
+			if v := part.Get(key); v.Exists() && v.Type != gjson.Null {
+				fileMap[key] = v.Value()
+			}
+		}
+	} else {
+		return nil, false, newOpenAIInvalidParameterError("messages.content.file", volcKimiFileMissingMessage)
+	}
+
+	id := volcKimiFileStringField(fileMap, "file_id")
+	urlVal := volcKimiFileStringField(fileMap, "file_url")
+	data := volcKimiFileStringField(fileMap, "file_data")
+	setCount := 0
+	for _, v := range []string{id, urlVal, data} {
+		if v != "" {
+			setCount++
+		}
+	}
+	if setCount != 1 {
+		return nil, false, newOpenAIInvalidParameterError("messages.content.file", volcKimiFileXorMessage)
+	}
+
+	switch {
+	case id != "":
+		if hasFileObj && strings.EqualFold(strings.TrimSpace(part.Get("type").String()), "file") {
+			return json.RawMessage(part.Raw), false, nil
+		}
+		encoded, err := marshalVolcKimiFilePart(fileMap)
+		if err != nil {
+			return nil, false, err
+		}
+		return encoded, true, nil
+	case data != "":
+		return rewriteVolcKimiFileDataPart(part, data, fileMap, hasFileObj)
+	default: // file_url
+		return rewriteVolcKimiFileURLPart(part, urlVal, fileMap, hasFileObj)
+	}
+}
+
+func volcKimiFileSourceFieldSet(part gjson.Result) bool {
+	for _, key := range []string{"file_id", "file_url", "file_data"} {
+		v := part.Get(key)
+		if v.Exists() && v.Type != gjson.Null && strings.TrimSpace(v.String()) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func volcKimiFileStringField(fileMap map[string]any, key string) string {
+	raw, ok := fileMap[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	s, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(s)
+}
+
+func marshalVolcKimiFilePart(fileMap map[string]any) (json.RawMessage, error) {
+	payload := map[string]any{
+		"type": "file",
+		"file": fileMap,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(encoded), nil
+}
+
+func rewriteVolcKimiFileDataPart(part gjson.Result, data string, fileMap map[string]any, hasFileObj bool) (json.RawMessage, bool, error) {
+	kind, payload, ok := classifyVolcKimiFileData(data)
+	switch kind {
+	case volcKimiFileKindVideo:
+		encoded, err := json.Marshal(map[string]any{
+			"type":      "video_url",
+			"video_url": map[string]string{"url": data},
+		})
+		if err != nil {
+			return nil, false, err
+		}
+		return json.RawMessage(encoded), true, nil
+	case volcKimiFileKindText:
+		if !ok {
+			return nil, false, newOpenAIInvalidParameterError("messages.content.file", volcKimiFilePDFOnlyMessage)
+		}
+		encoded, err := json.Marshal(map[string]any{
+			"type": "text",
+			"text": payload,
+		})
+		if err != nil {
+			return nil, false, err
+		}
+		return json.RawMessage(encoded), true, nil
+	case volcKimiFileKindPDF:
+		if hasFileObj && strings.EqualFold(strings.TrimSpace(part.Get("type").String()), "file") {
+			return json.RawMessage(part.Raw), false, nil
+		}
+		encoded, err := marshalVolcKimiFilePart(fileMap)
+		if err != nil {
+			return nil, false, err
+		}
+		return encoded, true, nil
+	default:
+		return nil, false, newOpenAIInvalidParameterError("messages.content.file", volcKimiFilePDFOnlyMessage)
+	}
+}
+
+func rewriteVolcKimiFileURLPart(part gjson.Result, rawURL string, fileMap map[string]any, hasFileObj bool) (json.RawMessage, bool, error) {
+	lower := strings.ToLower(strings.TrimSpace(rawURL))
+	if strings.HasPrefix(lower, "data:") {
+		return rewriteVolcKimiFileDataPart(part, rawURL, fileMap, hasFileObj)
+	}
+	if volcKimiFileURLLooksLikeVideo(lower) {
+		encoded, err := json.Marshal(map[string]any{
+			"type":      "video_url",
+			"video_url": map[string]string{"url": rawURL},
+		})
+		if err != nil {
+			return nil, false, err
+		}
+		return json.RawMessage(encoded), true, nil
+	}
+	if volcKimiFileURLLooksLikeNonPDF(lower) {
+		return nil, false, newOpenAIInvalidParameterError("messages.content.file", volcKimiFilePDFOnlyMessage)
+	}
+	if hasFileObj && strings.EqualFold(strings.TrimSpace(part.Get("type").String()), "file") {
+		return json.RawMessage(part.Raw), false, nil
+	}
+	encoded, err := marshalVolcKimiFilePart(fileMap)
+	if err != nil {
+		return nil, false, err
+	}
+	return encoded, true, nil
+}
+
+type volcKimiFileKind int
+
+const (
+	volcKimiFileKindPDF volcKimiFileKind = iota + 1
+	volcKimiFileKindVideo
+	volcKimiFileKindText
+	volcKimiFileKindOther
+)
+
+func classifyVolcKimiFileData(raw string) (volcKimiFileKind, string, bool) {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(strings.ToLower(raw), "data:") {
+		meta, payload, cutOK := strings.Cut(raw, ",")
+		if !cutOK {
+			return volcKimiFileKindOther, "", false
+		}
+		metaLower := strings.ToLower(strings.TrimSpace(meta))
+		rest := strings.TrimSpace(strings.TrimPrefix(metaLower, "data:"))
+		mediaType, paramPart, _ := strings.Cut(rest, ";")
+		mediaType = strings.TrimSpace(mediaType)
+		isBase64 := false
+		for _, param := range strings.Split(paramPart, ";") {
+			if strings.TrimSpace(param) == "base64" {
+				isBase64 = true
+				break
+			}
+		}
+		switch {
+		case strings.HasPrefix(mediaType, "video/"):
+			return volcKimiFileKindVideo, "", true
+		case strings.HasPrefix(mediaType, "text/") || mediaType == "application/json" || mediaType == "application/xml":
+			text, ok := decodeVolcKimiFilePayload(payload, isBase64)
+			return volcKimiFileKindText, text, ok
+		case mediaType == "application/pdf" || mediaType == "":
+			decoded, ok := decodeVolcKimiFileBytes(payload, isBase64)
+			if ok && isVolcKimiPDFMagic(decoded) {
+				return volcKimiFileKindPDF, "", true
+			}
+			if mediaType == "application/pdf" {
+				// Claimed PDF but no magic — still forward; Volc validates.
+				return volcKimiFileKindPDF, "", true
+			}
+			if ok && looksLikeVolcKimiPlainText(decoded) {
+				return volcKimiFileKindText, string(decoded), true
+			}
+			return volcKimiFileKindOther, "", false
+		default:
+			decoded, ok := decodeVolcKimiFileBytes(payload, isBase64)
+			if ok && isVolcKimiPDFMagic(decoded) {
+				return volcKimiFileKindPDF, "", true
+			}
+			return volcKimiFileKindOther, "", false
+		}
+	}
+	decoded, ok := decodeVolcKimiFileBytes(raw, true)
+	if !ok {
+		return volcKimiFileKindOther, "", false
+	}
+	if isVolcKimiPDFMagic(decoded) {
+		return volcKimiFileKindPDF, "", true
+	}
+	if looksLikeVolcKimiPlainText(decoded) {
+		return volcKimiFileKindText, string(decoded), true
+	}
+	return volcKimiFileKindOther, "", false
+}
+
+func decodeVolcKimiFilePayload(payload string, isBase64 bool) (string, bool) {
+	payload = strings.TrimSpace(payload)
+	if !isBase64 {
+		return payload, payload != ""
+	}
+	decoded, ok := decodeVolcKimiFileBytes(payload, true)
+	if !ok {
+		return "", false
+	}
+	return string(decoded), true
+}
+
+func decodeVolcKimiFileBytes(payload string, isBase64 bool) ([]byte, bool) {
+	payload = strings.TrimSpace(payload)
+	if payload == "" {
+		return nil, false
+	}
+	if !isBase64 {
+		return []byte(payload), true
+	}
+	decoded, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		decoded, err = base64.RawStdEncoding.DecodeString(payload)
+		if err != nil {
+			return nil, false
+		}
+	}
+	return decoded, true
+}
+
+func isVolcKimiPDFMagic(b []byte) bool {
+	if len(b) < 4 {
+		return false
+	}
+	return string(b[:4]) == "%PDF"
+}
+
+func looksLikeVolcKimiPlainText(b []byte) bool {
+	if len(b) == 0 {
+		return false
+	}
+	// Reject obvious binary (NUL) and require mostly printable UTF-8.
+	nul := 0
+	printable := 0
+	for _, c := range b {
+		if c == 0 {
+			nul++
+		}
+		if c == '\n' || c == '\r' || c == '\t' || (c >= 32 && c < 127) {
+			printable++
+		}
+	}
+	if nul > 0 {
+		return false
+	}
+	return printable*10 >= len(b)*8
+}
+
+func volcKimiFileURLLooksLikeVideo(lowerURL string) bool {
+	path := lowerURL
+	if u, err := url.Parse(lowerURL); err == nil && u.Path != "" {
+		path = u.Path
+	}
+	for _, ext := range []string{".mp4", ".webm", ".mov", ".mkv", ".m4v", ".avi"} {
+		if strings.HasSuffix(path, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func volcKimiFileURLLooksLikeNonPDF(lowerURL string) bool {
+	path := lowerURL
+	if u, err := url.Parse(lowerURL); err == nil && u.Path != "" {
+		path = u.Path
+	}
+	for _, ext := range []string{".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".wav", ".mp3"} {
+		if strings.HasSuffix(path, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 const volcKimiVideoUnreachableMessage = "video_url is not reachable; provide a video URL this service can access"
