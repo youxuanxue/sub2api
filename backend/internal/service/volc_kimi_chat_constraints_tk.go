@@ -496,9 +496,10 @@ func wrapVolcKimiStringVideoURLs(body []byte) ([]byte, error) {
 
 func volcKimiContentPartType(kind string) bool {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "text", "image_url", "video_url", "video", "input_audio", "audio_url", "file", "thinking", "reasoning_text":
-		// video / thinking / reasoning_text / audio_* are recognized so a lone
-		// object content is wrapped into a part array before drop/rewrite/reject.
+	case "text", "image_url", "video_url", "video", "input_audio", "audio_url", "file", "thinking", "reasoning_text", "prompt_cache_breakpoint":
+		// video / thinking / reasoning_text / prompt_cache_breakpoint / audio_*
+		// are recognized so a lone object content is wrapped into a part array
+		// before drop/rewrite/reject.
 		return true
 	default:
 		return false

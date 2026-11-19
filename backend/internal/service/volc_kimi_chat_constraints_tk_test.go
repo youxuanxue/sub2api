@@ -590,6 +590,11 @@ func TestVolcKimiContentPartCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `[{"type":"text","text":"hi"}]`, gjson.GetBytes(cacheBreakpoint, "messages.1.content").Raw)
 
+	// Lone object content must wrap then drop (same as thinking/reasoning_text).
+	loneCache, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":{"type":"prompt_cache_breakpoint"}}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "", gjson.GetBytes(loneCache, "messages.0.content").String())
+
 	onlyReasoning, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"x"}]},{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
 	require.Equal(t, "", gjson.GetBytes(onlyReasoning, "messages.0.content").String())
