@@ -20,24 +20,9 @@ related_prs: ["#2385", "#2402"]
 
 ## 背景
 
-edge-us3 OAuth 实测（2026-09-29，account `gpt125` / `gpt-image-2`）：
-
-**Direct `/codex/images/*`（现网 1.8.265 默认路径，已废弃）**
-
-- `output_format=jpeg`：网关已重编码为 JPEG；尺寸常被上游改写。
-- `size` / `webp`：上游忽略；webp 现网返回 PNG。
-
-**Responses + `image_generation` tool（本 PR 目标路径，上游直连实测）**
-
-| 请求 | HTTP | 容器 | 像素（实测） | 备注 |
-| --- | --- | --- | --- | --- |
-| `size=1024x1024` `output_format=jpeg` `quality=medium` | 200 | jpeg | `1145x1374` | format 兑现；size 不兑现 |
-| `size=1024x640` `output_format=webp` `quality=high` | 200 | webp | `1312x1199` | **webp 上游原生兑现**；size/quality 软 |
-| `size=1024x1024` `background=transparent` `output_format=png` | 200 | png | `1024x1536` | background 透传；size 不兑现 |
-| `size=1024x1024` `output_format=jpeg` `quality=high` | 200 | jpeg | `1254x1254` | call_meta.quality=`low`（请求 high）；size 不兑现 |
-
-结论：format/background 在 Responses 路径明显好于 Direct；**字面 size 仍需本地 pad**；
-此前将 quality/compression 都用于本地后处理；quality 的处理已由下方 2026-10-16 修订替代。`3840x2176` 继续本地 400（总像素超 `8294400`）。
+上游 OAuth 不保证字面 `size` / `output_format` / `background=transparent`；
+字面 size 需本地 pad，format/background 在 Responses 路径更可靠。
+一次性实测表已删；契约以下方决策为准。
 
 ## 决策（已确认）
 
