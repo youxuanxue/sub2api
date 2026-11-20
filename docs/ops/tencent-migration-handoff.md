@@ -1,6 +1,6 @@
 # 腾讯美西迁机交接
 
-更新：2026-11-19。**腾讯美西已在服（timeline 2）；Tokyo / 日本 Lightsail 已删；账号出口在 `or-*` + 阿里云 `cn-ip*`；入口+双应用+数据机；LUKS X1–X4 已退役。**
+更新：2026-11-20。**腾讯美西已在服（timeline 2）；Tokyo / 日本 Lightsail 已删；账号出口在 `or-*` + 阿里云 `cn-ip*`；入口+双应用+数据机；LUKS X1–X4 已退役；切流清单已关闭。**
 
 ## 1. 接手先读（当前态）
 
@@ -41,4 +41,4 @@
 - 切流收尾 PR [#2753](https://github.com/youxuanxue/sub2api/pull/2753) 已合并；PR 不含私有 helper/密钥。
 - 只读观测：`ops/observability/run-probe.sh --target prod`（显式 `--expected-instance-id` 取舰队 SSOT）或腾讯 TAT：`helpers/tokenkey-usw-tool.py`。
 
-**接手第一句话应是「腾讯美西在服、Tokyo 已退役、出口已迁 usw-eval*；开放项见切流清单『后续』节」。**
+**接手第一句话应是「腾讯美西在服、Tokyo 已退役；出口 Oregon `or-*` + 阿里云 `cn-ip*`；切流清单已关闭；残留清理与另批项见舰队入口『AWS 残留』与 `decisions/`」。**
