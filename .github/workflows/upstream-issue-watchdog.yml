@@ -3,6 +3,8 @@ name: Upstream Issue Watchdog
 on:
   schedule:
     - cron: '20 21 * * *'
+  issue_comment:
+    types: [created, edited, deleted]
   push:
     branches: [main]
     paths:
@@ -43,6 +45,7 @@ concurrency:
 
 jobs:
   scan:
+    if: github.event_name != 'issue_comment' || contains(join(github.event.issue.labels.*.name, ','), 'tracking')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
