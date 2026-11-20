@@ -16,6 +16,8 @@ from open_client_release_watch_issues import (
     LABEL_BOARD,
     LABEL_DRIFT,
     LABEL_IN_PROGRESS,
+    LABEL_BLOCKED,
+    LABEL_NEEDS_TRIAGE,
     UMBRELLA_SKILL,
     _is_automated_legacy_drift_issue,
     board_body_path,
@@ -48,6 +50,29 @@ def _drift_report(*platform_ids: str) -> dict:
 
 
 class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
+    def test_blocked_board_rearms_on_next_drift_scan(self) -> None:
+        for in_progress in (False, True):
+            with self.subTest(in_progress=in_progress):
+                state = {LABEL_BOARD, LABEL_BLOCKED, LABEL_NEEDS_TRIAGE}
+                if in_progress:
+                    state.update({LABEL_IN_PROGRESS, LABEL_DRIFT})
+
+                def fake_sh(args, *, check=True):
+                    if "--add-label" in args:
+                        state.add(args[args.index("--add-label") + 1])
+                    if "--remove-label" in args:
+                        state.discard(args[args.index("--remove-label") + 1])
+                    return subprocess.CompletedProcess(args, 0, stdout=json.dumps(sorted(state)), stderr="")
+
+                with patch("open_client_release_watch_issues.sh", side_effect=fake_sh):
+                    labels = converge_board_labels(
+                        "4100", umbrella=False, drifting=True, current=set(state),
+                    )
+                self.assertEqual(LABEL_DRIFT in labels, not in_progress)
+                self.assertEqual(LABEL_BLOCKED in labels, in_progress)
+                self.assertNotIn(LABEL_NEEDS_TRIAGE, labels)
+                self.assertEqual(LABEL_IN_PROGRESS in labels, in_progress)
+
     def test_issue_body_path_defaults_to_board(self) -> None:
         cache = Path(".cache/fingerprint/client-release-watch")
         self.assertEqual(issue_body_path(cache).name, "issue-board.md")
