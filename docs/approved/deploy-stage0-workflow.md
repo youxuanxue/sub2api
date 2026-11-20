@@ -32,12 +32,12 @@ scope: ".github/workflows/deploy-stage0.yml + scripts/checks/bluegreen-migration
 
 Historically, gateway production release moved to `deploy-stage0.yml` and the
 blue/green SSM owner in this document. After the rolling migration it is retained
-only for legacy recovery. The 2026-09-10
-[component release revision](prod-component-release.md) and its Bundle Worker
-selection are archived and superseded by [qa-raw-only](qa-raw-only.md). They do
-not select a worker and do not gate gateway cutover. QA maintenance follows
-qa-raw-only. Gateway smoke still overlaps the SSM request drain, and success
-still joins that command and preserves the five-minute observation.
+only for legacy recovery. Component/Bundle Worker release designs were deleted;
+QA follows [qa-raw-only](qa-raw-only.md) (archived history) and live
+[node1 QA](design-tencent-cos-backup-node1-qa.md#node1-qa). They do not select a
+worker and do not gate gateway cutover. Gateway smoke still overlaps the SSM
+request drain, and success still joins that command and preserves the
+five-minute observation.
 
 ## 1. Why this exists
 
@@ -282,8 +282,8 @@ To stay focused on prod deploy automation and nothing else:
   a committed cutover, re-dispatch the previous app tag so rollback goes
   through the same health/smoke path. Bundle Worker rollback is retired.
   QA maintenance pin and the local lifecycle follow
-  `docs/approved/qa-raw-only.md`. Archived
-  `design-prod-qa-24h-s3-lifecycle.md` section 18.2 is not an execution path.
+  `docs/approved/qa-raw-only.md` (history) and
+  `docs/approved/design-tencent-cos-backup-node1-qa.md` (live).
 - **No CFN `ImageTag` parameter mutation** — drift between the CFN
   parameter and runtime `TOKENKEY_IMAGE` remains the accepted trade-off
   documented in `deploy/aws/README.md` §升级 / 发版.

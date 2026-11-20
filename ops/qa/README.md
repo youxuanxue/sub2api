@@ -18,8 +18,6 @@ node .cursor/skills/sub2api-admin/scripts/sub2api-admin.js api PUT "/api/v1/admi
 
 prod 与 cn-prod 各执行一次；读回 `qa_capture_enabled` 确认。
 
-2026-10-21 已完成生产启用与积压清理，见 [验收记录](../../docs/ops/qa-local-retention-20261021.md)。
-
 `tokenkey-qa-provision.timer` 是本地预建任务：每小时滚动补齐当前起未来 72 小时，
 开机后补跑；不依赖 S3 归档和旧 boundary timer。共享实现为
 `backend/cmd/qa-local-maintenance` → `lifecycle.RunProvision`，安装/运行入口
@@ -160,8 +158,6 @@ python3 scripts/checks/qa-lifecycle-ssot.py
 这说明存在时间重叠，不能据此断言 pg_dump 是唯一数据库 blocker。
 
 ## 旧 capture 目录修复
-
-cn-prod 的线上修复结果见 [验收记录](../../docs/ops/cn-qa-layout-repair-20261027.md)。
 
 若宿主缺少 `qa_hourly_storage_cutover_utc`，新 capture 会继续写旧日目录，
 小时清理任务成功也不代表这些文件已清理。`repair_capture_layout.py` 是一次性修复入口：

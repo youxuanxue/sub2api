@@ -1524,7 +1524,7 @@
       "judgment": {
         "impact": "needs_prod_validation",
         "tokenkey_status": "unresolved_observability",
-        "rationale": "2026-10-30 prod复核：六次原始完成事件明确cached_tokens=0，五对完整工具续轮保持历史前缀和cache key；最终出站身份及供应商cache admission轨迹缺失，不能归因system/session/failover。新增待审诊断方案见 docs/approved/openai-compaction-owner-and-cache-diagnostics.md；不改cache key或计费。"
+        "rationale": "2026-10-30 prod复核：六次原始完成事件明确cached_tokens=0，五对完整工具续轮保持历史前缀和cache key；最终出站身份及供应商cache admission轨迹缺失，不能归因system/session/failover。新增待审诊断方案（历史 approved 文已删）；不改cache key或计费。"
       }
     },
     {
@@ -1565,7 +1565,7 @@
       "judgment": {
         "impact": "high",
         "tokenkey_status": "unresolved_in_tokenkey",
-        "rationale": "2026-10-30离线普通replay/recompact均复现：A产生state、A不可调度时soft sticky退化选B，hard owner对照拒绝B。invalid_encrypted_content还可删除compaction整项后重试，存在静默丢历史风险。prod24h native_compaction_v2=0，未证明线上已触发。state租户隔离硬归属与禁止剥离方案见 docs/approved/openai-compaction-owner-and-cache-diagnostics.md，draft未实施。"
+        "rationale": "2026-10-30离线普通replay/recompact均复现：A产生state、A不可调度时soft sticky退化选B，hard owner对照拒绝B。invalid_encrypted_content还可删除compaction整项后重试，存在静默丢历史风险。prod24h native_compaction_v2=0，未证明线上已触发。state租户隔离硬归属与禁止剥离方案（历史 approved 文已删），draft未实施。"
       }
     },
     {

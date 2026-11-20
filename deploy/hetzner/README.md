@@ -3,8 +3,7 @@
 > **目录名 `deploy/hetzner/` 为历史路径。** Hetzner Cloud prod 已退役；`PROD_SSM_TARGET=hetzner` 失败关闭，Hetzner prod 供给 workflow/脚本已删除（2026-10-23）。本文件仍是现网舰队 SSOT（腾讯美西）。
 
 **SSOT：** 现网节点 / 公网 IP / CIDR / GHCR PAT 路径 / 发版入口 **只在本文件叙述**；其它文档与 skill 只留指针，勿复制数值。
-审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
-切流回执：[`docs/ops/reports/tencent-cutover-20261022.json`](../../docs/ops/reports/tencent-cutover-20261022.json)
+历史迁移/切流回执与 Hetzner 期审批文已清理；活不变量见下方「现网不变量」。
 
 ## 高可用与等效容灾（对外表述）
 
@@ -55,7 +54,7 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 舰队矩阵形状门禁：`python3 deploy/tencent/check_prod_fleet_matrix.py`。
 
 **Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已于 2026-10-23 完全退役**（实例、栈、VPC、卷、EIP、快照均已删；仅留 S3 历史链 `prod/postgres` timeline 1，只含数据库）。不能当作现网入口。
-旧应用机现与 cand 同形明文布局；LUKS 已退役（X1–X4），**禁止**再解锁演练或重建 LUKS 回退。布局收敛史见 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)。Tokyo→美西切流已关闭；切流回执历史：`docs/ops/reports/tencent-cutover-20261022.json`。
+旧应用机现与 cand 同形明文布局；LUKS 已退役（X1–X4），**禁止**再解锁演练或重建 LUKS 回退。Tokyo→美西切流已关闭。Stage0 布局须与 cutover **同窗**落地（默认不搬 Docker Root；PG/Redis 可用别名），**禁止**规划迁机后再停机做第二次布局。细则见 skill `tokenkey-host-replacement`。
 
 SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
 SOCKS 仅监听各机私网 `:1080`；放行来源见下方 `ALLOWED_SOURCES`（**应用机公网 IP**，不是入口 IP）。
@@ -139,7 +138,7 @@ cn-prod `proxies` **无** `or-*`，仅 Aliyun `ip5..8` + `cn-ip9..12`。Oregon *
 
 ### 日本出口代理（已关停 · 2026-10-23 删除）
 
-2026-10-22 账号绑定已迁到 `usw-eval*`；`jp-*` 行已于 2026-10-23 在 prod `proxies` 表软删（绑定账号数为 0）。2026-10-22 经用户批准，Lightsail 机（含 `tokenkey-node1-ingress-jp-20261016-vm`）已于 2026-10-23 **删除并释放静态 IP**（不可逆）；最终快照也已于同日删除（[runbook §6](../../docs/ops/tokyo-retirement-runbook.md)）。
+2026-10-22 账号绑定已迁到 `usw-eval*`；`jp-*` 行已于 2026-10-23 在 prod `proxies` 表软删（绑定账号数为 0）。2026-10-22 经用户批准，Lightsail 机（含 `tokenkey-node1-ingress-jp-20261016-vm`）已于 2026-10-23 **删除并释放静态 IP**（不可逆）；最终快照也已于同日删除。
 
 **活公网 IP / 绑定以 prod `proxies` 表为准**（Web：`https://tokenkey.dev/admin/proxies`；
 探针：`ops/observability/probe-list-proxies.sh`）。下表只记逻辑名与常见 Lightsail 名：
@@ -155,7 +154,7 @@ cn-prod `proxies` **无** `or-*`，仅 Aliyun `ip5..8` + `cn-ip9..12`。Oregon *
 
 - 活 prod 身份：`../tencent/candidate-usw-20261022.json`（`deployable=true` 时由 `resolve_prod_ssm_target` 解析）。
 - 宿主 watcher owner：`../tencent/candidate-usw-20261022.json` 的 `host_watch`（`hostname` / `domains` / `paused_jobs` / `local_qa_jobs` / `data_qa_jobs`）。
-- Tokyo 已于 2026-10-23 完全退役（实例/栈/VPC/卷/快照已删，仅留 S3 历史链），`aws-fresh` 解析路径与 `fresh-migration-20261015.json` 已删除（[runbook](../../docs/ops/tokyo-retirement-runbook.md)）。
+- Tokyo 已于 2026-10-23 完全退役（实例/栈/VPC/卷/快照已删，仅留 S3 历史链）；`aws-fresh` 解析路径已删除。
 - watcher 不随仓库合并更新：主机按安装时的内容寻址副本运行（`/usr/local/lib/tokenkey/https-watch/<hash>/config.json`）。改 `host_watch` / `entry` / `apps` 后须**经审批**重装：把 `install-host-https-watch.sh`、`host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、`deploy/tencent/candidate-usw-20261022.json`、`deploy/domestic/prod-target.json` 按 basename 放进 `WATCH_BUNDLE_DIR`，先不带 `APPLY` 跑一遍（只核身份并打印配置），与现装 config 比对后再以 `APPLY=yes-host-https-watch` 安装。应用机：`WATCH_ROLE=prod WATCH_NODE=app-old|app-cand`（私网身份 + 本机 `:18080` + `apps[].jobs`；primary=`app-old` 另保留对 cn-prod 的 peer 观测）；**入口机** `WATCH_ROLE=prod-entry`（私网身份 + 五域名证书 + 两台 `:8080`，凭据 `/var/lib/tokenkey/host-alerts.env`）；数据机 `WATCH_ROLE=prod-data`；cn-prod 见 domestic README。2026-11-16 入口机已装 `prod-entry`；2026-11-17 QA 协调器交接后已重装旧应用机 / 数据机 watcher；同日收尾补装 `app-cand` 对称 watcher（jobs 含 `tokenkey-qa-retention`；data 另含 `tokenkey-qa-coordinator`）。
 - 换机流程：[host replacement](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 
@@ -167,7 +166,8 @@ cn-prod `proxies` **无** `or-*`，仅 Aliyun `ip5..8` + `cn-ip9..12`。Oregon *
 | prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
 | 探针 / sync Caddy | `resolve_prod_ssm_target.py --node app-old|app-cand|entry`（无默认）；入口机同步也可显式 `INSTANCE_ID` + `PROD_CADDY_ROLE=entry`；冻结/退役身份拒绝执行 |
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
-| Secrets | `/tokenkey/hetzner/…`；不进 git |
+| 双写 | **禁止**业务库双活双写；Redis 不热迁 |
+| Secrets | 主机 root-only `.env` / 离机材料；不进 git |
 
 正式 prod 的 Caddy 源是 `deploy/stage0/Caddyfile`，同一模板按角色渲染两套策略：
 应用机 `PROD_CADDY_ROLE=app` 保持单容器 `tokenkey:8080`，只由 `/health` 主动检查决定摘除与恢复；
@@ -227,7 +227,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
    [COORDINATOR.md](../../ops/qa/COORDINATOR.md)。
 3. **监控**：宿主 HTTPS/job watcher 读取暂停 owner，要求所列 timer 停用且 service 不在运行；意外恢复会告警。其他任务（含 `local_qa_jobs` / `data_qa_jobs`）按成功时效监控。
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
-4. **资源**：日本 Lightsail / Tokyo 已删（见 [退役摘要](../../docs/ops/tokyo-retirement-runbook.md)）；新加坡其它项目资源不纳入 TokenKey 批量清理。
+4. **资源**：日本 Lightsail / Tokyo 已删；新加坡其它项目资源不纳入 TokenKey 批量清理。
    AWS 冷归档桶 `tokenkey-prod-archive-682751977094` lifecycle 30 天自删已启用；旧 physical-backup / `cfn-deploy` 镜像桶已不存在。
 5. **告警**：备份/QA retention/coordinator timer 已装；`tokenkey-https-watch.timer` 已接飞书。日常发版走 `prod-rolling-deploy.yml`。
 6. **不做**：整机/卷常备快照、AWS 临时机隔离恢复演练（见 [`declined.md`](../../docs/decisions/declined.md)）。

@@ -23,9 +23,8 @@
    当前验证基线为 PostgreSQL 18.6、ARM64、pgBackRest 2.58.0，使用已验收不可变镜像。
    若美国目标仅提供 x86，先验证镜像/扩展与数据格式兼容；不能把 ARM 恢复成功当作 x86 验收。
    必要时从独立 ARM 恢复副本做逻辑导出再导入 x86，不在活库额外跑大 dump。
-2. 实际资源选型、价格和基础设施验收见 [美西验证报告](../../docs/ops/reports/tencent-us-lighthouse-proxy-validation-20261021.md)，
-   实例身份由舰队入口持有。用户已授权一个月手动续费的验证资源并已创建；本阶段不更改 DNS、不触碰生产卷。
-   后续恢复另行核算 S3 拉取、跨云流量和新增资源费用，不把已批准实例费用当作所有迁移费用。
+2. 实例身份与选型由舰队入口 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md) 持有。
+   本阶段不更改 DNS、不触碰生产卷。后续恢复另行核算对象存储拉取、跨云流量和新增资源费用。
 3. 准备只允许读取物理仓库和恢复包的短期凭据。EC2 IMDS 自动身份不能直接在腾讯云使用；
    通过受控 STS 会话和受保护文件注入 session token，凭据不进日志、git、命令参数或回执。
    不复用生产备份写角色，不授予 S3 写/删除权限。先验证对象下载、过期行为和镜像 SHA。
@@ -136,15 +135,15 @@ Redis 默认新建；若会话/幂等功能有持久需求，按其 owner 单独
 ## 腾讯云正式运行 · 切流后仍开放
 
 - **发布目标**：`resolve_prod_ssm_target.py --target auto` → 腾讯美西。GitHub `PROD_SSM_TARGET` 必须为 `auto`。`aws-fresh`/`hetzner` 已退役，失败关闭。
-- **Stage0 布局**：从 **plan/prepare** 起按「切流结束即可 `deploy-stage0`」设计；与 cutover **同窗**落地（默认例外路径：不搬 Docker Root、PG/Redis 别名）。见 [`stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md) / skill `tokenkey-host-replacement`。**禁止**规划迁机完成后的第二次布局停机。
-- **宿主存储契约**：`bluegreen_host_runtime.py` 默认 `--platform=tencent-luks`；拒绝 Hetzner volume 身份。
+- **Stage0 布局**：从 **plan/prepare** 起按「切流结束即可 `deploy-stage0` / rolling」设计；与 cutover **同窗**落地（默认例外路径：不搬 Docker Root、PG/Redis 别名）。见 skill `tokenkey-host-replacement` 与舰队入口。**禁止**规划迁机完成后的第二次布局停机。
+- **宿主存储契约**：现网矩阵 `volume_platform=tencent-root`（明文根盘）；`bluegreen_host_runtime` 经 `volume_contract` 读矩阵，拒绝 Hetzner volume 身份。CLI 裸默认仍为历史 `tencent-luks`，手跑须显式传平台。
 - **备份身份**：候选前缀 `candidates/tencent-usw-20261022/postgres` 为活链；`RuntimeDirectoryPreserve=yes`；飞书宿主告警已接（`tokenkey-https-watch.timer`，见舰队 SSOT）。
 - **密钥与启动**：LUKS 已退役；现网明文根盘。**禁止**再解锁演练或重建 LUKS 回退（见舰队入口）。
 - **出口代理**：账号已迁 `usw-eval*`；日本 Lightsail 已于 2026-10-23 删除。
 
 ## 历史：切流前最短停写清单（2026-10-22 已执行）
 
-以下为切流前准备与窗内顺序的归档，**不是**当前开放项。后续迁机仍按此顺序，并把 Stage0 例外布局写进同一窗（见 skill / [`stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md)）。
+以下为切流前准备与窗内顺序的归档，**不是**当前开放项。后续迁机仍按此顺序，并把 Stage0 例外布局写进同一窗（见 skill `tokenkey-host-replacement`）。
 
 提前完成镜像固定 digest 下载、同架构启动、证书与域名定向访问、密钥迁移、正式挂载布局、
 目标日常发布、只读/备份身份续期和新 timeline 备份恢复验证，再安排停止写入。

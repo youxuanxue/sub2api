@@ -9,7 +9,7 @@ archive_mode: frozen
 design_anchors:
   phase1_closeout: docs/approved/design-data-layer-phase1-closeout.md
   archive_bucket: docs/approved/design-prod-archive-bucket.md
-  export_canary: docs/approved/design-data-layer-prod-export-canary.md  # archived 2026-11-19
+  # export_canary retired 2026-11-19 (design deleted); see docs/decisions/declined.md
 
 retention_hot_layer_days:
   usage: 90
