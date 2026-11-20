@@ -59,8 +59,8 @@ QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 �
 不能靠覆盖已发布目录“补成功”。v2 当前证明的是该源文件快照，不证明 capture 已封口或全站完整。
 现有 cleanup 明确拒绝把单源 v2 回执当成全站删除凭据，包括误放到旧站点小时路径的回执。
 数据机归档调度、历史参与源、capture 封口，以及小时结束后 24 小时的独立兜底，按
-[已批准方案](../../docs/approved/design-prod-app-parallel-replacement.md#qa-集中管理方案用户已同意尚未执行)
-实现，见下面的新执行入口；线上交接验收之前，不给现有 timer 启用 source 模式。
+[已批准方案](../../docs/approved/design-prod-app-parallel-replacement.md#qa-集中管理方案)
+实现，见下面的执行入口。
 
 ### 数据机协调器与独立一天兜底
 
@@ -122,7 +122,7 @@ reviewed installer 生成，当前 `PHASES` 不包含 archive，因此本次代�
 ## 生产存储与恢复分界
 
 历史 raw 对象（AWS `tokenkey-prod-qa-raw-archive-682751977094` 与 Hetzner fsn1）均按七天生命周期
-自然到期，仓库已无恢复 CLI。历史切换与验收记录见 [qa-raw-only](../../docs/approved/qa-raw-only.md)
+自然到期，仓库已无恢复 CLI。活契约与删除边界见 [design-tencent-cos-backup-node1-qa](../../docs/approved/design-tencent-cos-backup-node1-qa.md#node1-qa)
 与 git 历史；新的 QA 副本只在 node1。AWS raw 栈收尾：CFN `tokenkey-prod-qa-raw-archive`=`DELETE_COMPLETE`（2026-11-09），桶 `HeadBucket` 404；主机 `tokenkey-qa-maintenance`/`boundary` 脚本与 unit 已清除（2026-11-17 核对）。
 
 ## 巡检

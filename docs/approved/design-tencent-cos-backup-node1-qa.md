@@ -12,7 +12,7 @@ risk: high
 ## 决策
 
 1. prod 数据库备份迁到腾讯 COS 美西地域；cn-prod 数据库备份迁到腾讯 COS 北京地域。AWS S3 在迁移期保留为只读回退链，腾讯 COS 完成独立恢复验收后停止 AWS 写入和运行时身份。AWS 对象删除是单独的不可逆收尾动作。
-2. QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 每 4h，取代 [qa-raw-only](qa-raw-only.md) 的 raw S3 归档。QA 继续在 prod/cn-prod 本地保留至少 24 小时。每 4 小时在低峰复制已封口的 QA raw 文件到自有 node1；本方案不验收 QA 数据库恢复，也不改在线 PostgreSQL、网关或 QA capture。
+2. QA S3 / raw S3 上传已退役（2026-11-08）；现行路径为本地 24h + node1 每 4h。QA 继续在 prod/cn-prod 本地保留至少 24 小时。每 4 小时在低峰复制已封口的 QA raw 文件到自有 node1；本方案不验收 QA 数据库恢复，也不改在线 PostgreSQL、网关或 QA capture。
 3. node1 每日从两套腾讯 COS 备份仓库拉取已完成对象，保存为最终兜底副本。node1 故障不应影响业务；node1 副本必须有独立 manifest、校验和、配额与失败告警。
 
 历史 AWS/Hetzner QA 对象按原 UTC 小时归属保留，不做历史搬迁。仓库中的 Tokyo node1 reader/ingress 已退役；本方案中的 node1 指用户指定的现有自有服务器。
@@ -57,6 +57,15 @@ risk: high
 - 复制使用只读 COS 凭据，按对象清单增量拉取；每轮先写临时目录，再原子发布 manifest。manifest 记录 bucket、prefix、对象数量、字节数、ETag/sha256、完成时间和源检查结果。只复制已完成对象，不复制 multipart 临时对象。
 - node1 不运行 PostgreSQL restore，不接管业务数据库；兜底验收只证明对象完整、可读、可重新取得。
 - 初始保留策略建议 30 天，实际值以 7 天容量观测和 node1 配额为准。达到配额或校验空间不足必须失败并告警，不能静默删除最新副本。
+
+### QA 产品删除契约
+
+原 `qa-raw-only` 审批已并入本文后删除该文件。以下删除边界仍有效：
+
+- 移除 `/users/me/qa/bundles`、bundle-exports 及旧 traj export；退役端点返回 404。
+- 删除 API Key 页面 QA 入口、管理员导出授权、`traj_export_enabled` / `traj_export_platforms`、Bundle 服务、worker、队列与 canary 发布路径。
+- 不恢复 QA→S3 / raw S3 产品上传；不增加 SSE-C 作为 QA 产品能力。
+- 数据库旧授权列与历史迁移保留兼容，不执行 `DROP COLUMN`。
 
 ### node1 QA
 

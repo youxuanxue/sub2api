@@ -43,6 +43,6 @@ See `docs/approved/prod-replay-capability-matrix.md`.
 
 
 QA 仅保留 prod capture、raw archive/restore/lifecycle。独立 maintenance pin 的发布与
-验收入口见 `ops/qa/README.md`，批准边界见 `docs/approved/qa-raw-only.md`。普通
+验收入口见 `ops/qa/README.md`；批准边界见 `docs/approved/design-tencent-cos-backup-node1-qa.md`。普通
 gateway/all rollout 不更新该 pin，不切换 raw 存储坐标；已删除的用户导出和 worker
 发布入口不可恢复。

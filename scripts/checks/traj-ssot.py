@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CONTRACT = "docs/approved/qa-raw-only.md"
+CONTRACT = "docs/approved/design-tencent-cos-backup-node1-qa.md"
 RETIRED = (
     "projection.go", "projection_v2.go", "projection_openai.go", "projection_gemini.go",
 )

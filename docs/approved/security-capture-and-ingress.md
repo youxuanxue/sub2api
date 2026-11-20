@@ -13,7 +13,7 @@ risk: high
 删除已有证据、修改管理员 MFA 绑定或执行凭据迁移。
 
 现行 QA 生命周期以 `design-tencent-cos-backup-node1-qa.md`（本地 24h + node1）为准；
-`qa-raw-only.md` 仅保留退役契约历史。不新增 schema、第二归档/删除 owner 或新的采集开关。
+QA 产品导出已退役；活归档契约见 `design-tencent-cos-backup-node1-qa.md`。不新增 schema、第二归档/删除 owner 或新的采集开关。
 
 批准的修复行为：
 

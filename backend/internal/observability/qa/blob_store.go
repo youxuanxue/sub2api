@@ -129,7 +129,7 @@ func newBlobStore(cfg config.QACaptureConfig) (BlobStore, error) {
 // access key is empty it adds NO credentials provider, so LoadDefaultConfig uses
 // the default AWS credential chain. Production capture uses local blobs; raw
 // archive coordinates and credential mounts belong to the independent maintenance
-// runtime (docs/approved/qa-raw-only.md), not to a user export bucket.
+// runtime (docs/approved/design-tencent-cos-backup-node1-qa.md), not to a user export bucket.
 //
 // Previously newBlobStore unconditionally passed an empty static provider, so
 // S3-backed writes failed with "operation error S3: PutObject ... static
