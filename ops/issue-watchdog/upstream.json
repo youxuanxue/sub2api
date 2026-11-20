@@ -2377,6 +2377,14 @@
         "rationale": "2026-11-17: TK already skips cooling on uncorroborated AG 429 (tkGoogle429CorroboratesAccountLimit) and Pro Argon uses separate sub-family (#8393 owner). Upstream #8836 model-only cool is alternate design; keep as parity lead until prod AG final-429 rates drop."
       },
       "upstream": "Wei-Shaw/sub2api#8836"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#8978",
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "明确的 QUOTA_EXHAUSTED 在 1.8.387 的普通路径会重复发送免费请求。TestAntigravityQuotaExhaustedSwitch 验证切号和积分重试次数，待两地发布验收。积分请求收到裸 429 后的五小时冷却由 21b6f2d59 和既有回归明确要求；误判仍需有余额账号的实际请求证据。"
+      }
     }
   ]
 }

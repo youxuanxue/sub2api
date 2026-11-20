@@ -20978,6 +20978,7 @@
       "must_contain": [
         "s.tkDropStickyForUnusableAccount(ctx, groupID, sessionHash, account)",
         "if !tkGoogle429CorroboratesAccountLimit(body) {",
+        "tkAntigravityQuotaDetail(respBody).Exists()",
         "s.tkDropStickyForUnusableAccount(p.ctx, p.groupID, p.sessionHash, p.account)"
       ],
       "rationale": "Anchor the two injections that stop a cooled account from being replayed: the 429 branch must consult the corroboration predicate before cooling, and the model-rate-limit path must use the ownership-checked drop instead of an unconditional delete."

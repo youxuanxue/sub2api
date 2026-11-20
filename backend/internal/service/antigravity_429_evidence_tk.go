@@ -55,6 +55,18 @@ var tkGoogle429ResetHintFields = []string{
 	"metadata.retryDelay",
 }
 
+// Only Google's typed quota verdict justifies immediately abandoning a free attempt.
+func tkAntigravityQuotaDetail(body []byte) gjson.Result {
+	if gjson.GetBytes(body, "error.status").String() == googleRPCStatusResourceExhausted {
+		for _, detail := range gjson.GetBytes(body, "error.details").Array() {
+			if detail.Get("@type").String() == googleRPCTypeErrorInfo && detail.Get("reason").String() == "QUOTA_EXHAUSTED" {
+				return detail
+			}
+		}
+	}
+	return gjson.Result{}
+}
+
 // tkGoogle429CorroboratesAccountLimit reports whether a 429 carries provider
 // evidence that THIS account is over its own limit, as opposed to the request or
 // a pool shared by every account.
@@ -64,8 +76,8 @@ var tkGoogle429ResetHintFields = []string{
 // retried once and self-corrects; an over-cooled account silently removes
 // capacity for the coolsdown duration, which is far more expensive.
 func tkGoogle429CorroboratesAccountLimit(body []byte) bool {
-	if len(body) == 0 {
-		return false
+	if tkAntigravityQuotaDetail(body).Exists() {
+		return true
 	}
 	details := gjson.GetBytes(body, "error.details")
 	if !details.IsArray() {

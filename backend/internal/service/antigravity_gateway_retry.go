@@ -46,6 +46,7 @@ type antigravityRetryLoopParams struct {
 	// rate-limit writes. Used by admin TestConnection so a probe cannot pin or
 	// disable the account when it hits the wrong upstream pool or a transient 429.
 	readOnlyAccountState bool
+	creditsInjected      bool // current request already uses the paid quota
 	// clientStream gates pre-content keepalive. Upstream always uses
 	// streamGenerateContent, but non-stream clients must not receive SSE pings
 	// before a JSON body is written. keepaliveFrame preserves the client wire
@@ -148,7 +149,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 	// AI Credits 超量请求：
 	// 仅在上游明确返回免费配额耗尽时才允许切换到 credits。
 	if resp.StatusCode == http.StatusTooManyRequests &&
-		category == antigravity429QuotaExhausted &&
+		category == antigravity429QuotaExhausted && !p.creditsInjected &&
 		p.account.IsOveragesEnabled() &&
 		!p.account.isCreditsExhausted() {
 		result := s.attemptCreditsOveragesRetry(p, baseURL, modelName, waitDuration, resp.StatusCode, respBody)
@@ -157,6 +158,20 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 				action: smartRetryActionBreakWithResp,
 				resp:   result.resp,
 			}
+		}
+	}
+
+	// An explicit free-quota verdict cannot recover on another free attempt.
+	if category == antigravity429QuotaExhausted && tkAntigravityQuotaDetail(respBody).Exists() {
+		p.handleError(p.ctx, p.prefix, p.account, resp.StatusCode, resp.Header, respBody, p.requestedModel, p.groupID, p.sessionHash, p.isStickySession)
+		s.appendAntigravitySmartRetryOpsEvent(p, resp.StatusCode, resp.Header, respBody, "smart_retry_quota_exhausted")
+		return &smartRetryResult{
+			action: smartRetryActionBreakWithResp,
+			switchError: &AntigravityAccountSwitchError{
+				OriginalAccountID: p.account.ID,
+				RateLimitedModel:  resolveCreditsOveragesModelKey(p.ctx, p.account, "", p.requestedModel),
+				IsStickySession:   p.isStickySession,
+			},
 		}
 	}
 
@@ -526,7 +541,6 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 	}
 
 	// 预检查：模型限流 + overages 启用 + 积分未耗尽 → 直接注入 AI Credits
-	overagesInjected := false
 	modelUnavailable := p.account.antigravityModelCapabilityUnavailable(p.ctx, p.requestedModel)
 	if p.requestedModel != "" && p.account.Platform == PlatformAntigravity &&
 		!modelUnavailable &&
@@ -534,7 +548,7 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 		p.account.isModelRateLimitedWithContext(p.ctx, p.requestedModel) {
 		if creditsBody := injectEnabledCreditTypes(p.body); creditsBody != nil {
 			p.body = creditsBody
-			overagesInjected = true
+			p.creditsInjected = true
 			setOpsUpstreamRequestBody(p.c, p.body)
 			logger.LegacyPrintf("service.antigravity_gateway", "%s pre_check: model_rate_limited_credits_inject model=%s account=%d (injecting enabledCreditTypes)",
 				p.prefix, p.requestedModel, p.account.ID)
@@ -545,7 +559,7 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 	if p.requestedModel != "" {
 		if remaining := p.account.GetRateLimitRemainingTimeWithContext(p.ctx, p.requestedModel); remaining > 0 {
 			// 已注入积分的请求不再受普通模型限流预检查阻断。
-			if overagesInjected {
+			if p.creditsInjected {
 				logger.LegacyPrintf("service.antigravity_gateway", "%s pre_check: credits_injected_ignore_rate_limit remaining=%v model=%s account=%d",
 					p.prefix, remaining.Truncate(time.Millisecond), p.requestedModel, p.account.ID)
 			} else if isSingleAccountRetry(p.ctx) && !modelUnavailable {
@@ -662,7 +676,7 @@ urlFallbackLoop:
 				respBody := s.readUpstreamErrorBody(resp)
 				_ = resp.Body.Close()
 
-				if overagesInjected && !p.readOnlyAccountState && shouldMarkCreditsExhausted(resp, respBody, nil) {
+				if p.creditsInjected && !p.readOnlyAccountState && shouldMarkCreditsExhausted(resp, respBody, nil) {
 					modelKey := resolveCreditsOveragesModelKey(p.ctx, p.account, "", p.requestedModel)
 					s.handleCreditsRetryFailure(p.ctx, p.prefix, modelKey, p.account, &http.Response{
 						StatusCode: resp.StatusCode,
@@ -1456,6 +1470,12 @@ func (s *AntigravityGatewayService) handleUpstreamError(
 		}
 
 		resetAt := ParseGeminiRateLimitResetTime(body)
+		if resetAt == nil {
+			if stamp := tkAntigravityQuotaDetail(body).Get("metadata.quotaResetTimeStamp").Time(); stamp.After(time.Now()) {
+				unix := stamp.Unix()
+				resetAt = &unix
+			}
+		}
 		defaultDur := s.getDefaultRateLimitDuration()
 
 		// 尝试解析模型 key 并设置模型级限流
