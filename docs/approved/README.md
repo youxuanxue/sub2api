@@ -177,14 +177,12 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 | [`prod-replay-capability-matrix.md`](prod-replay-capability-matrix.md) | Offline gateway capability matrix；与部署无关 |
 | [`ops-sla-error-owner-scope.md`](ops-sla-error-owner-scope.md) | Ops SLA owner scope |
 | [`proxy-unreachable-p0-alert.md`](proxy-unreachable-p0-alert.md) | 代理出口 IP:port 不可达 P0 告警 |
-| [`admin-dashboard-rollup-performance.md`](admin-dashboard-rollup-performance.md) | Admin dashboard rollups |
-| [`admin-ui-performance-rollups.md`](admin-ui-performance-rollups.md) | Admin UI rollup performance |
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
 | [`trial-media-recharge-ux-and-total-recharged.md`](trial-media-recharge-ux-and-total-recharged.md) | Trial media 402 Studio UX + `users.total_recharged` / 总充值 SSOT (A1/B1) |
 | [`public-quickstart-registration-offer.md`](public-quickstart-registration-offer.md) | Public Quickstart and shared registration offer |
 | [`usage-balance-fallback.md`](usage-balance-fallback.md) | Usage balance fallback |
 | [`response-usage-cost.md`](response-usage-cost.md) | Inference response `usage.cost` (TotalCost / list price) |
-| [`design-dual-market-homepage.md`](design-dual-market-homepage.md) | 双市场首页与统一产品矩阵（海外 host 全门面条款见 facade 文档） |
+| [`design-dual-market-homepage.md`](design-dual-market-homepage.md) | 双门面单产品不变量；海外 host 行为见 CallModel 门面 |
 | [`design-callmodel-product-facade.md`](design-callmodel-product-facade.md) | CallModel 产品门面（同壳反代 + 品牌铬；局部 supersede dual-market） |
 
 ### Upstream merge anchors
@@ -214,6 +212,8 @@ QA 删除边界已并入 [design-tencent-cos-backup-node1-qa.md](design-tencent-
 cn-prod 备份监控走 `ops-cn-backup-watch.yml` + pgBackRest，勿恢复逻辑 dump 步骤。
 一次性 ops 历史稿（COS 并行 repo 草案、UCloud Kimi 压测包、relay-watch、
 旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。已完成迁机执行表（entry-multi-app L1–X4、data-plane 停写逐步表、parallel-replacement 询价/SSM 回执）已从正文删除，仅留不变量。`cn-prod-image-distribution` 已并入 `design-cn-image-cos`；无引用 kvv-kimi 压测报告已删；`stage0-release-check-remediation` / `gateway-correctness-remediation-20261112` 与中间 deepseek 压测报告已删；`deploy-stage0-workflow` 收为 A14 tombstone。
+admin dashboard/UI rollup 历史批准文已删；dual-market / pgBackRest 迁机 runbook 历史执行段已压缩。
+一次性迁机 orphan 工具（migration snapshot / final-wal 校验）已删；活契约仍用 `probe-migration-applied-verify` 与 host-replacement。
 
 Stage0 蓝绿已退役为 tombstone：[deploy-stage0-workflow.md](deploy-stage0-workflow.md)；默认发版走 rolling。
 

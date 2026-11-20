@@ -9,7 +9,7 @@ depends_on:
   - docs/approved/design-dual-market-homepage.md
   - docs/approved/design-apex-domain-phase2.md
 supersedes_partial:
-  - docs/approved/design-dual-market-homepage.md#hostname-allowlist-and-redirect
+  - docs/approved/design-dual-market-homepage.md  # 海外 redirect/allowlist 已由本门面接管
   - docs/approved/design-apex-domain-phase2.md  # Settings/人类入口已移交本门面；apex 仅保留 api.* allowlist
 ---
 

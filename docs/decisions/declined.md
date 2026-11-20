@@ -22,3 +22,5 @@
 | 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass5） | 恢复 `design-prod-entry-multi-app` 的 L1–L8/X1–X4/DNS 执行表，或把 `design-prod-app-parallel-replacement` 迁机/询价/SSM 回执叙事写回全文（双应用与 QA 24h 不变量仍保留）；或恢复 `design-data-plane-split` 停写窗口逐步执行表。 |
 | 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass6） | 恢复已删的 `cn-prod-image-distribution`（已并入 `design-cn-image-cos`）、无引用的 kvv-kimi 压测报告，或把 `design-tencent-cos-backup-node1-qa` / `design-prod-physical-backup` 的 AWS 迁机执行叙事写回全文。 |
 | 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass8） | 恢复 Stage0 蓝绿执行百科、已删 remediations（stage0-release-check / gateway-correctness-20261112）、中间 deepseek 800/1200-Errno24 报告，或把 apex 阶段二 rollout 史写回全文。 |
+| 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass9） | 恢复 admin dashboard/UI rollup 批准文、dual-market 海外 redirect 百科，或把 `physical-backup` / `pgbackrest-host-migration` 的 Tokyo/LUKS 执行史写回全文。 |
+| 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass10） | 恢复已删的一次性迁机 orphan 工具（`compare-pg-migration-snapshots` / `probe-migration-readiness` / `probe-pg-migration-snapshot` / `verify_final_wal` 及其测试）。 |

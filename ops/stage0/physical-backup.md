@@ -19,43 +19,6 @@
 `prod/postgres`（Tokyo timeline 1）冻结只读；不得写入，也不作为恢复默认。
 下文「固定配置」「初次上线顺序」是 Tokyo 期基线，标注为**历史**，勿当现网步骤。
 
-## 固定配置与成本边界（历史：Tokyo 基线）
-
-| 项目 | 执行值 |
-|---|---|
-| 镜像 | PostgreSQL 18.6；架构须与目标主机一致（Tokyo arm64，腾讯现网 amd64）；基础摘要在 Dockerfile 固定；pgBackRest 2.58.0；装载后用 image ID 固定运行 |
-| 备份 | UTC 每个偶数小时 30 分；周日 00:30 的任务做全量，其余增量；错过周全量则下次补全量 |
-| 归档 | archive_mode=on，archive_timeout=300；同步 archive-push；5 分钟一次往返及连续性检查 |
-| 清理 | 专用 S3 桶，us-east-1；pgBackRest 按时间保留至少 7 天所需链；S3 仅清未完成 multipart |
-| 并发 | 备份 2，恢复 4；与现有 pgdump 共用 QA host.lock；物理备份拿独占锁，避免争用 |
-| 恢复资源（历史 AWS canary） | 显式批准的子网/区域内独立临时机：arm64→c7g.xlarge，amd64→c7i.xlarge；100 GiB 加密 gp3；完成即终止。现网迁机不走此路径，见 `pgbackrest-host-migration.md` |
-| 开销 | 首次验收临时机预算上限 $5；每次硬时限 2 小时。S3 流量依实际 WAL 量结算（腾讯→us-east-1 为公网上传） |
-
-容量按「窗口边界所需全量 + 后续增量 + 连续 WAL + 新全量暂时重叠」计算，不用 84 份文件估算。
-例如平均仓库 100 GB，按 us-east-1 S3 Standard 约 $0.023/GB·月估算仅存储约 $2.30/月；
-请求、主机→S3 流量（历史为 Tokyo 跨区，现为腾讯公网上传）、恢复拉取另计，价格在执行前复核。
-首个 48 小时与完整周必须量测这些费用；不删除用户明细以达成预算。
-
-## 初次上线顺序（历史变更基线）
-
-1. 先跑本地/CI 门禁和 S3 原型。构建与目标主机同架构的镜像、真实计费验收二进制；生成带 SHA-256 的部署包。
-2. 在 us-east-1 创建 `stage0-physical-backups.yaml`：新私有桶、只读恢复角色/profile；
-   `BackupRoleArn` 从当前 EC2 instance profile 解析。只给源主机角色新仓库所需对象权限。
-   这是实例角色边界，沿用当前 IMDSv2/hop=2；网关不增加环境变量、凭据挂载或宿主网络。
-   安装前复核当前实例角色/IMDS 隔离仍符合生产安全要求。
-3. 将部署包传到新桶 `artifacts/<sha256>.tar.gz`。SHA-256 对齐后在源主机解包、`docker load`。
-   刷新既有 HTTPS watcher，使其支持物理备份健康检查；原有 QA 暂停清单继续有效。
-4. **安排 10 分钟维护窗口**。安装器默认只输出计划；核对主机、旧/新 image ID、PG 版本、挂载路径后执行 `--apply`。
-   唯一预期服务中断来自一次 PostgreSQL 容器重建；窗口内可能连接失败、请求重试，不能承诺零中断。
-   60 秒仍未就绪，或出现持续连接错误，应立即执行回退。全量生成异步执行，不计入数据库重启耗时。
-5. 验证首份全量、远端 WAL 和自然两小时增量；检查凭据从容器自动获取并经过一次轮换。
-   观察相近流量下请求错误/延迟、CPU、磁盘和 WAL 积压，持续回归则停新 backup timer 并排障。
-6. 创建命名恢复点（位于一份已完成增量之后），完成归档检查，记录名称和 UTC 时间。
-   独立机先恢复最新，再按记录点执行完整/增量双路径审计。二者均通过后才导入验收回执。
-7. 并行观察至少 48 小时。**此 PR 不切换 pgdump**：真实恢复及性能达标后才将它改为每日，
-   同时调整旧 pgdump 告警/恢复 canary 的时效阈值；每日 EBS 快照继续。
-   新仓库实际建立满七天窗口后，验收最老边界并确认连续 WAL 后才能报告七天保护。
-
 ## 命令入口
 
 以下在仓库根目录执行；生产命令中的值来自已确认变更单，不复制旧节点坐标。
@@ -128,39 +91,3 @@ python3 ops/stage0/run_physical_restore.py --region "$RESTORE_REGION" \
 原始 health 回执仍保留 degraded 和过期原因，避免把旧证据当成新的恢复证明；
 展示分级统一由 `physical_backup_fact` 处理。需要较老点验证时，从保留期内已记录的恢复点传入 name/time。
 
-## 历史验证边界（2026-10-20，Tokyo 链）
-
-真实独立恢复已通过：最新路径约 1656 秒；同一历史点的全量路径约 1785 秒、增量路径约 1623 秒，
-包括仓库预校验、WAL 重放、完整数据审计与计费幂等校验。最新验收 SSM
-`03f79c89-c229-4fa4-bdb2-9beb90721feb`，历史验收 SSM `1df51a98-c16a-441a-8f96-875881943a69`。
-临时实例、数据盘和安全组已清理，验收回执已导入源主机，status=ok。
-恢复参数已修正为与源库一致的 max_connections=200；等待时忽略正常 startup 探针错误，
-真实恢复进程失败仍立即终止。
-
-原计划要求先观察 48 小时再降为每日；用户在真实恢复成功后更新决策为停旧任务并保留数据。
-本次没有声称已完成 48 小时负载或完整七天覆盖验收。七天窗口、费用/性能趋势与身份轮换仍需持续核验。
-数据库恢复成功不等于整站恢复、腾讯云兼容或正式切流通过。
-
-按用户简化要求，周定时恢复已从工作流移除，自动建机/IAM 扩权草稿撤回。
-
-### Closeout A13（2026-11-18）：GHA OIDC 入口退役
-
-`.github/workflows/ops-physical-restore.yml` 现为 **refuse-only 墓碑**（无 `configure-aws-credentials` /
-`AWS_OIDC_ROLE_ARN`）。隔离 AWS 恢复机用本地 operator 凭据执行：
-
-```bash
-python3 ops/stage0/run_physical_restore.py --region "$RESTORE_REGION" \
-  --bucket "$BACKUP_BUCKET" --key "artifacts/$BUNDLE_SHA.tar.gz" --sha256 "$BUNDLE_SHA" \
-  --image "$IMAGE_ID" --subnet "$RESTORE_SUBNET" --architecture "$RESTORE_ARCH" \
-  --profile "$RESTORE_PROFILE" --receipt /tmp/restore-receipt.json --apply
-```
-
-子网须为显式批准的 EC2 `subnet-*`，不能从腾讯 `mi-*` 推导（该脚本仅 AWS 临时验收机；现网迁机见 `pgbackrest-host-migration.md`）。活库验收探针走 TAT（无 SecureString）：
-
-```bash
-bash ops/observability/run-probe.sh --target prod --node data --via tat \
-  --script ops/stage0/probe-physical-restore-acceptance.sh
-```
-
-env 材料 SSOT：主机 root-only `.env` + COS；`deploy/hetzner/restore-prod-env-secrets.sh`
-默认拒 SSM，见 `deploy/hetzner/README.md`「C4 装机/恢复证据」。
