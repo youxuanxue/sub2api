@@ -13,7 +13,6 @@
     "2026-11-18 Phase D L1–L8: app-old plain root — Docker Root=/var/lib/docker, business root=/var/lib/tokenkey, volume_platform=tencent-root + volume_root_uuid.",
     "2026-11-19 X1–X4: LUKS carrier/key/unlock destroyed with user early-closeout authorization; host receipt /var/lib/tokenkey-validation/luks-x1-x4-destroy-20261119T092329Z.json; COS keys under custody/luks/20261108/ removed (rebuild receipt retained).",
     "Tokyo i-045f062ce33e1a5af was retired and deleted 2026-10-23; its snapshots are deleted; never restore its S3 history chain as a writer.",
-    "Cutover receipt: docs/ops/reports/tencent-cutover-20261022.json",
     "2026-10-29: tokenkey-disk-metrics.timer is installed and expected active. It checks root / and /var/lib/tokenkey at 85% alert / 80% recover.",
     "2026-11-16 Phase C code/matrix converged: target is single tokenkey on private:8080 + loopback:18080; layout.kind=single-container; rolling plan/deploy is unlocked (confirm rolling-prod-<tag>).",
     "2026-11-17: stopped tokenkey-blue/green/caddy rollback containers removed on both apps (tokenkey healthy).",

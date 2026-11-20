@@ -1,4 +1,4 @@
--- TK: QA raw archive shard control rows (design-prod-qa-24h-s3-lifecycle.md §14.1).
+-- TK: QA raw archive shard control rows (historical hourly shard state machine).
 -- Phase 2 archive-only: tracks hourly windows; cleanup remains disabled until Phase 4.
 CREATE TABLE IF NOT EXISTS qa_archive_shards (
     id                 bigserial    PRIMARY KEY,

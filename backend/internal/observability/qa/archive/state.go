@@ -1,6 +1,6 @@
 package archive
 
-// Shard state machine (design-prod-qa-24h-s3-lifecycle.md §14.1).
+// Shard state machine (historical §14.1; S3 lifecycle design deleted).
 const (
 	MaintenanceAdvisoryLockID int64 = 0x51414D41 // 'QAMA'
 

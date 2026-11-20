@@ -11,7 +11,7 @@ import (
 	"entgo.io/ent/schema/index"
 )
 
-// QAArchiveShard tracks hourly raw-archive control state (design-prod-qa-24h §14.1).
+// QAArchiveShard tracks hourly raw-archive control state (local cleanup DROP receipts).
 type QAArchiveShard struct {
 	ent.Schema
 }
