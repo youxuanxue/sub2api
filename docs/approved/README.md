@@ -96,12 +96,12 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 
 | File | Topic |
 | --- | --- |
-| [`admin-ui-newapi-platform-end-to-end.md`](admin-ui-newapi-platform-end-to-end.md) | Admin UI newapi lifecycle |
+| [`admin-ui-newapi-platform-end-to-end.md`](admin-ui-newapi-platform-end-to-end.md) | Admin UI newapi lifecycle（shipped；散文已删） |
 | [`gpt-image-strict-canvas-postprocess.md`](gpt-image-strict-canvas-postprocess.md) | GPT Image local exact canvas + format post-process（已合并 #2385） |
-| [`kiro-auto-mode-transcript-trim.md`](kiro-auto-mode-transcript-trim.md) | Kiro auto-mode / compact transcript trim；已随网关发布，Extra 默认关闭 |
+| [`kiro-auto-mode-transcript-trim.md`](kiro-auto-mode-transcript-trim.md) | Kiro auto-mode / compact transcript trim；Extra 默认关闭 |
 | [`messages-compaction-policy.md`](messages-compaction-policy.md) | Messages auto-compaction |
-| [`newapi-as-fifth-platform.md`](newapi-as-fifth-platform.md) | NewAPI as fifth platform |
-| [`newapi-followup-bugs-and-forwarding-fields.md`](newapi-followup-bugs-and-forwarding-fields.md) | NewAPI follow-up fixes |
+| [`newapi-as-fifth-platform.md`](newapi-as-fifth-platform.md) | NewAPI fifth platform 调度池边界（shipped；散文已删） |
+| [`newapi-followup-bugs-and-forwarding-fields.md`](newapi-followup-bugs-and-forwarding-fields.md) | NewAPI follow-up 字段契约 |
 | [`openai-codex-as-claude-thinking-continuity.md`](openai-codex-as-claude-thinking-continuity.md) | Codex-as-Claude thinking continuity（shipped；散文已删） |
 
 ## Active by theme

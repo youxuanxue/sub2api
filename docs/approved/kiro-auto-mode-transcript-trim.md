@@ -7,6 +7,7 @@ owners: [tk-gateway]
 related_prs: [2933, 2934, 2939, 2941]
 related_commits: [149f604e1]
 supersedes_note: "有条件例外见 kiro-payload-overflow.md §Gated exception；不替代 900 KiB 本地护栏"
+revised: 2026-11-20（删社区调研散文；保留行为契约）
 ---
 
 # Kiro Auto-Mode / Compact Transcript 受限裁剪
@@ -123,15 +124,8 @@ Claude Code `/compact`/`/autocompact` 也会把待压缩内容放进最后一个
 不修改计费、调度优先级、DB schema、公开 API 字段、默认开启策略。
 Web impact: none。
 
-## Community survey (2026-10-26)
+## 社区约束（固化）
 
-开源中转/社区对照结论（完整报告在会话调研；此处只固化决策约束）：
-
-- **没有任何**已检索仓库实现「识别 Claude Code auto-mode `<transcript>` → 安全等价减肥」且可复用。
-- 主流只裁外层 `history`（kiro-lb / jwadow/kiro-gateway / KiroProxy 等）；对 **history 空、体积在 current user** 的本批 413 **零收益**。
-- 多家明确拒绝静默裁剪（kirogo「never trimmed」、jwadow 默认 `AUTO_TRIM=false`、pi-provider fail-closed）。
-- Kiro-Go 的 **硬截 current message**、KiroProxy **AI 摘要历史** → 与本文件「禁止头尾/摘要」同向否决，不得引入。
-- 客户端有界分类（iTerm2、claude-auto-permission、CC 自身投影）证明正确修复面在**拼装方**；不能外推为网关可任意改官方 transcript。
-- 未见「超限静默改打 Anthropic」的成熟开源先例；跨供应源须产品显式路径，另案审批。
-
-因此该路径定位为：**强门禁、默认关闭的已发布能力**。须用完整样本分报「尺寸 / 上游 / 安全判定」；若 wire 仅有伪装成 user text 的拼接、无可解析行级工具记录，应诚实标「对本批流量未解决」，不得改用标签裁剪凑绿。
+无已检索开源实现可复用「识别 CC auto-mode `<transcript>` → 安全等价减肥」。
+禁止头尾截断 / AI 摘要 / 超限静默跨供应 failover。本路径为**默认关闭**的已发布能力；
+完整样本须分报尺寸 / 上游 / 安全判定，不得用标签裁剪凑绿。
