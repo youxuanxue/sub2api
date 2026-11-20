@@ -3,7 +3,7 @@
 
 Contract: docs/approved/design-prod-entry-multi-app.md §2.1
 Decision (2026-11-19): plaintext tar.gz on COS (SSE-COS only); no operator RSA.
-Door = CAM / cos-archive.env who can read prod/host-config/. Avoids laptop-only
+Door = CAM / cos-backup.env who can read prod/host-config/. Avoids laptop-only
 key custody (same class of failure as LUKS unlock materials on one broken machine).
 
 Default is inventory-only. ``pack`` writes a local .tar.gz (never uploads).

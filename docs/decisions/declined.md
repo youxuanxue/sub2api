@@ -2,6 +2,12 @@
 
 只记人口头否决；现行做法见 [`decided.md`](decided.md) 与 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。
 
+## 2026-11-20
+
+| 原话（摘要） | 不做 |
+|---|---|
+| 「美西和北京都用同样的密钥就好。不需要单独加用户。」 | 另建只写 ops-archive 的 CAM 用户；也不再把「cn 补独立 cos-archive.env」当必做项。host-config 与库备份共用现有 backup 钥（见 `decided.md`）。 |
+
 ## 2026-11-19
 
 | 原话（摘要） | 不做 |

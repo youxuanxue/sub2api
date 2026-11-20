@@ -110,7 +110,7 @@ boundary only — do not refresh them and do not reintroduce export/canary CLIs.
 | host-config 列表 | `python3 ops/archive/list_host_config.py`（只读 key/size/LastModified） |
 | 入口 inventory 探针 | `run-probe.sh --target prod --node entry --script ops/archive/probe-entry-host-config-inventory.sh` |
 | COS 列表探针 | `run-probe.sh --target prod-data --script ops/archive/probe-list-host-config.sh` |
-| 凭据 | 复用 backup CAM：prod data 已装 `/etc/tokenkey/cos-archive.env`（root 0600；与 `cos-backup.env` 同密钥，不新建子用户）。控制器可用 `TK_COS_ARCHIVE_CREDENTIALS` |
+| 凭据 | 与库备份同一文件：数据机 `/etc/tokenkey/cos-backup.env`（root 0600）。不另建归档子用户；可用 `TK_COS_ARCHIVE_CREDENTIALS` 覆盖 |
 
 ### 入口离机备份（明文 tar → COS）
 
@@ -118,7 +118,7 @@ boundary only — do not refresh them and do not reintroduce export/canary CLIs.
 2. 上传（需确认口令）：  
    - prod：`TK_HOST_CONFIG_APPLY=1 bash ops/archive/apply_entry_host_config_offsite.sh`  
    - cn-prod：`TK_HOST_CONFIG_APPLY=1 SITE=cn-prod bash ops/archive/apply_entry_host_config_offsite.sh`  
-   入口机无 COS 凭据：私网一次性 HTTP 把 tar 交给数据机，由数据机 `upload_host_config.py --apply`（cn-prod 数据机暂用 `cos-backup.env`，已核实可写美西 ops-archive）。
+   入口机无 COS 凭据：私网一次性 HTTP 把 tar 交给数据机，由数据机读 `cos-backup.env` 执行 `upload_host_config.py --apply`。
 3. 续期后重复。重建入口机：用上传 receipt 里的 key（或 metadata sha256）`aws s3 cp` 拉回后解开还原 `caddy/`。  
    注：现网 CAM 对 `ListBucket` 可能列不出对象，但 **Head/Get 可用**（2026-11-19 已用 sha256 核对下载）。
 4. 不打包应用机/数据机全量 `.env`。门禁 = COS 读权限（非本机私钥）。

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Read-only list of COS prod/host-config objects on a host that has
-# /etc/tokenkey/cos-archive.env (prod data machine).
+# /etc/tokenkey/cos-backup.env (data machine; same key as pgBackRest).
 #   bash ops/observability/run-probe.sh --target prod-data \
 #     --script ops/archive/probe-list-host-config.sh
 set -euo pipefail
