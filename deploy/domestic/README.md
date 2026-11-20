@@ -64,7 +64,7 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 - 日常发版由 `rolling.py` 逐台 drain、换镜像、健康检查和回流，入口机持续把新流量分给另一台。**M6 起节点内蓝绿与 `tokenkey-entry-origin` socat 代码已删除**；若主机上仍有停用的 blue/green/socat 容器，只作历史残骸，rolling 会拒绝把它们当成在服布局。
 - 入口机 Caddyfile 在 `/var/lib/tokenkey/caddy/etc/Caddyfile`，挂载的是目录而不是单个文件：单文件挂载在 `sed -i` 换 inode 后会继续读旧内容。入库模板为 [`entry/Caddyfile.tmpl`](entry/Caddyfile.tmpl)，`python3 entry_caddy.py --diff <线上文件>` 只读比对（忽略注释和空白），`--out PATH` 渲染。`to` 列表按私网 IP 排序，权重跟随各自节点。
 - 应用机的节点覆盖由 `python3 node_compose.py --node app-b --out /opt/tokenkey/compose.node.yml` 渲染：`<private_ip>:8080` 与 `127.0.0.1:18080`、`memory_limit`、`TOKENKEY_NODE_NAME=cn-prod-<name>`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS`（取自 `compose.override.yml`）和节点 `env`。`--diff EXISTING` 只读，有差异时退出码 1。
-- 证书是 2026-11-15 从 app-a 复制的同一张（有效期至 2027-01-21），入口机之后用 TLS-ALPN-01 自行续期。DNS 切到入口机后，app-a 上 `api.galaxywaveai.com` 站点续期会失败，属预期，切流稳定后删掉该站点。
+- 证书是 2026-11-15 从 app-a 复制的同一张（有效期至 2027-01-21），入口机用 TLS-ALPN-01 续期。**2026-11-20**：应用机 app-edge 已收敛——无 `tokenkey-caddy`、无 80/443；`/var/lib/tokenkey/caddy` 已清（备份在主机 `/var/backups/tokenkey-edge-debris/`）；`compose.override.yml` 将 `caddy` 放入 `legacy-edge` profile，防止 `compose up` 复活。
 
 ### 看门狗
 

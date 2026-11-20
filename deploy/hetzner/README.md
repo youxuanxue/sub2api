@@ -46,6 +46,7 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 （`private:8080` + `loopback:18080`→200）。
 2026-11-17：prod 两台应用机与 cn-prod app-a 上已停用的 `tokenkey-blue/green/caddy`
 容器已删除（仅在确认 `tokenkey` healthy 后 `docker rm`；未动 `*-client`）。
+**2026-11-20**：cn-prod app-a/app-b 应用机 edge 残骸收敛——无 caddy 容器/镜像、无 `/var/lib/tokenkey/caddy`（备份 `/var/backups/tokenkey-edge-debris/`）；`caddy` 服务进 `legacy-edge` profile。
 矩阵 `layout.kind=single-container`；
 日常发版走 `rolling.py` + `prod-rolling-deploy.yml`（确认词 `rolling-prod-<tag>`，
 默认 `--via tat` / `tencent-ops`；SSM 仅应急）。**真换版本 rolling receipt**：[run 44058916390](https://github.com/youxuanxue/sub2api/actions/runs/44058916390)
