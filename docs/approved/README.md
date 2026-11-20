@@ -7,7 +7,6 @@ revised_at: 2026-10-28
 
 # Approved docs index
 
-- approved：[网关错误与局部安全修复](gateway-correctness-remediation-20261112.md)：Messages 取消误分类复用 #3161；保留 Chat 流内错误、隔离、脱敏与刷新失败拒签；撤出 outbox/rollup 重构，不含合并或部署授权。
 
 - [prod 应用机并行替换](design-prod-app-parallel-replacement.md)：双应用机 / 不中断 / QA 24h 清理不变量（迁机叙事已删）。入口与脱离 LUKS 见 [美西 prod 入口机 + 双应用机](design-prod-entry-multi-app.md)。
 
@@ -168,8 +167,7 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 | [`design-tencent-cos-backup-node1-qa.md`](design-tencent-cos-backup-node1-qa.md) | 腾讯 COS 数据库备份迁移、AWS 回退与 node1 QA/备份兜底 |
 | [`design-data-plane-split.md`](design-data-plane-split.md) | prod 与 cn-prod 数据面从应用机拆到同私网数据机；逐站停写切流，窗口需单独审批 |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
-| [`deploy-stage0-workflow.md`](deploy-stage0-workflow.md) | Gateway blue/green release（`approved`；Bundle Worker 选择已归档） |
-| [`stage0-release-check-remediation.md`](stage0-release-check-remediation.md) | Stage0 release-check remediation |
+| [`deploy-stage0-workflow.md`](deploy-stage0-workflow.md) | Stage0 蓝绿 tombstone（A14）；默认发版见 rolling 设计 |
 
 ### Ops / admin / misc
 
@@ -215,9 +213,9 @@ closeout 清单等历史文已从本目录删除。现网舰队 SSOT：
 QA 删除边界已并入 [design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)。
 cn-prod 备份监控走 `ops-cn-backup-watch.yml` + pgBackRest，勿恢复逻辑 dump 步骤。
 一次性 ops 历史稿（COS 并行 repo 草案、UCloud Kimi 压测包、relay-watch、
-旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。已完成迁机执行表（entry-multi-app L1–X4、data-plane 停写逐步表、parallel-replacement 询价/SSM 回执）已从正文删除，仅留不变量。`cn-prod-image-distribution` 已并入 `design-cn-image-cos`；无引用 kvv-kimi 压测报告已删。
+旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。已完成迁机执行表（entry-multi-app L1–X4、data-plane 停写逐步表、parallel-replacement 询价/SSM 回执）已从正文删除，仅留不变量。`cn-prod-image-distribution` 已并入 `design-cn-image-cos`；无引用 kvv-kimi 压测报告已删；`stage0-release-check-remediation` / `gateway-correctness-remediation-20261112` 与中间 deepseek 压测报告已删；`deploy-stage0-workflow` 收为 A14 tombstone。
 
-网关生产蓝绿发布以 [deploy-stage0-workflow.md](deploy-stage0-workflow.md) 为基线。
+Stage0 蓝绿已退役为 tombstone：[deploy-stage0-workflow.md](deploy-stage0-workflow.md)；默认发版走 rolling。
 
 - [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.
 

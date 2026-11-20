@@ -146,7 +146,7 @@
 
 后续确认（2026-11-17）：「client 换 8C 同意。再压一下并发 1200 吧。重点关注吞吐已明显亚线性的根因。」→ 压测机由 `SA2.LARGE8`（4C8G）升到 `SA2.2XLARGE16`（8C16G）；阶梯含 1200，并采双应用/数据机 monitor。
 
-结果落盘（同日）：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-20261117.md`。operating point 仍 **800**；1200 成功率 ~20% **主因是 client soft `ulimit -n=1024`（Errno 24）**，网关 503 仅数十次；400→800 亚线性主因是 **延迟/TTFT 随并发抬升**（升 8C 后 800 RPM mean 仍≈1086，与 4C 轮同级）。数据机高压窗 loadavg 一度 >20、PG 瞬时 ~172/162，服务未挂。
+同日 1200 初测受 client soft `ulimit -n=1024`（Errno 24）污染；中间报告已删。operating point 仍 **800**。
 
 后续确认（2026-11-18）：「修复 client nofile 之后，重新压一下 1200？」→ soft nofile 提到 **65535** 后复测：400/800 仍 100%；1200 成功率 **0.916**，主失败改为 **455×503 overloaded_error**（concurrency_peak=1200）；operating point 仍 **800**。报告：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-nofile-20261118.md`。
 
