@@ -185,7 +185,8 @@ class CosOnlyRefreshTest(unittest.TestCase):
     def test_data_instance_name_comes_from_the_shipped_manifest(self) -> None:
         manifest = json.loads((HERE / "prod-target.json").read_text())
         target = identity.load_target((HERE / "prod-target.json",))
-        self.assertEqual(target["data_instance_name"], manifest["data_instance_name"])
+        want = (manifest.get("data_machine") or {}).get("hostname") or manifest.get("data_instance_name")
+        self.assertEqual(target["data_instance_name"], want)
         self.assertNotEqual(target["data_instance_name"], target["instance_name"])
 
     def test_failure_output_withholds_credentials(self) -> None:

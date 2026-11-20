@@ -15,7 +15,7 @@ valid stanza since 2026-11-02, so removing repo1 only shrinks the archive-push
 fan-out and needs no staging (verified with pgBackRest 2.58, see the design).
 
 After the data-plane split (docs/approved/design-data-plane-split.md) the live
-database runs on the data machine (`data_instance_name` in prod-target.json).
+database runs on the data machine (`data_machine.hostname` in prod-target.json).
 There the refresh reads the data machine's own root-only COS credential and
 rewrites the on-disk config the database container mounts read-only, so a key
 rotation is one file on one host.
@@ -59,7 +59,8 @@ def load_target(candidates: tuple[Path, ...] = TARGET_CANDIDATES) -> dict[str, s
         if (not target["ssm_instance_id"].startswith("mi-")
                 or not target["instance_name"] or not target["ssm_region"]):
             raise ValueError("invalid cn-prod target manifest")
-        data_name = data.get("data_instance_name")
+        nested = data.get("data_machine") if isinstance(data.get("data_machine"), dict) else {}
+        data_name = nested.get("hostname") or data.get("data_instance_name")
         target["data_instance_name"] = data_name if isinstance(data_name, str) and data_name else ""
         return target
     raise ValueError("cn-prod target manifest not found")
