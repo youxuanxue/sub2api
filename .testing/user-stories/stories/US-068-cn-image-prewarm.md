@@ -4,7 +4,7 @@
 - Priority: P1
 - Title: cn-prod 私有镜像预下载
 - As a / I want / So that: 作为运维人员，我要 CI 自动中转校验过的镜像并预下载，从而减少发布等待且保持在线服务。
-- Trace: `docs/approved/cn-prod-image-distribution.md`
+- Trace: `docs/approved/design-cn-image-cos.md`（原 `cn-prod-image-distribution` 已并入）
 - Risk Focus:
   - 逻辑错误：源摘要、架构、版本和 revision 必须与归档一致。
   - 行为回归：GHCR 显式备用路径保留，不隐式切流。
