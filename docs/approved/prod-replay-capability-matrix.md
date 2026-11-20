@@ -3,6 +3,7 @@ title: Gateway capability verification independent of deployment
 status: approved
 approved_by: "user (本会话明确要求：日常蓝绿部署准备候选，用测试 universal key 执行完整用例，汇总结果交审批，禁止擅自切流)"
 risk: high
+revised: 2026-11-20（删旧缺口映射与失败项修补叙事；保留禁止切流与证据规则）
 ---
 
 用户在本会话明确要求：日常蓝绿部署准备候选，用测试 universal key 执行完整用例，汇总结果交审批，禁止擅自切流。此指令替代此前的隔离副本执行设计。
@@ -92,19 +93,6 @@ coverage 不可由 manifest 手写 passed；harness 成功不算网关实测成�
 账号供给回执独立存于 bluegreen-capability-replay.json，旧历史回执不覆盖。
 新回执是审核材料、deployment_gate=false，不授权 promote，也不能冒充历史回执去切流。
 
-## 本次旧缺口的处理
-
-| 旧聚合原因 | 补充方式 |
-|---|---|
-| body_missing_or_redacted（40） | 使用短合成模板，不扩大 QA capture 或修改脱敏 |
-| capture_endpoint_ambiguous（4） | 显式 count_tokens/input_tokens/Gemini action 模板，不猜历史路径 |
-| capability_not_declared（2） | 从账号映射及操作类型生成义务；媒体缺执行器保持可见 |
-| unsupported_path（3） | 用受支持模板路径；历史路径未逐项还原，不声称已定位为某特定协议 |
-| historical_response_error（1） | 错误/SSE 异常进入离线验证器负例，不使用失败请求作成功基线 |
-| key_quota_exhausted（4） | 专用测试 key ID 绑定；校验现有 key 的真实 routing_mode，缺失/耗尽报设施缺口 |
-
-这里是旧聚合的处理映射，不是虚构的逐条 54 行审计。媒体类别不能从旧计数推断。
-
 ## 使用与验收
 
 ```sh
@@ -123,61 +111,13 @@ post-release 使用目标 tag 的供应清单与 fixture，从上一 tag 还原�
 使用完整计划，避免以新规则重写旧义务而漏掉新增分支。
 自动上传 plan/coverage artifact，不自动执行上游请求，不参与切流审批。
 
-## 失败用例修正与复测
+## 复测与证据（活规则）
 
-用户本会话已授权修复已确认的测试及代码问题、提交 PR、审核、合并、部署 prod 候选并循环复测；
-反复明确禁止切流，保持当前线上服务不变。此授权不包含账号池、模型映射或 Edge 配置变更。
+- 禁止切流；任何 coverage / 局部 `--case-id` 通过都不授权 promote。
+- unsupported / unknown 始终进回执且不计成功；局部 selected_verdict ≠ 全计划 verdict。
+- 不得与 `--approved-replay` 混用显式局部复测。
+- 能力证据须命中相同账号类；不能用模型名、一次猜对颜色或其他账号 fallback 自动认视觉支持。
+- 思考回执分开：`thinking_request_accepted` / `thinking_evidence` / `answer_quality`。
+- schema 1 历史计划不因新规则自动变绿；分母保留 unsupported / unknown。
 
-Chat 没有独立 count-tokens 操作，因此不生成这个非法协议组合；供应暂不可用的合法用例仍保留。
-fixture 使用足以完成短任务的输出预算，视频时长遵循服务接口字符串类型；音频沿用普通
-X-Session-Id 关联唯一测试调用与既有 grok_audio usage，不改计费实现。
-
-默认执行完整计划中的可执行项，unsupported / unknown 始终进入回执且不计成功。显式 `--case-id` 可仅复测指定稳定 ID，拒绝空、重复或未知 ID；
-完整计划的 digest 和覆盖分母不变，未选择项记 declared-but-untested。回执分别记录
-selected_verdict 与全计划 verdict，局部通过不等于全量通过，任何结果都不授权切流。
-CLI 与 host 共用 `gateway_capability_matrix.py` 的 case-ID 校验和回执/明细投影；
-coverage 汇总只进入回执，原始结果摘要独立校验。显式局部复测按 selected_verdict
-返回执行结果，同时保留完整 verdict；不得与 `--approved-replay` 混用。
-
-
-Gemini countTokens 沿原账号选择、准入与原生计数接口执行，不套用 generation Plan；
-generateContent 仍以 CandidateRequest 和已选 Plan 裁决，计费分组平台不能提前否决合法转换。
-Qwen Token Plan 的参数适配在已选模型别名解析后执行，保留显式 thinking/effort；
-未显式要求思考的强制工具请求关闭供应端默认思考，避免互斥参数组合。
-
-Antigravity 的 Gemini 非流式转换复用共享 parts 收集器，保留早期工具调用、思考、签名和媒体顺序；
-只合并不带元数据的连续文本，禁止把思考文本并入普通输出。
-
-后续复测修复沿用同一授权：ASR 音频帧按供应商二进制协议声明 raw bytes；
-初始化与音频阶段错误分别标记但不暴露供应商错误正文。转录与语音合成共用普通
-X-Session-Id 归因，prepare 入口固定使用 prod region SSOT，不继承操作者的其他 region。
-协议参考：https://docs.volcengine.com/docs/6561/1354869 （Audio only client request 示例）。
-
-原失败项复测确认后，视觉 fixture 预算提高到 16384，以容纳启用默认推理的供应模型；
-仍要求完整终态和正确颜色答案。音频/媒体共用 usage 提交 owner 补齐普通客户端 SessionID，
-不改变请求 ID、计量与结算。视频校验接受 Vertex pending operation 的 name，并继续轮询至终态；
-成功必须有 HTTPS 视频地址或有效 MP4 内联载荷，done+error 仍失败，不把提交成功当生成完成。
-
-Vertex embedding 的后续筛选误用 API-key-only 条件：允许已有 newapi/channel-41/service_account
-供给通过 embedding 类型门，仍遵守显式 capability、模型与可用性检查；不扩展到其他 OAuth 或
-service-account 类型，不改变线上账号绑定。
-
-## 能力证据修正（1.8.225 后）
-
-用户同意先修复深挖中确认的代码和测试问题。清单中的分支证据来自 2026-09-13 的
-1.8.225 完整 universal 实测及同日定向对照；成功记录保留请求 ID，只有命中相同账号类的
-结果才作为该类能力证据。count-token 仅证明不计费端点，不提供账号命中证据。
-原 150 条的 135 成功 / 15 失败不回写；暂时超时、供应缺货、答案错误不自动改为不支持。
-
-Gemini→Kiro Messages 没有 converter，千帆 glm-5.1 明确拒绝 image_url，保留为 unsupported。
-无法确认视觉能力的 GLM / DeepSeek 路径保持 unknown；Ali Chat 类改选清单里已有的
-qwen-vl-max 视觉代表，但缺相同账号类的视觉证据，仍不能作为正向实测基线。
-不能用模型名称、一次猜对颜色或其他账号 fallback 通过自动认证视觉支持。
-
-思考回执分开记录 thinking_request_accepted、thinking_evidence 和 answer_quality。
-请求接受只表示响应通过协议/终态检查，不证明网关保留了上游未回显的参数；
-算术答案仍严格校验，reasoning_tokens=0 不等于请求失败，也不等于已观察到思考。
-
-计划 schema 2 将分支能力与证据纳入 case digest。schema 1 的历史计划仍可报告和比较，
-不会因新规则自动变绿；tag 中生成器发生变化时仍使用完整 baseline。
-整个分母仍保留 unsupported / unknown，全部可执行项通过也不代表所有能力缺口关闭。
+一次性失败项修补叙事与 1.8.225 实测计数已删。

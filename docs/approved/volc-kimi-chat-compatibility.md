@@ -279,39 +279,10 @@ wire as `thinking.type=disabled`.
 
 ## 2026-11-04: zero upstream usage is billed from a local estimate
 
-### Evidence
-
-A cn-prod kimi-k3 benchmark (2026-11-04 12:34–12:58 UTC) returned HTTP 200 with
-correct content and `usage` all zero, and the request was billed $0. QA captured
-upstream responses for two non-stream requests showing `finish_reason=stop`,
-correct content and `prompt_tokens=completion_tokens=total_tokens=0` with zero
-cached and reasoning detail. A control request on the same account pool in the
-same minute reported normal usage. Two streaming captures end with `[DONE]` and
-carry no usage object at all, even though the gateway forces
-`stream_options.include_usage=true`.
-
-The thinking parameters are not the cause. Over 24 hours of kimi-k3 traffic,
-4 Agent Plan accounts returned zero usage on 100% of requests (156–334 requests
-each), 3 more on 96–99%, 30 more on 5–95%, and 78 on under 5%. The fully-zero
-accounts started zeroing at 2026-11-03 about 13:55 UTC. All of them have the same
-channel type, base URL and credential layout. On those same accounts,
-deepseek-v4.1-flash, deepseek-v4-flash and doubao-seed-2.1-lite showed 0.0% zero
-usage. The fault is on the Volc side, specific to kimi-k3, and varies per
-account. Fleet-wide, 12–29% of kimi-k3 usage rows per hour had zero tokens and
-zero cost. Offline gateway tests (direct and universal candidate routes,
-stream and non-stream, every thinking/effort shape) keep real upstream usage
-intact, so the gateway was recording what upstream sent.
-
-### Behavior (moved)
-
-The estimate is no longer Volc-specific. Product decision 2026-11-05 made it one
-gateway-wide owner for every platform and text model. Behavior, owners, the
-`usage-estimated` billing tier, the `usage_estimated` ops event, accuracy and
-tests now live in
-[`usage-estimate-fallback-ssot.md`](usage-estimate-fallback-ssot.md). The Volc
-raw Chat path only stashes its final outbound body for the owner. The
-unreleased `volc-kimi-estimated` tier and `volc_kimi_usage_estimated` event
-were never written in production and were retired with this move.
+行为已迁至网关统一 owner
+[`usage-estimate-fallback-ssot.md`](usage-estimate-fallback-ssot.md)。
+Volc raw Chat 只为该 owner stash 最终出站 body。未发布的
+`volc-kimi-estimated` / `volc_kimi_usage_estimated` 已退役。一次性零用量舰队证据已删。
 
 Follow-ups, not in this change: temporarily cooling kimi-k3 on accounts that
 persistently return zero usage. A bounded model-scoped cooldown already exists

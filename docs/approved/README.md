@@ -170,7 +170,7 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 | File | Topic |
 | --- | --- |
 | [`ops-unified-contract.md`](ops-unified-contract.md) | Ops unified contract |
-| [`prod-replay-capability-matrix.md`](prod-replay-capability-matrix.md) | Offline gateway capability matrix；与部署无关 |
+| [`prod-replay-capability-matrix.md`](prod-replay-capability-matrix.md) | Offline gateway capability matrix；禁止覆盖切流 |
 | [`ops-sla-error-owner-scope.md`](ops-sla-error-owner-scope.md) | Ops SLA owner scope |
 | [`proxy-unreachable-p0-alert.md`](proxy-unreachable-p0-alert.md) | 代理出口 IP:port 不可达 P0 告警 |
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
