@@ -65,7 +65,7 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { CNProviderQuotaProbeResult } from '@/api/admin/cnProviders'
 import type { Account } from '@/types'
-import { cnQuotaCellVisible } from './credentialsBuilder'
+import { cnQuotaCellVisible, cnQuotaExtraProviderKey } from './credentialsBuilder'
 import UsageProgressBar from './UsageProgressBar.vue'
 
 const props = defineProps<{
@@ -99,9 +99,11 @@ const readExtraString = (key: string): string => {
   return typeof v === 'string' ? v : ''
 }
 
+const extraProviderKey = computed(() => cnQuotaExtraProviderKey(props.account))
+
 // 从持久化快照构造展示数据（缺少 5h/weekly 两档键时返回 null）。
 const snapshotData = computed<CNProviderQuotaProbeResult | null>(() => {
-  const platform = props.account.platform
+  const platform = extraProviderKey.value
   const used5h = readExtraNumber(`${platform}_5h_used_percent`)
   const usedWeekly = readExtraNumber(`${platform}_weekly_used_percent`)
   const usedMonthly = readExtraNumber(`${platform}_monthly_used_percent`)
@@ -125,7 +127,7 @@ const data = computed(() => probeData.value ?? snapshotData.value)
 // unchanged. Keep a manual probe until the quota values or snapshot version
 // actually change, rather than reverting it on unrelated account updates.
 watch(
-  [snapshotData, () => readExtraString(`${props.account.platform}_usage_updated_at`)],
+  [snapshotData, () => readExtraString(`${extraProviderKey.value}_usage_updated_at`)],
   (next, previous) => {
     if (JSON.stringify(next) !== JSON.stringify(previous)) probeData.value = null
   }
@@ -133,7 +135,7 @@ watch(
 
 // 快照是否过期（无更新时间或超过 staleness 窗口）→ 挂载时需要自动探测。
 const snapshotIsStale = computed(() => {
-  const updatedAt = readExtraString(`${props.account.platform}_usage_updated_at`)
+  const updatedAt = readExtraString(`${extraProviderKey.value}_usage_updated_at`)
   if (!updatedAt) return true
   const ts = new Date(updatedAt).getTime()
   return Number.isNaN(ts) || Date.now() - ts > SNAPSHOT_STALE_MS

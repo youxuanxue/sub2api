@@ -1768,6 +1768,11 @@ func (a *Account) GetCodingPlanProvider() string {
 		}
 		return ""
 	}
+	// NewAPI Extension Engine MiniMax Token Plan shares coding_plan/remains with
+	// native platform=minimax coding accounts (no credentials.account_mode).
+	if isNewAPIMiniMaxTokenPlanAccount(a) {
+		return PlatformMiniMax
+	}
 	if a.GetAccountMode() != AccountModeCoding {
 		return ""
 	}
