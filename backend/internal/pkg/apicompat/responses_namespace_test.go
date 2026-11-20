@@ -1,6 +1,7 @@
 package apicompat
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -59,6 +60,32 @@ func TestFlattenResponsesNamespaces_RewritesDeclarationHistoryAndChoice(t *testi
 	require.Equal(t, "spawn_agent", message["name"])
 	require.Equal(t, "collaboration", message["namespace"])
 	require.Equal(t, "gpt-5.5", req["model"])
+}
+
+func TestFlattenResponsesNamespaces_FlattensCustomChildren(t *testing.T) {
+	req := map[string]any{
+		"tools": []any{map[string]any{
+			"type": "namespace", "name": "functions", "tools": []any{
+				map[string]any{"type": "custom", "name": "exec", "description": "Run a command"},
+			},
+		}},
+	}
+
+	names, changed, err := FlattenResponsesNamespaces(req)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, ResponsesNamespaceName{Namespace: "functions", Name: "exec", IsCustom: true}, names["functions__exec"])
+
+	tools, ok := req["tools"].([]any)
+	require.True(t, ok)
+	require.Len(t, tools, 1)
+	tool, ok := tools[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "function", tool["type"])
+	require.Equal(t, "functions__exec", tool["name"])
+	parameters, ok := tool["parameters"].(json.RawMessage)
+	require.True(t, ok)
+	require.JSONEq(t, customToolInputSchema, string(parameters))
 }
 
 func TestFlattenResponsesNamespaces_RejectsFlatNameCollision(t *testing.T) {
@@ -147,6 +174,18 @@ func TestRestoreResponsesNamespaceCalls_RewritesOnlyFunctionCalls(t *testing.T) 
 	require.JSONEq(t, `{"type":"response.completed","response":{"output":[{"type":"function_call","name":"spawn_agent","namespace":"collaboration","call_id":"call_1","arguments":"{}","extra":"keep"},{"type":"function_call","name":"plain","arguments":"{}"},{"type":"message","name":"collaboration__spawn_agent","content":"<tag>&value</tag>"}]}}`, string(got))
 	require.Contains(t, string(got), "<tag>&value</tag>")
 	require.NotContains(t, string(got), `\u003c`)
+}
+
+func TestRestoreResponsesNamespaceCalls_RestoresCustomNamespaceCall(t *testing.T) {
+	payload := []byte(`{"type":"response.completed","response":{"output":[{"type":"function_call","name":"functions__exec","call_id":"call_1","arguments":"{\"input\":\"ls\"}"}]}}`)
+	names := map[string]ResponsesNamespaceName{
+		"functions__exec": {Namespace: "functions", Name: "exec", IsCustom: true},
+	}
+
+	got, changed, err := RestoreResponsesNamespaceCalls(payload, names)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.JSONEq(t, `{"type":"response.completed","response":{"output":[{"type":"custom_tool_call","name":"exec","namespace":"functions","call_id":"call_1","input":"ls"}]}}`, string(got))
 }
 
 func TestRestoreResponsesNamespaceCalls_RewritesLifecycleItems(t *testing.T) {

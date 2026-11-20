@@ -542,17 +542,21 @@ func TestResponsesToChatCompletionsRequest_NamespaceToolFlattensChildren(t *test
 			Name: "gmail",
 			Tools: []ResponsesTool{
 				{Type: "function", Name: "send", Description: "Send mail", Parameters: json.RawMessage(`{"type":"object","properties":{}}`)},
-				{Type: "custom", Name: "ignored_child"},
+				{Type: "custom", Name: "exec", Description: "Run a shell command"},
 			},
 		}},
 	}
 
 	out, err := ResponsesToChatCompletionsRequest(req)
 	require.NoError(t, err)
-	require.Len(t, out.Tools, 1, "namespace 子工具中仅 function 类型被摊平")
+	require.Len(t, out.Tools, 2, "namespace 子工具中 function 和 custom 类型都被摊平（#8945）")
 
 	assert.Equal(t, "gmail__send", out.Tools[0].Function.Name)
 	assert.Equal(t, "Send mail", out.Tools[0].Function.Description)
+
+	assert.Equal(t, "gmail__exec", out.Tools[1].Function.Name)
+	assert.Equal(t, "Run a shell command", out.Tools[1].Function.Description)
+	assert.JSONEq(t, customToolInputSchema, string(out.Tools[1].Function.Parameters))
 }
 
 func TestResponsesToolsParsing_StringToolBecomesCustom(t *testing.T) {
@@ -767,7 +771,7 @@ func TestNamespaceToolNames_MapsFlattenedNames(t *testing.T) {
 	tools := []ResponsesTool{
 		{Type: "namespace", Name: "gmail", Tools: []ResponsesTool{
 			{Type: "function", Name: "send"},
-			{Type: "custom", Name: "skip_me"},
+			{Type: "custom", Name: "exec"},
 		}},
 		{Type: "namespace", Name: "crm", Children: []ResponsesTool{
 			{Type: "function", Name: "query"},
@@ -776,8 +780,9 @@ func TestNamespaceToolNames_MapsFlattenedNames(t *testing.T) {
 	}
 
 	m := NamespaceToolNames(tools)
-	require.Len(t, m, 2)
+	require.Len(t, m, 3, "function 和 custom 类型的 namespace 子工具都入映射（#8945）")
 	assert.Equal(t, NamespacedToolName{Namespace: "gmail", Name: "send"}, m["gmail__send"])
+	assert.Equal(t, NamespacedToolName{Namespace: "gmail", Name: "exec", IsCustom: true}, m["gmail__exec"])
 	assert.Equal(t, NamespacedToolName{Namespace: "crm", Name: "query"}, m["crm__query"])
 
 	// 摊平名超长时截断加哈希，无法按字符串切分还原，必须经映射反查。
@@ -1094,6 +1099,93 @@ func TestChatCompletionsChunkToResponsesEvents_NamespacedToolCallStream(t *testi
 		}
 	}
 	assert.True(t, found, "response.completed 缺少还原后的 namespace 调用项")
+}
+
+// TestNamespaceCustomChild_EndToEndRoundTrip 复现 #8945/#7241：Codex 把核心执行
+// 工具 exec 等自由文本工具声明为 namespace（如 functions）下的 custom 子工具。摊平
+// 转换此前只保留 function 类型子工具，custom 子工具被静默丢弃，模型永远拿不到
+// exec，也就永远无法在仅支持 Chat Completions 的上游上执行命令。本测试覆盖请求方向
+// 摊平、非流式响应还原、流式响应还原三段，确认 custom 子工具存活且 namespace 归属
+// 不丢失。
+func TestNamespaceCustomChild_EndToEndRoundTrip(t *testing.T) {
+	req := &ResponsesRequest{
+		Model: "gpt-5",
+		Input: json.RawMessage(`"run ls"`),
+		Tools: []ResponsesTool{{
+			Type: "namespace",
+			Name: "functions",
+			Tools: []ResponsesTool{
+				{Type: "custom", Name: "exec", Description: "Run a shell command"},
+			},
+		}},
+	}
+
+	chatReq, err := ResponsesToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Tools, 1, "namespace custom 子工具必须摊平存活，不能被静默丢弃")
+	assert.Equal(t, "functions__exec", chatReq.Tools[0].Function.Name)
+	assert.JSONEq(t, customToolInputSchema, string(chatReq.Tools[0].Function.Parameters))
+
+	nsTools := NamespaceToolNames(req.Tools)
+	require.Contains(t, nsTools, "functions__exec")
+	assert.True(t, nsTools["functions__exec"].IsCustom)
+
+	// 非流式：模型对摊平名的调用必须还原为 custom_tool_call，并带回 namespace。
+	resp := &ChatCompletionsResponse{
+		ID: "cc-1",
+		Choices: []ChatChoice{{Message: ChatMessage{
+			Role: "assistant",
+			ToolCalls: []ChatToolCall{{
+				ID:       "call_1",
+				Function: ChatFunctionCall{Name: "functions__exec", Arguments: `{"input":"ls"}`},
+			}},
+		}}},
+	}
+	out := ChatCompletionsResponseToResponses(resp, "gpt-5", nil, nil, false, nsTools)
+	require.Len(t, out.Output, 1)
+	item := out.Output[0]
+	assert.Equal(t, "custom_tool_call", item.Type)
+	assert.Equal(t, "exec", item.Name)
+	assert.Equal(t, "functions", item.Namespace)
+	assert.Equal(t, "ls", item.Input)
+
+	b, err := json.Marshal(item)
+	require.NoError(t, err)
+	assert.Contains(t, string(b), `"namespace":"functions"`)
+	assert.Contains(t, string(b), `"type":"custom_tool_call"`)
+
+	// 流式：同一摊平名的流式调用同样要还原为 custom_tool_call + namespace。
+	state := NewChatCompletionsToResponsesStreamState("gpt-5")
+	state.NamespaceTools = nsTools
+	idx := 0
+	chunk := &ChatCompletionsChunk{
+		ID: "cc-1",
+		Choices: []ChatChunkChoice{{Delta: ChatDelta{
+			ToolCalls: []ChatToolCall{{
+				Index:    &idx,
+				ID:       "call_1",
+				Function: ChatFunctionCall{Name: "functions__exec", Arguments: `{"input":"ls"}`},
+			}},
+		}}},
+	}
+	events := ChatCompletionsChunkToResponsesEvents(chunk, state)
+	events = append(events, FinalizeChatCompletionsResponsesStream(state)...)
+
+	var itemDone *ResponsesStreamEvent
+	for i := range events {
+		if events[i].Type == "response.output_item.done" && events[i].Item != nil && events[i].Item.Type == "custom_tool_call" {
+			itemDone = &events[i]
+		}
+	}
+	require.NotNil(t, itemDone, "流式 namespace custom 调用必须收尾为 custom_tool_call")
+	assert.Equal(t, "exec", itemDone.Item.Name)
+	assert.Equal(t, "functions", itemDone.Item.Namespace)
+	assert.Equal(t, "ls", itemDone.Item.Input)
+
+	sse, err := ResponsesEventToSSE(*itemDone)
+	require.NoError(t, err)
+	assert.Contains(t, sse, `"namespace":"functions"`)
+	assert.Contains(t, sse, `"type":"custom_tool_call"`)
 }
 
 func TestChatCompletionsChunkToResponsesEvents_NamespacedToolNameArrivesLate(t *testing.T) {
