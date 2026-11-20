@@ -3,6 +3,22 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/repository/concurrency_cache.go",
+      "must_contain": [
+        "cleanupExpiredSlotsScript.Run(ctx, c.rdb, []string{spec.slotKey(id)}",
+        "boundWaitTTLScript.Run(ctx, c.rdb, []string{spec.waitKey(id)}"
+      ],
+      "rationale": "Replica startup must use lease expiry rather than evicting peer slots or deleting shared wait counters."
+    },
+    {
+      "path": "backend/internal/repository/concurrency_cache_startup_test.go",
+      "must_contain": [
+        "func TestStartupCleanupPreservesSharedLeasesAndWaiters(",
+        "func TestStartupCleanupDoesNotRemoveConcurrentPeerIndex("
+      ],
+      "rationale": "Keep first and subsequent startup coverage and the concurrent peer registration regression."
+    },
+    {
       "path": "backend/internal/service/seedance_video_adapter_tk.go",
       "must_contain": [
         "func PrepareSeedanceVideoRequest(",
