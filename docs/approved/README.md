@@ -167,7 +167,6 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 | [`design-tencent-cos-backup-node1-qa.md`](design-tencent-cos-backup-node1-qa.md) | 腾讯 COS 数据库备份迁移、AWS 回退与 node1 QA/备份兜底 |
 | [`design-data-plane-split.md`](design-data-plane-split.md) | prod 与 cn-prod 数据面从应用机拆到同私网数据机；逐站停写切流，窗口需单独审批 |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
-| [`deploy-stage0-workflow.md`](deploy-stage0-workflow.md) | Stage0 蓝绿 tombstone（A14）；默认发版见 rolling 设计 |
 
 ### Ops / admin / misc
 
@@ -211,11 +210,12 @@ closeout 清单等历史文已从本目录删除。现网舰队 SSOT：
 QA 删除边界已并入 [design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)。
 cn-prod 备份监控走 `ops-cn-backup-watch.yml` + pgBackRest，勿恢复逻辑 dump 步骤。
 一次性 ops 历史稿（COS 并行 repo 草案、UCloud Kimi 压测包、relay-watch、
-旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。已完成迁机执行表（entry-multi-app L1–X4、data-plane 停写逐步表、parallel-replacement 询价/SSM 回执）已从正文删除，仅留不变量。`cn-prod-image-distribution` 已并入 `design-cn-image-cos`；无引用 kvv-kimi 压测报告已删；`stage0-release-check-remediation` / `gateway-correctness-remediation-20261112` 与中间 deepseek 压测报告已删；`deploy-stage0-workflow` 收为 A14 tombstone。
+旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。已完成迁机执行表（entry-multi-app L1–X4、data-plane 停写逐步表、parallel-replacement 询价/SSM 回执）已从正文删除，仅留不变量。`cn-prod-image-distribution` 已并入 `design-cn-image-cos`；无引用 kvv-kimi 压测报告已删；`stage0-release-check-remediation` / `gateway-correctness-remediation-20261112` 与中间 deepseek 压测报告已删。
 admin dashboard/UI rollup 历史批准文已删；dual-market / pgBackRest 迁机 runbook 历史执行段已压缩。
 一次性迁机 orphan 工具（migration snapshot / final-wal 校验）已删；活契约仍用 `probe-migration-applied-verify` 与 host-replacement。
-
-Stage0 蓝绿已退役为 tombstone：[deploy-stage0-workflow.md](deploy-stage0-workflow.md)；默认发版走 rolling。
+`deploy-stage0-workflow` tombstone 已删；默认发版走 rolling（[`design-prod-entry-multi-app`](design-prod-entry-multi-app.md) /
+[`design-cn-prod-rolling-deploy`](design-cn-prod-rolling-deploy.md)）；应急同机蓝绿见 `deploy_via_ssm_bluegreen.sh`。
+`physical-backup` / `pgdump-retirement` 收为现网 COS 指针；AWS 临时恢复百科与零引用 task-breakdown 已删。
 
 - [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.
 

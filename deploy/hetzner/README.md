@@ -253,7 +253,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | 日常默认已 TAT；残留为 break-glass `--via ssm`、GHCR/Oregon 身份与 resolver 矩阵；`resolve_prod_ssm_target.py` | 默认消费者已清零；拆 Hybrid/OIDC 角色另批；门牙见 `ops/tencent-ops/` |
 | QA raw archive | QA S3 已于 2026-11-08 退役；仓库模板与恢复 CLI 已删除 | CFN `tokenkey-prod-qa-raw-archive`=`DELETE_COMPLETE`（2026-11-09）；桶 `HeadBucket` 404；主机 maintenance/boundary 脚本与 unit 已不存在（2026-11-17 核对）。见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界) |
-| 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
+| 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 已退役且桶已销毁 | [物理备份](../../ops/stage0/physical-backup.md)与[pgdump 退役摘要](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
 | env-secrets 与备份解密材料 | **主机 root-only `.env` 为活源**；SecureString 已 C5 删除（2026-11-18） | `restore-prod-env-secrets.sh` 默认拒 SSM；`--from-file` / `--allow-generate`；删参 owner `ops/stage0/delete-legacy-securestring-params.sh`；写脚本 tombstone；C4 证据见下节 |
 | 历史 / 休眠 S3 桶 | 见下方「2026-11-17 桶盘点」；Tokyo `cfn-deploy` 镜像中转已改 COS；AWS `archive` 已开 30 天过期 | 休眠桶与 Tokyo 镜像桶已清；`archive` 桶待对象过期后自然空桶再删 |
 | 共享运行文件目录 | `deploy/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 直接消费 | 共享 owner；目录名不再含 `aws/`；改路径须同步引用、生成产物和 sentinel |
@@ -321,10 +321,9 @@ telemetry 已支持 Hetzner 存储。需要启用该能力时必须单独验收�
 
 ## 数据库备份迁移入口
 
-prod 主路径为 pgBackRest 全量/增量与连续 WAL；最新与历史同点恢复已通过。
-执行命令、配置和剩余验证见 [物理备份变更单](../../ops/stage0/physical-backup.md)。
-旧 pgdump 调度按用户授权退役，历史数据至少保留 30 天，不删除恢复材料；
-脚本/工作流处置见 [退役清单](../../ops/stage0/pgdump-retirement.md)。
+prod 主路径为 pgBackRest 全量/增量与连续 WAL；现网命令见
+[物理备份](../../ops/stage0/physical-backup.md)。旧 pgdump 已退役且桶已销毁，见
+[退役摘要](../../ops/stage0/pgdump-retirement.md)与上方桶盘点。
 cn-prod 逻辑 dump 已停。验收是北京本机 pgBackRest 能恢复，见 [domestic README](../domestic/README.md)。
 
 ## 恢复入口

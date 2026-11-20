@@ -24,3 +24,4 @@
 | 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass8） | 恢复 Stage0 蓝绿执行百科、已删 remediations（stage0-release-check / gateway-correctness-20261112）、中间 deepseek 800/1200-Errno24 报告，或把 apex 阶段二 rollout 史写回全文。 |
 | 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass9） | 恢复 admin dashboard/UI rollup 批准文、dual-market 海外 redirect 百科，或把 `physical-backup` / `pgbackrest-host-migration` 的 Tokyo/LUKS 执行史写回全文。 |
 | 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass10） | 恢复已删的一次性迁机 orphan 工具（`compare-pg-migration-snapshots` / `probe-migration-readiness` / `probe-pg-migration-snapshot` / `verify_final_wal` 及其测试）。 |
+| 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass11） | 恢复已删的 `deploy-stage0-workflow` tombstone、零引用 task-breakdown，或把 `physical-backup` / `pgdump-retirement` 的 AWS 临时恢复百科写回全文。 |

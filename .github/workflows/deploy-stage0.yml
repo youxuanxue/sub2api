@@ -3,7 +3,7 @@ name: Stage0 Deploy
 # RETIRED entry (closeout A14). Structure/tombstone kept for sentinel +
 # contract tests. Daily prod deploy: prod-rolling-deploy.yml via
 # scripts/stage0/dispatch-prod-deploy.sh. No OIDC; jobs fail-closed.
-# Historical design: docs/approved/deploy-stage0-workflow.md.
+# Live defaults: design-prod-entry-multi-app + prod-rolling-deploy.yml.
 
 on:
   workflow_dispatch:
@@ -180,7 +180,7 @@ jobs:
           if [ -z "${TK_SMOKE_API_KEY:-}" ]; then
             echo "::error::TK_SMOKE_API_KEY is not set in prod Environment."
             echo "Add one all-capability TokenKey user API key (sk-...) that can see every smoke model list."
-            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
+            echo "See deploy/aws/README.md (Smoke config) and design-prod-entry-multi-app / rolling deploy."
             exit 1
           fi
           if [ -z "${TK_FULLTEST_KEY:-}" ]; then
