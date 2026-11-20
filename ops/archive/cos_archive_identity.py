@@ -15,7 +15,8 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent
 SETTINGS_NAME = "cos-archive.json"
-DEFAULT_CREDENTIALS = Path("/etc/tokenkey/cos-archive.env")
+# Same CAM key as pgBackRest; one file on every data machine (prod + cn-prod).
+DEFAULT_CREDENTIALS = Path("/etc/tokenkey/cos-backup.env")
 _HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$")
 _BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 

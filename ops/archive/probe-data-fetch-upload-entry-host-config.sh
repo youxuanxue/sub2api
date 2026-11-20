@@ -38,8 +38,7 @@ if [ "$GOT_SHA" != "$WANT_SHA" ]; then
 fi
 
 export TK_COS_ARCHIVE_SETTINGS="$WORKDIR/cos-archive.json"
-# Default: /etc/tokenkey/cos-archive.env. cn-prod data may pass cos-backup.env
-# (same CAM already heads/puts the ops-archive bucket).
+# Default credentials: /etc/tokenkey/cos-backup.env (override via TK_COS_ARCHIVE_CREDENTIALS).
 UPLOAD_ARGS=(--file "$OUT" --label "$LABEL")
 if [ -n "${TK_COS_ARCHIVE_CREDENTIALS:-}" ]; then
   UPLOAD_ARGS+=(--credentials "$TK_COS_ARCHIVE_CREDENTIALS")

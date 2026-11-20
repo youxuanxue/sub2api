@@ -22,7 +22,6 @@ case "$SITE" in
     TARGET=prod
     DATA_TARGET=prod-data
     LABEL=prod-entry
-    CREDENTIALS=/etc/tokenkey/cos-archive.env
     ENTRY_ROOT=/var/lib/tokenkey
     read -r ENTRY_LHINS DATA_IP < <(python3 - "$MATRIX" <<'PY'
 import json, sys
@@ -37,8 +36,6 @@ PY
     TARGET=cn-prod
     DATA_TARGET=cn-prod-data
     LABEL=cn-prod-entry
-    # cn-prod data has no cos-archive.env yet; backup CAM already heads/puts ops-archive.
-    CREDENTIALS=/etc/tokenkey/cos-backup.env
     ENTRY_ROOT=/var/lib/tokenkey
     read -r ENTRY_LHINS DATA_IP < <(python3 - "$MATRIX" <<'PY'
 import json, sys
@@ -52,6 +49,9 @@ PY
     exit 64
     ;;
 esac
+
+# One credential file on every data machine (same CAM as pgBackRest).
+CREDENTIALS="${TK_COS_ARCHIVE_CREDENTIALS:-/etc/tokenkey/cos-backup.env}"
 
 if [ "${TK_HOST_CONFIG_APPLY:-}" != "1" ]; then
   echo "REFUSED: set TK_HOST_CONFIG_APPLY=1 to upload plaintext entry certs to COS" >&2

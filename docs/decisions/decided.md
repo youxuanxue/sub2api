@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-20 host-config / ops-archive 与库备份共用同一 COS 密钥（单文件）
+
+原话：「所以，应该 美西 和 北京都用同样的密钥，就好。不需要单独加用户。」「但是两边不一致，有心智负担吧？再收敛一下？」
+
+适用范围：prod / cn-prod。host-config 与 pgBackRest **共用**数据机 `/etc/tokenkey/cos-backup.env`；工具默认读此路径。**不**另建归档 CAM 用户；美西多余的 `cos-archive.env`（同钥双文件）删除，避免两站心智不一致。
+
 ## 2026-11-19 NVIDIA Build mapping 仅保留 kimi-k3.1-pro
 
 原话：「把 nvidia相关的账号的 model_mapping 改一下，只保留到 kimi-k3.1-pro的映射。」
@@ -11,7 +17,7 @@
 
 原话：「不要加密，直接放 cos 呢？之前出现本机坏了，导致 luks 解密不了的问题。这个也是有风险的。」「确认。」
 
-适用范围：prod（及同构的 cn-prod）入口机 TLS 材料离机备份。打包为 **明文 tar.gz** 写入腾讯 COS `prod/host-config/`（上传仍走 SSE-AES256）；**不**再做操作员本机 RSA/age 二次加密，避免「私钥只在一台笔记本、本机损坏即无法恢复」与 LUKS 同类失败。门禁 = 谁能读该桶/前缀（CAM / `cos-archive.env`）。不打包应用机/数据机全量 `.env`。owner：`ops/archive/pack_entry_host_config.py` + `upload_host_config.py`。
+适用范围：prod（及同构的 cn-prod）入口机 TLS 材料离机备份。打包为 **明文 tar.gz** 写入腾讯 COS `prod/host-config/`（上传仍走 SSE-AES256）；**不**再做操作员本机 RSA/age 二次加密，避免「私钥只在一台笔记本、本机损坏即无法恢复」与 LUKS 同类失败。门禁 = 谁能读该桶/前缀（CAM / 数据机 `cos-backup.env`）。不打包应用机/数据机全量 `.env`。owner：`ops/archive/pack_entry_host_config.py` + `upload_host_config.py`。
 
 ## 2026-11-19 Volc Kimi type=file 归一（缺 file / 非 PDF）
 

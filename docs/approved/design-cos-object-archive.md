@@ -94,7 +94,7 @@ supersedes_destination: design-prod-archive-bucket.md
 | 桶名 | **已建** `tokenkey-prod-ops-archive-1320330536`（写入 `ops/archive/cos-archive.json`） |
 | 地域 / endpoint | 美西 `na-siliconvalley` / virtual-hosted `https://<bucket>.cos.na-siliconvalley.myqcloud.com` |
 | lifecycle | `ops-archive` 400d / `ops-archive-export` 7d / `host-config` 90d（已 apply） |
-| 身份 | `ops/archive/cos_archive_identity.py` + `TK_COS_ARCHIVE_CREDENTIALS` 或 `/etc/tokenkey/cos-archive.env`；禁止进 Git |
+| 身份 | `ops/archive/cos_archive_identity.py` + `TK_COS_ARCHIVE_CREDENTIALS` 或数据机 `/etc/tokenkey/cos-backup.env`（与 pgBackRest 同钥；禁止进 Git） |
 | fail-closed | promote / export / host-config 共用「拒绝 AWS」 |
 | promote / export | 已接到同一 COS identity |
 | host-config | `ops/archive/upload_host_config.py` |
