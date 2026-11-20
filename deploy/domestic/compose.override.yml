@@ -51,7 +51,7 @@ services:
       # 2026-11-17 capacity: 400-concurrency pool perf already pinned ~81
       # live PG connections against 40×2 app pools. Raise per-app open to 80
       # before the 800-concurrency run; pair with data-machine max_connections
-      # headroom (see docs/ops/reports/cn-prod-deepseek-flash-pool-perf-20261117.md).
+      # headroom (see docs/decisions/decided.md / design-cn-prod-rolling-deploy).
       DATABASE_MAX_OPEN_CONNS: "80"
       DATABASE_MAX_IDLE_CONNS: "20"
       REDIS_POOL_SIZE: "96"

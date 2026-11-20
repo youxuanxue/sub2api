@@ -22,7 +22,9 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOW = REPO_ROOT / ".github/workflows/upstream-merge-notify.yml"
 NOTIFY = REPO_ROOT / "scripts/upstream/notify-merge-needed.py"
-APPROVED_DOC = REPO_ROOT / "docs/approved/upstream-merge-2026-08-15-migrations.md"
+# Any tracked approved anchor proves the directory is stageable; the specific
+# historical upstream-merge-* files were deleted after ship (pass13).
+APPROVED_DOC = REPO_ROOT / "docs/approved/protocol-routing-ssot.md"
 
 
 def _load_notify():
