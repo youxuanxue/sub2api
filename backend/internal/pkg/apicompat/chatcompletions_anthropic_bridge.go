@@ -205,14 +205,16 @@ func anthropicUserToChatMessages(raw json.RawMessage) ([]ChatMessage, error) {
 		}
 	}
 
-	// Remaining text + image blocks → user message. The double-conversion path
-	// (responsesContentPartsToChatContent) folds text-only content into a single
-	// string joined with "\n\n" and only uses the parts-array form when an image
-	// is present — strict chat upstreams reject array content — so the direct
-	// bridge preserves that folding.
+	// Remaining text + image/video blocks → user message. The double-conversion
+	// path (responsesContentPartsToChatContent) folds text-only content into a
+	// single string joined with "\n\n" and only uses the parts-array form when
+	// media is present — strict chat upstreams reject array content — so the
+	// direct bridge preserves that folding. Moonshot-shaped video blocks on
+	// /v1/messages rewrite to Chat video_url (open-source relays drop them;
+	// we forward to raise availability without inventing Anthropic-native video).
 	var textParts []string
 	var parts []ChatContentPart
-	hasImage := false
+	hasMedia := false
 	for _, b := range blocks {
 		switch b.Type {
 		case "text":
@@ -222,20 +224,30 @@ func anthropicUserToChatMessages(raw json.RawMessage) ([]ChatMessage, error) {
 			}
 		case "image":
 			if uri := anthropicImageToDataURI(b.Source); uri != "" {
-				hasImage = true
+				hasMedia = true
 				parts = append(parts, ChatContentPart{
 					Type:     "image_url",
 					ImageURL: &ChatImageURL{URL: uri},
 				})
 			}
+		case "video", "video_url", "input_video":
+			url, err := anthropicVideoURLForChat(b)
+			if err != nil {
+				return nil, err
+			}
+			hasMedia = true
+			parts = append(parts, ChatContentPart{
+				Type:     "video_url",
+				VideoURL: &ChatImageURL{URL: url},
+			})
 		}
 	}
 	if len(toolResultImageParts) > 0 {
-		hasImage = true
+		hasMedia = true
 		parts = append(parts, toolResultImageParts...)
 	}
 
-	if !hasImage {
+	if !hasMedia {
 		if len(textParts) > 0 {
 			content, _ := json.Marshal(strings.Join(textParts, "\n\n"))
 			out = append(out, ChatMessage{Role: "user", Content: content})
@@ -250,6 +262,41 @@ func anthropicUserToChatMessages(raw json.RawMessage) ([]ChatMessage, error) {
 	out = append(out, ChatMessage{Role: "user", Content: content})
 
 	return out, nil
+}
+
+// anthropicVideoURLForChat extracts a Chat-compatible video URL from a
+// Moonshot-shaped Anthropic content block (type=video / video_url / input_video).
+// Accepts video_url as a string or {"url":"..."}, and source as url or base64.
+func anthropicVideoURLForChat(b AnthropicContentBlock) (string, error) {
+	if len(b.VideoURL) > 0 && string(b.VideoURL) != "null" {
+		var asString string
+		if err := json.Unmarshal(b.VideoURL, &asString); err == nil {
+			if u := strings.TrimSpace(asString); u != "" {
+				return u, nil
+			}
+		}
+		var asObject struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal(b.VideoURL, &asObject); err == nil {
+			if u := strings.TrimSpace(asObject.URL); u != "" {
+				return u, nil
+			}
+		}
+	}
+	if b.Source != nil {
+		if u := strings.TrimSpace(b.Source.URL); u != "" {
+			return u, nil
+		}
+		if data := strings.TrimSpace(b.Source.Data); data != "" {
+			mediaType := strings.TrimSpace(b.Source.MediaType)
+			if mediaType == "" {
+				mediaType = "video/mp4"
+			}
+			return "data:" + mediaType + ";base64," + data, nil
+		}
+	}
+	return "", fmt.Errorf("messages conversion requires a nonempty video URL")
 }
 
 // anthropicAssistantToChatMessages handles an Anthropic assistant message.

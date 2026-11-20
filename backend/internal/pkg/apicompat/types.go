@@ -74,8 +74,13 @@ type AnthropicContentBlock struct {
 	Signature string `json:"signature,omitempty"`
 	Data      string `json:"data,omitempty"` // redacted_thinking
 
-	// type=image
+	// type=image (and Moonshot-shaped type=video with source)
 	Source *AnthropicImageSource `json:"source,omitempty"`
+
+	// type=video_url / input_video — non-Anthropic blocks some clients send on
+	// /v1/messages; string or {"url":"..."} so the Messages→Chat bridge can
+	// rewrite them to Chat video_url instead of silently dropping.
+	VideoURL json.RawMessage `json:"video_url,omitempty"`
 
 	// type=tool_use
 	ID    string          `json:"id,omitempty"`
@@ -804,9 +809,10 @@ type ChatContentPart struct {
 	PromptCacheBreakpoint json.RawMessage        `json:"prompt_cache_breakpoint,omitempty"`
 	CacheControl          *AnthropicCacheControl `json:"cache_control,omitempty"`
 
-	Type     string        `json:"type"` // "text" | "image_url" | "file"
+	Type     string        `json:"type"` // "text" | "image_url" | "video_url" | "file"
 	Text     string        `json:"text,omitempty"`
 	ImageURL *ChatImageURL `json:"image_url,omitempty"`
+	VideoURL *ChatImageURL `json:"video_url,omitempty"` // same shape as image_url ({"url":"..."})
 	File     *ChatFile     `json:"file,omitempty"`
 }
 

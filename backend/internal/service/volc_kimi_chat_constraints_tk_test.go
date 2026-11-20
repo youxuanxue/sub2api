@@ -475,6 +475,7 @@ func TestVolcKimiVideoURLPreflight(t *testing.T) {
 
 func TestVolcKimiHTTPVideoProbe(t *testing.T) {
 	methods := map[string][]string{}
+	flaky503 := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		methods[r.URL.Path] = append(methods[r.URL.Path], r.Method)
 		switch r.URL.Path {
@@ -492,6 +493,13 @@ func TestVolcKimiHTTPVideoProbe(t *testing.T) {
 			w.WriteHeader(http.StatusPartialContent)
 		case "/missing.mp4":
 			http.NotFound(w, r)
+		case "/flaky-503.mp4":
+			flaky503++
+			if flaky503 < 2 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
 		default:
 			http.NotFound(w, r)
 		}
@@ -508,6 +516,9 @@ func TestVolcKimiHTTPVideoProbe(t *testing.T) {
 
 	require.Error(t, probeVolcKimiHTTPVideo(ctx, client, srv.URL+"/missing.mp4"))
 	require.Equal(t, []string{http.MethodHead}, methods["/missing.mp4"])
+
+	require.NoError(t, probeVolcKimiHTTPVideo(ctx, client, srv.URL+"/flaky-503.mp4"))
+	require.GreaterOrEqual(t, len(methods["/flaky-503.mp4"]), 2)
 
 	srv.Close()
 	require.Error(t, probeVolcKimiHTTPVideo(ctx, client, srv.URL+"/ok.mp4"))

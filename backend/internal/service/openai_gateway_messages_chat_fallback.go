@@ -52,7 +52,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	applyOpenAICompatModelNormalization(&anthropicReq)
 	clientStream := anthropicReq.Stream
 
-	// 2. Anthropic → Chat Completions (direct, no Responses intermediary)
+	// 2. Anthropic → Chat Completions (direct, no Responses intermediary).
+	// Moonshot-shaped video blocks become Chat video_url here; Volc Kimi
+	// reachability / data: gates still run via applyMoonshotThinkingShape.
 	chatReq, err := apicompat.AnthropicToChatCompletionsRequest(&anthropicReq)
 	if err != nil {
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())

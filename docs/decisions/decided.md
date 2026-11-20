@@ -1,5 +1,15 @@
 # 已决定
 
+## 2026-11-20 rt@tk.com 五项：可用率优先（不违背 KVV）
+
+原话：「同意。继续。」；随后「目标是在不违背 kvv 的基础和原则下，尽可能提高可用率。」
+
+适用范围：Volc Agent Plan `kimi-*` chat 出站整形（finish_reason:null、外层 cached_tokens）+ 远程 `video_url` 预检瞬时重试 + `/v1/messages` 上 Moonshot 形视频块 **改写为 Chat `video_url` 真转发**（开源 new-api/LiteLLM 是静默丢；不用显式 400 压可用率）。不放宽 orphan tool、空 function.name、非法采样、递归 schema、上下文截断；不可达视频仍 400；audio 仍 fail-close；responses 视频继续拒绝。
+
+## 2026-11-20 rt@tk.com 五项反馈：网关兼容（不冲突 KVV）【被下条收紧】
+
+原话：「同意。继续。」（前置五项可网关修清单）。初版曾选 messages 视频显式 400；已被「尽可能提高可用率」收紧为真转发，见上条。
+
 ## 2026-11-20 Gemini 4 Neon 裸名映射 medium
 
 原话：「看下 prod gemini-4-neon 模型是不是可以访问了？实测并上架。定价查明。」

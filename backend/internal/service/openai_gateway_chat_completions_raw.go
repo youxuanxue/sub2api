@@ -462,6 +462,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		}
 		line = applyOllamaCloudRawChatCompletionsSSELine(account, line)
 		line = applyGrokRawChatCompletionsUsageSSELine(account, line)
+		line = applyVolcKimiRawChatCompletionsSSELine(account, originalModel, line)
 
 		line = s.replaceModelInSSELine(line, upstreamModel, originalModel)
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
@@ -691,6 +692,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	}
 	respBody = applyOllamaCloudRawChatCompletionsResponse(account, respBody)
 	respBody = applyGrokRawChatCompletionsUsage(account, respBody)
+	respBody = applyVolcKimiRawChatCompletionsResponse(account, originalModel, respBody)
 	respBody = s.replaceModelInResponseBody(respBody, upstreamModel, originalModel)
 
 	result := &OpenAIForwardResult{
