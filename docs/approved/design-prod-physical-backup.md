@@ -26,4 +26,5 @@ revised: 2026-11-20（AWS/EBS/pgdump 过渡叙事删除；节奏与 COS 唯一�
 | 清理 | retention-full=7；由 pgBackRest expire 拥有 |
 | 范围 | 整个 PostgreSQL cluster；不含 Redis/主机配置/QA blobs |
 
-旧 pgdump 调度已退役（见 `ops/stage0/pgdump-retirement.md`）；不得把本文件读成仍写 AWS S3 主链。
+旧 pgdump 调度已退役且 AWS 桶已销毁（见 `ops/stage0/pgdump-retirement.md` /
+舰队 README 桶盘点）；不得把本文件读成仍写 AWS S3 主链。

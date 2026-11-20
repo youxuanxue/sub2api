@@ -37,9 +37,12 @@ python3 ops/stage0/resolve_prod_ssm_target.py --target auto --format json
 ## 应用发布故障
 
 先用 `ops/observability/run-probe.sh --target prod` 读取状态，核对活动色、Caddy 上游和
-镜像摘要。镜像回滚通过原 prod dispatcher 发布上一已知良好 tag，遵循
-[蓝绿发布契约](../../docs/approved/deploy-stage0-workflow.md)。
-不能直接启动另一套单容器 compose，也不能通过 DNS 把写流量送回已冻结/退役旧库。
+镜像摘要。镜像回滚通过原 prod dispatcher（`prod-rolling-deploy.yml` /
+`dispatch-prod-deploy.sh`）发布上一已知良好 tag；见
+[`design-prod-entry-multi-app`](../../docs/approved/design-prod-entry-multi-app.md)。
+同机蓝绿仅应急：`ops/stage0/deploy_via_ssm_bluegreen.sh` +
+`STAGE0_ALLOW_LEGACY_BLUEGREEN=1`。不能直接启动另一套单容器 compose，
+也不能通过 DNS 把写流量送回已冻结/退役旧库。
 
 ## 主机或数据卷故障
 
