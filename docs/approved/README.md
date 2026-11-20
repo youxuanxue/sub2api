@@ -71,7 +71,7 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 | Ali / Volc Plan Chat 的工具选择、developer 与显式 JSON 模式 | [Plan Chat 参数兼容](chat-plan-parameter-compatibility.md) |
 | 授权范围内的候选资格、账号调度与实现 owner | [候选资格 Owners 表](candidate-eligibility-ssot.md#owners) |
 | 请求输入模态 × 供应侧已知能力（ContentKinds ∩ known-negative）；kimi-k3 客户视频请求形态 | [多模态供应能力门](multimodal-supply-capability-ssot.md) |
-| Studio / Quickstart 生图参数与请求示例 | [生图能力与接入示例](image-generation-quickstart-studio.md)（GPT 精确画布见 [strict canvas](gpt-image-strict-canvas-postprocess.md)，已合并；OAuth 观感脚手架见 [perceived quality](gpt-image-oauth-perceived-quality.md)） |
+| Studio / Quickstart 生图参数与请求示例 | [生图能力与接入示例](image-generation-quickstart-studio.md)（GPT 精确画布见 [strict canvas](gpt-image-strict-canvas-postprocess.md)，已合并；原生 Images 切流见 [native cutover](gpt-image-native-cutover.md)） |
 | Key 授权与计费归属 | [Universal key routing](universal-key-routing.md) |
 | Kiro OAuth 混入 Claude（anthropic）组 | [Kiro mixed_scheduling](kiro-mixed-scheduling-claude-groups.md) |
 | 推理响应 `usage.cost` 标准官方价出口 | [Response usage.cost](response-usage-cost.md) |
@@ -124,7 +124,7 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
 | [`candidate-eligibility-ssot.md`](candidate-eligibility-ssot.md) | Candidate scheduling policy and implementation boundary |
 | [`multimodal-supply-capability-ssot.md`](multimodal-supply-capability-ssot.md) | Multimodal supply gate: ContentKinds ∩ evidence-backed known-negatives (not a Plan rewrite) |
-| [`design-candidate-routing-runtime-snapshot.md`](design-candidate-routing-runtime-snapshot.md) | Candidate read snapshot, canonical request and QA redaction performance plan |
+| [`design-candidate-routing-runtime-snapshot.md`](design-candidate-routing-runtime-snapshot.md) | Snapshot/CanonicalRequest 批准边界（实现见 candidate-eligibility Owners） |
 | [`rolling-capacity-saturation.md`](rolling-capacity-saturation.md) | Rolling account-capacity saturation scheduling |
 | [`candidate-request-policy-convergence.md`](candidate-request-policy-convergence.md) | Direct/Universal model mapping boundary and continuation migration impact |
 | [`universal-key-capability-discovery.md`](universal-key-capability-discovery.md) | Per-key protocol/operation discovery |
@@ -161,7 +161,7 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 | [`qa-redaction-identified-formats-only.md`](qa-redaction-identified-formats-only.md) | QA 脱敏已识别格式边界与性能优化 |
 | [`design-prod-physical-backup.md`](design-prod-physical-backup.md) | pgBackRest 节奏；存储/唯一 repo 见 design-tencent-cos-backup-node1-qa |
 | [`billing-dedup-retention.md`](billing-dedup-retention.md) | 计费去重表：热表 7 天、含归档共 30 天，超期直接删除 |
-| [`design-tencent-cos-backup-node1-qa.md`](design-tencent-cos-backup-node1-qa.md) | 腾讯 COS 数据库备份迁移、AWS 回退与 node1 QA/备份兜底 |
+| [`design-tencent-cos-backup-node1-qa.md`](design-tencent-cos-backup-node1-qa.md) | 腾讯 COS 唯一 repo + node1 QA/备份兜底契约 |
 | [`design-data-plane-split.md`](design-data-plane-split.md) | prod 与 cn-prod 数据面从应用机拆到同私网数据机；逐站停写切流，窗口需单独审批 |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
 
@@ -184,7 +184,8 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 ## 已删除的历史设计（勿恢复）
 
 迁机/交接执行表、tombstone、一次性压测报告与 orphan 工具、已交付 `upstream-merge-*`
-审批锚点、过期 shipped 交付文、独立 `pgdump-retirement` 摘要等已删；勿从 git 历史恢复当现行 SSOT。
+审批锚点、过期 shipped 交付文、独立 `pgdump-retirement` 摘要、已交付
+`historical-usage-billing`、一次性 `gpt-image-oauth-perceived-quality` 等已删；勿从 git 历史恢复当现行 SSOT。
 
 现网入口：[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。活契约：
 [design-cos-object-archive](design-cos-object-archive.md)、
@@ -201,6 +202,8 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 
 - [Kiro 流、规则与刷新可靠性](kiro-stream-auth-reliability.md) — 已批准的协议校验、规则保留、工具身份及认证防护。
 
-- [用户历史用量账单查询与下载](historical-usage-billing.md)
+- [用户历史用量账单查询与下载](historical-usage-billing.md) — 已交付（US-073 Done）；approved 已删，验收以 Story + Linked Tests 为准。
+
+- [GPT Image OAuth 观感脚手架](gpt-image-oauth-perceived-quality.md) — 一次性脚手架；已删，活契约见 strict canvas / native cutover。
 
 - [网关 issue 协议与计量修复](gateway-issue-remediation.md) — 现有请求链的可复现缺陷、修复边界与未解决项。
