@@ -214,6 +214,14 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	// Tier wires, including xhigh, stay off this public list. Native Gemini
 	// catalog stays off. Do not apply the floor to the disabled accounts.
 	"gemini-4-hydrogen": {},
+	// gemini-4-neon: 2026-11-20 fetchAvailableModels on schedulable Antigravity
+	// OAuth accounts 233/244/291/292/294/529 advertise low/medium/high/xhigh;
+	// temp-mapping account_test generateContent on 233 gemini-4-neon-high
+	// returned 200/"OK". 275 omits Neon (argon-disabled catalog). Bare name
+	// maps to -medium; official thinking default is high; four tiers share
+	// one token price. Tier wires stay off this public list. Native Gemini
+	// catalog stays off. Do not apply the floor to non-advertising accounts.
+	"gemini-4-neon": {},
 	// Nano Banana 2 is Flash; Pro aliases belong to Gemini Web.
 	"nano-2":        {},
 	"nano-banana-2": {},

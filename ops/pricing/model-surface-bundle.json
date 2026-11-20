@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "d2150780a45de7bddbf814123ba21373740a9de8a48da61da0eff46149102c22",
+  "floor_sha256": "3487b6ec4ed5c14fe35f8a3fadd865329e1e65600f3aad67dc40edc832055037",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -37,6 +37,11 @@
         "gemini-4-hydrogen-low": "gemini-4-hydrogen-low",
         "gemini-4-hydrogen-medium": "gemini-4-hydrogen-medium",
         "gemini-4-hydrogen-xhigh": "gemini-4-hydrogen-xhigh",
+        "gemini-4-neon": "gemini-4-neon-medium",
+        "gemini-4-neon-high": "gemini-4-neon-high",
+        "gemini-4-neon-low": "gemini-4-neon-low",
+        "gemini-4-neon-medium": "gemini-4-neon-medium",
+        "gemini-4-neon-xhigh": "gemini-4-neon-xhigh",
         "nano-2": "gemini-3.1-flash-image",
         "nano-banana-2": "gemini-3.1-flash-image"
       },

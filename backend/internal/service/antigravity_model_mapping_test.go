@@ -19,6 +19,7 @@ func TestAntigravityGatewayService_GetMappedModel_ConvergedSurface(t *testing.T)
 		"gemini-4-argon":         "gemini-4-argon-medium",
 		"gemini-4-carbon":        "gemini-4-carbon-medium",
 		"gemini-4-hydrogen":      "gemini-4-hydrogen-medium",
+		"gemini-4-neon":          "gemini-4-neon-medium",
 		"gemini-3-flash":         "gemini-3-flash",
 		"gemini-3-flash-preview": "",
 		"gemini-3.5-flash-lite":  "",
