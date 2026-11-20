@@ -4,7 +4,7 @@
 - Title: Deploy the changed prod components with independent QA lifecycle
 - Priority: P1
 - As a / I want / So that: As a gateway operator, I want gateway deployment isolated from raw maintenance with explicit raw storage migration gates, so that gateway releases do not wait for unrelated QA work.
-- Trace: docs/approved/qa-raw-only.md; user approval in this session
+- Trace: docs/approved/design-tencent-cos-backup-node1-qa.md; user approval in this session
 - Risk Focus:
   - 逻辑错误：组件基线误判；行为回归：QA 删除守卫失效。
   - 安全问题：配置漂移；运行时：排空失败与取消恢复。
@@ -37,4 +37,4 @@ Raw-only 验证：Playwright 桌面/手机 Keys 与管理员编辑通过；captu
 
 ## Status
 
-- [x] Done: repository implementation and local verification; new raw storage acceptance completed independently of gateway rollout. 组件发布设计现已归档，现行 QA 契约是 `docs/approved/qa-raw-only.md`。本故事记录的是当时那次验收，不把 Bundle Worker 发布权交回去。
+- [x] Done: repository implementation and local verification; new raw storage acceptance completed independently of gateway rollout. 组件发布设计现已归档，现行 QA 契约是 `docs/approved/design-tencent-cos-backup-node1-qa.md`。本故事记录的是当时那次验收，不把 Bundle Worker 发布权交回去。

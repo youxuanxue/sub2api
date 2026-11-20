@@ -4,7 +4,7 @@
 Run plan first, then apply its SHA on the same host. The existing local cleanup
 owner expires the resulting hourly directories. No gateway restart is needed:
 Service.hourlyStorageCutover does not cache a missing setting.
-Approved scope: docs/approved/qa-raw-only.md local retention + operator repair.
+Approved scope: docs/approved/design-tencent-cos-backup-node1-qa.md local retention + operator repair.
 """
 from __future__ import annotations
 

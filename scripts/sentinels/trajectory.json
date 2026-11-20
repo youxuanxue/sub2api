@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "rationale": "Gateway evidence capture and raw QA archive; contract: docs/approved/qa-raw-only.md.",
+  "rationale": "Gateway evidence capture and raw QA archive; contract: docs/approved/design-tencent-cos-backup-node1-qa.md.",
   "route_source": "backend/internal/server/routes/gateway.go",
   "capture_source": "backend/internal/observability/qa/sse_tee.go",
   "required_route_hooks": [

@@ -122,7 +122,7 @@ reviewed installer 生成，当前 `PHASES` 不包含 archive，因此本次代�
 ## 生产存储与恢复分界
 
 历史 raw 对象（AWS `tokenkey-prod-qa-raw-archive-682751977094` 与 Hetzner fsn1）均按七天生命周期
-自然到期，仓库已无恢复 CLI。历史切换与验收记录见 [qa-raw-only](../../docs/approved/qa-raw-only.md)
+自然到期，仓库已无恢复 CLI。活契约与删除边界见 [design-tencent-cos-backup-node1-qa](../../docs/approved/design-tencent-cos-backup-node1-qa.md#node1-qa)
 与 git 历史；新的 QA 副本只在 node1。AWS raw 栈收尾：CFN `tokenkey-prod-qa-raw-archive`=`DELETE_COMPLETE`（2026-11-09），桶 `HeadBucket` 404；主机 `tokenkey-qa-maintenance`/`boundary` 脚本与 unit 已清除（2026-11-17 核对）。
 
 ## 巡检

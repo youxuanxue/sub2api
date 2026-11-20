@@ -62,7 +62,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 ## TokenKey SSOT 导航
 
-国内 prod（现腾讯北京；UCloud 段为首发历史）的授权范围、首次初始化和发布边界：[国内部署契约](design-domestic-cluster.md)。2026-11-15 起 cn-prod 为入口机加多应用机，发版改为逐台滚动：[cn-prod 多应用机滚动发版](design-cn-prod-rolling-deploy.md)。美西 prod 同构方案：[入口机 + 双应用机 + 脱离 LUKS](design-prod-entry-multi-app.md)。
+cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚动发版](design-cn-prod-rolling-deploy.md)；运维入口 [`deploy/domestic/README.md`](../../deploy/domestic/README.md)。美西 prod 同构方案：[入口机 + 双应用机 + 脱离 LUKS](design-prod-entry-multi-app.md)。
 
 本节只提供契约入口；规则、实现 owner 和验收状态在链接目标维护。
 
@@ -161,7 +161,6 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`design-cos-object-archive.md`](design-cos-object-archive.md) | 对象归档统一 COS、禁新写 AWS（2026-11-17 批准） |
 | [`design-tencent-ops-control-plane.md`](design-tencent-ops-control-plane.md) | 运维旁路/密钥收敛腾讯 TAT·COS（2026-11-18 批准；旁路迁 TAT / SecureString 收尾已完成，Hybrid/OIDC 注销另批） |
 | [`ops-error-logs-column-contract.md`](ops-error-logs-column-contract.md) | `ops_error_logs` 列契约：声明 == 写入 ∪ DB 托管（无 Ent schema 表的机械替代） |
-| [`qa-raw-only.md`](qa-raw-only.md) | archived：QA S3 已退役（2026-11-08）；现行 QA 为本地 24h + node1 每 4h，见 design-tencent-cos-backup-node1-qa.md（路径仍被 traj/qa-lifecycle 门禁引用） |
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
 | [`qa-redaction-identified-formats-only.md`](qa-redaction-identified-formats-only.md) | QA 脱敏已识别格式边界与性能优化 |
 | [`design-prod-physical-backup.md`](design-prod-physical-backup.md) | 每周全量、两小时块增量、WAL 连续归档及隔离验收 |
@@ -213,7 +212,7 @@ closeout 清单等历史文已从本目录删除。现网舰队 SSOT：
 [design-cos-object-archive.md](design-cos-object-archive.md)；运维旁路：
 [design-tencent-ops-control-plane.md](design-tencent-ops-control-plane.md)。
 现行 QA：[design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)；
-退役契约历史仍见 [qa-raw-only.md](qa-raw-only.md)（门禁引用）。
+QA 删除边界已并入 [design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)。
 cn-prod 备份监控走 `ops-cn-backup-watch.yml` + pgBackRest，勿恢复逻辑 dump 步骤。
 一次性 ops 历史稿（COS 并行 repo 草案、UCloud Kimi 压测包、relay-watch、
 旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。

@@ -22,13 +22,7 @@ revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切�
 | app-b | `lhins-0kxx7cco` | `10.2.4.13` | 4C8G（`bundle_rs_mc_lg8_01`），单容器 `tokenkey`，监听 `10.2.4.13:8080` |
 | 数据机 | `lhins-odyx5eis` | `10.2.4.5` | 4C8G（`bundle_starter_mc_lg8_01`，2026-11-18 短窗升配）；PG `max_connections=400`（2026-11-17 由 200 升，见审批）；源 ACL 已含 `.11` 与 `.13` |
 
-> 历史快照（2026-11-15 设计批准时）：入口 WRR 曾为 `3 1`；app-a 仍蓝绿+socat；app-b 为 2C4G 手写 `compose.appb.yml`；PG `max_connections=200`。下文迁移步骤（M1–M6）描述的是当时要解决的问题，不是今日现状。
-
-要解决的问题（2026-11-15 批准时）：
-
-- 发版只认 `prod-target.json` 里的一台应用机。下次发版 app-b 会落后一个版本，同时按权重接 1/4 流量。
-- 入口机和 app-b 没有看门狗。app-a 的看门狗测 `https://154.8.214.179/health`，这条是 app-a 直连，不经过入口机。
-- app-b 开着 QA 抓取，但没有清理和归档 timer。
+批准时要解决：多应用机同版本滚动、入口机看门狗、应用机单容器（无节点内蓝绿）。迁移步骤已完成。
 
 ## 决定（用户 2026-11-15）
 
@@ -56,7 +50,7 @@ revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切�
 ```
 
 - `apps[]` 的顺序就是滚动顺序，金丝雀位在前（app-b）。权重现网为 1:1（2026-11-17；此前 app-a 权重 3）。
-- `public_origin` 改成域名后，`host_https_watch.py` 就改测入口机，代码不用动。不过这一步要等 app-a 直连流量归零后再做（见 M3）。
+- `public_origin` 为域名后，`host_https_watch.py` 测入口机，代码不用动。
 - 加减应用机仍按 README 的清单逐项执行，不另写名单同步脚本。
 
 ### 2. 网关：启动即 drain，解除 drain（后端小改动）
@@ -117,22 +111,14 @@ revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切�
 - `compose.node.yml` 由 `prepare-runtime.py` 按 `apps[]` 渲染，替代主机上手写的 `compose.appb.yml`。
 - 应用机上不再有 Caddy、socat 和 blue/green 容器。
 
-## 迁移步骤（用户无感）
+## 迁移步骤
 
-| # | 动作 | 回退 |
-|---|---|---|
-| M1 | 合并 PR，带新镜像正常发一次版。这一次仍走现有蓝绿，只发 app-a；app-b 手工换成同一镜像。新镜像要先上线，才有启动即 drain 和 USR2 | revert |
-| M2 | app-b：渲染 `compose.node.yml`，与现有配置的 diff 必须为空；装 QA timer 和看门狗。入口机：Caddyfile 入库（diff 只差注释）并装看门狗 | 恢复原文件，删除 timer |
-| M3 | 观测 app-a 公网直连请求，连续 6h 为 0 后把 `public_origin` 改成域名。11-15 实测直连仍有，正在逐步减少 | 改回 IP |
-| M4 | app-a 改为单容器：green 走 drain（这段时间 app-b 单独承接，实测在途 3 个、CPU 8%）→ 停 socat → 以 drain 状态起 `tokenkey`，绑定 `10.2.4.11:8080` → smoke → USR2 → 停 green 和 Caddy → 云防火墙关闭 80/443 | 开启 80/443，起 Caddy、green、socat，入口机自动回流 |
-| M5 | 用当前版本原样滚动一遍，作为演练 | 不改版本，失败就停 |
-| M6 | ✅ 连续两次真实滚动成功后，删除 `bluegreen.py` 的 cn-prod 分支和 socat 相关代码（2026-11-17） | revert |
+M1–M6（蓝绿→滚动、单容器、关公网 80/443、删 cn-prod bluegreen/socat）已于 2026-11-17 完成并删除执行记录。
+现网只按上文组件契约与 `deploy/domestic/README.md` 运维。
 
 ## 容量核算
 
 **现网（2026-11-18）**：两台应用机各配 `DATABASE_MAX_OPEN_CONNS=80` / idle=20（`compose.override.yml`），合计最多 160 open；数据机 PG `max_connections=400`。`GATEWAY_MAX_IN_FLIGHT_REQUESTS=480`，`REDIS_POOL_SIZE=96`。应用机规格下限 4C8G（已有 4C16G 可保留）。prod 的池另算，在 prod 数据机上。依据：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-nofile-20261118.md`、`docs/ops/approvals/cn-prod-pg-max-connections-200-to-400.md`。
-
-历史（2026-11-15 设计时）：各机 open=40 合计 80、PG 上限 200；app-b 仍是 2C4G/`memory_limit` 3g。M4 期间 app-b 单独承接全部流量须低峰执行——该迁移步骤已完成，数值勿当作今日 SSOT。
 
 ## 不变量
 
@@ -151,7 +137,7 @@ revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切�
   - 节点卡在 draining 时（旧版和新版两种情况）续跑；
   - 租约过期接管。
 - **`remote_exec` 单测**：身份核对不通过时拒绝执行；轮询超时不会自动重试。
-- **线上验收（M5）**：
+- **线上验收**：
   - 滚动期间入口机日志 5xx 为 0，`reverse_proxy` 错误为 0；
   - 两台节点的 image id 一致；
   - 发版回执完整。
@@ -159,6 +145,4 @@ revised: 2026-11-15（按独立复审收敛：去掉 schema 升级、自动切�
 
 ## 不在范围内
 
-- prod 迁移（单独方案，复用 `remote_exec` 和 `rolling`）。
 - 第二台入口机。当前只依靠 DNS 回退。
-- node1 归档故障（运维处理中）。
