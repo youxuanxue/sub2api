@@ -289,10 +289,23 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	if provider == PlatformKimi || provider == PlatformZhipu || provider == PlatformMiniMax || provider == PlatformOpenCodeGo {
 		clearAbsentCNQuotaWindows(provider, tiers, updates)
 	}
+	// NewAPI MiniMax Token Plan also mirrors into newapi_5h_* / newapi_weekly_*
+	// so OpenAIUsageCell + 429 cool preference share the same remains snapshot.
+	if isNewAPIMiniMaxTokenPlanAccount(account) {
+		for k, v := range mirrorMiniMaxRemainsToNewAPIUsageWindowExtra(tiers, now) {
+			updates[k] = v
+		}
+	}
 	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
 		slog.Warn("cn_quota_persist_failed", "account_id", account.ID, "provider", provider, "error", err)
 	} else {
 		result.Persisted = true
+		if account.Extra == nil {
+			account.Extra = map[string]any{}
+		}
+		for k, v := range updates {
+			account.Extra[k] = v
+		}
 	}
 	return result, nil
 }
@@ -331,6 +344,11 @@ func validateCodingPlanAccount(account *Account) error {
 	}
 	if account.IsOpenCodeGo() {
 		return infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NOT_CODING_PLAN", "opencode zen accounts have no subscription quota window")
+	}
+	// NewAPI+minimaxi Token Plan: remains-eligible without platform=minimax /
+	// account_mode=coding (admin accounts are stored as Extension Engine newapi).
+	if isNewAPIMiniMaxTokenPlanAccount(account) {
+		return nil
 	}
 	if !account.IsCNProvider() {
 		return infraerrors.New(http.StatusBadRequest, "CN_QUOTA_INVALID_PLATFORM", "account is not a CN provider account")
