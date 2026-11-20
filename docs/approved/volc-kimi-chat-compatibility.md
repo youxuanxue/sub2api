@@ -160,7 +160,9 @@ tool constraint tests must still pass. The gateway sentinel registry anchors the
 supplier owner, selected-account routing and these regression tests.
 
 发布后用隔离管理员探针核对出站请求与真实 reasoning/tool 输出；仅 HTTP 200 不足。
-回滚走正常发版路径。## Amendments（行为契约；按日 Evidence 已删）
+回滚走正常发版路径。
+
+## Amendments（行为契约；按日 Evidence 已删）
 
 Owner 不变：`service/volc_kimi_chat_constraints_tk.go` /
 `volc_kimi_chat_request_limits_tk.go` / `normalizeVolcKimi*`；零用量计费见
