@@ -658,4 +658,6 @@ Tests: `TestVolcKimiMirrorOuterCachedTokens`,
 `TestVolcKimiThinkingShapesKeepUpstreamUsage` (wire asserts),
 `TestVolcKimiHTTPVideoProbe` (503 retry),
 `TestAnthropicToChatCompletionsRequest_VideoBlocksBecomeChatVideoURL`,
-`TestPlanMessagesToChatAdmitsVideoRejectsAudio`.
+`TestPlanMessagesToChatAdmitsVideoRejectsAudio`,
+`TestForwardAsAnthropic_VolcKimiMessagesVideoBecomesChatVideoURL`,
+`TestForwardAsAnthropic_VolcKimiMessagesEmptyVideoURLRejected`.
