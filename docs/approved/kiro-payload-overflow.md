@@ -163,12 +163,10 @@ Still unknown, and material to any future limit change:
   (ingress 966,247–984,081 vs translated 928,064–958,922 for the same shape).
   Any `maxPayloadBytes` change must be validated through `/v1/messages` first.
 
-Raising the limit is a separate decision and needs its own review. The
-candidate value under discussion, its yield attribution, and the remaining
-unknowns are tracked in
-[`../task-breakdown-kiro-auto-mode-transcript-trim.md`](../task-breakdown-kiro-auto-mode-transcript-trim.md)
-(status `proposed`). The kiro-lb capacity experiment is still not a basis for
-relaxing this limit.
+Raising the limit is a separate decision and needs its own review; historical
+task-breakdown / capacity notes were deleted after the auto-mode trim path
+shipped. The kiro-lb capacity experiment is still not a basis for relaxing
+this limit.
 
 ## Scope Boundary
 

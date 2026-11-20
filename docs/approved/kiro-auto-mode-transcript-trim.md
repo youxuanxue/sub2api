@@ -24,11 +24,9 @@ Claude Code `/compact`/`/autocompact` 也会把待压缩内容放进最后一个
 多个 text block。转换器若先把这些 block 拼接，history 裁剪器看不到可删除的边界。
 实现在同一受控开关下先保留这些边界，再让既有 history 裁剪器按完整 block 删除。
 
-需求分析与证据见
-[`../task-breakdown-kiro-auto-mode-transcript-trim.md`](../task-breakdown-kiro-auto-mode-transcript-trim.md)
-（《新证据一》结构、《新证据二》容量）。实现已随 `#2933` 进入主干，并包含在
-`1.8.329` 及之后的网关发布中（对客超限文案自 `#2941` / `1.8.331` 起为 400）。
-2026-10-28 用户确认该路径已完成研发并上线。行为仍由账号 Extra
+实现已随 `#2933` 进入主干，并包含在 `1.8.329` 及之后的网关发布中（对客超限文案自
+`#2941` / `1.8.331` 起为 400）。2026-10-28 用户确认该路径已完成研发并上线。
+历史任务拆解与容量证据稿已删除；行为仍由账号 Extra
 `kiro_auto_mode_transcript_trim=true` 开启；缺省或非布尔保持关闭，不改生产默认值。
 
 ## Delta
