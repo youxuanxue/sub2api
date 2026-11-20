@@ -103,7 +103,7 @@ func TestMirrorMiniMaxRemainsToNewAPIUsageWindowExtra(t *testing.T) {
 	require.InDelta(t, 0.215, got[newAPIFiveHourUtilExtraKey], 1e-9)
 	require.InDelta(t, 0.792, got[newAPIWeeklyUtilExtraKey], 1e-9)
 	require.Equal(t, float64(now.Add(2*time.Hour).Unix()), got[newAPIFiveHourResetExtraKey])
-	require.NotContains(t, got, NewAPIAccountWindowLockExtraKey)
+	require.Nil(t, got[NewAPIAccountWindowLockExtraKey], "partial 5h must clear stale window_lock")
 
 	exhausted := mirrorMiniMaxRemainsToNewAPIUsageWindowExtra([]CNQuotaTier{
 		{Window: "5h", UsedPercent: 100, ResetAt: reset5h},

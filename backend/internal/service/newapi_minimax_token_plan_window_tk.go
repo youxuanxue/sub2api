@@ -83,8 +83,12 @@ func mirrorMiniMaxRemainsToNewAPIUsageWindowExtra(tiers []CNQuotaTier, now time.
 				updates[newAPIFiveHourResetExtraKey] = resetUnix
 			}
 			// Exhausted 5h → genuine account-wide lock (UI cool + scheduling).
+			// Otherwise clear a stale lock so upgrade / window roll cannot leave
+			// AccountWideRateLimitResetAt honoring an old cool after remains recovers.
 			if util >= 0.999 && resetUnix > 0 {
 				updates[NewAPIAccountWindowLockExtraKey] = 1.0
+			} else {
+				updates[NewAPIAccountWindowLockExtraKey] = nil
 			}
 		case "weekly":
 			updates[newAPIWeeklyUtilExtraKey] = util
