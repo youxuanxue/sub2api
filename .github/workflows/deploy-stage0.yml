@@ -94,7 +94,7 @@ jobs:
           set -euo pipefail
           echo "::error::deploy-stage0.yml is retired (closeout A14)."
           echo "Use: bash scripts/stage0/dispatch-prod-deploy.sh --operation rolling --tag <X.Y.Z>"
-          echo "See docs/approved/design-tencent-ops-closeout.md A14"
+          echo "See docs/approved/design-tencent-ops-control-plane.md (legacy deploy retired)"
           exit 2
       - name: Validate replay release
         env:
@@ -151,7 +151,7 @@ jobs:
           set -euo pipefail
           echo "::error::deploy-stage0.yml is retired (closeout A14)."
           echo "Use: bash scripts/stage0/dispatch-prod-deploy.sh --operation rolling --tag <X.Y.Z>"
-          echo "See docs/approved/design-tencent-ops-closeout.md A14"
+          echo "See docs/approved/design-tencent-ops-control-plane.md (legacy deploy retired)"
           # Tombstone anchors retained below for sentinel/contract tests;
           # this step exits before any host mutation.
           # deploy_via_ssm_bluegreen.sh / run-probe.sh strings remain for gates.
@@ -548,7 +548,7 @@ jobs:
           set -euo pipefail
           echo "::error::deploy-stage0.yml is retired (closeout A14)."
           echo "Use: bash scripts/stage0/dispatch-prod-deploy.sh --operation rolling --tag <X.Y.Z>"
-          echo "See docs/approved/design-tencent-ops-closeout.md A14"
+          echo "See docs/approved/design-tencent-ops-control-plane.md (legacy deploy retired)"
           # Tombstone: smoke/SSOT steps below remain for contract tests only.
           exit 2
 

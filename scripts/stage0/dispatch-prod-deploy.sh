@@ -139,7 +139,7 @@ case "${OPERATION}" in
   legacy-deploy|replay|smoke-only)
     # 2026-11-18: deploy-stage0.yml is a refuse-only stub (closeout A14).
     echo "dispatch-prod-deploy: ${OPERATION} retired; use --operation deploy|cn-deploy|warm (rolling)" >&2
-    echo "  see docs/approved/design-tencent-ops-closeout.md A14" >&2
+    echo "  see docs/approved/design-tencent-ops-control-plane.md (legacy deploy retired)" >&2
     exit 2
     ;;
 esac

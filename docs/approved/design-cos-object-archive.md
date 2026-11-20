@@ -6,8 +6,7 @@ approved_at: 2026-11-17
 risk: high
 authors: [agent]
 created_at: 2026-11-17
-revised: 2026-11-17（乔布斯复审收敛；同日批准）
-supersedes_destination: design-prod-archive-bucket.md
+revised: 2026-11-20（删除历史 S3 archive-bucket 设计文；本文拥有目的地与证据语义）
 ---
 
 # 对象归档统一落腾讯 COS（禁新写 AWS）
@@ -74,7 +73,8 @@ supersedes_destination: design-prod-archive-bucket.md
 | ops 长期 archive | `frozen`；AWS 桶 30 天自删 | 禁写 AWS；新写只进下方唯一 COS 桶 |
 | host-config 等离机包 | 曾写 AWS archive | 改同一 COS 桶 |
 
-[design-prod-archive-bucket.md](design-prod-archive-bucket.md) 保留历史 promote **证据语义**；**存储目的地**以本文为准。
+历史 AWS S3 archive-bucket / promote 设计文已删除；**存储目的地与证据语义**均以本文为准
+（`archive_mode: frozen`；新写 COS only）。
 
 ## 决策（收敛后）
 

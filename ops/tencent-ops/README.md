@@ -1,7 +1,7 @@
 # 腾讯运维控制面门禁
 
 SSOT：[`docs/approved/design-tencent-ops-control-plane.md`](../../docs/approved/design-tencent-ops-control-plane.md)
-收尾处置：[`docs/approved/design-tencent-ops-closeout.md`](../../docs/approved/design-tencent-ops-closeout.md)
+（旁路迁 TAT / SecureString 收尾已完成；Hybrid/OIDC 角色注销另批。）
 
 两条纪律：
 
