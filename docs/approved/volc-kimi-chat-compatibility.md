@@ -4,6 +4,7 @@ status: approved
 approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。); feng (2026-11-18 conversation: 同意。继续。 — Volc thinking-on 时把合法非 1 temperature 改写为 1); feng (2026-11-18 conversation: deepseek-v4-flash-0731 退役旧模型，不做任何动作。Kimi/Volc：可做的网关修复（对齐 KVV），同意建议的修复，请逐个修复。复审。); feng (2026-11-19 conversation: 同意。请继续修复。 — Volc thinking-off 时把合法非 0.6 temperature 改写为 0.6); feng (2026-11-19 conversation: 同意。继续。 — drop prompt_cache_breakpoint; tighten data: video local 400; keep long tool_call_id trajectories unchanged); feng (2026-11-19 conversation: 同意。请修复、实测。 — type=file missing/non-PDF normalize); feng (2026-11-20 conversation: 同意，先做直打 volc 的证据，在做兼容修复。前提不要和 kvv 原则冲突。 — drop refusal/summary_text; rewrite input_video→video_url); feng (2026-11-20 conversation: 同意。继续。 — stream finish_reason:null; outer usage.cached_tokens; video probe retry); feng (2026-11-20 conversation: 目标是在不违背 kvv 的基础和原则下，尽可能提高可用率。 — messages video → chat video_url forward)"
 approved_at: 2026-10-15
 risk: high
+revised: 2026-11-20（删一次性 Evidence / 私有证据路径；保留行为契约与增补节）
 ---
 
 # Volc Agent Plan Kimi Chat compatibility
@@ -15,27 +16,6 @@ Kimi K3 thinking-off was silently changed to low effort, and tool selectors were
 rejected. The user approved fixing thinking normalization and allowed-tools
 conversion after reviewing the production logs and direct upstream controls.
 This approval covers implementation and validation, not production deployment.
-
-## Evidence
-
-2026-10-15 cn-prod customer requests `671eaef7-32ef-4778-86d6-44230ee9c8db`
-and `677209b1-4796-4d37-8cc3-aa591b9b42c8` failed at 19:26:59 Asia/Shanghai.
-The first received a Volc InvalidParameter 400; the second was rejected locally
-by the named-tool parser. Subsequent thinking checks used supplier account #16.
-IDs identify evidence only, never capability selectors.
-
-Direct synthetic controls against `/api/plan/v3/chat/completions`:
-
-- Volc Kimi K3 `thinking.type=disabled` returns no reasoning content.
-- Boolean `enable_thinking=false` and template aliases alone still return reasoning.
-- Named `tool_choice` with default thinking returns 400; with thinking disabled it
-  returns 200 and the named tool call.
-- A single declared tool with `tool_choice=required` returns 200 and that tool call
-  with thinking still enabled. `auto` also works.
-- Volc rejects `tool_choice.type=allowed_tools` natively.
-
-Private raw evidence: `~/.local/share/tokenkey/cn-kimi-diagnosis-20261015-210522/`.
-No customer prompt content or credentials are included in this repository.
 
 ## Behavior and owners
 
@@ -196,17 +176,8 @@ Existing Moonshot and provider
 tool constraint tests must still pass. The gateway sentinel registry anchors the
 supplier owner, selected-account routing and these regression tests.
 
-On 2026-10-15, synthetic requests produced by the changed Go normalizer were sent
-directly to the live Volc upstream. Named selection and allowed-tools auto/required
-returned 200, selected only the allowed function and preserved reasoning. Canonical
-thinking-off, `enable_thinking=false` and both template aliases returned 200 with
-no reasoning content. Full backend unit tests and worktree preflight passed.
-Private evidence: `~/.local/share/tokenkey/volc-kimi-fixed-wire-20261015-212144/`.
-These checks validate the repaired wire shape; they are not deployed gateway smoke.
-
-After release, use an isolated administrator probe to verify the outgoing request
-and actual reasoning/tool output, then rerun the customer's capability matrix.
-HTTP 200 alone is insufficient evidence. Rollback uses the normal release path.
+发布后用隔离管理员探针核对出站请求与真实 reasoning/tool 输出；仅 HTTP 200 不足。
+回滚走正常发版路径。一次性直打证据目录已删出本文。
 
 ## 2026-11-04 request-field parity (cn-prod kimi-k3 benchmark)
 

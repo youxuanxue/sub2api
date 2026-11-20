@@ -9,7 +9,7 @@ created: 2026-04-17
 related_prs: []
 related_commits: [a68dee5b]
 related_stories: [US-006]
-revised: 2026-11-20（删 §7 PR 切分史与 §11 实施盘点散文；保留 §11.5/11.6 活增补）
+revised: 2026-11-20（删 Gap 盘点/测试矩阵散文；保留架构与 §11.5/11.6）
 ---
 
 # Sticky Routing & Prompt Cache Optimization
@@ -20,42 +20,10 @@ revised: 2026-11-20（删 §7 PR 切分史与 §11 实施盘点散文；保留 �
 
 > 范围：本设计**仅**补齐"客户端没送 sticky key 时网关自动派生并注入"的能力，以及把现有分散的注入逻辑收口到统一抽象后面，并加全局/分组级开关 + 命中率可视化。**不**修改真 Claude Code 客户端 → Anthropic OAuth 路径（有意识保留客户端原行为）。账号粘性调度主体仍复用既有 Redis session→account 绑定；NewAPI 分组的 session **种子派生**在 §11.6 对 prompt-cache 友好路径做了最小 override（稳定前缀，不改粘账号机制本身）。
 
-## 1. 现状盘点
+## 1. 显式不做
 
-### 1.1 已有基础设施（不动）
-
-| 模块 | 文件:行 | 作用 |
-|---|---|---|
-| `DeriveSessionHashFromSeed` | `backend/internal/service/openai_sticky_compat.go:32-48` | xxHash64 16-hex；网关侧账号粘性调度键 |
-| `BindStickySession` / `GetSessionAccountID` | `backend/internal/service/openai_gateway_service.go:1190-1199` | Redis `openai:` + sessionHash → account_id，TTL 默认 1h |
-| `deriveCompatPromptCacheKey` | `backend/internal/service/openai_compat_prompt_cache_key.go:21-65` | Chat Completions compat 路径，只对 gpt-5.4 / gpt-5.3-codex 自动注入 |
-| `ExtractSessionID` / `GenerateSessionHash` | `openai_gateway_scheduling.go`（NewAPI 种子见 `openai_gateway_scheduling_tk_newapi_prompt_cache.go`） | header > prompt_cache_key > 内容种子；NewAPI 无显式 session 时用 stable prefix（§11.6） |
-| `ensureClaudeOAuthMetadataUserID` | `backend/internal/service/gateway_service.go:1014-1041` | Anthropic OAuth mimic 路径自动注入 metadata.user_id |
-| `Antigravity SessionID` | `backend/internal/pkg/antigravity/request_transformer.go:146-163` | 基于 contents 的稳定 session id |
-| `usage_logs.cache_read_tokens` | `backend/ent/schema/usage_log.go:72-79` | dashboard 已聚合 `total_cache_read_tokens` |
-| `gateway.openai_ws.sticky_session_ttl_seconds` | `backend/internal/config/config.go:543-556` | 全局 TTL（无 kill-switch） |
-
-### 1.2 真正的 Gap
-
-| Gap | 当前行为 | 用户可感知影响 |
-|---|---|---|
-| **G1** Codex Responses 路径不自动注入 body `prompt_cache_key` | 客户端不送时仅做账号粘性，不送给上游 → 上游 LB 不知道这是同会话 | Codex CLI 长任务命中率低 |
-| **G2** OpenAI passthrough 模式下完全不补 sticky 头 | 完全裸透 | passthrough 用户拿不到优化 |
-| **G3** Compat 自动注入白名单太窄 | 仅 `gpt-5.4` / `gpt-5.3-codex` | 其它 GPT 系列同样能受益但被排除 |
-| **G4** 真 Claude Code → OpenAI 翻译路径 | handler 仅在客户端送了 `metadata.user_id` 时才合成 cache key | 多数 Claude Code 用户没显式送 metadata.user_id |
-| **G5** 无统一注入器抽象 | 注入逻辑分散在 5+ 个文件 | 后续加 Anthropic 后端时易漏 |
-| **G6** 无全局 kill-switch | 出问题只能改代码回滚 | 运维不安全 |
-| **G7** 无分组级策略 | 不同账号源（OpenAI 官方 vs Anthropic vs GLM）只能同一策略 | 灵活性不足 |
-| **G8** 命中率不可视 | 后端有数据但 dashboard 无独立卡片 | 调优盲飞 |
-
-### 1.3 显式不做（避免 scope creep）
-
-- ❌ 真 Claude Code 客户端 → Anthropic OAuth 直连：不动 `ensureClaudeOAuthMetadataUserID` 在 `isClaudeCode==true` 时跳过的逻辑（社区已知会和客户端策略打架）。
-- ❌ NewAPI 渠道亲和：已有 `GetPreferredChannelByAffinity`，不重复造。
-- ❌ Antigravity 内部 SessionID：内部协议，与 prompt cache 无直接对应。
-- ❌ 改 `usage_logs` schema：现有 `cache_read_tokens` 足够。
-
----
+- 真 Claude Code → Anthropic OAuth 直连：`isClaudeCode==true` 时不强制改客户端 sticky。
+- 不重复 NewAPI 渠道亲和；不动 Antigravity 内部 SessionID；不改 `usage_logs` schema。
 
 ## 2. 架构
 
@@ -250,34 +218,7 @@ type GroupStat struct {
 
 ---
 
-## 6. 测试计划
-
-### 6.1 User Story
-
-`.testing/user-stories/stories/US-006-sticky-routing-prompt-cache.md` 是本设计的验收 SSOT。缓存可视化修订由 AC-009 至 AC-011 覆盖：分组 Token 契约与 raw/rollup 一致、Kiro 不可观测输入不计作 miss、Top 5 排序与同窗口分组钻取。
-
-### 6.2 测试文件
-
-| 文件 | 覆盖 |
-|---|---|
-| `backend/internal/service/sticky_session_injector_test.go` | Derive 五级回退；各 Inject* 方法 |
-| `backend/internal/repository/usage_log_repo_request_type_test.go` | raw/rollup SQL 契约、Token 分项与 Kiro 不可观测输入 |
-| `backend/internal/repository/usage_log_repo_tk_group_rollup_integration_test.go` | PostgreSQL raw/rollup 分组统计 parity |
-| `backend/internal/handler/admin/dashboard_handler_cache_test.go` | snapshot-v2 分组字段 JSON 契约 |
-| `frontend/src/views/admin/__tests__/DashboardView.spec.ts` | 总体/分组可观测状态、Top 5 与钻取参数 |
-| `frontend/src/views/admin/__tests__/UsageView.spec.ts` | Usage 消费分组与绝对时间窗 |
-| `frontend/e2e/dashboard-cache.e2e.ts` | 真实浏览器 desktop/mobile 展示与钻取 |
-
-### 6.3 风险覆盖
-
-| 风险类型 | 场景 | 测试 |
-|---|---|---|
-| 逻辑错误 | 可观测分母、影响量排序、raw/rollup parity | repository tests + `DashboardView.spec.ts` |
-| 行为回归 | snapshot 旧字段兼容、纯 Kiro 不显示 `0%` | handler contract + frontend tests |
-| 端到端体验 | 同窗口分组钻取、desktop/mobile 无溢出 | `UsageView.spec.ts` + Playwright |
-| 上游覆盖 | TK 聚合与 UI 入口被 upstream rewrite 冲掉 | gateway/frontend sentinel registries |
-
----
+验收：US-006 Linked Tests（含缓存可视化 AC-009…011）。
 
 ## 8. 兼容性 & 回滚
 
