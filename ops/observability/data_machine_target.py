@@ -3,9 +3,9 @@
 
 After the data-plane split (docs/approved/design-data-plane-split.md) Postgres
 and Redis run on a data machine per site. Its SSM identity lives in the site
-matrix, never in a caller:
-  prod     deploy/tencent/candidate-usw-20261022.json  `data_machine`
-  cn-prod  deploy/domestic/prod-target.json            `data_ssm_*`
+matrix `data_machine` object, never in a caller:
+  prod     deploy/tencent/candidate-usw-20261022.json
+  cn-prod  deploy/domestic/prod-target.json
 
 `--verify` asks SSM for the instance and requires Online, Linux and the
 registered Name before printing anything, so a re-registered or reused mi-*
@@ -47,11 +47,10 @@ def resolve(site: str, matrix: Path | None = None) -> dict[str, str]:
         raise TargetError(f"unknown site: {site}")
     path = matrix or MATRICES[site]
     doc = json.loads(path.read_text(encoding="utf-8"))
-    if site == "prod":
-        data = doc.get("data_machine") or {}
-        fields = (data.get("expected_ssm_instance_id"), data.get("ssm_region"), data.get("ssm_name"))
-    else:
-        fields = (doc.get("data_ssm_instance_id"), doc.get("data_ssm_region"), doc.get("data_ssm_name"))
+    data = doc.get("data_machine") or {}
+    if not isinstance(data, dict):
+        data = {}
+    fields = (data.get("expected_ssm_instance_id"), data.get("ssm_region"), data.get("ssm_name"))
     instance, region, name = (str(value or "") for value in fields)
     if not INSTANCE.match(instance) or not REGION.match(region) or not name:
         raise TargetError(f"{site} data machine SSM identity missing from {path}")

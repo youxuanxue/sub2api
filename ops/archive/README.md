@@ -120,7 +120,9 @@ boundary only — do not refresh them and do not reintroduce export/canary CLIs.
    - cn-prod：`TK_HOST_CONFIG_APPLY=1 SITE=cn-prod bash ops/archive/apply_entry_host_config_offsite.sh`  
    入口机无 COS 凭据：私网一次性 HTTP 把 tar 交给数据机，由数据机读 `cos-backup.env` 执行 `upload_host_config.py --apply`。
 3. 续期后重复。重建入口机：用上传 receipt 里的 key（或 metadata sha256）`aws s3 cp` 拉回后解开还原 `caddy/`。  
-   注：现网 CAM 对 `ListBucket` 可能列不出对象，但 **Head/Get 可用**（2026-11-19 已用 sha256 核对下载）。
+   注：`cos_archive_identity` 使用裸 COS host + `addressing_style=virtual`。
+   勿把桶名塞进 `--endpoint-url` 且不设 virtual（List/Put 会 path-style 成
+   `/{bucket}/…` 假 key）。
 4. 不打包应用机/数据机全量 `.env`。门禁 = COS 读权限（非本机私钥）。
 
 历史 AWS CFN `tokenkey-stage0-archive` 仅作风控收尸（30 天自删，实例角色只读），不再作为新写入目的地。

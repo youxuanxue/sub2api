@@ -14,12 +14,15 @@
     "tokenkey-qa-coordinator",
     "tokenkey-qa-retention"
   ],
-  "data_instance_name": "VM-4-5-ubuntu",
-  "data_lighthouse_instance_id": "lhins-odyx5eis",
-  "data_private_ip": "10.2.4.5",
-  "data_ssm_name": "tokenkey-cn-data",
-  "data_ssm_region": "eu-west-2",
-  "data_ssm_instance_id": "mi-084a456b3dee71bb4",
+  "data_machine": {
+    "note": "Same shape as prod candidate-usw data_machine (design-data-plane-split).",
+    "hostname": "VM-4-5-ubuntu",
+    "lighthouse_instance_id": "lhins-odyx5eis",
+    "private_ip": "10.2.4.5",
+    "ssm_name": "tokenkey-cn-data",
+    "expected_ssm_instance_id": "mi-084a456b3dee71bb4",
+    "ssm_region": "eu-west-2"
+  },
   "tat_region": "ap-beijing",
   "rolling_confirm_site": "cn-prod",
   "layout": {

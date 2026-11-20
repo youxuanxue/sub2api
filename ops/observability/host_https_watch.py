@@ -138,7 +138,8 @@ def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict, *,
         # Data-plane machines (design-data-plane-split.md) own Postgres and its
         # pgBackRest jobs after the cutover; they watch only those jobs.
         "prod-data": watch.get("data_hostname"),
-        "cn-prod-data": domestic.get("data_instance_name"),
+        "cn-prod-data": (domestic.get("data_machine") or {}).get("hostname")
+        or domestic.get("data_instance_name"),
     }[role]
     if not allowed or hostname != allowed:
         raise ValueError("host identity mismatch")

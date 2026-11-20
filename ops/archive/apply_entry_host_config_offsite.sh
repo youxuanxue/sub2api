@@ -40,7 +40,7 @@ PY
     read -r ENTRY_LHINS DATA_IP < <(python3 - "$MATRIX" <<'PY'
 import json, sys
 m = json.load(open(sys.argv[1], encoding="utf-8"))
-print(m["entry"]["lighthouse_instance_id"], m["data_private_ip"])
+print(m["entry"]["lighthouse_instance_id"], m["data_machine"]["private_ip"])
 PY
 )
     ;;

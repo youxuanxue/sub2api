@@ -43,7 +43,7 @@ class CoveragePlanTest(unittest.TestCase):
         for role, host, jobs in (
                 ('prod-data', self.watch['data_hostname'],
                  ['tokenkey-disk-metrics', 'tokenkey-qa-coordinator', 'tokenkey-qa-retention']),
-                ('cn-prod-data', self.domestic['data_instance_name'],
+                ('cn-prod-data', self.domestic['data_machine']['hostname'],
                  ['tokenkey-disk-metrics', 'tokenkey-qa-coordinator', 'tokenkey-qa-retention']),
         ):
             with self.subTest(role=role):
@@ -65,7 +65,7 @@ class CoveragePlanTest(unittest.TestCase):
     def test_data_roles_refuse_the_app_host_and_each_other(self):
         for role, host in (('prod-data', self.watch['hostname']),
                            ('cn-prod-data', self.domestic['instance_name']),
-                           ('prod-data', self.domestic['data_instance_name'])):
+                           ('prod-data', self.domestic['data_machine']['hostname'])):
             with self.subTest(role=role, host=host), self.assertRaises(ValueError):
                 self.config(role, host)
 
@@ -1077,7 +1077,7 @@ class AppNodeJobsTest(unittest.TestCase):
         appa = watch.build_config("cn-prod", "x", matrix, domestic, node="app-a", host_ips=["10.2.4.11"])
         self.assertEqual(appa["jobs"], ["tokenkey-disk-metrics", "tokenkey-qa-retention"])
         data = watch.build_config(
-            "cn-prod-data", domestic["data_instance_name"], matrix, domestic)
+            "cn-prod-data", domestic["data_machine"]["hostname"], matrix, domestic)
         self.assertEqual(
             data["jobs"],
             ["tokenkey-disk-metrics", "tokenkey-qa-coordinator", "tokenkey-qa-retention"])
