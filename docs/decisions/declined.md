@@ -8,7 +8,7 @@
 | 原话（摘要） | 不做 |
 |---|---|
 | 「美西和北京都用同样的密钥就好。不需要单独加用户。」 | 另建只写 ops-archive 的 CAM 用户；也不再把「cn 补独立 cos-archive.env」当必做项。host-config 与库备份共用现有 backup 钥（见 `decided.md`）。 |
-| 「迁移/交接/历史/approved 应删尽删」 | 恢复已删的迁机/交接/压测/tombstone/一次性 orphan 工具、已交付审批锚点或已执行容量审批回执。活契约见舰队 README 与 approved 活设计；已删边界见 approved README「已删除的历史设计」。 |
+| 「迁移/交接/历史/approved 应删尽删」 | 恢复已删的迁机/交接/压测/tombstone/一次性 orphan 工具、已交付审批锚点、已执行容量审批回执，或独立 `pgdump-retirement` 摘要（已并入 `physical-backup`）。活契约见舰队 README 与 approved 活设计；已删边界见 approved README「已删除的历史设计」。 |
 
 ## 2026-11-19
 

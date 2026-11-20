@@ -15,10 +15,10 @@
 | 数据目录 | 明文根盘业务路径（LUKS 已退役）；无 EBS/DLM；**不做**整机/卷常备快照 |
 | 活链 | COS `repo2` `/prod/postgres`；`tencent_backup_identity.py` 渲染配置 |
 | 操作入口 | 宿主 `tencent_pgbackrest.py backup|check`（仓库 SSOT `deploy/tencent/tencent_pgbackrest.py`）；timer `tokenkey-postgres-{backup,archive-check}`；验收 `ops/backup/cos_restore_acceptance.py` |
-| 旧 pgdump | 调度已退役；AWS pgdump 桶已销毁（见舰队 README「2026-11-17 桶盘点」与 [pgdump-retirement.md](pgdump-retirement.md)） |
+| 旧 pgdump | 调度已退役；AWS pgdump 桶已销毁（舰队 README「2026-11-17 桶盘点」）。勿恢复 `ops-pgdump-*` / `ops-stage0-pg-dump-refresh` 自动链 |
 
 `prod/postgres`（Tokyo timeline 1）冻结只读；不得写入，也不作为恢复默认。
-Tokyo/AWS 临时恢复百科已删。以下 basename **仅历史回查 / 契约测试**，不是现网主路径：
+Tokyo/AWS 临时恢复百科与独立 `pgdump-retirement` 摘要已删。以下 basename **仅历史回查 / 契约测试**，不是现网主路径：
 `prepare_physical_backup.py`、`install_postgres_backup.py`、`run_physical_restore.py`、
 `retire_pgdump.py`、`preserve_legacy_pgdump.py`、`pgdump_restore_canary_remote.sh`。
 
