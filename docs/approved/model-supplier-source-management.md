@@ -8,16 +8,7 @@ created: 2026-08-27
 owners: [tk-platform]
 scope: "supplier facts, admin API/UI, credential isolation, account projection, probe gate; managed accounts behave like ordinary accounts after create, with sync overwriting projection fields"
 related_stories: ["US-048"]
-revision_note: >
-  2026-09-06: Anthropic channel_type=14 supplier-managed accounts auto-join
-  the anthropic-platform scheduling group named "claude" on create and on Sync
-  ensure (additive; does not remove other groups). 2026-09-03: Project writes
-  managed accounts only and never probes; validate remains the sole
-  configured-model probe. Same day: supplier identity SSOT — row unique key is
-  (supplier_name, endpoint, credential_fingerprint, channel_type); DB/API field
-  channel_name renamed to supplier_lane (display label only). Adoption
-  candidates filter by channel_type transport. 2026-09-02: Anthropic
-  channel_type=14 messages-only exception.
+revision_note: "供应源管理不变量；探测/同步拆分见 probe-sync-split。2026-11-20 压缩 revision 流水。"
 ---
 
 # TokenKey 模型供应源管理审批基线

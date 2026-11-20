@@ -6,7 +6,7 @@ approved_at: 2026-04-22
 authors: [agent]
 created: 2026-04-22
 related_stories: [US-028, US-029, US-030, US-031]
-revised: 2026-11-20（删实施顺序/原型门禁/P1 playground 散文；保留 P0 契约与 §11）
+revised: 2026-11-20（再压 P0-A 实施考古/完整 JSON 目标形；保留 v1 契约）
 ---
 
 # New-User Cold Start
@@ -52,56 +52,11 @@ GET /api/v1/public/pricing                     # PR 1 v1：扁平 catalog
 
 **速率**：`rateLimiter.LimitWithOptions("public-pricing", 60, time.Minute, FailOpen)`——比 `auth-register` 宽松，因为是只读元数据；对未登录用户做 IP 限流即可，避免被当成爬虫源头。
 
-### v1 实施范围声明（与原设计的偏差，2026-04-22 落地拍板 = A 路径）
+### v1 响应契约
 
-实施时核对代码发现：(a) Ent `Group` schema 没有 `visible_in_catalog` 字段；加这个字段需要 schema 变更 + migration + `go generate ./ent`，与本 PR 的「单一意图、不引入 schema 改动」原则冲突；(b) `groups[]` 反查 + `endpoints[]` 推导属于中等复杂度的多源 JOIN，会让 PR 1 的 backend 改动从 ~5 文件膨胀到 ~12+ 文件。
-
-按 Jobs「对一千件事说不」、OPC「先解决核心痛点再延展」哲学，**PR 1 只 ship 扁平 catalog**：
-
-- ✅ **保留**（v1 必交）：`object`、`data[]`、`data[].model_id`、`data[].vendor`、`data[].pricing.{currency, input_per_1k_tokens, output_per_1k_tokens, cache_read_per_1k, cache_write_per_1k}`、`data[].context_window`、`data[].max_output_tokens`、`data[].capabilities[]`、`updated_at`
-- ⏸ **v1 deferred**（follow-up PR 落）：`data[].groups[]`、`data[].endpoints[]`、`data[].platform`、顶层 `vendors[]`/`platforms[]`/`groups[]` 聚合、`?group_id=` / `?platform=` query 过滤、`pricing_catalog_groups_visible` setting、`visible_in_catalog` group 字段
-
-PR 1 的 catalog 已能解决 L 站 `t/topic/1413702` 反映的核心痛点（"看不到模型清单 + 价格"）；高级筛选 / group 维度归属是进阶用户需求，可独立 follow-up。US-028 的 AC 已同步收敛到 v1 形状，原 AC-002 / AC-005（按 group 过滤、disabled group 隔离）已迁移到 follow-up story 的待办区。
-
-### 响应（DTO 形状）
-
-> **v1 实际响应**：`groups[]`/`endpoints[]`/`platform`/顶层 `vendors`/`platforms`/`groups` 字段在 PR 1 中**不返回**（见上文 v1 范围声明）。下方 JSON 示例保留完整设计形状作为长期目标参考，当前 PR 落地的真实形状以 US-028 AC-001 + AC-002 为准。
-
-```jsonc
-{
-  "object": "list",
-  "data": [
-    {
-      "model_id": "claude-3-5-sonnet-20241022",
-      "platform": "anthropic",
-      "vendor": "Anthropic",
-      "groups": ["claude-pool-default"],   // 哪些 group 含此模型
-      "endpoints": ["/v1/messages", "/v1/chat/completions"],
-      "pricing": {
-        "currency": "USD",
-        "input_per_1k_tokens":  0.003,
-        "output_per_1k_tokens": 0.015,
-        "cache_read_per_1k":    0.0003,
-        "cache_write_per_1k":   0.00375
-      },
-      "context_window": 200000,
-      "max_output_tokens": 8192,
-      "capabilities": ["vision", "tool_use", "prompt_caching"]
-    }
-  ],
-  "vendors":  ["Anthropic", "OpenAI", "Google", "Moonshot"],
-  "platforms": ["anthropic", "openai", "gemini", "antigravity", "newapi"],
-  "groups":   [{ "id": 1, "name": "claude-pool-default", "platform": "anthropic" }],
-  "updated_at": "2026-04-22T10:00:00Z"
-}
-```
-
-**字段命名取舍**：
-
-- 我们 **不**直接复制 new-api `/api/pricing` 的 `quota_type / model_ratio / completion_ratio / group_ratio` 等 token-quota 内部单位——TokenKey 直接用 USD 单价（与 `users.balance` 同口径），照搬 new-api 的"积分 + 倍率"两层结构会让普通用户更迷惑。
-- 但**保留** new-api 习惯的几个 wrapper 字段（`object/data/vendors/groups`），让 All API Hub 这类工具的字段映射只需小改。
-- `endpoints` 字段直接借鉴 new-api `supported_endpoint`，便于工具识别"这个模型在这个站走 OpenAI 协议还是 Anthropic 协议"。
-- `pricing.currency` 显式写 `"USD"`，给未来切换或多币种留口（虽然短期不打算做）。
+扁平 catalog（无 schema 改动）：`object`、`data[]`（`model_id`、`vendor`、`pricing.{currency,input/output/cache_*_per_1k_tokens}`、`context_window`、`max_output_tokens`、`capabilities[]`）、`updated_at`。
+单价为 USD（对齐 `users.balance`），不照搬 new-api 积分/倍率。
+**v1 deferred**：`groups[]` / `endpoints[]` / `platform` / 顶层聚合 / `?group_id=` / `?platform=` / `visible_in_catalog`。验收以 US-028 为准。
 
 ### 数据来源（v1）
 
@@ -156,7 +111,7 @@ v1 deferred（follow-up PR 落）：vendor / group 多选筛选条、协议（`/
 
 ### 注入位置（**两条活路径** — 注入策略对齐到「INSERT 时 bake-in」）
 
-实施前重新核对了代码，发现：
+实现约束：
 
 | 路径 | 状态 | 处理方式 |
 | --- | --- | --- |

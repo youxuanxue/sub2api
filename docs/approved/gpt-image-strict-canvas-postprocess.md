@@ -7,6 +7,7 @@ created: 2026-09-29
 authors: [cursor]
 risk: high
 related_prs: ["#2385", "#2402"]
+revised: 2026-11-20（删授权散文与探针回执；保留契约）
 ---
 
 # GPT Image strict canvas + format post-process
@@ -63,8 +64,7 @@ OAuth / Setup-Token 生图**一律**走：
 ### 1b. Responses 驱动主模型（main model）与 style
 
 - 驱动模型默认 `gpt-5.6-terra`（`SUB2API_IMAGES_MAIN_MODEL` 可覆盖）；图像模型仍在 `tools[0].model`。
-  2026-10-20 OAuth 实测：ChatGPT Codex 拒 mini/nano/5.5；热门文本槽
-  （`gpt-6.1-sol` 等）移出默认链，减轻与聊天抢容量。
+  默认链避开 mini/nano/5.5 与热门聊天文本槽。
 - 上游以 plan-gated 400 拒绝当前驱动时，**同账号**按
   `gpt-6-sol` → `gpt-5.6-luna` → `gpt-6-luna` 重试
   （`SUB2API_IMAGES_MAIN_MODEL_FALLBACKS` 可覆盖整条链），不冷却生图容量。
@@ -96,16 +96,12 @@ OAuth / Setup-Token 生图**一律**走：
 - 不把色键去背景当作默认透明实现。
 
 
-## 2026-10-16：图片凭据保留与原生响应契约修复
-
-审批依据：本会话用户在收到「定位 fidelity/revised_prompt 路径，避免不必要重编码」建议后明确回复：
-「同意，1 已经让 tokensea 去查了。2 和 3 请继续排查、核实和修复。」
-该授权覆盖本节实现；合并和部署仍走项目出口门禁。本节状态为实现待合并，不表示已上线。
+## 图片凭据保留与原生响应契约
 
 - GPT Image 的原生 API-key JSON / SSE 和 Codex Direct 响应复用字段清理 owner；
   移除 `revised_prompt`，保留图像字节、usage、provider 扩展字段。DALL-E 的该字段保持原义。
 - `gpt-image-2` 的 `input_fidelity` 继续在统一请求解析处拒绝；覆盖 multipart edits，
-  不扩大到 `gpt-image-1.5`。本轮线上 JSON 与 multipart 探针都已返回对应 400。
+  不扩大到 `gpt-image-1.5`。
 - SSE 按完整帧处理，支持多行 data，保留 event/id/retry/comment 和 `[DONE]`；
   读取阶段按现有 upstream response read limit 限制单帧；无换行的超长行及客户端断开后的读取同样受限。
 - 不新增凭据签发系统。原样字节测试仅证明元数据不被网关删除，不证明上游签名存在或可信。
@@ -122,8 +118,7 @@ OAuth / Setup-Token 生图**一律**走：
 | SSE 超长行、帧边界、断开后的用量统计 | `TestImagesNativeStreamFrameLimitBoundsUpstreamReads`、`TestImagesNativeStreamFrameBudgetResetsAndAllowsExactLimit` |
 | multipart fidelity 正负向 | `TestParseOpenAIImagesRequest_MultipartInputFidelity` |
 
-逻辑与回归风险由以上测试覆盖；鉴权、租户与计费策略不变；运行时风险为 SSE 单帧缓冲，
-以既有读限制拒绝超大帧。原报告具体失败请求尚未取得服务端关联 ID，不能据此宣称客户全链路已通过。
+鉴权/租户/计费策略不变；SSE 单帧受既有读限制。
 
 ## Owners
 

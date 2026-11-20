@@ -5,17 +5,15 @@ source_baseline: 75e38806d7f04202f3ee02148f10975b7d26871c
 pr_base: 6cfe353d765cf0f2868fcf56d1f22475e79785d3
 implementation_approval: user-explicit-database-only-admin-import-and-copy-initialization
 observed_on: 2026-09-21
-revised: 2026-11-20（删实测像素表与 Agent 分工门槛散文；保留契约）
+revised: 2026-11-20（再压授权散文/AdsPower 抓包像素；保留契约与 Owners）
 ---
 
 # Gemini Web Cookie HTTP 通路
 
-## 2026-09-30：直接 Nano Banana Pro（本次会话批准）
+## Nano Banana Pro（直接 Web Pro）
 
-用户在 fresh Web 会话直接 Pro 生图原型通过后回复「同意。继续。」；随后要求对齐
-Antigravity Flash 生图参数，并明确「采用 tokenkey 里已有的精确画布等后处理。保持 ssot 原则」。
-本节是该增量的实施基线，覆盖下文旧版只允许纯文本、五种比例及禁止后处理的限制。
-旧内部模型 `gemini-web-pro-image` 保持 Nano Banana 2 / Flash 的既有行为。
+旧内部模型 `gemini-web-pro-image` 保持 Nano Banana 2 / Flash 行为。本节覆盖直接 Pro 生图与精确画布后处理。
+
 
 - 公共模型 `gemini-3-pro-image`，别名 `nano-banana-pro`、兼容别名 `nano-pro`。
   不新增容易与 Nano Banana 2 混淆的 `nano-2-pro`。
@@ -34,7 +32,7 @@ Antigravity Flash 生图参数，并明确「采用 tokenkey 里已有的精确�
 - 新 Pro 支持单个 user turn 中的文本与 `inlineData` JPEG/PNG/WebP 参考图。
   参考图合计最多 10 MiB、最多四张、单图最多 1600 万像素；base64/MIME/解码检查在
   上传前完成。只上传给已验证的 Google upload host；不获取客户提供的远端图片 URL。
-  单参考图改色已实测；多图的数量边界有本地测试，未声称多参考一致性实测。
+  多参考一致性不作承诺；数量/像素边界由本地测试覆盖。
 - 原生 Gemini、Chat、Responses、Messages 共享 Plan；OpenAI Images generations
   复用既有 Gemini 操作适配器，`n=1`、base64 返回，不提供 edits/mask。
   Images 省略 size/auto 不再在通用转换器强塞 2K：AG 已有 wire 默认仍为 2K；Web 默认保留原图。
@@ -45,7 +43,7 @@ Antigravity Flash 生图参数，并明确「采用 tokenkey 里已有的精确�
   不自动再次生成。流式依旧缓冲，处理后返回同一 SSE 结果。
 
 发布边界：代码合并不等于部署/启用。停用、报错或 pending 账号不随上新恢复。
-rollback 先撤 Pro 映射再回滚 Worker。一次性实测像素表已删。
+rollback 先撤 Pro 映射再回滚 Worker。
 
 ### 增量 Owners
 
@@ -59,24 +57,16 @@ rollback 先撤 Pro 映射再回滚 Worker。一次性实测像素表已删。
 
 ## 当前授权与边界
 
-PR #2262 提供 Cookie＋纯 HTTP Worker，沿用 Gemini API-key 账号与官方
-GenerateContentResponse 格式。用户明确要求删除文件模式，控制接口沿用Gemini Web 管理员 API-key
-鉴权规范，并修复复审发现的问题。本文件定义当前实现契约；旧浏览器迁移、文件 canary
-操作步骤不再是实施指令，历史调查保存在
-[先前版本](https://github.com/youxuanxue/sub2api/blob/f48c07d3fb4799392ebe0b113238cd2d43a61267/docs/approved/gemini-web-channel.md)。
+Cookie＋纯 HTTP Worker；Gemini API-key 账号；官方 GenerateContentResponse 外壳。
+控制接口沿用 Gemini Web 管理员 API-key。编辑账号导入浏览器 JSON；API Key 框不能粘贴 Cookie。
+导入成功仅证明持久化；身份去重 / bootstrap 验证不是完成声明。文件模式已删。
 
-导入实现阶段不部署、不调用真实 Google、不启用商业定价。用户已确认在编辑账号中导入浏览器
-JSON，并要求消除并发、适用边界与凭证泄露风险。身份去重与保存时 bootstrap 验证
-不属于完成声明；导入成功仅证明持久化成功。API Key 输入框不能直接粘贴 Cookie。
 
-## 兼容协议推进计划（本轮会话授权）
+## 兼容协议契约
 
-用户已确认区分通用 Gemini 与 Gemini Web，要求 Messages、Chat Completions、Responses
-复用 converter → 原生 generateContent，并明确指挥 Agent 并行实现。用户随后明确批准推送、PR、合并、发布、prod 部署和账号归属实测；修复实测发现的
-入口缺口继续在该授权范围内推进，不修改业务分组开关。本节取代下文原先“兼容入口一律不承接”的
-阶段性限制；未完成验证不代表已部署。
+Messages / Chat / Responses 经 converter → 原生 generateContent。未完成验证 ≠ 已部署。
 
-### 复审结论与契约
+### 契约
 
 Gemini 是协议，Gemini Web 是受限供应源。传输 profile 负责原生端点和认证，能力 profile
 负责可接受的请求；不把 Web 限制施加到普通 Gemini。原始请求先由 `protocolrouter.Plan`
@@ -94,8 +84,7 @@ Messages 不再进入绕过 Plan 的旧 Gemini 分支；配额平台保持独立
 缓冲流沿用 Worker 现有语义：完成生成及下载后返回 SSE，不承诺首 token 延迟。
 断流不伪造成功，已经输出的内容不自动重放。
 
-**本轮补充批准：Web 输出上限采用 best-effort。** 用户明确选择“允许 Web best-effort：
-明确不保证 token 上限”。Messages 仍须提供合法正整数 `max_tokens`；Chat 的 `max_tokens` /
+**Web 输出上限 = best-effort**（不保证上游执行 token 上限）。Messages 仍须提供合法正整数 `max_tokens`；Chat 的 `max_tokens` /
 `max_completion_tokens`、Responses 的 `max_output_tokens` 和原生 Gemini 的
 `generationConfig.maxOutputTokens` 具有同样的 Web 限制：网关不保证上游执行该上限。
 
@@ -111,16 +100,10 @@ Messages 不再进入绕过 Plan 的旧 Gemini 分支；配额平台保持独立
 
 ### 生产 canary
 
-复用 `ops/observability/run-probe.sh` 与 account-model probe；目标由实时账号快照确认。
-预先核对图片权限与 Messages 的 `AllowMessagesDispatch`；探测不自动改业务组开关。
-先文本控制，再生图；每次付费生成串行，不以失败后盲重试获取绿灯。之前的 HTTP 400 仅证明网关拒绝，不能证明上游缺少生图能力。
+复用 `run-probe.sh` / account-model probe；不自动改业务组开关。判定须含 HTTP 成功、
+图片解码像素、request ID、usage 账号归属；HTTP 200 / 模型名含 image 不足。
+负向须在上游副作用前拒绝或转交合法候选。
 
-请求只含一个 user 文本，不注入探测用 system/instructions；Chat/Responses 缺省输出上限，
-Messages 提供合法 `max_tokens`，并核对 Web Plan 的 best-effort 调整。覆盖默认图片配置、显式 null、4:3；先做非流式，
-再验证约定的缓冲 SSE。判定必须包括 HTTP 成功、图片 base64/MIME/实际解码、非空像素、
-服务端响应 request ID、usage 的实际账号归属；HTTP 200 或有 image 模型名均不足以通过。
-单轮限制负向请求必须在上游副作用前拒绝或转交原授权池的合法候选。最终执行调试资源
-cleanup dry-run，并记录缺口。未部署时本地 HTTP fixture 测试仅称集成测试。
 
 ## 数据与会话 SSOT
 
@@ -251,50 +234,16 @@ Worker 支持 `gemini-web-flash`、`gemini-web-pro`、`gemini-web-pro-image`，
 请求 Google 前返回 400，与 Go 候选准入保持一致。文本模型不接受 imageConfig。
 streamGenerateContent 返回生成及下载完成后的一条 SSE，不声明首 token 流式延迟。
 
-Worker 输入契约保持不变；统一网关仅执行上文经用户批准的输出预算 best-effort。共享候选准入在计费、
-选槽及等待后刷新时排除 Worker 不支持的请求，继续在原授权范围选择其他兼容账号。
-本地 Worker 以 `credentials.gemini_web` 会话对象识别此能力边界；远端 Worker 上游显式声明
-`credentials.gemini_web_relay=true`，不根据账号名、域名或公开模型别名推断。
-Gemini API-key 账号的 native 请求与兼容请求统一进入 Plan。现有账号启动准备与新账号
-生命周期通过已有 capability owner 创建原生协议记录，以 `native_declaration` 区分平台
-声明和实际探测；不伪造探测成功，也不推断 Chat/Responses 上游端点。运行时只读关联记录，
-不按平台临时合成 supported_protocols；缺少链接必须拒绝并修复账号生命周期。
-已有链接必须继续通过身份、版本与证据校验；空能力、缺半边链接、冲突或陈旧证据不能被重新播种覆盖。
-Web 能力声明参加端点身份，变化后须重验 Plan。普通 Gemini 不套用 Web 的单轮限制。
-原生单轮文本与生图保留（generateContent / streamGenerateContent），包括上述五种比例；原生 countTokens
-不由 Worker 承接，继续选择其他授权兼容账号。Chat/Responses 转换保留客户端未指定上限的语义，
-不再补入人工 maxOutputTokens。显式输出预算按本轮已批准的 Web best-effort 契约由 Plan
-调整并审计；普通 Gemini 保留预算。
-Anthropic `count_tokens` 继续复用网关本地估算，不受 Worker 生成能力限制。
-调度投影与 Worker 共享请求测试样本，防止准入约束漂移。上线需要部署后端并给
-prod 中继补入声明；映射、Cookie、并发和调度开关不随代码修复变更。 发布流程在目标镜像包含该准入逻辑时、
-任何 prod 变更前执行 `probe-gemini-web-relay-declarations.sh`：按显式
-`extra.relay_kind=gemini_web` 核对布尔能力声明，也检查错误类型的声明；包含关闭调度的账号。
-声明缺失或读取失败阻止部署；旧版回滚目标不消费此声明，跳过该检查。检查只读取脱敏投影，
-不根据账号名、URL、模型映射推断能力，也不自动启用账号或修改凭据。
+能力边界：本地 Worker 看 `credentials.gemini_web`；远端看
+`credentials.gemini_web_relay=true`——不按名称/域名/别名推断。不支持的请求在候选准入剔除，
+原授权范围另选兼容账号。输出预算 best-effort 仅 Plan 对显式 Web 供应；普通 Gemini 保留预算。
+原生 countTokens 不由 Worker 承接。`probe-gemini-web-relay-declarations.sh` 在含准入逻辑的
+镜像部署前核对 `extra.relay_kind=gemini_web` 声明（含关调度账号）；失败挡部署。
 
-图片必须经 original RPC 和受限域名下载，实际解码并核对 MIME；不返回预览、不放大、
-不因下载失败重新生成。探测同样要求完整解码和正确账号用量归属。
-解码前拒绝超过 1600 万像素的图片；图片准入锁覆盖下载、解码及响应缓冲。
-不虚构 usageMetadata、modelVersion 或返回内部 thoughts。
-客户端可见响应仍不伪造 usageMetadata；文本**成功**且上游无正 token 时，网关用与
-与 Kiro 共用的 `tokenestimate`（cl100k）估算 input/output，写入结算
-`billing_tier=gemini-web-estimated`。失败/不完整转发保留零 usage 审计记录，不发明
-计费 token。已上报的 usageMetadata 优先；`ImageCount>0` 的生图路径仍按次计费，
-不走文本估算。Gemini Web 仅单轮，不发明 prompt-cache 命中。
-
-2026-09-24 在已登录的 11 号 AdsPower Gemini 页面逐项选择五种比例并抓取真实
-`StreamGenerate` 请求：比例字符串位于 `inner[0][9][6][1][1]`，枚举值位于
-`inner[55][0][0]`，映射为 `1:1→61`、`9:16→59`、`3:4→60`、`4:3→62`、
-`16:9→63`。`4:3` 返回 HTTP 200 和 1024×765，`9:16` 返回 HTTP 200 和
-572×1024。该证据仅验证网页协议映射；线上 TokenKey Worker 仍需部署后再做账号归属
-和 Cookie 会话验证。
-
-同日以 11 号浏览器 Pro 生图实测未指定比例与显式 null：基准请求的 `inner[0]`
-无索引 9 图片选项、`inner[55]=[]`；另一请求设置 `inner[0][9]=null`、
-`inner[55]=null`。两者均返回 HTTP 200 和 1024×559 图片。因此本适配器将生图
-`imageConfig: null` 解释为未指定配置；该证据来自 Web 位置数组 RPC，不代表官方
-付费 API 对同名 JSON 字段的验证结果。
+图片：original RPC + 受限域名下载、实解码 MIME；不返回预览、不放大、不因下载失败重生；
+>1600 万像素拒绝。文本成功且上游无正 token → `tokenestimate`（cl100k）估算，
+`billing_tier=gemini-web-estimated`；已有 usageMetadata 优先；生图按次计费。不发明
+prompt-cache。五种比例与 `imageConfig: null`=未指定已固化进 Worker。
 
 ## Implementation / Owners
 

@@ -22,10 +22,7 @@ error: "image output tokens unavailable for token-priced image owner: model=gpt-
 
 `usage_logs` 里查不到对应行，`billing_usage_entries` 也没有扣款。等于**白送**。
 
-2026-11-11 现场：账号 `454`（`tokensea/default · 企业号转生图`，
-`https://agent.tokensea.ai`，channel_type 1）被绑到 `image-oai-0.7`（group 1656），
-优先级调到 1 后开始承接 `image-oai-0.7` 的生图流量。4 小时内 10 次
-`record_usage_failed`，全部无 `usage_logs` 落行。
+一次性账号/组 ID 与窗口计数已删；问题以 `record_usage_failed` + 无 `usage_logs` 为准。
 
 ## 根因
 

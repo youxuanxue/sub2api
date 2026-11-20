@@ -26,7 +26,6 @@ decisions: [A1, B1]
 - 门禁：`EvaluateTrialUnpaidMedia` — `TotalRecharged<=0` 且 `Balance<=max`（默认 $2）则 402。
 - 面板总充值：`redeem_codes` 上 `type IN (balance, admin_balance)` 且 `value>0` 之和（**含**注册赠额 journal）。
 - 管理员 `AdjustBalance` / `SetBalance` **不**写 `users.total_recharged`；只写 `redeem_codes` journal。
-- `rt@tk.com`：开户 admin $100 + 2026-10-09 admin +$1000；`users.total_recharged=0`；烧到 ≤$2 后连续 402；加款后靠 `Balance>$2` 旁路恢复。客户号，不是内部号。
 
 若把 `users.total_recharged` **原样**对齐未过滤的面板合计，则凡有注册赠额（`admin_balance` + `BalanceGrantNoteSignup`）的用户 `TotalRecharged>0`，媒体门禁失效。
 
@@ -46,15 +45,7 @@ decisions: [A1, B1]
 
 常量 owner：`BalanceGrantNoteSignup` / `InviteTrial` / `OAuthFirstBind` 为**排除集**；`BalanceGrantNoteAdminOpening` **计入**。
 
-### 决策点 A（已批）
-
-- [x] **A1** 采用上表：排除三类自动赠额 notes，其余正额 `balance`/`admin_balance` 计入。
-- [ ] ~~A2~~ 否决。
-
-### 决策点 B（已批）
-
-- [x] **B1** 二者都改用上表过滤后的合计（面板不再把注册赠额算进「总充值」；赠额仍出现在变动明细里）。
-- [ ] ~~B2~~ 否决。
+已批：**A1** 上表排除三类自动赠额；**B1** 面板与门禁共用过滤后合计（赠额仍在变动明细）。
 
 ## 3. UX（Studio）
 
@@ -116,14 +107,9 @@ WHERE u.deleted_at IS NULL;
 - 不在本 PR 做支付产品文案大改。
 - 不做全站错误中文化中间件。
 
-## 8. Implementation notes (2026-10-09)
+## 8. Implementation notes
 
-- Forward: `writeBalanceGrantLedger` / `bestEffortBalanceGrantLedger` + `AddTotalRecharged`.
-- Panel: `SumPositiveBalanceByUser` excludes `GiftBalanceGrantNotes()`.
-- Backfill: `backend/migrations/tk_102_backfill_total_recharged_qualifying.sql`.
-- Studio: `trial_unpaid_media` error code + `/purchase` CTA; API English message unchanged.
-- Auth cache: L1/L2 TTL will refresh stale `total_recharged` snapshots after deploy; balance>$2 already bypasses the gate.
-- Promo / other `UpdateBalance`-only credits: field may exceed panel sum until those paths journal; accepted pre-existing exception (see §4 Forward #4).
+写路径与回填以 Owners / Linked Tests 为准；一次性回填回执已删。
 
 ## Implementation owners
 
