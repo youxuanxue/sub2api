@@ -4,6 +4,7 @@ status: approved
 approved_by: "xuejiao (design approval, 2026-07-20)"
 approved_at: 2026-07-20
 related_prs: [1385]
+revised: 2026-11-20（删现网放大倍数/耗时实测数字；保留增长度量契约）
 ---
 
 # Capacity-first 数据层安全设计（原型已晋升）
@@ -49,14 +50,12 @@ PR #1385 交付了三个安全构件的原型实现；正式 prod 只读容量�
     monthly_growth = Σ pg_total_relation_size(叶分区)  where 分区下界 ∈ [今天-30d, 今天)
 
 原公式 `rows_30d × (bytes / rows)` 里的 `rows` 取自 `pg_stat_user_tables.n_live_tup`
-——那是存在 stats 文件里的**累积计数器**，不随数据文件走。pgBackRest 是物理恢复，
-计数器从零开始：现网实测该表 7.1GiB、目录 `reltuples` 7.72M，而 `n_live_tup` 只有 24.7k，
-平均行长被放大约 390 倍，11.3 个月的 runway 被算成 0.0 个月的假 `trigger`。
+——那是 stats 文件里的**累积计数器**，不随数据文件走。pgBackRest 物理恢复后计数器从零
+开始，会把 runway 算成假 `trigger`。
 
-**`ANALYZE` 不是解法。** 82 个叶分区里 81 个 `n_mod_since_analyze = 0`：日分区当天滚过
-就不再写入，autoanalyze 的触发条件永不满足。于是每次恢复、换机、提升 standby 都会再坏
-一次，而「迁机清单里手动补一条 ANALYZE」正是会被遗漏的约束。公式里两个 `rows` 本来就
-代数相消，去掉它们即同时消掉整类 bug。
+**`ANALYZE` 不是解法。** 日分区滚过后 `n_mod_since_analyze` 常为 0，autoanalyze 不触发；
+恢复/换机/提升 standby 会再坏。公式里两个 `rows` 代数相消，去掉它们即消掉整类 bug。
+一次性现网放大倍数实测表已删。
 
 硬约束：
 
@@ -72,10 +71,9 @@ PR #1385 交付了三个安全构件的原型实现；正式 prod 只读容量�
 - 字节路径不可用时只能弃权，**禁止回退到基数路径**；此时仍上报已测到的占用与可用空间，
   免得一块将满的卷被整体隐藏；
 - `reltuples`（目录字段，随数据文件走）作为独立旁证上报 `cross_check`，只报不判。
-  现网两条路径相差 1.4%（ratio 0.986）。旁证取窗口内分区的 `reltuples`，而非 `PGGROWTH`
-  的行扫描——后者在 500 万行窗口下会撞上 `statement_timeout=2s`，恰好在最需要旁证的主机上缺失。
+  旁证取窗口内分区的 `reltuples`，而非 `PGGROWTH` 行扫描（易撞 `statement_timeout=2s`）。
 
-成本：目录读，现网实测 382ms，在既有 `statement_timeout=2s` 内。
+成本：目录读，须落在既有 `statement_timeout=2s` 内。
 
 ## 判定契约：单信号 + 两层 df
 
