@@ -49,6 +49,39 @@ func TestNegativeDeltaPreservesCacheBuckets(t *testing.T) {
 	}
 }
 
+func TestMessageStartRejectsNegativeCacheCounters(t *testing.T) {
+	// Invalid start counters must not persist (negative aggregates can bill as
+	// negative cost on non-breakdown models) and must not unlock aliases.
+	negative := `{"input_tokens":-1,"cache_read_input_tokens":-1,"cached_tokens":3,"cache_creation_input_tokens":-1,"cache_creation":{"ephemeral_5m_input_tokens":-1,"ephemeral_1h_input_tokens":-1}}`
+	withDetails := `{"cache_creation_input_tokens":-1,"cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":10}}`
+	for _, parser := range []string{"raw", "generic"} {
+		t.Run(parser+"/reject", func(t *testing.T) {
+			parse := (&GatewayService{}).parseSSEUsage
+			if parser == "raw" {
+				parse = parseSSEUsagePassthrough
+			}
+			var usage ClaudeUsage
+			parse(`{"type":"message_start","message":{"usage":`+negative+`}}`, &usage)
+			require.Equal(t, 0, usage.InputTokens)
+			require.Equal(t, 0, usage.CacheReadInputTokens)
+			require.Equal(t, 0, usage.CacheCreationInputTokens)
+			require.Equal(t, 0, usage.CacheCreation5mTokens)
+			require.Equal(t, 0, usage.CacheCreation1hTokens)
+		})
+		t.Run(parser+"/details_survive", func(t *testing.T) {
+			parse := (&GatewayService{}).parseSSEUsage
+			if parser == "raw" {
+				parse = parseSSEUsagePassthrough
+			}
+			var usage ClaudeUsage
+			parse(`{"type":"message_start","message":{"usage":`+withDetails+`}}`, &usage)
+			require.Equal(t, 15, usage.CacheCreationInputTokens)
+			require.Equal(t, 5, usage.CacheCreation5mTokens)
+			require.Equal(t, 10, usage.CacheCreation1hTokens)
+		})
+	}
+}
+
 func TestAnthropicPromptTotalSnapshots(t *testing.T) {
 	for _, test := range []struct {
 		name   string

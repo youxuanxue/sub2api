@@ -1320,21 +1320,31 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 			return nil
 		}
 
+		// Admit only nonnegative counters (parity with message_delta). Do not
+		// reuse anthropicDeltaInputPatch's zero→clear-TTL fence here: a start
+		// snapshot may legitimately pair aggregate 0 with same-event TTL details
+		// that still derive the billed total.
 		patch := extractAnthropicPromptPatch(usageObj)
-		if v, ok := parseSSEUsageInt(usageObj["input_tokens"]); ok {
+		if v, ok := parseNonNegativeSSEUsageInt(usageObj["input_tokens"]); ok {
 			patch.inputTokens = v
 			patch.hasInputTokens = true
 		}
-		if v, ok := parseSSEUsageInt(usageObj["cache_creation_input_tokens"]); ok {
+		if v, ok := parseNonNegativeSSEUsageInt(usageObj["cache_creation_input_tokens"]); ok {
 			patch.cacheCreationInputTokens = v
 			patch.hasCacheCreationInput = true
 		}
-		if v, ok := parseSSEUsageInt(usageObj["cache_read_input_tokens"]); ok {
-			patch.cacheReadInputTokens = max(v, 0)
-			patch.hasCacheReadInput = true
-		}
-		if patch.cacheReadInputTokens == 0 {
-			patch.hasCacheReadInput = false
+		if raw, exists := usageObj["cache_read_input_tokens"]; exists && raw != nil {
+			if v, ok := parseNonNegativeSSEUsageInt(raw); ok {
+				if v == 0 {
+					// Explicit zero on start still permits OpenAI-shaped aliases.
+					applyAnthropicCacheReadAliases(patch, usageObj)
+				} else {
+					patch.cacheReadInputTokens = v
+					patch.hasCacheReadInput = true
+				}
+			}
+			// Present-but-invalid must not invent hits from aliases.
+		} else {
 			applyAnthropicCacheReadAliases(patch, usageObj)
 		}
 		if cc, ok := usageObj["cache_creation"].(map[string]any); ok {
