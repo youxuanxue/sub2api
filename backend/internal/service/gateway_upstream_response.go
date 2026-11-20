@@ -1338,11 +1338,11 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 			applyAnthropicCacheReadAliases(patch, usageObj)
 		}
 		if cc, ok := usageObj["cache_creation"].(map[string]any); ok {
-			if v, exists := parseSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists {
+			if v, exists := parseNonNegativeSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists {
 				patch.cacheCreation5mTokens = v
 				patch.hasCacheCreation5m = true
 			}
-			if v, exists := parseSSEUsageInt(cc["ephemeral_1h_input_tokens"]); exists {
+			if v, exists := parseNonNegativeSSEUsageInt(cc["ephemeral_1h_input_tokens"]); exists {
 				patch.cacheCreation1hTokens = v
 				patch.hasCacheCreation1h = true
 			}
@@ -1363,13 +1363,17 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 			patch.outputTokens = v
 			patch.hasOutputTokens = true
 		}
-		applyAnthropicCacheReadAliases(patch, usageObj)
+		// An invalid canonical delta is not permission to replace the last
+		// valid cache count with a compatibility alias.
+		if usageObj["cache_read_input_tokens"] == nil {
+			applyAnthropicCacheReadAliases(patch, usageObj)
+		}
 		if cc, ok := usageObj["cache_creation"].(map[string]any); ok && (!patch.hasCacheCreationInput || patch.cacheCreationInputTokens != 0) {
-			if v, exists := parseSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists {
+			if v, exists := parseNonNegativeSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists {
 				patch.cacheCreation5mTokens = v
 				patch.hasCacheCreation5m = true
 			}
-			if v, exists := parseSSEUsageInt(cc["ephemeral_1h_input_tokens"]); exists {
+			if v, exists := parseNonNegativeSSEUsageInt(cc["ephemeral_1h_input_tokens"]); exists {
 				patch.cacheCreation1hTokens = v
 				patch.hasCacheCreation1h = true
 			}

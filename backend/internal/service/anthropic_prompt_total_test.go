@@ -19,6 +19,36 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestNegativeDeltaPreservesCacheBuckets(t *testing.T) {
+	start := `{"prompt_tokens":100,"cache_read_input_tokens":20,"cache_creation_input_tokens":15,"cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":10}}`
+	delta := `{"cache_read_input_tokens":-1,"cached_tokens":3,"cache_creation_input_tokens":-1,"cache_creation":{"ephemeral_5m_input_tokens":-1,"ephemeral_1h_input_tokens":-1},"output_tokens":7}`
+	for _, parser := range []string{"typed", "raw", "generic"} {
+		t.Run(parser, func(t *testing.T) {
+			var usage ClaudeUsage
+			if parser == "typed" {
+				var a, b apicompat.AnthropicUsage
+				require.NoError(t, json.Unmarshal([]byte(start), &a))
+				require.NoError(t, json.Unmarshal([]byte(delta), &b))
+				mergeAnthropicUsage(&usage, a)
+				mergeAnthropicDeltaUsage(&usage, b)
+			} else {
+				parse := (&GatewayService{}).parseSSEUsage
+				if parser == "raw" {
+					parse = parseSSEUsagePassthrough
+				}
+				parse(`{"type":"message_start","message":{"usage":`+start+`}}`, &usage)
+				parse(`{"type":"message_delta","usage":`+delta+`}`, &usage)
+			}
+			require.Equal(t, 65, usage.InputTokens)
+			require.Equal(t, 20, usage.CacheReadInputTokens)
+			require.Equal(t, 15, usage.CacheCreationInputTokens)
+			require.Equal(t, 5, usage.CacheCreation5mTokens)
+			require.Equal(t, 10, usage.CacheCreation1hTokens)
+			require.Equal(t, 7, usage.OutputTokens)
+		})
+	}
+}
+
 func TestAnthropicPromptTotalSnapshots(t *testing.T) {
 	for _, test := range []struct {
 		name   string

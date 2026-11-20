@@ -366,7 +366,7 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 			dst.InputTokens = src.InputTokens
 		}
 	}
-	if hasCacheReadTokens {
+	if hasCacheReadTokens && src.CacheReadInputTokens >= 0 {
 		dst.CacheReadInputTokens = cacheReadTokens
 	}
 	normalizeAnthropicPromptTotal(dst, src.PromptTokens, src.PromptCacheMissTokens)
@@ -392,8 +392,8 @@ func normalizeAnthropicPromptTotal(usage *ClaudeUsage, promptTokens int, promptC
 
 func mergeAnthropicCacheCreationUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	completePrior := dst.CacheCreationInputTokens > 0 && dst.CacheCreationInputTokens == dst.CacheCreation5mTokens+dst.CacheCreation1hTokens
-	if src.HasCacheCreationInputTokens() && (src.CacheCreationInputTokens != 0 || dst.CacheCreationInputTokens <= 0 || src.CacheCreation == nil) {
-		dst.CacheCreationInputTokens = max(src.CacheCreationInputTokens, 0)
+	if src.HasCacheCreationInputTokens() && src.CacheCreationInputTokens >= 0 && (src.CacheCreationInputTokens != 0 || dst.CacheCreationInputTokens <= 0 || src.CacheCreation == nil) {
+		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
 		dst.cacheCreationInputTokensPresent = true
 		dst.cacheCreationInputTokensFromDetails = false
 		if src.CacheCreationInputTokens == 0 {
@@ -402,11 +402,11 @@ func mergeAnthropicCacheCreationUsage(dst *ClaudeUsage, src apicompat.AnthropicU
 		}
 	}
 	if src.CacheCreation != nil {
-		if src.CacheCreation.Ephemeral5mInputTokens != nil {
-			dst.CacheCreation5mTokens = max(*src.CacheCreation.Ephemeral5mInputTokens, 0)
+		if five := src.CacheCreation.Ephemeral5mInputTokens; five != nil && *five >= 0 {
+			dst.CacheCreation5mTokens = *five
 		}
-		if src.CacheCreation.Ephemeral1hInputTokens != nil {
-			dst.CacheCreation1hTokens = max(*src.CacheCreation.Ephemeral1hInputTokens, 0)
+		if hour := src.CacheCreation.Ephemeral1hInputTokens; hour != nil && *hour >= 0 {
+			dst.CacheCreation1hTokens = *hour
 		}
 		five, hour := src.CacheCreation.Ephemeral5mInputTokens, src.CacheCreation.Ephemeral1hInputTokens
 		// A bucket correction can retract a previously fully explained total;
