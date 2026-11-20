@@ -1,5 +1,33 @@
 # 已决定
 
+## 2026-11-20 rt@tk.com 五项：可用率优先（不违背 KVV）
+
+原话：「同意。继续。」；随后「目标是在不违背 kvv 的基础和原则下，尽可能提高可用率。」
+
+适用范围：Volc Agent Plan `kimi-*` chat 出站整形（finish_reason:null、外层 cached_tokens）+ 远程 `video_url` 预检瞬时重试 + `/v1/messages` 上 Moonshot 形视频块 **改写为 Chat `video_url` 真转发**（开源 new-api/LiteLLM 是静默丢；不用显式 400 压可用率）。不放宽 orphan tool、空 function.name、非法采样、递归 schema、上下文截断；不可达视频仍 400；audio 仍 fail-close；responses 视频继续拒绝。
+
+## 2026-11-20 rt@tk.com 五项反馈：网关兼容（不冲突 KVV）【被下条收紧】
+
+原话：「同意。继续。」（前置五项可网关修清单）。初版曾选 messages 视频显式 400；已被「尽可能提高可用率」收紧为真转发，见上条。
+
+## 2026-11-20 Gemini 4 Neon 裸名映射 medium
+
+原话：「看下 prod gemini-4-neon 模型是不是可以访问了？实测并上架。定价查明。」
+
+适用范围：已实测能访问 Neon 的 Antigravity 账号（233/244/291/292/294/529）。四档 token 单价相同。官方默认思考档是 high，裸名仍锁 medium。档位 wire 不上公开目录。不能访问的账号不加这组映射。Standard $3/$15/$0.15；官方 Neon 定价卡未公布 Priority 溢价，Priority 字段与 Standard 同价入库（避免引擎默认 2×），Batch/Flex 不入库。
+
+## 2026-11-20 Volc Kimi content-part：先直打证据再兼容（不冲突 KVV）
+
+原话：「同意，先做直打 volc 的证据，在做兼容修复。前提不要和 kvv 原则冲突。」
+
+适用范围：cn-prod/prod 上 `refusal` / `summary_text` 丢弃、`input_video`→`video_url` 改写候选。流程：直打 Volc Agent Plan sanitize→200（及 KVV 负向仍 400）→ 再网关修复。不放宽 orphan tool、空 function.name、非法采样、递归 schema、上下文截断。
+
+## 2026-11-20 host-config / ops-archive 与库备份共用同一 COS 密钥（单文件）
+
+原话：「所以，应该 美西 和 北京都用同样的密钥，就好。不需要单独加用户。」「但是两边不一致，有心智负担吧？再收敛一下？」
+
+适用范围：prod / cn-prod。host-config 与 pgBackRest **共用**数据机 `/etc/tokenkey/cos-backup.env`；工具默认读此路径。**不**另建归档 CAM 用户；美西多余的 `cos-archive.env`（同钥双文件）删除，避免两站心智不一致。
+
 ## 2026-11-19 NVIDIA Build mapping 仅保留 kimi-k3.1-pro
 
 原话：「把 nvidia相关的账号的 model_mapping 改一下，只保留到 kimi-k3.1-pro的映射。」
@@ -11,7 +39,7 @@
 
 原话：「不要加密，直接放 cos 呢？之前出现本机坏了，导致 luks 解密不了的问题。这个也是有风险的。」「确认。」
 
-适用范围：prod（及同构的 cn-prod）入口机 TLS 材料离机备份。打包为 **明文 tar.gz** 写入腾讯 COS `prod/host-config/`（上传仍走 SSE-AES256）；**不**再做操作员本机 RSA/age 二次加密，避免「私钥只在一台笔记本、本机损坏即无法恢复」与 LUKS 同类失败。门禁 = 谁能读该桶/前缀（CAM / `cos-archive.env`）。不打包应用机/数据机全量 `.env`。owner：`ops/archive/pack_entry_host_config.py` + `upload_host_config.py`。
+适用范围：prod（及同构的 cn-prod）入口机 TLS 材料离机备份。打包为 **明文 tar.gz** 写入腾讯 COS `prod/host-config/`（上传仍走 SSE-AES256）；**不**再做操作员本机 RSA/age 二次加密，避免「私钥只在一台笔记本、本机损坏即无法恢复」与 LUKS 同类失败。门禁 = 谁能读该桶/前缀（CAM / 数据机 `cos-backup.env`）。不打包应用机/数据机全量 `.env`。owner：`ops/archive/pack_entry_host_config.py` + `upload_host_config.py`。
 
 ## 2026-11-19 Volc Kimi type=file 归一（缺 file / 非 PDF）
 
@@ -26,14 +54,14 @@
 适用范围：
 1. QA 归档 SSOT = 本地 24h + 数据机 `tokenkey-qa-coordinator` → node1；**不恢复** QA raw S3 上传，不为此改 Hybrid/桶策略/`DenyLightsailEdgeRole`。
 2. `data_layer_archive_*` 生产 archive canary（绑旧 EC2/`PROD_CANARY_*`）**不再迁腾讯、不再执行**；库级保护以 COS pgBackRest full+WAL（+ `cos_restore_acceptance`）为准。
-3. 对应不作项见 `docs/decisions/declined.md`（切流清单已关闭）。
+3. 对应不作项见 `docs/decisions/declined.md`（Tokyo→美西切流已关闭；现网见 `deploy/hetzner/README.md`）。
 
 ## 2026-11-19 LUKS X1–X4 提前收尾 + 销毁到期压测机
 
 原话：「LUKS 载体销毁观察窗、今天到期的压测机。可以不影响用户服务和体验的情况下，收敛收尾了吧。」
 
 适用范围：
-1. prod `app-old` LUKS：在明文根盘已接流、mapper 未挂载、无相关快照、业务 `/health=200` 前提下，**缩短设计 §3.5 ≥7 天观察窗**，执行 X1–X4（载体销毁、COS 解锁钥删除、操作员 vault 删除、unlock unit/脚本与 pre-plain 清理）。接受失去 LUKS 回退路径。
+1. prod `app-old` LUKS：在明文根盘已接流、mapper 未挂载、无相关快照、业务 `/health=200` 前提下，**缩短原设计 ≥7 天观察窗**，执行 X1–X4（载体销毁、COS 解锁钥删除、操作员 vault 删除、unlock unit/脚本与 pre-plain 清理）。接受失去 LUKS 回退路径。
 2. cn-prod 临时压测机 `ins-7ltl2zv3`（`expire_after=2026-11-19`，不进 `apps[]`）：`TerminateInstances` 停费销毁。
 
 ## 2026-11-19 Volc Kimi thinking-off temperature pin 到 0.6
@@ -52,7 +80,7 @@
 
 原话：「批准。继续安全推进。」
 
-适用范围：按 `docs/approved/design-prod-entry-multi-app.md` §3 推进旧机 `lhins-fcwpwymt` 脱离 LUKS。先 L1（入口池仅留明文应用机）并观察单台承载门禁，再 L2+；破坏性步骤（停 Docker / umount / 重启 / 删载体 X1–X4）仍按设计逐步确认。不中断用户请求路径。
+适用范围：按 `docs/approved/design-prod-entry-multi-app.md`（当时 §3）推进旧机 `lhins-fcwpwymt` 脱离 LUKS。先 L1（入口池仅留明文应用机）并观察单台承载门禁，再 L2+；破坏性步骤（停 Docker / umount / 重启 / 删载体 X1–X4）仍按设计逐步确认。不中断用户请求路径。
 
 ## 2026-11-18 Chat→Messages 对齐开源：剥离 OpenAI-only 字段优先生效
 
@@ -80,7 +108,7 @@
 
 后续确认（2026-11-18）：「同意。请推进实现。」→ 设计批准；先合入门牙门禁，再按 `rg` 逐入口改 TAT / 迁密钥。
 
-后续确认（2026-11-18）：「同意建议。继续。」→ 批准 `docs/approved/design-tencent-ops-closeout.md` 整张处置清单（旁路迁 TAT / 删退役入口 / SecureString 收尾）；按清单 E 节顺序推进，不另批。
+后续确认（2026-11-18）：「同意建议。继续。」→ 批准腾讯运维旁路收尾处置清单（旁路迁 TAT / 删退役入口 / SecureString 收尾）；按当时清单 E 节推进，不另批。清单正文已于 2026-11-20 删除，活契约见 `docs/approved/design-tencent-ops-control-plane.md`。
 
 ## 2026-11-17 cn-prod tokensea missing text part 网关兼容
 
@@ -92,7 +120,7 @@
 
 原话：「北京的镜像应该从 prod 导出上传到 北京 cos，再从北京 cos 拉下来使用。这条变为标准路径」
 
-适用范围：cn-prod 镜像分发。默认不再从美西 GHA 直传 COS，也不以 GHCR 跨境 pull 为主路径。标准顺序：在 prod 上 `crane pull --format=legacy` 并上传北京 COS → cn-prod 各应用机同城 COS warm → rolling。GHA→COS / `transport=ghcr` 仅作应急回退。见 `docs/approved/design-cn-image-cos.md`、`cn-prod-image-distribution.md`。
+适用范围：cn-prod 镜像分发。默认不再从美西 GHA 直传 COS，也不以 GHCR 跨境 pull 为主路径。标准顺序：在 prod 上 `crane pull --format=legacy` 并上传北京 COS → cn-prod 各应用机同城 COS warm → rolling。GHA→COS / `transport=ghcr` 仅作应急回退。见 `docs/approved/design-cn-image-cos.md`。
 
 后续校准（同日）：「今天只准备好 cn-prod 的镜像，不发版了。」→ 已对 `1.8.382` 完成 prod→COS→warm，未 rolling。运行时修正：现代 `docker save` OCI 布局与 legacy `verify_archive` 不兼容，标准路径改 crane-legacy；OIDC 角色 trust 增加 `environment:tencent-ops`（`publish-from-prod` 仍挂该 environment 以读腾讯密钥）。
 
@@ -118,7 +146,7 @@
 
 后续确认（2026-11-17）：「client 换 8C 同意。再压一下并发 1200 吧。重点关注吞吐已明显亚线性的根因。」→ 压测机由 `SA2.LARGE8`（4C8G）升到 `SA2.2XLARGE16`（8C16G）；阶梯含 1200，并采双应用/数据机 monitor。
 
-结果落盘（同日）：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-20261117.md`。operating point 仍 **800**；1200 成功率 ~20% **主因是 client soft `ulimit -n=1024`（Errno 24）**，网关 503 仅数十次；400→800 亚线性主因是 **延迟/TTFT 随并发抬升**（升 8C 后 800 RPM mean 仍≈1086，与 4C 轮同级）。数据机高压窗 loadavg 一度 >20、PG 瞬时 ~172/162，服务未挂。
+同日 1200 初测受 client soft `ulimit -n=1024`（Errno 24）污染；中间报告已删。operating point 仍 **800**。
 
 后续确认（2026-11-18）：「修复 client nofile 之后，重新压一下 1200？」→ soft nofile 提到 **65535** 后复测：400/800 仍 100%；1200 成功率 **0.916**，主失败改为 **455×503 overloaded_error**（concurrency_peak=1200）；operating point 仍 **800**。报告：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-nofile-20261118.md`。
 

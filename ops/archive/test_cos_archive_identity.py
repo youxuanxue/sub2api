@@ -5,6 +5,7 @@ import json
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
 import cos_archive_identity as cos
 
@@ -52,7 +53,26 @@ class CosArchiveIdentityTest(unittest.TestCase):
             settings=settings,
         )
         self.assertEqual(argv[2], "--endpoint-url")
-        self.assertTrue(argv[3].startswith(f"https://{settings['bucket']}."))
+        self.assertEqual(argv[3], f"https://{settings['endpoint']}")
+        self.assertNotIn(settings["bucket"], argv[3])
+
+    def test_aws_cli_env_forces_virtual_addressing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            creds = pathlib.Path(tmp) / "cos-backup.env"
+            creds.write_text("tencent_SecretId=AKIDtest\ntencent_SecretKey=secret\n")
+            cfg = pathlib.Path(tmp) / "aws-config"
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    "TK_COS_ARCHIVE_SETTINGS": str(ROOT / "cos-archive.json"),
+                    "TK_COS_ARCHIVE_AWS_CONFIG": str(cfg),
+                },
+                clear=False,
+            ):
+                env = cos.aws_cli_env(creds)
+            self.assertEqual(env["AWS_CONFIG_FILE"], str(cfg))
+            self.assertIn("addressing_style = virtual", cfg.read_text())
+            self.assertEqual(env["AWS_ACCESS_KEY_ID"], "AKIDtest")
 
     def test_settings_reject_aws_endpoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

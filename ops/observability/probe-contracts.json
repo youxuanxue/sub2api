@@ -48,6 +48,22 @@
       "setup_error"
     ]
   },
+  "probe_kimi31_nvidia_vs_volc.sh": {
+    "companions": [],
+    "verdicts": [
+      "ok",
+      "setup_error"
+    ]
+  },
+  "probe_volc_kimi_content_part_sanitize.sh": {
+    "companions": [],
+    "verdicts": [
+      "ok",
+      "partial",
+      "failed",
+      "setup_error"
+    ]
+  },
   "probe_openai_upstream_image.sh": {
     "companions": [
       "ops/stage0/probe_openai_image_fidelity_matrix.sh",

@@ -48,7 +48,9 @@ class HostRuntimeTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             volume_contract({'volume_platform': 'tencent-root', 'volume_root_uuid': 'unbound'})
         with self.assertRaises(ValueError):
-            volume_contract({'volume_mapper': 'x;touch /tmp/unsafe'})
+            volume_contract({})  # default tencent-root still requires pinned root UUID
+        with self.assertRaises(ValueError):
+            volume_contract({'volume_platform': 'tencent-luks', 'volume_mapper': 'x;touch /tmp/unsafe'})
 
     def test_candidate_manifest_is_pinned_and_persists_startup_guard(self):
         iid = 'mi-123456789abcdef01'

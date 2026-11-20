@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--credentials",
         default=os.environ.get("TK_COS_ARCHIVE_CREDENTIALS", ""),
-        help="path to COS secretId/secretKey file (default /etc/tokenkey/cos-archive.env)",
+        help="path to COS secretId/secretKey file (default /etc/tokenkey/cos-backup.env)",
     )
     args = parser.parse_args(argv)
     src = pathlib.Path(args.file).expanduser().resolve()

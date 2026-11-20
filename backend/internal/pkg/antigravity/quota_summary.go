@@ -41,26 +41,12 @@ type QuotaSummaryResponse struct {
 	Description string              `json:"description,omitempty"`
 }
 
-// RetrieveUserQuotaSummary reads the account's per-group 5-hour and weekly quota windows,
-// falling back across BaseURLs like FetchAvailableModels.
-func (c *Client) RetrieveUserQuotaSummary(ctx context.Context, accessToken, projectID string) (*QuotaSummaryResponse, error) {
-	var lastErr error
-	for urlIdx, baseURL := range BaseURLs {
-		summary, status, err := c.retrieveUserQuotaSummary(ctx, baseURL, accessToken, projectID)
-		if err == nil {
-			DefaultURLAvailability.MarkSuccess(baseURL)
-			return summary, nil
-		}
-		lastErr = err
-		if urlIdx < len(BaseURLs)-1 && shouldFallbackToNextURL(nil, status) {
-			continue
-		}
-		return nil, err
-	}
-	return nil, lastErr
-}
-
 // RetrieveUserQuotaSummaryFromURL reads the quota summary from one endpoint, without fallback.
+//
+// Callers must pass the same endpoint used for the account's inference/models traffic
+// (see resolveAntigravityForwardBaseURL in the service package): daily and prod track
+// separate quota buckets, so reading a different endpoint than the one actually serving
+// the account reports a stale or unrelated window (#2900, upstream #8588/#8850).
 func (c *Client) RetrieveUserQuotaSummaryFromURL(ctx context.Context, baseURL, accessToken, projectID string) (*QuotaSummaryResponse, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {

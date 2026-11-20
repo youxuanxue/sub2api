@@ -18,8 +18,6 @@ node .cursor/skills/sub2api-admin/scripts/sub2api-admin.js api PUT "/api/v1/admi
 
 prod 与 cn-prod 各执行一次；读回 `qa_capture_enabled` 确认。
 
-2026-10-21 已完成生产启用与积压清理，见 [验收记录](../../docs/ops/qa-local-retention-20261021.md)。
-
 `tokenkey-qa-provision.timer` 是本地预建任务：每小时滚动补齐当前起未来 72 小时，
 开机后补跑；不依赖 S3 归档和旧 boundary timer。共享实现为
 `backend/cmd/qa-local-maintenance` → `lifecycle.RunProvision`，安装/运行入口
@@ -61,8 +59,8 @@ QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 �
 不能靠覆盖已发布目录“补成功”。v2 当前证明的是该源文件快照，不证明 capture 已封口或全站完整。
 现有 cleanup 明确拒绝把单源 v2 回执当成全站删除凭据，包括误放到旧站点小时路径的回执。
 数据机归档调度、历史参与源、capture 封口，以及小时结束后 24 小时的独立兜底，按
-[已批准方案](../../docs/approved/design-prod-app-parallel-replacement.md#qa-集中管理方案用户已同意尚未执行)
-实现，见下面的新执行入口；线上交接验收之前，不给现有 timer 启用 source 模式。
+[已批准方案](../../docs/approved/design-prod-app-parallel-replacement.md#qa-集中管理方案)
+实现，见下面的执行入口。
 
 ### 数据机协调器与独立一天兜底
 
@@ -124,7 +122,7 @@ reviewed installer 生成，当前 `PHASES` 不包含 archive，因此本次代�
 ## 生产存储与恢复分界
 
 历史 raw 对象（AWS `tokenkey-prod-qa-raw-archive-682751977094` 与 Hetzner fsn1）均按七天生命周期
-自然到期，仓库已无恢复 CLI。历史切换与验收记录见 [qa-raw-only](../../docs/approved/qa-raw-only.md)
+自然到期，仓库已无恢复 CLI。活契约与删除边界见 [design-tencent-cos-backup-node1-qa](../../docs/approved/design-tencent-cos-backup-node1-qa.md#node1-qa)
 与 git 历史；新的 QA 副本只在 node1。AWS raw 栈收尾：CFN `tokenkey-prod-qa-raw-archive`=`DELETE_COMPLETE`（2026-11-09），桶 `HeadBucket` 404；主机 `tokenkey-qa-maintenance`/`boundary` 脚本与 unit 已清除（2026-11-17 核对）。
 
 ## 巡检
@@ -160,8 +158,6 @@ python3 scripts/checks/qa-lifecycle-ssot.py
 这说明存在时间重叠，不能据此断言 pg_dump 是唯一数据库 blocker。
 
 ## 旧 capture 目录修复
-
-cn-prod 的线上修复结果见 [验收记录](../../docs/ops/cn-qa-layout-repair-20261027.md)。
 
 若宿主缺少 `qa_hourly_storage_cutover_utc`，新 capture 会继续写旧日目录，
 小时清理任务成功也不代表这些文件已清理。`repair_capture_layout.py` 是一次性修复入口：

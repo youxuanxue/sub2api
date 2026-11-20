@@ -139,11 +139,14 @@ const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 // 官方默认思考档是 medium。裸名默认改锁 medium；显式 thinkingLevel 仍选同名后缀。
 // 2026-11-13：gemini-4-hydrogen 的四档 token 单价相同。官方默认思考档是 high，
 // 裸名仍锁 medium（与 Argon/Carbon 同一条用户体验决定）；显式档位含 xhigh。
+// 2026-11-20：gemini-4-neon 同 Hydrogen 四档（含 xhigh）单价相同；官方默认思考档
+// 是 high，裸名仍锁 medium。
 var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.8-flash":       "gemini-3.8-flash-high",
 	"gemini-4-argon":         "gemini-4-argon-medium",
 	"gemini-4-carbon":        "gemini-4-carbon-medium",
 	"gemini-4-hydrogen":      "gemini-4-hydrogen-medium",
+	"gemini-4-neon":          "gemini-4-neon-medium",
 	"gemini-3-flash":         "gemini-3-flash", // upstream advertises this literal id on Ultra
 	"gemini-3.1-flash-image": "gemini-3.1-flash-image",
 	"nano-2":                 "gemini-3.1-flash-image",
@@ -185,17 +188,18 @@ var antigravityThinkingWireBases = []string{
 	"gemini-4-argon",
 	"gemini-4-carbon",
 	"gemini-4-hydrogen",
+	"gemini-4-neon",
 }
 
 // AntigravityThinkingWireFloorEntries returns identity mappings for non-public
 // AG thinking-tier wire IDs. Callers merge these into account floors / empty
 // default serving maps without advertising them on /v1/models or pricing menus.
-// Hydrogen also has -xhigh; other families do not.
+// Hydrogen and Neon also have -xhigh; other families do not.
 func AntigravityThinkingWireFloorEntries() map[string]string {
 	out := make(map[string]string)
 	for _, base := range antigravityThinkingWireBases {
 		suffixes := []string{"-low", "-medium", "-high"}
-		if base == "gemini-4-hydrogen" {
+		if base == "gemini-4-hydrogen" || base == "gemini-4-neon" {
 			suffixes = append(suffixes, "-xhigh")
 		}
 		for _, suffix := range suffixes {

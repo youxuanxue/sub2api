@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Restore the three Stage0 bootstrap secrets onto a host.
 #
-# Closeout C2/C4 SSOT (docs/approved/design-tencent-ops-closeout.md):
+# Ops key SSOT (docs/approved/design-tencent-ops-control-plane.md):
 #   1) Host root-only file already present → reuse (live SSOT)
 #   2) --from-file PATH → copy validated material (COS/operator export)
 #   3) --allow-generate → first provision only

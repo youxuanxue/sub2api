@@ -475,6 +475,7 @@ func TestVolcKimiVideoURLPreflight(t *testing.T) {
 
 func TestVolcKimiHTTPVideoProbe(t *testing.T) {
 	methods := map[string][]string{}
+	flaky503 := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		methods[r.URL.Path] = append(methods[r.URL.Path], r.Method)
 		switch r.URL.Path {
@@ -492,6 +493,13 @@ func TestVolcKimiHTTPVideoProbe(t *testing.T) {
 			w.WriteHeader(http.StatusPartialContent)
 		case "/missing.mp4":
 			http.NotFound(w, r)
+		case "/flaky-503.mp4":
+			flaky503++
+			if flaky503 < 2 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
 		default:
 			http.NotFound(w, r)
 		}
@@ -508,6 +516,9 @@ func TestVolcKimiHTTPVideoProbe(t *testing.T) {
 
 	require.Error(t, probeVolcKimiHTTPVideo(ctx, client, srv.URL+"/missing.mp4"))
 	require.Equal(t, []string{http.MethodHead}, methods["/missing.mp4"])
+
+	require.NoError(t, probeVolcKimiHTTPVideo(ctx, client, srv.URL+"/flaky-503.mp4"))
+	require.GreaterOrEqual(t, len(methods["/flaky-503.mp4"]), 2)
 
 	srv.Close()
 	require.Error(t, probeVolcKimiHTTPVideo(ctx, client, srv.URL+"/ok.mp4"))
@@ -580,12 +591,27 @@ func TestVolcKimiDropsEmptyTextParts(t *testing.T) {
 	require.EqualValues(t, 2, gjson.GetBytes(other, "messages.0.content.#").Int())
 }
 
-// cn-prod 2026-11-18: Volc rejects messages.content.type thinking / reasoning_text /
-// audio_url / bare type=video. Drop reasoning parts; rewrite video; reject audio.
+// cn-prod 2026-11-18/20: Volc rejects messages.content.type thinking /
+// reasoning_text / refusal / summary_text / audio_url / bare type=video /
+// input_video. Drop non-deliverable parts; rewrite video aliases; reject audio.
+// Direct Volc 2026-11-20: refusal/summary_text drop → 200; input_video rewrite
+// clears type-enum 400 (media validity separate).
 func TestVolcKimiContentPartCompatibility(t *testing.T) {
 	dropped, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"secret"},{"type":"text","text":"hi"},{"type":"reasoning_text","text":"raw"}]},{"role":"user","content":"next"}]}`))
 	require.NoError(t, err)
 	require.JSONEq(t, `[{"type":"text","text":"hi"}]`, gjson.GetBytes(dropped, "messages.0.content").Raw)
+
+	refusal, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"assistant","content":[{"type":"refusal","refusal":"blocked"},{"type":"text","text":"OK"}]},{"role":"user","content":"next"}]}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"type":"text","text":"OK"}]`, gjson.GetBytes(refusal, "messages.0.content").Raw)
+
+	summary, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"assistant","content":[{"type":"summary_text","text":"prior"},{"type":"text","text":"hello"}]},{"role":"user","content":"next"}]}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"type":"text","text":"hello"}]`, gjson.GetBytes(summary, "messages.0.content").Raw)
+
+	loneRefusal, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"assistant","content":{"type":"refusal","refusal":"x"}},{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "", gjson.GetBytes(loneRefusal, "messages.0.content").String())
 
 	cacheBreakpoint, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"system","content":"sys"},{"role":"user","content":[{"type":"text","text":"hi"},{"type":"prompt_cache_breakpoint"}]}]}`))
 	require.NoError(t, err)
@@ -619,6 +645,12 @@ func TestVolcKimiContentPartCompatibility(t *testing.T) {
 	require.Equal(t, "video_url", gjson.GetBytes(videoNested, "messages.0.content.0.type").String())
 	require.Equal(t, "ms://file-9", gjson.GetBytes(videoNested, "messages.0.content.0.video_url.url").String())
 	require.False(t, gjson.GetBytes(videoNested, "messages.0.content.0.video").Exists())
+
+	inputVideo, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":[{"type":"input_video","video_url":{"url":"https://example.com/a.mp4"}},{"type":"text","text":"see"}]}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "video_url", gjson.GetBytes(inputVideo, "messages.0.content.0.type").String())
+	require.Equal(t, "https://example.com/a.mp4", gjson.GetBytes(inputVideo, "messages.0.content.0.video_url.url").String())
+	require.Equal(t, "text", gjson.GetBytes(inputVideo, "messages.0.content.1.type").String())
 
 	for _, audioBody := range []string{
 		`{"messages":[{"role":"user","content":[{"type":"audio_url","audio_url":{"url":"https://example.com/a.wav"}}]}]}`,

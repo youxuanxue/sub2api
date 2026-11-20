@@ -15,7 +15,8 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent
 SETTINGS_NAME = "cos-archive.json"
-DEFAULT_CREDENTIALS = Path("/etc/tokenkey/cos-archive.env")
+# Same CAM key as pgBackRest; one file on every data machine (prod + cn-prod).
+DEFAULT_CREDENTIALS = Path("/etc/tokenkey/cos-backup.env")
 _HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$")
 _BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 
@@ -66,9 +67,16 @@ def load_settings(path: Path | None = None) -> dict[str, Any]:
 
 
 def endpoint_url(settings: dict[str, Any] | None = None) -> str:
-    """Virtual-hosted-style COS endpoint required by Tencent (path-style forbidden)."""
+    """COS service endpoint host (no bucket).
+
+    Pair with ``aws_cli_env`` ``addressing_style=virtual`` so aws-cli builds
+    ``https://{bucket}.{endpoint}/…``. Embedding the bucket in --endpoint-url
+    *and* forcing virtual addressing doubles the bucket DNS label; embedding
+    the bucket without virtual addressing makes ListObjects path-style
+    (``/{bucket}?list-type=2``), which COS serves as GetObject of that key.
+    """
     cfg = settings or load_settings()
-    return f"https://{cfg['bucket']}.{cfg['endpoint']}"
+    return f"https://{cfg['endpoint']}"
 
 
 def archive_base_uri(settings: dict[str, Any] | None = None) -> str:
@@ -143,6 +151,26 @@ def aws_cli_env(credentials_path: Path | None = None) -> dict[str, str]:
     env.pop("AWS_SESSION_TOKEN", None)
     cfg = load_settings()
     env["AWS_DEFAULT_REGION"] = str(cfg["region"])
+    # COS forbids path-style. aws-cli ListObjectsV2 with virtual-hosted
+    # --endpoint-url still defaults to path-style (/<bucket>?list-type=2),
+    # which COS serves as GetObject of the bucket-name key (false-empty list).
+    config_path = Path(
+        os.environ.get("TK_COS_ARCHIVE_AWS_CONFIG", "").strip()
+        or (Path(os.environ.get("TMPDIR") or "/tmp") / f"tokenkey-cos-aws-config-{os.getuid()}")
+    )
+    config_path.write_text(
+        "[default]\n"
+        "s3 =\n"
+        "    addressing_style = virtual\n"
+        "    payload_signing_enabled = true\n",
+        encoding="utf-8",
+    )
+    try:
+        os.chmod(config_path, 0o600)
+    except OSError:
+        pass
+    env["AWS_CONFIG_FILE"] = str(config_path)
+    env["AWS_EC2_METADATA_DISABLED"] = "true"
     return env
 
 

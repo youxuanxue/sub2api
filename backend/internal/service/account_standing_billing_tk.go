@@ -115,6 +115,12 @@ func tkIsRecoverableUsageWindowMessage(haystack string) bool {
 	if tkIsNewAPIMonthlyQuotaMessage(haystack) {
 		return true
 	}
+	// MiniMax Token Plan CN copy (用量上限 / 2056) has no English exhausted/
+	// exceeded tokens; keep it on the recoverable path so standing-billing
+	// SetError never claims the key is dead.
+	if tkIsMiniMaxTokenPlanQuotaMessage(haystack) {
+		return true
+	}
 	for _, marker := range []string{
 		"weekly usage quota",
 		"exceeded the weekly",

@@ -11,28 +11,22 @@ risk: high
 
 ## 决策
 
-1. prod 数据库备份迁到腾讯 COS 美西地域；cn-prod 数据库备份迁到腾讯 COS 北京地域。AWS S3 在迁移期保留为只读回退链，腾讯 COS 完成独立恢复验收后停止 AWS 写入和运行时身份。AWS 对象删除是单独的不可逆收尾动作。
-2. QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 每 4h，取代 [qa-raw-only](qa-raw-only.md) 的 raw S3 归档。QA 继续在 prod/cn-prod 本地保留至少 24 小时。每 4 小时在低峰复制已封口的 QA raw 文件到自有 node1；本方案不验收 QA 数据库恢复，也不改在线 PostgreSQL、网关或 QA capture。
+1. prod / cn-prod 数据库备份分别在腾讯 COS 美西 / 北京；**COS 为唯一 repository**（2026-11-08）。AWS 备份桶已停写且 2026-11 核对 `HeadBucket` 404；对象销毁另批。
+2. QA S3 / raw S3 上传已退役（2026-11-08）；现行路径为本地 24h + node1 每 4h。QA 继续在 prod/cn-prod 本地保留至少 24 小时。每 4 小时在低峰复制已封口的 QA raw 文件到自有 node1；本方案不验收 QA 数据库恢复，也不改在线 PostgreSQL、网关或 QA capture。
 3. node1 每日从两套腾讯 COS 备份仓库拉取已完成对象，保存为最终兜底副本。node1 故障不应影响业务；node1 副本必须有独立 manifest、校验和、配额与失败告警。
 
 历史 AWS/Hetzner QA 对象按原 UTC 小时归属保留，不做历史搬迁。仓库中的 Tokyo node1 reader/ingress 已退役；本方案中的 node1 指用户指定的现有自有服务器。
 
-## 乔布斯复审结论
+## 闭环约束
 
-方案可以成立，但必须收敛为三个清晰的闭环：
-
-1. **数据库保护闭环**：AWS 与 COS 在迁移期必须通过 pgBackRest 双 repository 同时写入同一批 backup/WAL；不能只复制已经过期的对象，也不能把“新 full 成功”误当成连续 WAL 已保护。
-2. **QA 归档闭环**：每个 UTC 小时先封口、复制、校验并写 node1 receipt；receipt 成功之前，线上 cleanup 不得删除该小时源文件。node1 不可用时延长本地保留并告警，不能为了维持 24 小时数字而删除唯一副本。
-3. **兜底闭环**：node1 只保存可核验的对象和 manifest，不承担业务服务或 QA 数据库恢复。当前单盘 node1 只作为可重建本地副本，COS 与 AWS 回退链承担真正的跨节点保护；目录仍使用独立权限。
-
-所有复制任务都必须有低优先级、带宽上限、临时目录和原子 receipt。不得抢占在线 PostgreSQL/网关资源，不得通过重启服务或清理未知文件来“修复”归档失败。
+数据库：COS 全量/增量/WAL 连续可恢复。QA：UTC 小时封口→node1 receipt→才允许本地 24h cleanup。node1 只存可核验副本，不接业务恢复。
 
 ## 现网基线
 
-| 目标 | 当前链路 | 迁移目标 |
+| 目标 | 现网链路 | 备注 |
 |---|---|---|
-| prod | AWS S3 `us-east-1`，活前缀 `candidates/tencent-usw-20261022/postgres` | 腾讯 COS 美西独立前缀 |
-| cn-prod | AWS S3 `ap-northeast-1`（东京），前缀 `cn-prod/postgres` | 腾讯 COS 北京独立前缀 |
+| prod | 腾讯 COS 美西（唯一 repo2） | — |
+| cn-prod | 腾讯 COS 北京（唯一 repo2） | — |
 | prod QA | 本地 capture；QA S3 已退役（2026-11-08）；本地 provision/cleanup active | 本地 24h + node1 每 4h raw copy，node1 保留 365 天 |
 | cn-prod QA | 本地 capture 和热目录；QA S3 禁止 | 本地 24h + node1 每 4h raw copy，node1 保留 365 天 |
 
@@ -42,14 +36,10 @@ risk: high
 
 ### 数据库
 
-- 每个环境使用独立 COS bucket、独立 prefix 和独立服务账号；禁止复用 AWS prefix，禁止把 prod 与 cn-prod 放入同一 pgBackRest timeline。
-- prod 目标地域为腾讯 COS 美西，cn-prod 目标地域为腾讯 COS 北京。最终地域代码、bucket 名称和 endpoint 由资源清单填入，不能在脚本中猜测。
-- COS 使用 S3-compatible API、TLS、服务端加密/KMS。pgBackRest 当前 `cipher=none`，迁移时必须明确 COS 侧加密和密钥轮换。
-- 备份账号只拥有目标 bucket 的 list/get/put/abort/expire 所需权限；恢复账号只读。SecretId/SecretKey 只放 root-only 受保护文件或 tmpfs，不进入 `.env`、Git、SSM 输出或回执。
-- 迁移开始时为每个 COS 仓库生成新的独立 full backup 和 WAL 链。AWS 旧链保持只读，直到 COS 最新点、历史点和 PITR 验收完成。
-- 迁移期使用 pgBackRest 双 repository：AWS 作为现有 `repo1`，COS 作为临时 `repo2`，backup、archive-push、check 和 expire 的行为必须在隔离环境与真实低峰分别验证。当前单 repository 实现不能直接宣称支持并行保护；缺少双 repository 实现前不得切换。
-- COS 验收通过后，COS 提升为主 repository；AWS 权限降为只读并保留 30 天。停止 AWS 写入前必须确认最近一个完整 backup、连续 WAL、历史恢复点和 node1 对象清单均已完成。
-- pgBackRest 的 7 天链清理由 pgBackRest 负责；COS lifecycle 只处理未完成 multipart，避免与 pgBackRest expire 竞争。
+- 每站独立 COS bucket/prefix/服务账号；prod 美西、cn-prod 北京；TLS；凭据只放 root-only 文件。
+- **唯一 repository 编号保持 `repo2`**（配置键，不改号为 repo1；见下「COS 为唯一 repository」）。
+- pgBackRest：每 2 小时增量、连续 WAL、full retention 7 天；expire 由 pgBackRest 拥有。
+- COS lifecycle 只清理未完成 multipart，不与 expire 竞争。
 
 ### node1 数据库兜底
 
@@ -57,6 +47,15 @@ risk: high
 - 复制使用只读 COS 凭据，按对象清单增量拉取；每轮先写临时目录，再原子发布 manifest。manifest 记录 bucket、prefix、对象数量、字节数、ETag/sha256、完成时间和源检查结果。只复制已完成对象，不复制 multipart 临时对象。
 - node1 不运行 PostgreSQL restore，不接管业务数据库；兜底验收只证明对象完整、可读、可重新取得。
 - 初始保留策略建议 30 天，实际值以 7 天容量观测和 node1 配额为准。达到配额或校验空间不足必须失败并告警，不能静默删除最新副本。
+
+### QA 产品删除契约
+
+原 `qa-raw-only` 审批已并入本文后删除该文件。以下删除边界仍有效：
+
+- 移除 `/users/me/qa/bundles`、bundle-exports 及旧 traj export；退役端点返回 404。
+- 删除 API Key 页面 QA 入口、管理员导出授权、`traj_export_enabled` / `traj_export_platforms`、Bundle 服务、worker、队列与 canary 发布路径。
+- 不恢复 QA→S3 / raw S3 产品上传；不增加 SSE-C 作为 QA 产品能力。
+- 数据库旧授权列与历史迁移保留兼容，不执行 `DROP COLUMN`。
 
 ### node1 QA
 
@@ -69,62 +68,11 @@ risk: high
 - 不依赖 node1 恢复 QA 数据库。若未来需要恢复，另立审批和验收契约；本设计不提供该能力。
 - QA S3 退役后（2026-11-08）仓库只保留本地链路：`backend/cmd/qa-local-maintenance`（provision/cleanup）、主机定时器 `tokenkey-qa-archive`（`ops/qa/node1_archive.py`）与 `qa_archive_shards` 中的 DROP 回执。网关 maintenance/boundary 子命令、`qa-archive` 恢复 CLI、raw archive CloudFormation 与 Phase 2/IAM 巡检均已删除；主机上被 mask 的 `tokenkey-qa-maintenance`/`tokenkey-qa-boundary` 单元留待单独的主机清理。
 
-## 执行阶段与门禁
+## 迁移执行（已完成）
 
-1. **资源清单与演练**：确认两个 COS bucket/endpoint、服务账号、KMS、node1 SSH/同步端点、目录、quota、磁盘/RAID/加密和告警；用合成 PostgreSQL 与合成 QA 文件完成 COS PUT/GET、node1 copy、断点重试和 checksum 演练。
-2. **COS 并行保护**：不停止 AWS timer、不删除 AWS 对象。为两环境启用经验证的双 repository，完成 COS full、自然增量和连续 WAL；连续观察至少两个完整业务日。
-3. **数据库验收**：从 COS 恢复最新点和历史点，验证 WAL 连续性、关键表/约束/序列、账务聚合和恢复耗时；确认 archive check 新鲜且 RPO 门禁通过。失败时保持 AWS 为主。
-4. **QA 验收**：完成至少两轮 4 小时复制，manifest/hash、源文件计数、目标字节数和失败重试均通过；确认 cleanup 只删除已有 node1 receipt 的小时；不把“文件复制成功”描述成 QA 数据库恢复成功。
-5. **切换**：将 prod/cn-prod 主备份配置切到各自 COS，保留 AWS 只读回退和最近回执；观察一个完整备份周期。node1 每日 COS 兜底必须先有一轮成功回执。
-6. **AWS 退役**：先停 AWS 写入身份和 timer，确认 COS 与 node1 连续健康；AWS bucket/object/KMS/角色删除另立收尾单，列出精确对象范围、保留截止时间和最终恢复验证，不由普通切换自动执行。
-
-## 阶段 3 执行记录与 prod 例外（2026-11-02）
-
-阶段 3 要求「从 COS 恢复最新点和历史点」。实际执行分成了两种结果。
-
-**cn-prod：完整验收通过。** 从北京 COS 的 repo2 恢复了最旧全量
-（`20261102-202410F`）和最新点（`...203119I`），两点都走完恢复流程并可查询：
-schema 与线上一致（409 表 / 96 外键 / 281 主键 / 86 序列），行数与金额均落后线上
-但不超过，`usage_logs` 与 `usage_billing_dedup` 的行数差在两点和线上都是 26。
-恢复 80.3s / 75.3s，重放启动约 2.4s。两份回执齐备。
-
-**prod：只做了 verify，恢复验收未完成 —— 这是一条明确的例外，不是通过。**
-
-| | 数值 |
-|---|---|
-| 库大小 | 21 GB |
-| 根卷可用 | 28 GB（恢复后剩 6 GB，约 95% 使用率） |
-| 演练卷可用 | 42 GB，但与生产库本体和 docker root **同在一个 LUKS loop 文件上** |
-| 主机 | 腾讯 Lighthouse，无云 CLI，挂盘需控制台操作 |
-
-两个卷都没有安全余量：根卷写满会影响整机（含网关），演练卷写满会直接打挂生产库。
-`formal/` 7.5G 一度被误判为历史目录，实为活跃生产目录（三个容器挂载，`sub2api`
-正在写日志），不可清理。可安全回收的空间合计约 1.4 GB，远不足 20.6 GB。
-
-因此 prod 执行的是 `--verify-only`：19 份备份全部 `status: valid`，
-`missing / checksum invalid / size invalid / other` 全为 0，WAL `...3335` → `...3719`
-单一 timeline，耗时 288 秒。只写 `repository_verification.json`。
-
-**这两者证明的东西不同**：verify 证明对象完整未损坏，完整恢复证明数据库真的能起来
-并查询。cn-prod 的完整验收说明 COS 恢复**方法**可行，但不替代 prod 自己那条链
-（美西地域、独立 bucket、timeline 2、19 份备份）的恢复证明。
-
-**该例外的后果，以及一个必须知道的事实**：prod 与 cn-prod 的 Tencent runner 写的是
-`archive_check.json`，它**不产生** `restore_acceptance_missing_or_stale`
-—— 那两个 reason 属于 Stage0 的 `health.json` 路径（Tokyo 时期 EC2 基线）。
-所以 prod 的恢复验收缺口**当前没有任何门禁报警**，`archive_check.json` 读作
-`status: ok`。这个缺口只存在于本记录中。
-
-**解除该例外的条件**（任一）：
-
-1. 给 prod 挂一块 ≥30 GB 临时盘（控制台操作），跑
-   `ops/backup/cos_restore_acceptance.py --repo 2 --apply` 的完整验收，完成后卸载；
-2. 扩容根卷或演练卷，使恢复后余量不低于 15 GB；
-3. 在独立主机上拉取 prod 的 COS 链做恢复验收。
-
-在上述任一完成前，**不得按阶段 6 退役 AWS 的 prod 写入身份** ——
-阶段 6 要求「确认 COS 与 node1 连续健康」，而 prod 的 COS 链尚未被证明可恢复，
-AWS repo1 仍是 prod 唯一经过恢复验证的链。
+资源清单、双 repo 并行、验收、切主、停写 AWS 等阶段已于 2026-11 完成；逐步执行表已删。
+prod COS 真实恢复证据（2026-11-08，独立数据机）支持停写 AWS；桶/栈清理为独立 infra 步骤
+（2026-11 核对 physical-backup 桶 `HeadBucket` 404）。
 
 ## 2026-11-08 决定：停写 AWS repo1，COS 为唯一 repository
 
@@ -179,41 +127,7 @@ AWS repo1 仍是 prod 唯一经过恢复验证的链。
   `AROAZ55ZQM2DC6BZQWQ4B`）上的 S3 备份权限。角色本身**不能删**：两台主机的 SSM 运维
   通道（run-probe、发布、诊断）都靠它，只撤销 S3 备份相关的 policy。
 
-### prod COS 真实恢复证据（2026-11-08）
 
-在独立数据机 `lhins-rbjrqukb`（Lighthouse `tokenkey-usw-data-20261108`，na-siliconvalley-2，私网 10.4.0.17）上完成。
-镜像由 `deploy/stage0/postgres-backup/Dockerfile` 构建，pgBackRest 2.58.0、PostgreSQL 18.6，与 prod `tk-archive-standby` 相同。
-命令经腾讯 TAT 下发。恢复容器以 `--user 70:70` 运行，配置只读挂载，`listen_addresses` 为空，`archive_mode=off`；结束后删除沙箱。
-prod 只承受两次只读查询。
+**现网**：只渲染 `repo2-*`；身份刷新不读 AWS/STS；runner `PRIMARY_REPO=2`。
+遗留 AWS 桶/Hybrid 角色 S3 备份权限若仍存在，只作只读/收尾，不恢复写入。
 
-恢复来源为 COS 桶 `tokenkey-prod-backup-usw-1320330536` 的 `/prod/postgres`，即 prod 的 repo2：
-
-| 恢复点 | 备份集 | 耗时 | 库大小 | 结果 |
-|---|---|---|---|---|
-| 最新 | `20261108-004323F_20261108-143107I`（备份结束 2026-11-08 14:31 UTC） | restore 271s + 启动 2s | 23,666,316,991 字节 | 在 LSN `45/C4277558` 一致并完成 redo，promote 到 timeline 4；最新 `usage_logs` 行为 14:31:35 UTC |
-| 最旧 full | `20261101-012705F` | restore 212s + 启动 2s | 22,116,603,583 字节 | 最新 `usage_logs` 行为 2026-11-01 01:31:40 UTC |
-
-**校验**：`pg_isready` 通过、`pg_is_in_recovery()` 为 `f`。在恢复副本和 live prod 上运行同一组 `cos_restore_acceptance.py` 里的 `SCHEMA_SQL`/`DATA_SQL`。live prod 一侧为只读查询，时间 14:35:55 UTC，LSN `45/C6C5FE50`。最新恢复点与 live prod 的对比：
-- schema 完全一致：419 表、594 外键、295 主键、86 序列；
-- `accounts` 359 = 359，`api_keys` 264 = 264；
-- `usage_logs` 和 `billing_dedup` 均落后 164 行，没有超前；
-- 配对漂移 8,706,269 与 live 相同；
-- `cost_sum` 和 `actual_cost_sum` 均低于 live。
-
-最旧恢复点的表结构较少（405 表），这符合预期，后续迁移是之后才加的。
-
-**覆盖范围**：两次恢复都用 `--type=immediate --target-action=promote`，证明的是每个备份集及其所需 WAL 可以恢复；**没有**证明能 PITR 到归档最新点。
-本次没有运行工具本身，所以没有写入 `repository_verification.json` / `restore_acceptance.json`，`host_https_watch` 会继续报这两项原因，直到工具在 prod 上正式跑一次。
-
-**网络**：恢复容器必须能连到 COS。Postgres 启动时会对备份结束点的 WAL 段执行 `archive-get`，本次为 `0000000300000045000000C4`。
-`cos_restore_acceptance.py` 默认使用 Docker 默认 bridge，可出站访问 COS，同时不加入 tokenkey 网络，所以碰不到网关和生产库。
-**不要改成 `--network none`**：那样启动时会报 `could not locate required checkpoint record`。
-
-## 当前阻塞输入
-
-- prod COS 美西和 cn-prod COS 北京的最终地域代码、bucket 名称、endpoint；
-- 两套 COS 服务账号及 KMS 策略 owner；
-- node1 的稳定主机名/IP、SSH 或同步方式、归档根目录、告警接收方；QA raw 365 天、QA 6 TiB、数据库 2 TiB，以及 85%/90%/95% 空间阈值已获批准。
-- pgBackRest 双 repository 的实现与隔离验收结果；
-
-在上述输入进入资源清单并完成 dry-run 前，不创建付费 COS 资源、不写生产备份配置、不启动 node1 归档 timer、不删除 AWS 数据。

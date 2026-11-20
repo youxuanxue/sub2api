@@ -222,6 +222,10 @@ func isGrokNativeSearchOutputItem(item gjson.Result) bool {
 	if !item.Exists() {
 		return false
 	}
+	status := strings.ToLower(strings.TrimSpace(item.Get("status").String()))
+	if status == "failed" || status == "cancelled" || status == "canceled" || status == "error" {
+		return false
+	}
 	itemType := strings.ToLower(strings.TrimSpace(item.Get("type").String()))
 	switch itemType {
 	case "web_search_call", "x_search_call", "tool_search_call":

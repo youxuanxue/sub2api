@@ -46,7 +46,9 @@ class DataMachineTargetTest(unittest.TestCase):
             matrix.write_text(json.dumps({"data_machine": {"expected_ssm_instance_id": "i-0abc"}}))
             with self.assertRaisesRegex(target.TargetError, "identity missing"):
                 target.resolve("prod", matrix)
-            matrix.write_text(json.dumps({"data_ssm_instance_id": WANT["cn-prod"][0]}))
+            matrix.write_text(json.dumps({
+                "data_machine": {"expected_ssm_instance_id": WANT["cn-prod"][0]},
+            }))
             with self.assertRaisesRegex(target.TargetError, "identity missing"):
                 target.resolve("cn-prod", matrix)
 

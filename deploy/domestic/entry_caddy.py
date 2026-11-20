@@ -3,7 +3,7 @@
 
 ``entry.domain`` is the public site; ``apps[]`` order and weights become the
 ``to`` list and ``weighted_round_robin`` weights.
-docs/approved/design-cn-prod-rolling-deploy.md §1, M2.
+docs/approved/design-cn-prod-rolling-deploy.md §1.
 
   entry_caddy.py --out PATH
   entry_caddy.py --diff /var/lib/tokenkey/caddy/etc/Caddyfile   # read-only

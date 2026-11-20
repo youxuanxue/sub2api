@@ -31,7 +31,7 @@ import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
 import CNProviderUsageCell from './usage-cells/CNProviderUsageCell.vue'
-import { usesCNProviderUsageCell } from './credentialsBuilder'
+import { isNewAPIMiniMaxTokenPlanAccount, usesCNProviderUsageCell } from './credentialsBuilder'
 import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
 import {
   PLATFORM_ANTHROPIC,
@@ -59,7 +59,9 @@ const activeCell = computed(() => {
     return OllamaCloudUsageCell
   }
 
-  if (usesCNProviderUsageCell(account.platform)) {
+  // NewAPI MiniMax Token Plan uses coding_plan/remains (same as native minimax
+  // coding) — route to CN remains bars instead of local NewAPI 5h/7d stats.
+  if (isNewAPIMiniMaxTokenPlanAccount(account) || usesCNProviderUsageCell(account.platform)) {
     return CNProviderUsageCell
   }
 

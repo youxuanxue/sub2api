@@ -25,7 +25,8 @@ LABEL_AUTOMATED = "automated"
 UMBRELLA_SKILL = "tokenkey-fingerprint-alignment-all"
 BOARD_TITLE = "[client-release] Fingerprint drift board"
 
-# Labels that mean a human/Forge agent already owns the board — do not re-arm drift.
+# In-progress is actively owned and must never be re-armed. Blocked is the
+# previous watchdog result; a later scan with the same drift may re-arm it.
 AGENT_STATUS_LABELS = frozenset({LABEL_IN_PROGRESS, LABEL_BLOCKED})
 
 BASE_LABELS = {
@@ -37,7 +38,7 @@ BASE_LABELS = {
     LABEL_DRIFT: ("D73A4A", "Forge-actionable: upstream client newer than TokenKey pin"),
     LABEL_ALIGNED: ("0E8A16", "All watched clients aligned with pins"),
     LABEL_IN_PROGRESS: ("FBCA04", "Fingerprint alignment in progress; Forge must not duplicate"),
-    LABEL_BLOCKED: ("B60205", "Alignment blocked; Forge must not auto-start"),
+    LABEL_BLOCKED: ("B60205", "Previous alignment blocked; next watchdog drift scan may re-arm"),
 }
 
 
@@ -136,7 +137,7 @@ def build_board_body(report: dict, *, status_labels: list[str] | None = None) ->
     run_url = report.get("run_url") or "n/a"
     status = list(status_labels or [])
 
-    if status:
+    if LABEL_IN_PROGRESS in status:
         forge_line = (
             f"- Active status: {', '.join(f'`{name}`' for name in status)} — "
             f"Forge must **not** auto-start (trigger is only `{LABEL_DRIFT}`)."
@@ -216,12 +217,15 @@ def build_board_body(report: dict, *, status_labels: list[str] | None = None) ->
             "",
             "## Label lifecycle",
             "",
-            f"- Any actionable drift + no agent status → `{LABEL_DRIFT}` "
+            f"- Any actionable drift + no in-progress status → `{LABEL_DRIFT}` "
             f"(remove `{LABEL_ALIGNED}` / `{LABEL_NEEDS_TRIAGE}`).",
             f"- Agent start → `{LABEL_IN_PROGRESS}` and remove `{LABEL_DRIFT}` / "
             f"`{LABEL_NEEDS_TRIAGE}`.",
             f"- Blocked / repeated failure → `{LABEL_BLOCKED}` "
             f"(+ `{LABEL_NEEDS_TRIAGE}` only while blocked).",
+            f"- Next watchdog scan with drift and no `{LABEL_IN_PROGRESS}` → "
+            f"remove `{LABEL_BLOCKED}` / `{LABEL_NEEDS_TRIAGE}`, restore `{LABEL_DRIFT}`; "
+            "Forge owns queued/running task deduplication.",
             f"- All aligned → `{LABEL_ALIGNED}`, remove `{LABEL_DRIFT}` / "
             f"`{LABEL_NEEDS_TRIAGE}` / agent status, close board.",
             "",
@@ -276,15 +280,13 @@ def converge_board_labels(
 
     if drifting:
         sh(["gh", "issue", "edit", number, "--remove-label", LABEL_ALIGNED], check=False)
-        if LABEL_BLOCKED in labels:
-            sh(["gh", "issue", "edit", number, "--add-label", LABEL_NEEDS_TRIAGE], check=False)
-            sh(["gh", "issue", "edit", number, "--remove-label", LABEL_DRIFT], check=False)
-        elif LABEL_IN_PROGRESS in labels:
+        if LABEL_IN_PROGRESS in labels:
             for name in (LABEL_DRIFT, LABEL_NEEDS_TRIAGE):
                 sh(["gh", "issue", "edit", number, "--remove-label", name], check=False)
         else:
             sh(["gh", "issue", "edit", number, "--add-label", LABEL_DRIFT], check=False)
-            sh(["gh", "issue", "edit", number, "--remove-label", LABEL_NEEDS_TRIAGE], check=False)
+            for name in (LABEL_BLOCKED, LABEL_NEEDS_TRIAGE):
+                sh(["gh", "issue", "edit", number, "--remove-label", name], check=False)
     else:
         sh(["gh", "issue", "edit", number, "--add-label", LABEL_ALIGNED], check=False)
         for name in (LABEL_DRIFT, LABEL_NEEDS_TRIAGE, LABEL_IN_PROGRESS, LABEL_BLOCKED):

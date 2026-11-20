@@ -448,10 +448,14 @@ class RunProbeDataMachineTest(unittest.TestCase):
         self.assertEqual(
             (prod["data_machine"]["expected_ssm_instance_id"], prod["data_machine"]["ssm_name"]),
             self.WANT["prod-data"])
-        self.assertEqual((cn["data_ssm_instance_id"], cn["data_ssm_name"]), self.WANT["cn-prod-data"])
+        cn_data = cn["data_machine"]
+        self.assertEqual(
+            (cn_data["expected_ssm_instance_id"], cn_data["ssm_name"]),
+            self.WANT["cn-prod-data"],
+        )
         self.assertNotEqual(prod["data_machine"]["expected_ssm_instance_id"],
                             prod["target"]["expected_ssm_instance_id"])
-        self.assertNotEqual(cn["data_ssm_instance_id"], cn["ssm_instance_id"])
+        self.assertNotEqual(cn_data["expected_ssm_instance_id"], cn["ssm_instance_id"])
         self.assertEqual(prod["data_machine"]["hostname"], prod["host_watch"]["data_hostname"])
 
 

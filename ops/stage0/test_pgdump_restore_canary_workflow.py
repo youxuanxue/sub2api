@@ -14,7 +14,7 @@ class PgdumpRestoreCanaryWorkflowTest(unittest.TestCase):
     def test_oidc_canary_workflow_removed(self) -> None:
         self.assertFalse(
             WORKFLOW.exists(),
-            "ops-pgdump-restore-canary.yml deleted per design-tencent-ops-closeout A12",
+            "ops-pgdump-restore-canary.yml deleted per tencent-ops closeout (A12)",
         )
 
 

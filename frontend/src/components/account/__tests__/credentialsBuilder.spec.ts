@@ -14,6 +14,8 @@ import {
   buildPlanTypeOptions,
   cloneOpenCodeGoProtocolRules,
   cnQuotaCellVisible,
+  cnQuotaExtraProviderKey,
+  isNewAPIMiniMaxTokenPlanAccount,
   defaultCNBaseUrl,
   defaultOpenCodeProtocolRules,
   isCustomGrokBaseUrl,
@@ -29,6 +31,26 @@ import {
   splitHeaderOverridesObject,
   validateHeaderOverrideRows
 } from '../credentialsBuilder'
+
+describe('NewAPI MiniMax Token Plan remains visibility', () => {
+  it('recognizes Extension Engine minimaxi hosts and uses minimax Extra prefix', () => {
+    const account = {
+      platform: 'newapi',
+      type: 'apikey',
+      credentials: { base_url: 'https://api.minimaxi.com' }
+    }
+    expect(isNewAPIMiniMaxTokenPlanAccount(account)).toBe(true)
+    expect(cnQuotaCellVisible(account)).toBe(true)
+    expect(cnQuotaExtraProviderKey(account)).toBe('minimax')
+    expect(
+      cnQuotaCellVisible({
+        platform: 'newapi',
+        type: 'apikey',
+        credentials: { base_url: 'https://api.moonshot.cn/v1' }
+      })
+    ).toBe(false)
+  })
+})
 
 describe('applyInterceptWarmup', () => {
   it('create + enabled=true: should set intercept_warmup_requests to true', () => {

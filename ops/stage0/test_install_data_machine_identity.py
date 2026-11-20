@@ -19,7 +19,7 @@ BUNDLE = {
 }
 DATA_HOST = {
     "prod": json.loads((ROOT / "deploy/tencent/candidate-usw-20261022.json").read_text())["host_watch"]["data_hostname"],
-    "cn-prod": json.loads((ROOT / "deploy/domestic/prod-target.json").read_text())["data_instance_name"],
+    "cn-prod": json.loads((ROOT / "deploy/domestic/prod-target.json").read_text())["data_machine"]["hostname"],
 }
 UNIT = {"prod": "tokenkey-backup-identity", "cn-prod": "tokenkey-cn-backup-identity"}
 ARCHIVE = {"prod": "tokenkey-postgres-archive-check.service",

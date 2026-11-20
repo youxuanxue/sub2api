@@ -10,7 +10,7 @@ description: >-
 现网：[舰队入口](../../../deploy/hetzner/README.md)（路径名历史遗留；活舰队是腾讯美西）。
 流程：[pgBackRest 迁机工作流](../../../ops/stage0/pgbackrest-host-migration.md)。
 备份/恢复：[physical-backup.md](../../../ops/stage0/physical-backup.md)。
-切流后交接：[腾讯迁机交接](../../../docs/ops/tencent-migration-handoff.md)。
+现网事实与残留边界：见上方舰队入口（勿另维护交接副本）。
 
 输入 `target=prod`、目标云/地域/架构、`phase=plan|rehearse|prepare|cutover|verify`。
 默认先 plan；已授权阶段直接推进。腾讯云演练不等于授权创建付费资源或正式切流。
@@ -46,7 +46,7 @@ description: >-
 - 目标已接写后不能直接解冻旧库回滚；新 timeline 的备份保护须单独验收。
 - 旧机保留至少七天；历史备份与解密材料不随定时任务退役删除。
 - **单窗闭环（硬）：** 上表终态块与布局在 cutover 同窗收口；**禁止**把 Stage0 布局/搬 Docker Root/全量改名排成迁机后第二次停机。  
-  例外路径细则：[`stage0-layout-convergence.md`](../../../deploy/tencent/stage0-layout-convergence.md)。
+  例外路径细则见下方「布局」节与 [playbook](references/playbook.md)。
 
 ## 布局：写进 plan/prepare，落在 cutover 同窗
 
@@ -69,6 +69,17 @@ description: >-
 
 完整字面 Stage0（物理改名 PG/Redis、搬 data-root）只作可选整洁，**不得**挡发版，也不得绑进迁机主路径。
 
+## 布局窗工具（只读默认；APPLY 需显式）
+
+| 工具 | 用途 |
+|---|---|
+| `ops/stage0/probe-tencent-layout-prep.sh` | 布局窗前只读盘点 |
+| `ops/stage0/probe-tencent-layout-find-compose.sh` | 定位 compose / 容器身份 |
+| `ops/stage0/probe-tencent-layout-capture-recipe.sh` | 捕获布局配方 |
+| `ops/stage0/probe-tencent-layout-window-preflight.sh` | 窗内 preflight |
+| `ops/stage0/apply-tencent-layout-window.sh` | 例外路径布局切流（仅显式 `APPLY=…`） |
+| `ops/stage0/probe-tencent-bluegreen-prereqs.sh` | 蓝绿前只读门禁（`run-probe`；须 `verdict=ready`） |
+| `ops/stage0/retarget_prod_oidc.py` | 审阅用：交叉区域 prod IAM 模板修正（不调用云、不 apply） |
 
 报告实际完成阶段、恢复点/账务校验、耗时、资源清理、保护缺口与下一步；
 不以数据库恢复或健康探针成功宣称整站迁机完成。

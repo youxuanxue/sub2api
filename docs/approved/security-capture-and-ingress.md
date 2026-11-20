@@ -12,8 +12,8 @@ risk: high
 此锚点覆盖 R-001/002/003/004/005/009 的可回滚代码修复，不代表批准生产部署、
 删除已有证据、修改管理员 MFA 绑定或执行凭据迁移。
 
-现行 QA 生命周期遵循 `qa-raw-only.md`。`design-prod-qa-24h-s3-lifecycle.md` 已归档，只保留小时归档与 shard 状态机的历史记录。
-不新增 schema、第二归档/删除 owner 或新的采集开关。
+现行 QA 生命周期以 `design-tencent-cos-backup-node1-qa.md`（本地 24h + node1）为准；
+QA 产品导出已退役；活归档契约见 `design-tencent-cos-backup-node1-qa.md`。不新增 schema、第二归档/删除 owner 或新的采集开关。
 
 批准的修复行为：
 

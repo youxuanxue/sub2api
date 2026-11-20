@@ -163,7 +163,7 @@ func buildModelLookupCandidates(modelLower string) []string {
 // the published token rate, so -high/-low/-medium/-tiered stay on the same
 // price card as the public id.
 func normalizeGeminiThinkingTierAlias(model string) string {
-	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon", "gemini-4-hydrogen"} {
+	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon", "gemini-4-hydrogen", "gemini-4-neon"} {
 		for _, tier := range []string{"-xhigh", "-high", "-low", "-medium", "-tiered"} {
 			if model == baseModel+tier {
 				return baseModel

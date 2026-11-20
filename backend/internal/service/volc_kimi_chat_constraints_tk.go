@@ -73,8 +73,11 @@ func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 //     tools). Names are not dropped so the request can continue;
 //   - a string video_url becomes {"url": ...} (2026-11-05);
 //   - a text part with text "" is dropped (2026-11-06);
-//   - thinking / reasoning_text content parts are dropped (2026-11-18);
-//   - type=video is rewritten to video_url when a URL is present (2026-11-18);
+//   - thinking / reasoning_text / prompt_cache_breakpoint content parts are
+//     dropped (2026-11-18/19); refusal / summary_text likewise (2026-11-20
+//     cn-prod rt@tk.com; direct Volc sanitize→200);
+//   - type=video / input_video is rewritten to video_url when a URL is present
+//     (2026-11-18; input_video 2026-11-20 direct Volc enum-clear evidence);
 //   - audio_url / input_audio parts return 400 (Volc kimi cannot deliver them);
 //   - type=file is normalized (2026-11-19 cn-prod rt@tk.com): missing/empty
 //     file object or 0/>1 of file_id|file_url|file_data → local 400; video/*
@@ -272,12 +275,13 @@ const (
 )
 
 // dropVolcKimiReasoningContentParts removes messages.content parts whose type is
-// thinking, reasoning_text, or prompt_cache_breakpoint. Volc Agent Plan only
-// accepts text / image_url / video_url / file (and rejects those types with
-// InvalidParameter). Clients often replay prior reasoning or cache markers into
-// history; the parts carry no deliverable user input, so dropping them keeps
-// meaning (same posture as empty text parts). Top-level thinking.type /
-// reasoning_effort are unchanged.
+// thinking, reasoning_text, prompt_cache_breakpoint, refusal, or summary_text.
+// Volc Agent Plan only accepts text / image_url / video_url / file (and rejects
+// those types with InvalidParameter). Clients often replay prior reasoning,
+// refusals, summaries, or cache markers into history; the parts carry no
+// deliverable user input, so dropping them keeps meaning (same posture as empty
+// text parts). Top-level thinking.type / reasoning_effort are unchanged.
+// Evidence 2026-11-20: direct Volc raw→400 / drop→200 for refusal + summary_text.
 func dropVolcKimiReasoningContentParts(body []byte) ([]byte, error) {
 	shaped := body
 	var err error
@@ -316,7 +320,7 @@ func dropVolcKimiReasoningContentParts(body []byte) ([]byte, error) {
 
 func volcKimiReasoningContentPart(part gjson.Result) bool {
 	switch strings.ToLower(strings.TrimSpace(part.Get("type").String())) {
-	case "thinking", "reasoning_text", "prompt_cache_breakpoint":
+	case "thinking", "reasoning_text", "prompt_cache_breakpoint", "refusal", "summary_text":
 		return true
 	default:
 		return false
@@ -356,10 +360,11 @@ func volcKimiAudioContentPart(part gjson.Result) bool {
 	}
 }
 
-// rewriteVolcKimiVideoTypeParts rewrites type=video to type=video_url when a URL
-// is present (video_url string/object, video.url, or top-level url). Volc
-// rejects type=video ("supported values are: text, image_url, video_url, …").
-// Parts without a URL are left for upstream / other checks.
+// rewriteVolcKimiVideoTypeParts rewrites type=video / input_video to
+// type=video_url when a URL is present (video_url string/object, video.url, or
+// top-level url). Volc rejects those aliases ("supported values are: text,
+// image_url, video_url, …"). Parts without a URL are left for upstream / other
+// checks. Media validity / reachability stay separate (do not strip).
 func rewriteVolcKimiVideoTypeParts(body []byte) ([]byte, error) {
 	shaped := body
 	var err error
@@ -369,7 +374,8 @@ func rewriteVolcKimiVideoTypeParts(body []byte) ([]byte, error) {
 			continue
 		}
 		for j, part := range content.Array() {
-			if !strings.EqualFold(strings.TrimSpace(part.Get("type").String()), "video") {
+			kind := strings.ToLower(strings.TrimSpace(part.Get("type").String()))
+			if kind != "video" && kind != "input_video" {
 				continue
 			}
 			url, ok := volcKimiVideoPartURL(part)
@@ -504,10 +510,10 @@ func wrapVolcKimiStringVideoURLs(body []byte) ([]byte, error) {
 
 func volcKimiContentPartType(kind string) bool {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "text", "image_url", "video_url", "video", "input_audio", "audio_url", "file", "thinking", "reasoning_text", "prompt_cache_breakpoint":
-		// video / thinking / reasoning_text / prompt_cache_breakpoint / audio_*
-		// are recognized so a lone object content is wrapped into a part array
-		// before drop/rewrite/reject.
+	case "text", "image_url", "video_url", "video", "input_video", "input_audio", "audio_url", "file", "thinking", "reasoning_text", "prompt_cache_breakpoint", "refusal", "summary_text":
+		// video / input_video / thinking / reasoning_text / prompt_cache /
+		// refusal / summary_text / audio_* are recognized so a lone object
+		// content is wrapped into a part array before drop/rewrite/reject.
 		return true
 	default:
 		return false
@@ -1018,29 +1024,89 @@ func validateVolcKimiDataVideoURL(raw string) error {
 	return nil
 }
 
+const volcKimiVideoProbeAttempts = 3
+
 // probeVolcKimiHTTPVideo checks one already-classified public http(s) URL.
 // HEAD is enough when the server answers; 401/403/405/501 fall back to a
-// one-byte ranged GET because some stores reject HEAD while still serving the file.
+// one-byte ranged GET because some stores reject HEAD while still serving the
+// file. Transport errors and 5xx also fall back to ranged GET, then retry the
+// whole probe a few times — cn-prod remote URL fetches often fail in bursts
+// rather than as permanent unreachability.
 func probeVolcKimiHTTPVideo(ctx context.Context, client *http.Client, raw string) error {
+	var lastErr error
+	for attempt := 0; attempt < volcKimiVideoProbeAttempts; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(attempt) * 200 * time.Millisecond
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				if lastErr != nil {
+					return lastErr
+				}
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+		err := probeVolcKimiHTTPVideoOnce(ctx, client, raw)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !volcKimiVideoProbeTransient(err) {
+			return err
+		}
+	}
+	return lastErr
+}
+
+func probeVolcKimiHTTPVideoOnce(ctx context.Context, client *http.Client, raw string) error {
 	status, err := volcKimiVideoStatus(ctx, client, http.MethodHead, raw)
 	if err != nil {
-		return err
+		// Some CDNs reset HEAD while still serving ranged GET.
+		status, err = volcKimiVideoStatus(ctx, client, http.MethodGet, raw)
+		if err != nil {
+			return err
+		}
 	}
 	reachable, retryGET := interpretVolcKimiVideoStatus(status)
 	if reachable {
 		return nil
 	}
 	if !retryGET {
-		return fmt.Errorf("video_url returned %d", status)
+		return &volcKimiVideoProbeStatusError{status: status}
 	}
 	status, err = volcKimiVideoStatus(ctx, client, http.MethodGet, raw)
 	if err != nil {
 		return err
 	}
 	if ok, _ := interpretVolcKimiVideoStatus(status); !ok {
-		return fmt.Errorf("video_url returned %d", status)
+		return &volcKimiVideoProbeStatusError{status: status}
 	}
 	return nil
+}
+
+type volcKimiVideoProbeStatusError struct {
+	status int
+}
+
+func (e *volcKimiVideoProbeStatusError) Error() string {
+	if e == nil {
+		return "video_url probe failed"
+	}
+	return fmt.Sprintf("video_url returned %d", e.status)
+}
+
+func volcKimiVideoProbeTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	var statusErr *volcKimiVideoProbeStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.status >= 500 || statusErr.status == http.StatusTooManyRequests
+	}
+	// Transport / timeout / DNS flakes are retryable; permanent parse issues are not.
+	return true
 }
 
 func interpretVolcKimiVideoStatus(status int) (reachable bool, retryGET bool) {

@@ -6,19 +6,12 @@
   "ssm_region": "eu-west-2",
   "rolling_confirm_site": "prod",
   "notes": [
-    "2026-10-22 cutover complete: this matrix is the default Stage0 site when deployable=true; app selection requires --node (see resolve note below).",
-    "2026-11-15/16: public DNS moved to entry 43.162.119.210; see entry/apps below.",
-    "auto / default PROD_SSM_TARGET selects tencent-usw when deployable=true; with apps[] present resolve_prod_ssm_target requires explicit --node / PROD_SSM_NODE (no silent single-app default). Fleet-wide diagnosis uses run-probe --all-apps.",
-    "Historical (2026-10-22→2026-11-17 LUKS exception): .env at /var/lib/tokenkey/.env on mapper; Docker root at /srv/tokenkey-rehearsal/docker; volume_mount /srv/tokenkey-rehearsal with /var/lib/tokenkey as second mount of the same LUKS mapper. Receipt: /var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json.",
-    "2026-11-18 Phase D L1–L8: app-old plain root — Docker Root=/var/lib/docker, business root=/var/lib/tokenkey, volume_platform=tencent-root + volume_root_uuid.",
-    "2026-11-19 X1–X4: LUKS carrier/key/unlock destroyed with user early-closeout authorization; host receipt /var/lib/tokenkey-validation/luks-x1-x4-destroy-20261119T092329Z.json; COS keys under custody/luks/20261108/ removed (rebuild receipt retained).",
-    "Tokyo i-045f062ce33e1a5af was retired and deleted 2026-10-23; its snapshots are deleted; never restore its S3 history chain as a writer.",
-    "Cutover receipt: docs/ops/reports/tencent-cutover-20261022.json",
-    "2026-10-29: tokenkey-disk-metrics.timer is installed and expected active. It checks root / and /var/lib/tokenkey at 85% alert / 80% recover.",
-    "2026-11-16 Phase C code/matrix converged: target is single tokenkey on private:8080 + loopback:18080; layout.kind=single-container; rolling plan/deploy is unlocked (confirm rolling-prod-<tag>).",
-    "2026-11-17: stopped tokenkey-blue/green/caddy rollback containers removed on both apps (tokenkey healthy).",
-    "2026-11-17: host_watch local_qa_jobs/data_qa_jobs cut over to retention/coordinator; WATCH_NODE=app-old|app-cand installs per-app watchers (cand was previously unwatched).",
-    "2026-11-18: entry WRR 1:1 (apps[].weight 1/1) after app-cand upgrade to 4C8G; see docs/decisions/decided.md."
+    "Live prod matrix: entry + app-old/app-cand WRR 1:1 + data_machine; layout.kind=single-container; volume_platform=tencent-root.",
+    "PROD_SSM_TARGET=auto selects this site when deployable=true; resolve_prod_ssm_target requires explicit --node / PROD_SSM_NODE. Fleet-wide diagnosis: run-probe --all-apps.",
+    "Rolling confirm: rolling-prod-<tag>. Public edge is entry/ (apps public 80/443 closed).",
+    "host_watch: WATCH_NODE=app-old|app-cand|entry|prod-data; local_qa_jobs/data_qa_jobs = retention/coordinator.",
+    "tokenkey-disk-metrics.timer expected active (root / and /var/lib/tokenkey; 85% alert / 80% recover).",
+    "Never restore retired Tokyo S3 history chain as a writer."
   ],
   "layout": {
     "kind": "single-container",

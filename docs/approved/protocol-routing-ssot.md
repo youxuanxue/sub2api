@@ -1,11 +1,15 @@
 ---
 title: Protocol Routing Single Source of Truth
 status: approved
-approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, conversation, conversation_id, and audio behind native Responses; unowned previous_response_id is dropped before forwarding on HTTP and the first WebSocket frame, while later WebSocket turns stay fail-closed; 2026-11-12 Chat/Responses/Messages→Gemini preserve alignment; 2026-11-17 Chat→Messages admits image_url + reasoning_effort, aligning new-api/LiteLLM; 2026-11-18 Chat→Messages strips OpenAI-only extras like open-source relays for UX)"
+approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, conversation, conversation_id, and audio behind native Responses; unowned previous_response_id is dropped before forwarding on HTTP and the first WebSocket frame, while later WebSocket turns stay fail-closed; 2026-11-12 Chat/Responses/Messages→Gemini preserve alignment; 2026-11-17 Chat→Messages admits image_url + reasoning_effort, aligning new-api/LiteLLM; 2026-11-18 Chat→Messages strips OpenAI-only extras like open-source relays for UX; 2026-11-20 Messages→Chat admits ContentVideo / fail-closes ContentAudio — 「尽可能提高可用率」without softening KVV)"
 authors: [codex]
 created: 2026-08-24
-revised: 2026-11-18
+revised: 2026-11-20
 revision_note: >
+  2026-11-20: Messages→Chat admits ContentVideo (rewrite to Chat video_url;
+    raises availability vs open-source silent drop) and fail-closes
+    ContentAudio. Owned with volc-kimi-chat-compatibility. Approved by feng:
+    「尽可能提高可用率」without softening KVV.
   2026-11-18: Chat→Messages Plan matches open-source relay UX (new-api /
     LiteLLM): admit request-level OpenAI-only extras — response_format,
     legacy functions[] / function_call, and root reasoning objects —
@@ -377,9 +381,13 @@ HTML “endpoint exists”); the legal conversion for those identities is
 `chat_completions`. Volc Agent Plan additionally persists Chat-only capability
 (`volcAgentPlanRoutingSupportedProtocols` + chat-only probe candidates) so
 stale `/responses` rows cannot re-seed ResponsesIdentity. The
-`messages → chat_completions` conversion preserves Claude Code function tools
-and images, matching the already-proven `messages → responses` surface, so a
-tools-bearing Claude Code body does not fail closed back onto identity.
+`messages → chat_completions` conversion preserves Claude Code function tools,
+images, and Moonshot-shaped video blocks (rewritten to Chat `video_url` by
+`AnthropicToChatCompletionsRequest`; open-source relays silently drop them),
+matching the already-proven `messages → responses` content surface for tools and
+images while raising video availability. Audio stays fail-closed on this route
+(no chat-bridge mapping). A tools-bearing Claude Code body therefore does not
+fail closed back onto identity.
 
 The `chat_completions -> messages` and `responses -> messages` adapters also
 preserve function tools and images through the existing apicompat conversions.

@@ -5,7 +5,7 @@ approved_by: "feng（2026-11-09 会话：同意 #3102 的设计，要求文档�
 approved_at: 2026-11-09
 risk: high
 authors: [agent]
-revised: 2026-11-17（cn-prod 现网 max_connections=400、应用池 80/20 与 deploy/domestic SSOT 对齐；切流当时快照仍保留为历史）
+revised: 2026-11-20（两站切流已完成；删除停写窗口执行叙事，保留布局/参数与脚本 owner）
 ---
 
 # prod 与 cn-prod 数据面从应用机拆出
@@ -75,28 +75,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 ## 现网基线
 
-2026-11-08 20:27 CST 两站只读探针实测（`ops/observability/run-probe.sh`）。这些是切流前当天的事实，不是长期规格。切流之后的事实以文首审批状态和第 6 节为准，下表不改写成切流后的布局。
-
-| 项 | prod | cn-prod |
-|---|---|---|
-| 主机 | 腾讯美西 `lhins-fcwpwymt`，4 vCPU / 15.6 GiB，私网 `10.4.0.16` | 腾讯北京 `lhins-6qmb3fd6`，4 vCPU / 7.7 GiB，私网 `10.2.4.11` |
-| 同机进程 | `tokenkey-blue`、`tokenkey-caddy`、`tk-cutover-prod-redis`、`tk-archive-standby`（PG） | 网关蓝绿、socat 控制代理 `tokenkey`、`tokenkey-caddy`、`tokenkey-redis`、`tokenkey-postgres` |
-| 数据所在 | LUKS：根盘文件 `recovery-rebuild-20261108.luks`（64G）经 loop 挂到 `/srv/tokenkey-rehearsal`，已用 25G | 根盘普通 ext4 `/var/lib/tokenkey`，无加密 |
-| 应用机重启后 | 11-08 13:03 整机重启过。当天新装 `tokenkey-luks-unlock.service`，开机从 COS 取钥解锁到 tmpfs；还没经过一次无人值守的重启。这个 unit 不在仓库里 | 自动起 |
-| Postgres | 18.6，库 22 GB，`max_connections` 200，容器内存上限 4G | 18.6，库 2.9 GB，`max_connections` 100，无容器内存上限 |
-| Redis | 8.10.3，AOF everysec，**无密码**，`maxmemory` 512MB + `allkeys-lru`，容器内存上限 1G，已用约 9MB | 8.10.2，AOF everysec，有密码，`maxmemory` 0 + `noeviction`，无容器内存上限，已用约 6MB |
-| 网关连库 | 容器 env `DATABASE_HOST=tokenkey-postgres`、`REDIS_HOST=tokenkey-redis`。部署模板（`ops/stage0/deploy_via_ssm_bluegreen.sh`）写死这两个值 | 容器 env `DATABASE_HOST=postgres`、`REDIS_HOST=redis`。蓝绿候选色继承现役容器的 env，只覆盖 `deploy/domestic/bluegreen.py` 列出的键 |
-| 每色 DB / Redis 池 | 现役 `tokenkey-blue` 是 11-08 重建时手工 `docker run` 的，env 和 `config.yaml` 都没设池参数，按代码默认 256 / 1024 运行。下次走模板的蓝绿发布会变成 50 / 1024 | 40 / 96（`compose.override.yml`） |
-| 实测连接 | 网关 7 条 + 1 条 psql | 网关 5 条 + 1 条 psql |
-| 蓝绿重叠期 | 两色同时在，连接数翻倍 | 同左 |
-| 备份 | pgBackRest 单仓库：腾讯 COS 美西（`repo2`）。WAL 每 5 分钟归档，每 2 小时增量，全量保留 7 天；仓库状态 ok；timer 在应用机。AWS S3 `us-east-1`（`repo1`）自 2026-11-08 起不再写入（#3107） | pgBackRest 单仓库：腾讯 COS 北京（`repo2`），周期和保留期同 prod；仓库状态 ok（归档上一次失败是 11-02 的已知事故）；timer 在应用机。AWS S3 `ap-northeast-1`（`repo1`）同样自 2026-11-08 起不再写入（#3107） |
-| Caddy 上游 | 现网 `/var/lib/tokenkey/caddy/Caddyfile` 只有 `reverse_proxy tokenkey-blue:8080 { flush_interval -1 }`，**没有健康检查，也没有 `lb_try_duration`**。上游不可用时请求立刻失败。2026-11-09 已补上健康检查和 `lb_try_duration 30s` / `lb_try_interval 1s` | 有健康检查和 `lb_try_duration 30s`，上游不可用时最多等 30 秒 |
-| `RUN_MODE` | `standard` | `standard` |
-| 网关内存 | `mem_limit 8g`、`GOMEMLIMIT=6GiB`（#3101） | `GOMEMLIMIT=2GiB`，无容器上限 |
-| 应用机上的其他写库方 | pgBackRest 备份和归档检查、QA 维护三个 timer（cleanup / provision / archive）、`tokenkey-https-watch`、运维探针 | 同左 |
-| 主机防火墙 | `INPUT` 默认放行，挂腾讯云 `YJ-FIREWALL-INPUT` 链；主机只监听 80 / 443，PG 和 Redis 没有发布到主机端口 | 同左 |
-
-两处文档和实测不一致：`deploy/hetzner/README.md` 把 prod 写成 4C8G，实际是 4 vCPU / 15.6 GiB；`deploy/domestic/README.md` 把 cn-prod 写成 8C，实际 `nproc` 是 4。
+两站数据面切流已于 2026-11-09/10 完成（见文首审批状态）。切流前探针快照已删除；现网身份与容量以 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md) / [`deploy/domestic/README.md`](../../deploy/domestic/README.md) 为准。
 
 ## 两站统一布局
 
@@ -106,7 +85,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 - **参数**：Postgres 和 Redis 用仓库里同一份 compose 启动，参数全部写成命令行 `-c`。只有和内存相关的值按站不同，从数据机 `.env` 读。
 - **Redis**：AOF everysec，设 `maxmemory` 并用 `noeviction`。prod 现网是 `allkeys-lru`，内存满时会淘汰在途扣费 key；数据机统一用 cn-prod 的 `noeviction`，宁可写失败也不丢账。设 `requirepass`。cn-prod 沿用现有密码；prod 现网没有密码，切流时新生成一个，只存数据机和应用机的 `.env`。
 - **防火墙**：云防火墙不开公网入站；主机 iptables 只放行本站应用机私网地址访问 5432 和 6379。
-- **运维**：数据机注册自己的 SSM Hybrid，身份记在两份站点矩阵里（prod `deploy/tencent/candidate-usw-20261022.json` 的 `data_machine`，cn-prod `deploy/domestic/prod-target.json` 的 `data_ssm_*`），由 `ops/observability/data_machine_target.py` 读取并在下发前核对。备份 timer、归档检查 timer、身份续期 timer 和数据盘告警装在数据机上，应用机上的这几项停用。身份续期：`tencent_backup_identity.py` 和 `cn_backup_identity.py` 按矩阵里的数据机主机名分支，在数据机上读本机 root-only 的 `/etc/tokenkey/cos-backup.env`，原子重写容器只读挂载的 `/etc/tokenkey/pgbackrest-cos/pgbackrest.conf`（保持 `root:postgres 0640`）。轮换 COS 密钥只改数据机上的这一个文件。由 `ops/stage0/install-data-machine-identity.sh` 安装，带确认口令。
+- **运维**：数据机注册自己的 SSM Hybrid，身份记在两份站点矩阵的 `data_machine` 对象里（prod `deploy/tencent/candidate-usw-20261022.json`，cn-prod `deploy/domestic/prod-target.json`），由 `ops/observability/data_machine_target.py` 读取并在下发前核对。备份 timer、归档检查 timer、身份续期 timer 和数据盘告警装在数据机上，应用机上的这几项停用。身份续期：`tencent_backup_identity.py` 和 `cn_backup_identity.py` 按矩阵里的数据机主机名分支，在数据机上读本机 root-only 的 `/etc/tokenkey/cos-backup.env`，原子重写容器只读挂载的 `/etc/tokenkey/pgbackrest-cos/pgbackrest.conf`（保持 `root:postgres 0640`）。轮换 COS 密钥只改数据机上的这一个文件。由 `ops/stage0/install-data-machine-identity.sh` 安装，带确认口令。
 - **网关**：`DATABASE_HOST`、`REDIS_HOST`、`REDIS_PASSWORD` 从 `.env` 读，切流时填数据机私网地址。
 
 ## 数据库参数
@@ -217,122 +196,17 @@ cn-prod 数据机：`lhins-odyx5eis`，私网 `10.2.4.5`，2026-11-09 开通，�
   - cn-prod：合计约 1.7 GB/月。70 GB 下库 2.7 GB，系统盘剩 57 GB，够用两年以上。
 - **要盯的风险**：磁盘（见上）。切流后命中率长期低于 99% 时升配；轻量升配需要重启实例，要找窗口。
 
-## 切流前的代码改动
+## 切流与代码改动（已完成）
 
-都走正常发布。默认值保持现状，所以发布后行为不变。第 1、2、4 项已在 #3114 合并；第 5 项由 #3116 完成，备份监控由 #3117 完成。
-
-1. prod 部署模板把两个 Host 改成 `${DATABASE_HOST:-tokenkey-postgres}` 这类写法，`ops/stage0/test_deploy_via_ssm_bluegreen.py` 同步改。
-2. cn-prod 在 `compose.override.yml` 声明两个 Host，取值来自 `.env`，默认值为现值；M6 后 rolling 单容器直接读 compose，漏列时 `test_pool_env_probe.py` 的 compose-config 断言会失败。cn-prod 的 Redis 密码不变，不进 override。
-3. （已完成，2026-11-09 核对）prod 现网 Caddyfile 补上和 cn-prod 相同的健康检查和 `lb_try_duration 30s` / `lb_try_interval 1s`。这是停写窗口第 2 步的前提：没有它，Caddy 指向未启动的新色时请求会立刻失败。蓝绿渲染（`render_caddy_with_upstream`）只改上游地址那一行，所以补上的参数会保留到后续发布；改动同时入仓。`caddy validate` 后 `caddy reload`，用户无感。
-4. `deploy/tencent/tencent_pgbackrest.py` 和 `deploy/domestic/cn_pgbackrest.py` 支持在数据机上运行，容器名和主机角色按新布局。
-5. 运维探针继续在应用机上执行，经数据面客户端容器连数据机（#3116）。`ops/lib/resolve-app-container.sh` 的 SQL 和 redis-cli 入口新增候选 `tokenkey-postgres-client` / `tokenkey-redis-client`，约 70 个探针不用改。规则仍是只能有一个在运行：旧库和客户端同时运行时判为不唯一，探针直接失败。pgBackRest 只解析真库容器。客户端由 #3116 的安装脚本安装，带确认口令；它从现役色读数据机地址和密码。仍读本机的两项：容量探针对数据目录跑 `df`、日常诊断 tail PG/Redis 日志。切流后这两项要到数据机上看。
-6. （已完成）准备 Redis 迁移用的私网转发：在应用机上起一个只监听私网地址的转发容器，把旧 Redis 暴露给数据机，不重建旧 Redis。防火墙只放行数据机私网地址。窗口结束后删掉。
-
-## 每站实施步骤
-
-两站各走一遍。先切哪站按当时的请求量定，默认先切请求量小的一站。第一站稳定后再开始第二站。稳定的标准：跑满一个完整的日流量周期，新主库产出过一份成功的全量备份，日常诊断没有新告警。
-
-### 1. 只读准备（用户无感）
-
-读取当站以下数据：近 7 天按小时的请求量（用来找低谷）、库体积和 WAL 速率、`max_connections`、Redis 内存和 key 数、最近一次蓝绿发布里新色从启动到就绪的耗时。这些数决定机器规格和窗口时长。
-
-prod 另查：`usage_billing_dedup` 的 `n_dead_tup` 已被 autovacuum 清掉（2026-11-09 删除后约 26 万），#3110 已部署且 7–30 天的键已迁进归档表。满足后在现网执行一次 `REINDEX INDEX CONCURRENTLY idx_usage_billing_dedup_request_api_key`（不锁写入，临时多占约 0.1 GB），唯一索引从 2.6 GB 降到约 0.1 GB。备用库从之后的备份恢复，就直接带上小索引。
-
-### 2. 开机（需预算审批，用户无感）
-
-按统一布局装好。开机后分别从公网和同私网的其他主机测一次 5432、6379，确认都不可达。
-
-cn-prod 注意：据 `deploy/hetzner/README.md` 2026-11-06 的记录，腾讯北京锐驰配额 5 台已被 `cn-ip1..4` 和 cn-prod 主机占满。开机前在控制台复核；仍然占满就先提配额，或者选不占这项配额的套餐。
-
-规格按「数据机配置」。
-
-### 3. 备用库与 Redis 副本（用户无感）
-
-- **Postgres**：用当站 pgBackRest 恢复到数据机，作为备用库从仓库持续回放 WAL。备用库不归档。备用库第一次启动就用「数据库参数」里的新值。应用继续写旧库。
-- **Redis**：数据机上的 Redis 经私网转发做旧 Redis 的副本，cn-prod 用现有密码配 `masterauth` 和 `requirepass`。两站 Redis 都只用了约 10MB，全量同步的 fork 开销可以忽略。
-- **放弃**：删掉备用库和副本即可，现网不变。
-
-### 4. 演练（用户无感）
-
-- 在数据机上从同一份备份另起一个演练实例，用另一个目录和端口。提升它，记录提升耗时。演练实例关闭归档，不接现网仓库。
-- 从应用机经私网测三项：Postgres 往返延迟、几条网关热路径查询的 p99（对演练实例只读执行）、`redis-cli --latency`。p99 不可接受就不切。
-- 不起连到演练库的网关。网关后台任务会刷新上游账号凭据，演练库里的凭据会和现网分叉。
-- 测完删掉演练实例。
-- 汇总窗口估算：排空旧色、最后一段 WAL 归档与回放、提升、新色启动到就绪、Caddy 切换。这个数和低谷时段的请求量一起写进停写审批。
-
-2026-11-09 两站演练实测：
-
-| 项 | prod | cn-prod |
-|---|---|---|
-| 从 COS 恢复（演练实例） | 240 秒 | 143 秒 |
-| 启动到追上 WAL | 12 秒 | 11 秒 |
-| 提升（`pg_promote`） | 0.54 秒 | 1.08 秒 |
-| 提升后第一笔写入 | 71 ms | 99 ms |
-| 热路径查询比本机多出 | 不到 0.2 ms | 1–3 ms，最大约 9 ms |
-| Redis 比本机多出 | 0.2–0.3 ms | 0.2–0.3 ms |
-| 新色从启动到就绪 | 6 秒（看日志） | 6 秒（看日志） |
-
-两站的 p99 都可接受。演练实例测完已删除，真正的备用库全程在回放。整窗时长还没有实测，要到窗口里才测得到。
-
-### 5. 停写窗口（需当站停写审批）
-
-在批准的低谷时段执行。窗口由 `ops/stage0/dataplane-cutover-app.sh` 在应用机上一次跑完，经 `run-probe.sh` 下发。`PHASE=check`（默认）只读，可以随时跑，会列出所有前提和执行计划。`PHASE=apply` 需要确认口令 `TK_DATAPLANE_CONFIRM=cutover-<站点>-to-<数据机私网 IP>`。数据机上的 `ops/stage0/dataplane-cutover-data.sh` 负责窗口前的只读检查（含「数据库参数」表）和窗口后的收尾。
-
-现役色原地重建，不切到另一色（用户 2026-11-09 决定）：Caddyfile、`active-color` 和 Gemini 控制别名都不动。现役色停下后，新请求在 Caddy 里排队，最长等 `lb_try_duration`。
-
-窗口前提（`PHASE=check` 全部通过才允许 apply）：
-- prod 主机上的 `docker-compose.bluegreen.yml` 必须由含 #3114 的版本渲染。1.8.355 渲染出的那份把 `DATABASE_HOST=tokenkey-postgres` 写死了，只改 `.env` 不会生效。所以窗口前要先正常发一版。
-- prod 的新 Redis 密码要从托管桶放到应用机的 `/var/lib/tokenkey/dataplane-redis-password`，权限 0600。cn-prod 沿用现有密码。
-- cn-prod 的 override 已同步到 main（2026-11-09 核对；M6 后不再经 `bluegreen.py` 传播）。
-
-apply 的顺序：
-
-1. 停掉应用机上其他写库方：备份、归档检查、身份续期和 QA 三个 timer。
-2. 给现役色发 SIGUSR1 开始排空。**排空上限 10 秒，超时切断**（用户 2026-11-09 决定），不沿用网关默认的 120 秒。
-3. 在旧库上查 `pg_stat_activity`，在旧 Redis 上查 `CLIENT LIST`。除了复制连接和本次操作的连接，必须一个都没有，有就中止。
-4. 旧库执行 `pg_switch_wal()`，等 `pg_stat_archiver` 显示这一段已归档。
-5. 等数据机备用库回放到这个 LSN，等 Redis 副本偏移追上旧主库。
-6. 数据机 Redis 执行 `REPLICAOF NO ONE`，然后 `pg_promote`。**这一步不可回头。** 在这之前任何一步失败，脚本都会重新启动现役色和停掉的 timer，站点回到原状（退出码 3）。
-7. 停止旧库和旧 Redis，并执行 `docker update --restart=no`。旧库原来是 `unless-stopped`，不改的话会被误启动，造成双写。
-8. `.env` 改成数据机地址（先备份原文件；prod 同时写入新 Redis 密码），原地重建现役色，等 `/health` 就绪。Caddy 里排队的请求随即放行。cn-prod 的现役色由每次发版的 `compose.json` 起，里面是写死的 env。脚本复制一份到新目录，只改四个地址键再重建；原发版目录不改。
-9. QA timer 重新启动。备份相关的 timer 在应用机上停用，`postgres-backup/` 下的回执改名保留，应用机看门狗随之不再监控备份。
-
-窗口之后：
-- 数据机执行 `PHASE=finish dataplane-cutover-data.sh`。它会重置 `postgresql.auto.conf` 里的旧值，创建 `pg_stat_statements`，强制切一次 WAL 并确认已归档到 COS，再逐项核对「数据库参数」表。
-- 应用机用 #3116 的安装脚本装上数据面客户端容器，探针恢复可用。旧库停掉之前不能装：客户端和旧库同时运行时，探针会因不唯一而失败。
-- 数据机启用备份 timer，并以 `prod-data` / `cn-prod-data` 角色安装看门狗（#3117）。身份续期 timer 用 `install-data-machine-identity.sh` 安装：先把 COS 密钥放到数据机的 `/etc/tokenkey/cos-backup.env`，安装后跑一次续期和归档检查；之后删掉应用机上那份。
-- 发一笔真实请求，确认用量和扣费落在新库。
-
-**排空 10 秒的影响**（2026-11-09 prod 实测）：请求平均 14.7 秒，最安静的 UTC 22 点每分钟约 42 个请求，切换时同时在途的约 10 个。10 秒内跑完的正常记账；跑不完的被切断，客户端收到连接中断。被切断的请求：
-- 不写用量、不扣费，因为结算发生在请求结束时，而旧色已经停了；
-- 预扣的冻结额度留在 `usage_holds`，由 `HoldReconciler` 在 30 分钟后自动退回；
-- 上游已经执行的部分，TK 不向用户收费，成本由 TK 承担。
-
-近 7 天 p99 是 143 秒，超过 5 分钟的请求共 2,343 个（每天约 330 个），长流式请求基本都会被切断。
-
-**窗口估算**：排空 10 秒、确认无连接约 2 秒、最后一段 WAL 归档与回放约 5 秒、Redis 切主不到 1 秒、提升约 1 秒（实测 prod 0.54 秒、cn-prod 1.08 秒）、新色就绪约 6 秒，合计约 25 秒，在 `lb_try_duration 30s` 内。这段时间里新请求在 Caddy 排队变慢，不返回 502。WAL 和排空两项要到窗口里才能实测；整窗实测超过 30 秒，就先调大 `lb_try_duration`。
-
-从第 2 步到第 8 步要在 `lb_try_duration` 内完成。演练估算超过这个上限时，停写审批要写明超出的部分会返回 502，或者先申请临时调大上限。窗口结束的标志是新库接受写入并且归档在推进，不是容器启动成功。
-
-### 6. 观察与收尾
-
-- 新主库产出第一份成功的全量备份之前，旧数据目录不动。两站数据机在 2026-11-10 已各完成一份切流后的全量：prod `20261110-013449F`（01:40 UTC），cn-prod `20261110-013338F`（01:34 UTC）。当天 02:30 UTC 的定时任务在这两份全量上做了增量，回执文件只保留最新一轮。删除旧数据目录仍然要单独批准。
-- cn-prod 切流后的第一轮备份（16:30–20:30 UTC）报 `[106] new backup label is not later than latest`。原因：旧应用机的 pgBackRest 标签是北京时间，数据机是 UTC。22:30 UTC 那一轮起恢复正常，期间 WAL 归档没有中断。prod 旧标签本来就是 UTC，不受影响。
-- 切流后读数据机的探针：`run-probe.sh --target prod-data / cn-prod-data` 直连数据机，SSM 身份不符就拒绝。每日容量探针在数据机上跑 `df`，跑道按数据机系统盘计算；`log_dump` 的 `tokenkey-postgres` / `tokenkey-redis` 读数据机上的日志。物理备份回执（`archive_check.json`）和 prod 的 data-layer safety 探针也读数据机：应用机上的回执已改名留档，pgdump 目录还在，继续在应用机上读会把正常备份报成缺失。CI 角色要能对这两个 `mi-*` 执行 `SendCommand`，授权在栈外 inline policy `tokenkey-lightsail-edge-addon`（活纪律见 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)「AWS 残留」SSM Hybrid 行）。应用机上的容量探针仍会把本机 `df` 判为「无结论」（#3122），作为兜底。
-- 删除旧数据目录、旧 Redis 和转发容器需要单独批准。
-- `usage_billing_dedup` 唯一索引的 `REINDEX CONCURRENTLY` 要等 7–30 天的键迁完归档（约 3 个晚上）再做，不挡切流。
-- prod 的 LUKS 载体和异机密钥要等应用机也迁出 LUKS 之后才能删（见下节）。
-
-## prod 应用机的加密卷
-
-prod 应用机的 Docker 数据目录和 `.env` 也在 LUKS 卷上。11-08 新装的自动解锁还没经过无人值守的重启；它失败时网关起不来，但拆库之后库不受影响。
-
-把应用机迁出 LUKS 要移动 Docker 数据目录，需要重启 Docker，因此是另一次窗口。本设计只记下这件事，不排进这次。目标布局和 cn-prod 一致。
+两站停写切流、客户端容器、备份/看门狗迁数据机均已完成。执行细则已删。
+只读核对与应急重跑仍可用：`ops/stage0/dataplane-cutover-app.sh` / `dataplane-cutover-data.sh`（默认 `PHASE=check`；`apply` 需确认口令）。
+删除旧应用机数据目录 / 旧 Redis / 转发器仍须单独批准（审批点第 4 项）。
+prod 应用机 LUKS 已由 [`design-prod-entry-multi-app.md`](design-prod-entry-multi-app.md) 完成销毁。
 
 ## 回退
 
-- **提升之前**：重启旧色，回到原状。删掉备用库和副本。
-- **提升之后**：旧库不能再启动成可写主库。已有新写入时，回退是从备份链恢复，不是把 Host 指回去。两个主库同时往一个仓库归档视为故障。
+切流提升之后旧库不得再写成主库；已有新写入时只能从备份链恢复，不能把 Host 指回旧库。
+两个主库同时往一个仓库归档视为故障。
 
 ## 第二台网关的门禁
 

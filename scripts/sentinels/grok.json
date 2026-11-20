@@ -363,9 +363,11 @@
       "path": "frontend/src/components/account/AccountUsageCell.vue",
       "must_contain": [
         "usesLocalUsageWindows(account)",
-        "return OpenAIUsageCell"
+        "return OpenAIUsageCell",
+        "isNewAPIMiniMaxTokenPlanAccount",
+        "if (isNewAPIMiniMaxTokenPlanAccount(account) || usesCNProviderUsageCell(account.platform))"
       ],
-      "rationale": "Grok and other local-window adapters reuse the OpenAI-style 5h/7d UsageProgressBar rendering because the backend returns the same AccountUsageInfo five_hour/seven_day shape. Dropping this branch hides grok usage windows even though the backend provides them."
+      "rationale": "Grok and other local-window adapters reuse the OpenAI-style 5h/7d UsageProgressBar rendering because the backend returns the same AccountUsageInfo five_hour/seven_day shape. Dropping this branch hides grok usage windows even though the backend provides them. NewAPI MiniMax Token Plan must keep routing to CNProviderUsageCell so remains bars stay visible alongside the local-window path."
     },
     {
       "path": "frontend/src/composables/usePlatformOptions.ts",

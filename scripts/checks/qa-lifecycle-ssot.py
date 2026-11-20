@@ -93,14 +93,13 @@ REQUIRED = {
         "ResumeDroppedHourCleanup",
         "exact source-hour upper bound and never authorizes deletion",
     ),
-    # Superseded 2026-11-08 (QA S3 retired); the doc stays as the history record.
-    "docs/approved/qa-raw-only.md": (
-        "status: archived",
-        "superseded_by: design-tencent-cos-backup-node1-qa.md",
-        "raw S3",
+    # Live QA archive contract (qa-raw-only.md deleted 2026-11-20).
+    "docs/approved/design-tencent-cos-backup-node1-qa.md": (
+        "本地 24h + node1 每 4h",
+        "### QA 产品删除契约",
         "不增加 SSE-C",
-        "restore_verified",
-        "DROP pause",
+        "node1 receipt",
+        "tokenkey-qa-archive",
     ),
     "ops/qa/README.md": ("tokenkey-qa-cleanup", "raw"),
     "ops/qa/policy.yaml": ("raw_user_access: false",),

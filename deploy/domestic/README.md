@@ -9,45 +9,19 @@
 UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 `https://api.galaxywaveai.com`，站点定义在 [`entry/Caddyfile.tmpl`](entry/Caddyfile.tmpl)。
 `api-cn.tokenkey.dev` 仍暂时指向美西，日后退役；退役前不要把它解析到北京，也不要写成
-`public_origin` 或 `SERVER_FRONTEND_URL`。下面的表是 2026-10-14 首次上线记录。
+`public_origin` 或 `SERVER_FRONTEND_URL`。现网节点只看 [`prod-target.json`](prod-target.json)。
 
 逻辑 dump 调度已改为 `ops-cn-backup-watch.yml`，本变更不恢复它。2026-11-09 停写窗口之后，`tokenkey-cn-postgres-backup` 和 `tokenkey-cn-postgres-archive-check` 在数据机 `VM-4-5-ubuntu`（`10.2.4.5`）上跑，应用机上的对应 timer 已停用。数据机上的 `tokenkey-cn-backup-identity.timer`（15min）运行 `cn_backup_identity.py`，读数据机 root-only `/etc/tokenkey/cos-backup.env`，重写 `/etc/tokenkey/pgbackrest-cos/pgbackrest.conf`；由 `ops/stage0/install-data-machine-identity.sh` 安装。轮换 COS 密钥只改数据机上的这一个文件。2026-11-08 起唯一仓库是北京 COS `repo2`（`tokenkey-cnprod-backup-bj-1320330536` `/cn-prod/postgres`），东京 AWS `repo1` 已停写且桶/栈已清理（2026-11 核对 `HeadBucket` 404）；详见[设计](../../docs/approved/design-tencent-cos-backup-node1-qa.md#2026-11-08-决定停写-aws-repo1cos-为唯一-repository)。备份验收到此为止，不再另开恢复机，也不从东京仓库再导一份库。
 
-审批范围和费用见 [design-domestic-cluster.md](../../docs/approved/design-domestic-cluster.md)。
-这是独立于美西 prod 的国内站点，不使用 Hetzner dispatcher 或美西数据库；只读观测通过独立注册的 AWS SSM Hybrid agent 下发。
+这是独立于美西 prod 的国内站点；只读观测可通过独立注册的 AWS SSM Hybrid agent 下发（日常发版走 TAT）。
+站点身份与滚动契约见 [`prod-target.json`](prod-target.json) 与
+[cn-prod 多应用机滚动发版](../../docs/approved/design-cn-prod-rolling-deploy.md)。
 
-## 首次部署目标（2026-10-14）
+## 历史上线（已归档）
 
-| 项目 | 值 |
-|---|---|
-| 公共入口 | https://api-cn.tokenkey.dev |
-| 项目 / 地域 / 可用区 | `org-bpx31r` / `cn-bj2` / `cn-bj2-02` |
-| 主机 | `uhost-1wgyn7gu2f6a`，2 CPU / 4 GiB |
-| 系统盘 / 数据盘 | 40 GiB / 20 GiB SSD |
-| 数据盘 | `bsm-1wgz3hm0c0jb`，挂载 `/var/lib/tokenkey` |
-| 公网 | `eip-1wgywcyzw8bs`，`106.75.17.57`，5 Mbps BGP |
-| 防火墙 | `firewall-pvx1loip`，80/443 公网，SSH 22 关闭；运维走 AWS SSM Hybrid / UHost 控制台 |
-| 管理员 | `admin@cn.tokenkey.dev` |
-| 客户 | `rt@tk.com`，初始 $10，仅 `china_deployed`，专属倍率 0.3 |
-
-此表及初始化回执记录首次上线状态。用户随后已授权 10 Mbps 带宽、更多客户和供应账号；
-部署前须读取现网，不按此历史表重建账号、充值、分组或资源。
-
-## 迁机收尾：2026-10-23 腾讯北京（已修）
-
-2026-10-22 迁机只搬了运行态（容器、数据、Caddyfile），没铺发布布局，发 1.8.318 时暴露并修完：
-
-| 漂移 | 后果 | 处理 |
-| --- | --- | --- |
-| `/opt/tokenkey/compose{,.override,.local}.yml` 三件套全缺 | `bluegreen.py prepare` 读不到服务定义，**阻断发版** | 从仓库铺回（**不要**跑 `prepare-runtime.py`，它是首装脚本、会重新生成数据库密码与 JWT secret） |
-| `prod-target.json` `public_origin` 还是 UCloud `106.75.29.139` | `promote` 切流前校验必然失败 | 改为腾讯北京 `154.8.214.179` |
-| `.env` `TOKENKEY_IMAGE` pin 在临时 `cn-prod-monitor-*`，且该镜像已被 GHCR prune 删除 | 蓝绿容器按 image id 跑，现网无感；但任何从 `.env` 重建（恢复、`compose up`）会因 `pull_policy: never` 直接失败 | 重新 pin 到在服版本；`promote` 与 `rollback` 现在都会 repin 到当前路由到的颜色（`repin_env_image`，对齐美西的 `env_set TOKENKEY_IMAGE` / `restore_env_if_safe`） |
-| `SECURITY_PROXY_PROBE_PRESET` 只写进 override，没列入 `*_ENV_KEYS` | 候选 env 继承自现役容器、只覆盖列出的键，所以该键**永远**传不到新颜色，Admin 代理探测一直走境外 `ip-api.com` | 新增 `CONFIG_ENV_KEYS`；`test_pool_env_probe.py` 现在会在 override 声明了未传播的键时失败 |
-
-日志轮转和 compose 项目名随 1.8.318 蓝绿自动归位（override 的 20m×3、`cn-prod-bluegreen`）。
-蓝绿 loopback 端口 blue=18081 / green=18082 是约定，不是漂移；`compose.local.yml` 的 18080 只用于无蓝绿的单容器。
-
-数据面切流之后，`compose.override.yml` 把 `postgres` 和 `redis` 放进 `local-data` profile，并清掉 `tokenkey` 对它们的 `depends_on`。只加 profile 时 `docker compose config` 会因依赖未定义而失败，蓝绿 `prepare` 读的就是这份 config。清掉依赖后，默认项目只剩网关和 Caddy，不会启动旧库。加上 `--profile local-data` 会把旧主库拉起来，和数据机写同一套 COS 仓库。这份 override 由 `prepare-runtime.py` 随发版铺到 `/opt/tokenkey/compose.override.yml`。2026-11-10 主机上的副本已经是这一版，`compose.yml + compose.override.yml + compose.local.yml` 只解析出 `tokenkey` 和 `caddy`，地址都是 `10.2.4.5`。
+UCloud 首发（2026-10-14）与迁机收尾回执已删除。现网身份与续费以文首与
+[`prod-target.json`](prod-target.json) 为准；换机走 `tokenkey-host-replacement`，
+勿按已删历史表重建账号或资源。
 
 ## 入口机与多应用机（2026-11-15 起）
 
@@ -61,10 +35,10 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 
 节点身份只看 [`prod-target.json`](prod-target.json) 的 `entry` 与 `apps[]`。`apps[]` 的顺序就是滚动顺序，金丝雀位在前（现为 app-b；应用机下限 4C8G）。设计见 [cn-prod 多应用机滚动发版](../../docs/approved/design-cn-prod-rolling-deploy.md)。应用池现网：`DATABASE_MAX_OPEN_CONNS=80` / idle=20、`REDIS_POOL_SIZE=96`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS=480`（`compose.override.yml`）。
 - 入口机健康检查每 3 秒访问各节点 `/health`，连续 2 次失败即摘除。drain 让节点 `/health` 返回 503，入口机先停派新请求，节点再等在途请求清零。
-- 日常发版由 `rolling.py` 逐台 drain、换镜像、健康检查和回流，入口机持续把新流量分给另一台。**M6 起节点内蓝绿与 `tokenkey-entry-origin` socat 代码已删除**；若主机上仍有停用的 blue/green/socat 容器，只作历史残骸，rolling 会拒绝把它们当成在服布局。
+- 日常发版由 `rolling.py` 逐台 drain、换镜像、健康检查和回流，入口机持续把新流量分给另一台。**节点内蓝绿与 `tokenkey-entry-origin` socat 代码已删除**；若主机上仍有停用的 blue/green/socat 容器，只作历史残骸，rolling 会拒绝把它们当成在服布局。
 - 入口机 Caddyfile 在 `/var/lib/tokenkey/caddy/etc/Caddyfile`，挂载的是目录而不是单个文件：单文件挂载在 `sed -i` 换 inode 后会继续读旧内容。入库模板为 [`entry/Caddyfile.tmpl`](entry/Caddyfile.tmpl)，`python3 entry_caddy.py --diff <线上文件>` 只读比对（忽略注释和空白），`--out PATH` 渲染。`to` 列表按私网 IP 排序，权重跟随各自节点。
 - 应用机的节点覆盖由 `python3 node_compose.py --node app-b --out /opt/tokenkey/compose.node.yml` 渲染：`<private_ip>:8080` 与 `127.0.0.1:18080`、`memory_limit`、`TOKENKEY_NODE_NAME=cn-prod-<name>`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS`（取自 `compose.override.yml`）和节点 `env`。`--diff EXISTING` 只读，有差异时退出码 1。
-- 证书是 2026-11-15 从 app-a 复制的同一张（有效期至 2027-01-21），入口机之后用 TLS-ALPN-01 自行续期。DNS 切到入口机后，app-a 上 `api.galaxywaveai.com` 站点续期会失败，属预期，切流稳定后删掉该站点。
+- 证书是 2026-11-15 从 app-a 复制的同一张（有效期至 2027-01-21），入口机用 TLS-ALPN-01 续期。**2026-11-20**：应用机 app-edge 已收敛——无 `tokenkey-caddy`、无 80/443；`/var/lib/tokenkey/caddy` 已清（备份在主机 `/var/backups/tokenkey-edge-debris/`）；`compose.override.yml` 将 `caddy` 放入 `legacy-edge` profile，防止 `compose up` 复活。
 
 ### 看门狗
 
@@ -77,17 +51,6 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 
 带 `WATCH_NODE` 或入口机角色时，installer 用 `hostname -I` 核对 `prod-target.json` 的私网 IP。不带 `WATCH_NODE` 的 `cn-prod` 配置保持不变。三台都读 `/opt/tokenkey/host-alerts.env`。
 
-### 迁移步骤
-
-| # | 动作 | 入口 |
-|---|---|---|
-| M1 | 带新镜像正常发一次版（仍是蓝绿，app-b 手工换同一镜像） | 下文蓝绿流程 |
-| M2 | app-b 已改用渲染的 `compose.node.yml` 并装看门狗；三机 `tokenkey-qa-retention` 与 data `tokenkey-qa-coordinator` 已启用（2026-11-17）。node1 不可达时协调器只记 pending/告警，不阻塞 retention。入口机看门狗按 `cn-prod-entry` 安装 | 本节 |
-| M3 | 直连 app-a 的业务请求为 0 后，把 `public_origin` 改成入口机域名（2026-11-15 完成；IP 站点上只剩健康探测） | `prod-target.json` |
-| M4 | app-a 改为单容器 `tokenkey`，绑定 `10.2.4.11:8080`，停 socat 和 blue/green（2026-11-15 完成）。app-a 的 Caddy 改指 `tokenkey:8080`，M3 之后再关 80/443。Caddyfile 是单文件挂载，`sed -i` 后 `caddy reload` 仍读旧 inode，要从宿主文件 `caddy adapt` 后经 admin API `/load` 加载 | 设计文档 M4 |
-| M5 | ✅ 至少两次真实换版本 rolling + 完整 receipt：`1.8.378` [run 43720169759](https://github.com/youxuanxue/sub2api/actions/runs/43720169759)、`1.8.380` [run 43982380290](https://github.com/youxuanxue/sub2api/actions/runs/43982380290)（app-a/app-b 均为 `mode=full`/`outcome=rolled`）。同版本原样滚动会被 `mode=skip` 跳过 | `rolling.py` |
-| M6 | ✅ 删除 `bluegreen.py` / socat entry-origin / `post_release` 蓝绿发版路径；`deploy_via_ssm.sh` 仅保留 `pull`/`put-file`；timeout remediate 改单容器 | 本 PR |
-
 ### 加减应用机清单
 
 加一台（减一台反向执行，先从入口机摘除再停机）：
@@ -99,7 +62,7 @@ UCloud 转发 `106.75.29.139` 已于 2026-10-27 退役。国内长期入口是
 5. 入口机 `entry_caddy.py --diff` 确认只多出新节点，`--out` 写入后 `caddy reload`。
 6. 装 QA timer（见「QA 归档」）与看门狗（`WATCH_NODE=<name>`），并重装入口机看门狗，让它探测新节点。
 
-### QA 归档（数据机协调器 · 2026-11-17 已交接）
+### QA 归档（数据机协调器）
 
 cn-prod 已切到 `ops/qa/COORDINATOR.md` 路径，不再跑应用机 v1 `provision/cleanup/archive`：
 
@@ -113,39 +76,21 @@ cn-prod 已切到 `ops/qa/COORDINATOR.md` 路径，不再跑应用机 v1 `provis
 
 **node1**：主 jump `180.76.181.161` 与 WG peers 现网不可达时，协调器 archive 失败并记 pending；retention 仍按「满 24h 可丢」独立清理热数据。恢复 node1 后只需再跑受控 `--apply` 核 seal，不必重装 units。
 
-## 首次安装与配置 owner
+## 配置 owner（现网）
 
-> 本节记录 UCloud 首发时的安装流程；腾讯北京迁机按 host-replacement 技能执行，不重跑本节。
+换机/新机按 `tokenkey-host-replacement`；勿把 UCloud 首发流程当升级脚本重跑。
 
-- UCloud 身份使用官方 CLI 的 `tokenkey-domestic` profile；密钥不进入仓库。
-- `bootstrap-host.sh DEVICE EXPECTED_BYTES` 只接受新空数据盘。它拒绝带分区、已挂载、
-  尺寸不符或含签名的磁盘；已有文件系统必须人工核验后挂载，不会重格式化。
-- `prepare-runtime.py STATE_DIR` 从共享 Stage0 Compose/Caddy 模板生成本机受保护 bundle，
-  重用已存在的 secrets，不在 stdout 输出配置或密钥。`STATE_DIR/images.json` 必须来自
-  已校验的 amd64 镜像，包含各服务的 `source` digest、`config` digest、归档 `sha256` 与本地 `tag`。
-- `compose.override.yml` 打开 QA capture，不配置 QA S3 上传，并设置应用池与在途闸门（**现网 2026-11-18**：`GOMEMLIMIT=2GiB`、DB open/idle **80/20**、Redis pool/idle `96/8`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS=480`）。同一份 override 还设置应用容器硬内存上限（`mem_limit`/`memswap_limit`，默认 3g，`TOKENKEY_APP_MEMORY_LIMIT` 可覆盖；0/负值关闭闸门）。美西 prod 的容器上限走另一份 compose（`deploy/tencent/compose.override.yml` / 主机 `.env`），两站机制不同，不要互相套用。蓝绿 `prepare` 会用该文件解析出的池参数，以及
-  `QA_CAPTURE_ENABLED=true`，覆盖候选容器
-  env（密钥仍取自线上容器）。候选若带上 QA archive 或 S3 driver 会被拒绝。容量 bump 可先起候选再切 Caddy。现网核对/写入还可用
-  `ops/observability/probe-cn-prod-pool-env.sh`（经 `run-probe.sh --target cn-prod`，
-  写入需 `APPLY=yes-tune-cn-prod-pools`，会 recreate 当前色）。单号 Inflight/RPM/TPM
-  阶梯用 `ops/observability/probe-cn-prod-single-account-ladder.sh`（`--env ACCOUNT_ID=…`，
-  `--with ops/pricing/probe_reserved_resources.sh`，会 pin 探针组，须授权压测）；
-  同时注入 `SECURITY_PROXY_PROBE_PRESET=domestic`，让 Admin 代理「出站探测」走国内
-  优先链（ipip → ip9 → qq-ip2city → ipify），避免默认境外 `ip-api.com` 在国内 SOCKS
-  上出现数秒假延迟。显式 `security.proxy_probe.urls` 仍优先于 preset。
-  `compose.local.yml` 只将管理端口绑定到主机 loopback。
-- 默认由 CI 上传同一 GHCR 构建的 amd64 归档到北京 COS，经 TAT 预下载并校验导入。
-  分发契约见 [cn-prod-image-distribution.md](../../docs/approved/cn-prod-image-distribution.md)。
-  `pull_policy: never` 防止启动时漂移；GHCR 直拉是显式备用路径。
-- 主机运行目录 `/opt/tokenkey`，Compose 文件依次为 `compose.yml`、`compose.override.yml`、
-  `compose.local.yml`；环境文件 `.env` 权限 0600。Caddyfile 位于
-  `/var/lib/tokenkey/caddy/Caddyfile`。
-
-**数据库密码只有一个来源。** 共享 `compose.yml` 用 `DATABASE_PASSWORD=${POSTGRES_PASSWORD}`，所以 `.env` 的 `POSTGRES_PASSWORD` 必须等于数据机实际接受的密码。M6 后 rolling 在换镜像前核对 compose 渲染出的 `DATABASE_PASSWORD`/`REDIS_PASSWORD` 与线上容器（`rolling.py` credential parity），不一致就拒绝，报错只给键名不给值。`.env` 漂移会在 `compose up` 重建时以 `password authentication failed` 暴露（2026-11-15 app-b 首次启动即如此；当日已把 cn-prod `.env` 的 `POSTGRES_PASSWORD` 收敛到线上值）。轮换数据库密码时必须同时改数据机、`.env` 的 `POSTGRES_PASSWORD` 和 `DATABASE_PASSWORD`。
-
-首次 `up -d tokenkey` 后，通过受限 SSH tunnel 初始化管理员、关闭公开注册、关闭
-`backend_mode_enabled`（否则普通客户不能登录），再启动 Caddy。后续升级必须走共享 drain
-与健康检查契约，不把首次安装步骤作为强制重启生产服务的升级脚本。
+- `compose.override.yml` 打开 QA capture（不配置 QA S3），并设置应用池与在途闸门
+  （**现网 2026-11-18**：`GOMEMLIMIT=2GiB`、DB open/idle **80/20**、Redis pool/idle `96/8`、
+  `GATEWAY_MAX_IN_FLIGHT_REQUESTS=480`）。应用容器硬内存上限默认 3g（`TOKENKEY_APP_MEMORY_LIMIT`
+  可覆盖）。美西 prod 用另一份 compose，勿互相套用。Admin 代理出站探测 preset=
+  `domestic`（见 override / `probe-cn-prod-pool-env.sh`）。
+- 镜像默认由 CI 上传北京 COS 经 TAT 预下载；契约见
+  [design-cn-image-cos.md](../../docs/approved/design-cn-image-cos.md)。
+  `pull_policy: never`。主机 `/opt/tokenkey`：`compose.yml` + `compose.override.yml` +
+  `compose.local.yml`；`.env` 0600。
+- **数据库密码只有一个来源**：`.env` 的 `POSTGRES_PASSWORD` 必须等于数据机实际密码；
+  rolling 换镜像前核对 compose 渲染值与线上容器（`rolling.py` credential parity）。
 
 ## 远程运维入口
 
@@ -162,7 +107,7 @@ SSH 只用于一次性 agent bootstrap 或 UHost 控制台不可用时的恢复�
 [`deploy/tencent/lock-down-sshd.sh`](../tencent/lock-down-sshd.sh)：关掉密码登录、root
 登录和 TCP 转发，并锁定 root 密码。云防火墙不开放公网 22。
 
-## 发布路径：rolling（M6 起唯一）
+## 发布路径：rolling
 
 cn-prod 的正常发布入口是 `deploy/domestic/rolling.py`，按 `prod-target.json` 的
 `apps[]` 顺序逐台执行 drain、换镜像、私网健康检查和回流。入口机继续把请求分给
@@ -170,8 +115,8 @@ cn-prod 的正常发布入口是 `deploy/domestic/rolling.py`，按 `prod-target
 
 Release 后的 `distribute-cn-image.yml` 分两段执行：`publish` 在 AWS OIDC 身份下上传
 并校验 COS 工件、渲染每节点预下载脚本；`publish`/`warm` 均在 `tencent-ops` 下持腾讯凭据，按
-`apps[]` 顺序通过 TAT 预下载到每个节点。warm 固定 `--channel tat`，不使用 `auto`：
-app-a 仍带 SSM Hybrid 身份，`auto` 会选中 AWS SSM，而腾讯 job 没有 AWS 凭据。
+`apps[]` 顺序通过 TAT 预下载到每个节点。`warm_fanout` 与 workflow 默认/钉死 `--channel tat`
+（手跑也不要传 `auto`：tencent-ops 无 AWS 凭据，SSM 会失败）。
 任一节点失败都停止后续节点，且不触碰正在服务的容器。
 
 分发和每个节点预下载回执齐全后，用同一工作流入口切流：
@@ -184,7 +129,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 `cn-prod-rolling-deploy.yml` 的审批 job 使用 `prod` Environment，执行 job 使用
 `tencent-ops`；输入 tag 是裸 `X.Y.Z`，revision 必须是已审完整 40 位 SHA。
 
-`deploy_via_ssm.sh` 在 M6 后只保留 `pull`（镜像落地）与 `put-file`（应急传文件）。蓝绿 `prepare`/`promote`/`candidate-smoke`/`sync-controls` 已删除；误调用会以 exit 2 拒绝并指向 `rolling.py`。
+`deploy_via_ssm.sh` 只保留 `pull`（镜像落地）与 `put-file`（应急传文件）。蓝绿 `prepare`/`promote`/`candidate-smoke`/`sync-controls` 已删除；误调用会以 exit 2 拒绝并指向 `rolling.py`。
 
 ## 镜像 pull（rolling 前置）
 
@@ -238,41 +183,11 @@ provider、实时和旧 QA 路径都交给应用处理，并已纳入现有 Cadd
 镜像发布流程更新前端和配置；不要把媒体或 QA 能力判断写死到 Caddy，也不要重新覆盖生产
 `.env` 或重跑初始化。
 
-## 本机凭据与交付
+## 本机凭据
 
-- `~/codes/keys/tokenkey-cn-admin.json`：管理员登录地址、邮箱、密码。
-- `~/codes/keys/tokenkey-cn-rt.json`：客户登录地址、密码来源说明与 API key。
-- 两文件权限均为 0600；完整初始化状态位于
-  `~/.local/share/tokenkey/domestic-onboard`（0700）。禁止粘贴完整导出或 dry-run 日志。
-- 没有自动发送邮件或客户消息。
-
-客户的 `tokensea_online`、`国产LLM测试` 两个有效 key 已按用户要求从 hcloud 原值复制，
-归属本站 `rt@tk.com` 并绑定本站 `china_deployed`。原 key 可直接改用
-`https://api-cn.tokenkey.dev/v1`；新旧站点余额/用量独立记账。
-已停用的源站临时压测 key 未复制。原始 key 和账号完整导出不进入仓库。
-用户随后要求保持原登录密码：已通过加密传输将源账号密码校验值定点同步至本站同名用户，
-核对校验值一致且余额不变，原新机密码和旧登录 token 均返回 401。原密码明文不可恢复，
-未用明文模拟登录；本机客户凭据文件已移除失效密码，并注明沿用 hcloud 密码。
-
-## 验收回执
-
-2026-10-14：北京本机直连 DNS、可信 HTTPS 和 `/health` 通过。四个账号配置与受保护导出
-逐项一致。Chat Completions 普通/流式请求及 Responses 请求成功，usage 记录有账户归属和
-0.3 倍率；实际覆盖 VolcEngine 两个账号和 Ali 的 `ali-token-plan-7`，另一个 Ali 账号完成配置
-核验但未单独做请求归属验证。首次验收使用管理员临时 key，结束后已删除，首客初始余额 $10。
-
-追加的十个火山账号（原名、`-2`、`-4` 至 `-10`、`-40`）凭据与所有可导出配置逐项一致，
-绑定专属组且 active/schedulable；本站共十四个供应账号。两个复制的客户 key 均通过公网
-模型列表和 kimi-k3 请求验证（HTTP 200、有正文），这两次客户验证实际记账 $0.00062686。
-
-[Kimi K3 性能报告](../../docs/ops/reports/ucloud-kimi-k3-20261014/report.md)：4K–512K 八档，
-正式请求 76/76 成功；含校准/预热 85/85 成功，管理员实际记账 $1.157457。
-独立压测 key 已停用并验证 401。测试为 prod 主机经公网域名发起的小样本混合缓存测量，
-不代表终端用户网络、冷缓存性能或持续容量承诺。
-
-Playwright 真实 UI 完成管理员登录、账号/用户页、客户登录、API key/用量页，未捕获页面异常。
-客户访问管理 API、绑定默认组和公开注册均返回 403。共享 preflight 通过；磁盘初始化实测拒绝
-系统分区盘并正确挂载新数据盘。
+操作员本机（不进仓库）：`~/codes/keys/tokenkey-cn-admin.json`、
+`~/codes/keys/tokenkey-cn-rt.json`（0600）；完整初始化状态
+`~/.local/share/tokenkey/domestic-onboard`（0700）。禁止粘贴完整导出或 dry-run 日志。
 
 ## 监控与通知
 

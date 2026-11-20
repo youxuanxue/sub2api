@@ -595,6 +595,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	if p := s.tkResolveFallbackTableFamilyPricing(modelLower); p != nil {
 		return p
 	}
+	if strings.Contains(modelLower, "gemini-4-neon") {
+		return s.fallbackPrices["gemini-4-neon"]
+	}
 	if strings.Contains(modelLower, "gemini-4-hydrogen") {
 		return s.fallbackPrices["gemini-4-hydrogen"]
 	}
@@ -879,6 +882,7 @@ type CostInput struct {
 	Group                     *Group
 	Tokens                    UsageTokens
 	RequestCount              int     // 按次计费时使用
+	RequestCountKnown         bool    // true 时允许按次计费明确使用 0 次
 	UsageUnits                float64 // 音频等连续计量单位（分钟/小时/百万字符）
 	SizeTier                  string  // 按次/图片模式的层级标签（"1K","2K","4K","HD" 等）
 	RateMultiplier            float64
@@ -1210,7 +1214,7 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 	units := input.UsageUnits
 	if units <= 0 {
 		count := input.RequestCount
-		if count <= 0 {
+		if count <= 0 && !input.RequestCountKnown {
 			count = 1
 		}
 		units = float64(count)

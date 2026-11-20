@@ -39,8 +39,7 @@ scope: "Isolated import of Wei-Shaw/sub2api upstream/main; no main merge or depl
   TokenKey 原有持久化 hold 不关闭。AG 首内容前的保活及两分钟首内容截止时间同样
   默认关闭，复用共享配置 owner 显式启用，默认保留未提交响应的失败切换行为。
   手机首页只收紧共享 landing 组件的间距，桌面布局与产品文案不变。
-- 生产只读评估与未决业务门禁见
-  [上线前评估](../ops/upstream-pr2409-predeploy-20260930.md)。不因评估而授权生产配置、
+- 生产只读评估与未决业务门禁见当时上线前评估回执（已删除；勿恢复）。不因评估而授权生产配置、
   reset grant 兑换、新模型激活或部署；业务已确认 Astra ultrafast 按 6 倍标准价执行，
   该确认不等同于部署授权。
 

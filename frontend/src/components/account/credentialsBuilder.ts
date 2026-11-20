@@ -594,12 +594,27 @@ function officialAccountAPISupported(account: CNUsageCellAccount, mode: string):
   }
 }
 
+/** NewAPI Extension Engine MiniMax Token Plan (api.minimaxi.com / api.minimax.io). */
+export function isNewAPIMiniMaxTokenPlanAccount(account: CNUsageCellAccount): boolean {
+  if (account.platform !== 'newapi') return false
+  const base = String(account.credentials?.base_url ?? '').toLowerCase()
+  return base.includes('minimaxi.com') || base.includes('minimax.io') || base.includes('minimax.com')
+}
+
+/** Extra snapshot prefix for CNProviderQuotaCell (backend writes minimax_* for NewAPI Token Plan). */
+export function cnQuotaExtraProviderKey(account: CNUsageCellAccount): string {
+  if (isNewAPIMiniMaxTokenPlanAccount(account)) return 'minimax'
+  return account.platform
+}
+
 export function cnQuotaCellVisible(account: CNUsageCellAccount): boolean {
   const { platform } = account
   const mode = cnUsageCellAccountMode(account)
   if (platform === 'opencode_go') return mode !== 'zen'
   // Command Code、Cline：订阅窗口与积分由一次探测同时刷新。
   if (OFFICIAL_ACCOUNT_API_PLATFORMS.includes(platform)) return officialAccountAPISupported(account, mode)
+  // NewAPI+minimaxi shares coding_plan/remains with native minimax coding.
+  if (isNewAPIMiniMaxTokenPlanAccount(account)) return true
   return (platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && mode === 'coding'
 }
 

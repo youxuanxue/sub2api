@@ -62,7 +62,7 @@ done
 data_host() {
   case "$SITE" in
     prod) python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["host_watch"]["data_hostname"])' "$BUNDLE_DIR/candidate-usw-20261022.json" ;;
-    cn-prod) python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["data_instance_name"])' "$BUNDLE_DIR/prod-target.json" ;;
+    cn-prod) python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print((d.get("data_machine") or {}).get("hostname") or d["data_instance_name"])' "$BUNDLE_DIR/prod-target.json" ;;
   esac
 }
 

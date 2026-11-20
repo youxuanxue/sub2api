@@ -376,6 +376,7 @@ const antigravityPresetMappings = [
   { label: '4 Argon', from: 'gemini-4-argon', to: 'gemini-4-argon-medium', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
   { label: '4 Carbon', from: 'gemini-4-carbon', to: 'gemini-4-carbon-medium', color: 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-400' },
   { label: '4 Hydrogen', from: 'gemini-4-hydrogen', to: 'gemini-4-hydrogen-medium', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { label: '4 Neon', from: 'gemini-4-neon', to: 'gemini-4-neon-medium', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: '3.8 Flash', from: 'gemini-3.8-flash', to: 'gemini-3.8-flash-high', color: 'bg-lime-100 text-lime-700 hover:bg-lime-200 dark:bg-lime-900/30 dark:text-lime-400' },
   { label: '3-Flash', from: 'gemini-3-flash', to: 'gemini-3-flash', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
   { label: '3.1 Flash Image', from: 'gemini-3.1-flash-image', to: 'gemini-3.1-flash-image', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },

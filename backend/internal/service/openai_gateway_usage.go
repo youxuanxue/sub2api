@@ -864,7 +864,10 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 				tokens,
 				serviceTier,
 				optionalStringValue(result.ReasoningEffort),
-				longContextBillingGate, disableModelLongContext...,
+				longContextBillingGate, result != nil && result.ImageCount == 0 && func() bool {
+					resolved := s.resolveOpenAIChannelPricing(ctx, candidate, apiKey)
+					return resolved != nil && resolved.Mode == BillingModeImage
+				}(), disableModelLongContext...,
 			)
 			if err == nil {
 				tokenCost = cost
@@ -939,15 +942,20 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 	serviceTier string,
 	reasoningEffort string,
 	longContextBillingGate *bool,
+	requestCountKnown bool,
 	disableModelLongContext ...bool,
 ) (*CostBreakdown, error) {
 	exempt := len(disableModelLongContext) > 0 && disableModelLongContext[0]
 	if s.resolver != nil && apiKey.Group != nil {
 		gid := apiKey.Group.ID
 		billingAt := RecordUsageBillingAt(pricingAt)
+		requestCount := 1
+		if requestCountKnown {
+			requestCount = 0
+		}
 		return s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
-			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier,
+			Tokens: tokens, RequestCount: requestCount, RequestCountKnown: requestCountKnown, RateMultiplier: multiplier,
 			PricingAt: pricingAt, BillingAt: billingAt,
 			ServiceTier: serviceTier, ReasoningEffort: reasoningEffort, Resolver: s.resolver,
 			LongContextBillingEnabled:      longContextBillingGate,
@@ -1255,7 +1263,7 @@ func (s *OpenAIGatewayService) mirrorOpenAIAccountStatsTokenCost(
 			continue
 		}
 		mirror, err := s.calculateOpenAIRecordUsageTokenCost(
-			ctx, apiKey, candidate, 1.0, pricingAt, tokens, serviceTier, optionalStringValue(result.ReasoningEffort), longContextBillingGate, disableModelLongContext...,
+			ctx, apiKey, candidate, 1.0, pricingAt, tokens, serviceTier, optionalStringValue(result.ReasoningEffort), longContextBillingGate, false, disableModelLongContext...,
 		)
 		if err == nil {
 			if cost := accountStatsTokenCostFromBreakdown(mirror); cost != nil {

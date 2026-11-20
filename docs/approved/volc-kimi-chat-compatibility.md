@@ -1,7 +1,7 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。); feng (2026-11-18 conversation: 同意。继续。 — Volc thinking-on 时把合法非 1 temperature 改写为 1); feng (2026-11-18 conversation: deepseek-v4-flash-0731 退役旧模型，不做任何动作。Kimi/Volc：可做的网关修复（对齐 KVV），同意建议的修复，请逐个修复。复审。); feng (2026-11-19 conversation: 同意。请继续修复。 — Volc thinking-off 时把合法非 0.6 temperature 改写为 0.6); feng (2026-11-19 conversation: 同意。继续。 — drop prompt_cache_breakpoint; tighten data: video local 400; keep long tool_call_id trajectories unchanged); feng (2026-11-19 conversation: 同意。请修复、实测。 — type=file missing/non-PDF normalize)"
+approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。); feng (2026-11-18 conversation: 同意。继续。 — Volc thinking-on 时把合法非 1 temperature 改写为 1); feng (2026-11-18 conversation: deepseek-v4-flash-0731 退役旧模型，不做任何动作。Kimi/Volc：可做的网关修复（对齐 KVV），同意建议的修复，请逐个修复。复审。); feng (2026-11-19 conversation: 同意。请继续修复。 — Volc thinking-off 时把合法非 0.6 temperature 改写为 0.6); feng (2026-11-19 conversation: 同意。继续。 — drop prompt_cache_breakpoint; tighten data: video local 400; keep long tool_call_id trajectories unchanged); feng (2026-11-19 conversation: 同意。请修复、实测。 — type=file missing/non-PDF normalize); feng (2026-11-20 conversation: 同意，先做直打 volc 的证据，在做兼容修复。前提不要和 kvv 原则冲突。 — drop refusal/summary_text; rewrite input_video→video_url); feng (2026-11-20 conversation: 同意。继续。 — stream finish_reason:null; outer usage.cached_tokens; video probe retry); feng (2026-11-20 conversation: 目标是在不违背 kvv 的基础和原则下，尽可能提高可用率。 — messages video → chat video_url forward)"
 approved_at: 2026-10-15
 risk: high
 ---
@@ -588,3 +588,76 @@ Behavior (`normalizeVolcKimiFileContentParts`, end of
   stripped. Does not change KVV sampling, dynamic tools, or orphan tool 400s.
 
 Tests: `TestVolcKimiFileContentPartCompatibility`.
+
+## 2026-11-20: refusal / summary_text drop + input_video rewrite
+
+Evidence: cn-prod `ops_error_logs` (rt@tk.com, ~48h) residual
+`messages.content.type` buckets `refusal` / `summary_text` / `input_video`, plus
+direct Volc Agent Plan probe
+`ops/stage0/probe_volc_kimi_content_part_sanitize.sh` on account
+`volcengine-agent-plan-6` / `kimi-k3` (UTC 2026-11-20):
+
+| Case | Raw | Sanitized |
+| --- | --- | --- |
+| drop `refusal` | 400 invalid type | **200** |
+| drop `summary_text` | 400 invalid type | **200** |
+| rewrite `input_video`→`video_url` (same data: URL) | 400 invalid type `input_video` | 400 opaque InvalidParameter (**enum cleared**; media validity separate) |
+| KVV orphan `tool_call_id` | — | still ≥400 |
+| KVV blank `function.name` | — | still ≥400 |
+
+User decision 2026-11-20: gather direct Volc evidence first, then gateway fix,
+without conflicting with KVV (no orphan rewrite, no blank-name fill, no illegal
+sampling soften, no context truncation, no recursive-schema flatten).
+
+Behavior (same owners as 2026-11-18 content-part path):
+
+- Drop `messages.content` parts with `type` `refusal` or `summary_text` in
+  `dropVolcKimiReasoningContentParts` (with thinking / reasoning_text /
+  prompt_cache_breakpoint).
+- Rewrite `type=input_video` to `type=video_url` when a URL is present, same as
+  `type=video` (`rewriteVolcKimiVideoTypeParts`). Do not strip the media part;
+  reachability / data: size gates unchanged.
+- Lone-object wrap recognizes the new types so drop/rewrite still run.
+
+Tests: `TestVolcKimiContentPartCompatibility` (refusal / summary_text /
+input_video cases).
+
+## 2026-11-20: rt@tk.com five-item chat wire + messages video forward
+
+Evidence: customer PDF `接口测试结果_20261120(1).pdf` against cn-prod
+`Kimi K3-hq` (rt@tk.com). Items are Moonshot Chat wire / multi-protocol UX,
+not KVV hard gates. User decisions 2026-11-20 「同意。继续。」then
+「尽可能提高可用率」without softening KVV negatives.
+
+Behavior:
+
+- Outbound Volc Agent Plan Kimi raw Chat Completions
+  (`volc_kimi_chat_response_tk.go`, hooked from
+  `openai_gateway_chat_completions_raw.go`):
+  - Stream chunks that omit `choices[].finish_reason` get `"finish_reason":
+    null`; terminal string values stay.
+  - When `usage.prompt_tokens_details.cached_tokens` exists and outer
+    `usage.cached_tokens` is absent, mirror the details value (including 0).
+    Do not invent cache hits.
+- Remote `video_url` preflight (`probeVolcKimiHTTPVideo`): retry transient
+  transport / 5xx / 429 up to three attempts; HEAD transport failure falls
+  back to ranged GET once per attempt. Permanent 4xx (except the existing
+  HEAD→GET status set) stays a single local 400. Unreachable URLs are still
+  rejected; data: and `ms://` paths unchanged.
+- `/v1/messages` Moonshot-shaped `video` / `video_url` / `input_video` blocks:
+  `AnthropicToChatCompletionsRequest` rewrites them to Chat `video_url`
+  (url / base64 source or string/object `video_url`). Empty video URL still
+  errors. Open-source new-api / LiteLLM silent-drop those blocks; we forward
+  so Volc Kimi chat can serve them after the existing reachability gate.
+  `preservesMessagesToChat` admits ContentVideo and fail-closes ContentAudio.
+  `/v1/responses` video rejection stays as-is. KVV orphan / blank-name /
+  sampling / schema / truncation rules unchanged.
+
+Tests: `TestVolcKimiMirrorOuterCachedTokens`,
+`TestVolcKimiStreamFinishReasonNullAndCachedTokens`,
+`TestVolcKimiThinkingShapesKeepUpstreamUsage` (wire asserts),
+`TestVolcKimiHTTPVideoProbe` (503 retry),
+`TestAnthropicToChatCompletionsRequest_VideoBlocksBecomeChatVideoURL`,
+`TestPlanMessagesToChatAdmitsVideoRejectsAudio`,
+`TestForwardAsAnthropic_VolcKimiMessagesVideoBecomesChatVideoURL`,
+`TestForwardAsAnthropic_VolcKimiMessagesEmptyVideoURLRejected`.

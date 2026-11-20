@@ -105,7 +105,8 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 	if haystack == "" || !tkIsRecoverableUsageWindowMessage(haystack) {
 		return nil
 	}
-	if !strings.Contains(haystack, "exhausted") && !strings.Contains(haystack, "exceeded") {
+	miniMaxQuota := tkIsMiniMaxTokenPlanQuotaMessage(haystack)
+	if !strings.Contains(haystack, "exhausted") && !strings.Contains(haystack, "exceeded") && !miniMaxQuota {
 		return nil
 	}
 	window := "weekly"
@@ -121,6 +122,10 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 		window = "7d"
 	case strings.Contains(haystack, "weekly"):
 		window = "weekly"
+	case miniMaxQuota:
+		// Official CN copy does not name the window; prod remains evidence ties
+		// 2056 to current_interval (5h) while weekly still had headroom.
+		window = "5h"
 	}
 	// Date anchors relative Retry-After and yearless timestamps to the provider clock.
 	reference := now
@@ -161,9 +166,20 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 	if !ok && !strings.Contains(haystack, "will reset at") && tkIsNewAPIMonthlyQuotaMessage(haystack) {
 		resetAt, ok = tkMonthlyQuotaCalendarResetAt(now), true
 	}
+	// MiniMax Token Plan CN copy likewise has no reset text. Fall back to a 5h
+	// cool (official current_interval size) ahead of the seconds-level 429
+	// fallback. Exact remains end_time belongs in Extra / ops remediation.
+	if !ok && !strings.Contains(haystack, "will reset at") && miniMaxQuota {
+		hit := tkMiniMaxTokenPlanQuotaFallbackHit(now)
+		resetAt, ok = hit.ResetAt, true
+		window = hit.Window
+	}
 	// A monthly quota reset is authoritative even if Retry-After only describes
 	// a short request throttle. Preserve existing header precedence for other windows.
-	if retryAt := parseRetryAfterResetTime(headers, reference); retryAt != nil && retryAt.After(now) && (window != "monthly" || !ok) {
+	// MiniMax Token Plan must also ignore short Retry-After — the included quota
+	// does not recover in seconds.
+	if retryAt := parseRetryAfterResetTime(headers, reference); retryAt != nil && retryAt.After(now) &&
+		(window != "monthly" || !ok) && !miniMaxQuota {
 		resetAt, ok = *retryAt, true
 	}
 	if !ok {
@@ -216,11 +232,19 @@ func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, 
 	if msg == "" {
 		msg = string(responseBody)
 	}
-	hit := tkParseNewAPIUsageWindowResponse(msg, headers, time.Now())
+	now := time.Now()
+	hit := tkParseNewAPIUsageWindowResponse(msg, headers, now)
+	// Prefer an Extra snapshot (e.g. remains backfill) over the 5h parse fallback
+	// when MiniMax Token Plan exhaustion is recognized.
+	if tkIsMiniMaxTokenPlanQuotaMessage(msg) {
+		if fromExtra := tkMiniMaxTokenPlanHitFromExtra(account, now); fromExtra != nil {
+			hit = fromExtra
+		}
+	}
 	if hit == nil {
 		return false
 	}
-	if !hit.ResetAt.After(time.Now()) {
+	if !hit.ResetAt.After(now) {
 		return false
 	}
 
@@ -358,8 +382,13 @@ func applyNewAPIUsageWindowSnapshot(account *Account, usage *UsageInfo) {
 		return
 	}
 	now := time.Now()
+	// window_lock = genuine cool (429 / remains exhausted). observed = proactive
+	// remains snapshot with partial remaining %. Either may render bars; Volc
+	// false locks have neither and stay hidden.
+	canRender := parseExtraFloat64(account.Extra[NewAPIAccountWindowLockExtraKey]) > 0 ||
+		parseExtraFloat64(account.Extra[newAPIUsageWindowObservedExtraKey]) > 0
 	apply := func(window, utilKey, resetKey, dimKey, dimLabel, dimWindow string, progress **UsageProgress) {
-		if parseExtraFloat64(account.Extra[NewAPIAccountWindowLockExtraKey]) <= 0 {
+		if !canRender {
 			return
 		}
 		util := parseExtraFloat64(account.Extra[utilKey])

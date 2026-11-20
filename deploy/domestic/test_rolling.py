@@ -584,10 +584,10 @@ class PreflightRefusalTest(RollingTestBase):
         self.a.containers = {"tokenkey-blue": "exited", "tokenkey-green": "exited", "tokenkey": "running"}
         self.assertEqual(rolling.layout_errors(self.a.node, self.a.probe({})), [])
 
-    def test_running_caddy_fallback_does_not_block_rolling(self):
-        # app-a keeps tokenkey-caddy running as the direct-site rollback after M4.
+    def test_running_app_edge_caddy_blocks_rolling(self):
+        # App-edge caddy retired 2026-11-20; TLS is entry-only.
         self.a.containers = {"tokenkey-caddy": "running", "tokenkey": "running"}
-        self.assertEqual(rolling.layout_errors(self.a.node, self.a.probe({})), [])
+        self.assertRefused("tokenkey-caddy")
 
     def test_socat_tokenkey_is_refused(self):
         self.a.socat = True

@@ -150,6 +150,8 @@ def _flatten_data_machine(data: dict, manifest: Path) -> None:
         ("private_ip", "data_private_ip"),
         ("expected_ssm_instance_id", "data_ssm_instance_id"),
         ("ssm_region", "data_ssm_region"),
+        ("hostname", "data_instance_name"),
+        ("ssm_name", "data_ssm_name"),
     )
     for src, dest in mapping:
         if dest not in data and nested.get(src) not in (None, ""):

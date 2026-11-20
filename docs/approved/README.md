@@ -7,9 +7,8 @@ revised_at: 2026-10-28
 
 # Approved docs index
 
-- approved：[网关错误与局部安全修复](gateway-correctness-remediation-20261112.md)：Messages 取消误分类复用 #3161；保留 Chat 流内错误、隔离、脱敏与刷新失败拒签；撤出 outbox/rollup 重构，不含合并或部署授权。
 
-- [prod 应用机并行替换](design-prod-app-parallel-replacement.md)：取消原地 LUKS 搬盘；新旧并行、不中断、旧机保留、QA 集中管理（保留，不删）。入口/HA/切流/脱离 LUKS 改由 [美西 prod 入口机 + 双应用机](design-prod-entry-multi-app.md) 接管并废止其 HA 入口验收条。
+- [prod 应用机并行替换](design-prod-app-parallel-replacement.md)：双应用机 / 不中断 / QA 24h 清理不变量（迁机叙事已删）。入口与脱离 LUKS 见 [美西 prod 入口机 + 双应用机](design-prod-entry-multi-app.md)。
 
 - [未知 TTL 缓存创建量计费](cache-creation-unknown-ttl-billing.md)：已知 TTL 保留原价，结算时仍未知的差额按 1h；不追补旧账。
 
@@ -19,17 +18,13 @@ revised_at: 2026-10-28
 
 - [Kiro 文件工具分块兼容方案](kiro-file-tool-chunking.md)：已确认的按账号分块提示；实测缓解长静默断流，明确轮数、成本和非保证边界。
 
-- [cn-prod 私有镜像分发](cn-prod-image-distribution.md)：预下载/rolling 边界；存储目的地见 [design-cn-image-cos.md](design-cn-image-cos.md)（北京 COS）。
+- [cn-prod 镜像分发（北京 COS）](design-cn-image-cos.md)：目的地 + 预下载/rolling 边界。
 
 - [OAuth 搜索历史与工具权限](openai-search-history-tool-permissions.md)：历史声明补全、原工具权限及保护错误诊断。
 
 - [Antigravity 模型能力修复](antigravity-model-capability-repair.md)：保留 Argon、统一发现入口、模型级冷却与已确认无效映射清理。
 
 - [OAuth 集中后的网关安全](oauth-consolidation-gateway-safety.md)：固定代理、请求错误语义、流式巡检和数据处置边界。
-
-- 已完成：[AWS 迁移收尾](aws-migration-closeout-20261016.md)：备份、QA timer、独立健康监控与旧主机资源收尾边界（执行记录）。
-
-- archived：[东京切流复审修复](tokyo-cutover-review-repair-20261017.md)（Tokyo 已删除）。
 
 `docs/approved/` is the approval baseline for high-risk work. These files are
 load-bearing: code comments, sentinels, migrations, and preflight checks refer
@@ -66,7 +61,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 ## TokenKey SSOT 导航
 
-国内 prod（现腾讯北京；UCloud 段为首发历史）的授权范围、首次初始化和发布边界：[国内部署契约](design-domestic-cluster.md)。2026-11-15 起 cn-prod 为入口机加多应用机，发版改为逐台滚动：[cn-prod 多应用机滚动发版](design-cn-prod-rolling-deploy.md)。美西 prod 同构方案：[入口机 + 双应用机 + 脱离 LUKS](design-prod-entry-multi-app.md)。
+cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚动发版](design-cn-prod-rolling-deploy.md)；运维入口 [`deploy/domestic/README.md`](../../deploy/domestic/README.md)。美西 prod 同构方案：[入口机 + 双应用机 + 脱离 LUKS](design-prod-entry-multi-app.md)。
 
 本节只提供契约入口；规则、实现 owner 和验收状态在链接目标维护。
 
@@ -82,6 +77,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | Key 授权与计费归属 | [Universal key routing](universal-key-routing.md) |
 | Kiro OAuth 混入 Claude（anthropic）组 | [Kiro mixed_scheduling](kiro-mixed-scheduling-claude-groups.md) |
 | 推理响应 `usage.cost` 标准官方价出口 | [Response usage.cost](response-usage-cost.md) |
+| Responses 零图与 Grok 失败搜索如何计量 | [计费事件语义](usage-billing-event-semantics.md) |
 | 官方价格注册表与热发布 | [Pricing registry](pricing-registry-hot-reload.md) |
 | 分组／渠道价目优先级与 alias | [价格与 alias](pricing-serving-single-source-of-truth.md#4-价格与-alias) |
 | 可用性观测证据与目录裁剪 | [Availability evidence](pricing-availability-source-of-truth.md#1-本文唯一拥有的事实) |
@@ -161,28 +157,17 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | File | Topic |
 | --- | --- |
 | [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 阈值 |
-| [`design-data-layer-prod-export-canary.md`](design-data-layer-prod-export-canary.md) | archived：生产 export/canary CLI 已删（2026-11-19）；库级靠 pgBackRest |
-| [`design-data-layer-archive-rehearsal.md`](design-data-layer-archive-rehearsal.md) | Archive rehearsal |
-| [`design-data-layer-phase1-closeout.md`](design-data-layer-phase1-closeout.md) | Phase1 closeout（Telemetry S3 一节已退役：2026-11-08 用户决定保持关闭并删除代码） |
-| [`design-phase1-prod-activation-gates.md`](design-phase1-prod-activation-gates.md) | Phase1 activation gates（telemetry 探针已退役：2026-11-08 用户决定保持关闭并删除代码） |
-| [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 archive 桶（历史 S3 证据语义；新目的地见下） |
 | [`design-cos-object-archive.md`](design-cos-object-archive.md) | 对象归档统一 COS、禁新写 AWS（2026-11-17 批准） |
-| [`design-tencent-ops-control-plane.md`](design-tencent-ops-control-plane.md) | 运维旁路/密钥收敛腾讯 TAT·COS（2026-11-18 批准） |
-| [`design-tencent-ops-closeout.md`](design-tencent-ops-closeout.md) | 旁路+SecureString 完整收尾处置清单（2026-11-18 批准） |
+| [`design-tencent-ops-control-plane.md`](design-tencent-ops-control-plane.md) | 运维旁路/密钥收敛腾讯 TAT·COS（2026-11-18 批准；旁路迁 TAT / SecureString 收尾已完成，Hybrid/OIDC 注销另批） |
 | [`ops-error-logs-column-contract.md`](ops-error-logs-column-contract.md) | `ops_error_logs` 列契约：声明 == 写入 ∪ DB 托管（无 Ent schema 表的机械替代） |
-| [`qa-raw-only.md`](qa-raw-only.md) | archived：QA S3 已退役（2026-11-08）；现行 QA 为本地 24h + node1 每 4h，见 design-tencent-cos-backup-node1-qa.md |
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
 | [`qa-redaction-identified-formats-only.md`](qa-redaction-identified-formats-only.md) | QA 脱敏已识别格式边界与性能优化 |
-| [`design-prod-physical-backup.md`](design-prod-physical-backup.md) | 每周全量、两小时块增量、WAL 连续归档及隔离验收 |
+| [`design-prod-physical-backup.md`](design-prod-physical-backup.md) | pgBackRest 节奏；存储/唯一 repo 见 design-tencent-cos-backup-node1-qa |
 | [`billing-dedup-retention.md`](billing-dedup-retention.md) | 计费去重表：热表 7 天、含归档共 30 天，超期直接删除 |
 | [`design-tencent-cos-backup-node1-qa.md`](design-tencent-cos-backup-node1-qa.md) | 腾讯 COS 数据库备份迁移、AWS 回退与 node1 QA/备份兜底 |
 | [`design-data-plane-split.md`](design-data-plane-split.md) | prod 与 cn-prod 数据面从应用机拆到同私网数据机；逐站停写切流，窗口需单独审批 |
-| [`cn-prod-logical-backup.md`](cn-prod-logical-backup.md) | 逻辑 dump 已停；文首引用块说明为何保留 pgBackRest 监控，文末步骤不再执行 |
-| [`design-fleet-pgdump-restore-canary.md`](design-fleet-pgdump-restore-canary.md) | Fleet pgdump restore canary |
-| [`hetzner-cloud-full-migration.md`](hetzner-cloud-full-migration.md) | 舰队不变量锁（Hetzner 期选址为历史；执行 SSOT：`deploy/hetzner/README.md`） |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
-| [`deploy-stage0-workflow.md`](deploy-stage0-workflow.md) | Gateway blue/green release（`approved`；Bundle Worker 选择已归档） |
-| [`stage0-release-check-remediation.md`](stage0-release-check-remediation.md) | Stage0 release-check remediation |
+| [`deploy-stage0-workflow.md`](deploy-stage0-workflow.md) | Stage0 蓝绿 tombstone（A14）；默认发版见 rolling 设计 |
 
 ### Ops / admin / misc
 
@@ -192,14 +177,12 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`prod-replay-capability-matrix.md`](prod-replay-capability-matrix.md) | Offline gateway capability matrix；与部署无关 |
 | [`ops-sla-error-owner-scope.md`](ops-sla-error-owner-scope.md) | Ops SLA owner scope |
 | [`proxy-unreachable-p0-alert.md`](proxy-unreachable-p0-alert.md) | 代理出口 IP:port 不可达 P0 告警 |
-| [`admin-dashboard-rollup-performance.md`](admin-dashboard-rollup-performance.md) | Admin dashboard rollups |
-| [`admin-ui-performance-rollups.md`](admin-ui-performance-rollups.md) | Admin UI rollup performance |
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
 | [`trial-media-recharge-ux-and-total-recharged.md`](trial-media-recharge-ux-and-total-recharged.md) | Trial media 402 Studio UX + `users.total_recharged` / 总充值 SSOT (A1/B1) |
 | [`public-quickstart-registration-offer.md`](public-quickstart-registration-offer.md) | Public Quickstart and shared registration offer |
 | [`usage-balance-fallback.md`](usage-balance-fallback.md) | Usage balance fallback |
 | [`response-usage-cost.md`](response-usage-cost.md) | Inference response `usage.cost` (TotalCost / list price) |
-| [`design-dual-market-homepage.md`](design-dual-market-homepage.md) | 双市场首页与统一产品矩阵（海外 host 全门面条款见 facade 文档） |
+| [`design-dual-market-homepage.md`](design-dual-market-homepage.md) | 双门面单产品不变量；海外 host 行为见 CallModel 门面 |
 | [`design-callmodel-product-facade.md`](design-callmodel-product-facade.md) | CallModel 产品门面（同壳反代 + 品牌铬；局部 supersede dual-market） |
 
 ### Upstream merge anchors
@@ -215,17 +198,24 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`upstream-merge-2026-11-11.md`](upstream-merge-2026-11-11.md) | 本轮隔离合并、覆盖索引与 OpenAI TTL 迁移边界；生产与主线审批待确认 |
 | [`upstream-merge-2026-11-18.md`](upstream-merge-2026-11-18.md) | 隔离合并、Ultra Fast 与汇总重建迁移范围；待最终审核 |
 
-## 已归档的 QA 设计
+## 已删除的历史设计（勿恢复）
 
-| File | Topic |
-| --- | --- |
-| [design-prod-qa-24h-s3-lifecycle.md](design-prod-qa-24h-s3-lifecycle.md) | archived：QA S3 已退役（2026-11-08）；shard 状态机仍被本地 cleanup 写入 |
-| [qa-bundle-session-export.md](qa-bundle-session-export.md) | archived：退役用户会话导出 |
-| [design-split-deploy-qa-bundle.md](design-split-deploy-qa-bundle.md) | archived：退役 Bundle worker 发布 |
-| [prod-component-release.md](prod-component-release.md) | archived：原组件发布设计，由 raw-only 替代 |
-| [hcloud-pgdump-storage.md](hcloud-pgdump-storage.md) | archived：Hetzner 期 pgdump 存储，由物理备份取代 |
+Tokyo/AWS 切流回执、Hetzner 全量迁移基线、pgdump/export canary、QA Bundle/组件发布、
+24h S3 lifecycle、hcloud-pgdump-storage、phase1 closeout/activation gates、archive
+rehearsal、历史 S3 archive-bucket 设计、cn-prod 逻辑 dump 激活文、腾讯运维旁路
+closeout 清单等历史文已从本目录删除。现网舰队 SSOT：
+[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。现行对象归档：
+[design-cos-object-archive.md](design-cos-object-archive.md)；运维旁路：
+[design-tencent-ops-control-plane.md](design-tencent-ops-control-plane.md)。
+现行 QA：[design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)；
+QA 删除边界已并入 [design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)。
+cn-prod 备份监控走 `ops-cn-backup-watch.yml` + pgBackRest，勿恢复逻辑 dump 步骤。
+一次性 ops 历史稿（COS 并行 repo 草案、UCloud Kimi 压测包、relay-watch、
+旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。已完成迁机执行表（entry-multi-app L1–X4、data-plane 停写逐步表、parallel-replacement 询价/SSM 回执）已从正文删除，仅留不变量。`cn-prod-image-distribution` 已并入 `design-cn-image-cos`；无引用 kvv-kimi 压测报告已删；`stage0-release-check-remediation` / `gateway-correctness-remediation-20261112` 与中间 deepseek 压测报告已删；`deploy-stage0-workflow` 收为 A14 tombstone。
+admin dashboard/UI rollup 历史批准文已删；dual-market / pgBackRest 迁机 runbook 历史执行段已压缩。
+一次性迁机 orphan 工具（migration snapshot / final-wal 校验）已删；活契约仍用 `probe-migration-applied-verify` 与 host-replacement。
 
-网关生产蓝绿发布以 [deploy-stage0-workflow.md](deploy-stage0-workflow.md) 为基线，QA 部分以 raw-only 覆盖。
+Stage0 蓝绿已退役为 tombstone：[deploy-stage0-workflow.md](deploy-stage0-workflow.md)；默认发版走 rolling。
 
 - [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.
 
