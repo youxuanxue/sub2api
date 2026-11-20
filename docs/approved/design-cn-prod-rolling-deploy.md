@@ -118,7 +118,7 @@ M1–M6（蓝绿→滚动、单容器、关公网 80/443、删 cn-prod bluegreen
 
 ## 容量核算
 
-**现网（2026-11-18）**：两台应用机各配 `DATABASE_MAX_OPEN_CONNS=80` / idle=20（`compose.override.yml`），合计最多 160 open；数据机 PG `max_connections=400`。`GATEWAY_MAX_IN_FLIGHT_REQUESTS=480`，`REDIS_POOL_SIZE=96`。应用机规格下限 4C8G（已有 4C16G 可保留）。prod 的池另算，在 prod 数据机上。依据：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-nofile-20261118.md`、`docs/ops/approvals/cn-prod-pg-max-connections-200-to-400.md`。
+**现网（2026-11-18）**：两台应用机各配 `DATABASE_MAX_OPEN_CONNS=80` / idle=20（`compose.override.yml`），合计最多 160 open；数据机 PG `max_connections=400`。`GATEWAY_MAX_IN_FLIGHT_REQUESTS=480`，`REDIS_POOL_SIZE=96`。应用机规格下限 4C8G（已有 4C16G 可保留）。prod 的池另算，在 prod 数据机上。依据：`docs/decisions/decided.md`。
 
 ## 不变量
 

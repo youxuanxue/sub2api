@@ -33,7 +33,10 @@ approved_at: 2026-10-21
 - `KiroGatewayService.Forward`：读取选中账号，将选项交给 translator。
 - `ClaudeToKiroWithFileToolGuidance`：单一 system 构造路径；默认 `ClaudeToKiro` 保持关闭。
 - [US-070](../../.testing/user-stories/stories/US-070-kiro-file-tool-chunking.md)：常驻转换、流式/非流式、配置、轮次和失败边界测试。
-- [运维说明](../kiro-file-tool-chunking-operations.md)：通过既有管理员 API 按键修改 Extra，避免替换其他配置。
+- 运维开启：`POST /api/v1/admin/accounts/bulk-update` 对显式 `account_ids` 合并
+  `extra.kiro_file_tool_chunking=true`（JSONB 顶层键合并，保留其他 Extra）。不要用普通
+  账号 PUT 只提交这一键——PUT Extra 是替换语义。回退同接口写 `false`；字符串/数字/null
+  不启用。建议新会话边界切换（提示变化会改 conversation/cache 前缀）。
 
 Web impact: none。本次是运维账号策略，无新增用户端字段或 UI；管理端复用既有 Extra API。现有用户请求不能开启该账号策略。计费继续使用既有 owner，新增提示不另造 token/credits 计费规则；额外客户端轮次仍是各自独立请求。
 

@@ -142,13 +142,13 @@
 
 后续确认：「1. app-b 改为 4C8G，同意生完权重1:1；2.同意。低峰需要发我审批；3.同意。」（按量压测机）
 
-适用范围：cn-prod。双应用机保持两台；app-b 由 2C4G 升到 `bundle_rs_mc_lg8_01` **4C8G**（非 4C16G）；入口 WRR **app-a:app-b = 1:1**。应用侧 `DATABASE_MAX_OPEN_CONNS` 40→80（idle 10→20）。数据机 `max_connections` 200→400 **须低峰窗口审批后才重启 Postgres**（审批 `docs/ops/approvals/cn-prod-pg-max-connections-200-to-400.md`；**2026-11-17 13:46 BJT 已执行**，`SHOW max_connections=400`）。专用压测 client：北京按量 CVM 约 2 天（`ins-7ltl2zv3`，tag `expire_after=2026-11-19`），不放在 `cn-ip*` 代理机或应用机上。依据：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-20261117.md`。
+适用范围：cn-prod。双应用机保持两台；app-b 由 2C4G 升到 `bundle_rs_mc_lg8_01` **4C8G**（非 4C16G）；入口 WRR **app-a:app-b = 1:1**。应用侧 `DATABASE_MAX_OPEN_CONNS` 40→80（idle 10→20）。数据机 `max_connections` 200→400 **须低峰窗口审批后才重启 Postgres**（**2026-11-17 13:46 BJT 已执行**，`SHOW max_connections=400`；一次性审批回执已删）。专用压测 client：北京按量 CVM 约 2 天（`ins-7ltl2zv3`，tag `expire_after=2026-11-19`），不放在 `cn-ip*` 代理机或应用机上。容量结论以本条目与 `design-cn-prod-rolling-deploy` 为准。
 
 后续确认（2026-11-17）：「client 换 8C 同意。再压一下并发 1200 吧。重点关注吞吐已明显亚线性的根因。」→ 压测机由 `SA2.LARGE8`（4C8G）升到 `SA2.2XLARGE16`（8C16G）；阶梯含 1200，并采双应用/数据机 monitor。
 
 同日 1200 初测受 client soft `ulimit -n=1024`（Errno 24）污染；中间报告已删。operating point 仍 **800**。
 
-后续确认（2026-11-18）：「修复 client nofile 之后，重新压一下 1200？」→ soft nofile 提到 **65535** 后复测：400/800 仍 100%；1200 成功率 **0.916**，主失败改为 **455×503 overloaded_error**（concurrency_peak=1200）；operating point 仍 **800**。报告：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-nofile-20261118.md`。
+后续确认（2026-11-18）：「修复 client nofile 之后，重新压一下 1200？」→ soft nofile 提到 **65535** 后复测：400/800 仍 100%；1200 成功率 **0.916**，主失败改为 **455×503 overloaded_error**（concurrency_peak=1200）；operating point 仍 **800**。一次性压测报告已删；数字以本条目为准。
 
 后续确认（2026-11-18）：「1、同意 闸门 512→480。应用机统一 4C8G（prod和cn-prod，安全rolling到这个配置）。数据机升级到4C8G（安全升配，不要影响用户请求体验）。2、把压测脚本优化，把入口机的 CPU/load/连接数也纳入 lite monitor 采样。」→ `GATEWAY_MAX_IN_FLIGHT_REQUESTS` **512→480**；应用机规格**下限 4C8G**（Lighthouse **不能原地把 4C16G 降到 4C8G**，已有 16G 机保留；低于 4C8G 的升到 4C8G）；cn-prod 数据机 **2C4G→4C8G**（`bundle_starter_mc_lg8_01`）；压测 lite monitor 补入口机 CPU/load/连接数（`ops/observability/tpm_burst_lite_monitor.sh`）。
 

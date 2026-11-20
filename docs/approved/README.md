@@ -14,8 +14,6 @@ revised_at: 2026-10-28
 
 - [NewAPI 生图图片 token 计费](newapi-image-token-billing.md)：new-api `dto.Usage` 丢 `output_tokens_details`，bridge 从响应补回图片 token，修复 token 计价生图白送。
 
-- 已完成：[newapi OpenAI 渠道 image edits](newapi-openai-image-edits.md)：仅 OpenAI 渠道 newapi 账号转发 `/v1/images/edits`，其它 newapi 渠道仍 404。已随 #3153 合入。
-
 - [Kiro 文件工具分块兼容方案](kiro-file-tool-chunking.md)：已确认的按账号分块提示；实测缓解长静默断流，明确轮数、成本和非保证边界。
 
 - [cn-prod 镜像分发（北京 COS）](design-cn-image-cos.md)：目的地 + 预下载/rolling 边界。
@@ -102,7 +100,6 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 | [`gpt-image-strict-canvas-postprocess.md`](gpt-image-strict-canvas-postprocess.md) | GPT Image local exact canvas + format post-process（已合并 #2385） |
 | [`kiro-auto-mode-transcript-trim.md`](kiro-auto-mode-transcript-trim.md) | Kiro auto-mode / compact transcript trim；已随网关发布，Extra 默认关闭 |
 | [`messages-compaction-policy.md`](messages-compaction-policy.md) | Messages auto-compaction |
-| [`newapi-allow-image-generation-ops.md`](newapi-allow-image-generation-ops.md) | newapi image-generation ops switch |
 | [`newapi-as-fifth-platform.md`](newapi-as-fifth-platform.md) | NewAPI as fifth platform |
 | [`newapi-followup-bugs-and-forwarding-fields.md`](newapi-followup-bugs-and-forwarding-fields.md) | NewAPI follow-up fixes |
 | [`openai-codex-as-claude-thinking-continuity.md`](openai-codex-as-claude-thinking-continuity.md) | Codex-as-Claude thinking continuity |
@@ -184,40 +181,19 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 | [`design-dual-market-homepage.md`](design-dual-market-homepage.md) | 双门面单产品不变量；海外 host 行为见 CallModel 门面 |
 | [`design-callmodel-product-facade.md`](design-callmodel-product-facade.md) | CallModel 产品门面（同壳反代 + 品牌铬；局部 supersede dual-market） |
 
-### Upstream merge anchors
-
-| File | Topic |
-| --- | --- |
-| [`upstream-merge-2026-08-15-migrations.md`](upstream-merge-2026-08-15-migrations.md) | Upstream merge 2026-08-15 migrations（`shipped`） |
-| [`upstream-merge-20260923.md`](upstream-merge-20260923.md) | TokenKey upstream merge 2026-09-23 |
-| [`upstream-merge-20260930.md`](upstream-merge-20260930.md) | 隔离上游合并与 TokenKey 不变量裁决；不授权主线合并或部署 |
-| [`upstream-merge-2026-10-06.md`](upstream-merge-2026-10-06.md) | 隔离上游合并、241 迁移与 TokenKey CHECK/404 裁决；不授权主线合并或部署 |
-| [`upstream-merge-2026-10-22-migrations.md`](upstream-merge-2026-10-22-migrations.md) | 2026-10-22 上游迁移已随 #2796 合入（`shipped`） |
-| [`upstream-merge-2026-11-05-migrations.md`](upstream-merge-2026-11-05-migrations.md) | 2026-11-05 上游迁移 247–249 已随 #3068 合入（`shipped`） |
-| [`upstream-merge-2026-11-11.md`](upstream-merge-2026-11-11.md) | 本轮隔离合并、覆盖索引与 OpenAI TTL 迁移边界；生产与主线审批待确认 |
-| [`upstream-merge-2026-11-18.md`](upstream-merge-2026-11-18.md) | 隔离合并、Ultra Fast 与汇总重建迁移范围；待最终审核 |
-
 ## 已删除的历史设计（勿恢复）
 
-Tokyo/AWS 切流回执、Hetzner 全量迁移基线、pgdump/export canary、QA Bundle/组件发布、
-24h S3 lifecycle、hcloud-pgdump-storage、phase1 closeout/activation gates、archive
-rehearsal、历史 S3 archive-bucket 设计、cn-prod 逻辑 dump 激活文、腾讯运维旁路
-closeout 清单等历史文已从本目录删除。现网舰队 SSOT：
-[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。现行对象归档：
-[design-cos-object-archive.md](design-cos-object-archive.md)；运维旁路：
-[design-tencent-ops-control-plane.md](design-tencent-ops-control-plane.md)。
-现行 QA：[design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)；
-QA 删除边界已并入 [design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)。
-cn-prod 备份监控走 `ops-cn-backup-watch.yml` + pgBackRest，勿恢复逻辑 dump 步骤。
-一次性 ops 历史稿（COS 并行 repo 草案、UCloud Kimi 压测包、relay-watch、
-旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。已完成迁机执行表（entry-multi-app L1–X4、data-plane 停写逐步表、parallel-replacement 询价/SSM 回执）已从正文删除，仅留不变量。`cn-prod-image-distribution` 已并入 `design-cn-image-cos`；无引用 kvv-kimi 压测报告已删；`stage0-release-check-remediation` / `gateway-correctness-remediation-20261112` 与中间 deepseek 压测报告已删。
-admin dashboard/UI rollup 历史批准文已删；dual-market / pgBackRest 迁机 runbook 历史执行段已压缩。
-一次性迁机 orphan 工具（migration snapshot / final-wal 校验）已删；活契约仍用 `probe-migration-applied-verify` 与 host-replacement。
-`deploy-stage0-workflow` tombstone 已删；默认发版走 rolling（[`design-prod-entry-multi-app`](design-prod-entry-multi-app.md) /
-[`design-cn-prod-rolling-deploy`](design-cn-prod-rolling-deploy.md)）；应急同机蓝绿见 `deploy_via_ssm_bluegreen.sh`。
-`physical-backup` / `pgdump-retirement` 收为现网 COS 指针；AWS 临时恢复百科与零引用 task-breakdown 已删。
-Kiro 已完成任务拆解 / 2026-10-21 核实报告、零引用 GPT-5.5 退休散文与已完成零引用 spec-delta 已删；活契约仍在对应 approved / candidate-eligibility。
-capacity-first 中 Tokyo LUKS「现网实测」已改写为历史示例；双层 df 契约保留。
+迁机/交接执行表、tombstone、一次性压测报告与 orphan 工具、已交付 `upstream-merge-*`
+审批锚点、过期 shipped 交付文等已删；勿从 git 历史恢复当现行 SSOT。
+
+现网入口：[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。活契约：
+[design-cos-object-archive](design-cos-object-archive.md)、
+[design-tencent-ops-control-plane](design-tencent-ops-control-plane.md)、
+[design-tencent-cos-backup-node1-qa](design-tencent-cos-backup-node1-qa.md)、
+[design-prod-entry-multi-app](design-prod-entry-multi-app.md)、
+[design-cn-prod-rolling-deploy](design-cn-prod-rolling-deploy.md)。
+容量数字：`docs/decisions/decided.md`。应急同机蓝绿：`deploy_via_ssm_bluegreen.sh`。
+迁机核对：`probe-migration-applied-verify` / host-replacement。
 
 - [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.
 
