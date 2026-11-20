@@ -184,7 +184,7 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 ## 已删除的历史设计（勿恢复）
 
 迁机/交接执行表、tombstone、一次性压测报告与 orphan 工具、已交付 `upstream-merge-*`
-审批锚点、过期 shipped 交付文等已删；勿从 git 历史恢复当现行 SSOT。
+审批锚点、过期 shipped 交付文、独立 `pgdump-retirement` 摘要等已删；勿从 git 历史恢复当现行 SSOT。
 
 现网入口：[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。活契约：
 [design-cos-object-archive](design-cos-object-archive.md)、
@@ -192,8 +192,8 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 [design-tencent-cos-backup-node1-qa](design-tencent-cos-backup-node1-qa.md)、
 [design-prod-entry-multi-app](design-prod-entry-multi-app.md)、
 [design-cn-prod-rolling-deploy](design-cn-prod-rolling-deploy.md)。
-容量数字：`docs/decisions/decided.md`。应急同机蓝绿：`deploy_via_ssm_bluegreen.sh`。
-迁机核对：`probe-migration-applied-verify` / host-replacement。
+容量数字：`docs/decisions/decided.md`。备份入口：[`physical-backup.md`](../../ops/stage0/physical-backup.md)。
+应急同机蓝绿：`deploy_via_ssm_bluegreen.sh`。迁机核对：`probe-migration-applied-verify` / host-replacement。
 
 - [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.
 

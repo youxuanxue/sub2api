@@ -55,7 +55,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 ## 数据库参数
 
-数据机 Postgres 启动定义在仓库调优文件 / 数据机 compose：上表各项写成 `-c`，内存相关走 `.env`。命令行 `-c` 优先于恢复带来的 `postgresql.conf` / `postgresql.auto.conf`。期望值与 `max_connections` owner：`ops/stage0/dataplane-cutover-data.sh`。
+数据机 Postgres 启动定义在仓库调优文件 / 数据机 compose：下表各项写成 `-c`，内存相关走 `.env`。命令行 `-c` 优先于恢复带来的 `postgresql.conf` / `postgresql.auto.conf`。期望值与 `max_connections` owner：`ops/stage0/dataplane-cutover-data.sh`。
 
 ### 建议值
 

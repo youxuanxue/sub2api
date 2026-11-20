@@ -6,7 +6,7 @@ approved_at: 2026-11-17
 risk: high
 authors: [agent]
 created_at: 2026-11-17
-revised: 2026-11-20（删除历史 S3 archive-bucket 设计文；本文拥有目的地与证据语义）
+revised: 2026-11-20（压缩复审散文；目的地与禁写契约保留）
 ---
 
 # 对象归档统一落腾讯 COS（禁新写 AWS）
@@ -15,54 +15,15 @@ revised: 2026-11-20（删除历史 S3 archive-bucket 设计文；本文拥有目
 
 原话：「核心是『以后凡是对象归档都别再落 AWS』。」确认按此推进。
 
-## 乔布斯复审
+## 纪律（三个闭环）
 
-> 审阅标准：聚焦、简洁、端到端、设计即工作方式、精品。对一百件好事说不。
+1. **禁写**：归档写入解析到 AWS S3 / 已知 AWS archive 桶 → **立刻失败**；无「先写 AWS 再迁」。
+2. **落盘**：host-config / 批准的 break-glass 只写 **一个** 腾讯 COS 桶（prod 美西）；PUT→HEAD→receipt；URI=`s3://<cos-bucket>/<key>` + identity endpoint（与 pgBackRest COS 一致）。
+3. **旧桶收尸**：AWS `tokenkey-prod-archive-*` 30 天自删；**不**搬历史对象到 COS。
 
-**判决：方向对，原稿过重。**  
-用户要的不是「再造一条冷表归档产品」，而是一句能执行的纪律：**新的归档对象不准再落到 AWS。**  
-现网 ops archive 已是 `frozen`，日常几乎不写。若按旧 S3 契约原样搬（staging + promote + Glacier/ARCHIVE + 400 天 + cn 对称桶），是在给几乎不发生的 break-glass 造博物馆。
+不做：复活冷表→对象存储流水线、cn 对称 ops-archive 桶、ARCHIVE/Glacier 模仿、独立 staging 桶、历史对象搬迁、把镜像分发当归档、改确认串后缀、搅 pgBackRest/QA、未批准建桶。
 
-### 留下的（三个闭环）
-
-1. **禁写闭环（主产品）**  
-   所有「对象归档写入」入口解析目的地时：落到 AWS S3 / 已知 AWS archive 桶名 → **立刻失败**。  
-   没有例外开关「先写 AWS 再迁」。这是用户原话的牙齿。
-
-2. **落盘闭环（唯一活桶）**  
-   真要归档时（host-config 离机包、批准的 break-glass 证据），只写入 **一个** 腾讯 COS 桶（prod 美西，与备份同区便于运维）。  
-   契约极短：PUT → HEAD 校验大小/校验和 → 本地 receipt。  
-   URI 形态锁定：`s3://<cos-bucket>/<key>` + identity 里的 endpoint（与 pgBackRest COS 一致），不发明第二套 `cos://`。
-
-3. **旧桶收尸闭环（已在跑，不耦合）**  
-   AWS `tokenkey-prod-archive-*` 已 30 天自删。空了再另批删桶。  
-   **不**搬历史对象到 COS。收尸成功不依赖 COS 桶是否已建。
-
-### 砍掉的
-
-| 提议 | 判决 | 理由 |
-|---|---|---|
-| 复活日常冷表→对象存储流水线 | **否** | `archive_mode: frozen`；热层 PG retention 已是稳态 |
-| cn-prod 对称 ops-archive 桶 | **否** | 无当前写入需求；要时再开一行变更 |
-| 90 天转 COS ARCHIVE / Glacier 模仿 | **否** | 取回慢、费用坑、无人演练恢复；先 Standard + 过期删除 |
-| 独立 staging 桶 | **否** | 同桶前缀 `…/export/` 即可；一年用几次不配第二桶 |
-| 历史 AWS archive 搬迁 | **否** | 成本/价值差；需要时另批 |
-| 镜像分发桶当「归档」迁走 | **否** | 那是发版，不是 archive |
-| 确认串改成 `-cos` 后缀 | **否** | 保留现有 `tokenkey-prod-archive-*-v1`，只换后端 |
-| 本设计改 pgBackRest / QA | **否** | 已有 SSOT，禁止搅进来 |
-| 未批准就建桶、改生产默认 | **否** | 高风险门禁 |
-
-### 完成定义
-
-同时满足才算「禁写 AWS」落地：
-
-1. 仓库里归档写入路径对 AWS 目的地 **fail-closed**（单测锁死）。
-2. COS 上存在 **一个** ops-archive 桶 + root-only 身份文件；合成对象 PUT/HEAD/GET 通过。
-3. host-config（或等价一次性离机包）有一条文档化命令写到该桶，并留下 receipt。
-4. break-glass promote/export **要么**已接到同一 identity，**要么**在接到之前对 AWS 同样 fail-closed（不允许半截「还能写 S3」）。
-5. 文档写明：新对象归档 = COS only；AWS archive = 收尸中。
-
-不宣称：冷表自动归档已恢复、跨地域双归档、ARCHIVE 存储类、历史对象已迁移。
+完成：写入路径对 AWS fail-closed；COS 有唯一 ops-archive 桶 + 身份；host-config 有文档化命令与 receipt；break-glass 同 identity 或同样禁写 AWS。不宣称冷表自动归档或历史对象已迁。
 
 ## 现状（决策前提）
 
