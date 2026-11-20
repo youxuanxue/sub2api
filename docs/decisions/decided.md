@@ -98,7 +98,7 @@
 
 后续确认（2026-11-18）：「同意。请推进实现。」→ 设计批准；先合入门牙门禁，再按 `rg` 逐入口改 TAT / 迁密钥。
 
-后续确认（2026-11-18）：「同意建议。继续。」→ 批准 `docs/approved/design-tencent-ops-closeout.md` 整张处置清单（旁路迁 TAT / 删退役入口 / SecureString 收尾）；按清单 E 节顺序推进，不另批。
+后续确认（2026-11-18）：「同意建议。继续。」→ 批准腾讯运维旁路收尾处置清单（旁路迁 TAT / 删退役入口 / SecureString 收尾）；按当时清单 E 节推进，不另批。清单正文已于 2026-11-20 删除，活契约见 `docs/approved/design-tencent-ops-control-plane.md`。
 
 ## 2026-11-17 cn-prod tokensea missing text part 网关兼容
 

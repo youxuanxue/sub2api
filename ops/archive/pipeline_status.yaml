@@ -7,9 +7,9 @@ archive_mode: frozen
 # Live probes: ops/observability/probe-data-layer-*.sh
 
 design_anchors:
-  phase1_closeout: docs/approved/design-data-layer-phase1-closeout.md
-  archive_bucket: docs/approved/design-prod-archive-bucket.md
-  # export_canary retired 2026-11-19 (design deleted); see docs/decisions/declined.md
+  # Live destination SSOT; historical phase1/S3 archive-bucket designs deleted 2026-11-20.
+  object_archive: docs/approved/design-cos-object-archive.md
+  # export_canary / phase1 closeout retired; see docs/decisions/declined.md
 
 retention_hot_layer_days:
   usage: 90

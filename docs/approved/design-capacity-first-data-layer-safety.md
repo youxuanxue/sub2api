@@ -13,8 +13,8 @@ related_prs: [1385]
 先用低成本扩盘保险丝和可验证冷热分离解除容量倒计时，再根据可靠性、恢复责任和长期
 净增长决定是否迁 RDS。
 
-PR #1385 交付了三个安全构件的原型实现；正式 prod 只读容量探针与 verdict 已在
-`docs/approved/design-phase1-prod-activation-gates.md`（PR #1536 及后续）晋升完成。
+PR #1385 交付了三个安全构件的原型实现；正式 prod 只读容量探针与 verdict
+（PR #1536 及后续）已晋升完成。
 当前唯一 owner：
 
 1. `ops/observability/probe-data-layer-capacity.sh` + `data_layer_capacity_verdict.py`（daily diagnostics 只读 prod 采样）；
@@ -151,14 +151,14 @@ retention。生产 export/canary/health CLI 已于 2026-11-19 删除（见
 `docs/decisions/declined.md`、`ops/archive/README.md`）。
 
 候选保留策略为 usage 热 90 天、raw ops 热 30 天。prod 上 `usage_logs`
-已完成日分区 cutover（见 `design-data-layer-phase1-closeout.md`），不在 prod
+已完成日分区 cutover，不在 prod
 做 `VACUUM FULL` 或直接 rewrite 来追求 `df` 好看。QA 不由本通用设计管理。
 扩盘与归档分别审批，任何一个完成都不自动授权另一个。
 
 ## 验收门
 
 - [x] 探针正向返回字段化 snapshot，超时/缺统计负向返回 `unknown`（正式 probe + 单测）。
-- [x] 容量探针已按 `design-phase1-prod-activation-gates.md` 晋升；DataVolume plan 执行仍须单独审批。
+- [x] 容量探针已晋升为正式只读实现；DataVolume plan 执行仍须单独审批。
 - [ ] 离线投影对 50→100 GiB 和低/高回收 scenario 的计算由测试覆盖。
 - [ ] DataVolume 参数计划拒绝缩盘、缺 size 和错误 prod 确认串。
 - [ ] change-set guard 只接受恰好一条 `DataVolume/Modify/Replacement=False/Properties/Size`。

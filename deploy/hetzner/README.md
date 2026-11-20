@@ -128,7 +128,7 @@ cn-prod `proxies` **无** `or-*`，仅 Aliyun `ip5..8` + `cn-ip9..12`。Oregon *
 | 证据 | 日期 / 回执 | 说明 |
 |---|---|---|
 | prod COS 真实恢复（全量+增量） | 2026-11-08；见 [design-tencent-cos-backup §prod COS](../../docs/approved/design-tencent-cos-backup-node1-qa.md#prod-cos-真实恢复证据2026-11-08) | 隔离主机从 COS `repo2` 恢复；不经 Parameter Store |
-| SecureString C5 删除 | 2026-11-18；`docs/ops/reports/securestring-c5-delete-20261118T084419Z.txt` | 活 env 备份参数已删；写脚本 tombstone |
+| SecureString C5 删除 | 2026-11-18 | 活 env 备份参数已删；写脚本 tombstone |
 | env 恢复入口 | `deploy/hetzner/restore-prod-env-secrets.sh` | 默认拒 SSM SecureString；`--from-file` 读主机/离机材料；`--allow-generate` 仅显式批准 |
 | 新机 bootstrap | `deploy/stage0/stage0-ec2-bootstrap.sh` | 不再钉 SSM 参数名；活源为主机 `.env` |
 | 物理恢复 GHA | `ops-physical-restore.yml` refuse-only（A13） | 隔离恢复本地跑 `run_physical_restore.py`；活库验收 `probe-physical-restore-acceptance.sh` + TAT |
@@ -241,7 +241,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 
 | 类别 | 状态 | 动作 |
 |---|---|---|
-| SSM Hybrid / OIDC / Parameter Store | **禁新增**；OIDC→SSM workflow 已抽壳/拒绝（`oidc_ssm_workflow_paths=[]`）；SecureString 已 C5 | 日常 warm+rolling+`run-probe`/`ssm_execution` 默认 TAT。allowlist `ssm_remote_paths` 仅剩 break-glass SendCommand owner `ops/stage0/ssm_execution.py`。**新增或替换 Hybrid 主机时**须把新 `mi-*` 写入栈外 inline `tokenkey-lightsail-edge-addon` 的 `SendCommand`（现含 prod/cn-prod 入口、应用、数据机等），否则 CI 发版/诊断与 break-glass 会被拒；策略备份在操作者本机 `~/.local/state/tokenkey-iam-backups/`，不进 git。Hybrid/OIDC **角色注销**另批。门牙见 `ops/tencent-ops/`；清单 [design-tencent-ops-closeout](../../docs/approved/design-tencent-ops-closeout.md) |
+| SSM Hybrid / OIDC / Parameter Store | **禁新增**；OIDC→SSM workflow 已抽壳/拒绝（`oidc_ssm_workflow_paths=[]`）；SecureString 已 C5 | 日常 warm+rolling+`run-probe`/`ssm_execution` 默认 TAT。allowlist `ssm_remote_paths` 仅剩 break-glass SendCommand owner `ops/stage0/ssm_execution.py`。**新增或替换 Hybrid 主机时**须把新 `mi-*` 写入栈外 inline `tokenkey-lightsail-edge-addon` 的 `SendCommand`（现含 prod/cn-prod 入口、应用、数据机等），否则 CI 发版/诊断与 break-glass 会被拒；策略备份在操作者本机 `~/.local/state/tokenkey-iam-backups/`，不进 git。Hybrid/OIDC **角色注销**另批。门牙见 `ops/tencent-ops/`；契约 [design-tencent-ops-control-plane](../../docs/approved/design-tencent-ops-control-plane.md) |
 | Oregon 保留计算 | **必须留** | 2026-11-17：prod `or-1..4` 合计 124 live accounts；cn-prod 无 Oregon 行 |
 | 旧 physical-backup CFN/S3 | **已清** | 2026-11 核对 `DELETE_COMPLETE` / `HeadBucket` 404 |
 | Tokyo EC2 / `aws-fresh` | **已清** | resolver 失败关闭 |

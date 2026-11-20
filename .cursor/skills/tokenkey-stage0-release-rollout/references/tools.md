@@ -33,7 +33,7 @@
 
 ## 镜像发布之外的入口
 
-- pgdump refresh / mem-guard SSM one-shots：**已删**（2026-11-18 closeout）。新旁路用 TAT（`deploy.domestic.remote_exec` / `run-probe --via tat`），见 `docs/approved/design-tencent-ops-closeout.md`。
+- pgdump refresh / mem-guard SSM one-shots：**已删**（2026-11-18 closeout）。新旁路用 TAT（`deploy.domestic.remote_exec` / `run-probe --via tat`），见 `docs/approved/design-tencent-ops-control-plane.md`。
 
 Gateway verification owners: `gateway_capability_host.py` (prepared candidate requests),
 `gateway_capability_matrix.py` (account-supply plan/report), `gateway_capability_scenarios.py`

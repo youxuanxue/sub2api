@@ -158,13 +158,8 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | File | Topic |
 | --- | --- |
 | [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 阈值 |
-| [`design-data-layer-archive-rehearsal.md`](design-data-layer-archive-rehearsal.md) | Archive rehearsal |
-| [`design-data-layer-phase1-closeout.md`](design-data-layer-phase1-closeout.md) | Phase1 closeout（Telemetry S3 一节已退役：2026-11-08 用户决定保持关闭并删除代码） |
-| [`design-phase1-prod-activation-gates.md`](design-phase1-prod-activation-gates.md) | Phase1 activation gates（telemetry 探针已退役：2026-11-08 用户决定保持关闭并删除代码） |
-| [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 archive 桶（历史 S3 证据语义；新目的地见下） |
 | [`design-cos-object-archive.md`](design-cos-object-archive.md) | 对象归档统一 COS、禁新写 AWS（2026-11-17 批准） |
-| [`design-tencent-ops-control-plane.md`](design-tencent-ops-control-plane.md) | 运维旁路/密钥收敛腾讯 TAT·COS（2026-11-18 批准） |
-| [`design-tencent-ops-closeout.md`](design-tencent-ops-closeout.md) | 旁路+SecureString 完整收尾处置清单（2026-11-18 批准） |
+| [`design-tencent-ops-control-plane.md`](design-tencent-ops-control-plane.md) | 运维旁路/密钥收敛腾讯 TAT·COS（2026-11-18 批准；旁路迁 TAT / SecureString 收尾已完成，Hybrid/OIDC 注销另批） |
 | [`ops-error-logs-column-contract.md`](ops-error-logs-column-contract.md) | `ops_error_logs` 列契约：声明 == 写入 ∪ DB 托管（无 Ent schema 表的机械替代） |
 | [`qa-raw-only.md`](qa-raw-only.md) | archived：QA S3 已退役（2026-11-08）；现行 QA 为本地 24h + node1 每 4h，见 design-tencent-cos-backup-node1-qa.md（路径仍被 traj/qa-lifecycle 门禁引用） |
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
@@ -173,7 +168,6 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`billing-dedup-retention.md`](billing-dedup-retention.md) | 计费去重表：热表 7 天、含归档共 30 天，超期直接删除 |
 | [`design-tencent-cos-backup-node1-qa.md`](design-tencent-cos-backup-node1-qa.md) | 腾讯 COS 数据库备份迁移、AWS 回退与 node1 QA/备份兜底 |
 | [`design-data-plane-split.md`](design-data-plane-split.md) | prod 与 cn-prod 数据面从应用机拆到同私网数据机；逐站停写切流，窗口需单独审批 |
-| [`cn-prod-logical-backup.md`](cn-prod-logical-backup.md) | 逻辑 dump 已停；文首引用块说明为何保留 pgBackRest 监控，文末步骤不再执行 |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
 | [`deploy-stage0-workflow.md`](deploy-stage0-workflow.md) | Gateway blue/green release（`approved`；Bundle Worker 选择已归档） |
 | [`stage0-release-check-remediation.md`](stage0-release-check-remediation.md) | Stage0 release-check remediation |
@@ -212,10 +206,15 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 ## 已删除的历史设计（勿恢复）
 
 Tokyo/AWS 切流回执、Hetzner 全量迁移基线、pgdump/export canary、QA Bundle/组件发布、
-24h S3 lifecycle、hcloud-pgdump-storage 等历史文已从本目录删除。现网舰队 SSOT：
-[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。现行 QA：
-[design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)；
+24h S3 lifecycle、hcloud-pgdump-storage、phase1 closeout/activation gates、archive
+rehearsal、历史 S3 archive-bucket 设计、cn-prod 逻辑 dump 激活文、腾讯运维旁路
+closeout 清单等历史文已从本目录删除。现网舰队 SSOT：
+[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。现行对象归档：
+[design-cos-object-archive.md](design-cos-object-archive.md)；运维旁路：
+[design-tencent-ops-control-plane.md](design-tencent-ops-control-plane.md)。
+现行 QA：[design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)；
 退役契约历史仍见 [qa-raw-only.md](qa-raw-only.md)（门禁引用）。
+cn-prod 备份监控走 `ops-cn-backup-watch.yml` + pgBackRest，勿恢复逻辑 dump 步骤。
 
 网关生产蓝绿发布以 [deploy-stage0-workflow.md](deploy-stage0-workflow.md) 为基线。
 
