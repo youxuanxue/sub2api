@@ -86,7 +86,7 @@ cn-prod 已切到 `ops/qa/COORDINATOR.md` 路径，不再跑应用机 v1 `provis
   可覆盖）。美西 prod 用另一份 compose，勿互相套用。Admin 代理出站探测 preset=
   `domestic`（见 override / `probe-cn-prod-pool-env.sh`）。
 - 镜像默认由 CI 上传北京 COS 经 TAT 预下载；契约见
-  [cn-prod-image-distribution.md](../../docs/approved/cn-prod-image-distribution.md)。
+  [design-cn-image-cos.md](../../docs/approved/design-cn-image-cos.md)。
   `pull_policy: never`。主机 `/opt/tokenkey`：`compose.yml` + `compose.override.yml` +
   `compose.local.yml`；`.env` 0600。
 - **数据库密码只有一个来源**：`.env` 的 `POSTGRES_PASSWORD` 必须等于数据机实际密码；
