@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -556,4 +557,60 @@ func TestExtractValidationURL(t *testing.T) {
 			require.Equal(t, tt.expected, got)
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// FetchQuota: quota summary must come from the account's pinned endpoint
+// ---------------------------------------------------------------------------
+
+// TestFetchQuota_QuotaSummaryUsesAccountPinnedEndpoint reproduces #2900 (upstream
+// #8588/#8850): a paid-tier account is served from the daily endpoint
+// (resolveAntigravityForwardBaseURL), but RetrieveUserQuotaSummary used to always try
+// BaseURLs in prod-first order and return on the first success, so it reported prod's
+// quota window instead of the daily window the account is actually consuming.
+func TestFetchQuota_QuotaSummaryUsesAccountPinnedEndpoint(t *testing.T) {
+	daily := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1internal:fetchAvailableModels":
+			_, _ = w.Write([]byte(`{"models":{"gemini-3-flash":{"quotaInfo":{"remainingFraction":0.87}}}}`))
+		case "/v1internal:retrieveUserQuotaSummary":
+			_, _ = w.Write([]byte(`{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.87}]}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer daily.Close()
+
+	prod := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1internal:retrieveUserQuotaSummary":
+			_, _ = w.Write([]byte(`{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":1}]}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer prod.Close()
+
+	defer antigravity.SetTestBaseURLOverrides(prod.URL, daily.URL)()
+	oldBaseURLs := antigravity.BaseURLs
+	antigravity.BaseURLs = []string{prod.URL, daily.URL}
+	t.Cleanup(func() { antigravity.BaseURLs = oldBaseURLs })
+	t.Setenv("GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL", "daily")
+
+	fetcher := NewAntigravityQuotaFetcher(nil, &config.Config{})
+	result, err := fetcher.FetchQuota(context.Background(), &Account{
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "token",
+			"project_id":   "project",
+			"plan_type":    "g1-pro-tier",
+		},
+	}, "")
+	require.NoError(t, err)
+
+	require.Len(t, result.UsageInfo.AntigravityQuotaGroups, 1)
+	window := result.UsageInfo.AntigravityQuotaGroups[0].Windows[0]
+	require.Equal(t, 13.0, window.Utilization,
+		"quota summary must reflect the account's pinned (daily) endpoint, not prod")
 }
