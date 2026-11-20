@@ -56,6 +56,34 @@ func TestCalculateRecordUsageCost_ImageCountBillingGroupTokenPricing(t *testing.
 	require.Equal(t, string(BillingModeImage), cost.BillingMode)
 }
 
+func TestCalculateOpenAIRecordUsageCost_ImagePricingZeroImageCountIsFree(t *testing.T) {
+	groupID := int64(905)
+	model := "gpt-image-2"
+	resolver := newOpenAITokenImageChannelPricingResolverForTest(t, groupID, model)
+	group := &Group{
+		ID:                groupID,
+		Platform:          PlatformOpenAI,
+		Status:            StatusActive,
+		Hydrated:          true,
+		ImageCountBilling: true,
+		ModelPricing: []ChannelModelPricing{{
+			Models:          []string{model},
+			BillingMode:     BillingModeImage,
+			PerRequestPrice: f64p(3),
+		}},
+	}
+	apiKey := &APIKey{ID: 5, GroupID: &groupID, Group: group}
+	svc := &OpenAIGatewayService{billingService: resolver.billingService, resolver: resolver}
+
+	cost, err := svc.calculateOpenAIRecordUsageCost(context.Background(), &OpenAIForwardResult{
+		Model: model,
+	}, apiKey, []string{model}, 1.3, 1, 1, 1, UsageTokens{}, "", nil, time.Time{})
+	require.NoError(t, err)
+	require.NotNil(t, cost)
+	require.Zero(t, cost.TotalCost)
+	require.Zero(t, cost.ActualCost)
+}
+
 // F3：渠道 token 定价 + 开关开启时必须强制按张计费，与 OpenAI 流水线一致。
 func TestCalculateRecordUsageCost_ImageCountBillingChannelTokenPricing(t *testing.T) {
 	groupID := int64(902)
