@@ -206,17 +206,11 @@ df -P -B1 "${DATA_DIR}" 2>/dev/null | awk -v live="$df_live" 'NR==2 {
 }'
 
 echo "=== DFBACKING (filesystem holding the data volume's backing file) ==="
-# The data volume can be a FILE on another filesystem, not a raw partition. On
-# live prod it is a LUKS2 container: /var/lib/tokenkey is
-# /dev/mapper/tokenkey_recovery -> loop0 -> a sparse 81GiB file under
-# /var/lib/tokenkey-validation, which sits on the ROOT filesystem.
-#
-# df then lies in two layers at once, and the INNER one is the optimistic liar:
-# measured 2026-10-23, inner reported 79GiB total / 53GiB avail while root had
-# only 28GiB avail. Writing past that 28GiB fails with ENOSPC while the inner df
-# still advertises free space, so a runway computed from the inner number is
-# roughly 2x too long. The verdict takes the MINIMUM of the two layers, so the
-# binding constraint wins wherever it sits.
+# The data volume can be a FILE on another filesystem, not a raw partition.
+# Historical Tokyo LUKS layout used a loop-backed sparse file on root; live
+# prod/cn-prod are plaintext root disks, but dual-layer probing stays: when a
+# backing file exists, inner df can still be the optimistic liar and ENOSPC
+# hits the outer FS first. The verdict takes the MINIMUM of the two layers.
 #
 # Resolved via the loop backing file, never by parsing paths: a host whose data
 # dir is a raw partition has no loop device and emits nulls, which the verdict

@@ -305,14 +305,11 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
         }
 
     # The data volume may be a FILE on another filesystem rather than a raw
-    # partition, and then df is optimistic at the inner layer: on live prod
-    # (2026-10-23) /var/lib/tokenkey is a LUKS2 container backed by a sparse
-    # 81GiB file on the root filesystem, so the inner df reported 53GiB free
-    # while root had 28GiB. Writing past root's 28GiB fails with ENOSPC while the
-    # inner df still shows space, which made the runway roughly 2x too long.
-    #
-    # Take the binding constraint: the smaller free space of the two layers. A
-    # host on a raw partition reports no backing file and is unaffected.
+    # partition; then inner df can be optimistic (historical Tokyo LUKS
+    # loop-backed sparse file on root). Live hosts are plaintext root, but
+    # dual-layer probing remains: take the smaller free space of the two
+    # layers. A host on a raw partition reports no backing file and is
+    # unaffected.
     effective_avail = df_avail
     avail_source = "data volume"
     if isinstance(backing_avail, (int, float)) and backing_avail >= 0 and backing_avail < df_avail:
