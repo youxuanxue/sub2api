@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run the independent Claude Code, Kiro CLI, Antigravity, and Codex evidence
+# Run the independent Claude Code, Kiro CLI, Antigravity, Codex, Gemini CLI,
+# and Grok CLI evidence
 # engines, then aggregate their exit contracts without merging capture mechanics.
 set -uo pipefail
 
@@ -9,14 +10,21 @@ CC="${TOKENKEY_CAPTURE_ALL_CC:-$REPO_ROOT/ops/anthropic/capture-cc-fingerprint.s
 KIRO="${TOKENKEY_CAPTURE_ALL_KIRO:-$REPO_ROOT/ops/kiro/capture-kiro-fingerprint.sh}"
 ANTIGRAVITY="${TOKENKEY_CAPTURE_ALL_ANTIGRAVITY:-$REPO_ROOT/ops/antigravity/capture-antigravity-fingerprint.sh}"
 CODEX="${TOKENKEY_CAPTURE_ALL_CODEX:-$REPO_ROOT/ops/openai/capture-codex-fingerprint.sh}"
+GEMINI="${TOKENKEY_CAPTURE_ALL_GEMINI:-$REPO_ROOT/ops/geminicli/capture-gemini-fingerprint.sh}"
+GROK="${TOKENKEY_CAPTURE_ALL_GROK:-$REPO_ROOT/ops/xai/capture-grok-fingerprint.sh}"
 IDENTITY_REGISTRY_CHECK="$REPO_ROOT/scripts/fingerprint/check_client_identity_registry.py"
+IDENTITY_REGISTRY="${TOKENKEY_CAPTURE_ALL_REGISTRY:-$REPO_ROOT/scripts/fingerprint/client_identity_registry.json}"
 
 SKIP_CC=0
 SKIP_KIRO=0
 SKIP_ANTIGRAVITY=0
 SKIP_CODEX=0
 SKIP_CODEX_TLS=0
+SKIP_GEMINI=0
+SKIP_GROK=0
 CODEX_TLS_ARGS=()
+GEMINI_ARGS=()
+GROK_ARGS=()
 CC_ARGS=()
 KIRO_ARGS=()
 ANTIGRAVITY_ARGS=()
@@ -26,6 +34,7 @@ usage() {
   cat <<'EOF'
 Usage:
   capture-all-fingerprints.sh [--skip-cc] [--skip-kiro] [--skip-antigravity] [--skip-codex]
+                              [--skip-gemini] [--skip-grok]
                               [--cc-arg ARG]... [--kiro-arg ARG]... [--antigravity-arg ARG]... [--codex-arg ARG]...
 
 Runs each platform's evidence engine and prints a combined status table:
@@ -37,6 +46,8 @@ Runs each platform's evidence engine and prints a combined status table:
   --codex-arg ARG                  forward an argument to Codex `check`
   --codex-tls-arg ARG              forward an argument to Codex `tls-capture`
   --skip-codex-tls                 skip the Codex TLS lane (coverage incomplete)
+  --gemini-arg ARG                 forward an argument to Gemini CLI capture
+  --grok-arg ARG                   forward an argument to Grok CLI capture
 
 Claude Code needs its cc0 stack; Kiro needs a logged-in real kiro-cli plus
 mitmdump and its CA; Antigravity needs its real client routed through mitmproxy;
@@ -55,11 +66,15 @@ while [[ $# -gt 0 ]]; do
     --skip-antigravity) SKIP_ANTIGRAVITY=1; shift ;;
     --skip-codex) SKIP_CODEX=1; shift ;;
     --skip-codex-tls) SKIP_CODEX_TLS=1; shift ;;
+    --skip-gemini) SKIP_GEMINI=1; shift ;;
+    --skip-grok) SKIP_GROK=1; shift ;;
     --codex-tls-arg) CODEX_TLS_ARGS+=("$2"); shift 2 ;;
     --cc-arg) CC_ARGS+=("$2"); shift 2 ;;
     --kiro-arg) KIRO_ARGS+=("$2"); shift 2 ;;
     --antigravity-arg) ANTIGRAVITY_ARGS+=("$2"); shift 2 ;;
     --codex-arg) CODEX_ARGS+=("$2"); shift 2 ;;
+    --gemini-arg) GEMINI_ARGS+=("$2"); shift 2 ;;
+    --grok-arg) GROK_ARGS+=("$2"); shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
   esac
@@ -70,6 +85,8 @@ KIRO_STATUS="skipped"
 ANTIGRAVITY_STATUS="skipped"
 CODEX_STATUS="skipped"
 CODEX_TLS_STATUS="skipped"
+GEMINI_STATUS="skipped"
+GROK_STATUS="skipped"
 
 record_status() {
   case "$1" in
@@ -110,6 +127,18 @@ if [[ "$SKIP_CODEX" == "0" && "$SKIP_CODEX_TLS" == "0" ]]; then
   CODEX_TLS_STATUS="$(record_status "$?")"
 fi
 
+if [[ "$SKIP_GEMINI" == "0" ]]; then
+  echo "############ Gemini CLI (gemini-cli) ############"
+  bash "$GEMINI" capture ${GEMINI_ARGS[@]+"${GEMINI_ARGS[@]}"}
+  GEMINI_STATUS="$(record_status "$?")"
+fi
+
+if [[ "$SKIP_GROK" == "0" ]]; then
+  echo "############ Grok CLI (grok-cli) ############"
+  bash "$GROK" capture ${GROK_ARGS[@]+"${GROK_ARGS[@]}"}
+  GROK_STATUS="$(record_status "$?")"
+fi
+
 echo ""
 echo "================ combined fingerprint drift report ================"
 printf "  %-14s %s\n" "claude-code" "$CC_STATUS"
@@ -117,19 +146,52 @@ printf "  %-14s %s\n" "kiro-cli" "$KIRO_STATUS"
 printf "  %-14s %s\n" "antigravity" "$ANTIGRAVITY_STATUS"
 printf "  %-14s %s\n" "codex" "$CODEX_STATUS"
 printf "  %-14s %s\n" "codex-tls" "$CODEX_TLS_STATUS"
+printf "  %-14s %s\n" "gemini-cli" "$GEMINI_STATUS"
+printf "  %-14s %s\n" "grok-cli" "$GROK_STATUS"
 echo "==================================================================="
 echo ""
 echo "================ identity evidence coverage ======================"
-python3 "$IDENTITY_REGISTRY_CHECK" --coverage || {
+python3 "$IDENTITY_REGISTRY_CHECK" --registry "$IDENTITY_REGISTRY" --coverage || {
   echo "→ identity registry invalid; coverage cannot be trusted." >&2
   exit 2
 }
+python3 - "$IDENTITY_REGISTRY" \
+  "ops/anthropic/capture-cc-fingerprint.sh=$CC_STATUS" \
+  "ops/kiro/capture-kiro-fingerprint.sh=$KIRO_STATUS" \
+  "ops/antigravity/capture-antigravity-fingerprint.sh=$ANTIGRAVITY_STATUS" \
+  "ops/openai/capture-codex-fingerprint.sh=$CODEX_STATUS" \
+  "ops/geminicli/capture-gemini-fingerprint.sh=$GEMINI_STATUS" \
+  "ops/xai/capture-grok-fingerprint.sh=$GROK_STATUS" <<'PYTHON'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    registry = json.load(source)
+results = dict(item.rsplit("=", 1) for item in sys.argv[2:])
+identities = {row["id"]: row for row in registry["identities"]}
+incomplete = False
+for row in identities.values():
+    # Companions share their parent's evidence; advisory rows remain visible.
+    owner = identities.get(row.get("companion_identity"), row)
+    tool = owner.get("capture_tool")
+    status = results.get(tool, "incomplete")
+    required = row.get("actionable", True)
+    if required and status in {"incomplete", "skipped"}:
+        incomplete = True
+    policy = "required" if required else "suppressed/advisory"
+    companion = row.get("companion_identity")
+    if companion:
+        policy += f", companion of {companion}"
+    print(f"  {row['id']}: {status} ({policy}); evidence engine={tool or 'missing'}")
+raise SystemExit(3 if incomplete else 0)
+PYTHON
+IDENTITY_COVERAGE_STATUS="$(record_status "$?")"
 echo "==================================================================="
 
 has_drift=0
 has_error=0
 has_incomplete=0
-for st in "$CC_STATUS" "$KIRO_STATUS" "$ANTIGRAVITY_STATUS" "$CODEX_STATUS" "$CODEX_TLS_STATUS"; do
+for st in "$CC_STATUS" "$KIRO_STATUS" "$ANTIGRAVITY_STATUS" "$CODEX_STATUS" "$CODEX_TLS_STATUS" "$GEMINI_STATUS" "$GROK_STATUS" "$IDENTITY_COVERAGE_STATUS"; do
   case "$st" in
     drift) has_drift=1 ;;
     error) has_error=1 ;;

@@ -1772,6 +1772,9 @@ elif ! python3 ./scripts/fingerprint/check_client_identity_registry.py --quiet; 
 elif ! python3 -m unittest discover -s scripts/fingerprint -p 'test_*.py' -q; then
     echo "  FAIL: client release watch unit tests failed"
     errors=$((errors + 1))
+elif ! python3 -m unittest discover -s ops/fingerprint -p 'test_*.py' -q; then
+    echo "  FAIL: fingerprint orchestration / board lifecycle unit tests failed"
+    errors=$((errors + 1))
 else
     echo "  ok: client identity registry + release watch self-tests + unit tests"
 fi

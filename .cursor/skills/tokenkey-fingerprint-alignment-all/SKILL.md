@@ -23,6 +23,9 @@ description: >-
 - Codex：读取安装的 CLI binary/static identity，门禁是 `check`；TLS lane 是真实
   codex 连本地采集端点的 `tls-capture`（`--skip-codex-tls` 可跳过，覆盖记为 incomplete）。
 
+- Gemini CLI、Grok CLI：调用各自现有 `capture` 引擎，记录实际安装版本与 bundle 路径；
+  保持各自唯一 pin owner，不用 release metadata 替代本机证据。
+
 umbrella 只负责编排和一个合并变更，不把 release metadata、static evidence、wire
 capture、runtime identity 或 production-configured observation 混成同一证据层。
 
@@ -41,6 +44,10 @@ bash ops/fingerprint/capture-all-fingerprints.sh \
 - `1`：至少一条 semantic drift。
 - `2`：invalid evidence 或执行失败。
 - `3`：显式 skip 或 evidence `NOT_OBSERVED`。
+
+目标与 companion/advisory 策略从 identity registry 派生；每个 required identity 必须
+有本轮明确结果，缺引擎或漏采记 incomplete。原始引擎输出保留版本与证据出处，
+旧版本与 pin 不匹配按 drift 处理。
 
 禁止把 rc=2/3 报成“全部已对齐”。Claude Code 仍须机械分类 auth cohort；Kiro CLI
 仍须四条 evidence lanes 完整。
