@@ -51,7 +51,7 @@
 原话：「LUKS 载体销毁观察窗、今天到期的压测机。可以不影响用户服务和体验的情况下，收敛收尾了吧。」
 
 适用范围：
-1. prod `app-old` LUKS：在明文根盘已接流、mapper 未挂载、无相关快照、业务 `/health=200` 前提下，**缩短设计 §3.5 ≥7 天观察窗**，执行 X1–X4（载体销毁、COS 解锁钥删除、操作员 vault 删除、unlock unit/脚本与 pre-plain 清理）。接受失去 LUKS 回退路径。
+1. prod `app-old` LUKS：在明文根盘已接流、mapper 未挂载、无相关快照、业务 `/health=200` 前提下，**缩短原设计 ≥7 天观察窗**，执行 X1–X4（载体销毁、COS 解锁钥删除、操作员 vault 删除、unlock unit/脚本与 pre-plain 清理）。接受失去 LUKS 回退路径。
 2. cn-prod 临时压测机 `ins-7ltl2zv3`（`expire_after=2026-11-19`，不进 `apps[]`）：`TerminateInstances` 停费销毁。
 
 ## 2026-11-19 Volc Kimi thinking-off temperature pin 到 0.6
@@ -70,7 +70,7 @@
 
 原话：「批准。继续安全推进。」
 
-适用范围：按 `docs/approved/design-prod-entry-multi-app.md` §3 推进旧机 `lhins-fcwpwymt` 脱离 LUKS。先 L1（入口池仅留明文应用机）并观察单台承载门禁，再 L2+；破坏性步骤（停 Docker / umount / 重启 / 删载体 X1–X4）仍按设计逐步确认。不中断用户请求路径。
+适用范围：按 `docs/approved/design-prod-entry-multi-app.md`（当时 §3）推进旧机 `lhins-fcwpwymt` 脱离 LUKS。先 L1（入口池仅留明文应用机）并观察单台承载门禁，再 L2+；破坏性步骤（停 Docker / umount / 重启 / 删载体 X1–X4）仍按设计逐步确认。不中断用户请求路径。
 
 ## 2026-11-18 Chat→Messages 对齐开源：剥离 OpenAI-only 字段优先生效
 

@@ -19,3 +19,4 @@
 | 「迁移/交接/历史/approved 应删尽删」（2026-11-20 续） | 恢复 phase1 closeout/activation gates、archive rehearsal、历史 S3 archive-bucket、cn-prod 逻辑 dump 激活文、腾讯运维 closeout 清单，或已删的 ops 回执（SecureString C5 / upstream-merge 审计稿等）。活契约见 `design-cos-object-archive` / `design-tencent-ops-control-plane` / 舰队 README。 |
 | 「迁移/交接/历史应删尽删」（2026-11-20 pass3） | 恢复已删的 COS 并行 repo 草案、UCloud Kimi 压测包、relay-watch 排障稿、2026-10-08 multimodal probe ledger/matrix。 |
 | 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass4） | 恢复 UCloud 首发契约 `design-domestic-cluster`、国内 README 迁机/验收回执、rolling-deploy M1–M6 执行表、`docs/deploy/aws-us-openai-gateway-deployment`，或恢复已删除的 `qa-raw-only.md`（删除边界已并入 `design-tencent-cos-backup-node1-qa`）。 |
+| 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass5） | 恢复 `design-prod-entry-multi-app` 的 L1–L8/X1–X4/DNS 执行表，或把 `design-prod-app-parallel-replacement` 迁机/询价/SSM 回执叙事写回全文（双应用与 QA 24h 不变量仍保留）；或恢复 `design-data-plane-split` 停写窗口逐步执行表。 |

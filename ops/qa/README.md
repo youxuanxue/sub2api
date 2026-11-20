@@ -59,8 +59,8 @@ QA S3 已退役，2026-11-08 用户决定；现行路径为本地 24h + node1 �
 不能靠覆盖已发布目录“补成功”。v2 当前证明的是该源文件快照，不证明 capture 已封口或全站完整。
 现有 cleanup 明确拒绝把单源 v2 回执当成全站删除凭据，包括误放到旧站点小时路径的回执。
 数据机归档调度、历史参与源、capture 封口，以及小时结束后 24 小时的独立兜底，按
-[已批准方案](../../docs/approved/design-prod-app-parallel-replacement.md#qa-集中管理方案用户已同意尚未执行)
-实现，见下面的新执行入口；线上交接验收之前，不给现有 timer 启用 source 模式。
+[已批准方案](../../docs/approved/design-prod-app-parallel-replacement.md#qa-集中管理方案)
+实现，见下面的执行入口。
 
 ### 数据机协调器与独立一天兜底
 

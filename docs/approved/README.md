@@ -9,7 +9,7 @@ revised_at: 2026-10-28
 
 - approved：[网关错误与局部安全修复](gateway-correctness-remediation-20261112.md)：Messages 取消误分类复用 #3161；保留 Chat 流内错误、隔离、脱敏与刷新失败拒签；撤出 outbox/rollup 重构，不含合并或部署授权。
 
-- [prod 应用机并行替换](design-prod-app-parallel-replacement.md)：取消原地 LUKS 搬盘；新旧并行、不中断、旧机保留、QA 集中管理（保留，不删）。入口/HA/切流/脱离 LUKS 改由 [美西 prod 入口机 + 双应用机](design-prod-entry-multi-app.md) 接管并废止其 HA 入口验收条。
+- [prod 应用机并行替换](design-prod-app-parallel-replacement.md)：双应用机 / 不中断 / QA 24h 清理不变量（迁机叙事已删）。入口与脱离 LUKS 见 [美西 prod 入口机 + 双应用机](design-prod-entry-multi-app.md)。
 
 - [未知 TTL 缓存创建量计费](cache-creation-unknown-ttl-billing.md)：已知 TTL 保留原价，结算时仍未知的差额按 1h；不追补旧账。
 
@@ -215,7 +215,7 @@ closeout 清单等历史文已从本目录删除。现网舰队 SSOT：
 QA 删除边界已并入 [design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)。
 cn-prod 备份监控走 `ops-cn-backup-watch.yml` + pgBackRest，勿恢复逻辑 dump 步骤。
 一次性 ops 历史稿（COS 并行 repo 草案、UCloud Kimi 压测包、relay-watch、
-旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。
+旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。已完成迁机执行表（entry-multi-app L1–X4、data-plane 停写逐步表、parallel-replacement 询价/SSM 回执）已从正文删除，仅留不变量。
 
 网关生产蓝绿发布以 [deploy-stage0-workflow.md](deploy-stage0-workflow.md) 为基线。
 
