@@ -49,7 +49,7 @@ func (a *tkAnthropicBufferedAssembly) applyEvent(event *apicompat.AnthropicStrea
 	}
 	if event.Type == "message_delta" {
 		if event.Usage != nil {
-			mergeAnthropicUsage(&a.Usage, *event.Usage)
+			mergeAnthropicDeltaUsage(&a.Usage, *event.Usage)
 		}
 		if event.Delta != nil && event.Delta.StopReason != "" && a.FinalResp != nil {
 			a.FinalResp.StopReason = apicompat.AnthropicStopReasonPtr(event.Delta.StopReason)

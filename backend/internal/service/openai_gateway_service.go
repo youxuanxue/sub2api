@@ -125,6 +125,8 @@ type OpenAIUsage struct {
 	ImageOutputTokens           int `json:"image_output_tokens,omitempty"`
 	CacheCreation30mInputTokens int `json:"cache_creation_30m_input_tokens,omitempty"`
 	CacheCreation12hInputTokens int `json:"cache_creation_12h_input_tokens,omitempty"`
+
+	cacheCreationInputTokensPresent bool
 }
 
 const openAIUpstreamEndpointContextKey = string(ctxkey.ActualOpenAIUpstreamEndpoint)

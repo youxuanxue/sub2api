@@ -156,6 +156,27 @@ func groupBillsOpenAIFastAtStandard(apiKey *APIKey, account *Account, serviceTie
 	}
 }
 
+func (usage OpenAIUsage) billingUsageTokens() UsageTokens {
+	creationTokens := usage.CacheCreationInputTokens
+	if creationTokens <= 0 {
+		creationTokens = max(usage.CacheCreation5mTokens, 0) + max(usage.CacheCreation1hTokens, 0)
+	}
+	tokens := UsageTokens{
+		InputTokens:            max(usage.InputTokens-usage.CacheReadInputTokens-creationTokens, 0),
+		ImageInputTokens:       max(usage.ImageInputTokens-usage.ImageCacheReadTokens, 0),
+		ImageCacheReadTokens:   usage.ImageCacheReadTokens,
+		OutputTokens:           usage.OutputTokens,
+		CacheCreationTokens:    creationTokens,
+		CacheCreation5mTokens:  usage.CacheCreation5mTokens,
+		CacheCreation1hTokens:  usage.CacheCreation1hTokens,
+		CacheCreation30mTokens: usage.CacheCreation30mInputTokens,
+		CacheCreation12hTokens: usage.CacheCreation12hInputTokens,
+		CacheReadTokens:        usage.CacheReadInputTokens,
+		ImageOutputTokens:      usage.ImageOutputTokens,
+	}
+	return tokens
+}
+
 // RecordUsage records usage and deducts balance
 func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRecordUsageInput) error {
 	if input == nil {
@@ -601,24 +622,8 @@ func (s *OpenAIGatewayService) prepareOpenAICustomerFacingCostInputs(
 		pricingAt = timezone.Now()
 	}
 
-	actualInputTokens := result.Usage.InputTokens - result.Usage.CacheReadInputTokens - result.Usage.CacheCreationInputTokens
-	if actualInputTokens < 0 {
-		actualInputTokens = 0
-	}
-	out.ActualInputTokens = actualInputTokens
-	out.Tokens = UsageTokens{
-		InputTokens:            actualInputTokens,
-		ImageInputTokens:       max(result.Usage.ImageInputTokens-result.Usage.ImageCacheReadTokens, 0),
-		ImageCacheReadTokens:   result.Usage.ImageCacheReadTokens,
-		OutputTokens:           result.Usage.OutputTokens,
-		CacheCreationTokens:    result.Usage.CacheCreationInputTokens,
-		CacheCreation5mTokens:  result.Usage.CacheCreation5mTokens,
-		CacheCreation1hTokens:  result.Usage.CacheCreation1hTokens,
-		CacheCreation30mTokens: result.Usage.CacheCreation30mInputTokens,
-		CacheCreation12hTokens: result.Usage.CacheCreation12hInputTokens,
-		CacheReadTokens:        result.Usage.CacheReadInputTokens,
-		ImageOutputTokens:      result.Usage.ImageOutputTokens,
-	}
+	out.Tokens = result.Usage.billingUsageTokens()
+	out.ActualInputTokens = out.Tokens.InputTokens
 
 	multiplier := 1.0
 	if s.cfg != nil {

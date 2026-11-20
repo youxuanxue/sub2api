@@ -368,14 +368,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	usage := assembly.Usage
 
 	// Update usage from accumulated delta
-	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
-		finalResp.Usage = apicompat.AnthropicUsage{
-			InputTokens:              usage.InputTokens,
-			OutputTokens:             usage.OutputTokens,
-			CacheCreationInputTokens: usage.CacheCreationInputTokens,
-			CacheReadInputTokens:     usage.CacheReadInputTokens,
-		}
-	}
+	normalizeAnthropicEventUsageForResponses(&apicompat.AnthropicStreamEvent{Message: finalResp}, usage)
 
 	// Chain: Anthropic → Responses → Chat Completions
 	responsesResp := apicompat.AnthropicToResponsesResponse(finalResp)
@@ -593,7 +586,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 
 		// Extract usage from message_delta
 		if event.Type == "message_delta" && event.Usage != nil {
-			mergeAnthropicUsage(&usage, *event.Usage)
+			mergeAnthropicDeltaUsage(&usage, *event.Usage)
 		}
 		// Also capture usage from message_start (carries cache fields)
 		if event.Type == "message_start" && event.Message != nil {
