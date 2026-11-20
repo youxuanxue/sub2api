@@ -71,9 +71,12 @@ services:
     # Local postgres/redis are on the local-data profile below. depends_on has
     # to be cleared with them: a profiled dependency is undefined in the default
     # project, so `docker compose config` fails. With the dependency gone, a
-    # plain `up` starts the gateway (and optional local Caddy) only.
+    # plain `up` starts the gateway only (app-edge Caddy retired; TLS on entry).
     depends_on: !reset {}
   caddy:
+    # Retired app-edge: entry terminates TLS. Profile blocks plain `compose up`
+    # from resurrecting tokenkey-caddy on application hosts.
+    profiles: ["legacy-edge"]
     image: ${CADDY_IMAGE:?Pinned CADDY_IMAGE is required}
     pull_policy: never
     logging:

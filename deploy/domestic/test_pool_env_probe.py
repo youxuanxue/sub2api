@@ -140,7 +140,8 @@ class LocalDataProfileTest(unittest.TestCase):
 
     def test_default_project_resolves_the_gateway_without_local_servers(self):
         doc = self._config()
-        self.assertEqual(set(doc["services"]), {"tokenkey", "caddy"})
+        # App-edge caddy is on legacy-edge profile; default project is gateway only.
+        self.assertEqual(set(doc["services"]), {"tokenkey"})
         tokenkey = doc["services"]["tokenkey"]
         self.assertEqual(tokenkey.get("depends_on") or {}, {})
         self.assertEqual(tokenkey["environment"]["DATABASE_HOST"], "10.2.4.5")
@@ -148,16 +149,21 @@ class LocalDataProfileTest(unittest.TestCase):
 
     def test_local_data_profile_is_what_starts_the_old_servers(self):
         doc = self._config("--profile", "local-data")
-        self.assertEqual(set(doc["services"]), {"tokenkey", "caddy", "postgres", "redis"})
+        self.assertEqual(set(doc["services"]), {"tokenkey", "postgres", "redis"})
         self.assertEqual(doc["services"]["postgres"].get("profiles"), ["local-data"])
         self.assertEqual(doc["services"]["redis"].get("profiles"), ["local-data"])
         self.assertEqual(doc["services"]["tokenkey"].get("depends_on") or {}, {})
+
+    def test_legacy_edge_profile_is_what_exposes_retired_app_caddy(self):
+        doc = self._config("--profile", "legacy-edge")
+        self.assertEqual(set(doc["services"]), {"tokenkey", "caddy"})
+        self.assertEqual(doc["services"]["caddy"].get("profiles"), ["legacy-edge"])
 
     def test_memory_cap_applies_to_the_gateway_only(self):
         """The cap must not leak onto Caddy, the retired local servers, or any
         other service: those have their own memory needs and, for PG/Redis, live
         on the data machine."""
-        doc = self._config("--profile", "local-data")
+        doc = self._config("--profile", "local-data", "--profile", "legacy-edge")
         tokenkey = doc["services"]["tokenkey"]
         self.assertEqual(tokenkey["mem_limit"], str(3 * 1024 * 1024 * 1024))
         self.assertEqual(tokenkey["memswap_limit"], str(3 * 1024 * 1024 * 1024))
