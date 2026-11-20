@@ -139,8 +139,5 @@ OAuth / Setup-Token 生图**一律**走：
 
 ## Validation
 
-- 单元：ceil-16、分隔符归一、单边/像素上下限 400、pad 精确画布、jpeg/webp 魔数、compression 体积差、style→Style guidance、main-model fallback 同账号重试。
-- edge-us3 OAuth：复跑客户 01–10 矩阵（`gpt-image-2` / `2.5-sunburst` / `2.5-flare`）。
-- 探针：`ops/stage0/probe_openai_upstream_image.sh`；矩阵
-  `ops/stage0/probe_openai_image_fidelity_matrix.sh`；AR/07/09
-  `ops/stage0/probe_openai_image_ar_07_09.sh`。
+单元与 Owners 表所列 `*_tk_test.go`；线上探针脚本在 `ops/stage0/probe_openai_*image*`。
+一次性客户矩阵复跑清单已删。

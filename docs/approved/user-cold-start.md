@@ -6,7 +6,7 @@ approved_at: 2026-04-22
 authors: [agent]
 created: 2026-04-22
 related_stories: [US-028, US-029, US-030, US-031]
-revised: 2026-11-20（删 PR 实施顺序与 Playground prototype 门禁散文）
+revised: 2026-11-20（删实施顺序/原型门禁/原始基线行号表）
 ---
 
 # New-User Cold Start
@@ -31,26 +31,11 @@ P2（每日签到）按你的拍板**暂缓**，不在本设计范围。
 
 > 为什么是这五件，不是更多：每条都对应「冷启动失败模式」的一个具体出口——没有目录就看不到值；没有赠额就不会试；没有 Key 就跑不通；没有 Tour 就找不到入口；没有 Playground 就要装客户端。少做一件，新用户走到一半就掉队。多做一件（签到、邀请奖励、欢迎邮件），都是留存或增长功能，**不是**冷启动。
 
-## 1. 原始基线（设计创建时要改的对象）
+## 1. 基线（已由下文 P0 闭合）
 
-<!-- prettier-ignore -->
-| 维度 | 现状 | 文件:行 |
-| --- | --- | --- |
-| 注册 → balance | `default_balance`，**默认 0**；OAuth 路径**不走** promo code | `auth_service.go:182-208`、`auth_service.go:472-505`、`auth_service.go:587-640` |
-| 注册 → API Key | **手动**到 `/keys` 创建；邮箱注册路径与 OAuth 路径都不创建 | `api_key_service.go:329-462` |
-| 模型发现 | `GET /v1/models` 在 API Key 鉴权之后；前端 sidebar 无「模型」入口 | `routes/gateway.go:36-50`、`gateway_handler.go:850-908` |
-| 价格元数据 | 已有 `model_prices_and_context_window.json`（litellm 格式），目前只用于计费，未对外暴露 | `config/config.go:1318-1321` |
-| 计价口径 | `users.balance` 用 USD（前端 `formatCurrency` 默认 `'USD'`、dashboard 直接 `${balance}`、`order_type==='balance'` 显示 `$`）；CNY 仅出现在「充值订单」链路 | `frontend/src/utils/format.ts:61`、`UserDashboardStats.vue:14` |
-| Onboarding tour | Driver.js 步骤已写好，但 `useOnboardingTour.ts:540` 提前 return 了非 admin 用户 | `frontend/src/composables/useOnboardingTour.ts` |
-| Playground | **不存在** | — |
-
-**已有可复用基础**：
-
-- `SettingService` 完整的 setting 加载 / 默认值 / 更新 pipeline（`setting_service.go:1008+`），新增 setting key 是已知模式。
-- `system_logs` 表 + `LogTypeSystem` 用于审计（已用于 promo / invitation 等场景）。
-- `userRepo.UpdateBalance` 已存在，promo 路径已用过。
-- `apiKeyService.Create` 已存在，admin & user 路径都用它。
-- `GetAvailableModels`（`gateway_service.go:8738+`）按 group 聚合模型清单 → 公开页可复用。
+设计时缺口：注册默认 balance=0、无自动 trial Key、公开无定价目录、非 admin Tour
+提前 return、无 Playground。P0 闭合前三项；Tour/Playground 见 §5 / §11（Studio）。
+复用 `SettingService`、`system_logs`、`UpdateBalance`、`apiKeyService.Create`。
 
 ## 2. P0-A 公开模型 + 价格目录
 
