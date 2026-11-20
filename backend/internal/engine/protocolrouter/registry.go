@@ -187,9 +187,15 @@ func preservesMessagesToResponsesContent(req CanonicalRequest) bool {
 
 func preservesMessagesToChat(req CanonicalRequest) bool {
 	// forwardAnthropicViaRawChatCompletions already converts Claude Code
-	// function tools and images (AnthropicToChatCompletionsRequest). The old
+	// function tools, images, and Moonshot-shaped video blocks
+	// (AnthropicToChatCompletionsRequest → Chat video_url). The old
 	// text-only-without-tools gate fail-closed those requests onto messages
 	// identity, which dual-stack OpenAI relays cannot serve for non-Claude models.
+	// Audio stays fail-closed: the chat bridge has no audio mapping and Volc
+	// Kimi rejects audio locally.
+	if req.profile.ContentKinds&ContentAudio != 0 {
+		return false
+	}
 	return preservesMessagesToResponsesContent(req) &&
 		req.profile.Continuation == ContinuationNone
 }

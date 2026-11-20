@@ -86,8 +86,21 @@ func TestVolcKimiThinkingShapesKeepUpstreamUsage(t *testing.T) {
 					if stream {
 						require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
 						require.Contains(t, rec.Body.String(), `"prompt_tokens":20`)
+						require.Contains(t, rec.Body.String(), `"finish_reason":null`)
+						sawOuterCached := false
+						for _, line := range strings.Split(rec.Body.String(), "\n") {
+							payload, ok := extractOpenAISSEDataLine(line)
+							if !ok || !gjson.Get(payload, "usage").IsObject() {
+								continue
+							}
+							require.EqualValues(t, 4, gjson.Get(payload, "usage.cached_tokens").Int())
+							sawOuterCached = true
+						}
+						require.True(t, sawOuterCached)
 					} else {
 						require.EqualValues(t, 20, gjson.Get(rec.Body.String(), "usage.prompt_tokens").Int())
+						require.EqualValues(t, 4, gjson.Get(rec.Body.String(), "usage.cached_tokens").Int())
+						require.EqualValues(t, 4, gjson.Get(rec.Body.String(), "usage.prompt_tokens_details.cached_tokens").Int())
 					}
 				})
 			}

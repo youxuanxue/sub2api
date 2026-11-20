@@ -1024,29 +1024,89 @@ func validateVolcKimiDataVideoURL(raw string) error {
 	return nil
 }
 
+const volcKimiVideoProbeAttempts = 3
+
 // probeVolcKimiHTTPVideo checks one already-classified public http(s) URL.
 // HEAD is enough when the server answers; 401/403/405/501 fall back to a
-// one-byte ranged GET because some stores reject HEAD while still serving the file.
+// one-byte ranged GET because some stores reject HEAD while still serving the
+// file. Transport errors and 5xx also fall back to ranged GET, then retry the
+// whole probe a few times — cn-prod remote URL fetches often fail in bursts
+// rather than as permanent unreachability.
 func probeVolcKimiHTTPVideo(ctx context.Context, client *http.Client, raw string) error {
+	var lastErr error
+	for attempt := 0; attempt < volcKimiVideoProbeAttempts; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(attempt) * 200 * time.Millisecond
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				if lastErr != nil {
+					return lastErr
+				}
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+		err := probeVolcKimiHTTPVideoOnce(ctx, client, raw)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !volcKimiVideoProbeTransient(err) {
+			return err
+		}
+	}
+	return lastErr
+}
+
+func probeVolcKimiHTTPVideoOnce(ctx context.Context, client *http.Client, raw string) error {
 	status, err := volcKimiVideoStatus(ctx, client, http.MethodHead, raw)
 	if err != nil {
-		return err
+		// Some CDNs reset HEAD while still serving ranged GET.
+		status, err = volcKimiVideoStatus(ctx, client, http.MethodGet, raw)
+		if err != nil {
+			return err
+		}
 	}
 	reachable, retryGET := interpretVolcKimiVideoStatus(status)
 	if reachable {
 		return nil
 	}
 	if !retryGET {
-		return fmt.Errorf("video_url returned %d", status)
+		return &volcKimiVideoProbeStatusError{status: status}
 	}
 	status, err = volcKimiVideoStatus(ctx, client, http.MethodGet, raw)
 	if err != nil {
 		return err
 	}
 	if ok, _ := interpretVolcKimiVideoStatus(status); !ok {
-		return fmt.Errorf("video_url returned %d", status)
+		return &volcKimiVideoProbeStatusError{status: status}
 	}
 	return nil
+}
+
+type volcKimiVideoProbeStatusError struct {
+	status int
+}
+
+func (e *volcKimiVideoProbeStatusError) Error() string {
+	if e == nil {
+		return "video_url probe failed"
+	}
+	return fmt.Sprintf("video_url returned %d", e.status)
+}
+
+func volcKimiVideoProbeTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	var statusErr *volcKimiVideoProbeStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.status >= 500 || statusErr.status == http.StatusTooManyRequests
+	}
+	// Transport / timeout / DNS flakes are retryable; permanent parse issues are not.
+	return true
 }
 
 func interpretVolcKimiVideoStatus(status int) (reachable bool, retryGET bool) {

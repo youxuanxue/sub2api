@@ -6,6 +6,10 @@ authors: [codex]
 created: 2026-08-24
 revised: 2026-11-18
 revision_note: >
+  2026-11-20: Messages→Chat admits ContentVideo (rewrite to Chat video_url;
+    raises availability vs open-source silent drop) and fail-closes
+    ContentAudio. Owned with volc-kimi-chat-compatibility. Approved by feng:
+    「尽可能提高可用率」without softening KVV.
   2026-11-18: Chat→Messages Plan matches open-source relay UX (new-api /
     LiteLLM): admit request-level OpenAI-only extras — response_format,
     legacy functions[] / function_call, and root reasoning objects —

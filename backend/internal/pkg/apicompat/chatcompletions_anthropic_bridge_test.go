@@ -150,6 +150,67 @@ func TestAnthropicToChatCompletionsRequest_ThinkingDropped(t *testing.T) {
 	require.Empty(t, out.Messages[0].ReasoningContent)
 }
 
+func TestAnthropicToChatCompletionsRequest_VideoBlocksBecomeChatVideoURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		wantURL string
+	}{
+		{
+			name:    "video source url",
+			content: `[{"type":"video","source":{"type":"url","url":"https://example.com/a.mp4"}},{"type":"text","text":"see"}]`,
+			wantURL: "https://example.com/a.mp4",
+		},
+		{
+			name:    "video_url object",
+			content: `[{"type":"video_url","video_url":{"url":"https://example.com/b.mp4"}},{"type":"text","text":"see"}]`,
+			wantURL: "https://example.com/b.mp4",
+		},
+		{
+			name:    "video_url string",
+			content: `[{"type":"video_url","video_url":"https://example.com/c.mp4"},{"type":"text","text":"see"}]`,
+			wantURL: "https://example.com/c.mp4",
+		},
+		{
+			name:    "input_video string",
+			content: `[{"type":"input_video","video_url":"https://example.com/d.mp4"},{"type":"text","text":"see"}]`,
+			wantURL: "https://example.com/d.mp4",
+		},
+		{
+			name:    "video source base64",
+			content: `[{"type":"video","source":{"type":"base64","media_type":"video/mp4","data":"AAAA"}},{"type":"text","text":"see"}]`,
+			wantURL: "data:video/mp4;base64,AAAA",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &AnthropicRequest{
+				Model:     "kimi-k3",
+				MaxTokens: 100,
+				Messages:  []AnthropicMessage{{Role: "user", Content: json.RawMessage(tc.content)}},
+			}
+			out, err := AnthropicToChatCompletionsRequest(req)
+			require.NoError(t, err)
+			require.Len(t, out.Messages, 1)
+			var parts []ChatContentPart
+			require.NoError(t, json.Unmarshal(out.Messages[0].Content, &parts))
+			require.Len(t, parts, 2)
+			require.Equal(t, "video_url", parts[0].Type)
+			require.NotNil(t, parts[0].VideoURL)
+			require.Equal(t, tc.wantURL, parts[0].VideoURL.URL)
+			require.Equal(t, "text", parts[1].Type)
+			require.Equal(t, "see", parts[1].Text)
+		})
+	}
+
+	_, err := AnthropicToChatCompletionsRequest(&AnthropicRequest{
+		Model:     "kimi-k3",
+		MaxTokens: 100,
+		Messages:  []AnthropicMessage{{Role: "user", Content: json.RawMessage(`[{"type":"video_url","video_url":{"url":""}}]`)}},
+	})
+	require.ErrorContains(t, err, "nonempty video URL")
+}
+
 func TestAnthropicToChatCompletionsRequest_ThinkingDisabledOverridesOutputEffort(t *testing.T) {
 	req := &AnthropicRequest{
 		Model:        "gpt-5.6-luna",

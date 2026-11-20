@@ -1474,11 +1474,13 @@
         "preservesResponsesToMessages",
         "preservesChatToMessages",
         "allowed := ContentText | ContentImage",
+        "func preservesMessagesToChat(",
+        "req.profile.ContentKinds&ContentAudio != 0",
         "adapterID: AdapterGeminiToChat",
         "func preservesGeminiToChat(",
         "apicompat.GeminiToChatRequest("
       ],
-      "rationale": "Tool-capable Messages conversions remain owned by the protocol registry, without supplier-specific handler fallbacks. Chat→Messages must keep admitting text+image (open-source aligned); text-only regression would revive unsupported_request for Magpie-style Chat clients."
+      "rationale": "Tool-capable Messages conversions remain owned by the protocol registry, without supplier-specific handler fallbacks. Chat→Messages must keep admitting text+image (open-source aligned); text-only regression would revive unsupported_request for Magpie-style Chat clients. Messages→Chat admits video (rewritten to Chat video_url) and fail-closes audio."
     },
     {
       "path": "backend/internal/engine/protocolrouter/policy_contract_test.go",
@@ -3519,17 +3521,41 @@
         "case \"thinking\", \"reasoning_text\", \"prompt_cache_breakpoint\", \"refusal\", \"summary_text\":",
         "func validateVolcKimiDataVideoURL(",
         "const volcKimiMinDataVideoBytes = 256",
+        "const volcKimiVideoProbeAttempts = 3",
+        "func probeVolcKimiHTTPVideoOnce(",
+        "func volcKimiVideoProbeTransient(",
         "case \"text\", \"image_url\", \"video_url\", \"video\", \"input_video\", \"input_audio\", \"audio_url\", \"file\", \"thinking\", \"reasoning_text\", \"prompt_cache_breakpoint\", \"refusal\", \"summary_text\":",
         "if kind != \"video\" && kind != \"input_video\" {"
       ],
-      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire. thinking/reasoning_text/prompt_cache_breakpoint/refusal/summary_text content parts are dropped; type=video/input_video rewrites to video_url; audio_url/input_audio return local 400. type=file missing/xor → local 400; video/* file_data → video_url; text/* → text; non-PDF → local 400; PDF/file_id pass through. Inline data: video_url must be video/* base64 ≥256 decoded bytes or local 400. Open tool-round interleaved assistant text (including between parallel tool results) is dropped before Volc InvalidParameter 400. Text parts with empty/null/missing text are dropped before missing messages.content.text 400. Message-level content JSON null is rewritten to empty string before Volc missing messages.content 400. Thinking-mode temperature pin: on → KVV-legal non-1 to 1.0; off → KVV-legal non-0.6 to 0.6 (Volc only-1 / only-0.6). Orphan tool_call_id stays 400; long trajectories are not truncated."
+      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible. Unreachable video_url values are rejected locally; readable video parts stay on the wire; remote probe retries transient 5xx/transport failures. thinking/reasoning_text/prompt_cache_breakpoint/refusal/summary_text content parts are dropped; type=video/input_video rewrites to video_url; audio_url/input_audio return local 400. type=file missing/xor → local 400; video/* file_data → video_url; text/* → text; non-PDF → local 400; PDF/file_id pass through. Inline data: video_url must be video/* base64 ≥256 decoded bytes or local 400. Open tool-round interleaved assistant text (including between parallel tool results) is dropped before Volc InvalidParameter 400. Text parts with empty/null/missing text are dropped before missing messages.content.text 400. Message-level content JSON null is rewritten to empty string before Volc missing messages.content 400. Thinking-mode temperature pin: on → KVV-legal non-1 to 1.0; off → KVV-legal non-0.6 to 0.6 (Volc only-1 / only-0.6). Orphan tool_call_id stays 400; long trajectories are not truncated."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
       "must_contain": [
-        "StashUsageEstimateUpstreamBody(c, upstreamBody)"
+        "StashUsageEstimateUpstreamBody(c, upstreamBody)",
+        "applyVolcKimiRawChatCompletionsSSELine(account, originalModel, line)",
+        "applyVolcKimiRawChatCompletionsResponse(account, originalModel, respBody)"
       ],
-      "rationale": "Raw Chat (newapi raw, Volc Agent Plan, Grok, OpenAI-compatible) must hand its final provider-normalized outbound body to the zero-usage estimate owner so input is counted from what the upstream saw. See docs/approved/usage-estimate-fallback-ssot.md."
+      "rationale": "Raw Chat (newapi raw, Volc Agent Plan, Grok, OpenAI-compatible) must hand its final provider-normalized outbound body to the zero-usage estimate owner so input is counted from what the upstream saw. See docs/approved/usage-estimate-fallback-ssot.md. Volc Kimi Moonshot wire shaping (finish_reason null + outer cached_tokens) runs on the same raw path."
+    },
+    {
+      "path": "backend/internal/service/volc_kimi_chat_response_tk.go",
+      "must_contain": [
+        "func applyVolcKimiRawChatCompletionsResponse(",
+        "func applyVolcKimiRawChatCompletionsSSELine(",
+        "func mirrorVolcKimiOuterCachedTokens(",
+        "func ensureVolcKimiStreamFinishReasonNull("
+      ],
+      "rationale": "Volc Agent Plan Kimi chat responses mirror Moonshot usage.cached_tokens and fill stream finish_reason:null. Messages video rewrite is owned by apicompat Anthropic→Chat."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/chatcompletions_anthropic_bridge.go",
+      "must_contain": [
+        "func anthropicVideoURLForChat(",
+        "case \"video\", \"video_url\", \"input_video\":",
+        "Type:     \"video_url\""
+      ],
+      "rationale": "Messages→Chat must rewrite Moonshot-shaped video blocks to Chat video_url instead of silently dropping them (new-api/LiteLLM drop) or rejecting with a local 400 that lowers availability."
     },
     {
       "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk.go",
