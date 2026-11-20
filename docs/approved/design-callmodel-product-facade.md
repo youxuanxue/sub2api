@@ -5,6 +5,7 @@ approved_by: feng (对话审批 2026-09-30)
 authors: [agent]
 created: 2026-09-30
 revised_at: 2026-10-09
+revised: 2026-11-20（删 Jobs 复审散文；保留不变量与验证合同）
 depends_on:
   - docs/approved/design-dual-market-homepage.md
   - docs/approved/design-apex-domain-phase2.md
@@ -133,35 +134,6 @@ CallModel 是对外自主注册与收费的主产品 → **事务性人类链接
 2. 邮件 / 支付回执人类入口 → **`callmodel.io`**（`frontend_url` / 面向用户的 `api_base_url` 同步迁）  
 3. **不需要** “Same account as TokenKey” 登录说明  
 
-## 10. Jobs 复审（方案级）
+## 10. 实现纪律
 
-### 聚焦
-
-只做一件事：让海外用户在 **CallModel 门面内**完成发现 → 注册 → 付费 → 调用，不再被抛到另一个品牌域名。Admin 留在 TokenKey = 对「运维入口不进商业门面」说了不。通过。
-
-### 简洁
-
-同壳反代 + hostname 品牌铬，比第二套前端更干净。  
-曾考虑的「Settings 仍写 tokenkey、邮件却想指向 callmodel」是**双真相**——已否决，改为单一 `frontend_url=callmodel.io`。  
-跨域 SSO / 解释文案首版不做 = 少一套状态机。通过。
-
-### 端到端
-
-修复前：CallModel 首页 → 点 Models → TokenKey 壳（品牌断裂）。  
-修复后：CallModel 首页 → Models / 注册 / 控制台 / 邮件回跳 同品牌；机器入口 `api.callmodel.io`；Admin 明确在另一门面。完整商业旅程闭合。通过。
-
-### 设计即工作方式
-
-开发者心智：`callmodel.io` = 产品；`api.callmodel.io` = 调用；`tokenkey.dev/admin` = 运营。  
-实现上：一个 facade SSOT、相对路径、Caddy 只多一条 Admin 踢出。命名跟现实一致。通过。
-
-### 精品意识 / 诚实残留
-
-- 跨门面仍要再登录：不美，但比假 SSO 诚实；用户主路径留在 CallModel 后很少撞上。可接受。  
-- 国内 TokenKey 用户邮件可能带 CallModel 链：主商业门面的代价；若不可接受，唯一干净升级是「注册 host → 邮件 origin」映射（首版明确不做）。  
-- OAuth/webhook 仍钉在 `api.tokenkey.dev`：机器回调与人类门面分离，正确。
-
-### 复审结论
-
-**方案可自豪展示，建议批准后实现。**  
-唯一实现期纪律：Settings 切换与 Caddy/App 同窗口验证邮件 host，禁止长期停在「新门面 + 旧 frontend_url」中间态。
+Settings 切换与 Caddy/App 同窗口验证邮件 host；禁止长期「新门面 + 旧 frontend_url」。

@@ -5,7 +5,7 @@ approved_by: "feng（2026-11-09 会话：同意 #3102 的设计，要求文档�
 approved_at: 2026-11-09
 risk: high
 authors: [agent]
-revised: 2026-11-20（两站切流已完成；删停写/复审/实测流水，保留布局/参数与脚本 owner）
+revised: 2026-11-20（再压参数理由虚荣数字与风险散文；保留布局/参数目标与脚本 owner）
 ---
 
 # prod 与 cn-prod 数据面从应用机拆出
@@ -63,11 +63,11 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 | 参数 | 现值 | 建议 | 理由 |
 |---|---|---|---|
-| `shared_buffers` | 128MB | 内存 25%：prod 2GB，cn-prod 1GB | 现值是安装默认；`wal_buffers` 会随之自动升到 16MB。prod 日常热数据 2026-11-09 删除旧去重键后约 1.8 GB，重建去重索引后约 1.1 GB，2GB 装得下；再大会和页缓存重复缓存同一份数据 |
+| `shared_buffers` | 128MB | 内存 25%：prod 2GB，cn-prod 1GB | 安装默认过小；按内存 25% 装热数据，过大与页缓存重复 |
 | `effective_cache_size` | 4GB | prod 5GB，cn-prod 2.5GB | 让优化器知道 PG 加页缓存一共能缓存多少。按 PG 容器上限算，不按整机内存算 |
-| `work_mem` | 4MB | 16MB | 两站都有大量临时文件；prod 17 小时 922 个，平均每个 3.9 MB，16MB 能消掉大部分。实际只有十来条连接，不会把内存用满 |
+| `work_mem` | 4MB | 16MB | 降低临时文件；连接数有限，内存压力可控 |
 | `maintenance_work_mem` | 64MB | prod 256MB，cn-prod 128MB | 加快 vacuum 和建索引 |
-| `max_connections` | 200 / 100 | 切流目标：两站都 200；**cn-prod 现网 2026-11-17 已升到 400**（prod 仍 200） | 切流时：cn-prod 一台网关蓝绿重叠可占 80，贴近旧上限 100。2026-11-17 容量压测后 cn-prod 应用池升到 80×2，数据机经审批升到 400；期望值 owner 见 `ops/stage0/dataplane-cutover-data.sh` |
+| `max_connections` | 200 / 100 | 切流目标：两站都 200；**cn-prod 现网 2026-11-17 已升到 400**（prod 仍 200） | 现网 cn-prod=400、prod=200；期望值 owner：`ops/stage0/dataplane-cutover-data.sh` |
 | `jit` | on | off | 网关都是短查询，JIT 编译只增加延迟。仓库调优文件已经是 off |
 | `max_parallel_workers` / `max_parallel_workers_per_gather` | 8 / 2 | 2 / 1 | 沿用仓库调优文件的值，避免一条报表查询占满 CPU |
 | `random_page_cost` | 4 | 1.1 | 两站都是 SSD 云盘 |
@@ -124,11 +124,5 @@ prod 应用机 LUKS 已由 [`design-prod-entry-multi-app.md`](design-prod-entry-
 
 ## 风险
 
-- 停写窗口内的新请求要排队，超过 Caddy 等待上限的会失败；超过排空上限的长流会被切断。审批时附预估数量。
-- 跨机后每次查询多一次私网往返。演练测得的 p99 不可接受就不切。
-- 私网放行写错会把库暴露出去，或者切断应用。开机后按第 2 步测端口。
-- 旧库被重新启动成可写主库会造成双写。提升之后保持停止。
-- 去掉加密卷后，拿到数据机的磁盘快照就能读到库。这是已接受的取舍。
-- 应用机断电后，库端死连接会占着会话级 advisory lock，新网关可能等不到迁移锁。靠 `tcp_keepalives_*` 约 1 分钟释放；切流后要在蓝绿发布中实测一次。
-- 新参数让 `shared_buffers` 变大，切流后头几个小时缓存是冷的，查询会比平时慢。
-- cn-prod 锐驰配额可能已满，开机会被卡住。
+停写排队/长流切断、跨机延迟、防火墙误配、旧库双写、去加密卷后快照可读、死连接占 advisory lock
+（靠 `tcp_keepalives_*`）、冷 `shared_buffers`、cn-prod 配额满。审批与回退见上文。
