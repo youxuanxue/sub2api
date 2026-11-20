@@ -23,6 +23,7 @@ never capability metadata.
 | Does one CloudWise spelling work? | `ops/stage0/probe_cloudwise_model_case.sh` |
 | Which Claude IDs does one Kiro account serve? | `ops/stage0/probe_kiro_claude_models.sh` |
 | How do NVIDIA Build vs Volc Agent Plan differ on `kimi-k3.1-pro` (KVV / sampling / response shape)? | `ops/stage0/probe_kimi31_nvidia_vs_volc.sh` (direct upstream; not gateway) |
+| Does Volc accept kimi content after dropping `refusal`/`summary_text` or rewriting `input_video`→`video_url` (KVV-safe)? | `ops/stage0/probe_volc_kimi_content_part_sanitize.sh` (direct upstream) |
 
 For the canonical gateway path, pass the target, `ACCOUNT_ID`, `MODEL`, and the
 operation-appropriate `ENDPOINT` to `probe_account_model.sh`. `run-probe.sh`

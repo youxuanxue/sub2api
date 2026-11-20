@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-20 Volc Kimi content-part：先直打证据再兼容（不冲突 KVV）
+
+原话：「同意，先做直打 volc 的证据，在做兼容修复。前提不要和 kvv 原则冲突。」
+
+适用范围：cn-prod/prod 上 `refusal` / `summary_text` 丢弃、`input_video`→`video_url` 改写候选。流程：直打 Volc Agent Plan sanitize→200（及 KVV 负向仍 400）→ 再网关修复。不放宽 orphan tool、空 function.name、非法采样、递归 schema、上下文截断。
+
 ## 2026-11-20 host-config / ops-archive 与库备份共用同一 COS 密钥（单文件）
 
 原话：「所以，应该 美西 和 北京都用同样的密钥，就好。不需要单独加用户。」「但是两边不一致，有心智负担吧？再收敛一下？」
