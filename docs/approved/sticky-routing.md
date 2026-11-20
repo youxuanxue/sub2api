@@ -9,7 +9,7 @@ created: 2026-04-17
 related_prs: []
 related_commits: [a68dee5b]
 related_stories: [US-006]
-revised: 2026-11-20（删 Gap 盘点/测试矩阵散文；保留架构与 §11.5/11.6）
+revised: 2026-11-20（删 Gap/类型 dump/行号表；保留策略矩阵与 §11.5/11.6）
 ---
 
 # Sticky Routing & Prompt Cache Optimization
@@ -27,59 +27,11 @@ revised: 2026-11-20（删 Gap 盘点/测试矩阵散文；保留架构与 §11.5
 
 ## 2. 架构
 
-### 2.1 统一注入器抽象
+### 2.1 统一注入器
 
-新增 `backend/internal/service/sticky_session_injector.go`：
-
-```go
-package service
-
-// StickyKey 是网关从客户端请求派生出的统一 sticky 标识。
-// Source 标明派生来源，便于日志归因。
-type StickyKey struct {
-    Value  string  // 派生后的字符串（已脱敏 / hash）
-    Source string  // "client_session_id" | "client_conversation_id" | "client_metadata_user_id" | "client_prompt_cache_key" | "derived_content_hash" | "derived_first_user_hash"
-}
-
-// StickySessionInjector 把 StickyKey 翻译成各个上游协议要求的字段并写回请求。
-type StickySessionInjector interface {
-    // Derive 优先从客户端 header/body 提取已有 sticky id；失败则按策略派生兜底。
-    Derive(ctx context.Context, req *InjectionRequest) StickyKey
-
-    // InjectOpenAIResponses 把 sticky 信息写入 Codex/Responses 上游 body + header。
-    InjectOpenAIResponses(req *InjectionRequest, body []byte, key StickyKey) ([]byte, error)
-
-    // InjectOpenAIChatCompletions 同上，针对 /v1/chat/completions 上游。
-    InjectOpenAIChatCompletions(req *InjectionRequest, body []byte, key StickyKey) ([]byte, error)
-
-    // InjectAnthropicMessages 写入 metadata.user_id（仅在策略允许时）。
-    InjectAnthropicMessages(req *InjectionRequest, body []byte, key StickyKey) ([]byte, error)
-}
-
-// InjectionRequest 收口注入决策需要的所有上下文，避免函数签名爆炸。
-type InjectionRequest struct {
-    APIKeyID       int64
-    GroupID        int64
-    UpstreamModel  string
-    AccountKind    string  // "openai_oauth" | "openai_apikey" | "anthropic_oauth" | "gemini" | "antigravity" | "newapi"
-    IsClaudeCodeUA bool    // true 时按"客户端自带策略"放行，禁止 metadata 注入
-    Strategy       StickyStrategy  // 来自 group + global 合成
-    Headers        http.Header
-}
-
-// StickyStrategy 来自 group + global setting 合成。
-type StickyStrategy struct {
-    GlobalEnabled bool       // 来自 setting `sticky_routing.enabled`，默认 true
-    Mode          StickyMode // 来自 group.sticky_routing_mode
-}
-
-type StickyMode string
-const (
-    StickyModeAuto        StickyMode = "auto"        // 默认：派生 + 注入
-    StickyModePassthrough StickyMode = "passthrough" // 仅透传客户端已送的，不派生不补
-    StickyModeOff         StickyMode = "off"         // 全关
-)
-```
+Owner：`sticky_session_injector.go`。`Derive` + 各协议 `Inject*`；策略来自
+`gateway.sticky_routing.enabled` 与 `group.sticky_routing_mode`
+（`auto` / `passthrough` / `off`）。真 Claude Code UA 不强制 metadata 注入。
 
 ### 2.2 派生算法（`Derive`）
 
@@ -112,16 +64,8 @@ const (
 
 ### 2.4 接入点
 
-**最少侵入**原则：每个调用点只新增 1-3 行。
-
-| 接入点 | 文件:行（现状） | 改动 |
-|---|---|---|
-| Codex Responses 主路径 | `openai_gateway_service.go:1880-1884` | `if pck=="" && strategy.allows() { inject(...) }` |
-| OpenAI passthrough | `openai_gateway_service.go:2700-2740` | 同上 |
-| Chat Completions compat | `openai_gateway_chat_completions.go:69-74` | 把 `shouldAutoInjectPromptCacheKeyForCompat` 替换为 strategy 判定 |
-| Messages → OpenAI | `openai_gateway_handler.go:597-611` | 把 if 条件从"有 metadata.user_id 才合成"扩展为"按 strategy 决定" |
-| Anthropic OAuth mimic | `gateway_service.go:1077-1081` | 注入逻辑改用统一 injector，但 `IsClaudeCodeUA` 时 short-circuit |
-| NewAPI 透传 | `sticky_session_context.go` / `sticky_session_injector.go` | 共用 sticky 注入 owner（含 `X-Session-Id`） |
+Responses / passthrough / Chat compat / Messages→OpenAI / Anthropic mimic /
+NewAPI（`X-Session-Id`）均消费同一 injector；行号以代码为准。
 
 ---
 
