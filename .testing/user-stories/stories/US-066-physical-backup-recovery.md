@@ -51,7 +51,10 @@
 ## Evidence
 
 TLS S3 原型已运行全量、两次增量、同点双路径恢复及缺 WAL/损坏文件负向测试。
-ARM64 真实计费二进制已在三份恢复副本上通过热表/归档重复扣费和退款验收。Python 行为与告警测试通过。生产 AWS 真实最新与历史同点全量/增量恢复已通过，临时资源已清理；详见 `ops/stage0/physical-backup.md`。七天覆盖和持续性能观测仍未完成，状态保持 InTest。
+ARM64 真实计费二进制已在三份恢复副本上通过热表/归档重复扣费和退款验收。Python 行为与告警测试通过。
+生产侧历史 AWS 同点恢复曾通过并已清理临时资源；现网主路径为 COS pgBackRest（见
+`ops/stage0/physical-backup.md` 现网表、`ops/backup/cos_restore_acceptance.py`、
+`tokenkey-host-replacement`）。七天覆盖和持续性能观测仍未完成，状态保持 InTest。
 
 ## Status
 
