@@ -69,6 +69,20 @@ class WarmFanoutTests(unittest.TestCase):
                 remote_exec.Node("empty", "app", "", "10.2.4.98", None), "auto",
             )
 
+    def test_cli_channel_defaults_to_tat(self):
+        for action in ("warm-all", "render-all", "dispatch-rendered"):
+            with self.subTest(action=action):
+                args = warm_fanout.parser().parse_args([
+                    action,
+                    "--manifest", "ignored.json",
+                    "--tag", TAG,
+                    "--revision", REV,
+                    "--transport", "s3",
+                    *(["--render-out", "/tmp/out.json"] if action == "render-all" else []),
+                    *(["--render-file", "/tmp/in.json"] if action == "dispatch-rendered" else []),
+                ])
+                self.assertEqual(args.channel, "tat")
+
     def test_auto_prefers_tat_for_every_lighthouse_node_in_order(self):
         runner = FakeRunner({
             "app-b": remote_exec.Result(

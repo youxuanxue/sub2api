@@ -38,7 +38,7 @@ def _mounted_ext4(root, run):
 
 def volume_contract(target):
     """Validate non-secret storage identity before sending it to a host."""
-    platform = target.get('volume_platform', 'tencent-luks')
+    platform = target.get('volume_platform', 'tencent-root')
     if platform not in ('tencent-luks', 'hetzner', 'tencent-root'):
         raise ValueError('unsupported host volume platform')
     mapper = target.get('volume_mapper', 'tokenkey_recovery')
@@ -74,13 +74,14 @@ def check_root(root, root_uuid, run):
     private_file(root / '.env', 0)
 
 
-def check_volume(root, run=subprocess.check_output, platform='tencent-luks',
+def check_volume(root, run=subprocess.check_output, platform='tencent-root',
                  mapper_name='tokenkey_recovery', root_uuid=''):
-    """Validate the encrypted/data volume for the explicit platform.
+    """Validate the data volume for the explicit platform.
 
-    ``tencent-luks`` (default) requires the named dm-crypt mapper and refuses
-    Hetzner volume identities. ``hetzner`` remains only as a historical gate
-    that requires a Hetzner Cloud Volume id symlink (prod Hetzner is retired).
+    Live fleet default is ``tencent-root`` (plain root disk + pinned UUID).
+    ``tencent-luks`` remains for historical LUKS mapper hosts only.
+    ``hetzner`` remains only as a historical gate that requires a Hetzner
+    Cloud Volume id symlink (prod Hetzner is retired).
     """
     if platform == 'tencent-root':
         return check_root(root, root_uuid, run)
@@ -137,8 +138,8 @@ def main():
     parser.add_argument('--root', type=Path, default=Path('/var/lib/tokenkey'))
     parser.add_argument('--hybrid-prod', action='store_true')
     parser.add_argument('--check-volume', action='store_true')
-    parser.add_argument('--platform', choices=('hetzner', 'tencent-luks', 'tencent-root'), default='tencent-luks',
-                        help='volume identity gate; default tencent-luks (Hetzner Cloud retired)')
+    parser.add_argument('--platform', choices=('hetzner', 'tencent-luks', 'tencent-root'), default='tencent-root',
+                        help='volume identity gate; default tencent-root (live plain root)')
     parser.add_argument('--mapper-name', default='tokenkey_recovery',
                         help='dm-crypt mapper basename when --platform=tencent-luks')
     parser.add_argument('--compose', type=Path)
