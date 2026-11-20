@@ -205,5 +205,6 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 - [用户历史用量账单查询与下载](historical-usage-billing.md) — 已交付（US-073 Done）；approved 已删，验收以 Story + Linked Tests 为准。
 
 - [GPT Image OAuth 观感脚手架](gpt-image-oauth-perceived-quality.md) — 一次性脚手架；已删，活契约见 strict canvas / native cutover。
+- `ops/observability/vacuum-ops-error-logs.sh` — tk_101 删列后一次性 VACUUM；舰队已执行完毕，脚本已删。
 
 - [网关 issue 协议与计量修复](gateway-issue-remediation.md) — 现有请求链的可复现缺陷、修复边界与未解决项。
