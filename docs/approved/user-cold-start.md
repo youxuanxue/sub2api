@@ -6,6 +6,7 @@ approved_at: 2026-04-22
 authors: [agent]
 created: 2026-04-22
 related_stories: [US-028, US-029, US-030, US-031]
+revised: 2026-11-20（删 PR 实施顺序与 Playground prototype 门禁散文）
 ---
 
 # New-User Cold Start
@@ -320,15 +321,6 @@ CLAUDE.md 规则 4 / 5：**不能** import new-api 的 `controller/` + `model/`�
 
 无需回滚镜像即可降级。
 
-## 9. 实施顺序（PR 1 内部）
-
-1. **Step 1**：新增 5 个 settings（`signup_bonus_enabled` + `signup_bonus_balance` + `auto_generate_default_token` + `auto_generate_default_token_name`（默认 `"trial"`）+ `pricing_catalog_public`），改 `domain_constants.go` + `setting_service.go` 默认值 / 加载 / 更新链路；补 settings UI 表单。
-2. **Step 2**：实现 `signupBonusApplier` + `autoFirstKeyApplier` 两个内部小 helper，挂到 3 个注册路径（unit test US-029 + US-030）。
-3. **Step 3**：实现 `pricingCatalogService.GetPublic()` + `GET /api/v1/public/pricing` 路由（unit test US-028）。
-4. **Step 4**：前端 `/pricing` 页面 + AppHeader 公开导航 + `UserDashboardQuickActions` 第 4 个 tile 引导到 `/pricing`。Dashboard 专用「快速开始」卡片（trial key + curl 例子，US-030 AC-007）按 §11 prototype-first 同精神**deferred 到 follow-up PR**：体验型 UI 需先有 Storybook story / 静态 HTML 视觉 prototype 过审；trial key 已通过 `/keys` 页面立即可见，curl 例子作为体验增强独立 PR 更合适。
-5. **Step 5**：preflight + agent contract regen + 集成回归 (`make test`)。
-6. **Step 6**：单 PR 推送，PR 标题 `feat(cold-start): public pricing + signup bonus + auto trial key`，PR body 三段（Summary / Risk / Validation），按 §5.y squash-merge。
-
 ## 10. 不做（明确说不）
 
 - **不做**邀请人/被邀请人额外奖励（需要先加 `redeem_codes.created_by` 字段，独立 schema 改动 PR）
@@ -337,36 +329,8 @@ CLAUDE.md 规则 4 / 5：**不能** import new-api 的 `controller/` + `model/`�
 - **不做**多语言 pricing 页（先中英对齐 i18n key 即可，复杂表头本 PR 不展开）
 - **不做**充值入口改造（已有 SubscriptionsView，本 PR 只在 dashboard 卡片加链接，不重做）
 
-## 11. PR 2 内部审批门禁（Playground prototype-first）
+## 11. Playground / Tour
 
-P1-A（Tour 解锁）属于低风险代码改动，可直接走默认实现路径；**P1-B（Playground）必须在写一行后端 wiring 之前先过一道 prototype 审批**，门禁条件如下。
-
-### 11.1 必须先产出（可执行 prototype）
-
-PR 2 的 prototype 阶段以可执行 Vue 组件 + Vitest 为准（早期 `PlaygroundPrototype.vue` 已并入 Studio Chat；独立故事 US-032 已归档删除）。早期曾要求同时保留静态 HTML mockup；该 attachment 已删除，避免 prototype 与实现双轨漂移，后续视觉/状态契约以可执行组件测试承接。
-
-> 不再保留 Figma / 静态 HTML 副本，原因：**离开代码路径的设计副本没有工程链路保证**——人改了副本工程不会知道，工程改了实现副本也不会同步。Vue component + Vitest 可被 git diff、可被 review、可被 CI 跑，符合 OPC 自动化原则。
-
-prototype 必须**至少**呈现以下 4 个画面/状态：
-
-1. **首次进入**：空消息列表 + 顶部 group/model 下拉默认选中（用户当前 trial key 所属 group 的第一个 model） + 输入框 placeholder 文案
-2. **正在请求**：消息列表上有 user message + assistant 占位骨架 + 中断按钮
-3. **响应完成**：assistant message 渲染（含 markdown / code block 高亮）+ 用量小条（input/output tokens、estimated cost USD）
-4. **错误态**：余额不足 / quota 超限 / 模型 404 三种错误的统一展示样式
-
-### 11.2 必须明确表态（prototype 文档底部）
-
-- 是否允许 system prompt（首版）
-- 是否显示推理过程（如 Claude reasoning / OpenAI o1 思考过程）—— 倾向不显示（避免上游 schema 演进风险）
-- multi-turn 上下文是仅前端持有还是入库（倾向仅前端）
-- 单次最大消息数 / 单次最大 token / 单次最长超时（倾向 50 turns / 4096 / 60s）
-- 移动端断点：是否支持 < 768px（倾向首版桌面优先，移动端后续）
-
-### 11.3 审批通过后才能进入
-
-- 前端 `PlaygroundView.vue` 实装（交互页可与 prototype 组件并存；**参数契约**：默认 `max_tokens=1024`、硬上限 `4096`、超时 `60s`、浏览器内最多保留 50 轮 user/assistant 对、不发送 `tools`）
-- 路由 `/playground` 注册 + sidebar 入口
-- （可选）e2e：Playwright 覆盖主路径；或以运维脚本 `ops/stage0/gateway_smoke.sh` 对生产/测试网关做 **Key 级**烟雾验证（不在日志中打印 Key）
-- follow-up：Playground 体验已并入 `/studio` Chat；e2e 门禁收紧时以 Studio 故事 / Playwright 为准，不再补独立 US-032
-
-**不做可执行 prototype 就实装 Playground = 违反本门禁的原意**；当前仓库以 Studio Chat（`ChatStudio.vue` + Vitest）承接该门禁证据。
+P1-A Tour 可走默认实现路径。P1-B Playground 体验已并入 `/studio` Chat
+（`ChatStudio.vue` + Vitest）；不再维护独立 Playground prototype / US-032。
+独立静态 HTML / Figma 副本已删。

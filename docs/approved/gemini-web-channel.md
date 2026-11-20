@@ -5,6 +5,7 @@ source_baseline: 75e38806d7f04202f3ee02148f10975b7d26871c
 pr_base: 6cfe353d765cf0f2868fcf56d1f22475e79785d3
 implementation_approval: user-explicit-database-only-admin-import-and-copy-initialization
 observed_on: 2026-09-21
+revised: 2026-11-20（删实测像素表与 Agent 分工门槛散文；保留契约）
 ---
 
 # Gemini Web Cookie HTTP 通路
@@ -43,22 +44,8 @@ Antigravity Flash 生图参数，并明确「采用 tokenkey 里已有的精确�
   不二次放大。输出成功后沿用原结算，按 Pro 价格及交付尺寸档计费；处理失败不结算图片、
   不自动再次生成。流式依旧缓冲，处理后返回同一 SSE 结果。
 
-### 本轮实测及发布边界
-
-2026-09-30 raw upstream：us3 #24、us4 #28、us5 #28、us6 #39 各自新会话直接
-生成成功，最终字段为 `Nano Banana Pro`，原图完整解码。us3 同账号无 Pro 标记对照为
-`Nano Banana 2`；不以 Web Pro selector 名称替代模型证据。
-us4 `4:3` 返回 2400×1792；us3 `21:9` 返回 3168×1344；其他比例的脱敏记录保留在
-本地调研材料，不提交账号凭据或研究图片。us4 单参考图编辑返回 2400×1792，视觉验证蓝杯变红，
-杯形和构图保留。官方 [Web 图片说明](https://support.google.com/gemini/answer/14286560?hl=en)
-说明付费下载为 2K；这些实测不证明原生 4K。
-
-上线按 Worker → backend → 网关归因探测 → mappings 激活推进。
-代码合并不等于部署或启用账号。先核对 Web runtime，逐账号直测与网关归因通过后，
-按现有 modelops 流程把 Pro 别名映射到 `gemini-web-nano-banana-pro`。
-
-停用、报错或 pending 账号不随上新被恢复。rollback 先撤回 Pro 映射，再回滚 Worker；
-不能让新映射落到旧 Worker。需要同时发布 pricing registry 的新 alias，不以计费 family fallback 代替。
+发布边界：代码合并不等于部署/启用。停用、报错或 pending 账号不随上新恢复。
+rollback 先撤 Pro 映射再回滚 Worker。一次性实测像素表已删。
 
 ### 增量 Owners
 
@@ -119,25 +106,14 @@ Messages 不再进入绕过 Plan 的旧 Gemini 分支；配额平台保持独立
 历史、tools、采样配置或图片输入。缺省预算不制造调整。原生 Worker 的严格 HTTP 契约不变，
 该 best-effort 发生在统一网关 Plan，随后发送它本来支持的原生请求。
 
-### 分工、依赖与交付门槛
-
-| 阶段 | 执行分工 | 完成条件 |
-|---|---|---|
-| 能力与 Plan | capability Agent | 复用现有 native Web 校验，覆盖四种入口、原始语义和兼容候选回退；普通 Gemini 回归通过 |
-| 转换与输出 | conversion Agent，可与能力工作并行 | 共享扩展透传、缺省上限保真、图片 JSON/SSE 输出与实际计数；错误及多图断言通过 |
-| 执行与集成 | execution Agent，依赖前两项接口 | 实际 converter + HTTP transport 验证 native path、认证、模型映射、参数和返回图片 |
-| 收敛与复审 | 主 Agent | 合并各项改动，更新 owner/sentinel/Story，运行聚焦测试、preflight，再按 Jobs 标准审查完整用户旅程 |
-| 发布与验收 | 主 Agent，取得发布授权后 | 部署可回滚版本，按下述单账号 canary 核对 HTTP、图片解码、账号和 usage，完成清理 |
-
 当前聚焦兼容生图与单轮文本。工具、多轮、多模态输入、会话管理重构、模型目录与定价
-变更不属于本次实现；这些工作不能靠静默删字段混进单轮成功路径。
+变更不能靠静默删字段混进单轮成功路径。
 
-### 生产 canary 的执行契约
+### 生产 canary
 
-复用 `ops/observability/run-probe.sh` 与保留调试资源的 account-model probe，目标由实时
-账号快照确认，不能凭名称推断能力。预先核对请求授权路径的图片权限，以及 Messages 转换所需
-的 `AllowMessagesDispatch`；探测不自动修改业务组开关。先测试文本控制，再逐项调用生图；每次付费生成串行，
-不以失败后盲重试获取绿灯。之前的 HTTP 400 仅证明网关拒绝，不能证明上游缺少生图能力。
+复用 `ops/observability/run-probe.sh` 与 account-model probe；目标由实时账号快照确认。
+预先核对图片权限与 Messages 的 `AllowMessagesDispatch`；探测不自动改业务组开关。
+先文本控制，再生图；每次付费生成串行，不以失败后盲重试获取绿灯。之前的 HTTP 400 仅证明网关拒绝，不能证明上游缺少生图能力。
 
 请求只含一个 user 文本，不注入探测用 system/instructions；Chat/Responses 缺省输出上限，
 Messages 提供合法 `max_tokens`，并核对 Web Plan 的 best-effort 调整。覆盖默认图片配置、显式 null、4:3；先做非流式，
