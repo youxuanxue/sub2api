@@ -14,9 +14,9 @@ import (
 //   - issue #8393: Pro Argon quota is separate; Ultra Argon shares the Flash pool.
 //   - upstream 455751402: Pro accounts report a third quota group
 //     gemini-argon-wtu ("For paid Pro plans, Argon quota is separate").
-//   - 2026-10-30 prod snapshot of two PRO accounts showed different Argon and
-//     Flash reset windows (historical approved note deleted). There is no
-//     ULTRA sample.
+//   - docs/approved/antigravity-quota-scope.md: the 2026-10-30 prod snapshot of
+//     two PRO accounts shows different Argon and Flash reset windows. There is
+//     no ULTRA sample.
 //
 // So only accounts whose plan_type normalizes to Pro split Argon into its own
 // sub-family. Every other tier, and accounts with no plan_type, keep the
