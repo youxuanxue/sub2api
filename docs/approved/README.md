@@ -82,6 +82,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | Key 授权与计费归属 | [Universal key routing](universal-key-routing.md) |
 | Kiro OAuth 混入 Claude（anthropic）组 | [Kiro mixed_scheduling](kiro-mixed-scheduling-claude-groups.md) |
 | 推理响应 `usage.cost` 标准官方价出口 | [Response usage.cost](response-usage-cost.md) |
+| Responses 零图与 Grok 失败搜索如何计量 | [计费事件语义](usage-billing-event-semantics.md) |
 | 官方价格注册表与热发布 | [Pricing registry](pricing-registry-hot-reload.md) |
 | 分组／渠道价目优先级与 alias | [价格与 alias](pricing-serving-single-source-of-truth.md#4-价格与-alias) |
 | 可用性观测证据与目录裁剪 | [Availability evidence](pricing-availability-source-of-truth.md#1-本文唯一拥有的事实) |
