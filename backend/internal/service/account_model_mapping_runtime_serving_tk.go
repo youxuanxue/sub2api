@@ -59,11 +59,16 @@ func ensureAntigravityDefaultPassthroughs(result map[string]string) map[string]s
 	// 代价（刻意接受）：以后新模型上线、或从别处导入旧账号时，裸名要靠对账脚本
 	// 或 modelops activation 补齐，不再自动兜住。
 	for wireID, target := range domain.AntigravityThinkingWireFloorEntries() {
-		// Hydrogen wires stay on accounts that already store the bare name.
+		// Hydrogen/Neon wires stay on accounts that already store the bare name.
 		// Injecting them into every Gemini mapping would schedule accounts
-		// whose upstream catalog only lists gemini-4-hydrogen-disabled.
+		// whose upstream catalog only lists the *-disabled wire.
 		if strings.HasPrefix(wireID, "gemini-4-hydrogen") {
 			if _, hasBase := result["gemini-4-hydrogen"]; !hasBase {
+				continue
+			}
+		}
+		if strings.HasPrefix(wireID, "gemini-4-neon") {
+			if _, hasBase := result["gemini-4-neon"]; !hasBase {
 				continue
 			}
 		}

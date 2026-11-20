@@ -268,3 +268,19 @@ func TestAntigravityPassthroughsInjectHydrogenWiresOnlyWithBareName(t *testing.T
 		require.Equal(t, wire, got[wire])
 	}
 }
+
+func TestAntigravityPassthroughsInjectNeonWiresOnlyWithBareName(t *testing.T) {
+	t.Parallel()
+	got := ensureAntigravityDefaultPassthroughs(map[string]string{
+		"gemini-4-neon": "gemini-4-neon-medium",
+	})
+	require.Equal(t, "gemini-4-neon-medium", got["gemini-4-neon"])
+	for _, wire := range []string{
+		"gemini-4-neon-low", "gemini-4-neon-medium", "gemini-4-neon-high", "gemini-4-neon-xhigh",
+	} {
+		require.Equal(t, wire, got[wire])
+	}
+	require.NotContains(t, ensureAntigravityDefaultPassthroughs(map[string]string{
+		"gemini-3.8-flash": "gemini-3.8-flash-high",
+	}), "gemini-4-neon-high")
+}

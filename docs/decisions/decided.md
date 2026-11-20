@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-20 Gemini 4 Neon 裸名映射 medium
+
+原话：「看下 prod gemini-4-neon 模型是不是可以访问了？实测并上架。定价查明。」
+
+适用范围：已实测能访问 Neon 的 Antigravity 账号（233/244/291/292/294/529）。四档 token 单价相同。官方默认思考档是 high，裸名仍锁 medium。档位 wire 不上公开目录。不能访问的账号不加这组映射。Standard $3/$15/$0.15；Priority 按同族 1.8× 入库。
+
 ## 2026-11-20 Volc Kimi content-part：先直打证据再兼容（不冲突 KVV）
 
 原话：「同意，先做直打 volc 的证据，在做兼容修复。前提不要和 kvv 原则冲突。」

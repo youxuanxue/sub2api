@@ -595,6 +595,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	if p := s.tkResolveFallbackTableFamilyPricing(modelLower); p != nil {
 		return p
 	}
+	if strings.Contains(modelLower, "gemini-4-neon") {
+		return s.fallbackPrices["gemini-4-neon"]
+	}
 	if strings.Contains(modelLower, "gemini-4-hydrogen") {
 		return s.fallbackPrices["gemini-4-hydrogen"]
 	}
