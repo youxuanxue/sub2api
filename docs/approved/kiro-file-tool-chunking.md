@@ -39,6 +39,6 @@ Web impact: none。本次是运维账号策略，无新增用户端字段或 UI�
 
 ## 实测依据与限制
 
-[核实报告](../kiro-open-source-validation-20261021.md) 保留 #46 复现、完整工具循环、raw 对照和成本结果。隔离原型通过真实账号代理、canonical TLS profile 和 repository transport 发起调用，只操作合成文件。第 17–21 轮使用与正式代码相同的提示及注入位置；正式实现仅增加带平台检查的 typed getter，原始请求和工具结果语义不变。
+2026-10-21 核实（报告已删）覆盖 #46 复现、完整工具循环、raw 对照和成本结果。隔离原型通过真实账号代理、canonical TLS profile 和 repository transport 发起调用，只操作合成文件。第 17–21 轮使用与正式代码相同的提示及注入位置；正式实现仅增加带平台检查的 typed getter，原始请求和工具结果语义不变。
 
 600 行任务成功不构成所有模型、账号、MultiEdit 或客户工程的保障。分块提示曾被模型超出，仍需留存失败证据并维持既有终止/重试契约。

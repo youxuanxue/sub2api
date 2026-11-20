@@ -216,6 +216,7 @@ admin dashboard/UI rollup 历史批准文已删；dual-market / pgBackRest 迁�
 `deploy-stage0-workflow` tombstone 已删；默认发版走 rolling（[`design-prod-entry-multi-app`](design-prod-entry-multi-app.md) /
 [`design-cn-prod-rolling-deploy`](design-cn-prod-rolling-deploy.md)）；应急同机蓝绿见 `deploy_via_ssm_bluegreen.sh`。
 `physical-backup` / `pgdump-retirement` 收为现网 COS 指针；AWS 临时恢复百科与零引用 task-breakdown 已删。
+Kiro 已完成任务拆解 / 2026-10-21 核实报告、零引用 GPT-5.5 退休散文与已完成零引用 spec-delta 已删；活契约仍在对应 approved / candidate-eligibility。
 
 - [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.
 

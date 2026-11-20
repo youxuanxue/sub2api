@@ -25,3 +25,4 @@
 | 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass9） | 恢复 admin dashboard/UI rollup 批准文、dual-market 海外 redirect 百科，或把 `physical-backup` / `pgbackrest-host-migration` 的 Tokyo/LUKS 执行史写回全文。 |
 | 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass10） | 恢复已删的一次性迁机 orphan 工具（`compare-pg-migration-snapshots` / `probe-migration-readiness` / `probe-pg-migration-snapshot` / `verify_final_wal` 及其测试）。 |
 | 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass11） | 恢复已删的 `deploy-stage0-workflow` tombstone、零引用 task-breakdown，或把 `physical-backup` / `pgdump-retirement` 的 AWS 临时恢复百科写回全文。 |
+| 「迁移/交接/历史/approved 应删尽删」（2026-11-20 pass12） | 恢复已删的 Kiro 任务拆解/2026-10-21 核实报告、零引用 GPT-5.5 退休散文，或已完成的零引用 spec-delta（codex-quota / kimi-k31）。 |
