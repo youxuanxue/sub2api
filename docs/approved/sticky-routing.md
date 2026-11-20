@@ -9,7 +9,7 @@ created: 2026-04-17
 related_prs: []
 related_commits: [a68dee5b]
 related_stories: [US-006]
-revised: 2026-11-20（删 Gap/类型 dump/行号表；保留策略矩阵与 §11.5/11.6）
+revised: 2026-11-20（再压 schema/UI/事后回填；保留策略矩阵、命中率规则与 §11.5/11.6）
 ---
 
 # Sticky Routing & Prompt Cache Optimization
@@ -69,130 +69,36 @@ NewAPI（`X-Session-Id`）均消费同一 injector；行号以代码为准。
 
 ---
 
-## 3. Schema 变更（P2）
+## 3. Schema / settings
 
-### 3.1 新增 Group 字段
+- Group：`sticky_routing_mode` enum `auto|passthrough|off`（默认 `auto`）；见
+  `backend/ent/schema/group.go` / `tk_002_add_groups_sticky_routing_mode.sql`。
+- 全局：`gateway.sticky_routing.enabled`（默认 true）。
+- 合成：`enabled = global && mode != off`；`mode = group.mode`。
+- Derive 兜底 system 前 2KB（`stickyDerivedSystemPromptCap`）。
 
-`backend/ent/schema/group.go` 增加：
+## 4. UI
 
-```go
-field.Enum("sticky_routing_mode").
-    Values("auto", "passthrough", "off").
-    Default("auto").
-    Comment("Sticky routing strategy for upstream prompt cache hits"),
-```
+Settings：全局 sticky toggle。Groups 高级区：`auto` / `passthrough` / `off` 下拉。
 
-迁移 SQL（`backend/migrations/093_add_group_sticky_routing.sql`）：
+## 5. 命中率可视化
 
-```sql
-ALTER TABLE groups
-ADD COLUMN sticky_routing_mode VARCHAR(16) NOT NULL DEFAULT 'auto';
-COMMENT ON COLUMN groups.sticky_routing_mode IS 'Sticky routing strategy: auto (derive + inject) | passthrough (forward only) | off';
-```
+复用 `GET /admin/dashboard/snapshot-v2?include_group_stats=true`，不另开 cache-stats
+endpoint。`GroupStat` 含 input/output/cache_creation/cache_read 与
+`cache_telemetry_unavailable_input_tokens`（SSOT：`billing_tier='kiro-estimated'`；
+不得当 cache miss）。
 
-### 3.2 新增全局 setting
+可观测分母：
+`(input - unavailable) + cache_creation + cache_read`。命中率前端按整数聚合；
+Dashboard 卡片：当前筛选窗可观测命中率 + 影响量 Top 5 分组钻取；分母为 0 显示「不可观测」，
+禁止假 `0%`。无跨平台统一健康阈值色。
 
-复用现有 settings 表，key 名常量加到 `domain_constants.go`：
-
-```go
-SettingKeyStickyRoutingEnabled = "gateway.sticky_routing.enabled"  // bool, default true
-```
-
-读取入口：`GetGatewayForwardingSettings` 同址扩展，返回值结构体加 `StickyRoutingEnabled bool`。
-
-合成规则：`final.enabled = globalEnabled && group.mode != "off"`，`final.mode = group.mode`。
-
----
-
-## 4. UI 变更（P2）
-
-### 4.1 全局设置页
-
-`frontend/src/views/admin/SettingsView.vue`（或对应 GatewaySettings 子页）加一个 toggle："启用 Prompt Cache 粘性路由（全局）"，绑定 `gateway.sticky_routing.enabled`。
-
-### 4.2 分组编辑
-
-`frontend/src/views/admin/GroupsView.vue` 在分组编辑表单的"高级"区块加一个下拉：
-
-| 选项值 | 中文标签 | Tooltip |
-|---|---|---|
-| `auto` | 自动派生 + 注入（推荐） | 客户端没送 sticky 标识时网关自动按 (api_key + system + tools) 派生并写入上游，最大化命中率 |
-| `passthrough` | 仅透传客户端 | 只有客户端自己带 prompt_cache_key / metadata.user_id 时才转发，不补 |
-| `off` | 关闭 | 完全不处理 sticky 字段 |
-
----
-
-## 5. 命中率可视化（P3）
-
-### 5.1 后端聚合
-
-复用现有 `GET /admin/dashboard/snapshot-v2?include_group_stats=true`，禁止新增只服务同一意图的 cache-stats endpoint。`GroupStat` 在既有成本字段之外返回可核算的 prompt token 分解：
-
-```go
-type GroupStat struct {
-    InputTokens                         int64 `json:"input_tokens"`
-    OutputTokens                        int64 `json:"output_tokens"`
-    CacheCreationTokens                 int64 `json:"cache_creation_tokens"`
-    CacheReadTokens                     int64 `json:"cache_read_tokens"`
-    CacheTelemetryUnavailableInputTokens int64 `json:"cache_telemetry_unavailable_input_tokens"`
-}
-```
-
-`cache_telemetry_unavailable_input_tokens` 的 SSOT 是持久化 usage row 的 `billing_tier='kiro-estimated'`。Kiro 上游只返回 credits，TokenKey 本地估算 input，不能把这部分当作 cache miss。混合分组的可观测分母为：
-
-```text
-(input_tokens - cache_telemetry_unavailable_input_tokens)
-+ cache_creation_tokens
-+ cache_read_tokens
-```
-
-命中率由前端基于整数 token 聚合后计算，API 不持久化易漂移的百分比。group daily rollup 已包含 input/output/cache 分项；不可观测 input 在选定窗口按 usage row 精确聚合，不按 group.platform 或分组名称猜测。
-
-### 5.2 前端卡片
-
-`frontend/src/views/admin/DashboardView.vue` 的旧 Today/Total 全站卡片替换为一个行动导向的分组卡片：
-
-- 顶部只显示当前筛选窗口的**可观测命中率**；默认窗口沿用 Dashboard 的滚动 24 小时，不复用 calendar-day `stats.today_*`。
-- 下方最多显示 5 个分组，按 prompt 影响量 `input + cache_creation + cache_read` 降序，而不是按百分比制造小流量噪声。
-- 每行只保留分组名、可观测命中率（或不可观测状态）、cache read 绝对量；点击进入带相同时间窗和 `group_id` 的 Usage 明细。
-- 可观测分母为 0 且存在不可观测 input 时显示“不可观测”，禁止显示 `0%`；混合流量显示可观测部分的百分比并标记“部分可观测”。
-- 不设置跨平台统一健康阈值；不同上游的 cache 语义不同，颜色阈值会制造虚假结论。
-
-无需 chart 库或新组件；该行为只在 Dashboard 消费，页面 owner 负责展示与 drilldown 编排。
-
----
-
-验收：US-006 Linked Tests（含缓存可视化 AC-009…011）。
+验收：US-006 Linked Tests（AC-009…011）。
 
 ## 8. 兼容性 & 回滚
 
-### 8.1 默认开关
-- 全局 `sticky_routing.enabled = true`
-- 分组 `sticky_routing_mode = "auto"`
-- → 升级即生效，但任何用户都能改 group → `passthrough` 或 `off` 立即降级，无需回滚镜像。
-
-### 8.2 回滚路径
-1. 一键关：管理员全局开关关掉 → 走"仅透传"。
-2. 单分组关：分组下拉切 `off`。
-3. 代码回滚：本设计的 schema 字段保留为 `auto`，不影响读旧版。
-
-### 8.3 数据迁移
-- 新增列默认 `auto`，零数据迁移成本。
-- 旧版本不识别该列，PG 自动忽略 → 灰度可双跑。
-
----
-
-## 9. 已确认决策（事后回填，2026-04-19）
-
-> 实施时（2026-04-18，先于本文档审批）已做出以下决策。本节做事后回填，方便审计与回看。
-
-1. ✅ **字段命名 `sticky_routing_mode`** — 已采用。理由：覆盖更广（含 NewAPI X-Session-Id 等非 cache 场景），与 `prompt_cache_*` 解耦。
-   schema：`backend/ent/schema/group.go` enum；migration：`backend/migrations/tk_002_add_groups_sticky_routing_mode.sql`。
-2. ✅ **Dashboard 卡片跟随当前筛选窗口** — 2026-07-16 修订批准：默认仍是滚动 24h；移除误导性的 Today/Total 双值，改为分组影响量 Top 5 与不可观测状态。
-3. ✅ **derive 兜底用 system 前 2KB** — 已采用。常量：`backend/internal/service/sticky_session_injector.go::stickyDerivedSystemPromptCap = 2 * 1024`。极少数超长 system prompt 撞桶问题观察后再优化。
-4. ✅ **NewAPI X-Session-Id 与 OpenAI/Anthropic 注入同 PR** — 已采用（实际是 `a68dee5b` 一次提交全部落地）。访问点：`backend/internal/service/openai_gateway_bridge_dispatch.go::applyStickyToNewAPIBridge`。
-
----
+默认全局 on + group `auto`。关全局或 group `off`/`passthrough` 即可降级；列默认
+`auto`，旧版忽略未知列。
 
 ## 11.5 槽满逃逸（upstream #2859，2026-06-03 增补）
 
