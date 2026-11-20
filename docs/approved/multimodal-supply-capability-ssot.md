@@ -6,7 +6,7 @@ approved_at: 2026-10-08
 created: 2026-10-08
 authors: [auto]
 risk: high
-revision_note: "v1.7: feng 2026-10-26 会话批准 Volc Agent Plan chat-only 对齐 — modality 门在 Direct OpenAI 选号中先于 Plan，避免 Chat-only capability 下音频被 no_legal_route 盖住。v1.6: feng 2026-10-23 会话批准 DashScope 按量 × kimi-k3 / deepseek-v4.1-flash 视频限制；图片与其它模型不上表。v1.5: feng 2026-10-16 会话批准 Volc Agent Plan × kimi-k3 原生音频限制；复用共享能力门。v1.4: feng 2026-10-15 会话批准 Ali Token Plan × glm-5.3 图片限制；双账号双协议实测修正旧图片支持结论，保留文本及视频原策略。"
+revision_note: "v1.8: feng 2026-11-20 「接着修 response 视频拒绝」— /v1/responses 对 input_video/video/video_url 显式 400，不再把 silent-200 记为 servable；Chat Completions 视频路径不变。v1.7: feng 2026-10-26 会话批准 Volc Agent Plan chat-only 对齐 — modality 门在 Direct OpenAI 选号中先于 Plan，避免 Chat-only capability 下音频被 no_legal_route 盖住。v1.6: feng 2026-10-23 会话批准 DashScope 按量 × kimi-k3 / deepseek-v4.1-flash 视频限制；图片与其它模型不上表。v1.5: feng 2026-10-16 会话批准 Volc Agent Plan × kimi-k3 原生音频限制；复用共享能力门。v1.4: feng 2026-10-15 会话批准 Ali Token Plan × glm-5.3 图片限制；双账号双协议实测修正旧图片支持结论，保留文本及视频原策略。"
 ---
 
 # Multimodal supply capability SSOT
@@ -60,7 +60,7 @@ revision_note: "v1.7: feng 2026-10-26 会话批准 Volc Agent Plan chat-only 对
 | 事实 | Owner | 边界 |
 | --- | --- | --- |
 | 请求 ContentKinds（含 ContentVideo） | `protocolrouter/parse_request.go` → `protocolContentKinds` | 只解析入站 body；不读账号 |
-| OpenAI 多模态 conversion 是否保留 video | `protocolrouter/registry.go` → `preservesMessagesToResponsesContent` 允许集含 `ContentVideo` | 与 image 同级；不开放到 text-only Gemini 身份路径 |
+| OpenAI 多模态 conversion 是否保留 video | Chat/Messages↔Responses：`preservesMessagesToResponsesContent` 允许 `ContentVideo`；Responses→Chat：`preservesResponsesConversion` **不含** video（ingress + converter 显式 400） | Chat 视频仍可经 Messages↔Responses；`/v1/responses` 入站视频 fail-closed |
 | known-negative / admit 谓词 | `service/candidate_multimodal_supply_tk.go` | 唯一供应能力表；禁止在 handler 复制 |
 | 准入接线 | `candidateSupportsRequest`（Universal）与 `openAIRequestEligibilityReason`（Direct OpenAI/newapi）；均在 Plan **之前**调用 `accountInputModalityRejection` | 调用 admit 谓词；不在此写表。Chat-only 供应与 Responses→Chat preserve 见 [protocol-routing-ssot](protocol-routing-ssot.md) |
 | 契约与扩展节奏 | 本文 | 扩表必须附探针证据日期与 URL/日志锚点 |
@@ -74,7 +74,7 @@ revision_note: "v1.7: feng 2026-10-26 会话批准 Volc Agent Plan chat-only 对
 | `POST /v1/chat/completions` | `video_url.url` = `data:video/mp4;base64,...` | **servable**（account 88；识别橙色样本） |
 | `POST /v1/chat/completions` | `video_url.url` = 供应侧可达 HTTPS（国内样本） | **servable**（account 88） |
 | `POST /v1/chat/completions` | 境外公网 HTTPS（w3schools 样本） | **400** `invalid_request_error` |
-| `POST /v1/responses` | `input_video` + 供应侧可达 HTTPS | **servable**（此前同日探针） |
+| `POST /v1/responses` | `input_video` / `video` / `video_url` | **400** 显式拒绝（2026-11-20；不再把 silent-200 记为 servable） |
 
 Quickstart 客户示例 owner：`frontend/src/utils/kimiK3VideoExamples.tk.ts`（curl/python 附加块；密钥自检仍是文本 ping）。NVIDIA Build 对 `kimi-k3` 视频仍是 known-negative，不出现在客户「可用形态」表。
 

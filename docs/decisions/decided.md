@@ -1,14 +1,10 @@
 # 已决定
 
-## 2026-11-20 rt@tk.com 五项：可用率优先（不违背 KVV）
+## 2026-11-20 `/v1/responses` 视频显式拒绝（不静默丢块）
 
-原话：「同意。继续。」；随后「目标是在不违背 kvv 的基础和原则下，尽可能提高可用率。」
+原话：「接着修 response 视频拒绝。」
 
-适用范围：Volc Agent Plan `kimi-*` chat 出站整形（finish_reason:null、外层 cached_tokens）+ 远程 `video_url` 预检瞬时重试 + `/v1/messages` 上 Moonshot 形视频块 **改写为 Chat `video_url` 真转发**（开源 new-api/LiteLLM 是静默丢；不用显式 400 压可用率）。不放宽 orphan tool、空 function.name、非法采样、递归 schema、上下文截断；不可达视频仍 400；audio 仍 fail-close；responses 视频继续拒绝。
-
-## 2026-11-20 rt@tk.com 五项反馈：网关兼容（不冲突 KVV）【被下条收紧】
-
-原话：「同意。继续。」（前置五项可网关修清单）。初版曾选 messages 视频显式 400；已被「尽可能提高可用率」收紧为真转发，见上条。
+适用范围：全站 `/v1/responses`（含 Gateway 与 OpenAI handler、WS 首帧）。`input_video` / `video` / `video_url` → 400，文案对齐客户 PDF（`responses content part "input_video" is not supported` / `unsupported responses content part "video"`）。Responses→Chat 不再声称 preserve video。Chat Completions / Messages 视频路径与 Volc `video_url` 改写不受影响。
 
 ## 2026-11-20 Gemini 4 Neon 裸名映射 medium
 
@@ -61,7 +57,7 @@
 原话：「LUKS 载体销毁观察窗、今天到期的压测机。可以不影响用户服务和体验的情况下，收敛收尾了吧。」
 
 适用范围：
-1. prod `app-old` LUKS：在明文根盘已接流、mapper 未挂载、无相关快照、业务 `/health=200` 前提下，**缩短原设计 ≥7 天观察窗**，执行 X1–X4（载体销毁、COS 解锁钥删除、操作员 vault 删除、unlock unit/脚本与 pre-plain 清理）。接受失去 LUKS 回退路径。
+1. prod `app-old` LUKS：在明文根盘已接流、mapper 未挂载、无相关快照、业务 `/health=200` 前提下，**缩短设计 §3.5 ≥7 天观察窗**，执行 X1–X4（载体销毁、COS 解锁钥删除、操作员 vault 删除、unlock unit/脚本与 pre-plain 清理）。接受失去 LUKS 回退路径。
 2. cn-prod 临时压测机 `ins-7ltl2zv3`（`expire_after=2026-11-19`，不进 `apps[]`）：`TerminateInstances` 停费销毁。
 
 ## 2026-11-19 Volc Kimi thinking-off temperature pin 到 0.6
@@ -80,7 +76,7 @@
 
 原话：「批准。继续安全推进。」
 
-适用范围：按 `docs/approved/design-prod-entry-multi-app.md`（当时 §3）推进旧机 `lhins-fcwpwymt` 脱离 LUKS。先 L1（入口池仅留明文应用机）并观察单台承载门禁，再 L2+；破坏性步骤（停 Docker / umount / 重启 / 删载体 X1–X4）仍按设计逐步确认。不中断用户请求路径。
+适用范围：按 `docs/approved/design-prod-entry-multi-app.md` §3 推进旧机 `lhins-fcwpwymt` 脱离 LUKS。先 L1（入口池仅留明文应用机）并观察单台承载门禁，再 L2+；破坏性步骤（停 Docker / umount / 重启 / 删载体 X1–X4）仍按设计逐步确认。不中断用户请求路径。
 
 ## 2026-11-18 Chat→Messages 对齐开源：剥离 OpenAI-only 字段优先生效
 
@@ -120,7 +116,7 @@
 
 原话：「北京的镜像应该从 prod 导出上传到 北京 cos，再从北京 cos 拉下来使用。这条变为标准路径」
 
-适用范围：cn-prod 镜像分发。默认不再从美西 GHA 直传 COS，也不以 GHCR 跨境 pull 为主路径。标准顺序：在 prod 上 `crane pull --format=legacy` 并上传北京 COS → cn-prod 各应用机同城 COS warm → rolling。GHA→COS / `transport=ghcr` 仅作应急回退。见 `docs/approved/design-cn-image-cos.md`。
+适用范围：cn-prod 镜像分发。默认不再从美西 GHA 直传 COS，也不以 GHCR 跨境 pull 为主路径。标准顺序：在 prod 上 `crane pull --format=legacy` 并上传北京 COS → cn-prod 各应用机同城 COS warm → rolling。GHA→COS / `transport=ghcr` 仅作应急回退。见 `docs/approved/design-cn-image-cos.md`、`cn-prod-image-distribution.md`。
 
 后续校准（同日）：「今天只准备好 cn-prod 的镜像，不发版了。」→ 已对 `1.8.382` 完成 prod→COS→warm，未 rolling。运行时修正：现代 `docker save` OCI 布局与 legacy `verify_archive` 不兼容，标准路径改 crane-legacy；OIDC 角色 trust 增加 `environment:tencent-ops`（`publish-from-prod` 仍挂该 environment 以读腾讯密钥）。
 
@@ -146,7 +142,7 @@
 
 后续确认（2026-11-17）：「client 换 8C 同意。再压一下并发 1200 吧。重点关注吞吐已明显亚线性的根因。」→ 压测机由 `SA2.LARGE8`（4C8G）升到 `SA2.2XLARGE16`（8C16G）；阶梯含 1200，并采双应用/数据机 monitor。
 
-同日 1200 初测受 client soft `ulimit -n=1024`（Errno 24）污染；中间报告已删。operating point 仍 **800**。
+结果落盘（同日）：`docs/ops/reports/cn-prod-deepseek-flash-pool-perf-1200-20261117.md`。operating point 仍 **800**；1200 成功率 ~20% **主因是 client soft `ulimit -n=1024`（Errno 24）**，网关 503 仅数十次；400→800 亚线性主因是 **延迟/TTFT 随并发抬升**（升 8C 后 800 RPM mean 仍≈1086，与 4C 轮同级）。数据机高压窗 loadavg 一度 >20、PG 瞬时 ~172/162，服务未挂。
 
 后续确认（2026-11-18）：「修复 client nofile 之后，重新压一下 1200？」→ soft nofile 提到 **65535** 后复测：400/800 仍 100%；1200 成功率 **0.916**，主失败改为 **455×503 overloaded_error**（concurrency_peak=1200）；operating point 仍 **800**。一次性压测报告已删；数字以本条目为准。
 

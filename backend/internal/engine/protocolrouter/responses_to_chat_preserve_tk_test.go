@@ -17,7 +17,7 @@ func TestPreservesResponsesToChat_AlignsWithConverterSurface(t *testing.T) {
 		{"text", RequestProfile{ContentKinds: ContentText}, true},
 		{"tools", RequestProfile{Tools: true, ToolChoice: ToolChoiceAuto, ContentKinds: ContentText}, true},
 		{"image", RequestProfile{ContentKinds: ContentText | ContentImage}, true},
-		{"video", RequestProfile{ContentKinds: ContentText | ContentVideo}, true},
+		{"video", RequestProfile{ContentKinds: ContentText | ContentVideo}, false},
 		{"tools_image", RequestProfile{Tools: true, ContentKinds: ContentText | ContentImage}, true},
 		{"reasoning_effort", RequestProfile{Reasoning: ReasoningEffort, ContentKinds: ContentText}, true},
 		{"prompt_cache", RequestProfile{PromptCache: PromptCacheKey, ContentKinds: ContentText}, false},

@@ -621,6 +621,8 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 			pendingReasoning = ""
 			lastTurnReasoning = ""
 			continue
+		case "input_video", "video", "video_url":
+			return nil, nil, responsesUnsupportedVideoPartError(itemType)
 		}
 
 		// Only genuine message items become chat messages. Codex emits other
@@ -1106,6 +1108,8 @@ func responsesContentPartsToChatContent(rawParts []json.RawMessage, role string)
 				Type:     "image_url",
 				ImageURL: &ChatImageURL{URL: imageURL},
 			})
+		case "input_video", "video", "video_url":
+			return nil, responsesUnsupportedVideoPartError(partType)
 		}
 	}
 
@@ -1135,8 +1139,25 @@ func chatContentFromSingleResponsesPart(partType string, part map[string]json.Ra
 			Type:     "image_url",
 			ImageURL: &ChatImageURL{URL: imageURL},
 		}})
+	case "input_video", "video", "video_url":
+		return nil, responsesUnsupportedVideoPartError(partType)
 	default:
 		return json.Marshal(rawString(part["text"]))
+	}
+}
+
+// responsesUnsupportedVideoPartError matches the /v1/responses ingress reject
+// messages so Chat fallback cannot silently drop video parts.
+func responsesUnsupportedVideoPartError(partType string) error {
+	switch strings.ToLower(strings.TrimSpace(partType)) {
+	case "input_video":
+		return fmt.Errorf(`responses content part "input_video" is not supported`)
+	case "video":
+		return fmt.Errorf(`unsupported responses content part "video"`)
+	case "video_url":
+		return fmt.Errorf(`responses content part "video_url" is not supported`)
+	default:
+		return fmt.Errorf("unsupported responses content part %q", partType)
 	}
 }
 
@@ -1608,10 +1629,9 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 		return nil
 	}
 	out := &ResponsesUsage{
-		InputTokens:              usage.PromptTokens,
-		OutputTokens:             usage.CompletionTokens,
-		TotalTokens:              usage.TotalTokens,
-		CacheCreationInputTokens: usage.PromptTokensDetails.cacheCreationInputTokens(),
+		InputTokens:  usage.PromptTokens,
+		OutputTokens: usage.CompletionTokens,
+		TotalTokens:  usage.TotalTokens,
 	}
 	if out.TotalTokens == 0 {
 		out.TotalTokens = out.InputTokens + out.OutputTokens
@@ -1623,9 +1643,10 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 			CacheCreationTokens: usage.PromptTokensDetails.CacheCreationTokens,
 			CacheWriteTokens:    usage.PromptTokensDetails.CacheWriteTokens,
 		}
-		if out.CacheCreationInputTokens == 0 {
-			out.InputTokensDetails.CacheCreationTokens = 0
-			out.InputTokensDetails.CacheWriteTokens = 0
+		if usage.PromptTokensDetails.CacheWriteTokens > 0 {
+			out.CacheCreationInputTokens = usage.PromptTokensDetails.CacheWriteTokens
+		} else {
+			out.CacheCreationInputTokens = usage.PromptTokensDetails.CacheCreationTokens
 		}
 	}
 	return out

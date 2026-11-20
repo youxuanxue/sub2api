@@ -14313,20 +14313,22 @@
       "must_contain": [
         "func preservesResponsesConversion(req CanonicalRequest) bool {",
         "func PreservesResponsesToChat(req CanonicalRequest) bool {",
-        "preservesMessagesToResponsesContent(req) &&\n\t\treq.responsesPath == ResponsesPathRoot &&\n\t\treq.profile.Continuation == ContinuationNone &&\n\t\treq.profile.PromptCache == PromptCacheNone"
+        "allowed := ContentText | ContentImage | ContentUnknown",
+        "Video is fail-closed"
       ],
-      "rationale": "Responses→Chat lossless preserve must match ResponsesToChatCompletionsRequest (tools + text/image/video + mapped reasoning). prompt_cache_key, cache_control, previous_response_id, conversation, conversation_id, and audio are dropped before this check and rank behind native Responses. text-only-without-tools would mis-kill Chat-only Agent Plan / dual-stack relay admission for shapes force-chat already serves."
+      "rationale": "Responses→Chat lossless preserve must match ResponsesToChatCompletionsRequest (tools + text/image + mapped reasoning). Video is fail-closed at ingress/converter (no silent drop). prompt_cache_key, cache_control, previous_response_id, conversation, conversation_id, and audio are dropped before this check and rank behind native Responses. text-only-without-tools would mis-kill Chat-only Agent Plan / dual-stack relay admission for shapes force-chat already serves."
     },
     {
       "path": "backend/internal/engine/protocolrouter/responses_to_chat_preserve_tk_test.go",
       "must_contain": [
         "func TestPreservesResponsesToChat_AlignsWithConverterSurface(",
         "\"audio\"",
+        "\"video\"",
         "\"tools_image\"",
         "\"prompt_cache\"",
         "AdapterResponsesToChat"
       ],
-      "rationale": "Pins the lossless Responses→Chat predicate: tools/image/video/reasoning OK; audio, prompt-cache, and previous_response_id are not preserved. The lossy Plan that drops those fields lives in responses_chat_downgrade_tk_test.go and ranks behind native Responses."
+      "rationale": "Pins the lossless Responses→Chat predicate: tools/image/reasoning OK; video/audio/prompt-cache/previous_response_id are not preserved. The lossy Plan that drops audio/cache fields lives in responses_chat_downgrade_tk_test.go and ranks behind native Responses."
     },
     {
       "path": "backend/internal/engine/protocolrouter/responses_chat_downgrade_tk_test.go",
