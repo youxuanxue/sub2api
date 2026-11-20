@@ -726,5 +726,7 @@ func claudeUsageToOpenAIUsage(u *ClaudeUsage) OpenAIUsage {
 		CacheCreation1hTokens:    u.CacheCreation1hTokens,
 		CacheReadInputTokens:     u.CacheReadInputTokens,
 		ImageOutputTokens:        u.ImageOutputTokens,
+
+		cacheCreationInputTokensPresent: u.cacheCreationInputTokensPresent,
 	}
 }

@@ -18888,9 +18888,11 @@
     {
       "path": "backend/internal/service/gateway_upstream_response.go",
       "must_contain": [
-        "anthropicDeltaInputPatch("
+        "anthropicDeltaInputPatch(",
+        "if usageObj[\"cache_read_input_tokens\"] == nil {",
+        "(!patch.hasCacheCreationInput || patch.cacheCreationInputTokens != 0)"
       ],
-      "rationale": "Standard Anthropic SSE parsing must retain final explicit zero corrections."
+      "rationale": "Standard Anthropic SSE parsing must retain final explicit zero corrections on deltas via anthropicDeltaInputPatch, fence compatibility aliases when a canonical cache_read key is present (even when invalid), and skip contradictory TTL details after an authoritative zero creation delta."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
@@ -18898,6 +18900,14 @@
         "anthropicDeltaInputPatch("
       ],
       "rationale": "Passthrough Anthropic SSE parsing must share canonical presence semantics before alias normalization."
+    },
+    {
+      "path": "backend/internal/service/anthropic_prompt_total_test.go",
+      "must_contain": [
+        "func TestNegativeDeltaPreservesCacheBuckets(",
+        "func TestMessageStartRejectsNegativeCacheCounters("
+      ],
+      "rationale": "Focused regressions for illegal cache corrections: deltas must preserve the last valid buckets instead of aliasing, and message_start must not persist negative aggregates or invent cache reads from aliases."
     },
     {
       "path": "backend/internal/service/gateway_sse_usage_explicit_zero_tk_test.go",

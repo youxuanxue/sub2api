@@ -239,7 +239,7 @@ func (s *antigravityCompatStreamSession) consumeClaudeData(eventType, payload st
 		event.Type = eventType
 	}
 	if event.Usage != nil {
-		mergeAnthropicUsage(s.usage, *event.Usage)
+		mergeAnthropicDeltaUsage(s.usage, *event.Usage)
 	}
 	if event.Message != nil {
 		mergeAnthropicUsage(s.usage, event.Message.Usage)
