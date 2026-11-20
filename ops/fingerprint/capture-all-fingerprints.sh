@@ -97,45 +97,61 @@ record_status() {
   esac
 }
 
+# Keep each invocation's engine output as the provenance source for static checks.
+mkdir -p "$REPO_ROOT/.cache/fingerprint" || exit 2
+CAPTURE_RUN_DIR="$(mktemp -d "$REPO_ROOT/.cache/fingerprint/all.XXXXXX")" || exit 2
+run_engine() {
+  local identity="$1" started_ns log
+  shift
+  log="$CAPTURE_RUN_DIR/$identity.log"
+  started_ns="$(python3 -c 'import time; print(time.time_ns())')" || return 2
+  bash "$@" 2>&1 | tee "$log"
+  local codes=("${PIPESTATUS[@]}")
+  [[ "${codes[1]}" == "0" ]] || return 2
+  echo "engine_log=$log"
+  python3 "$SCRIPT_DIR/capture_all_evidence.py" --identity "$identity" \
+    --log "$log" --started-ns "$started_ns" --engine-code "${codes[0]}"
+}
+
 if [[ "$SKIP_CC" == "0" ]]; then
   echo "############ Claude Code (anthropic) ############"
-  bash "$CC" capture ${CC_ARGS[@]+"${CC_ARGS[@]}"}
+  run_engine claude-code "$CC" capture ${CC_ARGS[@]+"${CC_ARGS[@]}"}
   CC_STATUS="$(record_status "$?")"
 fi
 
 if [[ "$SKIP_KIRO" == "0" ]]; then
   echo "############ Kiro CLI (kiro-cli) ############"
-  bash "$KIRO" capture ${KIRO_ARGS[@]+"${KIRO_ARGS[@]}"}
+  run_engine kiro-cli "$KIRO" capture ${KIRO_ARGS[@]+"${KIRO_ARGS[@]}"}
   KIRO_STATUS="$(record_status "$?")"
 fi
 
 if [[ "$SKIP_ANTIGRAVITY" == "0" ]]; then
   echo "############ Antigravity CLI (antigravity) ############"
-  bash "$ANTIGRAVITY" capture ${ANTIGRAVITY_ARGS[@]+"${ANTIGRAVITY_ARGS[@]}"}
+  run_engine antigravity "$ANTIGRAVITY" capture ${ANTIGRAVITY_ARGS[@]+"${ANTIGRAVITY_ARGS[@]}"}
   ANTIGRAVITY_STATUS="$(record_status "$?")"
 fi
 
 if [[ "$SKIP_CODEX" == "0" ]]; then
   echo "############ Codex CLI (openai) ############"
-  bash "$CODEX" check ${CODEX_ARGS[@]+"${CODEX_ARGS[@]}"}
+  run_engine codex "$CODEX" check ${CODEX_ARGS[@]+"${CODEX_ARGS[@]}"}
   CODEX_STATUS="$(record_status "$?")"
 fi
 
 if [[ "$SKIP_CODEX" == "0" && "$SKIP_CODEX_TLS" == "0" ]]; then
   echo "############ Codex CLI TLS (openai, local capture) ############"
-  bash "$CODEX" tls-capture ${CODEX_TLS_ARGS[@]+"${CODEX_TLS_ARGS[@]}"}
+  run_engine codex-tls "$CODEX" tls-capture ${CODEX_TLS_ARGS[@]+"${CODEX_TLS_ARGS[@]}"}
   CODEX_TLS_STATUS="$(record_status "$?")"
 fi
 
 if [[ "$SKIP_GEMINI" == "0" ]]; then
   echo "############ Gemini CLI (gemini-cli) ############"
-  bash "$GEMINI" capture ${GEMINI_ARGS[@]+"${GEMINI_ARGS[@]}"}
+  run_engine gemini-cli "$GEMINI" capture ${GEMINI_ARGS[@]+"${GEMINI_ARGS[@]}"}
   GEMINI_STATUS="$(record_status "$?")"
 fi
 
 if [[ "$SKIP_GROK" == "0" ]]; then
   echo "############ Grok CLI (grok-cli) ############"
-  bash "$GROK" capture ${GROK_ARGS[@]+"${GROK_ARGS[@]}"}
+  run_engine grok-cli "$GROK" capture ${GROK_ARGS[@]+"${GROK_ARGS[@]}"}
   GROK_STATUS="$(record_status "$?")"
 fi
 

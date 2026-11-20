@@ -47,7 +47,9 @@ bash ops/fingerprint/capture-all-fingerprints.sh \
 
 目标与 companion/advisory 策略从 identity registry 派生；每个 required identity 必须
 有本轮明确结果，缺引擎或漏采记 incomplete。原始引擎输出保留版本与证据出处，
-旧版本与 pin 不匹配按 drift 处理。
+每条 lane 的本轮 engine log 保存在 `.cache/fingerprint/all.*`；退出码 0 本身
+不能代替有效证据。聚合前校验 bundle 的本轮文件与采集时间、实际版本及既有
+pin reader；缺证据或旧 bundle 记 incomplete，版本与 pin 不匹配记 drift。
 
 禁止把 rc=2/3 报成“全部已对齐”。Claude Code 仍须机械分类 auth cohort；Kiro CLI
 仍须四条 evidence lanes 完整。
