@@ -1,21 +1,18 @@
 ---
 title: Volc Agent Plan Kimi Chat compatibility
 status: approved
-approved_by: "feng (2026-10-15 conversation: 同意。请修复。); feng (2026-10-28 conversation: 空 thinking.type 直打上游成功，请修复网关误伤。); product owner (2026-11-04 conversation: 如果上游就返回 usage 为 0，我们网关可以通过估算兜底吧。不然就亏了。); feng (2026-11-05 conversation: 同意 1 修复建议：只改报错，状态码不变；修复 video_url 字符串的问题；第3项，实现。); feng (2026-11-06 conversation: cn-prod 应该是开启了 qa 的，你再深挖下日志，这个 kimi-k3 的 6% 的错误率很重要，需要尽快排查、修复。); feng (2026-11-12 conversation: 同意修复 1。); feng (2026-11-13 conversation: 按照 KVV 要求修复 1-3。); feng (2026-11-13 conversation: 按照 KVV 要求修复 4-8。); feng (2026-11-13 conversation: kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-* 都需要生效。); feng (2026-11-14 conversation: 1. 两套 effort 同时出现，同意建议。2. 8 项递归 schema 建议改下文案。); feng (2026-11-17 conversation: 查下这些 400，判断一下是 rt@tk.com 在做兼容性测试还是在真实业务调用，如果是真实业务调用，我们应该要做网关兼容。); feng (2026-11-17 conversation: 请修复。); feng (2026-11-18 conversation: 同意。继续。 — Volc thinking-on 时把合法非 1 temperature 改写为 1); feng (2026-11-18 conversation: deepseek-v4-flash-0731 退役旧模型，不做任何动作。Kimi/Volc：可做的网关修复（对齐 KVV），同意建议的修复，请逐个修复。复审。); feng (2026-11-19 conversation: 同意。请继续修复。 — Volc thinking-off 时把合法非 0.6 temperature 改写为 0.6); feng (2026-11-19 conversation: 同意。继续。 — drop prompt_cache_breakpoint; tighten data: video local 400; keep long tool_call_id trajectories unchanged); feng (2026-11-19 conversation: 同意。请修复、实测。 — type=file missing/non-PDF normalize); feng (2026-11-20 conversation: 同意，先做直打 volc 的证据，在做兼容修复。前提不要和 kvv 原则冲突。 — drop refusal/summary_text; rewrite input_video→video_url); feng (2026-11-20 conversation: 同意。继续。 — stream finish_reason:null; outer usage.cached_tokens; video probe retry); feng (2026-11-20 conversation: 目标是在不违背 kvv 的基础和原则下，尽可能提高可用率。 — messages video → chat video_url forward)"
+approved_by: "feng / product owner（2026-10-15 起多次会话批准；细节见 git 历史 frontmatter）"
 approved_at: 2026-10-15
 risk: high
-revised: 2026-11-20（删一次性 Evidence / 私有证据路径；保留行为契约与增补节）
+revised: 2026-11-20（再压按日 Evidence；保留行为契约与 Amendments）
 ---
 
 # Volc Agent Plan Kimi Chat compatibility
 
 ## Problem and approval
 
-The cn-prod customer capability checks exposed two supplier-specific failures:
-Kimi K3 thinking-off was silently changed to low effort, and tool selectors were
-rejected. The user approved fixing thinking normalization and allowed-tools
-conversion after reviewing the production logs and direct upstream controls.
-This approval covers implementation and validation, not production deployment.
+Supplier-specific Kimi K3 failures on Volc Agent Plan（thinking / tool selectors）
+获批修复与验证；不含生产部署授权。
 
 ## Behavior and owners
 
@@ -23,11 +20,8 @@ Only the evidenced Volc Agent Plan endpoint identity and Kimi K3 family use this
 policy. The family is `kimi-k3`, `kimi-k3-*`, and `kimi-k3.*` (`kimi-k3.1-pro`
 included, `kimi-k30` excluded). `kimi-k3.1-pro` takes the same Volc normalizer,
 including `n=1`, and the same Moonshot dynamic-tool promotion. The DashScope
-sampling pin stays on `kimi-k3` and `kimi-k3-*` only. On 2026-11-13 the user
-decided 「按照 KVV 要求」, and then 「kimi-k3 / kimi-k3-* / kimi-k3.1-pro / kimi-*
-都需要生效」. The 400s for orphan tool messages, blank function names, KVV
-sampling values, and illegal dynamic tools therefore apply to every normalized
-id that starts with `kimi-`. `moonshot-*` is outside that set. An omitted
+sampling pin stays on `kimi-k3` and `kimi-k3-*` only. KVV：orphan tool、空白 function name、非法 sampling、非法 dynamic tools 的 400
+适用于每个规范化后以 `kimi-` 开头的 id。 `moonshot-*` is outside that set. An omitted
 `top_p` is still written as 0.95, and a legal client `temperature` may still
 be pinned to 1.0, only on the DashScope pin's narrower set. A KVV-rejected
 sampling value is not rewritten into a legal one.
@@ -47,11 +41,6 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   not malformed: it must not 400. When `reasoning_effort` is also present, the
   effort rule below rewrites that blank type to `enabled`. Unrelated body
   fields and retry input are preserved.
-- 2026-10-28 cn-prod user 2 sent `thinking: {"type":""}` with `reasoning_effort`
-  (`max` / `high` / `xhigh` / `medium`). The gateway returned 400 before relay.
-  Direct replay of two captured bodies to Volc Agent Plan (accounts 77 and 11,
-  output capped at 16 tokens, stream off) returned HTTP 200 with
-  `reasoning_tokens`. That local 400 was a false reject.
 - Public kimi-k3 surface stays Moonshot-compatible: `reasoning_effort` accepts
   `low|high|max` plus common aliases (`highest`→`max`, `medium`→`high`, nested
   `reasoning.effort`, etc.). Unknown effort tokens return a field-level 400.
@@ -59,7 +48,7 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   `thinking.type=enabled` so intensity probes observe reasoning content instead
   of silent 200s. Explicit `thinking.type=disabled` still wins over effort and
   strips `reasoning_effort` before relay (upstream rejects the combination).
-  On 2026-11-14 the user decided 「两套 effort 同时出现，同意建议」. When
+  When
   `thinking.effort` is present and thinking is not disabled, that value wins:
   it is written to `reasoning_effort` (the field this supply records in the
   system prompt) and a conflicting client `reasoning_effort` is replaced.
@@ -91,12 +80,11 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   sets `required`. A client-supplied `tool_choice` is kept. This keeps
   Calculator-style admission probes from failing with missing
   `messages.content[.text]`.
-  On 2026-11-13 the user decided 「按照 KVV 要求」to fix cases 4–8. These
-  requests return 400, `invalid_parameter`, before promotion and are not
+  Illegal dynamic-tool shapes return 400, `invalid_parameter`, before promotion and are not
   forwarded. Callers that have a gin context write that 400 and stop, using the
   same path as `applyMoonshotThinkingShape`. Client-visible text does not name
   the supplier.
-  On 2026-11-14 the user decided 「8 项递归 schema 建议改下文案」. A kimi
+  A kimi
   request whose top-level `tools` include `function.parameters`, and whose
   upstream 400 message is exactly “a parameter specified in the request is not
   valid”, gets `: tool function parameters schema` appended on the client
@@ -115,11 +103,8 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   - The same function name, compared after trimming whitespace, inside one
     message, across messages, or between a dynamic tool and top-level `tools`:
     param `tools`. The later declaration is not silently dropped.
-- 2026-10-23 cn-prod (Tencent Beijing) user 2 kimi-k3 400s, checked against the
-  captured request shape and a direct replay on account 88:
-  a plain object in `messages.content` (`{"key":"val"}`) is sent as its JSON
-  text; one content part sent as an object (`{"type":"text","text":"hi"}`) is
-  wrapped in an array. Both are 400 on the wire and 200 after this rewrite.
+- A plain object in `messages.content` is sent as its JSON text; a lone content
+  part object is wrapped in an array.
   A `tool` message whose `tool_call_id` is missing, blank, or matches no
   assistant `tool_calls` id returns 400, `invalid_parameter`, param
   `messages`. A tool message whose id matches is forwarded unchanged.
@@ -141,9 +126,7 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   generic upstream sentence when tools are present and is not proof of schema
   recursion.
   Matched tool results, string content, and content-part arrays stay as sent.
-  An https `video_url` the gateway cannot fetch (captured Wikimedia webm from
-  Beijing; the same unnamed InvalidParameter was reproduced with
-  `https://example.com/tiny.mp4`) is rejected locally before relay:
+  An https `video_url` the gateway cannot fetch is rejected locally before relay:
   `invalid_parameter`, param `messages.content`, asking for a video URL this
   service can access. A string `video_url` (Moonshot documents it as
   equivalent to `video_url.url`) is rewritten to `{"url": ...}`; Volc returned
@@ -177,429 +160,63 @@ tool constraint tests must still pass. The gateway sentinel registry anchors the
 supplier owner, selected-account routing and these regression tests.
 
 发布后用隔离管理员探针核对出站请求与真实 reasoning/tool 输出；仅 HTTP 200 不足。
-回滚走正常发版路径。一次性直打证据目录已删出本文。
+回滚走正常发版路径。## Amendments（行为契约；按日 Evidence 已删）
 
-## 2026-11-04 request-field parity (cn-prod kimi-k3 benchmark)
-
-The 2026-11-04 cn-prod benchmark (`/v1/chat/completions`, model `kimi-k3`,
-Volc Agent Plan supply) used the supplier baseline rule that inputs, outputs
-and behavior must match the Moonshot official API. Several fields returned
-HTTP 200 while the supplier ignored or reinterpreted them. Scope is unchanged:
-only the Volc Agent Plan endpoint plus the Kimi K3 family. Owner:
-`service/volc_kimi_chat_request_limits_tk.go`, called first from
-`normalizeVolcKimiChatRequest`. All rejects use the existing
-`newOpenAIInvalidParameterError` (`invalid_parameter` + `param`) and stop
-before relay. Valid values are forwarded byte-for-byte.
-
-Sources: Moonshot Chat API (<https://platform.kimi.ai/docs/api/chat>) and
-Model Parameter Reference (<https://platform.kimi.ai/docs/api/models-overview.md>),
-read 2026-11-04.
-
-- `reasoning_effort` `none` (also `off` / `disabled`, top-level or nested
-  `reasoning.effort`) now means `thinking.type=disabled` and strips the effort
-  field. Moonshot's K3 enum is `low|high|max` with no off value, so Moonshot
-  itself has no `none`. This supplier has a real off-switch (2026-10-15
-  evidence above), and this doc already says closing thinking must not
-  silently become low effort. The previous `none`→`low` mapping ran with
-  reasoning on, which was the observed bug. `none` combined with an explicit
-  enabled switch returns 400 on `reasoning_effort`. `minimal` stays `low`.
-  Other suppliers keep the historical `none`→`low` mapping.
-- 2026-11-13 user decision 「按照 KVV 要求」 replaces the earlier choice to
-  accept every in-range `temperature` and `top_p`. The fixed-value check is
-  `rejectKimiK3FixedSampling`, called from `applyMoonshotThinkingShape` before
-  the account branch for every `isKimiModel` id (`kimi-k3`, `kimi-k3-*`,
-  `kimi-k3.1-pro`, and the rest of `kimi-*`). A non-matching account still
-  returns 400 for these fields. Comparison uses a small float tolerance.
-  Accepted values
-  are forwarded unchanged by the normalizer:
-  omitted fields; `temperature` in `[0, 2]` except `1.1` and `2.0`
-  (including 0, 0.6 and 1.0); `top_p` exactly 0.95; `presence_penalty` 0;
-  `frequency_penalty` 0; `n` 1.
-  Rejected with 400 on that field: `temperature` 1.1 or 2.0, `temperature`
-  outside `[0, 2]` (including -0.1) or non-numeric; `top_p` other than 0.95
-  (including 0, 0.8 and 1) or non-numeric; `presence_penalty` or
-  `frequency_penalty` other than 0; `n` other than 1.
-  The DashScope pin runs before `applyMoonshotThinkingShape` on the bridge.
-  It still writes `top_p` 0.95 when the client omitted it, and it may pin a
-  legal `temperature` to 1.0. It must leave a rejected value in place so the
-  bridge returns 400. The raw Chat path does not run the pin and returns the
-  same 400. `kimi-k3.1-pro` and other `kimi-*` ids use this same table.
-  DashScope does not rewrite those dotted ids. On the Volc Agent Plan path,
-  after thinking normalization, `pinVolcKimiThinkingTemperature` rewrites a
-  KVV-legal `temperature` to the Volc single allowed value for the active
-  thinking mode: `1.0` when thinking is on (explicit `enabled`/`auto`, or
-  default when `thinking.type` is not `disabled`); `0.6` when
-  `thinking.type=disabled` (including after `enable_thinking=false`
-  normalization). Omitted temperature stays omitted. KVV-illegal values stay
-  rejected and are never rewritten into a legal one.
-- `n` other than `1` returns 400 on `n` for every `kimi-*` id. Moonshot fixes K3 `n` at `1`; the
-  supplier returned one choice for `n=2`.
-- `logprobs=true` or `top_logprobs>0` returns 400 on that field. Moonshot
-  documents `logprobs` and `top_logprobs` (0 to 20). The supplier returned
-  200 with no logprobs, so the gateway cannot deliver them. `logprobs=false`
-  and `top_logprobs=0` still pass.
-- `max_tokens` / `max_completion_tokens` must be a positive integer. Volc
-  treats `0` as unset and answered normally. Moonshot documents no minimum,
-  but zero output tokens is not a usable limit, and `-1` was already an
-  upstream 400. Converters emit these fields only when positive, so this
-  checks client input only.
-- Client-visible error messages drop a trailing supplier trace id of the form
-  `Request id: <16+ alphanumerics>` (for example
-  `... Request id: 021793796431474c...`). The strip runs inside the shared
-  `TkSanitizeUpstreamProductWireMessage` choke point, so every writer that
-  already calls it is covered. Ops keeps the original message because
-  `setOpsUpstreamError` records it before the client writer runs. Other
-  relays' parenthesized `(request id: ...)` envelopes are not touched.
-
-### Known limitation: `stop` in thinking mode (no gateway change)
-
-With thinking on, `stop:["5"]` and the prompt "Count from 1 to 10, separated by
-commas" returned empty `content` with `finish_reason=stop`. The stop sequence
-matched inside `reasoning_content`. Moonshot documents `stop` as "max 5
-strings, each at most 32 bytes; matched text is not output" and does not say
-whether it applies to reasoning. The gateway forwards `stop` unchanged and
-the match happens during supplier decoding, so the gateway cannot change it.
-Rejected options: removing `stop` and truncating the answer locally (changes
-streaming and token accounting, and fakes supplier behavior), and turning
-thinking off when `stop` is present (silently changes the request). Behavior
-is unchanged. Clients that need answer-only stop sequences should send
-`thinking.type=disabled` or pick stop strings that do not appear in
-reasoning. Evidence still needed: a direct Volc Agent Plan replay of the same
-body with `thinking.type=enabled` and with `disabled`, to confirm
-supplier-side matching and whether Volc documents an answer-only stop
-option.
-
-Tests: `TestVolcKimiRequestLimitsRejectUndeliverableFields`,
-`TestVolcKimiReasoningEffortNoneDisablesThinking`,
-`TestVolcKimiRequestLimitsForwardReturnsLocal400` (no relay on reject),
-`TestVolcKimiUpstream400HidesSupplierRequestID` (wire hides the id, ops keeps
-it), and `TestTkSanitizeUpstreamProductWireMessageStripsSupplierRequestID`.
-`TestVolcKimiFallbackReasoningWireAndUsage` now expects `none` to reach the
-wire as `thinking.type=disabled`.
-
-## 2026-11-04: zero upstream usage is billed from a local estimate
-
-行为已迁至网关统一 owner
+Owner 不变：`service/volc_kimi_chat_constraints_tk.go` /
+`volc_kimi_chat_request_limits_tk.go` / `normalizeVolcKimi*`；零用量计费见
 [`usage-estimate-fallback-ssot.md`](usage-estimate-fallback-ssot.md)。
-Volc raw Chat 只为该 owner stash 最终出站 body。未发布的
-`volc-kimi-estimated` / `volc_kimi_usage_estimated` 已退役。一次性零用量舰队证据已删。
 
-Follow-ups, not in this change: temporarily cooling kimi-k3 on accounts that
-persistently return zero usage. A bounded model-scoped cooldown already exists
-(`SetModelRateLimit`), but a trigger threshold needs a reviewed policy. Also
-report the affected accounts to the supplier.
+### Request-field / sampling / effort
 
-## 2026-11-05: tool_choice errors, string video_url, prediction shape
+- `reasoning_effort` `none|off|disabled` → `thinking.type=disabled` 并剥离 effort；
+  与显式 enabled 冲突 → 400。`minimal`→`low`。其它供应保持历史 `none`→`low`。
+- KVV fixed sampling（`rejectKimiK3FixedSampling`，所有 `isKimiModel` / `kimi-*`）：
+  接受 omitted；`temperature` ∈ `[0,2]` 除 `1.1`/`2.0`；`top_p` 恰 0.95；
+  `presence_penalty`/`frequency_penalty` 0；`n` 1。非法值 **400 不改写**。
+- DashScope pin（桥接路径、较窄 id 集）：缺省 `top_p=0.95`，可将合法 temperature 钉到 1.0；
+  非法值留给后续 400。
+- Volc `pinVolcKimiThinkingTemperature`：thinking on → 合法非 1 钉 `1.0`；
+  thinking off → 合法非 0.6 钉 `0.6`；omitted 保持 omitted。
+- `n≠1`、`logprobs=true` / `top_logprobs>0` → 400；`max_tokens`/`max_completion_tokens`
+  须为正整数。
+- 客户端错误文案剥离尾部 `Request id: <16+ alphanumerics>`（`TkSanitizeUpstreamProductWireMessage`）；
+  ops 保留原文。
 
-Customer user 2 capability matrix on cn-prod 1.8.346, then direct controls on
-Volc Agent Plan account 116 (`max_tokens=16`, stream off). Sources: Moonshot
-Chat API (<https://platform.kimi.ai/docs/api/chat>), read 2026-11-05.
+### Known limitation: `stop` + thinking
 
-- `tool_choice` outside `none|auto|required|named function` (for example
-  `"default"`) stays HTTP 400. Moonshot and OpenAI list the same enum, and Volc
-  returns 400 "supported values are: auto, none, required" with or without
-  tools. Only the error changes: `parseChatToolConstraint`
-  (`openai_chat_constraints_tk.go`, shared with Ali Token Plan) returns a
-  field-level `invalid_parameter` with `param=tool_choice` (or
-  `function_call`) naming the allowed values, and the Chat writers emit it
-  through `writeChatProviderRequestError`. The Responses fallback keeps its own
-  error shape.
-- A string `video_url` is rewritten to `{"url": ...}` (see the 2026-10-23
-  bullet). Direct control: the same URL as a string is 400 "expected an
-  object"; as an object it is 200 with the video tokenized (7172 prompt tokens).
-- `prediction` must match Moonshot: an object, `type` exactly `content`,
-  `content` a string or an array of text parts. Otherwise a field-level 400 on
-  `prediction`, `prediction.type` or `prediction.content`. Volc returned 200
-  with identical prompt tokens for valid, bogus-type, missing-type, string and
-  numeric-content shapes, so it ignores the field. Valid predictions are still
-  forwarded: predicted output changes latency, not the answer. Impact before
-  release: of 32,592 captured kimi requests (2026-11-04 03:00 to 2026-11-05
-  16:00 Asia/Shanghai) only 44 carried `prediction`, all from user 2's
-  capability tests; 6 had a non-`content` type and become 400.
+thinking on 时 `stop` 可能命中 `reasoning_content` 导致空正文；网关原样转发，不删 stop、
+不关 thinking。需要仅答案 stop 时客户端应 `thinking.type=disabled`。
 
-Tests: `TestChatToolConstraints_InvalidModeIsFieldLevel`,
-`TestVolcKimiInboundMessageShapes` (string video_url),
-`TestVolcKimiRequestLimitsRejectUndeliverableFields` (prediction shapes).
+### tool_choice / video_url / prediction / content normalize
 
-## 2026-11-06: empty text content parts
+- 非法 `tool_choice` → 字段级 400（`openai_chat_constraints_tk.go`）。
+- 字符串 `video_url` → `{"url":...}`；`prediction` 须 Moonshot 形状否则字段级 400。
+- 丢弃无输入 text part（`text` 为 `""` / null / 缺字段）；无 part 时 content→`""`；
+  字符串 content `""` 原样转发。
+- JSON null `messages.content` → `""`（Volc K3 路径；缺 key 不动）；dynamic-tool
+  promotion 仍优先。
 
-Evidence: cn-prod (Tencent Beijing, 1.8.350), 24 hours to 2026-11-06. User 2
-received 921 final 400s with the unnamed Volc `InvalidParameter` (`param:""`)
-on `/v1/chat/completions` kimi-k3, spread over about 180 Agent Plan accounts,
-with one attempt each. QA captures were compared for 800 failing and 800
-successful requests from the same user and window, using key/type summaries only.
-153 of 433 fully captured failures, and 317 of 367 failures whose captured
-body was cut at the 2 MiB capture limit, contain a
-`{"type":"text","text":""}` part. None of the 800 successes do. The client
-sends two system messages as part arrays, and the second one starts with an
-empty text part.
+### Content-part / file / wire UX
 
-Direct controls on one Agent Plan account (`max_tokens=16`) returned 400
-`InvalidParameter` for an empty text part in a system, user, assistant or
-tool message, alone or next to non-empty text, both stream and non-stream.
-Whitespace text (`" "`) and string content `""` returned 200. Two captured
-failing bodies were replayed: as sent they returned 400, and with only the
-empty part removed, or with the parts merged into one string, they returned 200.
+- Drop part types：`thinking` / `reasoning_text` / `prompt_cache_breakpoint` /
+  `refusal` / `summary_text`。
+- Rewrite `type=video` / `input_video` → `video_url`（有 URL 时）；不剥媒体。
+- `audio_url` / `input_audio` → 本地 400（不静默丢媒体）。
+- Open tool round：`assistant.tool_calls` 之后、匹配 tool 结果齐前，丢弃无
+  `tool_calls` 的 assistant；orphan `tool_call_id` 仍 400。
+- `data:` video：须 `video/*` + base64 + 解码 ≥256B，否则本地 400；http(s) 预检
+  瞬时失败最多重试 3 次（含 HEAD→ranged GET）。
+- `type=file`：缺 nested `file` → 400；xor `file_id|file_url|file_data`；
+  `video/*` data → `video_url`；`text/*` → text；非 PDF → 400。
+- 出站 raw Chat：缺省 stream `finish_reason` 写 `null`；镜像
+  `prompt_tokens_details.cached_tokens` → 外层 `cached_tokens`（不发明命中）。
+- Messages→Chat：`video`/`video_url`/`input_video` → Chat `video_url`；
+  `preservesMessagesToChat` 准入 ContentVideo、fail-close ContentAudio；
+  `/v1/responses` 视频拒绝不变。
 
-Behavior: `normalizeVolcKimiMessageContents` drops text parts that carry no
-input in every role: `text` exactly `""`, `text` null, or the `text` field
-absent (`{"type":"text"}`). If no parts remain, the content becomes `""`.
-The part contributes no input, so the request means the same thing. Other
-parts, part order and whitespace text are kept. String content `""` (including
-assistant+tool_calls) is left unchanged — Volc accepts it. Bodies without
-droppable parts are forwarded byte-for-byte. Other suppliers are unchanged.
-Does not change KVV dynamic-tools promotion, sampling rejects, or blank
-function-name checks.
+### Deferred
 
-## 2026-11-17: missing / null text field on type=text parts
+递归 `tools[].function.parameters` JSON Schema flatten 需直打 sanitize→200 证据后再做；
+客户端 `: tool function parameters schema` 后缀仍仅为启发式。
 
-Evidence: cn-prod after 1.8.381 cutover (`2026-11-17T13:02:37Z`). User 2
-`tokensea_online` (`api_key_id=4`, UA `Go-http-client/2.0`) kept high kimi
-success volume, but a burst of final 400s returned Volc
-`missing messages.content.text`. Same error class existed before cutover
-(~56 in the prior hours). QA blob for `b8729397-…` (187 messages, 29 tools)
-had a user content part `{"type":"text"}` with no `text` key; companion
-empty-string assistant+tool_calls turns are not the Volc trigger (string
-`""` stays 200 per the 2026-11-06 controls).
-
-Behavior: same owner as empty text parts — treat missing/null `text` like
-`text:""` and drop the part. Not a KVV conflict: KVV empty system string
-content and tool promotion are untouched.
-
-Test: `TestVolcKimiDropsEmptyTextParts`.
-
-## 2026-11-18: message-level content JSON null → ""
-
-Evidence: cn-prod `rt@tk.com` (user_id=2). Report window `2026-11-18T04:02:34Z`
-and later `08:05Z` bursts returned Volc
-`missing \`messages.content\` parameter`. QA wire blobs (e.g.
-`01e52f5e-…`, `7f74db05-…`, `f9452965-…`) show inbound
-`{"role":"system","content":null}` — sometimes with top-level tools, often
-without message-level `tools`. Wire size matched a body without dynamic-tool
-payloads; the customer harness logged an intended Calculator injection that did
-not appear on the wire. Same Volc path accepts `content:""`.
-
-Behavior: `coerceVolcKimiNullMessageContent` (in
-`normalizeVolcKimiInboundMessages`) rewrites JSON null `messages.content` to
-`""` on the Volc Agent Plan K3 path only. Absent content keys stay absent.
-KVV dynamic-tool promotion still runs first: system + null/empty content +
-legal `tools` is promoted and the message dropped before this coerce.
-
-Test: `TestVolcKimiDropsEmptyTextParts/null_message_content_becomes_empty_string`
-and `TestApplyMoonshotK3DynamicToolsShape_PromotesNullContent`.
-
-## 2026-11-18: thinking-on temperature pin to 1.0
-
-Evidence: cn-prod `rt@tk.com` (user_id=2), account 220 (Volc Agent Plan).
-Capability case labeled `temperature=1` actually failed on wire
-`temperature:0` (`d77418e6-…`, 11:52:16Z) with upstream
-`` `temperature` only 1 is allowed for this model ``. Same window,
-`temperature:1` (`5130d184-…`) returned 200 with reasoning tokens. KVV expects
-thinking-on + `temperature=0.6` to succeed; Volc rejects non-1 while thinking
-is on.
-
-Behavior: after `normalizeVolcKimiThinking`, `pinVolcKimiThinkingTemperature`
-rewrites a KVV-legal non-1 `temperature` to `1.0` when thinking is not
-explicitly `disabled`. Omitted temperature stays omitted. `1.1` / `2.0` and
-other KVV rejects remain 400. Does not extend the DashScope pin to dotted ids
-on non-Volc accounts.
-
-Test: `TestVolcKimiRequestLimitsRejectUndeliverableFields/volc_thinking-on_pins_kimi-k3.1-pro_temperature`
-and `thinking_on_pins/*`.
-
-## 2026-11-19: thinking-off temperature pin to 0.6
-
-Evidence: cn-prod `rt@tk.com` (user_id=2), request
-`c491ad60-7846-4325-abab-e9c2109cf27a` (BJT 11:27:01) and same-day cluster.
-Inbound QA shape was `enable_thinking=false` + `temperature=1` (also `0.7`);
-gateway normalized the switch to `thinking.type=disabled` and forwarded the
-client temperature; Volc returned
-`` `temperature` only 0.6 is allowed for this model ``. Direct Agent Plan
-matrix on account 115 (`kimi-k3.1-pro`, 2026-11-19): thinking off accepts only
-`0.6` or omit; thinking on accepts only `1` or omit. KVV params suite requires
-off-side success for `0.6` (and omit) and still rejects `1.1` / `2.0` / `-0.1`.
-User decision 2026-11-19: pin thinking-off KVV-legal non-0.6 to `0.6` (symmetric
-with the thinking-on pin to `1.0`).
-
-Behavior: `pinVolcKimiThinkingTemperature` rewrites a KVV-legal non-0.6
-`temperature` to `0.6` when `thinking.type=disabled`. Omitted temperature stays
-omitted. Illegal values remain 400. Non-Volc accounts are unchanged.
-
-Test: `TestVolcKimiRequestLimitsRejectUndeliverableFields/volc_thinking-off_pins_kimi-k3.1-pro_temperature`.
-
-## 2026-11-18: content-part compatibility + open tool-round interleaved drop
-
-Evidence: prod/cn-prod ops_error_logs after `v1.8.380` (~50h) and post-`1.8.384`
-window. cn-prod kimi final 400 buckets included
-`messages.content.type` values `thinking` / `reasoning_text` / `audio_url` /
-`video`, plus upstream `tool_call_id is not found` alongside the existing
-interleaved-assistant pattern. User decision 2026-11-18: implement the
-KVV-aligned gateway recommendations; leave `deepseek-v4-flash-0731` retired
-(no routing alias).
-
-Behavior (same owner `normalizeVolcKimiInboundMessages`):
-
-- Drop `messages.content` parts with `type` `thinking`, `reasoning_text`, or
-  (from 2026-11-19) `prompt_cache_breakpoint`. They add no deliverable input;
-  Volc rejects the type enum. Top-level `thinking.type` / `reasoning_effort`
-  are unchanged.
-- Rewrite `type=video` to `type=video_url` when a URL is present
-  (`video_url` string/object, `video.url`, or bare `url`). Unreachable
-  http(s) URLs still hit `rejectUnreachableVolcKimiVideoURLs`. Do not strip
-  video parts.
-- `audio_url` / `input_audio` parts return local 400
-  `invalid_parameter` / `messages.content` with
-  `audio input is not supported for kimi on this service`. Not stripped
-  (would silently drop client media); matches the undeliverable-field
-  posture used for `logprobs`.
-- Open tool round-trips: after `assistant.tool_calls`, drop any
-  `assistant` without `tool_calls` until every id from that turn has a
-  matching `tool` result (including text between parallel tool results).
-  `user` / `system` end the open round without being dropped. A new
-  `assistant.tool_calls` starts a new round. Orphan `tool_call_id` still
-  returns 400 (KVV 2026-11-13); not rewritten into a user message.
-
-Deferred (needs direct Volc sanitize→200 evidence before shipping): recursive
-`tools[].function.parameters` JSON Schema flatten. The client-facing
-`: tool function parameters schema` suffix stays a heuristic only.
-
-Tests: `TestVolcKimiContentPartCompatibility`,
-`TestVolcKimiInboundMessageShapes` (parallel interleaved case).
-
-## 2026-11-19: prompt_cache_breakpoint drop + data: video local gate
-
-Evidence: cn-prod kimi final 400 after `v1.8.385` cutover
-(`2026-11-19T03:00Z`). Residual buckets on `rt@tk.com` / key 4 include
-`prompt_cache_breakpoint` content types and unnamed `InvalidParameter` on
-tiny `data:` `video_url` placeholders (url_len≈182, AAAA…). User decision
-2026-11-19: implement the KVV-aligned recommendations (drop cache marker;
-tighten data video; leave long `tool_call_id is not found` trajectories
-unchanged — no truncation, no orphan→user rewrite).
-
-Behavior:
-
-- Drop `messages.content` parts with `type` `prompt_cache_breakpoint` in the
-  same owner as `thinking` / `reasoning_text` (`dropVolcKimiReasoningContentParts`).
-- `defaultProbeVolcKimiVideoURL` / `validateVolcKimiDataVideoURL`: inline
-  `data:` URLs must be `video/*`, `;base64`, decodable, and ≥ 256 decoded
-  bytes. Failures become local `invalid_parameter` /
-  `messages.content` with `volcKimiVideoUnreachableMessage`. Do not strip the
-  video part. Supplier schemes such as `ms://` and reachable http(s) stay as
-  before.
-- Long, locally valid tool trajectories that still draw Volc
-  `tool_call_id is not found` are unchanged (KVV: no context truncation; orphan
-  tool messages stay 400, not rewritten).
-
-Tests: `TestVolcKimiContentPartCompatibility` (cache breakpoint),
-`TestVolcKimiVideoURLPreflight` (undersized / non-video / non-base64 data).
-
-## 2026-11-19: type=file missing / non-PDF normalize
-
-Evidence: cn-prod user 2 (`rt@tk.com` / api_key_id=4), window around
-`2026-11-19T09:35Z`–`10:45Z`. Final 400 buckets:
-
-- `Invalid PDF input: Syntax Warning: May not be a PDF file` ×16 on accounts
-  215 (`vap-1106-4`) and 130; upstream `param=file_url`.
-- `missing messages.content.file` ×5 on account 191 (`vap-1105-51`).
-- Earlier (2026-11-17): `exactly one of file_id, file_url, or file_data must be set` ×4.
-
-QA blobs (shape only): missing class is `{"type":"file"}` with no nested
-`file`; Invalid PDF class carries `file.file_data` as `data:video/mp4;base64,…`
-or `data:text/plain;base64,…` (Volc file modality accepts PDF only). User
-decision 2026-11-19: gateway normalize, KVV-aligned (no silent drop of payload;
-no sampling/tool softening).
-
-Behavior (`normalizeVolcKimiFileContentParts`, end of
-`normalizeVolcKimiMessageContents`):
-
-- `type=file` without nested `file` (or null/non-object) → local 400
-  `messages.content.file` / `messages.content.file is required for type=file`.
-  Flat `file_id`/`file_url`/`file_data` on the part are nested under `file`
-  first.
-- Nested `file` must set exactly one of `file_id`, `file_url`, `file_data`
-  (non-empty) → else local 400 with the Volc xor sentence.
-- `file_data` / `data:` `file_url`: `video/*` → rewrite to `type=video_url`
-  (existing data: size gate still applies later); `text/*` (and
-  `application/json`/`xml`) → decode to `type=text`; `application/pdf` or
-  `%PDF` magic → keep as file; other MIME → local 400
-  `file input must be a PDF`.
-- http(s) `file_url` with video extensions → `video_url`; known non-PDF
-  extensions (`.txt`, images, audio, …) → local 400 PDF-only; `.pdf` / unknown
-  → pass through.
-- `file_id` always passes through. Payload-bearing file parts are never
-  stripped. Does not change KVV sampling, dynamic tools, or orphan tool 400s.
-
-Tests: `TestVolcKimiFileContentPartCompatibility`.
-
-## 2026-11-20: refusal / summary_text drop + input_video rewrite
-
-Evidence: cn-prod `ops_error_logs` (rt@tk.com, ~48h) residual
-`messages.content.type` buckets `refusal` / `summary_text` / `input_video`, plus
-direct Volc Agent Plan probe
-`ops/stage0/probe_volc_kimi_content_part_sanitize.sh` on account
-`volcengine-agent-plan-6` / `kimi-k3` (UTC 2026-11-20):
-
-| Case | Raw | Sanitized |
-| --- | --- | --- |
-| drop `refusal` | 400 invalid type | **200** |
-| drop `summary_text` | 400 invalid type | **200** |
-| rewrite `input_video`→`video_url` (same data: URL) | 400 invalid type `input_video` | 400 opaque InvalidParameter (**enum cleared**; media validity separate) |
-| KVV orphan `tool_call_id` | — | still ≥400 |
-| KVV blank `function.name` | — | still ≥400 |
-
-User decision 2026-11-20: gather direct Volc evidence first, then gateway fix,
-without conflicting with KVV (no orphan rewrite, no blank-name fill, no illegal
-sampling soften, no context truncation, no recursive-schema flatten).
-
-Behavior (same owners as 2026-11-18 content-part path):
-
-- Drop `messages.content` parts with `type` `refusal` or `summary_text` in
-  `dropVolcKimiReasoningContentParts` (with thinking / reasoning_text /
-  prompt_cache_breakpoint).
-- Rewrite `type=input_video` to `type=video_url` when a URL is present, same as
-  `type=video` (`rewriteVolcKimiVideoTypeParts`). Do not strip the media part;
-  reachability / data: size gates unchanged.
-- Lone-object wrap recognizes the new types so drop/rewrite still run.
-
-Tests: `TestVolcKimiContentPartCompatibility` (refusal / summary_text /
-input_video cases).
-
-## 2026-11-20: rt@tk.com five-item chat wire + messages video forward
-
-Evidence: customer PDF `接口测试结果_20261120(1).pdf` against cn-prod
-`Kimi K3-hq` (rt@tk.com). Items are Moonshot Chat wire / multi-protocol UX,
-not KVV hard gates. User decisions 2026-11-20 「同意。继续。」then
-「尽可能提高可用率」without softening KVV negatives.
-
-Behavior:
-
-- Outbound Volc Agent Plan Kimi raw Chat Completions
-  (`volc_kimi_chat_response_tk.go`, hooked from
-  `openai_gateway_chat_completions_raw.go`):
-  - Stream chunks that omit `choices[].finish_reason` get `"finish_reason":
-    null`; terminal string values stay.
-  - When `usage.prompt_tokens_details.cached_tokens` exists and outer
-    `usage.cached_tokens` is absent, mirror the details value (including 0).
-    Do not invent cache hits.
-- Remote `video_url` preflight (`probeVolcKimiHTTPVideo`): retry transient
-  transport / 5xx / 429 up to three attempts; HEAD transport failure falls
-  back to ranged GET once per attempt. Permanent 4xx (except the existing
-  HEAD→GET status set) stays a single local 400. Unreachable URLs are still
-  rejected; data: and `ms://` paths unchanged.
-- `/v1/messages` Moonshot-shaped `video` / `video_url` / `input_video` blocks:
-  `AnthropicToChatCompletionsRequest` rewrites them to Chat `video_url`
-  (url / base64 source or string/object `video_url`). Empty video URL still
-  errors. Open-source new-api / LiteLLM silent-drop those blocks; we forward
-  so Volc Kimi chat can serve them after the existing reachability gate.
-  `preservesMessagesToChat` admits ContentVideo and fail-closes ContentAudio.
-  `/v1/responses` video rejection stays as-is. KVV orphan / blank-name /
-  sampling / schema / truncation rules unchanged.
-
-Tests: `TestVolcKimiMirrorOuterCachedTokens`,
-`TestVolcKimiStreamFinishReasonNullAndCachedTokens`,
-`TestVolcKimiThinkingShapesKeepUpstreamUsage` (wire asserts),
-`TestVolcKimiHTTPVideoProbe` (503 retry),
-`TestAnthropicToChatCompletionsRequest_VideoBlocksBecomeChatVideoURL`,
-`TestPlanMessagesToChatAdmitsVideoRejectsAudio`,
-`TestForwardAsAnthropic_VolcKimiMessagesVideoBecomesChatVideoURL`,
-`TestForwardAsAnthropic_VolcKimiMessagesEmptyVideoURLRejected`.
+按日账号/Request ID/私有探针目录与客户 PDF 回执已删；契约以上表与 Linked Tests 为准。

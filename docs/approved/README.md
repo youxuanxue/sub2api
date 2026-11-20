@@ -124,6 +124,10 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
 | [`candidate-eligibility-ssot.md`](candidate-eligibility-ssot.md) | Candidate scheduling policy and implementation boundary |
 | [`multimodal-supply-capability-ssot.md`](multimodal-supply-capability-ssot.md) | Multimodal supply gate: ContentKinds ∩ evidence-backed known-negatives (not a Plan rewrite) |
+| [`volc-kimi-chat-compatibility.md`](volc-kimi-chat-compatibility.md) | Volc Agent Plan Kimi Chat compatibility（按日 Evidence 已删） |
+| [`kimi-input-error-remediation.md`](kimi-input-error-remediation.md) | Kimi 请求错误与请求体边界 |
+| [`kiro-stream-auth-reliability.md`](kiro-stream-auth-reliability.md) | Kiro 流/规则/刷新可靠性 |
+| [`gateway-issue-remediation.md`](gateway-issue-remediation.md) | 网关 issue 协议与计量修复边界 |
 | [`design-candidate-routing-runtime-snapshot.md`](design-candidate-routing-runtime-snapshot.md) | Snapshot/CanonicalRequest 批准边界（实现见 candidate-eligibility Owners） |
 | [`rolling-capacity-saturation.md`](rolling-capacity-saturation.md) | Rolling account-capacity saturation scheduling |
 | [`candidate-request-policy-convergence.md`](candidate-request-policy-convergence.md) | Direct/Universal model mapping boundary and continuation migration impact |
@@ -196,15 +200,6 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 容量数字：`docs/decisions/decided.md`。备份入口：[`physical-backup.md`](../../ops/stage0/physical-backup.md)。
 应急同机蓝绿：`deploy_via_ssm_bluegreen.sh`。迁机核对：`probe-migration-applied-verify` / host-replacement。
 
-- [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.
-
-- [Kimi 请求错误修复与请求体边界](kimi-input-error-remediation.md) — Direct/Universal 共享路由上限、解压完整性与客户端参数改法。
-
-- [Kiro 流、规则与刷新可靠性](kiro-stream-auth-reliability.md) — 已批准的协议校验、规则保留、工具身份及认证防护。
-
 - [用户历史用量账单查询与下载](historical-usage-billing.md) — 已交付（US-073 Done）；approved 已删，验收以 Story + Linked Tests 为准。
-
 - [GPT Image OAuth 观感脚手架](gpt-image-oauth-perceived-quality.md) — 一次性脚手架；已删，活契约见 strict canvas / native cutover。
 - tk_101 删列后一次性 VACUUM one-shot（原 `vacuum-ops-error-logs`）— 舰队已执行完毕，脚本已删。
-
-- [网关 issue 协议与计量修复](gateway-issue-remediation.md) — 现有请求链的可复现缺陷、修复边界与未解决项。
