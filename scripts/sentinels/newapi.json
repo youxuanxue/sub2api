@@ -140,9 +140,70 @@
         "protocolExecutionResolvedModel(ctx, tempUnschedulableModel(ctx, requestedModel))",
         "SetModelRateLimit",
         "newapi_account_window_lock",
-        "AccountWideRateLimitResetAt(account, now)"
+        "AccountWideRateLimitResetAt(account, now)",
+        "tkIsMiniMaxTokenPlanQuotaMessage",
+        "tkMiniMaxTokenPlanQuotaFallbackHit",
+        "tkMiniMaxTokenPlanHitFromExtra"
       ],
-      "rationale": "NewAPI usage windows cool the executed model and project scoped quota dimensions; observations without a model atomically persist an explicit account marker with the snapshot. Monthly quota never overwrites local 5h/7d statistics. newAPIMonthlyQuotaMarkers must stay the single owner of monthly wording for both the recoverable gate and the calendar reset fallback: splitting them lets a monthly phrasing be recoverable yet uncoolable, churning on the seconds-level 429 fallback. accountWideRateLimitBlocks must delegate to AccountWideRateLimitResetAt so the >3 model cascade remains the shared account-wide admission SSOT."
+      "rationale": "NewAPI usage windows cool the executed model and project scoped quota dimensions; observations without a model atomically persist an explicit account marker with the snapshot. Monthly quota never overwrites local 5h/7d statistics. newAPIMonthlyQuotaMarkers must stay the single owner of monthly wording for both the recoverable gate and the calendar reset fallback: splitting them lets a monthly phrasing be recoverable yet uncoolable, churning on the seconds-level 429 fallback. accountWideRateLimitBlocks must delegate to AccountWideRateLimitResetAt so the >3 model cascade remains the shared account-wide admission SSOT. MiniMax Token Plan CN 429 (用量上限 / 2056) must stay wired into the parser and cool preference so handle429 does not fall through to the 5-second fallback."
+    },
+    {
+      "path": "backend/internal/service/newapi_minimax_token_plan_window_tk.go",
+      "must_contain": [
+        "isNewAPIMiniMaxTokenPlanAccount",
+        "mirrorMiniMaxRemainsToNewAPIUsageWindowExtra",
+        "tkIsMiniMaxTokenPlanQuotaMessage",
+        "tkMiniMaxTokenPlanQuotaFallback",
+        "tkMiniMaxTokenPlanQuotaCode",
+        "newAPIUsageWindowObservedExtraKey",
+        "NewAPIAccountWindowLockExtraKey",
+        "tkMiniMaxTokenPlanHitFromExtra"
+      ],
+      "rationale": "SSOT for NewAPI+minimaxi Token Plan: host recognition, CN 2056/用量上限 wording, 5h cool fallback, remains→newapi_5h_*/weekly Extra mirror, and clearing stale window_lock when 5h util recovers. Dropping this companion lets Extension Engine MiniMax accounts hammer the pool on 5s 429 fallbacks and leave admin cool flags stuck after upgrade."
+    },
+    {
+      "path": "backend/internal/service/newapi_minimax_token_plan_window_tk_test.go",
+      "must_contain": [
+        "TestTkIsMiniMaxTokenPlanQuotaMessage",
+        "TestTkParseNewAPIUsageWindowResponse_MiniMaxTokenPlanUses5hFallback",
+        "TestHandleUpstreamError_MiniMaxTokenPlanQuotaCools5hNotFallback",
+        "TestIsNewAPIMiniMaxTokenPlanAccount",
+        "TestMirrorMiniMaxRemainsToNewAPIUsageWindowExtra",
+        "TestHandleUpstreamError_MiniMaxTokenPlanPrefersExtraSnapshot"
+      ],
+      "rationale": "Positive 5h cool + negative Qianfan monthly wording + remains mirror lock/clear + Extra preference regressions for MiniMax Token Plan. Losing these lets the 5-second 429 fallback and stale window_lock return without a red test."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "if isNewAPIMiniMaxTokenPlanAccount(a) {\n\t\treturn PlatformMiniMax\n\t}"
+      ],
+      "rationale": "GetCodingPlanProvider must route NewAPI Extension Engine MiniMax Token Plan hosts to PlatformMiniMax so coding_plan/remains probes run without credentials.account_mode=coding. Dropping this injection leaves remains refresh and CNProviderQuotaCell empty while native minimax coding still works."
+    },
+    {
+      "path": "backend/internal/service/cn_provider_quota_service.go",
+      "must_contain": [
+        "if isNewAPIMiniMaxTokenPlanAccount(account) {\n\t\tfor k, v := range mirrorMiniMaxRemainsToNewAPIUsageWindowExtra(tiers, now) {\n\t\t\tupdates[k] = v\n\t\t}\n\t}",
+        "if isNewAPIMiniMaxTokenPlanAccount(account) {\n\t\treturn nil\n\t}"
+      ],
+      "rationale": "Remains persist must mirror into newapi_5h_*/weekly Extra for NewAPI MiniMax Token Plan, and validateMustBeCodingPlan must admit those accounts without platform=minimax. Losing either injection keeps remains UI empty or rejects the refresh while the companion unit tests still pass."
+    },
+    {
+      "path": "frontend/src/components/account/credentialsBuilder.ts",
+      "must_contain": [
+        "export function isNewAPIMiniMaxTokenPlanAccount",
+        "if (isNewAPIMiniMaxTokenPlanAccount(account)) return 'minimax'",
+        "if (isNewAPIMiniMaxTokenPlanAccount(account)) return true"
+      ],
+      "rationale": "Admin UI must treat NewAPI+minimaxi as CN remains-eligible with Extra prefix minimax_*. Dropping the helper hides Token Plan quota cells even when the backend persists snapshots."
+    },
+    {
+      "path": "frontend/src/components/account/AccountUsageCell.vue",
+      "must_contain": [
+        "isNewAPIMiniMaxTokenPlanAccount",
+        "if (isNewAPIMiniMaxTokenPlanAccount(account) || usesCNProviderUsageCell(account.platform))"
+      ],
+      "rationale": "Account card usage cell must route NewAPI MiniMax Token Plan to CNProviderUsageCell (remains bars), not OpenAIUsageCell. Without this branch operators only see local 5h/7d windows while cool/Extra come from coding_plan/remains."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -882,9 +943,10 @@
         "tkIsAccountStandingBillingMessage",
         "tkTryHandleStandingBilling",
         "用户额度不足",
-        "weekly usage quota"
+        "weekly usage quota",
+        "tkIsMiniMaxTokenPlanQuotaMessage"
       ],
-      "rationale": "SSOT for account-standing billing / prepaid quota death across 400/402/403. Prod 2026-08-30 tokensea-cc #93 returned 403 '用户额度不足' and only failovers (no SetError, no account-incident P0). This file owns the shared phrase list and the SetError + newapi_arrears Feishu path. 'weekly usage quota' is the negative marker so recoverable windows (account 88) must not permanently disable. Dropping the file or the tokensea phrase re-opens the prepaid-dead account staying schedulable."
+      "rationale": "SSOT for account-standing billing / prepaid quota death across 400/402/403. Prod 2026-08-30 tokensea-cc #93 returned 403 '用户额度不足' and only failovers (no SetError, no account-incident P0). This file owns the shared phrase list and the SetError + newapi_arrears Feishu path. 'weekly usage quota' is the negative marker so recoverable windows (account 88) must not permanently disable. tkIsMiniMaxTokenPlanQuotaMessage keeps MiniMax 2056/用量上限 on the recoverable path so standing-billing SetError never kills a rolling Token Plan key. Dropping the file or the tokensea phrase re-opens the prepaid-dead account staying schedulable."
     },
     {
       "path": "backend/internal/service/newapi_bridge_arrears_tk.go",
