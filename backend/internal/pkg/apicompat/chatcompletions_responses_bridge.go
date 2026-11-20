@@ -621,6 +621,8 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 			pendingReasoning = ""
 			lastTurnReasoning = ""
 			continue
+		case "input_video", "video", "video_url":
+			return nil, nil, responsesUnsupportedVideoPartError(itemType)
 		}
 
 		// Only genuine message items become chat messages. Codex emits other
@@ -1106,6 +1108,8 @@ func responsesContentPartsToChatContent(rawParts []json.RawMessage, role string)
 				Type:     "image_url",
 				ImageURL: &ChatImageURL{URL: imageURL},
 			})
+		case "input_video", "video", "video_url":
+			return nil, responsesUnsupportedVideoPartError(partType)
 		}
 	}
 
@@ -1135,8 +1139,25 @@ func chatContentFromSingleResponsesPart(partType string, part map[string]json.Ra
 			Type:     "image_url",
 			ImageURL: &ChatImageURL{URL: imageURL},
 		}})
+	case "input_video", "video", "video_url":
+		return nil, responsesUnsupportedVideoPartError(partType)
 	default:
 		return json.Marshal(rawString(part["text"]))
+	}
+}
+
+// responsesUnsupportedVideoPartError matches the /v1/responses ingress reject
+// messages so Chat fallback cannot silently drop video parts.
+func responsesUnsupportedVideoPartError(partType string) error {
+	switch strings.ToLower(strings.TrimSpace(partType)) {
+	case "input_video":
+		return fmt.Errorf(`responses content part "input_video" is not supported`)
+	case "video":
+		return fmt.Errorf(`unsupported responses content part "video"`)
+	case "video_url":
+		return fmt.Errorf(`responses content part "video_url" is not supported`)
+	default:
+		return fmt.Errorf("unsupported responses content part %q", partType)
 	}
 }
 

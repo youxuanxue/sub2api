@@ -265,13 +265,18 @@ func computeChatToMessagesPreservation(req CanonicalRequest) bool {
 }
 
 func preservesResponsesConversion(req CanonicalRequest) bool {
-	// Lossless surface: function tools, text/image/video, and mapped
-	// reasoning.effort. prompt_cache_key, cache_control, previous_response_id,
-	// conversation, conversation_id, and audio are not preserved here.
+	// Lossless surface: function tools, text/image, and mapped
+	// reasoning.effort. Video is fail-closed (converter and /v1/responses
+	// ingress reject input_video/video/video_url — no silent drop).
+	// prompt_cache_key, cache_control, previous_response_id, conversation,
+	// conversation_id, and audio are not preserved here.
 	// downgradeResponsesToChat removes them before this check and marks the
 	// plan so native Responses stays ahead.
-	return preservesMessagesToResponsesContent(req) &&
-		req.responsesPath == ResponsesPathRoot &&
+	allowed := ContentText | ContentImage | ContentUnknown
+	if req.profile.ContentKinds == 0 || req.profile.ContentKinds&^allowed != 0 {
+		return false
+	}
+	return req.responsesPath == ResponsesPathRoot &&
 		req.profile.Continuation == ContinuationNone &&
 		req.profile.PromptCache == PromptCacheNone
 }

@@ -1,11 +1,15 @@
 ---
 title: Protocol Routing Single Source of Truth
 status: approved
-approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, conversation, conversation_id, and audio behind native Responses; unowned previous_response_id is dropped before forwarding on HTTP and the first WebSocket frame, while later WebSocket turns stay fail-closed; 2026-11-12 Chat/Responses/Messages→Gemini preserve alignment; 2026-11-17 Chat→Messages admits image_url + reasoning_effort, aligning new-api/LiteLLM; 2026-11-18 Chat→Messages strips OpenAI-only extras like open-source relays for UX; 2026-11-20 Messages→Chat admits ContentVideo / fail-closes ContentAudio — 「尽可能提高可用率」without softening KVV)"
+approved_by: "feng (conversation approval, 2026-08-27; 2026-10-26 Volc Agent Plan chat-only + responses→chat preserve alignment; 2026-10-29 Responses→Chat drops prompt-cache, previous_response_id, conversation, conversation_id, and audio behind native Responses; unowned previous_response_id is dropped before forwarding on HTTP and the first WebSocket frame, while later WebSocket turns stay fail-closed; 2026-11-12 Chat/Responses/Messages→Gemini preserve alignment; 2026-11-17 Chat→Messages admits image_url + reasoning_effort, aligning new-api/LiteLLM; 2026-11-18 Chat→Messages strips OpenAI-only extras like open-source relays for UX; 2026-11-20 Messages→Chat admits ContentVideo / fail-closes ContentAudio — 「尽可能提高可用率」without softening KVV; 2026-11-20 Responses video fail-closed — no silent drop)"
 authors: [codex]
 created: 2026-08-24
 revised: 2026-11-20
 revision_note: >
+  2026-11-20: Responses→Chat no longer claims video preserve. Converter and
+    /v1/responses ingress reject input_video / video / video_url with explicit
+    400 (PDF messages); Chat Completions / Messages video paths stay separate.
+    Approved by feng: 「接着修 response 视频拒绝。」
   2026-11-20: Messages→Chat admits ContentVideo (rewrite to Chat video_url;
     raises availability vs open-source silent drop) and fail-closes
     ContentAudio. Owned with volc-kimi-chat-compatibility. Approved by feng:
@@ -44,7 +48,8 @@ revision_note: >
   rather than losing their delta context. Lossless preserve stays unchanged.
   2026-10-26: Volc Agent Plan joins TokenSea/CloudWise as Plan-facing Chat-only
   (omit native responses); responses→chat preserve aligns with converter
-  (tools/image/video + mapped reasoning.effort; prompt-cache still fail-closed);
+  (tools/image + mapped reasoning.effort; video later fail-closed 2026-11-20;
+  prompt-cache still fail-closed);
   modality gate order owned by candidate-eligibility / multimodal SSOTs. §7:
   diagnosis actions (test/schedulable/same-key add) do not probe; background
   probes refuse destructive identity_conflict / chat_completions drop on verified

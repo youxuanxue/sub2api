@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-20 `/v1/responses` 视频显式拒绝（不静默丢块）
+
+原话：「接着修 response 视频拒绝。」
+
+适用范围：全站 `/v1/responses`（含 Gateway 与 OpenAI handler、WS 首帧）。`input_video` / `video` / `video_url` → 400，文案对齐客户 PDF（`responses content part "input_video" is not supported` / `unsupported responses content part "video"`）。Responses→Chat 不再声称 preserve video。Chat Completions / Messages 视频路径与 Volc `video_url` 改写不受影响。
+
 ## 2026-11-20 rt@tk.com 五项：可用率优先（不违背 KVV）
 
 原话：「同意。继续。」；随后「目标是在不违背 kvv 的基础和原则下，尽可能提高可用率。」

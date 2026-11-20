@@ -64,6 +64,10 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
+	if msg := service.ResponsesUnsupportedVideoPartMessage(body); msg != "" {
+		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", msg)
+		return
+	}
 
 	// Extract model and stream using gjson (like OpenAI handler)
 	modelResult := gjson.GetBytes(body, "model")
