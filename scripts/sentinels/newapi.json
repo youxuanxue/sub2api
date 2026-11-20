@@ -168,17 +168,19 @@
         "TestTkParseNewAPIUsageWindowResponse_MiniMaxTokenPlanUses5hFallback",
         "TestHandleUpstreamError_MiniMaxTokenPlanQuotaCools5hNotFallback",
         "TestIsNewAPIMiniMaxTokenPlanAccount",
+        "TestGetCNAPIKey_NewAPIMiniMaxTokenPlan",
         "TestMirrorMiniMaxRemainsToNewAPIUsageWindowExtra",
         "TestHandleUpstreamError_MiniMaxTokenPlanPrefersExtraSnapshot"
       ],
-      "rationale": "Positive 5h cool + negative Qianfan monthly wording + remains mirror lock/clear + Extra preference regressions for MiniMax Token Plan. Losing these lets the 5-second 429 fallback and stale window_lock return without a red test."
+      "rationale": "Positive 5h cool + negative Qianfan monthly wording + remains mirror lock/clear + Extra preference + GetCNAPIKey for NewAPI MiniMax regressions. Losing these lets the 5-second 429 fallback, stale window_lock, or CN_QUOTA_NO_APIKEY on remains refresh return without a red test."
     },
     {
       "path": "backend/internal/service/account.go",
       "must_contain": [
-        "if isNewAPIMiniMaxTokenPlanAccount(a) {\n\t\treturn PlatformMiniMax\n\t}"
+        "if isNewAPIMiniMaxTokenPlanAccount(a) {\n\t\treturn PlatformMiniMax\n\t}",
+        "if !a.IsMultiProtocolAPIKey() && !isNewAPIMiniMaxTokenPlanAccount(a) {\n\t\treturn \"\"\n\t}"
       ],
-      "rationale": "GetCodingPlanProvider must route NewAPI Extension Engine MiniMax Token Plan hosts to PlatformMiniMax so coding_plan/remains probes run without credentials.account_mode=coding. Dropping this injection leaves remains refresh and CNProviderQuotaCell empty while native minimax coding still works."
+      "rationale": "GetCodingPlanProvider must route NewAPI Extension Engine MiniMax Token Plan hosts to PlatformMiniMax so coding_plan/remains probes run without credentials.account_mode=coding. GetCNAPIKey must also admit those hosts (they are not IsMultiProtocolAPIKey); otherwise remains refresh hits CN_QUOTA_NO_APIKEY even when credentials.api_key is present."
     },
     {
       "path": "backend/internal/service/cn_provider_quota_service.go",

@@ -1738,8 +1738,14 @@ func (a *Account) GetOpenAIFormatBaseURL() string {
 
 // GetCNAPIKey 返回国产 OpenAI 兼容供应商账号的 api_key 凭据（kimi/zhipu/deepseek）。
 // 与 openai 的 GetOpenAIApiKey 区分：后者仅对 openai 平台返回。
+// NewAPI MiniMax Token Plan 虽不是 IsMultiProtocolAPIKey，但 GetCodingPlanProvider
+// 已将其路由到 MiniMax remains；必须同样能读出 credentials.api_key，否则管理端
+// 用量刷新会落到 CN_QUOTA_NO_APIKEY（"account api_key is empty"）。
 func (a *Account) GetCNAPIKey() string {
-	if a == nil || !a.IsMultiProtocolAPIKey() {
+	if a == nil {
+		return ""
+	}
+	if !a.IsMultiProtocolAPIKey() && !isNewAPIMiniMaxTokenPlanAccount(a) {
 		return ""
 	}
 	return a.GetCredential("api_key")
