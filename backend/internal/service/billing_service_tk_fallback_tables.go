@@ -241,12 +241,12 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 		SupportsCacheBreakdown:         false,
 	}
 	s.fallbackPrices["gemini-4-neon"] = &ModelPricing{
-		InputPricePerToken:             3e-6,    // $3.00 per MTok Standard
-		InputPricePerTokenPriority:     5.4e-6,  // $5.40 per MTok (1.8× Standard)
-		OutputPricePerToken:            15e-6,   // $15.00 per MTok
-		OutputPricePerTokenPriority:    27e-6,   // $27.00 per MTok
+		InputPricePerToken:             3e-6,  // $3.00 per MTok Standard
+		InputPricePerTokenPriority:     3e-6,  // equal to Standard until Neon Priority $ published
+		OutputPricePerToken:            15e-6, // $15.00 per MTok
+		OutputPricePerTokenPriority:    15e-6,
 		CacheReadPricePerToken:         0.15e-6, // $0.15 per MTok
-		CacheReadPricePerTokenPriority: 0.27e-6, // $0.27 per MTok
+		CacheReadPricePerTokenPriority: 0.15e-6,
 		SupportsCacheBreakdown:         false,
 	}
 	s.fallbackPrices["gemini-4-carbon"] = &ModelPricing{

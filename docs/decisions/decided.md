@@ -4,7 +4,7 @@
 
 原话：「看下 prod gemini-4-neon 模型是不是可以访问了？实测并上架。定价查明。」
 
-适用范围：已实测能访问 Neon 的 Antigravity 账号（233/244/291/292/294/529）。四档 token 单价相同。官方默认思考档是 high，裸名仍锁 medium。档位 wire 不上公开目录。不能访问的账号不加这组映射。Standard $3/$15/$0.15；Priority 按同族 1.8× 入库。
+适用范围：已实测能访问 Neon 的 Antigravity 账号（233/244/291/292/294/529）。四档 token 单价相同。官方默认思考档是 high，裸名仍锁 medium。档位 wire 不上公开目录。不能访问的账号不加这组映射。Standard $3/$15/$0.15；官方 Neon 定价卡未公布 Priority 溢价，Priority 字段与 Standard 同价入库（避免引擎默认 2×），Batch/Flex 不入库。
 
 ## 2026-11-20 Volc Kimi content-part：先直打证据再兼容（不冲突 KVV）
 

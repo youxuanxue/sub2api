@@ -773,12 +773,13 @@ func TestBillingService_Gemini4NeonBillsStandardRate(t *testing.T) {
 		})
 	}
 
+	// Neon card lists Standard only; Priority fields equal Standard (no invented premium).
 	priority, err := svc.CalculateCostWithServiceTier("gemini-4-neon", tokens, 1, "priority")
 	require.NoError(t, err)
-	require.InDelta(t, 5.4, priority.InputCost, 1e-9)
-	require.InDelta(t, 27.0, priority.OutputCost, 1e-9)
-	require.InDelta(t, 0.27, priority.CacheReadCost, 1e-9)
-	require.InDelta(t, 32.67, priority.TotalCost, 1e-9)
+	require.InDelta(t, 3.0, priority.InputCost, 1e-9)
+	require.InDelta(t, 15.0, priority.OutputCost, 1e-9)
+	require.InDelta(t, 0.15, priority.CacheReadCost, 1e-9)
+	require.InDelta(t, 18.15, priority.TotalCost, 1e-9)
 }
 
 func TestDefaultPricingIncludesGemini36FlashRates(t *testing.T) {
@@ -1449,9 +1450,10 @@ func TestDefaultPricingIncludesGemini4NeonRates(t *testing.T) {
 	require.InDelta(t, 3e-6, pricing.InputCostPerToken, 1e-15)
 	require.InDelta(t, 15e-6, pricing.OutputCostPerToken, 1e-15)
 	require.InDelta(t, 0.15e-6, pricing.CacheReadInputTokenCost, 1e-15)
-	require.InDelta(t, 5.4e-6, pricing.InputCostPerTokenPriority, 1e-15)
-	require.InDelta(t, 27e-6, pricing.OutputCostPerTokenPriority, 1e-15)
-	require.InDelta(t, 0.27e-6, pricing.CacheReadInputTokenCostPriority, 1e-15)
+	// Official Neon card lists Standard only — Priority equals Standard (no invented premium).
+	require.InDelta(t, 3e-6, pricing.InputCostPerTokenPriority, 1e-15)
+	require.InDelta(t, 15e-6, pricing.OutputCostPerTokenPriority, 1e-15)
+	require.InDelta(t, 0.15e-6, pricing.CacheReadInputTokenCostPriority, 1e-15)
 	require.Zero(t, pricing.LongContextInputTokenThreshold)
 	require.Zero(t, pricing.CacheStorageCostPerTokenPerHour)
 	require.Contains(t, pricingSvc.ListModelNamesByProvider("gemini"), "gemini-4-neon")

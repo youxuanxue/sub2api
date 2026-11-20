@@ -120,7 +120,7 @@
       "vendor": "google",
       "model_id": "gemini-4-neon",
       "source_url": "https://aistudio.google.com/docs/pricing#gemini-4-neon",
-      "notes": "public API id; Antigravity wires gemini-4-neon-{low,medium,high,xhigh}; bare name maps to medium; Standard $3/$15/$0.15; Priority stored 1.8× Standard ($5.40/$27/$0.27); Batch/Flex/Contributor not stored"
+      "notes": "public API id; Antigravity wires gemini-4-neon-{low,medium,high,xhigh}; bare name maps to medium; Standard $3/$15/$0.15; Priority stored equal to Standard until Neon Priority $ published; Batch/Flex/Contributor not stored"
     },
     {
       "vendor": "doubao",
