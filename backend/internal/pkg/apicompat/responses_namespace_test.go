@@ -79,10 +79,13 @@ func TestFlattenResponsesNamespaces_FlattensCustomChildren(t *testing.T) {
 	tools, ok := req["tools"].([]any)
 	require.True(t, ok)
 	require.Len(t, tools, 1)
-	tool := tools[0].(map[string]any)
+	tool, ok := tools[0].(map[string]any)
+	require.True(t, ok)
 	require.Equal(t, "function", tool["type"])
 	require.Equal(t, "functions__exec", tool["name"])
-	require.JSONEq(t, customToolInputSchema, string(tool["parameters"].(json.RawMessage)))
+	parameters, ok := tool["parameters"].(json.RawMessage)
+	require.True(t, ok)
+	require.JSONEq(t, customToolInputSchema, string(parameters))
 }
 
 func TestFlattenResponsesNamespaces_RejectsFlatNameCollision(t *testing.T) {
