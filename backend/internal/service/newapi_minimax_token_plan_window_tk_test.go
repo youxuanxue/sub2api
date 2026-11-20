@@ -90,6 +90,52 @@ func TestIsNewAPIMiniMaxTokenPlanAccount(t *testing.T) {
 	}))
 }
 
+func TestGetCNAPIKey_NewAPIMiniMaxTokenPlan(t *testing.T) {
+	t.Parallel()
+	// Positive: NewAPI+minimaxi shares remains with native minimax; key must be readable.
+	mm := &Account{
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.minimaxi.com",
+			"api_key":  "sk-mm-test",
+		},
+	}
+	require.Equal(t, PlatformMiniMax, mm.GetCodingPlanProvider())
+	require.Equal(t, "sk-mm-test", mm.GetCNAPIKey())
+
+	ioHost := &Account{
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.minimax.io/v1",
+			"api_key":  "sk-mm-io",
+		},
+	}
+	require.Equal(t, "sk-mm-io", ioHost.GetCNAPIKey())
+
+	// Negative: unrelated NewAPI host stays outside GetCNAPIKey (not multi-protocol).
+	other := &Account{
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.moonshot.cn/v1",
+			"api_key":  "sk-other",
+		},
+	}
+	require.Empty(t, other.GetCodingPlanProvider())
+	require.Empty(t, other.GetCNAPIKey())
+
+	// Negative: NewAPI MiniMax without api_key still surfaces empty (true missing cred).
+	missing := &Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://api.minimaxi.com"},
+	}
+	require.Equal(t, PlatformMiniMax, missing.GetCodingPlanProvider())
+	require.Empty(t, missing.GetCNAPIKey())
+}
+
 func TestMirrorMiniMaxRemainsToNewAPIUsageWindowExtra(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 11, 20, 3, 0, 0, 0, time.UTC)
