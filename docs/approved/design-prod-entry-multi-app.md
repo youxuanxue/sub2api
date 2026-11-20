@@ -206,7 +206,7 @@ PG：稳态约 75；滚动时一台摘流，无双色重叠。旧机脱离 LUKS 
 
 ### 3.4 回退
 
-- **L1–L5 失败且旧机未重新接流**：停 docker；从 `pre-plain-<ts>/` 恢复系统文件；`systemctl enable --now tokenkey-luks-unlock.service`（COS 取钥、开 mapper、挂载）；启动 docker 与 `tokenkey.service`。载体上的旧 Docker Root/容器仍在。2C8G 继续承载。COS 取钥失败时按 [unlock contract](../ops/tencent-unlock-contract.md) 用操作员 vault 手动解锁。
+- **L1–L5 失败且旧机未重新接流**（历史窗口；LUKS 已于 2026-11-19 X1–X4 销毁，不可再走）：当时路径为停 docker → 从 `pre-plain-<ts>/` 恢复系统文件 → unlock unit / 操作员 vault 开 mapper → 启动 docker。现网禁止重建该回退（见 [舰队入口](../../deploy/hetzner/README.md)）。
 - **L6 起不来**：TAT/SSM 按上条恢复；仍不行用 Lighthouse VNC。
 - **L8 后出问题**：入口权重回 0；L8 之后明文盘新写入回退会丢，需记录。
 - 不碰数据机。
@@ -232,7 +232,7 @@ PG：稳态约 75；滚动时一台摘流，无双色重叠。旧机脱离 LUKS 
 
 先删密钥会在载体仍在时造成永久丢数；载体销毁后再删密钥。
 
-**卷契约时序（2026-11-18 修订；2026-11-19 收尾）**：L8 后矩阵已为 `tencent-root`。2026-11-19 用户授权提前 X1–X4：载体/COS 钥/操作员 vault/unlock 单元已删，矩阵去掉 `luks_carrier_retained`；`tencent-unlock-contract.md` 标退役。
+**卷契约时序（2026-11-18 修订；2026-11-19 收尾）**：L8 后矩阵已为 `tencent-root`。2026-11-19 用户授权提前 X1–X4：载体/COS 钥/操作员 vault/unlock 单元已删，矩阵去掉 `luks_carrier_retained`；LUKS 解锁路径永久关闭（见舰队入口）。
 
 ## 4. 切流与回退（用户无感）
 

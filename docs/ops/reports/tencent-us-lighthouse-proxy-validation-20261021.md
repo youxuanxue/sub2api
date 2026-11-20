@@ -433,4 +433,4 @@ SSM Agent 身份已实测确认；限定腾讯主机 UserId 的 `TencentUswPhysi
 已暂停刷新 timer，但未 disable。诊断 `inv-xa7a1pgx3x` 确认真实 standby 仍运行、
 recovery=true/read_only=on，replay=`1C/35000000`；其 Docker 凭据目录绑定需要修复，
 继续取 WAL 尚未重新验证。真实 S3 合成实验在创建配置目录时失败，未进入备份或晋升。
-接手顺序、已改 IAM 范围及断线接续约束见 [交接文档](../tencent-migration-handoff.md)。
+接手顺序、已改 IAM 范围及断线接续约束见当时迁机交接文（已删除；现网 SSOT [`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)）。

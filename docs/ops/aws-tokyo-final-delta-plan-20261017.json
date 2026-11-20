@@ -77,7 +77,7 @@
     "candidate still held / only postgres until separate activation approval"
   ],
   "rollback_receipt_template": {
-    "review_correction": "PR #2687 review supersedes the original DNS-only rollback instructions: after Tokyo writes, follow aws-tokyo-cutover-handoff-20261017.md. Historical plan metadata above is unchanged; this is not execution approval.",
+    "review_correction": "PR #2687 review supersedes the original DNS-only rollback instructions. Tokyo cutover handoff doc deleted 2026-11-20; live SSOT is deploy/hetzner/README.md. Historical plan metadata above is unchanged; this is not execution approval.",
     "trigger_examples": [
       "candidate data validation failure",
       "Caddy/TLS unavailable after activation",

@@ -144,7 +144,7 @@
       "/srv/tokenkey-rehearsal/synthetic-s3-timeline-ajizlj_4"
     ]
   },
-  "handoff": "docs/ops/tencent-migration-handoff.md",
+  "handoff": "deploy/hetzner/README.md",
   "historical_manual_credential_expires_at": "2026-10-22T02:21:37Z",
   "credential_mode": "ssm-agent identity validated; RuntimeDirectoryPreserve=yes verified; timer active",
   "source_observed_at": "2026-10-22T00:25:26Z",
@@ -215,7 +215,7 @@
     "tls_still_self_signed_directed": true,
     "cutover_authorized": false
   },
-  "unlock_contract": "docs/ops/tencent-unlock-contract.md",
+  "unlock_contract": "retired-2026-11-19-see-deploy/hetzner/README.md",
   "hard_gate": {
     "rule": "No write-stop, promote, DNS change, or cutover_authorized=true without explicit human approval.",
     "auto_resolve_still": "Tokyo aws-fresh",
@@ -263,7 +263,7 @@
     "current_mount": "/srv/tokenkey-rehearsal",
     "cutover_authorized": false
   },
-  "checklist": "docs/ops/tencent-cutover-checklist.md",
+  "checklist": "closed-see-deploy/hetzner/README.md",
   "window_duration_estimate": {
     "at": "2026-10-22T01:29:47Z",
     "basis": [

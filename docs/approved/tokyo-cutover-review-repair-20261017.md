@@ -31,4 +31,4 @@ scope: repair remaining PR 2687 usage ID and Tokyo OIDC SSM gaps without gateway
 
 修复备份前置条件时发现东京 pgdump service 仍是 `/usr/bin/true` 占位任务，且备份桶仍授权旧主机。作为本次迁移缺口修复，新增 `PgdumpInstanceRoleArn` 参数仅更新既有备份桶的 prod 备份前缀授权，不修改媒体权限或桶生命周期；通过现有 `pg_dump_refresh_via_ssm.sh` 恢复正式脚本和两小时 timer。先备份原 units、确认任务空闲与空间充足；安装不重启网关。验证真实备份生成、离机对象与隔离恢复，禁止把 timer active 当作备份成功。
 
-修复前证据及缺口见 [交接清单](../ops/aws-tokyo-cutover-handoff-20261017.md)。本文件记录授权与执行边界；实际结果以追加回执为准，不以本文件存在代替验收。
+修复前证据及缺口见当时 Tokyo 切流交接清单（已删除；现网 SSOT [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)）。本文件记录授权与执行边界；实际结果以追加回执为准，不以本文件存在代替验收。

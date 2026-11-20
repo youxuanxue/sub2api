@@ -10,7 +10,7 @@ description: >-
 现网：[舰队入口](../../../deploy/hetzner/README.md)（路径名历史遗留；活舰队是腾讯美西）。
 流程：[pgBackRest 迁机工作流](../../../ops/stage0/pgbackrest-host-migration.md)。
 备份/恢复：[physical-backup.md](../../../ops/stage0/physical-backup.md)。
-切流后交接：[腾讯迁机交接](../../../docs/ops/tencent-migration-handoff.md)。
+现网事实与残留边界：见上方舰队入口（勿另维护交接副本）。
 
 输入 `target=prod`、目标云/地域/架构、`phase=plan|rehearse|prepare|cutover|verify`。
 默认先 plan；已授权阶段直接推进。腾讯云演练不等于授权创建付费资源或正式切流。
