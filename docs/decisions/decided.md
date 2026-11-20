@@ -120,7 +120,7 @@
 
 原话：「北京的镜像应该从 prod 导出上传到 北京 cos，再从北京 cos 拉下来使用。这条变为标准路径」
 
-适用范围：cn-prod 镜像分发。默认不再从美西 GHA 直传 COS，也不以 GHCR 跨境 pull 为主路径。标准顺序：在 prod 上 `crane pull --format=legacy` 并上传北京 COS → cn-prod 各应用机同城 COS warm → rolling。GHA→COS / `transport=ghcr` 仅作应急回退。见 `docs/approved/design-cn-image-cos.md`、`cn-prod-image-distribution.md`。
+适用范围：cn-prod 镜像分发。默认不再从美西 GHA 直传 COS，也不以 GHCR 跨境 pull 为主路径。标准顺序：在 prod 上 `crane pull --format=legacy` 并上传北京 COS → cn-prod 各应用机同城 COS warm → rolling。GHA→COS / `transport=ghcr` 仅作应急回退。见 `docs/approved/design-cn-image-cos.md`。
 
 后续校准（同日）：「今天只准备好 cn-prod 的镜像，不发版了。」→ 已对 `1.8.382` 完成 prod→COS→warm，未 rolling。运行时修正：现代 `docker save` OCI 布局与 legacy `verify_archive` 不兼容，标准路径改 crane-legacy；OIDC 角色 trust 增加 `environment:tencent-ops`（`publish-from-prod` 仍挂该 environment 以读腾讯密钥）。
 

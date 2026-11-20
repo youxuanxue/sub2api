@@ -19,7 +19,7 @@ revised_at: 2026-10-28
 
 - [Kiro 文件工具分块兼容方案](kiro-file-tool-chunking.md)：已确认的按账号分块提示；实测缓解长静默断流，明确轮数、成本和非保证边界。
 
-- [cn-prod 私有镜像分发](cn-prod-image-distribution.md)：预下载/rolling 边界；存储目的地见 [design-cn-image-cos.md](design-cn-image-cos.md)（北京 COS）。
+- [cn-prod 镜像分发（北京 COS）](design-cn-image-cos.md)：目的地 + 预下载/rolling 边界。
 
 - [OAuth 搜索历史与工具权限](openai-search-history-tool-permissions.md)：历史声明补全、原工具权限及保护错误诊断。
 
@@ -163,7 +163,7 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 | [`ops-error-logs-column-contract.md`](ops-error-logs-column-contract.md) | `ops_error_logs` 列契约：声明 == 写入 ∪ DB 托管（无 Ent schema 表的机械替代） |
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
 | [`qa-redaction-identified-formats-only.md`](qa-redaction-identified-formats-only.md) | QA 脱敏已识别格式边界与性能优化 |
-| [`design-prod-physical-backup.md`](design-prod-physical-backup.md) | 每周全量、两小时块增量、WAL 连续归档及隔离验收 |
+| [`design-prod-physical-backup.md`](design-prod-physical-backup.md) | pgBackRest 节奏；存储/唯一 repo 见 design-tencent-cos-backup-node1-qa |
 | [`billing-dedup-retention.md`](billing-dedup-retention.md) | 计费去重表：热表 7 天、含归档共 30 天，超期直接删除 |
 | [`design-tencent-cos-backup-node1-qa.md`](design-tencent-cos-backup-node1-qa.md) | 腾讯 COS 数据库备份迁移、AWS 回退与 node1 QA/备份兜底 |
 | [`design-data-plane-split.md`](design-data-plane-split.md) | prod 与 cn-prod 数据面从应用机拆到同私网数据机；逐站停写切流，窗口需单独审批 |
@@ -215,7 +215,7 @@ closeout 清单等历史文已从本目录删除。现网舰队 SSOT：
 QA 删除边界已并入 [design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)。
 cn-prod 备份监控走 `ops-cn-backup-watch.yml` + pgBackRest，勿恢复逻辑 dump 步骤。
 一次性 ops 历史稿（COS 并行 repo 草案、UCloud Kimi 压测包、relay-watch、
-旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。已完成迁机执行表（entry-multi-app L1–X4、data-plane 停写逐步表、parallel-replacement 询价/SSM 回执）已从正文删除，仅留不变量。
+旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。已完成迁机执行表（entry-multi-app L1–X4、data-plane 停写逐步表、parallel-replacement 询价/SSM 回执）已从正文删除，仅留不变量。`cn-prod-image-distribution` 已并入 `design-cn-image-cos`；无引用 kvv-kimi 压测报告已删。
 
 网关生产蓝绿发布以 [deploy-stage0-workflow.md](deploy-stage0-workflow.md) 为基线。
 
