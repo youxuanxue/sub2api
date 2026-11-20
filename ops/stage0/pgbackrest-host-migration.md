@@ -136,7 +136,7 @@ Redis 默认新建；若会话/幂等功能有持久需求，按其 owner 单独
 
 - **发布目标**：`resolve_prod_ssm_target.py --target auto` → 腾讯美西。GitHub `PROD_SSM_TARGET` 必须为 `auto`。`aws-fresh`/`hetzner` 已退役，失败关闭。
 - **Stage0 布局**：从 **plan/prepare** 起按「切流结束即可 `deploy-stage0` / rolling」设计；与 cutover **同窗**落地（默认例外路径：不搬 Docker Root、PG/Redis 别名）。见 skill `tokenkey-host-replacement` 与舰队入口。**禁止**规划迁机完成后的第二次布局停机。
-- **宿主存储契约**：现网矩阵 `volume_platform=tencent-root`（明文根盘）；`bluegreen_host_runtime` 经 `volume_contract` 读矩阵，拒绝 Hetzner volume 身份。CLI 裸默认仍为历史 `tencent-luks`，手跑须显式传平台。
+- **宿主存储契约**：现网矩阵 `volume_platform=tencent-root`；`bluegreen_host_runtime` 默认同为 `tencent-root`（经 `volume_contract` / `--contract-b64` 读矩阵）。`tencent-luks` 仅历史显式平台。
 - **备份身份**：候选前缀 `candidates/tencent-usw-20261022/postgres` 为活链；`RuntimeDirectoryPreserve=yes`；飞书宿主告警已接（`tokenkey-https-watch.timer`，见舰队 SSOT）。
 - **密钥与启动**：LUKS 已退役；现网明文根盘。**禁止**再解锁演练或重建 LUKS 回退（见舰队入口）。
 - **出口代理**：账号已迁 `usw-eval*`；日本 Lightsail 已于 2026-10-23 删除。

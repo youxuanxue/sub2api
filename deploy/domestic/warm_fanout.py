@@ -417,7 +417,8 @@ def parser() -> argparse.ArgumentParser:
     warm.add_argument("--tag", required=True)
     warm.add_argument("--revision", required=True)
     warm.add_argument("--transport", choices=("s3", "ghcr"), required=True)
-    warm.add_argument("--channel", choices=("auto", "tat", "ssm"), default="auto")
+    warm.add_argument("--channel", choices=("auto", "tat", "ssm"), default="tat",
+                      help="transport channel; default tat (do not use auto under tencent-ops)")
     warm.add_argument("--repository", default="ghcr.io/youxuanxue/sub2api")
     warm.add_argument("--digest", default="")
     warm.add_argument("--timeout", type=int, default=1200)
@@ -427,7 +428,8 @@ def parser() -> argparse.ArgumentParser:
     render.add_argument("--tag", required=True)
     render.add_argument("--revision", required=True)
     render.add_argument("--transport", choices=("s3", "ghcr"), required=True)
-    render.add_argument("--channel", choices=("auto", "tat", "ssm"), default="auto")
+    render.add_argument("--channel", choices=("auto", "tat", "ssm"), default="tat",
+                        help="transport channel; default tat (do not use auto under tencent-ops)")
     render.add_argument("--repository", default="ghcr.io/youxuanxue/sub2api")
     render.add_argument("--digest", default="")
     render.add_argument("--render-out", type=Path, required=True)
@@ -436,7 +438,8 @@ def parser() -> argparse.ArgumentParser:
     dispatch.add_argument("--tag", required=True)
     dispatch.add_argument("--revision", required=True)
     dispatch.add_argument("--transport", choices=("s3", "ghcr"), required=True)
-    dispatch.add_argument("--channel", choices=("auto", "tat", "ssm"), default="auto")
+    dispatch.add_argument("--channel", choices=("auto", "tat", "ssm"), default="tat",
+                          help="transport channel; default tat (do not use auto under tencent-ops)")
     dispatch.add_argument("--render-file", type=Path, required=True)
     dispatch.add_argument("--timeout", type=int, default=1200)
     dispatch.add_argument("--receipt-out", type=Path)

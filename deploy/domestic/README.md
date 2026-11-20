@@ -170,8 +170,8 @@ cn-prod 的正常发布入口是 `deploy/domestic/rolling.py`，按 `prod-target
 
 Release 后的 `distribute-cn-image.yml` 分两段执行：`publish` 在 AWS OIDC 身份下上传
 并校验 COS 工件、渲染每节点预下载脚本；`publish`/`warm` 均在 `tencent-ops` 下持腾讯凭据，按
-`apps[]` 顺序通过 TAT 预下载到每个节点。warm 固定 `--channel tat`，不使用 `auto`：
-app-a 仍带 SSM Hybrid 身份，`auto` 会选中 AWS SSM，而腾讯 job 没有 AWS 凭据。
+`apps[]` 顺序通过 TAT 预下载到每个节点。`warm_fanout` 与 workflow 默认/钉死 `--channel tat`
+（手跑也不要传 `auto`：tencent-ops 无 AWS 凭据，SSM 会失败）。
 任一节点失败都停止后续节点，且不触碰正在服务的容器。
 
 分发和每个节点预下载回执齐全后，用同一工作流入口切流：
