@@ -887,6 +887,8 @@
       "path": ".github/workflows/upstream-issue-watchdog.yml",
       "must_contain": [
         "source: [upstream, anthropic]",
+        "issue_comment:",
+        "types: [created, edited, deleted]",
         "python3 scripts/upstream/watchdog-run.py scan",
         "actions/cache/restore@",
         "actions/cache/save@"
