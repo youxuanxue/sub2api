@@ -14,6 +14,10 @@
 
 ## Prod-only operator utilities
 
-以下入口只服务当前 prod 主机或一次性迁移/审计：
+现网排障 / 观测入口（路径见 `ops/observability/`、`ops/prod/`、`ops/stage0/`）：
 
-`export_adspower_session.py`, `apply-account-contact-email.sh`, `probe-account-emails.sh`, `probe-alert-config.sh`, `probe-data-layer-retention-inventory.sh`, `probe-fleet-traffic-window.sh`, `probe-ssot-recent-success.sh`, `probe-traffic-logs.sh`, `probe-user-traffic-window.sh`, `profile-traffic.py`, `fetch-error-clusters.sh`, `fetch-logs.sh`, `check-cfn-live-drift.sh`, `retire_dormant_media_storage_remote.sh`, `sync-instance-cpu-alarm.sh`, `sync-instance-root-disk-alarm.sh`, `sync-prod-pg-tuning-via-ssm.sh`。
+`export_adspower_session.py`, `apply-account-contact-email.sh`, `probe-account-emails.sh`, `probe-alert-config.sh`, `probe-data-layer-retention-inventory.sh`, `probe-fleet-traffic-window.sh`, `probe-ssot-recent-success.sh`, `probe-traffic-logs.sh`, `probe-user-traffic-window.sh`, `profile-traffic.py`, `fetch-error-clusters.sh`, `fetch-logs.sh`, `retire_dormant_media_storage_remote.sh`。
+
+AWS 残留 / break-glass（非日常腾讯路径；见 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)）：
+
+`check-cfn-live-drift.sh`, `sync-instance-cpu-alarm.sh`, `sync-instance-root-disk-alarm.sh`, `sync-prod-pg-tuning-via-ssm.sh`。

@@ -9,6 +9,7 @@ created: 2026-04-17
 related_prs: []
 related_commits: [a68dee5b]
 related_stories: [US-006]
+revised: 2026-11-20（删 §7 PR 切分史与 §11 实施盘点散文；保留 §11.5/11.6 活增补）
 ---
 
 # Sticky Routing & Prompt Cache Optimization
@@ -278,28 +279,6 @@ type GroupStat struct {
 
 ---
 
-## 7. 实施顺序与 PR 切分
-
-> **实施实情（2026-04-19 事后盘点）**：本表是设计当时拟定的"理想 8-PR 切分"。
-> 代码实际以**单提交 `a68dee5b`**（2026-04-18）一次性落地（schema + injector + 6 处接入点 + 单测 + UI），未拆 PR。
-> 这违反了 `product-dev.mdc` §阶段 2 → 审批 → §阶段 3 顺序，详见 §11 实施情况。
-> 本表仅保留历史设计意图，不作为后续拆 PR 规范；当前遵循 `product-dev.mdc` 的默认单 PR 路径。
-
-| 顺序 | 内容 | PR 标题 | 可独立 review |
-|---|---|---|---|
-| 1 | P0 已完成 | `feat: ship anti-down-grading defaults for Claude Code env template` | ✅ |
-| 2 | Schema + setting + 注入器骨架（无接入） | `feat: add sticky-routing schema and injector skeleton` | ✅ |
-| 3 | 接入 OpenAI Codex Responses 主路径 | `feat: auto-inject prompt_cache_key in Codex Responses path` | ✅ |
-| 4 | 接入 OpenAI passthrough + chat completions compat 改造 | `feat: unify sticky injection across OpenAI paths` | ✅ |
-| 5 | 接入 Anthropic mimic + Messages→OpenAI | `feat: unify sticky injection across Anthropic paths` | ✅ |
-| 6 | NewAPI X-Session-Id | `feat: forward sticky session header to newapi channels` | ✅ |
-| 7 | 全局 + 分组 UI | `feat: ui controls for sticky routing strategy` | ✅ |
-| 8 | Dashboard cache 命中率卡片 | `feat: cache hit rate dashboard card` | ✅ |
-
-> 历史原计划是在设计文档从 pending 转为 approved 后再实施；当前审批状态以本文 frontmatter 为准。
-
----
-
 ## 8. 兼容性 & 回滚
 
 ### 8.1 默认开关
@@ -329,56 +308,6 @@ type GroupStat struct {
 4. ✅ **NewAPI X-Session-Id 与 OpenAI/Anthropic 注入同 PR** — 已采用（实际是 `a68dee5b` 一次提交全部落地）。访问点：`backend/internal/service/openai_gateway_bridge_dispatch.go::applyStickyToNewAPIBridge`。
 
 ---
-
-## 10. 文档同步责任
-
-合入时同步：
-- `CLAUDE.md`：在 "Current Gateway Flow" 段加一行 sticky routing 说明
-- `docs/agent_integration.md`：由 `scripts/export_agent_contract.py` 自动生成
-
----
-
-## 11. 实施情况（Post-hoc / 2026-04-19 盘点）
-
-> 本节为事后归档：代码于 2026-04-18 经单提交 `a68dee5b` 落地 main，并已上线 test/prod。
-> 但本设计文档自 2026-04-17 起草后一直处于 `pending` 状态、未走 §3 阶段 2 审批门禁。
-> 本节用于把"已发生事实"对齐到本文，方便审计与后续维护。
-> 同时已新增 `dev-rules/scripts/check_approved_docs.py` + `dev-rules/templates/preflight.sh § 7` 机械门禁，避免再发生（见 §11.3）。
-
-### 11.1 已落地事实（与 §3-§5 设计对应）
-
-| 设计章节 | 代码落点 | 状态 |
-|---|---|---|
-| §3 注入器抽象 | `backend/internal/service/sticky_session_injector.go` + `_test.go` | ✅ |
-| §3 schema 字段 | `backend/ent/schema/group.go` (`sticky_routing_mode` enum) + migration `tk_002_add_groups_sticky_routing_mode.sql` | ✅ |
-| §3 全局开关 | `backend/internal/service/domain_constants.go::SettingKeyStickyRoutingEnabled` (`gateway.sticky_routing.enabled`) | ✅ |
-| §4 6 处接入点 | OpenAI Responses（`openai_gateway_service.go`）/ Chat Compat / passthrough / Anthropic Messages（`gateway_service.go`）/ Messages-to-OpenAI / NewAPI bridge（`openai_gateway_bridge_dispatch.go::applyStickyToNewAPIBridge`） | ✅ |
-| §5.6 Dashboard 卡片 | `frontend/src/views/admin/DashboardView.vue` (`promptCacheHitRateToday/Total`) | ✅ |
-| §6 测试 | `.testing/user-stories/stories/US-006-sticky-routing-prompt-cache.md` + `sticky_session_injector_test.go` | ✅ |
-
-### 11.2 已知漂移（process debt，登记不修）
-
-1. **测试函数命名**：本文 §6、`US-006-sticky-routing-prompt-cache.md` 与 `backend/internal/service/sticky_session_*_test.go` 中的实际测试函数三方一致使用 `TestUS201_*` 前缀（共 22 个函数：`sticky_session_injector_test.go` 14 个 + `sticky_session_context_test.go` 8 个）；与故事 ID `US-006` 不匹配（前缀来源于早期"功能编号 201"的草拟阶段）。作为历史命名漂移记录在本节。**注**：本条 2026-04-20 修正：早期版本的描述错误声称"实际代码中为 `TestUS006_*` / `TestStickySessionInjector_*`"，与现实不符——三方一致，无 doc-vs-code 漂移，仅有"前缀 ↔ 故事 ID"的命名约定漂移。
-2. **migration 编号**：本文未指定。实际为 `tk_002_add_groups_sticky_routing_mode.sql`（TK 私有命名空间，不与上游 `0XX_*.sql` 冲突，符合 §5 fork 隔离）。
-3. **PR 切分背离**：§7 拟定 8-PR 顺序，实际单提交 `a68dee5b` 落地。代价：发版回滚粒度变粗。
-4. **审批门禁缺位**：本文 status=pending 状态下代码 merge，违反 `product-dev.mdc` §阶段 2→审批→§阶段 3 顺序。
-
-### 11.3 后续不做（聚焦 / Jobs 原则）
-
-- **不补回 8-PR 拆分**：代码已上线、回滚链路验证过，补拆纯增 churn。
-- **不重命名 `TestUS201_*` → `TestUS006_*`**：rename ~10 函数 + 跑全套测试，与"消除真实风险"的 ROI 不匹配；保留在本节说明即可，新增测试遵循 US-006 命名。
-
-### 11.4 已落地的 OPC 机械门禁（防再发）
-
-为把"靠自觉"升级为"靠脚本"（dev-rules `dev-rules-convention.mdc` 强约束）：
-
-- **dev-rules 集中实现**：`dev-rules/scripts/check_approved_docs.py` 扫描 `docs/approved/*.md` frontmatter
-  - R1: 必须包含 `status` 字段，且取值在 `{draft, pending, approved, shipped, archived}`
-  - R2: `status: pending` 但 `related_prs` / `related_commits` 非空 → **失败**（即"shipped 但 doc 没改"的同款）
-  - R3/R4: `status: approved` 或 `shipped` 但 `related_prs` 与 `related_commits` 都为空 → **失败**
-  - R5: main/master 分支上禁止 `approved_by: pending`（其他分支允许）
-- **执行链**：`dev-rules/templates/preflight.sh § 7` 调用上述脚本；`scripts/preflight.sh`（项目 wrapper）→ dev-rules 模板 → § 7；`pre-commit` hook 与 CI（`.github/workflows/backend-ci.yml` `preflight` job）同步运行。
-- **演进路径**：本机制 2026-04-19 由 sub2api 项目级实现上提到 dev-rules submodule。
 
 ## 11.5 槽满逃逸（upstream #2859，2026-06-03 增补）
 
