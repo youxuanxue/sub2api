@@ -215,6 +215,8 @@ closeout 清单等历史文已从本目录删除。现网舰队 SSOT：
 现行 QA：[design-tencent-cos-backup-node1-qa.md](design-tencent-cos-backup-node1-qa.md)；
 退役契约历史仍见 [qa-raw-only.md](qa-raw-only.md)（门禁引用）。
 cn-prod 备份监控走 `ops-cn-backup-watch.yml` + pgBackRest，勿恢复逻辑 dump 步骤。
+一次性 ops 历史稿（COS 并行 repo 草案、UCloud Kimi 压测包、relay-watch、
+旧 multimodal probe ledger）亦已从 `docs/ops/` 删除。
 
 网关生产蓝绿发布以 [deploy-stage0-workflow.md](deploy-stage0-workflow.md) 为基线。
 

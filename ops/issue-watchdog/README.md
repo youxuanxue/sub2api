@@ -188,5 +188,5 @@ catalog/routing changes go through modelops and candidate eligibility owners;
 fingerprint changes use the platform fingerprint skill. Monitoring does not
 authorize model activation, production deployment, account changes or merging.
 
-Initial research and observed outage cause:
-[relay watch investigation](../../docs/ops/upstream-relay-watch-20261021.md).
+Initial research note（2026-10-21 relay watch）已删除；现网 triage 以本 README
+与 `upstream.json` 为准，勿恢复旧排障稿。

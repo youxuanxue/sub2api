@@ -17,3 +17,4 @@
 | 「QA S3 不需要上传，qa 只往 node1 写归档」 | 恢复 QA→S3 上传，及为此改 Hybrid/桶/`DenyLightsailEdgeRole`。现行 = 本地 24h + node1。 |
 | 「归档 canary … 应该不需要了吧，有 qa 到 node1，pgBackRest +wal」 | 生产 data-layer archive canary（旧 EC2 / `PROD_CANARY_*`）。相关设计文档已删除；勿恢复 canary CLI。 |
 | 「迁移/交接/历史/approved 应删尽删」（2026-11-20 续） | 恢复 phase1 closeout/activation gates、archive rehearsal、历史 S3 archive-bucket、cn-prod 逻辑 dump 激活文、腾讯运维 closeout 清单，或已删的 ops 回执（SecureString C5 / upstream-merge 审计稿等）。活契约见 `design-cos-object-archive` / `design-tencent-ops-control-plane` / 舰队 README。 |
+| 「迁移/交接/历史应删尽删」（2026-11-20 pass3） | 恢复已删的 COS 并行 repo 草案、UCloud Kimi 压测包、relay-watch 排障稿、2026-10-08 multimodal probe ledger/matrix。 |
