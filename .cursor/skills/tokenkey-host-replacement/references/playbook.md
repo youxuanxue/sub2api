@@ -6,7 +6,7 @@
 ## Tokyo → 腾讯美西（2026-10-22）— 必记踩坑
 
 回执：[tencent-cutover-20261022.json](../../../../docs/ops/reports/tencent-cutover-20261022.json)；
-交接：[tencent-migration-handoff.md](../../../../docs/ops/tencent-migration-handoff.md)。
+现网 SSOT：[舰队入口](../../../../deploy/hetzner/README.md)。
 
 | 坑 | 现象 | 固化 |
 |---|---|---|

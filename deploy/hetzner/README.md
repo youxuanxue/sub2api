@@ -55,7 +55,7 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 舰队矩阵形状门禁：`python3 deploy/tencent/check_prod_fleet_matrix.py`。
 
 **Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已于 2026-10-23 完全退役**（实例、栈、VPC、卷、EIP、快照均已删；仅留 S3 历史链 `prod/postgres` timeline 1，只含数据库）。不能当作现网入口。
-旧应用机现与 cand 同形明文布局；LUKS unlock 契约已退役为历史：[`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)、[`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
+旧应用机现与 cand 同形明文布局；LUKS 已退役（X1–X4），**禁止**再解锁演练或重建 LUKS 回退。布局收敛史见 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)。Tokyo→美西切流已关闭；切流回执历史：`docs/ops/reports/tencent-cutover-20261022.json`。
 
 SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
 SOCKS 仅监听各机私网 `:1080`；放行来源见下方 `ALLOWED_SOURCES`（**应用机公网 IP**，不是入口 IP）。
