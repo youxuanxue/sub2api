@@ -6,8 +6,8 @@ approved_at: 2026-09-27
 created: 2026-09-26
 authors: [claude]
 risk: high
-related_prs: ["#2349"]
-revised: 2026-11-20（删删列实测/VACUUM 回执散文；保留契约与 tk_101 边界）
+related_prs: ["#2349", "#3382"]
+revised: 2026-11-21（#3382：真实用户 Feishu/SLA 分子排除 users.role=admin 运维探针；保留契约与 tk_101 边界）
 ---
 
 # ops_error_logs 列契约(approved)
@@ -46,6 +46,13 @@ tk_100 那六列属于这一类,相应的拦截缺口已从
 | 契约门禁 | `scripts/checks/ops-error-log-column-writers.py` |
 | 「归因已移除」的反向哨兵 | `scripts/sentinels/gateway-tk.json`:`ops_error_logger.go` / `ops_repo_user_visible_failure_tk.go` 的 `must_not_contain` |
 | 「finalizer 必须真执行」 | `migrations_runner_ops_error_columns_finalizer_test.go`:tk_101 不得被加进 `shouldRecordMigrationWithoutExecution` |
+
+**真实用户 Feishu 分子（#3382）**：`CountUserVisibleFailures` /
+`buildUserVisibleFailureWhere` 只统计可归属的客户请求。`users.role=admin`
+是运维/探针账号（prod 例：`#1 admin@tokenkey.dev` 经 key `tk` 打已下架模型），
+其终态失败**保留**在 raw `ops_error_logs`，但**不得**进入
+`user_visible_failure_count` / `client_visible_failure_count` 告警分子与卡片
+breakdown。规则描述由 `tk_115_exclude_admin_from_user_visible_alerts.sql` 对齐。
 
 归因相关 owner（`INVALID_API_KEY` 写入分支、明文 `deleted_api_key_audits`）已按批准
 例外移除；§5.x 默认可保留上游功能，此处用户明确选择不与上游为归因分叉。
