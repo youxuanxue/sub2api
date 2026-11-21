@@ -111,5 +111,11 @@ func TestTkRejectInvalidAnthropicToolContext_WritesLocalClientErrorAndOpsEvent(t
 	require.Equal(t, OpsUpstreamKindClientToolContextCorrupt, events[0].Kind)
 	require.Equal(t, int64(13), events[0].AccountID)
 	require.Equal(t, 0, events[0].UpstreamStatusCode)
-	require.Contains(t, events[0].UpstreamRequestBody, `"tool_result"`)
+	// The rejected body stays in the gin context for its in-process consumers
+	// and must not be copied into the persisted attempt event.
+	rawBody, ok := c.Get(OpsUpstreamRequestBodyKey)
+	require.True(t, ok)
+	stashedBody, ok := rawBody.([]byte)
+	require.True(t, ok)
+	require.Contains(t, string(stashedBody), `"tool_result"`)
 }

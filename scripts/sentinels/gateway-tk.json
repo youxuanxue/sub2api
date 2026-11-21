@@ -21298,6 +21298,45 @@
         "\"qwen4-max-preview\""
       ],
       "rationale": "Ali Token Plan canonical ids self-map and are public; legacy dotted ids remain mapping-only aliases."
+    },
+    {
+      "path": "backend/internal/service/ops_upstream_context.go",
+      "must_contain": [
+        "func normalizeOpsUpstreamErrorsJSON(",
+        "opsUpstreamErrorsRequestBodyKeys = []string{\"upstream_request_body\", \"request_body_truncated\"}",
+        "func opsUpstreamErrorsMayCarryRequestBody("
+      ],
+      "rationale": "Privacy: ops_error_logs stores upstream failure metadata only. OpsUpstreamErrorEvent must carry no request-body field, and the detail read must keep stripping those keys from rows written before the fix. Reintroducing either is compile-clean, so an upstream merge could silently resume persisting prompts."
+    },
+    {
+      "path": "backend/internal/service/ops_upstream_context_test.go",
+      "must_contain": [
+        "func TestOpsUpstreamErrorEventHasNoRequestBodyField(",
+        "func TestNormalizeOpsUpstreamErrorsJSON_StripsLegacyRequestBody(",
+        "func TestOpsUpstreamErrorsMayCarryRequestBody("
+      ],
+      "rationale": "Keep the existence gate against reintroduced request-body fields and the legacy-row strip coverage; both are the only mechanical anchors for the no-request-body privacy contract."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_qa_capture_optout.go",
+      "must_contain": [
+        "func markOpsErrorLogUserOptOut("
+      ],
+      "rationale": "Privacy: users.qa_capture_enabled must also suppress ops_error_logs, which records pre-auth failures that never reach QA capture. Losing this file is compile-clean at the call sites' level of intent, so upstream merges must not drop it."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger.go",
+      "must_contain": [
+        "if entry.SuppressForUserOptOut {"
+      ],
+      "rationale": "The opt-out is enforced once at the enqueue chokepoint so a new error path cannot forget it. Removing this guard silently resumes writing rows for users who opted out."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_coalesce_tk.go",
+      "must_contain": [
+        "SuppressForUserOptOut: entry.SuppressForUserOptOut"
+      ],
+      "rationale": "opsCoalescedSummary rebuilds the entry field-by-field and outlives the request; dropping this field resurrects a suppressed user's collapsed tail rows."
     }
   ]
 }
