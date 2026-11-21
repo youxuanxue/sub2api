@@ -15,7 +15,7 @@ import (
 
 type managedBatchStoreFake struct{ objects map[string][]byte }
 
-func (s *managedBatchStoreFake) Upload(_ context.Context, key string, r io.Reader, _ string) (int64, error) {
+func (s *managedBatchStoreFake) Upload(_ context.Context, key string, r io.Reader, _ int64, _ string) (int64, error) {
 	b, e := io.ReadAll(r)
 	if e == nil {
 		s.objects[key] = b
@@ -57,10 +57,13 @@ func (r *managedBatchRepoFake) ListFilesForOwner(_ context.Context, u, k int64, 
 	}
 	return out, false, nil
 }
-func (r *managedBatchRepoFake) DeleteFileForOwner(_ context.Context, u, k int64, id string) error {
+func (r *managedBatchRepoFake) DeleteFileForOwner(_ context.Context, u, k int64, id string, deleteObject func(string) error) error {
 	f, e := r.GetFileForOwner(context.Background(), u, k, id)
 	if e != nil {
 		return e
+	}
+	if err := deleteObject(f.StorageRef); err != nil {
+		return err
 	}
 	delete(r.files, f.ID)
 	return nil

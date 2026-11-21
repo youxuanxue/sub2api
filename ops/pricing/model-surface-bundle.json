@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "fcc939a9b3f5f6d7c705f08d56ba367e95f528123a76d95d8f19df0c3f7badc0",
+  "floor_sha256": "ba00cf3062924c18d62d0ed01e202399cbd7688d9aaea084c939efcaf9138ffc",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -24,11 +24,11 @@
         "gemini-3.8-flash-high": "gemini-3.8-flash-high",
         "gemini-3.8-flash-low": "gemini-3.8-flash-low",
         "gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
-        "gemini-4-argon": "gemini-4-argon-medium",
+        "gemini-4-argon": "gemini-4-argon-high",
         "gemini-4-argon-high": "gemini-4-argon-high",
         "gemini-4-argon-low": "gemini-4-argon-low",
         "gemini-4-argon-medium": "gemini-4-argon-medium",
-        "gemini-4-carbon": "gemini-4-carbon-medium",
+        "gemini-4-carbon": "gemini-4-carbon-high",
         "gemini-4-carbon-high": "gemini-4-carbon-high",
         "gemini-4-carbon-low": "gemini-4-carbon-low",
         "gemini-4-carbon-medium": "gemini-4-carbon-medium",
@@ -71,14 +71,12 @@
         "claude-sonnet-5-5": "global.anthropic.claude-sonnet-5-5"
       },
       "gemini": {
-        "gemini-3-flash": "gemini-3.8-flash",
+        "gemini-3-flash": "gemini-3-flash",
         "gemini-3-flash-preview": "gemini-3-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001"
       },
       "gemini_web": {
-        "gemini-3-flash": "gemini-3.8-flash",
-        "gemini-3-flash-preview": "gemini-3.8-flash",
         "gemini-3-pro-image": "gemini-3-pro-image",
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
         "gemini-3.1-pro": "gemini-3.1-pro",

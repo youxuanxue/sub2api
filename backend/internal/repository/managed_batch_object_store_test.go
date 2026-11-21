@@ -21,6 +21,7 @@ func TestS3ManagedBatchObjectStoreStreamsAndScopesKeys(t *testing.T) {
 		require.Equal(t, "/batch-bucket/managed-batch/input.jsonl", r.URL.Path)
 		switch r.Method {
 		case http.MethodPut:
+			require.EqualValues(t, 5, r.ContentLength)
 			var err error
 			uploaded, err = io.ReadAll(r.Body)
 			require.NoError(t, err)
@@ -37,7 +38,7 @@ func TestS3ManagedBatchObjectStoreStreamsAndScopesKeys(t *testing.T) {
 	require.NoError(t, err)
 	store := &S3ManagedBatchObjectStore{client: client, bucket: "batch-bucket", prefix: "managed-batch"}
 
-	size, err := store.Upload(context.Background(), "input.jsonl", strings.NewReader("input"), "application/jsonl")
+	size, err := store.Upload(context.Background(), "input.jsonl", strings.NewReader("input"), 5, "application/jsonl")
 	require.NoError(t, err)
 	require.Equal(t, int64(5), size)
 	require.Equal(t, []byte("input"), uploaded)

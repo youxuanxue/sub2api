@@ -28,6 +28,13 @@ services:
     mem_limit: ${TOKENKEY_APP_MEMORY_LIMIT:-3g}
     memswap_limit: ${TOKENKEY_APP_MEMORY_LIMIT:-3g}
     environment:
+      MANAGED_BATCH_STORAGE_DRIVER: "cos"
+      MANAGED_BATCH_STORAGE_BUCKET: "tokenkey-cnprod-batch-bj-1320330536"
+      MANAGED_BATCH_STORAGE_REGION: "ap-beijing"
+      MANAGED_BATCH_STORAGE_ENDPOINT: "https://cos.ap-beijing.myqcloud.com"
+      MANAGED_BATCH_STORAGE_ACCESS_KEY_ID: "${MANAGED_BATCH_STORAGE_ACCESS_KEY_ID:-}"
+      MANAGED_BATCH_STORAGE_SECRET_ACCESS_KEY: "${MANAGED_BATCH_STORAGE_SECRET_ACCESS_KEY:-}"
+      MANAGED_BATCH_STORAGE_FORCE_PATH_STYLE: "false"
       # Match prod capture. Bundle stays retired. Do not upload QA to S3.
       QA_CAPTURE_ENABLED: "true"
       # China-first proxy exit probe chain (ipip → ip9 → qq-ip2city → ipify).
