@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -125,6 +126,8 @@ type Processor struct {
 	repo      Repository
 	executors map[string]batchadapter.ManagedExecutor
 	cfg       Config
+	circuitMu sync.Mutex
+	circuits  map[int64]time.Time
 }
 
 func (p *Processor) Process(ctx context.Context, job service.ManagedBatchJob) (service.ManagedBatchProcessResult, error) {
@@ -231,6 +234,10 @@ func (p *Processor) processItem(ctx, persistCtx context.Context, payload JobPayl
 	if p.cfg.Resolver != nil {
 		var resolveErr error
 		selection, resolveErr := p.cfg.Resolver.Resolve(ctx, batchadapter.ExecutionRequest{BatchID: payload.BatchID, UserID: payload.UserID, APIKeyID: payload.APIKeyID, Provider: payload.Provider, AccountID: payload.AccountID}, batchadapter.ExecutionBatch{ID: batch.ID, UserID: batch.UserID, APIKeyID: batch.APIKeyID, Endpoint: batch.Endpoint}, batchadapter.ExecutionItem{ID: item.ID, BatchID: item.BatchID, CustomID: item.CustomID}, line)
+		if errors.Is(resolveErr, service.ErrManagedBatchCapacity) || errors.Is(resolveErr, service.ErrNoAvailableAccounts) {
+			_, err := p.repo.RetryItem(persistCtx, item.ID, p.cfg.WorkerID, time.Now().Add(p.cfg.RetryDelay), errorMap("capacity", resolveErr.Error()))
+			return err
+		}
 		if resolveErr != nil {
 			_, completeErr := p.repo.CompleteItem(persistCtx, item.ID, p.cfg.WorkerID, batchcontract.ItemStatusFailed, nil, errorMap(batchcontract.ErrorUnsupportedMode, resolveErr.Error()), 0, 0, false)
 			return completeErr
@@ -264,6 +271,10 @@ func (p *Processor) processItem(ctx, persistCtx context.Context, payload JobPayl
 		_, completeErr := p.repo.CompleteItem(persistCtx, item.ID, p.cfg.WorkerID, batchcontract.ItemStatusFailed, nil, errorMap(batchcontract.ErrorUnsupportedMode, "managed batch account was not selected"), 0, 0, false)
 		return completeErr
 	}
+	if until := p.cooldown(accountID, false); !until.IsZero() {
+		_, err := p.repo.RetryItem(persistCtx, item.ID, p.cfg.WorkerID, until, errorMap("upstream_cooldown", "upstream temporarily unavailable"))
+		return err
+	}
 	result, execErr := executor.Execute(ctx, batchadapter.ManagedRequest{ExecutionContext: executionCtx, AccountID: accountID, CustomID: item.CustomID, Endpoint: endpoint, Method: line.Method, Model: model, Body: line.Body})
 	if execErr != nil {
 		if errors.Is(execErr, context.Canceled) || errors.Is(execErr, context.DeadlineExceeded) {
@@ -280,6 +291,9 @@ func (p *Processor) processItem(ctx, persistCtx context.Context, payload JobPayl
 	if result.Error != nil {
 		pe := result.Error
 		if pe.Class == batchadapter.ErrorRetryable {
+			if pe.StatusCode == 429 || pe.StatusCode == 503 {
+				p.cooldown(accountID, true)
+			}
 			_, retryErr := p.repo.RetryItem(persistCtx, item.ID, p.cfg.WorkerID, time.Now().Add(p.cfg.RetryDelay), errorMap(pe.Code, pe.Message))
 			return retryErr
 		}
@@ -296,7 +310,9 @@ func (p *Processor) processItem(ctx, persistCtx context.Context, payload JobPayl
 		// Settlement runs after the provider returned a definitive success and
 		// before the item becomes terminal. The stable item key makes a replay
 		// safe even if completion is fenced after billing has committed.
+		factor, _ := item.Request["batch_rate_factor"].(float64)
 		settleErr := p.cfg.Settlement.SettleManagedBatch(persistCtx, service.ManagedBatchSettlementInput{
+			BatchRateFactor:               factor,
 			BatchID:                       payload.BatchID,
 			ItemID:                        item.ID,
 			RequestID:                     managedBatchRequestID(payload.BatchID, item.ID),
@@ -329,6 +345,30 @@ func (p *Processor) processItem(ctx, persistCtx context.Context, payload JobPayl
 	}
 	_, completeErr := p.repo.CompleteItem(persistCtx, item.ID, p.cfg.WorkerID, batchcontract.ItemStatusSucceeded, map[string]any{"status_code": result.Response.StatusCode, "request_id": result.Response.RequestID, "body": json.RawMessage(result.Response.Body)}, nil, int64(result.Usage.InputTokens), int64(result.Usage.OutputTokens), false)
 	return completeErr
+}
+
+// Pause new attempts for this supplier account while other accounts can serve.
+func (p *Processor) cooldown(accountID int64, open bool) time.Time {
+	p.circuitMu.Lock()
+	defer p.circuitMu.Unlock()
+	now := time.Now()
+	if open {
+		if p.circuits == nil {
+			p.circuits = make(map[int64]time.Time)
+		}
+		for id, t := range p.circuits {
+			if !now.Before(t) {
+				delete(p.circuits, id)
+			}
+		}
+		p.circuits[accountID] = now.Add(p.cfg.RetryDelay)
+	}
+	until := p.circuits[accountID]
+	if !now.Before(until) {
+		delete(p.circuits, accountID)
+		return time.Time{}
+	}
+	return until
 }
 
 func firstNonEmptyManagedValue(primary, fallback string) string {
@@ -387,6 +427,9 @@ func (p *Processor) reconcile(ctx context.Context, payload JobPayload, b *reposi
 		if err := updater.UpdateBatchProgress(ctx, payload.BatchID, progress); err != nil {
 			return service.ManagedBatchProcessResult{}, err
 		}
+	}
+	if progress.Pending > 0 && b.Status == batchcontract.BatchStatusInProgress {
+		return service.ManagedBatchProcessResult{RequeueAfter: time.Millisecond}, nil
 	}
 	if progress.Pending > 0 || progress.Retry > 0 || progress.Running > 0 {
 		return service.ManagedBatchProcessResult{RequeueAfter: p.cfg.RetryDelay}, nil

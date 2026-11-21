@@ -130,6 +130,7 @@ func TestManagedBatchRepositoryBackendCreateBatchPersistsValidatedMapper(t *test
 	store := &managedBatchStoreFake{objects: map[string][]byte{}}
 	b := NewManagedBatchRepositoryBackend(repo, store, nil)
 	owner := ManagedBatchOwner{UserID: 7, APIKeyID: 9}
+	b.modelRateFactors = map[string]float64{"gpt": 0.75}
 	got, err := b.CreateFile(context.Background(), owner, "input.jsonl", "batch", 0, bytes.NewBufferString("line\n"))
 	require.NoError(t, err)
 	require.Len(t, store.objects, 1)
@@ -139,6 +140,7 @@ func TestManagedBatchRepositoryBackendCreateBatchPersistsValidatedMapper(t *test
 	require.NoError(t, err)
 	require.Equal(t, batchcontract.BatchStatusValidating, batch.Status)
 	require.Equal(t, 1, repo.submissions)
+	require.Equal(t, 0.75, repo.submission.Items[0].Request["batch_rate_factor"])
 	require.Equal(t, line.CustomID, repo.submission.Items[0].Request["custom_id"])
 	require.Equal(t, line.URL, repo.submission.Items[0].Request["url"])
 	require.Equal(t, int64(7), repo.submission.Outbox.Payload["user_id"])

@@ -47,9 +47,10 @@ type ManagedBatchRepositoryPort interface {
 }
 
 type ManagedBatchRepositoryBackend struct {
-	Repo  ManagedBatchRepositoryPort
-	Store ManagedBatchObjectStore
-	Queue service.ManagedBatchQueue // reserved for the worker wiring; submit uses outbox first
+	modelRateFactors map[string]float64
+	Repo             ManagedBatchRepositoryPort
+	Store            ManagedBatchObjectStore
+	Queue            service.ManagedBatchQueue // reserved for the worker wiring; submit uses outbox first
 }
 
 func NewManagedBatchRepositoryBackend(repo ManagedBatchRepositoryPort, store ManagedBatchObjectStore, queue service.ManagedBatchQueue) *ManagedBatchRepositoryBackend {
@@ -175,6 +176,15 @@ func (b *ManagedBatchRepositoryBackend) CreateBatch(ctx context.Context, owner M
 			"method":    line.Method,
 			"url":       line.URL,
 			"body":      json.RawMessage(line.Body),
+		}
+		var body struct {
+			Model string `json:"model"`
+		}
+		if err := json.Unmarshal(line.Body, &body); err != nil {
+			return batchcontract.Batch{}, err
+		}
+		if factor, ok := b.modelRateFactors[body.Model]; ok {
+			request["batch_rate_factor"] = factor
 		}
 		items = append(items, repository.ManagedBatchItem{BatchID: id, CustomID: line.CustomID, Request: request, Status: batchcontract.ItemStatusPending})
 	}

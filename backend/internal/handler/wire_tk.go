@@ -36,6 +36,9 @@ func ProvideTKManagedBatchBackend(db *sql.DB, store *repository.S3ManagedBatchOb
 
 func ProvideTKManagedBatchHandler(cfg *config.Config, backend ManagedBatchBackend) *ManagedBatchHandler {
 	enabled := cfg != nil && cfg.ManagedBatch.Enabled
+	if b, ok := backend.(*ManagedBatchRepositoryBackend); ok && cfg != nil {
+		b.modelRateFactors = cfg.ManagedBatch.ModelRateFactors
+	}
 	return NewManagedBatchHandler(backend, enabled)
 }
 

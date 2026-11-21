@@ -133,6 +133,8 @@ const openAIUpstreamEndpointContextKey = string(ctxkey.ActualOpenAIUpstreamEndpo
 
 // OpenAIForwardResult represents the result of forwarding
 type OpenAIForwardResult struct {
+	// BatchRateFactor is the server-side quote snapshotted at submission; zero preserves historical rates.
+	BatchRateFactor float64
 	// Suppress the legacy billing tap after attempt-level observation (also on partial failures).
 	availabilityObserved bool
 	RequestID            string

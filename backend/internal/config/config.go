@@ -122,8 +122,9 @@ type Config struct {
 // workers and provider selection are wired separately and must not be started
 // merely by setting this flag.
 type ManagedBatchConfig struct {
-	Enabled bool                      `mapstructure:"enabled" yaml:"enabled"`
-	Storage ManagedBatchStorageConfig `mapstructure:"storage" yaml:"storage"`
+	ModelRateFactors map[string]float64        `mapstructure:"model_rate_factors" yaml:"model_rate_factors"`
+	Enabled          bool                      `mapstructure:"enabled" yaml:"enabled"`
+	Storage          ManagedBatchStorageConfig `mapstructure:"storage" yaml:"storage"`
 }
 
 // ManagedBatchStorageConfig configures the private S3-compatible bucket used
@@ -3130,6 +3131,11 @@ func setEnvReachableDefaults() {
 }
 
 func (c *Config) Validate() error {
+	for model, factor := range c.ManagedBatch.ModelRateFactors {
+		if strings.TrimSpace(model) == "" || !(factor > 0 && factor <= 1) {
+			return fmt.Errorf("invalid managed_batch.model_rate_factors entry for %q", model)
+		}
+	}
 	if c.Gateway.MinOutputTokens < 16 {
 		return fmt.Errorf("gateway.min_output_tokens must be at least 16")
 	}

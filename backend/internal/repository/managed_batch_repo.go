@@ -29,7 +29,7 @@ func (r *ManagedBatchRepository) GetFileForOwner(ctx context.Context, userID, ap
 	var f ManagedBatchFile
 	var sha sql.NullString
 	var exp sql.NullTime
-	err := r.db.QueryRowContext(ctx, `SELECT id,purpose,filename,storage_ref,byte_size,sha256,status,user_id,COALESCE(api_key_id,0),expires_at,created_at FROM batch_files WHERE id=$1 AND user_id=$2 AND api_key_id=$3`, id, userID, apiKeyID).
+	err := r.db.QueryRowContext(ctx, `SELECT id,purpose,filename,storage_ref,byte_size,sha256,status,user_id,COALESCE(api_key_id,0),expires_at,created_at FROM batch_files WHERE id=$1 AND user_id=$2 AND api_key_id=$3 AND (expires_at IS NULL OR expires_at>NOW())`, id, userID, apiKeyID).
 		Scan(&f.ID, &f.Purpose, &f.Filename, &f.StorageRef, &f.ByteSize, &sha, &f.Status, &f.UserID, &f.APIKeyID, &exp, &f.CreatedAt)
 	if err != nil {
 		return nil, err
@@ -69,7 +69,7 @@ func (r *ManagedBatchRepository) ListFilesForOwner(ctx context.Context, userID, 
 	if limit > 10000 {
 		limit = 10000
 	}
-	where := `user_id=$1 AND api_key_id=$2`
+	where := `user_id=$1 AND api_key_id=$2 AND (expires_at IS NULL OR expires_at>NOW())`
 	args := []any{userID, apiKeyID}
 	if purpose != "" {
 		where += ` AND purpose=$3`
@@ -384,7 +384,7 @@ func (r *ManagedBatchRepository) ResetBatchForRetry(ctx context.Context, userID,
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	res, err := tx.ExecContext(ctx, `UPDATE batches SET status='validating',retry_at=NULL,last_error_code=NULL,last_error_message=NULL,in_progress_at=NULL,finalizing_at=NULL,cancelling_at=NULL,completed_at=NULL,cancelled_at=NULL,expired_at=NULL,failed_at=NULL,request_counts=(SELECT jsonb_build_object('total',COUNT(*),'completed',COUNT(*) FILTER (WHERE status='succeeded'),'failed',0) FROM batch_items WHERE batch_id=$5),version=version+1,updated_at=NOW() WHERE id=$1 AND user_id=$2 AND api_key_id=$3 AND version=$4 AND status IN ('failed','expired')`, id, userID, apiKeyID, version, id)
+	res, err := tx.ExecContext(ctx, `UPDATE batches SET status='validating',retry_at=NULL,last_error_code=NULL,last_error_message=NULL,in_progress_at=NULL,finalizing_at=NULL,cancelling_at=NULL,completed_at=NULL,cancelled_at=NULL,expired_at=NULL,failed_at=NULL,request_counts=(SELECT jsonb_build_object('total',COUNT(*),'completed',COUNT(*) FILTER (WHERE status='succeeded'),'failed',0) FROM batch_items WHERE batch_id=$5),version=version+1,updated_at=NOW() WHERE id=$1 AND user_id=$2 AND api_key_id=$3 AND version=$4 AND status IN ('failed','expired') AND EXISTS (SELECT 1 FROM batch_files f WHERE f.id=batches.input_file_id AND (f.expires_at IS NULL OR f.expires_at>NOW()))`, id, userID, apiKeyID, version, id)
 	if err != nil {
 		return false, err
 	}
@@ -619,4 +619,46 @@ func managedBatchValueOrEmpty(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+// PurgeExpiredBatchFiles retains file IDs for historical batch foreign keys.
+// COS deletion is idempotent. Failure leaves the reference intact for recovery.
+func (r *ManagedBatchRepository) PurgeExpiredBatchFiles(ctx context.Context, remove func(context.Context, string) error) error {
+	for i := 0; i < 100; i++ {
+		err := r.purgeExpiredFile(ctx, remove)
+		if errors.Is(err, sql.ErrNoRows) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	// An active batch can finish from its private work rows. Erase the copies
+	// once terminal. Token counts and settlement identifiers remain available.
+	_, err := r.db.ExecContext(ctx, `WITH expired AS (
+        SELECT i.id FROM batch_items i JOIN batches b ON b.id=i.batch_id JOIN batch_files f ON f.id=b.input_file_id
+        WHERE f.expires_at<=NOW() AND b.status IN ('completed','cancelled','failed','expired')
+        AND (i.request<>'{}'::jsonb OR i.response IS NOT NULL OR i.error IS NOT NULL)
+        ORDER BY i.id LIMIT 1000 FOR UPDATE OF i SKIP LOCKED
+    ) UPDATE batch_items i SET request='{}',response=NULL,error=NULL FROM expired WHERE i.id=expired.id`)
+	return err
+}
+
+func (r *ManagedBatchRepository) purgeExpiredFile(ctx context.Context, remove func(context.Context, string) error) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var id, ref string
+	if err = tx.QueryRowContext(ctx, `SELECT id,storage_ref FROM batch_files WHERE expires_at<=NOW() AND storage_ref<>'' ORDER BY expires_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`).Scan(&id, &ref); err != nil {
+		return err
+	}
+	if err = remove(ctx, ref); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE batch_files SET storage_ref='',filename='',sha256=NULL,status='expired',updated_at=NOW() WHERE id=$1`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

@@ -353,6 +353,10 @@ def _credential_drift(project: str, live_env: list[str]) -> tuple[list[str] | No
     rendered = service.get("environment") or {}
     if not isinstance(rendered, dict):
         return None, "compose service environment must be a mapping"
+    required = ("BUCKET", "ENDPOINT", "REGION", "ACCESS_KEY_ID", "SECRET_ACCESS_KEY")
+    missing = [key for suffix in required if not rendered.get(key := "MANAGED_BATCH_STORAGE_" + suffix)]
+    if missing:
+        return None, "Batch COS configuration missing: " + ", ".join(missing)
     live = dict(item.split("=", 1) for item in live_env if "=" in item)
     drift = [k for k in CREDENTIAL_PARITY_KEYS
              if k in rendered and k in live and str(rendered[k]) != live[k]]
