@@ -787,8 +787,16 @@ func (s *OpsService) GetErrorLogByID(ctx context.Context, id int64) (*OpsErrorLo
 		return nil, infraerrors.InternalServer("OPS_ERROR_LOAD_FAILED", "Failed to load ops error log").WithCause(err)
 	}
 	if detail != nil && strings.TrimSpace(detail.UpstreamErrors) != "" {
-		if normalized, normalizeErr := normalizeOpsUpstreamErrorsJSON(detail.UpstreamErrors); normalizeErr == nil {
+		normalized, normalizeErr := normalizeOpsUpstreamErrorsJSON(detail.UpstreamErrors)
+		switch {
+		case normalizeErr == nil:
 			detail.UpstreamErrors = normalized
+		case opsUpstreamErrorsMayCarryRequestBody(detail.UpstreamErrors):
+			// Proxy attribution is cosmetic, so an unparseable row otherwise
+			// falls back to the stored text. A request body must never ride on
+			// that fallback: rows written before the privacy fix still carry
+			// one, so drop the whole field rather than serve it unstripped.
+			detail.UpstreamErrors = ""
 		}
 	}
 	return detail, nil

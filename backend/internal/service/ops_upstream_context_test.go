@@ -149,15 +149,62 @@ func TestOpsUpstreamErrorEventHasNoRequestBodyField(t *testing.T) {
 // TestNormalizeOpsUpstreamErrorsJSON_StripsLegacyRequestBody covers rows written
 // before the privacy fix: their stored request body must not reach the read
 // surface, and unrelated keys must survive the in-place edit.
+//
+// The array deliberately mixes events that carry the legacy keys with one that
+// does not: deletions are applied by array index while the indices come from
+// the original parse, so a stale index would strip the wrong event or drop a
+// sibling key.
 func TestNormalizeOpsUpstreamErrorsJSON_StripsLegacyRequestBody(t *testing.T) {
-	legacy := `[{"kind":"request_error","message":"dial timeout","upstream_request_body":"{\"model\":\"claude-opus-4-7\"}","request_body_truncated":true,"proxy_id":7,"proxy_name":"edge-1"}]`
+	legacy := `[{"kind":"request_error","message":"dial timeout","upstream_request_body":"{\"model\":\"claude-opus-4-7\"}","request_body_truncated":true,"proxy_id":7,"proxy_name":"edge-1"},` +
+		`{"kind":"http_error","message":"429 from upstream","proxy_id":8,"proxy_name":"edge-2"},` +
+		`{"kind":"request_error","message":"tls handshake timeout","upstream_request_body":"SECRET_PROMPT","proxy_id":9,"proxy_name":"edge-3"}]`
 
 	out, err := normalizeOpsUpstreamErrorsJSON(legacy)
 	require.NoError(t, err)
+
 	require.NotContains(t, out, "upstream_request_body")
 	require.NotContains(t, out, "request_body_truncated")
 	require.NotContains(t, out, "claude-opus-4-7")
-	require.Contains(t, out, `"kind":"request_error"`)
-	require.Contains(t, out, `"message":"dial timeout"`)
-	require.Contains(t, out, `"proxy_name":"edge-1"`)
+	require.NotContains(t, out, "SECRET_PROMPT")
+
+	// Every unrelated key of every event survives the in-place edit.
+	for _, want := range []string{
+		`"message":"dial timeout"`, `"proxy_name":"edge-1"`,
+		`"message":"429 from upstream"`, `"proxy_name":"edge-2"`,
+		`"message":"tls handshake timeout"`, `"proxy_name":"edge-3"`,
+	} {
+		require.Contains(t, out, want)
+	}
+	require.Equal(t, 3, strings.Count(out, `"kind"`), "no event may be dropped or duplicated")
+}
+
+// TestOpsUpstreamErrorsMayCarryRequestBody covers the fail-closed guard used
+// when attempt JSON cannot be parsed and therefore cannot be edited key-by-key.
+// GetErrorLogByID otherwise falls back to the stored text, which for rows
+// written before the privacy fix would serve the request body unstripped.
+func TestOpsUpstreamErrorsMayCarryRequestBody(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"legacy body key", `{"kind":"request_error","upstream_request_body":"SECRET_PROMPT"}`, true},
+		{"legacy truncation flag", `{"request_body_truncated":true}`, true},
+		{"metadata only", `[{"kind":"request_error","message":"dial timeout"}]`, false},
+		{"empty", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, opsUpstreamErrorsMayCarryRequestBody(tc.raw))
+		})
+	}
+
+	// The unparseable shapes above must genuinely fail normalization, otherwise
+	// this guard would be dead code.
+	for _, raw := range []string{
+		`{"kind":"request_error","upstream_request_body":"SECRET_PROMPT"}`,
+		`{"request_body_truncated":true}`,
+	} {
+		_, err := normalizeOpsUpstreamErrorsJSON(raw)
+		require.Error(t, err, "non-array JSON must fail normalization: %s", raw)
+	}
 }

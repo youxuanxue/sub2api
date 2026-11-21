@@ -837,6 +837,11 @@ func ParseOpsUpstreamErrors(raw string) ([]*OpsUpstreamErrorEvent, error) {
 // Privacy: request bodies stopped being persisted, but rows written before that
 // change keep theirs until retention expires them. Deleting the keys here means
 // the read surface never returns a stored request body, with no data migration.
+// opsUpstreamErrorsRequestBodyKeys are the attempt-JSON keys that used to carry
+// a request payload. Nothing writes them any more; they are stripped on read so
+// rows written before the privacy fix cannot surface a stored prompt.
+var opsUpstreamErrorsRequestBodyKeys = []string{"upstream_request_body", "request_body_truncated"}
+
 func normalizeOpsUpstreamErrorsJSON(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -855,7 +860,7 @@ func normalizeOpsUpstreamErrorsJSON(raw string) (string, error) {
 			continue
 		}
 		prefix := strconv.Itoa(i) + "."
-		for _, key := range []string{"upstream_request_body", "request_body_truncated"} {
+		for _, key := range opsUpstreamErrorsRequestBodyKeys {
 			if !ev.Get(key).Exists() {
 				continue
 			}
@@ -888,6 +893,19 @@ func normalizeOpsUpstreamErrorsJSON(raw string) (string, error) {
 		}
 	}
 	return out, nil
+}
+
+// opsUpstreamErrorsMayCarryRequestBody reports whether stored attempt JSON
+// still mentions a request-body key. It is a deliberately dumb substring check
+// used only on the error path of normalizeOpsUpstreamErrorsJSON, where the JSON
+// could not be parsed and therefore cannot be edited key-by-key.
+func opsUpstreamErrorsMayCarryRequestBody(raw string) bool {
+	for _, key := range opsUpstreamErrorsRequestBodyKeys {
+		if strings.Contains(raw, key) {
+			return true
+		}
+	}
+	return false
 }
 
 // safeUpstreamURL returns scheme + host + path from a URL, stripping query/fragment
