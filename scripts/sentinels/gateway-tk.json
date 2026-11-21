@@ -4161,6 +4161,7 @@
       "path": "backend/internal/repository/ops_repo_user_visible_failure_tk.go",
       "must_contain": [
         "AND user_id IS NOT NULL",
+        "AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = user_id AND u.role = '\" + service.RoleAdmin + \"')",
         "const opsFailureOccurrenceSQL",
         "SUM(` + opsFailureOccurrenceSQL + `)",
         "const opsCoalescedPrefixSQL"
@@ -4170,7 +4171,7 @@
         "COALESCE(user_id, deleted_key_owner_user_id)",
         "l.deleted_key_name"
       ],
-      "rationale": "Registered owner of the user-visible-failure SLA numerator. Attribution is direct user_id only: the deleted_key_owner_user_id fallback was removed together with its writer because prod measured 0 attributable rows, so the fallback widened this query's schema surface without ever adding a row to the numerator. Restoring it would reintroduce a read of an unwritten column (the column-writer gate would catch it only while the column is still declared, and phase 2 drops it) and would leak a user-chosen key name into the ops report. The user_id IS NOT NULL clause is what keeps unattributed rows out of per-user SLA and out of per-user detail access."
+      "rationale": "Registered owner of the user-visible-failure SLA numerator. Attribution is direct user_id only: the deleted_key_owner_user_id fallback was removed together with its writer because prod measured 0 attributable rows, so the fallback widened this query's schema surface without ever adding a row to the numerator. Restoring it would reintroduce a read of an unwritten column (the column-writer gate would catch it only while the column is still declared, and phase 2 drops it) and would leak a user-chosen key name into the ops report. The user_id IS NOT NULL clause is what keeps unattributed rows out of per-user SLA and out of per-user detail access. Admin-role accounts are reserved ops/probe traffic and must stay out of the 真实用户* Feishu numerator."
     },
     {
       "path": "backend/internal/repository/ops_repo_request_details.go",

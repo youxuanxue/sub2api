@@ -14,8 +14,9 @@ import (
 // retires routing_capacity_rejection_count (replaced by user_visible_failure_count),
 // tk_087 deletes the 8% upstream_error_rate P1 and keeps the 20% rule as an
 // edge-only Feishu P1, tk_088 tightens client failure thresholds while retaining P1 notifications,
-// tk_104 seeds proxy_unreachable_count P0 for egress IP reachability, and tk_036
-// latency rules ship disabled — every enabled rule has a working path.
+// tk_115 documents admin-role exclusion from 真实用户* numerators, tk_104 seeds
+// proxy_unreachable_count P0 for egress IP reachability, and tk_036 latency
+// rules ship disabled — every enabled rule has a working path.
 func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 	ctx := context.Background()
 
@@ -71,6 +72,18 @@ func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 	require.Equal(t, 50.0, clientRule.threshold)
 	require.Equal(t, 5, clientRule.windowMinutes)
 	require.Equal(t, 5, clientRule.sustainedMinutes)
+
+	var userVisibleDesc, clientVisibleDesc string
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`SELECT description FROM ops_alert_rules WHERE metric_type = 'user_visible_failure_count' ORDER BY id LIMIT 1`,
+	).Scan(&userVisibleDesc))
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`SELECT description FROM ops_alert_rules WHERE metric_type = 'client_visible_failure_count' ORDER BY id LIMIT 1`,
+	).Scan(&clientVisibleDesc))
+	require.Contains(t, userVisibleDesc, "users.role=admin",
+		"tk_115 documents admin exclusion on the P0 real-user experience rule")
+	require.Contains(t, clientVisibleDesc, "users.role=admin",
+		"tk_115 documents admin exclusion on the P1 client-visible rule")
 
 	// tk_103: egress proxy IP:port TCP reachability P0 (prod-only).
 	proxyUnreachable := ruleFor("proxy_unreachable_count")

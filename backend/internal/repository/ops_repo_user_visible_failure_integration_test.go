@@ -122,6 +122,77 @@ func TestUserVisibleFailureCountAndBreakdown(t *testing.T) {
 	require.True(t, foundProviderUpstream, "breakdown roots should include the provider/upstream failure")
 }
 
+// Admin-role accounts are reserved for ops/probe traffic. Their client and
+// system terminal failures must stay in raw logs but leave the 真实用户*
+// Feishu numerator and every breakdown facet.
+func TestUserVisibleFailureExcludesAdminRole(t *testing.T) {
+	ctx := context.Background()
+	_, _ = integrationDB.ExecContext(ctx, "TRUNCATE ops_error_logs RESTART IDENTITY CASCADE")
+
+	repo := NewOpsRepository(integrationDB).(*opsRepository)
+	suffix := time.Now().UnixNano()
+
+	var customerID, adminID, customerKeyID, adminKeyID int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO users (email, password_hash, role) VALUES ($1, 'x', 'user') RETURNING id`,
+		fmt.Sprintf("uvf-customer-%d@example.com", suffix)).Scan(&customerID))
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO users (email, password_hash, role) VALUES ($1, 'x', $2) RETURNING id`,
+		fmt.Sprintf("uvf-admin-%d@tokenkey.dev", suffix), service.RoleAdmin).Scan(&adminID))
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO api_keys (user_id, key, name, routing_mode) VALUES ($1, $2, 'customer', 'universal') RETURNING id`,
+		customerID, fmt.Sprintf("sk-uvf-customer-%d", suffix)).Scan(&customerKeyID))
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO api_keys (user_id, key, name, routing_mode) VALUES ($1, $2, 'tk', 'universal') RETURNING id`,
+		adminID, fmt.Sprintf("sk-uvf-admin-%d", suffix)).Scan(&adminKeyID))
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM users WHERE id IN ($1, $2)", customerID, adminID)
+	})
+
+	end := time.Now().UTC()
+	start := end.Add(-5 * time.Minute)
+	at := start.Add(time.Minute)
+	insert := func(userID, keyID int64, owner string, status int, msg string) {
+		_, err := integrationDB.ExecContext(ctx, `
+			INSERT INTO ops_error_logs (
+				user_id, api_key_id, error_phase, error_type, severity, status_code, error_owner,
+				platform, requested_model, error_message, created_at
+			) VALUES ($1, $2, 'request', 'invalid_request_error', 'error', $3, $4, 'gemini', 'gemini-3-flash-preview', $5, $6)`,
+			userID, keyID, status, owner, msg, at)
+		require.NoError(t, err)
+	}
+
+	// Probe/admin storm that previously tripped client_visible_failure_count P1.
+	for i := 0; i < 60; i++ {
+		insert(adminID, adminKeyID, "client", 404, "Unsupported model: gemini-3-flash-preview")
+	}
+	insert(adminID, adminKeyID, "provider", 503, "upstream unavailable")
+	// One real customer client failure remains countable.
+	insert(customerID, customerKeyID, "client", 400, "prompt too long")
+
+	filter := &service.OpsDashboardFilter{StartTime: start, EndTime: end, QueryMode: service.OpsQueryModeRaw}
+
+	clientCount, err := repo.CountUserVisibleFailures(ctx, filter, "client")
+	require.NoError(t, err)
+	require.EqualValues(t, 1, clientCount, "admin Unsupported-model probe storm must not inflate client_visible_failure_count")
+
+	systemCount, err := repo.CountUserVisibleFailures(ctx, filter, "system")
+	require.NoError(t, err)
+	require.EqualValues(t, 0, systemCount, "admin provider failures stay out of user_visible_failure_count")
+
+	breakdown, err := repo.GetUserVisibleFailureBreakdown(ctx, filter, "client", 3)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, breakdown.Failures)
+	require.Len(t, breakdown.Users, 1)
+	require.Equal(t, customerID, breakdown.Users[0].UserID)
+	require.Equal(t, "customer", breakdown.Users[0].APIKeyName)
+
+	var rawAdminClient int
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`SELECT count(*) FROM ops_error_logs WHERE user_id = $1 AND error_owner = 'client'`, adminID).Scan(&rawAdminClient))
+	require.Equal(t, 60, rawAdminClient, "admin probe rows remain available in raw error logs")
+}
+
 // Reproduce the cn-prod balance storm: thousands of real rejections occupy a
 // handful of rows. Alerts and every card facet must count the same occurrences.
 func TestUserVisibleFailureCoalescedOccurrences(t *testing.T) {

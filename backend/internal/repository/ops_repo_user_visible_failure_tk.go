@@ -26,7 +26,8 @@ const opsFailureOccurrenceSQL = `CASE
 
 // CountUserVisibleFailures counts terminal failures that a real, attributable
 // customer request saw. It deliberately ignores recovered upstream rows
-// (status_code < 400) and count_tokens probes via buildErrorWhere.
+// (status_code < 400), count_tokens probes via buildErrorWhere, and admin-role
+// accounts (ops / reserved probe traffic such as admin@tokenkey.dev).
 func (r *opsRepository) CountUserVisibleFailures(ctx context.Context, filter *service.OpsDashboardFilter, ownerScope string) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, fmt.Errorf("nil ops repository")
@@ -94,6 +95,11 @@ func buildUserVisibleFailureWhere(filter *service.OpsDashboardFilter, ownerScope
 	// prod measured 0 attributable rows, so the fallback only widened the SLA
 	// numerator's schema surface without ever adding a row to it.
 	where += " AND user_id IS NOT NULL"
+	// "真实用户*" Feishu rules page on customer experience. Admin accounts are
+	// the reserved ops/probe surface (prod #1 admin@tokenkey.dev hammering
+	// withdrawn models via key "tk"); keep their rows in raw logs, but never in
+	// the alert/SLA numerator or card breakdown.
+	where += " AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = user_id AND u.role = '" + service.RoleAdmin + "')"
 	switch strings.TrimSpace(ownerScope) {
 	case "client":
 		where += " AND COALESCE(error_owner, '') = 'client'"
