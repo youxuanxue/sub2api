@@ -26,15 +26,16 @@ import (
 // 每个节点评估自己 proxies 表里的出口（美西 prod 探 usw-eval*/cn-ip*，北京
 // cn-prod 探其 ip1..4）：探测点即真实拨号方，测的就是该节点实际走的链路。
 
-const proxyUnreachableDialTimeout = 2 * time.Second
+const proxyUnreachableDialTimeout = 4 * time.Second
 
-// 单次 dial 失败不算不可达：跨境链路（如美西 prod → 北京 cn-ip）偶发丢一个
-// SYN，重传要 ≥1s，叠加 RTT 就会撞上 2s 超时。一轮内最多 3 次 dial、全失败
-// 才计入；真宕机仍在同一轮被判定，告警时延不变（sustained 仍为 2 个评估周期）。
-// 最坏单代理耗时 3×2s + 2×pause，各代理并发，远小于 evaluator 45s 预算。
+// 单次 dial 失败不算不可达：跨境链路（如美西 prod → 北京 cn-ip）偶发丢 SYN /
+// RTT 抬到 1–2s 会撞上短超时。一轮内最多 5 次 dial、全失败才计入；真宕机仍
+// 在同一轮被判定。告警时延由 sustained（默认 5 分钟，见 tk_115）吸收短抖，
+// 不靠压低拨测灵敏度。最坏单代理耗时 5×4s + 4×pause，各代理并发，仍小于
+// evaluator 45s 预算。
 const (
-	proxyUnreachableDialAttempts   = 3
-	proxyUnreachableDialRetryPause = 200 * time.Millisecond
+	proxyUnreachableDialAttempts   = 5
+	proxyUnreachableDialRetryPause = 400 * time.Millisecond
 )
 
 // proxyTCPDialFunc is the seam for unit tests. Production uses net.Dialer.
