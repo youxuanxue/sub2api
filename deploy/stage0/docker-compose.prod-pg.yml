@@ -25,4 +25,4 @@ services:
       - -c
       - archive_command=${POSTGRES_ARCHIVE_COMMAND:-}
       - -c
-      - archive_timeout=${POSTGRES_ARCHIVE_TIMEOUT:-0}
+      - archive_timeout=${POSTGRES_ARCHIVE_TIMEOUT:-300s}
