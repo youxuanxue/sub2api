@@ -327,7 +327,9 @@ func (h *OpenAIGatewayHandler) enqueueCyberSessionBlockedOpsEntry(c *gin.Context
 	if apiKey.User != nil {
 		meta.UserID = apiKey.User.ID
 	}
-	enqueueOpsErrorLog(h.opsService, buildCyberSessionBlockedOpsEntry(meta))
+	blockedEntry := buildCyberSessionBlockedOpsEntry(meta)
+	markOpsErrorLogUserOptOut(blockedEntry, apiKey)
+	enqueueOpsErrorLog(h.opsService, blockedEntry)
 }
 
 // recordCyberPolicyIfMarked 在 gateway forward 返回后检查 cyber / usage_policy 标记，
@@ -482,12 +484,18 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 			})
 		}
 		if opsSvc != nil {
-			if cyberMark != nil && localSessionBlockEcho {
-				enqueueOpsErrorLog(opsSvc, buildCyberSessionBlockedOpsEntry(opsMeta))
-			} else if cyberMark != nil {
-				enqueueOpsErrorLog(opsSvc, buildCyberPolicyOpsErrorEntry(opsMeta, cyberMark))
-			} else if usageMark != nil {
-				enqueueOpsErrorLog(opsSvc, buildUsagePolicyOpsErrorEntry(opsMeta, usageMark))
+			var opsEntry *service.OpsInsertErrorLogInput
+			switch {
+			case cyberMark != nil && localSessionBlockEcho:
+				opsEntry = buildCyberSessionBlockedOpsEntry(opsMeta)
+			case cyberMark != nil:
+				opsEntry = buildCyberPolicyOpsErrorEntry(opsMeta, cyberMark)
+			case usageMark != nil:
+				opsEntry = buildUsagePolicyOpsErrorEntry(opsMeta, usageMark)
+			}
+			if opsEntry != nil {
+				markOpsErrorLogUserOptOut(opsEntry, apiKey)
+				enqueueOpsErrorLog(opsSvc, opsEntry)
 			}
 		}
 	}()

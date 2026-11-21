@@ -316,7 +316,7 @@ func TestRecordCyberPolicyIfMarked_SessionBlockedEchoSkipsModerationOpsAsSession
 	require.True(t, service.IsOpenAICyberSessionBlockedMark(service.GetOpsCyberPolicy(c)))
 
 	h := &OpenAIGatewayHandler{gatewayService: gatewaySvc, opsService: ops}
-	apiKey := &service.APIKey{ID: 88, Key: "sk-test-session-echo", User: &service.User{ID: 16}}
+	apiKey := &service.APIKey{ID: 88, Key: "sk-test-session-echo", User: &service.User{ID: 16, QACaptureEnabled: true}}
 	h.recordCyberPolicyIfMarked(c, apiKey, nil, nil, "gpt-6-sol", true, body, service.ChannelUsageFields{}, "")
 	require.True(t, c.GetBool(cyberPolicyRecordedKey))
 

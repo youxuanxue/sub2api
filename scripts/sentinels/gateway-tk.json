@@ -21316,6 +21316,27 @@
         "func TestOpsUpstreamErrorsMayCarryRequestBody("
       ],
       "rationale": "Keep the existence gate against reintroduced request-body fields and the legacy-row strip coverage; both are the only mechanical anchors for the no-request-body privacy contract."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_qa_capture_optout.go",
+      "must_contain": [
+        "func markOpsErrorLogUserOptOut("
+      ],
+      "rationale": "Privacy: users.qa_capture_enabled must also suppress ops_error_logs, which records pre-auth failures that never reach QA capture. Losing this file is compile-clean at the call sites' level of intent, so upstream merges must not drop it."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger.go",
+      "must_contain": [
+        "if entry.SuppressForUserOptOut {"
+      ],
+      "rationale": "The opt-out is enforced once at the enqueue chokepoint so a new error path cannot forget it. Removing this guard silently resumes writing rows for users who opted out."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_coalesce_tk.go",
+      "must_contain": [
+        "SuppressForUserOptOut: entry.SuppressForUserOptOut"
+      ],
+      "rationale": "opsCoalescedSummary rebuilds the entry field-by-field and outlives the request; dropping this field resurrects a suppressed user's collapsed tail rows."
     }
   ]
 }
