@@ -658,22 +658,14 @@ func sanitizeOpsUpstreamErrors(entry *OpsInsertErrorLogInput) error {
 			out.Detail = ""
 		}
 
-		out.UpstreamRequestBody = strings.TrimSpace(out.UpstreamRequestBody)
-		if keepBody && out.UpstreamRequestBody != "" {
-			sanitizedBody, truncated, _ := sanitizeAndTrimJSONPayload([]byte(out.UpstreamRequestBody), 10*1024)
-			if sanitizedBody != "" {
-				out.UpstreamRequestBody = sanitizedBody
-				out.RequestBodyTruncated = truncated
-			} else {
-				out.UpstreamRequestBody = ""
-			}
-		} else {
-			out.UpstreamRequestBody = ""
-			out.RequestBodyTruncated = false
-		}
+		// Privacy: ops_error_logs never persists client/upstream request bodies.
+		// Request payloads are reconstructable only from the QA capture of users
+		// who left QA capture enabled; the attempt JSON keeps metadata only.
+		out.UpstreamRequestBody = ""
+		out.RequestBodyTruncated = false
 
 		// Drop fully-empty events (can happen if only status code was known).
-		if out.UpstreamStatusCode == 0 && out.Message == "" && detail == "" && strings.TrimSpace(ev.UpstreamResponseBody) == "" && strings.TrimSpace(ev.UpstreamRequestBody) == "" {
+		if out.UpstreamStatusCode == 0 && out.Message == "" && detail == "" && strings.TrimSpace(ev.UpstreamResponseBody) == "" {
 			continue
 		}
 
