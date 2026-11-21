@@ -10,8 +10,8 @@ func TestDefaultAntigravityModelMapping_ConvergedPublicSurface(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
 		"gemini-3.8-flash":       "gemini-3.8-flash-high",
-		"gemini-4-argon":         "gemini-4-argon-medium",
-		"gemini-4-carbon":        "gemini-4-carbon-medium",
+		"gemini-4-argon":         "gemini-4-argon-high",
+		"gemini-4-carbon":        "gemini-4-carbon-high",
 		"gemini-4-hydrogen":      "gemini-4-hydrogen-medium",
 		"gemini-4-neon":          "gemini-4-neon-medium",
 		"gemini-3-flash":         "gemini-3-flash",
@@ -82,10 +82,10 @@ func TestAntigravityBlockedModelMappingPredicatesMatchOwners(t *testing.T) {
 }
 
 func TestDefaultAntigravityModelMapping_Gemini4ArgonAndClaude55Models(t *testing.T) {
-	if got := DefaultAntigravityModelMapping["gemini-4-argon"]; got != "gemini-4-argon-medium" {
+	if got := DefaultAntigravityModelMapping["gemini-4-argon"]; got != "gemini-4-argon-high" {
 		t.Fatalf("public argon alias = %q", got)
 	}
-	if got := DefaultAntigravityModelMapping["gemini-4-carbon"]; got != "gemini-4-carbon-medium" {
+	if got := DefaultAntigravityModelMapping["gemini-4-carbon"]; got != "gemini-4-carbon-high" {
 		t.Fatalf("public carbon alias = %q", got)
 	}
 	if got := DefaultAntigravityModelMapping["gemini-4-hydrogen"]; got != "gemini-4-hydrogen-medium" {
