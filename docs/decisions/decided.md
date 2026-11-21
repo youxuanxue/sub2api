@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-21 Grok OAuth 只保留 4.3/4.5/4.6/4.7 text surface
+
+原话：「1. 要 4 个 identity 和 xai/、grok/ 同名别名。2. 从从 grok 推荐面/allowlist 收掉。提交并推送pr」
+
+适用范围：prod grok oauth（含 `us4-grok-or1-ls-b`）。`supportedGrokCatalogModels` + 推荐面只留 `grok-4.3/4.5/4.6/4.7`；account mapping floor = 四 identity + `xai/` / `grok/` 同名别名（不含 `x-ai/`、`-latest`、imagine/4.20/build/code-fast）。Studio 同步撤掉 grok-imagine image/video 呈现。定价行可保留结算；live 经 bundle apply 收敛。官方 Fast 不进 mapping（public API 不可用）。
+
 ## 2026-11-20 `/v1/responses` 视频显式拒绝（不静默丢块）
 
 原话：「接着修 response 视频拒绝。」

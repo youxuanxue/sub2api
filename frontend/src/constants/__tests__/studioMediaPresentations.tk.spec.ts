@@ -186,25 +186,18 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out.every((r) => r.presentation.imageSizes === SEEDREAM_IMAGE_SIZES)).toBe(true)
   })
 
-  it('surfaces paid-gate-proven Grok image models with flat curated presentation', () => {
+  it('hides Grok imagine image models after text-only grok surface (2026-11-21)', () => {
     const out = resolveAvailableModels(
       'image',
-      new Set(['grok-imagine-image', 'grok-imagine-image-quality']),
+      new Set(['grok-imagine-image', 'grok-imagine-image-quality', 'gemini-3.1-flash-image']),
       new Map([
         ['grok-imagine-image', { perImage: 0.02, billingMode: 'image' }],
         ['grok-imagine-image-quality', { perImage: 0.07, billingMode: 'image' }],
+        ['gemini-3.1-flash-image', { perImage: 0.04, billingMode: 'image' }],
       ])
     )
-    expect(out.map((r) => r.presentation.modelId)).toEqual([
-      'grok-imagine-image',
-      'grok-imagine-image-quality',
-    ])
-    expect(out.map((r) => r.presentation.displayName)).toEqual([
-      'Grok Imagine · Fast',
-      'Grok Imagine · Quality',
-    ])
-    expect(out.every((r) => r.presentation.flatPricePerImage)).toBe(true)
-    expect(out.every((r) => r.presentation.imageSizes == null)).toBe(true)
+    expect(out.map((r) => r.presentation.modelId)).toEqual(['gemini-3.1-flash-image'])
+    expect(out.some((r) => r.presentation.modelId.startsWith('grok-imagine'))).toBe(false)
   })
 
   it('declares a valid Seedream default wire size, not an aspect-ratio token', () => {
@@ -385,9 +378,9 @@ describe('video durations (per-model discrete, never a footgun)', () => {
     expect(videoDurationDefault([])).toBe(VIDEO_DURATION_DEFAULT)
   })
 
-  it('paid-gate-proven Grok/Seedance use documented discrete seconds; Veo left Studio', () => {
+  it('Seedance use documented discrete seconds; Veo/Grok video left Studio', () => {
     expect(byId('veo-3.1-generate-001')).toBeUndefined()
-    expect(byId('grok-imagine-video').videoDurations).toEqual([5])
+    expect(byId('grok-imagine-video')).toBeUndefined()
     expect(byId('veo-3.1-fast-generate-001')).toBeUndefined()
     expect(byId('doubao-seedance-1-0-pro-250528').videoDurations).toEqual([5, 10])
     expect(byId('doubao-seedance-1-0-pro-fast-251015').videoDurations).toEqual([5])

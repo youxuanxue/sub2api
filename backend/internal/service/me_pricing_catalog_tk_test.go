@@ -1623,11 +1623,10 @@ func TestBuildForUser_AntigravityMapped_ListsPricedReprobedGeminiModels(t *testi
 func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 	gGrok := mkGroupForMe(60, "grok", "grok", 1.0)
 	k1 := mkKeyForMe(1, 16, "grok-key", ptrI(60))
-	grokIDs := supportedCatalogModelIDsForPlatform(PlatformGrok)
-	sort.Strings(grokIDs)
+	grokIDs := supportedCatalogModelIDsFromMap(supportedGrokCatalogModels)
+	require.Equal(t, []string{"grok-4.3", "grok-4.5", "grok-4.6", "grok-4.7"}, grokIDs,
+		"operator 2026-11-21: grok allowlist is text-only")
 	chatIDs := firstNIDsWithoutSubstringsForMePricingTest(t, grokIDs, []string{"image", "video"}, 2)
-	imageID := firstIDContainingForMePricingTest(t, grokIDs, "image")
-	videoID := firstIDContainingForMePricingTest(t, grokIDs, "video")
 	// channel_type=0, nil whitelist → unrestricted native grok OAuth account.
 	acct := mkAccountWithWhitelist(11, "grok-oauth", "grok", 0, nil)
 	require.False(t, accountHasModelRestriction(acct.Credentials),
@@ -1638,8 +1637,6 @@ func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 		Data: []PublicCatalogModel{
 			mkPublicCatalogModel(chatIDs[0], "xai", 0.00125, 0.0025, 0),
 			mkPublicCatalogModel(chatIDs[1], "xai", 0.001, 0.002, 0),
-			mkPublicImageCatalogModel(imageID, "xai", 0.02),
-			mkPublicVideoCatalogModel(videoID, "xai", 0.08),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -1668,7 +1665,7 @@ func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 		byID[m.ModelID] = m
 	}
 	// Catalog-priced model gets its price joined (only for still-recommended ids).
-	for _, id := range []string{chatIDs[0], chatIDs[1], imageID, videoID} {
+	for _, id := range []string{chatIDs[0], chatIDs[1]} {
 		if !isCatalogModelRecommended(id) {
 			continue
 		}
@@ -1681,14 +1678,6 @@ func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 	if isCatalogModelRecommended(chatIDs[1]) {
 		require.NotNil(t, byID[chatIDs[1]].YourPrice.InputPer1K)
 		assert.InDelta(t, 0.001, *byID[chatIDs[1]].YourPrice.InputPer1K, 1e-9)
-	}
-	if isCatalogModelRecommended(imageID) {
-		require.NotNil(t, byID[imageID].YourPrice.PerImage)
-		assert.InDelta(t, 0.02, *byID[imageID].YourPrice.PerImage, 1e-9)
-	}
-	if isCatalogModelRecommended(videoID) {
-		require.NotNil(t, byID[videoID].YourPrice.PerSecond)
-		assert.InDelta(t, 0.08, *byID[videoID].YourPrice.PerSecond, 1e-9)
 	}
 }
 

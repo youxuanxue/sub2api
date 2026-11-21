@@ -86,17 +86,8 @@ func TestGetAvailableModels_GrokUnionsNativeCatalogWithChatMapping(t *testing.T)
 			}
 		}
 	}
-	if isCatalogModelRecommended("grok-imagine-video") {
-		foundVideo := false
-		for _, m := range models {
-			if m == "grok-imagine-video" {
-				foundVideo = true
-				break
-			}
-		}
-		if !foundVideo {
-			t.Fatalf("recommended grok-imagine-video must remain in GetAvailableModels, got %v", models)
-		}
+	if _, inCatalog := supportedGrokCatalogModels["grok-imagine-video"]; inCatalog && isCatalogModelRecommended("grok-imagine-video") {
+		t.Fatal("grok-imagine-video must stay off the text-only grok allowlist/recommend surface")
 	}
 }
 
@@ -111,8 +102,8 @@ func TestResolve_GrokNativeCatalogWithChatOnlyMapping(t *testing.T) {
 	if err != nil || g == nil || g.Platform != PlatformGrok {
 		t.Fatalf("grok-4.3 should resolve to grok group, got=%v err=%v", g, err)
 	}
-	if g, err = r.Resolve(ctx, universalKey(1), ShapeOpenAIVideo, "grok-imagine-video", ""); err != nil || g == nil || g.Platform != PlatformGrok {
-		t.Fatalf("paid-gate-proven grok-imagine-video should resolve via the curated native set, got=%v err=%v", g, err)
+	if g, err = r.Resolve(ctx, universalKey(1), ShapeOpenAIVideo, "grok-imagine-video", ""); err == nil && g != nil && g.Platform == PlatformGrok {
+		t.Fatalf("text-only grok surface must not resolve grok-imagine-video via curated native set, got=%v", g)
 	}
 }
 
@@ -133,8 +124,8 @@ func TestGrokNativeCatalogModelPassesAccountSchedulerWithChatOnlyMapping(t *test
 	if !account.IsModelSupported("grok-4.3") {
 		t.Fatal("grok native catalog chat model must not be blocked by chat-only model_mapping")
 	}
-	if !account.IsModelSupported("grok-imagine-video") {
-		t.Fatal("paid-gate-proven grok native media must not be blocked by chat-only model_mapping")
+	if account.IsModelSupported("grok-imagine-video") {
+		t.Fatal("text-only grok surface must not treat grok-imagine-video as a native catalog model")
 	}
 
 	scheduler := &defaultOpenAIAccountScheduler{}
@@ -146,8 +137,8 @@ func TestGrokNativeCatalogModelPassesAccountSchedulerWithChatOnlyMapping(t *test
 		t.Fatal("grok-4.3 must survive the OpenAI-compat account scheduler filter")
 	}
 	req.RequestedModel = "grok-imagine-video"
-	if !scheduler.isAccountRequestCompatible(context.Background(), account, req) {
-		t.Fatal("paid-gate-proven grok-imagine-video must survive the OpenAI-compat account scheduler filter")
+	if scheduler.isAccountRequestCompatible(context.Background(), account, req) {
+		t.Fatal("text-only grok surface must reject grok-imagine-video in the OpenAI-compat account scheduler filter")
 	}
 
 	if account.IsModelSupported("veo-3.1-generate-001") {
