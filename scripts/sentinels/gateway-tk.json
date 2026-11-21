@@ -21327,9 +21327,10 @@
     {
       "path": "backend/internal/handler/ops_error_logger.go",
       "must_contain": [
-        "if entry.SuppressForUserOptOut {"
+        "if entry.SuppressForUserOptOut {",
+        "markOpsErrorLogUserOptOut(entry, apiKey)"
       ],
-      "rationale": "The opt-out is enforced once at the enqueue chokepoint so a new error path cannot forget it. Removing this guard silently resumes writing rows for users who opted out."
+      "rationale": "The opt-out is enforced once at the enqueue chokepoint so a new error path cannot forget it, and stamped at each originating site. Removing either the guard or a stamp silently resumes writing rows for users who opted out; the stamp call sites compile clean when deleted, so they need a literal anchor."
     },
     {
       "path": "backend/internal/handler/ops_error_logger_coalesce_tk.go",
@@ -21337,6 +21338,15 @@
         "SuppressForUserOptOut: entry.SuppressForUserOptOut"
       ],
       "rationale": "opsCoalescedSummary rebuilds the entry field-by-field and outlives the request; dropping this field resurrects a suppressed user's collapsed tail rows."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_qa_capture_optout_test.go",
+      "must_contain": [
+        "func TestOpsErrorLoggerMiddlewareSuppressesOptedOutUser(",
+        "func TestOpsErrorLoggerMiddlewareStillRecordsCapturingUser(",
+        "func TestOpsErrorLoggerCoalescedTailSuppressedForOptedOutUser("
+      ],
+      "rationale": "End-to-end coverage through the real middleware. Verified by mutation: deleting any single markOpsErrorLogUserOptOut call site compiles and passes every isolated unit test, so these three are the only mechanical anchors for the pre-auth suppression contract."
     }
   ]
 }
