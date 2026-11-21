@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/stretchr/testify/require"
 )
@@ -85,4 +89,90 @@ func TestOpsErrorLogOptOutZeroValueHazard(t *testing.T) {
 	loadedEntry := &service.OpsInsertErrorLogInput{}
 	markOpsErrorLogUserOptOut(loadedEntry, loadedUser)
 	require.False(t, loadedEntry.SuppressForUserOptOut)
+}
+
+// TestOpsErrorLoggerMiddlewareSuppressesOptedOutUser is the end-to-end
+// assertion the unit tests above cannot make: it drives a real request through
+// OpsErrorLoggerMiddleware and asserts nothing is queued for a user who turned
+// QA capture off.
+//
+// It reuses the quota-reject shape on purpose. That is a pre-auth early exit —
+// the api key reaches the logger only through the ops fallback key — which is
+// the case the opt-out was asked to cover: those requests never reach QA
+// capture, so ops_error_logs was their only persisted trace.
+//
+// Coverage boundary, verified by mutation: this test (plus the coalesced-tail
+// one below) fails if the middleware stamp at OpsErrorLoggerMiddleware is
+// dropped. The other three stamp sites — logOpsRecoveredUpstream,
+// logOpsStreamErrorValue and the two cyber-policy builders — are driven by
+// upstream/stream outcomes these fixtures do not reproduce, so deleting one of
+// those still passes here; the literal sentinel anchor on
+// markOpsErrorLogUserOptOut is what guards them.
+func TestOpsErrorLoggerMiddlewareSuppressesOptedOutUser(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 64)
+	gin.SetMode(gin.TestMode)
+
+	clock := &fakeClock{now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	t.Cleanup(swapOpsErrorLogCoalescer(newOpsCoalescer(time.Minute, opsCoalesceCapacity, clock.Now)))
+
+	ops := service.NewOpsService(&ingressRejectOpsRepo{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	optedOut := &service.APIKey{ID: 901, Key: "sk-opted-out", UserID: 77, User: &service.User{ID: 77, QACaptureEnabled: false}}
+
+	w := httptest.NewRecorder()
+	quotaRejectRouter(ops, optedOut).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	require.Equal(t, http.StatusTooManyRequests, w.Code, "suppression must not change the client response")
+
+	require.Empty(t, drainOpsErrorLogQueue(t),
+		"a user who turned QA capture off must leave no ops_error_logs row, including pre-auth failures")
+}
+
+// TestOpsErrorLoggerMiddlewareStillRecordsCapturingUser is the other half of
+// the contract: suppression must be scoped to the opted-out user, not a blanket
+// mute of the sink.
+func TestOpsErrorLoggerMiddlewareStillRecordsCapturingUser(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 64)
+	gin.SetMode(gin.TestMode)
+
+	clock := &fakeClock{now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	t.Cleanup(swapOpsErrorLogCoalescer(newOpsCoalescer(time.Minute, opsCoalesceCapacity, clock.Now)))
+
+	ops := service.NewOpsService(&ingressRejectOpsRepo{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	capturing := &service.APIKey{ID: 902, Key: "sk-capturing", UserID: 78, User: &service.User{ID: 78, QACaptureEnabled: true}}
+
+	w := httptest.NewRecorder()
+	quotaRejectRouter(ops, capturing).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+
+	queued := drainOpsErrorLogQueue(t)
+	require.Len(t, queued, 1, "a capturing user's pre-auth failure must still be recorded")
+	require.Equal(t, int64(78), *queued[0].UserID)
+	require.False(t, queued[0].SuppressForUserOptOut)
+}
+
+// TestOpsErrorLoggerCoalescedTailSuppressedForOptedOutUser covers the leak the
+// coalescer would reopen: its summary is flushed after the request is gone, so
+// a storm from an opted-out user must not resurface as a collapsed tail row.
+func TestOpsErrorLoggerCoalescedTailSuppressedForOptedOutUser(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 512)
+	gin.SetMode(gin.TestMode)
+
+	clock := &fakeClock{now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	coalescer := newOpsCoalescer(time.Minute, opsCoalesceCapacity, clock.Now)
+	t.Cleanup(swapOpsErrorLogCoalescer(coalescer))
+
+	ops := service.NewOpsService(&ingressRejectOpsRepo{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	optedOut := &service.APIKey{ID: 903, Key: "sk-opted-out-storm", UserID: 79, User: &service.User{ID: 79, QACaptureEnabled: false}}
+	router := quotaRejectRouter(ops, optedOut)
+
+	for i := 0; i < 50; i++ {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+		clock.Advance(150 * time.Millisecond)
+	}
+	// Flush the open bucket the way shutdown would, so any carried tail surfaces.
+	clock.Advance(2 * time.Minute)
+	coalescer.flushClosed(true)
+
+	require.Empty(t, drainOpsErrorLogQueue(t),
+		"the collapsed tail must stay suppressed for an opted-out user")
 }
