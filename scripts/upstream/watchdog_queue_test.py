@@ -64,26 +64,28 @@ class WatchdogQueueXrefTest(unittest.TestCase):
         queue.sync_queue(REPO, [item], "example/fork", api, day="2026-11-03")
         self.assertEqual(api.writes, [])
 
-    def test_human_annotation_after_watchdog_item_still_reads_the_record(self):
+    def test_checked_item_with_trailing_note_stays_retired_when_queue_reopens(self):
         api = FakeGitHub()
         item = _item(3023)
-        queue.sync_queue(REPO, [item], "example/fork", api, day="2026-11-03")
-        api.comments[0]["body"] = api.comments[0]["body"].replace(
-            "- [ ]", "- [x]", 1).replace(
-            " -->", " --> TK 核验：TokenKey 已覆盖。", 1)
+        first = queue.sync_queue(REPO, [item], "example/fork", api)
+        issue_number = api.issues[0]["number"]
+        body = api.comments[0]["body"]
+        annotated = re.sub(r"^- \[ \] (.*<!-- watchdog-item:.* -->)$",
+                           r"- [x] \1 TK 核验通过。", body, flags=re.MULTILINE)
+        self.assertNotEqual(annotated, body)
+        api.comments[0]["body"] = annotated
 
-        api.calls.clear()
-        queue.sync_queue(REPO, [item], "example/fork", api, day="2026-11-03")
-
-        self.assertEqual(
-            [call for call in api.writes if "/comments" in call[0][-1]],
-            [],
-        )
+        cleared = queue.sync_queue(REPO, [item], "example/fork", api, published=first["published"])
+        self.assertEqual(cleared["pending"], 0)
         self.assertEqual(api.issues[0]["state"], "closed")
-        self.assertEqual(
-            [queue.canonical_ref(row[2]) for row in queue.RECORD.findall(api.comments[0]["body"])],
-            [f"{REPO}#3023"],
-        )
+        self.assertEqual([c["body"] for c in api.comments], [annotated])
+
+        reopened = queue.sync_queue(REPO, [item, _item(3024)], "example/fork", api,
+                                    published=cleared["published"])
+        self.assertEqual(reopened["pending"], 1)
+        self.assertEqual([(i["number"], i["state"]) for i in api.issues], [(issue_number, "open")])
+        self.assertEqual(api.comments[0]["body"], annotated)
+        self.assertIn(f"watchdog-item:{REPO}/issues/3024 ", api.comments[1]["body"])
 
 
 if __name__ == "__main__":
