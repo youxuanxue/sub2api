@@ -57,10 +57,13 @@ func (r *managedBatchRepoFake) ListFilesForOwner(_ context.Context, u, k int64, 
 	}
 	return out, false, nil
 }
-func (r *managedBatchRepoFake) DeleteFileForOwner(_ context.Context, u, k int64, id string) error {
+func (r *managedBatchRepoFake) DeleteFileForOwner(_ context.Context, u, k int64, id string, deleteObject func(string) error) error {
 	f, e := r.GetFileForOwner(context.Background(), u, k, id)
 	if e != nil {
 		return e
+	}
+	if err := deleteObject(f.StorageRef); err != nil {
+		return err
 	}
 	delete(r.files, f.ID)
 	return nil
