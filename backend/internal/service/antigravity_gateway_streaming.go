@@ -407,11 +407,13 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 					lastWroteDataEvent = false
 					continue
 				}
-				// A held prefix has not emitted a data frame yet, so this blank
-				// separator is only a keepalive. go-genai / python-genai split on
-				// "\n\n" and reject a leading newline glued onto the first data
-				// line; their idle ticker is already disabled for the same reason.
-				if !modelBytesWritten && downstreamRejectsSSEComments(c) {
+				// Blank separators that are not paired with a just-written data
+				// frame are keepalives (held-prefix blanks, or the trailing
+				// blank after a dropped ": keepalive"). go-genai / agy split on
+				// "\n\n" and reject a sticky "\n" before the next data line —
+				// before and after model bytes. Idle ticker is already off for
+				// the same clients.
+				if downstreamRejectsSSEComments(c) {
 					continue
 				}
 				if cw.Fprintf("%s", geminiNativeSSEKeepaliveFrame) {

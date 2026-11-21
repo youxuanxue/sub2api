@@ -463,3 +463,63 @@ func TestAntigravityGeminiHeldPrefixKeepaliveDependsOnClient(t *testing.T) {
 		})
 	}
 }
+
+// Mid-stream upstream ": keepalive" + blank must not sticky-glue "\n" onto the
+// next data frame for agy/go-genai after model bytes are already flowing.
+func TestAntigravityGeminiDropsCommentKeepaliveAfterContentForAgy(t *testing.T) {
+	const (
+		first   = `data: {"candidates":[{"content":{"parts":[{"text":"HELLO"}]}}]}` + "\n\n"
+		comment = ": keepalive\n\n"
+		second  = `data: {"candidates":[{"content":{"parts":[{"text":"WORLD"}]},"finishReason":"STOP"}]}` + "\n\n"
+	)
+	cases := []struct {
+		name           string
+		userAgent      string
+		wantStickyGlue bool
+	}{
+		{name: "gemini_cli_keeps_whitespace", userAgent: "GeminiCLI-tui/0.68.0", wantStickyGlue: true},
+		{name: "agy_drops", userAgent: "antigravity/cli/1.5.12 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)", wantStickyGlue: false},
+		{name: "go_genai_drops", userAgent: "google-genai-sdk/1.71.0 gl-go/go1.28", wantStickyGlue: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost,
+				"/v1beta/models/gemini-4-neon:streamGenerateContent?alt=sse", nil)
+			c.Request.Header.Set("User-Agent", tc.userAgent)
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(first + comment + second)),
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			}
+			svc := newAntigravityTestService(&config.Config{
+				Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+			})
+			_, err := svc.handleGeminiStreamingResponse(c, resp, time.Now())
+			require.NoError(t, err)
+
+			body := rec.Body.String()
+			require.Contains(t, body, "HELLO")
+			require.Contains(t, body, "WORLD")
+			require.NotContains(t, body, ": keepalive")
+			// Sticky glue looks like "\ndata:" between the two model frames.
+			glued := strings.Contains(body, "\n\ndata:") && strings.Count(body, "\ndata:") > 0
+			// After a normal data frame the wire is "...\n\n". A rejected-client
+			// path must stay "...\n\ndata:"; a Gemini-CLI path may insert an
+			// extra "\n" → "...\n\n\ndata:".
+			hasExtraNL := strings.Contains(body, "\n\n\ndata:")
+			require.Equal(t, tc.wantStickyGlue, hasExtraNL, "body=%q glued=%v", body, glued)
+			for _, event := range strings.Split(strings.TrimSuffix(body, "\n\n"), "\n\n") {
+				if event == "" {
+					continue
+				}
+				if tc.wantStickyGlue && strings.HasPrefix(event, "\n") {
+					event = strings.TrimPrefix(event, "\n")
+				}
+				require.True(t, strings.HasPrefix(event, "data:"), "event %q in %q", event, body)
+			}
+		})
+	}
+}
