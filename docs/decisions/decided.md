@@ -258,7 +258,7 @@
 
 原话：「carbon/argon 默认映射到 -medium。」
 
-适用范围：Antigravity 上 argon/carbon 裸名默认 medium；Flash 仍锁 high。显式档位按请求。
+2026-11-21 更新：Antigravity 上 Argon/Carbon 裸名默认映射到 high，显式档位按请求。
 
 ## 2026-11-12 去掉 typed tokensea relay 地板
 
