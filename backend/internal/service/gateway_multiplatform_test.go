@@ -3779,6 +3779,7 @@ func TestModelRoutingAppliesToPlatform(t *testing.T) {
 	}{
 		{"anthropic group", PlatformAnthropic, PlatformAnthropic, true},
 		{"openai group", PlatformOpenAI, PlatformOpenAI, true},
+		{"antigravity group", PlatformAntigravity, PlatformAntigravity, true},
 		{"composite group resolved to anthropic", PlatformAnthropic, PlatformComposite, true},
 		{"composite group resolved to openai", PlatformOpenAI, PlatformComposite, true},
 		{"target platform outside the allowed set", PlatformGemini, PlatformGemini, false},
@@ -3839,6 +3840,51 @@ func TestGatewayService_SelectAccountForModelWithPlatform_RoutedOpenAIGroup(t *t
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID, "routed account must win over the higher-priority unrouted one")
+}
+
+func TestGatewayService_SelectAccountForModelWithPlatform_RoutedAntigravityGroup(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(14)
+	requestedModel := "gemini-4-neon"
+
+	repo := &mockAccountRepoForPlatform{
+		accounts: []Account{
+			{ID: 1, Platform: PlatformAntigravity, Priority: 1, Status: StatusActive, Schedulable: true},
+			{ID: 2, Platform: PlatformAntigravity, Priority: 5, Status: StatusActive, Schedulable: true},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	for i := range repo.accounts {
+		repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+	}
+
+	groupRepo := &mockGroupRepoForGateway{
+		groups: map[int64]*Group{
+			groupID: {
+				ID:                  groupID,
+				Name:                "antigravity-route-group",
+				Platform:            PlatformAntigravity,
+				Status:              StatusActive,
+				Hydrated:            true,
+				ModelRoutingEnabled: true,
+				ModelRouting: map[string][]int64{
+					requestedModel: {2},
+				},
+			},
+		},
+	}
+
+	svc := &GatewayService{
+		accountRepo: repo,
+		cache:       &mockGatewayCacheForPlatform{},
+		cfg:         testConfig(),
+		groupRepo:   groupRepo,
+	}
+
+	acc, err := svc.selectAccountForModelWithPlatform(ctx, &groupID, "", requestedModel, nil, PlatformAntigravity)
+	require.NoError(t, err)
+	require.NotNil(t, acc)
+	require.Equal(t, int64(2), acc.ID, "routed Antigravity account must win over the higher-priority unrouted one")
 }
 
 func (m *mockAccountRepoForPlatform) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
