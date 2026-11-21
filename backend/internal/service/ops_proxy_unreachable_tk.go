@@ -30,9 +30,9 @@ const proxyUnreachableDialTimeout = 4 * time.Second
 
 // 单次 dial 失败不算不可达：跨境链路（如美西 prod → 北京 cn-ip）偶发丢 SYN /
 // RTT 抬到 1–2s 会撞上短超时。一轮内最多 5 次 dial、全失败才计入；真宕机仍
-// 在同一轮被判定。告警时延由 sustained（默认 5 分钟，见 tk_115）吸收短抖，
-// 不靠压低拨测灵敏度。最坏单代理耗时 5×4s + 4×pause，各代理并发，仍小于
-// evaluator 45s 预算。
+// 在同一轮被判定。告警时延仍由 sustained（默认 2 分钟，见 tk_104）决定——
+// 只加宽拨测、不放宽 sustained/cooldown，以免掩盖真故障。最坏单代理耗时
+// 5×4s + 4×pause，各代理并发，仍小于 evaluator 45s 预算。
 const (
 	proxyUnreachableDialAttempts   = 5
 	proxyUnreachableDialRetryPause = 400 * time.Millisecond
