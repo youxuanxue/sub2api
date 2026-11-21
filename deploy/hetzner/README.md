@@ -59,9 +59,24 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
 SOCKS 仅监听各机私网 `:1080`；放行来源见下方 `ALLOWED_SOURCES`（**应用机公网 IP**，不是入口 IP）。
 `usw-eval1..4` 已于 2026-11-15 销毁。Oregon 主机仍是保留的 AWS 计算依赖。活绑定以 prod / cn-prod `proxies` 为准。
-**2026-11-17 核实**：prod 仍有 active `or-1..4`（SOCKS `35.160.218.198` / `54.186.89.199` / `35.165.11.247` / `32.191.95.59`），
-`live_accounts` 分别为 32 / 31 / 28 / 33（合计 124）；fallback/backup 引用为 0。
 cn-prod `proxies` **无** `or-*`，仅 Aliyun `ip5..8` + `cn-ip9..12`。Oregon **不可退役**。
+
+#### Oregon 出口 `or-1..5`（AWS Lightsail us-west-2，公网 SOCKS）
+
+| 角色 | Lightsail 实例 | 公网 IP | prod `proxies.id` |
+|---|---|---|---|
+| `or-1` | `tokenkey-ls-or-01` | `35.160.218.198` | 20 |
+| `or-2` | `tokenkey-ls-or-02` | `54.186.89.199` | 21 |
+| `or-3` | `tokenkey-ls-or-03` | `35.165.11.247` | 22 |
+| `or-4` | `tokenkey-ls-or-04` | `32.191.95.59` | 19 |
+| `or-5` | `tokenkey-ls-or-claude` | `184.34.147.60` | 37 |
+
+**1080 放行来源**（Oregon 与国内出口名单不同：cn-prod 不绑 `or-*`，只放 prod 两台应用机）：
+`43.162.83.233`（app-old）、`43.162.126.44`（app-cand）。
+对齐脚本：[`deploy/aws/align-oregon-lightsail-proxy-ports.sh`](../aws/align-oregon-lightsail-proxy-ports.sh)
+（`--check` / `--apply`）。**禁止**对 `0.0.0.0/0` 开放 22 / 80 / 443 / 8443 / 1080；
+管理用 Lightsail 控制台或临时开端口。2026-11-21：`or-5` 曾只放行 app-old，导致 app-cand
+SOCKS 全超时并刷 P0，已补 cand 并收紧公网口。
 
 #### 国内出口 `cn-ip9..12`（阿里云北京轻量 SWAS，公网 SOCKS，2026-11-15 起）
 
@@ -242,7 +257,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh \
 | 类别 | 状态 | 动作 |
 |---|---|---|
 | SSM Hybrid / OIDC / Parameter Store | **禁新增**；OIDC→SSM workflow 已抽壳/拒绝（`oidc_ssm_workflow_paths=[]`）；SecureString 已 C5 | 日常 warm+rolling+`run-probe`/`ssm_execution` 默认 TAT。allowlist `ssm_remote_paths` 仅剩 break-glass SendCommand owner `ops/stage0/ssm_execution.py`。**新增或替换 Hybrid 主机时**须把新 `mi-*` 写入栈外 inline `tokenkey-lightsail-edge-addon` 的 `SendCommand`（现含 prod/cn-prod 入口、应用、数据机等），否则 CI 发版/诊断与 break-glass 会被拒；策略备份在操作者本机 `~/.local/state/tokenkey-iam-backups/`，不进 git。Hybrid/OIDC **角色注销**另批。门牙见 `ops/tencent-ops/`；契约 [design-tencent-ops-control-plane](../../docs/approved/design-tencent-ops-control-plane.md) |
-| Oregon 保留计算 | **必须留** | 2026-11-17：prod `or-1..4` 合计 124 live accounts；cn-prod 无 Oregon 行 |
+| Oregon 保留计算 | **必须留** | prod `or-1..5` Lightsail SOCKS（见上表）；cn-prod 无 Oregon 行 |
 | 旧 physical-backup CFN/S3 | **已清** | 2026-11 核对 `DELETE_COMPLETE` / `HeadBucket` 404 |
 | Tokyo EC2 / `aws-fresh` | **已清** | resolver 失败关闭 |
 | `deploy/stage0/` 共享 owner | **已迁出 `deploy/aws/`** | 共享 compose/Caddy/QA/fingerprint；路径不再暗示 AWS 部署面 |
