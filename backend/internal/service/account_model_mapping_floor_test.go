@@ -47,12 +47,22 @@ func TestAccountModelMappingForAccount_AntigravityConvergedFloor(t *testing.T) {
 	require.NotContains(t, servableSet, "gemini-3.8-flash-high", "thinking wire tiers must stay non-public")
 }
 
-func TestAccountModelMappingForAccount_GrokAppliesCompatibilityAliases(t *testing.T) {
+func TestAccountModelMappingForAccount_GrokTextOnlyIdentityAndProviderPrefixes(t *testing.T) {
 	t.Parallel()
 
 	mapping, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: PlatformGrok}, nil, nil, nil)
 	require.True(t, ok)
-	requireGrokDisplayBackedCompatibilityAliases(t, mapping)
+	ids := supportedCatalogModelIDsFromMap(supportedGrokCatalogModels)
+	require.Equal(t, []string{"grok-4.3", "grok-4.5", "grok-4.6", "grok-4.7"}, ids)
+	require.Len(t, mapping, len(ids)*3)
+	for _, id := range ids {
+		require.Equal(t, id, mapping[id])
+		require.Equal(t, id, mapping["xai/"+id])
+		require.Equal(t, id, mapping["grok/"+id])
+	}
+	require.NotContains(t, mapping, "grok-imagine-image")
+	require.NotContains(t, mapping, "x-ai/grok-4.7")
+	require.NotContains(t, mapping, "grok-4.7-latest")
 }
 
 func TestAccountModelMappingForAccount_GeminiWebRestrictedFloor(t *testing.T) {
@@ -79,7 +89,9 @@ func TestAccountModelMappingForAccount_GeminiWebRestrictedFloor(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, geminiWebAccountModelMappingFloor(), webRelay)
 	require.Equal(t, "gemini-3.8-flash", webRelay["gemini-3.8-flash"])
-	require.Equal(t, "gemini-3.8-flash", webRelay["gemini-3-flash"])
+	require.NotContains(t, webRelay, "gemini-3-flash")
+	require.NotContains(t, webRelay, "gemini-3-flash-preview")
+	require.Equal(t, "gemini-3-flash", native["gemini-3-flash"])
 	require.Equal(t, "gemini-3.1-pro", webRelay["gemini-3.1-pro"])
 	require.Equal(t, "gemini-3.1-pro", webRelay["gemini-3.1-pro-preview"])
 	require.Equal(t, "gemini-3.1-flash-image", webRelay["gemini-3.1-flash-image"])

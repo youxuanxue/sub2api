@@ -1015,12 +1015,17 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		}
 	})
 
-	t.Run("grok-code-fast-1 is hidden from public grok catalog after canary 429", func(t *testing.T) {
-		_, inGrok := supportedGrokCatalogModels["grok-code-fast-1"]
-		assert.False(t, inGrok)
-		assert.False(t, isPublicCatalogModelSupported("xai", "grok-code-fast-1"))
-		_, keep0825 := supportedGrokCatalogModels["grok-code-fast-1-0825"]
-		assert.True(t, keep0825)
+	t.Run("grok allowlist is text-only 4.3/4.5/4.6/4.7", func(t *testing.T) {
+		require.Equal(t, []string{"grok-4.3", "grok-4.5", "grok-4.6", "grok-4.7"},
+			supportedCatalogModelIDsFromMap(supportedGrokCatalogModels))
+		for _, id := range []string{
+			"grok-code-fast-1", "grok-code-fast-1-0825", "grok-imagine-image",
+			"grok-4.20-0309-reasoning", "grok-latest", "grok-4.7-latest",
+		} {
+			_, inGrok := supportedGrokCatalogModels[id]
+			assert.False(t, inGrok, id)
+			assert.False(t, isPublicCatalogModelSupported("xai", id))
+		}
 	})
 
 	t.Run("grok membership follows supportedGrokCatalogModels (or passes through when empty)", func(t *testing.T) {

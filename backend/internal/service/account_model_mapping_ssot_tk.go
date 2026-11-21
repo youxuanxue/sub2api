@@ -14,7 +14,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
 const (
@@ -576,9 +575,6 @@ func supportedCatalogModelIDsFromMap(src map[string]struct{}) []string {
 }
 
 var geminiTrafficAliases = map[string]string{
-	// Gemini API/Vertex floors still forward the public id onto 3.8 wire capacity.
-	// Pricing for gemini-3-flash is a first-class overlay owner (AG Ultra literal).
-	"gemini-3-flash":         "gemini-3.8-flash",
 	"gemini-3-flash-preview": "gemini-3-flash",
 }
 
@@ -612,10 +608,6 @@ var supportedGeminiWebCatalogModels = map[string]struct{}{
 }
 
 var geminiWebTrafficAliases = map[string]string{
-	"gemini-3-flash": "gemini-3.8-flash",
-	// preview remains a settlement/traffic alias onto Web's 3.8 wire; the public
-	// catalog owner for gemini-3-flash is AG/Gemini API, not this restricted floor.
-	"gemini-3-flash-preview": "gemini-3.8-flash",
 	"gemini-3.1-pro-preview": "gemini-3.1-pro",
 	"nano-2":                 "gemini-3.1-flash-image",
 	"nano-pro":               "gemini-3-pro-image",
@@ -692,31 +684,18 @@ func grokAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogSe
 	if len(displayIDs) == 0 {
 		displayIDs = supportedCatalogModelIDsForPlatform(PlatformGrok)
 	}
-	displaySet := stringSet(displayIDs)
 	out := identityModelMapping(displayIDs)
-	// Compatibility aliases win over identity even when the alias id is also
-	// servable/display-listed (e.g. grok-4.5-latest → grok-4.5). Skipping
-	// public-listed keys left identity remaps that violate GROK_REQUIRED_ALIASES.
-	for from, to := range xai.DefaultModelMapping() {
-		if _, ok := displaySet[to]; ok {
-			out[from] = to
+	// Operator 2026-11-21: same-name provider prefixes only (xai/ + grok/).
+	// Do not import xai.DefaultModelMapping soup (-latest, x-ai/, imagine, build).
+	for _, id := range displayIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
 		}
-	}
-	for from, to := range tkGrokCompatibilityAliases {
-		if _, ok := displaySet[to]; ok {
-			out[from] = to
-		}
+		out["xai/"+id] = id
+		out["grok/"+id] = id
 	}
 	return out
-}
-
-var tkGrokCompatibilityAliases = map[string]string{
-	"grok-4-fast-reasoning": "grok-4.3",
-	"grok-4.3-latest":       "grok-4.3",
-	"grok-4.5-latest":       "grok-4.5",
-	"grok-build-latest":     "grok-4.5",
-	"grok-code-fast":        "grok-build-0.1",
-	"grok-code-fast-1-0825": "grok-build-0.1",
 }
 
 func identityModelMapping(ids []string) map[string]string {

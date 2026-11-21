@@ -230,6 +230,11 @@ func enqueueOpsErrorLog(ops *service.OpsService, entry *service.OpsInsertErrorLo
 	if ops == nil || entry == nil {
 		return
 	}
+	// Honor the per-user QA-capture opt-out for every sink: this is the single
+	// chokepoint all error paths funnel through.
+	if entry.SuppressForUserOptOut {
+		return
+	}
 	entry.UserAgent = normalizeOpsPersistentUserAgent(entry.UserAgent)
 	if entry.ErrorBody != "" {
 		originalBody := entry.ErrorBody
@@ -1355,6 +1360,11 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			entry.ClientIP = &clientIP
 		}
 
+		// Stamp the opt-out before coalescing: the coalescer keeps a summary of
+		// the entry and flushes it later, so an unstamped entry would have its
+		// collapsed tail written after this request is gone.
+		markOpsErrorLogUserOptOut(entry, apiKey)
+
 		// TK: collapse repeats of a client-owned, self-inflicted limit rejection.
 		// Measured: one quota-exhausted key retried without backoff produced 98%
 		// of a day's rows and buried 587 real incidents. The first occurrence per
@@ -1516,6 +1526,7 @@ func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatu
 		entry.ClientIP = &clientIP
 	}
 	applyOpsLatencyFieldsFromContext(c, entry)
+	markOpsErrorLogUserOptOut(entry, apiKey)
 	enqueueOpsErrorLog(ops, entry)
 }
 
@@ -1706,6 +1717,7 @@ func logOpsStreamErrorValue(c *gin.Context, ops *service.OpsService, wireStatus 
 		entry.ClientIP = &clientIP
 	}
 
+	markOpsErrorLogUserOptOut(entry, apiKey)
 	enqueueOpsErrorLog(ops, entry)
 }
 

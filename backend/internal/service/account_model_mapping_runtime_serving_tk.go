@@ -53,7 +53,7 @@ func ensureAntigravityDefaultPassthroughs(result map[string]string) map[string]s
 	//
 	// 而裸名自映射指向的是上游目录里没有的名字（AG 只有档位变体），本身就是
 	// 404 的来源，并且与 DefaultAntigravityModelMapping 的裸名锁档约定
-	// （Flash 锁 high，Argon/Carbon 锁 medium）相反。实测它在现网的净增量只有一条：把已退役的
+	// （Flash 与 Argon/Carbon 锁 high）相反。实测它在现网的净增量只有一条：把已退役的
 	// gemini-3.6-flash 复活回客户可见列表。
 	//
 	// 代价（刻意接受）：以后新模型上线、或从别处导入旧账号时，裸名要靠对账脚本

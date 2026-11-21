@@ -234,24 +234,14 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 // public membership still requires CatalogPolicy and structurally-gone review.
 var supportedGrokCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin grok
-	"grok-4.20-0309-non-reasoning": {},
-	"grok-4.20-0309-reasoning":     {},
-	"grok-4.3":                     {},
-	"grok-4.3-latest":              {},
-	"grok-4.5":                     {},
-	"grok-4.5-latest":              {},
-	"grok-4.6":                     {},
-	"grok-4.7":                     {},
-	"grok-build-0.1":               {},
-	"grok-build-latest":            {},
-	"grok-code-fast":               {},
-	// grok-code-fast-1: off after 2026-10-22 SSOT canary upstream 429
-	// (reprobe_required). Same allowlist cascade as Argon; keep 0825 + overlay.
-	"grok-code-fast-1-0825":      {},
-	"grok-imagine-image":         {},
-	"grok-imagine-image-quality": {},
-	"grok-imagine-video":         {},
-	"grok-latest":                {},
+	// Operator 2026-11-21: grok oauth text-only surface — identity IDs only.
+	// Account mapping floor adds same-name xai/ and grok/ prefixes; media /
+	// 4.20 / build / code-fast / -latest stay priced for settlement but off
+	// public allowlist + account mapping.
+	"grok-4.3": {},
+	"grok-4.5": {},
+	"grok-4.6": {},
+	"grok-4.7": {},
 	// servable-allowlist:end grok
 }
 

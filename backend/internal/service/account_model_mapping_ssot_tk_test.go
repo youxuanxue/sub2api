@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -293,18 +292,27 @@ func TestAccountModelMappingForAccount_AinzyUsesCuratedFloor(t *testing.T) {
 	requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsFromMap(supportedOpenAIAinzyRelayCatalogModels))
 }
 
-func TestGrokAccountModelMappingFloor_AppliesCompatibilityAliasesOverIdentity(t *testing.T) {
+func TestGrokAccountModelMappingFloor_IdentityPlusSameNameProviderPrefixes(t *testing.T) {
 	t.Parallel()
 	mapping := grokAccountModelMappingFloor(context.Background(), nil, nil)
-	requireGrokDisplayBackedCompatibilityAliases(t, mapping)
-}
-
-func requireGrokDisplayBackedCompatibilityAliases(t *testing.T, mapping map[string]string) {
-	t.Helper()
-	expected := grokDisplayBackedCompatibilityAliases()
-	require.NotEmpty(t, expected, "Grok alias SSOT must include display-listed compatibility aliases")
-	for from, to := range expected {
-		require.Equal(t, to, mapping[from], "display-listed Grok alias %s must map through compatibility SSOT", from)
+	ids := supportedCatalogModelIDsFromMap(supportedGrokCatalogModels)
+	require.Equal(t, []string{"grok-4.3", "grok-4.5", "grok-4.6", "grok-4.7"}, ids)
+	require.Len(t, mapping, len(ids)*3)
+	for _, id := range ids {
+		require.Equal(t, id, mapping[id])
+		require.Equal(t, id, mapping["xai/"+id])
+		require.Equal(t, id, mapping["grok/"+id])
+		_, hasXAIDash := mapping["x-ai/"+id]
+		require.False(t, hasXAIDash, "x-ai/ prefix must stay off the grok oauth floor")
+		_, hasLatest := mapping[id+"-latest"]
+		require.False(t, hasLatest, "-latest aliases must stay off the grok oauth floor")
+	}
+	for _, banned := range []string{
+		"grok", "grok-latest", "grok-4.20-0309-reasoning", "grok-imagine-image",
+		"grok-build-0.1", "grok-4-fast-reasoning",
+	} {
+		_, ok := mapping[banned]
+		require.False(t, ok, "withdrawn/non-curated key %s must not appear on grok floor", banned)
 	}
 }
 
@@ -368,29 +376,6 @@ func requireOpenAITextCompatibilityAliases(t *testing.T, mapping map[string]stri
 	require.Equal(t, "gpt-6.1-terra", mapping["gpt-6.1-terra"])
 	require.Equal(t, "gpt-6.2-sol", mapping["gpt-6.2-sol"])
 	require.Equal(t, "gpt-6.2-astra", mapping["gpt-6.2-astra"])
-}
-
-func grokDisplayBackedCompatibilityAliases() map[string]string {
-	displaySet := stringSet(supportedCatalogModelIDsForPlatform(PlatformGrok))
-	out := make(map[string]string)
-	add := func(from, to string) {
-		if from == to {
-			return
-		}
-		if _, ok := displaySet[from]; !ok {
-			return
-		}
-		if _, ok := displaySet[to]; ok {
-			out[from] = to
-		}
-	}
-	for from, to := range xai.DefaultModelMapping() {
-		add(from, to)
-	}
-	for from, to := range tkGrokCompatibilityAliases {
-		add(from, to)
-	}
-	return out
 }
 
 func requireIdentityMappingForIDs(t *testing.T, mapping map[string]string, ids []string) {

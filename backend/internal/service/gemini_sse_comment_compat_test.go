@@ -19,13 +19,17 @@ func TestGeminiClientRejectsSSEComments(t *testing.T) {
 		hint string
 		want bool
 	}{
-		{"go-genai (Antigravity CLI)", "google-genai-sdk/1.71.0 gl-go/go1.28-20260721-RC03 cl/951519500 +3ebc191975 X:fieldtrack,boringcrypto", true},
+		{"go-genai sdk marker", "google-genai-sdk/1.71.0 gl-go/go1.28-20260721-RC03 cl/951519500 +3ebc191975 X:fieldtrack,boringcrypto", true},
 		{"python-genai", "google-genai-sdk/1.20.0 gl-python/3.12.4", true},
+		// Real agy wire UA (BuildUserAgent): no google-genai-sdk marker, still go-genai framing.
+		{"agy aidev_client", "antigravity/cli/1.5.12 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)", true},
+		{"agy bare antigravity/cli", "antigravity/cli/1.5.12 darwin/arm64", true},
 		{"js-genai tolerates comments", "google-genai-sdk/1.9.0 gl-node/22.3.0", false},
 		{"gemini-cli", "GeminiCLI/0.60.0 (darwin; arm64)", false},
 		{"curl", "curl/8.7.1", false},
 		{"empty", "", false},
 		{"case-insensitive", "Google-GenAI-SDK/1.0.0 GL-Go/go1.27", true},
+		{"agy case-insensitive", "Antigravity/CLI/1.5.12 (Aidev_Client; os_type=darwin)", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -44,6 +48,9 @@ func TestDownstreamRejectsSSECommentsReadsBothHeaders(t *testing.T) {
 
 	c.Request.Header.Del("X-Goog-Api-Client")
 	c.Request.Header.Set("User-Agent", "google-genai-sdk/1.71.0 gl-go/go1.28")
+	require.True(t, downstreamRejectsSSEComments(c))
+
+	c.Request.Header.Set("User-Agent", "antigravity/cli/1.5.12 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)")
 	require.True(t, downstreamRejectsSSEComments(c))
 
 	require.False(t, downstreamRejectsSSEComments(nil))
@@ -101,10 +108,17 @@ func TestAntigravityGeminiStreamUsesWhitespaceKeepaliveForGeminiCLI(t *testing.T
 }
 
 func TestAntigravityGeminiStreamSkipsCommentKeepaliveForGoGenai(t *testing.T) {
-	out := runAntigravityGeminiStreamWithIdle(t, "google-genai-sdk/1.71.0 gl-go/go1.28-20260721-RC03", 1200*time.Millisecond)
-	require.Contains(t, out, `"text":"partial"`)
-	require.False(t, strings.HasSuffix(out, "\n\n\n"), "go-genai must not receive an in-stream heartbeat, body=%q", out)
-	for _, event := range strings.Split(out, "\n\n") {
-		require.False(t, strings.HasPrefix(event, ":"), "go-genai must never receive an SSE comment event, got %q", event)
+	for _, ua := range []string{
+		"google-genai-sdk/1.71.0 gl-go/go1.28-20260721-RC03",
+		"antigravity/cli/1.5.12 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)",
+	} {
+		t.Run(ua, func(t *testing.T) {
+			out := runAntigravityGeminiStreamWithIdle(t, ua, 1200*time.Millisecond)
+			require.Contains(t, out, `"text":"partial"`)
+			require.False(t, strings.HasSuffix(out, "\n\n\n"), "go-genai/agy must not receive an in-stream heartbeat, body=%q", out)
+			for _, event := range strings.Split(out, "\n\n") {
+				require.False(t, strings.HasPrefix(event, ":"), "go-genai/agy must never receive an SSE comment event, got %q", event)
+			}
+		})
 	}
 }

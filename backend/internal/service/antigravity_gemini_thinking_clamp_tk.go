@@ -100,7 +100,7 @@ func normalizeAntigravityLevelModelThinking(model string, body []byte, hasBudget
 	}
 
 	if budget < antigravityGeminiThinkingBudgetMin || budget > antigravityGeminiThinkingBudgetMax {
-		// Illegal / 超大: drop; leave account floor mapping (argon → medium).
+		// Illegal / 超大: drop; preserve the account’s default tier.
 		next, err := sjson.DeleteBytes(body, thinkingBudgetPath)
 		if err != nil {
 			return body

@@ -136,15 +136,15 @@ const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 // 2026-09-22：3.8 Flash 裸名默认 wire 锁 high；-{low,medium,high} 为非公开
 // wire 档位，由 AntigravityThinkingWireFloorEntries 注入 account floor。
 // 2026-11-12：gemini-4-argon 与 gemini-4-carbon 的 low/medium/high token 单价相同，
-// 官方默认思考档是 medium。裸名默认改锁 medium；显式 thinkingLevel 仍选同名后缀。
+// 裸名默认使用 high；显式 thinkingLevel 仍选同名后缀。
 // 2026-11-13：gemini-4-hydrogen 的四档 token 单价相同。官方默认思考档是 high，
-// 裸名仍锁 medium（与 Argon/Carbon 同一条用户体验决定）；显式档位含 xhigh。
+// 裸名仍锁 medium；显式档位含 xhigh。
 // 2026-11-20：gemini-4-neon 同 Hydrogen 四档（含 xhigh）单价相同；官方默认思考档
 // 是 high，裸名仍锁 medium。
 var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.8-flash":       "gemini-3.8-flash-high",
-	"gemini-4-argon":         "gemini-4-argon-medium",
-	"gemini-4-carbon":        "gemini-4-carbon-medium",
+	"gemini-4-argon":         "gemini-4-argon-high",
+	"gemini-4-carbon":        "gemini-4-carbon-high",
 	"gemini-4-hydrogen":      "gemini-4-hydrogen-medium",
 	"gemini-4-neon":          "gemini-4-neon-medium",
 	"gemini-3-flash":         "gemini-3-flash", // upstream advertises this literal id on Ultra

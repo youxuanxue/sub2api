@@ -238,6 +238,11 @@ func (s *AntigravityGatewayService) beginHeaderWaitKeepalive(c *gin.Context, req
 	if s == nil || s.settingService == nil || s.settingService.cfg == nil || frame == "" {
 		return nil
 	}
+	// go-genai / agy reject a leading bare "\n" glued onto the first data frame.
+	// Prefer a longer header wait over invalid stream chunk mid-agent.
+	if frame == geminiNativeSSEKeepaliveFrame && downstreamRejectsSSEComments(c) {
+		return nil
+	}
 	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.settingService.cfg.Gateway.StreamKeepaliveInterval, frame)
 }
 
@@ -261,8 +266,13 @@ func (s *GeminiMessagesCompatService) beginSSECommentHeaderWaitKeepalive(c *gin.
 
 // beginGeminiNativeHeaderWaitKeepalive emits a Gemini-CLI-safe keepalive while
 // ForwardNative waits on upstream headers. See geminiNativeSSEKeepaliveFrame.
+// go-genai / Antigravity CLI get no header-wait heartbeat: a bare "\n" becomes
+// "\ndata:…" and aborts iterateResponseStream.
 func (s *GeminiMessagesCompatService) beginGeminiNativeHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive {
 	if s == nil || s.cfg == nil {
+		return nil
+	}
+	if downstreamRejectsSSEComments(c) {
 		return nil
 	}
 	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, geminiNativeSSEKeepaliveFrame)

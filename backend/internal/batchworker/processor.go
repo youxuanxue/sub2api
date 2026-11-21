@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/Wei-Shaw/sub2api/internal/batchadapter"
 	"github.com/Wei-Shaw/sub2api/internal/batchcontract"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
@@ -83,6 +85,7 @@ type Config struct {
 	Enabled         bool
 	WorkerID        string
 	BatchSize       int
+	ParallelItems   int
 	ItemLeaseTTL    time.Duration
 	RetryDelay      time.Duration
 	ResultIndexer   ResultIndexer
@@ -195,15 +198,23 @@ func (p *Processor) Process(ctx context.Context, job service.ManagedBatchJob) (s
 	if err != nil {
 		return service.ManagedBatchProcessResult{}, err
 	}
-	for i := range items {
-		if err := p.processItem(ctx, persistCtx, payload, b, items[i], b.Endpoint); err != nil {
-			// A context cancellation after a provider call is represented as an
-			// unknown item outcome; the durable state is already fenced.
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if p.cfg.ParallelItems <= 1 {
+		for _, item := range items {
+			if err := p.processItem(ctx, persistCtx, payload, b, item, b.Endpoint); err != nil {
 				return service.ManagedBatchProcessResult{}, err
 			}
-			return service.ManagedBatchProcessResult{}, err
 		}
+		return p.reconcile(persistCtx, payload, b)
+	}
+	var work errgroup.Group
+	work.SetLimit(p.cfg.ParallelItems)
+	for _, item := range items {
+		work.Go(func() error {
+			return p.processItem(ctx, persistCtx, payload, b, item, b.Endpoint)
+		})
+	}
+	if err := work.Wait(); err != nil {
+		return service.ManagedBatchProcessResult{}, err
 	}
 	return p.reconcile(persistCtx, payload, b)
 }
