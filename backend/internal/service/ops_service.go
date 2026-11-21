@@ -658,12 +658,10 @@ func sanitizeOpsUpstreamErrors(entry *OpsInsertErrorLogInput) error {
 			out.Detail = ""
 		}
 
-		// Privacy: ops_error_logs never persists client/upstream request bodies.
-		// Request payloads are reconstructable only from the QA capture of users
-		// who left QA capture enabled; the attempt JSON keeps metadata only.
-		out.UpstreamRequestBody = ""
-		out.RequestBodyTruncated = false
-
+		// Privacy: OpsUpstreamErrorEvent carries no request-body field, so the
+		// attempt JSON is metadata only. Request payloads are reconstructable
+		// only from the QA capture of users who left QA capture enabled.
+		//
 		// Drop fully-empty events (can happen if only status code was known).
 		if out.UpstreamStatusCode == 0 && out.Message == "" && detail == "" && strings.TrimSpace(ev.UpstreamResponseBody) == "" {
 			continue

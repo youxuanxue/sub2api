@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -31,42 +32,47 @@ func TestSafeUpstreamURL(t *testing.T) {
 	}
 }
 
-func TestAppendOpsUpstreamError_UsesRequestBodyBytesFromContext(t *testing.T) {
+// TestAppendOpsUpstreamError_DoesNotCopyRequestBodyIntoEvent pins that the
+// in-process upstream request body stays in the gin context and never reaches
+// the attempt event. Zero-usage estimate fallback and the OpenAI
+// response-protection diagnostic read the context key directly; the ops error
+// log must stay metadata only.
+func TestAppendOpsUpstreamError_DoesNotCopyRequestBodyIntoEvent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
 
-	setOpsUpstreamRequestBody(c, []byte(`{"model":"gpt-5"}`))
-	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-		Kind:    "http_error",
-		Message: "upstream failed",
-	})
+	for _, tc := range []struct {
+		name string
+		set  func(c *gin.Context)
+	}{
+		{"bytes", func(c *gin.Context) { setOpsUpstreamRequestBody(c, []byte(`{"model":"gpt-5"}`)) }},
+		{"string", func(c *gin.Context) { c.Set(OpsUpstreamRequestBodyKey, `{"model":"gpt-4"}`) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
 
-	v, ok := c.Get(OpsUpstreamErrorsKey)
-	require.True(t, ok)
-	events, ok := v.([]*OpsUpstreamErrorEvent)
-	require.True(t, ok)
-	require.Len(t, events, 1)
-	require.Equal(t, `{"model":"gpt-5"}`, events[0].UpstreamRequestBody)
-}
+			tc.set(c)
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Kind:    "http_error",
+				Message: "upstream failed",
+			})
 
-func TestAppendOpsUpstreamError_UsesRequestBodyStringFromContext(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
+			v, ok := c.Get(OpsUpstreamErrorsKey)
+			require.True(t, ok)
+			events, ok := v.([]*OpsUpstreamErrorEvent)
+			require.True(t, ok)
+			require.Len(t, events, 1)
 
-	c.Set(OpsUpstreamRequestBodyKey, `{"model":"gpt-4"}`)
-	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-		Kind:    "request_error",
-		Message: "dial timeout",
-	})
+			raw := marshalOpsUpstreamErrors(events)
+			require.NotNil(t, raw)
+			require.NotContains(t, *raw, "upstream_request_body")
+			require.NotContains(t, *raw, "model")
 
-	v, ok := c.Get(OpsUpstreamErrorsKey)
-	require.True(t, ok)
-	events, ok := v.([]*OpsUpstreamErrorEvent)
-	require.True(t, ok)
-	require.Len(t, events, 1)
-	require.Equal(t, `{"model":"gpt-4"}`, events[0].UpstreamRequestBody)
+			// The in-process capture itself must survive for its real consumers.
+			_, stillSet := c.Get(OpsUpstreamRequestBodyKey)
+			require.True(t, stillSet)
+		})
+	}
 }
 
 func TestAppendOpsUpstreamError_UsesTLSFingerprintProfileFromContext(t *testing.T) {
@@ -96,26 +102,21 @@ func TestAppendOpsUpstreamError_UsesTLSFingerprintProfileFromContext(t *testing.
 }
 
 // TestSanitizeOpsUpstreamErrors_NeverPersistsRequestBody pins the privacy
-// contract: ops_error_logs stores upstream failure metadata only. Request
-// payloads are never persisted here regardless of size, so the only place a
-// prompt can be recovered for troubleshooting is the QA capture of users who
-// left QA capture enabled.
+// contract: ops_error_logs stores upstream failure metadata only. The event
+// struct carries no request-body field, so no attempt can smuggle a payload in
+// via Detail or the response body either.
 func TestSanitizeOpsUpstreamErrors_NeverPersistsRequestBody(t *testing.T) {
-	largeContent := strings.Repeat("x", 20*1024)
-	largeBody, err := json.Marshal(map[string]any{"messages": []map[string]any{{"role": "user", "content": largeContent}}})
-	require.NoError(t, err)
+	marker := strings.Repeat("x", 20*1024)
 
 	entry := &OpsInsertErrorLogInput{
 		UpstreamErrors: []*OpsUpstreamErrorEvent{
 			{
-				Kind:                "request_error",
-				Message:             `Post "https://api.anthropic.com/v1/messages": net/http: timeout awaiting response headers`,
-				UpstreamRequestBody: string(largeBody),
+				Kind:    "request_error",
+				Message: `Post "https://api.anthropic.com/v1/messages": net/http: timeout awaiting response headers`,
 			},
 			{
-				Kind:                "request_error",
-				Message:             "dial tcp: i/o timeout",
-				UpstreamRequestBody: `{"model":"claude-opus-4-7","stream":true}`,
+				Kind:    "request_error",
+				Message: "dial tcp: i/o timeout",
 			},
 		},
 	}
@@ -126,27 +127,37 @@ func TestSanitizeOpsUpstreamErrors_NeverPersistsRequestBody(t *testing.T) {
 	var got []*OpsUpstreamErrorEvent
 	require.NoError(t, json.Unmarshal([]byte(*entry.UpstreamErrorsJSON), &got))
 	require.Len(t, got, 2)
-
 	for i, ev := range got {
 		require.Equal(t, "request_error", ev.Kind, "Kind must stay a clean enum value (event %d)", i)
-		require.Empty(t, ev.UpstreamRequestBody, "request body must never be persisted (event %d)", i)
-		require.False(t, ev.RequestBodyTruncated, "truncation flag is meaningless once bodies are dropped (event %d)", i)
 	}
 	require.NotContains(t, *entry.UpstreamErrorsJSON, "upstream_request_body")
 	require.NotContains(t, *entry.UpstreamErrorsJSON, "request_body_truncated")
-	require.NotContains(t, *entry.UpstreamErrorsJSON, largeContent[:64])
+	require.NotContains(t, *entry.UpstreamErrorsJSON, marker[:64])
 }
 
-// TestSanitizeOpsUpstreamErrors_DropsEventWithOnlyRequestBody verifies an
-// attempt whose only payload was the request body is dropped rather than
-// stored as an empty row.
-func TestSanitizeOpsUpstreamErrors_DropsEventWithOnlyRequestBody(t *testing.T) {
-	entry := &OpsInsertErrorLogInput{
-		UpstreamErrors: []*OpsUpstreamErrorEvent{
-			{UpstreamRequestBody: `{"model":"claude-opus-4-7"}`},
-		},
+// TestOpsUpstreamErrorEventHasNoRequestBodyField is an existence gate mirroring
+// ops_repo_replay_cleanup_test.go: the privacy fix removed these fields, and a
+// future upstream merge must not reintroduce them silently.
+func TestOpsUpstreamErrorEventHasNoRequestBodyField(t *testing.T) {
+	eventType := reflect.TypeOf(OpsUpstreamErrorEvent{})
+	for _, field := range []string{"UpstreamRequestBody", "RequestBodyTruncated"} {
+		_, ok := eventType.FieldByName(field)
+		require.Falsef(t, ok, "OpsUpstreamErrorEvent must not carry request-body field %q: ops_error_logs stores metadata only", field)
 	}
+}
 
-	require.NoError(t, sanitizeOpsUpstreamErrors(entry))
-	require.Nil(t, entry.UpstreamErrorsJSON, "an attempt carrying only a request body leaves nothing to store")
+// TestNormalizeOpsUpstreamErrorsJSON_StripsLegacyRequestBody covers rows written
+// before the privacy fix: their stored request body must not reach the read
+// surface, and unrelated keys must survive the in-place edit.
+func TestNormalizeOpsUpstreamErrorsJSON_StripsLegacyRequestBody(t *testing.T) {
+	legacy := `[{"kind":"request_error","message":"dial timeout","upstream_request_body":"{\"model\":\"claude-opus-4-7\"}","request_body_truncated":true,"proxy_id":7,"proxy_name":"edge-1"}]`
+
+	out, err := normalizeOpsUpstreamErrorsJSON(legacy)
+	require.NoError(t, err)
+	require.NotContains(t, out, "upstream_request_body")
+	require.NotContains(t, out, "request_body_truncated")
+	require.NotContains(t, out, "claude-opus-4-7")
+	require.Contains(t, out, `"kind":"request_error"`)
+	require.Contains(t, out, `"message":"dial timeout"`)
+	require.Contains(t, out, `"proxy_name":"edge-1"`)
 }

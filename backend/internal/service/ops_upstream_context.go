@@ -108,8 +108,9 @@ const (
 	// the inbound request context before gateway auth/body handling completed.
 	OpsClientClosedRequestKey = "ops_client_closed_request"
 
-	// Best-effort capture of the current upstream request body so ops can
-	// retry the specific upstream attempt (not just the client request).
+	// OpsUpstreamRequestBodyKey holds the current upstream request body for the
+	// duration of the request only. It is never persisted: zero-usage estimate
+	// fallback and the OpenAI response-protection diagnostic read it in-process.
 	OpsUpstreamRequestBodyKey = "ops_upstream_request_body"
 
 	OpsTLSFingerprintProfileIDKey   = "ops_tls_fingerprint_profile_id"
@@ -602,11 +603,6 @@ type OpsUpstreamErrorEvent struct {
 	// Helps debug 404/routing errors by showing which endpoint was targeted.
 	UpstreamURL string `json:"upstream_url,omitempty"`
 
-	// Best-effort upstream request capture (sanitized+trimmed).
-	UpstreamRequestBody string `json:"upstream_request_body,omitempty"`
-	// RequestBodyTruncated indicates UpstreamRequestBody was truncated for storage.
-	RequestBodyTruncated bool `json:"request_body_truncated,omitempty"`
-
 	// Best-effort upstream response capture (sanitized+trimmed).
 	UpstreamResponseBody string `json:"upstream_response_body,omitempty"`
 
@@ -665,7 +661,6 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 		}
 	}
 	ev.UpstreamRequestID = strings.TrimSpace(ev.UpstreamRequestID)
-	ev.UpstreamRequestBody = strings.TrimSpace(ev.UpstreamRequestBody)
 	ev.UpstreamResponseBody = strings.TrimSpace(ev.UpstreamResponseBody)
 	ev.Kind = strings.TrimSpace(ev.Kind)
 	ev.Stage = strings.TrimSpace(ev.Stage)
@@ -676,17 +671,6 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	ev.Detail = strings.TrimSpace(ev.Detail)
 	if ev.Message != "" {
 		ev.Message = sanitizeUpstreamErrorMessage(ev.Message)
-	}
-
-	if ev.UpstreamRequestBody == "" {
-		if v, ok := c.Get(OpsUpstreamRequestBodyKey); ok {
-			switch raw := v.(type) {
-			case string:
-				ev.UpstreamRequestBody = strings.TrimSpace(raw)
-			case []byte:
-				ev.UpstreamRequestBody = strings.TrimSpace(string(raw))
-			}
-		}
 	}
 
 	var existing []*OpsUpstreamErrorEvent
@@ -845,9 +829,14 @@ func ParseOpsUpstreamErrors(raw string) ([]*OpsUpstreamErrorEvent, error) {
 }
 
 // normalizeOpsUpstreamErrorsJSON materializes missing proxy attribution on
-// stored JSON for detail reads. It edits only the attribution keys of events
-// that lack them, so keys written by older struct versions and the original
-// key order survive; nothing is re-marshaled through the current struct.
+// stored JSON for detail reads, and strips request-body keys that older rows
+// may still carry. It edits only those keys, so keys written by older struct
+// versions and the original key order survive; nothing is re-marshaled through
+// the current struct.
+//
+// Privacy: request bodies stopped being persisted, but rows written before that
+// change keep theirs until retention expires them. Deleting the keys here means
+// the read surface never returns a stored request body, with no data migration.
 func normalizeOpsUpstreamErrorsJSON(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -866,6 +855,16 @@ func normalizeOpsUpstreamErrorsJSON(raw string) (string, error) {
 			continue
 		}
 		prefix := strconv.Itoa(i) + "."
+		for _, key := range []string{"upstream_request_body", "request_body_truncated"} {
+			if !ev.Get(key).Exists() {
+				continue
+			}
+			deleted, delErr := sjson.Delete(out, prefix+key)
+			if delErr != nil {
+				return "", delErr
+			}
+			out = deleted
+		}
 		proxyID := ev.Get("proxy_id")
 		proxyName := strings.TrimSpace(ev.Get("proxy_name").String())
 		hasValidID := proxyID.Exists() && proxyID.Type == gjson.Number && proxyID.Int() > 0

@@ -21298,6 +21298,22 @@
         "\"qwen4-max-preview\""
       ],
       "rationale": "Ali Token Plan canonical ids self-map and are public; legacy dotted ids remain mapping-only aliases."
+    },
+    {
+      "path": "backend/internal/service/ops_upstream_context.go",
+      "must_contain": [
+        "func normalizeOpsUpstreamErrorsJSON(",
+        "\"upstream_request_body\", \"request_body_truncated\""
+      ],
+      "rationale": "Privacy: ops_error_logs stores upstream failure metadata only. OpsUpstreamErrorEvent must carry no request-body field, and the detail read must keep stripping those keys from rows written before the fix. Reintroducing either is compile-clean, so an upstream merge could silently resume persisting prompts."
+    },
+    {
+      "path": "backend/internal/service/ops_upstream_context_test.go",
+      "must_contain": [
+        "func TestOpsUpstreamErrorEventHasNoRequestBodyField(",
+        "func TestNormalizeOpsUpstreamErrorsJSON_StripsLegacyRequestBody("
+      ],
+      "rationale": "Keep the existence gate against reintroduced request-body fields and the legacy-row strip coverage; both are the only mechanical anchors for the no-request-body privacy contract."
     }
   ]
 }
