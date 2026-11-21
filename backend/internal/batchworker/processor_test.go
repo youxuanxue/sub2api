@@ -409,3 +409,44 @@ func TestProcessorResultIndexerFailureDoesNotClaimSuccess(t *testing.T) {
 	require.ErrorIs(t, err, ErrResultIndex)
 	require.Equal(t, itemStatusUnknown, r.completed[11])
 }
+
+func TestProcessorConcurrentItems(t *testing.T) {
+	r := newFakeRepo(batchcontract.BatchStatusValidating, nil)
+	first, second := testItem(), testItem()
+	second.ID++
+	second.CustomID = "row-2"
+	second.Request["custom_id"] = second.CustomID
+	r.items = []repository.ManagedBatchItem{first, second}
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	adapter := batchadapter.NewOpenAIAdapter(fakeRunner{run: func(ctx context.Context) (batchadapter.ProviderResponse, error) {
+		started <- struct{}{}
+		select {
+		case <-release:
+			return batchadapter.ProviderResponse{StatusCode: 200, Body: []byte(`{"usage":{"input_tokens":1,"output_tokens":1}}`)}, nil
+		case <-ctx.Done():
+			return batchadapter.ProviderResponse{}, ctx.Err()
+		}
+	}})
+	p := NewProcessor(Config{Enabled: true, ParallelItems: 2, ResultIndexer: &memoryIndexer{}}, r, map[string]batchadapter.ManagedExecutor{batchadapter.ProviderOpenAI: adapter})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	payload := testPayload(t)
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.Process(ctx, service.ManagedBatchJob{Payload: payload})
+		done <- err
+	}()
+	for range r.items {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatal("items did not reach the provider concurrently")
+		}
+	}
+	close(release)
+	require.NoError(t, <-done)
+	require.Equal(t, batchcontract.BatchStatusCompleted, r.batch.Status)
+	require.Equal(t, batchcontract.ItemStatusSucceeded, r.completed[first.ID])
+	require.Equal(t, batchcontract.ItemStatusSucceeded, r.completed[second.ID])
+}

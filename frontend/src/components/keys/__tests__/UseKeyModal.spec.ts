@@ -619,7 +619,7 @@ describe('UseKeyModal — redesign (picker / test / CC-only / raw tabs)', () => 
     getMePricingCatalog.mockResolvedValue({
       models: [
         { model_id: 'gemini-3.8-flash', capabilities: ['vision'], context_window: 1048576 },
-        { model_id: 'gemini-3.6-flash', capabilities: [] }
+        { model_id: 'gemini-3-flash', capabilities: [] }
       ]
     })
     const wrapper = mountModal({ platform: 'gemini', apiKeyId: 42 })
@@ -630,11 +630,11 @@ describe('UseKeyModal — redesign (picker / test / CC-only / raw tabs)', () => 
     const joined = wrapper.findAll('pre code').map((c) => c.text()).join('\n')
     // first servable gemini model is injected; the old free-text comment is gone
     expect(joined).toContain('GEMINI_MODEL="gemini-3.8-flash"')
-    expect(joined).not.toContain('gemini-3-pro-preview')
+    expect(joined).not.toContain('gemini-3-flash-preview')
     // the picker offers exactly the servable ids
     const options = wrapper.findAll('option').map((o) => o.text())
     expect(options).toContain('gemini-3.8-flash')
-    expect(options).toContain('gemini-3.6-flash')
+    expect(options).toContain('gemini-3-flash')
   })
 
   it('CC-only anthropic group offers only Claude Code (no curl/python/opencode) + warning', async () => {

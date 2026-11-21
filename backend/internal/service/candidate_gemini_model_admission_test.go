@@ -99,19 +99,14 @@ func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
 func TestCandidateEligibilityGeminiNativeActivationScope(t *testing.T) {
 	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
-	wantVertex := map[string]string{
-		"gemini-3-flash": "gemini-3-flash",
+	const model = "gemini-3-flash"
+	require.Equal(t, model, floor.NewAPIChannelTypes["41"][model])
+	for profile, mapping := range floor.VertexCapabilityProfiles {
+		require.Equal(t, model, mapping[model], "profile %s", profile)
 	}
-	for _, model := range []string{"gemini-3-flash"} {
-		require.Equal(t, wantVertex[model], floor.NewAPIChannelTypes["41"][model])
-		for profile, mapping := range floor.VertexCapabilityProfiles {
-			require.Equal(t, wantVertex[model], mapping[model], "profile %s", profile)
-		}
-		require.Equal(t, "gemini-3-flash", floor.Platforms[PlatformAntigravity][model])
-		require.Equal(t, "gemini-3.8-flash", floor.Platforms[PlatformGemini][model],
-			"native Gemini floor keeps traffic alias onto 3.8 when servable")
-		require.Contains(t, AccountModelMappingPresetIDs(context.Background(), PlatformGemini, 0, nil), model)
-	}
+	require.Equal(t, model, floor.Platforms[PlatformAntigravity][model])
+	require.Equal(t, model, floor.Platforms[PlatformGemini][model])
+	require.Contains(t, AccountModelMappingPresetIDs(context.Background(), PlatformGemini, 0, nil), model)
 	require.NotContains(t, floor.NewAPIChannelTypes["41"], "gemini-3-flash-preview")
 }
 

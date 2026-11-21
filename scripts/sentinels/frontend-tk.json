@@ -2512,9 +2512,16 @@
       "must_contain": [
         "isGeminiNativeImageModel(model)",
         "modalityForModel(a.id)",
-        "export function sortAccountTestModels"
+        "export function sortAccountTestModels",
+        "'gemini-3.8-flash'",
+        "'gemini-3-flash'",
+        "真实用户客户端失败增多"
       ],
-      "rationale": "Single account test default/eligibility owner; image aliases must not accidentally become text connectivity probes."
+      "rationale": "Single account test default/eligibility owner; image aliases must not accidentally become text connectivity probes. Gemini/Antigravity probe preference must stay on served floors (3.8/3-flash) — listing withdrawn preview/lite IDs makes admin ops keys page the client-visible P1.",
+      "must_not_contain": [
+        "'gemini-3-flash-preview'",
+        "'gemini-3.5-flash-lite'"
+      ]
     },
     {
       "path": "frontend/src/components/account/GoogleVerificationLink.vue",
@@ -2898,6 +2905,31 @@
         "latencyFirstToken"
       ],
       "rationale": "Shared UsageTable must route first-token display through formatUsageFirstTokenMs and the 首内容 i18n key so keepalive nulls cannot render as 0.0s."
+    },
+    {
+      "path": "frontend/src/components/keys/UseKeyGuide.vue",
+      "must_contain": [
+        "keep in sync with supportedGeminiCatalogModels",
+        "keep in sync with supportedAntigravityCatalogModels",
+        "'gemini-3-flash': {\n      name: 'Gemini 3 Flash'"
+      ],
+      "must_not_contain": [
+        "'gemini-3-flash-preview'",
+        "'gemini-3.5-flash-lite'",
+        "'gemini-3.6-flash'",
+        "'gemini-3.7-flash'",
+        "'veo-3.1-generate-001'"
+      ],
+      "rationale": "OpenCode Gemini/Antigravity catalogs must track supported*CatalogModels. Re-advertising withdrawn preview/3.5-lite/3.6/3.7/veo IDs when allowedModels is undefined reintroduces 404 guide surfaces and client-visible failure noise."
+    },
+    {
+      "path": "frontend/src/components/account/AccountStatusIndicator.vue",
+      "must_contain": [
+        "'gemini-3-flash': 'G3F'",
+        "'gemini-3.8-flash': 'G38F'",
+        "'gemini-4-argon': 'G4Ar'"
+      ],
+      "rationale": "Account mapping scope abbreviations must cover the converged Gemini public surface (3-flash/3.8/4-*). Upstream merges that drop these keys leave admin status chips showing raw withdrawn or unreadable scope strings."
     }
   ]
 }

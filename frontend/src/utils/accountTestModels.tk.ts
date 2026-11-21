@@ -10,7 +10,11 @@ import { PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI } from '@/constants/gatewayPlatfo
 // 实际 served 模型兜底选取，不需要在这份偏好表里显式提前。
 const geminiTestPreference = [
   'gemini-3.8-flash',
-  'gemini-3-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash-lite',
+  'gemini-3-flash',
+  // gemini-3-flash-preview / gemini-3.5-flash-lite withdrawn from the Gemini/
+  // Antigravity serving floors (2026-11-16 / 2026-10). Keeping them here made
+  // admin account-test dialogs prefer IDs that 404 locally and page the
+  // 「真实用户客户端失败增多」P1 when ops keys are used.
 ]
 const priority = new Map(geminiTestPreference.map((id, index) => [id, index]))
 

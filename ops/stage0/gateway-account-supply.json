@@ -127,8 +127,7 @@
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "gemini-3-flash-preview",
-            "gemini-3.7-flash",
+            "gemini-3-flash",
             "gemini-3.8-flash"
           ]
         },
@@ -919,8 +918,7 @@
           "operation": "generation",
           "baseline_protocol": "gemini-content",
           "represented_models": [
-            "gemini-3-flash-preview",
-            "gemini-3.7-flash",
+            "gemini-3-flash",
             "gemini-3.8-flash"
           ]
         },

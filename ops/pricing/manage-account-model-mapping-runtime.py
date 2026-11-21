@@ -2043,7 +2043,7 @@ def cmd_selftest(_args) -> int:
             },
             "gemini": {
                 "gemini-3.8-flash": "gemini-3.8-flash",
-                "gemini-3-flash": "gemini-3.8-flash",
+                "gemini-3-flash": "gemini-3-flash",
                 "gemini-3.1-pro": "gemini-3.1-pro",
                 "gemini-3.1-flash-image": "gemini-3.1-flash-image",
                 "gemini-3-pro-image": "gemini-3-pro-image",
@@ -2077,7 +2077,6 @@ def cmd_selftest(_args) -> int:
     }
     floor["platforms"]["gemini_web"] = {
         "gemini-3.8-flash": "gemini-3.8-flash",
-        "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3.1-pro": "gemini-3.1-pro",
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
         "gemini-3-pro-image": "gemini-3-pro-image",

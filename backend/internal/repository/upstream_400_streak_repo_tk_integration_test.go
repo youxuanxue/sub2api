@@ -64,45 +64,45 @@ func TestUpstream400StreakRepository_OpenStreakRules(t *testing.T) {
 	expiredMsg := func(i int) string {
 		return fmt.Sprintf("Your account (21313999%02d) does not have a valid AgentPlan subscription. Request id: %x", i%3, 0xabcdef00+i)
 	}
-	// 25 errors over 48 min; request id / account digits vary per row.
+	// n errors at 2-minute spacing; request id / account digits vary per row.
 	series := func(acc int64, n int, start time.Time, msg func(int) string) {
 		for i := 0; i < n; i++ {
 			insErr(acc, start.Add(time.Duration(i)*2*time.Minute), msg(i))
 		}
 	}
 
-	// expired: old success, then an open 25-row streak → reported.
+	// expired: old success, then an open 45-row streak over ~88 min → reported.
 	insOK(expired, now.Add(-3*time.Hour))
-	series(expired, 25, now.Add(-50*time.Minute), expiredMsg)
+	series(expired, 45, now.Add(-90*time.Minute), expiredMsg)
 
-	// broken: 25-row streak, but a different 400 signature lands last → only the
+	// broken: long streak, but a different 400 signature lands last → only the
 	// newest run (1 row) is open → not reported.
-	series(broken, 25, now.Add(-60*time.Minute), expiredMsg)
+	series(broken, 45, now.Add(-100*time.Minute), expiredMsg)
 	insErr(broken, now.Add(-5*time.Minute), "a parameter specified in the request is not valid")
 
 	// recovered: streak then a success → not reported.
-	series(recovered, 25, now.Add(-60*time.Minute), expiredMsg)
+	series(recovered, 45, now.Add(-100*time.Minute), expiredMsg)
 	insOK(recovered, now.Add(-2*time.Minute))
 
-	// short: 30 identical rows within 1 minute (single-user retry storm) → span gate.
-	for i := 0; i < 30; i++ {
+	// short: 45 identical rows within ~90s (single-user retry storm) → span gate.
+	for i := 0; i < 45; i++ {
 		insErr(short, now.Add(-10*time.Minute).Add(time.Duration(i)*2*time.Second), "a parameter specified in the request is not valid")
 	}
 
-	// mixed: only 19 rows → count gate.
-	series(mixed, 19, now.Add(-50*time.Minute), expiredMsg)
+	// mixed: 39 rows over long span → count gate (needs 40).
+	series(mixed, 39, now.Add(-90*time.Minute), expiredMsg)
 
 	// disabled: ops already stopped it (status=error) → not reported.
 	disabled := mk("st-disabled")
 	_, err := integrationDB.ExecContext(ctx, "UPDATE accounts SET status='error' WHERE id=$1", disabled)
 	require.NoError(t, err)
-	series(disabled, 25, now.Add(-50*time.Minute), expiredMsg)
+	series(disabled, 45, now.Add(-90*time.Minute), expiredMsg)
 
-	got, err := repo.ListOpenUpstream400Streaks(ctx, now.Add(-6*time.Hour), 20, 10*time.Minute)
+	got, err := repo.ListOpenUpstream400Streaks(ctx, now.Add(-6*time.Hour), 40, 30*time.Minute)
 	require.NoError(t, err)
 	require.Len(t, got, 1, "%+v", got)
 	require.Equal(t, expired, got[0].AccountID)
-	require.Equal(t, 25, got[0].Count)
+	require.Equal(t, 45, got[0].Count)
 	require.Equal(t, 1, got[0].DistinctUsers)
 	require.Contains(t, got[0].SampleMessage, "AgentPlan")
 	require.NotContains(t, got[0].Signature, "2131399", "digits collapse into the signature")

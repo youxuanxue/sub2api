@@ -43,19 +43,23 @@ func (r *ManagedBatchRepository) GetFileForOwner(ctx context.Context, userID, ap
 	return &f, nil
 }
 
-func (r *ManagedBatchRepository) DeleteFileForOwner(ctx context.Context, userID, apiKeyID int64, id string) error {
-	res, err := r.db.ExecContext(ctx, `DELETE FROM batch_files WHERE id=$1 AND user_id=$2 AND api_key_id=$3`, id, userID, apiKeyID)
+func (r *ManagedBatchRepository) DeleteFileForOwner(ctx context.Context, userID, apiKeyID int64, id string, deleteObject func(string) error) error {
+	// Check ownership and foreign keys before touching COS. Keep storage_ref
+	// available for a retry if the external delete fails.
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	n, err := res.RowsAffected()
+	defer func() { _ = tx.Rollback() }()
+	var ref string
+	err = tx.QueryRowContext(ctx, `DELETE FROM batch_files WHERE id=$1 AND user_id=$2 AND api_key_id=$3 RETURNING storage_ref`, id, userID, apiKeyID).Scan(&ref)
 	if err != nil {
 		return err
 	}
-	if n != 1 {
-		return sql.ErrNoRows
+	if err := deleteObject(ref); err != nil {
+		return err
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (r *ManagedBatchRepository) ListFilesForOwner(ctx context.Context, userID, apiKeyID int64, purpose, after string, limit int) ([]ManagedBatchFile, bool, error) {

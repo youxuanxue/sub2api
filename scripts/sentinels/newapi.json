@@ -632,8 +632,8 @@
     {
       "path": "frontend/src/composables/useModelWhitelist.ts",
       "must_contain": [
-        "{ label: '4 Argon', from: 'gemini-4-argon', to: 'gemini-4-argon-medium'",
-        "{ label: '4 Carbon', from: 'gemini-4-carbon', to: 'gemini-4-carbon-medium'",
+        "{ label: '4 Argon', from: 'gemini-4-argon', to: 'gemini-4-argon-high'",
+        "{ label: '4 Carbon', from: 'gemini-4-carbon', to: 'gemini-4-carbon-high'",
         "{ label: '4 Hydrogen', from: 'gemini-4-hydrogen', to: 'gemini-4-hydrogen-medium'",
         "{ label: '4 Neon', from: 'gemini-4-neon', to: 'gemini-4-neon-medium'"
       ],

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"testing"
 	"time"
@@ -109,5 +110,38 @@ func TestManagedBatchListCursorsUseCreatedAtAndID(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "api_key_id", "input_file_id", "endpoint", "completion_window", "status", "request_counts", "metadata", "in_progress_at", "finalizing_at", "cancelling_at", "completed_at", "cancelled_at", "expired_at", "failed_at", "deadline_at", "version", "created_at"}))
 	_, _, err = r.ListBatchesForOwner(context.Background(), 7, 9, "batch-cursor", 1)
 	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestManagedBatchDeleteRetriesStorageFailure(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	repo := NewManagedBatchRepository(db)
+	query := regexp.QuoteMeta("DELETE FROM batch_files WHERE id=$1 AND user_id=$2 AND api_key_id=$3 RETURNING storage_ref")
+	unavailable := errors.New("COS unavailable")
+	for _, storageErr := range []error{unavailable, nil} {
+		mock.ExpectBegin()
+		mock.ExpectQuery(query).WithArgs("file", 1, 2).WillReturnRows(sqlmock.NewRows([]string{"storage_ref"}).AddRow("prefix/input"))
+		if storageErr != nil {
+			mock.ExpectRollback()
+		} else {
+			mock.ExpectCommit()
+		}
+		err = repo.DeleteFileForOwner(context.Background(), 1, 2, "file", func(ref string) error {
+			require.Equal(t, "prefix/input", ref)
+			return storageErr
+		})
+		require.ErrorIs(t, err, storageErr)
+	}
+	inUse := errors.New("referenced by batch")
+	mock.ExpectBegin()
+	mock.ExpectQuery(query).WithArgs("file", 1, 2).WillReturnError(inUse)
+	mock.ExpectRollback()
+	err = repo.DeleteFileForOwner(context.Background(), 1, 2, "file", func(string) error {
+		t.Fatal("referenced object was deleted")
+		return nil
+	})
+	require.ErrorIs(t, err, inUse)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
