@@ -64,6 +64,27 @@ class WatchdogQueueXrefTest(unittest.TestCase):
         queue.sync_queue(REPO, [item], "example/fork", api, day="2026-11-03")
         self.assertEqual(api.writes, [])
 
+    def test_human_annotation_after_watchdog_item_still_reads_the_record(self):
+        api = FakeGitHub()
+        item = _item(3023)
+        queue.sync_queue(REPO, [item], "example/fork", api, day="2026-11-03")
+        api.comments[0]["body"] = api.comments[0]["body"].replace(
+            "- [ ]", "- [x]", 1).replace(
+            " -->", " --> TK 核验：TokenKey 已覆盖。", 1)
+
+        api.calls.clear()
+        queue.sync_queue(REPO, [item], "example/fork", api, day="2026-11-03")
+
+        self.assertEqual(
+            [call for call in api.writes if "/comments" in call[0][-1]],
+            [],
+        )
+        self.assertEqual(api.issues[0]["state"], "closed")
+        self.assertEqual(
+            [queue.canonical_ref(row[2]) for row in queue.RECORD.findall(api.comments[0]["body"])],
+            [f"{REPO}#3023"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
