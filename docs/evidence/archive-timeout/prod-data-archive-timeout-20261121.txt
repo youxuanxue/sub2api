@@ -1,0 +1,21 @@
+[run-probe] resolved target=prod-data node=data via=tat lhins=lhins-p43i2kxh comment=run-probe wrapper
+[run-probe] ERROR: tccli tat RunCommand: CLI not found (tccli)
+[run-probe] duration=1s via=tat rc=2
+
+probe_exit=
+[run-probe] resolved region=eu-west-2 instance_id=mi-044ba9da6453c1557
+[run-probe] command_id=7f0e01cf-1211-4517-8895-88ea54c8ff37
+[run-probe] status=Failed duration=2s
+[remote-stderr] ERROR:  invalid input syntax for type integer: "5min"
+[remote-stderr] failed to run commands: exit status 1
+[run-probe] ERROR: remote status=Failed
+host_utc=2026-11-21T09:59:19Z
+container=tokenkey-postgres
+probe_ssm_exit=
+[run-probe] resolved region=eu-west-2 instance_id=mi-044ba9da6453c1557
+[run-probe] command_id=78f0dee4-6c71-40ea-9e8d-a5bb550c1078
+[run-probe] status=Success duration=3s
+host_utc=2026-11-21T09:59:36Z
+container=tokenkey-postgres
+on|pgbackrest --stanza=tokenkey archive-push %p|5min|300|2026-11-21 09:59:36.670726
+probe_ssm_retry_exit=

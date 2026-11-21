@@ -250,7 +250,7 @@ services:
       - -c
       - archive_command=${POSTGRES_ARCHIVE_COMMAND:-}
       - -c
-      - archive_timeout=${POSTGRES_ARCHIVE_TIMEOUT:-0}
+      - archive_timeout=${POSTGRES_ARCHIVE_TIMEOUT:-300s}
 PGEOF
 # >>> PROD_PG_OVERLAY END <<<
 printf '%s' "${CADDY_B64}" | base64 -d | gunzip > caddy/Caddyfile.template
