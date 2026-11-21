@@ -15,7 +15,7 @@ import (
 
 type managedBatchStoreFake struct{ objects map[string][]byte }
 
-func (s *managedBatchStoreFake) Upload(_ context.Context, key string, r io.Reader, _ string) (int64, error) {
+func (s *managedBatchStoreFake) Upload(_ context.Context, key string, r io.Reader, _ int64, _ string) (int64, error) {
 	b, e := io.ReadAll(r)
 	if e == nil {
 		s.objects[key] = b

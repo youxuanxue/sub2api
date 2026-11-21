@@ -27,7 +27,7 @@ import (
 // production adapter can wrap the existing S3 backup store; tests use a tiny
 // in-memory implementation without copying S3 client code.
 type ManagedBatchObjectStore interface {
-	Upload(context.Context, string, io.Reader, string) (int64, error)
+	Upload(context.Context, string, io.Reader, int64, string) (int64, error)
 	Download(context.Context, string) (io.ReadCloser, error)
 	Delete(context.Context, string) error
 }
@@ -73,7 +73,7 @@ func (b *ManagedBatchRepositoryBackend) CreateFile(ctx context.Context, owner Ma
 	}
 	id, key := newManagedID("file_"), "managed-batches/"+fmt.Sprint(owner.UserID)+"/"+newManagedID("obj_")
 	h := sha256.New()
-	n, err := b.Store.Upload(ctx, key, io.TeeReader(body, h), "application/jsonl")
+	n, err := b.Store.Upload(ctx, key, io.TeeReader(body, h), size, "application/jsonl")
 	if err != nil {
 		return ManagedBatchFile{}, &BatchAPIError{Status: 503, Type: "server_error", Code: "storage_unavailable", Message: "file storage is unavailable"}
 	}
