@@ -39,11 +39,14 @@ func TestCatalogLifecycleWithdrawalFacts(t *testing.T) {
 	for _, id := range []string{"glm-5.2", "qwen-plus", "qwen3.7-plus", "qwen3.6-flash", "gemini-3.1-flash-image", "claude-sonnet-4-5", "claude-haiku-4-5"} {
 		require.True(t, isCatalogModelRecommended(id), "active replacement or stable ID %s must remain eligible", id)
 	}
-	// Operator-hidden while sole Grok account is unschedulable (see catalogWithdrawnModelIDs).
-	require.False(t, isCatalogModelRecommended("grok-4.5"))
-	require.False(t, isCatalogModelRecommended("grok-imagine-image"))
-	// grok-4.7 remains the public Grok surface while older Grok IDs stay withdrawn.
+	// Operator 2026-11-21: grok oauth text-only recommend/allowlist surface.
+	require.True(t, isCatalogModelRecommended("grok-4.3"))
+	require.True(t, isCatalogModelRecommended("grok-4.5"))
+	require.True(t, isCatalogModelRecommended("grok-4.6"))
 	require.True(t, isCatalogModelRecommended("grok-4.7"))
+	require.False(t, isCatalogModelRecommended("grok-imagine-image"))
+	require.False(t, isCatalogModelRecommended("grok-4.20-0309-reasoning"))
+	require.False(t, isCatalogModelRecommended("grok-latest"))
 	require.True(t, isCatalogModelRecommended("gpt-6-terra"))
 	require.True(t, isCatalogModelRecommended("gpt-6.1-terra"))
 	require.True(t, isCatalogModelRecommended("gpt-6.2-sol"))

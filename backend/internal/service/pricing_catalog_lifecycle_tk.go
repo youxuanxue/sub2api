@@ -142,25 +142,29 @@ var catalogWithdrawnModelIDs = func() map[string]struct{} {
 		"codex-auto-review":   {},
 		"gpt-5.3-codex-spark": {},
 		"gpt-5.5":             {},
-		// Operator hide (2026-10-23): sole prod Grok account 287 is active but
-		// unschedulable, so public/menu advertising would empty-pool. Restore
-		// when schedulable Grok capacity returns; pricing/settlement unchanged.
+		// Operator 2026-11-21: grok oauth text-only surface. Recommend/allowlist
+		// keep grok-4.3/4.5/4.6/4.7 only; hide the rest from public/menu while
+		// pricing/settlement rows remain. (Supersedes 2026-10-23 unschedulable hide.)
 		"grok-4.20-0309-non-reasoning": {},
 		"grok-4.20-0309-reasoning":     {},
-		"grok-4.3":                     {},
+		"grok-4.20-multi-agent-0309":   {},
 		"grok-4.3-latest":              {},
-		"grok-4.5":                     {},
 		"grok-4.5-latest":              {},
-		"grok-4.6":                     {},
+		"grok-4.6-latest":              {},
+		"grok-4.7-latest":              {},
 		"grok-build-0.1":               {},
 		"grok-build-latest":            {},
 		"grok-code-fast":               {},
 		"grok-code-fast-1":             {},
 		"grok-code-fast-1-0825":        {},
 		"grok-imagine-image":           {},
+		"grok-imagine-image-2.0":       {},
 		"grok-imagine-image-quality":   {},
 		"grok-imagine-video":           {},
+		"grok-imagine-video-1.5":       {},
+		"grok-imagine-video-1.5-lite":  {},
 		"grok-latest":                  {},
+		"grok":                         {},
 		// Operator hide (2026-11-16): unschedulable / unservable Google surface.
 		// Keep priced for settlement; restore when Vertex/Gemini Web capacity returns
 		// or AG Ultra re-advertises the wires. Evidence in

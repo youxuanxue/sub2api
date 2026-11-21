@@ -398,26 +398,6 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     // Same 2K pixels as Wan. Catalog image_price_2k bills them; not a flat price.
     imageSizes: WAN27_IMAGE_SIZES,
   },
-  {
-    modelId: 'grok-imagine-image',
-    displayName: 'Grok Imagine · Fast',
-    qualityBadge: 'fast',
-    qualityBadgeKey: 'studio.badge.fast',
-    vendorLabel: XAI,
-    modality: 'image',
-    supportedParams: [],
-    flatPricePerImage: true,
-  },
-  {
-    modelId: 'grok-imagine-image-quality',
-    displayName: 'Grok Imagine · Quality',
-    qualityBadge: 'standard',
-    qualityBadgeKey: 'studio.badge.standard',
-    vendorLabel: XAI,
-    modality: 'image',
-    supportedParams: [],
-    flatPricePerImage: true,
-  },
   // ── gemini-native image (Nano Banana family) — served via /v1/chat/completions
   //    (responseModalities IMAGE), NOT /v1/images/generations. Flat per-image billing.
   {
@@ -436,21 +416,15 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   // when native Gemini public allowlist dropped them (unschedulable Vertex /
   // Gemini Web capacity). Settlement pricing remains; restore presentation
   // only with a matching allowlist + schedulable pool.
+  // grok-imagine-image / grok-imagine-image-quality / grok-imagine-video
+  // withdrawn from Studio when grok oauth text-only surface landed (2026-11-21):
+  // allowlist + recommend keep grok-4.3/4.5/4.6/4.7 only. Settlement pricing
+  // remains; restore presentation with matching allowlist + mapping + probes.
   // gpt-image-* membership comes from account model_mapping /v1/models — no
   // curated presentation required. buildMediaPresentationForCatalogRow supplies
   // capability-owned parameters when a gpt-image id is served.
 
   // ── video ──
-  {
-    modelId: 'grok-imagine-video',
-    displayName: 'Grok Imagine Video',
-    qualityBadge: 'fast',
-    qualityBadgeKey: 'studio.badge.fast',
-    vendorLabel: XAI,
-    modality: 'video',
-    supportedParams: [],
-    videoDurations: [5],
-  },
   {
     modelId: 'doubao-seedance-1-0-pro-250528',
     aliasIds: ['seedance-1-0-pro-250528'],
