@@ -61,7 +61,7 @@ func normalizeCodexPageContext(body []byte) ([]byte, bool) {
 			if !validCodexPageContext(name, output) {
 				continue
 			}
-		} else if !isCodexStandaloneContextName(name) || ((name == "browser_info" || name == "goal_objective" || name == "untrusted_context") && strings.TrimSpace(output) == "") {
+		} else if !validCodexStandaloneContext(name, output) {
 			// Unknown real-looking tool names without call_id stay fail-closed.
 			continue
 		}
@@ -113,12 +113,13 @@ func isCodexPageContextName(name string) bool {
 	return name == "codex_apps_open_page" || strings.HasPrefix(name, "codex_apps_selected_page_part_")
 }
 
-// isCodexStandaloneContextName recognizes non-page IDE/context injections that
+// validCodexStandaloneContext recognizes non-page IDE/context injections that
 // Codex clients emit as named function_call_output without call_id on HTTP.
-func isCodexStandaloneContextName(name string) bool {
+func validCodexStandaloneContext(name, output string) bool {
 	lower := strings.ToLower(strings.TrimSpace(name))
-	if lower == "browser_info" || lower == "goal_objective" || lower == "untrusted_context" {
-		return true
+	switch lower {
+	case "browser_info", "goal_objective", "untrusted_context", "untrusted_content":
+		return strings.TrimSpace(output) != ""
 	}
 	if lower == "" {
 		return false
