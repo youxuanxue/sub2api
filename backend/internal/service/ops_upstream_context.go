@@ -828,6 +828,11 @@ func ParseOpsUpstreamErrors(raw string) ([]*OpsUpstreamErrorEvent, error) {
 	return out, nil
 }
 
+// opsUpstreamErrorsRequestBodyKeys are the attempt-JSON keys that used to carry
+// a request payload. Nothing writes them any more; they are stripped on read so
+// rows written before the privacy fix cannot surface a stored prompt.
+var opsUpstreamErrorsRequestBodyKeys = []string{"upstream_request_body", "request_body_truncated"}
+
 // normalizeOpsUpstreamErrorsJSON materializes missing proxy attribution on
 // stored JSON for detail reads, and strips request-body keys that older rows
 // may still carry. It edits only those keys, so keys written by older struct
@@ -837,11 +842,6 @@ func ParseOpsUpstreamErrors(raw string) ([]*OpsUpstreamErrorEvent, error) {
 // Privacy: request bodies stopped being persisted, but rows written before that
 // change keep theirs until retention expires them. Deleting the keys here means
 // the read surface never returns a stored request body, with no data migration.
-// opsUpstreamErrorsRequestBodyKeys are the attempt-JSON keys that used to carry
-// a request payload. Nothing writes them any more; they are stripped on read so
-// rows written before the privacy fix cannot surface a stored prompt.
-var opsUpstreamErrorsRequestBodyKeys = []string{"upstream_request_body", "request_body_truncated"}
-
 func normalizeOpsUpstreamErrorsJSON(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

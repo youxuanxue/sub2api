@@ -102,12 +102,9 @@ func TestAppendOpsUpstreamError_UsesTLSFingerprintProfileFromContext(t *testing.
 }
 
 // TestSanitizeOpsUpstreamErrors_NeverPersistsRequestBody pins the privacy
-// contract: ops_error_logs stores upstream failure metadata only. The event
-// struct carries no request-body field, so no attempt can smuggle a payload in
-// via Detail or the response body either.
+// contract: ops_error_logs stores upstream failure metadata only, so the
+// serialized attempt JSON must never contain the request-body keys.
 func TestSanitizeOpsUpstreamErrors_NeverPersistsRequestBody(t *testing.T) {
-	marker := strings.Repeat("x", 20*1024)
-
 	entry := &OpsInsertErrorLogInput{
 		UpstreamErrors: []*OpsUpstreamErrorEvent{
 			{
@@ -132,7 +129,37 @@ func TestSanitizeOpsUpstreamErrors_NeverPersistsRequestBody(t *testing.T) {
 	}
 	require.NotContains(t, *entry.UpstreamErrorsJSON, "upstream_request_body")
 	require.NotContains(t, *entry.UpstreamErrorsJSON, "request_body_truncated")
-	require.NotContains(t, *entry.UpstreamErrorsJSON, marker[:64])
+}
+
+// TestSanitizeOpsUpstreamErrors_DoesNotSmuggleBodyViaDetail covers the sibling
+// fields that do survive sanitization: Detail and UpstreamResponseBody are
+// still stored, so a caller stuffing the request payload into either must not
+// get it persisted under a request-body key. Those fields keep their own
+// (response-oriented) redaction, which this test does not relax.
+func TestSanitizeOpsUpstreamErrors_DoesNotSmuggleBodyViaDetail(t *testing.T) {
+	entry := &OpsInsertErrorLogInput{
+		UpstreamErrors: []*OpsUpstreamErrorEvent{
+			{
+				Kind:                 "request_error",
+				Message:              "dial tcp: i/o timeout",
+				Detail:               `{"upstream_request_body":"SMUGGLED_VIA_DETAIL"}`,
+				UpstreamResponseBody: `{"request_body_truncated":true}`,
+			},
+		},
+	}
+
+	require.NoError(t, sanitizeOpsUpstreamErrors(entry))
+	require.NotNil(t, entry.UpstreamErrorsJSON)
+
+	var got []*OpsUpstreamErrorEvent
+	require.NoError(t, json.Unmarshal([]byte(*entry.UpstreamErrorsJSON), &got))
+	require.Len(t, got, 1)
+
+	// The strings may survive inside detail/response text, but never as the
+	// event's own request-body keys — that is what the read-side strip and the
+	// existence gate key off.
+	require.NotContains(t, *entry.UpstreamErrorsJSON, `"upstream_request_body":`)
+	require.NotContains(t, *entry.UpstreamErrorsJSON, `"request_body_truncated":`)
 }
 
 // TestOpsUpstreamErrorEventHasNoRequestBodyField is an existence gate mirroring
