@@ -3270,6 +3270,12 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 				// blank as keepalive "\n" yields "\n\n\n" and breaks framing.
 				if lastWroteDataEvent {
 					lastWroteDataEvent = false
+				} else if downstreamRejectsSSEComments(c) {
+					// go-genai / Antigravity CLI: odd bare "\n" → "\ndata:…" →
+					// invalid stream chunk. Drop separator-as-keepalive for them.
+					if !sawDataEvent {
+						fallback.AddLine(trimmed)
+					}
 				} else {
 					if !sawDataEvent {
 						fallback.AddLine(trimmed)
@@ -3285,9 +3291,11 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 				if !sawDataEvent {
 					fallback.AddLine(trimmed)
 				}
-				ensureClientStarted()
-				_, _ = fmt.Fprint(c.Writer, geminiNativeSSEKeepaliveFrame)
-				flusher.Flush()
+				if !downstreamRejectsSSEComments(c) {
+					ensureClientStarted()
+					_, _ = fmt.Fprint(c.Writer, geminiNativeSSEKeepaliveFrame)
+					flusher.Flush()
+				}
 			} else if !sawDataEvent {
 				lastWroteDataEvent = false
 				fallback.AddLine(trimmed)

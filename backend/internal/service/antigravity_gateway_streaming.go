@@ -422,7 +422,12 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			lastWroteDataEvent = false
 
 			// Preserve upstream liveness without forwarding SSE control fields.
+			// go-genai / agy cannot accept a bare "\n" (same as the blank-line
+			// branch above); drop comment/whitespace keepalives for them.
 			if isGeminiNativeSSEKeepalive(trimmed) {
+				if downstreamRejectsSSEComments(c) {
+					continue
+				}
 				if cw.Fprintf("%s", geminiNativeSSEKeepaliveFrame) {
 					lastDataAt = time.Now()
 				}

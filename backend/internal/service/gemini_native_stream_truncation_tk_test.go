@@ -421,6 +421,8 @@ func TestAntigravityGeminiHeldPrefixKeepaliveDependsOnClient(t *testing.T) {
 		{name: "gemini_cli", userAgent: "GeminiCLI-tui/0.68.0", leadingNewline: true},
 		{name: "go_genai", userAgent: "google-genai-sdk/1.71.0 gl-go/go1.28", leadingNewline: false},
 		{name: "python_genai", userAgent: "google-genai-sdk/1.20.0 gl-python/3.12.4", leadingNewline: false},
+		// Real agy UA must not get a leading "\n" while thought/signature prefixes are held.
+		{name: "agy_aidev_client", userAgent: "antigravity/cli/1.5.12 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)", leadingNewline: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
