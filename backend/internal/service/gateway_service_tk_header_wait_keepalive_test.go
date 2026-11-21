@@ -274,3 +274,44 @@ func TestGeminiMessagesCompatService_BeginGeminiNativeHeaderWaitKeepalive(t *tes
 		t.Fatalf("expected whitespace keepalive bytes, got %q", body)
 	}
 }
+
+func TestGeminiNativeHeaderWaitKeepaliveSkippedForAgyAndGoGenai(t *testing.T) {
+	cfg := &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}
+	agyUA := "antigravity/cli/1.5.12 (aidev_client; os_type=darwin; arch=arm64; cl=1023297289; auth_method=consumer)"
+	goGenaiUA := "google-genai-sdk/1.71.0 gl-go/go1.28"
+
+	t.Run("gemini_messages_compat", func(t *testing.T) {
+		for _, ua := range []string{agyUA, goGenaiUA} {
+			c, _ := newKeepaliveTestContext(t)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini:streamGenerateContent", nil)
+			c.Request.Header.Set("User-Agent", ua)
+			svc := &GeminiMessagesCompatService{cfg: cfg}
+			if k := svc.beginGeminiNativeHeaderWaitKeepalive(c, true); k != nil {
+				k.stop()
+				t.Fatalf("UA %q must not get Gemini native header-wait \\n keepalive", ua)
+			}
+		}
+	})
+
+	t.Run("antigravity_gateway", func(t *testing.T) {
+		for _, ua := range []string{agyUA, goGenaiUA} {
+			c, _ := newKeepaliveTestContext(t)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini:streamGenerateContent", nil)
+			c.Request.Header.Set("User-Agent", ua)
+			svc := &AntigravityGatewayService{settingService: &SettingService{cfg: cfg}}
+			if k := svc.beginHeaderWaitKeepalive(c, true, geminiNativeSSEKeepaliveFrame); k != nil {
+				k.stop()
+				t.Fatalf("UA %q must not get Antigravity Gemini header-wait \\n keepalive", ua)
+			}
+		}
+		// Anthropic-shaped ping remains available for Claude wire clients.
+		c, _ := newKeepaliveTestContext(t)
+		c.Request.Header.Set("User-Agent", agyUA)
+		svc := &AntigravityGatewayService{settingService: &SettingService{cfg: cfg}}
+		k := svc.beginHeaderWaitKeepalive(c, true, anthropicSSEPingFrame)
+		if k == nil {
+			t.Fatal("Anthropic ping header-wait must still start for agy on Claude wire")
+		}
+		k.stop()
+	})
+}
