@@ -101,8 +101,13 @@ func TestOpsErrorLogOptOutZeroValueHazard(t *testing.T) {
 // the case the opt-out was asked to cover: those requests never reach QA
 // capture, so ops_error_logs was their only persisted trace.
 //
-// Without this test, deleting any single markOpsErrorLogUserOptOut call site
-// still compiles and still passes every other test in this file.
+// Coverage boundary, verified by mutation: this test (plus the coalesced-tail
+// one below) fails if the middleware stamp at OpsErrorLoggerMiddleware is
+// dropped. The other three stamp sites — logOpsRecoveredUpstream,
+// logOpsStreamErrorValue and the two cyber-policy builders — are driven by
+// upstream/stream outcomes these fixtures do not reproduce, so deleting one of
+// those still passes here; the literal sentinel anchor on
+// markOpsErrorLogUserOptOut is what guards them.
 func TestOpsErrorLoggerMiddlewareSuppressesOptedOutUser(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 64)
 	gin.SetMode(gin.TestMode)
