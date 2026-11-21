@@ -171,8 +171,8 @@ func TestComputeProxyUnreachableCount_TransientDialFailureRecoversWithinRound(t 
 		mu.Lock()
 		defer mu.Unlock()
 		calls++
-		// Two dropped SYNs, then the link answers: must not count.
-		if calls <= 2 {
+		// Four dropped SYNs, then the link answers: must not count.
+		if calls <= 4 {
 			return errors.New("dial tcp 49.233.210.77:1080: i/o timeout")
 		}
 		return nil
@@ -181,7 +181,7 @@ func TestComputeProxyUnreachableCount_TransientDialFailureRecoversWithinRound(t 
 	n, ok := svc.computeProxyUnreachableCount(context.Background())
 	require.True(t, ok)
 	require.Equal(t, 0.0, n)
-	require.Equal(t, 3, calls)
+	require.Equal(t, proxyUnreachableDialAttempts, calls)
 	require.Empty(t, formatProxyUnreachableCause(svc.loadProxyUnreachableSnapshot()))
 }
 
@@ -207,10 +207,10 @@ func TestComputeProxyUnreachableCount_PersistentFailureUsesAllAttempts(t *testin
 	n, ok := svc.computeProxyUnreachableCount(context.Background())
 	require.True(t, ok)
 	require.Equal(t, 1.0, n)
-	require.Equal(t, 3, calls)
+	require.Equal(t, proxyUnreachableDialAttempts, calls)
 	cause := formatProxyUnreachableCause(svc.loadProxyUnreachableSnapshot())
 	require.Contains(t, cause, "cn-ip3 49.233.210.77:1080")
-	require.Contains(t, cause, "attempt 3")
+	require.Contains(t, cause, fmt.Sprintf("attempt %d", proxyUnreachableDialAttempts))
 }
 
 func TestComputeProxyUnreachableCount_AllReachableIsZero(t *testing.T) {
