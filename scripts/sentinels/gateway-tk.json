@@ -786,7 +786,8 @@
     {
       "path": "backend/internal/server/middleware/request_logger.go",
       "must_contain": [
-        "c.Writer = &requestIDResponseWriter{"
+        "writer := &requestIDResponseWriter{",
+        "c.Writer = writer"
       ],
       "rationale": "Server request identity must survive upstream header forwarding at the response commit boundary."
     },

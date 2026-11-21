@@ -20,7 +20,7 @@ import (
 // by the result finalizer. Tencent COS is supplied through the existing S3
 // compatible implementation.
 type ManagedBatchResultObjectStore interface {
-	Upload(context.Context, string, io.Reader, string) (int64, error)
+	Upload(context.Context, string, io.Reader, int64, string) (int64, error)
 }
 
 // ManagedBatchResultFinalizer materializes terminal item rows into the two
@@ -67,7 +67,7 @@ func (f *ManagedBatchResultFinalizer) Finalize(ctx context.Context, batchID stri
 
 func (f *ManagedBatchResultFinalizer) uploadResult(ctx context.Context, b ManagedBatch, id, kind string, data []byte) error {
 	key := "managed-batches/" + b.ID + "/" + kind + ".jsonl"
-	if _, err := f.Store.Upload(ctx, key, bytes.NewReader(data), "application/jsonl"); err != nil {
+	if _, err := f.Store.Upload(ctx, key, bytes.NewReader(data), int64(len(data)), "application/jsonl"); err != nil {
 		return fmt.Errorf("upload managed batch %s result: %w", kind, err)
 	}
 	hash := sha256.Sum256(data)

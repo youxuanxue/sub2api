@@ -54,17 +54,21 @@ func (s *S3ManagedBatchObjectStore) objectKey(key string) string {
 	return s.prefix + "/" + key
 }
 
-func (s *S3ManagedBatchObjectStore) Upload(ctx context.Context, key string, body io.Reader, contentType string) (int64, error) {
+func (s *S3ManagedBatchObjectStore) Upload(ctx context.Context, key string, body io.Reader, size int64, contentType string) (int64, error) {
 	if s == nil || s.client == nil || body == nil {
 		return 0, fmt.Errorf("managed batch object store is unavailable")
 	}
 	counted := &countingReader{Reader: body}
-	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+	input := &s3.PutObjectInput{
 		Bucket:      &s.bucket,
 		Key:         managedBatchStringPtr(s.objectKey(key)),
 		Body:        counted,
 		ContentType: managedBatchStringPtr(contentType),
-	})
+	}
+	if size >= 0 {
+		input.ContentLength = &size
+	}
+	_, err := s.client.PutObject(ctx, input)
 	if err != nil {
 		return 0, fmt.Errorf("managed batch COS PutObject: %w", err)
 	}
