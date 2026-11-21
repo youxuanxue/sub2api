@@ -1946,15 +1946,12 @@ function generateOpenCodeConfig(
       }
     }
   }
+  // Native Gemini OpenCode catalog — keep in sync with supportedGeminiCatalogModels.
+  // Withdrawn IDs (preview / 3.5-lite / 3.6 / 3.7 / veo-3.1) must not appear when
+  // allowedModels is undefined, or guides re-advertise 404 surfaces.
   const geminiModels = {
-    'gemini-3.6-flash': {
-      name: 'Gemini 3.6 Flash',
-      limit: { context: 1048576, output: 65536 },
-      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
-    },
-    'gemini-3.7-flash': {
-      name: 'Gemini 3.7 Flash',
+    'gemini-3-flash': {
+      name: 'Gemini 3 Flash',
       limit: { context: 1048576, output: 65536 },
       modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
       options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
@@ -1965,40 +1962,18 @@ function generateOpenCodeConfig(
       modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
       options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
-    'gemini-3-flash-preview': {
-      name: 'Gemini 3 Flash Preview',
-      limit: { context: 1048576, output: 65536 },
-      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
-    },
-    'gemini-3.5-flash-lite': {
-      name: 'Gemini 3.5 Flash Lite',
-      limit: { context: 1048576, output: 65536 },
-      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
-    },
     'gemini-embedding-001': {
       name: 'Gemini Embedding 001',
       limit: { context: 2048, output: 0 },
       modalities: { input: ['text'], output: ['embedding'] }
-    },
-    'veo-3.1-generate-001': {
-      name: 'Veo 3.1',
-      limit: { context: 0, output: 0 },
-      modalities: { input: ['text', 'image'], output: ['video'] }
     }
   }
 
-  // Converged Antigravity public Gemini surface (matches DefaultAntigravityModelMapping).
+  // Antigravity Gemini surface — keep in sync with supportedAntigravityCatalogModels.
+  // Dropped withdrawn preview / 3.5-lite / 3.6 / 3.7 / gemini-3-pro-image.
   const antigravityGeminiModels = {
-    'gemini-3.6-flash': {
-      name: 'Gemini 3.6 Flash',
-      limit: { context: 1048576, output: 65536 },
-      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
-    },
-    'gemini-3.7-flash': {
-      name: 'Gemini 3.7 Flash',
+    'gemini-3-flash': {
+      name: 'Gemini 3 Flash',
       limit: { context: 1048576, output: 65536 },
       modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
       options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
@@ -2033,26 +2008,8 @@ function generateOpenCodeConfig(
       modalities: { input: ['text', 'image', 'video', 'audio', 'pdf'], output: ['text'] },
       options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
-    'gemini-3-flash-preview': {
-      name: 'Gemini 3 Flash Preview',
-      limit: { context: 1048576, output: 65536 },
-      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
-    },
-    'gemini-3.5-flash-lite': {
-      name: 'Gemini 3.5 Flash Lite',
-      limit: { context: 1048576, output: 65536 },
-      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
-    },
     'gemini-3.1-flash-image': {
       name: 'Gemini 3.1 Flash Image',
-      limit: { context: 1048576, output: 65536 },
-      modalities: { input: ['text', 'image'], output: ['image'] },
-      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
-    },
-    'gemini-3-pro-image': {
-      name: 'Gemini 3 Pro Image',
       limit: { context: 1048576, output: 65536 },
       modalities: { input: ['text', 'image'], output: ['image'] },
       options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
