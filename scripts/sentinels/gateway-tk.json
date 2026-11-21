@@ -19355,11 +19355,13 @@
       "path": "backend/internal/service/upstream_400_streak_sentinel_tk.go",
       "must_contain": [
         "func (s *Upstream400StreakSentinel) runOnce(",
-        "upstream400StreakMinCount = 20",
-        "upstream400StreakMinSpan  = 10 * time.Minute",
+        "func (s *Upstream400StreakSentinel) claimArmed(",
+        "upstream400StreakMinCount = 40",
+        "upstream400StreakMinSpan  = 30 * time.Minute",
+        "upstream400StreakArmedKeyPrefix = \"upstream:400streak:armed:\"",
         "本卡不改变账号状态"
       ],
-      "rationale": "Advisory backstop for upstream 400s that the standing-billing SSOT phrase list misses (prod 2026-11-02 Volc AgentPlan expiry: ~8.5k identical 400s, 0 alerts). Alert-only by design: 400 must never auto-penalise an account (#617)."
+      "rationale": "Advisory backstop for upstream 400s that the standing-billing SSOT phrase list misses (prod 2026-11-02 Volc AgentPlan expiry: ~8.5k identical 400s, 0 alerts). Alert-only by design: 400 must never auto-penalise an account (#617). Cross-replica armed uses Redis SetNX; thresholds tightened 2026-11-21 to 40/30m after cn-prod single-user parameter-400 noise."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_compat.go",

@@ -10,17 +10,18 @@ package service
 // 400 不惩罚账号是 #617 的刻意设计（坏请求不能打掉共享账号），本哨兵不改变它：命中只发一张
 // 橙头飞书卡提醒人工确认，绝不 SetError / 停调度。
 //
-// 判定（以 7 天线上回放定阈值）：同一 active 账号，自最近一次成功请求之后，最新一段连续的
-// 「同一种」上游 400（消息归一化后相同）达到 N 次，且持续时长 >= minSpan。持续时长门槛滤掉
-// 单用户坏请求的秒级重试风暴（回放中最长 51 分钟、20+ 次的同签名参数 400 都伴随成功请求
-// 打断，或为单用户短促重放）。
+// 判定（以 7 天线上回放定门槛，2026-11-21 为降噪收严）：同一 active 账号，自最近一次成功
+// 请求之后，最新一段连续的「同一种」上游 400（消息归一化后相同）达到 N 次，且持续时长
+// >= minSpan。持续时长门槛滤掉单用户坏请求的秒级重试风暴。
 //
 // 设计对齐 upstream_balance_sentinel_tk.go：单 ticker + Redis leader-lock（无 redis 降级
-// lockless）+ ops_job_heartbeats 心跳；告警去重按 (账号, 签名) 内存 armed，连续失败段结束
-// （账号恢复成功或换了签名）后重新上膛。
+// lockless）+ ops_job_heartbeats 心跳。告警去重按 (账号, 签名)：有 Redis 时用 SetNX 跨副本
+// 共享 armed（TTL=lookback）；无 Redis 时退回进程内 map。连续失败段结束（账号恢复成功或
+// 换了签名）后删掉 armed，允许下一轮重新告警。
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -41,9 +42,15 @@ const (
 	// upstream400StreakLookback bounds the scan. A streak older than this that is
 	// still failing keeps producing rows inside the window, so it stays visible.
 	upstream400StreakLookback = 6 * time.Hour
-	// upstream400StreakMinCount / MinSpan: see the replay note above.
-	upstream400StreakMinCount = 20
-	upstream400StreakMinSpan  = 10 * time.Minute
+	// upstream400StreakMinCount / MinSpan: tightened 2026-11-21 (was 20 / 10m) after
+	// cn-prod advisory cards for single-user parameter-400 streaks became noisy.
+	upstream400StreakMinCount = 40
+	upstream400StreakMinSpan  = 30 * time.Minute
+	// upstream400StreakArmedKeyPrefix + TTL: cross-replica claim for one (account, sig)
+	// card. TTL matches lookback so a still-open streak is not re-paged every deploy /
+	// replica tick; clearing on streak end re-arms earlier.
+	upstream400StreakArmedKeyPrefix = "upstream:400streak:armed:"
+	upstream400StreakArmedTTL       = upstream400StreakLookback
 	// upstream400StreakSampleMax caps the upstream text quoted in the card.
 	upstream400StreakSampleMax = 300
 )
@@ -213,13 +220,7 @@ func (s *Upstream400StreakSentinel) runOnce(ctx context.Context) {
 	alerted := 0
 	for _, st := range streaks {
 		open[st.AccountID] = st.Signature
-		s.mu.Lock()
-		already := s.armed[st.AccountID] == st.Signature
-		if !already {
-			s.armed[st.AccountID] = st.Signature
-		}
-		s.mu.Unlock()
-		if already {
+		if !s.claimArmed(ctx, st.AccountID, st.Signature) {
 			continue
 		}
 		account := s.lookupAccount(ctx, st.AccountID)
@@ -230,15 +231,70 @@ func (s *Upstream400StreakSentinel) runOnce(ctx context.Context) {
 			"first_at", st.FirstAt, "last_at", st.LastAt)
 	}
 	// Re-arm accounts whose streak ended (success, or a different failure shape).
+	s.clearClosedArmed(ctx, open)
+
+	s.recordHeartbeat(startedAt, fmt.Sprintf("open_streaks=%d alerted=%d", len(streaks), alerted), nil)
+}
+
+func upstream400StreakArmedKey(accountID int64, sig string) string {
+	sum := sha256.Sum256([]byte(sig))
+	return fmt.Sprintf("%s%d:%x", upstream400StreakArmedKeyPrefix, accountID, sum[:8])
+}
+
+// claimArmed returns true exactly once per open (account, signature) across replicas
+// when Redis is available (SetNX). Without Redis it falls back to the process-local map.
+func (s *Upstream400StreakSentinel) claimArmed(ctx context.Context, accountID int64, sig string) bool {
+	s.mu.Lock()
+	if s.armed[accountID] == sig {
+		s.mu.Unlock()
+		return false
+	}
+	s.mu.Unlock()
+
+	if s.redis != nil {
+		ok, err := s.redis.SetNX(ctx, upstream400StreakArmedKey(accountID, sig), s.instanceID, upstream400StreakArmedTTL).Result()
+		if err != nil {
+			slog.Warn("upstream 400 streak armed SetNX failed; falling back to local dedupe",
+				"account_id", accountID, "err", err)
+		} else if !ok {
+			s.mu.Lock()
+			s.armed[accountID] = sig
+			s.mu.Unlock()
+			return false
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.armed[accountID] == sig {
+		return false
+	}
+	s.armed[accountID] = sig
+	return true
+}
+
+func (s *Upstream400StreakSentinel) clearClosedArmed(ctx context.Context, open map[int64]string) {
+	type pair struct {
+		id  int64
+		sig string
+	}
+	var stale []pair
 	s.mu.Lock()
 	for id, sig := range s.armed {
 		if open[id] != sig {
+			stale = append(stale, pair{id, sig})
 			delete(s.armed, id)
 		}
 	}
 	s.mu.Unlock()
-
-	s.recordHeartbeat(startedAt, fmt.Sprintf("open_streaks=%d alerted=%d", len(streaks), alerted), nil)
+	if s.redis == nil || len(stale) == 0 {
+		return
+	}
+	for _, p := range stale {
+		if err := s.redis.Del(ctx, upstream400StreakArmedKey(p.id, p.sig)).Err(); err != nil {
+			slog.Warn("upstream 400 streak armed Del failed", "account_id", p.id, "err", err)
+		}
+	}
 }
 
 func (s *Upstream400StreakSentinel) lookupAccount(ctx context.Context, id int64) *Account {
