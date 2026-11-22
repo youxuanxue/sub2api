@@ -84,7 +84,7 @@ prod **现网** 4C16G / PG 12G / `shared_buffers=4GB`（2026-11-22 升配）。�
 | `log_lock_waits` / `log_temp_files` / `log_min_duration_statement` | off / -1 / -1 | on / 16MB / 1s | 同左 | 运维信号 |
 | `timezone` / `log_timezone` | 本地 | `UTC` | `UTC` | 与网关/分区一致 |
 | 容器 `shm_size` | 64MB | **1GB** | 1GB | 并行哈希 |
-| 容器内存上限 | — | **PG 12G**；Redis maxmemory 512MB / Docker **1G** | PG 3G；Redis 256MB / Docker **512MB** | 主机留 ≥3–4G 给 OS+Redis+agent |
+| 容器内存上限 | — | **PG 12G**；Redis maxmemory 512MB / Docker **1G** | **PG 4G**；Redis 256MB / Docker **512MB** | 主机留 ≥3–4G 给 OS+Redis+agent |
 
 不改的：`wal_level`、`archive_mode`、`archive_command`、`archive_timeout`、`synchronous_commit`、`full_page_writes`、autovacuum 各项、`statement_timeout`、`lock_timeout`。两站的死元组比例都很低，autovacuum 不需要调（升配窗也不改）；全局 `statement_timeout` 会误伤迁移和清理任务。
 
@@ -97,7 +97,9 @@ prod **现网** 4C16G / PG 12G / `shared_buffers=4GB`（2026-11-22 升配）。�
 |---|---|---|
 | 身份 | `lhins-p43i2kxh` / `10.4.0.3` | `lhins-odyx5eis` / `10.2.4.5` |
 | 套餐 | **现网 4C16G**（`bundle_starter_nmc_lin_lg16_01`，2026-11-22 低峰升配） | 北京轻量；**现网 4C8G**（`bundle_starter_mc_lg8_01`） |
-| PG / Redis 容器上限 | **现网 PG 12G**；Redis maxmemory 512MB / Docker 硬上限 **1G**（2026-11-22） | PG 3G；Redis maxmemory 256MB / Docker 硬上限 **512MB**（2026-11-22） |
+| PG / Redis 容器上限 | **现网 PG 12G**；Redis maxmemory 512MB / Docker 硬上限 **1G**（2026-11-22） | **现网 PG 4G**；Redis maxmemory 256MB / Docker 硬上限 **512MB**（2026-11-22 在线调整） |
+
+cn-prod 重建 `tokenkey-postgres` 时使用 `--memory 4g --memory-swap 4g`，与 2026-11-22 在线调整后的容器配置一致。
 
 **Redis Docker 硬上限不变量**：现网用 `docker update` 生效（prod `1073741824`、cn-prod `536870912`，`--memory-swap` 与 `--memory` 相同）。**重建 `tokenkey-redis` 必须带相同 `--memory/--memory-swap`**，否则 cgroup cap 丢失；主机旁路笔记 `REDIS_CAP.md` 不能代替本表。进程内 `maxmemory` 仍分别为 512mb / 256mb、`noeviction`。
 
