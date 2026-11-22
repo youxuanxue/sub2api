@@ -3,6 +3,15 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/handler/openai_page_context.go",
+      "must_contain": [
+        "!validCodexStandaloneContext(name, output)",
+        "\"untrusted_content\"",
+        "return strings.TrimSpace(output) != \"\""
+      ],
+      "rationale": "HTTP Responses must convert Codex standalone untrusted_content into user text only when the context contains text."
+    },
+    {
       "path": "backend/internal/repository/concurrency_cache.go",
       "must_contain": [
         "cleanupExpiredSlotsScript.Run(ctx, c.rdb, []string{spec.slotKey(id)}",
