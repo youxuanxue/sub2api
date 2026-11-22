@@ -1,5 +1,17 @@
 # 已决定
 
+## 2026-11-21…22 prod 数据机 4C16G + Redis 硬上限
+
+原话摘要：同意升 4C16G 与参数；先备料禁止停写；跳过隔离恢复、低峰直接开窗；「同意升配。尽快完成。」；Redis 硬上限 prod/cn 都要、不是都 1G →「继续。」
+
+决定：
+- prod 数据机 `lhins-p43i2kxh` → 4C16G / PG 12G（SB 4GB、ECS 10GB、mwm 512MB、parallel 3/1、`max_connections=200`）；profile `prod-4c16g`；补 PG cgroup **anon** 告警
+- cn-prod 不升配
+- 不阻塞于 `cos_restore_acceptance` degraded
+- Redis Docker 硬上限：**prod 1G**、**cn-prod 512MB**（进程内 maxmemory 仍 512mb/256mb）；重建须带同 `--memory`（SSOT：`design-data-plane-split.md`）
+
+已执行完毕。
+
 ## 2026-11-21 Grok OAuth 只保留 4.3/4.5/4.6/4.7 text surface
 
 原话：「1. 要 4 个 identity 和 xai/、grok/ 同名别名。2. 从从 grok 推荐面/allowlist 收掉。提交并推送pr」

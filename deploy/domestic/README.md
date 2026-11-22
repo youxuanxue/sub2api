@@ -30,7 +30,7 @@ UCloud 首发（2026-10-14）与迁机收尾回执已删除。现网身份与续
 | 入口机 | `lhins-j89o28j0` | `10.2.4.7` | `154.8.185.224` | Caddy 终止 `api.galaxywaveai.com` 的 TLS，按 **1:1** 分发到两台应用机；公网只开 80/443 |
 | app-a | `lhins-6qmb3fd6` | `10.2.4.11` | `154.8.214.179` | 应用机下限 **4C8G**；现仍为 4C16G（`bundle_rs_mc_lg16_01`，Lighthouse 不支持原地降内存），单容器 `tokenkey`，私网 `10.2.4.11:8080`；云防火墙只放行入口 `10.2.4.7` |
 | app-b | `lhins-0kxx7cco` | `10.2.4.13` | `82.156.89.64` | 4C8G（`bundle_rs_mc_lg8_01`），单容器 `tokenkey`，无公网入站；监听 `10.2.4.13:8080`，同样只放行 `10.2.4.7` |
-| 数据机 | `lhins-odyx5eis` | `10.2.4.5` | （无公网业务入口） | **4C8G**（`bundle_starter_mc_lg8_01`，2026-11-18 短窗停机由 2C4G 升配）；PG `max_connections=400`、Redis；见 `dataplane-cutover-data.sh` 期望值 |
+| 数据机 | `lhins-odyx5eis` | `10.2.4.5` | （无公网业务入口） | **4C8G**（`bundle_starter_mc_lg8_01`，2026-11-18 短窗停机由 2C4G 升配）；PG `max_connections=400`、Redis Docker **512MB**（2026-11-22）；见 `dataplane-cutover-data.sh` 期望值 |
 | 临时压测 client（已销毁） | `ins-7ltl2zv3` | — | — | 北京按量 CVM（升配后 `SA2.2XLARGE16`）；tag `expire_after=2026-11-19`；**2026-11-19 用户授权 `TerminateInstances` 销毁**（不进 `apps[]`，无业务流量） |
 
 节点身份只看 [`prod-target.json`](prod-target.json) 的 `entry` 与 `apps[]`。`apps[]` 的顺序就是滚动顺序，金丝雀位在前（现为 app-b；应用机下限 4C8G）。设计见 [cn-prod 多应用机滚动发版](../../docs/approved/design-cn-prod-rolling-deploy.md)。应用池现网：`DATABASE_MAX_OPEN_CONNS=80` / idle=20、`REDIS_POOL_SIZE=96`、`GATEWAY_MAX_IN_FLIGHT_REQUESTS=480`（`compose.override.yml`）。
