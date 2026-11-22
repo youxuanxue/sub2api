@@ -40,6 +40,9 @@ func (f *ManagedBatchResultFinalizer) Finalize(ctx context.Context, batchID stri
 	if err != nil {
 		return err
 	}
+	if b.Status != batchcontract.BatchStatusFinalizing {
+		return fmt.Errorf("batch %s is no longer finalizing", b.ID)
+	}
 	outputID, err := f.materialize(ctx, b, "output")
 	if err != nil {
 		return err
@@ -48,7 +51,7 @@ func (f *ManagedBatchResultFinalizer) Finalize(ctx context.Context, batchID stri
 	if err != nil {
 		return err
 	}
-	return f.Repo.setBatchResultFiles(ctx, batchID, outputID, errorID)
+	return f.Repo.setBatchResultFiles(ctx, b, outputID, errorID)
 }
 
 // COS requires a known byte length. Spool one result at a time to a private
@@ -58,7 +61,11 @@ func (f *ManagedBatchResultFinalizer) materialize(ctx context.Context, b Managed
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = tmp.Close(); _ = os.Remove(tmp.Name()) }()
+	defer func() { _ = tmp.Close() }()
+	// The kernel releases this private spool even if the application is killed.
+	if err := os.Remove(tmp.Name()); err != nil {
+		return nil, err
+	}
 	w := bufio.NewWriter(tmp)
 	if err = f.Repo.writeCompletedBatchItems(ctx, b.ID, kind, w); err != nil {
 		return nil, err
@@ -73,8 +80,8 @@ func (f *ManagedBatchResultFinalizer) materialize(ctx context.Context, b Managed
 	if _, err = tmp.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
-	id := managedBatchResultFileID(b.ID, kind)
-	key := "managed-batches/" + b.ID + "/" + kind + ".jsonl"
+	id := managedBatchResultFileID(b, kind)
+	key := "managed-batches/" + b.ID + "/" + id + ".jsonl"
 	digest := sha256.New()
 	if _, err = f.Store.Upload(ctx, key, io.TeeReader(tmp, digest), end, "application/jsonl"); err != nil {
 		return nil, fmt.Errorf("upload managed batch %s result: %w", kind, err)
@@ -87,8 +94,8 @@ func (f *ManagedBatchResultFinalizer) materialize(ctx context.Context, b Managed
 	return &id, nil
 }
 
-func managedBatchResultFileID(batchID, kind string) string {
-	digest := sha256.Sum256([]byte(batchID + ":" + kind))
+func managedBatchResultFileID(b ManagedBatch, kind string) string {
+	digest := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%s", b.ID, b.Version, kind)))
 	return "file_" + fmt.Sprintf("%x", digest[:16]) + "_" + kind
 }
 
@@ -159,8 +166,8 @@ func (r *ManagedBatchRepository) writeCompletedBatchItems(ctx context.Context, b
 	return rows.Err()
 }
 
-func (r *ManagedBatchRepository) setBatchResultFiles(ctx context.Context, batchID string, outputID, errorID *string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE batches SET output_file_id=COALESCE(output_file_id,NULLIF($2,'')),error_file_id=COALESCE(error_file_id,NULLIF($3,'')),updated_at=NOW() WHERE id=$1`, batchID, managedBatchValueOrEmpty(outputID), managedBatchValueOrEmpty(errorID))
+func (r *ManagedBatchRepository) setBatchResultFiles(ctx context.Context, b ManagedBatch, outputID, errorID *string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE batches SET output_file_id=NULLIF($2,''),error_file_id=NULLIF($3,''),updated_at=NOW() WHERE id=$1 AND version=$4 AND status='finalizing'`, b.ID, managedBatchValueOrEmpty(outputID), managedBatchValueOrEmpty(errorID), b.Version)
 	return err
 }
 

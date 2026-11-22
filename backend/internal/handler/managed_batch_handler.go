@@ -254,7 +254,12 @@ func (h *ManagedBatchHandler) BatchesCreate(c *gin.Context) {
 		writeBatchError(c, err)
 		return
 	}
-	defer func() { _ = file.Close(); _ = os.Remove(file.Name()) }()
+	defer func() { _ = file.Close() }()
+	// The kernel releases this private spool even if the application is killed.
+	if err := os.Remove(file.Name()); err != nil {
+		writeBatchError(c, err)
+		return
+	}
 	lines, bodyHash, err := stageBatchInput(req, stream, file, h.MaxLines, h.MaxUploadBytes)
 	if err != nil {
 		writeBatchError(c, err)

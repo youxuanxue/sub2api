@@ -412,7 +412,7 @@ func (r *ManagedBatchRepository) ResetBatchForRetry(ctx context.Context, userID,
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	res, err := tx.ExecContext(ctx, `UPDATE batches SET status='validating',retry_at=NULL,last_error_code=NULL,last_error_message=NULL,in_progress_at=NULL,finalizing_at=NULL,cancelling_at=NULL,completed_at=NULL,cancelled_at=NULL,expired_at=NULL,failed_at=NULL,request_counts=(SELECT jsonb_build_object('total',COUNT(*),'completed',COUNT(*) FILTER (WHERE status IN ('succeeded','unknown','cancelled')),'failed',COUNT(*) FILTER (WHERE status='unknown')) FROM batch_items WHERE batch_id=$5),version=version+1,updated_at=NOW() WHERE id=$1 AND user_id=$2 AND api_key_id=$3 AND version=$4 AND status IN ('failed','expired') AND EXISTS (SELECT 1 FROM batch_items WHERE batch_id=$5 AND status IN ('pending','retry','failed')) AND EXISTS (SELECT 1 FROM batch_files f WHERE f.id=batches.input_file_id AND (f.expires_at IS NULL OR f.expires_at>NOW()))`, id, userID, apiKeyID, version, id)
+	res, err := tx.ExecContext(ctx, `UPDATE batches SET status='validating',output_file_id=NULL,error_file_id=NULL,retry_at=NULL,last_error_code=NULL,last_error_message=NULL,in_progress_at=NULL,finalizing_at=NULL,cancelling_at=NULL,completed_at=NULL,cancelled_at=NULL,expired_at=NULL,failed_at=NULL,request_counts=(SELECT jsonb_build_object('total',COUNT(*),'completed',COUNT(*) FILTER (WHERE status IN ('succeeded','unknown','cancelled')),'failed',COUNT(*) FILTER (WHERE status='unknown')) FROM batch_items WHERE batch_id=$5),version=version+1,updated_at=NOW() WHERE id=$1 AND user_id=$2 AND api_key_id=$3 AND version=$4 AND status IN ('failed','expired') AND EXISTS (SELECT 1 FROM batch_items WHERE batch_id=$5 AND status IN ('pending','retry','failed')) AND EXISTS (SELECT 1 FROM batch_files f WHERE f.id=batches.input_file_id AND (f.expires_at IS NULL OR f.expires_at>NOW()))`, id, userID, apiKeyID, version, id)
 	if err != nil {
 		return false, err
 	}
@@ -536,12 +536,18 @@ func (r *ManagedBatchRepository) UpdateBatchProgress(ctx context.Context, batchI
 	return err
 }
 
-// CountBatchItems is a read-only reconciliation snapshot. It intentionally
+// CountBatchItems reconciles abandoned item leases before counting. It intentionally
 // reports unknown separately: an unknown provider outcome must never be
 // silently counted as success.
 func (r *ManagedBatchRepository) CountBatchItems(ctx context.Context, batchID string) (ManagedBatchProgress, error) {
 	var p ManagedBatchProgress
-	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*),COUNT(*) FILTER (WHERE status='succeeded'),COUNT(*) FILTER (WHERE status='failed'),COUNT(*) FILTER (WHERE status='cancelled'),COUNT(*) FILTER (WHERE status='unknown'),COUNT(*) FILTER (WHERE status='pending'),COUNT(*) FILTER (WHERE status='running'),COUNT(*) FILTER (WHERE status='retry') FROM batch_items WHERE batch_id=$1`, batchID).Scan(&p.Total, &p.Succeeded, &p.Failed, &p.Cancelled, &p.Unknown, &p.Pending, &p.Running, &p.Retry)
+	// A crashed worker may have already sent the request. Fence late writes and
+	// publish an unknown outcome instead of invoking the provider again.
+	_, err := r.db.ExecContext(ctx, `UPDATE batch_items SET status='unknown',unknown_result=TRUE,error='{"code":"unknown_outcome","message":"worker lease expired during execution"}'::jsonb,lease_owner=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW() WHERE batch_id=$1 AND status='running' AND lease_expires_at<=NOW()`, batchID)
+	if err != nil {
+		return p, err
+	}
+	err = r.db.QueryRowContext(ctx, `SELECT COUNT(*),COUNT(*) FILTER (WHERE status='succeeded'),COUNT(*) FILTER (WHERE status='failed'),COUNT(*) FILTER (WHERE status='cancelled'),COUNT(*) FILTER (WHERE status='unknown'),COUNT(*) FILTER (WHERE status='pending'),COUNT(*) FILTER (WHERE status='running'),COUNT(*) FILTER (WHERE status='retry') FROM batch_items WHERE batch_id=$1`, batchID).Scan(&p.Total, &p.Succeeded, &p.Failed, &p.Cancelled, &p.Unknown, &p.Pending, &p.Running, &p.Retry)
 	return p, err
 }
 
