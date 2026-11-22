@@ -3,7 +3,8 @@
 # Delivered via run-probe.sh with companion sources from the repo:
 #   --with ops/qa/force_retention.py \
 #   --with ops/qa/coordinator_host.py \
-#   --with ops/qa/data_machine_coordinator.py
+#   --with ops/qa/data_machine_coordinator.py \
+#   --with ops/qa/install_coordinator.py
 #
 # Requires APPLY=yes-qa-retention-backup-defer
 #
@@ -15,7 +16,7 @@
 # Scope:
 #   - Overwrite force_retention.py / coordinator_host.py /
 #     data_machine_coordinator.py in the active bundle (BackupDeferred → exit 0)
-#   - Replace retention timer with UTC *:00/10/20/40/50 (avoid backup *:30)
+#   - Replace retention timer from install_coordinator.retention_units SSOT
 #   - daemon-reload; reset-failed retention; restart retention.timer
 # Does NOT touch postgres-backup calendar, coordinator.timer cadence, or gateway.
 set -euo pipefail
@@ -25,19 +26,6 @@ EXPECT_APPLY=yes-qa-retention-backup-defer
 SRC_DIR="${SRC_DIR:-/tmp}"
 TIMER_DST=/etc/systemd/system/tokenkey-qa-retention.timer
 WANTED_CALENDAR='OnCalendar=*-*-* *:00,10,20,40,50:00 UTC'
-
-TIMER_BODY='[Unit]
-Description=TokenKey independent QA retention schedule
-[Timer]
-OnBootSec=2min
-# Avoid postgres backup slots (*:30 every 2h UTC). Soft BackupDeferred still
-# covers residual overlap (Persistent catch-up / backup overrun).
-OnCalendar=*-*-* *:00,10,20,40,50:00 UTC
-Persistent=true
-AccuracySec=1min
-[Install]
-WantedBy=timers.target
-'
 
 need_root() {
   if [[ "$(id -u)" -ne 0 ]]; then
@@ -62,6 +50,19 @@ file_sha() {
   sha256sum "$1" 2>/dev/null | awk '{print $1}'
 }
 
+retention_timer_body() {
+  # SSOT: install_coordinator.retention_units — do not hardcode a second timer.
+  python3 - <<'PY' "$SRC_DIR"
+import importlib.util, sys
+from pathlib import Path
+src = Path(sys.argv[1]) / "install_coordinator.py"
+spec = importlib.util.spec_from_file_location("install_coordinator", src)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(mod.retention_units(Path("/usr/local/lib/tokenkey/qa-coordinator/placeholder"), "source", None)["tokenkey-qa-retention.timer"], end="")
+PY
+}
+
 echo "host=$(hostname -s 2>/dev/null || hostname)"
 echo "now_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "apply_requested=$([[ $APPLY == "$EXPECT_APPLY" ]] && echo yes || echo no)"
@@ -78,21 +79,29 @@ if [[ -z "$BUNDLE" || ! -d "$BUNDLE" ]]; then
 fi
 echo "active_bundle=${BUNDLE}"
 
-for name in force_retention.py coordinator_host.py data_machine_coordinator.py; do
+for name in force_retention.py coordinator_host.py data_machine_coordinator.py install_coordinator.py; do
   src="${SRC_DIR}/${name}"
-  dst="${BUNDLE}/${name}"
   if [[ ! -f "$src" ]]; then
     echo "{\"ok\":false,\"error\":\"missing companion ${src}; pass --with ops/qa/${name}\"}"
     exit 1
   fi
+done
+for name in force_retention.py coordinator_host.py data_machine_coordinator.py; do
+  dst="${BUNDLE}/${name}"
   if [[ ! -f "$dst" ]]; then
     echo "{\"ok\":false,\"error\":\"missing live ${dst}\"}"
     exit 1
   fi
-  echo "src_${name}_sha=$(file_sha "$src")"
+  echo "src_${name}_sha=$(file_sha "${SRC_DIR}/${name}")"
   echo "dst_${name}_sha=$(file_sha "$dst")"
-  echo "dst_${name}_same=$([[ $(file_sha "$src") == $(file_sha "$dst") ]] && echo yes || echo no)"
+  echo "dst_${name}_same=$([[ $(file_sha "${SRC_DIR}/${name}") == $(file_sha "$dst") ]] && echo yes || echo no)"
 done
+
+TIMER_BODY="$(retention_timer_body)"
+if ! grep -Fqx "$WANTED_CALENDAR" <<<"$TIMER_BODY"; then
+  echo '{"ok":false,"error":"install_coordinator retention timer missing wanted OnCalendar"}'
+  exit 1
+fi
 
 echo "--- live timer ---"
 sed -n '1,20p' "$TIMER_DST" 2>/dev/null || echo "(missing timer file)"
@@ -125,13 +134,13 @@ fr = (bundle / "force_retention.py").read_text()
 assert "class BackupDeferred" in dm, "BackupDeferred missing"
 assert "raise policy.BackupDeferred" in ch, "soft defer raise missing"
 assert "except policy.BackupDeferred" in fr, "force_retention soft exit missing"
+assert "backup timer next elapse missing" in ch
 assert 'raise policy.CoordinatorError("QA database work deferred near scheduled backup")' not in ch
 print("markers_ok=yes")
 PY
 
-echo "=== apply: rewrite retention timer ==="
+echo "=== apply: rewrite retention timer from install_coordinator SSOT ==="
 printf '%s\n' "$TIMER_BODY" >"$TIMER_DST"
-# Keep a copy beside the bundle for audit/rebuild parity.
 printf '%s\n' "$TIMER_BODY" >"${BUNDLE}/tokenkey-qa-retention.timer"
 chmod 0644 "$TIMER_DST" "${BUNDLE}/tokenkey-qa-retention.timer"
 systemd-analyze verify "$TIMER_DST" "${BUNDLE}/tokenkey-qa-retention.service" 2>/dev/null \
@@ -146,10 +155,8 @@ echo "timer_has_wanted_calendar=$(grep -Fqx "$WANTED_CALENDAR" "$TIMER_DST" && e
 echo "timer_has_5min=$(grep -q 'OnUnitInactiveSec=5min' "$TIMER_DST" && echo yes || echo no)"
 systemctl show tokenkey-qa-retention.timer --property=ActiveState,UnitFileState,NextElapseUSecRealtime,LastTriggerUSec
 systemctl show tokenkey-qa-retention.service --property=ActiveState,Result
-# Smoke: near-backup defer should now exit 0 if we are inside the window.
-# Do not force a full expire; just import-check the patched modules.
 python3 - <<PY
-import importlib.util, sys
+import sys
 from pathlib import Path
 bundle = Path("$BUNDLE")
 sys.path.insert(0, str(bundle))

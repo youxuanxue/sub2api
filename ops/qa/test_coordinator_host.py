@@ -251,6 +251,18 @@ class BackupGuardTest(unittest.TestCase):
                     host.database(cfg, 'provision')
             self.assertEqual(run.call_count, 2)
 
+    def test_database_write_hard_fails_when_backup_timer_next_elapse_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / 'binary'
+            binary.write_bytes(b'native')
+            cfg = config(root)
+            cfg.update(binary=str(binary), binary_sha256=hashlib.sha256(b'native').hexdigest())
+            with mock.patch.object(host.subprocess, 'run', return_value=mock.Mock(stdout=' \n')) as run:
+                with self.assertRaisesRegex(policy.CoordinatorError, 'next elapse missing'):
+                    host.database(cfg, 'provision')
+            self.assertEqual(run.call_count, 1)
+
     def test_database_write_defers_when_backup_operator_lock_held(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

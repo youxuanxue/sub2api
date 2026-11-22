@@ -69,9 +69,12 @@ def database(config, phase, *args, dry_run=False):
             timer = "tokenkey-cn-postgres-backup.timer" if config["environment"] == "cn-prod" else "tokenkey-postgres-backup.timer"
             upcoming = subprocess.run(["systemctl", "show", timer, "-p", "NextElapseUSecRealtime", "--value"],
                                       capture_output=True, text=True, timeout=10, check=True).stdout.strip()
+            if not upcoming:
+                # Missing next elapse = timer broken/disabled; keep paging (not soft yield).
+                raise policy.CoordinatorError("QA database work blocked: backup timer next elapse missing")
             next_epoch = subprocess.run(["date", "--date", upcoming, "+%s"], capture_output=True,
                                         text=True, timeout=10, check=True).stdout.strip()
-            if not upcoming or int(next_epoch) - dt.datetime.now(dt.timezone.utc).timestamp() < 360:
+            if int(next_epoch) - dt.datetime.now(dt.timezone.utc).timestamp() < 360:
                 # Soft yield: schedules already avoid backup :30 slots; residual
                 # overlap (Persistent catch-up, overrun) must not page as failure.
                 raise policy.BackupDeferred("QA database work deferred near scheduled backup")
