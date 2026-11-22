@@ -87,7 +87,16 @@ for name in force_retention.py coordinator_host.py data_machine_coordinator.py i
     exit 1
   fi
 done
-for name in force_retention.py coordinator_host.py data_machine_coordinator.py; do
+PATCH_NAMES=(force_retention.py coordinator_host.py data_machine_coordinator.py)
+# App bundles also run source_worker over SSH; patch when present.
+if [[ -f "${BUNDLE}/source_worker.py" ]]; then
+  if [[ ! -f "${SRC_DIR}/source_worker.py" ]]; then
+    echo "{\"ok\":false,\"error\":\"missing companion ${SRC_DIR}/source_worker.py; pass --with ops/qa/source_worker.py\"}"
+    exit 1
+  fi
+  PATCH_NAMES+=(source_worker.py)
+fi
+for name in "${PATCH_NAMES[@]}"; do
   dst="${BUNDLE}/${name}"
   if [[ ! -f "$dst" ]]; then
     echo "{\"ok\":false,\"error\":\"missing live ${dst}\"}"
@@ -120,7 +129,7 @@ fi
 
 need_root
 echo "=== apply: patch active bundle python ==="
-for name in force_retention.py coordinator_host.py data_machine_coordinator.py; do
+for name in "${PATCH_NAMES[@]}"; do
   install -m 0644 "${SRC_DIR}/${name}" "${BUNDLE}/${name}"
   echo "patched ${BUNDLE}/${name} sha=$(file_sha "${BUNDLE}/${name}")"
 done
@@ -133,10 +142,18 @@ dm = (bundle / "data_machine_coordinator.py").read_text()
 ch = (bundle / "coordinator_host.py").read_text()
 fr = (bundle / "force_retention.py").read_text()
 assert "class BackupDeferred" in dm, "BackupDeferred missing"
+assert "class ArchiveDeferred" in dm, "ArchiveDeferred missing"
+assert "def subprocess_detail" in dm, "subprocess_detail missing"
 assert "raise policy.BackupDeferred" in ch, "soft defer raise missing"
+assert "except policy.ArchiveDeferred" in ch, "archive soft defer missing"
 assert "except policy.BackupDeferred" in fr, "force_retention soft exit missing"
 assert "backup timer next elapse missing" in ch
 assert 'raise policy.CoordinatorError("QA database work deferred near scheduled backup")' not in ch
+sw = bundle / "source_worker.py"
+if sw.exists():
+    text = sw.read_text()
+    assert "ArchiveDeferred" in text, "source_worker ArchiveDeferred missing"
+    assert "subprocess_detail" in text, "source_worker subprocess_detail missing"
 print("markers_ok=yes")
 PY
 
