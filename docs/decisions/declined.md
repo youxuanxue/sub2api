@@ -3,6 +3,12 @@
 只记人口头否决；现行做法见 [`decided.md`](decided.md) 与 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。
 已删文档清单的 owner 是 [`docs/approved/README.md`](../approved/README.md)「已删除的历史设计」，本文件不逐 pass 记账。
 
+## 2026-11-22
+
+| 原话（摘要） | 不做 |
+|---|---|
+| 「直接用主账号即可 /etc/tokenkey/cos-backup.env 。不需要单独创建子账户。」 | 为 Managed Batch 另建 CAM 子用户或独立 API 密钥（复用数据机 `cos-backup.env`，见 `decided.md`）。 |
+
 ## 2026-11-20
 
 | 原话（摘要） | 不做 |
