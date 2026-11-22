@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # probe-data-machine-capacity-prep.sh — read-only prep gate for prod data-machine
-# 4C16G resize (docs/approved/plan-data-machine-capacity-upgrade.md).
+# 4C16G resize prep (see design-data-plane-split.md + docs/decisions/decided.md).
 #
 # MUST NOT stop/restart containers, alter PG, resize the host, or run backups.
 #

@@ -166,8 +166,7 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 | [`design-prod-physical-backup.md`](design-prod-physical-backup.md) | pgBackRest 节奏；存储/唯一 repo 见 design-tencent-cos-backup-node1-qa |
 | [`billing-dedup-retention.md`](billing-dedup-retention.md) | 计费去重表：热表 7 天、含归档共 30 天，超期直接删除 |
 | [`design-tencent-cos-backup-node1-qa.md`](design-tencent-cos-backup-node1-qa.md) | 腾讯 COS 唯一 repo + node1 QA/备份兜底契约 |
-| [`design-data-plane-split.md`](design-data-plane-split.md) | prod 与 cn-prod 数据面从应用机拆到同私网数据机；逐站停写切流，窗口需单独审批 |
-| [`plan-data-machine-capacity-upgrade.md`](plan-data-machine-capacity-upgrade.md) | prod 数据机 4C16G；**2026-11-22 低峰已执行**；Redis Docker 硬上限 prod 1G / cn-prod 512MB 已设 |
+| [`design-data-plane-split.md`](design-data-plane-split.md) | prod 与 cn-prod 数据面从应用机拆到同私网数据机；现网 prod 4C16G/PG12G、Redis Docker 1G / cn Redis 512MB |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
 
 ### Ops / admin / misc

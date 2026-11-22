@@ -97,7 +97,9 @@ prod **现网** 4C16G / PG 12G / `shared_buffers=4GB`（2026-11-22 升配）。�
 |---|---|---|
 | 身份 | `lhins-p43i2kxh` / `10.4.0.3` | `lhins-odyx5eis` / `10.2.4.5` |
 | 套餐 | **现网 4C16G**（`bundle_starter_nmc_lin_lg16_01`，2026-11-22 低峰升配） | 北京轻量；**现网 4C8G**（`bundle_starter_mc_lg8_01`） |
-| PG / Redis 容器上限 | **现网 PG 12G**；Redis maxmemory 512MB / Docker 硬上限 **1G**（2026-11-22 `docker update`） | PG 3G；Redis maxmemory 256MB / Docker 硬上限 **512MB**（2026-11-22 `docker update`） |
+| PG / Redis 容器上限 | **现网 PG 12G**；Redis maxmemory 512MB / Docker 硬上限 **1G**（2026-11-22） | PG 3G；Redis maxmemory 256MB / Docker 硬上限 **512MB**（2026-11-22） |
+
+**Redis Docker 硬上限不变量**：现网用 `docker update` 生效（prod `1073741824`、cn-prod `536870912`，`--memory-swap` 与 `--memory` 相同）。**重建 `tokenkey-redis` 必须带相同 `--memory/--memory-swap`**，否则 cgroup cap 丢失；主机旁路笔记 `REDIS_CAP.md` 不能代替本表。进程内 `maxmemory` 仍分别为 512mb / 256mb、`noeviction`。
 
 现网主机矩阵与 Hybrid 身份见舰队 / 国内 README。数据在系统盘 ext4；安全靠 pgBackRest→本站 COS（repo2）。不开公网入站；5432/6379 只放行本站应用机私网。轻量可原地升配（**需重启窗口，另批；本修订不停写切流**）。
 
@@ -113,9 +115,7 @@ owner：`deploy/hetzner/tokenkey-disk-metrics-prod.sh`（data 机 timer 每 5min
 | PG cgroup **`anon`** | **是（新增）** | 不可回收压力：warn 连续两 tick ≥阈值 MiB；critical 单 tick；带恢复。默认 warn=1536MiB / critical=3072MiB（可用环境变量覆盖） |
 | 只读探针 | 运维/发版后 | `ops/observability/probe-data-machine-memory.sh`；升配备料 `probe-data-machine-capacity-prep.sh`（均经 `run-probe.sh --target prod-data`） |
 
-期望设置核对 owner：`ops/stage0/dataplane-cutover-data.sh`（`TOKENKEY_DATA_HOST_PROFILE=prod-4c16g` 启用升配后期望表；升配完成前勿设）。
-
-升配目标、备料、非目标与停写另批：[`plan-data-machine-capacity-upgrade.md`](plan-data-machine-capacity-upgrade.md)。
+期望设置核对 owner：`ops/stage0/dataplane-cutover-data.sh`（`TOKENKEY_DATA_HOST_PROFILE=prod-4c16g` 启用升配后期望表）。升配执行结论与 Redis cap 决策见 `docs/decisions/decided.md`。
 
 ## 切流与代码改动（已完成）
 
