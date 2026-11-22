@@ -203,6 +203,19 @@ class CoveragePlanTest(unittest.TestCase):
         self.assertFalse(watch.job_fact({'ActiveState':'inactive', 'Result':'success'},
                                        {'ActiveState':'inactive', 'UnitFileState':'disabled'},
                                        10000, limit)['healthy'])
+        # Retention calendar skips *:30 (20m gap). Stale age must cover that gap.
+        max_age, _max_runtime = limit
+        self.assertGreaterEqual(max_age, 20 * 60)
+        timer_ok = {'ActiveState': 'active', 'UnitFileState': 'enabled'}
+        exit_mono = 1_000_000  # 1s monotonic
+        svc = {
+            'ActiveState': 'inactive',
+            'Result': 'success',
+            'ExecMainExitTimestampMonotonic': str(exit_mono),
+        }
+        # 20m after last success still healthy; 26m is stale.
+        self.assertTrue(watch.job_fact(svc, timer_ok, 1 + 20 * 60, limit)['healthy'])
+        self.assertFalse(watch.job_fact(svc, timer_ok, 1 + 26 * 60, limit)['healthy'])
 
     def test_missing_provision_timer_alerts(self):
         # 2026-10-22: provision was not installed on the Tencent host (systemctl show
