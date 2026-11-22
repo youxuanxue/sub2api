@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-22 cn-prod PostgreSQL cgroup 上限在线提升到 4 GiB
+
+复查 cn-prod 数据机 `lhins-odyx5eis` 后确认 PostgreSQL cgroup 两次采样均贴近 3 GiB 上限，主机仍有充足可用内存，且没有 OOM kill。已获批准采用用户无感知方案，在线执行 `docker update --memory 4g --memory-swap 4g tokenkey-postgres`，未重启容器、未修改 PostgreSQL 参数、未切流。
+
+变更后容器启动时间未变化，PostgreSQL 连接检查通过，两台应用机和公网健康检查保持正常。现网 SSOT 更新为 cn-prod PG 4 GiB。
+
 ## 2026-11-22 Batch COS 复用主账号 / cos-backup.env（不另建子用户）
 
 原话：「直接用主账号即可 /etc/tokenkey/cos-backup.env 。不需要单独创建子账户。」
