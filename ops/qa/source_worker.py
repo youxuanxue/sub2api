@@ -45,10 +45,16 @@ def seal(config, hour):
     binary = Path(config["binary"])
     if hashlib.sha256(binary.read_bytes()).hexdigest() != config["binary_sha256"]:
         raise coordinator.CoordinatorError("QA binary digest mismatch")
-    proc = subprocess.run([str(binary), "--phase", "seal", "--hour", hour.isoformat(),
-                           "--ledger-root", str(Path(config["source_root"]) / "qa_capture_ledger"),
-                           "--confirm", "tokenkey-qa-local-seal-v1"], check=True,
-                          text=True, capture_output=True, timeout=30)
+    try:
+        proc = subprocess.run([str(binary), "--phase", "seal", "--hour", hour.isoformat(),
+                               "--ledger-root", str(Path(config["source_root"]) / "qa_capture_ledger"),
+                               "--confirm", "tokenkey-qa-local-seal-v1"], check=True,
+                              text=True, capture_output=True, timeout=30)
+    except subprocess.CalledProcessError as exc:
+        detail = coordinator.subprocess_detail(exc)
+        if coordinator.seal_not_ready(detail):
+            raise coordinator.ArchiveDeferred(detail) from exc
+        raise coordinator.CoordinatorError(detail) from exc
     value = json.loads(proc.stdout)
     if (coordinator._hour(value["source_hour"]) != hour or not value.get("runtime_ids")
             or not coordinator.re.fullmatch(r"[0-9a-f]{64}", value.get("state_digest", ""))):
@@ -133,12 +139,26 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     args = parser.parse_args()
+    request = None
     try:
-        result = run(coordinator.load_private_config(args.config), json.load(sys.stdin))
+        config = coordinator.load_private_config(args.config)
+        request = json.load(sys.stdin)
+        result = run(config, request)
         print(json.dumps(result, sort_keys=True))
         return 0
+    except coordinator.ArchiveDeferred as exc:
+        # Exit 0 so the data-machine SSH path can soft-retry without paging.
+        source_id = request.get("source_id") if isinstance(request, dict) else None
+        print(json.dumps({
+            "ok": True,
+            "deferred": True,
+            "reason": str(exc),
+            "source_id": source_id,
+        }, sort_keys=True))
+        return 0
     except (ValueError, OSError, KeyError, TypeError, archive.node1_remote.RemoteError, subprocess.SubprocessError) as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+        detail = coordinator.subprocess_detail(exc) if isinstance(exc, subprocess.SubprocessError) else str(exc)
+        print(json.dumps({"ok": False, "error": detail}), file=sys.stderr)
         return 1
 
 

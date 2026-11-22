@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 from typing import Any
 
@@ -34,6 +35,49 @@ class BackupDeferred(Exception):
     """Yield DB work to postgres backup; callers must exit 0 (not page as failure)."""
 
     pass
+
+
+class ArchiveDeferred(Exception):
+    """Hour not sealable yet (gateway ledger snapshot lag); retry without paging."""
+
+    pass
+
+
+# captureledger.evaluateHour timing races at the UTC hour edge. Soft-retry only;
+# unresolved failures / stale receipts stay hard CoordinatorError.
+_SEAL_NOT_READY_MARKERS = (
+    "has no post-hour snapshot",
+    "source hour is still open",
+    "is not drained for source hour",
+)
+
+
+def seal_not_ready(detail: str) -> bool:
+    text = (detail or "").lower()
+    return any(marker in text for marker in _SEAL_NOT_READY_MARKERS)
+
+
+def subprocess_detail(exc: BaseException) -> str:
+    """Prefer JSON error payloads from qa-local-maintenance stdout/stderr."""
+    if isinstance(exc, subprocess.CalledProcessError):
+        for blob in (exc.stdout, exc.stderr):
+            text = (blob or "").strip()
+            if not text:
+                continue
+            # SSH may prefix login-shell noise (e.g. broken .bashrc) before JSON.
+            for line in reversed(text.splitlines()):
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict) and isinstance(payload.get("error"), str) and payload["error"]:
+                    return payload["error"]
+                return line
+            return text
+    return str(exc)
 
 
 def load_private_config(path: Path) -> dict:

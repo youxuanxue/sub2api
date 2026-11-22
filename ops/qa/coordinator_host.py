@@ -85,10 +85,14 @@ def database(config, phase, *args, dry_run=False):
                 raise policy.BackupDeferred(
                     "QA database work deferred; backup operator lock held"
                 ) from exc
-        completed = subprocess.run(command, check=True, capture_output=True, text=True, timeout=270)
+        try:
+            completed = subprocess.run(command, check=True, capture_output=True, text=True, timeout=270)
+        except subprocess.CalledProcessError as exc:
+            raise policy.CoordinatorError(policy.subprocess_detail(exc)) from exc
     value = json.loads(completed.stdout)
     if value.get("ok") is not True or value.get("phase") != phase:
-        raise policy.CoordinatorError("database maintenance receipt invalid")
+        detail = value.get("error") if isinstance(value.get("error"), str) else "database maintenance receipt invalid"
+        raise policy.CoordinatorError(detail)
     return value
 
 
@@ -134,11 +138,14 @@ def source_command(config, source, command, hour, *, plan=None, apply=False):
                                   # push; keep above source remote.timeout (max 3600).
                                   timeout=3900 if command == "archive" else 300)
     except subprocess.CalledProcessError as exc:
-        # Preserve worker stderr so the data-machine receipt can classify node1
-        # vs gateway failures the same way #3222 did for tokenkey-qa-archive.
-        detail = (exc.stderr or "").strip() or (exc.stdout or "").strip() or str(exc)
+        # Preserve worker JSON error (stdout/stderr); ignore login-shell noise.
+        detail = policy.subprocess_detail(exc)
+        if policy.seal_not_ready(detail):
+            raise policy.ArchiveDeferred(detail) from exc
         raise policy.CoordinatorError(detail) from exc
     result = json.loads(completed.stdout)
+    if result.get("deferred") is True:
+        raise policy.ArchiveDeferred(str(result.get("reason") or "archive deferred"))
     if result.get("ok") is not True or result.get("source_id") != source["id"]:
         raise policy.CoordinatorError("application worker response identity invalid")
     if command == "cleanup" and (policy._hour(result.get("window_start", "")) != hour
@@ -199,6 +206,10 @@ def run(config, *, apply=False):
                     if apply:
                         evidence = source_command(config, source, "archive", hour)
                         archive.atomic_json(path, evidence)
+                except policy.ArchiveDeferred:
+                    # Gateway ledger snapshot lags the UTC hour edge by up to
+                    # ~1m; leave the hour incomplete for the next 5m tick.
+                    continue
                 except (OSError, ValueError, subprocess.SubprocessError) as exc:
                     error = str(exc)
                     entry = {"source_id": source["id"], "hour": hour.isoformat(),

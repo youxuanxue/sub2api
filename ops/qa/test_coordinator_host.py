@@ -197,6 +197,39 @@ class RunnerTest(unittest.TestCase):
             'gateway_qa_archive_failed',
         )
 
+    def test_hour_edge_seal_not_ready_is_soft_retry_not_page(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cfg = config(Path(directory))
+            detail = "hour unsealed: runtime runtime-a has no post-hour snapshot"
+
+            def source_command(config, source, command, hour, **kwargs):
+                raise policy.ArchiveDeferred(detail)
+
+            def database(config, phase, *args, **kwargs):
+                return {'db_anchor_utc': (HOUR + dt.timedelta(hours=2)).isoformat(), 'hours': []}
+
+            with mock.patch.object(host.socket, 'gethostname', return_value='fixture-data'), \
+                 mock.patch.object(host, 'source_command', side_effect=source_command), \
+                 mock.patch.object(host, 'database', side_effect=database):
+                result = host.run(cfg, apply=True)
+            self.assertTrue(result['ok'], result)
+            self.assertEqual(result['errors'], [])
+            self.assertNotIn('failure_class', result)
+            self.assertTrue(policy.seal_not_ready(detail))
+            self.assertFalse(policy.seal_not_ready('unresolved capture failure xyz'))
+
+    def test_subprocess_detail_prefers_json_error_over_bashrc_noise(self):
+        exc = host.subprocess.CalledProcessError(
+            1, ['qa-local-maintenance'],
+            output='',
+            stderr='/root/.bashrc: line 1: x: command not found\n'
+                   '{"ok": false, "error": "runtime r1 has no post-hour snapshot"}\n',
+        )
+        self.assertEqual(
+            policy.subprocess_detail(exc),
+            'runtime r1 has no post-hour snapshot',
+        )
+
 
 class InstallerTest(unittest.TestCase):
     def test_plan_does_not_write_units_or_enable_timers(self):

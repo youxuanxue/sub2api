@@ -88,6 +88,21 @@ class SourceWorkerTest(unittest.TestCase):
                     worker.run(cfg, request, clock=lambda: next(times))
                 push.assert_called_once()
 
+    def test_seal_not_ready_raises_archive_deferred_not_hard_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / 'qa-local-maintenance'
+            binary.write_bytes(b'fixture')
+            cfg = source_config(root)
+            cfg['binary'] = str(binary)
+            cfg['binary_sha256'] = worker.hashlib.sha256(b'fixture').hexdigest()
+            hour = dt.datetime(2026, 11, 10, tzinfo=dt.timezone.utc)
+            payload = '{"ok":false,"error":"hour unsealed: runtime r1 has no post-hour snapshot"}\n'
+            exc = worker.subprocess.CalledProcessError(1, ['bin'], output=payload, stderr='')
+            with mock.patch.object(worker.subprocess, 'run', side_effect=exc):
+                with self.assertRaisesRegex(policy.ArchiveDeferred, 'post-hour snapshot'):
+                    worker.seal(cfg, hour)
+
 
 if __name__ == '__main__':
     unittest.main()

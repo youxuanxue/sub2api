@@ -152,7 +152,8 @@ def main():
         }, sort_keys=True))
         return 0
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+        detail = policy.subprocess_detail(exc) if isinstance(exc, subprocess.SubprocessError) else str(exc)
+        print(json.dumps({"ok": False, "error": detail}), file=sys.stderr)
         return 1
 
 
