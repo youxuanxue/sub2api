@@ -231,7 +231,10 @@ class InstallerTest(unittest.TestCase):
             self.assertNotIn('network-online', unit)
             self.assertNotIn('coordinator.service', unit)
             self.assertEqual('EnvironmentFile=' in unit, role == 'data')
-            self.assertIn('OnUnitInactiveSec=5min', generated['tokenkey-qa-retention.timer'])
+            timer = generated['tokenkey-qa-retention.timer']
+            self.assertIn('OnCalendar=*-*-* *:00,10,20,40,50:00 UTC', timer)
+            self.assertNotIn('OnUnitInactiveSec=', timer)
+            self.assertIn('Persistent=true', timer)
 
 
 class BackupGuardTest(unittest.TestCase):
@@ -244,9 +247,36 @@ class BackupGuardTest(unittest.TestCase):
             cfg.update(binary=str(binary), binary_sha256=hashlib.sha256(b'native').hexdigest())
             replies = [mock.Mock(stdout='soon'), mock.Mock(stdout=str(int(dt.datetime.now(dt.timezone.utc).timestamp()) + 60))]
             with mock.patch.object(host.subprocess, 'run', side_effect=replies) as run:
-                with self.assertRaisesRegex(policy.CoordinatorError, 'deferred'):
+                with self.assertRaisesRegex(policy.BackupDeferred, 'deferred'):
                     host.database(cfg, 'provision')
             self.assertEqual(run.call_count, 2)
+
+    def test_database_write_hard_fails_when_backup_timer_next_elapse_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / 'binary'
+            binary.write_bytes(b'native')
+            cfg = config(root)
+            cfg.update(binary=str(binary), binary_sha256=hashlib.sha256(b'native').hexdigest())
+            with mock.patch.object(host.subprocess, 'run', return_value=mock.Mock(stdout=' \n')) as run:
+                with self.assertRaisesRegex(policy.CoordinatorError, 'next elapse missing'):
+                    host.database(cfg, 'provision')
+            self.assertEqual(run.call_count, 1)
+
+    def test_database_write_defers_when_backup_operator_lock_held(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / 'binary'
+            binary.write_bytes(b'native')
+            cfg = config(root)
+            cfg.update(binary=str(binary), binary_sha256=hashlib.sha256(b'native').hexdigest())
+            far = str(int(dt.datetime.now(dt.timezone.utc).timestamp()) + 3600)
+            replies = [mock.Mock(stdout='later'), mock.Mock(stdout=far)]
+            with mock.patch.object(host.subprocess, 'run', side_effect=replies), \
+                    mock.patch('builtins.open', return_value=tempfile.TemporaryFile(mode='a')), \
+                    mock.patch.object(host.fcntl, 'flock', side_effect=BlockingIOError):
+                with self.assertRaisesRegex(policy.BackupDeferred, 'operator lock held'):
+                    host.database(cfg, 'provision')
 
 
 if __name__ == '__main__':

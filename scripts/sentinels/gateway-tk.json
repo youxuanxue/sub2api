@@ -3,6 +3,15 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/handler/openai_page_context.go",
+      "must_contain": [
+        "!validCodexStandaloneContext(name, output)",
+        "\"untrusted_content\"",
+        "return strings.TrimSpace(output) != \"\""
+      ],
+      "rationale": "HTTP Responses must convert Codex standalone untrusted_content into user text only when the context contains text."
+    },
+    {
       "path": "backend/internal/repository/concurrency_cache.go",
       "must_contain": [
         "cleanupExpiredSlotsScript.Run(ctx, c.rdb, []string{spec.slotKey(id)}",
@@ -21298,6 +21307,21 @@
         "\"qwen4-max-preview\""
       ],
       "rationale": "Ali Token Plan canonical ids self-map and are public; legacy dotted ids remain mapping-only aliases."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "case PlatformAnthropic, PlatformOpenAI, PlatformAntigravity:"
+      ],
+      "rationale": "Antigravity model-to-account routing must remain enabled in the shared platform allowlist after upstream merges."
+    },
+    {
+      "path": "backend/internal/service/gateway_multiplatform_test.go",
+      "must_contain": [
+        "func TestGatewayService_SelectAccountForModelWithPlatform_RoutedAntigravityGroup(",
+        "{ID: 2, Platform: PlatformAntigravity"
+      ],
+      "rationale": "Keep a behavioral regression proving Antigravity model routing selects the bound account over the higher-priority unbound account."
     },
     {
       "path": "backend/internal/service/ops_upstream_context.go",

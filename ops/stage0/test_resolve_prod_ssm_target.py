@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
 import tempfile
 import unittest
@@ -24,6 +25,11 @@ def load_mod():
 class ResolveProdSsmTargetTest(unittest.TestCase):
     def setUp(self) -> None:
         self.mod = load_mod()
+        # Operator shells often export PROD_SSM_NODE for run-probe; legacy
+        # single-target fixtures must not inherit it or they take the apps[] path.
+        node_env = mock.patch.dict(os.environ, {"PROD_SSM_NODE": ""})
+        node_env.start()
+        self.addCleanup(node_env.stop)
 
     def test_auto_fails_closed_when_tencent_not_live(self) -> None:
         with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False), mock.patch.dict(

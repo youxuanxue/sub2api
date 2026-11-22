@@ -27,12 +27,16 @@ var (
 func generateStableSessionID(contents []GeminiContent) string {
 	// 查找第一个 user 消息的文本
 	for _, content := range contents {
-		if content.Role == "user" && len(content.Parts) > 0 {
-			if text := content.Parts[0].Text; text != "" {
-				h := sha256.Sum256([]byte(text))
-				n := int64(binary.BigEndian.Uint64(h[:8])) & 0x7FFFFFFFFFFFFFFF
-				return "-" + strconv.FormatInt(n, 10)
+		if content.Role != "user" {
+			continue
+		}
+		for _, part := range content.Parts {
+			if part.Text == "" {
+				continue
 			}
+			h := sha256.Sum256([]byte(part.Text))
+			n := int64(binary.BigEndian.Uint64(h[:8])) & 0x7FFFFFFFFFFFFFFF
+			return "-" + strconv.FormatInt(n, 10)
 		}
 	}
 	// 回退：生成随机 session ID

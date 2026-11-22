@@ -47,16 +47,34 @@ private_ip="$(ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 |
 
 # Approved parameters (design §数据库参数 建议值). Memory values differ per site.
 # cn-prod max_connections raised 200→400 on 2026-11-17 (docs/decisions/decided.md).
+# prod live after 2026-11-22 resize: TOKENKEY_DATA_HOST_PROFILE=prod-4c16g
+# (data host /etc/tokenkey/data-host-profile.env). Unset profile keeps the
+# pre-resize 2C8G / PG 6G table for rollback / unmarked hosts.
 expected_settings() {
-  local sb ecs mwm max_conn
-  if [ "$SITE" = prod ]; then sb=2GB ecs=5GB mwm=256MB max_conn=200; else sb=1GB ecs=2560MB mwm=128MB max_conn=400; fi
+  local sb ecs mwm max_conn parallel
+  parallel=""
+  if [ "$SITE" = prod ]; then
+    case "${TOKENKEY_DATA_HOST_PROFILE:-}" in
+      prod-4c16g)
+        sb=4GB ecs=10GB mwm=512MB max_conn=200
+        parallel=$'max_parallel_workers=3\nmax_parallel_workers_per_gather=1\n'
+        ;;
+      *)
+        sb=2GB ecs=5GB mwm=256MB max_conn=200
+        parallel=$'max_parallel_workers=2\nmax_parallel_workers_per_gather=1\n'
+        ;;
+    esac
+  else
+    sb=1GB ecs=2560MB mwm=128MB max_conn=400
+    parallel=$'max_parallel_workers=2\nmax_parallel_workers_per_gather=1\n'
+  fi
   cat <<EOF
 shared_buffers=$sb
 effective_cache_size=$ecs
 maintenance_work_mem=$mwm
 work_mem=16MB
 max_connections=$max_conn
-jit=off
+${parallel}jit=off
 wal_compression=lz4
 max_wal_size=4GB
 checkpoint_timeout=15min
