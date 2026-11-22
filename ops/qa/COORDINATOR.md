@@ -104,7 +104,8 @@ PostgreSQL 可达路径和适当 TLS/认证，不复制应用 .env/cloud 凭据�
 过期小时不重新归档，也不作为待归档积压反复告警。归档启动和完成时均检查期限，跨过期限
 不宣称成功。不得手工伪造 seal/receipt。
 
-各主机 retention timer 开机 2 分钟后执行，此后每次结束 5 分钟后重跑，独立于协调器和网络。
+各主机 retention timer 开机 2 分钟后执行，随后按 UTC `*:00/10/20/40/50` 日历触发（刻意错开
+postgres 备份的 `*:30` 槽），独立于协调器和网络；`Persistent=true` 覆盖短暂宕机漏跑。
 应用机扫描 `qa_blobs/YYYY/MM/DD/HH` 与 `qa_dlq/YYYY/MM/DD/HH`，按小时结束满 24h 判断，
 不依赖 binary、数据库、node1、seal 或 archive 锁；未知旧格式不盲删，交接时单独核对。
 应用机遗留旧小时的迟到文件下轮继续回收，symlink 路径拒绝并告警，正常其它小时仍继续。
@@ -116,7 +117,8 @@ ENOSPC 也继续释放 payload，但报告错误。该结果从不声称 archive
 数据机 native `expire-shared` 每轮限量删除过期小时，记录 terminal-gap 与 DROP 状态，
 不触碰应用机文件或写全站 `hot_files_cleaned_at`。复用 advisory lock、100ms lock timeout 与事务复核。
 结果写 `state_root/last-retention.json`；锁竞争或备份让行后下一轮重试，不能承诺到点立即释放。
-DB 写入需取得备份 operator lock，距下一次备份不足 6 分钟则让行；raw 传输不持备份锁。
+DB 写入需取得备份 operator lock，距下一次备份不足 6 分钟或 operator lock 被占用则**软让行**
+（`BackupDeferred`，进程 exit 0，不向 host watcher 报 failure）；raw 传输不持备份锁。
 
 ## 回退
 

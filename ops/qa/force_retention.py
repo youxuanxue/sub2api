@@ -142,6 +142,15 @@ def main():
         result = run(policy.load_private_config(args.config), args.role, apply=args.apply)
         print(json.dumps(result, sort_keys=True))
         return 0 if result["ok"] else 1
+    except policy.BackupDeferred as exc:
+        print(json.dumps({
+            "ok": True,
+            "deferred": True,
+            "reason": str(exc),
+            "observed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "policy": "hour-end-plus-24h-accept-loss",
+        }, sort_keys=True))
+        return 0
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
         return 1

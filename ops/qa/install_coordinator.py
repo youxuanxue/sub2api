@@ -68,8 +68,11 @@ IOSchedulingClass=idle
 Description=TokenKey independent QA retention schedule
 [Timer]
 OnBootSec=2min
-OnUnitInactiveSec=5min
-AccuracySec=30s
+# Avoid postgres backup slots (*:30 every 2h UTC). Soft BackupDeferred still
+# covers residual overlap (Persistent catch-up / backup overrun).
+OnCalendar=*-*-* *:00,10,20,40,50:00 UTC
+Persistent=true
+AccuracySec=1min
 [Install]
 WantedBy=timers.target
 """}
