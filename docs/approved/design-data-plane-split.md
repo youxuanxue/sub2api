@@ -5,7 +5,7 @@ approved_by: "feng（2026-11-09 会话：同意 #3102 的设计，要求文档�
 approved_at: 2026-11-09
 risk: high
 authors: [agent]
-revised: 2026-11-20（再压参数理由虚荣数字与风险散文；保留布局/参数目标与脚本 owner）
+revised: 2026-11-21（prod 数据机目标升 4C16G：参数表与告警口径；不停写切流）
 ---
 
 # prod 与 cn-prod 数据面从应用机拆出
@@ -36,7 +36,7 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 不做：同时加网关副本、托管库、PgBouncer、只读副本、自动故障转移、第三台只跑 Redis、数据机 LUKS、切流清空 Redis、两站同窗切、切库同时改连接池默认。
 
-**现网容量（非本设计新决策）**：cn-prod `max_connections=400`、应用池 open=80 / idle=20；prod `max_connections=200`、open=50。数字 SSOT：`docs/decisions/decided.md`、`design-cn-prod-rolling-deploy`、`ops/stage0/dataplane-cutover-data.sh`。
+**现网容量（非本设计新决策）**：cn-prod `max_connections=400`、应用池 open=80 / idle=20；prod `max_connections=200`、两台 open=50、25。数字 SSOT：`docs/decisions/decided.md`、`design-cn-prod-rolling-deploy`、`ops/stage0/dataplane-cutover-data.sh`。
 
 ## 现网基线
 
@@ -59,35 +59,36 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 
 ### 建议值
 
-内存相关按 prod 8 GB、cn-prod 4 GB（见「数据机配置」）。
+内存相关按 **prod 目标 16 GB（升配后）**、cn-prod 8 GB（见「数据机配置」）。
+prod **现网** 4C16G / PG 12G / `shared_buffers=4GB`（2026-11-22 升配）。脚本内的 `prod-4c16g` 为现网期望；默认（未设 profile）仍保留升配前 2C8G/6G 读数以便对照。`check` 适用于备库；在线主库按升配方案只读验收。
 
-| 参数 | 现值 | 建议 | 理由 |
-|---|---|---|---|
-| `shared_buffers` | 128MB | 内存 25%：prod 2GB，cn-prod 1GB | 安装默认过小；按内存 25% 装热数据，过大与页缓存重复 |
-| `effective_cache_size` | 4GB | prod 5GB，cn-prod 2.5GB | 让优化器知道 PG 加页缓存一共能缓存多少。按 PG 容器上限算，不按整机内存算 |
-| `work_mem` | 4MB | 16MB | 降低临时文件；连接数有限，内存压力可控 |
-| `maintenance_work_mem` | 64MB | prod 256MB，cn-prod 128MB | 加快 vacuum 和建索引 |
-| `max_connections` | 200 / 100 | 切流目标：两站都 200；**cn-prod 现网 2026-11-17 已升到 400**（prod 仍 200） | 现网 cn-prod=400、prod=200；期望值 owner：`ops/stage0/dataplane-cutover-data.sh` |
-| `jit` | on | off | 网关都是短查询，JIT 编译只增加延迟。仓库调优文件已经是 off |
-| `max_parallel_workers` / `max_parallel_workers_per_gather` | 8 / 2 | 2 / 1 | 沿用仓库调优文件的值，避免一条报表查询占满 CPU |
-| `random_page_cost` | 4 | 1.1 | 两站都是 SSD 云盘 |
-| `effective_io_concurrency` | 16 | 200 | 同上 |
-| `max_wal_size` / `min_wal_size` | 1GB / 80MB | 4GB / 1GB | 减少被迫 checkpoint |
-| `checkpoint_timeout` | 5min | 15min | 减少全页写。崩溃恢复时间会变长，按当前 WAL 速率仍在一两分钟内 |
-| `wal_compression` | off | `lz4` | 镜像已编译 lz4。WAL 和备份仓库的归档量都会下降 |
-| `tcp_keepalives_idle` / `interval` / `count` | 系统默认（约 2 小时） | 30s / 10s / 3 | **拆库后新出现的问题。** 应用机断电时，库端看不到连接断开，死连接会占着会话级 advisory lock（迁移锁、`scheduler_outbox_cleanup` 锁、QA 维护锁）。按系统默认要约 2 小时才释放，而网关启动时等迁移锁最多 10 分钟，到时就会启动失败。改后约 1 分钟释放 |
-| `client_connection_check_interval` | 0 | 10s | 客户端断开后，正在执行的长查询也能尽快停下 |
-| `idle_in_transaction_session_timeout` | 0 | 10min | 防止开着事务不提交的会话长期持锁、挡住 vacuum。会话级 advisory lock 不在事务里，不受影响 |
-| `shared_preload_libraries` | 空 | `pg_stat_statements` | 镜像自带。用来找出产生临时文件和全表扫描的查询，后续调优要靠它 |
-| `track_io_timing` | off | on | 开销很小，配合上一项 |
-| `log_lock_waits` / `log_temp_files` / `log_min_duration_statement` | off / -1 / -1 | on / 16MB / 1s | 锁等待、大临时文件和慢查询进日志 |
-| `timezone` / `log_timezone` | Tokyo / Shanghai | 两站都 `UTC` | 和网关、分区边界一致。改之前确认运维脚本里没有依赖服务器时区的日期计算 |
-| 容器 `shm_size` | 64MB | 1GB | 64MB 下并行哈希可能报共享内存不足 |
-| 容器内存上限 | 4G / 无 | prod 6G，cn-prod 3G | 见「数据机配置」 |
+| 参数 | 安装默认 | prod 目标（4C16G） | cn-prod 现网/目标 | 理由 |
+|---|---|---|---|---|
+| `shared_buffers` | 128MB | **4GB** | 1GB | 约主机内存 25%；相对 12G 容器约 1/3，给 file cache 留余量 |
+| `effective_cache_size` | 4GB | **10GB** | 2560MB | 规划器估算单条查询可利用的共享缓冲及 OS 缓存，不分配内存 |
+| `work_mem` | 4MB | **16MB** | 16MB | 并发预算与单查询调整条件见下方升配方案 |
+| `maintenance_work_mem` | 64MB | **512MB** | 128MB | 16G 主机上加快 vacuum/建索引；维护错峰 |
+| `max_connections` | 100 | **200**（保留） | 400 | 高峰并发预算；与两 app 池之和 + 运维连接核算 |
+| `jit` | on | off | off | 网关短查询不吃 JIT |
+| `max_parallel_workers` / `per_gather` | 8 / 2 | **3 / 1** | 2 / 1 | 4C 留 1 核给 OS/Redis/checkpoint；单查询不占满 |
+| `random_page_cost` | 4 | 1.1 | 1.1 | SSD |
+| `effective_io_concurrency` | 16 | 200 | 200 | SSD |
+| `max_wal_size` / `min_wal_size` | 1GB / 80MB | 4GB / 1GB | 同左 | 少被迫 checkpoint |
+| `checkpoint_timeout` | 5min | 15min | 15min | 少全页写 |
+| `wal_compression` | off | `lz4` | `lz4` | 镜像已编 lz4 |
+| `tcp_keepalives_idle` / `interval` / `count` | 系统默认 | 30s / 10s / 3 | 同左 | 拆库后死连接占 advisory lock |
+| `client_connection_check_interval` | 0 | 10s | 10s | 客户端断开后尽快停长查询 |
+| `idle_in_transaction_session_timeout` | 0 | 10min | 10min | 防长事务挡 vacuum |
+| `shared_preload_libraries` | 空 | `pg_stat_statements` | 同左 | 慢查询/临时文件归因 |
+| `track_io_timing` | off | on | on | 低开销 |
+| `log_lock_waits` / `log_temp_files` / `log_min_duration_statement` | off / -1 / -1 | on / 16MB / 1s | 同左 | 运维信号 |
+| `timezone` / `log_timezone` | 本地 | `UTC` | `UTC` | 与网关/分区一致 |
+| 容器 `shm_size` | 64MB | **1GB** | 1GB | 并行哈希 |
+| 容器内存上限 | — | **PG 12G**；Redis maxmemory 512MB / 上限 1G | PG 3G；Redis 256MB / 512MB | 主机留 ≥3–4G 给 OS+Redis+agent |
 
-不改的：`wal_level`、`archive_mode`、`archive_command`、`archive_timeout`、`synchronous_commit`、`full_page_writes`、autovacuum 各项、`statement_timeout`、`lock_timeout`。两站的死元组比例都很低，autovacuum 不需要调；全局 `statement_timeout` 会误伤迁移和清理任务。
+不改的：`wal_level`、`archive_mode`、`archive_command`、`archive_timeout`、`synchronous_commit`、`full_page_writes`、autovacuum 各项、`statement_timeout`、`lock_timeout`。两站的死元组比例都很低，autovacuum 不需要调（升配窗也不改）；全局 `statement_timeout` 会误伤迁移和清理任务。
 
-网关连接池现网：prod open=50 / idle=10；cn-prod open=80 / idle=20（`deploy/domestic/compose.override.yml`）。
+网关连接池现网：prod 两台 open=50、25 / idle 各 10；cn-prod open=80 / idle=20（`deploy/domestic/compose.override.yml`）。
 `usage_logs` 日分区与 `usage_billing_dedup` 保留见 [`billing-dedup-retention.md`](billing-dedup-retention.md) / `ops/migration/`。
 
 ## 数据机配置
@@ -95,10 +96,26 @@ prod（腾讯美西）和 cn-prod（腾讯北京）各新增一台同地域私�
 | | prod | cn-prod |
 |---|---|---|
 | 身份 | `lhins-p43i2kxh` / `10.4.0.3` | `lhins-odyx5eis` / `10.2.4.5` |
-| 套餐基线 | 美西轻量 2C8G / 系统盘 100 GB | 北京轻量；**现网已升 4C8G**（`bundle_starter_mc_lg8_01`） |
-| PG / Redis 容器上限 | PG 6G；Redis maxmemory 512MB / 上限 1G | PG 按升配后内存留余量；Redis maxmemory 256MB / 上限 512MB |
+| 套餐 | **现网 4C16G**（`bundle_starter_nmc_lin_lg16_01`，2026-11-22 低峰升配） | 北京轻量；**现网 4C8G**（`bundle_starter_mc_lg8_01`） |
+| PG / Redis 容器上限 | **现网 PG 12G**；Redis maxmemory 512MB / 容器目标上限 1G（**1G 硬上限仍未设**） | PG 3G；Redis maxmemory 256MB / 容器目标上限 512MB（现网未设） |
 
-现网主机矩阵与 Hybrid 身份见舰队 / 国内 README。数据在系统盘 ext4；安全靠 pgBackRest→本站 COS（repo2）。不开公网入站；5432/6379 只放行本站应用机私网。轻量可原地升配（需重启窗口）。
+现网主机矩阵与 Hybrid 身份见舰队 / 国内 README。数据在系统盘 ext4；安全靠 pgBackRest→本站 COS（repo2）。不开公网入站；5432/6379 只放行本站应用机私网。轻量可原地升配（**需重启窗口，另批；本修订不停写切流**）。
+
+### 数据机观测 / 告警口径（精准）
+
+owner：`deploy/hetzner/tokenkey-disk-metrics-prod.sh`（data 机 timer 每 5min）。
+
+| 信号 | 告警？ | 口径 |
+|---|---|---|
+| 主机 `MemAvailable` 使用率 | 是（已有） | warn 连续两 tick ≥90%；critical 单 tick ≥96%；带恢复配对 |
+| 根盘 / 数据卷 df | 是（已有） | 磁盘将满 P0 |
+| PG cgroup `memory.current/max` 单纯偏高 | **否** | file cache 顶满是稳态，不告 |
+| PG cgroup **`anon`** | **是（新增）** | 不可回收压力：warn 连续两 tick ≥阈值 MiB；critical 单 tick；带恢复。默认 warn=1536MiB / critical=3072MiB（可用环境变量覆盖） |
+| 只读探针 | 运维/发版后 | `ops/observability/probe-data-machine-memory.sh`；升配备料 `probe-data-machine-capacity-prep.sh`（均经 `run-probe.sh --target prod-data`） |
+
+期望设置核对 owner：`ops/stage0/dataplane-cutover-data.sh`（`TOKENKEY_DATA_HOST_PROFILE=prod-4c16g` 启用升配后期望表；升配完成前勿设）。
+
+升配目标、备料、非目标与停写另批：[`plan-data-machine-capacity-upgrade.md`](plan-data-machine-capacity-upgrade.md)。
 
 ## 切流与代码改动（已完成）
 

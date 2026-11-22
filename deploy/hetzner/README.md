@@ -30,7 +30,7 @@ prod PG/Redis 在 `lhins-p43i2kxh` / `10.4.0.3`；cn-prod 数据身份见
 | **prod 入口** | `lhins-3am1i23j` | `43.162.119.210` | `10.4.0.8` | `mi-026982f3622163a1b` | Caddy 终止五域名 TLS；WRR `10.4.0.16:8080`×1 + `10.4.0.9:8080`×1；公网只开 80/443 |
 | prod 应用（旧） | `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | `mi-080ed76dc6d97d8b5` | 4C16G / **明文根盘**（2026-11-18 阶段 D L1–L8；2026-11-19 X1–X4 已销毁 LUKS 载体/钥/unlock）；Phase C 单容器 `tokenkey`（`:8080`/`:18080`）；**公网 80/443 已关**，仅入口 `/32` 打 8080 |
 | prod 应用（候选） | `lhins-2kf31667` | `43.162.126.44` | `10.4.0.9` | `mi-000c0168439c243a8` | 4C8G（`bundle_rs_nmc_lin_lg8_01`，2026-11-18 由 2C8G 安全滚动升配）明文根盘；Phase C 单容器同形 |
-| prod 数据 | `lhins-p43i2kxh` | — | `10.4.0.3` | `mi-044ba9da6453c1557` | PG/Redis |
+| prod 数据 | `lhins-p43i2kxh` | — | `10.4.0.3` | `mi-044ba9da6453c1557` | 4C16G（`bundle_starter_nmc_lin_lg16_01`，2026-11-22）；PG 12G / Redis；`TOKENKEY_DATA_HOST_PROFILE=prod-4c16g` |
 
 五域名 A（TTL 60）均指向入口 `43.162.119.210`：`tokenkey.dev` / `api.tokenkey.dev` /
 `api-cn.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。国内入口

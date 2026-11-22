@@ -181,6 +181,27 @@ class DataMachineTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 2)
         self.assertIn("unknown PHASE=promote", proc.stderr)
 
+    def test_prod_default_profile_keeps_live_2c8g_expectations(self) -> None:
+        source = DATA.read_text()
+        self.assertIn('TOKENKEY_DATA_HOST_PROFILE', source)
+        self.assertIn('prod-4c16g', source)
+        # Default (unset profile) must still match live 2C8G / PG 6G until resize.
+        self.assertIn('sb=2GB ecs=5GB mwm=256MB max_conn=200', source)
+        self.assertIn('sb=4GB ecs=10GB mwm=512MB max_conn=200', source)
+
+    def test_prod_4c16g_profile_is_opt_in_and_check_stays_read_only(self) -> None:
+        source = DATA.read_text()
+        # Both branches must coexist: live default until resize, target after.
+        default_idx = source.index("sb=2GB ecs=5GB mwm=256MB max_conn=200")
+        target_idx = source.index("sb=4GB ecs=10GB mwm=512MB max_conn=200")
+        self.assertLess(target_idx, default_idx)  # prod-4c16g case before default *
+        self.assertIn("max_parallel_workers=3", source)
+        proc, calls = run(DATA, self.dir, SITE="prod", TOKENKEY_DATA_HOST_PROFILE="prod-4c16g")
+        for write in WRITES:
+            self.assertNotIn(write, calls)
+        # Standby-oriented check may fail on stubs; it must never refuse as confirm-gated write.
+        self.assertNotEqual(proc.returncode, 64)
+
 
 if __name__ == "__main__":
     unittest.main()
