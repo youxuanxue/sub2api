@@ -151,6 +151,12 @@ type OpsInsertErrorLogInput struct {
 
 	CreatedAt time.Time
 
+	// SuppressForUserOptOut marks an entry whose owner turned QA capture off.
+	// It is request-local state consumed by the enqueue chokepoint and is never
+	// persisted: the row is dropped instead of written. See
+	// handler/ops_error_logger_tk_qa_capture_optout.go for the contract.
+	SuppressForUserOptOut bool
+
 	// key 报错时快照的 key 脱敏前缀(前 8 位)。
 	// 落库快照而非读时 JOIN:key 之后被删(key 列被 tombstone 覆盖)仍保留当时前缀。
 	APIKeyPrefix string

@@ -395,6 +395,10 @@ func opsCoalescedSummary(entry *service.OpsInsertErrorLogInput, now time.Time) *
 		StatusCode: entry.StatusCode, IsBusinessLimited: entry.IsBusinessLimited, IsCountTokens: entry.IsCountTokens,
 		ErrorOwner: entry.ErrorOwner, ErrorSource: entry.ErrorSource,
 		ErrorMessage: bounded(entry.ErrorMessage, 512), CreatedAt: now,
+		// Carry the opt-out: the summary outlives the request that produced it,
+		// so dropping this field here would resurrect a suppressed user's rows
+		// in the collapsed tail.
+		SuppressForUserOptOut: entry.SuppressForUserOptOut,
 	}
 }
 

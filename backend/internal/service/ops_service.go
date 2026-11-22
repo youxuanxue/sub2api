@@ -658,22 +658,13 @@ func sanitizeOpsUpstreamErrors(entry *OpsInsertErrorLogInput) error {
 			out.Detail = ""
 		}
 
-		out.UpstreamRequestBody = strings.TrimSpace(out.UpstreamRequestBody)
-		if keepBody && out.UpstreamRequestBody != "" {
-			sanitizedBody, truncated, _ := sanitizeAndTrimJSONPayload([]byte(out.UpstreamRequestBody), 10*1024)
-			if sanitizedBody != "" {
-				out.UpstreamRequestBody = sanitizedBody
-				out.RequestBodyTruncated = truncated
-			} else {
-				out.UpstreamRequestBody = ""
-			}
-		} else {
-			out.UpstreamRequestBody = ""
-			out.RequestBodyTruncated = false
-		}
+		// No request-body handling here by design: OpsUpstreamErrorEvent carries
+		// no such field, so the attempt JSON is metadata only. Request payloads
+		// are reconstructable only from the QA capture of users who left QA
+		// capture enabled.
 
 		// Drop fully-empty events (can happen if only status code was known).
-		if out.UpstreamStatusCode == 0 && out.Message == "" && detail == "" && strings.TrimSpace(ev.UpstreamResponseBody) == "" && strings.TrimSpace(ev.UpstreamRequestBody) == "" {
+		if out.UpstreamStatusCode == 0 && out.Message == "" && detail == "" && strings.TrimSpace(ev.UpstreamResponseBody) == "" {
 			continue
 		}
 
@@ -797,8 +788,16 @@ func (s *OpsService) GetErrorLogByID(ctx context.Context, id int64) (*OpsErrorLo
 		return nil, infraerrors.InternalServer("OPS_ERROR_LOAD_FAILED", "Failed to load ops error log").WithCause(err)
 	}
 	if detail != nil && strings.TrimSpace(detail.UpstreamErrors) != "" {
-		if normalized, normalizeErr := normalizeOpsUpstreamErrorsJSON(detail.UpstreamErrors); normalizeErr == nil {
+		normalized, normalizeErr := normalizeOpsUpstreamErrorsJSON(detail.UpstreamErrors)
+		switch {
+		case normalizeErr == nil:
 			detail.UpstreamErrors = normalized
+		case opsUpstreamErrorsMayCarryRequestBody(detail.UpstreamErrors):
+			// Proxy attribution is cosmetic, so an unparseable row otherwise
+			// falls back to the stored text. A request body must never ride on
+			// that fallback: rows written before the privacy fix still carry
+			// one, so drop the whole field rather than serve it unstripped.
+			detail.UpstreamErrors = ""
 		}
 	}
 	return detail, nil

@@ -18,3 +18,9 @@
 | 整机迁移已覆盖真实恢复 | AWS 临时机隔离物理恢复演练（预算/RestoreRole/OIDC）。迁机走 `pgbackrest-host-migration` / `tokenkey-host-replacement`；勿再建旧方案文档。 |
 | 「QA S3 不需要上传，qa 只往 node1 写归档」 | 恢复 QA→S3 上传，及为此改 Hybrid/桶/`DenyLightsailEdgeRole`。现行 = 本地 24h + node1。 |
 | 「归档 canary … 应该不需要了吧，有 qa 到 node1，pgBackRest +wal」 | 生产 data-layer archive canary（旧 EC2 / `PROD_CANARY_*`）。相关设计文档已删除；勿恢复 canary CLI。 |
+
+## 2026-11-21
+
+| 原话（摘要） | 不做 |
+|---|---|
+| 「分子排除 users.role=admin。不应该排除这个吧。而是去修复错误探针和不存在的模型？」 | 从「真实用户体验受损 / 客户端失败增多」分子剔除 admin（#3382）。admin 运维流量仍算可观测信号；应停错误客户端/探针、撤已下架模型入口。 |

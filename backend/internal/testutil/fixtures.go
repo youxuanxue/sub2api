@@ -18,8 +18,12 @@ func NewTestUser(opts ...func(*service.User)) *service.User {
 		Balance:     100.0,
 		Concurrency: 5,
 		Status:      service.StatusActive,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		// Mirror the ent schema default (users.qa_capture_enabled = true).
+		// The Go zero value is false, which would mean "opted out" and make
+		// fixtures silently diverge from how production loads a user.
+		QACaptureEnabled: true,
+		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
 	}
 	for _, opt := range opts {
 		opt(u)

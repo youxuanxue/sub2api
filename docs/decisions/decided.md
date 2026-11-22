@@ -106,6 +106,18 @@
 
 适用范围：`users.qa_capture_enabled`（默认 true）。站点级 `qa_capture.enabled` 可保持开启；用户为 false 时网关不持久化该用户请求/响应正文与 QA blob。Admin `PUT /api/v1/admin/users/:id` 与用户编辑 UI 可改。发版并跑 migration 后，在 prod 与 cn-prod 将 `compute@tk.com` 设为 false。
 
+### 2026-11-21 该开关覆盖的落库面（审计口径）
+
+原话：「1 是把错误日志不写上游请求体…；2 是把内容审核关闭…」「鉴权前失败的请求不进 QA 但进错误日志。对关闭 QA 的用户，也不要进错误日志。」
+
+`qa_capture_enabled=false` 现在同时抑制 `ops_error_logs`：该表是请求留痕的第二处落库面，且会记录鉴权完成前就失败的请求（这些请求根本到不了 QA 采集）。归因依据是 middleware 在鉴权早退前预写的 ops fallback key。无法归因到用户的条目（平台级故障、未认证垃圾流量）不受影响——没有 opt-out 可遵守，丢了会让运维对真实事故失明。owner：`handler/ops_error_logger_tk_qa_capture_optout.go`，在唯一入队点 `enqueueOpsErrorLog` 兜底。
+
+同时，`ops_error_logs` 不再落库上游请求体（写入面与读取面都已收敛），排查改为从未关闭采集的用户的 QA capture 取请求体。
+
+**`image_storage` 不是采集面，不要在审计里算作一条。** 它是异步图片任务的**交付通道**：`ImageResultUploader.Rewrite` 把上游返回的 `b64_json` 转存到对象存储、把 `data[i].url` 改写为对象地址并删掉 base64，用户正是凭这个 URL 取自己的产出。证据：对象存储就是该功能的 enablement gate，未配置时端点直接 404（`image_task_handler.go` 的 `enabled()`）；转存失败不回退存 base64 而是把任务标记失败，以避免大 blob 撑爆 Redis（`image_task.go` 的 `Complete`）；全仓只有 `service/image_storage.go` 一处 `storage.Save`，QA 侧对图片只记 `MultimodalPresent` 布尔值、不存图字节。
+
+因此它刻意**不**受 `qa_capture_enabled` 影响：挂上这个开关会让关闭采集的用户要么拿不到图（任务失败），要么把 base64 落回 Redis——正是这段代码设计上要避免的。与错误日志/QA 归档的区别在于，后两者用户不参与、删除无感；交付通道删了用户就拿不到自己的产出。若将来要收紧图片留存，方向是按用户缩短对象生命周期，而不是关掉转存。详见 `docs/operator/async-image-tasks.md`。
+
 ## 2026-11-18 多地域 + 多应用机 = 等效容灾/高可用（投标与对外表述）
 
 原话：「多可用区或等效容灾，我们已经具备了，现在 prod 和 cn-prod 是多地域的。而且每个地域都是多应用机，高可用的。请改仓库文档表述。」
@@ -258,7 +270,7 @@
 
 原话：「carbon/argon 默认映射到 -medium。」
 
-适用范围：Antigravity 上 argon/carbon 裸名默认 medium；Flash 仍锁 high。显式档位按请求。
+2026-11-21 更新：Antigravity 上 Argon/Carbon 裸名默认映射到 high，显式档位按请求。
 
 ## 2026-11-12 去掉 typed tokensea relay 地板
 

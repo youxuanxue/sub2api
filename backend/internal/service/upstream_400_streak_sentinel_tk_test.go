@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,8 +58,8 @@ func (h *fakeStreakHeartbeat) UpsertJobHeartbeat(_ context.Context, in *OpsUpser
 }
 
 func streakFor(id int64, sig string) Upstream400Streak {
-	return Upstream400Streak{AccountID: id, Signature: sig, SampleMessage: "Your account (#) does not have a valid AgentPlan subscription", Count: 25,
-		FirstAt: timeFixed().Add(-40 * time.Minute), LastAt: timeFixed(), DistinctUsers: 1}
+	return Upstream400Streak{AccountID: id, Signature: sig, SampleMessage: "Your account (#) does not have a valid AgentPlan subscription", Count: 45,
+		FirstAt: timeFixed().Add(-50 * time.Minute), LastAt: timeFixed(), DistinctUsers: 1}
 }
 
 func newTestStreakSentinel(reader *fakeStreakReader, enabled bool) (*Upstream400StreakSentinel, *fakeStreakAlerter, *fakeStreakHeartbeat) {
@@ -120,13 +122,41 @@ func TestBuildUpstream400StreakText_AdvisoryOnly(t *testing.T) {
 	acc := &Account{ID: 116, Name: "volcengine-agent-plan-2", Platform: PlatformNewAPI}
 	body := buildUpstream400StreakText("prod", acc, streakFor(116, "s"), timeFixed())
 	require.Contains(t, body, "volcengine-agent-plan-2")
-	require.Contains(t, body, "**连续次数**：25")
+	require.Contains(t, body, "**连续次数**：45")
 	require.Contains(t, body, "**期间成功请求**：0")
-	require.Contains(t, body, "40m0s")
+	require.Contains(t, body, "50m0s")
 	require.Contains(t, body, "本卡不改变账号状态")
 	require.Contains(t, body, "AgentPlan", "internal ops card keeps the upstream text")
 
 	long := streakFor(1, "s")
 	long.SampleMessage = strings.Repeat("x", 1000)
 	require.Less(t, len(buildUpstream400StreakText("prod", acc, long, timeFixed())), 1500, "sample is capped")
+}
+
+func TestUpstream400StreakSentinel_RedisArmedSharedAcrossReplicas(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdbA := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	rdbB := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdbA.Close(); _ = rdbB.Close() })
+
+	st := streakFor(179, "sig-param")
+	readerA := &fakeStreakReader{results: [][]Upstream400Streak{
+		{st}, // A claims + alerts
+		{},   // streak closed → Del armed
+		{st}, // same sig may alert again
+	}}
+	readerB := &fakeStreakReader{results: [][]Upstream400Streak{{st}}}
+	sA, alerterA, _ := newTestStreakSentinel(readerA, true)
+	sA.redis = rdbA
+	sB, alerterB, _ := newTestStreakSentinel(readerB, true)
+	sB.redis = rdbB
+
+	sA.runOnce(context.Background())
+	require.Len(t, alerterA.sent, 1)
+	sB.runOnce(context.Background())
+	require.Empty(t, alerterB.sent, "second replica must respect Redis armed claim")
+
+	sA.runOnce(context.Background())
+	sA.runOnce(context.Background())
+	require.Len(t, alerterA.sent, 2, "after streak end, same signature may alert again")
 }

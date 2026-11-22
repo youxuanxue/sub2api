@@ -56,7 +56,7 @@ func TestOpsErrorLoggerMiddlewareCoalescesQuotaRejectStorm(t *testing.T) {
 	t.Cleanup(swapOpsErrorLogCoalescer(newOpsCoalescer(time.Minute, opsCoalesceCapacity, clock.Now)))
 
 	ops := service.NewOpsService(&ingressRejectOpsRepo{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	apiKey := &service.APIKey{ID: 362, Key: "sk-quota-exhausted", UserID: 16, User: &service.User{ID: 16}}
+	apiKey := &service.APIKey{ID: 362, Key: "sk-quota-exhausted", UserID: 16, User: &service.User{ID: 16, QACaptureEnabled: true}}
 	router := quotaRejectRouter(ops, apiKey)
 
 	const requests = 300
@@ -88,7 +88,7 @@ func TestOpsErrorLoggerMiddlewareStillRecordsDistinctKeys(t *testing.T) {
 	ops := service.NewOpsService(&ingressRejectOpsRepo{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	for _, id := range []int64{362, 363} {
-		apiKey := &service.APIKey{ID: id, Key: "sk-key", UserID: 16, User: &service.User{ID: 16}}
+		apiKey := &service.APIKey{ID: id, Key: "sk-key", UserID: 16, User: &service.User{ID: 16, QACaptureEnabled: true}}
 		router := quotaRejectRouter(ops, apiKey)
 		for i := 0; i < 20; i++ {
 			w := httptest.NewRecorder()
@@ -112,7 +112,7 @@ func TestOpsErrorLoggerMiddlewareStillRecordsUpstreamFailuresEveryTime(t *testin
 	t.Cleanup(swapOpsErrorLogCoalescer(newOpsCoalescer(time.Minute, opsCoalesceCapacity, clock.Now)))
 
 	ops := service.NewOpsService(&ingressRejectOpsRepo{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	apiKey := &service.APIKey{ID: 362, Key: "sk-key", UserID: 16, User: &service.User{ID: 16}}
+	apiKey := &service.APIKey{ID: 362, Key: "sk-key", UserID: 16, User: &service.User{ID: 16, QACaptureEnabled: true}}
 
 	router := gin.New()
 	router.Use(OpsErrorLoggerMiddleware(ops))
@@ -138,7 +138,7 @@ func TestOpsErrorLoggerCoalescedTailSurvivesClientStopping(t *testing.T) {
 	coalescer := newOpsCoalescer(time.Minute, 16, clock.Now)
 	t.Cleanup(swapOpsErrorLogCoalescer(coalescer))
 	ops := service.NewOpsService(&ingressRejectOpsRepo{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	key := &service.APIKey{ID: 362, User: &service.User{ID: 16}}
+	key := &service.APIKey{ID: 362, User: &service.User{ID: 16, QACaptureEnabled: true}}
 	router := quotaRejectRouter(ops, key)
 	for i := 0; i < 8000; i++ {
 		w := httptest.NewRecorder()
