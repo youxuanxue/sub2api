@@ -44,7 +44,9 @@ def intel_period(when=None):
     return f"{year}-W{week:02d}"
 
 
-RECORD = re.compile(r"^- \[([ xX])\] (.*?) <!-- watchdog-item:([^ ]+) ([0-9a-f]+) (pending|fixed) ([^ ]+) -->$", re.MULTILINE)
+# Human triage notes may follow the machine-readable token on the same line.
+# Keep the metadata groups stable while accepting that annotation text.
+RECORD = re.compile(r"^- \[([ xX])\] (.*?) <!-- watchdog-item:([^ ]+) ([0-9a-f]+) (pending|fixed) ([^ ]+) -->(?:[ \t]+.*)?$", re.MULTILINE)
 COMMENT_LIMIT = 55000
 # GitHub cross-references owner/repo#n and github.com issue/PR URLs in public
 # comments, including inside HTML comments. redirect.github.com is GitHub's own
