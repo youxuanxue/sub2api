@@ -21309,6 +21309,21 @@
       "rationale": "Ali Token Plan canonical ids self-map and are public; legacy dotted ids remain mapping-only aliases."
     },
     {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "case PlatformAnthropic, PlatformOpenAI, PlatformAntigravity:"
+      ],
+      "rationale": "Antigravity model-to-account routing must remain enabled in the shared platform allowlist after upstream merges."
+    },
+    {
+      "path": "backend/internal/service/gateway_multiplatform_test.go",
+      "must_contain": [
+        "func TestGatewayService_SelectAccountForModelWithPlatform_RoutedAntigravityGroup(",
+        "{ID: 2, Platform: PlatformAntigravity"
+      ],
+      "rationale": "Keep a behavioral regression proving Antigravity model routing selects the bound account over the higher-priority unbound account."
+    },
+    {
       "path": "backend/internal/service/ops_upstream_context.go",
       "must_contain": [
         "func normalizeOpsUpstreamErrorsJSON(",
