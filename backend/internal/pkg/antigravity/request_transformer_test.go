@@ -8,6 +8,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGenerateStableSessionID_MultimodalFirstPartKeepsConversationIdentity(t *testing.T) {
+	firstTurn := []GeminiContent{{
+		Role: "user",
+		Parts: []GeminiPart{
+			{InlineData: &GeminiInlineData{MimeType: "image/png", Data: "image-data"}},
+			{Text: "describe this"},
+		},
+	}}
+	laterTurn := append(append([]GeminiContent{}, firstTurn...),
+		GeminiContent{Role: "model", Parts: []GeminiPart{{Text: "description"}}},
+		GeminiContent{Role: "user", Parts: []GeminiPart{{Text: "follow up"}}},
+	)
+
+	if got, want := generateStableSessionID(firstTurn), generateStableSessionID(laterTurn); got != want {
+		t.Fatalf("multimodal conversation changed session ID: first=%q later=%q", got, want)
+	}
+}
+
 // TestBuildParts_ThinkingBlockWithoutSignature 测试thinking block无signature时的处理
 func TestBuildParts_ThinkingBlockWithoutSignature(t *testing.T) {
 	tests := []struct {
