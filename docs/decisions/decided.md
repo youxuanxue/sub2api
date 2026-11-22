@@ -1,36 +1,16 @@
 # 已决定
 
-## 2026-11-22 Redis Docker 硬上限（prod 1G / cn-prod 512MB）
+## 2026-11-21…22 prod 数据机 4C16G + Redis 硬上限
 
-原话：「那应该把 Redis 1 GiB 硬上限 解决了。prod 和 cn-prod 都需要吗？都是 1G 吗？」→「继续。」
+原话摘要：同意升 4C16G 与参数；先备料禁止停写；跳过隔离恢复、低峰直接开窗；「同意升配。尽快完成。」；Redis 硬上限 prod/cn 都要、不是都 1G →「继续。」
 
-适用范围：两站数据机 `tokenkey-redis`。按设计表：**prod=1 GiB**、**cn-prod=512 MiB**（不是两边都 1G）。进程内 `maxmemory` 不变（prod 512mb / cn 256mb，`noeviction`）。用 `docker update` 不停服加 cgroup 硬顶（prod UTC 00:25:43 / cn UTC 00:25:54）。**重建必须带相同 `--memory/--memory-swap`，否则 cap 丢失**——此约束以 `docs/approved/design-data-plane-split.md` 数据机配置节为仓库 SSOT；主机 `REDIS_CAP.md` 仅旁路备忘。
+决定：
+- prod 数据机 `lhins-p43i2kxh` → 4C16G / PG 12G（SB 4GB、ECS 10GB、mwm 512MB、parallel 3/1、`max_connections=200`）；profile `prod-4c16g`；补 PG cgroup **anon** 告警
+- cn-prod 不升配
+- 不阻塞于 `cos_restore_acceptance` degraded
+- Redis Docker 硬上限：**prod 1G**、**cn-prod 512MB**（进程内 maxmemory 仍 512mb/256mb）；重建须带同 `--memory`（SSOT：`design-data-plane-split.md`）
 
-## 2026-11-22 prod 数据机低峰升配开窗
-
-原话：「同意升配。尽快完成。」
-
-适用范围：腾讯美西 prod 数据机 `lhins-p43i2kxh`。批准本低峰窗口执行：主机套餐升至 4C16G（`bundle_starter_nmc_lin_lg16_01`）、停写/重启、按维护包重建 PG 容器（上限 12G + 目标 `-c`）。Redis 1G 硬上限本窗不做（同日另条已补）。跳过隔离恢复刷新的既有决定仍有效。
-
-执行结果（同日 UTC ≈23:49–23:59）：**已完成**。主机 4C16G；PG `ACCEPT_PG_OK`（SB 4GB / ECS 10GB / mwm 512MB / parallel 3/1 / 容器 12G）；`system_identifier=7697434738137305123` 未变；`TOKENKEY_DATA_HOST_PROFILE=prod-4c16g`；WAL 归档推进；两台网关 healthy；真实请求 `deepseek-chat` account 621 → `usage_logs.id=19997302` 用量行一致。参数期望 owner：`ops/stage0/dataplane-cutover-data.sh` + `design-data-plane-split.md`。
-
-## 2026-11-21 prod 升配：跳过隔离恢复刷新，低峰直接开窗
-
-原话：「先不做这个，等低峰窗口具备的时候，直接升配，可以吗？」
-
-适用范围：prod 数据机 4C16G 升配。**不先做** `cos_restore_acceptance` 隔离恢复刷新；现网 `restore_acceptance`/`repository_verification` 可为 `degraded`（历史点与后来 live 的账号/schema 差）仍允许进入低峰升配窗口。依据：升配成功/同盘回退路径沿用原 PGDATA 绑定与维护包 container 定义，不经过 COS 恢复；`pgbackrest check` 已 ok、归档在推进。剩余风险：若升配中数据目录损坏或须从 COS 拉起，历史点验收链仍是 degraded，不能当作已证明可恢复。低峰停写/重启/重建容器仍须届时单独批准执行，本条不代替开窗令。
-
-## 2026-11-21 prod 数据机升配备料（禁止停写，窗口另批）
-
-原话：「先把数据机升配的准备工作做好。禁止停写，需要单独审批」
-
-适用范围：在已批准的 4C16G 目标参数之上，只做不停写备料与只读核验（告警/探针/期望表门/容器定义快照/备份可恢复硬门）。**禁止**停写、主机重启、重建 PG/Redis 容器；执行窗口须另批。参数/告警 SSOT：`docs/approved/design-data-plane-split.md`。cn-prod 不在本升配执行范围。
-
-## 2026-11-21 prod 数据机升 4C16G（先配参与告警，不停写切流）
-
-原话：「1、同意升级为 4C 16G，并给出 4C 16G 下的最佳配置。max_connections 留在 200 以应对高峰并发。数据机的观测和告警需要补全且精准、高效。先不要停写切流。」
-
-适用范围：仅腾讯美西 prod 数据机 `lhins-p43i2kxh`。目标套餐 4C16G；PG 容器上限 12G、`shared_buffers=4GB`、`effective_cache_size=10GB`、`maintenance_work_mem=512MB`、`work_mem=16MB`、`max_connections=200`、并行 `max_parallel_workers=3` / `per_gather=1`。主机 `MemAvailable` 告警保留；新增 PG cgroup **anon** 告警（缓存顶满不告）。**本条不批准停写/切流/重启窗口**；套餐升配与容器参数切换另开窗口执行。
+已执行完毕。
 
 ## 2026-11-21 Grok OAuth 只保留 4.3/4.5/4.6/4.7 text surface
 
