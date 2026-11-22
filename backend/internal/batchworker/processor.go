@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/Wei-Shaw/sub2api/internal/batchadapter"
@@ -194,6 +195,9 @@ func (p *Processor) Process(ctx context.Context, job service.ManagedBatchJob) (s
 	if b.Status != batchcontract.BatchStatusInProgress {
 		return service.ManagedBatchProcessResult{RequeueAfter: p.cfg.RetryDelay}, nil
 	}
+	claim := *p
+	claim.cfg.WorkerID += ":" + uuid.NewString()
+	p = &claim
 	items, err := p.repo.ClaimItems(ctx, payload.BatchID, p.cfg.WorkerID, p.cfg.BatchSize, p.cfg.ItemLeaseTTL)
 	if err != nil {
 		return service.ManagedBatchProcessResult{}, err
@@ -203,6 +207,9 @@ func (p *Processor) Process(ctx context.Context, job service.ManagedBatchJob) (s
 			if err := p.processItem(ctx, persistCtx, payload, b, item, b.Endpoint); err != nil {
 				return service.ManagedBatchProcessResult{}, err
 			}
+		}
+		if len(items) == p.cfg.BatchSize {
+			return service.ManagedBatchProcessResult{RequeueAfter: time.Millisecond}, nil
 		}
 		return p.reconcile(persistCtx, payload, b)
 	}
@@ -215,6 +222,9 @@ func (p *Processor) Process(ctx context.Context, job service.ManagedBatchJob) (s
 	}
 	if err := work.Wait(); err != nil {
 		return service.ManagedBatchProcessResult{}, err
+	}
+	if len(items) == p.cfg.BatchSize {
+		return service.ManagedBatchProcessResult{RequeueAfter: time.Millisecond}, nil
 	}
 	return p.reconcile(persistCtx, payload, b)
 }
@@ -231,6 +241,10 @@ func (p *Processor) processItem(ctx, persistCtx context.Context, payload JobPayl
 	if p.cfg.Resolver != nil {
 		var resolveErr error
 		selection, resolveErr := p.cfg.Resolver.Resolve(ctx, batchadapter.ExecutionRequest{BatchID: payload.BatchID, UserID: payload.UserID, APIKeyID: payload.APIKeyID, Provider: payload.Provider, AccountID: payload.AccountID}, batchadapter.ExecutionBatch{ID: batch.ID, UserID: batch.UserID, APIKeyID: batch.APIKeyID, Endpoint: batch.Endpoint}, batchadapter.ExecutionItem{ID: item.ID, BatchID: item.BatchID, CustomID: item.CustomID}, line)
+		if errors.Is(resolveErr, service.ErrManagedBatchCapacity) || errors.Is(resolveErr, service.ErrNoAvailableAccounts) {
+			_, err := p.repo.RetryItem(persistCtx, item.ID, p.cfg.WorkerID, time.Now().Add(p.cfg.RetryDelay), errorMap("capacity", resolveErr.Error()))
+			return err
+		}
 		if resolveErr != nil {
 			_, completeErr := p.repo.CompleteItem(persistCtx, item.ID, p.cfg.WorkerID, batchcontract.ItemStatusFailed, nil, errorMap(batchcontract.ErrorUnsupportedMode, resolveErr.Error()), 0, 0, false)
 			return completeErr
@@ -317,8 +331,7 @@ func (p *Processor) processItem(ctx, persistCtx context.Context, payload JobPayl
 			Account:                       managedBatchAccount(executionCtx, accountID),
 		})
 		if settleErr != nil {
-			_, retryErr := p.repo.RetryItem(persistCtx, item.ID, p.cfg.WorkerID, time.Now().Add(p.cfg.RetryDelay), errorMap("settlement_error", settleErr.Error()))
-			return errors.Join(settleErr, retryErr)
+			return p.completeUnknown(persistCtx, payload.BatchID, item, fmt.Errorf("settlement requires reconciliation: %w", settleErr))
 		}
 	}
 	if p.cfg.ResultFinalizer == nil {
@@ -387,6 +400,9 @@ func (p *Processor) reconcile(ctx context.Context, payload JobPayload, b *reposi
 		if err := updater.UpdateBatchProgress(ctx, payload.BatchID, progress); err != nil {
 			return service.ManagedBatchProcessResult{}, err
 		}
+	}
+	if progress.Pending > 0 && b.Status == batchcontract.BatchStatusInProgress {
+		return service.ManagedBatchProcessResult{RequeueAfter: time.Millisecond}, nil
 	}
 	if progress.Pending > 0 || progress.Retry > 0 || progress.Running > 0 {
 		return service.ManagedBatchProcessResult{RequeueAfter: p.cfg.RetryDelay}, nil

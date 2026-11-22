@@ -273,7 +273,7 @@ class BackupGuardTest(unittest.TestCase):
             far = str(int(dt.datetime.now(dt.timezone.utc).timestamp()) + 3600)
             replies = [mock.Mock(stdout='later'), mock.Mock(stdout=far)]
             with mock.patch.object(host.subprocess, 'run', side_effect=replies), \
-                    mock.patch('builtins.open', mock.mock_open()), \
+                    mock.patch('builtins.open', return_value=tempfile.TemporaryFile(mode='a')), \
                     mock.patch.object(host.fcntl, 'flock', side_effect=BlockingIOError):
                 with self.assertRaisesRegex(policy.BackupDeferred, 'operator lock held'):
                     host.database(cfg, 'provision')

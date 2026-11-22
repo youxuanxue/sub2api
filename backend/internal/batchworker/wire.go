@@ -1,6 +1,7 @@
 package batchworker
 
 import (
+	"context"
 	"github.com/Wei-Shaw/sub2api/internal/batchadapter"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -31,9 +32,15 @@ func ProvideManagedBatchRuntime(
 	finalizer := &repository.ManagedBatchResultFinalizer{Repo: repo, Store: store}
 	enabled := cfg != nil && cfg.ManagedBatch.Enabled && store != nil
 	settlement := &service.OpenAIManagedBatchSettlement{Gateway: gateway, APIKeyService: apiKeys}
+	parallel := 1
+	if cfg != nil && cfg.ManagedBatch.ParallelItems > 0 {
+		parallel = cfg.ManagedBatch.ParallelItems
+	}
 	processor := NewProcessor(Config{
 		Enabled:         enabled,
 		WorkerID:        "managed-batch-worker",
+		ParallelItems:   parallel,
+		BatchSize:       parallel,
 		Resolver:        resolver,
 		ResultFinalizer: finalizer,
 		Settlement:      settlement,
@@ -43,6 +50,7 @@ func ProvideManagedBatchRuntime(
 	worker := service.NewManagedBatchWorker(queue, processor, service.ManagedBatchWorkerOptions{})
 	publisher := &service.ManagedBatchOutboxPublisher{Outbox: repo, Cursor: cursor, Queue: queue}
 	runtime := service.NewManagedBatchRuntime(worker, publisher, queue, enabled)
+	runtime.CleanupExpired = func(ctx context.Context) error { return repo.PurgeExpiredBatchFiles(ctx, store.Delete) }
 	runtime.Start()
 	return runtime
 }

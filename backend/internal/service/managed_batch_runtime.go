@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -236,10 +237,11 @@ func (p *ManagedBatchOutboxPublisher) PublishOnce(ctx context.Context) (int, err
 // the managed executor. Construction is side-effect free; Start is a no-op
 // while disabled so DI can remain present in every deployment.
 type ManagedBatchRuntime struct {
-	worker    *ManagedBatchWorker
-	publisher *ManagedBatchOutboxPublisher
-	queue     ManagedBatchQueue
-	enabled   bool
+	worker         *ManagedBatchWorker
+	publisher      *ManagedBatchOutboxPublisher
+	queue          ManagedBatchQueue
+	enabled        bool
+	CleanupExpired func(context.Context) error
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
@@ -292,6 +294,11 @@ func (r *ManagedBatchRuntime) runRecovery(ctx context.Context) {
 	}
 	for ctx.Err() == nil {
 		_, _ = r.worker.RecoverStaleOnce(ctx)
+		if r.CleanupExpired != nil {
+			if err := r.CleanupExpired(ctx); err != nil && ctx.Err() == nil {
+				slog.Warn("managed batch file cleanup failed", "error", err)
+			}
+		}
 		sleepOrDone(ctx, interval)
 	}
 }

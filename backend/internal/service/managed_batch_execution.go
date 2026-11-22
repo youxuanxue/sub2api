@@ -22,6 +22,7 @@ import (
 
 var (
 	ErrManagedBatchExecutionUnavailable = errors.New("managed batch execution unavailable")
+	ErrManagedBatchCapacity             = errors.New("interactive capacity takes precedence")
 	ErrManagedBatchUniversalKey         = errors.New("managed batch requires a direct API key")
 	ErrManagedBatchStreamUnsupported    = errors.New("managed batch Responses items must set stream=false")
 )
@@ -109,6 +110,19 @@ func (r *ManagedBatchExecutionResolver) Resolve(
 	if selection == nil || selection.Account == nil {
 		return batchadapter.ExecutionSelection{}, ErrManagedBatchExecutionUnavailable
 	}
+	// A wait plan carries no slot. Never dispatch Batch ahead of interactive waiters.
+	if !selection.Acquired {
+		return batchadapter.ExecutionSelection{}, ErrManagedBatchCapacity
+	}
+	if r.Gateway.concurrencyService != nil {
+		waiting, err := r.Gateway.concurrencyService.GetAccountWaitingCount(ctx, selection.Account.ID)
+		if err != nil || waiting > 0 {
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+			return batchadapter.ExecutionSelection{}, ErrManagedBatchCapacity
+		}
+	}
 	provider := managedBatchProviderForAccount(selection.Account)
 	if provider != batchadapter.ProviderOpenAI {
 		if selection.ReleaseFunc != nil {
@@ -187,6 +201,10 @@ func (r *ManagedResponsesRunner) Run(ctx context.Context, request batchadapter.P
 		}},
 	)
 	if err != nil {
+		var upstream *UpstreamFailoverError
+		if errors.As(err, &upstream) && (upstream.StatusCode == 429 || upstream.StatusCode == 503) {
+			return batchadapter.ProviderResponse{StatusCode: upstream.StatusCode, Body: upstream.ResponseBody}, nil
+		}
 		return batchadapter.ProviderResponse{}, err
 	}
 	result, _ := value.(*OpenAIForwardResult)
