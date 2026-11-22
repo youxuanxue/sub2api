@@ -1,5 +1,13 @@
 # 已决定
 
+## 2026-11-22 Batch COS 复用主账号 / cos-backup.env（不另建子用户）
+
+原话：「直接用主账号即可 /etc/tokenkey/cos-backup.env 。不需要单独创建子账户。」
+
+适用范围：prod / cn-prod Managed Batch 对象存储。应用机 `MANAGED_BATCH_STORAGE_*` 取自各站数据机 root-only `/etc/tokenkey/cos-backup.env`（`tencent_SecretId` / `tencent_SecretKey`，与 pgBackRest / host-config 同钥）；不另建 Batch CAM 子用户。投放：`deploy/domestic/stage_batch_cos.py` → 应用机 `.env` + override，经 rolling recreate 生效。
+
+已执行：两站 app 已 stage；`v1.8.391` rolling 后容器已加载存储 env；prod / cn-prod Batch 文件烟测（upload/get/content/delete）通过。
+
 ## 2026-11-22 QA retention 与 postgres 备份错开 + 让路 exit 0
 
 原话：「1 是 备份 和 QA清理 错开时间，2是 干活的脚本让路时正常退出。」
