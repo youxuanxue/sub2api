@@ -305,7 +305,10 @@ JOB_LIMITS = {
     "tokenkey-qa-provision": (2 * 3600, 960),
     "tokenkey-qa-cleanup": (20 * 60, 960),
     "tokenkey-qa-coordinator": (5 * 3600, 4 * 3600),
-    "tokenkey-qa-retention": (15 * 60, 300),
+    # Calendar is UTC *:00/10/20/40/50 (ops/qa/install_coordinator.py) to skip
+    # postgres backup *:30 — max gap is 20m (:20→:40). 15m stale limit flapped
+    # every hour across every host watching this job.
+    "tokenkey-qa-retention": (25 * 60, 300),
     # Archive runs every 4 hours (ops/qa/local_maintenance_host.py SCHEDULE);
     # max age allows one missed run before alerting. A full first push of a
     # multi-GiB hour took 18.6 minutes on prod 2026-11-03; the unit's own
