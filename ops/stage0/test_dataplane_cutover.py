@@ -181,21 +181,52 @@ class DataMachineTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 2)
         self.assertIn("unknown PHASE=promote", proc.stderr)
 
-    def test_prod_default_profile_keeps_live_2c8g_expectations(self) -> None:
-        source = DATA.read_text()
-        self.assertIn('TOKENKEY_DATA_HOST_PROFILE', source)
-        self.assertIn('prod-4c16g', source)
-        # Default (unset profile) must still match live 2C8G / PG 6G until resize.
-        self.assertIn('sb=2GB ecs=5GB mwm=256MB max_conn=200', source)
-        self.assertIn('sb=4GB ecs=10GB mwm=512MB max_conn=200', source)
+    def _expected_settings(self, *, site: str, profile: str = "") -> str:
+        """Invoke expected_settings() for real — no source-text existence checks."""
+        env = {**os.environ, "SITE": site}
+        if profile:
+            env["TOKENKEY_DATA_HOST_PROFILE"] = profile
+        else:
+            env.pop("TOKENKEY_DATA_HOST_PROFILE", None)
+        # Sourcing the full cutover script dies on host probes; extract the function only.
+        extract = subprocess.run(
+            [
+                "bash",
+                "-c",
+                r"""
+set -euo pipefail
+SITE="${SITE:?}"
+eval "$(sed -n '/^expected_settings()/,/^}/p' "$1")"
+expected_settings
+""",
+                "expected_settings",
+                str(DATA),
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(extract.returncode, 0, extract.stderr)
+        return extract.stdout
 
-    def test_prod_4c16g_profile_is_opt_in_and_check_stays_read_only(self) -> None:
-        source = DATA.read_text()
-        # Both branches must coexist: live default until resize, target after.
-        default_idx = source.index("sb=2GB ecs=5GB mwm=256MB max_conn=200")
-        target_idx = source.index("sb=4GB ecs=10GB mwm=512MB max_conn=200")
-        self.assertLess(target_idx, default_idx)  # prod-4c16g case before default *
-        self.assertIn("max_parallel_workers=3", source)
+    def test_prod_default_profile_keeps_pre_resize_expectations(self) -> None:
+        out = self._expected_settings(site="prod")
+        self.assertIn("shared_buffers=2GB", out)
+        self.assertIn("effective_cache_size=5GB", out)
+        self.assertIn("maintenance_work_mem=256MB", out)
+        self.assertIn("max_connections=200", out)
+        self.assertIn("max_parallel_workers=2", out)
+        self.assertNotIn("shared_buffers=4GB", out)
+
+    def test_prod_4c16g_profile_emits_live_targets_and_check_stays_read_only(self) -> None:
+        out = self._expected_settings(site="prod", profile="prod-4c16g")
+        self.assertIn("shared_buffers=4GB", out)
+        self.assertIn("effective_cache_size=10GB", out)
+        self.assertIn("maintenance_work_mem=512MB", out)
+        self.assertIn("max_connections=200", out)
+        self.assertIn("max_parallel_workers=3", out)
+        self.assertIn("max_parallel_workers_per_gather=1", out)
         proc, calls = run(DATA, self.dir, SITE="prod", TOKENKEY_DATA_HOST_PROFILE="prod-4c16g")
         for write in WRITES:
             self.assertNotIn(write, calls)

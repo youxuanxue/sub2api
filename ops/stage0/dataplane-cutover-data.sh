@@ -47,8 +47,9 @@ private_ip="$(ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 |
 
 # Approved parameters (design §数据库参数 建议值). Memory values differ per site.
 # cn-prod max_connections raised 200→400 on 2026-11-17 (docs/decisions/decided.md).
-# prod 4C16G target (2026-11-21): set TOKENKEY_DATA_HOST_PROFILE=prod-4c16g after
-# the resize+recreate window; default still matches live 2C8G / PG 6G until then.
+# prod live after 2026-11-22 resize: TOKENKEY_DATA_HOST_PROFILE=prod-4c16g
+# (data host /etc/tokenkey/data-host-profile.env). Unset profile keeps the
+# pre-resize 2C8G / PG 6G table for rollback / unmarked hosts.
 expected_settings() {
   local sb ecs mwm max_conn parallel
   parallel=""
