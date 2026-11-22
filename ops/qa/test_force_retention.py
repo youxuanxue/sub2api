@@ -109,6 +109,23 @@ class RetentionTest(unittest.TestCase):
             saved = json.loads((Path(cfg['state_root']) / 'last-retention.json').read_text())
             self.assertFalse(saved['archive_verified'])
 
+    def test_main_exits_zero_when_backup_defers_database_work(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(retention.sys, 'argv', ['force_retention.py', '--role', 'data',
+                                                          '--config', str(Path(directory) / 'cfg.json'),
+                                                          '--apply']), \
+                mock.patch.object(retention.policy, 'load_private_config', return_value=data_config(Path(directory))), \
+                mock.patch.object(retention, 'run', side_effect=retention.policy.BackupDeferred(
+                    'QA database work deferred near scheduled backup')) as run, \
+                mock.patch('builtins.print') as printed:
+            code = retention.main()
+        self.assertEqual(code, 0)
+        run.assert_called_once()
+        payload = json.loads(printed.call_args.args[0])
+        self.assertTrue(payload['ok'])
+        self.assertTrue(payload['deferred'])
+        self.assertIn('deferred near scheduled backup', payload['reason'])
+
     def test_wrong_host_cannot_delete(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1,5 +1,11 @@
 # 已决定
 
+## 2026-11-22 QA retention 与 postgres 备份错开 + 让路 exit 0
+
+原话：「1 是 备份 和 QA清理 错开时间，2是 干活的脚本让路时正常退出。」
+
+适用范围：`tokenkey-qa-retention` 定时改为 UTC `*:00/10/20/40/50`（避开备份 `*:30`）；距备份不足 6 分钟或 backup operator lock 占用时 `BackupDeferred` → 进程 exit 0（不 page）。备份 timer 无 next elapse 仍硬失败告警。不改备份日历本身。现网：installer 拒覆盖已装 unit，已用 `ops/observability/remediate-qa-retention-backup-defer.sh`（`APPLY=yes-qa-retention-backup-defer`）热修 prod/cn 的 data + apps；`00:29Z` prod-data 实测让路 `rc=0 deferred=true`。
+
 ## 2026-11-21…22 prod 数据机 4C16G + Redis 硬上限
 
 原话摘要：同意升 4C16G 与参数；先备料禁止停写；跳过隔离恢复、低峰直接开窗；「同意升配。尽快完成。」；Redis 硬上限 prod/cn 都要、不是都 1G →「继续。」

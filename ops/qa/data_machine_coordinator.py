@@ -30,6 +30,12 @@ class CoordinatorError(ValueError):
     pass
 
 
+class BackupDeferred(Exception):
+    """Yield DB work to postgres backup; callers must exit 0 (not page as failure)."""
+
+    pass
+
+
 def load_private_config(path: Path) -> dict:
     info = path.lstat()
     if path.is_symlink() or not path.is_file() or info.st_uid != 0 or info.st_mode & 0o077:
