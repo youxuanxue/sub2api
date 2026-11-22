@@ -203,3 +203,4 @@ cn-prod（腾讯北京）发版与多应用机契约：[cn-prod 多应用机滚�
 - [用户历史用量账单查询与下载](historical-usage-billing.md) — 已交付（US-073 Done）；approved 已删，验收以 Story + Linked Tests 为准。
 - [GPT Image OAuth 观感脚手架](gpt-image-oauth-perceived-quality.md) — 一次性脚手架；已删，活契约见 strict canvas / native cutover。
 - tk_101 删列后一次性 VACUUM one-shot（原 `vacuum-ops-error-logs`）— 舰队已执行完毕，脚本已删。
+- `tender-batch-metering.md` — 标书包 2 批量/限流/计量验收草稿，曾以 `approved_by: pending` 误入 main（#3383）；R5 禁止 pending 上 main，已删。未审批前勿恢复进 `docs/approved/`。
