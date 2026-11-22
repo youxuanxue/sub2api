@@ -6,6 +6,18 @@
 
 适用范围：`tokenkey-qa-retention` 定时改为 UTC `*:00/10/20/40/50`（避开备份 `*:30`）；距备份不足 6 分钟或 backup operator lock 占用时 `BackupDeferred` → 进程 exit 0（不 page）。备份 timer 无 next elapse 仍硬失败告警。不改备份日历本身。现网：installer 拒覆盖已装 unit，已用 `ops/observability/remediate-qa-retention-backup-defer.sh`（`APPLY=yes-qa-retention-backup-defer`）热修 prod/cn 的 data + apps；`00:29Z` prod-data 实测让路 `rc=0 deferred=true`。
 
+## 2026-11-21…22 prod 数据机 4C16G + Redis 硬上限
+
+原话摘要：同意升 4C16G 与参数；先备料禁止停写；跳过隔离恢复、低峰直接开窗；「同意升配。尽快完成。」；Redis 硬上限 prod/cn 都要、不是都 1G →「继续。」
+
+决定：
+- prod 数据机 `lhins-p43i2kxh` → 4C16G / PG 12G（SB 4GB、ECS 10GB、mwm 512MB、parallel 3/1、`max_connections=200`）；profile `prod-4c16g`；补 PG cgroup **anon** 告警
+- cn-prod 不升配
+- 不阻塞于 `cos_restore_acceptance` degraded
+- Redis Docker 硬上限：**prod 1G**、**cn-prod 512MB**（进程内 maxmemory 仍 512mb/256mb）；重建须带同 `--memory`（SSOT：`design-data-plane-split.md`）
+
+已执行完毕。
+
 ## 2026-11-21 Grok OAuth 只保留 4.3/4.5/4.6/4.7 text surface
 
 原话：「1. 要 4 个 identity 和 xai/、grok/ 同名别名。2. 从从 grok 推荐面/allowlist 收掉。提交并推送pr」

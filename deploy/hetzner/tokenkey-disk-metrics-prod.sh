@@ -4,7 +4,9 @@
 #
 # Single source of record: consumed by
 #   - deploy/hetzner/render-prod-bootstrap.sh (installs it on the prod host).
+#   - data-machine tokenkey-disk-metrics.timer (same script; PG cgroup anon path).
 # Edit ONLY this file for shared host-pressure alert logic.
+# Data-plane PG alert design: docs/approved/design-data-plane-split.md §数据机观测
 #
 # Differences vs the prod EC2 alert (intentional):
 #   - Root is always checked; TOKENKEY_DATA_VOLUME_PATH additionally requires
@@ -278,6 +280,56 @@ handle_mem_state() {
   fi
 }
 
+# PG cgroup unreclaimable (anon) pressure — see live path + design-data-plane-split.
+PG_CGROUP_ALERT="${TOKENKEY_PG_CGROUP_ALERT:-auto}"
+PG_CONTAINER="${TOKENKEY_PG_CONTAINER:-tokenkey-postgres}"
+PG_ANON_WARN_MIB="${TOKENKEY_PG_CGROUP_ANON_WARN_MIB:-1536}"
+PG_ANON_CRIT_MIB="${TOKENKEY_PG_CGROUP_ANON_CRIT_MIB:-3072}"
+PG_CGROUP_ACTIVE_STAMP="/run/tokenkey-pg-cgroup-alert-active"
+PG_CGROUP_PENDING_STAMP="/run/tokenkey-pg-cgroup-alert-pending"
+PG_CGROUP_COOLDOWN_STAMP="/run/tokenkey-pg-cgroup-alert.stamp"
+
+# $1=anon_mib $2=warn_mib $3=crit_mib $4=oom_events $5=current_mib $6=limit_mib
+handle_pg_cgroup_state() {
+  local anon_mib="$1" warn_mib="$2" crit_mib="$3" oom="$4" current_mib="$5" limit_mib="$6"
+  local fire=0 fill_pct=0
+
+  if [ "${oom:-0}" -gt 0 ] 2>/dev/null; then
+    fire=1
+  elif [ "${anon_mib}" -ge "${crit_mib}" ] 2>/dev/null; then
+    fire=1
+  elif [ "${anon_mib}" -ge "${warn_mib}" ] 2>/dev/null; then
+    if [ -r "${PG_CGROUP_PENDING_STAMP}" ]; then
+      fire=1
+    else
+      echo 1 >"${PG_CGROUP_PENDING_STAMP}" 2>/dev/null || true  # preflight-allow: swallow — best-effort pending
+      return 0
+    fi
+  fi
+
+  if [ "${fire}" = "1" ]; then
+    if [ "${limit_mib}" -gt 0 ] 2>/dev/null; then
+      fill_pct=$(( current_mib * 100 / limit_mib ))
+    fi
+    if tk_feishu_alert "${PG_CGROUP_COOLDOWN_STAMP}" \
+      "🟠 P1 PG cgroup 不可回收内存 ${NODE} — anon ${anon_mib}MiB (warn ${warn_mib}/crit ${crit_mib}), cgroup ${current_mib}/${limit_mib}MiB (${fill_pct}%), oom_events=${oom}。file cache 顶满不告；anon 抬升才是尖刺/泄漏信号。查活跃查询/临时文件或升配。container=${PG_CONTAINER} node=${NODE}"; then
+      echo 1 >"${PG_CGROUP_ACTIVE_STAMP}" 2>/dev/null || true  # preflight-allow: swallow — best-effort latch
+    fi
+    rm -f "${PG_CGROUP_PENDING_STAMP}" 2>/dev/null || true  # preflight-allow: swallow
+    return 0
+  fi
+
+  rm -f "${PG_CGROUP_PENDING_STAMP}" 2>/dev/null || true  # preflight-allow: swallow
+  if [ "${anon_mib}" -lt $(( warn_mib * 70 / 100 )) ] 2>/dev/null; then
+    if [ -r "${PG_CGROUP_ACTIVE_STAMP}" ] || [ -r "${PG_CGROUP_COOLDOWN_STAMP}" ]; then
+      if tk_feishu_post_now \
+        "✅ P1 PG cgroup anon 已恢复 ${NODE} — anon ${anon_mib}MiB (warn ${warn_mib}), cgroup ${current_mib}/${limit_mib}MiB。container=${PG_CONTAINER} node=${NODE}"; then
+        rm -f "${PG_CGROUP_ACTIVE_STAMP}" "${PG_CGROUP_COOLDOWN_STAMP}" 2>/dev/null || true  # preflight-allow: swallow
+      fi
+    fi
+  fi
+}
+
 if [ "${TK_SELFTEST}" = "1" ]; then
   # --- state-machine cases driving the REAL handle_mem_state above -------------
   # Stamps and meminfo live in the temp fixture dir; the senders are replaced by
@@ -370,6 +422,47 @@ if [ "${TK_SELFTEST}" = "1" ]; then
   tk_reset; tk_tick 97; tk_tick 85
   [ "$(tk_count RECOVERY)" = "0" ] || { echo "FAIL all-clear inside hysteresis band" >&2; fail=1; }
 
+  # --- PG cgroup anon state machine (cache-full must not page) -----------------
+  PG_CGROUP_ACTIVE_STAMP="${TK_SELFTEST_DIR}/pg-cgroup-active"
+  PG_CGROUP_PENDING_STAMP="${TK_SELFTEST_DIR}/pg-cgroup-pending"
+  PG_CGROUP_COOLDOWN_STAMP="${TK_SELFTEST_DIR}/pg-cgroup-cooldown"
+  tk_pg_reset() {
+    rm -f "${SENT_LOG}" "${PG_CGROUP_ACTIVE_STAMP}" "${PG_CGROUP_PENDING_STAMP}" "${PG_CGROUP_COOLDOWN_STAMP}"
+    : > "${SENT_LOG}"
+  }
+  # args: anon_mib [oom=0]
+  tk_pg_tick() {
+    handle_pg_cgroup_state "$1" 1536 3072 "${2:-0}" 5900 6144
+  }
+
+  # Cache-full with low anon: never pages (the prod-data false signal we fixed).
+  tk_pg_reset; tk_pg_tick 300; tk_pg_tick 300
+  [ "$(tk_count ALERT)" = "0" ] || { echo "FAIL cache-full low-anon paged" >&2; fail=1; }
+
+  # Single warn-level anon spike needs confirm.
+  tk_pg_reset; tk_pg_tick 1600
+  [ "$(tk_count ALERT)" = "0" ] || { echo "FAIL single anon warn paged" >&2; fail=1; }
+  [ -r "${PG_CGROUP_PENDING_STAMP}" ] || { echo "FAIL anon warn did not arm pending" >&2; fail=1; }
+  tk_pg_tick 400
+  [ "$(tk_count ALERT)" = "0" ] || { echo "FAIL transient anon warn paged after clear" >&2; fail=1; }
+
+  # Sustained warn pages once; 70% of warn(=1536) is 1075 — stay above that in-band.
+  tk_pg_reset; tk_pg_tick 1600; tk_pg_tick 1600
+  [ "$(tk_count ALERT)" = "1" ] || { echo "FAIL sustained anon warn did not page got=$(tk_count ALERT)" >&2; fail=1; }
+  grep -q '不可回收内存' "${SENT_LOG}" || { echo "FAIL pg cgroup alert body" >&2; fail=1; }
+  tk_pg_tick 1200
+  [ "$(tk_count RECOVERY)" = "0" ] || { echo "FAIL pg recovery inside hysteresis" >&2; fail=1; }
+  tk_pg_tick 400
+  [ "$(tk_count RECOVERY)" = "1" ] || { echo "FAIL pg recovery not paired got=$(tk_count RECOVERY)" >&2; fail=1; }
+
+  # Critical anon pages immediately.
+  tk_pg_reset; tk_pg_tick 3200
+  [ "$(tk_count ALERT)" = "1" ] || { echo "FAIL critical anon did not page immediately" >&2; fail=1; }
+
+  # oom_events>0 pages even with low anon.
+  tk_pg_reset; tk_pg_tick 100 2
+  [ "$(tk_count ALERT)" = "1" ] || { echo "FAIL oom_events did not page" >&2; fail=1; }
+
   if [ "$fail" -ne 0 ]; then
     echo "tokenkey-disk-metrics-prod selftest FAILED" >&2
     exit 1
@@ -380,5 +473,46 @@ fi
 
 MEMUSEDPCT="$(awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} END{ if(t>0) printf "%d",(t-a)*100/t; else print 0 }' "${TK_MEMINFO_PATH}" 2>/dev/null || echo 0)"
 handle_mem_state "${MEMUSEDPCT:-0}" "${MEM_THRESHOLD}" "${MEM_CRITICAL_THRESHOLD}" "${MEM_RECOVER_THRESHOLD}"
+
+# PG cgroup anon alert (data hosts with tokenkey-postgres). Cache-full ≠ alert.
+# Design: docs/approved/design-data-plane-split.md §数据机观测
+tk_pg_cgroup_sample() {
+  local name="$1" cid scope current max anon oom
+  cid="$(docker inspect -f '{{.Id}}' "${name}" 2>/dev/null || true)"
+  [ -n "${cid}" ] || return 1
+  scope="/sys/fs/cgroup/system.slice/docker-${cid}.scope"
+  [ -d "${scope}" ] || scope="$(find /sys/fs/cgroup -type d -name "docker-${cid}.scope" 2>/dev/null | head -1)"
+  [ -n "${scope}" ] && [ -d "${scope}" ] || return 1
+  current="$(cat "${scope}/memory.current" 2>/dev/null || echo 0)"
+  max="$(cat "${scope}/memory.max" 2>/dev/null || echo max)"
+  case "${max}" in
+    max|"") max=0 ;;
+  esac
+  anon="$(awk '/^anon /{print $2; exit}' "${scope}/memory.stat" 2>/dev/null || echo 0)"
+  oom="$(awk '/^oom /{print $2; exit}' "${scope}/memory.events" 2>/dev/null || echo 0)"
+  printf '%s %s %s %s\n' "${current:-0}" "${max:-0}" "${anon:-0}" "${oom:-0}"
+}
+
+tk_pg_cgroup_should_run() {
+  case "${PG_CGROUP_ALERT}" in
+    0|false|off|no) return 1 ;;
+    1|true|on|yes) return 0 ;;
+    auto|*)
+      docker inspect -f '{{.State.Running}}' "${PG_CONTAINER}" 2>/dev/null | grep -qx true
+      ;;
+  esac
+}
+
+if tk_pg_cgroup_should_run; then
+  if sample="$(tk_pg_cgroup_sample "${PG_CONTAINER}")"; then
+    # shellcheck disable=SC2086
+    set -- ${sample}
+    cur_b="${1:-0}"; max_b="${2:-0}"; anon_b="${3:-0}"; oom_n="${4:-0}"
+    anon_mib=$(( anon_b / 1024 / 1024 ))
+    cur_mib=$(( cur_b / 1024 / 1024 ))
+    lim_mib=$(( max_b / 1024 / 1024 ))
+    handle_pg_cgroup_state "${anon_mib}" "${PG_ANON_WARN_MIB}" "${PG_ANON_CRIT_MIB}" "${oom_n}" "${cur_mib}" "${lim_mib}"
+  fi
+fi
 
 exit "${DISK_STATUS}"
