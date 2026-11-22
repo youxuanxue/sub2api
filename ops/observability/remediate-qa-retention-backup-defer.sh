@@ -51,15 +51,16 @@ file_sha() {
 }
 
 retention_timer_body() {
-  # SSOT: install_coordinator.retention_units — do not hardcode a second timer.
-  python3 - <<'PY' "$SRC_DIR"
-import importlib.util, sys
+  # SSOT: extract tokenkey-qa-retention.timer from install_coordinator.py text
+  # (avoid importing the module — it pulls sibling QA packages not uploaded here).
+  python3 - <<'PY' "$SRC_DIR/install_coordinator.py"
+import re, sys
 from pathlib import Path
-src = Path(sys.argv[1]) / "install_coordinator.py"
-spec = importlib.util.spec_from_file_location("install_coordinator", src)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-print(mod.retention_units(Path("/usr/local/lib/tokenkey/qa-coordinator/placeholder"), "source", None)["tokenkey-qa-retention.timer"], end="")
+text = Path(sys.argv[1]).read_text()
+match = re.search(r'"tokenkey-qa-retention\.timer":\s*"""(.*?)"""', text, re.S)
+if not match:
+    raise SystemExit("tokenkey-qa-retention.timer missing from install_coordinator.py")
+print(match.group(1), end="")
 PY
 }
 
