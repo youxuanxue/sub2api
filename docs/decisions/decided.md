@@ -1,10 +1,16 @@
 # 已决定
 
+## 2026-11-22 Redis Docker 硬上限（prod 1G / cn-prod 512MB）
+
+原话：「那应该把 Redis 1 GiB 硬上限 解决了。prod 和 cn-prod 都需要吗？都是 1G 吗？」→「继续。」
+
+适用范围：两站数据机 `tokenkey-redis`。按设计表：**prod=1 GiB**、**cn-prod=512 MiB**（不是两边都 1G）。进程内 `maxmemory` 不变（prod 512mb / cn 256mb，`noeviction`）。用 `docker update` 不停服加 cgroup 硬顶；重建容器时必须带相同 `--memory/--memory-swap`，否则 cap 丢失。
+
 ## 2026-11-22 prod 数据机低峰升配开窗
 
 原话：「同意升配。尽快完成。」
 
-适用范围：腾讯美西 prod 数据机 `lhins-p43i2kxh`。批准本低峰窗口执行：主机套餐升至 4C16G（`bundle_starter_nmc_lin_lg16_01`）、停写/重启、按维护包重建 PG 容器（上限 12G + 目标 `-c`）。Redis 1G 硬上限本窗不做。跳过隔离恢复刷新的既有决定仍有效。
+适用范围：腾讯美西 prod 数据机 `lhins-p43i2kxh`。批准本低峰窗口执行：主机套餐升至 4C16G（`bundle_starter_nmc_lin_lg16_01`）、停写/重启、按维护包重建 PG 容器（上限 12G + 目标 `-c`）。Redis 1G 硬上限本窗不做（同日另条已补）。跳过隔离恢复刷新的既有决定仍有效。
 
 执行结果（同日 UTC ≈23:49–23:59）：**已完成**。主机 4C16G；PG `ACCEPT_PG_OK`（SB/ECS/mwm/parallel 与 12G 上限）；`system_identifier` 未变；profile `prod-4c16g`；WAL 归档推进；两台网关 healthy 且私网连上 PG/Redis。细节见 `docs/approved/plan-data-machine-capacity-upgrade.md` §执行结果。
 

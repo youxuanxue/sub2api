@@ -115,14 +115,15 @@ bash ops/observability/run-probe.sh \
 | 主机 | `nproc=4`，MemTotal≈15.2 GiB；套餐升配含重启 |
 | 写中断 | 约 UTC 23:49 停 PG/Redis → 23:51 主机 RUNNING → 中间 PG 重建两次失败（root entrypoint / 默认 entrypoint 误判未初始化）→ **UTC 23:59:30** `ACCEPT_PG_OK` |
 | PG | 上限 12 GiB；SB 4GB / ECS 10GB / mwm 512MB / parallel 3/1；`system_identifier=7697434738137305123`；主库；`--user 70:70 --entrypoint postgres`（与原 shape 一致，避免官方 entrypoint 按空 `PGDATA` 初始化） |
-| Redis | 未改硬上限；本窗仍无 Docker memory cap；`PING=PONG` |
+| Redis | 升配窗未改；**同日稍后**已设 Docker 硬上限 1 GiB（`ACCEPT_REDIS_CAP_OK`）；进程内仍 `maxmemory=512mb` / `noeviction` |
 | profile | `/etc/tokenkey/data-host-profile.env` → `TOKENKEY_DATA_HOST_PROFILE=prod-4c16g` |
 | 归档 | `pg_switch_wal` 后 `archived_count` 8064→8065，`failed_count=0` |
 | 网关 | `app-old` / `app-cand`：`tokenkey` healthy；私网 TCP `10.4.0.3:5432` / `:6379` ok |
 | 窗后 memory | HOST used≈9%（by MemAvailable）；PG cgroup fill≈10%，oom_events=0 |
 | 真实请求/扣费 | UTC 00:11:39 `probe_account_model`（`--via ssm --node app-old`）`ACCOUNT_ID=621` `deepseek-chat` → `verdict=servable`；`usage_logs.id=19997302` `account_id=621` `total_cost=actual_cost=0.0000150746`；`X-Request-ID=c8095e21-d1c6-4e6a-ab1d-af1be29a10d0`。user_id=1 同期有其它大额用量，不能用整余额差单独对这一笔 |
 | 维护包回写 | `apply-after-resize.sh` / `target-create.json` / `receipt.json` 已写入 `--user 70:70`；`window-20261122/SHAPE.md` 记录禁忌（root entrypoint / 空 PGDATA 官方 entrypoint） |
-| 未做 | Redis 容器 1 GiB 硬上限；cn-prod；隔离 COS 恢复刷新 |
+| Redis 硬上限（另批续做） | prod **1 GiB**（UTC 00:25:43）；cn-prod **512 MiB**（UTC 00:25:54）；均 `docker update`、未停服；重建须带同 `--memory` |
+| 未做 | 隔离 COS 恢复刷新；Redis recreate 定义尚未写入 compose/维护包 create（仅 runtime update + 主机 `REDIS_CAP.md`） |
 
 维护日志：`/var/lib/tokenkey/maintenance/prod-data-4c16g/window-20261122/`（`stop.log` / `apply*.log` / `SHAPE.md`）。
 
