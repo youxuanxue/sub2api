@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -39,44 +40,51 @@ func (f *ManagedBatchResultFinalizer) Finalize(ctx context.Context, batchID stri
 	if err != nil {
 		return err
 	}
-	items, err := f.Repo.listCompletedBatchItems(ctx, batchID)
+	outputID, err := f.materialize(ctx, b, "output")
 	if err != nil {
 		return err
 	}
-	output, failed, err := encodeBatchResults(items)
+	errorID, err := f.materialize(ctx, b, "error")
 	if err != nil {
 		return err
-	}
-	var outputID, errorID *string
-	if len(output) > 0 {
-		id := managedBatchResultFileID(batchID, "output")
-		if err := f.uploadResult(ctx, b, id, "output", output); err != nil {
-			return err
-		}
-		outputID = &id
-	}
-	if len(failed) > 0 {
-		id := managedBatchResultFileID(batchID, "error")
-		if err := f.uploadResult(ctx, b, id, "error", failed); err != nil {
-			return err
-		}
-		errorID = &id
 	}
 	return f.Repo.setBatchResultFiles(ctx, batchID, outputID, errorID)
 }
 
-func (f *ManagedBatchResultFinalizer) uploadResult(ctx context.Context, b ManagedBatch, id, kind string, data []byte) error {
-	key := "managed-batches/" + b.ID + "/" + kind + ".jsonl"
-	if _, err := f.Store.Upload(ctx, key, bytes.NewReader(data), int64(len(data)), "application/jsonl"); err != nil {
-		return fmt.Errorf("upload managed batch %s result: %w", kind, err)
-	}
-	hash := sha256.Sum256(data)
-	expires := time.Now().UTC().Add(24 * time.Hour)
-	_, err := f.Repo.db.ExecContext(ctx, `INSERT INTO batch_files (id,user_id,api_key_id,purpose,filename,storage_ref,byte_size,sha256,status,expires_at) VALUES ($1,$2,NULLIF($3,0),$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO NOTHING`, id, b.UserID, b.APIKeyID, batchcontract.FilePurposeBatch, "batch_"+b.ID+"_"+kind+".jsonl", key, len(data), fmt.Sprintf("%x", hash[:]), batchcontract.FileStatusProcessed, expires)
+// COS requires a known byte length. Spool one result at a time to a private
+// file and release the database cursor before the object upload.
+func (f *ManagedBatchResultFinalizer) materialize(ctx context.Context, b ManagedBatch, kind string) (*string, error) {
+	tmp, err := os.CreateTemp("", "batch-result-*")
 	if err != nil {
-		return fmt.Errorf("persist managed batch %s result file: %w", kind, err)
+		return nil, err
 	}
-	return nil
+	defer func() { _ = tmp.Close(); _ = os.Remove(tmp.Name()) }()
+	w := bufio.NewWriter(tmp)
+	if err = f.Repo.writeCompletedBatchItems(ctx, b.ID, kind, w); err != nil {
+		return nil, err
+	}
+	if err = w.Flush(); err != nil {
+		return nil, err
+	}
+	end, err := tmp.Seek(0, io.SeekCurrent)
+	if err != nil || end == 0 {
+		return nil, err
+	}
+	if _, err = tmp.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	id := managedBatchResultFileID(b.ID, kind)
+	key := "managed-batches/" + b.ID + "/" + kind + ".jsonl"
+	digest := sha256.New()
+	if _, err = f.Store.Upload(ctx, key, io.TeeReader(tmp, digest), end, "application/jsonl"); err != nil {
+		return nil, fmt.Errorf("upload managed batch %s result: %w", kind, err)
+	}
+	expires := time.Now().UTC().Add(24 * time.Hour)
+	_, err = f.Repo.db.ExecContext(ctx, `INSERT INTO batch_files (id,user_id,api_key_id,purpose,filename,storage_ref,byte_size,sha256,status,expires_at) VALUES ($1,$2,NULLIF($3,0),$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO NOTHING`, id, b.UserID, b.APIKeyID, batchcontract.FilePurposeBatch, "batch_"+b.ID+"_"+kind+".jsonl", key, end, fmt.Sprintf("%x", digest.Sum(nil)), batchcontract.FileStatusProcessed, expires)
+	if err != nil {
+		return nil, fmt.Errorf("persist managed batch %s result file: %w", kind, err)
+	}
+	return &id, nil
 }
 
 func managedBatchResultFileID(batchID, kind string) string {
@@ -121,32 +129,34 @@ func (r *ManagedBatchRepository) getBatchForResult(ctx context.Context, id strin
 	return b, nil
 }
 
-func (r *ManagedBatchRepository) listCompletedBatchItems(ctx context.Context, batchID string) ([]ManagedBatchItem, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id,batch_id,custom_id,status,response,error,input_tokens,output_tokens,total_tokens,unknown_result FROM batch_items WHERE batch_id=$1 AND status IN ('succeeded','failed','cancelled','unknown') ORDER BY id`, batchID)
+func (r *ManagedBatchRepository) writeCompletedBatchItems(ctx context.Context, batchID, kind string, w io.Writer) error {
+	rows, err := r.db.QueryContext(ctx, `SELECT id,batch_id,custom_id,status,response,error,input_tokens,output_tokens,total_tokens,unknown_result FROM batch_items WHERE batch_id=$1 AND (($2='output' AND status='succeeded') OR ($2='error' AND status IN ('failed','cancelled','unknown'))) ORDER BY id`, batchID, kind)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer func() { _ = rows.Close() }()
-	var items []ManagedBatchItem
+
 	for rows.Next() {
 		var item ManagedBatchItem
 		var response, itemErr []byte
 		if err := rows.Scan(&item.ID, &item.BatchID, &item.CustomID, &item.Status, &response, &itemErr, &item.InputTokens, &item.OutputTokens, &item.TotalTokens, &item.UnknownResult); err != nil {
-			return nil, err
+			return err
 		}
 		if len(response) > 0 && string(response) != "null" {
 			if err := json.Unmarshal(response, &item.Response); err != nil {
-				return nil, err
+				return err
 			}
 		}
 		if len(itemErr) > 0 && string(itemErr) != "null" {
 			if err := json.Unmarshal(itemErr, &item.Error); err != nil {
-				return nil, err
+				return err
 			}
 		}
-		items = append(items, item)
+		if err := writeBatchResult(w, item); err != nil {
+			return err
+		}
 	}
-	return items, rows.Err()
+	return rows.Err()
 }
 
 func (r *ManagedBatchRepository) setBatchResultFiles(ctx context.Context, batchID string, outputID, errorID *string) error {
@@ -154,29 +164,19 @@ func (r *ManagedBatchRepository) setBatchResultFiles(ctx context.Context, batchI
 	return err
 }
 
-func encodeBatchResults(items []ManagedBatchItem) ([]byte, []byte, error) {
-	var output, failed bytes.Buffer
-	for _, item := range items {
-		id := strconv.FormatInt(item.ID, 10)
-		if item.Status == batchcontract.ItemStatusSucceeded {
-			if item.Response == nil {
-				return nil, nil, fmt.Errorf("managed batch item %s has no response", item.CustomID)
-			}
-			line, err := responseResultLine(id, item)
-			if err != nil {
-				return nil, nil, err
-			}
-			if err := writeJSONLine(&output, line); err != nil {
-				return nil, nil, err
-			}
-			continue
+func writeBatchResult(w io.Writer, item ManagedBatchItem) error {
+	id := strconv.FormatInt(item.ID, 10)
+	line := batchcontract.ResultLine{ID: id, CustomID: item.CustomID}
+	if item.Status == batchcontract.ItemStatusSucceeded {
+		var err error
+		line, err = responseResultLine(id, item)
+		if err != nil {
+			return err
 		}
-		line := batchcontract.ResultLine{ID: id, CustomID: item.CustomID, Error: errorResult(item)}
-		if err := writeJSONLine(&failed, line); err != nil {
-			return nil, nil, err
-		}
+	} else {
+		line.Error = errorResult(item)
 	}
-	return output.Bytes(), failed.Bytes(), nil
+	return json.NewEncoder(w).Encode(line)
 }
 
 func responseResultLine(id string, item ManagedBatchItem) (batchcontract.ResultLine, error) {
@@ -203,10 +203,6 @@ func errorResult(item ManagedBatchItem) *batchcontract.BatchError {
 		message = "managed batch item did not complete successfully"
 	}
 	return &batchcontract.BatchError{Code: code, Message: message}
-}
-
-func writeJSONLine(w *bytes.Buffer, value any) error {
-	return json.NewEncoder(w).Encode(value)
 }
 
 func intValue(value any) int {

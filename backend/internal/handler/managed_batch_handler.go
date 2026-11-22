@@ -12,9 +12,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"iter"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/batchcontract"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -44,7 +47,7 @@ type ManagedBatchBackend interface {
 	ListFiles(context.Context, ManagedBatchOwner, string, string, int) (batchcontract.FileList, error)
 	OpenFile(context.Context, ManagedBatchOwner, string) (io.ReadCloser, *batchcontract.FileObject, error)
 	DeleteFile(context.Context, ManagedBatchOwner, string) error
-	CreateBatch(context.Context, ManagedBatchOwner, batchcontract.BatchSubmitRequest, []batchcontract.RequestLine, string, string) (batchcontract.Batch, error)
+	CreateBatch(context.Context, ManagedBatchOwner, batchcontract.BatchSubmitRequest, batchInput, string, string) (batchcontract.Batch, error)
 	GetBatch(context.Context, ManagedBatchOwner, string) (batchcontract.Batch, error)
 	ListBatches(context.Context, ManagedBatchOwner, string, int) (batchcontract.BatchList, error)
 	CancelBatch(context.Context, ManagedBatchOwner, string) (batchcontract.Batch, error)
@@ -74,7 +77,7 @@ type ManagedBatchHandler struct {
 }
 
 func NewManagedBatchHandler(backend ManagedBatchBackend, enabled bool) *ManagedBatchHandler {
-	return &ManagedBatchHandler{Backend: backend, Enabled: enabled, MaxUploadBytes: 512 << 20, MaxLines: 100000}
+	return &ManagedBatchHandler{Backend: backend, Enabled: enabled, MaxUploadBytes: 64 << 20, MaxLines: 10000}
 }
 
 func (h *ManagedBatchHandler) available(c *gin.Context) bool {
@@ -103,7 +106,13 @@ func (h *ManagedBatchHandler) FilesCreate(c *gin.Context) {
 		return
 	}
 	if c.Request.MultipartForm == nil {
-		if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.MaxUploadBytes+(1<<20))
+		if err := c.Request.ParseMultipartForm(1 << 20); err != nil {
+			var oversized *http.MaxBytesError
+			if errors.As(err, &oversized) {
+				writeBatchError(c, &BatchAPIError{Status: 413, Type: "invalid_request_error", Code: "file_too_large", Message: "upload exceeds the maximum size"})
+				return
+			}
 			writeBatchError(c, badBatch("multipart form with file and purpose=batch is required"))
 			return
 		}
@@ -229,17 +238,28 @@ func (h *ManagedBatchHandler) BatchesCreate(c *gin.Context) {
 		writeBatchError(c, err)
 		return
 	}
-	lines, err := h.readInputLines(c.Request.Context(), owner, req.InputFileID, req.Endpoint)
-	if err != nil {
-		writeBatchError(c, err)
-		return
-	}
 	idem := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
 	if len(idem) > 255 {
 		writeBatchError(c, badBatch("Idempotency-Key is too long"))
 		return
 	}
-	bodyHash := canonicalBatchHash(req, lines)
+	stream, _, err := h.Backend.OpenFile(c.Request.Context(), owner, req.InputFileID)
+	if err != nil {
+		writeBatchError(c, hideBatchNotFound(err))
+		return
+	}
+	defer func() { _ = stream.Close() }()
+	file, err := os.CreateTemp("", "batch-input-*")
+	if err != nil {
+		writeBatchError(c, err)
+		return
+	}
+	defer func() { _ = file.Close(); _ = os.Remove(file.Name()) }()
+	lines, bodyHash, err := stageBatchInput(req, stream, file, h.MaxLines, h.MaxUploadBytes)
+	if err != nil {
+		writeBatchError(c, err)
+		return
+	}
 	got, err := h.Backend.CreateBatch(c.Request.Context(), owner, req, lines, idem, bodyHash)
 	if err != nil {
 		writeBatchError(c, err)
@@ -248,32 +268,84 @@ func (h *ManagedBatchHandler) BatchesCreate(c *gin.Context) {
 	c.JSON(http.StatusOK, got)
 }
 
-func (h *ManagedBatchHandler) readInputLines(ctx context.Context, owner ManagedBatchOwner, fileID, endpoint string) ([]batchcontract.RequestLine, error) {
-	stream, _, err := h.Backend.OpenFile(ctx, owner, fileID)
+// Only IDs and one decoded sample stay in memory. Replay the validated private
+// spool inside the submission transaction without holding a DB connection for COS.
+type batchInput struct {
+	count int
+	rows  iter.Seq2[batchcontract.RequestLine, error]
+}
+
+func stageBatchInput(req batchcontract.BatchSubmitRequest, src io.Reader, file *os.File, maxLines int, maxBytes int64) (batchInput, string, error) {
+	var empty batchInput
+	limited := &io.LimitedReader{R: src, N: maxBytes + 1}
+	scan := bufio.NewScanner(limited)
+	scan.Buffer(make([]byte, 64<<10), 4<<20)
+	hash := sha256.New()
+	reqJSON, err := json.Marshal(req)
 	if err != nil {
-		return nil, hideBatchNotFound(err)
+		return empty, "", err
 	}
-	defer func() { _ = stream.Close() }()
-	scanner := bufio.NewScanner(stream)
-	scanner.Buffer(make([]byte, 64<<10), 4<<20)
-	lines := make([]batchcontract.RequestLine, 0, 128)
-	for scanner.Scan() {
-		if h.MaxLines > 0 && len(lines) >= h.MaxLines {
-			return nil, badBatch("input file has too many lines")
+	_, _ = io.WriteString(hash, `{"request":`)
+	_, _ = hash.Write(reqJSON)
+	_, _ = io.WriteString(hash, `,"lines":[`)
+	seen := map[string]struct{}{}
+	w := bufio.NewWriter(file)
+	for scan.Scan() {
+		if len(seen) >= maxLines {
+			return empty, "", badBatch("input file has too many lines")
 		}
 		var line batchcontract.RequestLine
-		if err := json.Unmarshal(scanner.Bytes(), &line); err != nil {
-			return nil, badBatch("input file is not valid JSONL")
+		if err := json.Unmarshal(scan.Bytes(), &line); err != nil {
+			return empty, "", badBatch("input file is not valid JSONL")
 		}
-		lines = append(lines, line)
+		if err := batchcontract.ValidateRequestLines([]batchcontract.RequestLine{line}, req.Endpoint); err != nil {
+			return empty, "", err
+		}
+		if utf8.RuneCountInString(line.CustomID) > 255 {
+			return empty, "", badBatch("custom_id exceeds 255 characters")
+		}
+		if _, dup := seen[line.CustomID]; dup {
+			return empty, "", &BatchAPIError{Status: 400, Type: "invalid_request_error", Code: batchcontract.ErrorDuplicateCustomID, Message: "custom_id must be unique"}
+		}
+		if len(seen) > 0 {
+			_, _ = io.WriteString(hash, ",")
+		}
+		seen[line.CustomID] = struct{}{}
+		raw, err := json.Marshal(line)
+		if err != nil {
+			return empty, "", err
+		}
+		_, _ = hash.Write(raw)
+		if _, err = w.Write(raw); err != nil {
+			return empty, "", err
+		}
+		if err = w.WriteByte('\n'); err != nil {
+			return empty, "", err
+		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, badBatch("input file could not be read")
+	if scan.Err() != nil || limited.N == 0 || len(seen) == 0 {
+		return empty, "", badBatch("invalid, oversized, or empty input file")
 	}
-	if err := batchcontract.ValidateRequestLines(lines, endpoint); err != nil {
-		return nil, err
+	if err = w.Flush(); err != nil {
+		return empty, "", err
 	}
-	return lines, nil
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		return empty, "", err
+	}
+	_, _ = io.WriteString(hash, "]}")
+	return batchInput{len(seen), func(yield func(batchcontract.RequestLine, error) bool) {
+		dec := json.NewDecoder(file)
+		for {
+			var line batchcontract.RequestLine
+			err := dec.Decode(&line)
+			if err == io.EOF {
+				return
+			}
+			if !yield(line, err) || err != nil {
+				return
+			}
+		}
+	}}, hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (h *ManagedBatchHandler) BatchesList(c *gin.Context) {
@@ -351,15 +423,6 @@ func (h *ManagedBatchHandler) BatchesRetry(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, got)
-}
-
-func canonicalBatchHash(req batchcontract.BatchSubmitRequest, lines []batchcontract.RequestLine) string {
-	b, _ := json.Marshal(struct {
-		Request batchcontract.BatchSubmitRequest `json:"request"`
-		Lines   []batchcontract.RequestLine      `json:"lines"`
-	}{req, lines})
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
 }
 
 func safeFilename(name string) string {

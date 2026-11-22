@@ -47,10 +47,9 @@ type ManagedBatchRepositoryPort interface {
 }
 
 type ManagedBatchRepositoryBackend struct {
-	modelRateFactors map[string]float64
-	Repo             ManagedBatchRepositoryPort
-	Store            ManagedBatchObjectStore
-	Queue            service.ManagedBatchQueue // reserved for the worker wiring; submit uses outbox first
+	Repo  ManagedBatchRepositoryPort
+	Store ManagedBatchObjectStore
+	Queue service.ManagedBatchQueue // reserved for the worker wiring; submit uses outbox first
 }
 
 func NewManagedBatchRepositoryBackend(repo ManagedBatchRepositoryPort, store ManagedBatchObjectStore, queue service.ManagedBatchQueue) *ManagedBatchRepositoryBackend {
@@ -148,45 +147,41 @@ func (b *ManagedBatchRepositoryBackend) DeleteFile(ctx context.Context, owner Ma
 	return err
 }
 
-func (b *ManagedBatchRepositoryBackend) CreateBatch(ctx context.Context, owner ManagedBatchOwner, req batchcontract.BatchSubmitRequest, lines []batchcontract.RequestLine, idem, hash string) (batchcontract.Batch, error) {
+func (b *ManagedBatchRepositoryBackend) CreateBatch(ctx context.Context, owner ManagedBatchOwner, req batchcontract.BatchSubmitRequest, lines batchInput, idem, hash string) (batchcontract.Batch, error) {
 	if err := b.ensure(); err != nil {
 		return batchcontract.Batch{}, err
 	}
 	if req.Endpoint != batchcontract.EndpointResponses {
 		return batchcontract.Batch{}, &BatchAPIError{Status: 400, Type: "invalid_request_error", Code: batchcontract.ErrorInvalidEndpoint, Message: "managed Batch currently supports only /v1/responses"}
 	}
-	if err := batchcontract.ValidateRequestLines(lines, req.Endpoint); err != nil {
-		return batchcontract.Batch{}, err
-	}
 	id := newManagedID("batch_")
 	now := time.Now().UTC()
 	deadline := now.Add(24 * time.Hour)
-	counts := map[string]any{"total": len(lines), "completed": 0, "failed": 0}
+	counts := map[string]any{"total": lines.count, "completed": 0, "failed": 0}
 	metadata := map[string]any{}
 	for k, v := range req.Metadata {
 		metadata[k] = v
 	}
-	items := make([]repository.ManagedBatchItem, 0, len(lines))
-	for _, line := range lines {
-		if !json.Valid(line.Body) {
-			return batchcontract.Batch{}, &BatchAPIError{Status: 400, Type: "invalid_request_error", Code: "invalid_request", Message: "invalid request body"}
+	items := func(yield func(repository.ManagedBatchItem, error) bool) {
+		for line, err := range lines.rows {
+			if err != nil {
+				yield(repository.ManagedBatchItem{}, err)
+				return
+			}
+			if !json.Valid(line.Body) {
+				yield(repository.ManagedBatchItem{}, badBatch("invalid request body"))
+				return
+			}
+			request := map[string]any{
+				"custom_id": line.CustomID,
+				"method":    line.Method,
+				"url":       line.URL,
+				"body":      json.RawMessage(line.Body),
+			}
+			if !yield(repository.ManagedBatchItem{BatchID: id, CustomID: line.CustomID, Request: request, Status: batchcontract.ItemStatusPending}, nil) {
+				return
+			}
 		}
-		request := map[string]any{
-			"custom_id": line.CustomID,
-			"method":    line.Method,
-			"url":       line.URL,
-			"body":      json.RawMessage(line.Body),
-		}
-		var body struct {
-			Model string `json:"model"`
-		}
-		if err := json.Unmarshal(line.Body, &body); err != nil {
-			return batchcontract.Batch{}, err
-		}
-		if factor, ok := b.modelRateFactors[body.Model]; ok {
-			request["batch_rate_factor"] = factor
-		}
-		items = append(items, repository.ManagedBatchItem{BatchID: id, CustomID: line.CustomID, Request: request, Status: batchcontract.ItemStatusPending})
 	}
 	mb := repository.ManagedBatch{ID: id, UserID: owner.UserID, APIKeyID: owner.APIKeyID, InputFileID: req.InputFileID, Endpoint: req.Endpoint, CompletionWindow: req.CompletionWindow, Status: batchcontract.BatchStatusValidating, RequestCounts: counts, Metadata: metadata, DeadlineAt: &deadline, Version: 0, IdempotencyKey: strings.TrimSpace(idem), RequestHash: hash, CreatedAt: now}
 	persisted, err := b.Repo.CreateBatchSubmission(ctx, repository.ManagedBatchSubmission{Batch: mb, Items: items, Outbox: repository.ManagedBatchOutboxEvent{BatchID: id, EventType: "batch.submit", DedupKey: "batch.submit:" + id, Payload: map[string]any{

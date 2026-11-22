@@ -32,11 +32,15 @@ func ProvideManagedBatchRuntime(
 	finalizer := &repository.ManagedBatchResultFinalizer{Repo: repo, Store: store}
 	enabled := cfg != nil && cfg.ManagedBatch.Enabled && store != nil
 	settlement := &service.OpenAIManagedBatchSettlement{Gateway: gateway, APIKeyService: apiKeys}
+	parallel := 1
+	if cfg != nil && cfg.ManagedBatch.ParallelItems > 0 {
+		parallel = cfg.ManagedBatch.ParallelItems
+	}
 	processor := NewProcessor(Config{
 		Enabled:         enabled,
 		WorkerID:        "managed-batch-worker",
-		ParallelItems:   4,
-		BatchSize:       4,
+		ParallelItems:   parallel,
+		BatchSize:       parallel,
 		Resolver:        resolver,
 		ResultFinalizer: finalizer,
 		Settlement:      settlement,

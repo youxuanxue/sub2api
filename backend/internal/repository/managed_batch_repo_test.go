@@ -85,7 +85,7 @@ func TestManagedBatchResetRetryRequeuesWithOwnerPayload(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE batch_items SET status='pending'")).
 		WithArgs("batch-1").
 		WillReturnResult(sqlmock.NewResult(0, 2))
-	mock.ExpectExec(regexp.QuoteMeta("jsonb_build_object('batch_id',$1,'user_id',$2,'api_key_id',$3)")).
+	mock.ExpectExec(regexp.QuoteMeta("jsonb_build_object('batch_id',$1::varchar,'user_id',$2::bigint,'api_key_id',$3::bigint)")).
 		WithArgs("batch-1", int64(7), int64(9), "batch.retry:batch-1:4").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()

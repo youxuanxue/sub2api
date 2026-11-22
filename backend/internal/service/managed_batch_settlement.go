@@ -13,7 +13,6 @@ import (
 // successful managed item. The worker owns the stable request ID; this service
 // owns pricing, billing, quota and usage-log persistence through RecordUsage.
 type ManagedBatchSettlementInput struct {
-	BatchRateFactor               float64
 	BatchID                       string
 	ItemID                        int64
 	RequestID                     string
@@ -85,7 +84,6 @@ func (s *OpenAIManagedBatchSettlement) SettleManagedBatch(ctx context.Context, i
 	settleCtx := context.WithValue(ctx, ctxkey.RequestID, in.RequestID)
 	return s.Gateway.RecordUsage(settleCtx, &OpenAIRecordUsageInput{
 		Result: &OpenAIForwardResult{
-			BatchRateFactor:               in.BatchRateFactor,
 			RequestID:                     in.RequestID,
 			Model:                         in.Model,
 			UpstreamModel:                 in.UpstreamModel,

@@ -3,6 +3,7 @@
 package repository
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -29,4 +30,18 @@ func TestEncodeBatchResultsSplitsSuccessAndErrorsDeterministically(t *testing.T)
 func TestEncodeBatchResultsRejectsMissingSuccessBody(t *testing.T) {
 	_, _, err := encodeBatchResults([]ManagedBatchItem{{ID: 1, CustomID: "broken", Status: batchcontract.ItemStatusSucceeded, Response: map[string]any{}}})
 	require.Error(t, err)
+}
+
+func encodeBatchResults(items []ManagedBatchItem) ([]byte, []byte, error) {
+	var output, failed bytes.Buffer
+	for _, item := range items {
+		w := &failed
+		if item.Status == batchcontract.ItemStatusSucceeded {
+			w = &output
+		}
+		if err := writeBatchResult(w, item); err != nil {
+			return nil, nil, err
+		}
+	}
+	return output.Bytes(), failed.Bytes(), nil
 }

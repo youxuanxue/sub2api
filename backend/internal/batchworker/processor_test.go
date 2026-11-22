@@ -312,7 +312,7 @@ func TestProcessorSettlesSuccessfulItemWithStableItemKey(t *testing.T) {
 	require.Same(t, account, settlement.inputs[0].Account)
 }
 
-func TestProcessorSettlementFailureRetriesWithoutTerminalSuccess(t *testing.T) {
+func TestProcessorSettlementFailureRequiresReconciliation(t *testing.T) {
 	r := newFakeRepo(batchcontract.BatchStatusInProgress, nil)
 	r.items = []repository.ManagedBatchItem{testItem()}
 	settlement := &fakeSettlement{err: errors.New("billing temporarily unavailable")}
@@ -323,11 +323,10 @@ func TestProcessorSettlementFailureRetriesWithoutTerminalSuccess(t *testing.T) {
 	}})
 	p := NewProcessor(Config{Enabled: true, WorkerID: "w1", ResultIndexer: &memoryIndexer{}, Settlement: settlement}, r, map[string]batchadapter.ManagedExecutor{batchadapter.ProviderOpenAI: adapter})
 	p.cfg.Resolver = fakeResolver{key: key, account: account}
-	result, err := p.Process(context.Background(), service.ManagedBatchJob{Payload: testPayload(t)})
-	require.Error(t, err)
-	require.False(t, result.Terminal)
-	require.Equal(t, 1, r.retried)
-	require.Empty(t, r.completed)
+	_, err := p.Process(context.Background(), service.ManagedBatchJob{Payload: testPayload(t)})
+	require.NoError(t, err)
+	require.Zero(t, r.retried)
+	require.Equal(t, itemStatusUnknown, r.completed[testItem().ID])
 }
 
 func TestProcessorCancellingBatchCancelsUnstartedItems(t *testing.T) {

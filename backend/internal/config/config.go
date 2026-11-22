@@ -122,9 +122,9 @@ type Config struct {
 // workers and provider selection are wired separately and must not be started
 // merely by setting this flag.
 type ManagedBatchConfig struct {
-	ModelRateFactors map[string]float64        `mapstructure:"model_rate_factors" yaml:"model_rate_factors"`
-	Enabled          bool                      `mapstructure:"enabled" yaml:"enabled"`
-	Storage          ManagedBatchStorageConfig `mapstructure:"storage" yaml:"storage"`
+	ParallelItems int                       `mapstructure:"parallel_items" yaml:"parallel_items"`
+	Enabled       bool                      `mapstructure:"enabled" yaml:"enabled"`
+	Storage       ManagedBatchStorageConfig `mapstructure:"storage" yaml:"storage"`
 }
 
 // ManagedBatchStorageConfig configures the private S3-compatible bucket used
@@ -2378,6 +2378,7 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
 	viper.SetDefault("managed_batch.enabled", true)
+	viper.SetDefault("managed_batch.parallel_items", 1)
 	viper.SetDefault("managed_batch.storage.driver", "")
 	viper.SetDefault("managed_batch.storage.endpoint", "")
 	viper.SetDefault("managed_batch.storage.region", "")
@@ -3131,10 +3132,8 @@ func setEnvReachableDefaults() {
 }
 
 func (c *Config) Validate() error {
-	for model, factor := range c.ManagedBatch.ModelRateFactors {
-		if strings.TrimSpace(model) == "" || !(factor > 0 && factor <= 1) {
-			return fmt.Errorf("invalid managed_batch.model_rate_factors entry for %q", model)
-		}
+	if c.ManagedBatch.ParallelItems < 0 || c.ManagedBatch.ParallelItems > 4 {
+		return fmt.Errorf("managed_batch.parallel_items must be between 0 and 4")
 	}
 	if c.Gateway.MinOutputTokens < 16 {
 		return fmt.Errorf("gateway.min_output_tokens must be at least 16")

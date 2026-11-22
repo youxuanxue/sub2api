@@ -3,10 +3,12 @@ package handler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -46,8 +48,14 @@ func (s *managedBatchBackendStub) OpenFile(context.Context, ManagedBatchOwner, s
 func (s *managedBatchBackendStub) DeleteFile(context.Context, ManagedBatchOwner, string) error {
 	return nil
 }
-func (s *managedBatchBackendStub) CreateBatch(_ context.Context, _ ManagedBatchOwner, _ batchcontract.BatchSubmitRequest, lines []batchcontract.RequestLine, idem, hash string) (batchcontract.Batch, error) {
-	s.lines, s.idem, s.hash = lines, idem, hash
+func (s *managedBatchBackendStub) CreateBatch(_ context.Context, _ ManagedBatchOwner, _ batchcontract.BatchSubmitRequest, lines batchInput, idem, hash string) (batchcontract.Batch, error) {
+	for line, err := range lines.rows {
+		if err != nil {
+			return batchcontract.Batch{}, err
+		}
+		s.lines = append(s.lines, line)
+	}
+	s.idem, s.hash = idem, hash
 	return batchcontract.Batch{ID: "batch_1", Object: "batch", Status: "validating"}, nil
 }
 func (s *managedBatchBackendStub) GetBatch(context.Context, ManagedBatchOwner, string) (batchcontract.Batch, error) {
@@ -132,4 +140,21 @@ func multipartNew(t *testing.T, dst *bytes.Buffer, field, filename, value string
 	require.NoError(t, err)
 	require.NoError(t, mw.WriteField("purpose", "batch"))
 	return mw
+}
+
+func TestManagedBatchSingleJobSizeBoundary(t *testing.T) {
+	var input strings.Builder
+	for i := 0; i < 10000; i++ {
+		fmt.Fprintf(&input, `{"custom_id":"%d","method":"POST","url":"/v1/responses","body":{"model":"gpt"}}`+"\n", i)
+	}
+	req := batchcontract.BatchSubmitRequest{Endpoint: "/v1/responses"}
+	file, err := os.CreateTemp(t.TempDir(), "stage")
+	require.NoError(t, err)
+	defer func() { _ = file.Close() }()
+	staged, _, err := stageBatchInput(req, strings.NewReader(input.String()), file, 10000, 64<<20)
+	require.NoError(t, err)
+	require.Equal(t, 10000, staged.count)
+	_, _ = input.WriteString(`{"custom_id":"10000","method":"POST","url":"/v1/responses","body":{"model":"gpt"}}`)
+	_, _, err = stageBatchInput(req, strings.NewReader(input.String()), file, 10000, 64<<20)
+	require.ErrorContains(t, err, "too many lines")
 }

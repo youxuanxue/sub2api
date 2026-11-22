@@ -31,6 +31,7 @@ func (s *managedBatchStoreFake) Delete(_ context.Context, key string) error {
 }
 
 type managedBatchRepoFake struct {
+	captured    []repository.ManagedBatchItem
 	files       map[string]repository.ManagedBatchFile
 	batches     map[string]repository.ManagedBatch
 	submission  repository.ManagedBatchSubmission
@@ -76,6 +77,12 @@ func (r *managedBatchRepoFake) CreateBatchSubmission(_ context.Context, s reposi
 			}
 			return nil, repository.ErrManagedBatchIdempotencyConflict
 		}
+	}
+	for item, err := range s.Items {
+		if err != nil {
+			return nil, err
+		}
+		r.captured = append(r.captured, item)
 	}
 	r.submission = s
 	r.batches[s.Batch.ID] = s.Batch
@@ -130,22 +137,20 @@ func TestManagedBatchRepositoryBackendCreateBatchPersistsValidatedMapper(t *test
 	store := &managedBatchStoreFake{objects: map[string][]byte{}}
 	b := NewManagedBatchRepositoryBackend(repo, store, nil)
 	owner := ManagedBatchOwner{UserID: 7, APIKeyID: 9}
-	b.modelRateFactors = map[string]float64{"gpt": 0.75}
 	got, err := b.CreateFile(context.Background(), owner, "input.jsonl", "batch", 0, bytes.NewBufferString("line\n"))
 	require.NoError(t, err)
 	require.Len(t, store.objects, 1)
 	require.Equal(t, "batch", got.Object.Purpose)
 	line := batchcontract.RequestLine{CustomID: "row-1", Method: "POST", URL: batchcontract.EndpointResponses, Body: []byte(`{"model":"gpt"}`)}
-	batch, err := b.CreateBatch(context.Background(), owner, batchcontract.BatchSubmitRequest{InputFileID: got.Object.ID, Endpoint: batchcontract.EndpointResponses, CompletionWindow: "24h"}, []batchcontract.RequestLine{line}, "idem-1", "hash")
+	batch, err := b.CreateBatch(context.Background(), owner, batchcontract.BatchSubmitRequest{InputFileID: got.Object.ID, Endpoint: batchcontract.EndpointResponses, CompletionWindow: "24h"}, singleBatchInput(line), "idem-1", "hash")
 	require.NoError(t, err)
 	require.Equal(t, batchcontract.BatchStatusValidating, batch.Status)
 	require.Equal(t, 1, repo.submissions)
-	require.Equal(t, 0.75, repo.submission.Items[0].Request["batch_rate_factor"])
-	require.Equal(t, line.CustomID, repo.submission.Items[0].Request["custom_id"])
-	require.Equal(t, line.URL, repo.submission.Items[0].Request["url"])
+	require.Equal(t, line.CustomID, repo.captured[0].Request["custom_id"])
+	require.Equal(t, line.URL, repo.captured[0].Request["url"])
 	require.Equal(t, int64(7), repo.submission.Outbox.Payload["user_id"])
 	require.Equal(t, int64(9), repo.submission.Outbox.Payload["api_key_id"])
-	body, ok := repo.submission.Items[0].Request["body"].(json.RawMessage)
+	body, ok := repo.captured[0].Request["body"].(json.RawMessage)
 	require.True(t, ok)
 	require.Equal(t, string(line.Body), string(body))
 }
@@ -156,13 +161,13 @@ func TestManagedBatchRepositoryBackendIdempotencyReplaysSameRequestAndRejectsDif
 	owner := ManagedBatchOwner{UserID: 7, APIKeyID: 9}
 	line := batchcontract.RequestLine{CustomID: "row-1", Method: "POST", URL: batchcontract.EndpointResponses, Body: []byte(`{"model":"gpt"}`)}
 	req := batchcontract.BatchSubmitRequest{InputFileID: "file_1", Endpoint: batchcontract.EndpointResponses, CompletionWindow: "24h"}
-	one, err := b.CreateBatch(context.Background(), owner, req, []batchcontract.RequestLine{line}, "idem-1", "hash-a")
+	one, err := b.CreateBatch(context.Background(), owner, req, singleBatchInput(line), "idem-1", "hash-a")
 	require.NoError(t, err)
-	two, err := b.CreateBatch(context.Background(), owner, req, []batchcontract.RequestLine{line}, "idem-1", "hash-a")
+	two, err := b.CreateBatch(context.Background(), owner, req, singleBatchInput(line), "idem-1", "hash-a")
 	require.NoError(t, err)
 	require.Equal(t, one.ID, two.ID)
 	require.Equal(t, 1, repo.submissions)
-	_, err = b.CreateBatch(context.Background(), owner, req, []batchcontract.RequestLine{line}, "idem-1", "hash-b")
+	_, err = b.CreateBatch(context.Background(), owner, req, singleBatchInput(line), "idem-1", "hash-b")
 	var apiErr *BatchAPIError
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, 409, apiErr.Status)
@@ -186,7 +191,7 @@ func TestManagedBatchRepositoryBackendRejectsChatUntilPhaseTwo(t *testing.T) {
 	repo := &managedBatchRepoFake{files: map[string]repository.ManagedBatchFile{}, batches: map[string]repository.ManagedBatch{}}
 	b := NewManagedBatchRepositoryBackend(repo, &managedBatchStoreFake{objects: map[string][]byte{}}, nil)
 	line := batchcontract.RequestLine{CustomID: "row-1", Method: "POST", URL: batchcontract.EndpointChatCompletions, Body: []byte(`{"model":"gpt"}`)}
-	_, err := b.CreateBatch(context.Background(), ManagedBatchOwner{UserID: 7, APIKeyID: 9}, batchcontract.BatchSubmitRequest{InputFileID: "file_1", Endpoint: batchcontract.EndpointChatCompletions, CompletionWindow: "24h"}, []batchcontract.RequestLine{line}, "", "")
+	_, err := b.CreateBatch(context.Background(), ManagedBatchOwner{UserID: 7, APIKeyID: 9}, batchcontract.BatchSubmitRequest{InputFileID: "file_1", Endpoint: batchcontract.EndpointChatCompletions, CompletionWindow: "24h"}, singleBatchInput(line), "", "")
 	var apiErr *BatchAPIError
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, 400, apiErr.Status)
@@ -198,4 +203,8 @@ func TestManagedBatchRepositoryBackendMissingOwnerDoesNotOpenObject(t *testing.T
 	b := NewManagedBatchRepositoryBackend(repo, &managedBatchStoreFake{objects: map[string][]byte{}}, nil)
 	_, err := b.GetFile(context.Background(), ManagedBatchOwner{UserID: 2, APIKeyID: 3}, "file_missing")
 	require.Error(t, err)
+}
+
+func singleBatchInput(line batchcontract.RequestLine) batchInput {
+	return batchInput{1, func(yield func(batchcontract.RequestLine, error) bool) { yield(line, nil) }}
 }

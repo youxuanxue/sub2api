@@ -640,9 +640,6 @@ func (s *OpenAIGatewayService) prepareOpenAICustomerFacingCostInputs(
 			return out, err
 		}
 	}
-	if result.BatchRateFactor > 0 && result.BatchRateFactor <= 1 {
-		multiplier *= result.BatchRateFactor
-	}
 	baseMultiplier := multiplier
 	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, baseMultiplier, pricingAt)
 	out.BaseMultiplier = baseMultiplier
