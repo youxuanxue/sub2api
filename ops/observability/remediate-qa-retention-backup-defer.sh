@@ -4,7 +4,10 @@
 #   --with ops/qa/force_retention.py \
 #   --with ops/qa/coordinator_host.py \
 #   --with ops/qa/data_machine_coordinator.py \
-#   --with ops/qa/install_coordinator.py
+#   --with ops/qa/install_coordinator.py \
+#   --with ops/qa/source_worker.py \   # when live bundle has it
+#   --with ops/qa/node1_remote.py \    # when live bundle has it
+#   --with ops/qa/node1_archive.py     # when live bundle has it
 #
 # Requires APPLY=yes-qa-retention-backup-defer
 #
@@ -14,8 +17,8 @@
 #   rewrites tokenkey-qa-retention.timer only.
 #
 # Scope:
-#   - Overwrite force_retention.py / coordinator_host.py /
-#     data_machine_coordinator.py in the active bundle (BackupDeferred → exit 0)
+#   - Overwrite force_retention / coordinator_host / data_machine_coordinator
+#     (+ optional source_worker / node1_*) in the active bundle
 #   - Replace retention timer from install_coordinator.retention_units SSOT
 #   - daemon-reload; reset-failed retention; restart retention.timer
 # Does NOT touch postgres-backup calendar, coordinator.timer cadence, or gateway.
@@ -88,14 +91,16 @@ for name in force_retention.py coordinator_host.py data_machine_coordinator.py i
   fi
 done
 PATCH_NAMES=(force_retention.py coordinator_host.py data_machine_coordinator.py)
-# App bundles also run source_worker over SSH; patch when present.
-if [[ -f "${BUNDLE}/source_worker.py" ]]; then
-  if [[ ! -f "${SRC_DIR}/source_worker.py" ]]; then
-    echo "{\"ok\":false,\"error\":\"missing companion ${SRC_DIR}/source_worker.py; pass --with ops/qa/source_worker.py\"}"
-    exit 1
+# Optional companions: present on app (and some data) bundles.
+for optional in source_worker.py node1_remote.py node1_archive.py; do
+  if [[ -f "${BUNDLE}/${optional}" ]]; then
+    if [[ ! -f "${SRC_DIR}/${optional}" ]]; then
+      echo "{\"ok\":false,\"error\":\"missing companion ${SRC_DIR}/${optional}; pass --with ops/qa/${optional}\"}"
+      exit 1
+    fi
+    PATCH_NAMES+=("${optional}")
   fi
-  PATCH_NAMES+=(source_worker.py)
-fi
+done
 for name in "${PATCH_NAMES[@]}"; do
   dst="${BUNDLE}/${name}"
   if [[ ! -f "$dst" ]]; then
@@ -148,6 +153,7 @@ assert "def lifecycle_lock_busy" in dm, "lifecycle_lock_busy missing"
 assert "raise policy.BackupDeferred" in ch, "soft defer raise missing"
 assert "except policy.ArchiveDeferred" in ch, "archive soft defer missing"
 assert "lifecycle_lock_busy" in ch, "QAMA lock busy soft defer missing"
+assert "node1 transfer pipe broken" in ch, "pipe-broken ownership marker missing"
 assert "except policy.BackupDeferred" in fr, "force_retention soft exit missing"
 assert "backup timer next elapse missing" in ch
 assert 'raise policy.CoordinatorError("QA database work deferred near scheduled backup")' not in ch
@@ -156,6 +162,15 @@ if sw.exists():
     text = sw.read_text()
     assert "ArchiveDeferred" in text, "source_worker ArchiveDeferred missing"
     assert "subprocess_detail" in text, "source_worker subprocess_detail missing"
+nr = bundle / "node1_remote.py"
+if nr.exists():
+    text = nr.read_text()
+    assert "node1 transfer pipe broken" in text, "node1_remote pipe-broken raise missing"
+    assert "_raise_push_pipeline_failure" in text, "pipeline failure helper missing"
+na = bundle / "node1_archive.py"
+if na.exists():
+    text = na.read_text()
+    assert "except node1_remote.Node1ConnectivityError" in text, "push_hour connectivity retry missing"
 print("markers_ok=yes")
 PY
 

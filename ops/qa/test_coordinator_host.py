@@ -180,8 +180,10 @@ class RunnerTest(unittest.TestCase):
         # "timed out after" (seal/digest/DB hangs) stays gateway.
         named = "node1 transfer timed out after 3600 seconds (SSH/jump path slow or stuck)"
         wrapped = '{"ok": false, "error": "%s"}' % named
+        pipe = "node1 transfer pipe broken while reading /var/lib/tokenkey/qa-source-receipts/.push-x: Connection reset by peer"
         self.assertEqual(host.archive_error_failure_class(named), 'node1_unreachable')
         self.assertEqual(host.archive_error_failure_class(wrapped), 'node1_unreachable')
+        self.assertEqual(host.archive_error_failure_class(pipe), 'node1_unreachable')
         self.assertEqual(
             host.archive_error_failure_class('seal digest mismatch'),
             'gateway_qa_archive_failed',

@@ -114,6 +114,8 @@ def archive_error_failure_class(error: str) -> str:
         # Raised by node1_remote.push_directory on TimeoutExpired — do not
         # use a bare "timed out after" (would mis-page seal/DB hangs to ops).
         "node1 transfer timed out",
+        # SSH/jump closed mid-stream → local tar SIGPIPE with empty stderr.
+        "node1 transfer pipe broken",
         "connection timed out during banner exchange",
         "connection to unknown port",
         "could not resolve hostname",

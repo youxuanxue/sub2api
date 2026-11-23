@@ -256,6 +256,81 @@ class StreamTest(unittest.TestCase):
             "node1_unreachable",
         )
 
+    def test_tar_sigpipe_empty_stderr_is_node1_connectivity_not_gateway(self) -> None:
+        # Prod 2026-11-23: jump closed mid-stream → tar 141 / empty stderr was
+        # mislabeled as gateway archive failure. Prefer connectivity ownership.
+        with tempfile.TemporaryDirectory() as root:
+            staging = pathlib.Path(root) / "s"
+            staging.mkdir()
+            handle = mock.MagicMock()
+            handle.stdout = mock.MagicMock()
+            handle.stderr = mock.MagicMock()
+            handle.stderr.read.return_value = b""
+            handle.returncode = 141
+            with mock.patch.object(remote.subprocess, "Popen", return_value=handle), \
+                 mock.patch.object(remote, "_has_pv", return_value=False), \
+                 mock.patch.object(remote.subprocess, "run",
+                                   return_value=mock.Mock(returncode=255, stdout="",
+                                                          stderr="Connection reset by peer")):
+                with self.assertRaises(remote.Node1ConnectivityError) as caught:
+                    remote.push_directory(staging, key=pathlib.Path("/k"), jump="j",
+                                          target="t", remote_dir="/d", rate_kbps=0,
+                                          timeout=60)
+        self.assertIn("node1 transfer pipe broken", str(caught.exception))
+        self.assertIn("Connection reset by peer", str(caught.exception))
+        # _load() isolates modules; wrap with archive's class like the timeout test.
+        self.assertEqual(
+            archive.archive_failure_class(
+                archive.node1_remote.Node1ConnectivityError(str(caught.exception))),
+            "node1_unreachable",
+        )
+
+    def test_empty_stderr_without_receiver_failure_stays_archive_error(self) -> None:
+        # Ambiguous local tar exit must not be blamed on node1 when SSH succeeded.
+        with tempfile.TemporaryDirectory() as root:
+            staging = pathlib.Path(root) / "s"
+            staging.mkdir()
+            handle = mock.MagicMock()
+            handle.stdout = mock.MagicMock()
+            handle.stderr = mock.MagicMock()
+            handle.stderr.read.return_value = b""
+            handle.returncode = 2
+            summary = {"ok": True, "manifest_sha256": "abc", "file_count": 1,
+                       "total_bytes": 1, "already_present": False}
+            with mock.patch.object(remote.subprocess, "Popen", return_value=handle), \
+                 mock.patch.object(remote, "_has_pv", return_value=False), \
+                 mock.patch.object(remote.subprocess, "run",
+                                   return_value=mock.Mock(returncode=0, stdout=json.dumps(summary),
+                                                          stderr="")):
+                with self.assertRaises(remote.Node1ArchiveError) as caught:
+                    remote.push_directory(staging, key=pathlib.Path("/k"), jump="j",
+                                          target="t", remote_dir="/d", rate_kbps=0,
+                                          timeout=60)
+        self.assertIn("tar failed while reading", str(caught.exception))
+        self.assertEqual(archive.archive_failure_class(caught.exception), "gateway_qa_archive_failed")
+
+    def test_real_tar_read_error_stays_archive_error(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            staging = pathlib.Path(root) / "s"
+            staging.mkdir()
+            handle = mock.MagicMock()
+            handle.stdout = mock.MagicMock()
+            handle.stderr = mock.MagicMock()
+            handle.stderr.read.return_value = b"tar: ./x: Cannot open: No such file\n"
+            handle.returncode = 2
+            with mock.patch.object(remote.subprocess, "Popen", return_value=handle), \
+                 mock.patch.object(remote, "_has_pv", return_value=False), \
+                 mock.patch.object(remote.subprocess, "run",
+                                   return_value=mock.Mock(returncode=0, stdout="",
+                                                          stderr="")):
+                with self.assertRaises(remote.Node1ArchiveError) as caught:
+                    remote.push_directory(staging, key=pathlib.Path("/k"), jump="j",
+                                          target="t", remote_dir="/d", rate_kbps=0,
+                                          timeout=60)
+        self.assertIn("tar failed while reading", str(caught.exception))
+        self.assertIn("Cannot open", str(caught.exception))
+        self.assertEqual(archive.archive_failure_class(caught.exception), "gateway_qa_archive_failed")
+
 
 class RemoteCapacityTest(unittest.TestCase):
     """Capacity must be judged on node1, not on the production disk."""
@@ -402,6 +477,55 @@ class PushHourTest(unittest.TestCase):
         self.assertEqual(written["manifest_sha256"], result["manifest_sha256"])
         # Every file carries its own digest, so a later verify can detect rot.
         self.assertTrue(all("sha256" in f for f in captured["manifest"]["files"]))
+
+    def test_connectivity_flap_retries_once_then_succeeds(self) -> None:
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            source, receipts = self._arena(stack)
+            calls = {"n": 0}
+
+            def flaky_push(staging, **kwargs):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise archive.node1_remote.Node1ConnectivityError(
+                        "node1 transfer pipe broken while reading x: Connection reset by peer")
+                manifest = json.loads((staging / "manifest.json").read_text())
+                digest, _ = archive.sha256_file(staging / "manifest.json")
+                return {"ok": True, "manifest_sha256": digest,
+                        "file_count": manifest["file_count"],
+                        "total_bytes": manifest["total_bytes"], "already_present": False}
+
+            stack.enter_context(mock.patch.object(archive.node1_remote, "push_directory",
+                                                  side_effect=flaky_push))
+            stack.enter_context(mock.patch.object(
+                archive.node1_remote, "remote_capacity",
+                return_value={"total_bytes": NODE1_TOTAL, "free_bytes": NODE1_FREE,
+                              "qa_used_bytes": 0}))
+            result = archive.push_hour(source, receipts, "prod", HOUR, self._remote())
+        self.assertTrue(result["ok"])
+        self.assertEqual(calls["n"], 2)
+
+    def test_connectivity_flap_pages_after_second_failure(self) -> None:
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            source, receipts = self._arena(stack)
+            calls = {"n": 0}
+
+            def always_down(staging, **kwargs):
+                calls["n"] += 1
+                raise archive.node1_remote.Node1ConnectivityError(
+                    "node1 transfer pipe broken while reading x: Connection reset by peer")
+
+            stack.enter_context(mock.patch.object(archive.node1_remote, "push_directory",
+                                                  side_effect=always_down))
+            stack.enter_context(mock.patch.object(
+                archive.node1_remote, "remote_capacity",
+                return_value={"total_bytes": NODE1_TOTAL, "free_bytes": NODE1_FREE,
+                              "qa_used_bytes": 0}))
+            with self.assertRaises(archive.node1_remote.Node1ConnectivityError):
+                archive.push_hour(source, receipts, "prod", HOUR, self._remote())
+        self.assertEqual(calls["n"], 2)
+        self.assertFalse(archive.receipt_path(receipts, "prod", HOUR).exists())
 
     def test_digest_mismatch_leaves_no_receipt(self) -> None:
         # The hour must stay deletable-blocked: cleanup keys off the receipt, so
