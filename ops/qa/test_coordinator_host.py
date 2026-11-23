@@ -311,6 +311,24 @@ class BackupGuardTest(unittest.TestCase):
                 with self.assertRaisesRegex(policy.BackupDeferred, 'operator lock held'):
                     host.database(cfg, 'provision')
 
+    def test_database_defers_when_lifecycle_advisory_lock_busy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / 'binary'
+            binary.write_bytes(b'native')
+            cfg = config(root)
+            cfg.update(binary=str(binary), binary_sha256=hashlib.sha256(b'native').hexdigest())
+            exc = host.subprocess.CalledProcessError(
+                1, ['qa-local-maintenance'],
+                output='',
+                stderr='{"ok": false, "error": "QA lifecycle advisory lock busy"}\n',
+            )
+            with mock.patch.object(host.subprocess, 'run', side_effect=exc):
+                with self.assertRaisesRegex(policy.BackupDeferred, 'advisory lock busy'):
+                    host.database(cfg, 'inspect')
+            self.assertTrue(policy.lifecycle_lock_busy('QA lifecycle advisory lock busy'))
+            self.assertFalse(policy.lifecycle_lock_busy('partition parent missing'))
+
 
 if __name__ == '__main__':
     unittest.main()

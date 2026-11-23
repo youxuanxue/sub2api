@@ -144,8 +144,10 @@ fr = (bundle / "force_retention.py").read_text()
 assert "class BackupDeferred" in dm, "BackupDeferred missing"
 assert "class ArchiveDeferred" in dm, "ArchiveDeferred missing"
 assert "def subprocess_detail" in dm, "subprocess_detail missing"
+assert "def lifecycle_lock_busy" in dm, "lifecycle_lock_busy missing"
 assert "raise policy.BackupDeferred" in ch, "soft defer raise missing"
 assert "except policy.ArchiveDeferred" in ch, "archive soft defer missing"
+assert "lifecycle_lock_busy" in ch, "QAMA lock busy soft defer missing"
 assert "except policy.BackupDeferred" in fr, "force_retention soft exit missing"
 assert "backup timer next elapse missing" in ch
 assert 'raise policy.CoordinatorError("QA database work deferred near scheduled backup")' not in ch

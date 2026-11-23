@@ -88,10 +88,16 @@ def database(config, phase, *args, dry_run=False):
         try:
             completed = subprocess.run(command, check=True, capture_output=True, text=True, timeout=270)
         except subprocess.CalledProcessError as exc:
-            raise policy.CoordinatorError(policy.subprocess_detail(exc)) from exc
+            detail = policy.subprocess_detail(exc)
+            if policy.lifecycle_lock_busy(detail):
+                # Retention/coordinator (or repair) held QAMA; next timer tick retries.
+                raise policy.BackupDeferred(detail) from exc
+            raise policy.CoordinatorError(detail) from exc
     value = json.loads(completed.stdout)
     if value.get("ok") is not True or value.get("phase") != phase:
         detail = value.get("error") if isinstance(value.get("error"), str) else "database maintenance receipt invalid"
+        if policy.lifecycle_lock_busy(detail):
+            raise policy.BackupDeferred(detail)
         raise policy.CoordinatorError(detail)
     return value
 
