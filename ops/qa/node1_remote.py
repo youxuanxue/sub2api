@@ -197,6 +197,35 @@ def remote_manifest_digest(key: Path, jump: str, target: str, remote_dir: str) -
     return answer
 
 
+def _is_sigpipe(returncode: int | None) -> bool:
+    """True when a local pipeline stage died because the SSH/jump side closed."""
+    # 141 = 128 + SIGPIPE; negative -13 is wait-status style SIGPIPE.
+    return returncode in (141, -13)
+
+
+def _raise_push_pipeline_failure(staging: Path, *, sender_rc: int | None,
+                                 sender_stderr: str, receiver) -> None:
+    """Prefer jump/node1 receiver evidence over an empty local tar SIGPIPE.
+
+    Prod 2026-11-23: SSH/jump closed mid-stream → local tar SIGPIPE with empty
+    stderr was raised first as ``tar failed while reading`` and mis-paged as
+    gateway_qa_archive_failed. Receiver stderr (or connectivity) is the owner.
+    """
+    remote_detail = ((receiver.stderr or receiver.stdout or "") if receiver is not None else "")[-600:]
+    pipe_break = _is_sigpipe(sender_rc) or not (sender_stderr or "").strip()
+    if sender_rc and pipe_break:
+        detail = remote_detail.strip() or f"local tar exit {sender_rc} (empty stderr)"
+        raise Node1ConnectivityError(
+            f"node1 transfer pipe broken while reading {staging}: {detail}"
+        )
+    if sender_rc:
+        raise Node1ArchiveError(f"tar failed while reading {staging}: {sender_stderr[-600:]}")
+    if receiver is not None and receiver.returncode:
+        raise Node1ArchiveError(
+            f"node1 rejected the stream: {remote_detail}"
+        )
+
+
 def push_directory(staging: Path, *, key: Path, jump: str, target: str,
                    remote_dir: str, rate_kbps: int, timeout: int) -> dict:
     """Stream one prepared directory to node1 and return the remote summary.
@@ -227,6 +256,7 @@ def push_directory(staging: Path, *, key: Path, jump: str, target: str,
         stages.append(limiter)
         source = limiter.stdout
 
+    receiver = None
     try:
         try:
             receiver = subprocess.run(remote, stdin=source, text=True,
@@ -247,11 +277,9 @@ def push_directory(staging: Path, *, key: Path, jump: str, target: str,
                 stage.kill()
 
     sender_stderr = sender.stderr.read().decode(errors="replace") if sender.stderr else ""
-    if sender.returncode:
-        raise Node1ArchiveError(f"tar failed while reading {staging}: {sender_stderr[-600:]}")
-    if receiver.returncode:
-        raise Node1ArchiveError("node1 rejected the stream: "
-                                f"{(receiver.stderr or receiver.stdout)[-600:]}")
+    _raise_push_pipeline_failure(
+        staging, sender_rc=sender.returncode, sender_stderr=sender_stderr, receiver=receiver,
+    )
     try:
         summary = json.loads(receiver.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError) as exc:

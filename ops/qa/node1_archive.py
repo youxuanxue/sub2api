@@ -335,10 +335,17 @@ def push_hour(source_root: Path, receipt_root: Path, environment: str,
                                                                    environment, hour, source_id)
         log_progress(environment, hour, "transfer", file_count=manifest["file_count"],
                      total_bytes=total)
-        summary = node1_remote.push_directory(
-            staging, key=remote["key"], jump=remote["jump"], target=remote["target"],
+        push_kwargs = dict(
+            staging=staging, key=remote["key"], jump=remote["jump"], target=remote["target"],
             remote_dir=remote_dir, rate_kbps=remote["rate_kbps"],
-            timeout=remote["timeout"])
+            timeout=remote["timeout"],
+        )
+        try:
+            summary = node1_remote.push_directory(**push_kwargs)
+        except node1_remote.Node1ConnectivityError:
+            # One immediate retry: jump/SSH flaps (SIGPIPE / empty tar stderr)
+            # often clear on the next stream; still page if the second attempt fails.
+            summary = node1_remote.push_directory(**push_kwargs)
         # The digest is the proof. Byte and file counts are compared too so a
         # stream that somehow matched the manifest but dropped payload files
         # cannot be mistaken for a complete hour.
