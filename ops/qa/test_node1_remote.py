@@ -285,6 +285,30 @@ class StreamTest(unittest.TestCase):
             "node1_unreachable",
         )
 
+    def test_empty_stderr_without_receiver_failure_stays_archive_error(self) -> None:
+        # Ambiguous local tar exit must not be blamed on node1 when SSH succeeded.
+        with tempfile.TemporaryDirectory() as root:
+            staging = pathlib.Path(root) / "s"
+            staging.mkdir()
+            handle = mock.MagicMock()
+            handle.stdout = mock.MagicMock()
+            handle.stderr = mock.MagicMock()
+            handle.stderr.read.return_value = b""
+            handle.returncode = 2
+            summary = {"ok": True, "manifest_sha256": "abc", "file_count": 1,
+                       "total_bytes": 1, "already_present": False}
+            with mock.patch.object(remote.subprocess, "Popen", return_value=handle), \
+                 mock.patch.object(remote, "_has_pv", return_value=False), \
+                 mock.patch.object(remote.subprocess, "run",
+                                   return_value=mock.Mock(returncode=0, stdout=json.dumps(summary),
+                                                          stderr="")):
+                with self.assertRaises(remote.Node1ArchiveError) as caught:
+                    remote.push_directory(staging, key=pathlib.Path("/k"), jump="j",
+                                          target="t", remote_dir="/d", rate_kbps=0,
+                                          timeout=60)
+        self.assertIn("tar failed while reading", str(caught.exception))
+        self.assertEqual(archive.archive_failure_class(caught.exception), "gateway_qa_archive_failed")
+
     def test_real_tar_read_error_stays_archive_error(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             staging = pathlib.Path(root) / "s"

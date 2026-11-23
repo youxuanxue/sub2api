@@ -212,7 +212,12 @@ def _raise_push_pipeline_failure(staging: Path, *, sender_rc: int | None,
     gateway_qa_archive_failed. Receiver stderr (or connectivity) is the owner.
     """
     remote_detail = ((receiver.stderr or receiver.stdout or "") if receiver is not None else "")[-600:]
-    pipe_break = _is_sigpipe(sender_rc) or not (sender_stderr or "").strip()
+    receiver_failed = receiver is not None and bool(receiver.returncode)
+    # Empty stderr alone is ambiguous; only treat as jump flap with SIGPIPE
+    # or when the SSH/receiver side also failed (prod 2026-11-23 shape).
+    pipe_break = _is_sigpipe(sender_rc) or (
+        not (sender_stderr or "").strip() and receiver_failed
+    )
     if sender_rc and pipe_break:
         detail = remote_detail.strip() or f"local tar exit {sender_rc} (empty stderr)"
         raise Node1ConnectivityError(
