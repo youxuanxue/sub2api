@@ -55,6 +55,11 @@ services:
       - SERVER_MODE=${SERVER_MODE:-release}
       - SERVER_TRUSTED_PROXIES=${SERVER_TRUSTED_PROXIES-172.16.0.0/12}
       - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}
+      # SPA CORS allowlist (Quickstart/Studio apex→api). Prefer explicit list; when
+      # empty, app derives from SERVER_FRONTEND_URL + SITE_DOMAIN + GLOBAL_SITE_DOMAIN.
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      - SITE_DOMAIN=${SITE_DOMAIN:-}
+      - GLOBAL_SITE_DOMAIN=${GLOBAL_SITE_DOMAIN:-}
       - RUN_MODE=${RUN_MODE:-standard}
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432

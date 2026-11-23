@@ -123,10 +123,14 @@ simple_mode_key_rate_limit_enabled: false
 cors:
   # Allowed origins list. Leave empty to disable cross-origin requests.
   # 允许的来源列表。留空则禁用跨域请求。
-  # Apex SPA (tokenkey.dev) calling api.* gateway directly needs the apex origin here.
-  # 浏览器 Quickstart / Studio 从 apex 直连 api 主机时，必须把 apex 加入此列表。
+  # Apex SPAs calling api.* gateway directly need their origins here.
+  # 浏览器 Quickstart / Studio 从人类门面直连 api 主机时，必须把门面 origin 加入此列表。
+  # Dual facade: tokenkey.dev + callmodel.io (see design-callmodel-product-facade.md).
+  # Empty list: TokenKey derives from SERVER_FRONTEND_URL / SITE_DOMAIN / GLOBAL_SITE_DOMAIN
+  # so image-only rolling still fixes apex→api CORS without rewriting host config.yaml.
   allowed_origins:
     - "https://tokenkey.dev"
+    - "https://callmodel.io"
     - "http://localhost:5173"
   # Allow credentials (cookies/authorization headers). Cannot be used with "*".
   # 允许携带凭证（cookies/授权头）。不能与 "*" 通配符同时使用。
