@@ -32,7 +32,11 @@ class CoordinatorError(ValueError):
 
 
 class BackupDeferred(Exception):
-    """Yield DB work to postgres backup; callers must exit 0 (not page as failure)."""
+    """Yield DB work to a concurrent owner; callers must exit 0 (not page).
+
+    Covers postgres backup windows/locks and QA lifecycle QAMA contention
+    (coordinator vs retention starting in the same second).
+    """
 
     pass
 
@@ -51,10 +55,20 @@ _SEAL_NOT_READY_MARKERS = (
     "is not drained for source hour",
 )
 
+_LIFECYCLE_LOCK_BUSY_MARKERS = (
+    "qa lifecycle advisory lock busy",
+)
+
 
 def seal_not_ready(detail: str) -> bool:
     text = (detail or "").lower()
     return any(marker in text for marker in _SEAL_NOT_READY_MARKERS)
+
+
+def lifecycle_lock_busy(detail: str) -> bool:
+    """True when qa-local-maintenance lost QAMA to another lifecycle owner."""
+    text = (detail or "").lower()
+    return any(marker in text for marker in _LIFECYCLE_LOCK_BUSY_MARKERS)
 
 
 def subprocess_detail(exc: BaseException) -> str:
