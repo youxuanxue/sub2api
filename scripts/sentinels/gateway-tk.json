@@ -21371,6 +21371,36 @@
         "func TestOpsErrorLoggerCoalescedTailSuppressedForOptedOutUser("
       ],
       "rationale": "End-to-end coverage through the real middleware. Verified by mutation: deleting any single markOpsErrorLogUserOptOut call site compiles and passes every isolated unit test, so these three are the only mechanical anchors for the pre-auth suppression contract."
+    },
+    {
+      "path": "backend/internal/config/cors_origins_tk.go",
+      "must_contain": [
+        "func resolveCORSAllowedOriginsTK(configured []string, frontendURL string) []string",
+        "if env := strings.TrimSpace(os.Getenv(\"CORS_ALLOWED_ORIGINS\")); env != \"\" {",
+        "out = appendDualFacadeCompanions(out)",
+        "case \"https://tokenkey.dev\":",
+        "case \"https://callmodel.io\":"
+      ],
+      "rationale": "Empty cors.allowed_origins on host config.yaml makes apex→api Quickstart OPTIONS 403; image-only rolling does not rewrite that file. resolveCORSAllowedOriginsTK must keep deriving SPA origins from SERVER_FRONTEND_URL / SITE_DOMAIN / GLOBAL_SITE_DOMAIN and the tokenkey.dev↔callmodel.io companion pair. Dropping the env override, derive path, or companion silently restores Failed-to-fetch on tool-connect probes while unit tests for unrelated config still pass."
+    },
+    {
+      "path": "backend/internal/config/config.go",
+      "must_contain": [
+        "cfg.CORS.AllowedOrigins = resolveCORSAllowedOriginsTK(",
+        "normalizeStringSlice(cfg.CORS.AllowedOrigins),",
+        "cfg.Server.FrontendURL,"
+      ],
+      "rationale": "Upstream-shaped config.go must keep calling resolveCORSAllowedOriginsTK at load time. A merge that restores bare normalizeStringSlice(cfg.CORS.AllowedOrigins) compiles and skips the TK derive path, re-opening empty-allowlist CORS failures after rolling deploys."
+    },
+    {
+      "path": "backend/internal/config/cors_origins_tk_test.go",
+      "must_contain": [
+        "func TestResolveCORSAllowedOriginsTK_EnvWins(",
+        "func TestResolveCORSAllowedOriginsTK_EmptyEnvFallsThroughToDerive(",
+        "func TestResolveCORSAllowedOriginsTK_DeriveFrontendOnlyAddsCompanion(",
+        "func TestResolveCORSAllowedOriginsTK_EmptyStaysEmptyWithoutFrontend("
+      ],
+      "rationale": "Focused regressions for CORS env precedence, Compose-empty-env fallthrough, dual-facade companion derivation, and API-only empty stay-deny. Losing these lets a silent restore of bare yaml allowlists ship without covering the Quickstart CORS failure mode."
     }
   ]
 }
