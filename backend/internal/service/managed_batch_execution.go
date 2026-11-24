@@ -23,7 +23,7 @@ import (
 var (
 	ErrManagedBatchExecutionUnavailable = errors.New("managed batch execution unavailable")
 	ErrManagedBatchCapacity             = errors.New("interactive capacity takes precedence")
-	ErrManagedBatchUniversalKey         = errors.New("managed batch requires a direct API key")
+	ErrManagedBatchUnauthorized         = errors.New("managed batch item is not authorized")
 	ErrManagedBatchStreamUnsupported    = errors.New("managed batch Responses items must set stream=false")
 )
 
@@ -31,8 +31,9 @@ var (
 // execution. The selection pointer is the immutable Plan produced by the
 // scheduler; the runner consumes it exactly once.
 type ManagedBatchExecution struct {
-	APIKey    *APIKey
-	Selection *AccountSelectionResult
+	APIKey       *APIKey
+	Selection    *AccountSelectionResult
+	Subscription *UserSubscription
 }
 
 type managedBatchExecutionContextKey struct{}
@@ -54,11 +55,12 @@ func ManagedBatchExecutionFromContext(ctx context.Context) (ManagedBatchExecutio
 // boundary so tests can use a narrow fixture.
 type ManagedBatchAPIKeyLoader interface {
 	GetByID(context.Context, int64) (*APIKey, error)
+	UniversalResolver() *UniversalRoutingResolver
 }
 
 // ManagedBatchExecutionResolver selects one account through the normal
 // load-aware scheduler and freezes its protocol Plan for the item attempt.
-// The first rollout accepts direct keys and OpenAI Responses routes only.
+// Both key modes use the online candidate owner; no fallback to an unscoped selector.
 type ManagedBatchExecutionResolver struct {
 	APIKeys ManagedBatchAPIKeyLoader
 	Gateway *OpenAIGatewayService
@@ -75,7 +77,8 @@ func (r *ManagedBatchExecutionResolver) Resolve(
 	if r == nil || r.APIKeys == nil || r.Gateway == nil || r.Router == nil {
 		return batchadapter.ExecutionSelection{}, ErrManagedBatchExecutionUnavailable
 	}
-	if req.UserID <= 0 || req.APIKeyID <= 0 || batch.ID == "" || batch.UserID != req.UserID || batch.APIKeyID != req.APIKeyID {
+	if req.UserID <= 0 || req.APIKeyID <= 0 || batch.ID == "" || req.BatchID != batch.ID || batch.UserID != req.UserID || batch.APIKeyID != req.APIKeyID ||
+		item.ID <= 0 || item.BatchID != batch.ID || item.CustomID == "" || item.CustomID != line.CustomID || batch.Endpoint != line.URL {
 		return batchadapter.ExecutionSelection{}, ErrManagedBatchExecutionUnavailable
 	}
 	if line.URL != batchcontract.EndpointResponses || line.Method != http.MethodPost {
@@ -95,24 +98,49 @@ func (r *ManagedBatchExecutionResolver) Resolve(
 	if err != nil {
 		return batchadapter.ExecutionSelection{}, err
 	}
-	if key == nil || key.UserID != req.UserID || key.ID != req.APIKeyID || key.GroupID == nil || key.Group == nil {
-		return batchadapter.ExecutionSelection{}, ErrManagedBatchUniversalKey
+	if key == nil || key.UserID != req.UserID || key.ID != req.APIKeyID || !key.IsActive() || key.IsExpired() || key.IsQuotaExhausted() ||
+		key.User == nil || key.User.ID != req.UserID || !key.User.IsActive() {
+		return batchadapter.ExecutionSelection{}, ErrManagedBatchUnauthorized
 	}
+	if !key.IsUniversal() && (key.GroupID == nil || key.Group == nil || key.Group.ID <= 0 || key.Group.ID != *key.GroupID) {
+		return batchadapter.ExecutionSelection{}, ErrManagedBatchUnauthorized
+	}
+	owner := r.APIKeys.UniversalResolver()
+	if !owner.CandidateSchedulingEnabled() || owner.candidateGateway.billingCacheService == nil {
+		return batchadapter.ExecutionSelection{}, ErrManagedBatchExecutionUnavailable
+	}
+	// Candidate binding updates Group/GroupID on the key. Never let two items
+	// share that mutable view, even when the loader returns a cached pointer.
+	itemKey := *key
 	request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolResponses, protocolrouter.ResponsesPathRoot, body.Model, false, line.Body)
 	if err != nil {
 		return batchadapter.ExecutionSelection{}, err
 	}
 	routingCtx := WithProtocolRouting(ctx, r.Router, request)
-	selection, err := r.Gateway.SelectAccountWithLoadAwareness(routingCtx, key.GroupID, "", body.Model, nil)
+	routingCtx, candidate, err := owner.PrepareCandidateRequest(routingCtx, &itemKey, UniversalShapeForRequest(line.URL, line.Method), line.URL, body.Model, line.Body, "", "")
 	if err != nil {
-		return batchadapter.ExecutionSelection{}, err
+		return batchadapter.ExecutionSelection{}, managedBatchCandidateError(err)
 	}
-	if selection == nil || selection.Account == nil {
+	if candidate == nil {
+		return batchadapter.ExecutionSelection{}, ErrManagedBatchExecutionUnavailable
+	}
+	selection, _, err := selectCandidateFromContext(routingCtx, candidateSelectOptions{transport: OpenAIUpstreamTransportAny, acquire: true})
+	if err != nil {
+		return batchadapter.ExecutionSelection{}, managedBatchCandidateError(err)
+	}
+	if selection == nil {
 		return batchadapter.ExecutionSelection{}, ErrManagedBatchExecutionUnavailable
 	}
 	// A wait plan carries no slot. Never dispatch Batch ahead of interactive waiters.
 	if !selection.Acquired {
 		return batchadapter.ExecutionSelection{}, ErrManagedBatchCapacity
+	}
+	provider := managedBatchPlanProvider(selection)
+	if provider == "" {
+		if selection.ReleaseFunc != nil {
+			selection.ReleaseFunc()
+		}
+		return batchadapter.ExecutionSelection{}, fmt.Errorf("%w: unsupported frozen Responses plan", ErrManagedBatchExecutionUnavailable)
 	}
 	if r.Gateway.concurrencyService != nil {
 		waiting, err := r.Gateway.concurrencyService.GetAccountWaitingCount(ctx, selection.Account.ID)
@@ -123,31 +151,26 @@ func (r *ManagedBatchExecutionResolver) Resolve(
 			return batchadapter.ExecutionSelection{}, ErrManagedBatchCapacity
 		}
 	}
-	provider := managedBatchProviderForAccount(selection.Account)
-	if provider != batchadapter.ProviderOpenAI {
+	// The acquiring selection can bind a different authorized path than the
+	// admission pass. Use its canonical body, billing group and subscription.
+	executionCtx := WithResolvedTargetPlatform(candidate.current.ctx, selection.Account.Platform)
+	// Projection only peeks at limits. Count this admitted item once, after
+	// capacity/adapter checks, against the actual accounting origin.
+	if err := owner.candidateGateway.billingCacheService.CheckBillingEligibility(executionCtx, itemKey.User, &itemKey, itemKey.Group, candidate.subscription, QuotaPlatform(executionCtx, &itemKey)); err != nil {
 		if selection.ReleaseFunc != nil {
 			selection.ReleaseFunc()
 		}
-		return batchadapter.ExecutionSelection{}, fmt.Errorf("%w: provider %q is not enabled in phase one", ErrManagedBatchExecutionUnavailable, provider)
+		return batchadapter.ExecutionSelection{}, err
 	}
-	executionCtx := WithManagedBatchExecution(routingCtx, ManagedBatchExecution{APIKey: key, Selection: selection})
+	executionCtx = WithManagedBatchExecution(executionCtx, ManagedBatchExecution{APIKey: &itemKey, Selection: selection, Subscription: candidate.subscription})
 	return batchadapter.ExecutionSelection{Provider: provider, AccountID: selection.Account.ID, Context: executionCtx, Release: selection.ReleaseFunc}, nil
 }
 
-func managedBatchProviderForAccount(account *Account) string {
-	if account == nil {
-		return ""
+func managedBatchCandidateError(err error) error {
+	if errors.Is(err, ErrUniversalCapacityUnavailable) {
+		return errors.Join(ErrManagedBatchCapacity, err)
 	}
-	switch account.Platform {
-	case PlatformOpenAI:
-		return batchadapter.ProviderOpenAI
-	case PlatformAntigravity:
-		return batchadapter.ProviderAntigravity
-	case PlatformKiro:
-		return batchadapter.ProviderKiro
-	default:
-		return ""
-	}
+	return err
 }
 
 var _ interface {
@@ -175,13 +198,14 @@ func (r *ManagedResponsesRunner) Run(ctx context.Context, request batchadapter.P
 	if !ok || execution.Selection.Account == nil || execution.Selection.Account.ID != request.AccountID {
 		return batchadapter.ProviderResponse{}, ErrManagedBatchExecutionUnavailable
 	}
-	if execution.Selection.ProtocolPlan == nil || execution.Selection.ProtocolPlan.TargetProtocol() != protocolrouter.ProtocolResponses {
-		return batchadapter.ProviderResponse{}, fmt.Errorf("%w: selected plan is not Responses identity", ErrManagedBatchExecutionUnavailable)
+	if managedBatchPlanProvider(execution.Selection) == "" {
+		return batchadapter.ProviderResponse{}, fmt.Errorf("%w: unsupported frozen Responses plan", ErrManagedBatchExecutionUnavailable)
 	}
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(request.Method, request.Endpoint, strings.NewReader(string(request.Body)))
 	c.Request = c.Request.WithContext(executionCtx)
+	c.Request.Header.Set("Content-Type", "application/json")
 	// These keys are intentionally the same stable service boundary consumed by
 	// the normal OpenAI relay; importing HTTP middleware here would create a
 	// package cycle.
@@ -189,17 +213,29 @@ func (r *ManagedResponsesRunner) Run(ctx context.Context, request batchadapter.P
 	if execution.APIKey.Group != nil {
 		c.Set(BridgeGinAuthContextKey, GinBridgeAuth{UserID: execution.APIKey.UserID, GroupName: execution.APIKey.Group.Name})
 	}
-	value, err := ExecuteSelectedProtocol(
-		executionCtx,
-		r.Router,
-		execution.Selection,
-		execution.Selection.Account,
-		r.Gateway.ValidateProtocolEndpoint,
-		r.Gateway.LoadProtocolExecutionAccount,
-		ProtocolExecutors{ResponsesIdentity: func(forwardCtx context.Context, account *Account, _ protocolrouter.Plan, body protocolrouter.CanonicalRequest) (any, error) {
-			return r.Gateway.ForwardAsResponsesDispatched(forwardCtx, c, account, body.Body())
-		}},
-	)
+	var value any
+	var err error
+	WithUsageEstimateCapture(func(c *gin.Context) {
+		value, err = ExecuteSelectedProtocol(
+			executionCtx,
+			r.Router,
+			execution.Selection,
+			execution.Selection.Account,
+			r.Gateway.ValidateProtocolEndpoint,
+			r.Gateway.LoadProtocolExecutionAccount,
+			ProtocolExecutors{
+				ResponsesIdentity: func(forwardCtx context.Context, account *Account, _ protocolrouter.Plan, body protocolrouter.CanonicalRequest) (any, error) {
+					return r.Gateway.ForwardAsResponsesDispatched(forwardCtx, c, account, body.Body())
+				},
+				ResponsesToChat: func(forwardCtx context.Context, account *Account, _ protocolrouter.Plan, body protocolrouter.CanonicalRequest) (any, error) {
+					return r.Gateway.Forward(forwardCtx, c, account, body.Body())
+				},
+			},
+		)
+		result, _ := value.(*OpenAIForwardResult)
+		r.Gateway.ApplyUpstreamCacheReadWriteAttribution(execution.Selection.Account, result)
+		r.Gateway.ApplyOpenAIUsageEstimateFallback(executionCtx, c, execution.Selection.Account, result, request.Body, err)
+	})(c)
 	if err != nil {
 		var upstream *UpstreamFailoverError
 		if errors.As(err, &upstream) && (upstream.StatusCode == 429 || upstream.StatusCode == 503) {
@@ -217,15 +253,35 @@ func (r *ManagedResponsesRunner) Run(ctx context.Context, request batchadapter.P
 	if result != nil {
 		requestID = result.RequestID
 		response.RequestID = requestID
+		if openAIUsageHasBillableTokens(result.Usage) {
+			response.NormalizedUsage = &batchadapter.Usage{
+				InputTokens:                 result.Usage.InputTokens,
+				ImageInputTokens:            result.Usage.ImageInputTokens,
+				ImageCacheReadTokens:        result.Usage.ImageCacheReadTokens,
+				OutputTokens:                result.Usage.OutputTokens,
+				CacheCreationInputTokens:    result.Usage.CacheCreationInputTokens,
+				CacheCreation5mTokens:       result.Usage.CacheCreation5mTokens,
+				CacheCreation1hTokens:       result.Usage.CacheCreation1hTokens,
+				CacheReadInputTokens:        result.Usage.CacheReadInputTokens,
+				ImageOutputTokens:           result.Usage.ImageOutputTokens,
+				CacheCreation30mInputTokens: result.Usage.CacheCreation30mInputTokens,
+				CacheCreation12hInputTokens: result.Usage.CacheCreation12hInputTokens,
+				TotalTokens:                 result.Usage.InputTokens + result.Usage.OutputTokens,
+			}
+		}
 		response.Model = result.Model
 		response.UpstreamModel = result.UpstreamModel
 		response.BillingModel = result.BillingModel
+		response.BillingTier = result.BillingTier
 		response.ServiceTier = result.ServiceTier
 		response.ReasoningEffort = result.ReasoningEffort
 		response.RequestedReasoningEffort = result.RequestedReasoningEffort
 		response.UpstreamResponseModel = result.UpstreamResponseModel
 		response.UpstreamResponseModelConflict = result.UpstreamResponseModelConflict
 		response.UpstreamEndpoint = result.UpstreamEndpoint
+		if response.UpstreamEndpoint == "" {
+			response.UpstreamEndpoint = GetActualOpenAIUpstreamEndpoint(c)
+		}
 	}
 	return response, nil
 }

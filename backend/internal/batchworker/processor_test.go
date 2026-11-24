@@ -153,16 +153,18 @@ func (r fakeRunner) Run(ctx context.Context, _ batchadapter.ProviderRequest) (ba
 }
 
 type fakeResolver struct {
-	key     *service.APIKey
-	account *service.Account
+	subscription *service.UserSubscription
+	key          *service.APIKey
+	account      *service.Account
 }
 
 func (r fakeResolver) Resolve(ctx context.Context, _ batchadapter.ExecutionRequest, b batchadapter.ExecutionBatch, item batchadapter.ExecutionItem, _ batchcontract.RequestLine) (batchadapter.ExecutionSelection, error) {
 	return batchadapter.ExecutionSelection{
 		Provider:  batchadapter.ProviderOpenAI,
 		AccountID: r.account.ID,
-		Context: service.WithManagedBatchExecution(ctx, service.ManagedBatchExecution{
-			APIKey: r.key,
+		Context: service.WithManagedBatchExecution(service.WithResolvedTargetPlatform(ctx, service.PlatformOpenAI), service.ManagedBatchExecution{
+			Subscription: r.subscription,
+			APIKey:       r.key,
 			Selection: &service.AccountSelectionResult{
 				Account: r.account,
 			},
@@ -171,11 +173,13 @@ func (r fakeResolver) Resolve(ctx context.Context, _ batchadapter.ExecutionReque
 }
 
 type fakeSettlement struct {
-	inputs []service.ManagedBatchSettlementInput
-	err    error
+	quotaPlatform string
+	inputs        []service.ManagedBatchSettlementInput
+	err           error
 }
 
-func (s *fakeSettlement) SettleManagedBatch(_ context.Context, in service.ManagedBatchSettlementInput) error {
+func (s *fakeSettlement) SettleManagedBatch(ctx context.Context, in service.ManagedBatchSettlementInput) error {
+	s.quotaPlatform = service.QuotaPlatform(ctx, in.APIKey)
 	s.inputs = append(s.inputs, in)
 	return s.err
 }
@@ -294,20 +298,23 @@ func TestProcessorSettlesSuccessfulItemWithStableItemKey(t *testing.T) {
 	r.items = []repository.ManagedBatchItem{testItem()}
 	settlement := &fakeSettlement{}
 	key := &service.APIKey{ID: 8, UserID: 7}
+	sub := &service.UserSubscription{ID: 100, UserID: 7, GroupID: 9}
+	key.GroupID = &sub.GroupID
+	key.Group = &service.Group{ID: 9, Platform: service.PlatformComposite, SubscriptionType: service.SubscriptionTypeSubscription}
 	account := &service.Account{ID: 42}
 	adapter := batchadapter.NewOpenAIAdapter(fakeRunner{run: func(context.Context) (batchadapter.ProviderResponse, error) {
-		return batchadapter.ProviderResponse{StatusCode: 200, Body: []byte(`{"id":"resp-1","usage":{"input_tokens":3,"output_tokens":2,"input_tokens_details":{"cached_tokens":1}}}`)}, nil
+		return batchadapter.ProviderResponse{StatusCode: 200, NormalizedUsage: &batchadapter.Usage{InputTokens: 17, OutputTokens: 5, CacheReadInputTokens: 4, CacheCreation1hTokens: 3, ImageOutputTokens: 2}, Body: []byte(`{"id":"resp-1","usage":{"input_tokens":3,"output_tokens":2,"input_tokens_details":{"cached_tokens":1}}}`)}, nil
 	}})
 	p := NewProcessor(Config{Enabled: true, WorkerID: "w1", ResultIndexer: &memoryIndexer{}, Settlement: settlement}, r, map[string]batchadapter.ManagedExecutor{batchadapter.ProviderOpenAI: adapter})
-	p.cfg.Resolver = fakeResolver{key: key, account: account}
+	p.cfg.Resolver = fakeResolver{key: key, account: account, subscription: sub}
 	result, err := p.Process(context.Background(), service.ManagedBatchJob{Payload: testPayload(t)})
 	require.NoError(t, err)
 	require.True(t, result.Terminal)
 	require.Len(t, settlement.inputs, 1)
 	require.Equal(t, "managed-batch:batch-1:item:11", settlement.inputs[0].RequestID)
-	require.Equal(t, 3, settlement.inputs[0].InputTokens)
-	require.Equal(t, 2, settlement.inputs[0].OutputTokens)
-	require.Equal(t, 1, settlement.inputs[0].CacheReadTokens)
+	require.Equal(t, service.OpenAIUsage{InputTokens: 17, OutputTokens: 5, CacheReadInputTokens: 4, CacheCreation1hTokens: 3, ImageOutputTokens: 2}, settlement.inputs[0].Usage)
+	require.Same(t, sub, settlement.inputs[0].Subscription)
+	require.Equal(t, service.PlatformOpenAI, settlement.quotaPlatform)
 	require.Same(t, key, settlement.inputs[0].APIKey)
 	require.Same(t, account, settlement.inputs[0].Account)
 }

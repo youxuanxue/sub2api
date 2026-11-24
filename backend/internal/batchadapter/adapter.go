@@ -19,6 +19,7 @@ import (
 
 const (
 	ProviderOpenAI      = "openai"
+	ProviderNewAPI      = "newapi"
 	ProviderAntigravity = "antigravity"
 	ProviderKiro        = "kiro"
 )
@@ -89,6 +90,7 @@ type ManagedResponse struct {
 	Model                         string
 	UpstreamModel                 string
 	BillingModel                  string
+	BillingTier                   string
 	ServiceTier                   *string
 	ReasoningEffort               *string
 	RequestedReasoningEffort      *string
@@ -152,6 +154,7 @@ type ProviderRequest struct {
 // ProviderResponse is the small response shape needed to build an OpenAI
 // Batch result line. Raw body remains untouched for result-file fidelity.
 type ProviderResponse struct {
+	NormalizedUsage               *Usage
 	StatusCode                    int
 	RequestID                     string
 	Body                          json.RawMessage
@@ -159,6 +162,7 @@ type ProviderResponse struct {
 	Model                         string
 	UpstreamModel                 string
 	BillingModel                  string
+	BillingTier                   string
 	ServiceTier                   *string
 	ReasoningEffort               *string
 	RequestedReasoningEffort      *string
@@ -168,10 +172,18 @@ type ProviderResponse struct {
 }
 
 type Usage struct {
-	InputTokens          int `json:"input_tokens"`
-	OutputTokens         int `json:"output_tokens"`
-	TotalTokens          int `json:"total_tokens"`
-	CacheReadInputTokens int `json:"cache_read_input_tokens,omitempty"`
+	ImageInputTokens            int `json:"image_input_tokens,omitempty"`
+	ImageCacheReadTokens        int `json:"image_cache_read_tokens,omitempty"`
+	CacheCreationInputTokens    int `json:"cache_creation_input_tokens,omitempty"`
+	CacheCreation5mTokens       int `json:"cache_creation_5m_tokens,omitempty"`
+	CacheCreation1hTokens       int `json:"cache_creation_1h_tokens,omitempty"`
+	ImageOutputTokens           int `json:"image_output_tokens,omitempty"`
+	CacheCreation30mInputTokens int `json:"cache_creation_30m_input_tokens,omitempty"`
+	CacheCreation12hInputTokens int `json:"cache_creation_12h_input_tokens,omitempty"`
+	InputTokens                 int `json:"input_tokens"`
+	OutputTokens                int `json:"output_tokens"`
+	TotalTokens                 int `json:"total_tokens"`
+	CacheReadInputTokens        int `json:"cache_read_input_tokens,omitempty"`
 }
 
 type ErrorClass string
@@ -223,6 +235,13 @@ func NewOpenAIAdapter(runner ManagedRunner) *ProviderAdapter {
 		Endpoints:   []string{batchcontract.EndpointChatCompletions, batchcontract.EndpointResponses},
 		NativeBatch: false, Managed: true, SupportsIdempotencyKey: true,
 	}, runner, decodeOpenAIUsage)
+}
+
+// NewNewAPIResponsesAdapter consumes the Responses envelope emitted by the
+// existing relay, including when the selected upstream speaks Chat Completions.
+func NewNewAPIResponsesAdapter(runner ManagedRunner) *ProviderAdapter {
+	return newProviderAdapter(ProviderNewAPI, BatchCapability{Provider: ProviderNewAPI,
+		Endpoints: []string{batchcontract.EndpointResponses}, Managed: true}, runner, decodeOpenAIUsage)
 }
 
 func NewAntigravityAdapter(runner ManagedRunner) *ProviderAdapter {
@@ -291,6 +310,7 @@ func (a *ProviderAdapter) Execute(ctx context.Context, request ManagedRequest) (
 		Model:                         response.Model,
 		UpstreamModel:                 response.UpstreamModel,
 		BillingModel:                  response.BillingModel,
+		BillingTier:                   response.BillingTier,
 		ServiceTier:                   response.ServiceTier,
 		ReasoningEffort:               response.ReasoningEffort,
 		RequestedReasoningEffort:      response.RequestedReasoningEffort,
@@ -298,7 +318,11 @@ func (a *ProviderAdapter) Execute(ctx context.Context, request ManagedRequest) (
 		UpstreamResponseModelConflict: response.UpstreamResponseModelConflict,
 		UpstreamEndpoint:              response.UpstreamEndpoint,
 	}
-	result.Usage = a.decodeUsage(response.Body)
+	if response.NormalizedUsage != nil {
+		result.Usage = *response.NormalizedUsage
+	} else {
+		result.Usage = a.decodeUsage(response.Body)
+	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		result.Error = classifyHTTPError(response.StatusCode, response.Body)
 	}

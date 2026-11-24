@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -18,6 +17,7 @@ type ManagedBatchSettlementInput struct {
 	RequestID                     string
 	Model                         string
 	UpstreamModel                 string
+	BillingTier                   string
 	BillingModel                  string
 	ServiceTier                   *string
 	ReasoningEffort               *string
@@ -26,9 +26,8 @@ type ManagedBatchSettlementInput struct {
 	UpstreamResponseModelConflict bool
 	InboundEndpoint               string
 	UpstreamEndpoint              string
-	InputTokens                   int
-	OutputTokens                  int
-	CacheReadTokens               int
+	Usage                         OpenAIUsage
+	Subscription                  *UserSubscription
 	APIKey                        *APIKey
 	Account                       *Account
 }
@@ -63,24 +62,17 @@ func (s *OpenAIManagedBatchSettlement) SettleManagedBatch(ctx context.Context, i
 		user = &User{ID: in.APIKey.UserID}
 	}
 
-	var subscription *UserSubscription
-	if in.APIKey.Group != nil && in.APIKey.Group.IsSubscriptionType() {
-		if s.Gateway.userSubRepo == nil || in.APIKey.GroupID == nil {
-			return errors.New("managed batch subscription repository unavailable")
-		}
-		var err error
-		subscription, err = s.Gateway.userSubRepo.GetActiveByUserIDAndGroupID(ctx, in.APIKey.UserID, *in.APIKey.GroupID)
-		if err != nil {
-			return fmt.Errorf("load managed batch subscription: %w", err)
-		}
-		if subscription == nil {
-			return errors.New("managed batch active subscription not found")
-		}
+	// Charge the authorization frozen before dispatch, never whichever subscription
+	// happens to be active after the provider has returned.
+	group := in.APIKey.Group
+	sub := in.Subscription
+	if group == nil || in.APIKey.GroupID == nil || group.ID != *in.APIKey.GroupID || group.IsSubscriptionType() != (sub != nil) ||
+		(sub != nil && (sub.ID <= 0 || sub.UserID != in.APIKey.UserID || sub.GroupID != group.ID)) {
+		return errors.New("managed batch settlement requires matching authorized group and subscription")
 	}
 
-	// RecordUsage uses the context request ID only as a fallback. Supplying the
-	// stable item key directly makes both usage_logs and usage_billing_dedup
-	// converge on the same idempotency key across provider retries.
+	// Override ambient job IDs: the existing local:<item key> dedup identity
+	// must survive both provider retries and worker redelivery.
 	settleCtx := context.WithValue(ctx, ctxkey.RequestID, in.RequestID)
 	return s.Gateway.RecordUsage(settleCtx, &OpenAIRecordUsageInput{
 		Result: &OpenAIForwardResult{
@@ -88,26 +80,24 @@ func (s *OpenAIManagedBatchSettlement) SettleManagedBatch(ctx context.Context, i
 			Model:                         in.Model,
 			UpstreamModel:                 in.UpstreamModel,
 			BillingModel:                  in.BillingModel,
+			BillingTier:                   in.BillingTier,
 			ServiceTier:                   in.ServiceTier,
 			ReasoningEffort:               in.ReasoningEffort,
 			RequestedReasoningEffort:      in.RequestedReasoningEffort,
 			UpstreamResponseModel:         in.UpstreamResponseModel,
 			UpstreamResponseModelConflict: in.UpstreamResponseModelConflict,
 			Stream:                        false,
-			Usage: OpenAIUsage{
-				InputTokens:          in.InputTokens,
-				OutputTokens:         in.OutputTokens,
-				CacheReadInputTokens: in.CacheReadTokens,
-			},
+			Usage:                         in.Usage,
 		},
-		APIKey:           in.APIKey,
-		User:             user,
-		Account:          in.Account,
-		Subscription:     subscription,
-		InboundEndpoint:  in.InboundEndpoint,
-		UpstreamEndpoint: in.UpstreamEndpoint,
-		APIKeyService:    s.APIKeyService,
-		QuotaPlatform:    QuotaPlatform(settleCtx, in.APIKey),
+		APIKey:             in.APIKey,
+		User:               user,
+		Account:            in.Account,
+		Subscription:       sub,
+		InboundEndpoint:    in.InboundEndpoint,
+		UpstreamEndpoint:   in.UpstreamEndpoint,
+		APIKeyService:      s.APIKeyService,
+		ChannelUsageFields: CandidateChannelMapping(ctx, ChannelMappingResult{}).ToUsageFields(in.Model, in.UpstreamModel),
+		QuotaPlatform:      QuotaPlatform(settleCtx, in.APIKey),
 	})
 }
 
