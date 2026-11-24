@@ -166,11 +166,21 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 		}
 	}
 
+	var official *service.OpsOfficialSLAScope
+	if beijingTrialOverlaps(start, end) {
+		segments := []slaSegment{{start, end, slaCounts{requestCountTotal, errorCountSLA}}}
+		official, err = r.officialSLA(ctx, filter, segments)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &service.OpsDashboardOverview{
-		StartTime: start,
-		EndTime:   end,
-		Platform:  strings.TrimSpace(filter.Platform),
-		GroupID:   filter.GroupID,
+		OfficialSLA: official,
+		StartTime:   start,
+		EndTime:     end,
+		Platform:    strings.TrimSpace(filter.Platform),
+		GroupID:     filter.GroupID,
 
 		SuccessCount:      successCount,
 		ErrorCountTotal:   errorTotal,
@@ -339,11 +349,24 @@ func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, f
 		}
 	}
 
+	var official *service.OpsOfficialSLAScope
+	if beijingTrialOverlaps(start, end) {
+		segments := []slaSegment{{start, aggFullStart, slaCounts{head.successCount + head.errorCountTotal, head.errorCountSLA}}, {aggFullEnd, end, slaCounts{tail.successCount + tail.errorCountTotal, tail.errorCountSLA}}}
+		for _, row := range preaggRows {
+			segments = append(segments, slaSegment{row.bucketStart, row.bucketStart.Add(time.Hour), slaCounts{row.successCount + row.errorCountTotal, row.errorCountSLA}})
+		}
+		official, err = r.officialSLA(ctx, filter, segments)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &service.OpsDashboardOverview{
-		StartTime: start,
-		EndTime:   end,
-		Platform:  strings.TrimSpace(filter.Platform),
-		GroupID:   filter.GroupID,
+		OfficialSLA: official,
+		StartTime:   start,
+		EndTime:     end,
+		Platform:    strings.TrimSpace(filter.Platform),
+		GroupID:     filter.GroupID,
 
 		SuccessCount:      successCount,
 		ErrorCountTotal:   errorTotal,

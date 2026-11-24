@@ -23,6 +23,15 @@ Remove TokenKey-only `is_business_limited` / `business_limited_count`. SLA uses 
 
 Client faults (`error_owner = client`) stay in the denominator only.
 
+**Beijing formal SLA reporting:** For `cn-prod` only, the dashboard excludes all traffic in
+`[2026-11-18T14:34Z, 2026-11-18T23:12Z)` from its formal SLA. When the filter intersects
+this trial, `official_sla.{requests,faults,rate}` reports the eligible denominator, fault count,
+and success fraction (`null` for no eligible traffic). `sla` and operational counters, alerting,
+health, hourly/daily aggregates, billing and incident evidence remain all-traffic. Raw and
+preaggregated requests honor the same half-open bounds and platform/group filters. Selection
+uses the manifest-derived `TOKENKEY_NODE_NAME`, never a client hostname. Reporting owner:
+`backend/internal/repository/ops_repo_official_sla_tk.go`.
+
 SSOT: `backend/internal/service/ops_sla_scope.go` (`IsOpsSLAFaultOwner`, `ComputeSLAMetrics`, `OpsSLAFaultOwnerPredicate`).
 
 ## Migration
