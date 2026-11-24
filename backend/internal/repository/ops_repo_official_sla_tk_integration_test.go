@@ -53,7 +53,7 @@ func TestOpsBeijingOfficialSLA(t *testing.T) {
 		_, err := integrationDB.ExecContext(ctx, `INSERT INTO ops_error_logs(error_phase,error_type,status_code,upstream_status_code,error_owner,platform,group_id,created_at) VALUES ('upstream','api_error',$1,$2,$3,'openai',$4,$5)`, tc.final, tc.up, tc.owner, group.ID, tc.at)
 		require.NoError(t, err)
 	}
-	require.NoError(t, repo.UpsertHourlyMetrics(ctx, start.Truncate(time.Hour), end.Truncate(time.Hour)))
+	require.NoError(t, repo.UpsertHourlyMetrics(ctx, start.Truncate(time.Hour), utcCeilToHour(end)))
 	filter := &service.OpsDashboardFilter{StartTime: start, EndTime: end, Platform: "openai", GroupID: &group.ID}
 	for _, node := range []string{"cn-prod-app-a", "prod-app-cand", ""} {
 		t.Setenv("TOKENKEY_NODE_NAME", node)
@@ -90,14 +90,49 @@ func TestOpsBeijingOfficialSLA(t *testing.T) {
 	require.Nil(t, ov.OfficialSLA.Rate)
 	require.EqualValues(t, 0, ov.OfficialSLA.Requests)
 	require.EqualValues(t, 5, ov.RequestCountTotal)
-	// Retained hourly counters alone cannot tell which faults were final HTTP 400.
-	t.Setenv("TOKENKEY_NODE_NAME", "prod-app-cand")
-	filter.StartTime, filter.EndTime, filter.QueryMode = start, end, service.OpsQueryModePreagg
-	_, err = integrationDB.ExecContext(ctx, `DELETE FROM ops_error_logs WHERE group_id=$1 AND status_code=400 AND error_owner='provider'`, group.ID)
+	// A historical partial-hour query must validate its containing hour too.
+	at := end.Add(2 * time.Hour).Truncate(time.Hour).Add(time.Minute)
+	hour := at.Truncate(time.Hour)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM ops_metrics_hourly WHERE bucket_start=$1", hour)
+	})
+	_, err = integrationDB.ExecContext(ctx, `INSERT INTO usage_logs (user_id,api_key_id,account_id,group_id,model,created_at) VALUES ($1,$2,$3,$4,'example',$5)`, user.ID, key.ID, account.ID, group.ID, at)
 	require.NoError(t, err)
-	ov, err = repo.GetDashboardOverview(ctx, filter)
-	require.NoError(t, err)
-	require.True(t, ov.OfficialSLA.Incomplete)
-	require.Nil(t, ov.OfficialSLA.Rate)
-
+	for _, tc := range []struct {
+		name, owner string
+		status      int
+		rate        float64
+	}{{"last fault", "provider", 502, .5}, {"denominator only", "client", 400, 1}, {"reclassified fault", "platform", 400, 1}} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := integrationDB.ExecContext(ctx, `INSERT INTO ops_error_logs(error_phase,error_type,status_code,error_owner,platform,group_id,created_at) VALUES ('internal','api_error',$1,$2,'openai',$3,$4)`, tc.status, tc.owner, group.ID, at)
+			require.NoError(t, err)
+			require.NoError(t, repo.UpsertHourlyMetrics(ctx, hour, hour.Add(time.Hour)))
+			for _, missing := range []bool{false, true} {
+				if missing {
+					_, err = integrationDB.ExecContext(ctx, `DELETE FROM ops_error_logs WHERE group_id=$1 AND created_at=$2`, group.ID, at)
+					require.NoError(t, err)
+				}
+				for _, node := range []string{"prod-app-a", "cn-prod-app-b"} {
+					t.Setenv("TOKENKEY_NODE_NAME", node)
+					for _, span := range [][2]time.Time{{hour, hour.Add(time.Hour)}, {at, at.Add(time.Minute)}} {
+						filter.StartTime, filter.EndTime = span[0], span[1]
+						for _, mode := range []service.OpsQueryMode{service.OpsQueryModeRaw, service.OpsQueryModePreagg, service.OpsQueryModeAuto} {
+							filter.QueryMode = mode
+							ov, err := repo.GetDashboardOverview(ctx, filter)
+							require.NoError(t, err)
+							require.NotNil(t, ov.OfficialSLA)
+							require.Equal(t, missing, ov.OfficialSLA.Incomplete, "%s %s %s", node, mode, span)
+							if missing {
+								require.Nil(t, ov.OfficialSLA.Rate)
+							} else {
+								require.EqualValues(t, 2, ov.OfficialSLA.Requests)
+								require.NotNil(t, ov.OfficialSLA.Rate)
+								require.Equal(t, tc.rate, *ov.OfficialSLA.Rate)
+							}
+						}
+					}
+				}
+			}
+		})
+	}
 }
