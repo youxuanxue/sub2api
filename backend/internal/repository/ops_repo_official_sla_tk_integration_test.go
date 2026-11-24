@@ -18,6 +18,12 @@ func TestOpsBeijingOfficialSLA(t *testing.T) {
 	user := mustCreateUser(t, client, &service.User{})
 	key := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID})
 	account := mustCreateAccount(t, client, &service.Account{Name: "official-sla", Platform: service.PlatformOpenAI})
+	t.Cleanup(func() {
+		require.NoError(t, client.Account.DeleteOneID(account.ID).Exec(ctx))
+		require.NoError(t, client.APIKey.DeleteOneID(key.ID).Exec(ctx))
+		require.NoError(t, client.User.DeleteOneID(user.ID).Exec(ctx))
+		require.NoError(t, client.Group.DeleteOneID(group.ID).Exec(ctx))
+	})
 	repo := NewOpsRepository(integrationDB).(*opsRepository)
 	start := beijingTrialStart.Truncate(time.Hour).Add(-time.Minute)
 	end := beijingTrialEnd.Truncate(time.Hour).Add(time.Hour + time.Minute)
