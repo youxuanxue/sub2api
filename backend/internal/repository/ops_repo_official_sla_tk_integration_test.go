@@ -44,6 +44,15 @@ func TestOpsBeijingOfficialSLA(t *testing.T) {
 		_, err := integrationDB.ExecContext(ctx, `INSERT INTO ops_error_logs (error_phase,error_type,status_code,error_owner,platform,group_id,created_at) VALUES ('internal','api_error',503,$1,'openai',$2,$3)`, owner, group.ID, at)
 		require.NoError(t, err)
 	}
+	// Include both owners and directions: a final 502 after an upstream 400 is still a fault.
+	for _, tc := range []struct {
+		final, up int
+		owner     string
+		at        time.Time
+	}{{400, 503, "platform", beijingTrialEnd}, {400, 400, "provider", beijingTrialStart}, {400, 0, "client", beijingTrialEnd}, {502, 400, "provider", beijingTrialEnd}} {
+		_, err := integrationDB.ExecContext(ctx, `INSERT INTO ops_error_logs(error_phase,error_type,status_code,upstream_status_code,error_owner,platform,group_id,created_at) VALUES ('upstream','api_error',$1,$2,$3,'openai',$4,$5)`, tc.final, tc.up, tc.owner, group.ID, tc.at)
+		require.NoError(t, err)
+	}
 	require.NoError(t, repo.UpsertHourlyMetrics(ctx, start.Truncate(time.Hour), end.Truncate(time.Hour)))
 	filter := &service.OpsDashboardFilter{StartTime: start, EndTime: end, Platform: "openai", GroupID: &group.ID}
 	for _, node := range []string{"cn-prod-app-a", "prod-app-cand", ""} {
@@ -52,18 +61,24 @@ func TestOpsBeijingOfficialSLA(t *testing.T) {
 			filter.QueryMode = mode
 			ov, err := repo.GetDashboardOverview(ctx, filter)
 			require.NoError(t, err)
-			require.EqualValues(t, 9, ov.RequestCountTotal)
-			require.EqualValues(t, 4, ov.ErrorCountSLA)
-			require.InDelta(t, 5.0/9, ov.SLA, 0.0001)
-			if node != "cn-prod-app-a" {
+			require.EqualValues(t, 13, ov.RequestCountTotal)
+			require.EqualValues(t, 7, ov.ErrorCountSLA)
+			require.InDelta(t, 6.0/13, ov.SLA, 0.0001)
+			if node == "" {
 				require.Nil(t, ov.OfficialSLA)
 				continue
 			}
 			require.NotNil(t, ov.OfficialSLA)
-			require.EqualValues(t, 5, ov.OfficialSLA.Requests)
-			require.EqualValues(t, 2, ov.OfficialSLA.Faults)
+			if node == "prod-app-cand" {
+				require.EqualValues(t, 13, ov.OfficialSLA.Requests)
+				require.EqualValues(t, 5, ov.OfficialSLA.Faults)
+				require.InDelta(t, 8.0/13, *ov.OfficialSLA.Rate, 1e-9)
+				continue
+			}
+			require.EqualValues(t, 8, ov.OfficialSLA.Requests)
+			require.EqualValues(t, 3, ov.OfficialSLA.Faults)
 			require.NotNil(t, ov.OfficialSLA.Rate)
-			require.InDelta(t, 0.6, *ov.OfficialSLA.Rate, 1e-9)
+			require.InDelta(t, 5.0/8, *ov.OfficialSLA.Rate, 1e-9)
 		}
 	}
 	t.Setenv("TOKENKEY_NODE_NAME", "cn-prod-app-b")
@@ -74,5 +89,15 @@ func TestOpsBeijingOfficialSLA(t *testing.T) {
 	require.NotNil(t, ov.OfficialSLA)
 	require.Nil(t, ov.OfficialSLA.Rate)
 	require.EqualValues(t, 0, ov.OfficialSLA.Requests)
-	require.EqualValues(t, 4, ov.RequestCountTotal)
+	require.EqualValues(t, 5, ov.RequestCountTotal)
+	// Retained hourly counters alone cannot tell which faults were final HTTP 400.
+	t.Setenv("TOKENKEY_NODE_NAME", "prod-app-cand")
+	filter.StartTime, filter.EndTime, filter.QueryMode = start, end, service.OpsQueryModePreagg
+	_, err = integrationDB.ExecContext(ctx, `DELETE FROM ops_error_logs WHERE group_id=$1 AND status_code=400 AND error_owner='provider'`, group.ID)
+	require.NoError(t, err)
+	ov, err = repo.GetDashboardOverview(ctx, filter)
+	require.NoError(t, err)
+	require.True(t, ov.OfficialSLA.Incomplete)
+	require.Nil(t, ov.OfficialSLA.Rate)
+
 }

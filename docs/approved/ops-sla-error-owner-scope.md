@@ -23,9 +23,10 @@ Remove TokenKey-only `is_business_limited` / `business_limited_count`. SLA uses 
 
 Client faults (`error_owner = client`) stay in the denominator only.
 
-**Beijing formal SLA reporting:** For `cn-prod` only, the dashboard excludes all traffic in
-`[2026-11-18T14:34Z, 2026-11-18T23:12Z)` from its formal SLA. When the filter intersects
-this trial, `official_sla.{requests,faults,rate}` reports the eligible denominator, fault count,
+**Formal SLA (prod and cn-prod):** Final HTTP 400 is classified as client for reporting: keep the request denominator, exclude it from faults regardless of stored owner. An intermediate upstream 400 is not a final 400. Operational metrics and persisted owner remain forensic evidence. If retained final-fault detail cannot be reconciled with the eligible aggregate fault count, `official_sla.incomplete` is true and the rate is unavailable.
+
+**Beijing trial exclusion:** For `cn-prod` only, the dashboard excludes all traffic in
+`[2026-11-18T14:34Z, 2026-11-18T23:12Z)` from its formal SLA. For both production sites, `official_sla.{requests,faults,rate}` reports the eligible denominator, fault count,
 and success fraction (`null` for no eligible traffic). `sla` and operational counters, alerting,
 health, hourly/daily aggregates, billing and incident evidence remain all-traffic. Raw and
 preaggregated requests honor the same half-open bounds and platform/group filters. Selection
