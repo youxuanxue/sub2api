@@ -310,13 +310,19 @@ func (p *Processor) processItem(ctx, persistCtx context.Context, payload JobPayl
 		// Settlement runs after the provider returned a definitive success and
 		// before the item becomes terminal. The stable item key makes a replay
 		// safe even if completion is fenced after billing has committed.
-		settleErr := p.cfg.Settlement.SettleManagedBatch(persistCtx, service.ManagedBatchSettlementInput{
+		settleCtx := persistCtx
+		if executionCtx != nil {
+			settleCtx = context.WithoutCancel(executionCtx)
+		}
+		execution, _ := service.ManagedBatchExecutionFromContext(executionCtx)
+		settleErr := p.cfg.Settlement.SettleManagedBatch(settleCtx, service.ManagedBatchSettlementInput{
 			BatchID:                       payload.BatchID,
 			ItemID:                        item.ID,
 			RequestID:                     managedBatchRequestID(payload.BatchID, item.ID),
 			Model:                         firstNonEmptyManagedValue(model, result.Model),
 			UpstreamModel:                 result.UpstreamModel,
 			BillingModel:                  result.BillingModel,
+			BillingTier:                   result.BillingTier,
 			ServiceTier:                   result.ServiceTier,
 			ReasoningEffort:               result.ReasoningEffort,
 			RequestedReasoningEffort:      result.RequestedReasoningEffort,
@@ -324,11 +330,22 @@ func (p *Processor) processItem(ctx, persistCtx context.Context, payload JobPayl
 			UpstreamResponseModelConflict: result.UpstreamResponseModelConflict,
 			InboundEndpoint:               endpoint,
 			UpstreamEndpoint:              firstNonEmptyManagedValue(result.UpstreamEndpoint, endpoint),
-			InputTokens:                   result.Usage.InputTokens,
-			OutputTokens:                  result.Usage.OutputTokens,
-			CacheReadTokens:               result.Usage.CacheReadInputTokens,
-			APIKey:                        managedBatchAPIKey(executionCtx),
-			Account:                       managedBatchAccount(executionCtx, accountID),
+			Usage: service.OpenAIUsage{
+				InputTokens:                 result.Usage.InputTokens,
+				OutputTokens:                result.Usage.OutputTokens,
+				CacheReadInputTokens:        result.Usage.CacheReadInputTokens,
+				CacheCreationInputTokens:    result.Usage.CacheCreationInputTokens,
+				CacheCreation5mTokens:       result.Usage.CacheCreation5mTokens,
+				CacheCreation1hTokens:       result.Usage.CacheCreation1hTokens,
+				CacheCreation30mInputTokens: result.Usage.CacheCreation30mInputTokens,
+				CacheCreation12hInputTokens: result.Usage.CacheCreation12hInputTokens,
+				ImageInputTokens:            result.Usage.ImageInputTokens,
+				ImageCacheReadTokens:        result.Usage.ImageCacheReadTokens,
+				ImageOutputTokens:           result.Usage.ImageOutputTokens,
+			},
+			APIKey:       execution.APIKey,
+			Subscription: execution.Subscription,
+			Account:      managedBatchAccount(execution, accountID),
 		})
 		if settleErr != nil {
 			return p.completeUnknown(persistCtx, payload.BatchID, item, fmt.Errorf("settlement requires reconciliation: %w", settleErr))
@@ -355,17 +372,8 @@ func managedBatchRequestID(batchID string, itemID int64) string {
 	return "managed-batch:" + batchID + ":item:" + strconv.FormatInt(itemID, 10)
 }
 
-func managedBatchAPIKey(ctx context.Context) *service.APIKey {
-	execution, ok := service.ManagedBatchExecutionFromContext(ctx)
-	if !ok {
-		return nil
-	}
-	return execution.APIKey
-}
-
-func managedBatchAccount(ctx context.Context, accountID int64) *service.Account {
-	execution, ok := service.ManagedBatchExecutionFromContext(ctx)
-	if !ok || execution.Selection == nil || execution.Selection.Account == nil || execution.Selection.Account.ID != accountID {
+func managedBatchAccount(execution service.ManagedBatchExecution, accountID int64) *service.Account {
+	if execution.Selection == nil || execution.Selection.Account == nil || execution.Selection.Account.ID != accountID {
 		return nil
 	}
 	return execution.Selection.Account

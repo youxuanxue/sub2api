@@ -9,9 +9,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// ProvideManagedBatchRuntime wires the first managed rollout. The resolver
-// and runner re-enter the existing OpenAI Responses path; the adapter map is
-// intentionally limited to OpenAI until the later provider conversions land.
+// ProvideManagedBatchRuntime shares the online protocol router and relay.
 // Runtime.Start is safe while disabled and has no goroutine or network side
 // effect in the default configuration.
 func ProvideManagedBatchRuntime(
@@ -46,6 +44,7 @@ func ProvideManagedBatchRuntime(
 		Settlement:      settlement,
 	}, repo, map[string]batchadapter.ManagedExecutor{
 		batchadapter.ProviderOpenAI: batchadapter.NewOpenAIAdapter(runner),
+		batchadapter.ProviderNewAPI: batchadapter.NewNewAPIResponsesAdapter(runner),
 	})
 	worker := service.NewManagedBatchWorker(queue, processor, service.ManagedBatchWorkerOptions{})
 	publisher := &service.ManagedBatchOutboxPublisher{Outbox: repo, Cursor: cursor, Queue: queue}
