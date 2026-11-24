@@ -1,7 +1,7 @@
 export type OpsSlaOverview = {
   sla?: number
   request_count_total?: number
-  official_sla?: { requests: number; faults: number; rate: number | null }
+  official_sla?: { incomplete?: boolean; requests: number; faults: number; rate: number | null }
 }
 
 /** Reporting-only scope takes precedence; no eligible traffic is not 0% or 100%. */

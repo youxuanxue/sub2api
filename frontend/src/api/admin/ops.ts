@@ -41,7 +41,7 @@ export interface OpsDashboardOverview {
   error_count_sla: number
   request_count_total: number
   request_count_sla?: number
-  official_sla?: { requests: number; faults: number; rate: number | null }
+  official_sla?: { incomplete?: boolean; requests: number; faults: number; rate: number | null }
 
   token_consumed: number
 

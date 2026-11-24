@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -11,6 +12,11 @@ import (
 
 // TOKENKEY_NODE_NAME is rendered from the fleet manifest (deploy/domestic/node_compose.py),
 // never from a request host, billing group, or user-controlled filter.
+func usesOfficialSLAPolicy() bool {
+	node := os.Getenv("TOKENKEY_NODE_NAME")
+	return strings.HasPrefix(node, "prod-") || strings.HasPrefix(node, "cn-prod-")
+}
+
 func beijingTrialOverlaps(start, end time.Time) bool {
 	return strings.HasPrefix(os.Getenv("TOKENKEY_NODE_NAME"), "cn-prod-") && start.Before(beijingTrialEnd) && end.After(beijingTrialStart) && start.Before(end)
 }
@@ -40,7 +46,7 @@ func officialSLACounts(segments []slaSegment, raw func(time.Time, time.Time) (sl
 		if !s.start.Before(s.end) {
 			continue
 		}
-		if !s.start.Before(beijingTrialEnd) || !s.end.After(beijingTrialStart) {
+		if !beijingTrialOverlaps(s.start, s.end) {
 			total = total.plus(s.counts)
 			continue
 		}
@@ -70,6 +76,24 @@ func (r *opsRepository) officialSLA(ctx context.Context, f *service.OpsDashboard
 	if err != nil {
 		return nil, err
 	}
+	// Hourly aggregates retain fault totals but not their final HTTP codes. Verify
+	// coverage before using raw evidence; never guess a rate from expired rows.
+	var final400, observed int64
+	if counts.faults > 0 {
+		where, args, next := buildErrorWhere(f, f.StartTime, f.EndTime, 1)
+		if beijingTrialOverlaps(f.StartTime, f.EndTime) {
+			where += fmt.Sprintf(" AND NOT (created_at >= $%d AND created_at < $%d)", next, next+1)
+			args = append(args, beijingTrialStart, beijingTrialEnd)
+		}
+		q := "SELECT count(*) FILTER (WHERE status_code=400), count(*) FROM ops_error_logs " + where + " AND status_code >= 400 AND " + service.OpsSLAFaultOwnerPredicate("")
+		if err := r.db.QueryRowContext(ctx, q, args...).Scan(&final400, &observed); err != nil {
+			return nil, err
+		}
+	}
+	if observed != counts.faults {
+		return &service.OpsOfficialSLAScope{Requests: counts.requests, Incomplete: true}, nil
+	}
+	counts.faults -= final400
 	scope := &service.OpsOfficialSLAScope{Requests: counts.requests, Faults: counts.faults}
 	if counts.requests > 0 {
 		rate, _ := service.ComputeSLAMetrics(0, counts.requests, counts.faults)

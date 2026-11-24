@@ -1276,7 +1276,7 @@ function handleToolbarRefresh() {
           <div class="mt-3 text-xs">
             <div class="flex justify-between">
               <span class="text-gray-500">{{ t('admin.ops.exceptions') }}:</span>
-              <span class="font-bold text-red-600 dark:text-red-400">{{ formatNumber(overview.official_sla?.faults ?? overview.error_count_sla ?? 0) }}</span>
+              <span class="font-bold text-red-600 dark:text-red-400">{{ overview.official_sla?.incomplete ? '—' : formatNumber(overview.official_sla?.faults ?? overview.error_count_sla ?? 0) }}</span>
               <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber((overview.request_count_total ?? 0) - (overview.success_count ?? 0)) }}</span>
             </div>
           </div>

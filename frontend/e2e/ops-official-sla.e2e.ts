@@ -3,6 +3,8 @@ import { expect, test } from '@playwright/test'
 // Real admin dashboard against a sanitized, deterministic overview response.
 for (const [label, scope, display] of [
   ['official', { requests: 1982317, faults: 5014, rate: 1 - 5014 / 1982317 }, '99.747%'],
+  ['final 400 is denominator only', { requests: 100, faults: 1, rate: 0.99 }, '99.000%'],
+  ['expired detail', { requests: 100, faults: 0, rate: null, incomplete: true }, '-'],
   ['trial only', { requests: 0, faults: 0, rate: null }, '-'],
   ['ordinary site', undefined, '76.130%'],
 ] as const) {

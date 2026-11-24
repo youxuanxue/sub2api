@@ -38,12 +38,13 @@ type OpsOutputTPS struct {
 	SampleCount int64    `json:"sample_count"`
 }
 
-// OpsOfficialSLAScope is present only when a reporting exclusion intersects the window.
+// OpsOfficialSLAScope is present for production sites using the formal reporting policy.
 // Operational rates and counters stay all-traffic. A zero denominator has no SLA.
 type OpsOfficialSLAScope struct {
-	Requests int64    `json:"requests"`
-	Faults   int64    `json:"faults"`
-	Rate     *float64 `json:"rate"`
+	Incomplete bool     `json:"incomplete,omitempty"`
+	Requests   int64    `json:"requests"`
+	Faults     int64    `json:"faults"`
+	Rate       *float64 `json:"rate"`
 }
 
 type OpsDashboardOverview struct {
