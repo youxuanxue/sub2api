@@ -38,11 +38,20 @@ type OpsOutputTPS struct {
 	SampleCount int64    `json:"sample_count"`
 }
 
+// OpsOfficialSLAScope is present only when a reporting exclusion intersects the window.
+// Operational rates and counters stay all-traffic. A zero denominator has no SLA.
+type OpsOfficialSLAScope struct {
+	Requests int64    `json:"requests"`
+	Faults   int64    `json:"faults"`
+	Rate     *float64 `json:"rate"`
+}
+
 type OpsDashboardOverview struct {
-	StartTime time.Time `json:"start_time"`
-	EndTime   time.Time `json:"end_time"`
-	Platform  string    `json:"platform"`
-	GroupID   *int64    `json:"group_id"`
+	OfficialSLA *OpsOfficialSLAScope `json:"official_sla,omitempty"`
+	StartTime   time.Time            `json:"start_time"`
+	EndTime     time.Time            `json:"end_time"`
+	Platform    string               `json:"platform"`
+	GroupID     *int64               `json:"group_id"`
 
 	// HealthScore is a backend-computed overall health score (0-100).
 	// It is derived from the monitored metrics in this overview, plus best-effort system metrics/job heartbeats.

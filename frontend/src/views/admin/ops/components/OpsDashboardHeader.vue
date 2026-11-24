@@ -595,15 +595,15 @@ const diagnosisReport = computed<DiagnosisItem[]>(() => {
   }
 
   // SLA diagnostics
-  const slaPct = (ov.sla ?? 0) * 100
-  if (slaPct < 90) {
+  const slaPct = resolveOpsSlaPercent(ov)
+  if (slaPct != null && slaPct < 90) {
     report.push({
       type: 'critical',
       message: t('admin.ops.diagnosis.slaCritical', { sla: slaPct.toFixed(2) }),
       impact: t('admin.ops.diagnosis.slaCriticalImpact'),
       action: t('admin.ops.diagnosis.slaCriticalAction')
     })
-  } else if (slaPct < 98) {
+  } else if (slaPct != null && slaPct < 98) {
     report.push({
       type: 'warning',
       message: t('admin.ops.diagnosis.slaLow', { sla: slaPct.toFixed(2) }),
@@ -1251,11 +1251,11 @@ function handleToolbarRefresh() {
         </div>
 
         <!-- Card 2: SLA -->
-        <div class="rounded-2xl bg-gray-50 p-4 dark:bg-dark-900" style="order: 2;">
+        <div data-testid="ops-sla-card" class="rounded-2xl bg-gray-50 p-4 dark:bg-dark-900" style="order: 2;">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <span class="text-[10px] font-bold uppercase text-gray-400">{{ t('admin.ops.sla') }}</span>
-              <HelpTooltip v-if="!props.fullscreen" :content="t('admin.ops.tooltips.sla')" />
+              <span class="text-[10px] font-bold uppercase text-gray-400">{{ t(overview?.official_sla ? 'admin.ops.officialSla' : 'admin.ops.sla') }}</span>
+              <HelpTooltip v-if="!props.fullscreen" :content="t(overview?.official_sla ? 'admin.ops.tooltips.officialSla' : 'admin.ops.tooltips.sla')" />
               <span class="h-1.5 w-1.5 rounded-full" :class="getSLAThresholdLevel(slaPercent) === 'critical' ? 'bg-red-500' : getSLAThresholdLevel(slaPercent) === 'warning' ? 'bg-yellow-500' : 'bg-green-500'"></span>
             </div>
             <button
@@ -1276,7 +1276,7 @@ function handleToolbarRefresh() {
           <div class="mt-3 text-xs">
             <div class="flex justify-between">
               <span class="text-gray-500">{{ t('admin.ops.exceptions') }}:</span>
-              <span class="font-bold text-red-600 dark:text-red-400">{{ formatNumber(overview.error_count_sla ?? 0) }}</span>
+              <span class="font-bold text-red-600 dark:text-red-400">{{ formatNumber(overview.official_sla?.faults ?? overview.error_count_sla ?? 0) }}</span>
               <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber((overview.request_count_total ?? 0) - (overview.success_count ?? 0)) }}</span>
             </div>
           </div>

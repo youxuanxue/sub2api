@@ -1,10 +1,13 @@
 export type OpsSlaOverview = {
   sla?: number
   request_count_total?: number
+  official_sla?: { requests: number; faults: number; rate: number | null }
 }
 
-/** Hide SLA when the window has no requests. Backend never sends request_count_sla. */
+/** Reporting-only scope takes precedence; no eligible traffic is not 0% or 100%. */
 export function resolveOpsSlaPercent(overview: OpsSlaOverview | null | undefined): number | null {
+  const scope = overview?.official_sla
+  if (scope) return scope.requests > 0 && scope.rate != null && Number.isFinite(scope.rate) ? scope.rate * 100 : null
   if (overview == null || typeof overview.sla !== 'number' || !Number.isFinite(overview.sla)) {
     return null
   }
