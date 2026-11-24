@@ -52,6 +52,12 @@ func (r *opsRepository) GetDashboardOverview(ctx context.Context, filter *servic
 	if err != nil {
 		return nil, err
 	}
+	if usesOfficialSLAPolicy() {
+		overview.OfficialSLA, err = r.officialSLA(ctx, filter)
+		if err != nil {
+			return nil, err
+		}
+	}
 	// Percentiles must use individual rates over the entire window, even in
 	// preagg mode: hourly percentiles cannot be averaged into window percentiles.
 	rateCtx, cancelRate := context.WithTimeout(ctx, opsRawLatencyQueryTimeout)
@@ -166,21 +172,11 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 		}
 	}
 
-	var official *service.OpsOfficialSLAScope
-	if usesOfficialSLAPolicy() {
-		segments := []slaSegment{{start, end, slaCounts{requestCountTotal, errorCountSLA}}}
-		official, err = r.officialSLA(ctx, filter, segments)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	return &service.OpsDashboardOverview{
-		OfficialSLA: official,
-		StartTime:   start,
-		EndTime:     end,
-		Platform:    strings.TrimSpace(filter.Platform),
-		GroupID:     filter.GroupID,
+		StartTime: start,
+		EndTime:   end,
+		Platform:  strings.TrimSpace(filter.Platform),
+		GroupID:   filter.GroupID,
 
 		SuccessCount:      successCount,
 		ErrorCountTotal:   errorTotal,
@@ -349,24 +345,11 @@ func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, f
 		}
 	}
 
-	var official *service.OpsOfficialSLAScope
-	if usesOfficialSLAPolicy() {
-		segments := []slaSegment{{start, aggFullStart, slaCounts{head.successCount + head.errorCountTotal, head.errorCountSLA}}, {aggFullEnd, end, slaCounts{tail.successCount + tail.errorCountTotal, tail.errorCountSLA}}}
-		for _, row := range preaggRows {
-			segments = append(segments, slaSegment{row.bucketStart, row.bucketStart.Add(time.Hour), slaCounts{row.successCount + row.errorCountTotal, row.errorCountSLA}})
-		}
-		official, err = r.officialSLA(ctx, filter, segments)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	return &service.OpsDashboardOverview{
-		OfficialSLA: official,
-		StartTime:   start,
-		EndTime:     end,
-		Platform:    strings.TrimSpace(filter.Platform),
-		GroupID:     filter.GroupID,
+		StartTime: start,
+		EndTime:   end,
+		Platform:  strings.TrimSpace(filter.Platform),
+		GroupID:   filter.GroupID,
 
 		SuccessCount:      successCount,
 		ErrorCountTotal:   errorTotal,
@@ -426,14 +409,7 @@ type opsHourlyMetricsRow struct {
 	ttftMax sql.NullInt64
 }
 
-func (r *opsRepository) listHourlyMetricsRows(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) ([]opsHourlyMetricsRow, error) {
-	if r == nil || r.db == nil {
-		return nil, fmt.Errorf("nil ops repository")
-	}
-	if start.IsZero() || end.IsZero() || !start.Before(end) {
-		return []opsHourlyMetricsRow{}, nil
-	}
-
+func hourlyMetricsScope(filter *service.OpsDashboardFilter, start, end time.Time) (string, []any) {
 	where := "bucket_start >= $1 AND bucket_start < $2"
 	args := []any{start.UTC(), end.UTC()}
 	idx := 3
@@ -462,6 +438,19 @@ func (r *opsRepository) listHourlyMetricsRows(ctx context.Context, filter *servi
 	default:
 		where += " AND platform IS NULL AND group_id IS NULL"
 	}
+
+	return where, args
+}
+
+func (r *opsRepository) listHourlyMetricsRows(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) ([]opsHourlyMetricsRow, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("nil ops repository")
+	}
+	if start.IsZero() || end.IsZero() || !start.Before(end) {
+		return []opsHourlyMetricsRow{}, nil
+	}
+
+	where, args := hourlyMetricsScope(filter, start, end)
 
 	q := `
 SELECT

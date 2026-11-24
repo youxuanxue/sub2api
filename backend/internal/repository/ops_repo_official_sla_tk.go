@@ -26,78 +26,55 @@ var (
 	beijingTrialEnd   = time.Date(2026, 11, 18, 23, 12, 0, 0, time.UTC)
 )
 
-type slaCounts struct{ requests, faults int64 }
-
-func (c slaCounts) plus(d slaCounts) slaCounts {
-	return slaCounts{c.requests + d.requests, c.faults + d.faults}
-}
-
-type slaSegment struct {
-	start, end time.Time
-	counts     slaCounts
-}
-
-// Sum only the official part of each source segment. Whole excluded hours need
-// no raw logs; both partial-hour boundaries count the *included* side. This
-// avoids subtracting expired raw failure rows from retained hourly totals.
-func officialSLACounts(segments []slaSegment, raw func(time.Time, time.Time) (slaCounts, error)) (slaCounts, error) {
-	var total slaCounts
-	for _, s := range segments {
-		if !s.start.Before(s.end) {
-			continue
-		}
-		if !beijingTrialOverlaps(s.start, s.end) {
-			total = total.plus(s.counts)
-			continue
-		}
-		for _, edge := range [][2]time.Time{{s.start, minTime(s.end, beijingTrialStart)}, {maxTime(s.start, beijingTrialEnd), s.end}} {
-			if !edge[0].Before(edge[1]) {
-				continue
-			}
-			c, err := raw(edge[0], edge[1])
-			if err != nil {
-				return slaCounts{}, err
-			}
-			total = total.plus(c)
-		}
+// All dashboard modes use one statement (one PostgreSQL snapshot). Read whole
+// containing hours to verify historical coverage, but count only eligible rows
+// for the requested interval. Sparse hours have no aggregate row when empty.
+func (r *opsRepository) officialSLA(ctx context.Context, f *service.OpsDashboardFilter) (*service.OpsOfficialSLAScope, error) {
+	start, end := f.StartTime, f.EndTime
+	first, last := utcFloorToHour(start), utcCeilToHour(end)
+	sealed := utcFloorToHour(preaggSafeEnd(time.Now().UTC()))
+	hw, args := hourlyMetricsScope(f, first, last)
+	join, uw, ua, next := buildUsageWhere(f, first, last, len(args)+1)
+	args = append(args, ua...)
+	ew, ea, next := buildErrorWhere(f, first, last, next)
+	args = append(args, ea...)
+	eligible := fmt.Sprintf("created_at >= $%d AND created_at < $%d", next, next+1)
+	args = append(args, start, end)
+	next += 2
+	verifyHour := "TRUE"
+	if beijingTrialOverlaps(start, end) {
+		eligible += fmt.Sprintf(" AND NOT (created_at >= $%d AND created_at < $%d)", next, next+1)
+		// Excluded-only hours need no proof; mixed hours must reconcile in full.
+		verifyHour = fmt.Sprintf("(GREATEST(bucket,$%d) < $%d OR LEAST(bucket+interval '1 hour',$%d) > $%d)", next-2, next, next-1, next+1)
+		args = append(args, beijingTrialStart, beijingTrialEnd)
+		next += 2
 	}
-	return total, nil
-}
-
-func (r *opsRepository) officialSLA(ctx context.Context, f *service.OpsDashboardFilter, segs []slaSegment) (*service.OpsOfficialSLAScope, error) {
-	counts, err := officialSLACounts(segs, func(start, end time.Time) (slaCounts, error) {
-		success, _, err := r.queryUsageCounts(ctx, f, start, end)
-		if err != nil {
-			return slaCounts{}, err
-		}
-		errors, faults, _, _, _, err := r.queryErrorCounts(ctx, f, start, end)
-		return slaCounts{success + errors, faults}, err
-	})
-	if err != nil {
+	args = append(args, sealed)
+	owner := service.OpsSLAFaultOwnerPredicate("")
+	q := `WITH usage_rows AS (SELECT ul.created_at FROM usage_logs ul ` + join + ` ` + uw + `),
+    detail AS (
+      SELECT date_trunc('hour',created_at,'UTC') AS bucket,count(*) AS successes,0 AS errors,0 AS faults,
+        count(*) FILTER (WHERE ` + eligible + `) AS requests,0 AS official_faults FROM usage_rows GROUP BY 1
+      UNION ALL
+      SELECT date_trunc('hour',created_at,'UTC'),0,count(*),count(*) FILTER (WHERE ` + owner + `),
+        count(*) FILTER (WHERE ` + eligible + `),count(*) FILTER (WHERE ` + eligible + ` AND status_code<>400 AND ` + owner + `)
+        FROM ops_error_logs ` + ew + ` AND status_code>=400 GROUP BY 1
+    ), hourly AS (
+      SELECT bucket_start AS bucket,sum(success_count) AS successes,sum(error_count_total) AS errors,sum(error_count_sla) AS faults
+      FROM ops_metrics_hourly WHERE ` + hw + ` GROUP BY 1
+    ), observed AS (
+      SELECT bucket,sum(successes) AS successes,sum(errors) AS errors,sum(faults) AS faults,sum(requests) AS requests,sum(official_faults) AS official_faults FROM detail GROUP BY 1
+    ) SELECT COALESCE(sum(requests),0),COALESCE(sum(official_faults),0),
+      COALESCE(bool_or(bucket < $` + fmt.Sprint(next) + ` AND ` + verifyHour + ` AND (
+        COALESCE(h.successes,0)<>COALESCE(o.successes,0) OR COALESCE(h.errors,0)<>COALESCE(o.errors,0) OR COALESCE(h.faults,0)<>COALESCE(o.faults,0))),false)
+      FROM hourly h FULL JOIN observed o USING(bucket)`
+	var scope service.OpsOfficialSLAScope
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&scope.Requests, &scope.Faults, &scope.Incomplete); err != nil {
 		return nil, err
 	}
-	// Hourly aggregates retain fault totals but not their final HTTP codes. Verify
-	// coverage before using raw evidence; never guess a rate from expired rows.
-	var final400, observed int64
-	if counts.faults > 0 {
-		where, args, next := buildErrorWhere(f, f.StartTime, f.EndTime, 1)
-		if beijingTrialOverlaps(f.StartTime, f.EndTime) {
-			where += fmt.Sprintf(" AND NOT (created_at >= $%d AND created_at < $%d)", next, next+1)
-			args = append(args, beijingTrialStart, beijingTrialEnd)
-		}
-		q := "SELECT count(*) FILTER (WHERE status_code=400), count(*) FROM ops_error_logs " + where + " AND status_code >= 400 AND " + service.OpsSLAFaultOwnerPredicate("")
-		if err := r.db.QueryRowContext(ctx, q, args...).Scan(&final400, &observed); err != nil {
-			return nil, err
-		}
-	}
-	if observed != counts.faults {
-		return &service.OpsOfficialSLAScope{Requests: counts.requests, Incomplete: true}, nil
-	}
-	counts.faults -= final400
-	scope := &service.OpsOfficialSLAScope{Requests: counts.requests, Faults: counts.faults}
-	if counts.requests > 0 {
-		rate, _ := service.ComputeSLAMetrics(0, counts.requests, counts.faults)
+	if !scope.Incomplete && scope.Requests > 0 {
+		rate, _ := service.ComputeSLAMetrics(0, scope.Requests, scope.Faults)
 		scope.Rate = &rate
 	}
-	return scope, nil
+	return &scope, nil
 }
