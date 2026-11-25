@@ -23,7 +23,7 @@ Remove TokenKey-only `is_business_limited` / `business_limited_count`. SLA uses 
 
 Client faults (`error_owner = client`) stay in the denominator only.
 
-**Formal SLA (prod and cn-prod):** Final HTTP 400 is classified as client for reporting: keep the request denominator, exclude it from faults regardless of stored owner. An intermediate upstream 400 is not a final 400. Operational metrics and persisted owner remain forensic evidence. All query modes compare historical success, final-error, and fault counts per hour against the same filtered hourly counters before reporting a rate. A partial hour needs coverage for its whole containing hour; hours entirely excluded by the trial need none. If these counts disagree, `official_sla.incomplete` is true and the rate is unavailable.
+**Formal SLA (prod and cn-prod):** Final HTTP 400 and final HTTP 429 are classified as client for reporting (validation / rate-limit): keep the request denominator, exclude them from faults regardless of stored owner. An intermediate upstream 400/429 is not a final client code. Wire 429 always carries `Retry-After` (`RequestLogger` / `requestIDResponseWriter`). Operational metrics and persisted owner remain forensic evidence. All query modes compare historical success, final-error, and fault counts per hour against the same filtered hourly counters before reporting a rate. A partial hour needs coverage for its whole containing hour; hours entirely excluded by the trial need none. If these counts disagree, `official_sla.incomplete` is true and the rate is unavailable.
 
 **Beijing trial exclusion:** For `cn-prod` only, the dashboard excludes all traffic in
 `[2026-11-18T14:34Z, 2026-11-18T23:12Z)` from its formal SLA. For both production sites, `official_sla.{requests,faults,rate}` reports the eligible denominator, fault count,
@@ -83,7 +83,7 @@ read the same captured verdict:
 
 - Removed API fields: `business_limited_*`, `request_count_sla`, `is_business_limited`.
 - Error distribution buckets: `sla_faults` / `client_faults` (was `sla` / `business_limited`).
-- Routing empty-pool 429 (`error_phase=routing`, `owner=platform`) counts toward SLA numerator; dedicated `routing_capacity_rejection` alert unchanged.
+- Routing empty-pool 429 (`error_phase=routing`, `owner=platform`) counts toward the operational SLA numerator (`error_count_sla`); dedicated `routing_capacity_rejection` alert unchanged. Formal `official_sla` still treats final HTTP 429 as denominator-only (above).
 
 ## Validation
 

@@ -57,7 +57,7 @@ func (r *opsRepository) officialSLA(ctx context.Context, f *service.OpsDashboard
         count(*) FILTER (WHERE ` + eligible + `) AS requests,0 AS official_faults FROM usage_rows GROUP BY 1
       UNION ALL
       SELECT date_trunc('hour',created_at,'UTC'),0,count(*),count(*) FILTER (WHERE ` + owner + `),
-        count(*) FILTER (WHERE ` + eligible + `),count(*) FILTER (WHERE ` + eligible + ` AND status_code<>400 AND ` + owner + `)
+        count(*) FILTER (WHERE ` + eligible + `),count(*) FILTER (WHERE ` + eligible + ` AND status_code NOT IN (400, 429) AND ` + owner + `)
         FROM ops_error_logs ` + ew + ` AND status_code>=400 GROUP BY 1
     ), hourly AS (
       SELECT bucket_start AS bucket,sum(success_count) AS successes,sum(error_count_total) AS errors,sum(error_count_sla) AS faults

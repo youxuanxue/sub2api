@@ -830,7 +830,7 @@ export default {
         jobs: 'Background job execution status, including last run time, success time, and error information.',
         qps: 'Queries Per Second (QPS) and Tokens Per Second (TPS), real-time system throughput.',
         tokens: 'Total number of tokens processed in the current time window.',
-        officialSla: 'Final HTTP 400 counts as client traffic: included in requests, not faults. Beijing also excludes its trial window (Nov 18, 2026 14:34–23:12 UTC, end exclusive). No rate is shown without eligible traffic or sufficient error detail.',
+        officialSla: 'Final HTTP 400/429 counts as client traffic (validation / rate-limit): included in requests, not faults. Beijing also excludes its trial window (Nov 18, 2026 14:34–23:12 UTC, end exclusive). No rate is shown without eligible traffic or sufficient error detail.',
         sla: 'Service Level Agreement success rate, excluding business limits (e.g., insufficient balance, quota exceeded).',
         errors: 'Error statistics, including total errors, error rate, and upstream error rate.',
         upstreamErrors: 'Upstream error statistics, excluding rate limit errors (429/529).',

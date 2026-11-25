@@ -315,3 +315,9 @@
 原话：「对齐开源「可感体验」：最接近的是 OmniRoute 路线（仅 http(s) 图、白名单/SSRF 防护、大小上限、失败仍本地 400）。」
 
 适用范围：Antigravity 原生 `generateContent`/`streamGenerateContent` 上，公网 `http(s)` 图片 `fileUri` 由网关 SSRF-safe 下载并改写为 `inlineData`（单图 15MiB、单请求合计 32MiB、最多 8 张）；`gs://`、非图片远程 URI、私网/元数据主机、下载失败仍本地 400。不改写成 Chat。官方 Gemini 账户仍透传 `fileUri`。
+
+## 2026-11-25 正式 SLA 最终 429 按客户端限流
+
+原话：「对齐 origin/main。核查一下，429 是不是都带有 retry-after。另外，带上 retry-after 的 429 可以归位 client 错误，限流。不计入sla故障，只计入分母。」
+
+适用范围：prod/cn-prod 正式 `official_sla` 报告将最终 HTTP 429（线网保证带 `Retry-After`）与最终 400 一样计入请求分母、不计故障；落库 `error_owner` 与运营 SLA（`error_count_sla`，含 routing 空池 429）不变。
