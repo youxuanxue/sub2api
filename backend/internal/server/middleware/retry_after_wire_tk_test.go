@@ -17,11 +17,13 @@ func TestRequestLoggerRetryAfterOnWire(t *testing.T) {
 		status       int
 		header, want string
 		body         bool
+		writeHeader  bool
 	}{
-		{"429 with JSON", 429, "", "60", true},
-		{"empty 429", 429, "", "60", false},
-		{"known reset", 429, "17", "17", true},
-		{"normal reply", 200, "", "", true},
+		{"429 with JSON", 429, "", "60", true, false},
+		{"empty 429", 429, "", "60", false, false},
+		{"WriteHeader 429", 429, "", "60", false, true},
+		{"known reset", 429, "17", "17", true, false},
+		{"normal reply", 200, "", "", true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := gin.New()
@@ -30,9 +32,12 @@ func TestRequestLoggerRetryAfterOnWire(t *testing.T) {
 				if tc.header != "" {
 					c.Header("Retry-After", tc.header)
 				}
-				if tc.body {
+				switch {
+				case tc.writeHeader:
+					c.Writer.WriteHeader(tc.status)
+				case tc.body:
 					c.JSON(tc.status, gin.H{"status": tc.status})
-				} else {
+				default:
 					c.Status(tc.status)
 				}
 			})

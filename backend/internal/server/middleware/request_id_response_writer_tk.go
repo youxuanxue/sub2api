@@ -14,14 +14,21 @@ type requestIDResponseWriter struct {
 	requestID string
 }
 
-func (w *requestIDResponseWriter) prepareHeaders() {
-	if w.Status() == http.StatusTooManyRequests && w.Header().Get("Retry-After") == "" {
+func (w *requestIDResponseWriter) ensureRetryAfter(status int) {
+	if status == http.StatusTooManyRequests && w.Header().Get("Retry-After") == "" {
 		w.Header().Set("Retry-After", strconv.Itoa(apiKeyQuotaRetryAfterSeconds))
 	}
+}
+
+func (w *requestIDResponseWriter) prepareHeaders() {
+	w.ensureRetryAfter(w.Status())
 	w.Header().Set(requestIDHeader, w.requestID)
 }
 
 func (w *requestIDResponseWriter) WriteHeader(status int) {
+	// Must set Retry-After before the status commits; late Header().Set is ignored
+	// on a live http.ResponseWriter once WriteHeader has run.
+	w.ensureRetryAfter(status)
 	w.Header().Set(requestIDHeader, w.requestID)
 	w.ResponseWriter.WriteHeader(status)
 }
