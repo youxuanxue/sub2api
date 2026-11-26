@@ -780,10 +780,33 @@ describe('UseKeyModal — universal keys', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('keys.useKeyModal.modelsEmpty')
-    expect(wrapper.find('[data-tk="use-key-model-select"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="use-key-model-select"]').exists()).toBe(false)
+    expect(wrapper.get('[data-tk="use-key-model-manual"]').element).toMatchObject({ value: 'claude-haiku-4-5' })
+    expect(wrapper.findAll('pre code').map((code) => code.text()).join('\n')).toContain('claude-haiku-4-5')
   })
 
-  it('blocks invented model actions and retries a failed automatic-routing menu', async () => {
+  it('keeps copyable setup snippets when the automatic-routing menu is empty', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({ api_key_id: 7, routing_mode: 'universal', models: [] })
+
+    const wrapper = mountQuickstartGuide({ selectedClient: 'claude-code' })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('keys.useKeyModal.modelsEmpty')
+    expect(wrapper.find('[data-tk="use-key-model-select"]').exists()).toBe(false)
+    expect(wrapper.get('[data-tk="use-key-model-manual"]').element).toMatchObject({ value: 'YOUR_MODEL_ID' })
+    const snippet = wrapper.findAll('pre code').map((code) => code.text()).join('\n')
+    expect(snippet).toContain('export ANTHROPIC_BASE_URL=')
+    expect(snippet).toContain('YOUR_MODEL_ID')
+    expect(wrapper.get('[data-tk="use-key-test"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.emitted('modelChange')?.at(-1)).toEqual([''])
+
+    await wrapper.get('[data-tk="use-key-model-manual"]').setValue('claude-opus-4-8')
+    await nextTick()
+    expect(wrapper.findAll('pre code').map((code) => code.text()).join('\n')).toContain('claude-opus-4-8')
+    expect(wrapper.get('[data-tk="use-key-test"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('blocks invented model probes but still shows setup snippets, then recovers after retry', async () => {
     getAPIKeyCapabilities
       .mockRejectedValueOnce(new Error('capability unavailable'))
       .mockResolvedValueOnce({
@@ -800,11 +823,10 @@ describe('UseKeyModal — universal keys', () => {
     const wrapper = mountQuickstartGuide({ selectedClient: 'claude-code' })
     await flushPromises()
 
-    const select = wrapper.get('[data-tk="use-key-model-select"]')
-    expect(select.findAll('option')).toHaveLength(0)
-    expect(select.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-tk="use-key-model-select"]').exists()).toBe(false)
+    expect(wrapper.get('[data-tk="use-key-model-manual"]').element).toMatchObject({ value: 'YOUR_MODEL_ID' })
     expect(wrapper.get('[data-tk="use-key-test"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.findAll('pre code')).toHaveLength(0)
+    expect(wrapper.findAll('pre code').map((code) => code.text()).join('\n')).toContain('YOUR_MODEL_ID')
     expect(wrapper.get('[data-tk="use-key-models-error"]').text()).toContain('keys.useKeyModal.modelsLoadError')
     expect(wrapper.emitted('modelChange')?.at(-1)).toEqual([''])
 
@@ -812,9 +834,10 @@ describe('UseKeyModal — universal keys', () => {
     await flushPromises()
 
     expect(getAPIKeyCapabilities).toHaveBeenCalledTimes(2)
+    const select = wrapper.get('[data-tk="use-key-model-select"]')
     expect(select.findAll('option').map((option) => option.text())).toEqual(['claude-opus-4-8'])
     expect(wrapper.get('[data-tk="use-key-test"]').attributes('disabled')).toBeUndefined()
-    expect(wrapper.findAll('pre code').length).toBeGreaterThan(0)
+    expect(wrapper.findAll('pre code').map((code) => code.text()).join('\n')).toContain('claude-opus-4-8')
   })
 })
 
