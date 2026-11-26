@@ -512,6 +512,17 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
     expect(config.provider.openai.models['gpt-5.5']).toBeUndefined()
   })
 
+  it('does not advertise the default OpenCode catalog when universal discovery fails', async () => {
+    getAPIKeyCapabilities.mockRejectedValue(new Error('capability unavailable'))
+
+    const wrapper = mountQuickstartGuide({ selectedClient: 'opencode' })
+    await flushPromises()
+
+    const config = JSON.parse(wrapper.find('pre code').text())
+    expect(config.provider.openai.models).toEqual({})
+    expect(config.provider.openai.models['gpt-5.5']).toBeUndefined()
+  })
+
   it.each([
     { platform: 'anthropic', alias: 'sonnet-prod' },
     { platform: 'gemini', alias: 'flash-prod' },

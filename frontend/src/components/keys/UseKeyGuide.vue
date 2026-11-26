@@ -1123,7 +1123,13 @@ const currentFiles = computed((): FileConfig[] => {
   }
 
   if (activeClientTab.value === 'opencode') {
-    const allowedModels = props.preview ? [{ id: 'YOUR_MODEL_ID', capabilities: [] }] : tk.modelsLoaded.value ? tk.servableModels.value : undefined
+    // Universal discovery must not fall through to the hardcoded default catalog
+    // (allowedModels === undefined) while the live menu is pending or failed.
+    const allowedModels = props.preview
+      ? [{ id: 'YOUR_MODEL_ID', capabilities: [] }]
+      : tk.modelsLoaded.value
+        ? tk.servableModels.value
+        : (props.routingMode === 'universal' ? [] : undefined)
     const splitAllowedModels = !props.preview && props.routingMode === 'universal'
     switch (platformForFiles()) {
       case 'anthropic':
