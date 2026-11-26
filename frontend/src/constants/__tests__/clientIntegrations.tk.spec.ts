@@ -198,6 +198,7 @@ describe('TokenKey client catalog', () => {
 
   it('keeps every promised first-screen client visible from the shared catalog', () => {
     expect(TK_QUICKSTART_CLIENTS.map((client) => client.id).sort()).toEqual([
+      'antigravity-cli',
       'chatbox',
       'cherry-studio',
       'claude-code',

@@ -371,6 +371,7 @@ import type { GroupPlatform, KeyRoutingMode } from '@/types'
 import { TK_QUICKSTART_CLIENTS, codebuddyModelsJsonPath, generateCodebuddyModelsJson } from '@/constants/clientIntegrations.tk'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_GROK, PLATFORM_NEWAPI, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
+import { buildAntigravityCliFiles, buildGeminiCliFiles } from '@/utils/geminiCliConfig.tk'
 
 interface Props {
   /** Shared read-only guide, with placeholders and no credential operations. */
@@ -506,7 +507,7 @@ const activeFlavor = computed<UseKeyFlavor | null>(() => {
     if (isOpenAIMessagesDispatchClaudeTab.value) return 'openai'
     return 'anthropic'
   }
-  if (tab === 'gemini') return 'gemini'
+  if (tab === 'gemini' || tab === 'antigravity-cli') return 'gemini'
   if (tab === 'codex' || tab === 'codex-ws') return 'openai'
   if (tab === 'curl' || tab === 'python') {
     if (props.routingMode === 'universal') return 'openai'
@@ -822,7 +823,7 @@ const rawProtoTabs = (): TabConfig[] => [
 function platformForFiles(): GroupPlatform | null {
   if (props.routingMode === 'universal') {
     const tab = activeClientTab.value
-    if (tab === 'gemini') return PLATFORM_GEMINI
+    if (tab === 'gemini' || tab === 'antigravity-cli') return PLATFORM_GEMINI
     if (selectedClientEntry.value?.guideMode === 'qwen') {
       return props.selectedProtocol === 'openai' ? PLATFORM_OPENAI : PLATFORM_ANTHROPIC
     }
@@ -846,6 +847,7 @@ const clientTabs = computed((): TabConfig[] => {
       { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
       { id: 'codex-ws', label: t('keys.useKeyModal.cliTabs.codexCliWs'), icon: TerminalIcon },
       { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
+      { id: 'antigravity-cli', label: t('keys.useKeyModal.cliTabs.antigravityCli'), icon: SparkleIcon },
       ...rawProtoTabs(),
       { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon },
     ]
@@ -866,6 +868,7 @@ const clientTabs = computed((): TabConfig[] => {
     case 'gemini':
       return [
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
+        { id: 'antigravity-cli', label: t('keys.useKeyModal.cliTabs.antigravityCli'), icon: SparkleIcon },
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         ...rawProtoTabs(),
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
@@ -877,6 +880,7 @@ const clientTabs = computed((): TabConfig[] => {
         tabs.push({ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon })
       }
       tabs.push({ id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon })
+      tabs.push({ id: 'antigravity-cli', label: t('keys.useKeyModal.cliTabs.antigravityCli'), icon: SparkleIcon })
       tabs.push({ id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon })
       tabs.push(...rawProtoTabs()) // gemini-flavor raw calls (/antigravity/v1beta)
       tabs.push({ id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon })
@@ -928,7 +932,7 @@ const openaiTabs: TabConfig[] = [
 
 const showShellTabs = computed(() => selectedClientEntry.value
   ? selectedClientEntry.value.usesEnvironmentPicker === true
-  : ['claude', 'codex', 'codex-ws', 'gemini'].includes(activeClientTab.value),
+  : ['claude', 'codex', 'codex-ws', 'gemini', 'antigravity-cli'].includes(activeClientTab.value),
 )
 
 const currentTabs = computed(() => {
@@ -972,11 +976,20 @@ const platformNote = computed(() => {
   if (selectedClientEntry.value?.id === 'qoder') {
     return t('quickstart.qoderConfigNote')
   }
+  if (selectedClientEntry.value?.id === 'gemini-cli') {
+    return t('quickstart.geminiCliConfigNote')
+  }
+  if (selectedClientEntry.value?.id === 'antigravity-cli') {
+    return t('quickstart.antigravityCliConfigNote')
+  }
   if (selectedClientEntry.value?.id === 'openclaw' || selectedClientEntry.value?.id === 'hermes') {
     return t(`quickstart.${selectedClientEntry.value.id}ConfigNote`)
   }
   if (selectedClientEntry.value) {
     return t('quickstart.clientConfigNote')
+  }
+  if (activeClientTab.value === 'antigravity-cli') {
+    return t('quickstart.antigravityCliConfigNote')
   }
   if (isOpenAICompatPlatform.value) {
     if (activeClientTab.value === 'claude') {
@@ -1145,6 +1158,25 @@ const currentFiles = computed((): FileConfig[] => {
       : generateOpenAIFiles(apiBase, apiKey, model)
   }
 
+  const geminiGatewayBase = props.routingMode !== 'universal' && props.platform === PLATFORM_ANTIGRAVITY
+    ? `${baseRoot}/antigravity`
+    : baseRoot
+
+  if (activeClientTab.value === 'antigravity-cli') {
+    return buildAntigravityCliFiles({
+      baseUrl: geminiGatewayBase,
+      apiKey,
+      model,
+      servableModels: pickerModels.value,
+      os: activeTab.value as 'unix' | 'cmd' | 'powershell' | 'windows',
+      hints: {
+        envHint: t('quickstart.antigravityEnvHint'),
+        settingsHint: t('quickstart.antigravitySettingsHint'),
+      },
+      highlight: { keyword, variable, operator, string },
+    })
+  }
+
   switch (platformForFiles()) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
@@ -1164,10 +1196,30 @@ const currentFiles = computed((): FileConfig[] => {
       }
       return generateOpenAIFiles(apiBase, apiKey, model)
     case 'gemini':
-      return [generateGeminiCliContent(baseUrl, apiKey, model)]
+      return buildGeminiCliFiles({
+        baseUrl: geminiGatewayBase,
+        apiKey,
+        model,
+        servableModels: pickerModels.value,
+        os: activeTab.value as 'unix' | 'cmd' | 'powershell' | 'windows',
+        hints: {
+          envHint: t('quickstart.geminiEnvHint'),
+          settingsHint: t('quickstart.geminiSettingsHint'),
+        },
+      })
     case 'antigravity':
       if (activeClientTab.value === PLATFORM_GEMINI) {
-        return [generateGeminiCliContent(`${baseUrl}/antigravity`, apiKey, model)]
+        return buildGeminiCliFiles({
+          baseUrl: `${baseRoot}/antigravity`,
+          apiKey,
+          model,
+          servableModels: pickerModels.value,
+          os: activeTab.value as 'unix' | 'cmd' | 'powershell' | 'windows',
+          hints: {
+            envHint: t('quickstart.geminiEnvHint'),
+            settingsHint: t('quickstart.geminiSettingsHint'),
+          },
+        })
       }
       return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey, model)
     default:
@@ -1277,48 +1329,6 @@ $env:CLAUDE_CODE_ATTRIBUTION_HEADER="0"
     { path, content, hint: t('keys.useKeyModal.claudeCode.envHint') },
     { path: vscodeSettingsPath, content: vscodeContent, hint: t('keys.useKeyModal.claudeCode.vscodeHint') }
   ]
-}
-
-function generateGeminiCliContent(baseUrl: string, apiKey: string, model: string): FileConfig {
-  let path: string
-  let content: string
-  let highlighted: string
-
-  switch (activeTab.value) {
-    case 'unix':
-      path = 'Terminal'
-      content = `export GOOGLE_GEMINI_BASE_URL="${baseUrl}"
-export GEMINI_API_KEY="${apiKey}"
-export GEMINI_MODEL="${model}"`
-      highlighted = `${keyword('export')} ${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(`"${baseUrl}"`)}
-${keyword('export')} ${variable('GEMINI_API_KEY')}${operator('=')}${string(`"${apiKey}"`)}
-${keyword('export')} ${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model}"`)}`
-      break
-    case 'cmd':
-      path = 'Command Prompt'
-      content = `set GOOGLE_GEMINI_BASE_URL=${baseUrl}
-set GEMINI_API_KEY=${apiKey}
-set GEMINI_MODEL=${model}`
-      highlighted = `${keyword('set')} ${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(baseUrl)}
-${keyword('set')} ${variable('GEMINI_API_KEY')}${operator('=')}${string(apiKey)}
-${keyword('set')} ${variable('GEMINI_MODEL')}${operator('=')}${string(model)}`
-      break
-    case 'powershell':
-      path = 'PowerShell'
-      content = `$env:GOOGLE_GEMINI_BASE_URL="${baseUrl}"
-$env:GEMINI_API_KEY="${apiKey}"
-$env:GEMINI_MODEL="${model}"`
-      highlighted = `${keyword('$env:')}${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(`"${baseUrl}"`)}
-${keyword('$env:')}${variable('GEMINI_API_KEY')}${operator('=')}${string(`"${apiKey}"`)}
-${keyword('$env:')}${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model}"`)}`
-      break
-    default:
-      path = 'Terminal'
-      content = ''
-      highlighted = ''
-  }
-
-  return { path, content, highlighted }
 }
 
 function generateOpenAIFiles(baseUrl: string, apiKey: string, model: string): FileConfig[] {

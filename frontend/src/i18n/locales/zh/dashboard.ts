@@ -189,6 +189,7 @@ export default {
       cliTabs: {
         claudeCode: 'Claude Code',
         geminiCli: 'Gemini CLI',
+        antigravityCli: 'Antigravity CLI (agy)',
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
         grokCli: 'Grok CLI',
@@ -206,13 +207,13 @@ export default {
         claudeNote:
           '这些环境变量将在当前终端会话中生效。如需永久配置，请将其添加到 ~/.bashrc、~/.zshrc 或相应的配置文件中。',
         geminiNote:
-          '这些环境变量将在当前终端会话中生效。如需永久配置，请将其添加到 ~/.bashrc、~/.zshrc 或相应的配置文件中。'
+          '请同时保存 .env 与 settings.json（合并写入，勿覆盖其他无关字段）。将 security.auth.selectedType 设为 "gemini-api-key" 可避免被已有 OAuth 登录覆盖，启用 dynamicModelConfiguration 后可在 /model → Manual 中直接选择 TokenKey 模型。'
       },
       gemini: {
         description:
-          '将以下环境变量添加到您的终端配置文件或直接在终端中运行，以配置 Google CLI 访问。',
+          '将 .env 与 settings.json 保存到 ~/.gemini（Windows 为 %USERPROFILE%\\.gemini），即可通过 TokenKey 调用并在 /model 中选择全部支持的 gemini* 模型。',
         modelComment: '如果你有 Gemini 3 权限可以填：gemini-3-pro-preview',
-        note: '这些环境变量将在当前终端会话中生效。如需永久配置，请将其添加到 ~/.bashrc、~/.zshrc 或相应的配置文件中。'
+        note: 'Gemini CLI 会自动读取 ~/.gemini/.env。合并 settings.json 时务必将 security.auth.selectedType 设为 "gemini-api-key"（否则仅设环境变量会触发 gateway 鉴权报错，或被旧的 Google OAuth 登录覆盖）；之后可在 /model → Manual 或 gemini -m <模型> 中选用 TokenKey 模型。若曾设置 GOOGLE_API_KEY 或 GOOGLE_GENAI_USE_GCA 请先取消。'
       },
       grok: {
         description:
