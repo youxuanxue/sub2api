@@ -873,6 +873,13 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 	if canonical := normalizeGLMVolcengineDatedModelID(trimmed); canonical != "" {
 		return canonical
 	}
+	// Withdrawn Gemini client ids resolve onto the servable wire id before
+	// allowlist lookup. Applies to Gemini, Antigravity and NewAPI/Vertex;
+	// other platforms only gain an extra lookup key and still miss when their
+	// mapping does not serve the target.
+	if aliased := canonicalGeminiServableTrafficModel(trimmed); aliased != trimmed {
+		return aliased
+	}
 	if platform != PlatformGemini && platform != PlatformAntigravity {
 		return trimmed
 	}

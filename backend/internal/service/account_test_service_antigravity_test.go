@@ -19,7 +19,7 @@ func TestMapAntigravityModel_ConvergedSurfaceFloor(t *testing.T) {
 	account := &Account{Platform: PlatformAntigravity, Credentials: map[string]any{"model_mapping": modelMappingToAny(mapping)}}
 	require.Equal(t, "gemini-3.8-flash-high", MapAntigravityModel(account, "gemini-3.8-flash"))
 	require.Equal(t, "gemini-3-flash", MapAntigravityModel(account, "gemini-3-flash"))
-	require.Empty(t, MapAntigravityModel(account, "gemini-3-flash-preview"))
+	require.Equal(t, "gemini-3-flash", MapAntigravityModel(account, "gemini-3-flash-preview"))
 	require.Empty(t, MapAntigravityModel(account, "gemini-3.5-flash-lite"))
 	require.Empty(t, MapAntigravityModel(account, "claude-sonnet-4-6"))
 }
