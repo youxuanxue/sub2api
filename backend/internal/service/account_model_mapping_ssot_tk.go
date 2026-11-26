@@ -574,6 +574,11 @@ func supportedCatalogModelIDsFromMap(src map[string]struct{}) []string {
 	return out
 }
 
+// geminiTrafficAliases is the routing owner for withdrawn Gemini client ids.
+// Pricing _aliases bill the same pairs but do not admit or rewrite the wire
+// id. Persisted Vertex/Antigravity floors omit the withdrawn key so the
+// literal id is never stored or sent upstream; request lookup still rewrites
+// it via canonicalGeminiServableTrafficModel.
 var geminiTrafficAliases = map[string]string{
 	"gemini-3-flash-preview": "gemini-3-flash",
 }

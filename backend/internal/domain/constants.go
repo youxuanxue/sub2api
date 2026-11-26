@@ -229,8 +229,11 @@ var antigravityStructuralDeadModelMappingKeys = map[string]struct{}{
 	"gemini-3.7-flash-high":   {},
 	"gemini-3.7-flash-low":    {},
 	"gemini-3.7-flash-medium": {},
-	// 2026-11-16: preview aliases 404 as literal upstream ids; clients must use
-	// gemini-3-flash / gemini-3.1-flash-image (or 3.8-flash-* wires).
+	// 2026-11-16: preview aliases 404 as literal upstream ids. Do not persist
+	// them. gemini-3-flash-preview is rewritten at request lookup onto
+	// gemini-3-flash (service.canonicalGeminiServableTrafficModel); the
+	// literal id must not be stored or forwarded. gemini-3.1-flash-image-preview
+	// stays rejected.
 	"gemini-3-flash-preview":         {},
 	"gemini-3.1-flash-image-preview": {},
 	// PR #921 inventory + 2026-06-22 live snapshot: these are stale request aliases

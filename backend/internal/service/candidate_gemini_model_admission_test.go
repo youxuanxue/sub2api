@@ -122,7 +122,7 @@ func TestCandidateEligibilityGeminiNativeEdgeMapping(t *testing.T) {
 			plan, governed, err := protocolPlanForAccount(ctx, account, model)
 			require.True(t, governed)
 			switch model {
-			case "gemini-3.5-flash-lite", "gemini-3-flash-preview":
+			case "gemini-3.5-flash-lite":
 				require.Error(t, err)
 				return
 			}
