@@ -38,14 +38,25 @@
           <div v-if="activeFlavor && (!preview || isRawExample)" class="flex items-center gap-3 flex-wrap">
             <label class="w-14 text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0">{{ t('keys.useKeyModal.modelLabel') }}</label>
             <select
+              v-if="pickerModels.length"
               data-tk="use-key-model-select"
               :value="selectedModel"
               @change="onPickModel"
-              :disabled="tkModelsLoading || !pickerModels.length"
+              :disabled="tkModelsLoading"
               class="flex-1 min-w-[14rem] rounded-lg border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-900 px-3 py-1.5 text-sm font-mono text-gray-900 dark:text-gray-100 disabled:opacity-60"
             >
               <option v-for="m in pickerModels" :key="m.id" :value="m.id">{{ m.id }}</option>
             </select>
+            <input
+              v-else
+              data-tk="use-key-model-manual"
+              type="text"
+              :value="snippetModel"
+              :disabled="tkModelsLoading"
+              :placeholder="MANUAL_MODEL_PLACEHOLDER"
+              class="flex-1 min-w-[14rem] rounded-lg border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-900 px-3 py-1.5 text-sm font-mono text-gray-900 dark:text-gray-100 disabled:opacity-60"
+              @input="onManualModel"
+            >
             <div v-if="currentModelMeta" class="flex items-center gap-1.5 flex-wrap text-xs text-gray-500 dark:text-gray-400">
               <span v-if="currentModelMeta.contextWindow">{{ formatCtx(currentModelMeta.contextWindow) }}</span>
               <span
@@ -128,7 +139,7 @@
             <button
               data-tk="use-key-test"
               @click="onTest"
-              :disabled="tkTestState.status === 'running' || !selectedModel"
+              :disabled="tkTestState.status === 'running' || !canProbeSelectedModel"
               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-60 transition-colors"
             >
               <Icon v-if="tkTestState.status === 'running'" name="refresh" size="sm" class="animate-spin" />
@@ -557,6 +568,13 @@ const tk = useTkUseKey({
   baseRoot,
 })
 
+// Models offered in the picker for the current flavor.
+const MANUAL_MODEL_PLACEHOLDER = 'YOUR_MODEL_ID'
+const previewModel = ref(props.initialModel || MANUAL_MODEL_PLACEHOLDER)
+// When the live catalog is empty/errored, keep showing copyable snippets with an
+// editable placeholder so Quickstart does not flash-then-blank the config block.
+const manualModel = ref(props.initialModel?.trim() || MANUAL_MODEL_PLACEHOLDER)
+
 // Reload the live servable model menu only when the key changes. Deep-link
 // model query updates must not re-fetch — loadModels() clears picks and the
 // temporary fallback to the first catalog entry was overwriting URL state.
@@ -565,6 +583,7 @@ watch(
   async (id) => {
     if (props.preview || id == null) return
     keyRevealed.value = false
+    manualModel.value = props.initialModel?.trim() || MANUAL_MODEL_PLACEHOLDER
     tk.testState.value = { status: 'idle' }
     await tk.loadModels()
     applyInitialModelSelection(props.initialModel)
@@ -598,11 +617,9 @@ watch(tkTestState, (state) => {
 }, { deep: true, immediate: true })
 const tkIsCCOnly = tk.isClaudeCodeOnly
 
-// Models offered in the picker for the current flavor.
-const previewModel = ref(props.initialModel || 'YOUR_MODEL_ID')
 const isRawExample = computed(() => ['curl', 'python'].includes(activeClientTab.value))
 const pickerModels = computed<UseKeyServableModel[]>(() => props.preview ?
-  [...new Set(['YOUR_MODEL_ID', 'gemini-3.1-flash-image', 'gpt-image-1', previewModel.value])].map(id => ({ id, capabilities: [] })) : (
+  [...new Set([MANUAL_MODEL_PLACEHOLDER, 'gemini-3.1-flash-image', 'gpt-image-1', previewModel.value])].map(id => ({ id, capabilities: [] })) : (
   activeFlavor.value && activeDiscoveryProtocol.value
     ? tk.modelsForFlavor(activeFlavor.value, activeDiscoveryProtocol.value)
     : []
@@ -612,6 +629,16 @@ const selectedModel = computed(() => props.preview ? previewModel.value : (
     ? tk.effectiveModel(activeFlavor.value, activeDiscoveryProtocol.value)
     : ''
 ))
+// Snippets always have a model string; probe/test still require a catalog pick.
+const snippetModel = computed(() => {
+  const catalog = selectedModel.value.trim()
+  if (catalog) return catalog
+  const manual = manualModel.value.trim()
+  return manual || MANUAL_MODEL_PLACEHOLDER
+})
+const canProbeSelectedModel = computed(() =>
+  Boolean(selectedModel.value) && pickerModels.value.some((model) => model.id === selectedModel.value),
+)
 watch([selectedModel, tkModelsLoading], ([model, loading]) => {
   if (!loading) emit('modelChange', model)
 })
@@ -623,9 +650,9 @@ const showModelsCatalogEmpty = computed(() =>
 const currentModelMeta = computed(() =>
   pickerModels.value.find((m) => m.id === selectedModel.value),
 )
-const isImageExample = computed(() => isRawExample.value && (modalityForModel(selectedModel.value) === 'image' || !!currentModelMeta.value?.image_generation?.length))
-const isKimiK3VideoExample = computed(() => isRawExample.value && isKimiK3VideoGuideModel(selectedModel.value))
-const imagePlan = computed(() => imageGenerationPlan(selectedModel.value, currentModelMeta.value?.image_generation, activeFlavor.value === 'gemini'))
+const isImageExample = computed(() => isRawExample.value && (modalityForModel(snippetModel.value) === 'image' || !!currentModelMeta.value?.image_generation?.length))
+const isKimiK3VideoExample = computed(() => isRawExample.value && isKimiK3VideoGuideModel(snippetModel.value))
+const imagePlan = computed(() => imageGenerationPlan(snippetModel.value, currentModelMeta.value?.image_generation, activeFlavor.value === 'gemini'))
 const imageOptions = ref(normalizeImageOptions(imagePlan.value))
 const imagePrompt = ref(t('studio.image.samplePrompt'))
 let initialRatioApplied = false
@@ -634,7 +661,7 @@ watch(imagePlan, plan => {
   if (plan.sizes.length) initialRatioApplied = true
 }, { immediate: true })
 watch(imageOptions, options => emit('imageOptionsChange', options))
-const studioLink = computed(() => imageStudioPath(selectedModel.value, imageOptions.value, props.preview ? null : props.apiKeyId))
+const studioLink = computed(() => imageStudioPath(snippetModel.value, imageOptions.value, props.preview ? null : props.apiKeyId))
 const isDifyClient = computed(() => activeClientTab.value === 'dify')
 const isWorkbuddyClient = computed(() => selectedClientEntry.value?.id === 'workbuddy')
 const isCodebuddyClient = computed(() => selectedClientEntry.value?.id === 'codebuddy')
@@ -653,6 +680,15 @@ function onPickModel(e: Event): void {
     tk.setModel(activeFlavor.value, id)
     emit('modelChange', id)
   }
+}
+function onManualModel(e: Event): void {
+  const id = (e.target as HTMLInputElement).value
+  if (props.preview) {
+    previewModel.value = id
+    emit('modelChange', id)
+    return
+  }
+  manualModel.value = id
 }
 
 const maskedKey = computed(() => {
@@ -674,7 +710,7 @@ function isCollapsible(file: FileConfig): boolean {
 }
 
 function onTest(): void {
-  if (!props.preview && activeFlavor.value && selectedModel.value) {
+  if (!props.preview && activeFlavor.value && canProbeSelectedModel.value) {
     void tk.runTest(activeFlavor.value, {
       requireToolCall: requiresToolCallTest.value,
       protocol: activeDiscoveryProtocol.value ?? undefined,
@@ -1018,10 +1054,6 @@ const string = (value: string) => wrapToken('text-amber-200', value)
 // Syntax highlighting helpers
 // Generate file configs based on platform and active tab
 const currentFiles = computed((): FileConfig[] => {
-  if (!props.preview && props.routingMode === 'universal') {
-    if (!tk.modelsLoaded.value) return []
-    if (activeFlavor.value ? !selectedModel.value : tk.servableModels.value.length === 0) return []
-  }
   const baseUrl = props.baseUrl || window.location.origin
   const apiKey = props.apiKey
   const baseRoot = baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
@@ -1040,10 +1072,9 @@ const currentFiles = computed((): FileConfig[] => {
     return trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`
   })()
 
-  // The picker-selected model for the active flavor — injected into every
-  // single-model snippet so a real, servable id replaces the old hardcoded
-  // literal / free-text hint.
-  const model = selectedModel.value
+  // Prefer a live catalog pick; fall back to the editable placeholder so empty
+  // / failed capability menus still leave a copyable setup block on screen.
+  const model = snippetModel.value
 
   if (selectedClientEntry.value?.guideMode === 'qwen') {
     const qwenBase = props.routingMode !== 'universal'
@@ -1092,7 +1123,13 @@ const currentFiles = computed((): FileConfig[] => {
   }
 
   if (activeClientTab.value === 'opencode') {
-    const allowedModels = props.preview ? [{ id: 'YOUR_MODEL_ID', capabilities: [] }] : tk.modelsLoaded.value ? tk.servableModels.value : undefined
+    // Universal discovery must not fall through to the hardcoded default catalog
+    // (allowedModels === undefined) while the live menu is pending or failed.
+    const allowedModels = props.preview
+      ? [{ id: 'YOUR_MODEL_ID', capabilities: [] }]
+      : tk.modelsLoaded.value
+        ? tk.servableModels.value
+        : (props.routingMode === 'universal' ? [] : undefined)
     const splitAllowedModels = !props.preview && props.routingMode === 'universal'
     switch (platformForFiles()) {
       case 'anthropic':
