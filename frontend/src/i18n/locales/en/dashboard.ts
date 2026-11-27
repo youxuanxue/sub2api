@@ -188,6 +188,7 @@ export default {
       cliTabs: {
         claudeCode: 'Claude Code',
         geminiCli: 'Gemini CLI',
+        antigravityCli: 'Antigravity CLI (agy)',
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
         grokCli: 'Grok CLI',
@@ -203,12 +204,12 @@ export default {
         claudeCode: 'Claude Code',
         geminiCli: 'Gemini CLI',
         claudeNote: 'These environment variables will be active in the current terminal session. For permanent configuration, add them to ~/.bashrc, ~/.zshrc, or the appropriate configuration file.',
-        geminiNote: 'These environment variables will be active in the current terminal session. For permanent configuration, add them to ~/.bashrc, ~/.zshrc, or the appropriate configuration file.',
+        geminiNote: 'Save both .env and settings.json (do not overwrite unrelated fields). Setting security.auth.selectedType to "gemini-api-key" prevents OAuth override, and dynamicModelConfiguration exposes TokenKey models under /model → Manual.',
       },
       gemini: {
-        description: 'Add the following environment variables to your terminal profile or run directly in terminal to configure Google CLI access.',
+        description: 'Save .env and settings.json under ~/.gemini (or %USERPROFILE%\\.gemini on Windows) to route Gemini CLI through TokenKey and expose TokenKey models in /model.',
         modelComment: 'If you have Gemini 3 access, you can use: gemini-3-pro-preview',
-        note: 'These environment variables will be active in the current terminal session. For permanent configuration, add them to ~/.bashrc, ~/.zshrc, or the appropriate configuration file.',
+        note: 'Gemini CLI reads ~/.gemini/.env automatically. Merge settings.json so security.auth.selectedType is "gemini-api-key" (otherwise prior Google OAuth login or env-only gateway auth fails), then pick any TokenKey model under /model → Manual or via gemini -m <model>. Unset GOOGLE_API_KEY and GOOGLE_GENAI_USE_GCA if previously set.',
       },
       grok: {
         description:

@@ -639,13 +639,61 @@ describe('UseKeyModal — redesign (picker / test / CC-only / raw tabs)', () => 
 
     expect(getMePricingCatalog).toHaveBeenCalledWith({ apiKeyId: 42 })
     const joined = wrapper.findAll('pre code').map((c) => c.text()).join('\n')
-    // first servable gemini model is injected; the old free-text comment is gone
+    // first servable gemini model is injected; trailing /v1 is stripped from GOOGLE_GEMINI_BASE_URL
+    expect(joined).toContain('GOOGLE_GEMINI_BASE_URL="https://example.com"')
     expect(joined).toContain('GEMINI_MODEL="gemini-3.8-flash"')
     expect(joined).not.toContain('gemini-3-flash-preview')
+    const settingsBlock = wrapper.findAll('pre code').map((c) => c.text()).find((c) => c.includes('"selectedType"'))!
+    const settings = JSON.parse(settingsBlock)
+    expect(settings.security.auth.selectedType).toBe('gemini-api-key')
+    expect(settings.experimental.dynamicModelConfiguration).toBe(true)
+    expect(settings.modelConfigs.modelDefinitions['gemini-3.8-flash'].isVisible).toBe(true)
+    expect(settings.modelConfigs.modelDefinitions['gemini-3-flash'].isVisible).toBe(true)
+    expect(settings.modelConfigs.modelIdResolutions['gemini-3.8-flash']).toEqual({
+      default: 'gemini-3.8-flash',
+      contexts: [],
+    })
     // the picker offers exactly the servable ids
     const options = wrapper.findAll('option').map((o) => o.text())
     expect(options).toContain('gemini-3.8-flash')
     expect(options).toContain('gemini-3-flash')
+  })
+
+  it('generates Antigravity CLI (agy) shell env and settings.json with bare customModels and /antigravity prefix for direct antigravity keys', async () => {
+    getMePricingCatalog.mockResolvedValue({
+      models: [
+        { model_id: 'gemini-4-argon', capabilities: ['thinking'], context_window: 1048576 },
+        { model_id: 'gemini-3-flash', capabilities: [] },
+        { model_id: 'gemini-3.1-flash-image', capabilities: [] },
+      ]
+    })
+    const wrapper = mount(UseKeyGuide, {
+      props: {
+        apiKey: 'sk-test-1234567890abcdef',
+        baseUrl: 'https://example.com/v1',
+        platform: 'antigravity',
+        routingMode: 'direct',
+        apiKeyId: 43,
+        selectedClient: 'antigravity-cli',
+      },
+      global: { stubs: STUBS }
+    })
+    await flushPromises()
+    await nextTick()
+
+    const blocks = wrapper.findAll('pre code').map((c) => c.text())
+    expect(blocks[0]).toContain('export GOOGLE_GEMINI_BASE_URL="https://example.com/antigravity"')
+    expect(blocks[0]).toContain('export GEMINI_API_KEY="sk-test-1234567890abcdef"')
+    const settings = JSON.parse(blocks[1]!)
+    expect(settings.modelProvider).toBe('gemini')
+    expect(settings.model).toBe('Gemini 4 Argon (High)')
+    expect(settings.customModelsConfig.customModels['gemini-4-argon']).toEqual({
+      modelName: 'gemini-4-argon',
+      label: 'gemini-4-argon',
+      toolFormatterType: 'TOOL_FORMATTER_TYPE_NONE',
+    })
+    expect(settings.customModelsConfig.customModels['gemini-3-flash'].modelName).toBe('gemini-3-flash')
+    expect(settings.customModelsConfig.customModels['gemini-3.1-flash-image']).toBeUndefined()
   })
 
   it('CC-only anthropic group offers only Claude Code (no curl/python/opencode) + warning', async () => {

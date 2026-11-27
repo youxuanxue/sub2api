@@ -2930,6 +2930,37 @@
         "'gemini-4-argon': 'G4Ar'"
       ],
       "rationale": "Account mapping scope abbreviations must cover the converged Gemini public surface (3-flash/3.8/4-*). Upstream merges that drop these keys leave admin status chips showing raw withdrawn or unreadable scope strings."
+    },
+    {
+      "path": "frontend/src/utils/geminiCliConfig.tk.ts",
+      "must_contain": [
+        "selectedType: 'gemini-api-key'",
+        "dynamicModelConfiguration: true",
+        "modelProvider: 'gemini'",
+        "toolFormatterType: 'TOOL_FORMATTER_TYPE_NONE'",
+        "export function buildGeminiCliFiles",
+        "export function buildAntigravityCliFiles"
+      ],
+      "rationale": "Gemini CLI and Antigravity CLI (agy) Quickstart config generation lives in one TK owner. Without selectedType=gemini-api-key + dynamicModelConfiguration, Gemini CLI falls into gateway auth or OAuth override and TokenKey models stay hidden; without modelProvider=gemini and bare customModels, agy ignores GEMINI_API_KEY or corrupts request paths. Upstream merges that restore env-only snippets reintroduce the user-reported dead onboarding path."
+    },
+    {
+      "path": "frontend/src/components/keys/UseKeyGuide.vue",
+      "must_contain": [
+        "buildAntigravityCliFiles",
+        "buildGeminiCliFiles",
+        "id: 'antigravity-cli'",
+        "geminiGatewayBase"
+      ],
+      "rationale": "UseKeyGuide must wire the shared geminiCliConfig.tk.ts generators for both Gemini CLI and Antigravity CLI tabs, including geminiGatewayBase (/antigravity for direct Antigravity keys). Dropping the import or antigravity-cli tab silently restores broken env-only Gemini snippets and removes the only agy onboarding surface."
+    },
+    {
+      "path": "frontend/src/constants/clientIntegrations.tk.ts",
+      "must_contain": [
+        "id: 'antigravity-cli'",
+        "guideId: 'antigravity-cli'",
+        "action: 'copy-config'"
+      ],
+      "rationale": "Quickstart catalog must keep Antigravity CLI (agy) as a first-class coding client with copy-config guideMode. Removing the catalog entry hides the only TokenKey connection guide for agy while Gemini CLI remains CCS-oriented."
     }
   ]
 }

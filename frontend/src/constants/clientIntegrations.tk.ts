@@ -162,6 +162,22 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     usesEnvironmentPicker: true
   },
   {
+    id: 'antigravity-cli',
+    name: 'Antigravity CLI (agy)',
+    category: 'coding',
+    sortOrder: 45,
+    icon: 'sparkles',
+    guideId: 'antigravity-cli',
+    supportTier: 'compatible',
+    action: 'copy-config',
+    protocols: ['gemini'],
+    docsUrl: 'https://antigravity.google/docs/cli/reference',
+    surfaces: ['quickstart'],
+    secretTransport: 'config',
+    guideMode: 'native',
+    usesEnvironmentPicker: true
+  },
+  {
     id: 'opencode',
     name: 'OpenCode',
     category: 'coding',

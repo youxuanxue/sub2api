@@ -198,6 +198,7 @@ describe('TokenKey client catalog', () => {
 
   it('keeps every promised first-screen client visible from the shared catalog', () => {
     expect(TK_QUICKSTART_CLIENTS.map((client) => client.id).sort()).toEqual([
+      'antigravity-cli',
       'chatbox',
       'cherry-studio',
       'claude-code',
@@ -228,6 +229,23 @@ describe('TokenKey client catalog', () => {
     }
     expect(new Set(TK_QUICKSTART_CLIENTS.map((client) => client.guideId)).size)
       .toBe(TK_QUICKSTART_CLIENTS.length)
+  })
+
+  it('keeps a non-empty quickstart.clientDescriptions entry for every Quickstart guideId', async () => {
+    // Dynamic t(`quickstart.clientDescriptions.${guideId}`) is invisible to
+    // localeKeyCompleteness (static t('...') only); lock catalog → copy here.
+    const { default: overlay } = await import('@/i18n/tk/legacyMissing.tk')
+    for (const locale of ['en', 'zh'] as const) {
+      const descriptions = (overlay[locale] as {
+        quickstart?: { clientDescriptions?: Record<string, string> }
+      }).quickstart?.clientDescriptions
+      expect(descriptions, `${locale} clientDescriptions`).toBeTruthy()
+      for (const client of TK_QUICKSTART_CLIENTS) {
+        const text = descriptions?.[client.guideId]
+        expect(typeof text, `${locale} clientDescriptions.${client.guideId}`).toBe('string')
+        expect(text?.trim().length ?? 0, `${locale} clientDescriptions.${client.guideId}`).toBeGreaterThan(0)
+      }
+    }
   })
 
   it('marks CC Switch managed coding CLIs as ccs-import with explicit ccsApp', () => {
