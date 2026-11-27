@@ -21401,6 +21401,42 @@
         "func TestResolveCORSAllowedOriginsTK_EmptyStaysEmptyWithoutFrontend("
       ],
       "rationale": "Focused regressions for CORS env precedence, Compose-empty-env fallthrough, dual-facade companion derivation, and API-only empty stay-deny. Losing these lets a silent restore of bare yaml allowlists ship without covering the Quickstart CORS failure mode."
+    },
+    {
+      "path": "backend/internal/service/gemini_servable_traffic_alias_tk.go",
+      "must_contain": [
+        "func canonicalGeminiServableTrafficModel(model string) string",
+        "target, ok := geminiTrafficAliases[id]",
+        "models/"
+      ],
+      "rationale": "Withdrawn Gemini client ids (gemini-3-flash-preview) must rewrite onto the servable wire id before allowlist/upstream resolution. Pricing overlay aliases do not admit traffic; losing this owner returns unsupported_model 404 for Gemini CLI google_web_search."
+    },
+    {
+      "path": "backend/internal/service/gemini_servable_traffic_alias_tk_test.go",
+      "must_contain": [
+        "func TestCanonicalGeminiServableTrafficModel(t *testing.T)",
+        "func TestGeminiServableTrafficAliasRoutesWithdrawnPreview(t *testing.T)",
+        "func TestGeminiServableTrafficAliasLeavesUnknownModelUnsupported(t *testing.T)",
+        "tools\":[{\"googleSearch\":{}}]"
+      ],
+      "rationale": "Protect positive routing of geminiTrafficAliases onto servable wire ids (including googleSearch bodies) and keep unknown models on ErrUniversalUnsupportedModel."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "if aliased := canonicalGeminiServableTrafficModel(trimmed); aliased != trimmed {",
+        "return aliased"
+      ],
+      "rationale": "normalizeRequestedModelForLookup must call canonicalGeminiServableTrafficModel so Antigravity/Vertex floors that omit withdrawn preview keys still admit and resolve onto gemini-3-flash."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
+      "must_contain": [
+        "var geminiTrafficAliases = map[string]string{",
+        "\"gemini-3-flash-preview\": \"gemini-3-flash\"",
+        "canonicalGeminiServableTrafficModel"
+      ],
+      "rationale": "geminiTrafficAliases is the shared routing table for withdrawn Gemini client ids. Pricing _aliases bill the same pairs but do not rewrite wire admission; keep the preview→flash pair and the comment pointing at canonicalGeminiServableTrafficModel."
     }
   ]
 }
