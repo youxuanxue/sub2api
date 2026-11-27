@@ -231,6 +231,23 @@ describe('TokenKey client catalog', () => {
       .toBe(TK_QUICKSTART_CLIENTS.length)
   })
 
+  it('keeps a non-empty quickstart.clientDescriptions entry for every Quickstart guideId', async () => {
+    // Dynamic t(`quickstart.clientDescriptions.${guideId}`) is invisible to
+    // localeKeyCompleteness (static t('...') only); lock catalog → copy here.
+    const { default: overlay } = await import('@/i18n/tk/legacyMissing.tk')
+    for (const locale of ['en', 'zh'] as const) {
+      const descriptions = (overlay[locale] as {
+        quickstart?: { clientDescriptions?: Record<string, string> }
+      }).quickstart?.clientDescriptions
+      expect(descriptions, `${locale} clientDescriptions`).toBeTruthy()
+      for (const client of TK_QUICKSTART_CLIENTS) {
+        const text = descriptions?.[client.guideId]
+        expect(typeof text, `${locale} clientDescriptions.${client.guideId}`).toBe('string')
+        expect(text?.trim().length ?? 0, `${locale} clientDescriptions.${client.guideId}`).toBeGreaterThan(0)
+      }
+    }
+  })
+
   it('marks CC Switch managed coding CLIs as ccs-import with explicit ccsApp', () => {
     const ccsClients = TK_CLIENT_CATALOG.filter((client) => client.action === 'ccs-import')
     expect(ccsClients.map((client) => client.id).sort()).toEqual([

@@ -168,7 +168,7 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     sortOrder: 45,
     icon: 'sparkles',
     guideId: 'antigravity-cli',
-    supportTier: 'verified',
+    supportTier: 'compatible',
     action: 'copy-config',
     protocols: ['gemini'],
     docsUrl: 'https://antigravity.google/docs/cli/reference',
